@@ -121,6 +121,14 @@
     flex: 1;
 }
 
+.file-description {
+    margin: 1rem 0;
+    opacity: 0.9;
+    font-size: 1.1rem;
+    line-height: 1.5;
+    overflow-wrap: anywhere;
+}
+
 .file-actions {
     display: flex;
     gap: 1rem;
@@ -224,6 +232,27 @@
         flex-direction: column;
     }
 
+    .file-title {
+        font-size: clamp(1.05rem, 6vw, 1.35rem);
+        white-space: normal;
+        display: -webkit-box;
+        -webkit-line-clamp: 2;
+        -webkit-box-orient: vertical;
+        overflow: hidden;
+        word-break: break-word;
+        overflow-wrap: anywhere;
+    }
+
+    .file-description {
+        font-size: clamp(0.95rem, 4.8vw, 1.05rem);
+        display: -webkit-box;
+        -webkit-line-clamp: 2;
+        -webkit-box-orient: vertical;
+        overflow: hidden;
+        word-break: break-word;
+        overflow-wrap: anywhere;
+    }
+
     .file-actions {
         width: 100%;
         justify-content: stretch;
@@ -239,7 +268,6 @@
         padding: 0.75rem !important;
     }
     .file-icon { font-size: 2rem; }
-    .file-title { font-size: 1.25rem; }
     .highlighttable td.linenos { width: 2.8rem; }
     .main-content > .container { padding-left: 10px; padding-right: 10px; }
 }
@@ -285,7 +313,7 @@ body.telegram-mini-app .file-title { font-size: 1.125rem; }
         </div>
         
         {% if file.description %}
-        <p style="margin: 1rem 0; opacity: 0.9; font-size: 1.1rem;">{{ file.description }}</p>
+        <p class="file-description">{{ file.description }}</p>
         {% endif %}
         
         {% if file.tags %}

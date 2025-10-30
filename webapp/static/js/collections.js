@@ -155,11 +155,11 @@
         await renderCollectionItems(cid);
       });
       if (deleteBtn) deleteBtn.addEventListener('click', async () => {
-        if (!confirm('למחוק את האוסף? פעולה זו תסיר גם את הפריטים המשויכים.')) return;
+        if (!confirm('למחוק את האוסף? הפעולה תסיר את האוסף ואת הקישורים שבו, אבל הקבצים עצמם יישארו זמינים בבוט ובקבצים.')) return;
         const res = await api.deleteCollection(cid);
         if (!res || !res.ok) return alert((res && res.error) || 'שגיאה במחיקה');
         ensureCollectionsSidebar();
-        container.innerHTML = '<div class="empty">האוסף נמחק</div>';
+        container.innerHTML = '<div class="empty">האוסף נמחק. הקבצים נשארים זמינים בבוט ובמסך הקבצים.</div>';
       });
 
       // Items actions (remove, open, pin)
@@ -172,9 +172,13 @@
         // Remove item
         const rm = ev.target.closest('.remove');
         if (rm) {
+          if (!confirm('להסיר את הפריט מהאוסף? הקובץ עצמו יישאר זמין בבוט ובמסך הקבצים.')) return;
           const res = await api.removeItems(cid, [{source, file_name: name}]);
           if (!res || !res.ok) return alert((res && res.error) || 'שגיאה במחיקה');
           row.remove();
+          if (!itemsContainer.querySelector('.collection-item')) {
+            itemsContainer.innerHTML = '<div class="empty">אין פריטים</div>';
+          }
           return;
         }
 
