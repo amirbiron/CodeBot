@@ -1,0 +1,6 @@
+{
+  "window_minutes": 5,
+  "min_count_default": 3,
+  "cooldown_minutes": 10,
+  "immediate_categories": ["critical"]
+}

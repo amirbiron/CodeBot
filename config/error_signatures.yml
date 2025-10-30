@@ -1,0 +1,21 @@
+{
+  "critical": [
+    "Out of memory|OOMKilled|memory limit exceeded",
+    "Too many open files|ENFILE|EMFILE",
+    "No space left on device|ENOSPC",
+    "certificate verify failed|x509: .* expired",
+    "Exited with code (?!0)\\d+"
+  ],
+  "network_db": [
+    "ECONNRESET|ETIMEDOUT|EAI_AGAIN|socket hang up",
+    "SQLITE_BUSY|deadlock|could not obtain lock"
+  ],
+  "app_runtime": [
+    "Traceback \\(",
+    "UnhandledPromiseRejection|TypeError:|ReferenceError:",
+    "gunicorn.*worker timeout|uvicorn.error"
+  ],
+  "noise_allowlist": [
+    "client disconnected|Broken pipe|499|context canceled"
+  ]
+}
