@@ -993,7 +993,8 @@ def _fetch_uptime_from_uptimerobot() -> Optional[Dict[str, Any]]:
             api_key_is_monitor_specific = False
         if UPTIME_MONITOR_ID and not api_key_is_monitor_specific:
             payload['monitors'] = UPTIME_MONITOR_ID
-        resp = http_request('POST', url, data=payload, timeout=10)
+        # שמירה על זמן תגובה קצר בעמוד הבית – timeout אגרסיבי כדי לא לחסום את ה-WSGI
+        resp = http_request('POST', url, data=payload, timeout=3)
         if resp.status_code != 200:
             return None
         body = resp.json() if resp.content else {}
