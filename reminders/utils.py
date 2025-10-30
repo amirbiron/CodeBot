@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta
+import re
 from zoneinfo import ZoneInfo
 from typing import Optional
 
@@ -39,54 +40,33 @@ def parse_time(text: str, user_tz: str) -> Optional[datetime]:
                 dt = dt + timedelta(days=1)
             return dt
 
-        # in X hours
-        if text.lower().startswith("in ") and "hour" in text.lower():
-            try:
-                num = int("".join([c for c in text if c.isdigit()]))
-                return now + timedelta(hours=num)
-            except Exception:
-                pass
+        # Hebrew specific quick phrases first
+        if re.match(r"^בעוד\s+רבע\s+שעה\s*$", text):
+            return now + timedelta(minutes=15)
+        if re.match(r"^בעוד\s+חצי\s+שעה\s*$", text):
+            return now + timedelta(minutes=30)
 
-        # in X minutes
-        if text.lower().startswith("in ") and "minute" in text.lower():
-            try:
-                num = int("".join([c for c in text if c.isdigit()]))
-                return now + timedelta(minutes=num)
-            except Exception:
-                pass
+        # Hebrew minutes: "בעוד X דקות" or "בעוד דקה"
+        m = re.match(r"^בעוד\s+(\d+)\s*דקות?\s*$", text)
+        if m:
+            return now + timedelta(minutes=int(m.group(1)))
+        if re.match(r"^בעוד\s+דקה\s*$", text):
+            return now + timedelta(minutes=1)
 
-        # בעו̄ד X שעות / שעה
-        if text.startswith("בעוד") and "שעות" in text:
-            try:
-                num = int("".join([c for c in text if c.isdigit()]))
-                return now + timedelta(hours=num)
-            except Exception:
-                pass
-
-        # בעוד שעה (ללא מספר)
-        if text.startswith("בעוד") and "שעה" in text and "שעות" not in text:
+        # Hebrew hours: "בעוד X שעות" or "בעוד שעה"
+        m = re.match(r"^בעוד\s+(\d+)\s*שעות?\s*$", text)
+        if m:
+            return now + timedelta(hours=int(m.group(1)))
+        if re.match(r"^בעוד\s+שעה\s*$", text):
             return now + timedelta(hours=1)
 
-        # בעוד X דקות / דקה
-        if text.startswith("בעוד") and ("דקות" in text or "דקה" in text):
-            # אם יש ספרות – השתמש בהן; אחרת, "דקה" => 1
-            digits = "".join([c for c in text if c.isdigit()])
-            if digits:
-                try:
-                    return now + timedelta(minutes=int(digits))
-                except Exception:
-                    pass
-            # "דקה" ללא מספר
-            if "דקה" in text and "דקות" not in text:
-                return now + timedelta(minutes=1)
-
-        # בעוד רבע שעה (15 דקות)
-        if text.startswith("בעוד") and "רבע" in text and "שעה" in text:
-            return now + timedelta(minutes=15)
-
-        # בעוד חצי שעה (30 דקות)
-        if text.startswith("בעוד") and "חצי" in text and "שעה" in text:
-            return now + timedelta(minutes=30)
+        # English minutes/hours: "in X minutes/hours"
+        m = re.match(r"^in\s+(\d+)\s*minutes?\s*$", text, flags=re.IGNORECASE)
+        if m:
+            return now + timedelta(minutes=int(m.group(1)))
+        m = re.match(r"^in\s+(\d+)\s*hours?\s*$", text, flags=re.IGNORECASE)
+        if m:
+            return now + timedelta(hours=int(m.group(1)))
 
         # ISO-like
         for fmt in ("%Y-%m-%d %H:%M", "%Y/%m/%d %H:%M"):

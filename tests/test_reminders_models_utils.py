@@ -1,4 +1,5 @@
 from datetime import datetime, timezone, timedelta
+from zoneinfo import ZoneInfo
 
 from reminders.models import Reminder, ReminderConfig
 from reminders.validators import ReminderValidator
@@ -64,3 +65,31 @@ def test_parse_time_variants():
     assert dt6 is not None
     dt7 = parse_time("בעוד חצי שעה", "Asia/Jerusalem")
     assert dt7 is not None
+
+
+def test_parse_time_relative_deltas_and_compound_inputs():
+    tz = "Asia/Jerusalem"
+    now_local = datetime.now(ZoneInfo(tz))
+
+    # phrase -> expected minutes
+    cases = [
+        ("בעוד דקה", 1),
+        ("בעוד 2 דקות", 2),
+        ("בעוד רבע שעה", 15),
+        ("בעוד חצי שעה", 30),
+        ("בעוד שעה", 60),
+        ("in 2 minutes", 2),
+        ("in 3 hours", 180),
+    ]
+
+    for phrase, expected_minutes in cases:
+        dt = parse_time(phrase, tz)
+        assert dt is not None, f"failed to parse: {phrase}"
+        delta_sec = (dt - now_local).total_seconds()
+        expected_sec = expected_minutes * 60
+        # within ±45 seconds tolerance
+        assert abs(delta_sec - expected_sec) < 45, f"unexpected delta for '{phrase}': got {delta_sec}s, expected ~{expected_sec}s"
+
+    # Compound inputs should not be loosely parsed
+    assert parse_time("בעוד 2 שעות ו-30 דקות", tz) is None
+    assert parse_time("in 1 hour and 5 minutes", tz) is None
