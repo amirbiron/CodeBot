@@ -46,11 +46,14 @@ class LogEventAggregator:
         *,
         signatures_path: str,
         alerts_config_path: str,
+        shadow: bool = False,
         now_fn: Optional[callable] = None,
     ) -> None:
         self.signatures = ErrorSignatures(signatures_path)
         self.alerts_cfg = self._load_alerts_config(alerts_config_path)
         self.now = now_fn or (lambda: time.time())
+        # When shadow is enabled, grouping occurs but alerts are not emitted to sinks.
+        self.shadow = bool(shadow)
         self._groups: Dict[str, _Group] = {}
         self._canon_patterns: List[re.Pattern[str]] = [
             re.compile(r"(Out of memory|OOMKilled)", re.I),
@@ -161,19 +164,36 @@ class LogEventAggregator:
         try:
             title = self._render_title(g.category, g.count)
             body = self._render_body(list(g.samples), fp, g.first_ts, g.last_ts)
-            try:
-                from internal_alerts import emit_internal_alert  # type: ignore
-            except Exception:  # pragma: no cover
-                emit_internal_alert = None  # type: ignore
-            if emit_internal_alert is not None:
-                emit_internal_alert(
-                    name=title,
-                    severity=severity,
-                    summary=body,
-                    fingerprint=fp,
-                    count=int(g.count),
-                    category=str(g.category),
-                )
+            if self.shadow:
+                try:
+                    # Log an anomaly/critical marker without emitting real alerts; avoid recursion by using a distinct event name
+                    import structlog  # type: ignore
+                    lvl = "ANOMALY" if severity == "anomaly" else "ERROR"
+                    structlog.get_logger().warning(
+                        event="log_aggregator_shadow_emit",
+                        level=lvl,
+                        name=title,
+                        summary=body,
+                        fingerprint=fp,
+                        count=int(g.count),
+                        category=str(g.category),
+                    )
+                except Exception:
+                    pass
+            else:
+                try:
+                    from internal_alerts import emit_internal_alert  # type: ignore
+                except Exception:  # pragma: no cover
+                    emit_internal_alert = None  # type: ignore
+                if emit_internal_alert is not None:
+                    emit_internal_alert(
+                        name=title,
+                        severity=severity,
+                        summary=body,
+                        fingerprint=fp,
+                        count=int(g.count),
+                        category=str(g.category),
+                    )
             g.last_alert_ts = t
             # Reset group state to allow a fresh window for future occurrences
             g.count = 0

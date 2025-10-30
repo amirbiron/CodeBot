@@ -69,6 +69,81 @@ def _redact_sensitive(logger, method, event_dict: Dict[str, Any]):
     return event_dict
 
 
+def _env_true(key: str) -> bool:
+    try:
+        return str(os.getenv(key, "")).strip().lower() in {"1", "true", "yes", "on"}
+    except Exception:
+        return False
+
+
+# Lazy singleton for the log aggregator to avoid repeated construction
+_LOG_AGG_SINGLETON = None  # type: ignore[var-annotated]
+_LOG_AGG_SHADOW = False
+
+
+def _mirror_to_log_aggregator(logger, method, event_dict: Dict[str, Any]):
+    """Mirror warning/error/anomaly logs into the in-process aggregator.
+
+    Fail-open: never raises; ignores internal/system events to avoid loops.
+    Controlled via ENV:
+      - LOG_AGGREGATOR_ENABLED={1|true|yes|on}
+      - LOG_AGGREGATOR_SHADOW={1|true|yes|on}
+      - ERROR_SIGNATURES_PATH, ALERTS_GROUPING_CONFIG
+    """
+    try:
+        if not _env_true("LOG_AGGREGATOR_ENABLED"):
+            return event_dict
+
+        level = str(event_dict.get("level") or "").upper()
+        if level not in {"WARNING", "ERROR", "CRITICAL", "ANOMALY"}:
+            return event_dict
+
+        ev_name = str(event_dict.get("event") or "").strip().lower()
+        # Avoid recursion/loops by skipping our own internal/system events
+        if ev_name in {"internal_alert", "alert_received", "single_error_alert_fallback", "log_aggregator_shadow_emit"}:
+            return event_dict
+
+        parts = [
+            str(event_dict.get("event") or ""),
+            str(event_dict.get("error") or event_dict.get("message") or ""),
+            str(event_dict.get("status_code") or ""),
+            str(event_dict.get("route") or ""),
+        ]
+        line = " ".join(p for p in parts if p).strip()
+        if not line:
+            return event_dict
+
+        # Lazy create singleton with current ENV configuration
+        global _LOG_AGG_SINGLETON, _LOG_AGG_SHADOW
+        if _LOG_AGG_SINGLETON is None:
+            sig_path = os.getenv("ERROR_SIGNATURES_PATH", "config/error_signatures.yml")
+            grp_path = os.getenv("ALERTS_GROUPING_CONFIG", "config/alerts.yml")
+            shadow = _env_true("LOG_AGGREGATOR_SHADOW")
+            try:
+                from monitoring.log_analyzer import LogEventAggregator  # type: ignore
+                _LOG_AGG_SINGLETON = LogEventAggregator(
+                    signatures_path=str(sig_path),
+                    alerts_config_path=str(grp_path),
+                    shadow=bool(shadow),
+                )
+                _LOG_AGG_SHADOW = bool(shadow)
+            except Exception:
+                # If aggregator unavailable, skip
+                return event_dict
+        else:
+            # If SHADOW env toggled after creation, don't recreate here (tests may reset process)
+            pass
+
+        try:
+            _LOG_AGG_SINGLETON.analyze_line(line)  # type: ignore[attr-defined]
+        except Exception:
+            # Never break logging on aggregator errors
+            return event_dict
+    except Exception:
+        return event_dict
+    return event_dict
+
+
 def _add_schema_version(logger, method, event_dict: Dict[str, Any]):
     event_dict.setdefault("schema_version", SCHEMA_VERSION)
     return event_dict
@@ -149,6 +224,7 @@ def setup_structlog_logging(min_level: str | int = "INFO") -> None:
             _redact_sensitive,
             _add_schema_version,
             structlog.processors.add_log_level,
+            _mirror_to_log_aggregator,
             _maybe_sample_info,
             structlog.processors.TimeStamper(fmt="iso"),
             _choose_renderer(),
