@@ -54,6 +54,9 @@ def _create_session() -> requests.Session:
         try:
             retry = Retry(
                 total=retries,
+                connect=retries,
+                read=0,  # do not retry read timeouts to avoid long hangs
+                status=retries,
                 backoff_factor=backoff,
                 status_forcelist=status_forcelist,
                 allowed_methods=allowed,
@@ -63,6 +66,9 @@ def _create_session() -> requests.Session:
             # Older urllib3 uses method_whitelist
             retry = Retry(
                 total=retries,
+                connect=retries,
+                read=0,  # do not retry read timeouts to avoid long hangs
+                status=retries,
                 backoff_factor=backoff,
                 status_forcelist=status_forcelist,
                 method_whitelist=allowed,  # type: ignore[arg-type]
