@@ -3016,6 +3016,7 @@ def files():
                          total_pages=total_pages,
                          has_prev=page > 1,
                          has_next=page < total_pages,
+                         cursor_mode=use_cursor,
                          next_cursor=(next_cursor_token if 'next_cursor_token' in locals() else None),
                          selected_repo=selected_repo_value,
                          bot_username=BOT_USERNAME_CLEAN)

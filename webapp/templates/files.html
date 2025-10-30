@@ -371,7 +371,7 @@
 </div>
 
 <div class="pagination glass-card" style="margin-top: 2rem; display: flex; justify-content: center; align-items: center; gap: 1rem;">
-    {% if total_pages > 1 and has_prev %}
+    {% if total_pages > 1 and has_prev and not (cursor_mode|default(false)) %}
     <a href="?page={{ page - 1 }}&q={{ search_query }}&lang={{ language_filter }}&category={{ category_filter }}&sort={{ sort_by }}{% if selected_repo %}&repo={{ selected_repo | urlencode }}{% endif %}#bottom"
        class="btn btn-secondary btn-icon">
         <i class="fas fa-chevron-right"></i>
@@ -384,7 +384,7 @@
     {% endif %}
 
     {% if next_cursor %}
-    <a href="?q={{ search_query }}&lang={{ language_filter }}&category={{ category_filter }}&sort={{ sort_by }}{% if selected_repo %}&repo={{ selected_repo | urlencode }}{% endif %}&cursor={{ next_cursor }}#bottom"
+    <a href="?page={{ page + 1 }}&q={{ search_query }}&lang={{ language_filter }}&category={{ category_filter }}&sort={{ sort_by }}{% if selected_repo %}&repo={{ selected_repo | urlencode }}{% endif %}&cursor={{ next_cursor }}#bottom"
        class="btn btn-secondary btn-icon">
         הבא
         <i class="fas fa-chevron-left"></i>
