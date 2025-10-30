@@ -257,6 +257,10 @@ class BotConfig(BaseSettings):
     SENTRY_DSN: Optional[str] = Field(
         default=None, description="Sentry DSN for error reporting"
     )
+    # Enable admin-only test button in notifications menu
+    SENTRY_TEST_BUTTON_ENABLED: bool = Field(
+        default=False, description="Enable 'Send Sentry test event' admin button"
+    )
 
     # Metrics DB
     METRICS_DB_ENABLED: bool = Field(

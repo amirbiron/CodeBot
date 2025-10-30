@@ -5351,7 +5351,12 @@ class GitHubMenuHandler:
             is_admin = user_id in getattr(config, 'ADMIN_USER_IDS', [])
         except Exception:
             is_admin = False
-        if is_admin:
+        # הצג את כפתור בדיקת Sentry רק כשמאופשר במפורש
+        try:
+            sentry_btn_enabled = bool(getattr(config, 'SENTRY_TEST_BUTTON_ENABLED', False))
+        except Exception:
+            sentry_btn_enabled = False
+        if is_admin and sentry_btn_enabled:
             keyboard.append([InlineKeyboardButton("🧪 שלח אירוע בדיקה ל‑Sentry", callback_data="notifications_sentry_test")])
         text = (
             f"🔔 התראות לריפו: <code>{session['selected_repo']}</code>\n"
@@ -5454,6 +5459,10 @@ class GitHubMenuHandler:
         """שולח אירוע בדיקה ל‑Sentry (אדמינים בלבד)."""
         query = update.callback_query
         user_id = query.from_user.id
+        try:
+            logger.info("notifications_sentry_test: received", extra={"user_id": int(user_id)})
+        except Exception:
+            pass
         # הרשאה: רק אדמין
         try:
             is_admin = user_id in getattr(config, 'ADMIN_USER_IDS', [])
@@ -5461,9 +5470,28 @@ class GitHubMenuHandler:
             is_admin = False
         if not is_admin:
             try:
+                logger.warning("notifications_sentry_test: blocked_not_admin", extra={"user_id": int(user_id)})
+            except Exception:
+                pass
+            try:
                 await query.answer("אין הרשאה", show_alert=True)
             except Exception:
                 pass
+            return
+        # פיצ'ר כבוי כברירת מחדל – אל תבצע אם לא מאופשר
+        try:
+            enabled_flag = bool(getattr(config, 'SENTRY_TEST_BUTTON_ENABLED', False))
+            if not enabled_flag:
+                try:
+                    logger.info("notifications_sentry_test: disabled_by_flag", extra={"user_id": int(user_id)})
+                except Exception:
+                    pass
+                try:
+                    await query.answer("הפיצ׳ר מנוטרל", show_alert=True)
+                except Exception:
+                    pass
+                return
+        except Exception:
             return
         # צור חריגה יזומה ושלח לסנטרי עם Stacktrace
         try:
@@ -5477,6 +5505,10 @@ class GitHubMenuHandler:
                 pass
         try:
             await query.answer("נשלח אירוע בדיקה ל‑Sentry", show_alert=True)
+            try:
+                logger.info("notifications_sentry_test: toast_sent", extra={"user_id": int(user_id)})
+            except Exception:
+                pass
         except Exception:
             pass
         # רענן תפריט
