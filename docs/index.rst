@@ -102,6 +102,7 @@ Code Keeper Bot - תיעוד API
    logging_schema
    metrics
    alerts
+   observability/log_based_alerts
    sentry
    runbooks/logging-levels
    runbooks/github_backup_restore
