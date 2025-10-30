@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import os
 import threading
-from typing import Optional
+from typing import Optional, Any, Mapping
 import time
 import logging
 
@@ -95,6 +95,10 @@ def request(method: str, url: str, **kwargs):
     slow_ms = _to_float("HTTP_SLOW_MS", 0.0)
     logger = logging.getLogger(__name__)
     t0 = time.perf_counter()
+    headers = kwargs.get("headers")
+    merged_headers = _merge_observability_headers(headers)
+    if merged_headers is not None:
+        kwargs["headers"] = merged_headers
     resp = get_session().request(method=method, url=url, timeout=timeout, **kwargs)
     try:
         if slow_ms and slow_ms > 0:
@@ -114,3 +118,39 @@ def request(method: str, url: str, **kwargs):
         # לעולם לא להפיל את הקריאה בגלל לוג
         pass
     return resp
+
+
+def _merge_observability_headers(headers: Any) -> Mapping[str, str] | None:
+    base: dict[str, str] = {}
+    if headers is None:
+        base = {}
+    elif isinstance(headers, Mapping):
+        for key, value in headers.items():
+            if key is None or value is None:
+                continue
+            try:
+                base[str(key)] = str(value)
+            except Exception:
+                continue
+    else:
+        try:
+            for key, value in dict(headers).items():  # type: ignore[arg-type]
+                if key is None or value is None:
+                    continue
+                base[str(key)] = str(value)
+        except Exception:
+            base = {}
+
+    try:
+        from observability import prepare_outgoing_headers  # type: ignore
+
+        merged = prepare_outgoing_headers(base or None)
+    except Exception:
+        merged = None
+
+    if merged:
+        return merged
+    if headers is None:
+        # לא נוספו כותרות – נחזיר None כדי לשמור על ברירת המחדל של requests
+        return None
+    return base or None

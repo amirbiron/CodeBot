@@ -50,6 +50,8 @@ from observability import (
     bind_request_id,
     generate_request_id,
     emit_event,
+    bind_user_context,
+    bind_command,
 )
 from metrics import (
     telegram_updates_total,
@@ -862,6 +864,45 @@ class CodeKeeperBot:
             # כרוך ל-contextvars כך שיופיע בכל רשומת לוג בהמשך השרשור
             try:
                 bind_request_id(req_id)
+            except Exception:
+                pass
+            try:
+                user = getattr(update, "effective_user", None)
+                chat = getattr(update, "effective_chat", None)
+                uid = getattr(user, "id", None)
+                cid = getattr(chat, "id", None)
+                bind_user_context(user_id=uid, chat_id=cid)
+            except Exception:
+                pass
+            try:
+                command_name = ""
+                message = getattr(update, "effective_message", None)
+                if message is not None:
+                    text = getattr(message, "text", None)
+                    if isinstance(text, str) and text.startswith("/"):
+                        command_name = text.split()[0]
+                if not command_name:
+                    callback = getattr(update, "callback_query", None)
+                    if callback is not None:
+                        data = getattr(callback, "data", None)
+                        if isinstance(data, str) and data:
+                            command_name = data.split()[0]
+                if not command_name and getattr(update, "inline_query", None):
+                    command_name = "inline_query"
+                if command_name:
+                    cleaned = command_name.strip()
+                    if cleaned.startswith("/"):
+                        cleaned = cleaned[1:]
+                    if "@" in cleaned:
+                        cleaned = cleaned.split("@", 1)[0]
+                    cleaned = cleaned.lower()
+                    if cleaned:
+                        bind_command(f"bot:{cleaned}")
+                        try:
+                            if hasattr(context, "user_data"):
+                                context.user_data["command"] = cleaned
+                        except Exception:
+                            pass
             except Exception:
                 pass
             # עדכון מטריקה כללית על סוג ה-update

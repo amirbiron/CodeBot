@@ -68,7 +68,13 @@ except Exception:
 
 # Structured logging (optional and safe-noop fallbacks)
 try:
-    from observability import emit_event, bind_request_id, generate_request_id
+    from observability import (
+        emit_event,
+        bind_request_id,
+        generate_request_id,
+        bind_user_context,
+        bind_command,
+    )
 except Exception:  # pragma: no cover
     def emit_event(event: str, severity: str = "info", **fields):
         return None
@@ -79,6 +85,10 @@ except Exception:  # pragma: no cover
             return str(int(time.time() * 1000))[-8:]
         except Exception:
             return ""
+    def bind_user_context(*_a, **_k):
+        return None
+    def bind_command(_identifier: str | None = None) -> None:
+        return None
 
 # Alertmanager forwarding (optional)
 try:
@@ -1182,7 +1192,11 @@ def try_persistent_login():
 def _correlation_bind():
     """Bind a short request_id to structlog context and store for response header."""
     try:
-        rid = _gen_rid() or ""
+        try:
+            incoming = str(request.headers.get("X-Request-ID", "")).strip()
+        except Exception:
+            incoming = ""
+        rid = incoming or (_gen_rid() or "")
         if rid:
             try:
                 _bind_rid(rid)
@@ -1193,6 +1207,24 @@ def _correlation_bind():
                 setattr(request, "_req_id", rid)
             except Exception:
                 pass
+        try:
+            uid = session.get("user_id") if "user_id" in session else None
+        except Exception:
+            uid = None
+        try:
+            bind_user_context(user_id=uid)
+        except Exception:
+            pass
+        try:
+            method = getattr(request, "method", "") or ""
+            endpoint = getattr(request, "endpoint", "") or ""
+            path_hint = getattr(request, "path", "") or ""
+            identifier = endpoint or path_hint
+            if identifier:
+                cmd = f"webapp:{method.upper()}:{identifier}" if method else f"webapp:{identifier}"
+                bind_command(cmd)
+        except Exception:
+            pass
     except Exception:
         pass
 

@@ -1,7 +1,7 @@
 from __future__ import annotations
 import os
 import asyncio
-from typing import Optional, Any
+from typing import Optional, Any, Mapping
 
 try:
     import aiohttp  # type: ignore
@@ -53,6 +53,74 @@ def _build_session_kwargs() -> dict[str, Any]:
     return kwargs
 
 
+def _normalize_headers(headers: Any) -> Mapping[str, str]:
+    if headers is None:
+        return {}
+    if isinstance(headers, Mapping):
+        items = headers.items()
+    else:
+        try:
+            items = dict(headers).items()  # type: ignore[arg-type]
+        except Exception:
+            return {}
+    normalized: dict[str, str] = {}
+    for key, value in items:
+        if key is None or value is None:
+            continue
+        try:
+            skey = str(key)
+            svalue = str(value)
+        except Exception:
+            continue
+        normalized[skey] = svalue
+    return normalized
+
+
+def _prepare_headers(headers: Any) -> Any:
+    base = _normalize_headers(headers)
+    try:
+        from observability import prepare_outgoing_headers  # type: ignore
+
+        merged = prepare_outgoing_headers(base or None)
+    except Exception:
+        merged = None
+    if merged is None or merged == {}:
+        if headers is None:
+            return None
+        if base:
+            return base
+        return headers
+    try:
+        if aiohttp is not None:
+            from aiohttp import CIMultiDict  # type: ignore[attr-defined]
+
+            return CIMultiDict(merged.items())
+    except Exception:
+        pass
+    return merged
+
+
+def _instrument_session(session: "aiohttp.ClientSession") -> None:  # type: ignore[name-defined]
+    if session is None:
+        return
+    if getattr(session, "_codebot_ctx_headers", False):
+        return
+
+    original_request = session._request  # type: ignore[attr-defined]
+
+    async def _request(method: str, url: str, **kwargs):  # type: ignore[override]
+        try:
+            prepared = _prepare_headers(kwargs.get("headers"))
+            if prepared is not None:
+                kwargs["headers"] = prepared
+        except Exception:
+            pass
+        return await original_request(method, url, **kwargs)
+
+    session._request = _request  # type: ignore[assignment]
+    setattr(session, "_codebot_ctx_headers", True)
+
+
 def get_session() -> "aiohttp.ClientSession":  # type: ignore[name-defined]
     global _session
     if aiohttp is None:  # pragma: no cover
@@ -91,6 +159,7 @@ def get_session() -> "aiohttp.ClientSession":  # type: ignore[name-defined]
     if _session is None or getattr(_session, "closed", False):
         kwargs = _build_session_kwargs()
         _session = aiohttp.ClientSession(**kwargs)
+    _instrument_session(_session)
     return _session
 
 
