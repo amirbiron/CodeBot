@@ -5459,6 +5459,10 @@ class GitHubMenuHandler:
         """שולח אירוע בדיקה ל‑Sentry (אדמינים בלבד)."""
         query = update.callback_query
         user_id = query.from_user.id
+        try:
+            logger.info("notifications_sentry_test: received", extra={"user_id": int(user_id)})
+        except Exception:
+            pass
         # הרשאה: רק אדמין
         try:
             is_admin = user_id in getattr(config, 'ADMIN_USER_IDS', [])
@@ -5466,13 +5470,22 @@ class GitHubMenuHandler:
             is_admin = False
         if not is_admin:
             try:
+                logger.warning("notifications_sentry_test: blocked_not_admin", extra={"user_id": int(user_id)})
+            except Exception:
+                pass
+            try:
                 await query.answer("אין הרשאה", show_alert=True)
             except Exception:
                 pass
             return
         # פיצ'ר כבוי כברירת מחדל – אל תבצע אם לא מאופשר
         try:
-            if not bool(getattr(config, 'SENTRY_TEST_BUTTON_ENABLED', False)):
+            enabled_flag = bool(getattr(config, 'SENTRY_TEST_BUTTON_ENABLED', False))
+            if not enabled_flag:
+                try:
+                    logger.info("notifications_sentry_test: disabled_by_flag", extra={"user_id": int(user_id)})
+                except Exception:
+                    pass
                 try:
                     await query.answer("הפיצ׳ר מנוטרל", show_alert=True)
                 except Exception:
@@ -5492,6 +5505,10 @@ class GitHubMenuHandler:
                 pass
         try:
             await query.answer("נשלח אירוע בדיקה ל‑Sentry", show_alert=True)
+            try:
+                logger.info("notifications_sentry_test: toast_sent", extra={"user_id": int(user_id)})
+            except Exception:
+                pass
         except Exception:
             pass
         # רענן תפריט

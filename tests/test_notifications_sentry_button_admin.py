@@ -50,17 +50,18 @@ async def test_notifications_sentry_test_admin_logs_and_returns(monkeypatch):
     ige_mod.InputGitTreeElement = _IGE
     sys.modules["github.InputGitTreeElement"] = ige_mod
 
-    # Stub config.config to avoid pydantic dependency
+    # Stub config.config to avoid pydantic dependency and enable feature flag
     cfg_mod = types.ModuleType("config")
-    cfg_mod.config = types.SimpleNamespace(ADMIN_USER_IDS=[])
+    cfg_mod.config = types.SimpleNamespace(ADMIN_USER_IDS=[], SENTRY_TEST_BUTTON_ENABLED=True)
     sys.modules["config"] = cfg_mod
 
     import github_menu_handler as gh
 
     handler = gh.GitHubMenuHandler()
 
-    # Make user admin by setting imported object's list
+    # Make user admin by setting imported object's list and ensure feature flag
     gh.config.ADMIN_USER_IDS = [999]
+    gh.config.SENTRY_TEST_BUTTON_ENABLED = True
 
     # Avoid full menu rendering
     async def _noop(*a, **k):
