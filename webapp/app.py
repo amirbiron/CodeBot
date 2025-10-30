@@ -3238,15 +3238,15 @@ def file_preview(file_id):
     except Exception:
         pass
 
-    # הגבלת גודל עבור preview כדי להגן על הלקוח
+    # הגבלת גודל עבור preview כדי להגן על הלקוח (נמדד בבייטים)
     MAX_PREVIEW_SIZE = 100 * 1024  # 100KB
     try:
-        if len(code.encode('utf-8')) > MAX_PREVIEW_SIZE:
-            return jsonify({'ok': False, 'error': 'File too large for preview', 'size': len(code.encode('utf-8'))}), 413
+        size_bytes = len(code.encode('utf-8', errors='replace'))
     except Exception:
-        # אם encoding כשל מכל סיבה – פשוט חתוך לפי תווים
-        if len(code) > MAX_PREVIEW_SIZE:
-            return jsonify({'ok': False, 'error': 'File too large for preview'}), 413
+        # הגנה קיצונית: אם אירעה תקלה חריגה, נ fallback לאורך התווים
+        size_bytes = len(code)
+    if size_bytes > MAX_PREVIEW_SIZE:
+        return jsonify({'ok': False, 'error': 'File too large for preview', 'size': size_bytes}), 413
 
     # מניעת תצוגת קבצים בינאריים
     if is_binary_file(code, file.get('file_name', '')):
