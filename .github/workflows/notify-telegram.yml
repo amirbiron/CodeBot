@@ -14,7 +14,7 @@ jobs:
       contents: read
       actions: read
     # נשלח התראה רק על ריצות של push ל-main שנכשלו
-    # מושבת: הוספנו תנאי false כדי למנוע ריצות
+    # מושבת: הוספנו תנאי false כדי למנוע ריצות (כפילות מול Issues)
     if: >
       false &&
       github.event.workflow_run.event == 'push' &&
