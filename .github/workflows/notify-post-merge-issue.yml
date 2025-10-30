@@ -26,8 +26,55 @@ jobs:
       github.event.workflow_run.event == 'push' &&
       github.event.workflow_run.head_branch == 'main'
     steps:
+      - name: Detect failures (jobs/tests)
+        id: detect
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RUN_ID: ${{ github.event.workflow_run.id }}
+        run: |
+          set -euo pipefail
+          reposlug="${GITHUB_REPOSITORY}"
+
+          # 1) Detect failed jobs via Actions API
+          jobs_url="https://api.github.com/repos/${reposlug}/actions/runs/${RUN_ID}/jobs?per_page=100"
+          jobs_json=$(curl -fsSL -H "Authorization: Bearer ${GITHUB_TOKEN}" -H "Accept: application/vnd.github+json" "$jobs_url")
+          failed_jobs=$(printf '%s' "$jobs_json" | jq -r '.jobs // [] | map(select((.conclusion // "unknown") != "success"))')
+          failed_jobs_count=$(printf '%s' "$failed_jobs" | jq -r 'length')
+          failed_jobs_text=$(printf '%s' "$failed_jobs" | jq -r 'if length>0 then (map("- " + (.name // "job") + ": " + (.html_url // "")) | join("\n")) else "" end')
+
+          # 2) Detect failed tests by parsing pytest JSON artifacts (unit-durations-*.json)
+          arts_url="https://api.github.com/repos/${reposlug}/actions/runs/${RUN_ID}/artifacts?per_page=100"
+          arts_json=$(curl -fsSL -H "Authorization: Bearer ${GITHUB_TOKEN}" -H "Accept: application/vnd.github+json" "$arts_url")
+          art_ids=$(printf '%s' "$arts_json" | jq -r '.artifacts // [] | map(select((.name // "") | startswith("unit-durations-"))) | .[].id') || true
+          tmpdir=$(mktemp -d)
+          tests_failed_total=0
+          for aid in $art_ids; do
+            curl -fsSL -H "Authorization: Bearer ${GITHUB_TOKEN}" -H "Accept: application/vnd.github+json" \
+              "https://api.github.com/repos/${reposlug}/actions/artifacts/${aid}/zip" -o "$tmpdir/a_${aid}.zip" || true
+            unzip -p "$tmpdir/a_${aid}.zip" unit-durations.json 2>/dev/null > "$tmpdir/u_${aid}.json" || true
+            if [ -s "$tmpdir/u_${aid}.json" ]; then
+              # Try several common fields for failures count
+              fc=$(jq -r '(.summary.failed // .summary.num_failed // .summary.failures // 0) // 0' "$tmpdir/u_${aid}.json" 2>/dev/null || echo 0)
+              case "$fc" in ''|null) fc=0;; esac
+              tests_failed_total=$(( tests_failed_total + fc ))
+            fi
+          done
+
+          # Aggregate decision
+          has_failures=0
+          if [ "${failed_jobs_count}" != "0" ] || [ "$tests_failed_total" -gt 0 ]; then
+            has_failures=1
+          fi
+
+          printf 'has_failures=%s\n' "$has_failures" >> "$GITHUB_OUTPUT"
+          printf 'failed_jobs_text<<__TXT__\n%s\n__TXT__\n' "$failed_jobs_text" >> "$GITHUB_OUTPUT"
+          printf 'tests_failed_total=%s\n' "$tests_failed_total" >> "$GITHUB_OUTPUT"
       - name: Create/Update failure issue
         uses: actions/github-script@v7
+        env:
+          HAS_FAILURES: ${{ steps.detect.outputs.has_failures }}
+          FAILED_JOBS_TEXT: ${{ steps.detect.outputs.failed_jobs_text }}
+          TESTS_FAILED_TOTAL: ${{ steps.detect.outputs.tests_failed_total }}
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
@@ -46,18 +93,12 @@ jobs:
               commitMessage = '';
             }
 
-            // List failed jobs with links; אם אין כשלונות – לא נפתח Issue
-            let failedJobsText = '';
-            try {
-              const jobs = await github.rest.actions.listJobsForWorkflowRun({ owner, repo, run_id: run.id, per_page: 100 });
-              const failed = jobs.data.jobs.filter(j => (j.conclusion || 'unknown') !== 'success');
-              if (failed.length === 0) {
-                core.info('No failed jobs detected for this run; skipping issue creation');
-                return; // exit quietly
-              }
-              failedJobsText = failed.map(j => `- ${j.name}: ${j.html_url}`).join('\n');
-            } catch (e) {
-              core.info('Could not list jobs; assuming no failures. Skipping.');
+            // Use precomputed detection results (jobs and tests)
+            const hasFailures = (process.env.HAS_FAILURES || '').toString().trim();
+            const failedJobsText = process.env.FAILED_JOBS_TEXT || '';
+            const testsFailedTotal = parseInt(process.env.TESTS_FAILED_TOTAL || '0', 10);
+            if (hasFailures !== '1') {
+              core.info('No failures detected (jobs/tests); skipping issue creation');
               return;
             }
 
@@ -67,7 +108,8 @@ jobs:
               `Branch: ${run.head_branch}`,
               `Commit: ${shortSha}${commitMessage ? ` — ${commitMessage}` : ''}`,
               `[קישור להרצה](${run.html_url})`,
-              failedJobsText ? '\nJobs שנכשלו:\n' + failedJobsText : ''
+              failedJobsText ? '\nJobs שנכשלו:\n' + failedJobsText : '',
+              Number.isFinite(testsFailedTotal) && testsFailedTotal > 0 ? `\nסך בדיקות שנכשלו: ${testsFailedTotal}` : ''
             ].filter(Boolean);
             const body = bodyLines.join('\n');
 
@@ -115,24 +157,53 @@ jobs:
       github.event.workflow_run.head_branch == 'main' &&
       github.event.workflow_run.conclusion == 'success'
     steps:
-      - name: Close matching failure issue if exists (only if no failed jobs)
+      - name: Verify no failures (jobs/tests)
+        id: verify
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RUN_ID: ${{ github.event.workflow_run.id }}
+        run: |
+          set -euo pipefail
+          reposlug="${GITHUB_REPOSITORY}"
+
+          jobs_url="https://api.github.com/repos/${reposlug}/actions/runs/${RUN_ID}/jobs?per_page=100"
+          jobs_json=$(curl -fsSL -H "Authorization: Bearer ${GITHUB_TOKEN}" -H "Accept: application/vnd.github+json" "$jobs_url")
+          failed_jobs_count=$(printf '%s' "$jobs_json" | jq -r '([.jobs[] | select((.conclusion // "unknown") != "success")] | length) // 0') || echo 0
+
+          arts_url="https://api.github.com/repos/${reposlug}/actions/runs/${RUN_ID}/artifacts?per_page=100"
+          arts_json=$(curl -fsSL -H "Authorization: Bearer ${GITHUB_TOKEN}" -H "Accept: application/vnd.github+json" "$arts_url")
+          art_ids=$(printf '%s' "$arts_json" | jq -r '.artifacts // [] | map(select((.name // "") | startswith("unit-durations-"))) | .[].id') || true
+          tmpdir=$(mktemp -d)
+          tests_failed_total=0
+          for aid in $art_ids; do
+            curl -fsSL -H "Authorization: Bearer ${GITHUB_TOKEN}" -H "Accept: application/vnd.github+json" \
+              "https://api.github.com/repos/${reposlug}/actions/artifacts/${aid}/zip" -o "$tmpdir/a_${aid}.zip" || true
+            unzip -p "$tmpdir/a_${aid}.zip" unit-durations.json 2>/dev/null > "$tmpdir/u_${aid}.json" || true
+            if [ -s "$tmpdir/u_${aid}.json" ]; then
+              fc=$(jq -r '(.summary.failed // .summary.num_failed // .summary.failures // 0) // 0' "$tmpdir/u_${aid}.json" 2>/dev/null || echo 0)
+              case "$fc" in ''|null) fc=0;; esac
+              tests_failed_total=$(( tests_failed_total + fc ))
+            fi
+          done
+
+          has_failures=0
+          if [ "${failed_jobs_count}" != "0" ] || [ "$tests_failed_total" -gt 0 ]; then
+            has_failures=1
+          fi
+          printf 'has_failures=%s\n' "$has_failures" >> "$GITHUB_OUTPUT"
+
+      - name: Close matching failure issue if exists (only if no failed jobs/tests)
         uses: actions/github-script@v7
+        env:
+          HAS_FAILURES: ${{ steps.verify.outputs.has_failures }}
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
             const run = context.payload.workflow_run;
             const { owner, repo } = context.repo;
-
-            // Double-check that there are no failed jobs in this run (גם אם הסיכום overall הוא success)
-            try {
-              const jobs = await github.rest.actions.listJobsForWorkflowRun({ owner, repo, run_id: run.id, per_page: 100 });
-              const failed = jobs.data.jobs.filter(j => (j.conclusion || 'unknown') !== 'success');
-              if (failed.length > 0) {
-                core.info(`Found ${failed.length} failed jobs; not closing failure issue`);
-                return;
-              }
-            } catch (e) {
-              core.info('Could not list jobs to verify success; skipping close');
+            const hasFailures = (process.env.HAS_FAILURES || '').toString().trim();
+            if (hasFailures === '1') {
+              core.info('Failures still detected (jobs/tests); not closing failure issue.');
               return;
             }
 
