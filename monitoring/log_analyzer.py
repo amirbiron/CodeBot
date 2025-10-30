@@ -128,6 +128,19 @@ class LogEventAggregator:
         if g is None:
             g = _Group(category=category, count=0, first_ts=t, last_ts=t)
             self._groups[fp] = g
+        # If the previous alert is in the past and we have lines that arrived during the cooldown,
+        # reset the series so a fresh window starts after cooldown. This prevents a stale first_ts
+        # (set during cooldown) from blocking a new emission after cooldown has elapsed.
+        try:
+            cooldown_sec = max(1, int(self.alerts_cfg.get("cooldown_minutes", 10) or 10)) * 60
+        except Exception:
+            cooldown_sec = 600
+        cooldown_end = (g.last_alert_ts or 0.0) + float(cooldown_sec)
+        if g.last_alert_ts and t >= cooldown_end and g.count > 0 and g.first_ts < cooldown_end:
+            # Drop accumulated state from within the cooldown window
+            g.count = 0
+            g.first_ts = 0.0
+            g.samples.clear()
         # When a new series starts (after previous alert), reset the first_ts to track a fresh window
         if g.count == 0:
             g.first_ts = t
