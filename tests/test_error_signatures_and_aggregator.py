@@ -67,10 +67,10 @@ def test_aggregator_grouping_and_cooldown(monkeypatch, tmp_path):
     agg.analyze_line("socket hang up while calling DB", now_ts=base + 55)
     assert len(calls) == 1
 
-    # After cooldown passes, another series should emit again
-    agg.analyze_line("socket hang up while calling DB", now_ts=base + 10 * 60 + 2)
-    agg.analyze_line("socket hang up while calling DB", now_ts=base + 10 * 60 + 3)
-    agg.analyze_line("socket hang up while calling DB", now_ts=base + 10 * 60 + 4)
+    # After cooldown passes (>=600s after the first alert at base+50), another series should emit again
+    agg.analyze_line("socket hang up while calling DB", now_ts=base + 650)
+    agg.analyze_line("socket hang up while calling DB", now_ts=base + 651)
+    agg.analyze_line("socket hang up while calling DB", now_ts=base + 652)
     assert len(calls) == 2
 
 

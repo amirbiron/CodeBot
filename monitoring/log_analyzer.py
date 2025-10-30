@@ -125,12 +125,13 @@ class LogEventAggregator:
         if g is None:
             g = _Group(category=category, count=0, first_ts=t, last_ts=t)
             self._groups[fp] = g
+        # When a new series starts (after previous alert), reset the first_ts to track a fresh window
+        if g.count == 0:
+            g.first_ts = t
         g.count += 1
         g.last_ts = t
-        if g.first_ts <= 0:
-            g.first_ts = t
-        if len(g.samples) < g.samples.maxlen:  # type: ignore[union-attr]
-            g.samples.append(line.strip())
+        # Always append; deque(maxlen=3) maintains a rolling window automatically
+        g.samples.append(line.strip())
         # Decide whether to emit
         emitted = False
         if category in set(self.alerts_cfg.get("immediate_categories", [])):
@@ -174,9 +175,9 @@ class LogEventAggregator:
                     category=str(g.category),
                 )
             g.last_alert_ts = t
-            # Reset group counter but keep samples/time for future context
+            # Reset group state to allow a fresh window for future occurrences
             g.count = 0
-            g.first_ts = t
+            g.first_ts = 0.0
             g.samples.clear()
             return True
         except Exception:
