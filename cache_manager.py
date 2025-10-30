@@ -730,6 +730,10 @@ def cached(expire_seconds: int = 300, key_prefix: str = "default"):
             
             # הפעלת הפונקציה ושמירה ב-cache
             result = func(*args, **kwargs)
+
+            # אל תאחסן תוצאות חסרות (None) – מונע קיבוע שגיאות/חוסרים ומפחית פלייקיות בטסטים
+            if result is None:
+                return result
             wrote_remote = False
             try:
                 wrote_remote = bool(cache.set(cache_key, result, expire_seconds))
@@ -794,6 +798,10 @@ def async_cached(expire_seconds: int = 300, key_prefix: str = "default"):
             
             # הפעלת הפונקציה ושמירה ב-cache
             result = await func(*args, **kwargs)
+
+            # אל תאחסן תוצאות חסרות (None)
+            if result is None:
+                return result
             wrote_remote = False
             try:
                 wrote_remote = bool(cache.set(cache_key, result, expire_seconds))
