@@ -239,6 +239,146 @@
         }));
         try{ await api.reorder(cid, order); } catch(_){ /* ignore */ }
       });
+
+      // --- Fallback לתמיכת מסכי מגע באמצעות Pointer Events ---
+      // HTML5 Drag & Drop אינו נתמך היטב במכשירי מגע. נשתמש ב-pointer events כדי לאפשר סידור.
+      const supportsPointer = 'PointerEvent' in window;
+      if (supportsPointer) {
+        let pointerDragging = false;
+        let moveHandler = null;
+        let upHandler = null;
+        let activePointerId = null;
+
+        const onPointerDown = (ev) => {
+          // נטפל רק במגע/עט כדי לא לשבש עכבר בדסקטופ
+          const type = (ev.pointerType || '').toLowerCase();
+          if (type !== 'touch' && type !== 'pen') return;
+          try { ev.preventDefault(); } catch(_) {}
+          try { handle.setPointerCapture && handle.setPointerCapture(ev.pointerId); } catch(_) {}
+          pointerDragging = true;
+          activePointerId = ev.pointerId;
+          dragEl = el;
+          el.classList.add('dragging');
+          const prevUserSelect = document.body.style.userSelect;
+          document.body.dataset.prevUserSelect = prevUserSelect || '';
+          document.body.style.userSelect = 'none';
+
+          moveHandler = (e) => {
+            if (!pointerDragging) return;
+            if (e.pointerId !== activePointerId) return;
+            try { e.preventDefault(); } catch(_) {}
+            const clientY = e.clientY;
+            const after = getDragAfterElement(container, clientY);
+            if (!after) {
+              container.appendChild(dragEl);
+            } else {
+              container.insertBefore(dragEl, after);
+            }
+          };
+
+          upHandler = async (e) => {
+            if (!pointerDragging) return;
+            if (e.pointerId !== activePointerId) return;
+            pointerDragging = false;
+            el.classList.remove('dragging');
+            try { handle.releasePointerCapture && handle.releasePointerCapture(e.pointerId); } catch(_) {}
+            // שחזור בחירת טקסט
+            document.body.style.userSelect = document.body.dataset.prevUserSelect || '';
+            delete document.body.dataset.prevUserSelect;
+
+            // שליחת סדר חדש לשרת
+            const order = Array.from(container.querySelectorAll('.collection-item')).map(x => ({
+              source: x.getAttribute('data-source')||'regular',
+              file_name: x.getAttribute('data-name')||''
+            }));
+            try { await api.reorder(cid, order); } catch(_) { /* ignore */ }
+
+            // ניקוי מאזינים
+            activePointerId = null;
+            window.removeEventListener('pointermove', moveHandler);
+            window.removeEventListener('pointerup', upHandler);
+            window.removeEventListener('pointercancel', upHandler);
+          };
+
+          window.addEventListener('pointermove', moveHandler, { passive: false });
+          window.addEventListener('pointerup', upHandler, { passive: false });
+          window.addEventListener('pointercancel', upHandler, { passive: false });
+        };
+
+        handle.addEventListener('pointerdown', onPointerDown, { passive: false });
+      } else {
+        // דפדפנים ישנים ללא PointerEvent: שימוש ב-Touch Events כגיבוי
+        let touchDragging = false;
+        let moveHandler = null;
+        let endHandler = null;
+        let activeTouchId = null;
+
+        const onTouchStart = (ev) => {
+          if (!ev.touches || !ev.touches.length) return;
+          try { ev.preventDefault(); } catch(_) {}
+          touchDragging = true;
+          dragEl = el;
+          el.classList.add('dragging');
+          const prevUserSelect = document.body.style.userSelect;
+          document.body.dataset.prevUserSelect = prevUserSelect || '';
+          document.body.style.userSelect = 'none';
+          // לנעול לזיהוי המגע הראשון שהתחיל את הגרירה
+          try {
+            activeTouchId = (ev.changedTouches && ev.changedTouches[0] && ev.changedTouches[0].identifier) || ev.touches[0].identifier;
+          } catch(_) { activeTouchId = null; }
+
+          moveHandler = (e) => {
+            if (!touchDragging) return;
+            try { e.preventDefault(); } catch(_) {}
+            // מציאת המגע הרלוונטי לפי identifier
+            let t = null;
+            if (typeof activeTouchId === 'number' || typeof activeTouchId === 'string') {
+              const list = e.touches || [];
+              for (let i = 0; i < list.length; i++) {
+                if (list[i].identifier === activeTouchId) { t = list[i]; break; }
+              }
+            }
+            if (!t) return;
+            const clientY = t.clientY;
+            const after = getDragAfterElement(container, clientY);
+            if (!after) {
+              container.appendChild(dragEl);
+            } else {
+              container.insertBefore(dragEl, after);
+            }
+          };
+          endHandler = async (e) => {
+            if (!touchDragging) return;
+            // נסיים רק כשאותו מזהה מגע השתחרר
+            let endedActive = false;
+            const cl = e.changedTouches || [];
+            for (let i = 0; i < cl.length; i++) {
+              if (cl[i].identifier === activeTouchId) { endedActive = true; break; }
+            }
+            if (!endedActive) return;
+            touchDragging = false;
+            el.classList.remove('dragging');
+            document.body.style.userSelect = document.body.dataset.prevUserSelect || '';
+            delete document.body.dataset.prevUserSelect;
+
+            const order = Array.from(container.querySelectorAll('.collection-item')).map(x => ({
+              source: x.getAttribute('data-source')||'regular',
+              file_name: x.getAttribute('data-name')||''
+            }));
+            try { await api.reorder(cid, order); } catch(_) { /* ignore */ }
+
+            activeTouchId = null;
+            window.removeEventListener('touchmove', moveHandler);
+            window.removeEventListener('touchend', endHandler);
+            window.removeEventListener('touchcancel', endHandler);
+          };
+
+          window.addEventListener('touchmove', moveHandler, { passive: false });
+          window.addEventListener('touchend', endHandler);
+          window.addEventListener('touchcancel', endHandler);
+        };
+        handle.addEventListener('touchstart', onTouchStart, { passive: false });
+      }
     });
     container.addEventListener('dragover', (e) => {
       e.preventDefault();

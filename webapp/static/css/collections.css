@@ -39,7 +39,7 @@
   /* מאפשר לשם הקובץ לבצע ellipsis בלי להרחיב את השורה */
   min-width:0
 }
-.collection-item .drag{cursor:grab;opacity:.7}
+.collection-item .drag{cursor:grab;opacity:.7;touch-action:none}
 .collection-item.dragging{opacity:.5}
 /* הסרת קו תחתון והחזרת צבע קישור קריא */
 .collection-item .file{
