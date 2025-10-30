@@ -30,6 +30,8 @@ except Exception:  # pragma: no cover
 
 SCHEMA_VERSION = "1.0"
 
+LOGGER = logging.getLogger(__name__)
+
 # Custom log level for anomalies
 ANOMALY_LEVEL_NUM = 35  # between WARNING(30) and ERROR(40)
 if not hasattr(logging, "ANOMALY"):
@@ -308,6 +310,7 @@ def init_sentry() -> None:
         except Exception:
             dsn = None
     if not dsn:
+        LOGGER.warning("sentry init skipped: missing DSN", extra={"event": "sentry_init_skipped", "reason": "missing_dsn"})
         return
     # If already initialized with the same DSN, skip. If DSN differs (e.g., in tests), allow re-init.
     if _SENTRY_INIT_DONE and (_SENTRY_DSN_USED == dsn):
@@ -356,7 +359,11 @@ def init_sentry() -> None:
         )
         _SENTRY_INIT_DONE = True
         _SENTRY_DSN_USED = dsn
-    except Exception:
+    except Exception as exc:
+        LOGGER.exception(
+            "sentry init failed",
+            extra={"event": "sentry_init_failed", "error": str(exc)},
+        )
         return
 
 
