@@ -12,7 +12,7 @@ from __future__ import annotations
 import logging
 import os
 import uuid
-from typing import Any, Dict
+from typing import Any, Dict, Mapping
 import time
 from fnmatch import fnmatch
 import threading
@@ -76,6 +76,157 @@ def _env_true(key: str) -> bool:
         return str(os.getenv(key, "")).strip().lower() in {"1", "true", "yes", "on"}
     except Exception:
         return False
+
+
+def _set_sentry_tag(name: str, value: str) -> None:
+    if not value:
+        return
+    try:
+        import sentry_sdk  # type: ignore
+
+        sentry_sdk.set_tag(str(name), str(value))  # type: ignore[attr-defined]
+    except Exception:
+        return
+
+
+def _hash_identifier(raw: Any) -> str:
+    try:
+        if raw is None:
+            return ""
+        text = str(raw).strip()
+    except Exception:
+        text = ""
+    if not text:
+        return ""
+    try:
+        digest = hashlib.sha256(text.encode("utf-8", "ignore")).hexdigest()
+    except Exception:
+        return ""
+    return digest[:16]
+
+
+def _sanitize_command_identifier(command: Any | None) -> str:
+    try:
+        raw = "" if command is None else str(command).strip()
+    except Exception:
+        raw = ""
+    if not raw:
+        return ""
+    sanitized = raw.replace("\n", " ").split()[0]
+    if sanitized.startswith("/"):
+        sanitized = sanitized[1:]
+    if "@" in sanitized:
+        sanitized = sanitized.split("@", 1)[0]
+    if len(sanitized) > 80:
+        sanitized = sanitized[:80]
+    return sanitized
+
+
+def get_observability_context() -> Dict[str, str]:
+    try:
+        ctx = structlog.contextvars.get_contextvars()
+    except Exception:
+        return {}
+    if not isinstance(ctx, dict):
+        return {}
+    result: Dict[str, str] = {}
+    for key in ("request_id", "command", "user_id", "chat_id"):
+        try:
+            val = ctx.get(key)
+        except Exception:
+            val = None
+        if val:
+            result[str(key)] = str(val)
+    return result
+
+
+def get_request_id(default: str = "") -> str:
+    try:
+        rid = get_observability_context().get("request_id", "")
+    except Exception:
+        rid = ""
+    return str(rid or default)
+
+
+def bind_command(command: str | None) -> None:
+    sanitized = _sanitize_command_identifier(command)
+    if not sanitized:
+        return
+    try:
+        structlog.contextvars.bind_contextvars(command=sanitized)
+    except Exception:
+        pass
+    _set_sentry_tag("command", sanitized)
+
+
+def bind_user_context(*, user_id: Any | None = None, chat_id: Any | None = None) -> None:
+    to_bind: Dict[str, str] = {}
+    user_hash = _hash_identifier(user_id)
+    if user_hash:
+        to_bind["user_id"] = user_hash
+        _set_sentry_tag("user_id", user_hash)
+    chat_hash = _hash_identifier(chat_id)
+    if chat_hash:
+        to_bind["chat_id"] = chat_hash
+        _set_sentry_tag("chat_id", chat_hash)
+    if to_bind:
+        try:
+            structlog.contextvars.bind_contextvars(**to_bind)
+        except Exception:
+            pass
+
+
+def _trace_headers() -> Dict[str, str]:
+    try:
+        from opentelemetry.propagate import inject  # type: ignore
+    except Exception:
+        return {}
+    carrier: Dict[str, str] = {}
+    try:
+        inject(carrier)  # type: ignore[call-overload]
+    except TypeError:
+        try:
+            inject(lambda c, k, v: carrier.__setitem__(str(k), str(v)))  # type: ignore[arg-type]
+        except Exception:
+            return {}
+    except Exception:
+        return {}
+    normalized: Dict[str, str] = {}
+    for key, value in carrier.items():
+        if not key or not value:
+            continue
+        normalized[str(key)] = str(value)
+    return normalized
+
+
+def prepare_outgoing_headers(headers: Mapping[str, Any] | None = None) -> Dict[str, str]:
+    prepared: Dict[str, str] = {}
+    existing_lower: set[str] = set()
+    if headers:
+        for key, value in headers.items():
+            if key is None or value is None:
+                continue
+            try:
+                skey = str(key)
+                svalue = str(value)
+            except Exception:
+                continue
+            prepared[skey] = svalue
+            existing_lower.add(skey.lower())
+
+    rid = get_request_id("")
+    if rid and "x-request-id" not in existing_lower:
+        prepared["X-Request-ID"] = rid
+        existing_lower.add("x-request-id")
+
+    for key, value in _trace_headers().items():
+        lower = key.lower()
+        if lower in existing_lower:
+            continue
+        prepared[key] = value
+        existing_lower.add(lower)
+
+    return prepared
 
 
 # Lazy singleton for the log aggregator to avoid repeated construction
@@ -247,6 +398,7 @@ def bind_request_id(request_id: str) -> None:
         structlog.contextvars.bind_contextvars(request_id=request_id)
     except Exception:
         pass
+    _set_sentry_tag("request_id", request_id)
 
 
 def emit_event(event: str, severity: str = "info", **fields: Any) -> None:
@@ -274,15 +426,25 @@ def emit_event(event: str, severity: str = "info", **fields: Any) -> None:
         # כדי להבטיח אירוע גם כאשר ה-LoggingIntegration לא קולט structlog
         try:
             import sentry_sdk  # type: ignore
-            rid = str(fields.get("request_id") or "")
-            # בחר מסר קריא: error/message/event
+
+            ctx = get_observability_context()
+            rid = ctx.get("request_id") or str(fields.get("request_id") or "")
+            command_tag = ctx.get("command") or _sanitize_command_identifier(fields.get("command"))
+            user_tag = ctx.get("user_id") or _hash_identifier(fields.get("user_id"))
+            chat_tag = ctx.get("chat_id") or _hash_identifier(fields.get("chat_id"))
             message_text = str(fields.get("error") or fields.get("message") or event)
             with sentry_sdk.push_scope() as scope:  # type: ignore[attr-defined]
-                if rid:
-                    try:
-                        scope.set_tag("request_id", rid)  # type: ignore[attr-defined]
-                    except Exception:
-                        pass
+                for key, value in (
+                    ("request_id", rid),
+                    ("command", command_tag),
+                    ("user_id", user_tag),
+                    ("chat_id", chat_tag),
+                ):
+                    if value:
+                        try:
+                            scope.set_tag(key, str(value))  # type: ignore[attr-defined]
+                        except Exception:
+                            pass
                 sentry_sdk.capture_message(message_text, level="error")  # type: ignore[attr-defined]
         except Exception:
             # Fail-open אם sentry לא זמין
