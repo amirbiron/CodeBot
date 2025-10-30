@@ -2861,6 +2861,9 @@ def files():
                              has_next=page < total_pages,
                              bot_username=BOT_USERNAME_CLEAN)
 
+    # שימוש בסיסי: במצב ברירת מחדל אין פג'ינציית cursor
+    use_cursor = False
+
     # אם לא עשינו aggregation כבר (בקטגוריות large/other) — עבור all נשתמש גם באגרגציה
     if not category_filter:
         sort_dir = -1 if sort_by.startswith('-') else 1
