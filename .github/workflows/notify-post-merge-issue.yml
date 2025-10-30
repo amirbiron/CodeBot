@@ -20,11 +20,11 @@ jobs:
   open-issue-on-failure:
     name: Open issue and mention on failure
     runs-on: ubuntu-latest
+    # נריץ תמיד על ריצות push ל-main, ונחליט בתוך הסקריפט אם יש כשלונות אמיתיים
     if: >
       github.event_name == 'workflow_run' &&
       github.event.workflow_run.event == 'push' &&
-      github.event.workflow_run.head_branch == 'main' &&
-      github.event.workflow_run.conclusion != 'success'
+      github.event.workflow_run.head_branch == 'main'
     steps:
       - name: Create/Update failure issue
         uses: actions/github-script@v7
@@ -46,16 +46,19 @@ jobs:
               commitMessage = '';
             }
 
-            // List failed jobs with links
+            // List failed jobs with links; אם אין כשלונות – לא נפתח Issue
             let failedJobsText = '';
             try {
               const jobs = await github.rest.actions.listJobsForWorkflowRun({ owner, repo, run_id: run.id, per_page: 100 });
               const failed = jobs.data.jobs.filter(j => (j.conclusion || 'unknown') !== 'success');
-              if (failed.length > 0) {
-                failedJobsText = failed.map(j => `- ${j.name}: ${j.html_url}`).join('\n');
+              if (failed.length === 0) {
+                core.info('No failed jobs detected for this run; skipping issue creation');
+                return; // exit quietly
               }
+              failedJobsText = failed.map(j => `- ${j.name}: ${j.html_url}`).join('\n');
             } catch (e) {
-              // ignore
+              core.info('Could not list jobs; assuming no failures. Skipping.');
+              return;
             }
 
             const bodyLines = [
@@ -112,13 +115,27 @@ jobs:
       github.event.workflow_run.head_branch == 'main' &&
       github.event.workflow_run.conclusion == 'success'
     steps:
-      - name: Close matching failure issue if exists
+      - name: Close matching failure issue if exists (only if no failed jobs)
         uses: actions/github-script@v7
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
             const run = context.payload.workflow_run;
             const { owner, repo } = context.repo;
+
+            // Double-check that there are no failed jobs in this run (גם אם הסיכום overall הוא success)
+            try {
+              const jobs = await github.rest.actions.listJobsForWorkflowRun({ owner, repo, run_id: run.id, per_page: 100 });
+              const failed = jobs.data.jobs.filter(j => (j.conclusion || 'unknown') !== 'success');
+              if (failed.length > 0) {
+                core.info(`Found ${failed.length} failed jobs; not closing failure issue`);
+                return;
+              }
+            } catch (e) {
+              core.info('Could not list jobs to verify success; skipping close');
+              return;
+            }
+
             const titlePrefix = `Post-merge failure: ${run.name} on main @`;
             // fetch open issues labeled as post-merge failures
             const openIssues = await github.paginate(github.rest.issues.listForRepo, {
