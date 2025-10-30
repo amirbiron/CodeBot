@@ -500,6 +500,10 @@
         border-radius: 15px;
         max-width: calc(100% - 2rem);
     }
+
+    body.multi-select-active .file-card {
+        padding-left: 3.25rem;
+    }
     
     .bulk-actions-toolbar.hidden {
         transform: translateY(150px);
@@ -543,6 +547,12 @@
     }
     
     /* במובייל נשמור על אותה לוגיקה של מצב מרובה */
+}
+
+@media (max-width: 1024px) and (min-width: 769px) {
+    body.multi-select-active .file-card {
+        padding-left: 3rem;
+    }
 }
 
 /* הבטחה שכפתור הטוגל "בחירה מרובה" לא יחרוג שמאלה */
