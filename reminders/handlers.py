@@ -84,7 +84,7 @@ class ReminderHandlers:
             remind_time = parse_time(time_text, self._get_user_timezone(update.effective_user.id))
             if not remind_time:
                 await update.message.reply_text(
-                    "❌ לא הצלחתי להבין את הזמן.\nדוגמות: tomorrow 10:00, בעוד שעה, 2024-12-25 15:30"
+                    "❌ לא הצלחתי להבין את הזמן.\nדוגמות: tomorrow 10:00, בעוד שעה, בעוד 15 דקות, 2024-12-25 15:30"
                 )
                 return ConversationHandler.END
             reminder = Reminder(
@@ -125,9 +125,10 @@ class ReminderHandlers:
             return REMINDER_TITLE
         self._ensure_user_data(context)["reminder_title"] = title
         keyboard = [
+            [InlineKeyboardButton("בעוד 15 דקות", callback_data="time_15m")],
+            [InlineKeyboardButton("בעוד 30 דקות", callback_data="time_30m")],
             [InlineKeyboardButton("בעוד שעה", callback_data="time_1h")],
             [InlineKeyboardButton("מחר בבוקר (09:00)", callback_data="time_tomorrow_9")],
-            [InlineKeyboardButton("מחר בערב (18:00)", callback_data="time_tomorrow_18")],
             [InlineKeyboardButton("בעוד שבוע", callback_data="time_week")],
             [InlineKeyboardButton("זמן מותאם אישית", callback_data="time_custom")],
         ]
@@ -148,17 +149,19 @@ class ReminderHandlers:
             query = update.callback_query
             await query.answer()
             data = query.data or ""
-            if data == "time_1h":
+            if data == "time_15m":
+                remind_time = now + timedelta(minutes=15)
+            elif data == "time_30m":
+                remind_time = now + timedelta(minutes=30)
+            elif data == "time_1h":
                 remind_time = now + timedelta(hours=1)
             elif data == "time_tomorrow_9":
                 remind_time = (now + timedelta(days=1)).replace(hour=9, minute=0, second=0, microsecond=0)
-            elif data == "time_tomorrow_18":
-                remind_time = (now + timedelta(days=1)).replace(hour=18, minute=0, second=0, microsecond=0)
             elif data == "time_week":
                 remind_time = now + timedelta(weeks=1)
             elif data == "time_custom":
                 await query.edit_message_text(
-                    "⏰ הקלד זמן מותאם אישית (e.g. 15:30 / tomorrow 10:00 / 2025-12-25 14:00 / בעוד 3 שעות)"
+                    "⏰ הקלד זמן מותאם אישית (e.g. 15:30 / tomorrow 10:00 / 2025-12-25 14:00 / בעוד 3 שעות / בעוד 15 דקות / בעוד חצי שעה)"
                 )
                 return REMINDER_TIME
             else:
