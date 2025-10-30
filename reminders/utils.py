@@ -11,7 +11,9 @@ def parse_time(text: str, user_tz: str) -> Optional[datetime]:
     Supports:
     - "tomorrow HH:MM"
     - "HH:MM" (today)
-    - "in X hours" / "בעוד X שעות"
+    - "in X hours" / "בעוד X שעות" / "בעוד שעה"
+    - "in X minutes" / "בעוד X דקות" / "בעוד דקה"
+    - "בעוד רבע שעה" (15 דקות) / "בעוד חצי שעה" (30 דקות)
     - ISO-like "YYYY-MM-DD HH:MM"
     """
     try:
@@ -45,13 +47,46 @@ def parse_time(text: str, user_tz: str) -> Optional[datetime]:
             except Exception:
                 pass
 
-        # בעידן X שעות
+        # in X minutes
+        if text.lower().startswith("in ") and "minute" in text.lower():
+            try:
+                num = int("".join([c for c in text if c.isdigit()]))
+                return now + timedelta(minutes=num)
+            except Exception:
+                pass
+
+        # בעו̄ד X שעות / שעה
         if text.startswith("בעוד") and "שעות" in text:
             try:
                 num = int("".join([c for c in text if c.isdigit()]))
                 return now + timedelta(hours=num)
             except Exception:
                 pass
+
+        # בעוד שעה (ללא מספר)
+        if text.startswith("בעוד") and "שעה" in text and "שעות" not in text:
+            return now + timedelta(hours=1)
+
+        # בעוד X דקות / דקה
+        if text.startswith("בעוד") and ("דקות" in text or "דקה" in text):
+            # אם יש ספרות – השתמש בהן; אחרת, "דקה" => 1
+            digits = "".join([c for c in text if c.isdigit()])
+            if digits:
+                try:
+                    return now + timedelta(minutes=int(digits))
+                except Exception:
+                    pass
+            # "דקה" ללא מספר
+            if "דקה" in text and "דקות" not in text:
+                return now + timedelta(minutes=1)
+
+        # בעוד רבע שעה (15 דקות)
+        if text.startswith("בעוד") and "רבע" in text and "שעה" in text:
+            return now + timedelta(minutes=15)
+
+        # בעוד חצי שעה (30 דקות)
+        if text.startswith("בעוד") and "חצי" in text and "שעה" in text:
+            return now + timedelta(minutes=30)
 
         # ISO-like
         for fmt in ("%Y-%m-%d %H:%M", "%Y/%m/%d %H:%M"):

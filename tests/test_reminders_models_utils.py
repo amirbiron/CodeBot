@@ -54,3 +54,13 @@ def test_parse_time_variants():
     # Hebrew hours
     dt4 = parse_time("בעוד 3 שעות", "Asia/Jerusalem")
     assert dt4 is not None
+
+    # Hebrew minutes
+    dt5 = parse_time("בעוד 2 דקות", "Asia/Jerusalem")
+    assert dt5 is not None
+
+    # Quarter/Half hour
+    dt6 = parse_time("בעוד רבע שעה", "Asia/Jerusalem")
+    assert dt6 is not None
+    dt7 = parse_time("בעוד חצי שעה", "Asia/Jerusalem")
+    assert dt7 is not None

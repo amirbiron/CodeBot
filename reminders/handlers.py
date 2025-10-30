@@ -84,7 +84,7 @@ class ReminderHandlers:
             remind_time = parse_time(time_text, self._get_user_timezone(update.effective_user.id))
             if not remind_time:
                 await update.message.reply_text(
-                    "❌ לא הצלחתי להבין את הזמן.\nדוגמות: tomorrow 10:00, בעוד שעה, 2024-12-25 15:30"
+                    "❌ לא הצלחתי להבין את הזמן.\nדוגמות: tomorrow 10:00, בעוד שעה, בעוד 15 דקות, 2024-12-25 15:30"
                 )
                 return ConversationHandler.END
             reminder = Reminder(
@@ -158,7 +158,7 @@ class ReminderHandlers:
                 remind_time = now + timedelta(weeks=1)
             elif data == "time_custom":
                 await query.edit_message_text(
-                    "⏰ הקלד זמן מותאם אישית (e.g. 15:30 / tomorrow 10:00 / 2025-12-25 14:00 / בעוד 3 שעות)"
+                    "⏰ הקלד זמן מותאם אישית (e.g. 15:30 / tomorrow 10:00 / 2025-12-25 14:00 / בעוד 3 שעות / בעוד 15 דקות / בעוד חצי שעה)"
                 )
                 return REMINDER_TIME
             else:
