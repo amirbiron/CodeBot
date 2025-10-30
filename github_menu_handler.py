@@ -387,11 +387,36 @@ class GitHubMenuHandler:
         """בודק את מגבלת ה-API של GitHub"""
         try:
             rate_limit = github_client.get_rate_limit()
-            core_limit = rate_limit.core
+            # תאימות קדימה ואחורה: PyGithub ישן (rate.core) מול חדש (rate.resources["core"]).
+            core_limit = getattr(rate_limit, "core", None)
+            if core_limit is None:
+                resources = getattr(rate_limit, "resources", None)
+                if resources is not None:
+                    try:
+                        core_limit = resources["core"]  # type: ignore[index]
+                    except Exception:
+                        try:
+                            core_limit = resources.get("core")  # type: ignore[attr-defined]
+                        except Exception:
+                            core_limit = None
 
-            if core_limit.remaining < 10:
-                reset_time = core_limit.reset
-                minutes_until_reset = max(1, int((reset_time - time.time()) / 60))
+            # אם לא הצלחנו לקבל נתוני core – נמשיך בלי לחסום את הזרימה
+            if core_limit is None:
+                return True
+
+            if getattr(core_limit, "remaining", None) is not None and core_limit.remaining < 10:
+                reset_time = getattr(core_limit, "reset", None)
+                # תמיכה גם ב-timestamp וגם ב-datetime
+                try:
+                    if isinstance(reset_time, (int, float)):
+                        seconds_left = reset_time - time.time()
+                    elif hasattr(reset_time, "timestamp"):
+                        seconds_left = reset_time.timestamp() - time.time()  # type: ignore[call-arg]
+                    else:
+                        seconds_left = 0
+                except Exception:
+                    seconds_left = 0
+                minutes_until_reset = max(1, int(seconds_left / 60))
 
                 error_message = (
                     f"⏳ חריגה ממגבלת GitHub API\n"
@@ -3348,16 +3373,32 @@ class GitHubMenuHandler:
 
                 # בדוק rate limit לפני הבקשה
                 rate = g.get_rate_limit()
-                logger.info(
-                    f"[GitHub API] Rate limit - Remaining: {rate.core.remaining}/{rate.core.limit}"
-                )
+                # תמיכה במבני RateLimit שונים (ישן/חדש)
+                core_limit = getattr(rate, "core", None)
+                if core_limit is None:
+                    resources = getattr(rate, "resources", None)
+                    if resources is not None:
+                        try:
+                            core_limit = resources["core"]  # type: ignore[index]
+                        except Exception:
+                            try:
+                                core_limit = resources.get("core")  # type: ignore[attr-defined]
+                            except Exception:
+                                core_limit = None
 
-                if rate.core.remaining < 100:
+                if core_limit is not None and getattr(core_limit, "remaining", None) is not None:
+                    logger.info(
+                        f"[GitHub API] Rate limit - Remaining: {core_limit.remaining}/{getattr(core_limit, 'limit', 'unknown')}"
+                    )
+                else:
+                    logger.info("[GitHub API] Rate limit - Remaining: unknown")
+
+                if core_limit is not None and getattr(core_limit, "remaining", None) is not None and core_limit.remaining < 100:
                     logger.warning(
-                        f"[GitHub API] Low on API calls! Only {rate.core.remaining} remaining"
+                        f"[GitHub API] Low on API calls! Only {core_limit.remaining} remaining"
                     )
 
-                if rate.core.remaining < 10:
+                if core_limit is not None and getattr(core_limit, "remaining", None) is not None and core_limit.remaining < 10:
                     # אם יש cache ישן, השתמש בו במקום לחסום
                     if "repos" in context.user_data:
                         logger.warning(f"[GitHub API] Using stale cache due to rate limit")
@@ -3365,7 +3406,7 @@ class GitHubMenuHandler:
                     else:
                         if query:
                             msg = (
-                                f"⏳ מגבלת API נמוכה! נותרו רק {rate.core.remaining} בקשות"
+                                f"⏳ מגבלת API נמוכה! נותרו רק {core_limit.remaining} בקשות"
                             )
                             # לאחר ack אסור לקרוא שוב ל-answer; נערוך את ההודעה במקום
                             try:
@@ -3732,20 +3773,32 @@ class GitHubMenuHandler:
                 pass
             logger.info(f"[GitHub API] Checking rate limit before uploading file")
             rate = g.get_rate_limit()
-            logger.info(
-                f"[GitHub API] Rate limit - Remaining: {rate.core.remaining}/{rate.core.limit}"
-            )
-
-            if rate.core.remaining < 100:
-                logger.warning(
-                    f"[GitHub API] Low on API calls! Only {rate.core.remaining} remaining"
+            core_limit = getattr(rate, "core", None)
+            if core_limit is None:
+                resources = getattr(rate, "resources", None)
+                if resources is not None:
+                    try:
+                        core_limit = resources["core"]  # type: ignore[index]
+                    except Exception:
+                        try:
+                            core_limit = resources.get("core")  # type: ignore[attr-defined]
+                        except Exception:
+                            core_limit = None
+            if core_limit is not None and getattr(core_limit, "remaining", None) is not None:
+                logger.info(
+                    f"[GitHub API] Rate limit - Remaining: {core_limit.remaining}/{getattr(core_limit, 'limit', 'unknown')}"
                 )
-
-            if rate.core.remaining < 10:
-                await update.callback_query.answer(
-                    f"⏳ מגבלת API נמוכה מדי! נותרו רק {rate.core.remaining} בקשות", show_alert=True
-                )
-                return
+                if core_limit.remaining < 100:
+                    logger.warning(
+                        f"[GitHub API] Low on API calls! Only {core_limit.remaining} remaining"
+                    )
+                if core_limit.remaining < 10:
+                    await update.callback_query.answer(
+                        f"⏳ מגבלת API נמוכה מדי! נותרו רק {core_limit.remaining} בקשות", show_alert=True
+                    )
+                    return
+            else:
+                logger.info("[GitHub API] Rate limit - Remaining: unknown")
 
             # הוסף delay בין בקשות
             await self.apply_rate_limit_delay(user_id)
@@ -3911,22 +3964,34 @@ class GitHubMenuHandler:
                         pass
                     logger.info(f"[GitHub API] Checking rate limit before file upload")
                     rate = g.get_rate_limit()
-                    logger.info(
-                        f"[GitHub API] Rate limit - Remaining: {rate.core.remaining}/{rate.core.limit}"
-                    )
-
-                    if rate.core.remaining < 100:
-                        logger.warning(
-                            f"[GitHub API] Low on API calls! Only {rate.core.remaining} remaining"
+                    core_limit = getattr(rate, "core", None)
+                    if core_limit is None:
+                        resources = getattr(rate, "resources", None)
+                        if resources is not None:
+                            try:
+                                core_limit = resources["core"]  # type: ignore[index]
+                            except Exception:
+                                try:
+                                    core_limit = resources.get("core")  # type: ignore[attr-defined]
+                                except Exception:
+                                    core_limit = None
+                    if core_limit is not None and getattr(core_limit, "remaining", None) is not None:
+                        logger.info(
+                            f"[GitHub API] Rate limit - Remaining: {core_limit.remaining}/{getattr(core_limit, 'limit', 'unknown')}"
                         )
-
-                    if rate.core.remaining < 10:
-                        await update.message.reply_text(
-                            f"⏳ מגבלת API נמוכה מדי!\n"
-                            f"נותרו רק {rate.core.remaining} בקשות\n"
-                            f"נסה שוב מאוחר יותר"
-                        )
-                        return ConversationHandler.END
+                        if core_limit.remaining < 100:
+                            logger.warning(
+                                f"[GitHub API] Low on API calls! Only {core_limit.remaining} remaining"
+                            )
+                        if core_limit.remaining < 10:
+                            await update.message.reply_text(
+                                f"⏳ מגבלת API נמוכה מדי!\n"
+                                f"נותרו רק {core_limit.remaining} בקשות\n"
+                                f"נסה שוב מאוחר יותר"
+                            )
+                            return ConversationHandler.END
+                    else:
+                        logger.info("[GitHub API] Rate limit - Remaining: unknown")
 
                     # הוסף delay בין בקשות
                     await self.apply_rate_limit_delay(user_id)
