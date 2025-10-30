@@ -4,6 +4,7 @@
 
 {% block extra_css %}
 <link rel="stylesheet" href="{{ url_for('static', filename='css/multi-select.css') }}">
+<link rel="stylesheet" href="{{ url_for('static', filename='css/card-preview.css') }}">
 {% endblock %}
 
 {% block content %}
@@ -305,6 +306,9 @@
 
             <div style="display: flex; flex-direction: column; gap: 0.5rem; align-items: flex-start; flex-shrink:0;">
             <div style="display: flex; gap: 0.5rem; flex-wrap: wrap;">
+                    <button class="btn btn-secondary btn-icon" style="padding: 0.5rem 1rem;" title="הצץ בקוד" aria-label="הצץ בקוד" onclick="window.cardPreview.expand('{{ file.id }}', this.closest('.file-card'))">
+                        <i class="fas fa-eye" aria-hidden="true"></i>
+                    </button>
                     <a href="/file/{{ file.id }}" class="btn btn-secondary btn-icon" style="padding: 0.5rem 1rem;" title="צפה">
                         <i class="fas fa-eye" aria-hidden="true"></i><span class="btn-text"> צפה</span>
                     </a>
@@ -494,6 +498,7 @@
 {% block extra_js %}
 <script src="{{ url_for('static', filename='js/multi-select.js') }}" defer></script>
 <script src="{{ url_for('static', filename='js/bulk-actions.js') }}" defer></script>
+<script src="{{ url_for('static', filename='js/card-preview.js') }}" defer></script>
 <script>
     // שחזור פרמטרים אחרונים של חיפוש/פילטרים בעמוד הקבצים
     (function restoreFilesFilters(){

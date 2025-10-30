@@ -3195,6 +3195,97 @@ def view_file(file_id):
     return resp
 
 
+@app.route('/api/file/<file_id>/preview')
+@login_required
+@traced("file.preview")
+def file_preview(file_id):
+    """מחזיר preview (עד 20 שורות ראשונות) של קובץ קוד כ-HTML מודגש.
+
+    שימושי להצגה מהירה בתוך כרטיס בעמוד הקבצים, ללא ניווט לעמוד מלא.
+    """
+    db = get_db()
+    user_id = session['user_id']
+
+    # שליפת הקובץ למשתמש הנוכחי
+    try:
+        file = db.code_snippets.find_one({
+            '_id': ObjectId(file_id),
+            'user_id': user_id,
+        })
+    except (InvalidId, TypeError):
+        return jsonify({'ok': False, 'error': 'Invalid file ID'}), 400
+    except PyMongoError as e:
+        logger.exception("DB error fetching file preview", extra={
+            "file_id": file_id,
+            "user_id": user_id,
+            "error": str(e),
+        })
+        return jsonify({'ok': False, 'error': 'Database error'}), 500
+
+    if not file:
+        return jsonify({'ok': False, 'error': 'File not found'}), 404
+
+    code = file.get('code', '') or ''
+    language = (file.get('programming_language') or 'text').lower()
+
+    if not code.strip():
+        return jsonify({'ok': False, 'error': 'File is empty'}), 400
+
+    # אם נשמר כ-text אבל הסיומת .md – תייג כ-markdown לתצוגה נכונה
+    try:
+        if (not language or language == 'text') and str(file.get('file_name') or '').lower().endswith('.md'):
+            language = 'markdown'
+    except Exception:
+        pass
+
+    # הגבלת גודל עבור preview כדי להגן על הלקוח (נמדד בבייטים)
+    MAX_PREVIEW_SIZE = 100 * 1024  # 100KB
+    try:
+        size_bytes = len(code.encode('utf-8', errors='replace'))
+    except Exception:
+        # הגנה קיצונית: אם אירעה תקלה חריגה, נ fallback לאורך התווים
+        size_bytes = len(code)
+    if size_bytes > MAX_PREVIEW_SIZE:
+        return jsonify({'ok': False, 'error': 'File too large for preview', 'size': size_bytes}), 413
+
+    # מניעת תצוגת קבצים בינאריים
+    if is_binary_file(code, file.get('file_name', '')):
+        return jsonify({'ok': False, 'error': 'Binary file cannot be previewed'}), 400
+
+    # בניית קטע התצוגה – 20 שורות ראשונות
+    lines = code.split('\n')
+    total_lines = len(lines)
+    preview_lines = min(20, total_lines)
+    preview_code = '\n'.join(lines[:preview_lines])
+
+    # הדגשת תחביר
+    try:
+        lexer = get_lexer_by_name(language, stripall=True)
+    except ClassNotFound:
+        try:
+            lexer = guess_lexer(preview_code)
+        except ClassNotFound:
+            lexer = get_lexer_by_name('text')
+
+    formatter = HtmlFormatter(
+        style='github-dark',
+        linenos=False,
+        cssclass='preview-highlight',
+        nowrap=False,
+    )
+    highlighted_html = highlight(preview_code, lexer, formatter)
+    css = formatter.get_style_defs('.preview-highlight')
+
+    return jsonify({
+        'ok': True,
+        'highlighted_html': highlighted_html,
+        'syntax_css': css,
+        'total_lines': total_lines,
+        'preview_lines': preview_lines,
+        'language': language,
+        'has_more': total_lines > preview_lines,
+    })
+
 @app.route('/api/files/recent')
 @login_required
 def api_recent_files():
