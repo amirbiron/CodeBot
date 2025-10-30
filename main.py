@@ -965,22 +965,53 @@ class CodeKeeperBot:
         # --- Rate limiting gate (גבוה עדיפות, לפני שאר ה-handlers) ---
         async def _rate_limit_gate(update: Update, context: ContextTypes.DEFAULT_TYPE):
             try:
-                user = (getattr(update, 'effective_user', None) or getattr(getattr(update, 'callback_query', None), 'from_user', None))
+                user = (
+                    getattr(update, 'effective_user', None)
+                    or getattr(getattr(update, 'callback_query', None), 'from_user', None)
+                )
                 user_id = int(getattr(user, 'id', 0) or 0)
             except Exception:
                 user_id = 0
             if user_id:
-                # Admin bypass – אדמינים לא מוגבלים ע״י השער הגלובלי
+                # עקיפת אדמין – אדמינים לא מוגבלים ע"י השער הגלובלי
                 try:
                     admins = get_admin_ids()
                 except Exception:
                     admins = []
                 if admins and user_id in admins:
                     return  # מעבר חופשי לאדמין
+
+                # Fallback-counter פשוט פר-משתמש בחלון של 60ש׳ כדי לכסות תקלות נדירות
+                # במימוש הראשי של המגביל. לא מחליף את המגביל, רק מחמיר אם צריך.
+                blocked_by_local = False
+                try:
+                    udata = getattr(context, 'user_data', None)
+                    if isinstance(udata, dict):
+                        now_ts = time.time()
+                        local = udata.get('_rl_local')
+                        limit_val = int(getattr(getattr(self, '_rate_limiter', object()), 'max_per_minute', 30) or 30)
+                        if not isinstance(local, dict) or (now_ts - float(local.get('start_ts', 0.0) or 0.0)) >= 60.0:
+                            local = {'start_ts': now_ts, 'count': 0}
+                            # שמור מיידית את תחילת החלון החדש כדי לא לאבד state גם אם תתרחש חסימה בבקשה הנוכחית
+                            udata['_rl_local'] = local
+                        # ספר את הקריאה הנוכחית בחלון הנוכחי
+                        next_count = int(local.get('count', 0)) + 1
+                        if next_count > limit_val:
+                            blocked_by_local = True
+                            # אל תעדכן את המונה כאשר חוסמים – נשמור על עקביות מינימלית
+                        else:
+                            local['count'] = next_count
+                            udata['_rl_local'] = local
+                except Exception:
+                    # אם יש שגיאה, אל תחסום – נשען על המגביל הראשי
+                    blocked_by_local = False
+
+                # בדיקה במגביל הראשי
                 try:
                     allowed = await self._rate_limiter.check_rate_limit(user_id)
                 except Exception:
                     allowed = True
+
                 # Optional: advanced per-user global limit in shadow mode (logging only)
                 try:
                     adv = getattr(self, '_advanced_limiter', None)
@@ -988,12 +1019,17 @@ class CodeKeeperBot:
                         key = f"tg:global:{user_id}"
                         ok = adv.hit(self._per_user_global, key)
                         if not ok and getattr(self, '_shadow_mode', False):
-                            logger.info("Rate limit would block (shadow mode)", extra={"user_id": user_id, "scope": "global", "limit": "global_user"})
-                        # In shadow mode we don't block based on advanced limiter; rely on in-memory gate
+                            logger.info(
+                                "Rate limit would block (shadow mode)",
+                                extra={"user_id": user_id, "scope": "global", "limit": "global_user"},
+                            )
+                        # במצב shadow אין חסימה על בסיס advanced; נשענים על in-memory gate
                 except Exception:
                     pass
-                if not allowed:
-                    # חסימה שקטה+הודעה קצרה
+
+                should_block = (not allowed) or blocked_by_local
+                if should_block:
+                    # חסימה שקטה + הודעה קצרה
                     try:
                         cq = getattr(update, 'callback_query', None)
                         if cq is not None:
@@ -1012,7 +1048,7 @@ class CodeKeeperBot:
                         if hasattr(self._rate_limiter, 'get_current_usage_ratio'):
                             ratio = float(await self._rate_limiter.get_current_usage_ratio(user_id))
                         if ratio >= 0.8:
-                            # מנגנון אנטי-ספאם: אזהרה לכל היותר פעם בדקה למשתמש
+                            # אנטי-ספאם: אזהרה לכל היותר פעם בדקה למשתמש
                             now_ts = time.time()
                             udata = getattr(context, 'user_data', None)
                             last_ts = 0.0
