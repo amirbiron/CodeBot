@@ -247,6 +247,7 @@
         let pointerDragging = false;
         let moveHandler = null;
         let upHandler = null;
+        let activePointerId = null;
 
         const onPointerDown = (ev) => {
           // נטפל רק במגע/עט כדי לא לשבש עכבר בדסקטופ
@@ -255,6 +256,7 @@
           try { ev.preventDefault(); } catch(_) {}
           try { handle.setPointerCapture && handle.setPointerCapture(ev.pointerId); } catch(_) {}
           pointerDragging = true;
+          activePointerId = ev.pointerId;
           dragEl = el;
           el.classList.add('dragging');
           const prevUserSelect = document.body.style.userSelect;
@@ -263,6 +265,7 @@
 
           moveHandler = (e) => {
             if (!pointerDragging) return;
+            if (e.pointerId !== activePointerId) return;
             try { e.preventDefault(); } catch(_) {}
             const clientY = e.clientY;
             const after = getDragAfterElement(container, clientY);
@@ -275,6 +278,7 @@
 
           upHandler = async (e) => {
             if (!pointerDragging) return;
+            if (e.pointerId !== activePointerId) return;
             pointerDragging = false;
             el.classList.remove('dragging');
             try { handle.releasePointerCapture && handle.releasePointerCapture(e.pointerId); } catch(_) {}
@@ -290,9 +294,10 @@
             try { await api.reorder(cid, order); } catch(_) { /* ignore */ }
 
             // ניקוי מאזינים
-            window.removeEventListener('pointermove', moveHandler, { capture: false });
-            window.removeEventListener('pointerup', upHandler, { capture: false });
-            window.removeEventListener('pointercancel', upHandler, { capture: false });
+            activePointerId = null;
+            window.removeEventListener('pointermove', moveHandler);
+            window.removeEventListener('pointerup', upHandler);
+            window.removeEventListener('pointercancel', upHandler);
           };
 
           window.addEventListener('pointermove', moveHandler, { passive: false });
@@ -306,6 +311,7 @@
         let touchDragging = false;
         let moveHandler = null;
         let endHandler = null;
+        let activeTouchId = null;
 
         const onTouchStart = (ev) => {
           if (!ev.touches || !ev.touches.length) return;
@@ -316,12 +322,24 @@
           const prevUserSelect = document.body.style.userSelect;
           document.body.dataset.prevUserSelect = prevUserSelect || '';
           document.body.style.userSelect = 'none';
+          // לנעול לזיהוי המגע הראשון שהתחיל את הגרירה
+          try {
+            activeTouchId = (ev.changedTouches && ev.changedTouches[0] && ev.changedTouches[0].identifier) || ev.touches[0].identifier;
+          } catch(_) { activeTouchId = null; }
 
           moveHandler = (e) => {
             if (!touchDragging) return;
             try { e.preventDefault(); } catch(_) {}
-            const t = (e.touches && e.touches[0]) || null;
-            const clientY = t ? t.clientY : 0;
+            // מציאת המגע הרלוונטי לפי identifier
+            let t = null;
+            if (typeof activeTouchId === 'number' || typeof activeTouchId === 'string') {
+              const list = e.touches || [];
+              for (let i = 0; i < list.length; i++) {
+                if (list[i].identifier === activeTouchId) { t = list[i]; break; }
+              }
+            }
+            if (!t) return;
+            const clientY = t.clientY;
             const after = getDragAfterElement(container, clientY);
             if (!after) {
               container.appendChild(dragEl);
@@ -329,8 +347,15 @@
               container.insertBefore(dragEl, after);
             }
           };
-          endHandler = async (_e) => {
+          endHandler = async (e) => {
             if (!touchDragging) return;
+            // נסיים רק כשאותו מזהה מגע השתחרר
+            let endedActive = false;
+            const cl = e.changedTouches || [];
+            for (let i = 0; i < cl.length; i++) {
+              if (cl[i].identifier === activeTouchId) { endedActive = true; break; }
+            }
+            if (!endedActive) return;
             touchDragging = false;
             el.classList.remove('dragging');
             document.body.style.userSelect = document.body.dataset.prevUserSelect || '';
@@ -342,9 +367,10 @@
             }));
             try { await api.reorder(cid, order); } catch(_) { /* ignore */ }
 
-            window.removeEventListener('touchmove', moveHandler, { capture: false });
-            window.removeEventListener('touchend', endHandler, { capture: false });
-            window.removeEventListener('touchcancel', endHandler, { capture: false });
+            activeTouchId = null;
+            window.removeEventListener('touchmove', moveHandler);
+            window.removeEventListener('touchend', endHandler);
+            window.removeEventListener('touchcancel', endHandler);
           };
 
           window.addEventListener('touchmove', moveHandler, { passive: false });
