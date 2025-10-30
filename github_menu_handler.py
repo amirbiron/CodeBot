@@ -5351,7 +5351,12 @@ class GitHubMenuHandler:
             is_admin = user_id in getattr(config, 'ADMIN_USER_IDS', [])
         except Exception:
             is_admin = False
-        if is_admin:
+        # הצג את כפתור בדיקת Sentry רק כשמאופשר במפורש
+        try:
+            sentry_btn_enabled = bool(getattr(config, 'SENTRY_TEST_BUTTON_ENABLED', False))
+        except Exception:
+            sentry_btn_enabled = False
+        if is_admin and sentry_btn_enabled:
             keyboard.append([InlineKeyboardButton("🧪 שלח אירוע בדיקה ל‑Sentry", callback_data="notifications_sentry_test")])
         text = (
             f"🔔 התראות לריפו: <code>{session['selected_repo']}</code>\n"
@@ -5464,6 +5469,16 @@ class GitHubMenuHandler:
                 await query.answer("אין הרשאה", show_alert=True)
             except Exception:
                 pass
+            return
+        # פיצ'ר כבוי כברירת מחדל – אל תבצע אם לא מאופשר
+        try:
+            if not bool(getattr(config, 'SENTRY_TEST_BUTTON_ENABLED', False)):
+                try:
+                    await query.answer("הפיצ׳ר מנוטרל", show_alert=True)
+                except Exception:
+                    pass
+                return
+        except Exception:
             return
         # צור חריגה יזומה ושלח לסנטרי עם Stacktrace
         try:
