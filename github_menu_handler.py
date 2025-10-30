@@ -3312,6 +3312,13 @@ class GitHubMenuHandler:
             return
 
         try:
+            # אcknowledge מהיר ל-Callback כדי למנוע "תקיעה" של הכפתור בטלגרם
+            if query:
+                try:
+                    await query.answer()
+                except Exception:
+                    pass
+
             # בדוק אם יש repos ב-context.user_data ואם הם עדיין תקפים
             cache_time = context.user_data.get("repos_cache_time", 0)
             current_time = time.time()
@@ -3321,6 +3328,12 @@ class GitHubMenuHandler:
             needs_refresh = "repos" not in context.user_data or cache_age > cache_max_age
 
             if needs_refresh:
+                # הצג הודעת טעינה מיידית לפני קריאה איטית ל‑GitHub
+                if query:
+                    try:
+                        await query.edit_message_text("⏳ טוען רשימת ריפוזיטוריז…")
+                    except Exception:
+                        pass
                 logger.info(
                     f"[GitHub API] Fetching repos for user {user_id} (cache age: {int(cache_age)}s)"
                 )
