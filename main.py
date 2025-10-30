@@ -890,7 +890,8 @@ class CodeKeeperBot:
         """הגדרת כל ה-handlers של הבוט בסדר הנכון"""
 
         # Maintenance gate: if enabled, short-circuit most interactions
-        if config.MAINTENANCE_MODE:
+        # שימוש ב-getattr עבור תאימות לטסטים שמחליפים את config באובייקט מינימלי
+        if getattr(config, "MAINTENANCE_MODE", False):
             # הגדרת חלון זמן פנימי שבו הודעת תחזוקה פעילה, כך שגם אם מחיקת ה-handlers לא תתבצע
             # ההודעה תיכבה אוטומטית לאחר ה-warmup.
             try:
