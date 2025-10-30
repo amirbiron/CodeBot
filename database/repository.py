@@ -576,23 +576,35 @@ class Repository:
     def get_latest_version(self, user_id: int, file_name: str) -> Optional[Dict]:
         try:
             # Fast-path for in-memory collections in tests
-            try:
-                docs_list = getattr(self.manager.collection, 'docs')
-                if isinstance(docs_list, list):
-                    candidates = [d for d in docs_list if isinstance(d, dict) and d.get('user_id') == user_id and d.get('file_name') == file_name]
+            docs_list = getattr(self.manager.collection, 'docs', None)
+            if isinstance(docs_list, list):
+                try:
+                    candidates = [
+                        d for d in docs_list
+                        if isinstance(d, dict)
+                        and d.get('user_id') == user_id
+                        and d.get('file_name') == file_name
+                    ]
                     if candidates:
                         latest = max(candidates, key=lambda d: int(d.get('version', 0) or 0))
                         return dict(latest)
-            except Exception:
-                pass
-            return self.manager.collection.find_one(
-                {"user_id": user_id, "file_name": file_name, "$or": [
-                    {"is_active": True}, {"is_active": {"$exists": False}}
-                ]},
-                sort=[("version", -1)],
-            )
+                except Exception as e:
+                    # Emit and proceed to DB fallback to keep behavior consistent
+                    emit_event("db_get_latest_version_error", severity="error", error=str(e), stage="fast_path")
+
+            # DB fallback
+            try:
+                return self.manager.collection.find_one(
+                    {"user_id": user_id, "file_name": file_name, "$or": [
+                        {"is_active": True}, {"is_active": {"$exists": False}}
+                    ]},
+                    sort=[("version", -1)],
+                )
+            except Exception as e:
+                emit_event("db_get_latest_version_error", severity="error", error=str(e), stage="db_fallback")
+                return None
         except Exception as e:
-            emit_event("db_get_latest_version_error", severity="error", error=str(e))
+            emit_event("db_get_latest_version_error", severity="error", error=str(e), stage="outer")
             return None
 
     def get_file(self, user_id: int, file_name: str) -> Optional[Dict]:
