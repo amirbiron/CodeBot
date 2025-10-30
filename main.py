@@ -992,6 +992,8 @@ class CodeKeeperBot:
                         limit_val = int(getattr(getattr(self, '_rate_limiter', object()), 'max_per_minute', 30) or 30)
                         if not isinstance(local, dict) or (now_ts - float(local.get('start_ts', 0.0) or 0.0)) >= 60.0:
                             local = {'start_ts': now_ts, 'count': 0}
+                            # שמור מיידית את תחילת החלון החדש כדי לא לאבד state גם אם תתרחש חסימה בבקשה הנוכחית
+                            udata['_rl_local'] = local
                         # ספר את הקריאה הנוכחית בחלון הנוכחי
                         next_count = int(local.get('count', 0)) + 1
                         if next_count > limit_val:
