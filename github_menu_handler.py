@@ -3312,6 +3312,16 @@ class GitHubMenuHandler:
             return
 
         try:
+            # אcknowledge מהיר ל-Callback כדי למנוע "תקיעה" של הכפתור בטלגרם
+            acked = False
+            if query:
+                try:
+                    await query.answer()
+                    acked = True
+                except Exception:
+                    # אם כבר נענה קודם, נמשיך בלי לזרוק
+                    acked = True
+
             # בדוק אם יש repos ב-context.user_data ואם הם עדיין תקפים
             cache_time = context.user_data.get("repos_cache_time", 0)
             current_time = time.time()
@@ -3321,6 +3331,12 @@ class GitHubMenuHandler:
             needs_refresh = "repos" not in context.user_data or cache_age > cache_max_age
 
             if needs_refresh:
+                # הצג הודעת טעינה מיידית לפני קריאה איטית ל‑GitHub
+                if query:
+                    try:
+                        await query.edit_message_text("⏳ טוען רשימת ריפוזיטוריז…")
+                    except Exception:
+                        pass
                 logger.info(
                     f"[GitHub API] Fetching repos for user {user_id} (cache age: {int(cache_age)}s)"
                 )
@@ -3348,10 +3364,17 @@ class GitHubMenuHandler:
                         all_repos = context.user_data["repos"]
                     else:
                         if query:
-                            await query.answer(
-                                f"⏳ מגבלת API נמוכה! נותרו רק {rate.core.remaining} בקשות",
-                                show_alert=True,
+                            msg = (
+                                f"⏳ מגבלת API נמוכה! נותרו רק {rate.core.remaining} בקשות"
                             )
+                            # לאחר ack אסור לקרוא שוב ל-answer; נערוך את ההודעה במקום
+                            try:
+                                if acked:
+                                    await query.edit_message_text(msg)
+                                else:
+                                    await query.answer(msg, show_alert=True)
+                            except Exception:
+                                pass
                             return
                 else:
                     # הוסף delay בין בקשות
@@ -3449,7 +3472,14 @@ class GitHubMenuHandler:
                 error_msg = f"❌ שגיאה: {error_msg}"
 
             if query:
-                await query.answer(error_msg, show_alert=True)
+                try:
+                    if 'acked' in locals() and acked:
+                        # לאחר ack – אין answer נוסף; נערוך טקסט במקום
+                        await query.edit_message_text(error_msg)
+                    else:
+                        await query.answer(error_msg, show_alert=True)
+                except Exception:
+                    pass
             else:
                 try:
                     await update.callback_query.answer(error_msg, show_alert=True)
