@@ -125,9 +125,10 @@ class ReminderHandlers:
             return REMINDER_TITLE
         self._ensure_user_data(context)["reminder_title"] = title
         keyboard = [
+            [InlineKeyboardButton("בעוד 15 דקות", callback_data="time_15m")],
+            [InlineKeyboardButton("בעוד 30 דקות", callback_data="time_30m")],
             [InlineKeyboardButton("בעוד שעה", callback_data="time_1h")],
             [InlineKeyboardButton("מחר בבוקר (09:00)", callback_data="time_tomorrow_9")],
-            [InlineKeyboardButton("מחר בערב (18:00)", callback_data="time_tomorrow_18")],
             [InlineKeyboardButton("בעוד שבוע", callback_data="time_week")],
             [InlineKeyboardButton("זמן מותאם אישית", callback_data="time_custom")],
         ]
@@ -148,12 +149,14 @@ class ReminderHandlers:
             query = update.callback_query
             await query.answer()
             data = query.data or ""
-            if data == "time_1h":
+            if data == "time_15m":
+                remind_time = now + timedelta(minutes=15)
+            elif data == "time_30m":
+                remind_time = now + timedelta(minutes=30)
+            elif data == "time_1h":
                 remind_time = now + timedelta(hours=1)
             elif data == "time_tomorrow_9":
                 remind_time = (now + timedelta(days=1)).replace(hour=9, minute=0, second=0, microsecond=0)
-            elif data == "time_tomorrow_18":
-                remind_time = (now + timedelta(days=1)).replace(hour=18, minute=0, second=0, microsecond=0)
             elif data == "time_week":
                 remind_time = now + timedelta(weeks=1)
             elif data == "time_custom":
