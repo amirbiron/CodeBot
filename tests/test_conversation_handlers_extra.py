@@ -144,7 +144,7 @@ async def test_file_menu_includes_webapp_button(monkeypatch):
     rm = captured.get('reply_markup')
     assert isinstance(rm, _Markup)
     web_btn = rm.keyboard[1][0]
-    assert web_btn.text == "?? ????? ?WebApp"
+    assert web_btn.text == "🌐 צפייה בWebApp"
     assert web_btn.url == "https://code-keeper-webapp.onrender.com/file/OID42"
 
 
@@ -179,5 +179,5 @@ async def test_file_menu_webapp_button_search_fallback(monkeypatch):
     rm = captured.get('reply_markup')
     assert isinstance(rm, _Markup)
     web_btn = rm.keyboard[1][0]
-    assert web_btn.text == "?? ????? ?WebApp"
+    assert web_btn.text == "🌐 צפייה בWebApp"
     assert web_btn.url == "https://code-keeper-webapp.onrender.com/files?q=noid.txt#results"
