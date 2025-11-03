@@ -37,6 +37,42 @@ from i18n.strings_he import MAIN_MENU as MAIN_KEYBOARD
 from handlers.pagination import build_pagination_row
 from config import config
 
+DEFAULT_WEBAPP_URL = "https://code-keeper-webapp.onrender.com"
+
+
+def _resolve_webapp_base_url() -> Optional[str]:
+    candidates = []
+    try:
+        candidates.append(getattr(config, "WEBAPP_URL", None))
+    except Exception:
+        candidates.append(None)
+    try:
+        candidates.append(os.getenv("WEBAPP_URL"))
+    except Exception:
+        candidates.append(None)
+    try:
+        candidates.append(getattr(config, "PUBLIC_BASE_URL", None))
+    except Exception:
+        candidates.append(None)
+    candidates.append(DEFAULT_WEBAPP_URL)
+
+    for candidate in candidates:
+        if not candidate:
+            continue
+        base = str(candidate).strip()
+        if base:
+            return base.rstrip('/')
+    return None
+
+
+def _get_webapp_button_row(file_id: Optional[str]) -> Optional[List[InlineKeyboardButton]]:
+    if not file_id:
+        return None
+    base_url = _resolve_webapp_base_url()
+    if not base_url:
+        return None
+    return [InlineKeyboardButton("🌐 צפייה בWebApp", url=f"{base_url}/file/{file_id}")]
+
 async def _safe_edit_message_text(query, text: str, reply_markup=None, parse_mode=None) -> None:
     """עורך הודעה בבטיחות: מתעלם משגיאת 'Message is not modified'."""
     try:
@@ -1148,6 +1184,10 @@ async def handle_file_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         
         file_name = file_data.get('file_name', 'קובץ מיסתורי')
         language = file_data.get('programming_language', 'לא ידועה')
+        try:
+            file_id_str = str(file_data.get('_id') or '')
+        except Exception:
+            file_id_str = ''
         
         # כפתורים מתקדמים מלאים
         keyboard = [
@@ -1171,6 +1211,9 @@ async def handle_file_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -
                 InlineKeyboardButton("🗑️ מחק", callback_data=f"del_{file_index}")
             ]
         ]
+        webapp_row = _get_webapp_button_row(file_id_str)
+        if webapp_row:
+            keyboard.insert(1, webapp_row)
 
         # כפתור חזרה בהתאם למקור הרשימה (שאר הקבצים/לפי ריפו)
         last_page = context.user_data.get('files_last_page')
@@ -1398,9 +1441,16 @@ async def receive_new_code(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         success = db.save_file(user_id, file_name, cleaned_code, detected_language)
         
         if success:
+            last_version = db.get_latest_version(user_id, file_name)
+            version_num = last_version.get('version', 1) if last_version else 1
+            try:
+                fid = str((last_version or {}).get('_id') or '')
+            except Exception:
+                fid = ''
+            webapp_row = _get_webapp_button_row(fid)
             keyboard = [
                 [
-                    InlineKeyboardButton("👁️ הצג קוד מעודכן", callback_data=f"view_direct_{file_name}"),
+                    InlineKeyboardButton("👁️ הצג קוד מעודכן", callback_data=(f"view_direct_id:{fid}" if fid else f"view_direct_{file_name}")),
                     InlineKeyboardButton("📚 היסטוריה", callback_data=f"versions_file_{file_name}")
                 ],
                 [
@@ -1408,11 +1458,9 @@ async def receive_new_code(update: Update, context: ContextTypes.DEFAULT_TYPE) -
                     InlineKeyboardButton("🔙 לרשימה", callback_data="files")
                 ]
             ]
+            if webapp_row:
+                keyboard.insert(0, webapp_row)
             reply_markup = InlineKeyboardMarkup(keyboard)
-            
-            # Get the new version number to display
-            last_version = db.get_latest_version(user_id, file_name)
-            version_num = last_version.get('version', 1) if last_version else 1
             
             # רענון קאש של הקבצים אם קיים אינדקס רלוונטי
             try:
@@ -1574,9 +1622,15 @@ async def receive_new_name(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         success = db.rename_file(user_id, old_name, new_name)
         
         if success:
+            try:
+                latest_doc = db.get_latest_version(user_id, new_name) or {}
+                fid = str(latest_doc.get('_id') or '')
+            except Exception:
+                fid = ''
+            webapp_row = _get_webapp_button_row(fid)
             keyboard = [
                 [
-                    InlineKeyboardButton("👁️ הצג קוד", callback_data=f"view_direct_{new_name}"),
+                    InlineKeyboardButton("👁️ הצג קוד", callback_data=(f"view_direct_id:{fid}" if fid else f"view_direct_{new_name}")),
                     InlineKeyboardButton("📚 היסטוריה", callback_data=f"versions_file_{new_name}")
                 ],
                 [
@@ -1584,6 +1638,8 @@ async def receive_new_name(update: Update, context: ContextTypes.DEFAULT_TYPE) -
                     InlineKeyboardButton("🔙 לרשימה", callback_data="files")
                 ]
             ]
+            if webapp_row:
+                keyboard.insert(0, webapp_row)
             reply_markup = InlineKeyboardMarkup(keyboard)
             
             await update.message.reply_text(
@@ -2276,7 +2332,7 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
             note_btn_text = "📝 ערוך הערה" if note else "📝 הוסף הערה"
             keyboard = [
                 [
-                    InlineKeyboardButton("👁️ הצג קוד", callback_data=f"view_direct_{fname}"),
+                    InlineKeyboardButton("👁️ הצג קוד", callback_data=(f"view_direct_id:{fid}" if fid else f"view_direct_{fname}")),
                     InlineKeyboardButton("✏️ ערוך", callback_data=f"edit_code_direct_{fname}")
                 ],
                 [
@@ -2297,6 +2353,9 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
                     InlineKeyboardButton("🔙 לרשימה", callback_data="files")
                 ]
             ]
+            webapp_row = _get_webapp_button_row(fid)
+            if webapp_row:
+                keyboard.insert(1, webapp_row)
             reply_markup = InlineKeyboardMarkup(keyboard)
             note_display = note if note else '—'
             try:
@@ -3218,12 +3277,19 @@ async def handle_revert_version(update: Update, context: ContextTypes.DEFAULT_TY
         latest = db.get_latest_version(user_id, file_name)
         latest_ver = latest.get('version', version_num) if latest else version_num
         
+        try:
+            fid = str((latest or {}).get('_id') or '')
+        except Exception:
+            fid = ''
+        webapp_row = _get_webapp_button_row(fid)
         keyboard = [
             [
-                InlineKeyboardButton("👁️ הצג קוד מעודכן", callback_data=f"view_direct_{file_name}"),
+                InlineKeyboardButton("👁️ הצג קוד מעודכן", callback_data=(f"view_direct_id:{fid}" if fid else f"view_direct_{file_name}")),
                 InlineKeyboardButton("📚 היסטוריה", callback_data=f"versions_file_{file_name}")
             ]
         ]
+        if webapp_row:
+            keyboard.insert(0, webapp_row)
         reply_markup = InlineKeyboardMarkup(keyboard)
         
         await query.edit_message_text(
