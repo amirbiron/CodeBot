@@ -172,6 +172,10 @@ def _compute_static_version() -> str:
 
 _STATIC_VERSION = _compute_static_version()
 
+# מזהי המדריכים המשותפים לזרימת ה-Onboarding בווב
+WELCOME_GUIDE_PRIMARY_SHARE_ID = "vLLGCkWt-jC-0Yea"
+WELCOME_GUIDE_SECONDARY_SHARE_ID = "sdVOAx6hUGsH4Anr"
+
 # Guards for first-request and DB init race conditions
 _FIRST_REQUEST_LOCK = threading.Lock()
 _FIRST_REQUEST_RECORDED = False
@@ -595,10 +599,19 @@ db = None
 @app.context_processor
 def inject_globals():
     """הזרקת משתנים גלובליים לכל התבניות"""
+    user_id = session.get('user_id')
+    user_doc: Dict[str, Any] = {}
+    db_ref = None
+    if user_id:
+        try:
+            db_ref = get_db()
+            user_doc = db_ref.users.find_one({'user_id': user_id}) or {}
+        except Exception:
+            user_doc = {}
+
     # קביעת גודל גופן מהעדפות משתמש/קוקי
     font_scale = 1.0
     try:
-        # Cookie קודם
         cookie_val = request.cookies.get('ui_font_scale')
         if cookie_val:
             try:
@@ -607,29 +620,25 @@ def inject_globals():
                     font_scale = v
             except Exception:
                 pass
-        # אם מחובר - העדפת DB גוברת
-        if 'user_id' in session:
+        if user_id and user_doc:
             try:
-                _db = get_db()
-                u = _db.users.find_one({'user_id': session['user_id']}) or {}
-                v = float(((u.get('ui_prefs') or {}).get('font_scale')) or font_scale)
+                v = float(((user_doc.get('ui_prefs') or {}).get('font_scale')) or font_scale)
                 if 0.85 <= v <= 1.6:
                     font_scale = v
             except Exception:
                 pass
     except Exception:
         pass
+
     # ערכת נושא
     theme = 'classic'
     try:
         cookie_theme = (request.cookies.get('ui_theme') or '').strip().lower()
         if cookie_theme:
             theme = cookie_theme
-        if 'user_id' in session:
+        if user_id and user_doc:
             try:
-                _db = get_db()
-                u = _db.users.find_one({'user_id': session['user_id']}) or {}
-                t = ((u.get('ui_prefs') or {}).get('theme') or '').strip().lower()
+                t = ((user_doc.get('ui_prefs') or {}).get('theme') or '').strip().lower()
                 if t:
                     theme = t
             except Exception:
@@ -638,6 +647,18 @@ def inject_globals():
         pass
     if theme not in {'classic','ocean','forest','high-contrast'}:
         theme = 'classic'
+
+    show_welcome_modal = False
+    if user_id:
+        # אם אין user_doc (למשל כשל זמני ב-DB) נ fallback לסשן כדי לא לחסום משתמשים חדשים
+        if user_doc:
+            show_welcome_modal = not bool(user_doc.get('has_seen_welcome_modal'))
+        else:
+            try:
+                show_welcome_modal = not bool(session.get('user_data', {}).get('has_seen_welcome_modal', False))
+            except Exception:
+                show_welcome_modal = False
+
     # SRI map (optional): only set if provided via env to avoid mismatches
     sri_map = {}
     try:
@@ -645,6 +666,13 @@ def inject_globals():
             sri_map['fa'] = FA_SRI_HASH
     except Exception:
         sri_map = {}
+
+    try:
+        primary_guide_url = url_for('public_share', share_id=WELCOME_GUIDE_PRIMARY_SHARE_ID, view='md')
+        secondary_guide_url = url_for('public_share', share_id=WELCOME_GUIDE_SECONDARY_SHARE_ID, view='md')
+    except Exception:
+        primary_guide_url = f"/share/{WELCOME_GUIDE_PRIMARY_SHARE_ID}?view=md"
+        secondary_guide_url = f"/share/{WELCOME_GUIDE_SECONDARY_SHARE_ID}?view=md"
 
     return {
         'bot_username': BOT_USERNAME_CLEAN,
@@ -661,6 +689,10 @@ def inject_globals():
         'uptime_widget_id': UPTIME_WIDGET_ID,
         # SRI hashes for CDN assets (optional; provided via env)
         'cdn_sri': sri_map if sri_map else None,
+        # Welcome modal config
+        'show_welcome_modal': show_welcome_modal,
+        'welcome_primary_guide_url': primary_guide_url,
+        'welcome_secondary_guide_url': secondary_guide_url,
     }
 
  
@@ -1170,7 +1202,8 @@ def try_persistent_login():
             'first_name': user.get('first_name', ''),
             'last_name': user.get('last_name', ''),
             'username': user.get('username', ''),
-            'photo_url': ''
+            'photo_url': '',
+            'has_seen_welcome_modal': bool(user.get('has_seen_welcome_modal', False))
         }
         session.permanent = True
     except Exception:
@@ -2181,13 +2214,46 @@ def telegram_auth():
     
     # שמירת נתוני המשתמש בסשן
     user_id = int(auth_data['id'])
+    user_doc: Dict[str, Any] = {}
+    try:
+        db = get_db()
+    except Exception:
+        db = None
+    now_utc = datetime.now(timezone.utc)
+    if db is not None:
+        try:
+            user_doc = db.users.find_one({'user_id': user_id}) or {}
+        except Exception:
+            user_doc = {}
+        try:
+            db.users.update_one(
+                {'user_id': user_id},
+                {
+                    '$set': {
+                        'user_id': user_id,
+                        'first_name': auth_data.get('first_name', ''),
+                        'last_name': auth_data.get('last_name', ''),
+                        'username': auth_data.get('username', ''),
+                        'photo_url': auth_data.get('photo_url', ''),
+                        'updated_at': now_utc,
+                    },
+                    '$setOnInsert': {
+                        'created_at': now_utc,
+                        'has_seen_welcome_modal': False,
+                    },
+                },
+                upsert=True,
+            )
+        except Exception:
+            pass
     session['user_id'] = user_id
     session['user_data'] = {
         'id': user_id,
         'first_name': auth_data.get('first_name', ''),
         'last_name': auth_data.get('last_name', ''),
         'username': auth_data.get('username', ''),
-        'photo_url': auth_data.get('photo_url', '')
+        'photo_url': auth_data.get('photo_url', ''),
+        'has_seen_welcome_modal': bool((user_doc or {}).get('has_seen_welcome_modal', False))
     }
     
     # הפוך את הסשן לקבוע לכל המשתמשים (30 יום)
@@ -2231,17 +2297,40 @@ def token_auth():
         db.webapp_tokens.delete_one({'_id': token_doc['_id']})
         
         # שליפת פרטי המשתמש
-        user = db.users.find_one({'user_id': int(user_id)})
+        now_utc = datetime.now(timezone.utc)
+        user = db.users.find_one({'user_id': int(user_id)}) or {}
+        try:
+            db.users.update_one(
+                {'user_id': int(user_id)},
+                {
+                    '$set': {
+                        'user_id': int(user_id),
+                        'first_name': user.get('first_name') or token_doc.get('first_name', ''),
+                        'last_name': user.get('last_name') or token_doc.get('last_name', ''),
+                        'username': token_doc.get('username', user.get('username', '')),
+                        'photo_url': user.get('photo_url', ''),
+                        'updated_at': now_utc,
+                    },
+                    '$setOnInsert': {
+                        'created_at': now_utc,
+                        'has_seen_welcome_modal': False,
+                    },
+                },
+                upsert=True,
+            )
+        except Exception:
+            pass
         
         # שמירת נתוני המשתמש בסשן
         user_id_int = int(user_id)
         session['user_id'] = user_id_int
         session['user_data'] = {
             'id': user_id_int,
-            'first_name': user.get('first_name', ''),
-            'last_name': user.get('last_name', ''),
+            'first_name': user.get('first_name', token_doc.get('first_name', '')),
+            'last_name': user.get('last_name', token_doc.get('last_name', '')),
             'username': token_doc.get('username', ''),
-            'photo_url': ''
+            'photo_url': user.get('photo_url', ''),
+            'has_seen_welcome_modal': bool(user.get('has_seen_welcome_modal', False))
         }
         
         # הפוך את הסשן לקבוע לכל המשתמשים (30 יום)
@@ -3890,7 +3979,14 @@ def md_preview(file_id):
         'language': 'markdown',
     }
     # העבר את התוכן ללקוח בתור JSON כדי למנוע בעיות escaping
-    html = render_template('md_preview.html', user=session.get('user_data', {}), file=file_data, md_code=code, bot_username=BOT_USERNAME_CLEAN)
+    html = render_template(
+        'md_preview.html',
+        user=session.get('user_data', {}),
+        file=file_data,
+        md_code=code,
+        bot_username=BOT_USERNAME_CLEAN,
+        can_save_shared=False,
+    )
     if should_cache and md_cache_key:
         try:
             cache.set_dynamic(
@@ -4010,6 +4106,95 @@ def create_public_share(file_id):
         return jsonify(response_payload)
     except Exception:
         return jsonify({'ok': False, 'error': 'שגיאה לא צפויה'}), 500
+
+
+@app.route('/api/shared/save', methods=['POST'])
+@login_required
+def api_save_shared_file():
+    try:
+        payload = request.get_json(silent=True) or {}
+        share_id = str(payload.get('share_id') or '').strip()
+        if not share_id:
+            return jsonify({'ok': False, 'error': 'share_id נדרש'}), 400
+
+        share_doc = get_internal_share(share_id)
+        if not share_doc:
+            return jsonify({'ok': False, 'error': 'השיתוף לא נמצא'}), 404
+
+        raw_code = share_doc.get('code', '')
+        code = normalize_code(raw_code if isinstance(raw_code, str) else str(raw_code or ''))
+
+        requested_name = str(payload.get('file_name') or share_doc.get('file_name') or '').strip()
+        if not requested_name:
+            requested_name = 'מדריך WebApp'
+        safe_name = requested_name
+        name_path = Path(safe_name)
+        if not name_path.suffix:
+            safe_name = f"{safe_name}.md"
+        elif name_path.suffix.lower() not in {'.md', '.markdown'}:
+            safe_name = f"{name_path.stem}.md"
+
+        language = (share_doc.get('language') or 'markdown').lower()
+        if not language or language == 'text':
+            language = 'markdown'
+
+        user_id = session['user_id']
+        db = get_db()
+        now_utc = datetime.now(timezone.utc)
+
+        try:
+            prev = db.code_snippets.find_one(
+                {
+                    'user_id': user_id,
+                    'file_name': safe_name,
+                    '$or': [
+                        {'is_active': True},
+                        {'is_active': {'$exists': False}}
+                    ]
+                },
+                sort=[('version', -1)],
+            )
+        except Exception:
+            prev = None
+
+        version = int((prev or {}).get('version', 0) or 0) + 1
+        description = share_doc.get('description') or (prev or {}).get('description') or ''
+        try:
+            tags = list((prev or {}).get('tags') or [])
+        except Exception:
+            tags = []
+
+        snippet_doc = {
+            'user_id': user_id,
+            'file_name': safe_name,
+            'code': code,
+            'programming_language': language,
+            'description': description,
+            'tags': tags,
+            'version': version,
+            'created_at': now_utc,
+            'updated_at': now_utc,
+            'is_active': True,
+        }
+
+        try:
+            res = db.code_snippets.insert_one(snippet_doc)
+        except Exception as exc:
+            logger.exception("Failed to save shared guide", extra={'share_id': share_id, 'user_id': user_id, 'error': str(exc)})
+            return jsonify({'ok': False, 'error': 'שמירת המדריך נכשלה'}), 500
+
+        inserted_id = str(getattr(res, 'inserted_id', '') or '')
+
+        try:
+            cache.invalidate_user_cache(user_id)
+            cache.invalidate_file_related(file_id=safe_name, user_id=user_id)
+        except Exception:
+            pass
+
+        return jsonify({'ok': True, 'file_id': inserted_id, 'file_name': safe_name, 'version': version})
+    except Exception:
+        return jsonify({'ok': False, 'error': 'שגיאה לא צפויה'}), 500
+
 
 @app.route('/upload', methods=['GET', 'POST'])
 @login_required
@@ -5035,6 +5220,30 @@ def api_ui_prefs():
         return jsonify({'ok': False, 'error': 'שגיאה לא צפויה'}), 500
 
 
+@app.route('/api/welcome/ack', methods=['POST'])
+@login_required
+def api_welcome_ack():
+    try:
+        db = get_db()
+        user_id = session['user_id']
+        now_utc = datetime.now(timezone.utc)
+        db.users.update_one(
+            {'user_id': user_id},
+            {'$set': {'has_seen_welcome_modal': True, 'updated_at': now_utc}, '$setOnInsert': {'created_at': now_utc}},
+            upsert=True,
+        )
+        try:
+            user_data = dict(session.get('user_data') or {})
+            user_data['has_seen_welcome_modal'] = True
+            session['user_data'] = user_data
+            session.modified = True
+        except Exception:
+            pass
+        return jsonify({'ok': True})
+    except Exception:
+        return jsonify({'ok': False, 'error': 'שגיאה לא צפויה'}), 500
+
+
 # --- User preferences (generic) ---
 @app.route('/api/user/preferences', methods=['POST'])
 @login_required
@@ -5209,6 +5418,9 @@ def public_share(share_id):
     file_name = doc.get('file_name', 'snippet.txt')
     description = doc.get('description', '')
 
+    can_save_shared = bool(session.get('user_id'))
+    user_context = session.get('user_data', {}) if can_save_shared else {}
+
     # אם view=md והמסמך Markdown – נרנדר את עמוד md_preview עם דגל is_public
     try:
         view = (request.args.get('view') or '').strip().lower()
@@ -5221,7 +5433,15 @@ def public_share(share_id):
             'file_name': file_name or 'README.md',
             'language': 'markdown',
         }
-        return render_template('md_preview.html', user={}, file=file_data, md_code=code, bot_username=BOT_USERNAME_CLEAN, is_public=True)
+        return render_template(
+            'md_preview.html',
+            user=user_context,
+            file=file_data,
+            md_code=code,
+            bot_username=BOT_USERNAME_CLEAN,
+            is_public=True,
+            can_save_shared=can_save_shared,
+        )
 
     # ברירת מחדל: תצוגת קוד (כמו קודם)
     try:
