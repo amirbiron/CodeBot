@@ -260,11 +260,17 @@ class DatabaseManager:
             if appname:
                 kwargs["appname"] = appname
 
+            mongo_url = getattr(config, "MONGODB_URL", None) or os.getenv("MONGODB_URL")
+            if not mongo_url:
+                raise RuntimeError("MONGODB_URL is not configured")
+
+            database_name = getattr(config, "DATABASE_NAME", None) or os.getenv("DATABASE_NAME", "code_keeper_bot")
+
             self.client = MongoClient(
-                config.MONGODB_URL,
+                mongo_url,
                 **kwargs,
             )
-            self.db = self.client[config.DATABASE_NAME]
+            self.db = self.client[database_name]
             self.collection = self.db.code_snippets
             self.large_files_collection = self.db.large_files
             self.backup_ratings_collection = self.db.backup_ratings
