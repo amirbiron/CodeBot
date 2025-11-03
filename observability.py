@@ -117,6 +117,7 @@ def _sanitize_command_identifier(command: Any | None) -> str:
         sanitized = sanitized[1:]
     if "@" in sanitized:
         sanitized = sanitized.split("@", 1)[0]
+    sanitized = sanitized.lower()
     if len(sanitized) > 80:
         sanitized = sanitized[:80]
     return sanitized
