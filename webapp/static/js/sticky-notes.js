@@ -102,10 +102,14 @@
       this._didSetupLifecycleGuards = true;
       const flush = () => {
         try {
-          this._flushDebounceTimer();
           this._flushPendingKeepalive();
         } catch(err) {
-          console.warn('sticky note: lifecycle flush failed', err);
+          console.warn('sticky note: lifecycle keepalive flush failed', err);
+        }
+        try {
+          this._flushDebounceTimer();
+        } catch(err) {
+          console.warn('sticky note: lifecycle debounce flush failed', err);
         }
       };
       try {
