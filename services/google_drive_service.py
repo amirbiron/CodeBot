@@ -45,10 +45,11 @@ def start_device_authorization(user_id: int) -> Dict[str, Any]:
 
     Returns a dict with: verification_url, user_code, device_code, interval, expires_in.
     """
-    if not config.GOOGLE_CLIENT_ID:
+    client_id = getattr(config, "GOOGLE_CLIENT_ID", None)
+    if not client_id:
         raise RuntimeError("GOOGLE_CLIENT_ID is not set")
     payload = {
-        "client_id": config.GOOGLE_CLIENT_ID,
+        "client_id": client_id,
         "scope": config.GOOGLE_OAUTH_SCOPES,
     }
     # Some Google OAuth client types (e.g., Web) require client_secret
@@ -86,8 +87,11 @@ def poll_device_token(device_code: str) -> Optional[Dict[str, Any]]:
         - None if authorization is still pending or needs to slow down
         - dict with {"error": <code>, "error_description": <str>} on user-facing errors
     """
+    client_id = getattr(config, "GOOGLE_CLIENT_ID", None)
+    if not client_id:
+        logging.getLogger(__name__).warning("Drive OAuth client id missing; continuing with empty id")
     payload = {
-        "client_id": config.GOOGLE_CLIENT_ID,
+        "client_id": client_id or "",
         "device_code": device_code,
         "grant_type": "urn:ietf:params:oauth:grant-type:device_code",
     }
@@ -144,12 +148,14 @@ def _load_tokens(user_id: int) -> Optional[Dict[str, Any]]:
 def _credentials_from_tokens(tokens: Dict[str, Any]) -> Credentials:
     if Credentials is None:
         raise RuntimeError("Google libraries are not installed")
+    client_id = getattr(config, "GOOGLE_CLIENT_ID", None)
+    client_secret = getattr(config, "GOOGLE_CLIENT_SECRET", None)
     return Credentials(
         token=tokens.get("access_token"),
         refresh_token=tokens.get("refresh_token"),
         token_uri=TOKEN_URL,
-        client_id=config.GOOGLE_CLIENT_ID,
-        client_secret=config.GOOGLE_CLIENT_SECRET or None,
+        client_id=client_id,
+        client_secret=client_secret or None,
         scopes=(tokens.get("scope") or config.GOOGLE_OAUTH_SCOPES).split(),
     )
 
