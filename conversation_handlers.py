@@ -299,24 +299,27 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
     user_stats.log_user(user_id, username)
     # אם המשתמש הגיע עם פרמטר webapp_login — צור ושלח קישור התחברות אישי ל-Web App
     if _is_webapp_login_requested(update, context):
-        payload = _build_webapp_login_payload(db, user_id, username)
-        if payload is not None:
-            message = getattr(update, "message", None)
-            reply_fn = getattr(message, "reply_text", None) if message is not None else None
-            if callable(reply_fn):
-                reply_markup = _build_webapp_login_markup(payload["webapp_url"], payload["login_url"])
-                await reply_fn(
-                    "🔐 <b>קישור התחברות אישי ל-Web App</b>\n\n"
-                    "לחץ על הכפתור למטה כדי להתחבר:\n\n"
-                    "⚠️ <i>הקישור תקף ל-5 דקות בלבד מטעמי אבטחה</i>",
-                    reply_markup=reply_markup,
-                    parse_mode=ParseMode.HTML,
-                )
-                try:
-                    reporter.report_activity(user_id)
-                except Exception:
-                    pass
-                return ConversationHandler.END
+        try:
+            payload = _build_webapp_login_payload(db, user_id, username)
+            if payload is not None:
+                message = getattr(update, "message", None)
+                reply_fn = getattr(message, "reply_text", None) if message is not None else None
+                if callable(reply_fn):
+                    reply_markup = _build_webapp_login_markup(payload["webapp_url"], payload["login_url"])
+                    await reply_fn(
+                        "🔐 <b>קישור התחברות אישי ל-Web App</b>\n\n"
+                        "לחץ על הכפתור למטה כדי להתחבר:\n\n"
+                        "⚠️ <i>הקישור תקף ל-5 דקות בלבד מטעמי אבטחה</i>",
+                        reply_markup=reply_markup,
+                        parse_mode=ParseMode.HTML,
+                    )
+                    try:
+                        reporter.report_activity(user_id)
+                    except Exception:
+                        pass
+                    return ConversationHandler.END
+        except Exception:
+            logger.exception("webapp_login_flow_failed", exc_info=True)
     safe_user_name = html_escape(user_name) if user_name else ""
     from i18n.strings_he import MESSAGES
     welcome_text = MESSAGES["welcome"].format(name=safe_user_name)
