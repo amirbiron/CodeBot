@@ -3922,6 +3922,7 @@ def create_public_share(file_id):
     try:
         db = get_db()
         user_id = session['user_id']
+
         try:
             file = db.code_snippets.find_one({
                 '_id': ObjectId(file_id),
@@ -3933,9 +3934,37 @@ def create_public_share(file_id):
         if not file:
             return jsonify({'ok': False, 'error': 'קובץ לא נמצא'}), 404
 
+        payload = {}
+        try:
+            payload = request.get_json(silent=True) or {}
+        except Exception:
+            payload = {}
+
+        share_type = ''
+        try:
+            share_type = str(payload.get('type') or payload.get('mode') or payload.get('variant') or request.args.get('type') or request.args.get('variant') or request.args.get('mode') or '').strip().lower()
+        except Exception:
+            share_type = ''
+
+        permanent_flag = False
+        if share_type in {'permanent', 'forever'}:
+            permanent_flag = True
+        elif isinstance(payload.get('permanent'), bool):
+            permanent_flag = payload.get('permanent')
+        elif isinstance(payload.get('permanent'), str):
+            try:
+                permanent_flag = payload.get('permanent').strip().lower() in {'1', 'true', 'yes'}
+            except Exception:
+                permanent_flag = False
+        elif request.args.get('permanent') is not None:
+            try:
+                permanent_flag = str(request.args.get('permanent')).strip().lower() in {'1', 'true', 'yes'}
+            except Exception:
+                permanent_flag = False
+
         share_id = secrets.token_urlsafe(12)
         now = datetime.now(timezone.utc)
-        expires_at = now + timedelta(days=PUBLIC_SHARE_TTL_DAYS)
+        expires_at = None if permanent_flag else now + timedelta(days=PUBLIC_SHARE_TTL_DAYS)
 
         doc = {
             'share_id': share_id,
@@ -3945,8 +3974,10 @@ def create_public_share(file_id):
             'description': file.get('description') or '',
             'created_at': now,
             'views': 0,
-            'expires_at': expires_at,
+            'is_permanent': permanent_flag,
         }
+        if not permanent_flag and expires_at is not None:
+            doc['expires_at'] = expires_at
 
         coll = db.internal_shares
         # ניסיון ליצור אינדקסים רלוונטיים (בטוח לקרוא מספר פעמים)
@@ -3966,7 +3997,17 @@ def create_public_share(file_id):
         # בסיס ליצירת URL ציבורי: קודם PUBLIC_BASE_URL, אחר כך WEBAPP_URL, ולבסוף host_url מהבקשה
         base = (PUBLIC_BASE_URL or WEBAPP_URL or request.host_url or '').rstrip('/')
         share_url = f"{base}/share/{share_id}" if base else f"/share/{share_id}"
-        return jsonify({'ok': True, 'url': share_url, 'share_id': share_id, 'expires_at': expires_at.isoformat()})
+
+        response_payload = {
+            'ok': True,
+            'url': share_url,
+            'share_id': share_id,
+            'is_permanent': permanent_flag,
+        }
+        if expires_at is not None:
+            response_payload['expires_at'] = expires_at.isoformat()
+
+        return jsonify(response_payload)
     except Exception:
         return jsonify({'ok': False, 'error': 'שגיאה לא צפויה'}), 500
 
