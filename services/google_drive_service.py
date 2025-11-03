@@ -89,9 +89,9 @@ def poll_device_token(device_code: str) -> Optional[Dict[str, Any]]:
     """
     client_id = getattr(config, "GOOGLE_CLIENT_ID", None)
     if not client_id:
-        logging.getLogger(__name__).warning("Drive OAuth client id missing; continuing with empty id")
+        raise RuntimeError("GOOGLE_CLIENT_ID is not set")
     payload = {
-        "client_id": client_id or "",
+        "client_id": client_id,
         "device_code": device_code,
         "grant_type": "urn:ietf:params:oauth:grant-type:device_code",
     }
