@@ -2536,17 +2536,16 @@ async function shareToTelegramMd(){
   catch(_){ window.location.href = telegramUrl; }
 }
 
-// ניווט חזרה אמין: אם יש היסטוריה – חזור; אחרת נווט ישירות לעמוד הקובץ
+// ניווט חזרה אמין: תמיד מעביר לתצוגת הקוד של אותו קובץ
 function goBackToFile(ev){
   try { if (ev) ev.preventDefault(); } catch(_){ }
+  const targetUrl = "{{ url_for('view_file', file_id=file.id) }}";
   try {
-    const sameOriginRef = document.referrer && new URL(document.referrer, window.location.origin).origin === window.location.origin;
-    if (window.history && window.history.length > 1 && sameOriginRef) {
-      window.history.back();
-      return false;
-    }
-  } catch(_){ }
-  try { window.location.replace('/file/{{ file.id }}'); } catch(_) { window.location.href = '/file/{{ file.id }}'; }
+    window.location.replace(targetUrl);
+  } catch(_){
+    try { window.location.href = targetUrl; }
+    catch(__){ }
+  }
   return false;
 }
 
