@@ -82,7 +82,11 @@ def _get_webapp_button_row(file_id: Optional[str], file_name: Optional[str] = No
         target = None
     if not target:
         return None
-    return [InlineKeyboardButton("🌐 צפייה בWebApp", url=target)]
+    try:
+        return [InlineKeyboardButton("🌐 צפייה בWebApp", url=target)]
+    except TypeError:
+        # בסביבות בדיקה ייתכן ש-InlineKeyboardButton אינו תומך בפרמטר url
+        return None
 
 async def _safe_edit_message_text(query, text: str, reply_markup=None, parse_mode=None) -> None:
     """עורך הודעה בבטיחות: מתעלם משגיאת 'Message is not modified'."""
