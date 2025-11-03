@@ -44,15 +44,39 @@ from telegram.ext import (Application, CommandHandler, ContextTypes,
                           PicklePersistence, InlineQueryHandler, ApplicationHandlerStop, TypeHandler)
 
 from config import config
-from observability import (
-    setup_structlog_logging,
-    init_sentry,
-    bind_request_id,
-    generate_request_id,
-    emit_event,
-    bind_user_context,
-    bind_command,
-)
+try:
+    import observability as _observability
+except Exception:
+    _observability = None
+
+
+def _noop(*_a, **_k):  # type: ignore[unused-argument]
+    return None
+
+
+def _default_generate_request_id() -> str:
+    try:
+        return str(int(time.time() * 1000))[-8:]
+    except Exception:
+        return ""
+
+
+def _observability_attr(name: str, default):
+    if _observability is None:
+        return default
+    try:
+        return getattr(_observability, name)
+    except AttributeError:
+        return default
+
+
+setup_structlog_logging = _observability_attr("setup_structlog_logging", _noop)
+init_sentry = _observability_attr("init_sentry", _noop)
+bind_request_id = _observability_attr("bind_request_id", _noop)
+generate_request_id = _observability_attr("generate_request_id", _default_generate_request_id)
+emit_event = _observability_attr("emit_event", _noop)
+bind_user_context = _observability_attr("bind_user_context", _noop)
+bind_command = _observability_attr("bind_command", _noop)
 from metrics import (
     telegram_updates_total,
     track_file_saved,
