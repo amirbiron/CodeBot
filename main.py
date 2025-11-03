@@ -879,14 +879,18 @@ class CodeKeeperBot:
                 message = getattr(update, "effective_message", None)
                 if message is not None:
                     text = getattr(message, "text", None)
-                    if isinstance(text, str) and text.startswith("/"):
-                        command_name = text.split()[0]
+                    if isinstance(text, str):
+                        parts = text.split()
+                        if parts and parts[0].startswith("/"):
+                            command_name = parts[0]
                 if not command_name:
                     callback = getattr(update, "callback_query", None)
                     if callback is not None:
                         data = getattr(callback, "data", None)
-                        if isinstance(data, str) and data:
-                            command_name = data.split()[0]
+                        if isinstance(data, str):
+                            parts = data.split()
+                            if parts:
+                                command_name = parts[0]
                 if not command_name and getattr(update, "inline_query", None):
                     command_name = "inline_query"
                 if command_name:
