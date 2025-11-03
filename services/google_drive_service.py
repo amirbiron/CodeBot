@@ -52,7 +52,14 @@ def start_device_authorization(user_id: int) -> Dict[str, Any]:
         raise RuntimeError("GOOGLE_CLIENT_ID is not set")
     scopes = getattr(config, "GOOGLE_OAUTH_SCOPES", DEFAULT_GOOGLE_OAUTH_SCOPES) or DEFAULT_GOOGLE_OAUTH_SCOPES
     if isinstance(scopes, (list, tuple, set)):
-        scope_str = " ".join(str(s).strip() for s in scopes if str(s).strip()) or DEFAULT_GOOGLE_OAUTH_SCOPES
+        cleaned_scopes = []
+        for scope in scopes:
+            if scope is None:
+                continue
+            scope_text = str(scope).strip()
+            if scope_text:
+                cleaned_scopes.append(scope_text)
+        scope_str = " ".join(cleaned_scopes) or DEFAULT_GOOGLE_OAUTH_SCOPES
     else:
         scope_str = str(scopes).strip() or DEFAULT_GOOGLE_OAUTH_SCOPES
     payload = {
