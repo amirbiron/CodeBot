@@ -982,11 +982,11 @@ class CodeKeeperBot:
             return None
 
         maintenance_flag = _coerce_flag(maintenance_flag_raw)
+
         env_override = _coerce_flag(os.getenv("MAINTENANCE_MODE"))
-        if env_override is True:
-            maintenance_flag = True
-        elif env_override is False and maintenance_flag is None:
-            maintenance_flag = False
+        if env_override is not None:
+            maintenance_flag = env_override
+
         if maintenance_flag is None:
             maintenance_flag = False
 
