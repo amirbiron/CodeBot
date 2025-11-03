@@ -986,13 +986,102 @@ input.md-task-checkbox {
         <i class="fab fa-telegram"></i>
         שתף בטלגרם
       </button>
-      <button onclick="copyLinkMd()" class="btn btn-secondary btn-icon">
+      <button onclick="openShareLinkModalMd()" class="btn btn-secondary btn-icon">
         <i class="fas fa-link"></i>
         העתק קישור
       </button>
     </div>
   </div>
+
+  <div id="shareLinkModalMd" class="share-link-modal" role="dialog" aria-modal="true" aria-labelledby="shareLinkMdTitle" hidden>
+    <div class="share-link-modal__content" role="document">
+      <h3 id="shareLinkMdTitle" class="share-link-modal__title">בחרו סוג קישור</h3>
+      <p class="share-link-modal__subtitle">אפשר ליצור קישור זמני (פג תוקף אוטומטית) או קישור קבוע ללא תפוגה.</p>
+      <div class="share-link-modal__actions">
+        <button type="button" class="btn btn-primary" onclick="copyShareLinkMd(false)">
+          <i class="fas fa-clock"></i>
+          קישור זמני
+        </button>
+        <button type="button" class="btn btn-secondary" onclick="copyShareLinkMd(true)">
+          <i class="fas fa-infinity"></i>
+          קישור קבוע
+        </button>
+      </div>
+      <button type="button" class="share-link-modal__close" onclick="closeShareLinkModalMd()" aria-label="סגור">✕</button>
+    </div>
+  </div>
+
+  <style>
+  .share-link-modal {
+    position: fixed;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(0, 0, 0, 0.55);
+    z-index: 9999;
+  }
+  .share-link-modal[hidden] {
+    display: none;
+  }
+  .share-link-modal__content {
+    background: #1f2a44;
+    border-radius: 16px;
+    padding: 1.5rem;
+    max-width: 420px;
+    width: calc(100% - 2rem);
+    color: #fff;
+    position: relative;
+    box-shadow: 0 12px 30px rgba(0, 0, 0, 0.35);
+  }
+  .share-link-modal__title {
+    margin: 0 0 0.5rem;
+    font-size: 1.3rem;
+  }
+  .share-link-modal__subtitle {
+    margin: 0 0 1.25rem;
+    color: rgba(255, 255, 255, 0.8);
+  }
+  .share-link-modal__actions {
+    display: flex;
+    gap: 1rem;
+    flex-wrap: wrap;
+  }
+  .share-link-modal__actions .btn {
+    flex: 1 1 150px;
+  }
+  .share-link-modal__close {
+    position: absolute;
+    top: 0.75rem;
+    left: 0.75rem;
+    background: transparent;
+    border: none;
+    color: rgba(255, 255, 255, 0.7);
+    font-size: 1.1rem;
+    cursor: pointer;
+  }
+  .share-link-modal__close:hover,
+  .share-link-modal__close:focus {
+    color: #fff;
+  }
+  </style>
   {% endif %}
+{% if can_save_shared %}
+<div class="glass-card" style="margin-top: 1rem;">
+  <h2 class="section-title">
+    <i class="fas fa-floppy-disk"></i>
+    שמור בקבצים שלי
+  </h2>
+  <p style="margin-bottom: 1rem;">לחיצה על הכפתור תשמור את המדריך הזה בחשבון שלך כדי שתוכל לחזור אליו בכל רגע.</p>
+  <button id="saveSharedFileBtn"
+          class="btn btn-primary btn-icon"
+          data-share-id="{{ file.id }}"
+          data-file-name="{{ file.file_name }}">
+    <i class="fas fa-save"></i>
+    💾 שמור בקבצים שלי
+  </button>
+</div>
+{% endif %}
   <script type="application/json" id="mdText">{{ md_code | tojson | safe }}</script>
   <script>
     // חשוף מזהה קובץ לשימוש רכיבי אינטראקציה (פתקים דביקים וכו')
@@ -1003,6 +1092,45 @@ input.md-task-checkbox {
 <script>
 // מזהה קובץ לשימוש בשמירת העדפות פר-קובץ
 const FILE_ID = "{{ file.id }}";
+const FILE_VIEW_URL = "{{ url_for('view_file', file_id=file.id) }}";
+const saveSharedButton = document.getElementById('saveSharedFileBtn');
+if (saveSharedButton) {
+  const originalHtml = saveSharedButton.innerHTML;
+  const shareId = saveSharedButton.getAttribute('data-share-id') || '';
+  const fileName = saveSharedButton.getAttribute('data-file-name') || '';
+  const markSuccess = () => {
+    saveSharedButton.innerHTML = '✅ נשמר בהצלחה';
+    saveSharedButton.disabled = true;
+  };
+  saveSharedButton.addEventListener('click', async (event) => {
+    event.preventDefault();
+    if (saveSharedButton.dataset.loading === '1') {
+      return;
+    }
+    saveSharedButton.dataset.loading = '1';
+    saveSharedButton.disabled = true;
+    try {
+      const resp = await fetch('/api/shared/save', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ share_id: shareId, file_name: fileName })
+      });
+      const data = await resp.json().catch(() => ({}));
+      if (!resp.ok || !data || data.ok !== true) {
+        throw new Error((data && data.error) || 'שמירת המדריך נכשלה');
+      }
+      markSuccess();
+    } catch (err) {
+      console.error('saveSharedGuide', err);
+      alert((err && err.message) ? err.message : 'שמירת המדריך נכשלה');
+      saveSharedButton.innerHTML = originalHtml;
+      saveSharedButton.disabled = false;
+    } finally {
+      saveSharedButton.dataset.loading = '0';
+    }
+  });
+}
+
 // תוכן ה-Markdown מועבר בבטחה JSON-encoded
 const MD_TEXT = (function(){
   try {
@@ -1045,6 +1173,45 @@ const CDN = {
   katexAuto: null,
   mermaid: null
 };
+
+// Slug יציב בסגנון GitHub – שומר על התאמה לתוכן עניינים ידני גם בכותרות רב־לשוניות
+function slugifyHeadingId(rawText) {
+  try {
+    let slug = (rawText || '')
+      .toString()
+      .trim()
+      .toLowerCase()
+      .normalize('NFKD')
+      // ניקוי סימנים בלתי מודפסים/RTL וכדומה
+      .replace(/[\u200B-\u200D\uFEFF]/g, '')
+      // הסרת סימני ניקוד לאחר נרמול (כמו á -> a)
+      .replace(/\p{M}+/gu, '')
+      // השארת אותיות (מכל שפה), ספרות, רווחים ומקפים בטוחים
+      .replace(/[^\p{L}\p{N}\s-]+/gu, '')
+      // המרה של רווחים רצופים למקף יחיד
+      .replace(/\s+/g, '-')
+      // ביטול ריבוי מקפים רצופים
+      .replace(/-{2,}/g, '-')
+      // הסרת מקפים מובילים או מסיימים שנוצרו לאחר הניקוי
+      .replace(/^-+|-+$/g, '');
+
+    // אין מצב שנשאיר עוגן ריק – נספק ברירת מחדל יציבה
+    if (!slug) {
+      slug = 'section';
+    }
+
+    return slug;
+  } catch (_) {
+    // במקרה נדיר של שגיאת RegExp בדפדפן ישן, נ fallback לשיטה בסיסית
+    const safe = (rawText || '')
+      .toString()
+      .trim()
+      .toLowerCase()
+      .replace(/\s+/g, '-')
+      .replace(/[^a-z0-9-]/g, '') || 'section';
+    return safe;
+  }
+}
 
 function injectCss(href){
   if (!href) return;
@@ -1100,10 +1267,11 @@ function loadScript(src){
     if (window.markdownitTaskLists) md.use(window.markdownitTaskLists, { label: true, enabled: true });
     // עוגני כותרות – הגדרה יציבה למניעת רגרסיות בין גרסאות התוסף
     if (window.markdownitAnchor) {
+      const anchorOptions = { permalink: true, permalinkSymbol: '¶', slugify: slugifyHeadingId };
       try {
-        md.use(window.markdownitAnchor, { permalink: true, permalinkSymbol: '¶' });
+        md.use(window.markdownitAnchor, anchorOptions);
       } catch(_) {
-        try { md.use(window.markdownitAnchor); } catch(__) {}
+        try { md.use(window.markdownitAnchor, { slugify: slugifyHeadingId }); } catch(__) {}
       }
     }
     if (window.markdownitFootnote) md.use(window.markdownitFootnote);
@@ -1159,7 +1327,13 @@ function loadScript(src){
         });
       } catch(_) {}
     })();
-    if (window.markdownitTocDoneRight) md.use(window.markdownitTocDoneRight);
+    if (window.markdownitTocDoneRight) {
+      try {
+        md.use(window.markdownitTocDoneRight, { slugify: slugifyHeadingId });
+      } catch(_) {
+        try { md.use(window.markdownitTocDoneRight); } catch(__) {}
+      }
+    }
 
     // רינדור ראשוני
     const container = document.getElementById('md-content');
@@ -1172,16 +1346,21 @@ function loadScript(src){
     try {
       // השלם מזהי עוגן חסרים והסר כפילויות כדי שסימניות על כותרות יעבדו יציב
       const seen = new Set();
-      const gen = (t) => {
-        const s = (t || '').toLowerCase().trim().replace(/[^a-z0-9א-ת\-\s]/gi, '').replace(/\s+/g, '-');
-        let base = s || 'section'; let k = base; let i = 2;
-        while (seen.has(k) || document.getElementById(k)) { k = base + '-' + (i++); }
-        seen.add(k); return k;
+      const gen = (t, el) => {
+        const base = slugifyHeadingId(t);
+        let candidate = base;
+        let idx = 2;
+        while (seen.has(candidate) || (document.getElementById(candidate) && document.getElementById(candidate) !== el)) {
+          candidate = `${base}-${idx++}`;
+        }
+        seen.add(candidate);
+        return candidate;
       };
       Array.from(container.querySelectorAll('h1, h2, h3, h4, h5, h6')).forEach(h => {
         const txt = (h.textContent || '').trim();
-        if (!h.id) { h.id = gen(txt); }
-        else if (seen.has(h.id)) { h.id = gen(txt); } else { seen.add(h.id); }
+        if (!h.id) { h.id = gen(txt, h); }
+        else if (seen.has(h.id)) { h.id = gen(txt, h); }
+        else { seen.add(h.id); }
       });
     } catch(_) {}
 
@@ -2254,7 +2433,18 @@ function loadScript(src){
       console.info('TOC: מתחיל אתחול');
       waitForContent(buildTOC);
       window.addEventListener('beforeunload', cleanup);
-      if (window.navigation) { window.navigation.addEventListener('navigate', cleanup); }
+      if (window.navigation && typeof window.navigation.addEventListener === 'function') {
+        const navHandler = (event) => {
+          try {
+            if (event && event.destination && event.destination.sameDocument) {
+              return;
+            }
+          } catch(_) {}
+          cleanup();
+        };
+        window.navigation.addEventListener('navigate', navHandler);
+        tocState.clickHandlers.push({ element: window.navigation, event: 'navigate', handler: navHandler });
+      }
       // יישר מיקום התפריט והכפתור המינימלי לשורה אחת בצד שמאל
       applyMiniTop(getSavedMiniTop());
       // שחזור העדפת מיזעור (גלובלי/פר-קובץ)
@@ -2317,55 +2507,113 @@ function loadScript(src){
   } catch(_) {}
 })();
 
-// יצירת קישור ציבורי שמכוון לתצוגת Markdown (view=md)
-async function ensurePublicLinkMd(){
-  try {
-    const resp = await fetch(`/api/share/{{ file.id }}`, { method: 'POST' });
-    const data = await resp.json();
-    let baseUrl = window.location.origin;
-    let url = (data && data.ok && data.url) ? data.url : window.location.href;
+let shareLinkModalKeyHandlerMd = null;
+
+function openShareLinkModalMd(){
+  const modal = document.getElementById('shareLinkModalMd');
+  if (!modal){
+    copyShareLinkMd(false);
+    return;
+  }
+  modal.hidden = false;
+  if (!modal.dataset.boundBackdrop){
+    modal.addEventListener('click', function(ev){
+      if (ev.target === modal){ closeShareLinkModalMd(); }
+    });
+    modal.dataset.boundBackdrop = '1';
+  }
+  if (shareLinkModalKeyHandlerMd){
     try {
-      const u = new URL(url, window.location.origin);
-      u.searchParams.set('view', 'md');
-      return u.toString();
-    } catch(_) {
-      return url + (url.includes('?') ? '&' : '?') + 'view=md';
-    }
-  } catch (e) {
+      document.removeEventListener('keydown', shareLinkModalKeyHandlerMd);
+    } catch(_){ }
+  }
+  shareLinkModalKeyHandlerMd = function(ev){
     try {
-      const u = new URL(window.location.href);
-      u.searchParams.set('view','md');
-      return u.toString();
-    } catch(_) {
-      return window.location.href;
-    }
+      if (ev.key === 'Escape'){
+        ev.preventDefault();
+        closeShareLinkModalMd();
+      }
+    } catch(_){ }
+  };
+  document.addEventListener('keydown', shareLinkModalKeyHandlerMd);
+  setTimeout(() => {
+    try {
+      const firstButton = modal.querySelector('.share-link-modal__actions button');
+      if (firstButton){ firstButton.focus(); }
+    } catch(_){ }
+  }, 0);
+}
+
+function closeShareLinkModalMd(){
+  const modal = document.getElementById('shareLinkModalMd');
+  if (!modal){ return; }
+  modal.hidden = true;
+  if (shareLinkModalKeyHandlerMd){
+    document.removeEventListener('keydown', shareLinkModalKeyHandlerMd);
+    shareLinkModalKeyHandlerMd = null;
   }
 }
 
-async function copyLinkMd(){
-  const url = await ensurePublicLinkMd();
-  try { await navigator.clipboard.writeText(url); alert('הקישור הציבורי הועתק!'); }
-  catch(e){ console.error('copy failed', e); alert('לא הצלחנו להעתיק את הקישור'); }
+async function requestShareLinkMd(permanent){
+  let baseUrl = window.location.href;
+  try {
+    const resp = await fetch(`/api/share/{{ file.id }}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        type: permanent ? 'permanent' : 'temporary',
+        permanent: !!permanent
+      })
+    });
+    const data = await resp.json();
+    if (data && data.ok && data.url){
+      baseUrl = data.url;
+    }
+  } catch(err){
+    console.error('share create failed', err);
+  }
+  try {
+    const u = new URL(baseUrl, window.location.origin);
+    u.searchParams.set('view','md');
+    return u.toString();
+  } catch(_){
+    return baseUrl + (baseUrl.includes('?') ? '&' : '?') + 'view=md';
+  }
+}
+
+async function copyShareLinkMd(permanent){
+  try { closeShareLinkModalMd(); } catch(_){ }
+  const url = await requestShareLinkMd(!!permanent);
+  const successMessage = permanent ? 'הקישור הקבוע הועתק!' : 'הקישור הזמני הועתק!';
+  try {
+    await navigator.clipboard.writeText(url);
+    alert(successMessage);
+  } catch(e){
+    console.error('copy failed', e);
+    alert('לא הצלחנו להעתיק את הקישור');
+  }
 }
 
 async function shareToTelegramMd(){
-  const url = await ensurePublicLinkMd();
+  const url = await requestShareLinkMd(false);
   const text = `צפה במסמך Markdown ב-Code Keeper:`;
   const telegramUrl = `https://t.me/share/url?url=${encodeURIComponent(url)}&text=${encodeURIComponent(text)}`;
-  try { window.open(telegramUrl, '_blank'); } catch(_) { window.location.href = telegramUrl; }
+  try { window.open(telegramUrl, '_blank'); }
+  catch(_){ window.location.href = telegramUrl; }
 }
 
-// ניווט חזרה אמין: אם יש היסטוריה – חזור; אחרת נווט ישירות לעמוד הקובץ
+// ניווט חזרה אמין: תמיד מחזיר לתצוגת הקוד של הקובץ
 function goBackToFile(ev){
   try { if (ev) ev.preventDefault(); } catch(_){ }
   try {
-    const sameOriginRef = document.referrer && new URL(document.referrer, window.location.origin).origin === window.location.origin;
-    if (window.history && window.history.length > 1 && sameOriginRef) {
-      window.history.back();
-      return false;
+    if (window.location && typeof window.location.replace === 'function') {
+      window.location.replace(FILE_VIEW_URL);
+    } else {
+      window.location.href = FILE_VIEW_URL;
     }
-  } catch(_){ }
-  try { window.location.replace('/file/{{ file.id }}'); } catch(_) { window.location.href = '/file/{{ file.id }}'; }
+  } catch(_) {
+    window.location.href = FILE_VIEW_URL;
+  }
   return false;
 }
 

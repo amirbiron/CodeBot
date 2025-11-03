@@ -1427,10 +1427,18 @@ class Repository:
     def save_user(self, user_id: int, username: str = None) -> bool:
         try:
             users_collection = self.manager.db.users
+            now_utc = datetime.now(timezone.utc)
             result = users_collection.update_one(
                 {"user_id": user_id},
-                {"$setOnInsert": {"user_id": user_id, "username": username, "created_at": datetime.now(timezone.utc)},
-                 "$set": {"last_activity": datetime.now(timezone.utc)}},
+                {
+                    "$setOnInsert": {
+                        "user_id": user_id,
+                        "username": username,
+                        "created_at": now_utc,
+                        "has_seen_welcome_modal": False,
+                    },
+                    "$set": {"last_activity": now_utc},
+                },
                 upsert=True,
             )
             return bool(result.acknowledged)

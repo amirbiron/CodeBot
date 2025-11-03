@@ -5,8 +5,10 @@
   'use strict';
 
   const expandedCards = new Set();
+  const expandedTargets = new Map();
 
   function findOrCreateWrapper(cardElement) {
+    try { cardElement.dataset.previewHost = '1'; } catch (_e) {}
     let wrapper = cardElement.querySelector('.card-code-preview-wrapper');
     if (!wrapper) {
       wrapper = document.createElement('div');
@@ -17,13 +19,19 @@
   }
 
   async function expandCard(fileId, cardElement) {
+    if (!fileId) return;
+
+    const previousHost = expandedTargets.get(fileId) || null;
+    if (expandedCards.has(fileId)) {
+      collapseCard(fileId);
+      if (previousHost === cardElement) {
+        return;
+      }
+    }
+
     if (!cardElement) return;
 
-    // אם כבר פתוח – קפל
-    if (expandedCards.has(fileId)) {
-      collapseCard(fileId, cardElement);
-      return;
-    }
+    expandedTargets.set(fileId, cardElement);
 
     // חסימת לחיצות כפולות
     if (cardElement.classList.contains('card-preview-expanding')) return;
@@ -47,6 +55,7 @@
       if (!res.ok || !data || data.ok === false) {
         const msg = (data && data.error) ? data.error : 'שגיאה בטעינת תצוגה מקדימה';
         wrapper.innerHTML = `<div class="preview-error"><i class="fas fa-exclamation-triangle"></i> ${msg}</div>`;
+        expandedTargets.delete(fileId);
         return;
       }
 
@@ -54,21 +63,28 @@
       wrapper.innerHTML = buildPreviewHTML(data, fileId);
       cardElement.classList.add('card-preview-expanded');
       expandedCards.add(fileId);
+      expandedTargets.set(fileId, cardElement);
     } catch (err) {
       console.error('preview load failed', err);
       wrapper.innerHTML = '<div class="preview-error">אירעה שגיאה בעת הטעינה</div>';
+      expandedTargets.delete(fileId);
     } finally {
       cardElement.classList.remove('card-preview-expanding');
     }
   }
 
   function collapseCard(fileId, cardElement) {
-    if (!cardElement) return;
-    const wrapper = cardElement.querySelector('.card-code-preview-wrapper');
-    if (wrapper) wrapper.innerHTML = '';
-    cardElement.classList.remove('card-preview-expanded');
-    cardElement.classList.remove('card-preview-expanding');
+    const target = cardElement || expandedTargets.get(fileId) || null;
     expandedCards.delete(fileId);
+    if (!target) {
+      expandedTargets.delete(fileId);
+      return;
+    }
+    const wrapper = target.querySelector('.card-code-preview-wrapper');
+    if (wrapper) wrapper.innerHTML = '';
+    target.classList.remove('card-preview-expanded');
+    target.classList.remove('card-preview-expanding');
+    expandedTargets.delete(fileId);
   }
 
   function buildPreviewHTML(data, fileId) {
@@ -88,7 +104,7 @@
           <i class="fas fa-copy"></i>
           <span class="btn-text">העתק</span>
         </button>
-        <button class="btn btn-secondary btn-icon" onclick="window.cardPreview.collapse('${fileId}', this.closest('.file-card'))">
+        <button class="btn btn-secondary btn-icon" onclick="window.cardPreview.collapse('${fileId}', this.closest('[data-preview-host]'))">
           <i class="fas fa-times"></i>
           <span class="btn-text">סגור</span>
         </button>
