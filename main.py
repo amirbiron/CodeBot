@@ -960,7 +960,16 @@ class CodeKeeperBot:
 
         # Maintenance gate: if enabled, short-circuit most interactions
         # שימוש ב-getattr עבור תאימות לטסטים שמחליפים את config באובייקט מינימלי
-        if getattr(config, "MAINTENANCE_MODE", False):
+        maintenance_flag_raw = getattr(config, "MAINTENANCE_MODE", False)
+        try:
+            if isinstance(maintenance_flag_raw, str):
+                maintenance_flag = maintenance_flag_raw.strip().lower() in {"1", "true", "yes", "on"}
+            else:
+                maintenance_flag = bool(maintenance_flag_raw)
+        except Exception:
+            maintenance_flag = False
+
+        if maintenance_flag:
             # הגדרת חלון זמן פנימי שבו הודעת תחזוקה פעילה, כך שגם אם מחיקת ה-handlers לא תתבצע
             # ההודעה תיכבה אוטומטית לאחר ה-warmup.
             try:
