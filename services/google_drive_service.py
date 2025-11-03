@@ -34,6 +34,8 @@ import logging
 
 DEVICE_CODE_URL = "https://oauth2.googleapis.com/device/code"
 TOKEN_URL = "https://oauth2.googleapis.com/token"
+# ברירת מחדל בהיעדר קונפיג מלא (למשל בטסטים שמזריקים Stub לקונפיג)
+DEFAULT_GOOGLE_OAUTH_SCOPES = "https://www.googleapis.com/auth/drive.file"
 
 
 def _now_utc() -> datetime:
@@ -48,9 +50,14 @@ def start_device_authorization(user_id: int) -> Dict[str, Any]:
     client_id = getattr(config, "GOOGLE_CLIENT_ID", None)
     if not client_id:
         raise RuntimeError("GOOGLE_CLIENT_ID is not set")
+    scopes = getattr(config, "GOOGLE_OAUTH_SCOPES", DEFAULT_GOOGLE_OAUTH_SCOPES) or DEFAULT_GOOGLE_OAUTH_SCOPES
+    if isinstance(scopes, (list, tuple, set)):
+        scope_str = " ".join(str(s).strip() for s in scopes if str(s).strip()) or DEFAULT_GOOGLE_OAUTH_SCOPES
+    else:
+        scope_str = str(scopes).strip() or DEFAULT_GOOGLE_OAUTH_SCOPES
     payload = {
         "client_id": client_id,
-        "scope": config.GOOGLE_OAUTH_SCOPES,
+        "scope": scope_str,
     }
     # Some Google OAuth client types (e.g., Web) require client_secret
     if getattr(config, "GOOGLE_CLIENT_SECRET", None):
@@ -150,13 +157,20 @@ def _credentials_from_tokens(tokens: Dict[str, Any]) -> Credentials:
         raise RuntimeError("Google libraries are not installed")
     client_id = getattr(config, "GOOGLE_CLIENT_ID", None)
     client_secret = getattr(config, "GOOGLE_CLIENT_SECRET", None)
+    scopes_cfg = tokens.get("scope") or getattr(config, "GOOGLE_OAUTH_SCOPES", DEFAULT_GOOGLE_OAUTH_SCOPES)
+    if isinstance(scopes_cfg, (list, tuple, set)):
+        scopes_list = [str(s).strip() for s in scopes_cfg if str(s).strip()]
+    else:
+        scopes_list = str(scopes_cfg or "").split()
+    if not scopes_list:
+        scopes_list = DEFAULT_GOOGLE_OAUTH_SCOPES.split()
     return Credentials(
         token=tokens.get("access_token"),
         refresh_token=tokens.get("refresh_token"),
         token_uri=TOKEN_URL,
         client_id=client_id,
         client_secret=client_secret or None,
-        scopes=(tokens.get("scope") or config.GOOGLE_OAUTH_SCOPES).split(),
+        scopes=scopes_list,
     )
 
 
