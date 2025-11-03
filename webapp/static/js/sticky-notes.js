@@ -42,12 +42,14 @@
           try { window.visualViewport.addEventListener('resize', reflow, { passive: true }); } catch(_) { window.visualViewport.addEventListener('resize', reflow); }
           try { window.visualViewport.addEventListener('scroll', reflow, { passive: true }); } catch(_) { window.visualViewport.addEventListener('scroll', reflow); }
         }
+        this._setupLifecycleGuards();
       } catch(e){ console.error('StickyNotes init failed', e); }
     }
 
     async loadNotes(){
       try {
-        const resp = await fetch(`/api/sticky-notes/${encodeURIComponent(this.fileId)}`);
+        const url = `/api/sticky-notes/${encodeURIComponent(this.fileId)}?_=${Date.now()}`;
+        const resp = await fetch(url, { cache: 'no-store', headers: { 'Cache-Control': 'no-cache' } });
         const data = await resp.json();
         if (!data || data.ok === false) return;
         (data.notes || []).forEach(n => this._renderNote(n));
@@ -59,6 +61,42 @@
       btn.textContent = '+';
       btn.addEventListener('click', () => this.createNote());
       document.body.appendChild(btn);
+    }
+
+    _setupLifecycleGuards(){
+      if (this._didSetupLifecycleGuards) return;
+      this._didSetupLifecycleGuards = true;
+      const flush = () => {
+        try {
+          this._flushPendingKeepalive();
+        } catch(err) {
+          console.warn('sticky note: lifecycle flush failed', err);
+        }
+      };
+      try {
+        window.addEventListener('beforeunload', flush, { capture: true });
+      } catch(_) {
+        window.addEventListener('beforeunload', flush);
+      }
+      try {
+        window.addEventListener('pagehide', (ev) => {
+          try {
+            if (ev && typeof ev.persisted === 'boolean' && ev.persisted) return;
+          } catch(_) {}
+          flush();
+        }, { capture: true });
+      } catch(_) {
+        window.addEventListener('pagehide', () => flush());
+      }
+      try {
+        document.addEventListener('visibilitychange', () => {
+          try {
+            if (document.visibilityState === 'hidden') flush();
+          } catch(_) {
+            flush();
+          }
+        });
+      } catch(_) {}
     }
 
     _nearestAnchor(){
@@ -440,13 +478,52 @@
       this._saveDebounced();
     }
 
+    _flushPendingKeepalive(){
+      try {
+        if (!this._pending || this._pending.size === 0) return;
+      } catch(_) {
+        return;
+      }
+      const entries = Array.from(this._pending.entries());
+      for (const [id, data] of entries){
+        try {
+          if (!data) {
+            this._pending.delete(id);
+            continue;
+          }
+          const body = JSON.stringify(data);
+          if (typeof fetch === 'function') {
+            try {
+              fetch(`/api/sticky-notes/note/${encodeURIComponent(id)}`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body,
+                keepalive: true,
+              }).catch(()=>{});
+            } catch(e) {
+              console.warn('sticky note: keepalive request failed', id, e);
+            }
+          }
+        } catch(err) {
+          console.warn('sticky note: keepalive serialization failed', id, err);
+        } finally {
+          try {
+            this._pending.delete(id);
+          } catch(_) {}
+        }
+      }
+    }
+
     async _performSaveBatch(){
       const entries = Array.from(this._pending.entries());
       this._pending.clear();
       for (const [id, data] of entries){
         try {
           const resp = await fetch(`/api/sticky-notes/note/${encodeURIComponent(id)}`, {
-            method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data)
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(data),
+            keepalive: true,
           });
           let j = null; try { j = await resp.json(); } catch(_) {}
           if (resp.status === 409) {
@@ -485,7 +562,10 @@
       this._pending.delete(id);
       try {
         const resp = await fetch(`/api/sticky-notes/note/${encodeURIComponent(id)}`, {
-          method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data)
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(data),
+          keepalive: true,
         });
         let j = null; try { j = await resp.json(); } catch(_) {}
         if (resp.status === 409) {
