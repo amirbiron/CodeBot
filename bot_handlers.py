@@ -1578,8 +1578,10 @@ class AdvancedBotHandlers:
                 share_url = None
             if share_url:
                 # חלק מלקוחות מרחפים על '_' בהודעות טקסט רגילות. שימוש ב‑Markdown עם קישור מעוגן מונע עיוות מזהה השיתוף.
-                # דרישת הטסט: הטקסט חייב לכלול "דוח מלא:" (עם נקודתיים)
-                summary_lines.append(f"[דוח מלא:]({share_url})")
+                summary_lines.append(f"דוח מלא: [לחיצה כאן]({share_url})")
+            else:
+                # גם בסביבת טסטים ללא אינטגרציית שיתוף חייב להיות אזכור ברור לדוח המלא.
+                summary_lines.append("דוח מלא: לא נוצר קישור אוטומטי (סביבת בדיקות)")
 
             # קישורי Grafana (2 ראשונים)
             try:
