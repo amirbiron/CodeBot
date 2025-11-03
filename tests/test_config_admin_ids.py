@@ -3,9 +3,30 @@ import importlib
 
 
 def _import_fresh_config():
-    sys.modules.pop("config", None)
-    import config as cfg  # noqa: F401
-    return cfg
+    """Load the root config module without disturbing the tests stub."""
+    from pathlib import Path
+    import importlib.util
+
+    project_root = Path(__file__).resolve().parent.parent
+    config_path = project_root / "config.py"
+
+    previous = sys.modules.pop("config", None)
+
+    spec = importlib.util.spec_from_file_location("config", config_path)
+    if spec is None or spec.loader is None:
+        raise RuntimeError(f"unable to load config from path {config_path}")
+
+    module = importlib.util.module_from_spec(spec)
+    sys.modules["config"] = module
+    try:
+        spec.loader.exec_module(module)  # type: ignore[union-attr]
+    finally:
+        if previous is not None:
+            sys.modules["config"] = previous
+        else:
+            sys.modules.pop("config", None)
+
+    return module
 
 
 def test_admin_user_ids_parsing_csv_env(monkeypatch):
