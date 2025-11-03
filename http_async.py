@@ -106,7 +106,10 @@ def _instrument_session(session: "aiohttp.ClientSession") -> None:  # type: igno
     if getattr(session, "_codebot_ctx_headers", False):
         return
 
-    original_request = session._request  # type: ignore[attr-defined]
+    original_request = getattr(session, "_request", None)  # type: ignore[attr-defined]
+    if original_request is None or not callable(original_request):
+        # אין לנו מה לעטוף אם המופע לא תומך ב-request פנימי (במוקים מסוימים)
+        return
 
     async def _request(method: str, url: str, **kwargs):  # type: ignore[override]
         try:
