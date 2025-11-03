@@ -1669,18 +1669,34 @@ class CodeKeeperBot:
         query = " ".join(context.args)
         
         # זיהוי אם זה חיפוש לפי תגית
-        tags = []
+        tags: list[str] = []
+        # תמיכה בגרסאות ישנות של הקונפיג שלא כוללות SUPPORTED_LANGUAGES
+        try:
+            supported_languages = getattr(config, "SUPPORTED_LANGUAGES", []) or []
+        except Exception:
+            supported_languages = []
+        normalized_languages = {lang.lower(): lang for lang in supported_languages if isinstance(lang, str)}
+
+        language_filter: str | None = None
+        search_term = query
+
         if query.startswith('#'):
             tags = [query[1:]]
-            query = ""
-        elif query in config.SUPPORTED_LANGUAGES:
+            search_term = ""
+        else:
+            matched_language = normalized_languages.get(query.lower()) if normalized_languages else None
+            if matched_language is not None:
+                language_filter = matched_language
+                search_term = ""
+
+        if language_filter is not None:
             # חיפוש לפי שפה
             with track_performance("search_by_language", labels={"operation": "search_by_language"}):
-                results = db.search_code(user_id, "", programming_language=query)
+                results = db.search_code(user_id, "", programming_language=language_filter)
         else:
-            # חיפוש חופשי
+            # חיפוש חופשי או לפי תגית
             with track_performance("search_free", labels={"operation": "search_free"}):
-                results = db.search_code(user_id, query, tags=tags)
+                results = db.search_code(user_id, search_term, tags=tags)
         
         if not results:
             await update.message.reply_text(
