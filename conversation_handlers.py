@@ -2,6 +2,8 @@ import logging
 import os
 import re
 import asyncio
+import hashlib
+import time
 from io import BytesIO
 from datetime import datetime, timezone, timedelta
 from telegram import Update, ReplyKeyboardMarkup, ReplyKeyboardRemove, InlineKeyboardButton, InlineKeyboardMarkup
@@ -87,6 +89,125 @@ def _get_webapp_button_row(file_id: Optional[str], file_name: Optional[str] = No
     except TypeError:
         # בסביבות בדיקה ייתכן ש-InlineKeyboardButton אינו תומך בפרמטר url
         return None
+
+
+def _coerce_command_args(raw_args) -> List[str]:
+    """המרת args מסוגים שונים לרשימת מחרוזות נקייה."""
+    normalized: List[str] = []
+    if raw_args is None:
+        return normalized
+    try:
+        if isinstance(raw_args, (list, tuple, set)):
+            iterable = list(raw_args)
+        elif isinstance(raw_args, str):
+            iterable = [raw_args]
+        else:
+            try:
+                iterable = list(raw_args)
+            except TypeError:
+                iterable = [raw_args]
+    except Exception:
+        iterable = []
+    for arg in iterable:
+        if arg is None:
+            continue
+        if isinstance(arg, bytes):
+            try:
+                normalized.append(arg.decode("utf-8"))
+                continue
+            except Exception:
+                normalized.append(arg.decode("utf-8", "ignore"))
+                continue
+        normalized.append(str(arg))
+    return normalized
+
+
+def _is_webapp_login_requested(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
+    """בודק אם הופעל פרמטר webapp_login מכל מקור זמין."""
+    args: List[str]
+    try:
+        args = _coerce_command_args(getattr(context, "args", None))
+    except Exception:
+        args = []
+    for arg in args:
+        try:
+            if str(arg).strip().lower() == "webapp_login":
+                return True
+        except Exception:
+            continue
+    message = getattr(update, "message", None)
+    if message is not None:
+        try:
+            text = getattr(message, "text", None)
+        except Exception:
+            text = None
+        if text and "webapp_login" in str(text).lower():
+            return True
+    return False
+
+
+def _persist_webapp_login_token(db_manager, token_doc: Dict[str, object]) -> None:
+    """שומר את טוקן ההתחברות במסד הנתונים אם אפשר."""
+    try:
+        mongo_db = getattr(db_manager, "db", None)
+        if mongo_db is None:
+            return
+        collection = None
+        try:
+            collection = getattr(mongo_db, "webapp_tokens")
+        except AttributeError:
+            try:
+                collection = mongo_db["webapp_tokens"]  # type: ignore[index]
+            except Exception:
+                collection = None
+        if collection is None:
+            return
+        collection.insert_one(token_doc)
+    except Exception:
+        logger.exception("שמירת טוקן webapp נכשלה", exc_info=True)
+
+
+def _build_webapp_login_payload(db_manager, user_id: int, username: Optional[str]) -> Optional[Dict[str, str]]:
+    """יוצר טוקן וקישורי התחברות ל-Web App."""
+    base_url = _resolve_webapp_base_url() or DEFAULT_WEBAPP_URL
+    secret_candidates = [
+        os.getenv("WEBAPP_LOGIN_SECRET"),
+        getattr(config, "WEBAPP_LOGIN_SECRET", None),
+        os.getenv("SECRET_KEY"),
+        getattr(config, "SECRET_KEY", None),
+        "dev-secret-key",
+    ]
+    secret = next((s for s in secret_candidates if s), "dev-secret-key")
+    try:
+        token_data = f"{user_id}:{int(time.time())}:{secret}"
+        auth_token = hashlib.sha256(token_data.encode("utf-8")).hexdigest()[:32]
+    except Exception:
+        logger.exception("יצירת טוקן webapp נכשלה", exc_info=True)
+        return None
+    now_utc = datetime.now(timezone.utc)
+    token_doc = {
+        "token": auth_token,
+        "user_id": user_id,
+        "username": username,
+        "created_at": now_utc,
+        "expires_at": now_utc + timedelta(minutes=5),
+    }
+    _persist_webapp_login_token(db_manager, token_doc)
+    login_url = f"{base_url}/auth/token?token={auth_token}&user_id={user_id}"
+    return {
+        "auth_token": auth_token,
+        "login_url": login_url,
+        "webapp_url": base_url,
+    }
+
+
+def _build_webapp_login_markup(webapp_url: str, login_url: str):
+    from telegram import InlineKeyboardButton as _IKB, InlineKeyboardMarkup as _IKM
+
+    return _IKM([
+        [_IKB("🔐 התחבר ל-Web App", url=login_url)],
+        [_IKB("🌐 פתח את ה-Web App", url=webapp_url)],
+    ])
 
 async def _safe_edit_message_text(query, text: str, reply_markup=None, parse_mode=None) -> None:
     """עורך הודעה בבטיחות: מתעלם משגיאת 'Message is not modified'."""
@@ -177,49 +298,28 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
     db.save_user(user_id, username)
     user_stats.log_user(user_id, username)
     # אם המשתמש הגיע עם פרמטר webapp_login — צור ושלח קישור התחברות אישי ל-Web App
-    try:
-        if context.args and len(context.args) > 0 and str(context.args[0]).strip().lower() == "webapp_login":
-            import hashlib, time
-            webapp_url = (config.WEBAPP_URL or 'https://code-keeper-webapp.onrender.com')
-            timestamp = int(time.time())
-            secret = os.getenv('SECRET_KEY', 'dev-secret-key')
-            token_data = f"{user_id}:{timestamp}:{secret}"
-            auth_token = hashlib.sha256(token_data.encode()).hexdigest()[:32]
-            # שמירת הטוקן ב-DB (תוקף 5 דקות)
-            try:
-                mongo_db = getattr(db, 'db', None)
-                if mongo_db is not None:
-                    mongo_db.webapp_tokens.insert_one({
-                        'token': auth_token,
-                        'user_id': user_id,
-                        'username': username,
-                        'created_at': datetime.now(timezone.utc),
-                        'expires_at': datetime.now(timezone.utc) + timedelta(minutes=5),
-                    })
-            except Exception:
-                pass
-            login_url = f"{webapp_url}/auth/token?token={auth_token}&user_id={user_id}"
-            # יבוא מקומי כדי לאפשר לסטאבים של הטלגרם להיטען גם אם המודול נטען מוקדם יותר בטסטים
-            from telegram import InlineKeyboardButton as _IKB, InlineKeyboardMarkup as _IKM
-            reply_markup = _IKM([
-                [_IKB("🔐 התחבר ל-Web App", url=login_url)],
-                [_IKB("🌐 פתח את ה-Web App", url=webapp_url)],
-            ])
-            await update.message.reply_text(
-                "🔐 <b>קישור התחברות אישי ל-Web App</b>\n\n"
-                "לחץ על הכפתור למטה כדי להתחבר:\n\n"
-                "⚠️ <i>הקישור תקף ל-5 דקות בלבד מטעמי אבטחה</i>",
-                reply_markup=reply_markup,
-                parse_mode=ParseMode.HTML,
-            )
-            try:
-                reporter.report_activity(user_id)
-            except Exception:
-                pass
-            return ConversationHandler.END
-    except Exception:
-        # אם משהו נכשל ביצירת קישור — נמשיך לזרימת ברירת המחדל
-        pass
+    if _is_webapp_login_requested(update, context):
+        try:
+            payload = _build_webapp_login_payload(db, user_id, username)
+            if payload is not None:
+                message = getattr(update, "message", None)
+                reply_fn = getattr(message, "reply_text", None) if message is not None else None
+                if callable(reply_fn):
+                    reply_markup = _build_webapp_login_markup(payload["webapp_url"], payload["login_url"])
+                    await reply_fn(
+                        "🔐 <b>קישור התחברות אישי ל-Web App</b>\n\n"
+                        "לחץ על הכפתור למטה כדי להתחבר:\n\n"
+                        "⚠️ <i>הקישור תקף ל-5 דקות בלבד מטעמי אבטחה</i>",
+                        reply_markup=reply_markup,
+                        parse_mode=ParseMode.HTML,
+                    )
+                    try:
+                        reporter.report_activity(user_id)
+                    except Exception:
+                        pass
+                    return ConversationHandler.END
+        except Exception:
+            logger.exception("webapp_login_flow_failed", exc_info=True)
     safe_user_name = html_escape(user_name) if user_name else ""
     from i18n.strings_he import MESSAGES
     welcome_text = MESSAGES["welcome"].format(name=safe_user_name)
