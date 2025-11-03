@@ -14,7 +14,7 @@ from datetime import datetime, timezone
 from functools import wraps
 from typing import Optional, Dict, Any, List
 
-from flask import Flask, render_template, jsonify, request, session, redirect, url_for, send_file, abort, Response
+from flask import Flask, render_template, jsonify, request, session, redirect, url_for, send_file, abort, Response, g
 import threading
 import atexit
 import time as _time
@@ -203,12 +203,29 @@ except Exception:
 
 # Manual tracing decorator (fail-open)
 try:
-    from observability_instrumentation import traced
+    from observability_instrumentation import traced, set_span_attributes
 except Exception:  # pragma: no cover
     def traced(*_a, **_k):
         def _inner(f):
             return f
         return _inner
+
+    def set_span_attributes(*_a, **_k):
+        return None
+
+try:
+    from opentelemetry import trace as _otel_trace  # type: ignore
+    from opentelemetry.trace import Status, StatusCode, SpanKind  # type: ignore
+except Exception:  # pragma: no cover
+    _otel_trace = None  # type: ignore
+    Status = None  # type: ignore
+    StatusCode = None  # type: ignore
+    SpanKind = None  # type: ignore
+
+if _otel_trace is not None:
+    _REQUEST_TRACER = _otel_trace.get_tracer("codebot.webapp")
+else:  # pragma: no cover
+    _REQUEST_TRACER = None
 # --- Correlation ID across services (request_id) ---
 try:
     from observability import generate_request_id as _gen_rid, bind_request_id as _bind_rid
@@ -1176,6 +1193,154 @@ def login_required(f):
         return f(*args, **kwargs)
     return decorated_function
 
+_REQUEST_SPAN_CM_KEY = "_otel_request_cm"
+_REQUEST_SPAN_OBJ_KEY = "_otel_request_span"
+
+
+def _set_request_span_attrs(attrs: dict[str, Any]) -> None:
+    if not attrs:
+        attrs = {}
+    else:
+        attrs = dict(attrs)
+    try:
+        import structlog  # type: ignore
+
+        ctx = structlog.contextvars.get_contextvars()
+    except Exception:
+        ctx = {}
+    for ctx_key, attr_name in (("user_id", "user.id"), ("chat_id", "chat.id"), ("command", "command")):
+        if not ctx:
+            break
+        try:
+            value = ctx.get(ctx_key)
+        except Exception:
+            value = None
+        if value and attr_name not in attrs:
+            attrs[attr_name] = value
+    try:
+        set_span_attributes(attrs)
+    except Exception:
+        pass
+
+
+def _clear_request_span_storage() -> None:
+    for attr in (_REQUEST_SPAN_CM_KEY, _REQUEST_SPAN_OBJ_KEY):
+        try:
+            if hasattr(g, attr):
+                delattr(g, attr)
+        except Exception:
+            pass
+
+
+def _close_request_span(response: Optional[Response] = None, exc: Optional[BaseException] = None):
+    try:
+        span_cm = getattr(g, _REQUEST_SPAN_CM_KEY, None)
+    except Exception:
+        span_cm = None
+    try:
+        span_obj = getattr(g, _REQUEST_SPAN_OBJ_KEY, None)
+    except Exception:
+        span_obj = None
+    if span_cm is None:
+        return response
+    try:
+        attrs: dict[str, Any] = {"component": "webapp"}
+        if response is not None:
+            try:
+                status_code = int(getattr(response, "status_code", 0) or 0)
+            except Exception:
+                status_code = 0
+            attrs["http.status_code"] = status_code
+        _set_request_span_attrs(attrs)
+        if exc is not None and span_obj is not None:
+            try:
+                span_obj.record_exception(exc)
+            except Exception:
+                pass
+            if Status is not None and StatusCode is not None:
+                try:
+                    span_obj.set_status(Status(StatusCode.ERROR, str(exc)))
+                except Exception:
+                    pass
+    finally:
+        try:
+            span_cm.__exit__(type(exc) if exc else None, exc, getattr(exc, "__traceback__", None) if exc else None)
+        except Exception:
+            pass
+        _clear_request_span_storage()
+    return response
+
+
+@app.before_request
+def _start_request_span() -> None:
+    if _REQUEST_TRACER is None:
+        return
+    try:
+        if getattr(g, _REQUEST_SPAN_CM_KEY, None) is not None:
+            return
+    except Exception:
+        pass
+    span_cm = None
+    try:
+        method = str(getattr(request, "method", "GET") or "GET").upper()
+        endpoint = getattr(request, "endpoint", "") or ""
+        path_hint = getattr(request, "path", "") or ""
+        name = f"{method} {endpoint or path_hint or '/'}"
+        kwargs: dict[str, Any] = {}
+        if SpanKind is not None:
+            kwargs["kind"] = SpanKind.SERVER
+        span_cm = _REQUEST_TRACER.start_as_current_span(name, **kwargs)
+        span_obj = span_cm.__enter__()
+        setattr(g, _REQUEST_SPAN_CM_KEY, span_cm)
+        setattr(g, _REQUEST_SPAN_OBJ_KEY, span_obj)
+        attrs: dict[str, Any] = {
+            "component": "webapp",
+            "http.method": method,
+            "http.route": endpoint or path_hint or "",
+        }
+        try:
+            path_only = path_hint or ""
+            if path_only:
+                attrs.setdefault("http.target", path_only)
+        except Exception:
+            pass
+        try:
+            host_val = getattr(request, "host", "") or ""
+            if host_val:
+                attrs["server.address"] = host_val
+        except Exception:
+            pass
+        _set_request_span_attrs(attrs)
+    except Exception:
+        if span_cm is not None:
+            try:
+                span_cm.__exit__(None, None, None)
+            except Exception:
+                pass
+        _clear_request_span_storage()
+
+
+@app.after_request
+def _finish_request_span(resp: Response):
+    try:
+        if getattr(g, _REQUEST_SPAN_CM_KEY, None) is None:
+            return resp
+    except Exception:
+        return resp
+    return _close_request_span(response=resp)
+
+
+@app.teardown_request
+def _teardown_request_span(exc: Optional[BaseException]):
+    try:
+        span_cm = getattr(g, _REQUEST_SPAN_CM_KEY, None)
+    except Exception:
+        span_cm = None
+    if span_cm is None:
+        return
+    _close_request_span(response=None, exc=exc)
+
+
 # before_request: אם אין סשן אבל יש cookie "remember_me" תקף — נבצע התחברות שקופה
 @app.before_request
 def try_persistent_login():
@@ -1224,6 +1389,10 @@ def try_persistent_login():
 @app.before_request
 def _correlation_bind():
     """Bind a short request_id to structlog context and store for response header."""
+    rid = ""
+    method = ""
+    endpoint = ""
+    path_hint = ""
     try:
         try:
             incoming = str(request.headers.get("X-Request-ID", "")).strip()
@@ -1260,6 +1429,12 @@ def _correlation_bind():
             pass
     except Exception:
         pass
+    _set_request_span_attrs({
+        "component": "webapp",
+        "request.id": rid or getattr(request, "_req_id", "") or "",
+        "http.method": method.upper() if method else "",
+        "http.route": endpoint or path_hint or "",
+    })
 
 
 @app.after_request

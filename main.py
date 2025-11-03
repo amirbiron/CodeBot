@@ -60,6 +60,16 @@ from metrics import (
     track_performance,
     errors_total,
 )
+try:
+    from observability_instrumentation import traced, set_span_attributes
+except Exception:  # pragma: no cover
+    def traced(*_a, **_k):  # type: ignore
+        def _inner(func):
+            return func
+        return _inner
+
+    def set_span_attributes(*_a, **_k):  # type: ignore
+        return None
 from rate_limiter import RateLimiter
 try:
     # Optional advanced limits backend (limits + Redis)
@@ -209,6 +219,39 @@ ENCODINGS_TO_TRY = [
     'utf-16',
     'latin-1',
 ]
+
+
+def _set_span_attrs(attrs):
+    """עדכון מאפייני span עם הקשר מובנה (best-effort)."""
+
+    if not attrs:
+        attrs = {}
+    else:
+        attrs = dict(attrs)
+    try:
+        import structlog  # type: ignore
+
+        ctx = structlog.contextvars.get_contextvars()
+    except Exception:
+        ctx = {}
+    for ctx_key, attr_name in ("user_id", "chat_id", "command"):
+        try:
+            value = ctx.get(ctx_key) if ctx else None
+        except Exception:
+            value = None
+        if not value:
+            continue
+        mapped_name = {
+            "user_id": "user.id",
+            "chat_id": "chat.id",
+            "command": "bot.command",
+        }.get(ctx_key)
+        if mapped_name and mapped_name not in attrs:
+            attrs[mapped_name] = value
+    try:
+        set_span_attributes(attrs)
+    except Exception:
+        pass
 def _register_catch_all_callback(application, callback_fn) -> None:
     """רישום CallbackQueryHandler כללי בקבוצה מאוחרת, עם fallback כשה-API לא תומך ב-group.
 
@@ -344,6 +387,7 @@ async def recycle_backfill_command(update: Update, context: ContextTypes.DEFAULT
         except Exception:
             pass
 
+@traced("bot.log_user_activity", attributes={"component": "telegram"})
 async def log_user_activity(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
     רישום פעילות משתמש במערכת.
@@ -356,6 +400,7 @@ async def log_user_activity(update: Update, context: ContextTypes.DEFAULT_TYPE):
         פונקציה זו נקראת אוטומטית עבור כל פעולה של משתמש
     """
     if not update.effective_user:
+        _set_span_attrs({"bot.activity.user_present": False})
         return
 
     # דגימה להפחתת עומס: רק ~25% מהאירועים יעדכנו מיידית את ה-DB
@@ -364,6 +409,10 @@ async def log_user_activity(update: Update, context: ContextTypes.DEFAULT_TYPE):
         sampled = (_rnd.random() < 0.25)
     except Exception:
         sampled = True
+    _set_span_attrs({
+        "component": "telegram",
+        "bot.activity.sampled": bool(sampled),
+    })
 
     # רישום בסיסי לגמרי מחוץ ל-try כדי לא לחסום את הפלואו
     try:
@@ -848,6 +897,7 @@ class CodeKeeperBot:
 
     def _install_correlation_layer(self) -> None:
         """רישום Handler מוקדם שמייצר ומקשר request_id ומודד מטריקות בסיסיות."""
+        @traced("bot.update_dispatch", attributes={"component": "telegram"})
         async def _pre_update(update: Update, context: ContextTypes.DEFAULT_TYPE):
             # request_id קצר ונוח
             try:
@@ -874,6 +924,7 @@ class CodeKeeperBot:
                 bind_user_context(user_id=uid, chat_id=cid)
             except Exception:
                 pass
+            span_command = None
             try:
                 command_name = ""
                 message = getattr(update, "effective_message", None)
@@ -907,9 +958,11 @@ class CodeKeeperBot:
                                 context.user_data["command"] = cleaned
                         except Exception:
                             pass
+                        span_command = cleaned
             except Exception:
                 pass
             # עדכון מטריקה כללית על סוג ה-update
+            span_update_type = "other"
             try:
                 upd_type = (
                     "callback_query" if getattr(update, "callback_query", None) else
@@ -919,8 +972,15 @@ class CodeKeeperBot:
                 )
                 if telegram_updates_total is not None:
                     telegram_updates_total.labels(type=upd_type, status="received").inc()
+                span_update_type = upd_type
             except Exception:
                 pass
+            _set_span_attrs({
+                "component": "telegram",
+                "bot.update.type": span_update_type,
+                "request.id": req_id,
+                **({"bot.command": span_command} if span_command else {}),
+            })
 
         handler = TypeHandler(Update, _pre_update)  # כל ה-Updates
         try:
@@ -1008,6 +1068,7 @@ class CodeKeeperBot:
             pass
 
         # --- Rate limiting gate (גבוה עדיפות, לפני שאר ה-handlers) ---
+        @traced("bot.rate_limit_gate", attributes={"component": "telegram"})
         async def _rate_limit_gate(update: Update, context: ContextTypes.DEFAULT_TYPE):
             try:
                 user = (
@@ -1017,6 +1078,10 @@ class CodeKeeperBot:
                 user_id = int(getattr(user, 'id', 0) or 0)
             except Exception:
                 user_id = 0
+            _set_span_attrs({
+                "component": "telegram",
+                "bot.rate_limit.user_present": bool(user_id),
+            })
             if user_id:
                 # עקיפת אדמין – אדמינים לא מוגבלים ע"י השער הגלובלי
                 try:
@@ -1074,6 +1139,7 @@ class CodeKeeperBot:
 
                 should_block = (not allowed) or blocked_by_local
                 if should_block:
+                    _set_span_attrs({"bot.rate_limited": True})
                     # חסימה שקטה + הודעה קצרה
                     try:
                         cq = getattr(update, 'callback_query', None)
@@ -1087,6 +1153,7 @@ class CodeKeeperBot:
                         pass
                     raise ApplicationHandlerStop
                 else:
+                    _set_span_attrs({"bot.rate_limited": False})
                     # Soft-warning ב-80% מהסף – הודעה אדיבה ללא חסימה
                     try:
                         ratio = 0.0
@@ -1536,14 +1603,23 @@ class CodeKeeperBot:
 """
         await update.message.reply_text(response, parse_mode=ParseMode.HTML)
     
+    @traced("bot.command.save", attributes={"component": "telegram"})
     async def save_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """פקודת שמירת קוד"""
         if reporter is not None:
             reporter.report_activity(update.effective_user.id)
         await log_user_activity(update, context)
         user_id = update.effective_user.id
+
+        args_count = len(getattr(context, "args", []) or [])
+        _set_span_attrs({
+            "component": "telegram",
+            "bot.command.name": "save",
+            "bot.args_count": args_count,
+        })
         
         if not context.args:
+            _set_span_attrs({"bot.command.status": "missing_filename"})
             await update.message.reply_text(
                 "❓ אנא ציין שם קובץ:\n"
                 "דוגמה: `/save script.py`\n"
@@ -1563,6 +1639,12 @@ class CodeKeeperBot:
             tags = tag_matches
             # הסרת התגיות משם הקובץ
             args = re.sub(r'#\w+', '', args).strip()
+
+        _set_span_attrs({
+            "component": "telegram",
+            "bot.save.tags_count": len(tags),
+            "bot.save.file_name_length": len(args or ""),
+        })
         
         file_name = args
         
@@ -1624,6 +1706,7 @@ class CodeKeeperBot:
         
         await update.message.reply_text(response, parse_mode=ParseMode.HTML)
     
+    @traced("bot.command.search", attributes={"component": "telegram"})
     async def search_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """חיפוש קטעי קוד"""
         if reporter is not None:
@@ -1632,6 +1715,11 @@ class CodeKeeperBot:
         user_id = update.effective_user.id
         
         if not context.args:
+            _set_span_attrs({
+                "component": "telegram",
+                "bot.command.name": "search",
+                "bot.command.status": "missing_query",
+            })
             await update.message.reply_text(
                 "🔍 **איך לחפש:**\n"
                 "• `/search python` - לפי שפה\n"
@@ -1643,22 +1731,31 @@ class CodeKeeperBot:
             return
         
         query = " ".join(context.args)
+        _set_span_attrs({
+            "component": "telegram",
+            "bot.command.name": "search",
+            "bot.search.query_length": len(query.strip()),
+        })
         
         # זיהוי אם זה חיפוש לפי תגית
         tags = []
         if query.startswith('#'):
             tags = [query[1:]]
             query = ""
+            _set_span_attrs({"bot.search.mode": "tag", "bot.search.tags_count": len(tags)})
         elif query in config.SUPPORTED_LANGUAGES:
             # חיפוש לפי שפה
+            _set_span_attrs({"bot.search.mode": "language"})
             with track_performance("search_by_language", labels={"operation": "search_by_language"}):
                 results = db.search_code(user_id, "", programming_language=query)
         else:
             # חיפוש חופשי
+            _set_span_attrs({"bot.search.mode": "free"})
             with track_performance("search_free", labels={"operation": "search_free"}):
                 results = db.search_code(user_id, query, tags=tags)
         
         if not results:
+            _set_span_attrs({"bot.command.status": "no_results"})
             await update.message.reply_text(
                 f"🔍 לא נמצאו תוצאות עבור: <code>{html_escape(' '.join(context.args))}</code>",
                 parse_mode=ParseMode.HTML
@@ -1677,6 +1774,10 @@ class CodeKeeperBot:
             )
         except Exception:
             pass
+        _set_span_attrs({
+            "bot.command.status": "ok",
+            "bot.search.results": len(results) if results else 0,
+        })
 
         # הצגת תוצאות
         safe_query = html_escape(' '.join(context.args))

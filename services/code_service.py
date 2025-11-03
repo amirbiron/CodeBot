@@ -14,6 +14,43 @@ Code Service Module
 from typing import Any, Dict, List, Tuple, Optional
 from utils import normalize_code
 
+try:
+    from observability_instrumentation import traced, set_span_attributes
+except Exception:  # pragma: no cover
+    def traced(*_a, **_k):
+        def _inner(f):
+            return f
+        return _inner
+
+    def set_span_attributes(*_a, **_k):
+        return None
+
+
+def _set_span_attrs(attrs: Dict[str, Any]) -> None:
+    if not attrs:
+        attrs = {}
+    else:
+        attrs = dict(attrs)
+    try:
+        import structlog  # type: ignore
+
+        ctx = structlog.contextvars.get_contextvars()
+    except Exception:
+        ctx = {}
+    for source, target in (("command", "command"), ("user_id", "user.id")):
+        if not ctx:
+            break
+        try:
+            value = ctx.get(source)
+        except Exception:
+            value = None
+        if value and target not in attrs:
+            attrs[target] = value
+    try:
+        set_span_attributes(attrs)
+    except Exception:
+        pass
+
 # Thin wrapper around existing code_processor to allow future swap/refactor
 # We keep a loose type here to avoid importing heavy optional deps during type checking/runtime.
 try:
@@ -92,11 +129,17 @@ def detect_language(code: str, filename: str) -> str:
         >>> detect_language("print('Hello')", "test.py")
         'python'
     """
+    _set_span_attrs({
+        "component": "code",
+        "code.operation": "detect_language",
+        "code.filename_length": len(filename or ""),
+    })
     if code_processor is not None:
         return code_processor.detect_language(code, filename)
     return _fallback_detect_language(code, filename)
 
 
+@traced("code.validate_input", attributes={"component": "code"})
 def validate_code_input(code: str, file_name: str, user_id: int) -> Tuple[bool, str, str]:
     """
     בודק ומנקה קלט קוד.
@@ -112,6 +155,12 @@ def validate_code_input(code: str, file_name: str, user_id: int) -> Tuple[bool, 
             - cleaned_code: הקוד המנוקה
             - error_message: הודעת שגיאה (אם יש)
     """
+    _set_span_attrs({
+        "component": "code",
+        "code.operation": "validate",
+        "code.length": len(code or ""),
+        "code.filename_length": len(file_name or ""),
+    })
     if code_processor is None:
         # Minimal fallback: normalize only
         return True, normalize_code(code), ""
@@ -122,6 +171,7 @@ def validate_code_input(code: str, file_name: str, user_id: int) -> Tuple[bool, 
     return ok, cleaned, msg
 
 
+@traced("code.analyze", attributes={"component": "code"})
 def analyze_code(code: str, language: str) -> Dict[str, Any]:
     """
     מבצע ניתוח על קטע קוד עבור שפה נתונה.
@@ -136,27 +186,51 @@ def analyze_code(code: str, language: str) -> Dict[str, Any]:
             - complexity: מורכבות הקוד
             - metrics: מטריקות נוספות
     """
+    _set_span_attrs({
+        "component": "code",
+        "code.operation": "analyze",
+        "code.length": len(code or ""),
+        "code.language": language or "",
+    })
     if code_processor is None:
         return {"language": language, "length": len(code)}
     return code_processor.analyze_code(code, language)
 
 
+@traced("code.extract_functions", attributes={"component": "code"})
 def extract_functions(code: str, language: str) -> List[Dict[str, Any]]:
     """Extract function definitions from code."""
+    _set_span_attrs({
+        "component": "code",
+        "code.operation": "extract_functions",
+        "code.language": language or "",
+    })
     if code_processor is None:
         return []
     return code_processor.extract_functions(code, language)
 
 
+@traced("code.stats", attributes={"component": "code"})
 def get_code_stats(code: str) -> Dict[str, Any]:
     """Compute simple statistics for a code snippet."""
+    _set_span_attrs({
+        "component": "code",
+        "code.operation": "stats",
+        "code.length": len(code or ""),
+    })
     if code_processor is None:
         return {"length": len(code)}
     return code_processor.get_code_stats(code)
 
 
+@traced("code.highlight", attributes={"component": "code"})
 def highlight_code(code: str, language: str) -> str:
     """Return syntax highlighted representation for code."""
+    _set_span_attrs({
+        "component": "code",
+        "code.operation": "highlight",
+        "code.language": language or "",
+    })
     if code_processor is None:
         return code
     return code_processor.highlight_code(code, language)

@@ -45,6 +45,43 @@ except Exception:  # pragma: no cover
     def track_performance(operation: str, labels=None):
         yield
 
+try:
+    from observability_instrumentation import traced, set_span_attributes
+except Exception:  # pragma: no cover
+    def traced(*_a, **_k):
+        def _inner(f):
+            return f
+        return _inner
+
+    def set_span_attributes(*_a, **_k):
+        return None
+
+
+def _set_span_attrs(attrs: Dict[str, Any]) -> None:
+    if not attrs:
+        attrs = {}
+    else:
+        attrs = dict(attrs)
+    try:
+        import structlog  # type: ignore
+
+        ctx = structlog.contextvars.get_contextvars()
+    except Exception:
+        ctx = {}
+    for source, target in (("command", "command"), ("user_id", "user.id")):
+        if not ctx:
+            break
+        try:
+            value = ctx.get(source)
+        except Exception:
+            value = None
+        if value and target not in attrs:
+            attrs[target] = value
+    try:
+        set_span_attributes(attrs)
+    except Exception:
+        pass
+
 class SearchType(Enum):
     """סוגי חיפוש"""
     TEXT = "text"
@@ -102,8 +139,10 @@ class SearchIndex:
         self.tag_index: Dict[str, Set[str]] = defaultdict(set)  # תגית -> קבצים
         self.last_update = datetime.min.replace(tzinfo=timezone.utc)
         
+    @traced("search.index.rebuild", attributes={"component": "search"})
     def rebuild_index(self, user_id: int):
         """בניית האינדקס מחדש"""
+        _set_span_attrs({"component": "search", "search.user_present": bool(user_id)})
         try:
             emit_event("search_index_rebuild_start", severity="info", user_id=int(user_id))
         except Exception:
@@ -219,10 +258,17 @@ class AdvancedSearchEngine:
         
         return index
     
+    @traced("search.execute", attributes={"component": "search"})
     def search(self, user_id: int, query: str, search_type: SearchType = SearchType.TEXT,
                filters: Optional[SearchFilter] = None, sort_order: SortOrder = SortOrder.RELEVANCE,
                limit: int = 50) -> List[SearchResult]:
         """חיפוש מתקדם"""
+        _set_span_attrs({
+            "component": "search",
+            "search.user_present": bool(user_id),
+            "search.query_length": len(query or ""),
+            "search.type": str(search_type.value if isinstance(search_type, SearchType) else search_type),
+        })
         
         try:
             try:
@@ -245,16 +291,22 @@ class AdvancedSearchEngine:
             # ביצוע החיפוש לפי סוג
             with track_performance("search_execute", labels={"repo": ""}):
                 if search_type == SearchType.TEXT:
+                    _set_span_attrs({"search.mode": "text"})
                     candidates = self._text_search(query, index, user_id)
                 elif search_type == SearchType.REGEX:
+                    _set_span_attrs({"search.mode": "regex"})
                     candidates = self._regex_search(query, user_id)
                 elif search_type == SearchType.FUZZY:
+                    _set_span_attrs({"search.mode": "fuzzy"})
                     candidates = self._fuzzy_search(query, index, user_id)
                 elif search_type == SearchType.FUNCTION:
+                    _set_span_attrs({"search.mode": "function"})
                     candidates = self._function_search(query, index, user_id)
                 elif search_type == SearchType.CONTENT:
+                    _set_span_attrs({"search.mode": "content"})
                     candidates = self._content_search(query, user_id)
                 else:
+                    _set_span_attrs({"search.mode": "text"})
                     candidates = self._text_search(query, index, user_id)
             
             # החלת מסננים
@@ -268,6 +320,9 @@ class AdvancedSearchEngine:
             
             # הגבלת תוצאות
             results = candidates[:limit]
+            _set_span_attrs({
+                "search.results_count": len(results),
+            })
             try:
                 emit_event(
                     "search_done",
@@ -282,6 +337,7 @@ class AdvancedSearchEngine:
             return results
             
         except Exception as e:
+            _set_span_attrs({"search.error": True})
             logger.error(f"שגיאה בחיפוש: {e}")
             try:
                 emit_event("search_error", severity="error", error=str(e))

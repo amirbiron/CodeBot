@@ -65,6 +65,43 @@ except Exception:  # pragma: no cover
     def track_performance(_operation: str, labels=None):
         yield
 
+try:
+    from observability_instrumentation import traced, set_span_attributes
+except Exception:  # pragma: no cover
+    def traced(*_a, **_k):
+        def _inner(f):
+            return f
+        return _inner
+
+    def set_span_attributes(*_a, **_k):
+        return None
+
+
+def _set_db_span_attrs(attrs: Dict[str, Any]) -> None:
+    if not attrs:
+        attrs = {}
+    else:
+        attrs = dict(attrs)
+    try:
+        import structlog  # type: ignore
+
+        ctx = structlog.contextvars.get_contextvars()
+    except Exception:
+        ctx = {}
+    for source, target in (("user_id", "user.id"), ("command", "command")):
+        if not ctx:
+            break
+        try:
+            value = ctx.get(source)
+        except Exception:
+            value = None
+        if value and target not in attrs:
+            attrs[target] = value
+    try:
+        set_span_attributes(attrs)
+    except Exception:
+        pass
+
 
 class Repository:
     """CRUD נקי עבור אוספים במאגר הנתונים."""
@@ -72,8 +109,15 @@ class Repository:
     def __init__(self, manager: DatabaseManager):
         self.manager = manager
 
+    @traced("db.save_code_snippet", attributes={"component": "database"})
     def save_code_snippet(self, snippet: CodeSnippet) -> bool:
         try:
+            _set_db_span_attrs({
+                "component": "database",
+                "db.operation": "save_code_snippet",
+                "db.user_present": bool(getattr(snippet, 'user_id', None)),
+                "db.file_name_length": len(getattr(snippet, 'file_name', '') or ''),
+            })
             # Normalize code before persisting
             try:
                 if config.NORMALIZE_CODE_ON_SAVE:
@@ -132,9 +176,16 @@ class Repository:
         except Exception:
             return False
 
+    @traced("db.toggle_favorite", attributes={"component": "database"})
     def toggle_favorite(self, user_id: int, file_name: str) -> Optional[bool]:
         """הוספה/הסרה של קובץ מהמועדפים. מחזיר המצב החדש או None בשגיאה."""
         try:
+            _set_db_span_attrs({
+                "component": "database",
+                "db.operation": "toggle_favorite",
+                "db.user_present": bool(user_id),
+                "db.file_name_length": len(file_name or ""),
+            })
             if not isinstance(user_id, int) or user_id <= 0 or not self._validate_file_name(file_name):
                 return None
             # שליפת גרסה אחרונה ללא שימוש בדקורטור cache כדי לא לזהם קאש לפני העדכון
@@ -261,9 +312,17 @@ class Repository:
             emit_event("db_toggle_favorite_error", severity="error", error=str(e))
             return None
 
+    @traced("db.get_favorites", attributes={"component": "database"})
     def get_favorites(self, user_id: int, *, language: Optional[str] = None, sort_by: str = "date", limit: int = 50) -> List[Dict]:
         """החזרת רשימת מועדפים אחרונים בגרסה האחרונה לכל קובץ."""
         try:
+            _set_db_span_attrs({
+                "component": "database",
+                "db.operation": "get_favorites",
+                "db.user_present": bool(user_id),
+                "db.language_filter": language or "",
+                "db.limit": int(limit or 0),
+            })
             # Primary fast-path for test/CI in-memory collections
             try:
                 docs_list = getattr(self.manager.collection, 'docs')
@@ -573,8 +632,15 @@ class Repository:
         return self.save_code_snippet(snippet)
 
     @cached(expire_seconds=180, key_prefix="latest_version")
+    @traced("db.get_latest_version", attributes={"component": "database"})
     def get_latest_version(self, user_id: int, file_name: str) -> Optional[Dict]:
         try:
+            _set_db_span_attrs({
+                "component": "database",
+                "db.operation": "get_latest_version",
+                "db.user_present": bool(user_id),
+                "db.file_name_length": len(file_name or ""),
+            })
             # Fast-path for in-memory collections in tests
             docs_list = getattr(self.manager.collection, 'docs', None)
             if isinstance(docs_list, list):

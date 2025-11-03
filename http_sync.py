@@ -18,6 +18,17 @@ except Exception:  # pragma: no cover
 
 _local = threading.local()
 
+try:
+    from observability_instrumentation import traced, set_span_attributes
+except Exception:  # pragma: no cover
+    def traced(*_a, **_k):
+        def _inner(f):
+            return f
+        return _inner
+
+    def set_span_attributes(*_a, **_k):
+        return None
+
 
 def _to_int(env_name: str, default: int) -> int:
     try:
@@ -90,7 +101,20 @@ def get_session() -> requests.Session:
     return sess
 
 
+@traced("http.request.sync", attributes={"component": "http"})
 def request(method: str, url: str, **kwargs):
+    span_attrs: dict[str, Any] = {
+        "component": "http",
+        "http.method": str(method).upper(),
+        "http.url": str(url),
+    }
+    try:
+        host = requests.utils.urlparse(str(url)).netloc
+        if host:
+            span_attrs["server.address"] = host
+    except Exception:
+        pass
+    set_span_attributes(span_attrs)
     timeout = kwargs.pop("timeout", _to_float("REQUESTS_TIMEOUT", 8.0))
     slow_ms = _to_float("HTTP_SLOW_MS", 0.0)
     logger = logging.getLogger(__name__)
@@ -100,6 +124,14 @@ def request(method: str, url: str, **kwargs):
     if merged_headers is not None:
         kwargs["headers"] = merged_headers
     resp = get_session().request(method=method, url=url, timeout=timeout, **kwargs)
+    try:
+        status_code = int(getattr(resp, "status_code", 0) or 0)
+    except Exception:
+        status_code = 0
+    set_span_attributes({
+        "http.status_code": status_code,
+        "http.duration_ms": (time.perf_counter() - t0) * 1000.0,
+    })
     try:
         if slow_ms and slow_ms > 0:
             dur_ms = (time.perf_counter() - t0) * 1000.0
