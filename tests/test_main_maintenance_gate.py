@@ -11,10 +11,18 @@ class _FakeMessage:
 
 
 class _FakeCallbackQuery:
-    def __init__(self):
+    def __init__(self, *, fail_edit=False, message=None):
         self.edits = []
+        self.answers = []
+        self._fail_edit = fail_edit
+        self.message = message
+
+    async def answer(self, **kwargs):
+        self.answers.append(kwargs)
 
     async def edit_message_text(self, text, reply_markup=None, parse_mode=None):
+        if self._fail_edit:
+            raise RuntimeError("edit failed")
         self.edits.append((text, reply_markup, parse_mode))
 
 
@@ -329,6 +337,7 @@ async def test_maintenance_message_sent_during_warmup_for_callback_query(monkeyp
     update = types.SimpleNamespace(callback_query=_FakeCallbackQuery(), message=None, effective_user=types.SimpleNamespace(id=4))
     context = types.SimpleNamespace()
     await maint_cbq_handler.callback(update, context)
+    assert update.callback_query.answers, 'expected answer to be sent before edit'
     assert update.callback_query.edits, 'expected edit_message_text during warmup'
     assert update.callback_query.edits[-1][0] == mod.config.MAINTENANCE_MESSAGE
 
@@ -406,3 +415,151 @@ async def test_maintenance_env_false_overrides_config_true(monkeypatch):
     ]
 
     assert maintenance_handlers == []
+
+
+@pytest.mark.asyncio
+async def test_maintenance_message_falls_back_to_reply_on_edit_failure(monkeypatch):
+    monkeypatch.setenv('BOT_TOKEN', 'x')
+    monkeypatch.setenv('MONGODB_URL', 'mongodb://localhost:27017/test')
+    monkeypatch.setenv('DISABLE_DB', '1')
+    monkeypatch.setenv('MAINTENANCE_MODE', 'true')
+    monkeypatch.setenv('MAINTENANCE_AUTO_WARMUP_SECS', '10')
+
+    import importlib
+    import config as cfg
+    importlib.reload(cfg)
+    import main as mod
+    importlib.reload(mod)
+
+    class _MiniApp:
+        def __init__(self):
+            self.handlers = []
+            self.bot_data = {}
+
+        def add_handler(self, handler, group=None):
+            self.handlers.append((handler, group))
+
+        def add_error_handler(self, handler, group=None):
+            pass
+
+    class _Builder:
+        def token(self, *a, **k):
+            return self
+
+        def defaults(self, *a, **k):
+            return self
+
+        def persistence(self, *a, **k):
+            return self
+
+        def post_init(self, *a, **k):
+            return self
+
+        def build(self):
+            return _MiniApp()
+
+    class _AppNS:
+        def builder(self):
+            return _Builder()
+
+    monkeypatch.setattr(mod, 'Application', _AppNS())
+
+    bot = mod.CodeKeeperBot()
+
+    maintenance_handlers = [h for h, g in bot.application.handlers if g == -100]
+    maint_cbq_handler = None
+    for h in maintenance_handlers:
+        if h.__class__.__name__ == 'CallbackQueryHandler' and getattr(getattr(h, 'callback', None), '__name__', '') == 'maintenance_reply':
+            maint_cbq_handler = h
+            break
+    assert maint_cbq_handler is not None
+
+    fake_message = _FakeMessage()
+    fake_callback = _FakeCallbackQuery(fail_edit=True, message=fake_message)
+    update = types.SimpleNamespace(callback_query=fake_callback, message=None, effective_user=types.SimpleNamespace(id=5))
+    context = types.SimpleNamespace()
+
+    await maint_cbq_handler.callback(update, context)
+
+    assert fake_message.replies, 'expected reply_text fallback when edit failed'
+    assert fake_message.replies[-1] == mod.config.MAINTENANCE_MESSAGE
+
+
+@pytest.mark.asyncio
+async def test_maintenance_message_uses_context_bot_when_no_message(monkeypatch):
+    monkeypatch.setenv('BOT_TOKEN', 'x')
+    monkeypatch.setenv('MONGODB_URL', 'mongodb://localhost:27017/test')
+    monkeypatch.setenv('DISABLE_DB', '1')
+    monkeypatch.setenv('MAINTENANCE_MODE', 'true')
+    monkeypatch.setenv('MAINTENANCE_AUTO_WARMUP_SECS', '15')
+
+    import importlib
+    import config as cfg
+    importlib.reload(cfg)
+    import main as mod
+    importlib.reload(mod)
+
+    class _MiniApp:
+        def __init__(self):
+            self.handlers = []
+            self.bot_data = {}
+
+        def add_handler(self, handler, group=None):
+            self.handlers.append((handler, group))
+
+        def add_error_handler(self, handler, group=None):
+            pass
+
+    class _Builder:
+        def token(self, *a, **k):
+            return self
+
+        def defaults(self, *a, **k):
+            return self
+
+        def persistence(self, *a, **k):
+            return self
+
+        def post_init(self, *a, **k):
+            return self
+
+        def build(self):
+            return _MiniApp()
+
+    class _AppNS:
+        def builder(self):
+            return _Builder()
+
+    monkeypatch.setattr(mod, 'Application', _AppNS())
+
+    bot = mod.CodeKeeperBot()
+
+    maintenance_handlers = [h for h, g in bot.application.handlers if g == -100]
+    maint_msg_handler = None
+    for h in maintenance_handlers:
+        if getattr(getattr(h, 'callback', None), '__name__', '') == 'maintenance_reply':
+            maint_msg_handler = h
+            break
+    assert maint_msg_handler is not None
+
+    class _FakeBot:
+        def __init__(self):
+            self.sent = []
+
+        async def send_message(self, chat_id, text):
+            self.sent.append((chat_id, text))
+
+    fake_bot = _FakeBot()
+    update = types.SimpleNamespace(
+        callback_query=None,
+        message=None,
+        effective_message=None,
+        effective_chat=types.SimpleNamespace(id=987),
+        effective_user=types.SimpleNamespace(id=6),
+    )
+    context = types.SimpleNamespace(bot=fake_bot)
+
+    await maint_msg_handler.callback(update, context)
+
+    assert fake_bot.sent, 'expected send_message fallback when no message provided'
+    assert fake_bot.sent[-1][1] == mod.config.MAINTENANCE_MESSAGE
