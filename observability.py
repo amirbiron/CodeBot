@@ -405,6 +405,7 @@ def bind_request_id(request_id: str) -> None:
 def emit_event(event: str, severity: str = "info", **fields: Any) -> None:
     logger = structlog.get_logger()
     fields.setdefault("event", event)
+
     # Keep a lightweight in-memory buffer of recent errors for ChatOps /errors fallback
     try:
         if severity in {"error", "critical"}:
@@ -418,6 +419,16 @@ def emit_event(event: str, severity: str = "info", **fields: Any) -> None:
     except Exception:
         pass
     if severity in {"error", "critical"}:
+        ctx = get_observability_context()
+        request_id = str(fields.get("request_id") or ctx.get("request_id") or "").strip()
+        if request_id and "request_id" not in fields:
+            fields["request_id"] = request_id
+
+        command_tag = _sanitize_command_identifier(fields.get("command")) or str(ctx.get("command") or "")
+        user_tag = _hash_identifier(fields.get("user_id")) or str(ctx.get("user_id") or "")
+        chat_tag = _hash_identifier(fields.get("chat_id")) or str(ctx.get("chat_id") or "")
+        message_text = str(fields.get("error") or fields.get("message") or event)
+
         # best-effort: alert per single error (rate-limited via env)
         try:
             _maybe_alert_single_error(event, fields)
@@ -428,24 +439,20 @@ def emit_event(event: str, severity: str = "info", **fields: Any) -> None:
         try:
             import sentry_sdk  # type: ignore
 
-            ctx = get_observability_context()
-            rid = ctx.get("request_id") or str(fields.get("request_id") or "")
-            command_tag = ctx.get("command") or _sanitize_command_identifier(fields.get("command"))
-            user_tag = ctx.get("user_id") or _hash_identifier(fields.get("user_id"))
-            chat_tag = ctx.get("chat_id") or _hash_identifier(fields.get("chat_id"))
-            message_text = str(fields.get("error") or fields.get("message") or event)
             with sentry_sdk.push_scope() as scope:  # type: ignore[attr-defined]
                 for key, value in (
-                    ("request_id", rid),
+                    ("request_id", request_id),
                     ("command", command_tag),
                     ("user_id", user_tag),
                     ("chat_id", chat_tag),
                 ):
-                    if value:
-                        try:
-                            scope.set_tag(key, str(value))  # type: ignore[attr-defined]
-                        except Exception:
-                            pass
+                    value_str = str(value).strip()
+                    if not value_str:
+                        continue
+                    try:
+                        scope.set_tag(key, value_str)  # type: ignore[attr-defined]
+                    except Exception:
+                        pass
                 sentry_sdk.capture_message(message_text, level="error")  # type: ignore[attr-defined]
         except Exception:
             # Fail-open אם sentry לא זמין
