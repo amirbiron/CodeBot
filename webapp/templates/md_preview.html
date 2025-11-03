@@ -1046,21 +1046,26 @@ const CDN = {
   mermaid: null
 };
 
-// Slug יציב בסגנון GitHub – שומר על התאמה לתוכן עניינים ידני שגם כולל אמוג'ים
+// Slug יציב בסגנון GitHub – שומר על התאמה לתוכן עניינים ידני גם בכותרות רב־לשוניות
 function slugifyHeadingId(rawText) {
   try {
     let slug = (rawText || '')
       .toString()
       .trim()
       .toLowerCase()
-      // החלפת רווחים במקף לפני ניקוי, כדי לשמר מקפים מובילים כשיש אמוג'ים בתחילת הכותרת
+      .normalize('NFKD')
+      // ניקוי סימנים בלתי מודפסים/RTL וכדומה
+      .replace(/[\u200B-\u200D\uFEFF]/g, '')
+      // הסרת סימני ניקוד לאחר נרמול (כמו á -> a)
+      .replace(/\p{M}+/gu, '')
+      // השארת אותיות (מכל שפה), ספרות, רווחים ומקפים בטוחים
+      .replace(/[^\p{L}\p{N}\s-]+/gu, '')
+      // המרה של רווחים רצופים למקף יחיד
       .replace(/\s+/g, '-')
-      // שמירת אותיות לטיניות, עברית, ספרות וקו מפריד. שאר התווים (כולל אמוג'ים) נמחקים.
-      .replace(/[^\w\u0590-\u05FF\u0600-\u06FF-]/g, '')
-      // ביטול ריבוי מקפים רצופים ושמירה על קריאות העוגן
+      // ביטול ריבוי מקפים רצופים
       .replace(/-{2,}/g, '-')
-      // מניעת מקפים מסיימים מיותרים (אבל לא מוחקים מקפים בתחילת המחרוזת)
-      .replace(/-+$/g, '');
+      // הסרת מקפים מובילים או מסיימים שנוצרו לאחר הניקוי
+      .replace(/^-+|-+$/g, '');
 
     // אין מצב שנשאיר עוגן ריק – נספק ברירת מחדל יציבה
     if (!slug) {
@@ -1194,7 +1199,13 @@ function loadScript(src){
         });
       } catch(_) {}
     })();
-    if (window.markdownitTocDoneRight) md.use(window.markdownitTocDoneRight);
+    if (window.markdownitTocDoneRight) {
+      try {
+        md.use(window.markdownitTocDoneRight, { slugify: slugifyHeadingId });
+      } catch(_) {
+        try { md.use(window.markdownitTocDoneRight); } catch(__) {}
+      }
+    }
 
     // רינדור ראשוני
     const container = document.getElementById('md-content');
