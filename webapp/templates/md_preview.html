@@ -1066,6 +1066,22 @@ input.md-task-checkbox {
   }
   </style>
   {% endif %}
+{% if can_save_shared %}
+<div class="glass-card" style="margin-top: 1rem;">
+  <h2 class="section-title">
+    <i class="fas fa-floppy-disk"></i>
+    שמור בקבצים שלי
+  </h2>
+  <p style="margin-bottom: 1rem;">לחיצה על הכפתור תשמור את המדריך הזה בחשבון שלך כדי שתוכל לחזור אליו בכל רגע.</p>
+  <button id="saveSharedFileBtn"
+          class="btn btn-primary btn-icon"
+          data-share-id="{{ file.id }}"
+          data-file-name="{{ file.file_name }}">
+    <i class="fas fa-save"></i>
+    💾 שמור בקבצים שלי
+  </button>
+</div>
+{% endif %}
   <script type="application/json" id="mdText">{{ md_code | tojson | safe }}</script>
   <script>
     // חשוף מזהה קובץ לשימוש רכיבי אינטראקציה (פתקים דביקים וכו')
@@ -1077,6 +1093,44 @@ input.md-task-checkbox {
 // מזהה קובץ לשימוש בשמירת העדפות פר-קובץ
 const FILE_ID = "{{ file.id }}";
 const FILE_VIEW_URL = "{{ url_for('view_file', file_id=file.id) }}";
+const saveSharedButton = document.getElementById('saveSharedFileBtn');
+if (saveSharedButton) {
+  const originalHtml = saveSharedButton.innerHTML;
+  const shareId = saveSharedButton.getAttribute('data-share-id') || '';
+  const fileName = saveSharedButton.getAttribute('data-file-name') || '';
+  const markSuccess = () => {
+    saveSharedButton.innerHTML = '✅ נשמר בהצלחה';
+    saveSharedButton.disabled = true;
+  };
+  saveSharedButton.addEventListener('click', async (event) => {
+    event.preventDefault();
+    if (saveSharedButton.dataset.loading === '1') {
+      return;
+    }
+    saveSharedButton.dataset.loading = '1';
+    saveSharedButton.disabled = true;
+    try {
+      const resp = await fetch('/api/shared/save', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ share_id: shareId, file_name: fileName })
+      });
+      const data = await resp.json().catch(() => ({}));
+      if (!resp.ok || !data || data.ok !== true) {
+        throw new Error((data && data.error) || 'שמירת המדריך נכשלה');
+      }
+      markSuccess();
+    } catch (err) {
+      console.error('saveSharedGuide', err);
+      alert((err && err.message) ? err.message : 'שמירת המדריך נכשלה');
+      saveSharedButton.innerHTML = originalHtml;
+      saveSharedButton.disabled = false;
+    } finally {
+      saveSharedButton.dataset.loading = '0';
+    }
+  });
+}
+
 // תוכן ה-Markdown מועבר בבטחה JSON-encoded
 const MD_TEXT = (function(){
   try {
