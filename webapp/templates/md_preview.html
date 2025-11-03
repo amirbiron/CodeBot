@@ -1046,6 +1046,45 @@ const CDN = {
   mermaid: null
 };
 
+// Slug יציב בסגנון GitHub – שומר על התאמה לתוכן עניינים ידני גם בכותרות רב־לשוניות
+function slugifyHeadingId(rawText) {
+  try {
+    let slug = (rawText || '')
+      .toString()
+      .trim()
+      .toLowerCase()
+      .normalize('NFKD')
+      // ניקוי סימנים בלתי מודפסים/RTL וכדומה
+      .replace(/[\u200B-\u200D\uFEFF]/g, '')
+      // הסרת סימני ניקוד לאחר נרמול (כמו á -> a)
+      .replace(/\p{M}+/gu, '')
+      // השארת אותיות (מכל שפה), ספרות, רווחים ומקפים בטוחים
+      .replace(/[^\p{L}\p{N}\s-]+/gu, '')
+      // המרה של רווחים רצופים למקף יחיד
+      .replace(/\s+/g, '-')
+      // ביטול ריבוי מקפים רצופים
+      .replace(/-{2,}/g, '-')
+      // הסרת מקפים מובילים או מסיימים שנוצרו לאחר הניקוי
+      .replace(/^-+|-+$/g, '');
+
+    // אין מצב שנשאיר עוגן ריק – נספק ברירת מחדל יציבה
+    if (!slug) {
+      slug = 'section';
+    }
+
+    return slug;
+  } catch (_) {
+    // במקרה נדיר של שגיאת RegExp בדפדפן ישן, נ fallback לשיטה בסיסית
+    const safe = (rawText || '')
+      .toString()
+      .trim()
+      .toLowerCase()
+      .replace(/\s+/g, '-')
+      .replace(/[^a-z0-9-]/g, '') || 'section';
+    return safe;
+  }
+}
+
 function injectCss(href){
   if (!href) return;
   try {
@@ -1100,10 +1139,11 @@ function loadScript(src){
     if (window.markdownitTaskLists) md.use(window.markdownitTaskLists, { label: true, enabled: true });
     // עוגני כותרות – הגדרה יציבה למניעת רגרסיות בין גרסאות התוסף
     if (window.markdownitAnchor) {
+      const anchorOptions = { permalink: true, permalinkSymbol: '¶', slugify: slugifyHeadingId };
       try {
-        md.use(window.markdownitAnchor, { permalink: true, permalinkSymbol: '¶' });
+        md.use(window.markdownitAnchor, anchorOptions);
       } catch(_) {
-        try { md.use(window.markdownitAnchor); } catch(__) {}
+        try { md.use(window.markdownitAnchor, { slugify: slugifyHeadingId }); } catch(__) {}
       }
     }
     if (window.markdownitFootnote) md.use(window.markdownitFootnote);
@@ -1159,7 +1199,13 @@ function loadScript(src){
         });
       } catch(_) {}
     })();
-    if (window.markdownitTocDoneRight) md.use(window.markdownitTocDoneRight);
+    if (window.markdownitTocDoneRight) {
+      try {
+        md.use(window.markdownitTocDoneRight, { slugify: slugifyHeadingId });
+      } catch(_) {
+        try { md.use(window.markdownitTocDoneRight); } catch(__) {}
+      }
+    }
 
     // רינדור ראשוני
     const container = document.getElementById('md-content');
@@ -1172,16 +1218,21 @@ function loadScript(src){
     try {
       // השלם מזהי עוגן חסרים והסר כפילויות כדי שסימניות על כותרות יעבדו יציב
       const seen = new Set();
-      const gen = (t) => {
-        const s = (t || '').toLowerCase().trim().replace(/[^a-z0-9א-ת\-\s]/gi, '').replace(/\s+/g, '-');
-        let base = s || 'section'; let k = base; let i = 2;
-        while (seen.has(k) || document.getElementById(k)) { k = base + '-' + (i++); }
-        seen.add(k); return k;
+      const gen = (t, el) => {
+        const base = slugifyHeadingId(t);
+        let candidate = base;
+        let idx = 2;
+        while (seen.has(candidate) || (document.getElementById(candidate) && document.getElementById(candidate) !== el)) {
+          candidate = `${base}-${idx++}`;
+        }
+        seen.add(candidate);
+        return candidate;
       };
       Array.from(container.querySelectorAll('h1, h2, h3, h4, h5, h6')).forEach(h => {
         const txt = (h.textContent || '').trim();
-        if (!h.id) { h.id = gen(txt); }
-        else if (seen.has(h.id)) { h.id = gen(txt); } else { seen.add(h.id); }
+        if (!h.id) { h.id = gen(txt, h); }
+        else if (seen.has(h.id)) { h.id = gen(txt, h); }
+        else { seen.add(h.id); }
       });
     } catch(_) {}
 
