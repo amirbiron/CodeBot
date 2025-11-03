@@ -332,3 +332,77 @@ async def test_maintenance_message_sent_during_warmup_for_callback_query(monkeyp
     assert update.callback_query.edits, 'expected edit_message_text during warmup'
     assert update.callback_query.edits[-1][0] == mod.config.MAINTENANCE_MESSAGE
 
+
+@pytest.mark.asyncio
+async def test_maintenance_env_false_overrides_config_true(monkeypatch):
+    monkeypatch.setenv('BOT_TOKEN', 'x')
+    monkeypatch.setenv('MONGODB_URL', 'mongodb://localhost:27017/test')
+    monkeypatch.setenv('DISABLE_DB', '1')
+    monkeypatch.setenv('MAINTENANCE_MODE', 'true')
+    monkeypatch.setenv('MAINTENANCE_AUTO_WARMUP_SECS', '5')
+
+    import importlib
+    import config as cfg
+    importlib.reload(cfg)
+    assert cfg.config.MAINTENANCE_MODE is True
+
+    monkeypatch.setenv('MAINTENANCE_MODE', 'false')
+
+    import main as mod
+    importlib.reload(mod)
+
+    assert mod.config.MAINTENANCE_MODE is True
+
+    class _JobQ:
+        def __init__(self):
+            self.last = None
+
+        def run_once(self, cb, when=None, name=None):
+            self.last = (cb, when, name)
+            return None
+
+    class _MiniApp:
+        def __init__(self):
+            self.handlers = []
+            self.bot_data = {}
+            self.job_queue = _JobQ()
+
+        def add_handler(self, handler, group=None):
+            self.handlers.append((handler, group))
+
+        def add_error_handler(self, handler, group=None):
+            pass
+
+        def remove_handler(self, handler, group=None):
+            pass
+
+    class _Builder:
+        def token(self, *a, **k):
+            return self
+
+        def defaults(self, *a, **k):
+            return self
+
+        def persistence(self, *a, **k):
+            return self
+
+        def post_init(self, *a, **k):
+            return self
+
+        def build(self):
+            return _MiniApp()
+
+    class _AppNS:
+        def builder(self):
+            return _Builder()
+
+    monkeypatch.setattr(mod, 'Application', _AppNS())
+
+    bot = mod.CodeKeeperBot()
+
+    maintenance_handlers = [
+        h for h, g in bot.application.handlers
+        if g == -100 and getattr(getattr(h, 'callback', None), '__name__', '') == 'maintenance_reply'
+    ]
+
+    assert maintenance_handlers == []

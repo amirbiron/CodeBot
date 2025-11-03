@@ -961,12 +961,33 @@ class CodeKeeperBot:
         # Maintenance gate: if enabled, short-circuit most interactions
         # שימוש ב-getattr עבור תאימות לטסטים שמחליפים את config באובייקט מינימלי
         maintenance_flag_raw = getattr(config, "MAINTENANCE_MODE", False)
-        try:
-            if isinstance(maintenance_flag_raw, str):
-                maintenance_flag = maintenance_flag_raw.strip().lower() in {"1", "true", "yes", "on"}
-            else:
-                maintenance_flag = bool(maintenance_flag_raw)
-        except Exception:
+
+        def _coerce_flag(value):
+            try:
+                if value is None:
+                    return None
+                if isinstance(value, str):
+                    normalized = value.strip().lower()
+                    if not normalized:
+                        return None
+                    if normalized in {"1", "true", "yes", "on"}:
+                        return True
+                    if normalized in {"0", "false", "no", "off"}:
+                        return False
+                    return None
+                if isinstance(value, (bool, int)):
+                    return bool(value)
+            except Exception:
+                return None
+            return None
+
+        maintenance_flag = _coerce_flag(maintenance_flag_raw)
+
+        env_override = _coerce_flag(os.getenv("MAINTENANCE_MODE"))
+        if env_override is not None:
+            maintenance_flag = env_override
+
+        if maintenance_flag is None:
             maintenance_flag = False
 
         if maintenance_flag:
