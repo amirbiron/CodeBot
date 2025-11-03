@@ -7,9 +7,11 @@ from __future__ import annotations
 
 from flask import Blueprint, jsonify, request, session
 from functools import wraps
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional, Tuple
 from datetime import datetime, timezone
 import html
+import re
+import hashlib
 # Robust ObjectId/InvalidId import with fallbacks for stub environments
 try:  # type: ignore
     from bson import ObjectId  # type: ignore
@@ -88,15 +90,29 @@ def require_auth(f):
     return _inner
 
 
-def _sanitize_text(text: Any, max_length: int = 5000) -> str:
+_CONTROL_CHARS_RE = re.compile(r"[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]")
+
+
+def _sanitize_text(text: Any, max_length: int = 20000) -> str:
+    """Normalize user text without HTML escaping.
+
+    שומר על טקסט כפי שהמשתמש הזין (כולל מרכאות וסימנים אחרים) תוך הסרת תווים לא
+    מודפסים והגבלת אורך סבירה כדי למנוע פגיעה בבסיס הנתונים.
+    """
     if text is None:
         return ""
     try:
         s = str(text)
     except Exception:
         s = ""
-    s = s[:max_length]
-    return html.escape(s)
+    # החזרת מחרוזות שהשתמרו כ-html entities (כמו &quot;)
+    s = html.unescape(s)
+    # נרמול קפיצות שורה והסרת תווים שאינם מודפסים
+    s = s.replace("\r\n", "\n").replace("\r", "\n")
+    s = _CONTROL_CHARS_RE.sub("", s)
+    if max_length and max_length > 0:
+        s = s[:max_length]
+    return s
 
 
 def _coerce_int(value: Any, default: int, min_v: Optional[int] = None, max_v: Optional[int] = None) -> int:
@@ -111,11 +127,80 @@ def _coerce_int(value: Any, default: int, min_v: Optional[int] = None, max_v: Op
     return x
 
 
+def _make_scope_id(user_id: int, file_name: Optional[str]) -> Optional[str]:
+    if not file_name:
+        return None
+    try:
+        normalized = re.sub(r"\s+", " ", str(file_name).strip()).lower()
+    except Exception:
+        normalized = str(file_name or "").strip().lower()
+    if not normalized:
+        return None
+    digest = hashlib.sha256(f"{user_id}::{normalized}".encode('utf-8')).hexdigest()[:16]
+    return f"user:{user_id}:file:{digest}"
+
+
+def _resolve_scope(db, user_id: int, file_id: Any) -> Tuple[Optional[str], Optional[str], List[str]]:
+    normalized_id = str(file_id or '').strip()
+    related_ids: List[str] = []
+    if normalized_id:
+        related_ids.append(normalized_id)
+    file_name: Optional[str] = None
+    scope_id: Optional[str] = None
+    if db is None:
+        return scope_id, file_name, related_ids
+    oid = None
+    try:
+        oid = ObjectId(str(file_id))
+    except Exception:
+        oid = None
+    doc = None
+    if oid is not None:
+        try:
+            doc = db.code_snippets.find_one({'_id': oid, 'user_id': user_id}, {'file_name': 1})
+        except Exception:
+            doc = None
+        if doc and isinstance(doc, dict):
+            file_name = doc.get('file_name')
+    if file_name:
+        scope_id = _make_scope_id(user_id, file_name)
+        try:
+            cursor = db.code_snippets.find({'user_id': user_id, 'file_name': file_name}, {'_id': 1})
+        except Exception:
+            cursor = None
+        if cursor is not None:
+            for entry in cursor:
+                try:
+                    rid = str((entry or {}).get('_id') or '')
+                except Exception:
+                    rid = ''
+                if rid:
+                    related_ids.append(rid)
+    seen = set()
+    deduped: List[str] = []
+    for rid in related_ids:
+        if not rid or rid in seen:
+            continue
+        seen.add(rid)
+        deduped.append(rid)
+    return scope_id, file_name, deduped
+
+
+def _coerce_content_from_doc(value: Any) -> str:
+    if value is None:
+        return ""
+    try:
+        s = str(value)
+    except Exception:
+        s = ""
+    return html.unescape(s)
+
+
 def _as_note_response(doc: Dict[str, Any]) -> Dict[str, Any]:
     return {
         'id': str(doc.get('_id')),
         'file_id': str(doc.get('file_id', '')),
-        'content': str(doc.get('content', '')),
+        'content': _coerce_content_from_doc(doc.get('content', '')),
         'position': {
             'x': int(doc.get('position_x', 100) or 100),
             'y': int(doc.get('position_y', 100) or 100),
@@ -146,10 +231,32 @@ def list_notes(file_id: str):
         _ensure_indexes()
         user_id = int(session['user_id'])
         db = get_db()
-        cursor = db.sticky_notes.find({'user_id': user_id, 'file_id': str(file_id)}).sort('created_at', 1)
+        scope_id, file_name, related_ids = _resolve_scope(db, user_id, file_id)
+        query: Dict[str, Any] = {'user_id': user_id}
+        criteria: List[Dict[str, Any]] = []
+        if scope_id:
+            criteria.append({'scope_id': scope_id})
+        if related_ids:
+            criteria.append({'file_id': {'$in': related_ids}})
+        if criteria:
+            query['$or'] = criteria
+        else:
+            query['file_id'] = str(file_id)
+        cursor = db.sticky_notes.find(query).sort('created_at', 1)
+        raw_docs = list(cursor) if cursor is not None else []
         notes = [
-            _as_note_response(doc) for doc in (list(cursor) if cursor is not None else []) if isinstance(doc, dict)
+            _as_note_response(doc) for doc in raw_docs if isinstance(doc, dict)
         ]
+        if scope_id:
+            missing_ids = [doc.get('_id') for doc in raw_docs if isinstance(doc, dict) and not doc.get('scope_id')]
+            if missing_ids:
+                try:
+                    update_payload: Dict[str, Any] = {'scope_id': scope_id}
+                    if file_name:
+                        update_payload['file_name'] = file_name
+                    db.sticky_notes.update_many({'_id': {'$in': missing_ids}}, {'$set': update_payload})
+                except Exception:
+                    pass
         resp = jsonify({'ok': True, 'notes': notes, 'count': len(notes)})
         # מניעת קאשינג בדפדפן/פרוקסי כדי שלא תוחזר גרסה ישנה של פתקים
         try:
@@ -175,6 +282,8 @@ def create_note(file_id: str):
     try:
         _ensure_indexes()
         user_id = int(session['user_id'])
+        db = get_db()
+        scope_id, scope_file_name, _ = _resolve_scope(db, user_id, file_id)
         data = request.get_json(silent=True) or {}
         content = _sanitize_text(data.get('content', ''), 5000)
         pos = data.get('position') or {}
@@ -203,7 +312,10 @@ def create_note(file_id: str):
             'created_at': datetime.now(timezone.utc),
             'updated_at': datetime.now(timezone.utc),
         }
-        db = get_db()
+        if scope_id:
+            doc['scope_id'] = scope_id
+        if scope_file_name:
+            doc['file_name'] = scope_file_name
         res = db.sticky_notes.insert_one(doc)
         nid = str(getattr(res, 'inserted_id', ''))
         try:
@@ -280,6 +392,12 @@ def update_note(note_id: str):
         note = db.sticky_notes.find_one({'_id': oid, 'user_id': user_id})
         if not note:
             return jsonify({'ok': False, 'error': 'Note not found'}), 404
+        if not note.get('scope_id'):
+            scope_id, scope_file_name, _ = _resolve_scope(db, user_id, note.get('file_id'))
+            if scope_id:
+                updates['scope_id'] = scope_id
+                if scope_file_name and 'file_name' not in updates:
+                    updates['file_name'] = scope_file_name
         # מניעת דריסה בין מכשירים: אם התקבלה prev_updated_at ונמוכה מהעדכנית – החזר 409
         try:
             prev_updated_at = data.get('prev_updated_at')
