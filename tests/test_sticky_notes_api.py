@@ -3,12 +3,13 @@
 import sys
 from pathlib import Path
 import unittest
+from unittest.mock import MagicMock
 
 ROOT = Path(__file__).resolve().parent.parent
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from webapp.sticky_notes_api import _as_note_response, _sanitize_text
+from webapp.sticky_notes_api import _as_note_response, _resolve_scope, _sanitize_text
 
 
 class TestStickyNotesSanitize(unittest.TestCase):
@@ -56,6 +57,33 @@ class TestNoteResponse(unittest.TestCase):
         self.assertEqual(note['content'], '"שלום"')
         self.assertEqual(note['size']['width'], 300)
         self.assertEqual(note['size']['height'], 200)
+
+
+class TestStickyScope(unittest.TestCase):
+    def test_resolve_scope_collects_related_versions(self):
+        db = MagicMock()
+        db.code_snippets = MagicMock()
+        db.code_snippets.find_one.return_value = {'file_name': 'Notes.md'}
+        db.code_snippets.find.return_value = [
+            {'_id': '64a000000000000000000001'},
+            {'_id': '64a000000000000000000002'},
+        ]
+        scope_id, file_name, related_ids = _resolve_scope(db, 42, '64a000000000000000000003')
+        self.assertEqual(file_name, 'Notes.md')
+        self.assertTrue(scope_id.startswith('user:42:file:'))
+        self.assertIn('64a000000000000000000003', related_ids)
+        self.assertIn('64a000000000000000000001', related_ids)
+        self.assertEqual(len(related_ids), len(set(related_ids)))
+
+    def test_resolve_scope_without_match_returns_only_input(self):
+        db = MagicMock()
+        db.code_snippets = MagicMock()
+        db.code_snippets.find_one.return_value = None
+        db.code_snippets.find.return_value = []
+        scope_id, file_name, related_ids = _resolve_scope(db, 7, 'plain-id')
+        self.assertIsNone(scope_id)
+        self.assertIsNone(file_name)
+        self.assertEqual(related_ids, ['plain-id'])
 
 
 if __name__ == "__main__":
