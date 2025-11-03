@@ -21,6 +21,7 @@ def test_bind_request_id_calls_structlog_bind(monkeypatch):
         called.update(kwargs)
 
     monkeypatch.setattr(obs.structlog.contextvars, "bind_contextvars", _bind_contextvars)
+    monkeypatch.setattr(obs, "_set_sentry_tag", lambda *a, **k: None)
     obs.bind_request_id("abc12345")
     assert called.get("request_id") == "abc12345"
 
@@ -94,3 +95,38 @@ def test_recent_errors_buffer_and_getter(monkeypatch):
     assert isinstance(recent, list) and len(recent) >= 2
     codes = {r.get("error_code") for r in recent[-2:]}
     assert {"E1", "E2"}.issubset(codes)
+
+
+def test_bind_user_context_hashes_identifiers(monkeypatch):
+    monkeypatch.setattr(obs, "_set_sentry_tag", lambda *a, **k: None)
+    try:
+        obs.structlog.contextvars.clear_contextvars()
+    except Exception:
+        pass
+    obs.bind_user_context(user_id=12345, chat_id="chat-1")
+    ctx = obs.get_observability_context()
+    assert ctx.get("user_id") and ctx.get("user_id") != "12345"
+    assert ctx.get("chat_id") and ctx.get("chat_id") != "chat-1"
+
+
+def test_bind_command_sanitizes(monkeypatch):
+    captured = {}
+
+    def _bind_contextvars(**kwargs):
+        captured.update(kwargs)
+
+    monkeypatch.setattr(obs.structlog.contextvars, "bind_contextvars", _bind_contextvars)
+    monkeypatch.setattr(obs, "_set_sentry_tag", lambda *a, **k: None)
+    obs.bind_command("/Status@Bot  extra")
+    assert captured.get("command") == "status"
+
+
+def test_prepare_outgoing_headers_adds_request_id(monkeypatch):
+    monkeypatch.setattr(obs, "_set_sentry_tag", lambda *a, **k: None)
+    try:
+        obs.structlog.contextvars.clear_contextvars()
+    except Exception:
+        pass
+    obs.bind_request_id("req-xyz")
+    headers = obs.prepare_outgoing_headers({})
+    assert headers.get("X-Request-ID") == "req-xyz"
