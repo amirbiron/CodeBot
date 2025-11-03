@@ -1076,6 +1076,7 @@ input.md-task-checkbox {
 <script>
 // מזהה קובץ לשימוש בשמירת העדפות פר-קובץ
 const FILE_ID = "{{ file.id }}";
+const FILE_VIEW_URL = "{{ url_for('view_file', file_id=file.id) }}";
 // תוכן ה-Markdown מועבר בבטחה JSON-encoded
 const MD_TEXT = (function(){
   try {
@@ -2378,7 +2379,18 @@ function loadScript(src){
       console.info('TOC: מתחיל אתחול');
       waitForContent(buildTOC);
       window.addEventListener('beforeunload', cleanup);
-      if (window.navigation) { window.navigation.addEventListener('navigate', cleanup); }
+      if (window.navigation && typeof window.navigation.addEventListener === 'function') {
+        const navHandler = (event) => {
+          try {
+            if (event && event.destination && event.destination.sameDocument) {
+              return;
+            }
+          } catch(_) {}
+          cleanup();
+        };
+        window.navigation.addEventListener('navigate', navHandler);
+        tocState.clickHandlers.push({ element: window.navigation, event: 'navigate', handler: navHandler });
+      }
       // יישר מיקום התפריט והכפתור המינימלי לשורה אחת בצד שמאל
       applyMiniTop(getSavedMiniTop());
       // שחזור העדפת מיזעור (גלובלי/פר-קובץ)
@@ -2536,17 +2548,18 @@ async function shareToTelegramMd(){
   catch(_){ window.location.href = telegramUrl; }
 }
 
-// ניווט חזרה אמין: אם יש היסטוריה – חזור; אחרת נווט ישירות לעמוד הקובץ
+// ניווט חזרה אמין: תמיד מחזיר לתצוגת הקוד של הקובץ
 function goBackToFile(ev){
   try { if (ev) ev.preventDefault(); } catch(_){ }
   try {
-    const sameOriginRef = document.referrer && new URL(document.referrer, window.location.origin).origin === window.location.origin;
-    if (window.history && window.history.length > 1 && sameOriginRef) {
-      window.history.back();
-      return false;
+    if (window.location && typeof window.location.replace === 'function') {
+      window.location.replace(FILE_VIEW_URL);
+    } else {
+      window.location.href = FILE_VIEW_URL;
     }
-  } catch(_){ }
-  try { window.location.replace('/file/{{ file.id }}'); } catch(_) { window.location.href = '/file/{{ file.id }}'; }
+  } catch(_) {
+    window.location.href = FILE_VIEW_URL;
+  }
   return false;
 }
 

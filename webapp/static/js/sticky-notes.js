@@ -19,6 +19,7 @@
   }
 
   function clamp(n, min, max){ return Math.min(Math.max(n, min), max); }
+  const PIN_SENTINEL = '__pinned__';
 
   class StickyNotesManager {
     constructor(fileId){
@@ -82,7 +83,6 @@
     async createNote(){
       try {
         const isMobile = (typeof window !== 'undefined') && ((window.matchMedia && window.matchMedia('(max-width: 480px)').matches) || (window.innerWidth <= 480));
-        const anchor = this._nearestAnchor();
         const payload = {
           content: '',
           // הנחתה קלה למובייל כדי למנוע קפיצה עם הופעת מקלדת
@@ -90,8 +90,8 @@
           size: { width: isMobile ? 200 : 260, height: isMobile ? 160 : 200 },
           color: '#FFFFCC',
           line_start: null,
-          anchor_id: anchor ? anchor.id : undefined,
-          anchor_text: anchor ? anchor.text : undefined
+          anchor_id: undefined,
+          anchor_text: undefined
         };
         const resp = await fetch(`/api/sticky-notes/${encodeURIComponent(this.fileId)}`, {
           method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload)
@@ -106,20 +106,32 @@
     _renderNote(note, focus){
       const el = createEl('div', 'sticky-note');
       el.dataset.noteId = note.id;
-      if (note.anchor_id) el.dataset.anchorId = String(note.anchor_id);
+      if (note.anchor_id && note.anchor_id !== PIN_SENTINEL) {
+        note.anchor_id = PIN_SENTINEL;
+      }
+      if (note.anchor_id === PIN_SENTINEL) {
+        el.dataset.pinned = 'true';
+      }
       // קביעת מיקום התחלתי – אם יש עוגן נשתמש בו, אחרת לפי שמור
-      const initialX = (note.position?.x ?? note.position_x ?? 120);
-      const initialY = (note.position?.y ?? note.position_y ?? (window.scrollY + 120));
-      el.style.left = initialX + 'px';
-      el.style.top = initialY + 'px';
-      el.style.width = (note.size?.width ?? note.width ?? 260) + 'px';
-      el.style.height = (note.size?.height ?? note.height ?? 200) + 'px';
+      const initialX = (typeof note.position?.x === 'number') ? note.position.x : (note.position_x ?? 120);
+      const initialY = (typeof note.position?.y === 'number') ? note.position.y : (note.position_y ?? (window.scrollY + 120));
+      note.position = note.position && typeof note.position === 'object' ? note.position : {};
+      if (typeof note.position.x !== 'number') note.position.x = initialX;
+      if (typeof note.position.y !== 'number') note.position.y = initialY;
+      note.size = note.size && typeof note.size === 'object' ? note.size : {};
+      if (typeof note.size.width !== 'number') note.size.width = note.width ?? 260;
+      if (typeof note.size.height !== 'number') note.size.height = note.height ?? 200;
+      el.style.left = note.position.x + 'px';
+      el.style.top = note.position.y + 'px';
+      el.style.width = note.size.width + 'px';
+      el.style.height = note.size.height + 'px';
       if (note.color) el.style.backgroundColor = note.color;
 
       const header = createEl('div', 'sticky-note-header');
       const drag = createEl('div', 'sticky-note-drag');
       const actions = createEl('div', 'sticky-note-actions');
-      const pinBtn = createEl('button', 'sticky-note-btn sticky-note-pin', { title: 'הצמד/בטל עיגון לכותרת' }); pinBtn.textContent = '📌';
+      const isPinnedInitial = note.anchor_id === PIN_SENTINEL;
+      const pinBtn = createEl('button', 'sticky-note-btn sticky-note-pin', { title: 'הצמד/בטל נעיצה', 'aria-pressed': isPinnedInitial ? 'true' : 'false' }); pinBtn.textContent = '📌';
       const minimizeBtn = createEl('button', 'sticky-note-btn', { title: 'מזער' }); minimizeBtn.textContent = '—';
       const deleteBtn = createEl('button', 'sticky-note-btn', { title: 'מחיקה' }); deleteBtn.textContent = '×';
       actions.appendChild(pinBtn); actions.appendChild(minimizeBtn); actions.appendChild(deleteBtn);
@@ -140,13 +152,17 @@
       document.body.appendChild(el);
 
       if (note.is_minimized) el.classList.add('is-minimized');
+      if (isPinnedInitial) el.classList.add('is-pinned');
 
       // interactions
       this._enableDrag(el, drag);
       this._enableResize(el, resizer);
-      // בעת פוקוס, הצמד לעוגן (במיוחד במובייל בעת הופעת מקלדת)
       textarea.addEventListener('focus', () => {
-        try { this._positionRelativeToAnchor(el); this._reflowWithinViewport(el); } catch(_){ }
+        try {
+          if (!this._isPinned(el)) {
+            this._reflowWithinViewport(el);
+          }
+        } catch(_){ }
       });
 
       textarea.addEventListener('input', () => {
@@ -169,8 +185,7 @@
       if (focus) try { textarea.focus(); } catch(_) {}
       if (note.updated_at) { try { el.dataset.updatedAt = String(note.updated_at); } catch(_) {} }
       this.notes.set(note.id, { el, data: note });
-      // אם יש עוגן – תמקם יחסית אליו כבר בהתחלה
-      this._positionRelativeToAnchor(el);
+      this._applyPositionMode(el, note, { initial: true });
       this._reflowWithinViewport(el);
       return el;
     }
@@ -183,6 +198,124 @@
       const h = Math.round(rect.height);
       const payload = { position: { x, y }, size: { width: w, height: h } };
       return payload;
+    }
+
+    _getEntry(el){
+      if (!el || !el.dataset) return null;
+      const id = el.dataset.noteId;
+      if (!id) return null;
+      return this.notes.get(id) || null;
+    }
+
+    _updatePinButtonState(el, isPinned){
+      const pinBtn = el ? el.querySelector('.sticky-note-pin') : null;
+      if (!pinBtn) return;
+      const active = !!isPinned;
+      pinBtn.classList.toggle('is-active', active);
+      pinBtn.setAttribute('aria-pressed', active ? 'true' : 'false');
+      pinBtn.title = active ? 'בטל נעיצה' : 'נעץ פתק למסמך';
+    }
+
+    _applyPositionMode(el, note, opts){
+      try {
+        if (!el || !note) return;
+        if (note.anchor_id && note.anchor_id !== PIN_SENTINEL) {
+          note.anchor_id = PIN_SENTINEL;
+        }
+        const isPinned = note.anchor_id === PIN_SENTINEL;
+        if (isPinned) {
+          el.classList.add('is-pinned');
+          el.classList.remove('is-floating');
+          el.style.position = 'absolute';
+          const targetX = (typeof note.position?.x === 'number') ? note.position.x : parseInt(el.style.left || '120', 10) || 120;
+          const targetY = (typeof note.position?.y === 'number') ? note.position.y : parseInt(el.style.top || String(window.scrollY + 120), 10) || (window.scrollY + 120);
+          el.style.left = targetX + 'px';
+          el.style.top = targetY + 'px';
+          el.dataset.pinned = 'true';
+          if (el.dataset && el.dataset.anchorId) { delete el.dataset.anchorId; }
+        } else {
+          el.classList.add('is-floating');
+          el.classList.remove('is-pinned');
+          el.style.position = 'fixed';
+          if (el.dataset && el.dataset.pinned) { delete el.dataset.pinned; }
+          const width = (typeof note.size?.width === 'number') ? note.size.width : (parseInt(el.style.width || '260', 10) || 260);
+          const height = (typeof note.size?.height === 'number') ? note.size.height : (parseInt(el.style.height || '200', 10) || 200);
+          let left = (typeof note.position?.x === 'number') ? note.position.x - window.scrollX : parseInt(el.style.left || '120', 10) || 120;
+          let top = (typeof note.position?.y === 'number') ? note.position.y - window.scrollY : parseInt(el.style.top || String(window.scrollY + 120), 10) || (window.scrollY + 120);
+          const vp = window.visualViewport;
+          const vpW = Math.max(100, (vp ? vp.width : window.innerWidth) || window.innerWidth || 320);
+          const vpH = Math.max(100, (vp ? vp.height : window.innerHeight) || window.innerHeight || 320);
+          const maxLeft = Math.max(12, vpW - width - 12);
+          const maxTop = Math.max(60, vpH - height - 20);
+          left = clamp(Math.round(left), 12, maxLeft);
+          top = clamp(Math.round(top), 60, maxTop);
+          el.style.left = left + 'px';
+          el.style.top = top + 'px';
+          if (!opts || opts.reflow !== false) {
+            this._reflowWithinViewport(el);
+          }
+        }
+        this._updatePinButtonState(el, isPinned);
+      } catch(e) {
+        console.warn('sticky note: applyPositionMode failed', e);
+      }
+    }
+
+    _isPinned(el){
+      const entry = this._getEntry(el);
+      const anchorId = entry && entry.data ? (entry.data.anchor_id || '') : '';
+      if (anchorId === PIN_SENTINEL) return true;
+      return !!(el && el.dataset && el.dataset.pinned === 'true');
+    }
+
+    _pinNote(el){
+      const entry = this._getEntry(el);
+      if (!entry) return;
+      const payload = this._notePayloadFromEl(el);
+      entry.data.position = payload.position;
+      entry.data.size = payload.size;
+      entry.data.anchor_id = PIN_SENTINEL;
+      entry.data.anchor_text = '';
+      this._applyPositionMode(el, entry.data, { reflow: false });
+      const requestPayload = Object.assign({}, payload, { anchor_id: PIN_SENTINEL, anchor_text: null });
+      this._queueSave(el, requestPayload);
+      this._flushFor(el);
+    }
+
+    _unpinNote(el){
+      const entry = this._getEntry(el);
+      if (!entry) return;
+      const payload = this._notePayloadFromEl(el);
+      entry.data.position = payload.position;
+      entry.data.size = payload.size;
+      entry.data.anchor_id = '';
+      entry.data.anchor_text = '';
+      if (el.dataset && el.dataset.pinned) { delete el.dataset.pinned; }
+      this._applyPositionMode(el, entry.data, { reflow: true });
+      this._queueSave(el, Object.assign({}, payload, { anchor_id: null, anchor_text: null }));
+      this._flushFor(el);
+    }
+
+    _syncEntryFromFragment(id, fragment){
+      const entry = this.notes.get(id);
+      if (!entry || !fragment) return;
+      if (fragment.position && typeof fragment.position === 'object') {
+        entry.data.position = Object.assign({}, entry.data.position || {}, fragment.position);
+      }
+      if (fragment.size && typeof fragment.size === 'object') {
+        entry.data.size = Object.assign({}, entry.data.size || {}, fragment.size);
+      }
+      if (Object.prototype.hasOwnProperty.call(fragment, 'anchor_id')) {
+        const val = fragment.anchor_id;
+        entry.data.anchor_id = (val === null || val === undefined || val === '') ? '' : String(val);
+      }
+      if (Object.prototype.hasOwnProperty.call(fragment, 'anchor_text')) {
+        const val = fragment.anchor_text;
+        entry.data.anchor_text = val ? String(val) : '';
+      }
+      if (Object.prototype.hasOwnProperty.call(fragment, 'is_minimized')) {
+        entry.data.is_minimized = !!fragment.is_minimized;
+      }
     }
 
     _enableDrag(el, handle){
@@ -225,19 +358,18 @@
         if (longPressHandled) { dragging=false; return; }
         dragging=false;
         const payload = this._notePayloadFromEl(el);
-        this._queueSave(el, payload); this._flushFor(el);
-        // לאחר גרירה ידנית – ננתק עוגן אם התרחקנו משמעותית
-        try {
-          const anchorId = el.dataset.anchorId;
-          if (anchorId) {
-            const anchor = document.getElementById(anchorId);
-            if (anchor) {
-              const ay = Math.round(anchor.getBoundingClientRect().top + window.scrollY);
-              const y = parseInt(el.style.top||'0',10) || 0;
-              if (Math.abs(y - ay) > 300) { delete el.dataset.anchorId; this._queueSave(el, { anchor_id: null, anchor_text: null }); }
-            }
-          }
-        } catch(_) {}
+        const wasPinned = this._isPinned(el);
+        const entry = this._getEntry(el);
+        if (entry) {
+          entry.data.position = payload.position;
+          entry.data.size = payload.size;
+        }
+        if (wasPinned) {
+          this._queueSave(el, Object.assign({}, payload, { anchor_id: PIN_SENTINEL, anchor_text: null }));
+        } else {
+          this._queueSave(el, payload);
+        }
+        this._flushFor(el);
       };
       // מניעת מחוות ברירת מחדל במובייל
       try { handle.style.touchAction = 'none'; } catch(_) {}
@@ -250,22 +382,15 @@
     }
     _toggleAnchor(el){
       try {
-        const has = !!el.dataset.anchorId;
-        if (has) {
-          delete el.dataset.anchorId;
-          this._queueSave(el, { anchor_id: null, anchor_text: null });
-          this._flushFor(el);
+        if (!el) return;
+        if (this._isPinned(el)) {
+          this._unpinNote(el);
           return;
         }
-        const anchor = this._nearestAnchor();
-        if (anchor && anchor.id) {
-          el.dataset.anchorId = anchor.id;
-          this._queueSave(el, { anchor_id: anchor.id, anchor_text: anchor.text });
-          this._flushFor(el);
-          this._positionRelativeToAnchor(el);
-          this._reflowWithinViewport(el);
-        }
-      } catch(_) {}
+        this._pinNote(el);
+      } catch(e) {
+        console.warn('sticky note: toggle pin failed', e);
+      }
     }
 
     _enableResize(el, handle){
@@ -311,6 +436,7 @@
         }
       } catch(_) {}
       this._pending.set(id, pending);
+      this._syncEntryFromFragment(id, pending);
       this._saveDebounced();
     }
 
@@ -393,43 +519,34 @@
       this.notes.delete(id);
     }
 
-    _positionRelativeToAnchor(el){
-      try {
-        const anchorId = el?.dataset?.anchorId;
-        if (!anchorId) return;
-        const anchor = document.getElementById(anchorId);
-        if (!anchor) return;
-        const rect = anchor.getBoundingClientRect();
-        const anchorTop = Math.round(rect.top + window.scrollY);
-        const desiredTop = clamp(anchorTop + 12, 60, Math.max(100, (window.visualViewport ? window.visualViewport.height : window.innerHeight) - 20) + window.scrollY);
-        // שמור X קיים אבל הגבל בתוך viewport הנוכחי
-        const currentLeft = parseInt(el.style.left || '120', 10) || 120;
-        el.style.top = desiredTop + 'px';
-        el.style.left = currentLeft + 'px';
-      } catch(_) { }
-    }
-
     _reflowWithinViewport(target){
       const items = target ? [target] : Array.from(document.querySelectorAll('.sticky-note'));
       const vp = window.visualViewport;
       const vpW = Math.max(100, (vp ? vp.width : window.innerWidth) || window.innerWidth || 320);
       const vpH = Math.max(100, (vp ? vp.height : window.innerHeight) || window.innerHeight || 320);
-      const vpLeft = vp ? Math.round(vp.offsetLeft + window.scrollX) : window.scrollX;
-      const vpTop = vp ? Math.round(vp.offsetTop + window.scrollY) : window.scrollY;
-      const maxX = vpLeft + vpW - 20;
-      const maxY = vpTop + vpH - 20;
+      const minLeft = 12;
+      const minTop = 60;
       items.forEach(el => {
+        if (!el || !(el instanceof HTMLElement)) return;
+        if (el.classList.contains('is-pinned')) {
+          return;
+        }
         const rect = el.getBoundingClientRect();
-        // אם יש עוגן – מצב יחסי אליו קודם
-        this._positionRelativeToAnchor(el);
-        let x = parseInt(el.style.left || String(Math.round(rect.left + window.scrollX)), 10) || Math.round(rect.left + window.scrollX);
-        let y = parseInt(el.style.top || String(Math.round(rect.top + window.scrollY)), 10) || Math.round(rect.top + window.scrollY);
+        let x = parseInt(el.style.left || String(Math.round(rect.left)), 10);
+        if (!Number.isFinite(x)) x = Math.round(rect.left);
+        let y = parseInt(el.style.top || String(Math.round(rect.top)), 10);
+        if (!Number.isFinite(y)) y = Math.round(rect.top);
         let w = Math.round(rect.width);
         let h = Math.round(rect.height);
-        x = clamp(x, vpLeft, maxX - w);
-        y = clamp(y, Math.max(60, vpTop), maxY - h);
+        const maxLeft = Math.max(minLeft, vpW - w - minLeft);
+        const maxTop = Math.max(minTop, vpH - h - 20);
+        x = clamp(x, minLeft, maxLeft);
+        y = clamp(y, minTop, maxTop);
         w = clamp(w, 120, 1200); h = clamp(h, 80, 1200);
-        el.style.left = x + 'px'; el.style.top = y + 'px'; el.style.width = w + 'px'; el.style.height = h + 'px';
+        el.style.left = x + 'px';
+        el.style.top = y + 'px';
+        el.style.width = w + 'px';
+        el.style.height = h + 'px';
       });
     }
   }
