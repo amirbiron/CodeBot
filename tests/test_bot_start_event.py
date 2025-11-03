@@ -20,7 +20,7 @@ def test_bot_start_event_emitted(monkeypatch):
         emit_event=_emit,
     )
 
-    sys.modules['observability'] = fake_obs
+    monkeypatch.setitem(sys.modules, 'observability', fake_obs)
 
     mod = importlib.import_module('main')
 
