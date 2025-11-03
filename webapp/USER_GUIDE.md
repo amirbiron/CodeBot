@@ -728,8 +728,8 @@
 ### זקוק לעזרה?
 
 1. **תיעוד מלא**: [https://amirbiron.github.io/CodeBot/](https://amirbiron.github.io/CodeBot/)
-2. **פתיחת Issue ב-GitHub**: דווח על באגים או בקש תכונות חדשות
-3. **יצירת קשר דרך הבוט**: שלח הודעה לבוט בטלגרם עם השאלה שלך
+2. **פתיחת Issue ב-GitHub**: [דווח על באגים או בקש תכונות חדשות](https://github.com/amirbiron/CodeBot/issues/new)
+3. **יצירת קשר עם המפתח**: [@moominAmir](https://t.me/moominAmir)
 
 ### רוצה לתרום?
 
