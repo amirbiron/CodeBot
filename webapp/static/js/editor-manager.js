@@ -237,12 +237,25 @@
       // נסה קודם טעינה מקומית (bundle) כדי לעבוד גם ללא CDN
       try {
         const localUrl = new URL('./codemirror.local.js', import.meta.url).href;
-        await this.withTimeout(import(localUrl), 8000, 'codemirror_local_import');
+        const localModule = await this.withTimeout(import(localUrl), 8000, 'codemirror_local_import');
+        const localApi = (localModule && (localModule.default || localModule.CodeMirror6)) || null;
+
+        if (localApi && localApi.EditorView && localApi.EditorState) {
+          window.CodeMirror6 = localApi;
+          this._cdnUrl = null;
+          return;
+        }
+
         if (window.CodeMirror6 && window.CodeMirror6.EditorView && window.CodeMirror6.EditorState) {
           this._cdnUrl = null;
           return;
         }
-      } catch (_) { /* נמשיך ל-CDN אם אין bundle מקומי או כשהנתיב המקומי לא זמין */ }
+
+        console.warn('codemirror.local.js נטען אבל ה-export חסר את ה-API המצופה');
+      } catch (e) {
+        console.warn('אי אפשר לטעון את bundle המקומי של CodeMirror:', e);
+        /* נמשיך ל-CDN אם אין bundle מקומי או כשהנתיב המקומי לא זמין */
+      }
 
       // בוחרים CDN אחד לכלל המודולים כדי למנוע ערבוב מחלקות/סינגלטונים
       const cdnCandidates = [
