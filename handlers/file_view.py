@@ -99,7 +99,11 @@ def _get_webapp_button_row(file_id: Optional[str], file_name: Optional[str] = No
         target_url = None
     if not target_url:
         return None
-    return [InlineKeyboardButton("🌐 צפייה בWebApp", url=target_url)]
+    try:
+        return [InlineKeyboardButton("🌐 צפייה בWebApp", url=target_url)]
+    except TypeError:
+        # בסביבות בדיקה ייתכן שהכפתור לא תומך בפרמטר url
+        return None
 
 
 def _get_main_keyboard() -> list:
