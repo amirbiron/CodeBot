@@ -2154,7 +2154,16 @@ function loadScript(src){
           item.setAttribute('aria-label', `עבור לכותרת: ${text}`);
           item.textContent = text;
           if (text.length > 30) { item.title = text; item.textContent = text.substring(0, 30) + '...'; }
-          const clickHandler = (e) => { e.preventDefault(); try { heading.scrollIntoView({ behavior: 'smooth', block: 'start' }); updateActiveItem(item); closeSearch(); minimizeTOC(); } catch (error) { console.error('TOC: שגיאה בגלילה', error); } };
+          const clickHandler = (e) => {
+            e.preventDefault();
+            try {
+              heading.scrollIntoView({ behavior: 'smooth', block: 'start' });
+              updateActiveItem(item);
+              closeSearch();
+            } catch (error) {
+              console.error('TOC: שגיאה בגלילה', error);
+            }
+          };
           item.addEventListener('click', clickHandler);
           tocState.clickHandlers.push({ element: item, event: 'click', handler: clickHandler });
           fragment.appendChild(item);
