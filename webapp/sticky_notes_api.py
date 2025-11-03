@@ -10,6 +10,7 @@ from functools import wraps
 from typing import Any, Dict, Optional
 from datetime import datetime, timezone
 import html
+import re
 # Robust ObjectId/InvalidId import with fallbacks for stub environments
 try:  # type: ignore
     from bson import ObjectId  # type: ignore
@@ -88,15 +89,29 @@ def require_auth(f):
     return _inner
 
 
-def _sanitize_text(text: Any, max_length: int = 5000) -> str:
+_CONTROL_CHARS_RE = re.compile(r"[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]")
+
+
+def _sanitize_text(text: Any, max_length: int = 20000) -> str:
+    """Normalize user text without HTML escaping.
+
+    שומר על טקסט כפי שהמשתמש הזין (כולל מרכאות וסימנים אחרים) תוך הסרת תווים לא
+    מודפסים והגבלת אורך סבירה כדי למנוע פגיעה בבסיס הנתונים.
+    """
     if text is None:
         return ""
     try:
         s = str(text)
     except Exception:
         s = ""
-    s = s[:max_length]
-    return html.escape(s)
+    # החזרת מחרוזות שהשתמרו כ-html entities (כמו &quot;)
+    s = html.unescape(s)
+    # נרמול קפיצות שורה והסרת תווים שאינם מודפסים
+    s = s.replace("\r\n", "\n").replace("\r", "\n")
+    s = _CONTROL_CHARS_RE.sub("", s)
+    if max_length and max_length > 0:
+        s = s[:max_length]
+    return s
 
 
 def _coerce_int(value: Any, default: int, min_v: Optional[int] = None, max_v: Optional[int] = None) -> int:
@@ -111,11 +126,21 @@ def _coerce_int(value: Any, default: int, min_v: Optional[int] = None, max_v: Op
     return x
 
 
+def _coerce_content_from_doc(value: Any) -> str:
+    if value is None:
+        return ""
+    try:
+        s = str(value)
+    except Exception:
+        s = ""
+    return html.unescape(s)
+
+
 def _as_note_response(doc: Dict[str, Any]) -> Dict[str, Any]:
     return {
         'id': str(doc.get('_id')),
         'file_id': str(doc.get('file_id', '')),
-        'content': str(doc.get('content', '')),
+        'content': _coerce_content_from_doc(doc.get('content', '')),
         'position': {
             'x': int(doc.get('position_x', 100) or 100),
             'y': int(doc.get('position_y', 100) or 100),
