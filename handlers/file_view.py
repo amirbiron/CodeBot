@@ -318,8 +318,7 @@ async def handle_view_file(update, context: ContextTypes.DEFAULT_TYPE) -> int:
             ],
             [InlineKeyboardButton("🔙 חזרה", callback_data=back_cb)],
         ]
-        direct_view_id = file_id_str if not is_large_file else None
-        webapp_row = _get_webapp_button_row(direct_view_id, file_name)
+        webapp_row = _get_webapp_button_row(file_id_str or None, file_name)
         if webapp_row:
             keyboard.insert(0, webapp_row)
         # כפתור מועדפים (הוסף/הסר) לפי המצב הנוכחי
