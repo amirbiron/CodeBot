@@ -30,7 +30,8 @@
 .collection-header .actions .btn.btn-danger{background:#fff1f2;border-color:#fecdd3;color:#b91c1c}
 .collection-item{
   display:flex;
-  align-items:center;
+  align-items:flex-start;
+  flex-wrap:wrap;
   gap:.5rem;
   border:1px solid #e5e7eb; /* במקום קו מקווקו שקוף */
   border-radius:8px;
@@ -68,7 +69,8 @@
   padding:.2rem .5rem;
   cursor:pointer
 }
-.collection-item .pin{background:#f8fafc;border:1px solid #e5e7eb;border-radius:6px;color:#374151;padding:.2rem .5rem;cursor:pointer}
+.collection-item .pin,
+.collection-item .preview{background:#f8fafc;border:1px solid #e5e7eb;border-radius:6px;color:#374151;padding:.2rem .5rem;cursor:pointer}
 .collection-item .pin.pinned{background:#fff7ed;border-color:#f59e0b;color:#b45309}
 .loading,.empty,.error{opacity:.85}
 @media(max-width:900px){.collections-layout{grid-template-columns:1fr}}

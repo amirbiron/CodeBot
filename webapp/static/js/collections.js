@@ -38,6 +38,8 @@
     },
   };
 
+  const resolvedFileIdCache = new Map();
+
   async function ensureCollectionsSidebar(){
     const root = document.getElementById('collectionsSidebar');
     if (!root) return;
@@ -117,10 +119,11 @@
       const col = colRes.collection || {};
 
       const itemsHtml = (data.items||[]).map(it => `
-        <div class="collection-item" data-source="${it.source}" data-name="${it.file_name}">
+        <div class="collection-item" data-source="${escapeHtml(it.source||'regular')}" data-name="${escapeHtml(it.file_name||'')}" data-file-id="${escapeHtml(it.file_id || '')}">
           <span class="drag" draggable="true">⋮⋮</span>
           <a class="file" href="#" draggable="false" data-open="${escapeHtml(it.file_name||'')}">${escapeHtml(it.file_name||'')}</a>
           <button class="pin ${it.pinned ? 'pinned' : ''}" title="${it.pinned ? 'בטל הצמדה' : 'הצמד'}">📌</button>
+          <button class="preview" title="תצוגה מקדימה" aria-label="תצוגה מקדימה">🧾</button>
           <button class="remove" title="הסר">✕</button>
         </div>
       `).join('');
@@ -192,6 +195,13 @@
           return;
         }
 
+        const previewBtn = ev.target.closest('.preview');
+        if (previewBtn) {
+          ev.preventDefault();
+          await handlePreviewClick(row, previewBtn, name);
+          return;
+        }
+
         // Open file by clicking the name or row (except drag handle and buttons)
         const link = ev.target.closest('a.file[data-open]');
         if (link) {
@@ -210,20 +220,113 @@
     }
   }
 
+  async function resolveFileId(name){
+    const key = String(name || '').trim();
+    if (!key) {
+      const err = new Error('missing_name');
+      err.code = 'missing_name';
+      throw err;
+    }
+    if (resolvedFileIdCache.has(key)) {
+      return resolvedFileIdCache.get(key);
+    }
+    let resp;
+    try {
+      resp = await fetch(`/api/files/resolve?name=${encodeURIComponent(key)}`);
+    } catch (_networkErr) {
+      const err = new Error('network_error');
+      err.code = 'network_error';
+      throw err;
+    }
+    let data = null;
+    try {
+      data = await resp.json();
+    } catch (_jsonErr) {
+      data = null;
+    }
+    if (!resp.ok || !data || data.ok === false || !data.id) {
+      const errorCode = (data && data.error) || 'not_found';
+      const err = new Error(errorCode);
+      err.code = errorCode;
+      err.data = data;
+      throw err;
+    }
+    resolvedFileIdCache.set(key, data.id);
+    return data.id;
+  }
+
+  function setPreviewLoading(button){
+    if (!button) return () => {};
+    const originalHtml = button.innerHTML;
+    button.disabled = true;
+    button.classList.add('preview-loading');
+    button.innerHTML = '⏳';
+    return () => {
+      button.disabled = false;
+      button.classList.remove('preview-loading');
+      button.innerHTML = originalHtml;
+    };
+  }
+
+  async function handlePreviewClick(row, previewBtn, rawName){
+    if (!row || !previewBtn) return;
+    if (!window.cardPreview || typeof window.cardPreview.expand !== 'function') {
+      alert('תצוגה מקדימה אינה זמינה כרגע');
+      return;
+    }
+    const fname = String(rawName || '').trim();
+    if (!fname) {
+      alert('שם הקובץ חסר');
+      return;
+    }
+    let fileId = row.getAttribute('data-file-id') || '';
+    if (!fileId) {
+      const restore = setPreviewLoading(previewBtn);
+      try {
+        fileId = await resolveFileId(fname);
+        if (fileId) {
+          row.setAttribute('data-file-id', fileId);
+        }
+      } catch (err) {
+        const code = (err && (err.code || err.message)) || 'error';
+        if (code === 'not_found') {
+          alert('הקובץ לא נמצא להצגה מקדימה');
+        } else if (code === 'missing_name') {
+          alert('שם הקובץ חסר');
+        } else {
+          alert('שגיאה בפתיחת התצוגה המקדימה');
+        }
+        return;
+      } finally {
+        restore();
+      }
+    }
+    if (!fileId) {
+      alert('הקובץ לא נמצא להצגה מקדימה');
+      return;
+    }
+    try { row.dataset.previewHost = '1'; } catch (_e) {}
+    window.cardPreview.expand(fileId, row);
+  }
+
   // פתיחת קובץ לפי שם הקובץ (שימושי גם ללחיצה על כל השורה)
   async function openFileByName(fname){
     const name = String(fname || '').trim();
     if (!name) return;
     try {
-      const r = await fetch(`/api/files/resolve?name=${encodeURIComponent(name)}`);
-      const j = await r.json();
-      if (j && j.ok && j.id) {
-        window.location.href = `/file/${encodeURIComponent(j.id)}`;
+      const fileId = await resolveFileId(name);
+      if (fileId) {
+        window.location.href = `/file/${encodeURIComponent(fileId)}`;
       } else {
         alert('הקובץ לא נמצא לצפייה');
       }
-    } catch(_e){
-      alert('שגיאה בפתיחת הקובץ');
+    } catch (err) {
+      const code = (err && (err.code || err.message)) || 'error';
+      if (code === 'not_found') {
+        alert('הקובץ לא נמצא לצפייה');
+      } else if (code !== 'missing_name') {
+        alert('שגיאה בפתיחת הקובץ');
+      }
     }
   }
 
