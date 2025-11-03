@@ -203,6 +203,9 @@
         }
 
         // Open file by clicking the name or row (except drag handle and buttons)
+        if (ev.target.closest('.card-code-preview-wrapper')) {
+          return;
+        }
         const link = ev.target.closest('a.file[data-open]');
         if (link) {
           ev.preventDefault();
