@@ -136,7 +136,7 @@ async def test_file_menu_includes_webapp_button(monkeypatch):
         'file_name': 'demo.py',
         'programming_language': 'python',
         'description': '',
-    }} )}
+    }}})
     upd = types.SimpleNamespace(callback_query=Q(), effective_user=types.SimpleNamespace(id=1))
 
     await ch.handle_file_menu(upd, ctx)
@@ -171,7 +171,7 @@ async def test_file_menu_webapp_button_search_fallback(monkeypatch):
         'file_name': 'noid.txt',
         'programming_language': 'text',
         'description': '',
-    }} )}
+    }}})
     upd = types.SimpleNamespace(callback_query=Q(), effective_user=types.SimpleNamespace(id=1))
 
     await ch.handle_file_menu(upd, ctx)
