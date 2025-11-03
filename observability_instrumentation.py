@@ -8,7 +8,7 @@ Manual instrumentation helpers built on OpenTelemetry (safe no-op fallback).
 """
 from __future__ import annotations
 
-from typing import Any, Callable, Optional, TypeVar, Union, cast
+from typing import Any, Callable, Mapping, Optional, TypeVar, Union, cast
 import time
 import functools
 
@@ -204,4 +204,32 @@ def traced(span_name: Optional[str] = None, attributes: Optional[dict[str, Any]]
     return decorator
 
 
-__all__ = ["traced"]
+def set_span_attributes(attributes: Mapping[str, Any]) -> None:
+    """Set attributes on the current OpenTelemetry span (best-effort).
+
+    ???? ????? ?????? ?? ?-span ?????? ?? OTEL ???? ??-span ????.
+    """
+
+    if not attributes:
+        return
+    try:
+        from opentelemetry import trace  # type: ignore
+        span = trace.get_current_span()
+    except Exception:
+        return
+    if span is None:
+        return
+    try:
+        is_recording = span.is_recording()
+    except Exception:
+        is_recording = False
+    if not is_recording:
+        return
+    for key, value in attributes.items():
+        try:
+            span.set_attribute(str(key), value)
+        except Exception:
+            continue
+
+
+__all__ = ["traced", "set_span_attributes"]

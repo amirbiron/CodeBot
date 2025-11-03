@@ -30,7 +30,13 @@ class _RequestsShim:
 requests = _RequestsShim()
 
 
+@traced("github.http_request", attributes={"component": "github"})
 def http_request(method, url, **kwargs):
+    _set_span_attrs({
+        "component": "github",
+        "http.method": str(method).upper(),
+        "http.url": str(url),
+    })
     if str(method).upper() == 'GET':
         return requests.get(url, **kwargs)
     return _http_sync_request(method, url, **kwargs)
@@ -79,6 +85,42 @@ try:
 except Exception:  # pragma: no cover
     def track_github_sync(*a, **k):  # type: ignore
         return None
+try:
+    from observability_instrumentation import traced, set_span_attributes  # type: ignore
+except Exception:  # pragma: no cover
+    def traced(*_a, **_k):  # type: ignore
+        def _inner(f):
+            return f
+        return _inner
+
+    def set_span_attributes(*_a, **_k):  # type: ignore
+        return None
+
+
+def _set_span_attrs(attrs: Dict[str, Any]) -> None:
+    if not attrs:
+        attrs = {}
+    else:
+        attrs = dict(attrs)
+    try:
+        import structlog  # type: ignore
+
+        ctx = structlog.contextvars.get_contextvars()
+    except Exception:
+        ctx = {}
+    for source, target in (("user_id", "user.id"), ("command", "command")):
+        if not ctx:
+            break
+        try:
+            value = ctx.get(source)
+        except Exception:
+            value = None
+        if value and target not in attrs:
+            attrs[target] = value
+    try:
+        set_span_attributes(attrs)
+    except Exception:
+        pass
 
 # יצירת Proxy ל-zipfile כדי לאפשר monkeypatch בטוח שאינו יוצר רקורסיה
 class _ZipfileProxy:
@@ -869,9 +911,15 @@ class GitHubMenuHandler:
             _safe_rmtree_tmp(extracted_dir or "")
             _safe_rmtree_tmp(tmp_dir or "")
 
+    @traced("github.menu.command", attributes={"component": "github"})
     async def github_menu_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """מציג תפריט GitHub"""
         user_id = update.effective_user.id
+
+        _set_span_attrs({
+            "component": "github",
+            "github.user_present": bool(user_id),
+        })
 
         session = self.get_user_session(user_id)
         token = self.get_user_token(user_id)

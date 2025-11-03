@@ -1,6 +1,8 @@
 from __future__ import annotations
 import os
 import asyncio
+import time
+from urllib.parse import urlparse
 from typing import Optional, Any, Mapping
 
 try:
@@ -9,6 +11,17 @@ except Exception:  # pragma: no cover
     aiohttp = None  # type: ignore
 
 _session: Optional["aiohttp.ClientSession"] = None  # type: ignore[name-defined]
+
+try:
+    from observability_instrumentation import traced, set_span_attributes
+except Exception:  # pragma: no cover
+    def traced(*_a, **_k):
+        def _inner(f):
+            return f
+        return _inner
+
+    def set_span_attributes(*_a, **_k):
+        return None
 
 
 def _int_env(name: str, default: int) -> int:
@@ -107,15 +120,39 @@ def _instrument_session(session: "aiohttp.ClientSession") -> None:  # type: igno
         return
 
     original_request = session._request  # type: ignore[attr-defined]
+    tracer = traced("http.request.async", attributes={"component": "http"})
 
+    @tracer  # type: ignore[misc]
     async def _request(method: str, url: str, **kwargs):  # type: ignore[override]
+        start = time.perf_counter()
+        attrs: dict[str, Any] = {
+            "component": "http",
+            "http.method": str(method).upper(),
+            "http.url": str(url),
+        }
+        try:
+            parsed = urlparse(str(url))
+            if parsed.netloc:
+                attrs["server.address"] = parsed.netloc
+        except Exception:
+            pass
+        set_span_attributes(attrs)
         try:
             prepared = _prepare_headers(kwargs.get("headers"))
             if prepared is not None:
                 kwargs["headers"] = prepared
         except Exception:
             pass
-        return await original_request(method, url, **kwargs)
+        response = await original_request(method, url, **kwargs)
+        try:
+            status_code = int(getattr(response, "status", 0) or 0)
+        except Exception:
+            status_code = 0
+        set_span_attributes({
+            "http.status_code": status_code,
+            "http.duration_ms": (time.perf_counter() - start) * 1000.0,
+        })
+        return response
 
     session._request = _request  # type: ignore[assignment]
     setattr(session, "_codebot_ctx_headers", True)
