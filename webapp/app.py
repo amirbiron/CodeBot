@@ -173,7 +173,7 @@ def _compute_static_version() -> str:
 _STATIC_VERSION = _compute_static_version()
 
 # מזהי המדריכים המשותפים לזרימת ה-Onboarding בווב
-WELCOME_GUIDE_PRIMARY_SHARE_ID = "vLLGCkWt-jC-0Yea"
+WELCOME_GUIDE_PRIMARY_SHARE_ID = "eEISNLl-OwbThMQ-"
 WELCOME_GUIDE_SECONDARY_SHARE_ID = "sdVOAx6hUGsH4Anr"
 
 # Guards for first-request and DB init race conditions
