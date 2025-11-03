@@ -87,8 +87,7 @@ def test_save_shared_file_creates_snippet(monkeypatch):
         'get_internal_share',
         lambda share_id: {
             'share_id': share_id,
-            'code': '# מדריך
-התחלה מהירה',
+            'code': '# מדריך\\nהתחלה מהירה',
             'language': 'markdown',
             'file_name': 'welcome-guide.md',
             'description': 'מדריך תפעול WebApp',
