@@ -1,6 +1,11 @@
 {% extends "base.html" %}
 {% block title %}האוספים שלי · Code Keeper{% endblock %}
 
+{% block extra_css %}
+{{ super() }}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/card-preview.css') }}">
+{% endblock %}
+
 {% block content %}
 <div class="collections-layout">
   <aside class="collections-sidebar">
@@ -10,4 +15,9 @@
     <div class="empty">בחר אוסף בצד שמאל כדי לצפות בפריטים</div>
   </section>
 </div>
+{% endblock %}
+
+{% block extra_js %}
+{{ super() }}
+<script src="{{ url_for('static', filename='js/card-preview.js') }}" defer></script>
 {% endblock %}

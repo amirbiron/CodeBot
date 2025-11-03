@@ -3,17 +3,25 @@
    ======================================== */
 
 /* מצב מורחב של הכרטיס - שימוש ב-class ייחודי למניעת התנגשות */
-.file-card.card-preview-expanded {
+.file-card.card-preview-expanded,
+.collection-item.card-preview-expanded {
     max-height: none !important;
     box-shadow: 0 8px 30px rgba(0, 0, 0, 0.3);
     background: rgba(255, 255, 255, 0.12) !important;
     transition: all 0.3s ease-in-out, max-height 0.5s ease-in-out;
 }
 
-.file-card.card-preview-expanding {
+.file-card.card-preview-expanding,
+.collection-item.card-preview-expanding {
     opacity: 0.7;
     pointer-events: none; /* מניעת לחיצות במהלך טעינה */
     transition: all 0.3s ease-in-out;
+}
+
+.collection-item.card-preview-expanded {
+    background: #f8fafc !important;
+    box-shadow: 0 8px 24px rgba(15, 23, 42, 0.12);
+    border-color: #cbd5f5 !important;
 }
 
 /* מיכל התצוגה המקדימה */
@@ -31,6 +39,16 @@
     animation: slideDown 0.4s ease-in-out;
     direction: ltr;
     text-align: left;
+}
+
+.collection-item .card-code-preview-wrapper {
+    flex-basis: 100%;
+    width: 100%;
+    margin-top: 0.75rem;
+}
+
+.collection-item .card-code-preview {
+    margin-top: 0.75rem;
 }
 
 /* אנימציית פתיחה חלקה */
@@ -86,6 +104,10 @@
     gap: 0.5rem;
 }
 
+.collection-item .preview-spinner {
+    color: rgba(30, 41, 59, 0.7);
+}
+
 .preview-spinner i {
     animation: spin 1s linear infinite;
 }
@@ -93,6 +115,11 @@
 @keyframes spin {
     from { transform: rotate(0deg); }
     to { transform: rotate(360deg); }
+}
+
+.preview.preview-loading {
+    opacity: 0.7;
+    cursor: wait;
 }
 
 /* הודעת שגיאה */
@@ -130,6 +157,7 @@ body.high-contrast .card-code-preview {
     border: 2px solid #fff;
 }
 
-body.high-contrast .file-card.card-preview-expanded {
+body.high-contrast .file-card.card-preview-expanded,
+body.high-contrast .collection-item.card-preview-expanded {
     border: 3px solid #ffeb3b;
 }
