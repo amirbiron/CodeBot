@@ -58,6 +58,50 @@ def test_start_device_authorization_success(monkeypatch):
     assert m == "POST" and isinstance(u, str)
 
 
+def test_start_device_authorization_scope_iterable(monkeypatch):
+    import services.google_drive_service as gds
+
+    captured = {}
+
+    def fake_request(method, url, **kwargs):
+        captured["payload"] = kwargs.get("data")
+        return DummyResponse(200, {
+            "verification_url": "https://example.com/verify",
+            "user_code": "ABC-123",
+            "device_code": "dev-xyz",
+        })
+
+    monkeypatch.setattr(gds, "http_request", fake_request)
+    monkeypatch.setattr(gds.config, "GOOGLE_CLIENT_ID", "cid", raising=False)
+    monkeypatch.setattr(gds.config, "GOOGLE_OAUTH_SCOPES", ["scope.one", " scope.two ", "", None], raising=False)
+
+    gds.start_device_authorization(user_id=1)
+
+    assert captured["payload"]["scope"] == "scope.one scope.two"
+
+
+def test_start_device_authorization_scope_fallback_to_default(monkeypatch):
+    import services.google_drive_service as gds
+
+    captured = {}
+
+    def fake_request(method, url, **kwargs):
+        captured["payload"] = kwargs.get("data")
+        return DummyResponse(200, {
+            "verification_url": "https://example.com/verify",
+            "user_code": "ABC-123",
+            "device_code": "dev-xyz",
+        })
+
+    monkeypatch.setattr(gds, "http_request", fake_request)
+    monkeypatch.setattr(gds.config, "GOOGLE_CLIENT_ID", "cid", raising=False)
+    monkeypatch.setattr(gds.config, "GOOGLE_OAUTH_SCOPES", "", raising=False)
+
+    gds.start_device_authorization(user_id=1)
+
+    assert captured["payload"]["scope"] == gds.DEFAULT_GOOGLE_OAUTH_SCOPES
+
+
 def test_start_device_authorization_http_error(monkeypatch):
     import services.google_drive_service as gds
 
@@ -94,3 +138,35 @@ def test_start_device_authorization_bad_json_not_masked(monkeypatch):
 
     with pytest.raises(ValueError):
         gds.start_device_authorization(user_id=1)
+
+
+def test_credentials_from_tokens_scope_iterable(monkeypatch):
+    import services.google_drive_service as gds
+
+    class DummyCredentials:
+        def __init__(self, **kwargs):
+            self.kwargs = kwargs
+
+    monkeypatch.setattr(gds, "Credentials", DummyCredentials, raising=False)
+    monkeypatch.setattr(gds.config, "GOOGLE_CLIENT_ID", "cid", raising=False)
+    monkeypatch.setattr(gds.config, "GOOGLE_OAUTH_SCOPES", ["scopeA", "", "scopeB"], raising=False)
+
+    creds = gds._credentials_from_tokens({"access_token": "token"})
+
+    assert creds.kwargs["scopes"] == ["scopeA", "scopeB"]
+
+
+def test_credentials_from_tokens_scope_default(monkeypatch):
+    import services.google_drive_service as gds
+
+    class DummyCredentials:
+        def __init__(self, **kwargs):
+            self.kwargs = kwargs
+
+    monkeypatch.setattr(gds, "Credentials", DummyCredentials, raising=False)
+    monkeypatch.setattr(gds.config, "GOOGLE_CLIENT_ID", "cid", raising=False)
+    monkeypatch.setattr(gds.config, "GOOGLE_OAUTH_SCOPES", "", raising=False)
+
+    creds = gds._credentials_from_tokens({"access_token": "token", "scope": "   "})
+
+    assert creds.kwargs["scopes"] == gds.DEFAULT_GOOGLE_OAUTH_SCOPES.split()
