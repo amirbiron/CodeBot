@@ -36,6 +36,7 @@ from services import code_service
 from i18n.strings_he import MAIN_MENU as MAIN_KEYBOARD
 from handlers.pagination import build_pagination_row
 from config import config
+from urllib.parse import quote_plus
 
 DEFAULT_WEBAPP_URL = "https://code-keeper-webapp.onrender.com"
 
@@ -65,13 +66,23 @@ def _resolve_webapp_base_url() -> Optional[str]:
     return None
 
 
-def _get_webapp_button_row(file_id: Optional[str]) -> Optional[List[InlineKeyboardButton]]:
-    if not file_id:
-        return None
+def _get_webapp_button_row(file_id: Optional[str], file_name: Optional[str] = None) -> Optional[List[InlineKeyboardButton]]:
     base_url = _resolve_webapp_base_url()
     if not base_url:
         return None
-    return [InlineKeyboardButton("🌐 צפייה בWebApp", url=f"{base_url}/file/{file_id}")]
+    if file_id:
+        target = f"{base_url}/file/{file_id}"
+    elif file_name:
+        try:
+            query = quote_plus(str(file_name))
+        except Exception:
+            query = str(file_name)
+        target = f"{base_url}/files?q={query}#results"
+    else:
+        target = None
+    if not target:
+        return None
+    return [InlineKeyboardButton("🌐 צפייה בWebApp", url=target)]
 
 async def _safe_edit_message_text(query, text: str, reply_markup=None, parse_mode=None) -> None:
     """עורך הודעה בבטיחות: מתעלם משגיאת 'Message is not modified'."""
@@ -1211,7 +1222,7 @@ async def handle_file_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -
                 InlineKeyboardButton("🗑️ מחק", callback_data=f"del_{file_index}")
             ]
         ]
-        webapp_row = _get_webapp_button_row(file_id_str)
+        webapp_row = _get_webapp_button_row(file_id_str, file_name)
         if webapp_row:
             keyboard.insert(1, webapp_row)
 
@@ -1447,7 +1458,7 @@ async def receive_new_code(update: Update, context: ContextTypes.DEFAULT_TYPE) -
                 fid = str((last_version or {}).get('_id') or '')
             except Exception:
                 fid = ''
-            webapp_row = _get_webapp_button_row(fid)
+            webapp_row = _get_webapp_button_row(fid, file_name)
             keyboard = [
                 [
                     InlineKeyboardButton("👁️ הצג קוד מעודכן", callback_data=(f"view_direct_id:{fid}" if fid else f"view_direct_{file_name}")),
@@ -1627,7 +1638,7 @@ async def receive_new_name(update: Update, context: ContextTypes.DEFAULT_TYPE) -
                 fid = str(latest_doc.get('_id') or '')
             except Exception:
                 fid = ''
-            webapp_row = _get_webapp_button_row(fid)
+            webapp_row = _get_webapp_button_row(fid, new_name)
             keyboard = [
                 [
                     InlineKeyboardButton("👁️ הצג קוד", callback_data=(f"view_direct_id:{fid}" if fid else f"view_direct_{new_name}")),
@@ -2353,7 +2364,7 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
                     InlineKeyboardButton("🔙 לרשימה", callback_data="files")
                 ]
             ]
-            webapp_row = _get_webapp_button_row(fid)
+            webapp_row = _get_webapp_button_row(fid, fname)
             if webapp_row:
                 keyboard.insert(1, webapp_row)
             reply_markup = InlineKeyboardMarkup(keyboard)
@@ -3281,7 +3292,7 @@ async def handle_revert_version(update: Update, context: ContextTypes.DEFAULT_TY
             fid = str((latest or {}).get('_id') or '')
         except Exception:
             fid = ''
-        webapp_row = _get_webapp_button_row(fid)
+        webapp_row = _get_webapp_button_row(fid, file_name)
         keyboard = [
             [
                 InlineKeyboardButton("👁️ הצג קוד מעודכן", callback_data=(f"view_direct_id:{fid}" if fid else f"view_direct_{file_name}")),

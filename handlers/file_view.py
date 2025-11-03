@@ -19,6 +19,7 @@ from datetime import datetime, timezone
 from typing import List, Optional
 import secrets
 from html import escape as html_escape
+from urllib.parse import quote_plus
 
 from config import config
 from utils import TelegramUtils, TextUtils
@@ -80,14 +81,25 @@ def _resolve_webapp_base_url() -> Optional[str]:
     return None
 
 
-def _get_webapp_button_row(file_id: Optional[str]) -> Optional[List[InlineKeyboardButton]]:
-    """בונה שורת כפתור WebApp עבור מזהה קובץ נתון."""
-    if not file_id:
-        return None
+def _get_webapp_button_row(file_id: Optional[str], file_name: Optional[str] = None) -> Optional[List[InlineKeyboardButton]]:
+    """בונה שורת כפתור WebApp עבור מזהה קובץ או fallback לפי שם."""
     base_url = _resolve_webapp_base_url()
     if not base_url:
         return None
-    return [InlineKeyboardButton("🌐 צפייה בWebApp", url=f"{base_url}/file/{file_id}")]
+    target_url: Optional[str]
+    if file_id:
+        target_url = f"{base_url}/file/{file_id}"
+    elif file_name:
+        try:
+            query = quote_plus(str(file_name))
+        except Exception:
+            query = str(file_name)
+        target_url = f"{base_url}/files?q={query}#results"
+    else:
+        target_url = None
+    if not target_url:
+        return None
+    return [InlineKeyboardButton("🌐 צפייה בWebApp", url=target_url)]
 
 
 def _get_main_keyboard() -> list:
@@ -171,7 +183,7 @@ async def handle_file_menu(update, context: ContextTypes.DEFAULT_TYPE) -> int:
                 InlineKeyboardButton("🗑️ מחק", callback_data=f"del_{file_index}"),
             ],
         ]
-        webapp_row = _get_webapp_button_row(file_id_str)
+        webapp_row = _get_webapp_button_row(file_id_str, file_name)
         if webapp_row:
             keyboard.insert(1, webapp_row)
         last_page = context.user_data.get('files_last_page')
@@ -306,7 +318,8 @@ async def handle_view_file(update, context: ContextTypes.DEFAULT_TYPE) -> int:
             ],
             [InlineKeyboardButton("🔙 חזרה", callback_data=back_cb)],
         ]
-        webapp_row = _get_webapp_button_row(file_id_str)
+        direct_view_id = file_id_str if not is_large_file else None
+        webapp_row = _get_webapp_button_row(direct_view_id, file_name)
         if webapp_row:
             keyboard.insert(0, webapp_row)
         # כפתור מועדפים (הוסף/הסר) לפי המצב הנוכחי
@@ -512,7 +525,7 @@ async def receive_new_code(update, context: ContextTypes.DEFAULT_TYPE) -> int:
                 fid = str((last_version or {}).get('_id') or '')
             except Exception:
                 fid = ''
-            webapp_row = _get_webapp_button_row(fid)
+            webapp_row = _get_webapp_button_row(fid, file_name)
             keyboard = [
                 [
                     InlineKeyboardButton("👁️ הצג קוד מעודכן", callback_data=(f"view_direct_id:{fid}" if fid else f"view_direct_{file_name}")),
@@ -655,7 +668,7 @@ async def receive_new_name(update, context: ContextTypes.DEFAULT_TYPE) -> int:
                     InlineKeyboardButton("🔙 לרשימה", callback_data="files"),
                 ],
             ]
-            webapp_row = _get_webapp_button_row(fid)
+            webapp_row = _get_webapp_button_row(fid, new_name)
             if webapp_row:
                 keyboard.insert(0, webapp_row)
             reply_markup = InlineKeyboardMarkup(keyboard)
@@ -1004,10 +1017,10 @@ async def handle_view_direct_file(update, context: ContextTypes.DEFAULT_TYPE) ->
             ],
             [InlineKeyboardButton("🔙 חזרה", callback_data=back_cb)],
         ]
-        if not is_large_file:
-            webapp_row = _get_webapp_button_row(fid)
-            if webapp_row:
-                keyboard.insert(0, webapp_row)
+        view_target_id = fid if not is_large_file else None
+        webapp_row = _get_webapp_button_row(view_target_id, file_name)
+        if webapp_row:
+            keyboard.insert(0, webapp_row)
         # כפתור מועדפים (הוסף/הסר) לפי המצב הנוכחי
         try:
             from database import db as _db
@@ -1229,7 +1242,7 @@ async def handle_clone(update, context: ContextTypes.DEFAULT_TYPE) -> int:
                 fid = str(latest_doc.get('_id') or '')
             except Exception:
                 fid = ''
-            webapp_row = _get_webapp_button_row(fid)
+            webapp_row = _get_webapp_button_row(fid, new_name)
             keyboard = [
                 [
                     InlineKeyboardButton("👁️ הצג קוד", callback_data=(f"view_direct_id:{fid}" if fid else f"view_direct_{new_name}")),
