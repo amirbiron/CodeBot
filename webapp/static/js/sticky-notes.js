@@ -25,8 +25,9 @@
     constructor(fileId){
       this.fileId = fileId;
       this.notes = new Map();
-      this._saveDebounced = debounce(this._performSaveBatch.bind(this), 400);
       this._pending = new Map();
+      this._pendingFlushTimers = new Map();
+      this._saveDebounced = debounce(this._performSaveBatch.bind(this), 320);
       this._init();
     }
 
@@ -164,6 +165,25 @@
       el.style.width = note.size.width + 'px';
       el.style.height = note.size.height + 'px';
       if (note.color) el.style.backgroundColor = note.color;
+      note.scroll_anchor = (note.scroll_anchor && typeof note.scroll_anchor === 'object') ? note.scroll_anchor : {};
+      if (typeof note.scroll_anchor.x !== 'number') {
+        if (typeof note.scroll_anchor_x === 'number') {
+          note.scroll_anchor.x = Math.round(Number(note.scroll_anchor_x) || 0);
+        } else {
+          note.scroll_anchor.x = 0;
+        }
+      } else {
+        note.scroll_anchor.x = Math.round(Number(note.scroll_anchor.x) || 0);
+      }
+      if (typeof note.scroll_anchor.y !== 'number') {
+        if (typeof note.scroll_anchor_y === 'number') {
+          note.scroll_anchor.y = Math.round(Number(note.scroll_anchor_y) || 0);
+        } else {
+          note.scroll_anchor.y = 0;
+        }
+      } else {
+        note.scroll_anchor.y = Math.round(Number(note.scroll_anchor.y) || 0);
+      }
 
       const header = createEl('div', 'sticky-note-header');
       const drag = createEl('div', 'sticky-note-drag');
@@ -234,7 +254,14 @@
       const y = Math.round(rect.top + window.scrollY);
       const w = Math.round(rect.width);
       const h = Math.round(rect.height);
-      const payload = { position: { x, y }, size: { width: w, height: h } };
+      const payload = {
+        position: { x, y },
+        size: { width: w, height: h },
+        scroll_anchor: {
+          x: Math.round(window.scrollX),
+          y: Math.round(window.scrollY)
+        }
+      };
       return payload;
     }
 
@@ -264,36 +291,58 @@
         if (isPinned) {
           el.classList.add('is-pinned');
           el.classList.remove('is-floating');
-          el.style.position = 'absolute';
-          const targetX = (typeof note.position?.x === 'number') ? note.position.x : parseInt(el.style.left || '120', 10) || 120;
-          const targetY = (typeof note.position?.y === 'number') ? note.position.y : parseInt(el.style.top || String(window.scrollY + 120), 10) || (window.scrollY + 120);
-          el.style.left = targetX + 'px';
-          el.style.top = targetY + 'px';
-          el.dataset.pinned = 'true';
-          if (el.dataset && el.dataset.anchorId) { delete el.dataset.anchorId; }
-        } else {
-          el.classList.add('is-floating');
-          el.classList.remove('is-pinned');
           el.style.position = 'fixed';
-          if (el.dataset && el.dataset.pinned) { delete el.dataset.pinned; }
+          note.scroll_anchor = (note.scroll_anchor && typeof note.scroll_anchor === 'object') ? note.scroll_anchor : {};
+          if (typeof note.scroll_anchor.x !== 'number') {
+            note.scroll_anchor.x = typeof note.scroll_anchor_x === 'number' ? Math.round(Number(note.scroll_anchor_x) || 0) : Math.round(window.scrollX);
+          } else {
+            note.scroll_anchor.x = Math.round(Number(note.scroll_anchor.x) || 0);
+          }
+          if (typeof note.scroll_anchor.y !== 'number') {
+            note.scroll_anchor.y = typeof note.scroll_anchor_y === 'number' ? Math.round(Number(note.scroll_anchor_y) || 0) : Math.round(window.scrollY);
+          } else {
+            note.scroll_anchor.y = Math.round(Number(note.scroll_anchor.y) || 0);
+          }
+          const absX = (typeof note.position?.x === 'number') ? note.position.x : (note.position_x ?? parseInt(el.style.left || '120', 10) || 120);
+          const absY = (typeof note.position?.y === 'number') ? note.position.y : (note.position_y ?? parseInt(el.style.top || String(window.scrollY + 120), 10) || (window.scrollY + 120));
           const width = (typeof note.size?.width === 'number') ? note.size.width : (parseInt(el.style.width || '260', 10) || 260);
           const height = (typeof note.size?.height === 'number') ? note.size.height : (parseInt(el.style.height || '200', 10) || 200);
-          let left = (typeof note.position?.x === 'number') ? note.position.x - window.scrollX : parseInt(el.style.left || '120', 10) || 120;
-          let top = (typeof note.position?.y === 'number') ? note.position.y - window.scrollY : parseInt(el.style.top || String(window.scrollY + 120), 10) || (window.scrollY + 120);
+          const anchorX = Math.round(note.scroll_anchor.x || 0);
+          const anchorY = Math.round(note.scroll_anchor.y || 0);
           const vp = window.visualViewport;
           const vpW = Math.max(100, (vp ? vp.width : window.innerWidth) || window.innerWidth || 320);
           const vpH = Math.max(100, (vp ? vp.height : window.innerHeight) || window.innerHeight || 320);
           const maxLeft = Math.max(12, vpW - width - 12);
           const maxTop = Math.max(60, vpH - height - 20);
-          left = clamp(Math.round(left), 12, maxLeft);
-          top = clamp(Math.round(top), 60, maxTop);
+          let left = clamp(Math.round(absX - anchorX), 12, maxLeft);
+          let top = clamp(Math.round(absY - anchorY), 60, maxTop);
           el.style.left = left + 'px';
           el.style.top = top + 'px';
-          if (!opts || opts.reflow !== false) {
-            this._reflowWithinViewport(el);
+          el.dataset.pinned = 'true';
+          if (el.dataset && el.dataset.anchorId) { delete el.dataset.anchorId; }
+          note.position = note.position && typeof note.position === 'object' ? note.position : {};
+          note.position.x = left + anchorX;
+          note.position.y = top + anchorY;
+        } else {
+          el.classList.add('is-floating');
+          el.classList.remove('is-pinned');
+          el.style.position = 'absolute';
+          if (el.dataset && el.dataset.pinned) { delete el.dataset.pinned; }
+          const targetX = (typeof note.position?.x === 'number') ? note.position.x : (note.position_x ?? parseInt(el.style.left || '120', 10) || 120);
+          const targetY = (typeof note.position?.y === 'number') ? note.position.y : (note.position_y ?? parseInt(el.style.top || String(window.scrollY + 120), 10) || (window.scrollY + 120));
+          el.style.left = Math.round(targetX) + 'px';
+          el.style.top = Math.round(targetY) + 'px';
+          if (!note.scroll_anchor || typeof note.scroll_anchor !== 'object') {
+            note.scroll_anchor = { x: 0, y: 0 };
+          } else {
+            note.scroll_anchor.x = 0;
+            note.scroll_anchor.y = 0;
           }
         }
         this._updatePinButtonState(el, isPinned);
+        if (isPinned && (!opts || opts.reflow !== false)) {
+          this._reflowWithinViewport(el);
+        }
       } catch(e) {
         console.warn('sticky note: applyPositionMode failed', e);
       }
@@ -314,8 +363,12 @@
       entry.data.size = payload.size;
       entry.data.anchor_id = PIN_SENTINEL;
       entry.data.anchor_text = '';
+      const anchor = (payload.scroll_anchor && typeof payload.scroll_anchor === 'object') ? payload.scroll_anchor : { x: Math.round(window.scrollX), y: Math.round(window.scrollY) };
+      anchor.x = Math.round(Number(anchor.x) || 0);
+      anchor.y = Math.round(Number(anchor.y) || 0);
+      entry.data.scroll_anchor = { x: anchor.x, y: anchor.y };
       this._applyPositionMode(el, entry.data, { reflow: false });
-      const requestPayload = Object.assign({}, payload, { anchor_id: PIN_SENTINEL, anchor_text: null });
+      const requestPayload = Object.assign({}, payload, { anchor_id: PIN_SENTINEL, anchor_text: null, scroll_anchor: { x: anchor.x, y: anchor.y } });
       this._queueSave(el, requestPayload);
       this._flushFor(el);
     }
@@ -328,9 +381,10 @@
       entry.data.size = payload.size;
       entry.data.anchor_id = '';
       entry.data.anchor_text = '';
+      entry.data.scroll_anchor = { x: 0, y: 0 };
       if (el.dataset && el.dataset.pinned) { delete el.dataset.pinned; }
       this._applyPositionMode(el, entry.data, { reflow: true });
-      this._queueSave(el, Object.assign({}, payload, { anchor_id: null, anchor_text: null }));
+      this._queueSave(el, Object.assign({}, payload, { anchor_id: null, anchor_text: null, scroll_anchor: { x: 0, y: 0 } }));
       this._flushFor(el);
     }
 
@@ -350,6 +404,18 @@
       if (Object.prototype.hasOwnProperty.call(fragment, 'anchor_text')) {
         const val = fragment.anchor_text;
         entry.data.anchor_text = val ? String(val) : '';
+      }
+      if (fragment.scroll_anchor && typeof fragment.scroll_anchor === 'object') {
+        const sx = Math.round(Number(fragment.scroll_anchor.x) || 0);
+        const sy = Math.round(Number(fragment.scroll_anchor.y) || 0);
+        entry.data.scroll_anchor = { x: sx, y: sy };
+      } else if (fragment.scroll_anchor === null) {
+        entry.data.scroll_anchor = { x: 0, y: 0 };
+      }
+      if (Object.prototype.hasOwnProperty.call(fragment, 'scroll_anchor_x') || Object.prototype.hasOwnProperty.call(fragment, 'scroll_anchor_y')) {
+        const sx = Math.round(Number(fragment.scroll_anchor_x ?? ((entry.data.scroll_anchor || {}).x) ?? 0) || 0);
+        const sy = Math.round(Number(fragment.scroll_anchor_y ?? ((entry.data.scroll_anchor || {}).y) ?? 0) || 0);
+        entry.data.scroll_anchor = { x: sx, y: sy };
       }
       if (Object.prototype.hasOwnProperty.call(fragment, 'is_minimized')) {
         entry.data.is_minimized = !!fragment.is_minimized;
@@ -475,7 +541,31 @@
       } catch(_) {}
       this._pending.set(id, pending);
       this._syncEntryFromFragment(id, pending);
+      this._scheduleAutoFlush(id);
       this._saveDebounced();
+    }
+
+    _scheduleAutoFlush(id){
+      if (!id) return;
+      if (!this._pendingFlushTimers) {
+        this._pendingFlushTimers = new Map();
+      }
+      const existing = this._pendingFlushTimers.get(id);
+      if (existing) {
+        try { clearTimeout(existing); } catch(_) {}
+      }
+      const timer = setTimeout(() => {
+        this._pendingFlushTimers.delete(id);
+        const entry = this.notes.get(id);
+        if (entry && entry.el) {
+          try {
+            this._flushFor(entry.el);
+          } catch(err) {
+            console.warn('sticky note: auto flush failed', id, err);
+          }
+        }
+      }, 650);
+      this._pendingFlushTimers.set(id, timer);
     }
 
     _flushPendingKeepalive(){
@@ -492,6 +582,11 @@
             continue;
           }
           const body = JSON.stringify(data);
+          const timer = this._pendingFlushTimers && this._pendingFlushTimers.get(id);
+          if (timer) {
+            try { clearTimeout(timer); } catch(_) {}
+            this._pendingFlushTimers.delete(id);
+          }
           if (typeof fetch === 'function') {
             try {
               fetch(`/api/sticky-notes/note/${encodeURIComponent(id)}`, {
@@ -519,6 +614,11 @@
       this._pending.clear();
       for (const [id, data] of entries){
         try {
+          const timer = this._pendingFlushTimers && this._pendingFlushTimers.get(id);
+          if (timer) {
+            try { clearTimeout(timer); } catch(_) {}
+            this._pendingFlushTimers.delete(id);
+          }
           const resp = await fetch(`/api/sticky-notes/note/${encodeURIComponent(id)}`, {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
@@ -557,6 +657,11 @@
 
     async _flushFor(el){
       const id = el.dataset.noteId;
+      const timer = this._pendingFlushTimers && this._pendingFlushTimers.get(id);
+      if (timer) {
+        try { clearTimeout(timer); } catch(_) {}
+        this._pendingFlushTimers.delete(id);
+      }
       const data = this._pending.get(id);
       if (!data) return;
       this._pending.delete(id);
@@ -594,6 +699,12 @@
 
     async _deleteNoteEl(el){
       const id = el.dataset.noteId;
+      const timer = this._pendingFlushTimers && this._pendingFlushTimers.get(id);
+      if (timer) {
+        try { clearTimeout(timer); } catch(_) {}
+        this._pendingFlushTimers.delete(id);
+      }
+      try { this._pending.delete(id); } catch(_) {}
       try { await fetch(`/api/sticky-notes/note/${encodeURIComponent(id)}`, { method: 'DELETE' }); } catch(e) { console.warn('delete failed', id, e); }
       try { el.remove(); } catch(_) {}
       this.notes.delete(id);
@@ -608,7 +719,7 @@
       const minTop = 60;
       items.forEach(el => {
         if (!el || !(el instanceof HTMLElement)) return;
-        if (el.classList.contains('is-pinned')) {
+        if (!el.classList.contains('is-pinned')) {
           return;
         }
         const rect = el.getBoundingClientRect();
@@ -627,6 +738,17 @@
         el.style.top = y + 'px';
         el.style.width = w + 'px';
         el.style.height = h + 'px';
+        const entry = this._getEntry(el);
+        if (entry && entry.data) {
+          const anchorX = Math.round((entry.data.scroll_anchor && typeof entry.data.scroll_anchor === 'object' && typeof entry.data.scroll_anchor.x === 'number') ? entry.data.scroll_anchor.x : (entry.data.scroll_anchor_x ?? 0) || 0);
+          const anchorY = Math.round((entry.data.scroll_anchor && typeof entry.data.scroll_anchor === 'object' && typeof entry.data.scroll_anchor.y === 'number') ? entry.data.scroll_anchor.y : (entry.data.scroll_anchor_y ?? 0) || 0);
+          entry.data.position = entry.data.position && typeof entry.data.position === 'object' ? entry.data.position : {};
+          entry.data.position.x = x + anchorX;
+          entry.data.position.y = y + anchorY;
+          entry.data.size = entry.data.size && typeof entry.data.size === 'object' ? entry.data.size : {};
+          entry.data.size.width = w;
+          entry.data.size.height = h;
+        }
       });
     }
   }
