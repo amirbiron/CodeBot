@@ -8,7 +8,37 @@
   if (typeof window === 'undefined') return;
 
   function debounce(fn, wait){
-    let t; return function(){ const ctx = this, args = arguments; clearTimeout(t); t = setTimeout(()=>fn.apply(ctx, args), wait); };
+    let t = null;
+    let lastArgs = [];
+    let lastContext = null;
+    const invoke = () => {
+      const ctx = lastContext;
+      const args = lastArgs;
+      lastArgs = [];
+      lastContext = null;
+      return fn.apply(ctx, args);
+    };
+    const debounced = function(...args){
+      lastArgs = args;
+      lastContext = this;
+      if (t) { clearTimeout(t); }
+      t = setTimeout(() => {
+        t = null;
+        invoke();
+      }, wait);
+    };
+    debounced.flush = function(){
+      if (!t) return undefined;
+      clearTimeout(t);
+      t = null;
+      return invoke();
+    };
+    debounced.cancel = function(){
+      if (t) { clearTimeout(t); t = null; }
+      lastArgs = [];
+      lastContext = null;
+    };
+    return debounced;
   }
 
   function createEl(tag, className, attrs){
@@ -20,13 +50,17 @@
 
   function clamp(n, min, max){ return Math.min(Math.max(n, min), max); }
   const PIN_SENTINEL = '__pinned__';
+  const AUTO_SAVE_DEBOUNCE_MS = 500;
+  const AUTO_SAVE_FORCE_INTERVAL_MS = 3500;
 
   class StickyNotesManager {
     constructor(fileId){
       this.fileId = fileId;
       this.notes = new Map();
-      this._saveDebounced = debounce(this._performSaveBatch.bind(this), 400);
+      this._saveDebounced = debounce(this._performSaveBatch.bind(this), AUTO_SAVE_DEBOUNCE_MS);
       this._pending = new Map();
+      this._autoFlushTimer = null;
+      this._autoFlushBusy = false;
       this._init();
     }
 
@@ -68,6 +102,7 @@
       this._didSetupLifecycleGuards = true;
       const flush = () => {
         try {
+          this._flushDebounceTimer();
           this._flushPendingKeepalive();
         } catch(err) {
           console.warn('sticky note: lifecycle flush failed', err);
@@ -337,6 +372,9 @@
     _syncEntryFromFragment(id, fragment){
       const entry = this.notes.get(id);
       if (!entry || !fragment) return;
+      if (Object.prototype.hasOwnProperty.call(fragment, 'content')) {
+        entry.data.content = fragment.content;
+      }
       if (fragment.position && typeof fragment.position === 'object') {
         entry.data.position = Object.assign({}, entry.data.position || {}, fragment.position);
       }
@@ -476,6 +514,7 @@
       this._pending.set(id, pending);
       this._syncEntryFromFragment(id, pending);
       this._saveDebounced();
+      this._ensureBackgroundAutoFlush();
     }
 
     _flushPendingKeepalive(){
@@ -511,6 +550,9 @@
             this._pending.delete(id);
           } catch(_) {}
         }
+      }
+      if (!this._pending.size) {
+        this._stopBackgroundAutoFlush();
       }
     }
 
@@ -553,6 +595,9 @@
           }
         } catch(e){ console.warn('save note failed', id, e); }
       }
+      if (!this._pending.size) {
+        this._stopBackgroundAutoFlush();
+      }
     }
 
     async _flushFor(el){
@@ -590,6 +635,89 @@
         }
         if (j && j.updated_at) { try { el.dataset.updatedAt = String(j.updated_at); } catch(_) {} }
       } catch(e){ console.warn('flush save failed', id, e); }
+      if (!this._pending.size) {
+        this._stopBackgroundAutoFlush();
+      }
+    }
+
+    _ensureBackgroundAutoFlush(){
+      try {
+        if (this._autoFlushTimer) return;
+        this._autoFlushTimer = setInterval(() => {
+          this._runAutoFlushTick();
+        }, AUTO_SAVE_FORCE_INTERVAL_MS);
+      } catch(err) {
+        console.warn('sticky note: failed to start auto flush interval', err);
+      }
+    }
+
+    _stopBackgroundAutoFlush(){
+      if (!this._autoFlushTimer) return;
+      try {
+        clearInterval(this._autoFlushTimer);
+      } catch(_) {}
+      this._autoFlushTimer = null;
+      this._autoFlushBusy = false;
+    }
+
+    _flushDebounceTimer(){
+      if (!this._saveDebounced) return;
+      try {
+        let maybePromise = null;
+        if (typeof this._saveDebounced.flush === 'function') {
+          maybePromise = this._saveDebounced.flush();
+        }
+        const isPromise = maybePromise && typeof maybePromise.then === 'function';
+        if (!isPromise && this._pending && this._pending.size > 0) {
+          maybePromise = this._performSaveBatch();
+        }
+        if (maybePromise && typeof maybePromise.then === 'function') {
+          maybePromise.catch(err => console.warn('sticky note: flush promise rejected', err));
+        }
+      } catch(err) {
+        console.warn('sticky note: debounce flush failed', err);
+      }
+    }
+
+    _runAutoFlushTick(){
+      try {
+        if (this._autoFlushBusy) return;
+        if (!this._pending || this._pending.size === 0) {
+          this._stopBackgroundAutoFlush();
+          return;
+        }
+        this._autoFlushBusy = true;
+        let op = null;
+        try {
+          if (this._saveDebounced && typeof this._saveDebounced.flush === 'function') {
+            op = this._saveDebounced.flush();
+          }
+          if ((!op || typeof op.then !== 'function') && this._pending && this._pending.size > 0) {
+            op = this._performSaveBatch();
+          }
+        } catch(err) {
+          console.warn('sticky note: auto flush invoke failed', err);
+          this._autoFlushBusy = false;
+          return;
+        }
+        if (op && typeof op.then === 'function') {
+          op.catch(err => console.warn('sticky note: auto flush promise failed', err))
+            .finally(() => {
+              this._autoFlushBusy = false;
+              if (!this._pending || this._pending.size === 0) {
+                this._stopBackgroundAutoFlush();
+              }
+            });
+        } else {
+          this._autoFlushBusy = false;
+          if (!this._pending || this._pending.size === 0) {
+            this._stopBackgroundAutoFlush();
+          }
+        }
+      } catch(err) {
+        console.warn('sticky note: auto flush tick failed', err);
+        this._autoFlushBusy = false;
+      }
     }
 
     async _deleteNoteEl(el){
