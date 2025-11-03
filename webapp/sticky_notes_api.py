@@ -209,6 +209,10 @@ def _as_note_response(doc: Dict[str, Any]) -> Dict[str, Any]:
             'width': int(doc.get('width', 240) or 240),
             'height': int(doc.get('height', 180) or 180),
         },
+        'scroll_anchor': {
+            'x': int(doc.get('scroll_anchor_x', 0) or 0),
+            'y': int(doc.get('scroll_anchor_y', 0) or 0),
+        },
         'color': str(doc.get('color', '#FFFFCC') or '#FFFFCC'),
         'is_minimized': bool(doc.get('is_minimized', False)),
         'line_start': doc.get('line_start'),
@@ -288,6 +292,7 @@ def create_note(file_id: str):
         content = _sanitize_text(data.get('content', ''), 5000)
         pos = data.get('position') or {}
         size = data.get('size') or {}
+        scroll_anchor = data.get('scroll_anchor') if isinstance(data.get('scroll_anchor'), dict) else {}
         color = str(data.get('color', '#FFFFCC') or '#FFFFCC')
         is_minimized = bool(data.get('is_minimized', False))
         line_start = data.get('line_start')
@@ -303,6 +308,8 @@ def create_note(file_id: str):
             'position_y': _coerce_int(pos.get('y'), 100, 0, 1000000),
             'width': _coerce_int(size.get('width'), 250, 120, 1200),
             'height': _coerce_int(size.get('height'), 200, 80, 1200),
+            'scroll_anchor_x': _coerce_int((scroll_anchor or {}).get('x'), 0, 0, 1000000),
+            'scroll_anchor_y': _coerce_int((scroll_anchor or {}).get('y'), 0, 0, 1000000),
             'color': color if color else '#FFFFCC',
             'is_minimized': bool(is_minimized),
             'line_start': int(line_start) if isinstance(line_start, int) else None,
@@ -377,6 +384,18 @@ def update_note(note_id: str):
         if 'anchor_text' in data:
             atx = (data.get('anchor_text') or '').strip()[:256]
             updates['anchor_text'] = atx or None
+        if 'scroll_anchor' in data:
+            anchor_val = data.get('scroll_anchor')
+            if isinstance(anchor_val, dict):
+                updates['scroll_anchor_x'] = _coerce_int(anchor_val.get('x'), 0, 0, 1_000_000)
+                updates['scroll_anchor_y'] = _coerce_int(anchor_val.get('y'), 0, 0, 1_000_000)
+            elif anchor_val is None:
+                updates['scroll_anchor_x'] = 0
+                updates['scroll_anchor_y'] = 0
+        if 'scroll_anchor_x' in data and 'scroll_anchor_x' not in updates:
+            updates['scroll_anchor_x'] = _coerce_int(data.get('scroll_anchor_x'), 0, 0, 1_000_000)
+        if 'scroll_anchor_y' in data and 'scroll_anchor_y' not in updates:
+            updates['scroll_anchor_y'] = _coerce_int(data.get('scroll_anchor_y'), 0, 0, 1_000_000)
 
         if not updates:
             return jsonify({'ok': False, 'error': 'No fields to update'}), 400

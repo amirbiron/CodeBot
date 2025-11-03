@@ -298,9 +298,6 @@
                 <div style="display: flex; gap: 2rem; margin-top: 1rem; opacity: 0.7; font-size: 0.9rem;">
                     <span><i class="fas fa-calendar"></i> נוצר: {{ file.created_at }}</span>
                     <span><i class="fas fa-edit"></i> עודכן: {{ file.updated_at }}</span>
-                    {% if category_filter == 'recent' and file.last_opened_at %}
-                    <span><i class="fas fa-clock"></i> נפתח: {{ file.last_opened_at }}</span>
-                    {% endif %}
                 </div>
             </div>
 
