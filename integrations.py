@@ -21,15 +21,27 @@ from config import config
 
 logger = logging.getLogger(__name__)
 
+
+def _get_github_token() -> Optional[str]:
+    """השג את טוקן ה-GitHub בצורה חסינה גם כשאין שדה על האובייקט."""
+
+    token = getattr(config, "GITHUB_TOKEN", None)
+    if token:
+        return token
+    # תאימות לאחור: ייתכן שטסטים מזריקים רק משתני סביבה ללא שדה בקונפיג
+    return os.getenv("GITHUB_TOKEN")
+
+
 class GitHubGistIntegration:
     """אינטגרציה עם GitHub Gist"""
     
     def __init__(self):
         self.github = None
         self.user = None
-        if config.GITHUB_TOKEN:
+        token = _get_github_token()
+        if token:
             try:
-                self.github = Github(config.GITHUB_TOKEN)
+                self.github = Github(token)
                 self.user = self.github.get_user()
                 logger.info(f"התחבר ל-GitHub בתור: {self.user.login}")
             except GithubException as e:
@@ -477,9 +489,10 @@ class GitRepositoryIntegration:
     
     def __init__(self):
         self.github = None
-        if config.GITHUB_TOKEN:
+        token = _get_github_token()
+        if token:
             try:
-                self.github = Github(config.GITHUB_TOKEN)
+                self.github = Github(token)
             except Exception as e:
                 logger.error(f"שגיאה בהתחברות ל-GitHub: {e}")
     
