@@ -6,9 +6,30 @@ import pytest
 
 
 def _import_fresh_config():
-    sys.modules.pop("config", None)
-    import config as cfg  # noqa: F401
-    return cfg
+    """Load the real root config module while preserving the tests stub."""
+    from pathlib import Path
+    import importlib.util
+
+    project_root = Path(__file__).resolve().parent.parent
+    config_path = project_root / "config.py"
+
+    previous = sys.modules.pop("config", None)
+
+    spec = importlib.util.spec_from_file_location("config", config_path)
+    if spec is None or spec.loader is None:  # הגנה במקרה והקובץ לא נמצא
+        raise RuntimeError(f"לא ניתן לטעון את המודול config מהנתיב {config_path}")
+
+    module = importlib.util.module_from_spec(spec)
+    sys.modules["config"] = module
+    try:
+        spec.loader.exec_module(module)  # type: ignore[union-attr]
+    finally:
+        if previous is not None:
+            sys.modules["config"] = previous
+        else:
+            sys.modules.pop("config", None)
+
+    return module
 
 
 def test_load_config_minimal_env(monkeypatch):
@@ -33,17 +54,15 @@ def test_load_config_missing_env(monkeypatch):
     monkeypatch.delenv("BOT_TOKEN", raising=False)
     monkeypatch.delenv("MONGODB_URL", raising=False)
 
-    # החריגה תיזרק בזמן import של המודול עצמו
-    sys.modules.pop("config", None)
+    # החריגה תיזרק בעת טעינת המודול האמיתי
     with pytest.raises(ValueError):
-        importlib.import_module("config")
+        _import_fresh_config()
 
 
 def test_mongodb_url_validation(monkeypatch):
     # הגדרה של ערך לא תקין ל-MONGODB_URL אמורה להכשיל import
     monkeypatch.setenv("BOT_TOKEN", "x")
     monkeypatch.setenv("MONGODB_URL", "http://localhost:27017")
-    sys.modules.pop("config", None)
     with pytest.raises(ValueError):
-        importlib.import_module("config")
+        _import_fresh_config()
 
