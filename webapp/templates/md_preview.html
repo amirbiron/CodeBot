@@ -2387,7 +2387,18 @@ function loadScript(src){
       console.info('TOC: מתחיל אתחול');
       waitForContent(buildTOC);
       window.addEventListener('beforeunload', cleanup);
-      if (window.navigation) { window.navigation.addEventListener('navigate', cleanup); }
+      if (window.navigation && typeof window.navigation.addEventListener === 'function') {
+        const navCleanup = (event) => {
+          try {
+            if (event && event.destination && event.destination.sameDocument) {
+              return;
+            }
+          } catch(_){ }
+          cleanup();
+        };
+        window.navigation.addEventListener('navigate', navCleanup);
+        tocState.clickHandlers.push({ element: window.navigation, event: 'navigate', handler: navCleanup });
+      }
       // יישר מיקום התפריט והכפתור המינימלי לשורה אחת בצד שמאל
       applyMiniTop(getSavedMiniTop());
       // שחזור העדפת מיזעור (גלובלי/פר-קובץ)
