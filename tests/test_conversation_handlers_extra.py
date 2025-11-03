@@ -1,3 +1,4 @@
+import sys
 import types
 import pytest
 
@@ -97,3 +98,86 @@ async def test_regular_files_multi_delete_complete_flow(monkeypatch):
     await handle_callback_query(U("rf_delete_confirm"), ctx)
     await handle_callback_query(U("rf_delete_double_confirm"), ctx)
     assert isinstance(ctx.user_data.get('files_last_page'), int)
+
+
+class _Btn:
+    def __init__(self, text, callback_data=None, url=None, **_):
+        self.text = text
+        self.callback_data = callback_data
+        self.url = url
+
+
+class _Markup:
+    def __init__(self, keyboard):
+        self.keyboard = keyboard
+
+
+@pytest.mark.asyncio
+async def test_file_menu_includes_webapp_button(monkeypatch):
+    fake_db_mod = types.SimpleNamespace(db=types.SimpleNamespace(is_favorite=lambda uid, name: False))
+    monkeypatch.setitem(sys.modules, 'database', fake_db_mod)
+
+    import conversation_handlers as ch
+    monkeypatch.setattr(ch, 'InlineKeyboardButton', _Btn, raising=True)
+    monkeypatch.setattr(ch, 'InlineKeyboardMarkup', _Markup, raising=True)
+
+    captured = {}
+    async def fake_safe_edit(query, text, reply_markup=None, parse_mode=None):
+        captured['reply_markup'] = reply_markup
+    monkeypatch.setattr(ch.TelegramUtils, 'safe_edit_message_text', fake_safe_edit, raising=True)
+
+    class Q:
+        data = 'file_0'
+        async def answer(self):
+            return None
+
+    ctx = types.SimpleNamespace(user_data={'files_cache': {'0': {
+        '_id': 'OID42',
+        'file_name': 'demo.py',
+        'programming_language': 'python',
+        'description': '',
+    }}})
+    upd = types.SimpleNamespace(callback_query=Q(), effective_user=types.SimpleNamespace(id=1))
+
+    await ch.handle_file_menu(upd, ctx)
+
+    rm = captured.get('reply_markup')
+    assert isinstance(rm, _Markup)
+    web_btn = rm.keyboard[1][0]
+    assert web_btn.text == "?? ????? ?WebApp"
+    assert web_btn.url == "https://code-keeper-webapp.onrender.com/file/OID42"
+
+
+@pytest.mark.asyncio
+async def test_file_menu_webapp_button_search_fallback(monkeypatch):
+    fake_db_mod = types.SimpleNamespace(db=types.SimpleNamespace(is_favorite=lambda uid, name: False))
+    monkeypatch.setitem(sys.modules, 'database', fake_db_mod)
+
+    import conversation_handlers as ch
+    monkeypatch.setattr(ch, 'InlineKeyboardButton', _Btn, raising=True)
+    monkeypatch.setattr(ch, 'InlineKeyboardMarkup', _Markup, raising=True)
+
+    captured = {}
+    async def fake_safe_edit(query, text, reply_markup=None, parse_mode=None):
+        captured['reply_markup'] = reply_markup
+    monkeypatch.setattr(ch.TelegramUtils, 'safe_edit_message_text', fake_safe_edit, raising=True)
+
+    class Q:
+        data = 'file_0'
+        async def answer(self):
+            return None
+
+    ctx = types.SimpleNamespace(user_data={'files_cache': {'0': {
+        'file_name': 'noid.txt',
+        'programming_language': 'text',
+        'description': '',
+    }}})
+    upd = types.SimpleNamespace(callback_query=Q(), effective_user=types.SimpleNamespace(id=1))
+
+    await ch.handle_file_menu(upd, ctx)
+
+    rm = captured.get('reply_markup')
+    assert isinstance(rm, _Markup)
+    web_btn = rm.keyboard[1][0]
+    assert web_btn.text == "?? ????? ?WebApp"
+    assert web_btn.url == "https://code-keeper-webapp.onrender.com/files?q=noid.txt#results"

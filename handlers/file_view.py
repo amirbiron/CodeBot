@@ -12,12 +12,16 @@ File View Handler Module
 """
 
 import logging
+import os
 import re
 from io import BytesIO
 from datetime import datetime, timezone
 from typing import List, Optional
 import secrets
 from html import escape as html_escape
+from urllib.parse import quote_plus
+
+from config import config
 from utils import TelegramUtils, TextUtils
 
 
@@ -46,6 +50,56 @@ from handlers.states import EDIT_CODE, EDIT_NAME
 from services import code_service
 
 logger = logging.getLogger(__name__)
+
+
+DEFAULT_WEBAPP_URL = "https://code-keeper-webapp.onrender.com"
+
+
+def _resolve_webapp_base_url() -> Optional[str]:
+    """החזרת בסיס ה-URL של ה-WebApp עם סדר עדיפויות ברור."""
+    candidates = []
+    try:
+        candidates.append(getattr(config, "WEBAPP_URL", None))
+    except Exception:
+        candidates.append(None)
+    try:
+        candidates.append(os.getenv("WEBAPP_URL"))
+    except Exception:
+        candidates.append(None)
+    try:
+        candidates.append(getattr(config, "PUBLIC_BASE_URL", None))
+    except Exception:
+        candidates.append(None)
+    candidates.append(DEFAULT_WEBAPP_URL)
+
+    for candidate in candidates:
+        if not candidate:
+            continue
+        base = str(candidate).strip()
+        if base:
+            return base.rstrip('/')
+    return None
+
+
+def _get_webapp_button_row(file_id: Optional[str], file_name: Optional[str] = None) -> Optional[List[InlineKeyboardButton]]:
+    """בונה שורת כפתור WebApp עבור מזהה קובץ או fallback לפי שם."""
+    base_url = _resolve_webapp_base_url()
+    if not base_url:
+        return None
+    target_url: Optional[str]
+    if file_id:
+        target_url = f"{base_url}/file/{file_id}"
+    elif file_name:
+        try:
+            query = quote_plus(str(file_name))
+        except Exception:
+            query = str(file_name)
+        target_url = f"{base_url}/files?q={query}#results"
+    else:
+        target_url = None
+    if not target_url:
+        return None
+    return [InlineKeyboardButton("🌐 צפייה בWebApp", url=target_url)]
 
 
 def _get_main_keyboard() -> list:
@@ -90,6 +144,10 @@ async def handle_file_menu(update, context: ContextTypes.DEFAULT_TYPE) -> int:
             return ConversationHandler.END
         file_name = file_data.get('file_name', 'קובץ מיסתורי')
         language = file_data.get('programming_language', 'לא ידועה')
+        try:
+            file_id_str = str(file_data.get('_id') or '')
+        except Exception:
+            file_id_str = ''
         # קבע כפתור חזרה בהתאם למקור (מועדפים/רגיל/אחר)
         last_page = context.user_data.get('files_last_page')
         origin = context.user_data.get('files_origin') or {}
@@ -125,6 +183,9 @@ async def handle_file_menu(update, context: ContextTypes.DEFAULT_TYPE) -> int:
                 InlineKeyboardButton("🗑️ מחק", callback_data=f"del_{file_index}"),
             ],
         ]
+        webapp_row = _get_webapp_button_row(file_id_str, file_name)
+        if webapp_row:
+            keyboard.insert(1, webapp_row)
         last_page = context.user_data.get('files_last_page')
         origin = context.user_data.get('files_origin') or {}
         # קביעה אחידה של יעד כפתור "חזרה" לפי מקור הרשימה
@@ -155,10 +216,7 @@ async def handle_file_menu(update, context: ContextTypes.DEFAULT_TYPE) -> int:
         except Exception:
             is_fav_now = False
         fav_text = ("💔 הסר ממועדפים" if is_fav_now else "⭐ הוסף למועדפים")
-        try:
-            raw_id = str(file_data.get('_id') or '')
-        except Exception:
-            raw_id = ''
+        raw_id = file_id_str
         if raw_id and (len("fav_toggle_id:") + len(raw_id)) <= 60:
             fav_cb = f"fav_toggle_id:{raw_id}"
         else:
@@ -207,6 +265,10 @@ async def handle_view_file(update, context: ContextTypes.DEFAULT_TYPE) -> int:
         code = file_data.get('code', '')
         language = file_data.get('programming_language', 'text')
         version = file_data.get('version', 1)
+        try:
+            file_id_str = str(file_data.get('_id') or '')
+        except Exception:
+            file_id_str = ''
 
         # טעינת קוד עצלה: אם ברשימות שמרנו רק מטא־דאטה ללא code, שלוף גרסה אחרונה מה-DB
         if not code:
@@ -218,6 +280,10 @@ async def handle_view_file(update, context: ContextTypes.DEFAULT_TYPE) -> int:
                     code = latest_doc.get('code', '') or ''
                     language = latest_doc.get('programming_language', language) or language
                     version = latest_doc.get('version', version) or version
+                    try:
+                        file_id_str = str(latest_doc.get('_id') or file_id_str)
+                    except Exception:
+                        pass
                     # עדכן cache לזיהוי חזרה/המשך "הצג עוד"
                     files_cache[str(file_index)] = dict(file_data, code=code, programming_language=language, version=version)
                     context.user_data['files_cache'] = files_cache
@@ -252,6 +318,9 @@ async def handle_view_file(update, context: ContextTypes.DEFAULT_TYPE) -> int:
             ],
             [InlineKeyboardButton("🔙 חזרה", callback_data=back_cb)],
         ]
+        webapp_row = _get_webapp_button_row(file_id_str or None, file_name)
+        if webapp_row:
+            keyboard.insert(0, webapp_row)
         # כפתור מועדפים (הוסף/הסר) לפי המצב הנוכחי
         try:
             from database import db as _db
@@ -260,10 +329,7 @@ async def handle_view_file(update, context: ContextTypes.DEFAULT_TYPE) -> int:
             is_fav_now = False
         fav_text = ("💔 הסר ממועדפים" if is_fav_now else "⭐ הוסף למועדפים")
         # בנה callback בטוח: העדף מזהה מסד אם קיים, אחרת טוקן קצר במיפוי זמני
-        try:
-            raw_id = str(file_data.get('_id') or '')
-        except Exception:
-            raw_id = ''
+        raw_id = file_id_str
         if raw_id and (len("fav_toggle_id:") + len(raw_id)) <= 60:
             fav_cb = f"fav_toggle_id:{raw_id}"
         else:
@@ -451,9 +517,17 @@ async def receive_new_code(update, context: ContextTypes.DEFAULT_TYPE) -> int:
         from database import db
         success = db.save_file(user_id, file_name, cleaned_code, detected_language)
         if success:
+            from database import db as _db
+            last_version = _db.get_latest_version(user_id, file_name)
+            version_num = last_version.get('version', 1) if last_version else 1
+            try:
+                fid = str((last_version or {}).get('_id') or '')
+            except Exception:
+                fid = ''
+            webapp_row = _get_webapp_button_row(fid, file_name)
             keyboard = [
                 [
-                    InlineKeyboardButton("👁️ הצג קוד מעודכן", callback_data=f"view_direct_{file_name}"),
+                    InlineKeyboardButton("👁️ הצג קוד מעודכן", callback_data=(f"view_direct_id:{fid}" if fid else f"view_direct_{file_name}")),
                     InlineKeyboardButton("📚 היסטוריה", callback_data=f"versions_file_{file_name}"),
                 ],
                 [
@@ -461,10 +535,9 @@ async def receive_new_code(update, context: ContextTypes.DEFAULT_TYPE) -> int:
                     InlineKeyboardButton("🔙 לרשימה", callback_data="files"),
                 ],
             ]
+            if webapp_row:
+                keyboard.insert(0, webapp_row)
             reply_markup = InlineKeyboardMarkup(keyboard)
-            from database import db as _db
-            last_version = _db.get_latest_version(user_id, file_name)
-            version_num = last_version.get('version', 1) if last_version else 1
             try:
                 if files_cache is not None and editing_file_index is not None and str(editing_file_index) in files_cache:
                     entry = files_cache[str(editing_file_index)]
@@ -594,6 +667,9 @@ async def receive_new_name(update, context: ContextTypes.DEFAULT_TYPE) -> int:
                     InlineKeyboardButton("🔙 לרשימה", callback_data="files"),
                 ],
             ]
+            webapp_row = _get_webapp_button_row(fid, new_name)
+            if webapp_row:
+                keyboard.insert(0, webapp_row)
             reply_markup = InlineKeyboardMarkup(keyboard)
             await update.message.reply_text(
                 f"✅ *שם הקובץ שונה בהצלחה!*\n\n"
@@ -940,6 +1016,10 @@ async def handle_view_direct_file(update, context: ContextTypes.DEFAULT_TYPE) ->
             ],
             [InlineKeyboardButton("🔙 חזרה", callback_data=back_cb)],
         ]
+        view_target_id = fid if not is_large_file else None
+        webapp_row = _get_webapp_button_row(view_target_id, file_name)
+        if webapp_row:
+            keyboard.insert(0, webapp_row)
         # כפתור מועדפים (הוסף/הסר) לפי המצב הנוכחי
         try:
             from database import db as _db
@@ -1156,9 +1236,15 @@ async def handle_clone(update, context: ContextTypes.DEFAULT_TYPE) -> int:
                     files_cache[str(file_index)] = dict(file_data, file_name=original_name)
             except Exception:
                 pass
+            try:
+                latest_doc = db.get_latest_version(user_id, new_name) or {}
+                fid = str(latest_doc.get('_id') or '')
+            except Exception:
+                fid = ''
+            webapp_row = _get_webapp_button_row(fid, new_name)
             keyboard = [
                 [
-                    InlineKeyboardButton("👁️ הצג קוד", callback_data=f"view_direct_{new_name}"),
+                    InlineKeyboardButton("👁️ הצג קוד", callback_data=(f"view_direct_id:{fid}" if fid else f"view_direct_{new_name}")),
                     InlineKeyboardButton("📚 היסטוריה", callback_data=f"versions_file_{new_name}"),
                 ],
                 [
@@ -1166,6 +1252,8 @@ async def handle_clone(update, context: ContextTypes.DEFAULT_TYPE) -> int:
                     InlineKeyboardButton("🔙 לרשימה", callback_data="files"),
                 ],
             ]
+            if webapp_row:
+                keyboard.insert(0, webapp_row)
             reply_markup = InlineKeyboardMarkup(keyboard)
             await TelegramUtils.safe_edit_message_text(
                 query,
@@ -1255,6 +1343,7 @@ async def handle_clone_direct(update, context: ContextTypes.DEFAULT_TYPE) -> int
                 fid = str(latest_doc.get('_id') or '')
             except Exception:
                 fid = ''
+            webapp_row = _get_webapp_button_row(fid)
             keyboard = [
                 [
                     InlineKeyboardButton("👁️ הצג קוד", callback_data=(f"view_direct_id:{fid}" if fid else f"view_direct_{new_name}")),
@@ -1265,6 +1354,8 @@ async def handle_clone_direct(update, context: ContextTypes.DEFAULT_TYPE) -> int
                     InlineKeyboardButton("🔙 לרשימה", callback_data="files"),
                 ],
             ]
+            if webapp_row:
+                keyboard.insert(0, webapp_row)
             reply_markup = InlineKeyboardMarkup(keyboard)
             text = (
                 f"✅ *הקובץ שוכפל בהצלחה!*\n\n"
