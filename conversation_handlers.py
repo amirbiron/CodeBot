@@ -2345,11 +2345,10 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
             lang = saved.get('language') or 'text'
             note = saved.get('note') or ''
             fid = saved.get('file_id') or ''
-            view_fid = fid if not fallback_to_db else ''
             note_btn_text = "📝 ערוך הערה" if note else "📝 הוסף הערה"
             keyboard = [
                 [
-                    InlineKeyboardButton("👁️ הצג קוד", callback_data=(f"view_direct_id:{view_fid}" if view_fid else f"view_direct_{fname}")),
+                    InlineKeyboardButton("👁️ הצג קוד", callback_data=(f"view_direct_id:{fid}" if fid else f"view_direct_{fname}")),
                     InlineKeyboardButton("✏️ ערוך", callback_data=f"edit_code_direct_{fname}")
                 ],
                 [
