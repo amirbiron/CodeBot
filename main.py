@@ -1016,12 +1016,45 @@ class CodeKeeperBot:
                 is_active = True if active_until is None else (active_until > 0 and now < active_until)
                 if not is_active:
                     return ConversationHandler.END
-                try:
-                    await (update.callback_query.edit_message_text if getattr(update, 'callback_query', None) else update.message.reply_text)(
-                        config.MAINTENANCE_MESSAGE
-                    )
-                except Exception:
-                    pass
+
+                maintenance_text = getattr(config, "MAINTENANCE_MESSAGE", "") or ""
+                sent = False
+
+                callback_query = getattr(update, "callback_query", None)
+                if callback_query is not None:
+                    try:
+                        try:
+                            await callback_query.answer(cache_time=1, show_alert=False)
+                        except Exception:
+                            pass
+                        await callback_query.edit_message_text(maintenance_text)
+                        sent = True
+                    except Exception:
+                        sent = False
+
+                if not sent:
+                    message = getattr(update, "message", None)
+                    if message is None:
+                        message = getattr(update, "effective_message", None)
+                    if message is None and callback_query is not None:
+                        message = getattr(callback_query, "message", None)
+                    if message is not None and hasattr(message, "reply_text"):
+                        try:
+                            await message.reply_text(maintenance_text)
+                            sent = True
+                        except Exception:
+                            sent = False
+
+                if not sent:
+                    try:
+                        chat = getattr(update, "effective_chat", None)
+                        bot = getattr(context, "bot", None)
+                        chat_id = getattr(chat, "id", None)
+                        if bot is not None and chat_id is not None:
+                            await bot.send_message(chat_id=chat_id, text=maintenance_text)
+                    except Exception:
+                        pass
+
                 return ConversationHandler.END
             # Catch-all high-priority handlers during maintenance (keep references for clean removal)
             self._maintenance_message_handler = MessageHandler(filters.ALL, maintenance_reply)
