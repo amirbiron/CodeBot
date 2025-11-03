@@ -986,12 +986,85 @@ input.md-task-checkbox {
         <i class="fab fa-telegram"></i>
         שתף בטלגרם
       </button>
-      <button onclick="copyLinkMd()" class="btn btn-secondary btn-icon">
+      <button onclick="openShareLinkModalMd()" class="btn btn-secondary btn-icon">
         <i class="fas fa-link"></i>
         העתק קישור
       </button>
     </div>
   </div>
+
+  <div id="shareLinkModalMd" class="share-link-modal" role="dialog" aria-modal="true" aria-labelledby="shareLinkMdTitle" hidden>
+    <div class="share-link-modal__content" role="document">
+      <h3 id="shareLinkMdTitle" class="share-link-modal__title">בחרו סוג קישור</h3>
+      <p class="share-link-modal__subtitle">אפשר ליצור קישור זמני (פג תוקף אוטומטית) או קישור קבוע ללא תפוגה.</p>
+      <div class="share-link-modal__actions">
+        <button type="button" class="btn btn-primary" onclick="copyShareLinkMd(false)">
+          <i class="fas fa-clock"></i>
+          קישור זמני
+        </button>
+        <button type="button" class="btn btn-secondary" onclick="copyShareLinkMd(true)">
+          <i class="fas fa-infinity"></i>
+          קישור קבוע
+        </button>
+      </div>
+      <button type="button" class="share-link-modal__close" onclick="closeShareLinkModalMd()" aria-label="סגור">✕</button>
+    </div>
+  </div>
+
+  <style>
+  .share-link-modal {
+    position: fixed;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(0, 0, 0, 0.55);
+    z-index: 9999;
+  }
+  .share-link-modal[hidden] {
+    display: none;
+  }
+  .share-link-modal__content {
+    background: #1f2a44;
+    border-radius: 16px;
+    padding: 1.5rem;
+    max-width: 420px;
+    width: calc(100% - 2rem);
+    color: #fff;
+    position: relative;
+    box-shadow: 0 12px 30px rgba(0, 0, 0, 0.35);
+  }
+  .share-link-modal__title {
+    margin: 0 0 0.5rem;
+    font-size: 1.3rem;
+  }
+  .share-link-modal__subtitle {
+    margin: 0 0 1.25rem;
+    color: rgba(255, 255, 255, 0.8);
+  }
+  .share-link-modal__actions {
+    display: flex;
+    gap: 1rem;
+    flex-wrap: wrap;
+  }
+  .share-link-modal__actions .btn {
+    flex: 1 1 150px;
+  }
+  .share-link-modal__close {
+    position: absolute;
+    top: 0.75rem;
+    left: 0.75rem;
+    background: transparent;
+    border: none;
+    color: rgba(255, 255, 255, 0.7);
+    font-size: 1.1rem;
+    cursor: pointer;
+  }
+  .share-link-modal__close:hover,
+  .share-link-modal__close:focus {
+    color: #fff;
+  }
+  </style>
   {% endif %}
   <script type="application/json" id="mdText">{{ md_code | tojson | safe }}</script>
   <script>
@@ -2368,42 +2441,99 @@ function loadScript(src){
   } catch(_) {}
 })();
 
-// יצירת קישור ציבורי שמכוון לתצוגת Markdown (view=md)
-async function ensurePublicLinkMd(){
-  try {
-    const resp = await fetch(`/api/share/{{ file.id }}`, { method: 'POST' });
-    const data = await resp.json();
-    let baseUrl = window.location.origin;
-    let url = (data && data.ok && data.url) ? data.url : window.location.href;
+let shareLinkModalKeyHandlerMd = null;
+
+function openShareLinkModalMd(){
+  const modal = document.getElementById('shareLinkModalMd');
+  if (!modal){
+    copyShareLinkMd(false);
+    return;
+  }
+  modal.hidden = false;
+  if (!modal.dataset.boundBackdrop){
+    modal.addEventListener('click', function(ev){
+      if (ev.target === modal){ closeShareLinkModalMd(); }
+    });
+    modal.dataset.boundBackdrop = '1';
+  }
+  if (shareLinkModalKeyHandlerMd){
     try {
-      const u = new URL(url, window.location.origin);
-      u.searchParams.set('view', 'md');
-      return u.toString();
-    } catch(_) {
-      return url + (url.includes('?') ? '&' : '?') + 'view=md';
-    }
-  } catch (e) {
+      document.removeEventListener('keydown', shareLinkModalKeyHandlerMd);
+    } catch(_){ }
+  }
+  shareLinkModalKeyHandlerMd = function(ev){
     try {
-      const u = new URL(window.location.href);
-      u.searchParams.set('view','md');
-      return u.toString();
-    } catch(_) {
-      return window.location.href;
-    }
+      if (ev.key === 'Escape'){
+        ev.preventDefault();
+        closeShareLinkModalMd();
+      }
+    } catch(_){ }
+  };
+  document.addEventListener('keydown', shareLinkModalKeyHandlerMd);
+  setTimeout(() => {
+    try {
+      const firstButton = modal.querySelector('.share-link-modal__actions button');
+      if (firstButton){ firstButton.focus(); }
+    } catch(_){ }
+  }, 0);
+}
+
+function closeShareLinkModalMd(){
+  const modal = document.getElementById('shareLinkModalMd');
+  if (!modal){ return; }
+  modal.hidden = true;
+  if (shareLinkModalKeyHandlerMd){
+    document.removeEventListener('keydown', shareLinkModalKeyHandlerMd);
+    shareLinkModalKeyHandlerMd = null;
   }
 }
 
-async function copyLinkMd(){
-  const url = await ensurePublicLinkMd();
-  try { await navigator.clipboard.writeText(url); alert('הקישור הציבורי הועתק!'); }
-  catch(e){ console.error('copy failed', e); alert('לא הצלחנו להעתיק את הקישור'); }
+async function requestShareLinkMd(permanent){
+  let baseUrl = window.location.href;
+  try {
+    const resp = await fetch(`/api/share/{{ file.id }}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        type: permanent ? 'permanent' : 'temporary',
+        permanent: !!permanent
+      })
+    });
+    const data = await resp.json();
+    if (data && data.ok && data.url){
+      baseUrl = data.url;
+    }
+  } catch(err){
+    console.error('share create failed', err);
+  }
+  try {
+    const u = new URL(baseUrl, window.location.origin);
+    u.searchParams.set('view','md');
+    return u.toString();
+  } catch(_){
+    return baseUrl + (baseUrl.includes('?') ? '&' : '?') + 'view=md';
+  }
+}
+
+async function copyShareLinkMd(permanent){
+  try { closeShareLinkModalMd(); } catch(_){ }
+  const url = await requestShareLinkMd(!!permanent);
+  const successMessage = permanent ? 'הקישור הקבוע הועתק!' : 'הקישור הזמני הועתק!';
+  try {
+    await navigator.clipboard.writeText(url);
+    alert(successMessage);
+  } catch(e){
+    console.error('copy failed', e);
+    alert('לא הצלחנו להעתיק את הקישור');
+  }
 }
 
 async function shareToTelegramMd(){
-  const url = await ensurePublicLinkMd();
+  const url = await requestShareLinkMd(false);
   const text = `צפה במסמך Markdown ב-Code Keeper:`;
   const telegramUrl = `https://t.me/share/url?url=${encodeURIComponent(url)}&text=${encodeURIComponent(text)}`;
-  try { window.open(telegramUrl, '_blank'); } catch(_) { window.location.href = telegramUrl; }
+  try { window.open(telegramUrl, '_blank'); }
+  catch(_){ window.location.href = telegramUrl; }
 }
 
 // ניווט חזרה אמין: אם יש היסטוריה – חזור; אחרת נווט ישירות לעמוד הקובץ
