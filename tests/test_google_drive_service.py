@@ -75,6 +75,7 @@ def test_compute_friendly_name_increments_and_flags(monkeypatch):
 
 def test_poll_device_token_pending_error_and_success(monkeypatch):
     gds = _import_module_fresh("services.google_drive_service")
+    gds.config.GOOGLE_CLIENT_ID = "cid"
 
     # pending path
     monkeypatch.setattr(gds, "requests", SimpleNamespace(post=lambda *a, **k: _fake_response(400, {"error": "authorization_pending"})))
