@@ -590,6 +590,11 @@ function openShareLinkModal() {
         });
         modal.dataset.boundBackdrop = '1';
     }
+    if (shareLinkModalKeyHandler) {
+        try {
+            document.removeEventListener('keydown', shareLinkModalKeyHandler);
+        } catch (_) {}
+    }
     shareLinkModalKeyHandler = function(ev) {
         try {
             if (ev.key === 'Escape') {

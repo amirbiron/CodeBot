@@ -2456,6 +2456,11 @@ function openShareLinkModalMd(){
     });
     modal.dataset.boundBackdrop = '1';
   }
+  if (shareLinkModalKeyHandlerMd){
+    try {
+      document.removeEventListener('keydown', shareLinkModalKeyHandlerMd);
+    } catch(_){ }
+  }
   shareLinkModalKeyHandlerMd = function(ev){
     try {
       if (ev.key === 'Escape'){
