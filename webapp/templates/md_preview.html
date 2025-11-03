@@ -2154,7 +2154,16 @@ function loadScript(src){
           item.setAttribute('aria-label', `עבור לכותרת: ${text}`);
           item.textContent = text;
           if (text.length > 30) { item.title = text; item.textContent = text.substring(0, 30) + '...'; }
-          const clickHandler = (e) => { e.preventDefault(); try { heading.scrollIntoView({ behavior: 'smooth', block: 'start' }); updateActiveItem(item); closeSearch(); minimizeTOC(); } catch (error) { console.error('TOC: שגיאה בגלילה', error); } };
+          const clickHandler = (e) => {
+            e.preventDefault();
+            try {
+              heading.scrollIntoView({ behavior: 'smooth', block: 'start' });
+              updateActiveItem(item);
+              closeSearch();
+            } catch (error) {
+              console.error('TOC: שגיאה בגלילה', error);
+            }
+          };
           item.addEventListener('click', clickHandler);
           tocState.clickHandlers.push({ element: item, event: 'click', handler: clickHandler });
           fragment.appendChild(item);
@@ -2378,7 +2387,18 @@ function loadScript(src){
       console.info('TOC: מתחיל אתחול');
       waitForContent(buildTOC);
       window.addEventListener('beforeunload', cleanup);
-      if (window.navigation) { window.navigation.addEventListener('navigate', cleanup); }
+      if (window.navigation && typeof window.navigation.addEventListener === 'function') {
+        const navCleanup = (event) => {
+          try {
+            if (event && event.destination && event.destination.sameDocument) {
+              return;
+            }
+          } catch(_){ }
+          cleanup();
+        };
+        window.navigation.addEventListener('navigate', navCleanup);
+        tocState.clickHandlers.push({ element: window.navigation, event: 'navigate', handler: navCleanup });
+      }
       // יישר מיקום התפריט והכפתור המינימלי לשורה אחת בצד שמאל
       applyMiniTop(getSavedMiniTop());
       // שחזור העדפת מיזעור (גלובלי/פר-קובץ)
@@ -2536,17 +2556,16 @@ async function shareToTelegramMd(){
   catch(_){ window.location.href = telegramUrl; }
 }
 
-// ניווט חזרה אמין: אם יש היסטוריה – חזור; אחרת נווט ישירות לעמוד הקובץ
+// ניווט חזרה אמין: תמיד מעביר לתצוגת הקוד של אותו קובץ
 function goBackToFile(ev){
   try { if (ev) ev.preventDefault(); } catch(_){ }
+  const targetUrl = "{{ url_for('view_file', file_id=file.id) }}";
   try {
-    const sameOriginRef = document.referrer && new URL(document.referrer, window.location.origin).origin === window.location.origin;
-    if (window.history && window.history.length > 1 && sameOriginRef) {
-      window.history.back();
-      return false;
-    }
-  } catch(_){ }
-  try { window.location.replace('/file/{{ file.id }}'); } catch(_) { window.location.href = '/file/{{ file.id }}'; }
+    window.location.replace(targetUrl);
+  } catch(_){
+    try { window.location.href = targetUrl; }
+    catch(__){ }
+  }
   return false;
 }
 
