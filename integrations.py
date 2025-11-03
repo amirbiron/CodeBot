@@ -32,6 +32,16 @@ def _get_github_token() -> Optional[str]:
     return os.getenv("GITHUB_TOKEN")
 
 
+def _get_pastebin_api_key() -> Optional[str]:
+    """השג את מפתח ה-API של Pastebin גם כשאין שדה ישיר על האובייקט."""
+
+    api_key = getattr(config, "PASTEBIN_API_KEY", None)
+    if api_key:
+        return api_key
+    # תאימות לאחור: תמיכה בטסטים שמגדירים רק משתנה סביבה
+    return os.getenv("PASTEBIN_API_KEY")
+
+
 class GitHubGistIntegration:
     """אינטגרציה עם GitHub Gist"""
     
@@ -230,7 +240,7 @@ class PastebinIntegration:
     """אינטגרציה עם Pastebin"""
     
     def __init__(self):
-        self.api_key = config.PASTEBIN_API_KEY
+        self.api_key = _get_pastebin_api_key()
         self.base_url = "https://pastebin.com/api"
         
     def is_available(self) -> bool:
