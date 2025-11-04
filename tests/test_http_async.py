@@ -110,6 +110,11 @@ def test_limit_per_host_zero_sets_none(monkeypatch):
 async def test_async_request_retries_on_http_error(monkeypatch):
     import http_async as ha
 
+    # Speed up retries in CI: eliminate backoff sleep
+    monkeypatch.setenv("HTTP_RESILIENCE_BACKOFF_BASE", "0.0")
+    monkeypatch.setenv("HTTP_RESILIENCE_BACKOFF_MAX", "0.0")
+    monkeypatch.setenv("HTTP_RESILIENCE_JITTER", "0.0")
+
     class _Resp:
         def __init__(self, status: int):
             self.status = status

@@ -95,6 +95,11 @@ def test_http_sync_request_propagates_exceptions(monkeypatch):
 def test_http_sync_retries_on_http_error(monkeypatch):
     import http_sync
 
+    # Speed up retries in CI: eliminate backoff sleep
+    monkeypatch.setenv("HTTP_RESILIENCE_BACKOFF_BASE", "0.0")
+    monkeypatch.setenv("HTTP_RESILIENCE_BACKOFF_MAX", "0.0")
+    monkeypatch.setenv("HTTP_RESILIENCE_JITTER", "0.0")
+
     class _Session:
         def __init__(self):
             self.calls = 0
