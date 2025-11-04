@@ -1,4 +1,5 @@
 import logging
+import hashlib
 from dataclasses import asdict
 from datetime import datetime, timezone, timedelta
 from typing import Any, Dict, List, Optional, Tuple, Protocol, runtime_checkable, Callable, TypeVar, cast
@@ -67,6 +68,30 @@ except Exception:  # pragma: no cover
     @contextmanager
     def track_performance(_operation: str, labels=None):
         yield
+
+try:
+    from observability_instrumentation import traced, set_current_span_attributes
+except Exception:  # pragma: no cover
+    def traced(*_a, **_k):  # type: ignore
+        def _inner(f):
+            return f
+        return _inner
+
+    def set_current_span_attributes(*_a, **_k):  # type: ignore
+        return None
+
+
+def _hash_identifier(value: Any) -> str:
+    try:
+        text = str(value).strip()
+    except Exception:
+        return ""
+    if not text:
+        return ""
+    try:
+        return hashlib.sha256(text.encode("utf-8", "ignore")).hexdigest()[:16]
+    except Exception:
+        return ""
 
 
 class Repository:
@@ -646,6 +671,7 @@ class Repository:
             return None
 
     @cached(expire_seconds=120, key_prefix="user_files")
+    @traced("db.get_user_files")
     def get_user_files(
         self,
         user_id: int,
@@ -663,6 +689,16 @@ class Repository:
         try:
             eff_limit = max(1, int(limit or 50))
             eff_skip = max(0, int(skip or 0))
+            try:
+                attrs: Dict[str, Any] = {
+                    "user_id_hash": _hash_identifier(user_id),
+                    "limit": eff_limit,
+                    "skip": eff_skip,
+                    "projection": bool(projection),
+                }
+                set_current_span_attributes(attrs)
+            except Exception:
+                pass
             pipeline: List[Dict[str, Any]] = [
                 {"$match": {"user_id": user_id, "$or": [
                     {"is_active": True}, {"is_active": {"$exists": False}}
@@ -685,14 +721,31 @@ class Repository:
 
             with track_performance("db_get_user_files"):
                 rows = list(self.manager.collection.aggregate(pipeline, allowDiskUse=True))
+            try:
+                set_current_span_attributes({"results_count": int(len(rows))})
+            except Exception:
+                pass
             return rows
         except Exception as e:
             emit_event("db_get_user_files_error", severity="error", error=str(e))
             return []
 
     @cached(expire_seconds=300, key_prefix="search_code")
+    @traced("db.search_code")
     def search_code(self, user_id: int, query: str, programming_language: Optional[str] = None, tags: Optional[List[str]] = None, limit: int = 20) -> List[Dict]:
         try:
+            try:
+                attrs: Dict[str, Any] = {
+                    "user_id_hash": _hash_identifier(user_id),
+                    "query.length": int(len(query or "")),
+                    "language": str(programming_language or "") or None,
+                    "tags_count": len(tags or []),
+                    "limit": int(limit),
+                }
+                attrs = {k: v for k, v in attrs.items() if v not in (None, "")}
+                set_current_span_attributes(attrs)
+            except Exception:
+                pass
             search_filter: Dict[str, Any] = {"user_id": user_id, "$or": [
                 {"is_active": True}, {"is_active": {"$exists": False}}
             ]}
@@ -712,16 +765,31 @@ class Repository:
             ]
             with track_performance("db_search_code"):
                 rows = list(self.manager.collection.aggregate(pipeline, allowDiskUse=True))
+            try:
+                set_current_span_attributes({"results_count": int(len(rows))})
+            except Exception:
+                pass
             return rows
         except Exception as e:
             emit_event("db_search_code_error", severity="error", error=str(e))
             return []
 
     @cached(expire_seconds=20, key_prefix="files_by_repo")
+    @traced("db.get_user_files_by_repo")
     def get_user_files_by_repo(self, user_id: int, repo_tag: str, page: int = 1, per_page: int = 50) -> Tuple[List[Dict], int]:
         """מחזיר קבצים לפי תגית ריפו עם דפדוף, וכן ספירת סה"כ קבצים (distinct לפי file_name)."""
         try:
             skip = max(0, (page - 1) * per_page)
+            try:
+                attrs: Dict[str, Any] = {
+                    "user_id_hash": _hash_identifier(user_id),
+                    "repo_tag": str(repo_tag),
+                    "page": int(page),
+                    "per_page": int(per_page),
+                }
+                set_current_span_attributes(attrs)
+            except Exception:
+                pass
             match_stage = {"user_id": user_id, "tags": repo_tag, "$or": [
                 {"is_active": True}, {"is_active": {"$exists": False}}
             ]}
@@ -756,6 +824,10 @@ class Repository:
             with track_performance("db_get_user_files_by_repo_count", labels={"repo": str(repo_tag)}):
                 cnt_res = list(self.manager.collection.aggregate(count_pipeline, allowDiskUse=True))
             total = int((cnt_res[0]["count"]) if cnt_res else 0)
+            try:
+                set_current_span_attributes({"results_count": int(len(items)), "total_count": total})
+            except Exception:
+                pass
             return items, total
         except Exception as e:
             emit_event("db_get_user_files_by_repo_error", severity="error", error=str(e))

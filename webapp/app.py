@@ -14,7 +14,7 @@ from datetime import datetime, timezone
 from functools import wraps
 from typing import Optional, Dict, Any, List
 
-from flask import Flask, render_template, jsonify, request, session, redirect, url_for, send_file, abort, Response
+from flask import Flask, render_template, jsonify, request, session, redirect, url_for, send_file, abort, Response, g
 import threading
 import atexit
 import time as _time
@@ -89,6 +89,7 @@ try:
         generate_request_id,
         bind_user_context,
         bind_command,
+        get_observability_context,
     )
 except Exception:  # pragma: no cover
     def emit_event(event: str, severity: str = "info", **fields):
@@ -104,6 +105,8 @@ except Exception:  # pragma: no cover
         return None
     def bind_command(_identifier: str | None = None) -> None:
         return None
+    def get_observability_context() -> Dict[str, Any]:
+        return {}
 
 # Alertmanager forwarding (optional)
 try:
@@ -204,6 +207,71 @@ WELCOME_GUIDE_SECONDARY_SHARE_ID = "sdVOAx6hUGsH4Anr"
 # Guards for first-request and DB init race conditions
 _FIRST_REQUEST_LOCK = threading.Lock()
 _FIRST_REQUEST_RECORDED = False
+
+
+def _build_request_span_attrs() -> Dict[str, str]:
+    attrs: Dict[str, str] = {"component": "flask.webapp"}
+    try:
+        method = getattr(request, "method", "")
+        if method:
+            attrs["http.method"] = str(method).upper()
+    except Exception:
+        pass
+    try:
+        endpoint = getattr(request, "endpoint", "") or ""
+        if endpoint:
+            attrs["endpoint"] = endpoint
+    except Exception:
+        pass
+    try:
+        path = getattr(request, "path", "") or ""
+        if path:
+            attrs["http.target"] = path
+    except Exception:
+        pass
+    try:
+        rid = getattr(request, "_req_id", None)
+        if not rid:
+            rid = request.headers.get("X-Request-ID")
+        if rid:
+            attrs["request_id"] = str(rid)
+    except Exception:
+        pass
+    try:
+        ctx = get_observability_context() or {}
+        if isinstance(ctx, dict):
+            if ctx.get("command"):
+                attrs["command"] = str(ctx["command"])
+            if ctx.get("user_id"):
+                attrs["user_id_hash"] = str(ctx["user_id"])
+            if ctx.get("chat_id"):
+                attrs["chat_id_hash"] = str(ctx["chat_id"])
+    except Exception:
+        pass
+    return {k: v for k, v in attrs.items() if v not in ("", None)}
+
+
+@app.before_request
+def _otel_start_request_span():
+    try:
+        attrs = _build_request_span_attrs()
+        span_cm = start_span("web.request", attrs)
+    except Exception:
+        setattr(g, "_otel_span_cm", None)
+        setattr(g, "_otel_span", None)
+        setattr(g, "_otel_response_status", None)
+        setattr(g, "_otel_cache_hit", None)
+        return
+    span = span_cm.__enter__()
+    setattr(g, "_otel_span_cm", span_cm)
+    setattr(g, "_otel_span", span)
+    setattr(g, "_otel_response_status", None)
+    setattr(g, "_otel_cache_hit", None)
+    if span is not None:
+        try:
+            set_current_span_attributes({"component": "flask.webapp"})
+        except Exception:
+            pass
 # --- OpenTelemetry (optional, fail-open) ---
 try:
     from observability_otel import setup_telemetry as _setup_otel
@@ -218,12 +286,25 @@ except Exception:
 
 # Manual tracing decorator (fail-open)
 try:
-    from observability_instrumentation import traced
+    from observability_instrumentation import traced, start_span, set_current_span_attributes
 except Exception:  # pragma: no cover
     def traced(*_a, **_k):
         def _inner(f):
             return f
         return _inner
+
+    class _NoSpan:
+        def __enter__(self):  # pragma: no cover
+            return None
+
+        def __exit__(self, *_exc):  # pragma: no cover
+            return False
+
+    def start_span(*_a, **_k):  # type: ignore
+        return _NoSpan()
+
+    def set_current_span_attributes(*_a, **_k):  # type: ignore
+        return None
 # --- Correlation ID across services (request_id) ---
 try:
     from observability import generate_request_id as _gen_rid, bind_request_id as _bind_rid
@@ -1246,12 +1327,31 @@ def _correlation_bind():
                 setattr(request, "_req_id", rid)
             except Exception:
                 pass
+            try:
+                set_current_span_attributes({"request_id": rid})
+            except Exception:
+                pass
         try:
             uid = session.get("user_id") if "user_id" in session else None
         except Exception:
             uid = None
         try:
             bind_user_context(user_id=uid)
+        except Exception:
+            pass
+        try:
+            ctx = get_observability_context() or {}
+        except Exception:
+            ctx = {}
+        try:
+            updates: Dict[str, Any] = {}
+            if isinstance(ctx, dict):
+                if ctx.get("user_id"):
+                    updates["user_id_hash"] = ctx["user_id"]
+                if ctx.get("chat_id"):
+                    updates["chat_id_hash"] = ctx["chat_id"]
+            if updates:
+                set_current_span_attributes(updates)
         except Exception:
             pass
         try:
@@ -1262,6 +1362,10 @@ def _correlation_bind():
             if identifier:
                 cmd = f"webapp:{method.upper()}:{identifier}" if method else f"webapp:{identifier}"
                 bind_command(cmd)
+                try:
+                    set_current_span_attributes({"command": cmd})
+                except Exception:
+                    pass
         except Exception:
             pass
     except Exception:
@@ -1314,6 +1418,66 @@ def _metrics_after(resp):
     except Exception:
         pass
     return resp
+
+
+@app.after_request
+def _otel_record_response(resp):
+    try:
+        setattr(g, "_otel_response_status", int(getattr(resp, "status_code", 0) or 0))
+    except Exception:
+        setattr(g, "_otel_response_status", None)
+    span = getattr(g, "_otel_span", None)
+    if span is not None:
+        try:
+            span.set_attribute("http.status_code", int(getattr(resp, "status_code", 0) or 0))  # type: ignore[attr-defined]
+        except Exception:
+            pass
+        try:
+            cache_hit_flag = getattr(g, "_otel_cache_hit", None)
+            if cache_hit_flag is not None:
+                span.set_attribute("cache_hit", bool(cache_hit_flag))  # type: ignore[attr-defined]
+        except Exception:
+            pass
+        try:
+            code = int(getattr(resp, "status_code", 0) or 0)
+            span.set_attribute("status", "error" if code >= 500 else "ok")  # type: ignore[attr-defined]
+        except Exception:
+            pass
+    return resp
+
+
+@app.teardown_request
+def _otel_teardown_request(exc):
+    span_cm = getattr(g, "_otel_span_cm", None)
+    if span_cm is None:
+        return
+    span = getattr(g, "_otel_span", None)
+    if span is not None and exc is not None:
+        try:
+            span.set_attribute("status", "error")  # type: ignore[attr-defined]
+            span.set_attribute("error_signature", type(exc).__name__)  # type: ignore[attr-defined]
+        except Exception:
+            pass
+    status_code = getattr(g, "_otel_response_status", None)
+    if span is not None and status_code is not None:
+        try:
+            span.set_attribute("http.status_code", int(status_code))  # type: ignore[attr-defined]
+        except Exception:
+            pass
+    cache_hit_flag = getattr(g, "_otel_cache_hit", None)
+    if span is not None and cache_hit_flag is not None:
+        try:
+            span.set_attribute("cache_hit", bool(cache_hit_flag))  # type: ignore[attr-defined]
+        except Exception:
+            pass
+    if exc is None:
+        span_cm.__exit__(None, None, None)
+    else:
+        span_cm.__exit__(type(exc), exc, getattr(exc, "__traceback__", None))
+    setattr(g, "_otel_span_cm", None)
+    setattr(g, "_otel_span", None)
+    setattr(g, "_otel_response_status", None)
+    setattr(g, "_otel_cache_hit", None)
 
 
 # --- Slow request logging (server-side) ---
@@ -1716,6 +1880,10 @@ def api_search_global():
     start_time = time.time()
     user_id = session['user_id']
     try:
+        setattr(g, "_otel_cache_hit", False)
+    except Exception:
+        pass
+    try:
         # Soft-warning ב-80% מניצול ההגבלה (למיטב היכולת; תלוי במימוש limiter)
         try:
             if limiter is not None and hasattr(limiter, 'current_limit'):
@@ -1858,6 +2026,10 @@ def api_search_global():
                     try:
                         search_cache_hits.inc()
                         search_counter.labels(search_type=search_type_str, status='cache_hit').inc()
+                    except Exception:
+                        pass
+                    try:
+                        setattr(g, "_otel_cache_hit", True)
                     except Exception:
                         pass
                     return jsonify(dict(cached, cached=True))

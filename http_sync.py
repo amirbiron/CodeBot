@@ -17,6 +17,35 @@ except Exception:  # pragma: no cover
 
 
 _local = threading.local()
+try:
+    from observability_instrumentation import start_span, set_current_span_attributes
+except Exception:  # pragma: no cover
+    class _NoSpan:
+        def __enter__(self):  # pragma: no cover
+            return None
+
+        def __exit__(self, *_exc):  # pragma: no cover
+            return False
+
+    def start_span(*_a, **_k):  # type: ignore
+        return _NoSpan()
+
+    def set_current_span_attributes(*_a, **_k):  # type: ignore
+        return None
+
+
+def _extract_retry_count(resp: requests.Response) -> Optional[int]:
+    try:
+        raw = getattr(resp, "raw", None)
+        retries_obj = getattr(raw, "retries", None)
+        if retries_obj is None:
+            return None
+        history = getattr(retries_obj, "history", None)
+        if history is None:
+            return None
+        return int(len(history))
+    except Exception:
+        return None
 
 
 def _to_int(env_name: str, default: int) -> int:
@@ -99,25 +128,71 @@ def request(method: str, url: str, **kwargs):
     merged_headers = _merge_observability_headers(headers)
     if merged_headers is not None:
         kwargs["headers"] = merged_headers
-    resp = get_session().request(method=method, url=url, timeout=timeout, **kwargs)
+    span_attrs = {
+        "http.method": str(method).upper(),
+        "http.url": str(url),
+        "timeout": float(timeout),
+    }
+    span_cm = start_span("http.client", span_attrs)
+    span = span_cm.__enter__()
+    if span is not None:
+        try:
+            set_current_span_attributes({"component": "http.sync"})
+        except Exception:
+            pass
+    error: Exception | None = None
     try:
-        if slow_ms and slow_ms > 0:
-            dur_ms = (time.perf_counter() - t0) * 1000.0
-            if dur_ms > slow_ms:
-                # לוג מינימלי ללא הדפסת כותרות/טוקנים
-                logger.warning(
-                    "slow_http",
-                    extra={
-                        "method": str(method).upper(),
-                        "url": str(url),
-                        "status": int(getattr(resp, "status_code", 0) or 0),
-                        "ms": round(dur_ms, 1),
-                    },
-                )
-    except Exception:
-        # לעולם לא להפיל את הקריאה בגלל לוג
-        pass
-    return resp
+        resp = get_session().request(method=method, url=url, timeout=timeout, **kwargs)
+        try:
+            if slow_ms and slow_ms > 0:
+                dur_ms = (time.perf_counter() - t0) * 1000.0
+                if dur_ms > slow_ms:
+                    # לוג מינימלי ללא הדפסת כותרות/טוקנים
+                    logger.warning(
+                        "slow_http",
+                        extra={
+                            "method": str(method).upper(),
+                            "url": str(url),
+                            "status": int(getattr(resp, "status_code", 0) or 0),
+                            "ms": round(dur_ms, 1),
+                        },
+                    )
+        except Exception:
+            # לעולם לא להפיל את הקריאה בגלל לוג
+            pass
+        if span is not None:
+            try:
+                duration_ms = (time.perf_counter() - t0) * 1000.0
+                span.set_attribute("duration_ms", float(duration_ms))  # type: ignore[attr-defined]
+            except Exception:
+                pass
+            try:
+                status_code = int(getattr(resp, "status_code", 0) or 0)
+                span.set_attribute("http.status_code", status_code)  # type: ignore[attr-defined]
+                span.set_attribute("status", "error" if status_code >= 500 else "ok")  # type: ignore[attr-defined]
+            except Exception:
+                pass
+            retry_count = _extract_retry_count(resp)
+            if retry_count is not None:
+                try:
+                    span.set_attribute("retry_count", int(retry_count))  # type: ignore[attr-defined]
+                except Exception:
+                    pass
+        return resp
+    except Exception as exc:
+        error = exc
+        if span is not None:
+            try:
+                span.set_attribute("status", "error")  # type: ignore[attr-defined]
+                span.set_attribute("error_signature", type(exc).__name__)  # type: ignore[attr-defined]
+            except Exception:
+                pass
+        raise
+    finally:
+        if error is None:
+            span_cm.__exit__(None, None, None)
+        else:
+            span_cm.__exit__(type(error), error, getattr(error, "__traceback__", None))
 
 
 def _merge_observability_headers(headers: Any) -> Mapping[str, str] | None:
