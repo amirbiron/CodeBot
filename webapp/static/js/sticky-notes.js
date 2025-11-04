@@ -66,6 +66,7 @@
       this._lineIndex = new Map(); // lineNumber -> pageY
       this._cacheKey = `sticky-notes:${String(fileId)}`;
       this._renderedFromCache = false;
+      this._pendingSeq = new Map(); // noteId -> monotonic version of pending edits
       this._init();
     }
 
@@ -567,6 +568,11 @@
       } catch(_) {}
       this._pending.set(id, pending);
       this._syncEntryFromFragment(id, pending);
+      // advance per-note pending version to avoid dropping newer edits after batch
+      try {
+        const nextSeq = (this._pendingSeq.get(id) || 0) + 1;
+        this._pendingSeq.set(id, nextSeq);
+      } catch(_) {}
       this._saveDebounced();
       this._ensureBackgroundAutoFlush();
     }
@@ -767,7 +773,13 @@
         }
       } catch(_) {}
       const entries = Array.from(this._pending.entries());
-      const batchPayload = entries.map(([id, fragment]) => Object.assign({ id }, this._clonePayload(fragment) || {}));
+      // capture snapshot with versions to avoid dropping newer edits queued during flight
+      const snapshots = entries.map(([id, fragment]) => ({
+        id: String(id),
+        seq: (this._pendingSeq.get(String(id)) || 0),
+        payload: this._clonePayload(fragment) || {}
+      }));
+      const batchPayload = snapshots.map(s => Object.assign({ id: s.id }, s.payload));
       const url = `/api/sticky-notes/batch`;
       let usedBatch = false;
       try {
@@ -781,23 +793,27 @@
           const json = await resp.json().catch(() => null);
           if (json && json.ok && Array.isArray(json.results)) {
             usedBatch = true;
-            // consume all pending
-            for (const [id] of entries) { this._pending.delete(id); }
             for (const result of json.results) {
               const id = String(result.id || '');
               if (!id) continue;
+              const snap = snapshots.find(s => s.id === id) || null;
+              const currentSeq = (this._pendingSeq.get(id) || 0);
               if (result.ok) {
                 if (result.updated_at) { this._setNoteUpdatedAt(id, String(result.updated_at)); }
-              } else if (result.status === 409) {
-                // conflict – keep pending for retry with provided timestamp (if any)
-                const prev = batchPayload.find(x => String(x.id) === id) || {};
-                const payload = Object.assign({}, prev);
-                if (result.updated_at) payload.prev_updated_at = String(result.updated_at);
-                this._mergePending(id, payload);
+                // clear pending only if no newer edits arrived during request
+                if (snap && currentSeq === snap.seq) {
+                  this._pending.delete(id);
+                }
+              } else if (Number(result.status) === 409) {
+                // conflict – set prev_updated_at for next retry without overriding newer local edits
+                const patch = {};
+                if (result.updated_at) patch.prev_updated_at = String(result.updated_at);
+                this._mergePending(id, patch);
               } else {
-                // failure – keep pending to retry later
-                const prev = batchPayload.find(x => String(x.id) === id) || {};
-                this._mergePending(id, Object.assign({}, prev));
+                // failure – keep pending (no-op). Ensure we still retain the last snapshot if nothing newer exists
+                if (snap && currentSeq === snap.seq) {
+                  this._mergePending(id, Object.assign({}, snap.payload));
+                }
               }
             }
           }
