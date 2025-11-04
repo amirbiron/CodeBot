@@ -19,12 +19,12 @@ try:
 except Exception:  # pragma: no cover
     _F = TypeVar("_F", bound=Callable[..., Any])
 
-    def traced(*_a: Any, **_k: Any) -> Callable[[_F], _F]:  # type: ignore[misc]
+    def traced(*_a: Any, **_k: Any) -> Callable[[_F], _F]:
         def _inner(func: _F) -> _F:
             return func
         return _inner
 
-    def set_current_span_attributes(*_a: Any, **_k: Any) -> None:  # type: ignore
+    def set_current_span_attributes(*_a: Any, **_k: Any) -> None:
         return None
 
 # Thin wrapper around existing code_processor to allow future swap/refactor
