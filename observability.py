@@ -12,7 +12,7 @@ from __future__ import annotations
 import logging
 import os
 import uuid
-from typing import Any, Dict, Mapping
+from typing import Any, Dict, Mapping, Optional
 import time
 from fnmatch import fnmatch
 import threading
@@ -23,6 +23,11 @@ import structlog
 from collections import deque
 from datetime import datetime, timezone
 
+try:  # Optional during lightweight environments
+    from monitoring.error_signatures import ErrorSignatures, SignatureMatch  # type: ignore
+except Exception:  # pragma: no cover
+    ErrorSignatures = None  # type: ignore
+    SignatureMatch = None  # type: ignore
 try:  # Optional OpenTelemetry
     from opentelemetry.trace import get_current_span  # type: ignore
 except Exception:  # pragma: no cover
@@ -41,6 +46,9 @@ if not hasattr(logging, "ANOMALY"):
 _SENTRY_INIT_DONE = False
 # Track the DSN used for initialization to allow re-init if DSN changes during tests/runtime
 _SENTRY_DSN_USED: str | None = None
+
+_ERROR_SIGNATURES_CACHE: Optional["ErrorSignatures"] = None
+_ERROR_SIGNATURES_LOCK = threading.Lock()
 
 
 def _add_otel_ids(logger, method, event_dict: Dict[str, Any]):
@@ -230,6 +238,85 @@ def prepare_outgoing_headers(headers: Mapping[str, Any] | None = None) -> Dict[s
     return prepared
 
 
+def _get_error_signatures() -> Optional["ErrorSignatures"]:
+    if ErrorSignatures is None:  # pragma: no cover - optional dependency
+        return None
+    global _ERROR_SIGNATURES_CACHE
+    cache = _ERROR_SIGNATURES_CACHE
+    if cache is not None:
+        return cache
+    with _ERROR_SIGNATURES_LOCK:
+        cache = _ERROR_SIGNATURES_CACHE
+        if cache is not None:
+            return cache
+        path = os.getenv("ERROR_SIGNATURES_PATH", "config/error_signatures.yml")
+        try:
+            cache = ErrorSignatures(path)  # type: ignore[call-arg]
+        except Exception:
+            cache = None
+        _ERROR_SIGNATURES_CACHE = cache
+        return cache
+
+
+def _classify_error_context(fields: Dict[str, Any], fallback: str = "") -> Optional["SignatureMatch"]:
+    signatures = _get_error_signatures()
+    if signatures is None:
+        return None
+
+    candidates: list[str] = []
+    seen: set[str] = set()
+
+    def _extend(value: Any) -> None:
+        if value is None:
+            return
+        if isinstance(value, (list, tuple, set)):
+            for item in value:
+                _extend(item)
+            return
+        try:
+            text = str(value)
+        except Exception:
+            return
+        text = text.strip()
+        if not text:
+            return
+        if text not in seen:
+            seen.add(text)
+            candidates.append(text)
+
+    if fallback:
+        _extend(fallback)
+
+    for key in ("error", "message", "detail", "description", "operation", "event", "status", "response_text"):
+        _extend(fields.get(key))
+
+    combined = " | ".join(candidates[:4]) if candidates else ""
+    probe_lines = [combined] if combined else []
+    probe_lines.extend(candidates)
+
+    for text in probe_lines:
+        if not text:
+            continue
+        try:
+            match = signatures.match(text)
+        except Exception:
+            continue
+        if match:
+            return match
+    return None
+
+
+def classify_error(fields: Mapping[str, Any] | None = None, fallback: str = "") -> Optional["SignatureMatch"]:
+    try:
+        payload = dict(fields or {})
+    except Exception:
+        payload = {}
+    try:
+        return _classify_error_context(payload, fallback)
+    except Exception:
+        return None
+
+
 # Lazy singleton for the log aggregator to avoid repeated construction
 _LOG_AGG_SINGLETON = None  # type: ignore[var-annotated]
 _LOG_AGG_SHADOW = False
@@ -406,18 +493,6 @@ def emit_event(event: str, severity: str = "info", **fields: Any) -> None:
     logger = structlog.get_logger()
     fields.setdefault("event", event)
 
-    # Keep a lightweight in-memory buffer of recent errors for ChatOps /errors fallback
-    try:
-        if severity in {"error", "critical"}:
-            _RECENT_ERRORS.append({
-                "ts": datetime.now(timezone.utc).isoformat(),
-                "event": str(event),
-                "error_code": str(fields.get("error_code") or ""),
-                "error": str(fields.get("error") or fields.get("message") or ""),
-                "operation": str(fields.get("operation") or ""),
-            })
-    except Exception:
-        pass
     if severity in {"error", "critical"}:
         ctx = get_observability_context()
         request_id = str(fields.get("request_id") or ctx.get("request_id") or "").strip()
@@ -428,6 +503,49 @@ def emit_event(event: str, severity: str = "info", **fields: Any) -> None:
         user_tag = _hash_identifier(fields.get("user_id")) or str(ctx.get("user_id") or "")
         chat_tag = _hash_identifier(fields.get("chat_id")) or str(ctx.get("chat_id") or "")
         message_text = str(fields.get("error") or fields.get("message") or event)
+
+        classification = _classify_error_context(fields, message_text)
+        if classification is not None:
+            category = str(getattr(classification, "category", "") or "").strip()
+            signature_id = str(getattr(classification, "signature_id", "") or "").strip()
+            summary = str(getattr(classification, "summary", "") or "").strip()
+            severity_hint = str(getattr(classification, "severity", "") or "").strip()
+            policy_hint = str(getattr(classification, "policy", "") or "").strip()
+            metadata = getattr(classification, "metadata", {}) or {}
+
+            if category and "error_category" not in fields:
+                fields["error_category"] = category
+            if signature_id and "error_signature" not in fields:
+                fields["error_signature"] = signature_id
+            if summary and "error_summary" not in fields:
+                fields["error_summary"] = summary
+            if policy_hint and "error_policy" not in fields:
+                fields["error_policy"] = policy_hint
+            if severity_hint and "error_severity_hint" not in fields:
+                fields["error_severity_hint"] = severity_hint
+            if metadata and "error_metadata" not in fields:
+                safe_meta = {str(k): str(v) for k, v in metadata.items() if v is not None}
+                if safe_meta:
+                    fields["error_metadata"] = safe_meta
+            if category:
+                _set_sentry_tag("error_category", category)
+            if signature_id:
+                _set_sentry_tag("error_signature", signature_id)
+
+        # Keep a lightweight in-memory buffer of recent errors for ChatOps /errors fallback
+        try:
+            _RECENT_ERRORS.append({
+                "ts": datetime.now(timezone.utc).isoformat(),
+                "event": str(event),
+                "error_code": str(fields.get("error_code") or ""),
+                "error": str(fields.get("error") or fields.get("message") or ""),
+                "operation": str(fields.get("operation") or ""),
+                "error_category": str(fields.get("error_category") or ""),
+                "error_signature": str(fields.get("error_signature") or ""),
+                "error_policy": str(fields.get("error_policy") or ""),
+            })
+        except Exception:
+            pass
 
         # best-effort: alert per single error (rate-limited via env)
         try:

@@ -1516,12 +1516,46 @@ class AdvancedBotHandlers:
             if not lines:
                 try:
                     from observability import get_recent_errors  # type: ignore
+
                     recent = get_recent_errors(limit=10) or []
                     if recent:
-                        for i, er in enumerate(recent, 1):
-                            code = er.get("error_code") or "-"
-                            msg = er.get("error") or er.get("event") or ""
-                            lines.append(f"{i}. [{code}] {msg}")
+                        grouped: dict[str, dict[str, Any]] = {}
+                        for er in recent:
+                            signature = str(er.get("error_signature") or er.get("event") or "unknown")
+                            bucket = grouped.setdefault(signature, {
+                                "count": 0,
+                                "sample": "",
+                                "category": str(er.get("error_category") or ""),
+                                "policy": str(er.get("error_policy") or ""),
+                                "code": str(er.get("error_code") or "-"),
+                            })
+                            bucket["count"] += 1
+                            if not bucket["sample"]:
+                                bucket["sample"] = str(er.get("error") or er.get("event") or "")
+                            if not bucket["category"]:
+                                bucket["category"] = str(er.get("error_category") or "")
+                            if not bucket["policy"]:
+                                bucket["policy"] = str(er.get("error_policy") or "")
+                            if bucket.get("code") in {"", "-"} and er.get("error_code"):
+                                bucket["code"] = str(er.get("error_code") or "-")
+
+                        sorted_groups = sorted(grouped.items(), key=lambda item: item[1]["count"], reverse=True)
+                        for i, (sig, info) in enumerate(sorted_groups[:10], 1):
+                            category = info.get("category") or "-"
+                            label_parts = [category]
+                            if sig and sig != "unknown":
+                                label_parts.append(sig)
+                            label = "|".join(label_parts)
+                            count = int(info.get("count", 0) or 0)
+                            sample = str(info.get("sample") or "-")
+                            code = str(info.get("code") or "-")
+                            line = f"{i}. [{label}] {count}× {sample}"
+                            policy = str(info.get("policy") or "").strip()
+                            if policy and policy not in {"escalate", "default"}:
+                                line += f" — policy={policy}"
+                            if code and code != "-":
+                                line += f" (code={code})"
+                            lines.append(line)
                     else:
                         used_fallback = True
                 except Exception:
