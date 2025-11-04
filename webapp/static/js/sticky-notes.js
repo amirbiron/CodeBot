@@ -379,6 +379,7 @@
       entry.data.anchor_id = PIN_SENTINEL;
       entry.data.anchor_text = '';
       this._applyPositionMode(el, entry.data, { reflow: false });
+      this._updatePinButtonState(el, true);
       const requestPayload = Object.assign({}, payload, { anchor_id: PIN_SENTINEL, anchor_text: null });
       this._queueSave(el, requestPayload);
       this._flushFor(el);
@@ -394,6 +395,7 @@
       entry.data.anchor_text = '';
       if (el.dataset && el.dataset.pinned) { delete el.dataset.pinned; }
       this._applyPositionMode(el, entry.data, { reflow: true });
+      this._updatePinButtonState(el, false);
       this._queueSave(el, Object.assign({}, payload, { anchor_id: null, anchor_text: null }));
       this._flushFor(el);
     }
