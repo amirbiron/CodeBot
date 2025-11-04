@@ -66,6 +66,8 @@ async def _async_sleep_with_backoff(attempt: int, policy: RetryPolicy) -> None:
         return
     try:
         await asyncio.sleep(delay)
+    except asyncio.CancelledError:
+        raise
     except Exception:
         return
 
