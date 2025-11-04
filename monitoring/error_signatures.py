@@ -4,12 +4,122 @@ import json
 import re
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Pattern
+from typing import Any, Dict, List, Optional, Pattern, Tuple
 
 try:  # Optional dependency; YAML is preferred but JSON (subset) is supported
     import yaml  # type: ignore
 except Exception:  # pragma: no cover
     yaml = None  # type: ignore
+
+
+def _parse_scalar(token: str) -> Any:
+    if token == "":
+        return ""
+    lowered = token.lower()
+    if lowered in {"true", "false"}:
+        return lowered == "true"
+    if lowered in {"null", "none"}:
+        return None
+    if token.startswith(("'", '"')) and token.endswith(("'", '"')) and len(token) >= 2:
+        body = token[1:-1]
+        if token[0] == '"':
+            try:
+                return bytes(body, "utf-8").decode("unicode_escape")
+            except Exception:
+                return body
+        return body
+    try:
+        if token.startswith("0") and len(token) > 1:
+            raise ValueError
+        return int(token)
+    except Exception:
+        pass
+    try:
+        return float(token)
+    except Exception:
+        pass
+    return token
+
+
+def _predict_container(entries: List[Tuple[int, str]], start_index: int, parent_indent: int) -> str:
+    for next_indent, next_token in entries[start_index:]:
+        if next_indent <= parent_indent:
+            break
+        if next_token.startswith("- "):
+            return "list"
+        return "dict"
+    return "dict"
+
+
+def _minimal_yaml_load(text: str) -> Dict[str, Any]:
+    entries: List[Tuple[int, str]] = []
+    for raw in text.splitlines():
+        if not raw:
+            continue
+        if raw.lstrip().startswith("#"):
+            continue
+        indent = len(raw) - len(raw.lstrip(" "))
+        token = raw.strip()
+        if not token:
+            continue
+        entries.append((indent, token))
+
+    root: Dict[str, Any] = {}
+    stack: List[Tuple[int, Any]] = [(-1, root)]
+
+    for idx, (indent, token) in enumerate(entries):
+        while len(stack) > 1 and indent <= stack[-1][0]:
+            stack.pop()
+        parent = stack[-1][1]
+
+        if token.startswith("- "):
+            if not isinstance(parent, list):
+                raise ValueError("list item without list parent")
+            value_part = token[2:].strip()
+            if not value_part:
+                new_item: Dict[str, Any] = {}
+                parent.append(new_item)
+                stack.append((indent, new_item))
+                continue
+            if ":" in value_part:
+                key, val_part = value_part.split(":", 1)
+                key = key.strip()
+                val_part = val_part.strip()
+                new_item = {key: _parse_scalar(val_part) if val_part else {}}
+                parent.append(new_item)
+                stack.append((indent, new_item))
+                if val_part == "":
+                    container_type = _predict_container(entries, idx + 1, indent)
+                    next_container: Any = [] if container_type == "list" else {}
+                    new_item[key] = next_container
+                    stack.append((indent, next_container))
+                else:
+                    if isinstance(new_item[key], (dict, list)):
+                        stack.append((indent, new_item[key]))
+                continue
+            parent.append(_parse_scalar(value_part))
+            continue
+
+        if ":" not in token:
+            raise ValueError("unsupported YAML token")
+        key, value_part = token.split(":", 1)
+        key = key.strip()
+        value_part = value_part.strip()
+        if not isinstance(parent, dict):
+            raise ValueError("mapping without dict parent")
+
+        if value_part == "":
+            container_type = _predict_container(entries, idx + 1, indent)
+            new_container2: Any = [] if container_type == "list" else {}
+            parent[key] = new_container2
+            stack.append((indent, new_container2))
+        else:
+            value = _parse_scalar(value_part)
+            parent[key] = value
+            if isinstance(value, (dict, list)):
+                stack.append((indent, value))
+
+    return root
 
 
 @dataclass(frozen=True)
@@ -185,14 +295,21 @@ class ErrorSignatures:
     def _parse_config(text: str) -> Dict[str, Any]:
         if not text:
             return {}
-        try:
-            if yaml is not None:  # type: ignore[truthy-bool]
-                loaded = yaml.safe_load(text) or {}
-            else:
-                loaded = json.loads(text or "{}")
-        except Exception:
-            return {}
-        return loaded if isinstance(loaded, dict) else {}
+        loaders: List[Any] = []
+        if yaml is not None:  # type: ignore[truthy-bool]
+            loaders.append(lambda: yaml.safe_load(text) or {})
+        if yaml is None:
+            loaders.append(lambda: _minimal_yaml_load(text))
+        loaders.append(lambda: json.loads(text or "{}"))
+
+        for loader in loaders:
+            try:
+                loaded = loader()
+            except Exception:
+                continue
+            if isinstance(loaded, dict):
+                return loaded
+        return {}
 
     @staticmethod
     def _normalize_category(name: Any) -> str:

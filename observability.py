@@ -493,21 +493,6 @@ def emit_event(event: str, severity: str = "info", **fields: Any) -> None:
     logger = structlog.get_logger()
     fields.setdefault("event", event)
 
-    # Keep a lightweight in-memory buffer of recent errors for ChatOps /errors fallback
-    try:
-        if severity in {"error", "critical"}:
-            _RECENT_ERRORS.append({
-                "ts": datetime.now(timezone.utc).isoformat(),
-                "event": str(event),
-                "error_code": str(fields.get("error_code") or ""),
-                "error": str(fields.get("error") or fields.get("message") or ""),
-                "operation": str(fields.get("operation") or ""),
-                "error_category": str(fields.get("error_category") or ""),
-                "error_signature": str(fields.get("error_signature") or ""),
-                "error_policy": str(fields.get("error_policy") or ""),
-            })
-    except Exception:
-        pass
     if severity in {"error", "critical"}:
         ctx = get_observability_context()
         request_id = str(fields.get("request_id") or ctx.get("request_id") or "").strip()
@@ -546,6 +531,21 @@ def emit_event(event: str, severity: str = "info", **fields: Any) -> None:
                 _set_sentry_tag("error_category", category)
             if signature_id:
                 _set_sentry_tag("error_signature", signature_id)
+
+        # Keep a lightweight in-memory buffer of recent errors for ChatOps /errors fallback
+        try:
+            _RECENT_ERRORS.append({
+                "ts": datetime.now(timezone.utc).isoformat(),
+                "event": str(event),
+                "error_code": str(fields.get("error_code") or ""),
+                "error": str(fields.get("error") or fields.get("message") or ""),
+                "operation": str(fields.get("operation") or ""),
+                "error_category": str(fields.get("error_category") or ""),
+                "error_signature": str(fields.get("error_signature") or ""),
+                "error_policy": str(fields.get("error_policy") or ""),
+            })
+        except Exception:
+            pass
 
         # best-effort: alert per single error (rate-limited via env)
         try:

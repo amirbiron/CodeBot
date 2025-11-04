@@ -89,13 +89,15 @@ def test_recent_errors_buffer_and_getter(monkeypatch):
     except Exception:
         pytest.skip("recent errors buffer not available")
     # emit two errors
-    obs.emit_event("evt1", severity="error", error_code="E1", error="boom1")
-    obs.emit_event("evt2", severity="critical", error_code="E2", error="boom2")
+    obs.emit_event("evt1", severity="error", error_code="E1", error="Out of memory while processing")
+    obs.emit_event("evt2", severity="critical", error_code="E2", error="socket hang up to DB")
     recent = obs.get_recent_errors(limit=2)
     assert isinstance(recent, list) and len(recent) >= 2
-    codes = {r.get("error_code") for r in recent[-2:]}
+    tail = recent[-2:]
+    codes = {r.get("error_code") for r in tail}
     assert {"E1", "E2"}.issubset(codes)
-    assert all("error_category" in r for r in recent[-2:])
+    assert all(r.get("error_category") for r in tail)
+    assert all(r.get("error_signature") for r in tail)
 
 
 def test_bind_user_context_hashes_identifiers(monkeypatch):

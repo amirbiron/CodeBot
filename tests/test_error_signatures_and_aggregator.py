@@ -151,3 +151,29 @@ categories:
     assert calls[0]["severity"] == "critical"
     assert calls[0]["category"] == "config"
     assert calls[0]["signature"] == "oom_killed"
+
+
+def test_error_signatures_without_pyyaml(monkeypatch, tmp_path):
+    cfg = tmp_path / "es.yml"
+    cfg.write_text(
+        """
+noise_allowlist: []
+
+categories:
+  config:
+    default_severity: critical
+    default_policy: escalate
+    signatures:
+      - id: oom
+        summary: Memory exhausted
+        pattern: 'OOMKilled'
+""",
+        encoding="utf-8",
+    )
+
+    import monitoring.error_signatures as es_mod
+
+    monkeypatch.setattr(es_mod, "yaml", None, raising=False)
+    es = es_mod.ErrorSignatures(str(cfg))
+    match = es.match("OOMKilled by kernel")
+    assert match is not None and match.category == "config"
