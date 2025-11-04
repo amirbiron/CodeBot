@@ -230,6 +230,7 @@ def create_collection():
             try:
                 uid = str(user_id)
                 cache.delete_pattern(f"collections_list:{uid}:*")
+                cache.delete_pattern(f"collections_list:v2:{uid}:*")
                 if result.get('collection') and result['collection'].get('id'):
                     cid = result['collection']['id']
                     cache.delete_pattern(f"collections_detail:{uid}:-api-collections-{cid}*")
@@ -250,7 +251,7 @@ def create_collection():
 @collections_bp.route('', methods=['GET'])
 @require_auth
 @traced("collections.list")
-@dynamic_cache(content_type='collections_list', key_prefix='collections_list')
+@dynamic_cache(content_type='collections_list', key_prefix='collections_list:v2')
 def list_collections():
     try:
         user_id = int(session['user_id'])
@@ -260,7 +261,31 @@ def list_collections():
         except Exception:
             return jsonify({'ok': False, 'error': 'Invalid limit/skip'}), 400
         mgr = get_manager()
+        created_workspace = False
+        try:
+            created_workspace = mgr.ensure_default_collections(user_id)
+        except Exception:
+            created_workspace = False
         result = mgr.list_collections(user_id, limit=limit, skip=skip)
+        # אם עדיין חסר אוסף "שולחן עבודה" – נסה ליצור ולשלוף מחדש (למשתמשים קיימים)
+        try:
+            collections = result.get('collections') if isinstance(result, dict) else None
+        except Exception:
+            collections = None
+        has_workspace = False
+        if isinstance(collections, list):
+            try:
+                has_workspace = any((c or {}).get('name') == 'שולחן עבודה' for c in collections)
+            except Exception:
+                has_workspace = False
+        if not has_workspace:
+            try:
+                if mgr.ensure_default_collections(user_id):
+                    created_workspace = True
+                    result = mgr.list_collections(user_id, limit=limit, skip=skip)
+                    collections = result.get('collections') if isinstance(result, dict) else None
+            except Exception:
+                pass
         if result.get('ok'):
             collections = result.get('collections') or []
             for col in collections:
@@ -337,6 +362,7 @@ def update_collection(collection_id: str):
             try:
                 uid = str(user_id)
                 cache.delete_pattern(f"collections_list:{uid}:*")
+                cache.delete_pattern(f"collections_list:v2:{uid}:*")
                 cache.delete_pattern(f"collections_detail:{uid}:-api-collections-{collection_id}*")
             except Exception:
                 pass
@@ -363,6 +389,7 @@ def delete_collection(collection_id: str):
             try:
                 uid = str(user_id)
                 cache.delete_pattern(f"collections_list:{uid}:*")
+                cache.delete_pattern(f"collections_list:v2:{uid}:*")
                 cache.delete_pattern(f"collections_detail:{uid}:-api-collections-{collection_id}*")
                 cache.delete_pattern(f"collections_items:{uid}:-api-collections-{collection_id}-items*")
             except Exception:
