@@ -12,7 +12,14 @@ collections_ui = Blueprint('collections_ui', __name__)
 def collections_page():
     if 'user_id' not in session:
         return redirect('/login')
-    return render_template('collections.html')
+    return render_template('collections.html', default_collection_id=None)
+
+
+@collections_ui.route('/collections/<collection_id>')
+def collections_page_with_default(collection_id: str):
+    if 'user_id' not in session:
+        return redirect('/login')
+    return render_template('collections.html', default_collection_id=collection_id)
 
 
 @collections_ui.route('/collections/shared/<token>')

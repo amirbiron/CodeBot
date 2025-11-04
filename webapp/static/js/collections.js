@@ -48,6 +48,62 @@
   ];
 
   const resolvedFileIdCache = new Map();
+  let currentCollectionId = '';
+  let initialCollectionIdConsumed = false;
+
+  function readInitialCollectionId() {
+    let value = '';
+    try {
+      const container = document.getElementById('collectionsContent');
+      if (container && container.hasAttribute('data-default-collection-id')) {
+        value = container.getAttribute('data-default-collection-id') || '';
+      }
+    } catch (_err) {}
+    if (!value) {
+      try {
+        const params = new URLSearchParams(window.location.search || '');
+        value = params.get('collection') || '';
+      } catch (_err) {}
+    }
+    if (!value) {
+      try {
+        const match = String(window.location.pathname || '').match(/^\/collections\/([^\/?#]+)/);
+        if (match && match[1]) {
+          value = decodeURIComponent(match[1]);
+        }
+      } catch (_err) {}
+    }
+    return value ? String(value).trim() : '';
+  }
+
+  function consumeInitialCollectionId() {
+    if (initialCollectionIdConsumed) {
+      return '';
+    }
+    initialCollectionIdConsumed = true;
+    const val = readInitialCollectionId();
+    if (val) {
+      try {
+        const container = document.getElementById('collectionsContent');
+        if (container) {
+          container.removeAttribute('data-default-collection-id');
+        }
+      } catch (_err) {}
+    }
+    return val;
+  }
+
+  function markSidebarSelection(cid){
+    try {
+      const list = document.querySelector('#collectionsSidebar #collectionsList');
+      if (!list) return;
+      const desired = String(cid || '').trim();
+      list.querySelectorAll('.sidebar-item').forEach(btn => {
+        const id = String(btn.getAttribute('data-id') || '').trim();
+        btn.classList.toggle('active', desired && id === desired);
+      });
+    } catch (_err) {}
+  }
 
   async function ensureCollectionsSidebar(){
     const root = document.getElementById('collectionsSidebar');
@@ -79,6 +135,14 @@
         <div class="sidebar-list" id="collectionsList">${items || '<div class="empty">אין אוספים</div>'}</div>
       `;
       wireSidebarHandlers(root);
+      if (currentCollectionId) {
+        markSidebarSelection(currentCollectionId);
+      } else {
+        const pending = readInitialCollectionId();
+        if (pending) {
+          markSidebarSelection(pending);
+        }
+      }
       // התאמת טקסט דינמית לשמות אוספים ארוכים בסיידבר
       autoFitText('#collectionsSidebar .sidebar-item .name', { minPx: 12, maxPx: 16 });
     } catch (e) {
@@ -360,193 +424,201 @@
   async function renderCollectionItems(cid){
     const container = document.getElementById('collectionsContent');
     if (!container) return;
+    const collectionId = String(cid || '').trim();
+    if (!collectionId) {
+      container.innerHTML = '<div class="error">האוסף לא נמצא</div>';
+      markSidebarSelection('');
+      return;
+    }
+    markSidebarSelection(collectionId);
     container.innerHTML = '<div class="loading">טוען…</div>';
     try {
       const [colRes, data] = await Promise.all([
-        api.getCollection(cid),
-        api.getItems(cid, 1, 200),
+        api.getCollection(collectionId),
+        api.getItems(collectionId, 1, 200),
       ]);
       if (!data || !data.ok) throw new Error((data && data.error) || 'שגיאה');
       if (!colRes || !colRes.ok) throw new Error((colRes && colRes.error) || 'שגיאה');
       const col = colRes.collection || {};
 
-        const itemsHtml = (data.items||[]).map(it => `
-          <div class="collection-item" data-source="${escapeHtml(it.source||'regular')}" data-name="${escapeHtml(it.file_name||'')}" data-file-id="${escapeHtml(it.file_id || '')}">
-            <span class="drag" draggable="true">⋮⋮</span>
-            <a class="file" href="#" draggable="false" data-open="${escapeHtml(it.file_name||'')}">${escapeHtml(it.file_name||'')}</a>
-            <button class="pin ${it.pinned ? 'pinned' : ''}" title="${it.pinned ? 'בטל הצמדה' : 'הצמד'}">📌</button>
-            <button class="preview" title="תצוגה מקדימה" aria-label="תצוגה מקדימה">🧾</button>
-            <button class="remove" title="הסר">✕</button>
+      const itemsHtml = (data.items || []).map(it => `
+        <div class="collection-item" data-source="${escapeHtml(it.source || 'regular')}" data-name="${escapeHtml(it.file_name || '')}" data-file-id="${escapeHtml(it.file_id || '')}">
+          <span class="drag" draggable="true">⋮⋮</span>
+          <a class="file" href="#" draggable="false" data-open="${escapeHtml(it.file_name || '')}">${escapeHtml(it.file_name || '')}</a>
+          <button class="pin ${it.pinned ? 'pinned' : ''}" title="${it.pinned ? 'בטל הצמדה' : 'הצמד'}">📌</button>
+          <button class="preview" title="תצוגה מקדימה" aria-label="תצוגה מקדימה">🧾</button>
+          <button class="remove" title="הסר">✕</button>
+        </div>
+      `).join('');
+      const iconChar = (col.icon && ALLOWED_ICONS.includes(col.icon)) ? col.icon : (ALLOWED_ICONS[0] || '📂');
+      const share = col.share || {};
+      const shareEnabled = !!share.enabled;
+      const shareUrl = resolvePublicUrl(col);
+      container.innerHTML = `
+        <div class="collection-header">
+          <div class="title">
+            <button class="collection-icon-btn" type="button" aria-label="בחר אייקון" title="בחר אייקון">${escapeHtml(iconChar)}</button>
+            <div class="name" title="${escapeHtml(col.name || 'ללא שם')}">${escapeHtml(col.name || 'ללא שם')}</div>
           </div>
-        `).join('');
-          const iconChar = (col.icon && ALLOWED_ICONS.includes(col.icon)) ? col.icon : (ALLOWED_ICONS[0] || '📂');
-          const share = col.share || {};
-          const shareEnabled = !!share.enabled;
-          const shareUrl = resolvePublicUrl(col);
-          container.innerHTML = `
-            <div class="collection-header">
-              <div class="title">
-                <button class="collection-icon-btn" type="button" aria-label="בחר אייקון" title="בחר אייקון">${escapeHtml(iconChar)}</button>
-                <div class="name" title="${escapeHtml(col.name || 'ללא שם')}">${escapeHtml(col.name || 'ללא שם')}</div>
-              </div>
-              <div class="share-controls" data-enabled="${shareEnabled ? '1' : '0'}">
-                <label class="share-toggle">
-                  <input type="checkbox" class="share-enabled" ${shareEnabled ? 'checked' : ''}>
-                  <span class="share-toggle__text">שיתוף</span>
-                </label>
-                <span class="share-divider" aria-hidden="true">|</span>
-                <button class="btn btn-secondary btn-sm share-copy" ${shareEnabled && shareUrl ? '' : 'disabled'} data-url="${shareUrl ? escapeHtml(shareUrl) : ''}" title="העתק קישור לשיתוף" aria-label="העתק קישור לשיתוף">
-                  <span class="share-copy__text">העתק</span>
-                </button>
-              </div>
-              <div class="actions">
-                <button class="btn btn-secondary rename">שנה שם</button>
-                <button class="btn btn-danger delete">מחק</button>
-              </div>
-            </div>
-            <div class="collection-items" id="collectionItems">${itemsHtml || '<div class="empty">אין פריטים</div>'}</div>
-          `;
+          <div class="share-controls" data-enabled="${shareEnabled ? '1' : '0'}">
+            <label class="share-toggle">
+              <input type="checkbox" class="share-enabled" ${shareEnabled ? 'checked' : ''}>
+              <span class="share-toggle__text">שיתוף</span>
+            </label>
+            <span class="share-divider" aria-hidden="true">|</span>
+            <button class="btn btn-secondary btn-sm share-copy" ${shareEnabled && shareUrl ? '' : 'disabled'} data-url="${shareUrl ? escapeHtml(shareUrl) : ''}" title="העתק קישור לשיתוף" aria-label="העתק קישור לשיתוף">
+              <span class="share-copy__text">העתק</span>
+            </button>
+          </div>
+          <div class="actions">
+            <button class="btn btn-secondary rename">שנה שם</button>
+            <button class="btn btn-danger delete">מחק</button>
+          </div>
+        </div>
+        <div class="collection-items" id="collectionItems">${itemsHtml || '<div class="empty">אין פריטים</div>'}</div>
+      `;
 
-        const iconBtn = container.querySelector('.collection-icon-btn');
-        if (iconBtn) {
-          iconBtn.addEventListener('click', async () => {
-            try {
-              const nextIcon = await openIconPicker(iconChar);
-              if (!nextIcon || nextIcon === iconChar) {
-                return;
-              }
-              const res = await api.updateCollection(cid, { icon: nextIcon });
-              if (!res || !res.ok) {
-                alert((res && res.error) || 'שגיאה בעדכון האייקון');
-                return;
-              }
-              ensureCollectionsSidebar();
-              await renderCollectionItems(cid);
-            } catch (_err) {
-              alert('שגיאה בעדכון האייקון');
-            }
-          });
-        }
-          const shareControls = container.querySelector('.share-controls');
-          const shareToggleEl = shareControls ? shareControls.querySelector('.share-enabled') : null;
-          const shareCopyBtn = shareControls ? shareControls.querySelector('.share-copy') : null;
-          const shareCopyLabel = shareCopyBtn ? shareCopyBtn.querySelector('.share-copy__text') : null;
-          if (shareCopyBtn && !shareCopyBtn.dataset.label) {
-            const labelText = shareCopyLabel ? shareCopyLabel.textContent : shareCopyBtn.textContent;
-            shareCopyBtn.dataset.label = labelText && labelText.trim() ? labelText.trim() : 'העתק';
-          }
-        setShareControlsBusy(shareToggleEl, shareCopyBtn, false);
-
-        if (shareCopyBtn) {
-          shareCopyBtn.addEventListener('click', async () => {
-            const url = shareCopyBtn.getAttribute('data-url') || '';
-            if (!url) {
-              alert('אין קישור שיתוף פעיל');
+      const iconBtn = container.querySelector('.collection-icon-btn');
+      if (iconBtn) {
+        iconBtn.addEventListener('click', async () => {
+          try {
+            const nextIcon = await openIconPicker(iconChar);
+            if (!nextIcon || nextIcon === iconChar) {
               return;
             }
-            const original = shareCopyBtn.dataset.label || (shareCopyLabel ? shareCopyLabel.textContent : '') || 'העתק';
-            try {
-              if (navigator.clipboard && navigator.clipboard.writeText) {
-                await navigator.clipboard.writeText(url);
-              } else {
-                throw new Error('clipboard_unavailable');
-              }
-              if (shareCopyLabel) {
-                shareCopyLabel.textContent = 'הועתק!';
-              } else {
-                shareCopyBtn.textContent = 'הועתק!';
-              }
-              setTimeout(() => {
-                if (shareCopyLabel) {
-                  shareCopyLabel.textContent = original;
-                } else {
-                  shareCopyBtn.textContent = original;
-                }
-              }, 1600);
-            } catch (_err) {
-              try {
-                const manual = prompt('העתק את הקישור הבא:', url);
-                if (manual !== null) {
-                  if (shareCopyLabel) {
-                    shareCopyLabel.textContent = 'הועתק!';
-                  } else {
-                    shareCopyBtn.textContent = 'הועתק!';
-                  }
-                  setTimeout(() => {
-                    if (shareCopyLabel) {
-                      shareCopyLabel.textContent = original;
-                    } else {
-                      shareCopyBtn.textContent = original;
-                    }
-                  }, 1600);
-                }
-              } catch (_) {
-                alert('לא ניתן להעתיק את הקישור אוטומטית');
-              }
-            }
-          });
-        }
-
-        if (shareToggleEl) {
-          shareToggleEl.addEventListener('change', async () => {
-            const enabled = shareToggleEl.checked;
-            let errorMessage = '';
-            setShareControlsBusy(shareToggleEl, shareCopyBtn, true);
-            try {
-              const res = await api.updateShare(cid, { enabled });
-              if (!res || !res.ok) {
-                errorMessage = (res && res.error) || '';
-                throw new Error(errorMessage || 'share_update_failed');
-              }
-            } catch (_err) {
-              shareToggleEl.checked = !enabled;
-              alert(errorMessage || 'שגיאה בעדכון שיתוף');
-            } finally {
-              setShareControlsBusy(shareToggleEl, shareCopyBtn, false);
+            const res = await api.updateCollection(collectionId, { icon: nextIcon });
+            if (!res || !res.ok) {
+              alert((res && res.error) || 'שגיאה בעדכון האייקון');
+              return;
             }
             ensureCollectionsSidebar();
-            await renderCollectionItems(cid);
-          });
-        }
-
-        const itemsContainer = container.querySelector('#collectionItems');
-        wireDnd(itemsContainer, cid);
-
-        // התאמת טקסט דינמית לשמות קבצים ארוכים
-        autoFitText('#collectionItems .file', { minPx: 12, maxPx: 16 });
-
-        // Header actions
-        const renameBtn = container.querySelector('.collection-header .rename');
-        const deleteBtn = container.querySelector('.collection-header .delete');
-        if (renameBtn) renameBtn.addEventListener('click', async () => {
-          const current = String(col.name || '');
-          const name = prompt('שם חדש לאוסף:', current);
-          if (!name) return;
-          const res = await api.updateCollection(cid, { name: name.slice(0, 80) });
-          if (!res || !res.ok) return alert((res && res.error) || 'שגיאה בעדכון שם');
-          ensureCollectionsSidebar();
-          await renderCollectionItems(cid);
+            await renderCollectionItems(collectionId);
+          } catch (_err) {
+            alert('שגיאה בעדכון האייקון');
+          }
         });
-        if (deleteBtn) deleteBtn.addEventListener('click', async () => {
-          if (!confirm('למחוק את האוסף? הפעולה תסיר את האוסף ואת הקישורים שבו, אבל הקבצים עצמם יישארו זמינים בבוט ובקבצים.')) return;
-          const res = await api.deleteCollection(cid);
-          if (!res || !res.ok) return alert((res && res.error) || 'שגיאה במחיקה');
-          ensureCollectionsSidebar();
-          container.innerHTML = '<div class="empty">האוסף נמחק. הקבצים נשארים זמינים בבוט ובמסך הקבצים.</div>';
+      }
+
+      const shareControls = container.querySelector('.share-controls');
+      const shareToggleEl = shareControls ? shareControls.querySelector('.share-enabled') : null;
+      const shareCopyBtn = shareControls ? shareControls.querySelector('.share-copy') : null;
+      const shareCopyLabel = shareCopyBtn ? shareCopyBtn.querySelector('.share-copy__text') : null;
+      if (shareCopyBtn && !shareCopyBtn.dataset.label) {
+        const labelText = shareCopyLabel ? shareCopyLabel.textContent : shareCopyBtn.textContent;
+        shareCopyBtn.dataset.label = labelText && labelText.trim() ? labelText.trim() : 'העתק';
+      }
+      setShareControlsBusy(shareToggleEl, shareCopyBtn, false);
+
+      if (shareCopyBtn) {
+        shareCopyBtn.addEventListener('click', async () => {
+          const url = shareCopyBtn.getAttribute('data-url') || '';
+          if (!url) {
+            alert('אין קישור שיתוף פעיל');
+            return;
+          }
+          const original = shareCopyBtn.dataset.label || (shareCopyLabel ? shareCopyLabel.textContent : '') || 'העתק';
+          try {
+            if (navigator.clipboard && navigator.clipboard.writeText) {
+              await navigator.clipboard.writeText(url);
+            } else {
+              throw new Error('clipboard_unavailable');
+            }
+            if (shareCopyLabel) {
+              shareCopyLabel.textContent = 'הועתק!';
+            } else {
+              shareCopyBtn.textContent = 'הועתק!';
+            }
+            setTimeout(() => {
+              if (shareCopyLabel) {
+                shareCopyLabel.textContent = original;
+              } else {
+                shareCopyBtn.textContent = original;
+              }
+            }, 1600);
+          } catch (_err) {
+            try {
+              const manual = prompt('העתק את הקישור הבא:', url);
+              if (manual !== null) {
+                if (shareCopyLabel) {
+                  shareCopyLabel.textContent = 'הועתק!';
+                } else {
+                  shareCopyBtn.textContent = 'הועתק!';
+                }
+                setTimeout(() => {
+                  if (shareCopyLabel) {
+                    shareCopyLabel.textContent = original;
+                  } else {
+                    shareCopyBtn.textContent = original;
+                  }
+                }, 1600);
+              }
+            } catch (_) {
+              alert('לא ניתן להעתיק את הקישור אוטומטית');
+            }
+          }
         });
+      }
+
+      if (shareToggleEl) {
+        shareToggleEl.addEventListener('change', async () => {
+          const enabled = shareToggleEl.checked;
+          let errorMessage = '';
+          setShareControlsBusy(shareToggleEl, shareCopyBtn, true);
+          try {
+            const res = await api.updateShare(collectionId, { enabled });
+            if (!res || !res.ok) {
+              errorMessage = (res && res.error) || '';
+              throw new Error(errorMessage || 'share_update_failed');
+            }
+          } catch (_err) {
+            shareToggleEl.checked = !enabled;
+            alert(errorMessage || 'שגיאה בעדכון שיתוף');
+          } finally {
+            setShareControlsBusy(shareToggleEl, shareCopyBtn, false);
+          }
+          ensureCollectionsSidebar();
+          await renderCollectionItems(collectionId);
+        });
+      }
+
+      const itemsContainer = container.querySelector('#collectionItems');
+      wireDnd(itemsContainer, collectionId);
+
+      // התאמת טקסט דינמית לשמות קבצים ארוכים
+      autoFitText('#collectionItems .file', { minPx: 12, maxPx: 16 });
+
+      // Header actions
+      const renameBtn = container.querySelector('.collection-header .rename');
+      const deleteBtn = container.querySelector('.collection-header .delete');
+      if (renameBtn) renameBtn.addEventListener('click', async () => {
+        const current = String(col.name || '');
+        const name = prompt('שם חדש לאוסף:', current);
+        if (!name) return;
+        const res = await api.updateCollection(collectionId, { name: name.slice(0, 80) });
+        if (!res || !res.ok) return alert((res && res.error) || 'שגיאה בעדכון שם');
+        ensureCollectionsSidebar();
+        await renderCollectionItems(collectionId);
+      });
+      if (deleteBtn) deleteBtn.addEventListener('click', async () => {
+        if (!confirm('למחוק את האוסף? הפעולה תסיר את האוסף ואת הקישורים שבו, אבל הקבצים עצמם יישארו זמינים בבוט ובקבצים.')) return;
+        const res = await api.deleteCollection(collectionId);
+        if (!res || !res.ok) return alert((res && res.error) || 'שגיאה במחיקה');
+        ensureCollectionsSidebar();
+        container.innerHTML = '<div class="empty">האוסף נמחק. הקבצים נשארים זמינים בבוט ובמסך הקבצים.</div>';
+      });
 
       // Items actions (remove, open, pin)
       itemsContainer.addEventListener('click', async (ev) => {
         const row = ev.target.closest('.collection-item');
         if (!row) return;
-        const source = row.getAttribute('data-source')||'regular';
-        const name = row.getAttribute('data-name')||'';
+        const source = row.getAttribute('data-source') || 'regular';
+        const name = row.getAttribute('data-name') || '';
 
         // Remove item
         const rm = ev.target.closest('.remove');
         if (rm) {
           if (!confirm('להסיר את הפריט מהאוסף? הקובץ עצמו יישאר זמין בבוט ובמסך הקבצים.')) return;
-          const res = await api.removeItems(cid, [{source, file_name: name}]);
+          const res = await api.removeItems(collectionId, [{ source, file_name: name }]);
           if (!res || !res.ok) return alert((res && res.error) || 'שגיאה במחיקה');
           row.remove();
           if (!itemsContainer.querySelector('.collection-item')) {
@@ -559,9 +631,9 @@
         const pinBtn = ev.target.closest('.pin');
         if (pinBtn) {
           const nextPinned = !pinBtn.classList.contains('pinned');
-          const res = await api.addItems(cid, [{source, file_name: name, pinned: nextPinned}]);
+          const res = await api.addItems(collectionId, [{ source, file_name: name, pinned: nextPinned }]);
           if (!res || !res.ok) return alert((res && res.error) || 'שגיאה בעדכון הצמדה');
-          await renderCollectionItems(cid);
+          await renderCollectionItems(collectionId);
           return;
         }
 
@@ -588,6 +660,8 @@
           await openFileByName(fname);
         }
       });
+
+      currentCollectionId = collectionId;
     } catch (e) {
       container.innerHTML = '<div class="error">שגיאה בטעינת פריטים</div>';
     }
@@ -946,9 +1020,26 @@
     },
     refreshSidebar: ensureCollectionsSidebar,
   };
+  async function initCollectionsPage(){
+    try {
+      await ensureCollectionsSidebar();
+    } catch (_err) {}
+    const initialId = consumeInitialCollectionId();
+    if (!initialId) {
+      return;
+    }
+    try {
+      await renderCollectionItems(initialId);
+    } catch (_err) {
+      const container = document.getElementById('collectionsContent');
+      if (container) {
+        container.innerHTML = '<div class="error">האוסף שביקשת לא נמצא</div>';
+      }
+    }
+  }
 
   // אתחול אוטומטי אם קיימים אזורים בעמוד
   window.addEventListener('DOMContentLoaded', () => {
-    ensureCollectionsSidebar();
+    initCollectionsPage().catch(() => {});
   });
 })();

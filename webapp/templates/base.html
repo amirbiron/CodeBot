@@ -984,7 +984,8 @@
                 const collections = Array.isArray(data.collections) ? data.collections : [];
                 const workspace = collections.find(c => c && c.name === 'שולחן עבודה');
                 if (workspace && workspace.id) {
-                    window.location.href = `/collections/${workspace.id}`;
+                    const target = encodeURIComponent(String(workspace.id));
+                    window.location.href = `/collections/${target}`;
                     return;
                 }
                 alert('אוסף שולחן עבודה לא נמצא');

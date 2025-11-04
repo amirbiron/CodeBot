@@ -7,6 +7,7 @@
 .sidebar-list{display:flex;flex-direction:column;gap:.25rem;max-height:60vh;overflow:auto}
 .sidebar-item{display:flex;align-items:center;gap:.5rem;justify-content:space-between;border:1px solid transparent;background:rgba(255,255,255,.06);color:#fff;border-radius:8px;padding:.4rem .6rem;cursor:pointer;text-align:right}
 .sidebar-item:hover{background:rgba(255,255,255,.14)}
+.sidebar-item.active{background:rgba(255,255,255,.18);border-color:rgba(255,255,255,.4);box-shadow:0 0 0 1px rgba(255,255,255,.08) inset}
 .sidebar-item .emoji{min-width:1.4rem}
 .sidebar-item .name{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .sidebar-item .count{opacity:.8;font-size:.9rem;display:flex;align-items:center;gap:.25rem}
@@ -39,7 +40,8 @@
 .share-controls .share-toggle{display:flex;align-items:center;gap:.25rem;font-size:.85rem;white-space:nowrap}
 .share-controls .share-toggle input{margin:0}
 .share-controls .share-divider{color:#94a3b8;font-size:.85rem;line-height:1}
-.share-controls .share-copy{display:inline-flex;align-items:center;gap:.2rem;padding:.25rem .5rem;font-size:.85rem;white-space:nowrap}
+.share-controls .share-copy{display:inline-flex;align-items:center;gap:.2rem;padding:.25rem .5rem;font-size:.85rem;white-space:nowrap;background:#e0e7ff;border:1px solid #c7d2fe;border-radius:6px;color:#1f2937;font-weight:600;transition:background .2s ease,color .2s ease,opacity .2s ease}
+.share-controls .share-copy:disabled{background:#e2e8f0;border-color:#cbd5f5;color:#64748b;opacity:.75;cursor:not-allowed}
 .share-controls .share-copy__text{line-height:1}
 .collection-item{
   display:flex;
