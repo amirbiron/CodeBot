@@ -431,9 +431,10 @@ def get_shared_collection(token: str):
             return jsonify({'ok': False, 'error': 'לא נמצא'}), 404
         col = res.get('collection') or {}
         # שליפת פריטים עבור המשתמש של האוסף (כולל computed)
-        owner_id = int(col.get('user_id')) if col.get('user_id') is not None else None
-        cid = str(col.get('id')) if col.get('id') is not None else None
-        if not owner_id or not cid:
+        owner_id = (int(col.get('user_id')) if col.get('user_id') is not None else None)
+        cid = (str(col.get('id')) if col.get('id') is not None else None)
+        # חשוב: בדיקת None ולא אמת/שקר — user_id=0 תקין
+        if owner_id is None or cid is None:
             return jsonify({'ok': False, 'error': 'לא נמצא'}), 404
         items_res = mgr.get_collection_items(owner_id, cid, page=1, per_page=200, include_computed=True)
         if not items_res.get('ok'):
