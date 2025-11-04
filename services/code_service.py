@@ -126,9 +126,10 @@ def validate_code_input(code: str, file_name: str, user_id: int) -> Tuple[bool, 
             - cleaned_code: הקוד המנוקה
             - error_message: הודעת שגיאה (אם יש)
     """
+    code_length = int(len(code or ""))
     try:
         set_current_span_attributes({
-            "code.length": int(len(code or "")),
+            "code.length": code_length,
             "file_name": str(file_name or ""),
         })
     except Exception:
@@ -148,6 +149,8 @@ def validate_code_input(code: str, file_name: str, user_id: int) -> Tuple[bool, 
             "validation.ok": bool(ok),
             "status": "ok" if ok else "error",
             "cleaned.length": int(len(cleaned or "")),
+            "code.length.original": code_length,
+            "file_name": str(file_name or ""),
         }
         if msg:
             span_attrs["error.message"] = str(msg)
