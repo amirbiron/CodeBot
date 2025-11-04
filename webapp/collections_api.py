@@ -506,16 +506,15 @@ def reorder_items(collection_id: str):
 @require_auth
 @traced("collections.share")
 def update_share(collection_id: str):
-    """הפעלת/ביטול שיתוף עבור אוסף. Body: {enabled: bool, visibility?: 'private'|'link'}"""
+    """הפעלת/ביטול שיתוף עבור אוסף. Body: {enabled: bool}"""
     try:
         user_id = int(session['user_id'])
         data = request.get_json(silent=True) or {}
         if 'enabled' not in data:
             return jsonify({'ok': False, 'error': 'enabled חסר'}), 400
         enabled = bool(data.get('enabled'))
-        visibility = data.get('visibility')
         mgr = get_manager()
-        result = mgr.set_share(user_id, collection_id, enabled=enabled, visibility=visibility)
+        result = mgr.set_share(user_id, collection_id, enabled=enabled)
         if result.get('ok'):
             try:
                 uid = str(user_id)

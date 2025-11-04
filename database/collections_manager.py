@@ -777,6 +777,21 @@ class CollectionsManager:
 
     # --- Public mappers ---
     def _public_collection(self, d: Dict[str, Any]) -> Dict[str, Any]:
+        share_raw = d.get("share")
+        share_dict: Dict[str, Any]
+        if isinstance(share_raw, dict):
+            share_dict = dict(share_raw)
+        else:
+            share_dict = {}
+        share_dict.pop("visibility", None)
+        share_enabled = bool(share_dict.get("enabled", False))
+        token_val = share_dict.get("token")
+        if token_val is not None:
+            try:
+                token_val = str(token_val)
+            except Exception:
+                token_val = None
+
         return {
             "id": str(d.get("_id")) if d.get("_id") is not None else None,
             "user_id": d.get("user_id"),
@@ -794,7 +809,10 @@ class CollectionsManager:
             "is_active": bool(d.get("is_active", True)),
             "created_at": (d.get("created_at").isoformat() if isinstance(d.get("created_at"), datetime) else None),
             "updated_at": (d.get("updated_at").isoformat() if isinstance(d.get("updated_at"), datetime) else None),
-            "share": d.get("share") or {"enabled": False, "token": None, "visibility": "private"},
+            "share": {
+                "enabled": share_enabled,
+                "token": token_val,
+            },
         }
 
     def _public_item(self, d: Dict[str, Any]) -> Dict[str, Any]:
@@ -812,19 +830,12 @@ class CollectionsManager:
         }
 
     # --- Sharing helpers ---
-    def set_share(self, user_id: int, collection_id: str, enabled: bool, visibility: Optional[str] = None) -> Dict[str, Any]:
-        """הפעלה/ביטול שיתוף לאוסף. יוצר token אם נדרש.
-
-        visibility: "private" | "link" (ברירת מחדל: "link" כאשר enabled=True)
-        """
+    def set_share(self, user_id: int, collection_id: str, enabled: bool) -> Dict[str, Any]:
+        """הפעלה/ביטול שיתוף לאוסף. יוצר token אם נדרש."""
         try:
             cid = ObjectId(collection_id)
         except Exception:
             return {"ok": False, "error": "collection_id לא תקין"}
-
-        vis = str(visibility or ("link" if enabled else "private")).lower()
-        if vis not in {"private", "link"}:
-            return {"ok": False, "error": "visibility לא תקין"}
 
         try:
             # שלוף כדי לבדוק token קיים
@@ -840,13 +851,17 @@ class CollectionsManager:
                 except Exception:
                     import uuid
                     token = uuid.uuid4().hex
-            if not enabled:
-                # בביטול שיתוף נשמר את ה-token כדי לאפשר הפעלה חוזרת; visibility חוזר ל-private
-                vis = "private"
+            token_str: Optional[str]
+            if token is None:
+                token_str = None
+            else:
+                try:
+                    token_str = str(token)
+                except Exception:
+                    token_str = None
             new_share = {
                 "enabled": bool(enabled),
-                "token": token if enabled else token,  # שימור token קיים גם אם מנוטרל
-                "visibility": vis,
+                "token": token_str,
             }
             self.collections.update_one(
                 {"_id": cid, "user_id": int(user_id)},

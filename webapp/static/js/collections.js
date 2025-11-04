@@ -83,24 +83,21 @@
     }
   }
 
-  function setShareControlsBusy(toggleEl, visibilityEl, copyBtn, busy){
+  function setShareControlsBusy(toggleEl, copyBtn, busy){
     if (toggleEl) toggleEl.disabled = !!busy;
-    if (visibilityEl) visibilityEl.disabled = !!busy || !(toggleEl && toggleEl.checked);
     if (copyBtn) {
       const hasUrl = ((copyBtn.getAttribute('data-url') || '').trim().length > 0);
       copyBtn.disabled = !!busy || !(toggleEl && toggleEl.checked) || !hasUrl;
     }
   }
 
-  function syncShareHintState(hintEl, enabled, visibility){
+  function syncShareHintState(hintEl, enabled){
     if (!hintEl) return;
-    const nextState = enabled ? (String(visibility || 'link').toLowerCase()) : 'private';
-    hintEl.querySelectorAll('.share-hint-option').forEach((opt) => {
-      const state = String(opt.getAttribute('data-state') || '').toLowerCase();
-      const isActive = state === nextState;
-      opt.classList.toggle('active', isActive);
-      opt.classList.toggle('inactive', !isActive);
-    });
+    if (enabled) {
+      hintEl.innerHTML = '<span class="badge badge-link">קישור</span> כל מי שמחזיק בקישור יכול לצפות בקבצים';
+    } else {
+      hintEl.innerHTML = '<span class="badge badge-private">כבוי</span> הקישור אינו פעיל כרגע';
+    }
   }
 
   function resolvePublicUrl(col){
@@ -391,9 +388,10 @@
         const iconChar = (col.icon && ALLOWED_ICONS.includes(col.icon)) ? col.icon : (ALLOWED_ICONS[0] || '📂');
         const share = col.share || {};
         const shareEnabled = !!share.enabled;
-        const allowedVis = ['private', 'link'];
-        const shareVisibility = allowedVis.includes(share.visibility) ? share.visibility : (shareEnabled ? 'link' : 'private');
         const shareUrl = resolvePublicUrl(col);
+        const shareHintHtml = shareEnabled
+          ? '<span class="badge badge-link">קישור</span> כל מי שמחזיק בקישור יכול לצפות בקבצים'
+          : '<span class="badge badge-private">כבוי</span> הקישור אינו פעיל כרגע';
 
         container.innerHTML = `
           <div class="collection-header">
@@ -407,17 +405,9 @@
                   <input type="checkbox" class="share-enabled" ${shareEnabled ? 'checked' : ''}>
                   <span>שיתוף</span>
                 </label>
-                <select class="share-visibility" ${shareEnabled ? '' : 'disabled'}>
-                  <option value="private" ${shareVisibility === 'private' ? 'selected' : ''}>פרטי</option>
-                  <option value="link" ${shareVisibility === 'link' ? 'selected' : ''}>קישור</option>
-                </select>
                 <button class="btn btn-secondary btn-sm share-copy" ${shareEnabled && shareUrl ? '' : 'disabled'} data-url="${shareUrl ? escapeHtml(shareUrl) : ''}">העתק קישור</button>
               </div>
-              <div class="share-controls-hint">
-                <span class="share-hint-option" data-state="private"><span class="badge badge-private">פרטי</span> רק אתה רואה את האוסף</span>
-                <span class="hint-separator">·</span>
-                <span class="share-hint-option" data-state="link"><span class="badge badge-link">קישור</span> כל מי שמחזיק בקישור יכול לצפות</span>
-              </div>
+              <div class="share-controls-hint">${shareHintHtml}</div>
               <button class="btn btn-secondary rename">שנה שם</button>
               <button class="btn btn-danger delete">מחק</button>
             </div>
@@ -449,13 +439,12 @@
         const shareControls = container.querySelector('.share-controls');
         const shareHintEl = container.querySelector('.share-controls-hint');
         const shareToggleEl = shareControls ? shareControls.querySelector('.share-enabled') : null;
-        const shareVisibilityEl = shareControls ? shareControls.querySelector('.share-visibility') : null;
         const shareCopyBtn = shareControls ? shareControls.querySelector('.share-copy') : null;
         if (shareCopyBtn && !shareCopyBtn.dataset.label) {
           shareCopyBtn.dataset.label = shareCopyBtn.textContent || 'העתק קישור';
         }
-        setShareControlsBusy(shareToggleEl, shareVisibilityEl, shareCopyBtn, false);
-        syncShareHintState(shareHintEl, shareEnabled, shareVisibility);
+        setShareControlsBusy(shareToggleEl, shareCopyBtn, false);
+        syncShareHintState(shareHintEl, shareEnabled);
 
         if (shareCopyBtn) {
           shareCopyBtn.addEventListener('click', async () => {
@@ -494,63 +483,21 @@
         if (shareToggleEl) {
           shareToggleEl.addEventListener('change', async () => {
             const enabled = shareToggleEl.checked;
-            if (shareVisibilityEl) {
-              shareVisibilityEl.disabled = !enabled;
-            }
-            const currentVisibility = shareVisibilityEl ? (shareVisibilityEl.value || 'link') : 'link';
-            syncShareHintState(shareHintEl, enabled, currentVisibility);
+            syncShareHintState(shareHintEl, enabled);
             let errorMessage = '';
-            setShareControlsBusy(shareToggleEl, shareVisibilityEl, shareCopyBtn, true);
+            setShareControlsBusy(shareToggleEl, shareCopyBtn, true);
             try {
-              const payload = { enabled };
-              if (enabled) {
-                payload.visibility = shareVisibilityEl ? shareVisibilityEl.value : 'link';
-              } else if (shareVisibilityEl) {
-                payload.visibility = shareVisibilityEl.value || 'private';
-              }
-              const res = await api.updateShare(cid, payload);
+              const res = await api.updateShare(cid, { enabled });
               if (!res || !res.ok) {
                 errorMessage = (res && res.error) || '';
                 throw new Error(errorMessage || 'share_update_failed');
               }
             } catch (_err) {
               shareToggleEl.checked = !enabled;
-              if (shareVisibilityEl) {
-                shareVisibilityEl.disabled = !shareToggleEl.checked;
-              }
-              syncShareHintState(shareHintEl, shareToggleEl.checked, shareVisibilityEl ? (shareVisibilityEl.value || 'link') : 'link');
+              syncShareHintState(shareHintEl, shareToggleEl.checked);
               alert(errorMessage || 'שגיאה בעדכון שיתוף');
             } finally {
-              setShareControlsBusy(shareToggleEl, shareVisibilityEl, shareCopyBtn, false);
-            }
-            ensureCollectionsSidebar();
-            await renderCollectionItems(cid);
-          });
-        }
-
-        if (shareVisibilityEl) {
-          shareVisibilityEl.addEventListener('change', async () => {
-            if (!shareToggleEl || !shareToggleEl.checked) {
-              return;
-            }
-            const previous = shareVisibility;
-            const nextVisibility = shareVisibilityEl.value || 'link';
-            syncShareHintState(shareHintEl, true, nextVisibility);
-            let errorMessage = '';
-            setShareControlsBusy(shareToggleEl, shareVisibilityEl, shareCopyBtn, true);
-            try {
-              const visibility = shareVisibilityEl.value || 'link';
-              const res = await api.updateShare(cid, { enabled: true, visibility });
-              if (!res || !res.ok) {
-                errorMessage = (res && res.error) || '';
-                throw new Error(errorMessage || 'share_update_failed');
-              }
-            } catch (_err) {
-              shareVisibilityEl.value = previous;
-              syncShareHintState(shareHintEl, true, previous);
-              alert(errorMessage || 'שגיאה בעדכון שיתוף');
-            } finally {
-              setShareControlsBusy(shareToggleEl, shareVisibilityEl, shareCopyBtn, false);
+              setShareControlsBusy(shareToggleEl, shareCopyBtn, false);
             }
             ensureCollectionsSidebar();
             await renderCollectionItems(cid);

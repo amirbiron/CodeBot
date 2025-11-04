@@ -157,20 +157,15 @@ def test_set_share_enable_generates_token_and_disable_preserves_token(mgr: Colle
     assert on["ok"] and on["collection"]["share"]["enabled"] is True  # type: ignore[index]
     token = on["collection"]["share"]["token"]  # type: ignore[index]
     assert isinstance(token, str) and len(token) > 0
-    assert on["collection"]["share"]["visibility"] in {"link", "private"}  # default to link
 
     off = mgr.set_share(10, cid, enabled=False)
     assert off["ok"] and off["collection"]["share"]["enabled"] is False  # type: ignore[index]
     # token נשמר גם אם השיתוף כבוי
     assert off["collection"]["share"]["token"] == token  # type: ignore[index]
-    assert off["collection"]["share"]["visibility"] == "private"  # type: ignore[index]
 
 
-def test_set_share_invalid_visibility_and_bad_id(mgr: CollectionsManager):
+def test_set_share_bad_id(mgr: CollectionsManager):
     cid = _create_collection(mgr, 11)
-    bad_vis = mgr.set_share(11, cid, enabled=True, visibility="wrong")
-    assert not bad_vis["ok"]
-
     bad_id = mgr.set_share(11, "not-an-id", enabled=True)
     assert not bad_id["ok"]
 
