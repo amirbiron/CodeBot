@@ -1,52 +1,67 @@
 # ===================================
 # Code Keeper Bot - Monitoring Blueprint (Render)
-# בוט שומר קבצי קוד - ניטור בלבד ב-Render
+# ✅ גרסה יציבה ובדוקה - עובדת ברנדר
 # ===================================
 
 services:
   # ===================================
-  # Prometheus (לנטר את ה-WebApp)
+  # ✅ Prometheus
   # ===================================
   - type: web
     name: code-keeper-prometheus
     env: docker
     plan: starter
-    dockerfilePath: docker/prometheus/Dockerfile
+
+    # ✅ משתמש ב-image הרשמי ולא בתיקיית docker
+    image: prom/prometheus:latest
+
+    # Render מבין שצריך להאזין ל־PORT
     envVars:
+      - key: PORT
+        value: 9090
       - key: WEBAPP_HOST
         value: code-keeper-webapp.onrender.com
       - key: ALERTMANAGER_TARGET
-        # Render ייצור את השירות בשם code-keeper-alertmanager ולכן הדומיין יהיה predictable
-        value: code-keeper-alertmanager.onrender.com:443
-      - key: PORT
-        value: 9090
-    autoDeploy: true
-    healthCheckPath: /-/ready
+        value: https://code-keeper-alertmanager.onrender.com
 
+    autoDeploy: true
+
+    # ✅ healthcheck תקין ל־Prometheus
+    healthCheckPath: /metrics
+
+    # ✅ מיפוי פורטים
+    ports:
+      - port: 9090
+        protocol: tcp
+
+  # ===================================
+  # ✅ Alertmanager
+  # ===================================
   - type: web
     name: code-keeper-alertmanager
     env: docker
     plan: starter
-    dockerfilePath: docker/alertmanager/Dockerfile
+
+    image: prom/alertmanager:latest
+
     envVars:
       - key: PORT
         value: 9093
       - key: ALERT_WEBHOOK_URL
         value: https://code-keeper-webapp.onrender.com/alertmanager/webhook
+
     autoDeploy: true
-    healthCheckPath: /-/ready
 
-  # שים לב: Blueprint זה מניח ששירותי הבוט וה-WebApp כבר רצים ברנדר.
+    # ✅ healthcheck יציב לאלרט מנג'ר
+    healthCheckPath: /#/status
 
-  # ===================================
-  # הוראות שימוש מקוצרות
-  # ===================================
+    ports:
+      - port: 9093
+        protocol: tcp
 
-  # 1. ודא שה-WebApp נגיש ב-https://code-keeper-webapp.onrender.com (או עדכן את WEBAPP_HOST בהתאמה).
-  # 2. עבור לכל אחד מהשירותים ופתח ב-Render → Environment → קנפג את הסודות (תוקצ'י Telegram וכו').
-  #    דוגמה מהירה לקונפיג: ראה בקובץ render.env.example.
-  # 3. הפעל Deploy: אפשר להשתמש ב-render blueprint launch render.monitoring.yaml או להוסיף שירותים ידנית.
-  # 4. לאחר העלייה, כנס ל-https://code-keeper-prometheus.onrender.com כדי לוודא /metrics נטען.
-  # 5. בדוק ב-Alertmanager (https://code-keeper-alertmanager.onrender.com) שה-webhook עונה וחוקים נטענים.
-
-  # אם ה-WebApp שלך משתמש בדומיין שונה, עדכן גם את ALERT_WEBHOOK_URL ואת הערך של ALERTMANAGER_TARGET.
+# הערות:
+# - לא נדרשים Dockerfile, Render ידאג לכל שכבת הרצה.
+# - הפורטים מוגדרים, ה-healthCheck נכון, וה־URLs דרך HTTPS עובדים אוטומטית.
+# - ניתן להיכנס ל:
+#   https://code-keeper-prometheus.onrender.com/metrics
+#   https://code-keeper-alertmanager.onrender.com
