@@ -42,6 +42,9 @@ async def test_status_command_outputs_basic_health(monkeypatch):
     # Make the test user an admin so the command is allowed
     os.environ["ADMIN_USER_IDS"] = str(upd.effective_user.id)
 
+    # Avoid real GitHub API calls in CI: force skip in status_command
+    monkeypatch.delenv("GITHUB_TOKEN", raising=False)
+
     # Ensure Redis disabled in test unless actually configured
     import cache_manager as cm
     monkeypatch.setattr(cm.cache, "is_enabled", False, raising=False)
@@ -130,6 +133,9 @@ async def test_status_command_emojis_and_components(monkeypatch):
 
     # Admin
     os.environ["ADMIN_USER_IDS"] = str(upd.effective_user.id)
+
+    # Avoid real GitHub API calls in CI: force skip in status_command
+    monkeypatch.delenv("GITHUB_TOKEN", raising=False)
 
     # Mock DB check to succeed (new behavior uses check_db_connection)
     import bot_handlers as bh
