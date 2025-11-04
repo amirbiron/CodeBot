@@ -59,6 +59,7 @@
       this.notes = new Map();
       this._saveDebounced = debounce(this._performSaveBatch.bind(this), AUTO_SAVE_DEBOUNCE_MS);
       this._pending = new Map();
+      this._inFlight = new Map();
       this._autoFlushTimer = null;
       this._autoFlushBusy = false;
       this._init();
@@ -523,83 +524,210 @@
 
     _flushPendingKeepalive(){
       try {
-        if (!this._pending || this._pending.size === 0) return;
+        const combined = new Map();
+        try {
+          if (this._pending && this._pending.size) {
+            for (const [id, data] of this._pending.entries()) {
+              if (data) combined.set(id, data);
+            }
+          }
+        } catch(_) {}
+        try {
+          if (this._inFlight && this._inFlight.size) {
+            for (const [id, info] of this._inFlight.entries()) {
+              if (info && info.data && !combined.has(id)) {
+                combined.set(id, info.data);
+              }
+            }
+          }
+        } catch(_) {}
+        if (!combined.size) return;
+        for (const [id, data] of combined.entries()){
+          try {
+            if (!data) continue;
+            const body = JSON.stringify(data);
+            if (typeof fetch === 'function') {
+              try {
+                fetch(`/api/sticky-notes/note/${encodeURIComponent(id)}`, {
+                  method: 'PUT',
+                  headers: { 'Content-Type': 'application/json' },
+                  body,
+                  keepalive: true,
+                }).catch(()=>{});
+              } catch(e) {
+                console.warn('sticky note: keepalive request failed', id, e);
+              }
+            }
+          } catch(err) {
+            console.warn('sticky note: keepalive serialization failed', id, err);
+          }
+        }
       } catch(_) {
         return;
       }
-      const entries = Array.from(this._pending.entries());
-      for (const [id, data] of entries){
+    }
+
+    _clonePayload(data){
+      if (!data || typeof data !== 'object') return data;
+      try {
+        return JSON.parse(JSON.stringify(data));
+      } catch(_) {
+        const shallow = Object.assign({}, data);
         try {
-          if (!data) {
-            this._pending.delete(id);
-            continue;
+          if (data.position && typeof data.position === 'object') {
+            shallow.position = Object.assign({}, data.position);
           }
-          const body = JSON.stringify(data);
-          if (typeof fetch === 'function') {
-            try {
-              fetch(`/api/sticky-notes/note/${encodeURIComponent(id)}`, {
-                method: 'PUT',
-                headers: { 'Content-Type': 'application/json' },
-                body,
-                keepalive: true,
-              }).catch(()=>{});
-            } catch(e) {
-              console.warn('sticky note: keepalive request failed', id, e);
-            }
+        } catch(_) {}
+        try {
+          if (data.size && typeof data.size === 'object') {
+            shallow.size = Object.assign({}, data.size);
           }
-        } catch(err) {
-          console.warn('sticky note: keepalive serialization failed', id, err);
-        } finally {
-          try {
-            this._pending.delete(id);
-          } catch(_) {}
-        }
-      }
-      if (!this._pending.size) {
-        this._stopBackgroundAutoFlush();
+        } catch(_) {}
+        return shallow;
       }
     }
 
-    async _performSaveBatch(){
-      const entries = Array.from(this._pending.entries());
-      this._pending.clear();
-      for (const [id, data] of entries){
+    _registerInFlight(id, data, promise){
+      let snapshot = null;
+      try {
+        snapshot = this._clonePayload(data);
+      } catch(_) {
+        snapshot = data;
+      }
+      this._inFlight.set(id, { data: snapshot, promise });
+      if (promise && typeof promise.finally === 'function') {
+        promise.finally(() => {
+          const current = this._inFlight.get(id);
+          if (current && current.promise === promise) {
+            this._inFlight.delete(id);
+            if ((!this._pending || this._pending.size === 0) && (!this._inFlight || this._inFlight.size === 0)) {
+              this._stopBackgroundAutoFlush();
+            }
+          }
+        });
+      }
+    }
+
+    _setNoteUpdatedAt(id, iso){
+      if (!iso) return;
+      const entry = this.notes.get(id);
+      if (!entry) return;
+      if (entry.el) {
+        try { entry.el.dataset.updatedAt = String(iso); } catch(_) {}
+      }
+      if (entry.data && typeof entry.data === 'object') {
+        try { entry.data.updated_at = iso; } catch(_) {}
+      }
+    }
+
+    _mergePending(id, fragment){
+      if (!id || !fragment) return;
+      const existing = this._pending.get(id);
+      let next;
+      if (existing) {
+        next = this._clonePayload(existing) || {};
+        const fragmentClone = this._clonePayload(fragment) || {};
+        Object.assign(next, fragmentClone);
+      } else {
+        next = this._clonePayload(fragment);
+      }
+      this._pending.set(id, next);
+      this._syncEntryFromFragment(id, next);
+      try { this._saveDebounced(); } catch(_) {}
+      this._ensureBackgroundAutoFlush();
+    }
+
+    _sendUpdate(id, data){
+      const payload = this._clonePayload(data) || {};
+      const url = `/api/sticky-notes/note/${encodeURIComponent(id)}`;
+      const send = async (payloadObj) => {
+        const resp = await fetch(url, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payloadObj),
+          keepalive: true,
+        });
+        let json = null;
+        try { json = await resp.json(); } catch(_) {}
+        return { resp, json };
+      };
+
+      const attempt = async () => {
         try {
-          const resp = await fetch(`/api/sticky-notes/note/${encodeURIComponent(id)}`, {
-            method: 'PUT',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(data),
-            keepalive: true,
-          });
-          let j = null; try { j = await resp.json(); } catch(_) {}
+          const { resp, json } = await send(payload);
           if (resp.status === 409) {
             console.warn('sticky note update conflict, retrying once with fresh timestamp', id);
-            // עדכן חותמת זמן אחרונה שהשרת החזיר, ונסה עוד פעם אחת
-            if (j && j.updated_at) {
-              const item = this.notes.get(id);
-              if (item && item.el) { try { item.el.dataset.updatedAt = String(j.updated_at); } catch(_) {} }
+            let serverUpdatedAt = null;
+            if (json && json.updated_at) {
+              serverUpdatedAt = String(json.updated_at);
+              this._setNoteUpdatedAt(id, serverUpdatedAt);
+            }
+            if (serverUpdatedAt) {
+              const retryPayload = Object.assign({}, payload, { prev_updated_at: serverUpdatedAt });
               try {
-                const retryPayload = Object.assign({}, data, { prev_updated_at: String(j.updated_at) });
-                const retryResp = await fetch(`/api/sticky-notes/note/${encodeURIComponent(id)}`, {
-                  method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(retryPayload)
-                });
-                let rj = null; try { rj = await retryResp.json(); } catch(_) {}
+                const { resp: retryResp, json: retryJson } = await send(retryPayload);
                 if (retryResp.status === 409) {
                   console.warn('sticky note update conflict persisted after retry', id);
-                } else if (rj && rj.updated_at) {
-                  if (item && item.el) { try { item.el.dataset.updatedAt = String(rj.updated_at); } catch(_) {} }
+                  if (retryJson && retryJson.updated_at) {
+                    this._setNoteUpdatedAt(id, String(retryJson.updated_at));
+                    this._mergePending(id, Object.assign({}, retryPayload, { prev_updated_at: String(retryJson.updated_at) }));
+                  } else if (serverUpdatedAt) {
+                    this._mergePending(id, Object.assign({}, retryPayload));
+                  }
+                  return false;
                 }
-              } catch(e) { console.warn('sticky note retry failed', id, e); }
+                if (retryJson && retryJson.updated_at) {
+                  this._setNoteUpdatedAt(id, String(retryJson.updated_at));
+                }
+                return true;
+              } catch(retryErr) {
+                console.warn('sticky note retry failed', id, retryErr);
+                this._mergePending(id, Object.assign({}, retryPayload));
+                return false;
+              }
             }
-            continue;
+            this._mergePending(id, Object.assign({}, payload, serverUpdatedAt ? { prev_updated_at: serverUpdatedAt } : {}));
+            return false;
           }
-          if (j && j.updated_at) {
-            const item = this.notes.get(id);
-            if (item && item.el) { try { item.el.dataset.updatedAt = String(j.updated_at); } catch(_) {} }
+          if (json && json.updated_at) {
+            this._setNoteUpdatedAt(id, String(json.updated_at));
           }
-        } catch(e){ console.warn('save note failed', id, e); }
+          if (!resp.ok) {
+            this._mergePending(id, Object.assign({}, payload));
+          }
+          return resp.ok;
+        } catch(err) {
+          console.warn('save note failed', id, err);
+          this._mergePending(id, Object.assign({}, payload));
+          return false;
+        }
+      };
+
+      const promise = attempt();
+      this._registerInFlight(id, payload, promise);
+      return promise;
+    }
+
+    async _performSaveBatch(){
+      try {
+        if (!this._pending || this._pending.size === 0) {
+          if (!this._inFlight || this._inFlight.size === 0) {
+            this._stopBackgroundAutoFlush();
+          }
+          return;
+        }
+      } catch(_) {}
+      const entries = Array.from(this._pending.entries());
+      for (const [id] of entries){
+        const current = this._pending.get(id);
+        if (!current) continue;
+        this._pending.delete(id);
+        const didSucceed = await this._sendUpdate(id, current);
+        if (!didSucceed && !this._pending.has(id)) {
+          // במקרה של כישלון המידע הוחזר ל-pending בתוך _sendUpdate
+        }
       }
-      if (!this._pending.size) {
+      if ((!this._pending || this._pending.size === 0) && (!this._inFlight || this._inFlight.size === 0)) {
         this._stopBackgroundAutoFlush();
       }
     }
@@ -607,39 +735,16 @@
     async _flushFor(el){
       const id = el.dataset.noteId;
       const data = this._pending.get(id);
-      if (!data) return;
-      this._pending.delete(id);
-      try {
-        const resp = await fetch(`/api/sticky-notes/note/${encodeURIComponent(id)}`, {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(data),
-          keepalive: true,
-        });
-        let j = null; try { j = await resp.json(); } catch(_) {}
-        if (resp.status === 409) {
-          console.warn('sticky note update conflict (flush) – retrying once', id);
-          if (j && j.updated_at) { try { el.dataset.updatedAt = String(j.updated_at); } catch(_) {} }
-          // נסה מיד עוד פעם אחת עם חותמת זמן מעודכנת
-          try {
-            const retryPayload = Object.assign({}, data, { prev_updated_at: (j && j.updated_at) ? String(j.updated_at) : (el.dataset.updatedAt || undefined) });
-            const retryResp = await fetch(`/api/sticky-notes/note/${encodeURIComponent(id)}`, {
-              method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(retryPayload)
-            });
-            let rj = null; try { rj = await retryResp.json(); } catch(_) {}
-            if (retryResp.status === 409) {
-              console.warn('sticky note update conflict persisted after flush retry', id);
-              return;
-            }
-            if (rj && rj.updated_at) { try { el.dataset.updatedAt = String(rj.updated_at); } catch(_) {} }
-          } catch(e) {
-            console.warn('flush retry failed', id, e);
-          }
-          return;
+      if (!data) {
+        const existingFlight = this._inFlight.get(id);
+        if (existingFlight && existingFlight.promise && typeof existingFlight.promise.then === 'function') {
+          try { await existingFlight.promise; } catch(_) {}
         }
-        if (j && j.updated_at) { try { el.dataset.updatedAt = String(j.updated_at); } catch(_) {} }
-      } catch(e){ console.warn('flush save failed', id, e); }
-      if (!this._pending.size) {
+        return;
+      }
+      this._pending.delete(id);
+      await this._sendUpdate(id, data);
+      if ((!this._pending || this._pending.size === 0) && (!this._inFlight || this._inFlight.size === 0)) {
         this._stopBackgroundAutoFlush();
       }
     }
@@ -655,8 +760,9 @@
       }
     }
 
-    _stopBackgroundAutoFlush(){
-      if (!this._autoFlushTimer) return;
+      _stopBackgroundAutoFlush(){
+        if (!this._autoFlushTimer) return;
+        if ((this._pending && this._pending.size > 0) || (this._inFlight && this._inFlight.size > 0)) return;
       try {
         clearInterval(this._autoFlushTimer);
       } catch(_) {}
