@@ -228,6 +228,14 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.TEST_GITHUB_TOKEN }}
           PASTEBIN_API_KEY: ${{ secrets.TEST_PASTEBIN_KEY }}
           FEATURE_MY_COLLECTIONS: '1'
+          # Minimize retry/backoff delays during tests to avoid long waits
+          HTTP_RESILIENCE_MAX_ATTEMPTS: '1'
+          HTTP_RESILIENCE_BACKOFF_BASE: '0'
+          HTTP_RESILIENCE_BACKOFF_MAX: '0'
+          HTTP_RESILIENCE_JITTER: '0'
+          REQUESTS_RETRIES: '0'
+          REQUESTS_RETRY_BACKOFF: '0'
+          AIOHTTP_TIMEOUT_TOTAL: '6'
         run: |
           pytest -v -o addopts="" --cov=. --cov-report=xml --cov-report=term \
                  --durations=0 --json-report --json-report-file=unit-durations.json || true
