@@ -1,7 +1,8 @@
 from __future__ import annotations
 
+from datetime import datetime
 from types import SimpleNamespace
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional, Tuple
 
 import pytest
 
@@ -30,14 +31,26 @@ class FakeCollection:
                 break
         return SimpleNamespace(modified_count=modified)  # type: ignore[attr-defined]
 
-    def find_one(self, flt: Dict[str, Any]):
-        for d in self.docs:
-            if _match(d, flt):
-                return dict(d)
+    def find_one(
+        self,
+        flt: Dict[str, Any],
+        projection: Optional[Dict[str, int]] = None,
+        sort: Optional[List[Tuple[str, int]]] = None,
+    ) -> Optional[Dict[str, Any]]:
+        rows = self.find(flt, projection=projection)
+        if sort:
+            for field, direction in reversed(sort):
+                reverse = int(direction or 0) < 0
+                rows.sort(key=lambda doc: _sort_value(doc, field), reverse=reverse)
+        if rows:
+            return dict(rows[0])
         return None
 
-    def find(self, flt: Dict[str, Any]):
-        return [dict(d) for d in self.docs if _match(d, flt)]
+    def find(self, flt: Dict[str, Any], projection: Optional[Dict[str, int]] = None):
+        rows = [dict(d) for d in self.docs if _match(d, flt)]
+        if projection:
+            rows = [_apply_projection(doc, projection) for doc in rows]
+        return rows
 
 
 def _getv(d: Dict[str, Any], key: str) -> Any:
@@ -94,12 +107,36 @@ def _apply_update(doc: Dict[str, Any], upd: Dict[str, Any]) -> None:
                 del doc[k]
 
 
+def _apply_projection(doc: Dict[str, Any], projection: Dict[str, int | bool]) -> Dict[str, Any]:
+    result = dict(doc)
+    for field, mode in projection.items():
+        drop = False
+        try:
+            drop = int(mode) == 0
+        except Exception:
+            drop = not bool(mode)
+        if drop and field in result:
+            result.pop(field, None)
+    return result
+
+
+def _sort_value(doc: Dict[str, Any], field: str) -> Any:
+    value = _getv(doc, field)
+    if isinstance(value, datetime):
+        try:
+            return value.timestamp()
+        except Exception:
+            return 0.0
+    return value
+
+
 class FakeDB:
     def __init__(self) -> None:
         self.user_collections = FakeCollection()
         self.collection_items = FakeCollection()
         self.code_snippets = FakeCollection()
         self.large_files = FakeCollection()
+        self.collection_share_activity = FakeCollection()
 
 
 @pytest.fixture()
@@ -120,20 +157,15 @@ def test_set_share_enable_generates_token_and_disable_preserves_token(mgr: Colle
     assert on["ok"] and on["collection"]["share"]["enabled"] is True  # type: ignore[index]
     token = on["collection"]["share"]["token"]  # type: ignore[index]
     assert isinstance(token, str) and len(token) > 0
-    assert on["collection"]["share"]["visibility"] in {"link", "private"}  # default to link
 
     off = mgr.set_share(10, cid, enabled=False)
     assert off["ok"] and off["collection"]["share"]["enabled"] is False  # type: ignore[index]
     # token נשמר גם אם השיתוף כבוי
     assert off["collection"]["share"]["token"] == token  # type: ignore[index]
-    assert off["collection"]["share"]["visibility"] == "private"  # type: ignore[index]
 
 
-def test_set_share_invalid_visibility_and_bad_id(mgr: CollectionsManager):
+def test_set_share_bad_id(mgr: CollectionsManager):
     cid = _create_collection(mgr, 11)
-    bad_vis = mgr.set_share(11, cid, enabled=True, visibility="wrong")
-    assert not bad_vis["ok"]
-
     bad_id = mgr.set_share(11, "not-an-id", enabled=True)
     assert not bad_id["ok"]
 
@@ -189,3 +221,67 @@ def test_is_file_active_for_regular_and_large_and_exception_path(mgr: Collection
     # ה-regular עדיין False (אין מסמך), אך large נהיה True בגלל fail-open
     assert by_name3["a.py"]["is_file_active"] is False
     assert by_name3["b.big"]["is_file_active"] is True
+
+
+def test_share_context_and_file_details_for_regular_item(mgr: CollectionsManager):
+    cid = _create_collection(mgr, 30)
+    mgr.add_items(30, cid, [{"source": "regular", "file_name": "snippet.py"}])
+    now = datetime.now()
+    mgr.code_snippets.insert_one({
+        "_id": "code1",
+        "user_id": 30,
+        "file_name": "snippet.py",
+        "code": "print('hi')\n",
+        "programming_language": "python",
+        "is_active": True,
+        "created_at": now,
+        "updated_at": now,
+    })  # type: ignore[attr-defined]
+    share = mgr.set_share(30, cid, enabled=True)
+    assert share["ok"]
+    token = share["collection"]["share"]["token"]  # type: ignore[index]
+    ctx = mgr.get_share_context(token)
+    assert ctx["ok"]
+    doc_refs = ctx["doc_refs"]
+    assert len(doc_refs) == 1
+    doc_id = next(iter(doc_refs))
+    details = mgr.get_shared_file_details(token, doc_id)
+    assert details["ok"]
+    payload = details["file"]
+    assert payload["file_name"] == "snippet.py"
+    assert payload["content"].startswith("print")
+    exported = mgr.collect_shared_documents(token)
+    assert exported["ok"]
+    assert len(exported["documents"]) == 1
+    assert exported["documents"][0]["file_name"] == "snippet.py"
+    mgr.log_share_activity(token, collection_id=ctx["collection_id"], file_id=doc_id, event="view", ip="1.2.3.4", user_agent="pytest")
+    assert len(mgr.share_activity.docs) == 1  # type: ignore[attr-defined]
+
+
+def test_share_context_handles_large_file(mgr: CollectionsManager):
+    cid = _create_collection(mgr, 31)
+    mgr.add_items(31, cid, [{"source": "large", "file_name": "big.log"}])
+    now = datetime.now()
+    mgr.large_files.insert_one({
+        "_id": "large1",
+        "user_id": 31,
+        "file_name": "big.log",
+        "content": "large content",
+        "programming_language": "text",
+        "file_size": 13,
+        "lines_count": 1,
+        "is_active": True,
+        "created_at": now,
+        "updated_at": now,
+    })  # type: ignore[attr-defined]
+    share = mgr.set_share(31, cid, enabled=True)
+    token = share["collection"]["share"]["token"]  # type: ignore[index]
+    ctx = mgr.get_share_context(token)
+    assert ctx["ok"]
+    doc_id = next(iter(ctx["doc_refs"]))
+    details = mgr.get_shared_file_details(token, doc_id)
+    assert details["ok"]
+    assert details["file"]["source"] == "large"
+    exported = mgr.collect_shared_documents(token)
+    assert exported["ok"]
+    assert exported["documents"][0]["content"] == "large content"
