@@ -14,11 +14,18 @@ def test_integrations_client_session_uses_timeout_and_connector(monkeypatch):
         def __init__(self, status=200, body='ok'):
             self.status = status
             self._body = body
+
         async def text(self):
             return self._body
+
+        async def release(self):
+            return None
+
         async def __aenter__(self):
             return self
+
         async def __aexit__(self, exc_type, exc, tb):
+            await self.release()
             return False
 
     class _DummySession:
@@ -28,8 +35,15 @@ def test_integrations_client_session_uses_timeout_and_connector(monkeypatch):
             return self
         async def __aexit__(self, exc_type, exc, tb):
             return False
+
+        async def request(self, method, url, **kwargs):
+            if method.upper() == 'POST':
+                return await self.post(url, **kwargs)
+            return await self.get(url, **kwargs)
+
         async def post(self, *a, **k):
             return _DummyResp(status=200, body='https://pastebin.com/abc')
+
         async def get(self, *a, **k):
             return _DummyResp(status=200, body='ok')
 
