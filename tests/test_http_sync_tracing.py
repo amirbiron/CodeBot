@@ -99,6 +99,8 @@ def test_http_sync_retries_on_http_error(monkeypatch):
     monkeypatch.setenv("HTTP_RESILIENCE_BACKOFF_BASE", "0.0")
     monkeypatch.setenv("HTTP_RESILIENCE_BACKOFF_MAX", "0.0")
     monkeypatch.setenv("HTTP_RESILIENCE_JITTER", "0.0")
+    # Force no sleeping regardless of policy
+    monkeypatch.setattr(http_sync, "_sleep_with_backoff", lambda *a, **k: None, raising=False)
 
     class _Session:
         def __init__(self):

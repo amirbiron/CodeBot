@@ -115,6 +115,11 @@ async def test_async_request_retries_on_http_error(monkeypatch):
     monkeypatch.setenv("HTTP_RESILIENCE_BACKOFF_MAX", "0.0")
     monkeypatch.setenv("HTTP_RESILIENCE_JITTER", "0.0")
 
+    # Eliminate any actual sleeping in retry path regardless of policy
+    async def _no_sleep(*_a, **_k):
+        return None
+    monkeypatch.setattr(ha, "_async_sleep_with_backoff", _no_sleep, raising=False)
+
     class _Resp:
         def __init__(self, status: int):
             self.status = status
