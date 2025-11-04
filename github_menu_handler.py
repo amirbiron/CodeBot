@@ -5764,10 +5764,12 @@ class GitHubMenuHandler:
                                 seen_prs[dedup_key] = self._serialize_seen_pr_timestamp(updated)
                         session["notifications_last"] = session.get("notifications_last", {})
                         now_dt = datetime.now(timezone.utc)
-                        if latest_processed_pr_ts and latest_processed_pr_ts > now_dt:
-                            session["notifications_last"]["pr"] = latest_processed_pr_ts
-                        else:
-                            session["notifications_last"]["pr"] = now_dt
+                        safe_baseline = None
+                        if latest_processed_pr_ts is not None:
+                            safe_baseline = latest_processed_pr_ts
+                            if safe_baseline > now_dt:
+                                safe_baseline = now_dt
+                        session["notifications_last"]["pr"] = safe_baseline or now_dt
                         # הגבלת גודל הזיכרון כדי למנוע צמיחה לא מבוקרת
                         try:
                             if len(seen_prs) > 60:

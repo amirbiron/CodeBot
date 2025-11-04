@@ -388,3 +388,59 @@ async def test_notifications_job_pr_update_cooldown(monkeypatch):
     _FixedDateTime.set_now(third_update + timedelta(seconds=10))
     await handler._notifications_job(ctx, user_id=user_id, force=True)
     assert len(bot.sent) == 2
+
+
+@pytest.mark.asyncio
+async def test_notifications_job_future_baseline_clamped(monkeypatch):
+    import github_menu_handler as gh
+
+    handler = gh.GitHubMenuHandler()
+    user_id = 904
+
+    session = handler.get_user_session(user_id)
+    session["selected_repo"] = "owner/name"
+    session["github_token"] = "tok"
+
+    pulls_holder = {"list": []}
+    issues_holder = {"list": []}
+
+    stub_repo = _StubRepo(pulls_holder, issues_holder)
+    monkeypatch.setattr(gh, "Github", lambda token: _StubGithub(token, stub_repo))
+
+    monkeypatch.setattr(gh, "datetime", _FixedDateTime)
+
+    bot = _StubBot()
+    app = _StubApp()
+    app.user_data[user_id] = {
+        "notifications": {
+            "enabled": True,
+            "interval": 120,
+            "pr": True,
+            "issues": False,
+        }
+    }
+    ctx = types.SimpleNamespace(application=app, bot=bot, user_data={})
+
+    baseline = datetime(2025, 1, 1, 12, 0, tzinfo=timezone.utc)
+    _FixedDateTime.set_now(baseline)
+    await handler._notifications_job(ctx, user_id=user_id, force=True)
+
+    future_update = baseline + timedelta(minutes=10)
+    pr = _StubPR(
+        state="open",
+        merged=False,
+        created_at=future_update - timedelta(minutes=1),
+        updated_at=future_update,
+        html_url="https://example.com/pr/future",
+        title="Future PR",
+    )
+    pr.number = 55
+    pulls_holder["list"] = [pr]
+
+    now_after = baseline + timedelta(minutes=2)
+    _FixedDateTime.set_now(now_after)
+    await handler._notifications_job(ctx, user_id=user_id, force=True)
+
+    stored = session.get("notifications_last", {}).get("pr")
+    assert stored is not None
+    assert stored <= now_after
