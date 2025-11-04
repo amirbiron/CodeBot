@@ -1,12 +1,12 @@
 # Prometheus for Render
 FROM prom/prometheus:latest
 
-# Copy configuration templates
-COPY prometheus.render.yml /etc/prometheus/prometheus.render.yml
-COPY ../prometheus/alerts.yml /etc/prometheus/alerts.yml
+# Copy configuration templates from repo root (Render build context is repo root)
+COPY docker/prometheus/prometheus.render.yml /etc/prometheus/prometheus.render.yml
+COPY docker/prometheus/alerts.yml /etc/prometheus/alerts.yml
 
-# Copy entrypoint
-COPY entrypoint.sh /entrypoint.sh
+# Copy entrypoint from repo root
+COPY docker/prometheus/entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
 
 # Prometheus will be started by entrypoint with dynamic listen port
