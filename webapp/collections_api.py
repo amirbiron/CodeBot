@@ -13,6 +13,10 @@ import html
 import logging
 
 from cache_manager import dynamic_cache, cache
+try:
+    from config import config as _cfg  # type: ignore
+except Exception:  # pragma: no cover
+    _cfg = None  # type: ignore
 
 logger = logging.getLogger(__name__)
 
@@ -82,6 +86,18 @@ def sanitize_input(text: str, max_length: int = 500) -> str:
         return ""
     s = str(text)[:max_length]
     return html.escape(s)
+
+
+def _build_public_collection_url(token: str) -> str:
+    try:
+        base = getattr(_cfg, 'PUBLIC_BASE_URL', None) if _cfg is not None else None
+        if not base:
+            # Fallback: נשתמש ב-host_url הנוכחי
+            base = getattr(request, 'host_url', '') or ''
+        base = str(base).rstrip('/')
+        return f"{base}/api/collections/shared/{token}"
+    except Exception:
+        return f"/api/collections/shared/{token}"
 
 
 # ==================== Endpoints ====================
@@ -360,6 +376,76 @@ def reorder_items(collection_id: str):
             pass
         logger.error("Error reordering items: %s", e)
         return jsonify({'ok': False, 'error': 'שגיאה בסידור פריטים'}), 500
+
+
+# --- Phase 2: Share ---
+
+@collections_bp.route('/<collection_id>/share', methods=['POST'])
+@require_auth
+@traced("collections.share")
+def update_share(collection_id: str):
+    """הפעלת/ביטול שיתוף עבור אוסף. Body: {enabled: bool, visibility?: 'private'|'link'}"""
+    try:
+        user_id = int(session['user_id'])
+        data = request.get_json(silent=True) or {}
+        if 'enabled' not in data:
+            return jsonify({'ok': False, 'error': 'enabled חסר'}), 400
+        enabled = bool(data.get('enabled'))
+        visibility = data.get('visibility')
+        mgr = get_manager()
+        result = mgr.set_share(user_id, collection_id, enabled=enabled, visibility=visibility)
+        if result.get('ok'):
+            try:
+                uid = str(user_id)
+                cache.delete_pattern(f"collections_detail:{uid}:-api-collections-{collection_id}*")
+                cache.delete_pattern(f"collections_list:{uid}:*")
+            except Exception:
+                pass
+            # צרף URL ציבורי אם מופעל
+            try:
+                col = result.get('collection') or {}
+                share = col.get('share') or {}
+                if bool(share.get('enabled')) and share.get('token'):
+                    result['public_url'] = _build_public_collection_url(str(share.get('token')))
+            except Exception:
+                pass
+        return jsonify(result)
+    except Exception as e:
+        rid = _get_request_id()
+        try:
+            emit_event("collections_share_error", severity="anomaly", operation="collections.share", handled=True, request_id=rid, collection_id=str(collection_id), error=str(e))
+        except Exception:
+            pass
+        logger.error("Error updating share: %s", e)
+        return jsonify({'ok': False, 'error': 'שגיאה בעדכון שיתוף'}), 500
+
+
+@collections_bp.route('/shared/<token>', methods=['GET'])
+@traced("collections.shared_get")
+def get_shared_collection(token: str):
+    """שליפת אוסף משותף לצפייה ציבורית ללא התחברות (JSON בלבד)."""
+    try:
+        mgr = get_manager()
+        res = mgr.get_collection_by_share_token(token)
+        if not res.get('ok'):
+            return jsonify({'ok': False, 'error': 'לא נמצא'}), 404
+        col = res.get('collection') or {}
+        # שליפת פריטים עבור המשתמש של האוסף (כולל computed)
+        owner_id = (int(col.get('user_id')) if col.get('user_id') is not None else None)
+        cid = (str(col.get('id')) if col.get('id') is not None else None)
+        # חשוב: בדיקת None ולא אמת/שקר — user_id=0 תקין
+        if owner_id is None or cid is None:
+            return jsonify({'ok': False, 'error': 'לא נמצא'}), 404
+        items_res = mgr.get_collection_items(owner_id, cid, page=1, per_page=200, include_computed=True)
+        if not items_res.get('ok'):
+            items_res = {'items': []}
+        return jsonify({'ok': True, 'collection': col, 'items': items_res.get('items') or []})
+    except Exception as e:
+        try:
+            emit_event("collections_shared_get_error", severity="anomaly", operation="collections.shared_get", handled=True, token=str(token), error=str(e))
+        except Exception:
+            pass
+        return jsonify({'ok': False, 'error': 'שגיאה בשליפת שיתוף'}), 500
 
 
 # ==================== Error Handlers ====================

@@ -37,6 +37,27 @@ ImportError בזמן טסטים (telegram / ConversationHandler / filters)
   - צירוף ``ETag`` ו‑``Last-Modified`` גם בתשובת ``200`` וגם ב‑``304``
   - ראו :doc:`/webapp/caching`
 
+שגיאות asyncio: "attached to a different loop" / "Event loop is closed"
+--------------------------------------------------------------------------------
+
+- מקור נפוץ: סשן aiohttp משותף שנוצר בלולאה אחת ומשתמשים בו אחרי שהלולאה נסגרה או הוחלפה (בטסטים/ריסטארט חם).
+- פתרון מהיר: סגרו את הסשן וקבלו חדש לפני השימוש הבא::
+
+   import http_async
+   await http_async.close_session()
+   session = http_async.get_session()
+
+- טיפ לטסטים: איפוס סשן אוטומטי לכל טסט::
+
+   import pytest
+   import http_async
+
+   @pytest.fixture(autouse=True)
+   async def reset_http_session():
+       await http_async.close_session()
+       yield
+       await http_async.close_session()
+
 ``Timezone naive/aware גורם להשוואות שגויות``
   - ודא ש‑``created_at`` ו‑``updated_at`` הם timezone-aware ב‑UTC
   - השוו שניות שלמות (ללא microseconds) מול ``If-Modified-Since``

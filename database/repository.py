@@ -16,6 +16,7 @@ ObjectId = _RealObjectId
 class _CacheLike(Protocol):
     def invalidate_user_cache(self, user_id: int) -> int: ...
     def invalidate_file_related(self, file_id: str, user_id: Optional[int] = None) -> int: ...
+    def delete_pattern(self, pattern: str) -> int: ...
 
 # Fallback cache that implements the minimal interface used here
 class _NullCache:
@@ -23,12 +24,14 @@ class _NullCache:
         return 0
     def invalidate_file_related(self, *args: Any, **kwargs: Any) -> int:
         return 0
+    def delete_pattern(self, *args: Any, **kwargs: Any) -> int:
+        return 0
 
 # ייבוא חסין לאובייקט cache — הטסטים לעיתים ממקפים את המודול `cache_manager`
 # נשתמש ב-Protocol ו-non-optional binding עם fallback כדי לשמר טיפוסים חזקים.
 try:  # נסה להביא את cache (גם אם המודול ממוקף)
     from cache_manager import cache as _cache_instance  # type: ignore
-    cache: _CacheLike = cast("_CacheLike", _cache_instance)
+    cache: _CacheLike = cast(_CacheLike, _cache_instance)
 except Exception:  # pragma: no cover - fallback ללא-אופ
     cache: _CacheLike = _NullCache()
 
@@ -852,6 +855,12 @@ class Repository:
                     cache.invalidate_file_related(file_id=str(file_name), user_id=user_id)
                 except Exception:
                     pass
+                # מחיקת קאש ספציפי של אוספים עבור המשתמש (השפעה על אוספים חכמים)
+                try:
+                    uid = str(user_id)
+                    cache.delete_pattern(f"collections_*:{uid}:*")
+                except Exception:
+                    pass
                 return True
             return False
         except Exception as e:
@@ -879,6 +888,11 @@ class Repository:
             try:
                 for fn in list(set(file_names)):
                     cache.invalidate_file_related(file_id=str(fn), user_id=user_id)
+            except Exception:
+                pass
+            try:
+                uid = str(user_id)
+                cache.delete_pattern(f"collections_*:{uid}:*")
             except Exception:
                 pass
             return int(result.modified_count or 0)
@@ -916,6 +930,11 @@ class Repository:
             if modified > 0 and user_id_for_invalidation is not None:
                 try:
                     cache.invalidate_user_cache(int(user_id_for_invalidation))
+                except Exception:
+                    pass
+                try:
+                    uid = str(user_id_for_invalidation)
+                    cache.delete_pattern(f"collections_*:{uid}:*")
                 except Exception:
                     pass
             return bool(modified and modified > 0)
@@ -988,6 +1007,12 @@ class Repository:
                     )
                 try:
                     cache.invalidate_user_cache(int(user_id))
+                except Exception:
+                    pass
+                # invalidate collections caches as rename affects smart/manual collections
+                try:
+                    uid = str(user_id)
+                    cache.delete_pattern(f"collections_*:{uid}:*")
                 except Exception:
                     pass
             except Exception:
@@ -1108,6 +1133,11 @@ class Repository:
                     cache.invalidate_user_cache(int(user_id_for_invalidation))
                 except Exception:
                     pass
+                try:
+                    uid = str(user_id_for_invalidation)
+                    cache.delete_pattern(f"collections_*:{uid}:*")
+                except Exception:
+                    pass
             return ok
         except Exception as e:
             emit_event("db_delete_large_file_by_id_error", severity="error", error=str(e))
@@ -1182,6 +1212,11 @@ class Repository:
                 modified += int(res2.modified_count or 0)
             if modified > 0:
                 cache.invalidate_user_cache(user_id)
+                try:
+                    uid = str(user_id)
+                    cache.delete_pattern(f"collections_*:{uid}:*")
+                except Exception:
+                    pass
                 return True
             return False
         except Exception as e:
@@ -1199,6 +1234,11 @@ class Repository:
             if ok:
                 try:
                     cache.invalidate_user_cache(int(user_id))
+                except Exception:
+                    pass
+                try:
+                    uid = str(user_id)
+                    cache.delete_pattern(f"collections_*:{uid}:*")
                 except Exception:
                     pass
             return ok

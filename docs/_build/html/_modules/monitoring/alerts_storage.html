@@ -14,11 +14,17 @@
       <script src="../../_static/jquery.js?v=5d32c60e"></script>
       <script src="../../_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
       <script src="../../_static/documentation_options.js?v=0062297a"></script>
-      <script src="../../_static/doctools.js?v=9a2dae69"></script>
+      <script src="../../_static/doctools.js?v=9bcbadda"></script>
       <script src="../../_static/sphinx_highlight.js?v=dc90522c"></script>
-      <script src="../../_static/translations.js?v=714bf7a6"></script>
-      <script src="https://unpkg.com/mermaid@10.2.0/dist/mermaid.min.js"></script>
-      <script>mermaid.initialize({startOnLoad:true});</script>
+      <script src="../../_static/translations.js?v=a336edf7"></script>
+      <script type="module" src="https://cdn.jsdelivr.net/npm/mermaid@11.2.0/dist/mermaid.esm.min.mjs"></script>
+      <script type="module" src="https://cdn.jsdelivr.net/npm/@mermaid-js/layout-elk@0.1.4/dist/mermaid-layout-elk.esm.min.mjs"></script>
+      <script type="module">import mermaid from "https://cdn.jsdelivr.net/npm/mermaid@11.2.0/dist/mermaid.esm.min.mjs";import elkLayouts from "https://cdn.jsdelivr.net/npm/@mermaid-js/layout-elk@0.1.4/dist/mermaid-layout-elk.esm.min.mjs";mermaid.registerLayoutLoaders(elkLayouts);mermaid.initialize({startOnLoad:false});</script>
+      <script src="https://cdn.jsdelivr.net/npm/d3@7.9.0/dist/d3.min.js"></script>
+      <script type="module">
+import mermaid from "https://cdn.jsdelivr.net/npm/mermaid@11.2.0/dist/mermaid.esm.min.mjs";
+window.addEventListener("load", () => mermaid.run());
+</script>
     <script src="../../_static/js/theme.js"></script>
     <link rel="index" title="אינדקס" href="../../genindex.html" />
     <link rel="search" title="חיפוש" href="../../search.html" /> 
@@ -120,7 +126,9 @@
 </ul>
 </li>
 <li class="toctree-l1"><a class="reference internal" href="../../whats-new.html">What’s New</a><ul>
-<li class="toctree-l2"><a class="reference internal" href="../../whats-new.html#id1">2025-10-15</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../whats-new.html#id1">2025-10-30</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../whats-new.html#id2">2025-10-29</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../whats-new.html#id3">2025-10-15</a></li>
 </ul>
 </li>
 <li class="toctree-l1"><a class="reference internal" href="../../architecture.html">ארכיטקטורה</a><ul>
@@ -129,6 +137,7 @@
 <li class="toctree-l2"><a class="reference internal" href="../../architecture.html#id4">מבנה תיקיות</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../../architecture.html#id5">זרימות מרכזיות</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../../architecture.html#id6">קישורים</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../architecture.html#http-aiohttp">תשתית HTTP – סשן aiohttp משותף</a></li>
 </ul>
 </li>
 <li class="toctree-l1"><a class="reference internal" href="../../contributing.html">מדריך תרומה</a><ul>
@@ -178,6 +187,7 @@
 <li class="toctree-l2"><a class="reference internal" href="../../configuration.html#environment-variables">Environment variables</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../../configuration.html#databases-and-cache-pooling-timeouts">Databases and Cache (Pooling/Timeouts)</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../../configuration.html#http-clients">HTTP Clients</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../configuration.html#http-async-async-http">שימוש ב‑http_async (Async HTTP)</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../../configuration.html#http-sync-sync-http">שימוש ב‑http_sync (Sync HTTP)</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../../configuration.html#flask">Flask</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../../configuration.html#telegram-bot">Telegram Bot</a></li>
@@ -209,8 +219,9 @@
 <li class="toctree-l2"><a class="reference internal" href="../../performance-scaling.html#projection">Projection</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../../performance-scaling.html#id1">דגשים</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../../performance-scaling.html#connection-pooling-timeouts">כוונון Connection Pooling ו-Timeouts</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../performance-scaling.html#id2">לוגי איטיות (מהיר לאיתור צווארי בקבוק)</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../../performance-scaling.html#env">בדיקות מהירות אחרי שינוי ENV</a></li>
-<li class="toctree-l2"><a class="reference internal" href="../../performance-scaling.html#id2">הנחיות לפי סביבה</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../performance-scaling.html#id3">הנחיות לפי סביבה</a></li>
 </ul>
 </li>
 <li class="toctree-l1"><a class="reference internal" href="../../large-files-runbook.html">טיפול בקבצים גדולים (Large Files)</a><ul>
@@ -464,6 +475,11 @@
 <li class="toctree-l4"><a class="reference internal" href="../../api/handlers.html#submodules">Submodules</a></li>
 </ul>
 </li>
+<li class="toctree-l3"><a class="reference internal" href="../../api/http_async.html">http_async module</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../../api/http_async.html#http_async.get_session"><code class="docutils literal notranslate"><span class="pre">get_session()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../api/http_async.html#http_async.close_session"><code class="docutils literal notranslate"><span class="pre">close_session()</span></code></a></li>
+</ul>
+</li>
 <li class="toctree-l3"><a class="reference internal" href="../../api/http_sync.html">http_sync module</a><ul>
 <li class="toctree-l4"><a class="reference internal" href="../../api/http_sync.html#http_sync.get_session"><code class="docutils literal notranslate"><span class="pre">get_session()</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="../../api/http_sync.html#http_sync.request"><code class="docutils literal notranslate"><span class="pre">request()</span></code></a></li>
@@ -507,6 +523,7 @@
 <li class="toctree-l4"><a class="reference internal" href="../../api/metrics.html#metrics.get_boot_monotonic"><code class="docutils literal notranslate"><span class="pre">get_boot_monotonic()</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="../../api/metrics.html#metrics.mark_startup_complete"><code class="docutils literal notranslate"><span class="pre">mark_startup_complete()</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="../../api/metrics.html#metrics.note_first_request_latency"><code class="docutils literal notranslate"><span class="pre">note_first_request_latency()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../api/metrics.html#metrics.get_process_uptime_seconds"><code class="docutils literal notranslate"><span class="pre">get_process_uptime_seconds()</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="../../api/metrics.html#metrics.record_dependency_init"><code class="docutils literal notranslate"><span class="pre">record_dependency_init()</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="../../api/metrics.html#metrics.get_uptime_percentage"><code class="docutils literal notranslate"><span class="pre">get_uptime_percentage()</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="../../api/metrics.html#metrics.set_adaptive_observability_gauges"><code class="docutils literal notranslate"><span class="pre">set_adaptive_observability_gauges()</span></code></a></li>
@@ -680,10 +697,7 @@
 </li>
 </ul>
 </li>
-<li class="toctree-l2"><a class="reference internal" href="../../handlers/index.html#file-view-handler">File View Handler</a><ul>
-<li class="toctree-l3"><a class="reference internal" href="../../handlers/index.html#file-view-handler-module">File View Handler Module</a></li>
-</ul>
-</li>
+<li class="toctree-l2"><a class="reference internal" href="../../handlers/index.html#file-view-handler">File View Handler</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../../handlers/index.html#pagination-handler">Pagination Handler</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../../handlers/index.html#save-flow-handler">Save Flow Handler</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../../handlers/index.html#states-handler">States Handler</a></li>
@@ -818,6 +832,8 @@
 <li class="toctree-l2"><a class="reference internal" href="../../testing.html#stubs">טעינת Stubs לטלגרם</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../../testing.html#tmp-path">דוגמת שימוש ב‑tmp_path</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../../testing.html#id2">מחיקה בטוחה</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../testing.html#mocking-http-github-menu-handler">Mocking HTTP ב‑github_menu_handler</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../testing.html#blueprint">רישום Blueprint בסביבת טסטים</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../../testing.html#pytest-cov">כיסוי בדיקות (pytest-cov)</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../../testing.html#ci">CI נתמך</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../../testing.html#performance">בדיקות ביצועים (Performance)</a></li>
@@ -880,6 +896,7 @@
 <li class="toctree-l2"><a class="reference internal" href="../../troubleshooting.html#id1">שגיאות נפוצות</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../../troubleshooting.html#importerror-telegram-conversationhandler-filters">ImportError בזמן טסטים (telegram / ConversationHandler / filters)</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../../troubleshooting.html#parse-mode">שגיאות parse_mode</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../troubleshooting.html#asyncio-attached-to-a-different-loop-event-loop-is-closed">שגיאות asyncio: ”attached to a different loop“ / ”Event loop is closed“</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../../troubleshooting.html#id2">דיבוג מהיר</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../../troubleshooting.html#mongodb">בדיקת חיבור MongoDB</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../../troubleshooting.html#id3">קישורים</a></li>
@@ -996,6 +1013,7 @@
 <li class="toctree-l2"><a class="reference internal" href="../../user/my_collections.html#id5">מגבלות ופרטיות</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../../user/my_collections.html#api">API קצר (למפתחים)</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../../user/my_collections.html#id6">טיפים</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../user/my_collections.html#id7">מובייל/טאבלט – גרירה לסידור</a></li>
 </ul>
 </li>
 <li class="toctree-l1"><a class="reference internal" href="../../user/share_code.html">שיתוף קוד (חשוב)</a><ul>
@@ -1053,6 +1071,13 @@
 <li class="toctree-l2"><a class="reference internal" href="../../webapp/caching.html#gotchas">Gotchas נפוצים</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../../webapp/caching.html#cache-control">שילוב עם Cache-Control</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../../webapp/caching.html#id3">קישורים נוספים</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../../webapp/advanced-caching.html">מערכת Caching מתקדמת עם TTL דינמי</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../webapp/advanced-caching.html#id1">עקרונות</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../webapp/advanced-caching.html#id2">קוד לדוגמה</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../webapp/advanced-caching.html#id3">דגשים תפעוליים</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../webapp/advanced-caching.html#id4">קישורים</a></li>
 </ul>
 </li>
 <li class="toctree-l1"><a class="reference internal" href="../../webapp/static-checklist.html">Static Performance &amp; Security Checklist (gzip/br, Cache, SRI)</a><ul>
@@ -1157,6 +1182,32 @@
 </li>
 <li class="toctree-l1"><a class="reference internal" href="../../alerts.html">התראות (Alerts)</a><ul>
 <li class="toctree-l2"><a class="reference internal" href="../../alerts.html#id1">חוקי התראה לדוגמה</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../alerts.html#id2">ראו גם</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../../observability/log_based_alerts.html">התראות מבוססות לוגים (Log‑based Alerts)</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../observability/log_based_alerts.html#id1">מה זה ולמה</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../observability/log_based_alerts.html#id2">הרכיבים בקוד</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../observability/log_based_alerts.html#id3">קבצי קונפיג</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../../observability/log_based_alerts.html#config-error-signatures-yml">דוגמה מינימלית: <code class="docutils literal notranslate"><span class="pre">config/error_signatures.yml</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../observability/log_based_alerts.html#config-alerts-yml">דוגמה מינימלית: <code class="docutils literal notranslate"><span class="pre">config/alerts.yml</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../../observability/log_based_alerts.html#option-b">Option B – חיבור בתוך הקוד (מומש)</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../../observability/log_based_alerts.html#id4">משתני סביבה</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../../observability/log_based_alerts.html#option-a-sidecar">Option A – Sidecar מזרם לוגים</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../observability/log_based_alerts.html#id5">ספים וקיבוץ – ברירות מחדל</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../observability/log_based_alerts.html#fingerprint">אסטרטגיית fingerprint וקנוניקליזציה</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../observability/log_based_alerts.html#id6">צ’קליסט למפתחים</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../observability/log_based_alerts.html#id7">בדיקה מקומית (סימולציה)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../observability/log_based_alerts.html#ai">הנחיות לסוכני AI</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../observability/log_based_alerts.html#id8">אבטחה ופרטיות</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../observability/log_based_alerts.html#rollout">Rollout מומלץ</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../observability/log_based_alerts.html#troubleshooting">Troubleshooting</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../observability/log_based_alerts.html#id9">ראו גם</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../observability/log_based_alerts.html#id10">קישורים לקוד</a></li>
 </ul>
 </li>
 <li class="toctree-l1"><a class="reference internal" href="../../sentry.html">Sentry</a><ul>
@@ -1204,6 +1255,15 @@
 <li class="toctree-l2"><a class="reference internal" href="../../chatops/commands.html#observe-v">/observe -v (מפורט)</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../../chatops/commands.html#observe-vv">/observe -vv (מפורט מאוד)</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../../chatops/commands.html#rate-limit">/rate_limit</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../../chatops/observe.html">ChatOps – /observe: הרחבות -v ו- -vv</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../chatops/observe.html#id1">תחביר ופרמטרים</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../chatops/observe.html#id2">דוגמאות</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../chatops/observe.html#v">פלט לדוגמה – ‎-v</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../chatops/observe.html#vv">פלט לדוגמה – ‎-vv</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../chatops/observe.html#id3">הערות שימוש</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../chatops/observe.html#id4">קישורים רלוונטיים</a></li>
 </ul>
 </li>
 <li class="toctree-l1"><a class="reference internal" href="../../chatops/playbooks.html">Playbooks – תרחישים נפוצים</a><ul>
@@ -1332,10 +1392,13 @@
 
 
 <span class="k">def</span> <span class="nf">_enabled</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="nb">bool</span><span class="p">:</span>
+    <span class="c1"># Explicit opt-in wins over global disable to support tests and targeted writes</span>
+    <span class="k">if</span> <span class="n">_is_true</span><span class="p">(</span><span class="n">os</span><span class="o">.</span><span class="n">getenv</span><span class="p">(</span><span class="s2">&quot;ALERTS_DB_ENABLED&quot;</span><span class="p">)):</span>
+        <span class="k">return</span> <span class="kc">True</span>
     <span class="k">if</span> <span class="n">_is_true</span><span class="p">(</span><span class="n">os</span><span class="o">.</span><span class="n">getenv</span><span class="p">(</span><span class="s2">&quot;DISABLE_DB&quot;</span><span class="p">)):</span>
         <span class="k">return</span> <span class="kc">False</span>
-    <span class="c1"># Prefer explicit ALERTS_DB_ENABLED, otherwise fall back to METRICS_DB_ENABLED</span>
-    <span class="k">return</span> <span class="n">_is_true</span><span class="p">(</span><span class="n">os</span><span class="o">.</span><span class="n">getenv</span><span class="p">(</span><span class="s2">&quot;ALERTS_DB_ENABLED&quot;</span><span class="p">))</span> <span class="ow">or</span> <span class="n">_is_true</span><span class="p">(</span><span class="n">os</span><span class="o">.</span><span class="n">getenv</span><span class="p">(</span><span class="s2">&quot;METRICS_DB_ENABLED&quot;</span><span class="p">))</span>
+    <span class="c1"># Fall back to metrics DB flag when explicit alerts flag is not set</span>
+    <span class="k">return</span> <span class="n">_is_true</span><span class="p">(</span><span class="n">os</span><span class="o">.</span><span class="n">getenv</span><span class="p">(</span><span class="s2">&quot;METRICS_DB_ENABLED&quot;</span><span class="p">))</span>
 
 
 <span class="n">_client</span> <span class="o">=</span> <span class="kc">None</span>  <span class="c1"># type: ignore</span>
@@ -1360,10 +1423,9 @@
             <span class="n">_init_failed</span> <span class="o">=</span> <span class="kc">True</span>
             <span class="k">return</span> <span class="kc">None</span>
 
-        <span class="n">mongo_url</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">getenv</span><span class="p">(</span><span class="s2">&quot;MONGODB_URL&quot;</span><span class="p">)</span>
-        <span class="k">if</span> <span class="ow">not</span> <span class="n">mongo_url</span><span class="p">:</span>
-            <span class="n">_init_failed</span> <span class="o">=</span> <span class="kc">True</span>
-            <span class="k">return</span> <span class="kc">None</span>
+        <span class="c1"># Allow tests/environments without explicit URL to fall back to localhost.</span>
+        <span class="c1"># This keeps public APIs fail-open and enables unit-test fakes for pymongo.</span>
+        <span class="n">mongo_url</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">getenv</span><span class="p">(</span><span class="s2">&quot;MONGODB_URL&quot;</span><span class="p">)</span> <span class="ow">or</span> <span class="s2">&quot;mongodb://localhost:27017&quot;</span>
 
         <span class="n">db_name</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">getenv</span><span class="p">(</span><span class="s2">&quot;DATABASE_NAME&quot;</span><span class="p">)</span> <span class="ow">or</span> <span class="s2">&quot;code_keeper_bot&quot;</span>
         <span class="n">coll_name</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">getenv</span><span class="p">(</span><span class="s2">&quot;ALERTS_COLLECTION&quot;</span><span class="p">)</span> <span class="ow">or</span> <span class="s2">&quot;alerts_log&quot;</span>

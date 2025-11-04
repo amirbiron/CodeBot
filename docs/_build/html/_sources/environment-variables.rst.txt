@@ -529,6 +529,24 @@
      - ``0.2``
      - ``0.2``
      - Bot/WebApp
+   * - ``SLOW_MS``
+     - סף מילישניות ללוג "בקשה איטית" ב‑Flask/WebApp
+     - לא
+     - ``0`` (מכובה)
+     - ``500``
+     - WebApp
+   * - ``HTTP_SLOW_MS``
+     - סף מילישניות ללוג "slow_http" ב‑http_sync (requests)
+     - לא
+     - ``0`` (מכובה)
+     - ``400``
+     - Bot/WebApp
+   * - ``DB_SLOW_MS``
+     - סף מילישניות ללוג "slow_mongo" (MongoDB CommandListener)
+     - לא
+     - ``0`` (מכובה)
+     - ``20``
+     - Bot/WebApp
    * - ``SEARCH_PAGE_SIZE``
      - גודל דף חיפוש בצד ה‑DB
      - לא
