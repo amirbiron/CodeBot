@@ -91,6 +91,11 @@ class CollectionsManager:
         self.collections = db.user_collections
         self.items = db.collection_items
         self.code_snippets = getattr(db, "code_snippets", None)
+        # תמיכה בקבצים גדולים (large_files) לצורך בדיקת סטטוס פעילות
+        try:
+            self.large_files = getattr(db, "large_files", None)
+        except Exception:
+            self.large_files = None
         self._ensure_indexes()
 
     # --- Indexes ---
@@ -648,10 +653,58 @@ class CollectionsManager:
             end = start + pp
             page_items = out_items[start:end]
 
-            # החזרה
+            # חישוב סטטוס פעילות קובץ (Data integrity): ערך בוליאני is_file_active
+            try:
+                active_map: Dict[Tuple[str, str], bool] = {}
+                # אסוף זוגות ייחודיים (source, file_name) מהעמוד בלבד
+                uniq: List[Tuple[str, str]] = []
+                seen_keys: set[Tuple[str, str]] = set()
+                for it in page_items:
+                    src = str(it.get("source") or "regular")
+                    fn = str(it.get("file_name") or "")
+                    if not fn:
+                        continue
+                    k = (src, fn)
+                    if k not in seen_keys:
+                        seen_keys.add(k)
+                        uniq.append(k)
+
+                # בדיקה נאיבית (מספקת ל-per_page ≤ 200) עם גישה בטוחה למסד
+                for src, fn in uniq:
+                    is_active = True
+                    try:
+                        if src == "large" and self.large_files is not None:
+                            doc = self.large_files.find_one({
+                                "user_id": int(user_id),
+                                "file_name": fn,
+                                "$or": [{"is_active": True}, {"is_active": {"$exists": False}}],
+                            })
+                            is_active = bool(doc is not None)
+                        elif self.code_snippets is not None:
+                            doc = self.code_snippets.find_one({
+                                "user_id": int(user_id),
+                                "file_name": fn,
+                                "$or": [{"is_active": True}, {"is_active": {"$exists": False}}],
+                            })
+                            is_active = bool(doc is not None)
+                    except Exception:
+                        # אם יש כשל במסד – נניח פעיל כדי לא להסתיר פריטים (fail-open)
+                        is_active = True
+                    active_map[(src, fn)] = is_active
+            except Exception:
+                active_map = {}
+
+            # החזרה (כולל is_file_active לכל פריט)
+            items_out: List[Dict[str, Any]] = []
+            for x in page_items:
+                item_pub = self._public_item(x)
+                key = (str(item_pub.get("source") or "regular"), str(item_pub.get("file_name") or ""))
+                item_pub["is_file_active"] = bool(active_map.get(key, True))
+                items_out.append(item_pub)
+
             return {
                 "ok": True,
-                "items": [self._public_item(x) for x in page_items],
+                "items": items_out,
                 "page": p,
                 "per_page": pp,
                 "total_manual": manual_total,
@@ -745,3 +798,71 @@ class CollectionsManager:
             "added_at": (d.get("added_at").isoformat() if isinstance(d.get("added_at"), datetime) else None),
             "updated_at": (d.get("updated_at").isoformat() if isinstance(d.get("updated_at"), datetime) else None),
         }
+
+    # --- Sharing helpers ---
+    def set_share(self, user_id: int, collection_id: str, enabled: bool, visibility: Optional[str] = None) -> Dict[str, Any]:
+        """הפעלה/ביטול שיתוף לאוסף. יוצר token אם נדרש.
+
+        visibility: "private" | "link" (ברירת מחדל: "link" כאשר enabled=True)
+        """
+        try:
+            cid = ObjectId(collection_id)
+        except Exception:
+            return {"ok": False, "error": "collection_id לא תקין"}
+
+        vis = str(visibility or ("link" if enabled else "private")).lower()
+        if vis not in {"private", "link"}:
+            return {"ok": False, "error": "visibility לא תקין"}
+
+        try:
+            # שלוף כדי לבדוק token קיים
+            doc = self.collections.find_one({"_id": cid, "user_id": int(user_id)})
+            if not doc:
+                return {"ok": False, "error": "האוסף לא נמצא"}
+            share = dict(doc.get("share") or {})
+            token = share.get("token")
+            if enabled and not token:
+                try:
+                    import secrets
+                    token = secrets.token_urlsafe(16)
+                except Exception:
+                    import uuid
+                    token = uuid.uuid4().hex
+            if not enabled:
+                # בביטול שיתוף נשמר את ה-token כדי לאפשר הפעלה חוזרת; visibility חוזר ל-private
+                vis = "private"
+            new_share = {
+                "enabled": bool(enabled),
+                "token": token if enabled else token,  # שימור token קיים גם אם מנוטרל
+                "visibility": vis,
+            }
+            self.collections.update_one(
+                {"_id": cid, "user_id": int(user_id)},
+                {"$set": {"share": new_share, "updated_at": _now()}},
+            )
+            emit_event("collections_share_update", user_id=int(user_id), collection_id=str(collection_id), enabled=bool(enabled))
+            # החזר מיפוי ציבורי עדכני
+            doc["share"] = new_share
+            return {"ok": True, "collection": self._public_collection(doc)}
+        except Exception as e:
+            emit_event("collections_share_update_error", severity="error", user_id=int(user_id), error=str(e))
+            return {"ok": False, "error": "שגיאה בעדכון שיתוף"}
+
+    def get_collection_by_share_token(self, token: str) -> Dict[str, Any]:
+        """שליפת אוסף לשיתוף ציבורי לפי token.
+
+        מחזיר {ok, collection} ללא אימות משתמש. אם לא נמצא – ok=False.
+        """
+        if not token:
+            return {"ok": False, "error": "token חסר"}
+        try:
+            doc = self.collections.find_one({
+                "share.token": str(token),
+                "share.enabled": True,
+                "$or": [{"is_active": True}, {"is_active": {"$exists": False}}],
+            })
+            if not doc:
+                return {"ok": False, "error": "לא נמצא"}
+            return {"ok": True, "collection": self._public_collection(doc)}
+        except Exception:
+            return {"ok": False, "error": "שגיאה בשליפה"}
