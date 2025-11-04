@@ -302,3 +302,145 @@ async def test_notifications_job_clears_running_flag_on_success(monkeypatch):
 
     assert "_notifications_running" not in session
     assert len(bot.sent) == 1
+
+
+class _FixedDateTime(datetime):
+    _now = datetime(2025, 1, 1, 10, 0, tzinfo=timezone.utc)
+
+    @classmethod
+    def set_now(cls, value: datetime) -> None:
+        cls._now = value
+
+    @classmethod
+    def now(cls, tz=None):  # type: ignore[override]
+        if tz is None:
+            return cls._now.replace(tzinfo=None)
+        return cls._now.astimezone(tz)
+
+    @classmethod
+    def utcnow(cls):  # type: ignore[override]
+        return cls._now.astimezone(timezone.utc).replace(tzinfo=None)
+
+
+@pytest.mark.asyncio
+async def test_notifications_job_pr_update_cooldown(monkeypatch):
+    import github_menu_handler as gh
+
+    handler = gh.GitHubMenuHandler()
+    user_id = 903
+
+    session = handler.get_user_session(user_id)
+    session["selected_repo"] = "owner/name"
+    session["github_token"] = "tok"
+
+    pulls_holder = {"list": []}
+    issues_holder = {"list": []}
+
+    stub_repo = _StubRepo(pulls_holder, issues_holder)
+    monkeypatch.setattr(gh, "Github", lambda token: _StubGithub(token, stub_repo))
+
+    monkeypatch.setattr(gh, "datetime", _FixedDateTime)
+
+    bot = _StubBot()
+    app = _StubApp()
+    # קבע הגדרות התראות עם מקצב של 120 שניות
+    app.user_data[user_id] = {
+        "notifications": {
+            "enabled": True,
+            "interval": 120,
+            "pr": True,
+            "issues": False,
+        }
+    }
+    ctx = types.SimpleNamespace(application=app, bot=bot, user_data={})
+
+    # Initial baseline run
+    _FixedDateTime.set_now(datetime(2025, 1, 1, 10, 0, tzinfo=timezone.utc))
+    await handler._notifications_job(ctx, user_id=user_id, force=True)
+
+    baseline = datetime(2025, 1, 1, 10, 0, tzinfo=timezone.utc)
+    first_update = baseline + timedelta(minutes=5)
+    pr = _StubPR(
+        state="open",
+        merged=False,
+        created_at=first_update - timedelta(minutes=1),
+        updated_at=first_update,
+        html_url="https://example.com/pr/cooldown",
+        title="Cooldown PR",
+    )
+    pr.number = 100
+    pulls_holder["list"] = [pr]
+
+    _FixedDateTime.set_now(first_update + timedelta(seconds=10))
+    await handler._notifications_job(ctx, user_id=user_id, force=True)
+    assert len(bot.sent) == 1
+
+    # Update within cooldown window (90 שניות לאחר ההודעה הראשונה)
+    second_update = first_update + timedelta(seconds=90)
+    pr.updated_at = second_update
+    _FixedDateTime.set_now(second_update + timedelta(seconds=10))
+    await handler._notifications_job(ctx, user_id=user_id, force=True)
+    assert len(bot.sent) == 1  # no additional message
+
+    # Update after cooldown (5 דקות לאחר ההודעה הראשונה)
+    third_update = first_update + timedelta(minutes=5)
+    pr.updated_at = third_update
+    _FixedDateTime.set_now(third_update + timedelta(seconds=10))
+    await handler._notifications_job(ctx, user_id=user_id, force=True)
+    assert len(bot.sent) == 2
+
+
+@pytest.mark.asyncio
+async def test_notifications_job_future_baseline_clamped(monkeypatch):
+    import github_menu_handler as gh
+
+    handler = gh.GitHubMenuHandler()
+    user_id = 904
+
+    session = handler.get_user_session(user_id)
+    session["selected_repo"] = "owner/name"
+    session["github_token"] = "tok"
+
+    pulls_holder = {"list": []}
+    issues_holder = {"list": []}
+
+    stub_repo = _StubRepo(pulls_holder, issues_holder)
+    monkeypatch.setattr(gh, "Github", lambda token: _StubGithub(token, stub_repo))
+
+    monkeypatch.setattr(gh, "datetime", _FixedDateTime)
+
+    bot = _StubBot()
+    app = _StubApp()
+    app.user_data[user_id] = {
+        "notifications": {
+            "enabled": True,
+            "interval": 120,
+            "pr": True,
+            "issues": False,
+        }
+    }
+    ctx = types.SimpleNamespace(application=app, bot=bot, user_data={})
+
+    baseline = datetime(2025, 1, 1, 12, 0, tzinfo=timezone.utc)
+    _FixedDateTime.set_now(baseline)
+    await handler._notifications_job(ctx, user_id=user_id, force=True)
+
+    future_update = baseline + timedelta(minutes=10)
+    pr = _StubPR(
+        state="open",
+        merged=False,
+        created_at=future_update - timedelta(minutes=1),
+        updated_at=future_update,
+        html_url="https://example.com/pr/future",
+        title="Future PR",
+    )
+    pr.number = 55
+    pulls_holder["list"] = [pr]
+
+    now_after = baseline + timedelta(minutes=2)
+    _FixedDateTime.set_now(now_after)
+    await handler._notifications_job(ctx, user_id=user_id, force=True)
+
+    stored = session.get("notifications_last", {}).get("pr")
+    assert stored is not None
+    assert stored <= now_after
