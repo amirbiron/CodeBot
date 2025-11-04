@@ -77,8 +77,24 @@
   box-shadow: 0 0 0 2px rgba(74, 144, 226, 0.2);
 }
 /* במסך מלא – לאפשר גלילה בתוך הכרטיס עצמו (תמיכה גם ב-WebKit) */
-#mdCard:fullscreen { height: 100vh; overflow: auto; }
-#mdCard:-webkit-full-screen { height: 100vh; overflow: auto; }
+#mdCard:fullscreen {
+  height: 100vh;
+  overflow: auto;
+  box-shadow: none;
+  background: rgba(18, 29, 62, 0.6);
+}
+#mdCard:-webkit-full-screen {
+  height: 100vh;
+  overflow: auto;
+  box-shadow: none;
+  background: rgba(18, 29, 62, 0.6);
+}
+#mdCard {
+  border: none !important;
+  background: rgba(18, 29, 62, 0.45);
+  backdrop-filter: blur(26px);
+  box-shadow: 0 22px 48px rgba(6, 14, 36, 0.45);
+}
 #md-content img {
   max-width: 100%;
   height: auto;

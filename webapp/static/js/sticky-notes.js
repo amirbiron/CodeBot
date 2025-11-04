@@ -379,6 +379,7 @@
       entry.data.anchor_id = PIN_SENTINEL;
       entry.data.anchor_text = '';
       this._applyPositionMode(el, entry.data, { reflow: false });
+      this._updatePinButtonState(el, true);
       const requestPayload = Object.assign({}, payload, { anchor_id: PIN_SENTINEL, anchor_text: null });
       this._queueSave(el, requestPayload);
       this._flushFor(el);
@@ -394,6 +395,7 @@
       entry.data.anchor_text = '';
       if (el.dataset && el.dataset.pinned) { delete el.dataset.pinned; }
       this._applyPositionMode(el, entry.data, { reflow: true });
+      this._updatePinButtonState(el, false);
       this._queueSave(el, Object.assign({}, payload, { anchor_id: null, anchor_text: null }));
       this._flushFor(el);
     }
@@ -488,36 +490,10 @@
     _toggleAnchor(el){
       try {
         if (!el) return;
-        const entry = this._getEntry(el);
-        const data = entry && entry.data;
-        const isPinned = this._isPinned(el);
-        const hasHeaderAnchor = data && data.anchor_id && data.anchor_id !== PIN_SENTINEL;
-        if (isPinned) {
+        if (this._isPinned(el)) {
           this._unpinNote(el);
           return;
         }
-        if (hasHeaderAnchor) {
-          // remove header anchoring -> floating
-          data.anchor_id = '';
-          data.anchor_text = '';
-          if (el.dataset) { delete el.dataset.anchorId; }
-          this._applyPositionMode(el, data, { reflow: true });
-          this._queueSave(el, { anchor_id: null, anchor_text: null });
-          this._flushFor(el);
-          return;
-        }
-        // try anchor to nearest header
-        const nearest = this._nearestAnchor();
-        if (nearest && nearest.id) {
-          data.anchor_id = String(nearest.id);
-          data.anchor_text = String(nearest.text || '');
-          this._applyPositionMode(el, data, { reflow: false });
-          this._updateAnchoredNotePosition(el, data);
-          this._queueSave(el, { anchor_id: data.anchor_id, anchor_text: data.anchor_text });
-          this._flushFor(el);
-          return;
-        }
-        // fallback: pin to absolute position
         this._pinNote(el);
       } catch(e) {
         console.warn('sticky note: toggle pin failed', e);
