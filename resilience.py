@@ -8,7 +8,7 @@ import threading
 import time
 from collections import deque
 from dataclasses import dataclass
-from typing import Dict, Optional, Tuple
+from typing import Any, Dict, Optional, Tuple
 from urllib.parse import urlparse
 import re
 
@@ -17,14 +17,6 @@ try:  # Structured logging hook (best-effort)
 except Exception:  # pragma: no cover
     def emit_event(_event: str, **_fields):  # type: ignore
         return None
-
-from metrics import (  # noqa: E402  # delayed import for optional deps
-    increment_outbound_retry,
-    record_outbound_request_duration,
-    set_circuit_state,
-    set_circuit_success_rate,
-)
-
 
 # --- Helper functions to read environment overrides ---
 def _env_int(name: str, default: int) -> int:
@@ -245,15 +237,42 @@ class CircuitBreaker:
         self._update_metrics()
 
     def _update_metrics(self) -> None:
+        funcs = _get_metrics_funcs()
+        if not funcs:
+            return
         try:
-            set_circuit_state(self.service, self.endpoint, STATE_VALUES.get(self._state, 0.0))
-            set_circuit_success_rate(self.service, self.endpoint, self.success_rate())
+            funcs["set_circuit_state"](self.service, self.endpoint, STATE_VALUES.get(self._state, 0.0))
+            funcs["set_circuit_success_rate"](self.service, self.endpoint, self.success_rate())
         except Exception:
             return
 
 
 _CIRCUITS: Dict[Tuple[str, str], CircuitBreaker] = {}
 _CIRCUITS_LOCK = threading.Lock()
+_METRICS_FUNCS: Optional[Dict[str, Any]] = None
+
+
+def _get_metrics_funcs() -> Dict[str, Any]:
+    global _METRICS_FUNCS
+    if _METRICS_FUNCS:
+        return _METRICS_FUNCS
+    try:
+        from metrics import (
+            increment_outbound_retry,
+            record_outbound_request_duration,
+            set_circuit_state,
+            set_circuit_success_rate,
+        )
+    except Exception:
+        return {}
+    else:
+        _METRICS_FUNCS = {
+            "increment_outbound_retry": increment_outbound_retry,
+            "record_outbound_request_duration": record_outbound_request_duration,
+            "set_circuit_state": set_circuit_state,
+            "set_circuit_success_rate": set_circuit_success_rate,
+        }
+    return _METRICS_FUNCS or {}
 
 
 def get_circuit_breaker(
@@ -280,8 +299,20 @@ def get_circuit_breaker(
 
 
 def note_retry(service: str, endpoint: str) -> None:
-    increment_outbound_retry(service, endpoint)
+    funcs = _get_metrics_funcs()
+    if not funcs:
+        return
+    try:
+        funcs["increment_outbound_retry"](service, endpoint)
+    except Exception:
+        return
 
 
 def note_request_duration(service: str, endpoint: str, status: str, duration: float) -> None:
-    record_outbound_request_duration(service, endpoint, status, duration)
+    funcs = _get_metrics_funcs()
+    if not funcs:
+        return
+    try:
+        funcs["record_outbound_request_duration"](service, endpoint, status, duration)
+    except Exception:
+        return
