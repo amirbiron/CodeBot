@@ -6,6 +6,7 @@ Advanced Search Engine for Code Snippets
 import logging
 import math
 import re
+import hashlib
 from collections import Counter, defaultdict
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
@@ -44,6 +45,30 @@ except Exception:  # pragma: no cover
     @contextmanager
     def track_performance(operation: str, labels=None):
         yield
+
+try:
+    from observability_instrumentation import traced, set_current_span_attributes
+except Exception:  # pragma: no cover
+    def traced(*_a, **_k):  # type: ignore
+        def _inner(f):
+            return f
+        return _inner
+
+    def set_current_span_attributes(*_a, **_k):  # type: ignore
+        return None
+
+
+def _hash_identifier(value: Any) -> str:
+    try:
+        text = str(value).strip()
+    except Exception:
+        return ""
+    if not text:
+        return ""
+    try:
+        return hashlib.sha256(text.encode("utf-8", "ignore")).hexdigest()[:16]
+    except Exception:
+        return ""
 
 class SearchType(Enum):
     """סוגי חיפוש"""
@@ -102,10 +127,17 @@ class SearchIndex:
         self.tag_index: Dict[str, Set[str]] = defaultdict(set)  # תגית -> קבצים
         self.last_update = datetime.min.replace(tzinfo=timezone.utc)
         
+    @traced("search.index.rebuild")
     def rebuild_index(self, user_id: int):
         """בניית האינדקס מחדש"""
         try:
             emit_event("search_index_rebuild_start", severity="info", user_id=int(user_id))
+        except Exception:
+            pass
+        try:
+            hashed = _hash_identifier(user_id)
+            if hashed:
+                set_current_span_attributes({"user_id_hash": hashed})
         except Exception:
             pass
         
@@ -190,6 +222,13 @@ class SearchIndex:
             )
         except Exception:
             pass
+        try:
+            set_current_span_attributes({
+                "words_indexed": int(len(self.word_index)),
+                "functions_indexed": int(len(self.function_index)),
+            })
+        except Exception:
+            pass
     
     def should_rebuild(self, max_age_minutes: int = 30) -> bool:
         """בדיקה אם צריך לבנות אינדקס מחדש"""
@@ -219,11 +258,27 @@ class AdvancedSearchEngine:
         
         return index
     
+    @traced("search_engine.search")
     def search(self, user_id: int, query: str, search_type: SearchType = SearchType.TEXT,
                filters: Optional[SearchFilter] = None, sort_order: SortOrder = SortOrder.RELEVANCE,
                limit: int = 50) -> List[SearchResult]:
         """חיפוש מתקדם"""
         
+        try:
+            user_hash = _hash_identifier(user_id)
+            attrs = {
+                "query.length": int(len(query or "")),
+                "search.type": str(search_type.value if isinstance(search_type, SearchType) else search_type),
+                "limit": int(limit),
+            }
+            if user_hash:
+                attrs["user_id_hash"] = user_hash
+            if filters:
+                attrs["filters.applied"] = True
+            set_current_span_attributes(attrs)
+        except Exception:
+            pass
+
         try:
             try:
                 emit_event(
@@ -236,6 +291,10 @@ class AdvancedSearchEngine:
             except Exception:
                 pass
             if not query.strip():
+                try:
+                    set_current_span_attributes({"results_count": 0})
+                except Exception:
+                    pass
                 return []
             
             # קבלת האינדקס
@@ -279,10 +338,18 @@ class AdvancedSearchEngine:
                     business_events_total.labels(metric="search").inc()
             except Exception:
                 pass
+            try:
+                set_current_span_attributes({"results_count": int(len(results))})
+            except Exception:
+                pass
             return results
             
         except Exception as e:
             logger.error(f"שגיאה בחיפוש: {e}")
+            try:
+                set_current_span_attributes({"status": "error", "error_signature": type(e).__name__})
+            except Exception:
+                pass
             try:
                 emit_event("search_error", severity="error", error=str(e))
             except Exception:
