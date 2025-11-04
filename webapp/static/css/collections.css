@@ -38,7 +38,9 @@
 .share-controls{display:flex;align-items:center;gap:.4rem;background:#f8fafc;border:1px solid #e5e7eb;border-radius:8px;padding:.25rem .5rem}
 .share-controls .share-toggle{display:flex;align-items:center;gap:.25rem;font-size:.85rem;white-space:nowrap}
 .share-controls .share-toggle input{margin:0}
-.share-controls .share-copy{padding:.25rem .5rem;font-size:.85rem}
+.share-controls .share-divider{color:#94a3b8;font-size:.85rem;line-height:1}
+.share-controls .share-copy{display:inline-flex;align-items:center;gap:.2rem;padding:.25rem .5rem;font-size:.85rem;white-space:nowrap}
+.share-controls .share-copy__text{line-height:1}
 .collection-item{
   display:flex;
   align-items:flex-start;
@@ -72,11 +74,14 @@
 
 @media(max-width:640px){
   .collection-header{grid-template-columns:1fr;justify-items:stretch}
-  .collection-header .title,
-  .collection-header .share-controls,
-  .collection-header .actions{justify-self:stretch}
-  .collection-header .share-controls{justify-content:space-between}
-  .collection-header .actions{justify-content:flex-start}
+  .collection-header .title{justify-self:stretch}
+  .collection-header .share-controls{justify-self:flex-start;justify-content:flex-start;padding:.2rem .4rem;gap:.3rem;max-width:100%}
+  .collection-header .actions{justify-self:stretch;justify-content:flex-start}
+}
+@media(max-width:480px){
+  .collection-header .share-controls{padding:.18rem .35rem;gap:.25rem}
+  .collection-header .share-copy{padding:.2rem .4rem;font-size:.8rem}
+  .collection-header .share-divider{font-size:.8rem}
 }
 .collection-item{cursor:pointer}
 .collection-item .drag{cursor:grab}

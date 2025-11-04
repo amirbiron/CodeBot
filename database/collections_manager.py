@@ -123,12 +123,15 @@ class CollectionsManager:
         except Exception:
             pass
 
-    def ensure_default_collections(self, user_id: int) -> None:
-        """מאבטח יצירה של אוספים מובנים עבור משתמש חדש."""
+    def ensure_default_collections(self, user_id: int) -> bool:
+        """מאבטח יצירה של אוספים מובנים עבור משתמש חדש.
+
+        מחזיר True אם נוצר אוסף חדש (למשל "שולחן עבודה"), אחרת False.
+        """
         try:
             uid = int(user_id)
         except Exception:
-            return
+            return False
 
         try:
             existing = self.collections.find_one({
@@ -139,10 +142,11 @@ class CollectionsManager:
             existing = None
 
         if existing:
-            return
+            return False
 
+        created = False
         try:
-            self.create_collection(
+            result = self.create_collection(
                 user_id=uid,
                 name="שולחן עבודה",
                 description="קבצים שאני עובד עליהם כרגע",
@@ -152,8 +156,20 @@ class CollectionsManager:
                 is_favorite=True,
                 sort_order=-1,
             )
+            created = bool(result.get("ok")) if isinstance(result, dict) else False
         except Exception:
-            pass
+            created = False
+
+        if created:
+            try:
+                cache.delete_pattern(f"collections_list:{uid}:*")
+                cache.delete_pattern(f"collections_list:v2:{uid}:*")
+                cache.delete_pattern(f"collections_detail:{uid}:*")
+                cache.delete_pattern(f"collections_items:{uid}:*")
+            except Exception:
+                pass
+
+        return created
 
     # --- Validators ---
     def _validate_name(self, name: str) -> bool:
