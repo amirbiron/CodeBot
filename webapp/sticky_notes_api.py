@@ -534,14 +534,29 @@ def delete_note(note_id: str):
 def batch_update_notes():
     """Batch update multiple notes in one request.
 
-    Body format:
-    {
-      "updates": [
-        {"id": "...", "content": "...", "position": {"x":..,"y":..}, "size": {"width":..,"height":..},
-         "color": "#FFFFCC", "is_minimized": false, "line_start": 10, "line_end": null,
-         "anchor_id": "h2-intro", "anchor_text": "Intro", "prev_updated_at": "ISO"}
-      ]
-    }
+    Body format (JSON):
+
+    .. code-block:: json
+
+        {
+          "updates": [
+            {
+              "id": "...",
+              "content": "...",
+              "position": {"x": 120, "y": 240},
+              "size": {"width": 260, "height": 200},
+              "color": "#FFFFCC",
+              "is_minimized": false,
+              "line_start": 10,
+              "line_end": null,
+              "anchor_id": "h2-intro",
+              "anchor_text": "Intro",
+              "prev_updated_at": "2024-01-01T00:00:00+00:00"
+            }
+          ]
+        }
+
+    Response JSON contains ``results`` with per-item status, e.g. 200/409.
     """
     try:
         user_id = int(session['user_id'])
