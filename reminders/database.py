@@ -99,6 +99,29 @@ class RemindersDB:
             return []
         return items
 
+    def get_future_reminders(self, batch_size: int = 1000) -> List[Dict]:
+        """Return unsent reminders scheduled for the future.
+
+        These reminders are not marked as sent, so they remain eligible if the
+        bot restarts before their scheduled time. Ordering by ``remind_at``
+        ensures deterministic scheduling on startup.
+        """
+        now = datetime.now(timezone.utc)
+        try:
+            cursor = (
+                self.reminders_collection.find({
+                    "status": ReminderStatus.PENDING.value,
+                    "is_sent": False,
+                    "remind_at": {"$gt": now},
+                    "retry_count": {"$lt": ReminderConfig.max_retries},
+                })
+                .sort("remind_at", ASCENDING)
+                .limit(int(batch_size))
+            )
+            return list(cursor)
+        except Exception:
+            return []
+
     def mark_reminder_sent(self, reminder_id: str, success: bool = True, error: str | None = None) -> None:
         """Mark delivery attempt metadata.
 

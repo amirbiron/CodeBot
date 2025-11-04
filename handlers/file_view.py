@@ -166,30 +166,29 @@ async def handle_file_menu(update, context: ContextTypes.DEFAULT_TYPE) -> int:
 
         # הערה: לוגיקת ה־back כבר חושבה למעלה – אין לשכפל כדי לא לדרוס ערך
 
+        webapp_row = _get_webapp_button_row(file_id_str, file_name)
+        share_row = list(webapp_row) if webapp_row else []
+        share_row.append(InlineKeyboardButton("🔗 שתף קוד", callback_data=f"share_menu_idx:{file_index}"))
+
         keyboard = [
             [
-                InlineKeyboardButton("👁️ הצג קוד", callback_data=f"view_{file_index}"),
                 InlineKeyboardButton("✏️ ערוך", callback_data=f"edit_code_{file_index}"),
+                InlineKeyboardButton("👁️ הצג קוד", callback_data=f"view_{file_index}"),
             ],
             [
-                InlineKeyboardButton("📝 שנה שם", callback_data=f"edit_name_{file_index}"),
                 InlineKeyboardButton("📝 ערוך הערה", callback_data=f"edit_note_{file_index}"),
+                InlineKeyboardButton("📝 שנה שם", callback_data=f"edit_name_{file_index}"),
             ],
+            share_row,
             [
                 InlineKeyboardButton("📚 היסטוריה", callback_data=f"versions_{file_index}"),
                 InlineKeyboardButton("📥 הורד", callback_data=f"dl_{file_index}"),
-            ],
-            [
-                InlineKeyboardButton("🔗 שתף קוד", callback_data=f"share_menu_idx:{file_index}")
             ],
             [
                 InlineKeyboardButton("🔄 שכפול", callback_data=f"clone_{file_index}"),
                 InlineKeyboardButton("🗑️ מחק", callback_data=f"del_{file_index}"),
             ],
         ]
-        webapp_row = _get_webapp_button_row(file_id_str, file_name)
-        if webapp_row:
-            keyboard.insert(1, webapp_row)
         last_page = context.user_data.get('files_last_page')
         origin = context.user_data.get('files_origin') or {}
         # קביעה אחידה של יעד כפתור "חזרה" לפי מקור הרשימה
@@ -203,7 +202,6 @@ async def handle_file_menu(update, context: ContextTypes.DEFAULT_TYPE) -> int:
             # ברירת מחדל: חזרה לתפריט הקבצים, לא לולאה של אותו מסך
             back_cb = f"files_page_{last_page}" if last_page else "files"
         keyboard.append([InlineKeyboardButton("🔙 חזרה לרשימה", callback_data=back_cb)])
-        reply_markup = InlineKeyboardMarkup(keyboard)
         note = file_data.get('description') or ''
         if note:
             try:
@@ -236,8 +234,9 @@ async def handle_file_menu(update, context: ContextTypes.DEFAULT_TYPE) -> int:
             except Exception:
                 pass
             fav_cb = f"fav_toggle_tok:{short_tok}"
-        # הוסף שורת מועדפים לפני כפתור החזרה
-        keyboard.insert(-1, [InlineKeyboardButton(fav_text, callback_data=fav_cb)])
+        # הוסף שורת מועדפים לפני היסטוריה/הורדה
+        keyboard.insert(3, [InlineKeyboardButton(fav_text, callback_data=fav_cb)])
+        reply_markup = InlineKeyboardMarkup(keyboard)
 
         await TelegramUtils.safe_edit_message_text(
             query,
@@ -323,8 +322,9 @@ async def handle_view_file(update, context: ContextTypes.DEFAULT_TYPE) -> int:
             [InlineKeyboardButton("🔙 חזרה", callback_data=back_cb)],
         ]
         webapp_row = _get_webapp_button_row(file_id_str or None, file_name)
-        if webapp_row:
-            keyboard.insert(0, webapp_row)
+        share_row = list(webapp_row) if webapp_row else []
+        share_row.append(InlineKeyboardButton("🔗 שתף קוד", callback_data=f"share_menu_idx:{file_index}"))
+        keyboard.insert(3, share_row)
         # כפתור מועדפים (הוסף/הסר) לפי המצב הנוכחי
         try:
             from database import db as _db
