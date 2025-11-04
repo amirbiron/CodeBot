@@ -267,6 +267,49 @@
         .btn-secondary:hover {
             background: rgba(255, 255, 255, 0.2);
         }
+
+        .workspace-btn {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            border: none;
+            position: relative;
+            color: white;
+        }
+
+        .workspace-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(102, 126, 234, 0.4);
+        }
+
+        .collection-option {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            margin: 0.25rem 0;
+        }
+
+        .collection-option input[type="radio"] {
+            flex: 0 0 auto;
+        }
+
+        .workspace-collection-option {
+            margin: 0.5rem 0;
+            padding: 0.5rem;
+            background: rgba(102, 126, 234, 0.1);
+            border-radius: 8px;
+            border: 1px solid rgba(102, 126, 234, 0.3);
+        }
+
+        .workspace-collection-option span {
+            font-weight: 600;
+        }
+
+        .collection-option-divider {
+            margin: 0.75rem 0 0.5rem;
+            font-size: 0.85rem;
+            color: #666;
+            border-top: 1px solid #ddd;
+            padding-top: 0.5rem;
+        }
         
         .btn-icon {
             display: inline-flex;
@@ -928,6 +971,29 @@
             if (modal) modal.remove();
         }
 
+        async function navigateToWorkspace() {
+            try {
+                const res = await fetch('/api/collections?limit=100');
+                if (!res.ok) {
+                    throw new Error('HTTP ' + res.status);
+                }
+                const data = await res.json();
+                if (!data || !data.ok) {
+                    throw new Error((data && data.error) || 'שגיאה בטעינת אוספים');
+                }
+                const collections = Array.isArray(data.collections) ? data.collections : [];
+                const workspace = collections.find(c => c && c.name === 'שולחן עבודה');
+                if (workspace && workspace.id) {
+                    window.location.href = `/collections/${workspace.id}`;
+                    return;
+                }
+                alert('אוסף שולחן עבודה לא נמצא');
+            } catch (err) {
+                console.error('Error navigating to workspace:', err);
+                alert('שגיאה בטעינת שולחן העבודה');
+            }
+        }
+
         function getFileIcon(language) {
             const icons = {
                 'python': '🐍',
@@ -1009,6 +1075,40 @@
         // Add to Collection modal helpers
         function getLastCollectionId(){ try { return localStorage.getItem('last_collection_id') || ''; } catch(_) { return ''; } }
         function setLastCollectionId(id){ try { localStorage.setItem('last_collection_id', String(id||'')); } catch(_) {} }
+        function renderCollectionOptions(collections, lastSelected){
+            const list = Array.isArray(collections) ? collections : [];
+            const lastIdStr = String(lastSelected || '').trim();
+            const hasLast = lastIdStr && list.some(c => c && c.id !== undefined && String(c.id) === lastIdStr);
+            const workspace = list.find(c => c && c.name === 'שולחן עבודה' && c.id);
+            const others = list.filter(c => c && c.name !== 'שולחן עבודה' && c.id);
+
+            let selected = hasLast ? lastIdStr : '';
+            if (!selected && workspace && workspace.id) {
+                selected = String(workspace.id);
+            }
+
+            let html = '';
+            if (workspace && workspace.id) {
+                const isSelected = selected === String(workspace.id);
+                html += `<label class="collection-option workspace-collection-option"><input type="radio" name="collectionId" value="${workspace.id}" ${isSelected ? 'checked' : ''}><span>🖥️ ${escapeHtml(workspace.name || '')}</span></label>`;
+                if (others.length > 0) {
+                    html += '<div class="collection-option-divider">אוספים אחרים:</div>';
+                }
+            }
+
+            html += others.map(col => {
+                if (!col || col.id === undefined) {
+                    return '';
+                }
+                const isSelected = selected === String(col.id);
+                return `<label class="collection-option"><input type="radio" name="collectionId" value="${col.id}" ${isSelected ? 'checked' : ''}><span>${escapeHtml(col.name || '')}</span></label>`;
+            }).join('');
+
+            if (!html) {
+                return '<div class="empty">אין אוספים. צור אוסף חדש במסך "האוספים שלי"</div>';
+            }
+            return html;
+        }
         window.openAddToCollectionModal = async function(fileName){
             const modal = document.getElementById('addToCollectionModal');
             const body = document.getElementById('addToCollectionBody');
@@ -1019,8 +1119,7 @@
               const data = await res.json();
               if (!data || !data.ok) throw new Error(data && data.error || 'שגיאה');
               const last = getLastCollectionId();
-              const items = (data.collections||[]).map(c => `<label style="display:flex;align-items:center;gap:.5rem;margin:.25rem 0;"><input type="radio" name="collectionId" value="${c.id}" ${String(c.id)===String(last)?'checked':''}><span>${escapeHtml(c.name||'')}</span></label>`).join('');
-              body.innerHTML = items || '<div class="empty">אין אוספים. צור אוסף חדש במסך "האוספים שלי"</div>';
+              body.innerHTML = renderCollectionOptions(data.collections, last);
             } catch (e) {
               body.innerHTML = '<div class="error">שגיאה בטעינת אוספים</div>';
             }
@@ -1037,8 +1136,7 @@
               const data = await res.json();
               if (!data || !data.ok) throw new Error(data && data.error || 'שגיאה');
               const last = getLastCollectionId();
-              const items = (data.collections||[]).map(c => `<label style="display:flex;align-items:center;gap:.5rem;margin:.25rem 0;"><input type="radio" name="collectionId" value="${c.id}" ${String(c.id)===String(last)?'checked':''}><span>${escapeHtml(c.name||'')}</span></label>`).join('');
-              body.innerHTML = items || '<div class="empty">אין אוספים. צור אוסף חדש במסך "האוספים שלי"</div>';
+              body.innerHTML = renderCollectionOptions(data.collections, last);
             } catch (e) {
               body.innerHTML = '<div class="error">שגיאה בטעינת אוספים</div>';
             }

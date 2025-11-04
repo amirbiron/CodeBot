@@ -143,6 +143,25 @@ def mgr() -> CollectionsManager:
     return CollectionsManager(FakeDB())
 
 
+def test_ensure_default_collections_creates_once(mgr: CollectionsManager):
+    mgr.ensure_default_collections(42)
+    first = mgr.list_collections(42)
+    assert first["ok"]
+    collections = first["collections"]
+    assert any(col["name"] == "שולחן עבודה" for col in collections)
+    workspace = next(col for col in collections if col["name"] == "שולחן עבודה")
+    assert workspace["is_favorite"] is True
+    assert workspace["sort_order"] == -1
+    assert workspace["icon"] == "🖥️"
+    assert workspace["color"] == "purple"
+
+    count_before = len(collections)
+    mgr.ensure_default_collections(42)
+    second = mgr.list_collections(42)
+    assert second["ok"]
+    assert len(second["collections"]) == count_before
+
+
 def test_create_update_delete_list_get_collection(mgr: CollectionsManager):
     # create
     res = mgr.create_collection(user_id=1, name="Favorites", description="desc", mode="manual")
