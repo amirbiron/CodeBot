@@ -126,7 +126,10 @@ def validate_code_input(code: str, file_name: str, user_id: int) -> Tuple[bool, 
             - cleaned_code: הקוד המנוקה
             - error_message: הודעת שגיאה (אם יש)
     """
-    code_length = int(len(code or ""))
+    try:
+        code_length = int(len(code or ""))
+    except TypeError:
+        code_length = 0
     try:
         set_current_span_attributes({
             "code.length": code_length,
@@ -145,13 +148,18 @@ def validate_code_input(code: str, file_name: str, user_id: int) -> Tuple[bool, 
     # אין לבצע נרמול חוזר שעלול לקצץ רווחי סוף שורה במסמכי Markdown.
     # אם בפועל נדרש נרמול נוסף בעתיד, יש להעביר דגלים תואמים לסוג הקובץ.
     try:
+        try:
+            cleaned_length = int(len(cleaned or ""))
+        except TypeError:
+            cleaned_length = 0
         span_attrs = {
             "validation.ok": bool(ok),
             "status": "ok" if ok else "error",
-            "cleaned.length": int(len(cleaned or "")),
+            "cleaned.length": cleaned_length,
             "code.length.original": code_length,
-            "file_name": str(file_name or ""),
         }
+        if file_name:
+            span_attrs["file_name"] = str(file_name)
         if msg:
             span_attrs["error.message"] = str(msg)
         set_current_span_attributes(span_attrs)
