@@ -260,6 +260,27 @@ class DatabaseManager:
             if appname:
                 kwargs["appname"] = appname
 
+            # דחיסה (compressors) — רשימת קומפרסורים מופרדת בפסיקים
+            try:
+                compressors_raw = (
+                    getattr(config, "MONGODB_COMPRESSORS", None)
+                    or os.getenv("MONGODB_COMPRESSORS", "")
+                )
+                if compressors_raw:
+                    compressors_list = [c.strip() for c in str(compressors_raw).split(",") if c and str(c).strip()]
+                    if compressors_list:
+                        kwargs["compressors"] = compressors_list
+            except Exception:
+                pass
+
+            # heartbeatFrequencyMS — תדירות דופק השרת
+            try:
+                hb = int(getattr(config, "MONGODB_HEARTBEAT_FREQUENCY_MS", 10_000))
+                if hb and hb > 0:
+                    kwargs["heartbeatFrequencyMS"] = hb
+            except Exception:
+                pass
+
             mongo_url = getattr(config, "MONGODB_URL", None) or os.getenv("MONGODB_URL")
             if not mongo_url:
                 raise RuntimeError("MONGODB_URL is not configured")
