@@ -2284,6 +2284,11 @@ def telegram_auth():
             )
         except Exception:
             pass
+        try:
+            from database.collections_manager import CollectionsManager
+            CollectionsManager(db).ensure_default_collections(user_id)
+        except Exception:
+            pass
     session['user_id'] = user_id
     session['user_data'] = {
         'id': user_id,
@@ -2356,6 +2361,11 @@ def token_auth():
                 },
                 upsert=True,
             )
+        except Exception:
+            pass
+        try:
+            from database.collections_manager import CollectionsManager
+            CollectionsManager(db).ensure_default_collections(int(user_id))
         except Exception:
             pass
         

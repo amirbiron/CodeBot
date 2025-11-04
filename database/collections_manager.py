@@ -44,7 +44,8 @@ except Exception:  # pragma: no cover
 
 
 ALLOWED_ICONS: List[str] = [
-    "📂","📘","🎨","🧩","🐛","⚙️","📝","🧪","💡","⭐","🔖","🚀"
+    "📂","📘","🎨","🧩","🐛","⚙️","📝","🧪","💡","⭐","🔖","🚀",
+    "🖥️","💼","🖱️","⌨️","📱","💻","🖨️","📊","📈","📉","🔧","🛠️"
 ]
 COLLECTION_COLORS: List[str] = [
     "blue","green","purple","orange","red","teal","pink","yellow"
@@ -119,6 +120,38 @@ class CollectionsManager:
                 IndexModel([("collection_id", ASCENDING), ("custom_order", ASCENDING), ("pinned", DESCENDING)], name="order_pin"),
                 IndexModel([("user_id", ASCENDING)], name="by_user"),
             ])
+        except Exception:
+            pass
+
+    def ensure_default_collections(self, user_id: int) -> None:
+        """מאבטח יצירה של אוספים מובנים עבור משתמש חדש."""
+        try:
+            uid = int(user_id)
+        except Exception:
+            return
+
+        try:
+            existing = self.collections.find_one({
+                "user_id": uid,
+                "name": "שולחן עבודה",
+            })
+        except Exception:
+            existing = None
+
+        if existing:
+            return
+
+        try:
+            self.create_collection(
+                user_id=uid,
+                name="שולחן עבודה",
+                description="קבצים שאני עובד עליהם כרגע",
+                mode="manual",
+                icon="🖥️",
+                color="purple",
+                is_favorite=True,
+                sort_order=-1,
+            )
         except Exception:
             pass
 
