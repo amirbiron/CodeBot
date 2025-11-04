@@ -163,6 +163,7 @@ async def test_async_request_retries_on_http_error(monkeypatch):
         backoff_base=0.0,
         backoff_cap=0.0,
         jitter=0.0,
+        max_attempts=3,
     ) as resp:
         assert resp.status == 200
 

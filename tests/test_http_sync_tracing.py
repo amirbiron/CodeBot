@@ -143,6 +143,7 @@ def test_http_sync_retries_on_http_error(monkeypatch):
         backoff_base=0.0,
         backoff_cap=0.0,
         jitter=0.0,
+        max_attempts=3,
     )
     assert resp.status_code == 200
 
