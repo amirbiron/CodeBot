@@ -882,28 +882,30 @@ class FileUtils:
         """הורדת קובץ מ-URL"""
         
         try:
-            from http_async import get_session
-            session = get_session()
-            async with session.get(url) as response:
-                    if response.status != 200:
-                        logger.error(f"שגיאה בהורדת קובץ: {response.status}")
+            from http_async import request as async_request
+            async with async_request(
+                "GET",
+                url,
+                service="download",
+                endpoint="file",
+            ) as response:
+                if response.status != 200:
+                    logger.error(f"שגיאה בהורדת קובץ: {response.status}")
+                    return None
+
+                content_length = response.headers.get('content-length')
+                if content_length and int(content_length) > max_size:
+                    logger.error(f"קובץ גדול מדי: {content_length} bytes")
+                    return None
+
+                content = b""
+                async for chunk in response.content.iter_chunked(8192):
+                    content += chunk
+                    if len(content) > max_size:
+                        logger.error("קובץ גדול מדי")
                         return None
-                    
-                    # בדיקת גודל
-                    content_length = response.headers.get('content-length')
-                    if content_length and int(content_length) > max_size:
-                        logger.error(f"קובץ גדול מדי: {content_length} bytes")
-                        return None
-                    
-                    # הורדת התוכן
-                    content = b""
-                    async for chunk in response.content.iter_chunked(8192):
-                        content += chunk
-                        if len(content) > max_size:
-                            logger.error("קובץ גדול מדי")
-                            return None
-                    
-                    return content
+
+                return content
         
         except Exception as e:
             logger.error(f"שגיאה בהורדת קובץ: {e}")

@@ -166,19 +166,24 @@ async def test_rate_limit_command_with_warning(monkeypatch):
             return self
         async def __aexit__(self, exc_type, exc, tb):
             return False
+        async def release(self):
+            return None
 
-    class _Session:
-        def __init__(self, *a, **k):
-            pass
+    class _Ctx:
+        def __init__(self, resp):
+            self._resp = resp
         async def __aenter__(self):
-            return self
+            return self._resp
         async def __aexit__(self, exc_type, exc, tb):
             return False
-        def get(self, *a, **k):
-            return _Resp()
 
     import http_async as ha
-    monkeypatch.setattr(ha, "get_session", lambda: _Session(), raising=False)
+    monkeypatch.setattr(
+        ha,
+        "request",
+        lambda *a, **k: _Ctx(_Resp()),
+        raising=False,
+    )
 
     await adv.rate_limit_command(upd, ctx)
     out = "\n".join(upd.message.texts)

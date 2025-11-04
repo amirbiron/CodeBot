@@ -19,12 +19,23 @@ async def test_webhook_non_200_is_handled(monkeypatch):
             return self
         async def __aexit__(self, exc_type, exc, tb):
             return False
+        async def release(self):
+            return None
 
-    class _Sess:
-        def post(self, url, *a, **k):
-            return _Resp(status=500)
+    class _Ctx:
+        def __init__(self, resp):
+            self._resp = resp
+        async def __aenter__(self):
+            return self._resp
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
 
-    monkeypatch.setattr(ha, 'get_session', lambda: _Sess(), raising=False)
+    monkeypatch.setattr(
+        ha,
+        'request',
+        lambda *a, **k: _Ctx(_Resp(status=500)),
+        raising=False,
+    )
 
     # Should complete without raising exceptions
     await integ.webhook_integration.trigger_webhook(1, 'file_created', {'a': 1})

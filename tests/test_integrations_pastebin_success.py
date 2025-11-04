@@ -20,14 +20,23 @@ async def test_pastebin_create_success(monkeypatch):
             return self
         async def __aexit__(self, exc_type, exc, tb):
             return False
+        async def release(self):
+            return None
 
-    class _Sess:
-        def __init__(self, *a, **k):
-            pass
-        def post(self, *a, **k):
-            return _Resp(status=200, text='https://pastebin.com/abc')
+    class _Ctx:
+        def __init__(self, resp):
+            self._resp = resp
+        async def __aenter__(self):
+            return self._resp
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
 
-    monkeypatch.setattr(ha, 'get_session', lambda: _Sess(), raising=False)
+    monkeypatch.setattr(
+        ha,
+        'request',
+        lambda *a, **k: _Ctx(_Resp(status=200, text='https://pastebin.com/abc')),
+        raising=False,
+    )
 
     out = await integ.pastebin_integration.create_paste('code', 'f.py', 'python')
     assert isinstance(out, dict) and out.get('id') == 'abc' and out.get('url', '').endswith('/abc')
