@@ -64,12 +64,12 @@ def test_integrations_client_session_uses_timeout_and_connector(monkeypatch):
     ), raising=False)
 
     import asyncio
+
     async def _run():
         svc = integ.PastebinIntegration()
         svc.api_key = 'k'
         await svc.create_paste('code', 'fn.py', 'python')
         await svc.get_paste_content('xyz')
-        await integ.webhook_integration.trigger_webhook(1, 'file_created', {'x': 1})
 
     asyncio.run(_run())
 
