@@ -168,7 +168,7 @@ Mocking HTTP ב‑github_menu_handler
 CI נתמך
 -------
 
-- ה‑PR חייב לעבור סטטוסים: "🔍 Code Quality & Security", "🧪 Unit Tests (3.11)", "🧪 Unit Tests (3.12)".
+- ה‑PR חייב לעבור סטטוסים: "🔍 Code Quality & Security", "Unit Tests (3.11)", "Unit Tests (3.12)".
 
 בדיקות ביצועים (Performance)
 -----------------------------

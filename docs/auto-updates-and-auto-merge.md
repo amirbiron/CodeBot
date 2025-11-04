@@ -15,7 +15,7 @@
 
 - CI ל־PRים: `.github/workflows/ci.yml`
   - רץ על Pull Request בלבד (לא על push ל־main) כדי למנוע כפילות.
-  - כולל: "🔍 Code Quality & Security", "🧪 Unit Tests" (פייתון 3.11/3.12), וכן hadolint, gitleaks, semgrep, yamllint, lychee, ועוד.
+  - כולל: "🔍 Code Quality & Security", "Unit Tests" (פייתון 3.11/3.12), וכן hadolint, gitleaks, semgrep, yamllint, lychee, ועוד.
 
 - Build/Deploy: `.github/workflows/deploy.yml`
   - רץ על push ל־main/develop ו/או על תגיות `v*`, או ידנית.
@@ -41,9 +41,9 @@
      - Require a pull request before merging
      - Require status checks to pass before merging
        - בחר את הסטטוסים שמגיעים מ־ci.yml:
-         - "🧪 Unit Tests (3.9)"
-         - "🧪 Unit Tests (3.10)"
-         - "🧪 Unit Tests (3.11)"
+        - "Unit Tests (3.9)"
+        - "Unit Tests (3.10)"
+        - "Unit Tests (3.11)"
          - "🔍 Code Quality & Security"
        - מומלץ: Require branches to be up to date before merging
      - Require conversation resolution before merging (מומלץ)

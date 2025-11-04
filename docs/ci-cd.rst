@@ -13,8 +13,8 @@ CI/CD Guide
 ---------------
 
 - 🔍 Code Quality & Security
-- 🧪 Unit Tests (3.11)
-- 🧪 Unit Tests (3.12)
+- Unit Tests (3.11)
+- Unit Tests (3.12)
 
 ריכוז CI (Overview)
 --------------------
