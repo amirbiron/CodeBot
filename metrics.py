@@ -170,6 +170,47 @@ http_request_duration_seconds = (
     else None
 )
 
+# --- Stage 4: outbound dependency resilience metrics ---
+outbound_request_duration_seconds = (
+    Histogram(
+        "request_duration_seconds",
+        "Outbound request duration in seconds",
+        ["service", "endpoint", "status"],
+    )
+    if Histogram
+    else None
+)
+
+outbound_retries_total = (
+    Counter(
+        "retries_total",
+        "Total outbound request retries",
+        ["service", "endpoint"],
+    )
+    if Counter
+    else None
+)
+
+circuit_state_metric = (
+    Gauge(
+        "circuit_state",
+        "Circuit breaker state (0=closed,1=half_open,2=open)",
+        ["service", "endpoint"],
+    )
+    if Gauge
+    else None
+)
+
+circuit_success_rate_metric = (
+    Gauge(
+        "circuit_success_rate",
+        "Recent success rate for outbound requests (0-1)",
+        ["service", "endpoint"],
+    )
+    if Gauge
+    else None
+)
+
 # --- Startup / cold-start metrics ---
 # Capture process boot monotonic timestamp as early as metrics import occurs.
 _BOOT_T0_MONOTONIC: float = _time.perf_counter()
@@ -349,6 +390,16 @@ def _normalize_endpoint(value: str | None) -> str:
         return "unknown"
 
 
+def _normalize_metric_label(value: str | None, default: str) -> str:
+    try:
+        v = (value or "").strip()
+        if not v:
+            return default
+        return v.replace(" ", "_")[:120]
+    except Exception:
+        return default
+
+
 def record_http_request(
     method: str,
     endpoint: str | None,
@@ -376,6 +427,56 @@ def record_http_request(
                 http_request_duration_seconds.labels(m, ep).observe(max(0.0, float(duration_seconds)))
             except Exception:
                 pass
+    except Exception:
+        return
+
+
+def record_outbound_request_duration(
+    service: str | None,
+    endpoint: str | None,
+    status: str | None,
+    duration_seconds: float,
+) -> None:
+    try:
+        if outbound_request_duration_seconds is None:
+            return
+        svc = _normalize_metric_label(service, "unknown_service")
+        ep = _normalize_metric_label(endpoint, "unknown_endpoint")
+        st = _normalize_metric_label(status, "unknown_status")
+        outbound_request_duration_seconds.labels(svc, ep, st).observe(max(0.0, float(duration_seconds)))
+    except Exception:
+        return
+
+
+def increment_outbound_retry(service: str | None, endpoint: str | None) -> None:
+    try:
+        if outbound_retries_total is None:
+            return
+        svc = _normalize_metric_label(service, "unknown_service")
+        ep = _normalize_metric_label(endpoint, "unknown_endpoint")
+        outbound_retries_total.labels(svc, ep).inc()
+    except Exception:
+        return
+
+
+def set_circuit_state(service: str | None, endpoint: str | None, state_value: float) -> None:
+    try:
+        if circuit_state_metric is None:
+            return
+        svc = _normalize_metric_label(service, "unknown_service")
+        ep = _normalize_metric_label(endpoint, "unknown_endpoint")
+        circuit_state_metric.labels(svc, ep).set(float(state_value))
+    except Exception:
+        return
+
+
+def set_circuit_success_rate(service: str | None, endpoint: str | None, value: float) -> None:
+    try:
+        if circuit_success_rate_metric is None:
+            return
+        svc = _normalize_metric_label(service, "unknown_service")
+        ep = _normalize_metric_label(endpoint, "unknown_endpoint")
+        circuit_success_rate_metric.labels(svc, ep).set(max(0.0, min(1.0, float(value))))
     except Exception:
         return
 

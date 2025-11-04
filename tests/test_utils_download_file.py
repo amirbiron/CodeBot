@@ -9,32 +9,43 @@ async def test_download_file_rejects_large_content(monkeypatch):
     importlib.reload(ut)
 
     class _Resp:
-        def __init__(self, status=200, body=b'a'* (1024*1024)):
+        def __init__(self, status=200, body=b'a' * (1024 * 1024)):
             self.status = status
             self.headers = {'content-length': str(len(body))}
             self._body = body
             self.content = self
+
         async def __aenter__(self):
             return self
+
         async def __aexit__(self, exc_type, exc, tb):
             return False
+
         async def text(self):
             return self._body.decode('utf-8')
+
         async def iter_chunked(self, n):
             yield self._body
 
-    class _Sess:
-        def __init__(self, *a, **k):
-            pass
+        async def release(self):
+            return None
+
+    class _Ctx:
+        def __init__(self, resp):
+            self._resp = resp
+
         async def __aenter__(self):
-            return self
+            return self._resp
+
         async def __aexit__(self, exc_type, exc, tb):
             return False
-        def get(self, *a, **k):
-            # Return 2MB body while max_size will be set to 1MB
-            return _Resp(body=b'a'*(2*1024*1024))
 
-    monkeypatch.setattr(ha, 'get_session', lambda: _Sess(), raising=False)
+    monkeypatch.setattr(
+        ha,
+        'request',
+        lambda *a, **k: _Ctx(_Resp(body=b'a' * (2 * 1024 * 1024))),
+        raising=False,
+    )
 
     out = await ut.FileUtils.download_file('http://x', max_size=1*1024*1024)
     assert out is None
@@ -50,22 +61,32 @@ async def test_download_file_handles_http_error(monkeypatch):
         def __init__(self):
             self.status = 404
             self.headers = {}
+
         async def __aenter__(self):
             return self
+
         async def __aexit__(self, exc_type, exc, tb):
             return False
 
-    class _Sess:
-        def __init__(self, *a, **k):
-            pass
+        async def release(self):
+            return None
+
+    class _Ctx:
+        def __init__(self, resp):
+            self._resp = resp
+
         async def __aenter__(self):
-            return self
+            return self._resp
+
         async def __aexit__(self, exc_type, exc, tb):
             return False
-        def get(self, *a, **k):
-            return _Resp()
 
-    monkeypatch.setattr(ha, 'get_session', lambda: _Sess(), raising=False)
+    monkeypatch.setattr(
+        ha,
+        'request',
+        lambda *a, **k: _Ctx(_Resp()),
+        raising=False,
+    )
 
     out = await ut.FileUtils.download_file('http://x')
     assert out is None

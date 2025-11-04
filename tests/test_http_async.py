@@ -104,3 +104,75 @@ def test_limit_per_host_zero_sets_none(monkeypatch):
 
     _ = ha.get_session()
     assert captured.get("limit_per_host") is None
+
+
+@pytest.mark.asyncio
+async def test_async_request_retries_on_http_error(monkeypatch):
+    import http_async as ha
+
+    # Speed up retries in CI: eliminate backoff sleep
+    monkeypatch.setenv("HTTP_RESILIENCE_BACKOFF_BASE", "0.0")
+    monkeypatch.setenv("HTTP_RESILIENCE_BACKOFF_MAX", "0.0")
+    monkeypatch.setenv("HTTP_RESILIENCE_JITTER", "0.0")
+
+    # Eliminate any actual sleeping in retry path regardless of policy
+    async def _no_sleep(*_a, **_k):
+        return None
+    monkeypatch.setattr(ha, "_async_sleep_with_backoff", _no_sleep, raising=False)
+
+    class _Resp:
+        def __init__(self, status: int):
+            self.status = status
+            self._released = False
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            await self.release()
+            return False
+
+        async def release(self):
+            self._released = True
+
+    class _Session:
+        def __init__(self):
+            self.calls = 0
+
+        async def request(self, method, url, **kwargs):
+            self.calls += 1
+            if self.calls < 3:
+                return _Resp(503)
+            return _Resp(200)
+
+    session = _Session()
+    monkeypatch.setattr(ha, "get_session", lambda: session, raising=False)
+
+    statuses: list[str] = []
+    retries: list[tuple[str, str]] = []
+
+    monkeypatch.setattr(
+        ha,
+        "note_request_duration",
+        lambda service, endpoint, status, duration: statuses.append(status),
+    )
+    monkeypatch.setattr(
+        ha,
+        "note_retry",
+        lambda service, endpoint: retries.append((service, endpoint)),
+    )
+
+    async with ha.request(
+        "GET",
+        "https://service.example/api/resource",
+        backoff_base=0.0,
+        backoff_cap=0.0,
+        jitter=0.0,
+        max_attempts=3,
+    ) as resp:
+        assert resp.status == 200
+
+    assert statuses.count("http_error") == 2
+    assert statuses[-1] == "success"
+    assert len(retries) == 2
+    assert session.calls == 3

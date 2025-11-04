@@ -25,6 +25,8 @@ async def test_apply_rate_limit_delay_respects_backoff(monkeypatch):
     import github_menu_handler as mod
     monkeypatch.setattr(mod, "github_backoff_state", _State(), raising=False)
 
+    # Reduce backoff delay to keep test fast, while still asserting >=1s
+    monkeypatch.setenv("GITHUB_BACKOFF_DELAY", "1.0")
     start = time.time()
     await h.apply_rate_limit_delay(user_id)
     elapsed = time.time() - start

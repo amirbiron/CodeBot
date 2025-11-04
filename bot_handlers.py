@@ -713,11 +713,13 @@ class AdvancedBotHandlers:
             gh_status = "unknown"
             try:
                 if os.getenv("GITHUB_TOKEN"):
-                    from http_async import get_session
-                    session = get_session()
-                    async with session.get(
+                    from http_async import request as async_request
+                    async with async_request(
+                        "GET",
                         "https://api.github.com/rate_limit",
                         headers={"Authorization": f"token {os.getenv('GITHUB_TOKEN')}"},
+                        service="github",
+                        endpoint="rate_limit",
                     ) as resp:
                         data = await resp.json()
                         remaining = int(data.get("resources", {}).get("core", {}).get("remaining", 0))
@@ -1780,11 +1782,13 @@ class AdvancedBotHandlers:
             if not os.getenv("GITHUB_TOKEN"):
                 await update.message.reply_text("ℹ️ אין GITHUB_TOKEN – מידע לא זמין")
                 return
-            from http_async import get_session
-            session = get_session()
-            async with session.get(
+            from http_async import request as async_request
+            async with async_request(
+                "GET",
                 "https://api.github.com/rate_limit",
                 headers={"Authorization": f"token {os.getenv('GITHUB_TOKEN')}"},
+                service="github",
+                endpoint="rate_limit",
             ) as resp:
                 data = await resp.json()
             core = data.get("resources", {}).get("core", {})

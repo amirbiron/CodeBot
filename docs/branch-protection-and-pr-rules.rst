@@ -21,8 +21,8 @@ Branch Protection & PR Rules
 CI – Required Checks
 --------------------
 - "🔍 Code Quality & Security"
-- "🧪 Unit Tests (3.11)"
-- "🧪 Unit Tests (3.12)"
+- "Unit Tests (3.11)"
+- "Unit Tests (3.12)"
 
 קישורים
 -------

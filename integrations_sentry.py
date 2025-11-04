@@ -40,9 +40,15 @@ async def _get(path: str, params: Optional[Dict[str, Any]] = None) -> Any:
     url = f"{_api_base()}/{path.lstrip('/')}"
     headers = {"Authorization": f"Bearer {token}", "Accept": "application/json"}
     try:
-        from http_async import get_session
-        session = get_session()
-        async with session.get(url, headers=headers, params=params or {}) as resp:
+        from http_async import request as async_request
+        async with async_request(
+            "GET",
+            url,
+            headers=headers,
+            params=params or {},
+            service="sentry",
+            endpoint="api_get",
+        ) as resp:
             if resp.status != 200:
                 return None
             return await resp.json()
