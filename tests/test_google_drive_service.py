@@ -78,19 +78,19 @@ def test_poll_device_token_pending_error_and_success(monkeypatch):
     gds.config.GOOGLE_CLIENT_ID = "cid"
 
     # pending path
-    monkeypatch.setattr(gds, "requests", SimpleNamespace(post=lambda *a, **k: _fake_response(400, {"error": "authorization_pending"})))
+    monkeypatch.setattr(gds, "http_request", lambda method, url, **kw: _fake_response(400, {"error": "authorization_pending"}))
     res = gds.poll_device_token("dc")
     assert res is None
 
     # user-facing error path
-    monkeypatch.setattr(gds, "requests", SimpleNamespace(post=lambda *a, **k: _fake_response(400, {"error": "access_denied", "error_description": "Denied"})))
+    monkeypatch.setattr(gds, "http_request", lambda method, url, **kw: _fake_response(400, {"error": "access_denied", "error_description": "Denied"}))
     res = gds.poll_device_token("dc")
     assert isinstance(res, dict) and res.get("error") == "access_denied"
 
     # success path
     fixed_dt = datetime(2025, 8, 26, 12, 0, 0, tzinfo=timezone.utc)
     monkeypatch.setattr(gds, "_now_utc", lambda: fixed_dt, raising=True)
-    monkeypatch.setattr(gds, "requests", SimpleNamespace(post=lambda *a, **k: _fake_response(200, {"access_token": "x", "expires_in": 3600, "scope": "s"})))
+    monkeypatch.setattr(gds, "http_request", lambda method, url, **kw: _fake_response(200, {"access_token": "x", "expires_in": 3600, "scope": "s"}))
     res = gds.poll_device_token("dc")
     assert isinstance(res, dict) and res.get("access_token") == "x" and "expiry" in res
 
