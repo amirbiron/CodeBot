@@ -25,10 +25,11 @@
   overflow-x:hidden
 }
 .collection-items{display:flex;flex-direction:column;gap:.5rem;min-width:0}
-.collection-header{display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:.5rem;gap:.75rem;flex-wrap:wrap}
-.collection-header .title{display:flex;align-items:center;gap:.5rem;font-weight:700;font-size:1rem;flex:1;min-width:0}
+.collection-header{display:grid;grid-template-columns:minmax(0,auto) minmax(0,1fr) minmax(0,auto);align-items:center;margin-bottom:.5rem;column-gap:.75rem;row-gap:.5rem}
+.collection-header .title{display:flex;align-items:center;gap:.5rem;font-weight:700;font-size:1rem;min-width:0;justify-self:start}
 .collection-header .title .name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
-.collection-header .actions{display:flex;gap:.5rem;align-items:center;flex-wrap:wrap}
+.collection-header .share-controls{justify-self:center}
+.collection-header .actions{display:flex;gap:.5rem;align-items:center;flex-wrap:wrap;justify-self:end}
 .collection-header .actions .btn{background:#f8fafc;border:1px solid #e5e7eb;border-radius:6px;color:#374151;padding:.3rem .6rem;cursor:pointer}
 .collection-header .actions .btn.btn-sm{padding:.25rem .5rem;font-size:.85rem}
 .collection-header .actions .btn.btn-danger{background:#fff1f2;border-color:#fecdd3;color:#b91c1c}
@@ -67,6 +68,15 @@
 /* מניעת גלילה אופקית/חיתוך במובייל כאשר יש כפתורים לצד שם ארוך */
 @media(max-width:768px){
   .collection-item{min-width:0}
+}
+
+@media(max-width:640px){
+  .collection-header{grid-template-columns:1fr;justify-items:stretch}
+  .collection-header .title,
+  .collection-header .share-controls,
+  .collection-header .actions{justify-self:stretch}
+  .collection-header .share-controls{justify-content:space-between}
+  .collection-header .actions{justify-content:flex-start}
 }
 .collection-item{cursor:pointer}
 .collection-item .drag{cursor:grab}

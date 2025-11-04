@@ -386,14 +386,14 @@
               <button class="collection-icon-btn" type="button" aria-label="בחר אייקון" title="בחר אייקון">${escapeHtml(iconChar)}</button>
               <div class="name" title="${escapeHtml(col.name || 'ללא שם')}">${escapeHtml(col.name || 'ללא שם')}</div>
             </div>
+            <div class="share-controls" data-enabled="${shareEnabled ? '1' : '0'}">
+              <label class="share-toggle">
+                <input type="checkbox" class="share-enabled" ${shareEnabled ? 'checked' : ''}>
+                <span>שיתוף</span>
+              </label>
+              <button class="btn btn-secondary btn-sm share-copy" ${shareEnabled && shareUrl ? '' : 'disabled'} data-url="${shareUrl ? escapeHtml(shareUrl) : ''}">העתק קישור</button>
+            </div>
             <div class="actions">
-              <div class="share-controls" data-enabled="${shareEnabled ? '1' : '0'}">
-                <label class="share-toggle">
-                  <input type="checkbox" class="share-enabled" ${shareEnabled ? 'checked' : ''}>
-                  <span>שיתוף</span>
-                </label>
-                <button class="btn btn-secondary btn-sm share-copy" ${shareEnabled && shareUrl ? '' : 'disabled'} data-url="${shareUrl ? escapeHtml(shareUrl) : ''}">העתק קישור</button>
-              </div>
               <button class="btn btn-secondary rename">שנה שם</button>
               <button class="btn btn-danger delete">מחק</button>
             </div>
