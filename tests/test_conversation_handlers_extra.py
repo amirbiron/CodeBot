@@ -143,9 +143,13 @@ async def test_file_menu_includes_webapp_button(monkeypatch):
 
     rm = captured.get('reply_markup')
     assert isinstance(rm, _Markup)
-    web_btn = rm.keyboard[1][0]
+    web_row = rm.keyboard[2]
+    web_btn = web_row[0]
     assert web_btn.text == "🌐 צפייה בWebApp"
     assert web_btn.url == "https://code-keeper-webapp.onrender.com/file/OID42"
+    share_btn = web_row[1]
+    assert share_btn.text == "🔗 שתף קוד"
+    assert share_btn.callback_data == "share_menu_idx:0"
 
 
 @pytest.mark.asyncio
@@ -178,6 +182,10 @@ async def test_file_menu_webapp_button_search_fallback(monkeypatch):
 
     rm = captured.get('reply_markup')
     assert isinstance(rm, _Markup)
-    web_btn = rm.keyboard[1][0]
+    web_row = rm.keyboard[2]
+    web_btn = web_row[0]
     assert web_btn.text == "🌐 צפייה בWebApp"
     assert web_btn.url == "https://code-keeper-webapp.onrender.com/files?q=noid.txt#results"
+    share_btn = web_row[1]
+    assert share_btn.text == "🔗 שתף קוד"
+    assert share_btn.callback_data == "share_menu_idx:0"

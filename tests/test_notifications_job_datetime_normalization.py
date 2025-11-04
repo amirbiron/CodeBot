@@ -235,3 +235,70 @@ async def test_notifications_seen_pr_cleanup_handles_mixed_storage(monkeypatch):
     seen_after = session.get("notifications_seen_prs", {})
     assert len(seen_after) <= 50
     assert all(isinstance(value, str) for value in seen_after.values())
+
+
+@pytest.mark.asyncio
+async def test_notifications_job_skips_when_already_running(monkeypatch):
+    import github_menu_handler as gh
+
+    handler = gh.GitHubMenuHandler()
+    user_id = 901
+
+    session = handler.get_user_session(user_id)
+    session["selected_repo"] = "owner/name"
+    session["github_token"] = "tok"
+    session["_notifications_running"] = True
+
+    # Even if Github were called, ensure it resolves to stub
+    pulls_holder = {"list": []}
+    issues_holder = {"list": []}
+    stub_repo = _StubRepo(pulls_holder, issues_holder)
+    monkeypatch.setattr(gh, "Github", lambda token: _StubGithub(token, stub_repo))
+
+    bot = _StubBot()
+    app = _StubApp()
+    ctx = types.SimpleNamespace(application=app, bot=bot, user_data={})
+
+    await handler._notifications_job(ctx, user_id=user_id, force=True)
+
+    assert bot.sent == []
+    assert session.get("_notifications_running") is True
+
+
+@pytest.mark.asyncio
+async def test_notifications_job_clears_running_flag_on_success(monkeypatch):
+    import github_menu_handler as gh
+
+    handler = gh.GitHubMenuHandler()
+    user_id = 902
+
+    session = handler.get_user_session(user_id)
+    session["selected_repo"] = "owner/name"
+    session["github_token"] = "tok"
+    baseline = datetime.now(timezone.utc) - timedelta(minutes=5)
+    session["notifications_last"] = {"pr": baseline}
+
+    pulls_holder = {"list": []}
+    issues_holder = {"list": []}
+    pr_updated = baseline + timedelta(minutes=1)
+    pr = _StubPR(
+        state="open",
+        merged=False,
+        created_at=pr_updated - timedelta(minutes=1),
+        updated_at=pr_updated,
+        html_url="https://example.com/pr/clear",
+        title="Needs check",
+    )
+    pr.number = 77
+    pulls_holder["list"] = [pr]
+    stub_repo = _StubRepo(pulls_holder, issues_holder)
+    monkeypatch.setattr(gh, "Github", lambda token: _StubGithub(token, stub_repo))
+
+    bot = _StubBot()
+    app = _StubApp()
+    ctx = types.SimpleNamespace(application=app, bot=bot, user_data={})
+
+    await handler._notifications_job(ctx, user_id=user_id, force=True)
+
+    assert "_notifications_running" not in session
+    assert len(bot.sent) == 1
