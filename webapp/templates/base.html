@@ -107,7 +107,7 @@
         .navbar {
             background: var(--glass);
             backdrop-filter: blur(20px);
-            border-bottom: 1px solid var(--glass-border);
+            border-bottom: 0; /* הסרת הקו האופקי העליון */
             padding: 1rem 0;
             position: static;
             top: auto;
@@ -344,7 +344,7 @@
                 flex-direction: column;
                 padding: 0;
                 gap: 1rem;
-                border-top: 1px solid var(--glass-border);
+                border-top: 0; /* מניעת קו אופקי נוסף במובייל */
                 max-height: 0;
                 overflow: hidden;
                 opacity: 0;
