@@ -88,14 +88,31 @@ def sanitize_input(text: str, max_length: int = 500) -> str:
     return html.escape(s)
 
 
-def _build_public_collection_url(token: str) -> str:
+def _get_public_base_url() -> str:
+    """הפקת בסיס כתובת ציבורית לפעולות שיתוף (UI ו-API)."""
     try:
         base = getattr(_cfg, 'PUBLIC_BASE_URL', None) if _cfg is not None else None
         if not base:
-            # Fallback: נשתמש ב-host_url הנוכחי
             base = getattr(request, 'host_url', '') or ''
-        base = str(base).rstrip('/')
-        return f"{base}/api/collections/shared/{token}"
+        return str(base).rstrip('/')
+    except Exception:
+        return ''
+
+
+def _build_public_collection_url(token: str) -> str:
+    try:
+        base = _get_public_base_url()
+        prefix = base or ''
+        return f"{prefix}/collections/shared/{token}"
+    except Exception:
+        return f"/collections/shared/{token}"
+
+
+def _build_public_collection_api_url(token: str) -> str:
+    try:
+        base = _get_public_base_url()
+        prefix = base or ''
+        return f"{prefix}/api/collections/shared/{token}"
     except Exception:
         return f"/api/collections/shared/{token}"
 
@@ -173,9 +190,13 @@ def list_collections():
                     share = col.get('share') or {}
                     token = share.get('token')
                     if bool(share.get('enabled')) and token:
-                        col['public_url'] = _build_public_collection_url(str(token))
+                        public_url = _build_public_collection_url(str(token))
+                        public_api_url = _build_public_collection_api_url(str(token))
+                        col['public_url'] = public_url
+                        col['public_api_url'] = public_api_url
                     else:
                         col.pop('public_url', None)
+                        col.pop('public_api_url', None)
                 except Exception:
                     continue
         return jsonify(result)
@@ -205,8 +226,11 @@ def get_collection(collection_id: str):
             token = share.get('token')
             if bool(share.get('enabled')) and token:
                 public_url = _build_public_collection_url(str(token))
+                public_api_url = _build_public_collection_api_url(str(token))
                 result['public_url'] = public_url
+                result['public_api_url'] = public_api_url
                 col['public_url'] = public_url
+                col['public_api_url'] = public_api_url
         return jsonify(result)
     except Exception as e:
         rid = _get_request_id()
@@ -428,12 +452,17 @@ def update_share(collection_id: str):
                 token = share.get('token')
                 if bool(share.get('enabled')) and token:
                     public_url = _build_public_collection_url(str(token))
+                    public_api_url = _build_public_collection_api_url(str(token))
                     result['public_url'] = public_url
+                    result['public_api_url'] = public_api_url
                     col['public_url'] = public_url
+                    col['public_api_url'] = public_api_url
                 else:
                     result.pop('public_url', None)
+                    result.pop('public_api_url', None)
                     if isinstance(col, dict):
                         col.pop('public_url', None)
+                        col.pop('public_api_url', None)
             except Exception:
                 pass
         return jsonify(result)
