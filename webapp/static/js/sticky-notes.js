@@ -625,7 +625,9 @@
       const existing = this._pending.get(id);
       let next;
       if (existing) {
-        next = Object.assign({}, fragment, existing);
+        next = this._clonePayload(existing) || {};
+        const fragmentClone = this._clonePayload(fragment) || {};
+        Object.assign(next, fragmentClone);
       } else {
         next = this._clonePayload(fragment);
       }
