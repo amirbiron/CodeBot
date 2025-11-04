@@ -20,8 +20,8 @@ esac
 
 # Render config from template by replacing the placeholder with the actual URL
 tmp_cfg="$(mktemp)"
-# Escape characters that are special for sed replacement (&)
-escaped_url=$(printf '%s' "$ALERT_WEBHOOK_URL" | sed -e 's/[&]/\\&/g')
+# Escape characters that are special for sed replacement: &, | (delimiter), and \
+escaped_url=$(printf '%s' "$ALERT_WEBHOOK_URL" | sed -e 's/[\\&|]/\\&/g')
 sed 's|${ALERT_WEBHOOK_URL}|'"$escaped_url"'|g' /etc/alertmanager/alertmanager.render.yml > "$tmp_cfg"
 
 exec /bin/alertmanager \
