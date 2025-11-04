@@ -104,14 +104,14 @@ MAX_INLINE_FILE_BYTES = 5 * 1024 * 1024  # 5MB לשליחה ישירה בבוט
 MAX_ZIP_TOTAL_BYTES = 50 * 1024 * 1024  # 50MB לקובץ ZIP אחד
 MAX_ZIP_FILES = 500  # מקסימום קבצים ב-ZIP אחד
 
-# חלון קירור להתראות PR "עודכן" כדי למנוע כפילויות תכופות
+# חלון קירור מינימלי להתראות PR "עודכן" (ניתן לכיול דרך ENV)
 try:
-    _PR_UPDATE_COOLDOWN_SECONDS = max(
+    _PR_UPDATE_MIN_COOLDOWN_SECONDS = max(
         0,
-        int(str(os.getenv("GITHUB_NOTIFICATIONS_PR_COOLDOWN", "600")).strip() or "600"),
+        int(str(os.getenv("GITHUB_NOTIFICATIONS_PR_MIN_COOLDOWN", "60")).strip() or "60"),
     )
 except Exception:
-    _PR_UPDATE_COOLDOWN_SECONDS = 600
+    _PR_UPDATE_MIN_COOLDOWN_SECONDS = 60
 
 # מגבלות ייבוא ריפו (ייבוא תוכן, לא גיבוי)
 IMPORT_MAX_FILE_BYTES = 1 * 1024 * 1024  # 1MB לקובץ יחיד
@@ -5691,6 +5691,8 @@ class GitHubMenuHandler:
                 )
                 if settings is None:
                     settings = context.user_data.get("notifications", {})
+                if not isinstance(settings, dict):
+                    settings = {}
                 if not (token and repo_name):
                     return
                 if not force and not (settings and settings.get("enabled")):
@@ -5710,6 +5712,12 @@ class GitHubMenuHandler:
                     else:
                         pulls = repo.get_pulls(state="all", sort="updated", direction="desc")
                         seen_prs = session.setdefault("notifications_seen_prs", {})
+                        try:
+                            interval_seconds = int(settings.get("interval", 300) or 300)
+                        except Exception:
+                            interval_seconds = 300
+                        interval_seconds = max(1, interval_seconds)
+                        cooldown_seconds = max(_PR_UPDATE_MIN_COOLDOWN_SECONDS, interval_seconds)
                         baseline_dt = None
                         if isinstance(last_pr_check_time, datetime):
                             baseline_dt = self._to_utc_aware(last_pr_check_time)
@@ -5746,7 +5754,7 @@ class GitHubMenuHandler:
                                 status == "עודכן"
                                 and last_seen is not None
                                 and updated is not None
-                                and (updated - last_seen).total_seconds() < _PR_UPDATE_COOLDOWN_SECONDS
+                                and (updated - last_seen).total_seconds() < cooldown_seconds
                             ):
                                 continue
                             messages.append(

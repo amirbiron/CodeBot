@@ -343,6 +343,15 @@ async def test_notifications_job_pr_update_cooldown(monkeypatch):
 
     bot = _StubBot()
     app = _StubApp()
+    # קבע הגדרות התראות עם מקצב של 120 שניות
+    app.user_data[user_id] = {
+        "notifications": {
+            "enabled": True,
+            "interval": 120,
+            "pr": True,
+            "issues": False,
+        }
+    }
     ctx = types.SimpleNamespace(application=app, bot=bot, user_data={})
 
     # Initial baseline run
@@ -366,15 +375,15 @@ async def test_notifications_job_pr_update_cooldown(monkeypatch):
     await handler._notifications_job(ctx, user_id=user_id, force=True)
     assert len(bot.sent) == 1
 
-    # Update within cooldown window (5 minutes later, default cooldown 10 minutes)
-    second_update = first_update + timedelta(minutes=5)
+    # Update within cooldown window (90 שניות לאחר ההודעה הראשונה)
+    second_update = first_update + timedelta(seconds=90)
     pr.updated_at = second_update
     _FixedDateTime.set_now(second_update + timedelta(seconds=10))
     await handler._notifications_job(ctx, user_id=user_id, force=True)
     assert len(bot.sent) == 1  # no additional message
 
-    # Update after cooldown (12 minutes after first update)
-    third_update = first_update + timedelta(minutes=12)
+    # Update after cooldown (5 דקות לאחר ההודעה הראשונה)
+    third_update = first_update + timedelta(minutes=5)
     pr.updated_at = third_update
     _FixedDateTime.set_now(third_update + timedelta(seconds=10))
     await handler._notifications_job(ctx, user_id=user_id, force=True)
