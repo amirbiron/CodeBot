@@ -1,7 +1,7 @@
 name: CI/CD Pipeline
 
 on:
-  push:
+  push: 
     branches: [ 'main', 'rollback/**' ]
     # אל תתעלם משינויים ב-.cursorrules כדי שה-CI ירוץ גם על PRים שמעדכנים אותו
   pull_request:
