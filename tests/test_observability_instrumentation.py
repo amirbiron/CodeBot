@@ -9,6 +9,7 @@ def _install_otel_stubs(call_log):
 
     # trace submodule
     trace_mod = types.ModuleType("opentelemetry.trace")
+    _active = []
 
     class _SpanToken:
         def __init__(self, name):
@@ -18,6 +19,9 @@ def _install_otel_stubs(call_log):
 
         def set_attributes(self, attrs):
             self.attrs.update(attrs or {})
+
+        def set_attribute(self, key, value):
+            self.attrs[key] = value
 
         def record_exception(self, exc):
             self.exceptions.append(type(exc).__name__)
@@ -29,9 +33,12 @@ def _install_otel_stubs(call_log):
 
         def __enter__(self):
             call_log.append(("span_enter", self.name))
+            _active.append(self.token)
             return self.token
 
         def __exit__(self, exc_type, exc, tb):
+            if _active:
+                _active.pop()
             call_log.append(("span_exit", self.name))
             return False
 
@@ -43,7 +50,11 @@ def _install_otel_stubs(call_log):
     def get_tracer(_name):
         return _Tracer()
 
+    def get_current_span():
+        return _active[-1] if _active else None
+
     trace_mod.get_tracer = get_tracer
+    trace_mod.get_current_span = get_current_span
 
     # metrics submodule
     metrics_mod = types.ModuleType("opentelemetry.metrics")
@@ -156,3 +167,21 @@ def test_traced_no_otel_is_noop(monkeypatch):
         return x
 
     assert f(1) == 1
+
+
+def test_manual_start_span_and_set_attributes(monkeypatch):
+    calls = []
+    _install_otel_stubs(calls)
+    import importlib
+    mod = importlib.import_module("observability_instrumentation")
+
+    span_cm = mod.start_span("manual.span", {"foo": "bar"})
+    span = span_cm.__enter__()
+    assert span is not None
+    mod.set_current_span_attributes({"baz": "qux"})
+    assert span.attrs.get("foo") == "bar"
+    assert span.attrs.get("baz") == "qux"
+    span_cm.__exit__(None, None, None)
+    assert ("start_span", "manual.span") in calls
+    assert ("span_enter", "manual.span") in calls
+    assert ("span_exit", "manual.span") in calls

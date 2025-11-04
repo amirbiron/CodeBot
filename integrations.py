@@ -21,6 +21,17 @@ from config import config
 
 logger = logging.getLogger(__name__)
 
+try:
+    from observability_instrumentation import traced, set_current_span_attributes
+except Exception:  # pragma: no cover
+    def traced(*_a, **_k):  # type: ignore
+        def _inner(f):
+            return f
+        return _inner
+
+    def set_current_span_attributes(*_a, **_k):  # type: ignore
+        return None
+
 
 def _get_github_token() -> Optional[str]:
     """השג את טוקן ה-GitHub בצורה חסינה גם כשאין שדה על האובייקט."""
@@ -61,15 +72,28 @@ class GitHubGistIntegration:
         """בדיקה אם האינטגרציה זמינה"""
         return self.github is not None and self.user is not None
     
+    @traced("integration.github.create_gist")
     def create_gist(self, file_name: str, code: str, language: str, 
                    description: str = "", public: bool = True) -> Optional[Dict[str, Any]]:
         """יצירת Gist חדש"""
         
         if not self.is_available():
             logger.error("GitHub Gist לא זמין - אין טוקן או שגיאה בהתחברות")
+            try:
+                set_current_span_attributes({"status": "error", "reason": "unavailable"})
+            except Exception:
+                pass
             return None
 
         try:
+            try:
+                set_current_span_attributes({
+                    "file_name": str(file_name or ""),
+                    "language": str(language or ""),
+                    "public": bool(public),
+                })
+            except Exception:
+                pass
             # הכנת תיאור
             if not description:
                 description = f"קטע קוד {language} - {file_name}"
@@ -110,15 +134,28 @@ class GitHubGistIntegration:
             
         except GithubException as e:
             logger.error(f"שגיאה ביצירת Gist: {e}")
+            try:
+                set_current_span_attributes({"status": "error", "error_signature": type(e).__name__})
+            except Exception:
+                pass
             return None
         except Exception as e:
             logger.error(f"שגיאה כללית ביצירת Gist: {e}")
+            try:
+                set_current_span_attributes({"status": "error", "error_signature": type(e).__name__})
+            except Exception:
+                pass
             return None
 
+    @traced("integration.github.create_gist_multi")
     def create_gist_multi(self, files_map: Dict[str, str], description: str = "", public: bool = True) -> Optional[Dict[str, Any]]:
         """יצירת Gist עם מספר קבצים"""
         if not self.is_available():
             logger.error("GitHub Gist לא זמין - אין טוקן או שגיאה בהתחברות")
+            try:
+                set_current_span_attributes({"status": "error", "reason": "unavailable"})
+            except Exception:
+                pass
             return None
         try:
             if not description:
@@ -158,9 +195,17 @@ class GitHubGistIntegration:
             return result
         except GithubException as e:
             logger.error(f"שגיאה ביצירת Gist מרובה קבצים: {e}")
+            try:
+                set_current_span_attributes({"status": "error", "error_signature": type(e).__name__})
+            except Exception:
+                pass
             return None
         except Exception as e:
             logger.error(f"שגיאה כללית ביצירת Gist מרובה קבצים: {e}")
+            try:
+                set_current_span_attributes({"status": "error", "error_signature": type(e).__name__})
+            except Exception:
+                pass
             return None
     
     def update_gist(self, gist_id: str, file_name: str, new_code: str) -> Optional[Dict[str, Any]]:
@@ -247,12 +292,17 @@ class PastebinIntegration:
         """בדיקה אם האינטגרציה זמינה"""
         return bool(self.api_key)
     
+    @traced("integration.pastebin.create")
     async def create_paste(self, code: str, file_name: str, language: str = None,
                           private: bool = True, expire: str = "1M") -> Optional[Dict[str, Any]]:
         """יצירת paste חדש"""
         
         if not self.is_available():
             logger.error("Pastebin לא זמין - אין API key")
+            try:
+                set_current_span_attributes({"status": "error", "reason": "unavailable"})
+            except Exception:
+                pass
             return None
         
         # מיפוי שפות ל-Pastebin format
@@ -287,6 +337,15 @@ class PastebinIntegration:
         }
         
         try:
+            try:
+                set_current_span_attributes({
+                    "file_name": str(file_name or ""),
+                    "language": str(language or ""),
+                    "private": bool(private),
+                    "expire": str(expire or ""),
+                })
+            except Exception:
+                pass
             from http_async import get_session  # lazy import להימנע מתלויות מעגליות
             session = get_session()
             async with session.post(f"{self.base_url}/api_post.php", data=data) as response:
@@ -309,12 +368,21 @@ class PastebinIntegration:
                         }
                     else:
                         logger.error(f"שגיאה ביצירת Pastebin paste: {result}")
+                        try:
+                            set_current_span_attributes({"status": "error", "error_signature": "PastebinError"})
+                        except Exception:
+                            pass
                         return None
                         
         except Exception as e:
             logger.error(f"שגיאה כללית ב-Pastebin: {e}")
+            try:
+                set_current_span_attributes({"status": "error", "error_signature": type(e).__name__})
+            except Exception:
+                pass
             return None
     
+    @traced("integration.pastebin.get_content")
     async def get_paste_content(self, paste_id: str) -> Optional[str]:
         """קבלת תוכן paste"""
         
@@ -329,10 +397,18 @@ class PastebinIntegration:
                         return content
                     else:
                         logger.error(f"שגיאה בשליפת תוכן מ-Pastebin: {response.status}")
+                        try:
+                            set_current_span_attributes({"status": "error", "http.status_code": int(response.status)})
+                        except Exception:
+                            pass
                         return None
                         
         except Exception as e:
             logger.error(f"שגיאה בשליפת תוכן מ-Pastebin: {e}")
+            try:
+                set_current_span_attributes({"status": "error", "error_signature": type(e).__name__})
+            except Exception:
+                pass
             return None
 
 class CodeSharingService:
@@ -357,10 +433,19 @@ class CodeSharingService:
         
         return services
     
+    @traced("integration.share_code")
     async def share_code(self, service: str, file_name: str, code: str, 
                         language: str, description: str = "", **kwargs) -> Optional[Dict[str, Any]]:
         """שיתוף קוד בשירות נבחר"""
         
+        try:
+            set_current_span_attributes({
+                "service": str(service or ""),
+                "language": str(language or ""),
+                "file_name": str(file_name or ""),
+            })
+        except Exception:
+            pass
         if service == "gist" and self.gist.is_available():
             return self.gist.create_gist(file_name, code, language, description, **kwargs)
         
@@ -372,6 +457,10 @@ class CodeSharingService:
         
         else:
             logger.error(f"שירות שיתוף לא זמין: {service}")
+            try:
+                set_current_span_attributes({"status": "error", "reason": "service_unavailable"})
+            except Exception:
+                pass
             return None
     
     def _create_internal_share(self, file_name: str, code: str, 
