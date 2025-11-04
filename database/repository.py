@@ -16,12 +16,15 @@ ObjectId = _RealObjectId
 class _CacheLike(Protocol):
     def invalidate_user_cache(self, user_id: int) -> int: ...
     def invalidate_file_related(self, file_id: str, user_id: Optional[int] = None) -> int: ...
+    def delete_pattern(self, pattern: str) -> int: ...
 
 # Fallback cache that implements the minimal interface used here
 class _NullCache:
     def invalidate_user_cache(self, *args: Any, **kwargs: Any) -> int:
         return 0
     def invalidate_file_related(self, *args: Any, **kwargs: Any) -> int:
+        return 0
+    def delete_pattern(self, *args: Any, **kwargs: Any) -> int:
         return 0
 
 # ייבוא חסין לאובייקט cache — הטסטים לעיתים ממקפים את המודול `cache_manager`
