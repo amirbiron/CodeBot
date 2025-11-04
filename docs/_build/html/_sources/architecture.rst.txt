@@ -63,3 +63,12 @@
 - :doc:`database/index`
 - :doc:`api/index`
 - :doc:`ai-guidelines`
+
+תשתית HTTP – סשן aiohttp משותף
+--------------------------------
+
+- בכל הרכיבים הא-סינכרוניים (בוט/שירותים) נעשה שימוש ב‑``aiohttp.ClientSession`` משותף דרך ``http_async.get_session()``.
+- פרמטרים נשלטים דרך ENV: ``AIOHTTP_TIMEOUT_TOTAL``, ``AIOHTTP_POOL_LIMIT``, ``AIOHTTP_LIMIT_PER_HOST``.
+- כיבוי מתבצע אוטומטית ב‑atexit; ניתן לסגור ידנית עם ``await http_async.close_session()`` ב‑teardown.
+- לולאת asyncio: בפרודקשן יש לולאה יחידה. בטסטים/ריסטארט חם, אם נוצרת לולאה חדשה ונתקלתם ב‑“attached to a different loop”, סגרו את הסשן ואז קבלו חדש.
+- הנחיה: אל תפתחו ``ClientSession`` ישירות בקוד היישום; השתמשו רק ב‑``http_async.get_session()``.

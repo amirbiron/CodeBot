@@ -15,9 +15,9 @@
       <script src="../_static/jquery.js?v=5d32c60e"></script>
       <script src="../_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
       <script src="../_static/documentation_options.js?v=0062297a"></script>
-      <script src="../_static/doctools.js?v=9a2dae69"></script>
+      <script src="../_static/doctools.js?v=9bcbadda"></script>
       <script src="../_static/sphinx_highlight.js?v=dc90522c"></script>
-      <script src="../_static/translations.js?v=714bf7a6"></script>
+      <script src="../_static/translations.js?v=a336edf7"></script>
     <script src="../_static/js/theme.js"></script>
     <link rel="index" title="אינדקס" href="../genindex.html" />
     <link rel="search" title="חיפוש" href="../search.html" />
@@ -121,7 +121,9 @@
 </ul>
 </li>
 <li class="toctree-l1"><a class="reference internal" href="../whats-new.html">What’s New</a><ul>
-<li class="toctree-l2"><a class="reference internal" href="../whats-new.html#id1">2025-10-15</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../whats-new.html#id1">2025-10-30</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../whats-new.html#id2">2025-10-29</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../whats-new.html#id3">2025-10-15</a></li>
 </ul>
 </li>
 <li class="toctree-l1"><a class="reference internal" href="../architecture.html">ארכיטקטורה</a><ul>
@@ -130,6 +132,7 @@
 <li class="toctree-l2"><a class="reference internal" href="../architecture.html#id4">מבנה תיקיות</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../architecture.html#id5">זרימות מרכזיות</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../architecture.html#id6">קישורים</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../architecture.html#http-aiohttp">תשתית HTTP – סשן aiohttp משותף</a></li>
 </ul>
 </li>
 <li class="toctree-l1"><a class="reference internal" href="../contributing.html">מדריך תרומה</a><ul>
@@ -179,6 +182,7 @@
 <li class="toctree-l2"><a class="reference internal" href="../configuration.html#environment-variables">Environment variables</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../configuration.html#databases-and-cache-pooling-timeouts">Databases and Cache (Pooling/Timeouts)</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../configuration.html#http-clients">HTTP Clients</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../configuration.html#http-async-async-http">שימוש ב‑http_async (Async HTTP)</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../configuration.html#http-sync-sync-http">שימוש ב‑http_sync (Sync HTTP)</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../configuration.html#flask">Flask</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../configuration.html#telegram-bot">Telegram Bot</a></li>
@@ -210,8 +214,9 @@
 <li class="toctree-l2"><a class="reference internal" href="../performance-scaling.html#projection">Projection</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../performance-scaling.html#id1">דגשים</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../performance-scaling.html#connection-pooling-timeouts">כוונון Connection Pooling ו-Timeouts</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../performance-scaling.html#id2">לוגי איטיות (מהיר לאיתור צווארי בקבוק)</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../performance-scaling.html#env">בדיקות מהירות אחרי שינוי ENV</a></li>
-<li class="toctree-l2"><a class="reference internal" href="../performance-scaling.html#id2">הנחיות לפי סביבה</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../performance-scaling.html#id3">הנחיות לפי סביבה</a></li>
 </ul>
 </li>
 <li class="toctree-l1"><a class="reference internal" href="../large-files-runbook.html">טיפול בקבצים גדולים (Large Files)</a><ul>
@@ -465,6 +470,11 @@
 <li class="toctree-l4"><a class="reference internal" href="handlers.html#submodules">Submodules</a></li>
 </ul>
 </li>
+<li class="toctree-l3"><a class="reference internal" href="http_async.html">http_async module</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="http_async.html#http_async.get_session"><code class="docutils literal notranslate"><span class="pre">get_session()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="http_async.html#http_async.close_session"><code class="docutils literal notranslate"><span class="pre">close_session()</span></code></a></li>
+</ul>
+</li>
 <li class="toctree-l3"><a class="reference internal" href="http_sync.html">http_sync module</a><ul>
 <li class="toctree-l4"><a class="reference internal" href="http_sync.html#http_sync.get_session"><code class="docutils literal notranslate"><span class="pre">get_session()</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="http_sync.html#http_sync.request"><code class="docutils literal notranslate"><span class="pre">request()</span></code></a></li>
@@ -508,6 +518,7 @@
 <li class="toctree-l4"><a class="reference internal" href="metrics.html#metrics.get_boot_monotonic"><code class="docutils literal notranslate"><span class="pre">get_boot_monotonic()</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="metrics.html#metrics.mark_startup_complete"><code class="docutils literal notranslate"><span class="pre">mark_startup_complete()</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="metrics.html#metrics.note_first_request_latency"><code class="docutils literal notranslate"><span class="pre">note_first_request_latency()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="metrics.html#metrics.get_process_uptime_seconds"><code class="docutils literal notranslate"><span class="pre">get_process_uptime_seconds()</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="metrics.html#metrics.record_dependency_init"><code class="docutils literal notranslate"><span class="pre">record_dependency_init()</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="metrics.html#metrics.get_uptime_percentage"><code class="docutils literal notranslate"><span class="pre">get_uptime_percentage()</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="metrics.html#metrics.set_adaptive_observability_gauges"><code class="docutils literal notranslate"><span class="pre">set_adaptive_observability_gauges()</span></code></a></li>
@@ -681,10 +692,7 @@
 </li>
 </ul>
 </li>
-<li class="toctree-l2"><a class="reference internal" href="../handlers/index.html#file-view-handler">File View Handler</a><ul>
-<li class="toctree-l3"><a class="reference internal" href="../handlers/index.html#file-view-handler-module">File View Handler Module</a></li>
-</ul>
-</li>
+<li class="toctree-l2"><a class="reference internal" href="../handlers/index.html#file-view-handler">File View Handler</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../handlers/index.html#pagination-handler">Pagination Handler</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../handlers/index.html#save-flow-handler">Save Flow Handler</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../handlers/index.html#states-handler">States Handler</a></li>
@@ -819,6 +827,8 @@
 <li class="toctree-l2"><a class="reference internal" href="../testing.html#stubs">טעינת Stubs לטלגרם</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../testing.html#tmp-path">דוגמת שימוש ב‑tmp_path</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../testing.html#id2">מחיקה בטוחה</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../testing.html#mocking-http-github-menu-handler">Mocking HTTP ב‑github_menu_handler</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../testing.html#blueprint">רישום Blueprint בסביבת טסטים</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../testing.html#pytest-cov">כיסוי בדיקות (pytest-cov)</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../testing.html#ci">CI נתמך</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../testing.html#performance">בדיקות ביצועים (Performance)</a></li>
@@ -881,6 +891,7 @@
 <li class="toctree-l2"><a class="reference internal" href="../troubleshooting.html#id1">שגיאות נפוצות</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../troubleshooting.html#importerror-telegram-conversationhandler-filters">ImportError בזמן טסטים (telegram / ConversationHandler / filters)</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../troubleshooting.html#parse-mode">שגיאות parse_mode</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../troubleshooting.html#asyncio-attached-to-a-different-loop-event-loop-is-closed">שגיאות asyncio: ”attached to a different loop“ / ”Event loop is closed“</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../troubleshooting.html#id2">דיבוג מהיר</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../troubleshooting.html#mongodb">בדיקת חיבור MongoDB</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../troubleshooting.html#id3">קישורים</a></li>
@@ -997,6 +1008,7 @@
 <li class="toctree-l2"><a class="reference internal" href="../user/my_collections.html#id5">מגבלות ופרטיות</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../user/my_collections.html#api">API קצר (למפתחים)</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../user/my_collections.html#id6">טיפים</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../user/my_collections.html#id7">מובייל/טאבלט – גרירה לסידור</a></li>
 </ul>
 </li>
 <li class="toctree-l1"><a class="reference internal" href="../user/share_code.html">שיתוף קוד (חשוב)</a><ul>
@@ -1054,6 +1066,13 @@
 <li class="toctree-l2"><a class="reference internal" href="../webapp/caching.html#gotchas">Gotchas נפוצים</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../webapp/caching.html#cache-control">שילוב עם Cache-Control</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../webapp/caching.html#id3">קישורים נוספים</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../webapp/advanced-caching.html">מערכת Caching מתקדמת עם TTL דינמי</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../webapp/advanced-caching.html#id1">עקרונות</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../webapp/advanced-caching.html#id2">קוד לדוגמה</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../webapp/advanced-caching.html#id3">דגשים תפעוליים</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../webapp/advanced-caching.html#id4">קישורים</a></li>
 </ul>
 </li>
 <li class="toctree-l1"><a class="reference internal" href="../webapp/static-checklist.html">Static Performance &amp; Security Checklist (gzip/br, Cache, SRI)</a><ul>
@@ -1158,6 +1177,32 @@
 </li>
 <li class="toctree-l1"><a class="reference internal" href="../alerts.html">התראות (Alerts)</a><ul>
 <li class="toctree-l2"><a class="reference internal" href="../alerts.html#id1">חוקי התראה לדוגמה</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../alerts.html#id2">ראו גם</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../observability/log_based_alerts.html">התראות מבוססות לוגים (Log‑based Alerts)</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../observability/log_based_alerts.html#id1">מה זה ולמה</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../observability/log_based_alerts.html#id2">הרכיבים בקוד</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../observability/log_based_alerts.html#id3">קבצי קונפיג</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../observability/log_based_alerts.html#config-error-signatures-yml">דוגמה מינימלית: <code class="docutils literal notranslate"><span class="pre">config/error_signatures.yml</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../observability/log_based_alerts.html#config-alerts-yml">דוגמה מינימלית: <code class="docutils literal notranslate"><span class="pre">config/alerts.yml</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../observability/log_based_alerts.html#option-b">Option B – חיבור בתוך הקוד (מומש)</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../observability/log_based_alerts.html#id4">משתני סביבה</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../observability/log_based_alerts.html#option-a-sidecar">Option A – Sidecar מזרם לוגים</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../observability/log_based_alerts.html#id5">ספים וקיבוץ – ברירות מחדל</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../observability/log_based_alerts.html#fingerprint">אסטרטגיית fingerprint וקנוניקליזציה</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../observability/log_based_alerts.html#id6">צ’קליסט למפתחים</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../observability/log_based_alerts.html#id7">בדיקה מקומית (סימולציה)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../observability/log_based_alerts.html#ai">הנחיות לסוכני AI</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../observability/log_based_alerts.html#id8">אבטחה ופרטיות</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../observability/log_based_alerts.html#rollout">Rollout מומלץ</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../observability/log_based_alerts.html#troubleshooting">Troubleshooting</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../observability/log_based_alerts.html#id9">ראו גם</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../observability/log_based_alerts.html#id10">קישורים לקוד</a></li>
 </ul>
 </li>
 <li class="toctree-l1"><a class="reference internal" href="../sentry.html">Sentry</a><ul>
@@ -1205,6 +1250,15 @@
 <li class="toctree-l2"><a class="reference internal" href="../chatops/commands.html#observe-v">/observe -v (מפורט)</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../chatops/commands.html#observe-vv">/observe -vv (מפורט מאוד)</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../chatops/commands.html#rate-limit">/rate_limit</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../chatops/observe.html">ChatOps – /observe: הרחבות -v ו- -vv</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../chatops/observe.html#id1">תחביר ופרמטרים</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../chatops/observe.html#id2">דוגמאות</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../chatops/observe.html#v">פלט לדוגמה – ‎-v</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../chatops/observe.html#vv">פלט לדוגמה – ‎-vv</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../chatops/observe.html#id3">הערות שימוש</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../chatops/observe.html#id4">קישורים רלוונטיים</a></li>
 </ul>
 </li>
 <li class="toctree-l1"><a class="reference internal" href="../chatops/playbooks.html">Playbooks – תרחישים נפוצים</a><ul>
@@ -1309,8 +1363,8 @@
 מבצע שינויי מבנה בקוד בצורה בטוחה</p>
 <dl class="py class">
 <dt class="sig sig-object py" id="refactoring_engine.RefactorType">
-<em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">refactoring_engine.</span></span><span class="sig-name descname"><span class="pre">RefactorType</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">value</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">names=&lt;not</span> <span class="pre">given&gt;</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">*values</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">module=None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">qualname=None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">type=None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">start=1</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">boundary=None</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/refactoring_engine.html#RefactorType"><span class="viewcode-link"><span class="pre">[מקור]</span></span></a><a class="headerlink" href="#refactoring_engine.RefactorType" title="Link to this definition"></a></dt>
-<dd><p>Bases: <a class="reference external" href="https://docs.python.org/3/library/enum.html#enum.Enum" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">Enum</span></code></a></p>
+<em class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">refactoring_engine.</span></span><span class="sig-name descname"><span class="pre">RefactorType</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="o"><span class="pre">*</span></span><span class="n"><span class="pre">values</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/refactoring_engine.html#RefactorType"><span class="viewcode-link"><span class="pre">[מקור]</span></span></a><a class="headerlink" href="#refactoring_engine.RefactorType" title="Link to this definition"></a></dt>
+<dd><p>Bases: <code class="xref py py-class docutils literal notranslate"><span class="pre">Enum</span></code></p>
 <p>סוגי רפקטורינג נתמכים</p>
 <dl class="py attribute">
 <dt class="sig sig-object py" id="refactoring_engine.RefactorType.SPLIT_FUNCTIONS">
@@ -1341,79 +1395,79 @@
 
 <dl class="py class">
 <dt class="sig sig-object py" id="refactoring_engine.FunctionInfo">
-<em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">refactoring_engine.</span></span><span class="sig-name descname"><span class="pre">FunctionInfo</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">name</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">start_line</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">end_line</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">args</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">returns</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">decorators</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">docstring</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">calls</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">called_by=&lt;factory&gt;</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">code=''</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">complexity=0</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/refactoring_engine.html#FunctionInfo"><span class="viewcode-link"><span class="pre">[מקור]</span></span></a><a class="headerlink" href="#refactoring_engine.FunctionInfo" title="Link to this definition"></a></dt>
-<dd><p>Bases: <a class="reference external" href="https://docs.python.org/3/library/functions.html#object" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">object</span></code></a></p>
+<em class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">refactoring_engine.</span></span><span class="sig-name descname"><span class="pre">FunctionInfo</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">name</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">start_line</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">end_line</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">args</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">returns</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">decorators</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">docstring</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">calls</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">called_by=&lt;factory&gt;</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">code=''</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">complexity=0</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/refactoring_engine.html#FunctionInfo"><span class="viewcode-link"><span class="pre">[מקור]</span></span></a><a class="headerlink" href="#refactoring_engine.FunctionInfo" title="Link to this definition"></a></dt>
+<dd><p>Bases: <code class="xref py py-class docutils literal notranslate"><span class="pre">object</span></code></p>
 <p>מידע על פונקציה</p>
 <dl class="field-list simple">
 <dt class="field-odd">פרמטרים<span class="colon">:</span></dt>
 <dd class="field-odd"><ul class="simple">
-<li><p><strong>name</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><em>str</em></a>)</p></li>
-<li><p><strong>start_line</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.14)"><em>int</em></a>)</p></li>
-<li><p><strong>end_line</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.14)"><em>int</em></a>)</p></li>
-<li><p><strong>args</strong> (<a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.List" title="(in Python v3.14)"><em>List</em></a><em>[</em><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><em>str</em></a><em>]</em>)</p></li>
-<li><p><strong>returns</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><em>str</em></a><em> | </em><em>None</em>)</p></li>
-<li><p><strong>decorators</strong> (<a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.List" title="(in Python v3.14)"><em>List</em></a><em>[</em><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><em>str</em></a><em>]</em>)</p></li>
-<li><p><strong>docstring</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><em>str</em></a><em> | </em><em>None</em>)</p></li>
-<li><p><strong>calls</strong> (<a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Set" title="(in Python v3.14)"><em>Set</em></a><em>[</em><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><em>str</em></a><em>]</em>)</p></li>
-<li><p><strong>called_by</strong> (<a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Set" title="(in Python v3.14)"><em>Set</em></a><em>[</em><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><em>str</em></a><em>]</em>)</p></li>
-<li><p><strong>code</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><em>str</em></a>)</p></li>
-<li><p><strong>complexity</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.14)"><em>int</em></a>)</p></li>
+<li><p><strong>name</strong> (<em>str</em>)</p></li>
+<li><p><strong>start_line</strong> (<em>int</em>)</p></li>
+<li><p><strong>end_line</strong> (<em>int</em>)</p></li>
+<li><p><strong>args</strong> (<em>List</em><em>[</em><em>str</em><em>]</em>)</p></li>
+<li><p><strong>returns</strong> (<em>str</em><em> | </em><em>None</em>)</p></li>
+<li><p><strong>decorators</strong> (<em>List</em><em>[</em><em>str</em><em>]</em>)</p></li>
+<li><p><strong>docstring</strong> (<em>str</em><em> | </em><em>None</em>)</p></li>
+<li><p><strong>calls</strong> (<em>Set</em><em>[</em><em>str</em><em>]</em>)</p></li>
+<li><p><strong>called_by</strong> (<em>Set</em><em>[</em><em>str</em><em>]</em>)</p></li>
+<li><p><strong>code</strong> (<em>str</em>)</p></li>
+<li><p><strong>complexity</strong> (<em>int</em>)</p></li>
 </ul>
 </dd>
 </dl>
 <dl class="py attribute">
 <dt class="sig sig-object py" id="refactoring_engine.FunctionInfo.name">
-<span class="sig-name descname"><span class="pre">name</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">str</span></code></a></em><a class="headerlink" href="#refactoring_engine.FunctionInfo.name" title="Link to this definition"></a></dt>
+<span class="sig-name descname"><span class="pre">name</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><code class="xref py py-class docutils literal notranslate"><span class="pre">str</span></code></em><a class="headerlink" href="#refactoring_engine.FunctionInfo.name" title="Link to this definition"></a></dt>
 <dd></dd></dl>
 
 <dl class="py attribute">
 <dt class="sig sig-object py" id="refactoring_engine.FunctionInfo.start_line">
-<span class="sig-name descname"><span class="pre">start_line</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">int</span></code></a></em><a class="headerlink" href="#refactoring_engine.FunctionInfo.start_line" title="Link to this definition"></a></dt>
+<span class="sig-name descname"><span class="pre">start_line</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><code class="xref py py-class docutils literal notranslate"><span class="pre">int</span></code></em><a class="headerlink" href="#refactoring_engine.FunctionInfo.start_line" title="Link to this definition"></a></dt>
 <dd></dd></dl>
 
 <dl class="py attribute">
 <dt class="sig sig-object py" id="refactoring_engine.FunctionInfo.end_line">
-<span class="sig-name descname"><span class="pre">end_line</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">int</span></code></a></em><a class="headerlink" href="#refactoring_engine.FunctionInfo.end_line" title="Link to this definition"></a></dt>
+<span class="sig-name descname"><span class="pre">end_line</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><code class="xref py py-class docutils literal notranslate"><span class="pre">int</span></code></em><a class="headerlink" href="#refactoring_engine.FunctionInfo.end_line" title="Link to this definition"></a></dt>
 <dd></dd></dl>
 
 <dl class="py attribute">
 <dt class="sig sig-object py" id="refactoring_engine.FunctionInfo.args">
-<span class="sig-name descname"><span class="pre">args</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.List" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">List</span></code></a><span class="pre">[</span><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">str</span></code></a><span class="pre">]</span></em><a class="headerlink" href="#refactoring_engine.FunctionInfo.args" title="Link to this definition"></a></dt>
+<span class="sig-name descname"><span class="pre">args</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><code class="xref py py-class docutils literal notranslate"><span class="pre">List</span></code><span class="pre">[</span><code class="xref py py-class docutils literal notranslate"><span class="pre">str</span></code><span class="pre">]</span></em><a class="headerlink" href="#refactoring_engine.FunctionInfo.args" title="Link to this definition"></a></dt>
 <dd></dd></dl>
 
 <dl class="py attribute">
 <dt class="sig sig-object py" id="refactoring_engine.FunctionInfo.returns">
-<span class="sig-name descname"><span class="pre">returns</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Optional" title="(in Python v3.14)"><code class="xref py py-data docutils literal notranslate"><span class="pre">Optional</span></code></a><span class="pre">[</span><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">str</span></code></a><span class="pre">]</span></em><a class="headerlink" href="#refactoring_engine.FunctionInfo.returns" title="Link to this definition"></a></dt>
+<span class="sig-name descname"><span class="pre">returns</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><code class="xref py py-data docutils literal notranslate"><span class="pre">Optional</span></code><span class="pre">[</span><code class="xref py py-class docutils literal notranslate"><span class="pre">str</span></code><span class="pre">]</span></em><a class="headerlink" href="#refactoring_engine.FunctionInfo.returns" title="Link to this definition"></a></dt>
 <dd></dd></dl>
 
 <dl class="py attribute">
 <dt class="sig sig-object py" id="refactoring_engine.FunctionInfo.decorators">
-<span class="sig-name descname"><span class="pre">decorators</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.List" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">List</span></code></a><span class="pre">[</span><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">str</span></code></a><span class="pre">]</span></em><a class="headerlink" href="#refactoring_engine.FunctionInfo.decorators" title="Link to this definition"></a></dt>
+<span class="sig-name descname"><span class="pre">decorators</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><code class="xref py py-class docutils literal notranslate"><span class="pre">List</span></code><span class="pre">[</span><code class="xref py py-class docutils literal notranslate"><span class="pre">str</span></code><span class="pre">]</span></em><a class="headerlink" href="#refactoring_engine.FunctionInfo.decorators" title="Link to this definition"></a></dt>
 <dd></dd></dl>
 
 <dl class="py attribute">
 <dt class="sig sig-object py" id="refactoring_engine.FunctionInfo.docstring">
-<span class="sig-name descname"><span class="pre">docstring</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Optional" title="(in Python v3.14)"><code class="xref py py-data docutils literal notranslate"><span class="pre">Optional</span></code></a><span class="pre">[</span><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">str</span></code></a><span class="pre">]</span></em><a class="headerlink" href="#refactoring_engine.FunctionInfo.docstring" title="Link to this definition"></a></dt>
+<span class="sig-name descname"><span class="pre">docstring</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><code class="xref py py-data docutils literal notranslate"><span class="pre">Optional</span></code><span class="pre">[</span><code class="xref py py-class docutils literal notranslate"><span class="pre">str</span></code><span class="pre">]</span></em><a class="headerlink" href="#refactoring_engine.FunctionInfo.docstring" title="Link to this definition"></a></dt>
 <dd></dd></dl>
 
 <dl class="py attribute">
 <dt class="sig sig-object py" id="refactoring_engine.FunctionInfo.calls">
-<span class="sig-name descname"><span class="pre">calls</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Set" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">Set</span></code></a><span class="pre">[</span><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">str</span></code></a><span class="pre">]</span></em><a class="headerlink" href="#refactoring_engine.FunctionInfo.calls" title="Link to this definition"></a></dt>
+<span class="sig-name descname"><span class="pre">calls</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><code class="xref py py-class docutils literal notranslate"><span class="pre">Set</span></code><span class="pre">[</span><code class="xref py py-class docutils literal notranslate"><span class="pre">str</span></code><span class="pre">]</span></em><a class="headerlink" href="#refactoring_engine.FunctionInfo.calls" title="Link to this definition"></a></dt>
 <dd></dd></dl>
 
 <dl class="py attribute">
 <dt class="sig sig-object py" id="refactoring_engine.FunctionInfo.called_by">
-<span class="sig-name descname"><span class="pre">called_by</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Set" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">Set</span></code></a><span class="pre">[</span><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">str</span></code></a><span class="pre">]</span></em><a class="headerlink" href="#refactoring_engine.FunctionInfo.called_by" title="Link to this definition"></a></dt>
+<span class="sig-name descname"><span class="pre">called_by</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><code class="xref py py-class docutils literal notranslate"><span class="pre">Set</span></code><span class="pre">[</span><code class="xref py py-class docutils literal notranslate"><span class="pre">str</span></code><span class="pre">]</span></em><a class="headerlink" href="#refactoring_engine.FunctionInfo.called_by" title="Link to this definition"></a></dt>
 <dd></dd></dl>
 
 <dl class="py attribute">
 <dt class="sig sig-object py" id="refactoring_engine.FunctionInfo.code">
-<span class="sig-name descname"><span class="pre">code</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">str</span></code></a></em><em class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">''</span></em><a class="headerlink" href="#refactoring_engine.FunctionInfo.code" title="Link to this definition"></a></dt>
+<span class="sig-name descname"><span class="pre">code</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><code class="xref py py-class docutils literal notranslate"><span class="pre">str</span></code></em><em class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">''</span></em><a class="headerlink" href="#refactoring_engine.FunctionInfo.code" title="Link to this definition"></a></dt>
 <dd></dd></dl>
 
 <dl class="py attribute">
 <dt class="sig sig-object py" id="refactoring_engine.FunctionInfo.complexity">
-<span class="sig-name descname"><span class="pre">complexity</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">int</span></code></a></em><em class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">0</span></em><a class="headerlink" href="#refactoring_engine.FunctionInfo.complexity" title="Link to this definition"></a></dt>
+<span class="sig-name descname"><span class="pre">complexity</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><code class="xref py py-class docutils literal notranslate"><span class="pre">int</span></code></em><em class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">0</span></em><a class="headerlink" href="#refactoring_engine.FunctionInfo.complexity" title="Link to this definition"></a></dt>
 <dd></dd></dl>
 
 <dl class="py method">
@@ -1422,17 +1476,17 @@
 <dd><dl class="field-list simple">
 <dt class="field-odd">פרמטרים<span class="colon">:</span></dt>
 <dd class="field-odd"><ul class="simple">
-<li><p><strong>name</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><em>str</em></a>)</p></li>
-<li><p><strong>start_line</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.14)"><em>int</em></a>)</p></li>
-<li><p><strong>end_line</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.14)"><em>int</em></a>)</p></li>
-<li><p><strong>args</strong> (<a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.List" title="(in Python v3.14)"><em>List</em></a><em>[</em><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><em>str</em></a><em>]</em>)</p></li>
-<li><p><strong>returns</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><em>str</em></a><em> | </em><em>None</em>)</p></li>
-<li><p><strong>decorators</strong> (<a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.List" title="(in Python v3.14)"><em>List</em></a><em>[</em><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><em>str</em></a><em>]</em>)</p></li>
-<li><p><strong>docstring</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><em>str</em></a><em> | </em><em>None</em>)</p></li>
-<li><p><strong>calls</strong> (<a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Set" title="(in Python v3.14)"><em>Set</em></a><em>[</em><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><em>str</em></a><em>]</em>)</p></li>
-<li><p><strong>called_by</strong> (<a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Set" title="(in Python v3.14)"><em>Set</em></a><em>[</em><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><em>str</em></a><em>]</em>)</p></li>
-<li><p><strong>code</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><em>str</em></a>)</p></li>
-<li><p><strong>complexity</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.14)"><em>int</em></a>)</p></li>
+<li><p><strong>name</strong> (<em>str</em>)</p></li>
+<li><p><strong>start_line</strong> (<em>int</em>)</p></li>
+<li><p><strong>end_line</strong> (<em>int</em>)</p></li>
+<li><p><strong>args</strong> (<em>List</em><em>[</em><em>str</em><em>]</em>)</p></li>
+<li><p><strong>returns</strong> (<em>str</em><em> | </em><em>None</em>)</p></li>
+<li><p><strong>decorators</strong> (<em>List</em><em>[</em><em>str</em><em>]</em>)</p></li>
+<li><p><strong>docstring</strong> (<em>str</em><em> | </em><em>None</em>)</p></li>
+<li><p><strong>calls</strong> (<em>Set</em><em>[</em><em>str</em><em>]</em>)</p></li>
+<li><p><strong>called_by</strong> (<em>Set</em><em>[</em><em>str</em><em>]</em>)</p></li>
+<li><p><strong>code</strong> (<em>str</em>)</p></li>
+<li><p><strong>complexity</strong> (<em>int</em>)</p></li>
 </ul>
 </dd>
 <dt class="field-even">Return type<span class="colon">:</span></dt>
@@ -1445,61 +1499,61 @@
 
 <dl class="py class">
 <dt class="sig sig-object py" id="refactoring_engine.ClassInfo">
-<em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">refactoring_engine.</span></span><span class="sig-name descname"><span class="pre">ClassInfo</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">name</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">start_line</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">end_line</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">methods</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">attributes</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">base_classes</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">decorators</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">docstring</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/refactoring_engine.html#ClassInfo"><span class="viewcode-link"><span class="pre">[מקור]</span></span></a><a class="headerlink" href="#refactoring_engine.ClassInfo" title="Link to this definition"></a></dt>
-<dd><p>Bases: <a class="reference external" href="https://docs.python.org/3/library/functions.html#object" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">object</span></code></a></p>
+<em class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">refactoring_engine.</span></span><span class="sig-name descname"><span class="pre">ClassInfo</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">name</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">start_line</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">end_line</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">methods</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">attributes</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">base_classes</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">decorators</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">docstring</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/refactoring_engine.html#ClassInfo"><span class="viewcode-link"><span class="pre">[מקור]</span></span></a><a class="headerlink" href="#refactoring_engine.ClassInfo" title="Link to this definition"></a></dt>
+<dd><p>Bases: <code class="xref py py-class docutils literal notranslate"><span class="pre">object</span></code></p>
 <p>מידע על מחלקה</p>
 <dl class="field-list simple">
 <dt class="field-odd">פרמטרים<span class="colon">:</span></dt>
 <dd class="field-odd"><ul class="simple">
-<li><p><strong>name</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><em>str</em></a>)</p></li>
-<li><p><strong>start_line</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.14)"><em>int</em></a>)</p></li>
-<li><p><strong>end_line</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.14)"><em>int</em></a>)</p></li>
-<li><p><strong>methods</strong> (<a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.List" title="(in Python v3.14)"><em>List</em></a><em>[</em><a class="reference internal" href="#refactoring_engine.FunctionInfo" title="refactoring_engine.FunctionInfo"><em>FunctionInfo</em></a><em>]</em>)</p></li>
-<li><p><strong>attributes</strong> (<a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.List" title="(in Python v3.14)"><em>List</em></a><em>[</em><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><em>str</em></a><em>]</em>)</p></li>
-<li><p><strong>base_classes</strong> (<a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.List" title="(in Python v3.14)"><em>List</em></a><em>[</em><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><em>str</em></a><em>]</em>)</p></li>
-<li><p><strong>decorators</strong> (<a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.List" title="(in Python v3.14)"><em>List</em></a><em>[</em><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><em>str</em></a><em>]</em>)</p></li>
-<li><p><strong>docstring</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><em>str</em></a><em> | </em><em>None</em>)</p></li>
+<li><p><strong>name</strong> (<em>str</em>)</p></li>
+<li><p><strong>start_line</strong> (<em>int</em>)</p></li>
+<li><p><strong>end_line</strong> (<em>int</em>)</p></li>
+<li><p><strong>methods</strong> (<em>List</em><em>[</em><a class="reference internal" href="#refactoring_engine.FunctionInfo" title="refactoring_engine.FunctionInfo"><em>FunctionInfo</em></a><em>]</em>)</p></li>
+<li><p><strong>attributes</strong> (<em>List</em><em>[</em><em>str</em><em>]</em>)</p></li>
+<li><p><strong>base_classes</strong> (<em>List</em><em>[</em><em>str</em><em>]</em>)</p></li>
+<li><p><strong>decorators</strong> (<em>List</em><em>[</em><em>str</em><em>]</em>)</p></li>
+<li><p><strong>docstring</strong> (<em>str</em><em> | </em><em>None</em>)</p></li>
 </ul>
 </dd>
 </dl>
 <dl class="py attribute">
 <dt class="sig sig-object py" id="refactoring_engine.ClassInfo.name">
-<span class="sig-name descname"><span class="pre">name</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">str</span></code></a></em><a class="headerlink" href="#refactoring_engine.ClassInfo.name" title="Link to this definition"></a></dt>
+<span class="sig-name descname"><span class="pre">name</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><code class="xref py py-class docutils literal notranslate"><span class="pre">str</span></code></em><a class="headerlink" href="#refactoring_engine.ClassInfo.name" title="Link to this definition"></a></dt>
 <dd></dd></dl>
 
 <dl class="py attribute">
 <dt class="sig sig-object py" id="refactoring_engine.ClassInfo.start_line">
-<span class="sig-name descname"><span class="pre">start_line</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">int</span></code></a></em><a class="headerlink" href="#refactoring_engine.ClassInfo.start_line" title="Link to this definition"></a></dt>
+<span class="sig-name descname"><span class="pre">start_line</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><code class="xref py py-class docutils literal notranslate"><span class="pre">int</span></code></em><a class="headerlink" href="#refactoring_engine.ClassInfo.start_line" title="Link to this definition"></a></dt>
 <dd></dd></dl>
 
 <dl class="py attribute">
 <dt class="sig sig-object py" id="refactoring_engine.ClassInfo.end_line">
-<span class="sig-name descname"><span class="pre">end_line</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">int</span></code></a></em><a class="headerlink" href="#refactoring_engine.ClassInfo.end_line" title="Link to this definition"></a></dt>
+<span class="sig-name descname"><span class="pre">end_line</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><code class="xref py py-class docutils literal notranslate"><span class="pre">int</span></code></em><a class="headerlink" href="#refactoring_engine.ClassInfo.end_line" title="Link to this definition"></a></dt>
 <dd></dd></dl>
 
 <dl class="py attribute">
 <dt class="sig sig-object py" id="refactoring_engine.ClassInfo.methods">
-<span class="sig-name descname"><span class="pre">methods</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.List" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">List</span></code></a><span class="pre">[</span><a class="reference internal" href="#refactoring_engine.FunctionInfo" title="refactoring_engine.FunctionInfo"><code class="xref py py-class docutils literal notranslate"><span class="pre">FunctionInfo</span></code></a><span class="pre">]</span></em><a class="headerlink" href="#refactoring_engine.ClassInfo.methods" title="Link to this definition"></a></dt>
+<span class="sig-name descname"><span class="pre">methods</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><code class="xref py py-class docutils literal notranslate"><span class="pre">List</span></code><span class="pre">[</span><a class="reference internal" href="#refactoring_engine.FunctionInfo" title="refactoring_engine.FunctionInfo"><code class="xref py py-class docutils literal notranslate"><span class="pre">FunctionInfo</span></code></a><span class="pre">]</span></em><a class="headerlink" href="#refactoring_engine.ClassInfo.methods" title="Link to this definition"></a></dt>
 <dd></dd></dl>
 
 <dl class="py attribute">
 <dt class="sig sig-object py" id="refactoring_engine.ClassInfo.attributes">
-<span class="sig-name descname"><span class="pre">attributes</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.List" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">List</span></code></a><span class="pre">[</span><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">str</span></code></a><span class="pre">]</span></em><a class="headerlink" href="#refactoring_engine.ClassInfo.attributes" title="Link to this definition"></a></dt>
+<span class="sig-name descname"><span class="pre">attributes</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><code class="xref py py-class docutils literal notranslate"><span class="pre">List</span></code><span class="pre">[</span><code class="xref py py-class docutils literal notranslate"><span class="pre">str</span></code><span class="pre">]</span></em><a class="headerlink" href="#refactoring_engine.ClassInfo.attributes" title="Link to this definition"></a></dt>
 <dd></dd></dl>
 
 <dl class="py attribute">
 <dt class="sig sig-object py" id="refactoring_engine.ClassInfo.base_classes">
-<span class="sig-name descname"><span class="pre">base_classes</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.List" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">List</span></code></a><span class="pre">[</span><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">str</span></code></a><span class="pre">]</span></em><a class="headerlink" href="#refactoring_engine.ClassInfo.base_classes" title="Link to this definition"></a></dt>
+<span class="sig-name descname"><span class="pre">base_classes</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><code class="xref py py-class docutils literal notranslate"><span class="pre">List</span></code><span class="pre">[</span><code class="xref py py-class docutils literal notranslate"><span class="pre">str</span></code><span class="pre">]</span></em><a class="headerlink" href="#refactoring_engine.ClassInfo.base_classes" title="Link to this definition"></a></dt>
 <dd></dd></dl>
 
 <dl class="py attribute">
 <dt class="sig sig-object py" id="refactoring_engine.ClassInfo.decorators">
-<span class="sig-name descname"><span class="pre">decorators</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.List" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">List</span></code></a><span class="pre">[</span><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">str</span></code></a><span class="pre">]</span></em><a class="headerlink" href="#refactoring_engine.ClassInfo.decorators" title="Link to this definition"></a></dt>
+<span class="sig-name descname"><span class="pre">decorators</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><code class="xref py py-class docutils literal notranslate"><span class="pre">List</span></code><span class="pre">[</span><code class="xref py py-class docutils literal notranslate"><span class="pre">str</span></code><span class="pre">]</span></em><a class="headerlink" href="#refactoring_engine.ClassInfo.decorators" title="Link to this definition"></a></dt>
 <dd></dd></dl>
 
 <dl class="py attribute">
 <dt class="sig sig-object py" id="refactoring_engine.ClassInfo.docstring">
-<span class="sig-name descname"><span class="pre">docstring</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Optional" title="(in Python v3.14)"><code class="xref py py-data docutils literal notranslate"><span class="pre">Optional</span></code></a><span class="pre">[</span><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">str</span></code></a><span class="pre">]</span></em><a class="headerlink" href="#refactoring_engine.ClassInfo.docstring" title="Link to this definition"></a></dt>
+<span class="sig-name descname"><span class="pre">docstring</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><code class="xref py py-data docutils literal notranslate"><span class="pre">Optional</span></code><span class="pre">[</span><code class="xref py py-class docutils literal notranslate"><span class="pre">str</span></code><span class="pre">]</span></em><a class="headerlink" href="#refactoring_engine.ClassInfo.docstring" title="Link to this definition"></a></dt>
 <dd></dd></dl>
 
 <dl class="py method">
@@ -1508,14 +1562,14 @@
 <dd><dl class="field-list simple">
 <dt class="field-odd">פרמטרים<span class="colon">:</span></dt>
 <dd class="field-odd"><ul class="simple">
-<li><p><strong>name</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><em>str</em></a>)</p></li>
-<li><p><strong>start_line</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.14)"><em>int</em></a>)</p></li>
-<li><p><strong>end_line</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.14)"><em>int</em></a>)</p></li>
-<li><p><strong>methods</strong> (<a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.List" title="(in Python v3.14)"><em>List</em></a><em>[</em><a class="reference internal" href="#refactoring_engine.FunctionInfo" title="refactoring_engine.FunctionInfo"><em>FunctionInfo</em></a><em>]</em>)</p></li>
-<li><p><strong>attributes</strong> (<a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.List" title="(in Python v3.14)"><em>List</em></a><em>[</em><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><em>str</em></a><em>]</em>)</p></li>
-<li><p><strong>base_classes</strong> (<a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.List" title="(in Python v3.14)"><em>List</em></a><em>[</em><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><em>str</em></a><em>]</em>)</p></li>
-<li><p><strong>decorators</strong> (<a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.List" title="(in Python v3.14)"><em>List</em></a><em>[</em><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><em>str</em></a><em>]</em>)</p></li>
-<li><p><strong>docstring</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><em>str</em></a><em> | </em><em>None</em>)</p></li>
+<li><p><strong>name</strong> (<em>str</em>)</p></li>
+<li><p><strong>start_line</strong> (<em>int</em>)</p></li>
+<li><p><strong>end_line</strong> (<em>int</em>)</p></li>
+<li><p><strong>methods</strong> (<em>List</em><em>[</em><a class="reference internal" href="#refactoring_engine.FunctionInfo" title="refactoring_engine.FunctionInfo"><em>FunctionInfo</em></a><em>]</em>)</p></li>
+<li><p><strong>attributes</strong> (<em>List</em><em>[</em><em>str</em><em>]</em>)</p></li>
+<li><p><strong>base_classes</strong> (<em>List</em><em>[</em><em>str</em><em>]</em>)</p></li>
+<li><p><strong>decorators</strong> (<em>List</em><em>[</em><em>str</em><em>]</em>)</p></li>
+<li><p><strong>docstring</strong> (<em>str</em><em> | </em><em>None</em>)</p></li>
 </ul>
 </dd>
 <dt class="field-even">Return type<span class="colon">:</span></dt>
@@ -1528,19 +1582,19 @@
 
 <dl class="py class">
 <dt class="sig sig-object py" id="refactoring_engine.RefactorProposal">
-<em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">refactoring_engine.</span></span><span class="sig-name descname"><span class="pre">RefactorProposal</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">refactor_type</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">original_file</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">new_files</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">description</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">changes_summary</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">warnings=&lt;factory&gt;</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">imports_needed=&lt;factory&gt;</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/refactoring_engine.html#RefactorProposal"><span class="viewcode-link"><span class="pre">[מקור]</span></span></a><a class="headerlink" href="#refactoring_engine.RefactorProposal" title="Link to this definition"></a></dt>
-<dd><p>Bases: <a class="reference external" href="https://docs.python.org/3/library/functions.html#object" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">object</span></code></a></p>
+<em class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">refactoring_engine.</span></span><span class="sig-name descname"><span class="pre">RefactorProposal</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">refactor_type</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">original_file</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">new_files</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">description</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">changes_summary</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">warnings=&lt;factory&gt;</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">imports_needed=&lt;factory&gt;</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/refactoring_engine.html#RefactorProposal"><span class="viewcode-link"><span class="pre">[מקור]</span></span></a><a class="headerlink" href="#refactoring_engine.RefactorProposal" title="Link to this definition"></a></dt>
+<dd><p>Bases: <code class="xref py py-class docutils literal notranslate"><span class="pre">object</span></code></p>
 <p>הצעת רפקטורינג</p>
 <dl class="field-list simple">
 <dt class="field-odd">פרמטרים<span class="colon">:</span></dt>
 <dd class="field-odd"><ul class="simple">
 <li><p><strong>refactor_type</strong> (<a class="reference internal" href="#refactoring_engine.RefactorType" title="refactoring_engine.RefactorType"><em>RefactorType</em></a>)</p></li>
-<li><p><strong>original_file</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><em>str</em></a>)</p></li>
-<li><p><strong>new_files</strong> (<a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Dict" title="(in Python v3.14)"><em>Dict</em></a><em>[</em><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><em>str</em></a><em>, </em><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><em>str</em></a><em>]</em>)</p></li>
-<li><p><strong>description</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><em>str</em></a>)</p></li>
-<li><p><strong>changes_summary</strong> (<a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.List" title="(in Python v3.14)"><em>List</em></a><em>[</em><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><em>str</em></a><em>]</em>)</p></li>
-<li><p><strong>warnings</strong> (<a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.List" title="(in Python v3.14)"><em>List</em></a><em>[</em><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><em>str</em></a><em>]</em>)</p></li>
-<li><p><strong>imports_needed</strong> (<a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Dict" title="(in Python v3.14)"><em>Dict</em></a><em>[</em><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><em>str</em></a><em>, </em><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.List" title="(in Python v3.14)"><em>List</em></a><em>[</em><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><em>str</em></a><em>]</em><em>]</em>)</p></li>
+<li><p><strong>original_file</strong> (<em>str</em>)</p></li>
+<li><p><strong>new_files</strong> (<em>Dict</em><em>[</em><em>str</em><em>, </em><em>str</em><em>]</em>)</p></li>
+<li><p><strong>description</strong> (<em>str</em>)</p></li>
+<li><p><strong>changes_summary</strong> (<em>List</em><em>[</em><em>str</em><em>]</em>)</p></li>
+<li><p><strong>warnings</strong> (<em>List</em><em>[</em><em>str</em><em>]</em>)</p></li>
+<li><p><strong>imports_needed</strong> (<em>Dict</em><em>[</em><em>str</em><em>, </em><em>List</em><em>[</em><em>str</em><em>]</em><em>]</em>)</p></li>
 </ul>
 </dd>
 </dl>
@@ -1551,32 +1605,32 @@
 
 <dl class="py attribute">
 <dt class="sig sig-object py" id="refactoring_engine.RefactorProposal.original_file">
-<span class="sig-name descname"><span class="pre">original_file</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">str</span></code></a></em><a class="headerlink" href="#refactoring_engine.RefactorProposal.original_file" title="Link to this definition"></a></dt>
+<span class="sig-name descname"><span class="pre">original_file</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><code class="xref py py-class docutils literal notranslate"><span class="pre">str</span></code></em><a class="headerlink" href="#refactoring_engine.RefactorProposal.original_file" title="Link to this definition"></a></dt>
 <dd></dd></dl>
 
 <dl class="py attribute">
 <dt class="sig sig-object py" id="refactoring_engine.RefactorProposal.new_files">
-<span class="sig-name descname"><span class="pre">new_files</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Dict" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">Dict</span></code></a><span class="pre">[</span><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">str</span></code></a><span class="pre">,</span> <a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">str</span></code></a><span class="pre">]</span></em><a class="headerlink" href="#refactoring_engine.RefactorProposal.new_files" title="Link to this definition"></a></dt>
+<span class="sig-name descname"><span class="pre">new_files</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><code class="xref py py-class docutils literal notranslate"><span class="pre">Dict</span></code><span class="pre">[</span><code class="xref py py-class docutils literal notranslate"><span class="pre">str</span></code><span class="pre">,</span> <code class="xref py py-class docutils literal notranslate"><span class="pre">str</span></code><span class="pre">]</span></em><a class="headerlink" href="#refactoring_engine.RefactorProposal.new_files" title="Link to this definition"></a></dt>
 <dd></dd></dl>
 
 <dl class="py attribute">
 <dt class="sig sig-object py" id="refactoring_engine.RefactorProposal.description">
-<span class="sig-name descname"><span class="pre">description</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">str</span></code></a></em><a class="headerlink" href="#refactoring_engine.RefactorProposal.description" title="Link to this definition"></a></dt>
+<span class="sig-name descname"><span class="pre">description</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><code class="xref py py-class docutils literal notranslate"><span class="pre">str</span></code></em><a class="headerlink" href="#refactoring_engine.RefactorProposal.description" title="Link to this definition"></a></dt>
 <dd></dd></dl>
 
 <dl class="py attribute">
 <dt class="sig sig-object py" id="refactoring_engine.RefactorProposal.changes_summary">
-<span class="sig-name descname"><span class="pre">changes_summary</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.List" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">List</span></code></a><span class="pre">[</span><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">str</span></code></a><span class="pre">]</span></em><a class="headerlink" href="#refactoring_engine.RefactorProposal.changes_summary" title="Link to this definition"></a></dt>
+<span class="sig-name descname"><span class="pre">changes_summary</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><code class="xref py py-class docutils literal notranslate"><span class="pre">List</span></code><span class="pre">[</span><code class="xref py py-class docutils literal notranslate"><span class="pre">str</span></code><span class="pre">]</span></em><a class="headerlink" href="#refactoring_engine.RefactorProposal.changes_summary" title="Link to this definition"></a></dt>
 <dd></dd></dl>
 
 <dl class="py attribute">
 <dt class="sig sig-object py" id="refactoring_engine.RefactorProposal.warnings">
-<span class="sig-name descname"><span class="pre">warnings</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.List" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">List</span></code></a><span class="pre">[</span><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">str</span></code></a><span class="pre">]</span></em><a class="headerlink" href="#refactoring_engine.RefactorProposal.warnings" title="Link to this definition"></a></dt>
+<span class="sig-name descname"><span class="pre">warnings</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><code class="xref py py-class docutils literal notranslate"><span class="pre">List</span></code><span class="pre">[</span><code class="xref py py-class docutils literal notranslate"><span class="pre">str</span></code><span class="pre">]</span></em><a class="headerlink" href="#refactoring_engine.RefactorProposal.warnings" title="Link to this definition"></a></dt>
 <dd></dd></dl>
 
 <dl class="py attribute">
 <dt class="sig sig-object py" id="refactoring_engine.RefactorProposal.imports_needed">
-<span class="sig-name descname"><span class="pre">imports_needed</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Dict" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">Dict</span></code></a><span class="pre">[</span><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">str</span></code></a><span class="pre">,</span> <a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.List" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">List</span></code></a><span class="pre">[</span><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">str</span></code></a><span class="pre">]]</span></em><a class="headerlink" href="#refactoring_engine.RefactorProposal.imports_needed" title="Link to this definition"></a></dt>
+<span class="sig-name descname"><span class="pre">imports_needed</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><code class="xref py py-class docutils literal notranslate"><span class="pre">Dict</span></code><span class="pre">[</span><code class="xref py py-class docutils literal notranslate"><span class="pre">str</span></code><span class="pre">,</span> <code class="xref py py-class docutils literal notranslate"><span class="pre">List</span></code><span class="pre">[</span><code class="xref py py-class docutils literal notranslate"><span class="pre">str</span></code><span class="pre">]]</span></em><a class="headerlink" href="#refactoring_engine.RefactorProposal.imports_needed" title="Link to this definition"></a></dt>
 <dd></dd></dl>
 
 <dl class="py method">
@@ -1586,12 +1640,12 @@
 <dt class="field-odd">פרמטרים<span class="colon">:</span></dt>
 <dd class="field-odd"><ul class="simple">
 <li><p><strong>refactor_type</strong> (<a class="reference internal" href="#refactoring_engine.RefactorType" title="refactoring_engine.RefactorType"><em>RefactorType</em></a>)</p></li>
-<li><p><strong>original_file</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><em>str</em></a>)</p></li>
-<li><p><strong>new_files</strong> (<a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Dict" title="(in Python v3.14)"><em>Dict</em></a><em>[</em><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><em>str</em></a><em>, </em><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><em>str</em></a><em>]</em>)</p></li>
-<li><p><strong>description</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><em>str</em></a>)</p></li>
-<li><p><strong>changes_summary</strong> (<a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.List" title="(in Python v3.14)"><em>List</em></a><em>[</em><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><em>str</em></a><em>]</em>)</p></li>
-<li><p><strong>warnings</strong> (<a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.List" title="(in Python v3.14)"><em>List</em></a><em>[</em><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><em>str</em></a><em>]</em>)</p></li>
-<li><p><strong>imports_needed</strong> (<a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Dict" title="(in Python v3.14)"><em>Dict</em></a><em>[</em><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><em>str</em></a><em>, </em><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.List" title="(in Python v3.14)"><em>List</em></a><em>[</em><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><em>str</em></a><em>]</em><em>]</em>)</p></li>
+<li><p><strong>original_file</strong> (<em>str</em>)</p></li>
+<li><p><strong>new_files</strong> (<em>Dict</em><em>[</em><em>str</em><em>, </em><em>str</em><em>]</em>)</p></li>
+<li><p><strong>description</strong> (<em>str</em>)</p></li>
+<li><p><strong>changes_summary</strong> (<em>List</em><em>[</em><em>str</em><em>]</em>)</p></li>
+<li><p><strong>warnings</strong> (<em>List</em><em>[</em><em>str</em><em>]</em>)</p></li>
+<li><p><strong>imports_needed</strong> (<em>Dict</em><em>[</em><em>str</em><em>, </em><em>List</em><em>[</em><em>str</em><em>]</em><em>]</em>)</p></li>
 </ul>
 </dd>
 <dt class="field-even">Return type<span class="colon">:</span></dt>
@@ -1604,37 +1658,37 @@
 
 <dl class="py class">
 <dt class="sig sig-object py" id="refactoring_engine.RefactorResult">
-<em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">refactoring_engine.</span></span><span class="sig-name descname"><span class="pre">RefactorResult</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">success</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">proposal</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">error</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">validation_passed</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/refactoring_engine.html#RefactorResult"><span class="viewcode-link"><span class="pre">[מקור]</span></span></a><a class="headerlink" href="#refactoring_engine.RefactorResult" title="Link to this definition"></a></dt>
-<dd><p>Bases: <a class="reference external" href="https://docs.python.org/3/library/functions.html#object" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">object</span></code></a></p>
+<em class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">refactoring_engine.</span></span><span class="sig-name descname"><span class="pre">RefactorResult</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">success</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">proposal</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">error</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">validation_passed</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/refactoring_engine.html#RefactorResult"><span class="viewcode-link"><span class="pre">[מקור]</span></span></a><a class="headerlink" href="#refactoring_engine.RefactorResult" title="Link to this definition"></a></dt>
+<dd><p>Bases: <code class="xref py py-class docutils literal notranslate"><span class="pre">object</span></code></p>
 <p>תוצאת רפקטורינג</p>
 <dl class="field-list simple">
 <dt class="field-odd">פרמטרים<span class="colon">:</span></dt>
 <dd class="field-odd"><ul class="simple">
-<li><p><strong>success</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.14)"><em>bool</em></a>)</p></li>
+<li><p><strong>success</strong> (<em>bool</em>)</p></li>
 <li><p><strong>proposal</strong> (<a class="reference internal" href="#refactoring_engine.RefactorProposal" title="refactoring_engine.RefactorProposal"><em>RefactorProposal</em></a><em> | </em><em>None</em>)</p></li>
-<li><p><strong>error</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><em>str</em></a><em> | </em><em>None</em>)</p></li>
-<li><p><strong>validation_passed</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.14)"><em>bool</em></a>)</p></li>
+<li><p><strong>error</strong> (<em>str</em><em> | </em><em>None</em>)</p></li>
+<li><p><strong>validation_passed</strong> (<em>bool</em>)</p></li>
 </ul>
 </dd>
 </dl>
 <dl class="py attribute">
 <dt class="sig sig-object py" id="refactoring_engine.RefactorResult.success">
-<span class="sig-name descname"><span class="pre">success</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">bool</span></code></a></em><a class="headerlink" href="#refactoring_engine.RefactorResult.success" title="Link to this definition"></a></dt>
+<span class="sig-name descname"><span class="pre">success</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><code class="xref py py-class docutils literal notranslate"><span class="pre">bool</span></code></em><a class="headerlink" href="#refactoring_engine.RefactorResult.success" title="Link to this definition"></a></dt>
 <dd></dd></dl>
 
 <dl class="py attribute">
 <dt class="sig sig-object py" id="refactoring_engine.RefactorResult.proposal">
-<span class="sig-name descname"><span class="pre">proposal</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Optional" title="(in Python v3.14)"><code class="xref py py-data docutils literal notranslate"><span class="pre">Optional</span></code></a><span class="pre">[</span><a class="reference internal" href="#refactoring_engine.RefactorProposal" title="refactoring_engine.RefactorProposal"><code class="xref py py-class docutils literal notranslate"><span class="pre">RefactorProposal</span></code></a><span class="pre">]</span></em><a class="headerlink" href="#refactoring_engine.RefactorResult.proposal" title="Link to this definition"></a></dt>
+<span class="sig-name descname"><span class="pre">proposal</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><code class="xref py py-data docutils literal notranslate"><span class="pre">Optional</span></code><span class="pre">[</span><a class="reference internal" href="#refactoring_engine.RefactorProposal" title="refactoring_engine.RefactorProposal"><code class="xref py py-class docutils literal notranslate"><span class="pre">RefactorProposal</span></code></a><span class="pre">]</span></em><a class="headerlink" href="#refactoring_engine.RefactorResult.proposal" title="Link to this definition"></a></dt>
 <dd></dd></dl>
 
 <dl class="py attribute">
 <dt class="sig sig-object py" id="refactoring_engine.RefactorResult.error">
-<span class="sig-name descname"><span class="pre">error</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Optional" title="(in Python v3.14)"><code class="xref py py-data docutils literal notranslate"><span class="pre">Optional</span></code></a><span class="pre">[</span><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">str</span></code></a><span class="pre">]</span></em><em class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">None</span></em><a class="headerlink" href="#refactoring_engine.RefactorResult.error" title="Link to this definition"></a></dt>
+<span class="sig-name descname"><span class="pre">error</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><code class="xref py py-data docutils literal notranslate"><span class="pre">Optional</span></code><span class="pre">[</span><code class="xref py py-class docutils literal notranslate"><span class="pre">str</span></code><span class="pre">]</span></em><em class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">None</span></em><a class="headerlink" href="#refactoring_engine.RefactorResult.error" title="Link to this definition"></a></dt>
 <dd></dd></dl>
 
 <dl class="py attribute">
 <dt class="sig sig-object py" id="refactoring_engine.RefactorResult.validation_passed">
-<span class="sig-name descname"><span class="pre">validation_passed</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">bool</span></code></a></em><em class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">False</span></em><a class="headerlink" href="#refactoring_engine.RefactorResult.validation_passed" title="Link to this definition"></a></dt>
+<span class="sig-name descname"><span class="pre">validation_passed</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><code class="xref py py-class docutils literal notranslate"><span class="pre">bool</span></code></em><em class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">False</span></em><a class="headerlink" href="#refactoring_engine.RefactorResult.validation_passed" title="Link to this definition"></a></dt>
 <dd></dd></dl>
 
 <dl class="py method">
@@ -1643,10 +1697,10 @@
 <dd><dl class="field-list simple">
 <dt class="field-odd">פרמטרים<span class="colon">:</span></dt>
 <dd class="field-odd"><ul class="simple">
-<li><p><strong>success</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.14)"><em>bool</em></a>)</p></li>
+<li><p><strong>success</strong> (<em>bool</em>)</p></li>
 <li><p><strong>proposal</strong> (<a class="reference internal" href="#refactoring_engine.RefactorProposal" title="refactoring_engine.RefactorProposal"><em>RefactorProposal</em></a><em> | </em><em>None</em>)</p></li>
-<li><p><strong>error</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><em>str</em></a><em> | </em><em>None</em>)</p></li>
-<li><p><strong>validation_passed</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.14)"><em>bool</em></a>)</p></li>
+<li><p><strong>error</strong> (<em>str</em><em> | </em><em>None</em>)</p></li>
+<li><p><strong>validation_passed</strong> (<em>bool</em>)</p></li>
 </ul>
 </dd>
 <dt class="field-even">Return type<span class="colon">:</span></dt>
@@ -1659,14 +1713,14 @@
 
 <dl class="py class">
 <dt class="sig sig-object py" id="refactoring_engine.CodeAnalyzer">
-<em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">refactoring_engine.</span></span><span class="sig-name descname"><span class="pre">CodeAnalyzer</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">code</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">filename</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'unknown.py'</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/refactoring_engine.html#CodeAnalyzer"><span class="viewcode-link"><span class="pre">[מקור]</span></span></a><a class="headerlink" href="#refactoring_engine.CodeAnalyzer" title="Link to this definition"></a></dt>
-<dd><p>Bases: <a class="reference external" href="https://docs.python.org/3/library/functions.html#object" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">object</span></code></a></p>
+<em class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">refactoring_engine.</span></span><span class="sig-name descname"><span class="pre">CodeAnalyzer</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">code</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">filename</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'unknown.py'</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/refactoring_engine.html#CodeAnalyzer"><span class="viewcode-link"><span class="pre">[מקור]</span></span></a><a class="headerlink" href="#refactoring_engine.CodeAnalyzer" title="Link to this definition"></a></dt>
+<dd><p>Bases: <code class="xref py py-class docutils literal notranslate"><span class="pre">object</span></code></p>
 <p>מנתח קוד Python</p>
 <dl class="field-list simple">
 <dt class="field-odd">פרמטרים<span class="colon">:</span></dt>
 <dd class="field-odd"><ul class="simple">
-<li><p><strong>code</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><em>str</em></a>)</p></li>
-<li><p><strong>filename</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><em>str</em></a>)</p></li>
+<li><p><strong>code</strong> (<em>str</em>)</p></li>
+<li><p><strong>filename</strong> (<em>str</em>)</p></li>
 </ul>
 </dd>
 </dl>
@@ -1676,8 +1730,8 @@
 <dd><dl class="field-list simple">
 <dt class="field-odd">פרמטרים<span class="colon">:</span></dt>
 <dd class="field-odd"><ul class="simple">
-<li><p><strong>code</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><em>str</em></a>)</p></li>
-<li><p><strong>filename</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><em>str</em></a>)</p></li>
+<li><p><strong>code</strong> (<em>str</em>)</p></li>
+<li><p><strong>filename</strong> (<em>str</em>)</p></li>
 </ul>
 </dd>
 </dl>
@@ -1689,7 +1743,7 @@
 <dd><p>ניתוח הקוד</p>
 <dl class="field-list simple">
 <dt class="field-odd">Return type<span class="colon">:</span></dt>
-<dd class="field-odd"><p><span class="sphinx_autodoc_typehints-type"><a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">bool</span></code></a></span></p>
+<dd class="field-odd"><p><span class="sphinx_autodoc_typehints-type"><code class="xref py py-class docutils literal notranslate"><span class="pre">bool</span></code></span></p>
 </dd>
 </dl>
 </dd></dl>
@@ -1699,10 +1753,10 @@
 <span class="sig-name descname"><span class="pre">find_large_functions</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">min_lines</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">50</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/refactoring_engine.html#CodeAnalyzer.find_large_functions"><span class="viewcode-link"><span class="pre">[מקור]</span></span></a><a class="headerlink" href="#refactoring_engine.CodeAnalyzer.find_large_functions" title="Link to this definition"></a></dt>
 <dd><dl class="field-list simple">
 <dt class="field-odd">Return type<span class="colon">:</span></dt>
-<dd class="field-odd"><p><span class="sphinx_autodoc_typehints-type"><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.List" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">List</span></code></a>[<a class="reference internal" href="#refactoring_engine.FunctionInfo" title="refactoring_engine.FunctionInfo"><code class="xref py py-class docutils literal notranslate"><span class="pre">FunctionInfo</span></code></a>]</span></p>
+<dd class="field-odd"><p><span class="sphinx_autodoc_typehints-type"><code class="xref py py-class docutils literal notranslate"><span class="pre">List</span></code>[<a class="reference internal" href="#refactoring_engine.FunctionInfo" title="refactoring_engine.FunctionInfo"><code class="xref py py-class docutils literal notranslate"><span class="pre">FunctionInfo</span></code></a>]</span></p>
 </dd>
 <dt class="field-even">פרמטרים<span class="colon">:</span></dt>
-<dd class="field-even"><p><strong>min_lines</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.14)"><em>int</em></a>)</p>
+<dd class="field-even"><p><strong>min_lines</strong> (<em>int</em>)</p>
 </dd>
 </dl>
 </dd></dl>
@@ -1712,10 +1766,10 @@
 <span class="sig-name descname"><span class="pre">find_large_classes</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">min_methods</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">10</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/refactoring_engine.html#CodeAnalyzer.find_large_classes"><span class="viewcode-link"><span class="pre">[מקור]</span></span></a><a class="headerlink" href="#refactoring_engine.CodeAnalyzer.find_large_classes" title="Link to this definition"></a></dt>
 <dd><dl class="field-list simple">
 <dt class="field-odd">Return type<span class="colon">:</span></dt>
-<dd class="field-odd"><p><span class="sphinx_autodoc_typehints-type"><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.List" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">List</span></code></a>[<a class="reference internal" href="#refactoring_engine.ClassInfo" title="refactoring_engine.ClassInfo"><code class="xref py py-class docutils literal notranslate"><span class="pre">ClassInfo</span></code></a>]</span></p>
+<dd class="field-odd"><p><span class="sphinx_autodoc_typehints-type"><code class="xref py py-class docutils literal notranslate"><span class="pre">List</span></code>[<a class="reference internal" href="#refactoring_engine.ClassInfo" title="refactoring_engine.ClassInfo"><code class="xref py py-class docutils literal notranslate"><span class="pre">ClassInfo</span></code></a>]</span></p>
 </dd>
 <dt class="field-even">פרמטרים<span class="colon">:</span></dt>
-<dd class="field-even"><p><strong>min_methods</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.14)"><em>int</em></a>)</p>
+<dd class="field-even"><p><strong>min_methods</strong> (<em>int</em>)</p>
 </dd>
 </dl>
 </dd></dl>
@@ -1724,8 +1778,8 @@
 
 <dl class="py class">
 <dt class="sig sig-object py" id="refactoring_engine.RefactoringEngine">
-<em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">refactoring_engine.</span></span><span class="sig-name descname"><span class="pre">RefactoringEngine</span></span><a class="reference internal" href="../_modules/refactoring_engine.html#RefactoringEngine"><span class="viewcode-link"><span class="pre">[מקור]</span></span></a><a class="headerlink" href="#refactoring_engine.RefactoringEngine" title="Link to this definition"></a></dt>
-<dd><p>Bases: <a class="reference external" href="https://docs.python.org/3/library/functions.html#object" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">object</span></code></a></p>
+<em class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">refactoring_engine.</span></span><span class="sig-name descname"><span class="pre">RefactoringEngine</span></span><a class="reference internal" href="../_modules/refactoring_engine.html#RefactoringEngine"><span class="viewcode-link"><span class="pre">[מקור]</span></span></a><a class="headerlink" href="#refactoring_engine.RefactoringEngine" title="Link to this definition"></a></dt>
+<dd><p>Bases: <code class="xref py py-class docutils literal notranslate"><span class="pre">object</span></code></p>
 <p>מנוע רפקטורינג</p>
 <dl class="field-list simple">
 </dl>
@@ -1749,8 +1803,8 @@
 </dd>
 <dt class="field-even">פרמטרים<span class="colon">:</span></dt>
 <dd class="field-even"><ul class="simple">
-<li><p><strong>code</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><em>str</em></a>)</p></li>
-<li><p><strong>filename</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><em>str</em></a>)</p></li>
+<li><p><strong>code</strong> (<em>str</em>)</p></li>
+<li><p><strong>filename</strong> (<em>str</em>)</p></li>
 <li><p><strong>refactor_type</strong> (<a class="reference internal" href="#refactoring_engine.RefactorType" title="refactoring_engine.RefactorType"><em>RefactorType</em></a>)</p></li>
 </ul>
 </dd>
@@ -1764,10 +1818,10 @@
 הערה: נמנעים מהרצת כלים חיצוניים (ruff/black) מסיבות תאימות סביבה.</p>
 <dl class="field-list simple">
 <dt class="field-odd">Return type<span class="colon">:</span></dt>
-<dd class="field-odd"><p><span class="sphinx_autodoc_typehints-type"><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Dict" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">Dict</span></code></a>[<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">str</span></code></a>, <a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">str</span></code></a>]</span></p>
+<dd class="field-odd"><p><span class="sphinx_autodoc_typehints-type"><code class="xref py py-class docutils literal notranslate"><span class="pre">Dict</span></code>[<code class="xref py py-class docutils literal notranslate"><span class="pre">str</span></code>, <code class="xref py py-class docutils literal notranslate"><span class="pre">str</span></code>]</span></p>
 </dd>
 <dt class="field-even">פרמטרים<span class="colon">:</span></dt>
-<dd class="field-even"><p><strong>files</strong> (<a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Dict" title="(in Python v3.14)"><em>Dict</em></a><em>[</em><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><em>str</em></a><em>, </em><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><em>str</em></a><em>]</em>)</p>
+<dd class="field-even"><p><strong>files</strong> (<em>Dict</em><em>[</em><em>str</em><em>, </em><em>str</em><em>]</em>)</p>
 </dd>
 </dl>
 </dd></dl>

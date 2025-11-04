@@ -15,9 +15,9 @@
       <script src="../_static/jquery.js?v=5d32c60e"></script>
       <script src="../_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
       <script src="../_static/documentation_options.js?v=0062297a"></script>
-      <script src="../_static/doctools.js?v=9a2dae69"></script>
+      <script src="../_static/doctools.js?v=9bcbadda"></script>
       <script src="../_static/sphinx_highlight.js?v=dc90522c"></script>
-      <script src="../_static/translations.js?v=714bf7a6"></script>
+      <script src="../_static/translations.js?v=a336edf7"></script>
     <script src="../_static/js/theme.js"></script>
     <link rel="index" title="אינדקס" href="../genindex.html" />
     <link rel="search" title="חיפוש" href="../search.html" />
@@ -121,7 +121,9 @@
 </ul>
 </li>
 <li class="toctree-l1"><a class="reference internal" href="../whats-new.html">What’s New</a><ul>
-<li class="toctree-l2"><a class="reference internal" href="../whats-new.html#id1">2025-10-15</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../whats-new.html#id1">2025-10-30</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../whats-new.html#id2">2025-10-29</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../whats-new.html#id3">2025-10-15</a></li>
 </ul>
 </li>
 <li class="toctree-l1"><a class="reference internal" href="../architecture.html">ארכיטקטורה</a><ul>
@@ -130,6 +132,7 @@
 <li class="toctree-l2"><a class="reference internal" href="../architecture.html#id4">מבנה תיקיות</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../architecture.html#id5">זרימות מרכזיות</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../architecture.html#id6">קישורים</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../architecture.html#http-aiohttp">תשתית HTTP – סשן aiohttp משותף</a></li>
 </ul>
 </li>
 <li class="toctree-l1"><a class="reference internal" href="../contributing.html">מדריך תרומה</a><ul>
@@ -179,6 +182,7 @@
 <li class="toctree-l2"><a class="reference internal" href="../configuration.html#environment-variables">Environment variables</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../configuration.html#databases-and-cache-pooling-timeouts">Databases and Cache (Pooling/Timeouts)</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../configuration.html#http-clients">HTTP Clients</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../configuration.html#http-async-async-http">שימוש ב‑http_async (Async HTTP)</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../configuration.html#http-sync-sync-http">שימוש ב‑http_sync (Sync HTTP)</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../configuration.html#flask">Flask</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../configuration.html#telegram-bot">Telegram Bot</a></li>
@@ -210,8 +214,9 @@
 <li class="toctree-l2"><a class="reference internal" href="../performance-scaling.html#projection">Projection</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../performance-scaling.html#id1">דגשים</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../performance-scaling.html#connection-pooling-timeouts">כוונון Connection Pooling ו-Timeouts</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../performance-scaling.html#id2">לוגי איטיות (מהיר לאיתור צווארי בקבוק)</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../performance-scaling.html#env">בדיקות מהירות אחרי שינוי ENV</a></li>
-<li class="toctree-l2"><a class="reference internal" href="../performance-scaling.html#id2">הנחיות לפי סביבה</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../performance-scaling.html#id3">הנחיות לפי סביבה</a></li>
 </ul>
 </li>
 <li class="toctree-l1"><a class="reference internal" href="../large-files-runbook.html">טיפול בקבצים גדולים (Large Files)</a><ul>
@@ -465,6 +470,11 @@
 <li class="toctree-l4"><a class="reference internal" href="handlers.html#submodules">Submodules</a></li>
 </ul>
 </li>
+<li class="toctree-l3"><a class="reference internal" href="http_async.html">http_async module</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="http_async.html#http_async.get_session"><code class="docutils literal notranslate"><span class="pre">get_session()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="http_async.html#http_async.close_session"><code class="docutils literal notranslate"><span class="pre">close_session()</span></code></a></li>
+</ul>
+</li>
 <li class="toctree-l3"><a class="reference internal" href="http_sync.html">http_sync module</a><ul>
 <li class="toctree-l4"><a class="reference internal" href="http_sync.html#http_sync.get_session"><code class="docutils literal notranslate"><span class="pre">get_session()</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="http_sync.html#http_sync.request"><code class="docutils literal notranslate"><span class="pre">request()</span></code></a></li>
@@ -508,6 +518,7 @@
 <li class="toctree-l4"><a class="reference internal" href="metrics.html#metrics.get_boot_monotonic"><code class="docutils literal notranslate"><span class="pre">get_boot_monotonic()</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="metrics.html#metrics.mark_startup_complete"><code class="docutils literal notranslate"><span class="pre">mark_startup_complete()</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="metrics.html#metrics.note_first_request_latency"><code class="docutils literal notranslate"><span class="pre">note_first_request_latency()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="metrics.html#metrics.get_process_uptime_seconds"><code class="docutils literal notranslate"><span class="pre">get_process_uptime_seconds()</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="metrics.html#metrics.record_dependency_init"><code class="docutils literal notranslate"><span class="pre">record_dependency_init()</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="metrics.html#metrics.get_uptime_percentage"><code class="docutils literal notranslate"><span class="pre">get_uptime_percentage()</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="metrics.html#metrics.set_adaptive_observability_gauges"><code class="docutils literal notranslate"><span class="pre">set_adaptive_observability_gauges()</span></code></a></li>
@@ -681,10 +692,7 @@
 </li>
 </ul>
 </li>
-<li class="toctree-l2"><a class="reference internal" href="../handlers/index.html#file-view-handler">File View Handler</a><ul>
-<li class="toctree-l3"><a class="reference internal" href="../handlers/index.html#file-view-handler-module">File View Handler Module</a></li>
-</ul>
-</li>
+<li class="toctree-l2"><a class="reference internal" href="../handlers/index.html#file-view-handler">File View Handler</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../handlers/index.html#pagination-handler">Pagination Handler</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../handlers/index.html#save-flow-handler">Save Flow Handler</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../handlers/index.html#states-handler">States Handler</a></li>
@@ -819,6 +827,8 @@
 <li class="toctree-l2"><a class="reference internal" href="../testing.html#stubs">טעינת Stubs לטלגרם</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../testing.html#tmp-path">דוגמת שימוש ב‑tmp_path</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../testing.html#id2">מחיקה בטוחה</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../testing.html#mocking-http-github-menu-handler">Mocking HTTP ב‑github_menu_handler</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../testing.html#blueprint">רישום Blueprint בסביבת טסטים</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../testing.html#pytest-cov">כיסוי בדיקות (pytest-cov)</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../testing.html#ci">CI נתמך</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../testing.html#performance">בדיקות ביצועים (Performance)</a></li>
@@ -881,6 +891,7 @@
 <li class="toctree-l2"><a class="reference internal" href="../troubleshooting.html#id1">שגיאות נפוצות</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../troubleshooting.html#importerror-telegram-conversationhandler-filters">ImportError בזמן טסטים (telegram / ConversationHandler / filters)</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../troubleshooting.html#parse-mode">שגיאות parse_mode</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../troubleshooting.html#asyncio-attached-to-a-different-loop-event-loop-is-closed">שגיאות asyncio: ”attached to a different loop“ / ”Event loop is closed“</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../troubleshooting.html#id2">דיבוג מהיר</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../troubleshooting.html#mongodb">בדיקת חיבור MongoDB</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../troubleshooting.html#id3">קישורים</a></li>
@@ -997,6 +1008,7 @@
 <li class="toctree-l2"><a class="reference internal" href="../user/my_collections.html#id5">מגבלות ופרטיות</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../user/my_collections.html#api">API קצר (למפתחים)</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../user/my_collections.html#id6">טיפים</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../user/my_collections.html#id7">מובייל/טאבלט – גרירה לסידור</a></li>
 </ul>
 </li>
 <li class="toctree-l1"><a class="reference internal" href="../user/share_code.html">שיתוף קוד (חשוב)</a><ul>
@@ -1054,6 +1066,13 @@
 <li class="toctree-l2"><a class="reference internal" href="../webapp/caching.html#gotchas">Gotchas נפוצים</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../webapp/caching.html#cache-control">שילוב עם Cache-Control</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../webapp/caching.html#id3">קישורים נוספים</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../webapp/advanced-caching.html">מערכת Caching מתקדמת עם TTL דינמי</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../webapp/advanced-caching.html#id1">עקרונות</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../webapp/advanced-caching.html#id2">קוד לדוגמה</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../webapp/advanced-caching.html#id3">דגשים תפעוליים</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../webapp/advanced-caching.html#id4">קישורים</a></li>
 </ul>
 </li>
 <li class="toctree-l1"><a class="reference internal" href="../webapp/static-checklist.html">Static Performance &amp; Security Checklist (gzip/br, Cache, SRI)</a><ul>
@@ -1158,6 +1177,32 @@
 </li>
 <li class="toctree-l1"><a class="reference internal" href="../alerts.html">התראות (Alerts)</a><ul>
 <li class="toctree-l2"><a class="reference internal" href="../alerts.html#id1">חוקי התראה לדוגמה</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../alerts.html#id2">ראו גם</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../observability/log_based_alerts.html">התראות מבוססות לוגים (Log‑based Alerts)</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../observability/log_based_alerts.html#id1">מה זה ולמה</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../observability/log_based_alerts.html#id2">הרכיבים בקוד</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../observability/log_based_alerts.html#id3">קבצי קונפיג</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../observability/log_based_alerts.html#config-error-signatures-yml">דוגמה מינימלית: <code class="docutils literal notranslate"><span class="pre">config/error_signatures.yml</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../observability/log_based_alerts.html#config-alerts-yml">דוגמה מינימלית: <code class="docutils literal notranslate"><span class="pre">config/alerts.yml</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../observability/log_based_alerts.html#option-b">Option B – חיבור בתוך הקוד (מומש)</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../observability/log_based_alerts.html#id4">משתני סביבה</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../observability/log_based_alerts.html#option-a-sidecar">Option A – Sidecar מזרם לוגים</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../observability/log_based_alerts.html#id5">ספים וקיבוץ – ברירות מחדל</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../observability/log_based_alerts.html#fingerprint">אסטרטגיית fingerprint וקנוניקליזציה</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../observability/log_based_alerts.html#id6">צ’קליסט למפתחים</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../observability/log_based_alerts.html#id7">בדיקה מקומית (סימולציה)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../observability/log_based_alerts.html#ai">הנחיות לסוכני AI</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../observability/log_based_alerts.html#id8">אבטחה ופרטיות</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../observability/log_based_alerts.html#rollout">Rollout מומלץ</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../observability/log_based_alerts.html#troubleshooting">Troubleshooting</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../observability/log_based_alerts.html#id9">ראו גם</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../observability/log_based_alerts.html#id10">קישורים לקוד</a></li>
 </ul>
 </li>
 <li class="toctree-l1"><a class="reference internal" href="../sentry.html">Sentry</a><ul>
@@ -1205,6 +1250,15 @@
 <li class="toctree-l2"><a class="reference internal" href="../chatops/commands.html#observe-v">/observe -v (מפורט)</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../chatops/commands.html#observe-vv">/observe -vv (מפורט מאוד)</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../chatops/commands.html#rate-limit">/rate_limit</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../chatops/observe.html">ChatOps – /observe: הרחבות -v ו- -vv</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../chatops/observe.html#id1">תחביר ופרמטרים</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../chatops/observe.html#id2">דוגמאות</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../chatops/observe.html#v">פלט לדוגמה – ‎-v</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../chatops/observe.html#vv">פלט לדוגמה – ‎-vv</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../chatops/observe.html#id3">הערות שימוש</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../chatops/observe.html#id4">קישורים רלוונטיים</a></li>
 </ul>
 </li>
 <li class="toctree-l1"><a class="reference internal" href="../chatops/playbooks.html">Playbooks – תרחישים נפוצים</a><ul>
@@ -1318,12 +1372,12 @@
 <p>Keeps only records newer than now - max_age_seconds.</p>
 <dl class="field-list simple">
 <dt class="field-odd">Return type<span class="colon">:</span></dt>
-<dd class="field-odd"><p><span class="sphinx_autodoc_typehints-type"><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.14)"><code class="xref py py-obj docutils literal notranslate"><span class="pre">None</span></code></a></span></p>
+<dd class="field-odd"><p><span class="sphinx_autodoc_typehints-type"><code class="xref py py-obj docutils literal notranslate"><span class="pre">None</span></code></span></p>
 </dd>
 <dt class="field-even">פרמטרים<span class="colon">:</span></dt>
 <dd class="field-even"><ul class="simple">
-<li><p><strong>max_age_seconds</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.14)"><em>int</em></a><em> | </em><em>None</em>)</p></li>
-<li><p><strong>now_ts</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#float" title="(in Python v3.14)"><em>float</em></a><em> | </em><em>None</em>)</p></li>
+<li><p><strong>max_age_seconds</strong> (<em>int</em><em> | </em><em>None</em>)</p></li>
+<li><p><strong>now_ts</strong> (<em>float</em><em> | </em><em>None</em>)</p></li>
 </ul>
 </dd>
 </dl>
@@ -1336,12 +1390,12 @@
 <p>Mirrors predictions cleanup for symmetry.</p>
 <dl class="field-list simple">
 <dt class="field-odd">Return type<span class="colon">:</span></dt>
-<dd class="field-odd"><p><span class="sphinx_autodoc_typehints-type"><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.14)"><code class="xref py py-obj docutils literal notranslate"><span class="pre">None</span></code></a></span></p>
+<dd class="field-odd"><p><span class="sphinx_autodoc_typehints-type"><code class="xref py py-obj docutils literal notranslate"><span class="pre">None</span></code></span></p>
 </dd>
 <dt class="field-even">פרמטרים<span class="colon">:</span></dt>
 <dd class="field-even"><ul class="simple">
-<li><p><strong>max_age_seconds</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.14)"><em>int</em></a><em> | </em><em>None</em>)</p></li>
-<li><p><strong>now_ts</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#float" title="(in Python v3.14)"><em>float</em></a><em> | </em><em>None</em>)</p></li>
+<li><p><strong>max_age_seconds</strong> (<em>int</em><em> | </em><em>None</em>)</p></li>
+<li><p><strong>now_ts</strong> (<em>float</em><em> | </em><em>None</em>)</p></li>
 </ul>
 </dd>
 </dl>
@@ -1352,10 +1406,10 @@
 <span class="sig-prename descclassname"><span class="pre">monitoring.cleanup.</span></span><span class="sig-name descname"><span class="pre">main</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">argv</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/monitoring/cleanup.html#main"><span class="viewcode-link"><span class="pre">[מקור]</span></span></a><a class="headerlink" href="#monitoring.cleanup.main" title="Link to this definition"></a></dt>
 <dd><dl class="field-list simple">
 <dt class="field-odd">Return type<span class="colon">:</span></dt>
-<dd class="field-odd"><p><span class="sphinx_autodoc_typehints-type"><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">int</span></code></a></span></p>
+<dd class="field-odd"><p><span class="sphinx_autodoc_typehints-type"><code class="xref py py-class docutils literal notranslate"><span class="pre">int</span></code></span></p>
 </dd>
 <dt class="field-even">פרמטרים<span class="colon">:</span></dt>
-<dd class="field-even"><p><strong>argv</strong> (<a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Iterable" title="(in Python v3.14)"><em>Iterable</em></a><em>[</em><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><em>str</em></a><em>] </em><em>| </em><em>None</em>)</p>
+<dd class="field-even"><p><strong>argv</strong> (<em>Iterable</em><em>[</em><em>str</em><em>] </em><em>| </em><em>None</em>)</p>
 </dd>
 </dl>
 </dd></dl>

@@ -18,3 +18,8 @@
            for: 10m
            annotations:
              summary: "פעולות איטיות: 95p > 2s"
+
+ראו גם
+-------
+
+- :doc:`observability/log_based_alerts`
