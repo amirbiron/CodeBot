@@ -49,6 +49,50 @@
   }
 
   function clamp(n, min, max){ return Math.min(Math.max(n, min), max); }
+
+  function getScrollOffsets(){
+    if (typeof window === 'undefined') return { x: 0, y: 0 };
+    const doc = window.document || {};
+    const docEl = doc.documentElement || {};
+    const body = doc.body || {};
+    const scrollingEl = doc.scrollingElement || {};
+    const vv = window.visualViewport || null;
+
+    const pick = (values) => {
+      for (const val of values) {
+        if (typeof val === 'number' && Number.isFinite(val) && Math.abs(val) > 0.5) {
+          return val;
+        }
+      }
+      for (const val of values) {
+        if (typeof val === 'number' && Number.isFinite(val)) {
+          return val;
+        }
+      }
+      return 0;
+    };
+
+    const xCandidates = [
+      window.scrollX,
+      window.pageXOffset,
+      scrollingEl ? scrollingEl.scrollLeft : undefined,
+      docEl ? docEl.scrollLeft : undefined,
+      body ? body.scrollLeft : undefined,
+      vv ? vv.pageLeft : undefined,
+      vv ? vv.offsetLeft : undefined,
+    ];
+    const yCandidates = [
+      window.scrollY,
+      window.pageYOffset,
+      scrollingEl ? scrollingEl.scrollTop : undefined,
+      docEl ? docEl.scrollTop : undefined,
+      body ? body.scrollTop : undefined,
+      vv ? vv.pageTop : undefined,
+      vv ? vv.offsetTop : undefined,
+    ];
+
+    return { x: pick(xCandidates), y: pick(yCandidates) };
+  }
   const PIN_SENTINEL = '__pinned__';
   const AUTO_SAVE_DEBOUNCE_MS = 500;
   const AUTO_SAVE_FORCE_INTERVAL_MS = 3500;
@@ -156,27 +200,29 @@
         const container = document.getElementById('md-content') || document.body;
         const headers = Array.from(container.querySelectorAll('h1, h2, h3, h4, h5, h6'));
         if (!headers.length) return null;
-        const targetY = window.scrollY + Math.min(160, Math.round((window.innerHeight || 600) * 0.25));
+        const scroll = getScrollOffsets();
+        const targetY = scroll.y + Math.min(160, Math.round((window.innerHeight || 600) * 0.25));
         let best = null; let bestDy = Infinity;
         for (const h of headers) {
-          const y = Math.round(h.getBoundingClientRect().top + window.scrollY);
+          const y = Math.round(h.getBoundingClientRect().top + scroll.y);
           const dy = Math.abs(y - targetY);
           if (dy < bestDy) { bestDy = dy; best = h; }
         }
         if (!best) return null;
         const id = best.id || '';
         const text = (best.textContent || '').trim().slice(0, 120);
-        return id ? { id, text, y: Math.round(best.getBoundingClientRect().top + window.scrollY) } : null;
+        return id ? { id, text, y: Math.round(best.getBoundingClientRect().top + scroll.y) } : null;
       } catch(_) { return null; }
     }
 
     async createNote(){
       try {
         const isMobile = (typeof window !== 'undefined') && ((window.matchMedia && window.matchMedia('(max-width: 480px)').matches) || (window.innerWidth <= 480));
+        const scroll = getScrollOffsets();
         const payload = {
           content: '',
           // הנחתה קלה למובייל כדי למנוע קפיצה עם הופעת מקלדת
-          position: { x: isMobile ? 80 : 120, y: window.scrollY + (isMobile ? 80 : 120) },
+          position: { x: isMobile ? 80 : 120, y: scroll.y + (isMobile ? 80 : 120) },
           size: { width: isMobile ? 200 : 260, height: isMobile ? 160 : 200 },
           color: '#FFFFCC',
           line_start: null,
@@ -200,9 +246,19 @@
       if (note.anchor_id === PIN_SENTINEL) {
         el.dataset.pinned = 'true';
       }
-      // קביעת מיקום התחלתי – אם יש עוגן נשתמש בו, אחרת לפי שמור
-      const initialX = (typeof note.position?.x === 'number') ? note.position.x : (note.position_x ?? 120);
-      const initialY = (typeof note.position?.y === 'number') ? note.position.y : (note.position_y ?? (window.scrollY + 120));
+        // קביעת מיקום התחלתי – אם יש עוגן נשתמש בו, אחרת לפי שמור
+        let initialX = (typeof note.position?.x === 'number') ? note.position.x : null;
+        if (!Number.isFinite(initialX)) {
+          initialX = (typeof note.position_x === 'number') ? note.position_x : 120;
+        }
+        let initialY = (typeof note.position?.y === 'number') ? note.position.y : null;
+        if (!Number.isFinite(initialY)) {
+          if (typeof note.position_y === 'number') {
+            initialY = note.position_y;
+          } else {
+            initialY = getScrollOffsets().y + 120;
+          }
+        }
       note.position = note.position && typeof note.position === 'object' ? note.position : {};
       if (typeof note.position.x !== 'number') note.position.x = initialX;
       if (typeof note.position.y !== 'number') note.position.y = initialY;
@@ -279,15 +335,16 @@
       return el;
     }
 
-    _notePayloadFromEl(el){
-      const rect = el.getBoundingClientRect();
-      const x = Math.round(rect.left + window.scrollX);
-      const y = Math.round(rect.top + window.scrollY);
-      const w = Math.round(rect.width);
-      const h = Math.round(rect.height);
-      const payload = { position: { x, y }, size: { width: w, height: h } };
-      return payload;
-    }
+      _notePayloadFromEl(el){
+        const rect = el.getBoundingClientRect();
+        const scroll = getScrollOffsets();
+        const x = Math.round(rect.left + scroll.x);
+        const y = Math.round(rect.top + scroll.y);
+        const w = Math.round(rect.width);
+        const h = Math.round(rect.height);
+        const payload = { position: { x, y }, size: { width: w, height: h } };
+        return payload;
+      }
 
     _getEntry(el){
       if (!el || !el.dataset) return null;
@@ -305,64 +362,74 @@
       pinBtn.title = active ? 'בטל נעיצה' : 'נעץ פתק למסמך';
     }
 
-    _applyPositionMode(el, note, opts){
-      try {
-        if (!el || !note) return;
-        const isPinned = note.anchor_id === PIN_SENTINEL;
-        const isAnchored = !!(note.anchor_id && note.anchor_id !== PIN_SENTINEL) || (Number.isInteger(note.line_start) && note.line_start > 0);
-        if (isPinned) {
-          el.classList.add('is-pinned');
-          el.classList.remove('is-floating');
-          el.style.position = 'absolute';
-          const targetX = (typeof note.position?.x === 'number') ? note.position.x : parseInt(el.style.left || '120', 10) || 120;
-          const targetY = (typeof note.position?.y === 'number') ? note.position.y : parseInt(el.style.top || String(window.scrollY + 120), 10) || (window.scrollY + 120);
-          el.style.left = targetX + 'px';
-          el.style.top = targetY + 'px';
-          el.dataset.pinned = 'true';
-          if (el.dataset && el.dataset.anchorId) { delete el.dataset.anchorId; }
-          if (el.dataset && el.dataset.anchorLine) { delete el.dataset.anchorLine; }
-          if (el.dataset && el.dataset.relYOffset) { delete el.dataset.relYOffset; }
-        } else if (isAnchored) {
-          el.classList.add('is-pinned');
-          el.classList.remove('is-floating');
-          el.style.position = 'absolute';
-          // left מהמידע הקיים; top יחושב לפי עוגן/שורה
-          const targetX = (typeof note.position?.x === 'number') ? note.position.x : parseInt(el.style.left || '120', 10) || 120;
-          el.style.left = targetX + 'px';
-          if (el.dataset && el.dataset.pinned) { delete el.dataset.pinned; }
-          if (note.anchor_id && note.anchor_id !== PIN_SENTINEL) {
-            el.dataset.anchorId = String(note.anchor_id);
-          } else if (Number.isInteger(note.line_start) && note.line_start > 0) {
-            el.dataset.anchorLine = String(note.line_start);
+      _applyPositionMode(el, note, opts){
+        try {
+          if (!el || !note) return;
+          const scroll = getScrollOffsets();
+          const rect = el.getBoundingClientRect();
+          const currentAbsX = Math.round(rect.left + scroll.x);
+          const currentAbsY = Math.round(rect.top + scroll.y);
+          const currentViewportX = Math.round(rect.left);
+          const currentViewportY = Math.round(rect.top);
+          const isPinned = note.anchor_id === PIN_SENTINEL;
+          const isAnchored = !!(note.anchor_id && note.anchor_id !== PIN_SENTINEL) || (Number.isInteger(note.line_start) && note.line_start > 0);
+          if (isPinned) {
+            el.classList.add('is-pinned');
+            el.classList.remove('is-floating');
+            el.style.position = 'absolute';
+            let targetX = (typeof note.position?.x === 'number') ? note.position.x : currentAbsX;
+            let targetY = (typeof note.position?.y === 'number') ? note.position.y : currentAbsY;
+            if (!Number.isFinite(targetX)) targetX = currentAbsX;
+            if (!Number.isFinite(targetY)) targetY = currentAbsY;
+            el.style.left = targetX + 'px';
+            el.style.top = targetY + 'px';
+            el.dataset.pinned = 'true';
+            if (el.dataset && el.dataset.anchorId) { delete el.dataset.anchorId; }
+            if (el.dataset && el.dataset.anchorLine) { delete el.dataset.anchorLine; }
+            if (el.dataset && el.dataset.relYOffset) { delete el.dataset.relYOffset; }
+          } else if (isAnchored) {
+            el.classList.add('is-pinned');
+            el.classList.remove('is-floating');
+            el.style.position = 'absolute';
+            let targetX = (typeof note.position?.x === 'number') ? note.position.x : currentAbsX;
+            if (!Number.isFinite(targetX)) targetX = currentAbsX;
+            el.style.left = targetX + 'px';
+            if (el.dataset && el.dataset.pinned) { delete el.dataset.pinned; }
+            if (note.anchor_id && note.anchor_id !== PIN_SENTINEL) {
+              el.dataset.anchorId = String(note.anchor_id);
+            } else if (Number.isInteger(note.line_start) && note.line_start > 0) {
+              el.dataset.anchorLine = String(note.line_start);
+            }
+            // החישוב בפועל של top ייעשה ע"י _updateAnchoredNotePosition
+          } else {
+            el.classList.add('is-floating');
+            el.classList.remove('is-pinned');
+            el.style.position = 'fixed';
+            if (el.dataset && el.dataset.pinned) { delete el.dataset.pinned; }
+            const width = (typeof note.size?.width === 'number') ? note.size.width : (parseInt(el.style.width || '260', 10) || 260);
+            const height = (typeof note.size?.height === 'number') ? note.size.height : (parseInt(el.style.height || '200', 10) || 200);
+            let left = (typeof note.position?.x === 'number') ? note.position.x - scroll.x : currentViewportX;
+            let top = (typeof note.position?.y === 'number') ? note.position.y - scroll.y : currentViewportY;
+            if (!Number.isFinite(left)) left = currentViewportX;
+            if (!Number.isFinite(top)) top = currentViewportY;
+            const vp = window.visualViewport;
+            const vpW = Math.max(100, (vp ? vp.width : window.innerWidth) || window.innerWidth || 320);
+            const vpH = Math.max(100, (vp ? vp.height : window.innerHeight) || window.innerHeight || 320);
+            const maxLeft = Math.max(12, vpW - width - 12);
+            const maxTop = Math.max(60, vpH - height - 20);
+            left = clamp(Math.round(left), 12, maxLeft);
+            top = clamp(Math.round(top), 60, maxTop);
+            el.style.left = left + 'px';
+            el.style.top = top + 'px';
+            if (!opts || opts.reflow !== false) {
+              this._reflowWithinViewport(el);
+            }
           }
-          // החישוב בפועל של top ייעשה ע"י _updateAnchoredNotePosition
-        } else {
-          el.classList.add('is-floating');
-          el.classList.remove('is-pinned');
-          el.style.position = 'fixed';
-          if (el.dataset && el.dataset.pinned) { delete el.dataset.pinned; }
-          const width = (typeof note.size?.width === 'number') ? note.size.width : (parseInt(el.style.width || '260', 10) || 260);
-          const height = (typeof note.size?.height === 'number') ? note.size.height : (parseInt(el.style.height || '200', 10) || 200);
-          let left = (typeof note.position?.x === 'number') ? note.position.x - window.scrollX : parseInt(el.style.left || '120', 10) || 120;
-          let top = (typeof note.position?.y === 'number') ? note.position.y - window.scrollY : parseInt(el.style.top || String(window.scrollY + 120), 10) || (window.scrollY + 120);
-          const vp = window.visualViewport;
-          const vpW = Math.max(100, (vp ? vp.width : window.innerWidth) || window.innerWidth || 320);
-          const vpH = Math.max(100, (vp ? vp.height : window.innerHeight) || window.innerHeight || 320);
-          const maxLeft = Math.max(12, vpW - width - 12);
-          const maxTop = Math.max(60, vpH - height - 20);
-          left = clamp(Math.round(left), 12, maxLeft);
-          top = clamp(Math.round(top), 60, maxTop);
-          el.style.left = left + 'px';
-          el.style.top = top + 'px';
-          if (!opts || opts.reflow !== false) {
-            this._reflowWithinViewport(el);
-          }
+          this._updatePinButtonState(el, isPinned);
+        } catch(e) {
+          console.warn('sticky note: applyPositionMode failed', e);
         }
-        this._updatePinButtonState(el, isPinned);
-      } catch(e) {
-        console.warn('sticky note: applyPositionMode failed', e);
       }
-    }
 
     _isPinned(el){
       const entry = this._getEntry(el);
@@ -447,9 +514,13 @@
         // חשב מיקום מוחלט בדף בעת התחלת גרירה כדי למנוע "קפיצה" במובייל
         const parsedLeft = parseInt(el.style.left || '', 10);
         const parsedTop = parseInt(el.style.top || '', 10);
-        origLeft = Number.isFinite(parsedLeft) ? parsedLeft : Math.round(r.left + window.scrollX);
-        origTop = Number.isFinite(parsedTop) ? parsedTop : Math.round(r.top + window.scrollY);
-        startScrollX = window.scrollX; startScrollY = window.scrollY;
+        const scroll = getScrollOffsets();
+        const isAbsolute = el.classList ? el.classList.contains('is-pinned') : false;
+        const fallbackLeft = Math.round(r.left + (isAbsolute ? scroll.x : 0));
+        const fallbackTop = Math.round(r.top + (isAbsolute ? scroll.y : 0));
+        origLeft = Number.isFinite(parsedLeft) ? parsedLeft : fallbackLeft;
+        origTop = Number.isFinite(parsedTop) ? parsedTop : fallbackTop;
+        startScrollX = scroll.x; startScrollY = scroll.y;
         try { e.preventDefault(); } catch(_) {}
         longPressHandled = false;
         try { clearTimeout(pressTimer); } catch(_) {}
@@ -465,7 +536,8 @@
         const ev = e.touches ? e.touches[0] : e;
         const dx = ev.clientX - startX; const dy = ev.clientY - startY;
         if (Math.abs(dx) > 6 || Math.abs(dy) > 6) { try { clearTimeout(pressTimer); } catch(_) {} }
-        const sx = window.scrollX - startScrollX; const sy = window.scrollY - startScrollY;
+        const scroll = getScrollOffsets();
+        const sx = scroll.x - startScrollX; const sy = scroll.y - startScrollY;
         el.style.left = Math.round(origLeft + dx + sx) + 'px';
         el.style.top = Math.round(origTop + dy + sy) + 'px';
       };
@@ -977,10 +1049,11 @@
         const md = document.getElementById('md-content') || document;
         const sel = '.highlighttable .linenos pre > span, .highlighttable .linenos pre > a, .linenodiv pre > span, .linenodiv pre > a, .linenos span, .linenos a';
         const nodes = Array.from(md.querySelectorAll(sel));
+        const scroll = getScrollOffsets();
         nodes.forEach((node) => {
           const ln = this._extractLineNumberFromNode(node);
           if (!ln) return;
-          const y = Math.round(node.getBoundingClientRect().top + window.scrollY);
+          const y = Math.round(node.getBoundingClientRect().top + scroll.y);
           if (!this._lineIndex.has(ln)) this._lineIndex.set(ln, y);
         });
       } catch(_) {}
@@ -1016,7 +1089,10 @@
       try {
         const sel = `.highlighttable .linenos pre > span:nth-child(${lineNum}), .highlighttable .linenos pre > a:nth-child(${lineNum}), .linenodiv pre > span:nth-child(${lineNum}), .linenodiv pre > a:nth-child(${lineNum}), .linenos span:nth-child(${lineNum}), .linenos a:nth-child(${lineNum})`;
         const node = document.querySelector(sel);
-        if (node) return Math.round(node.getBoundingClientRect().top + window.scrollY);
+        if (node) {
+          const scroll = getScrollOffsets();
+          return Math.round(node.getBoundingClientRect().top + scroll.y);
+        }
       } catch(_) {}
       return null;
     }
@@ -1027,7 +1103,10 @@
         const md = document.getElementById('md-content') || document;
         let el = md.querySelector(`#${CSS.escape(anchorId)}`);
         if (!el) el = document.getElementById(anchorId);
-        if (el) return Math.round(el.getBoundingClientRect().top + window.scrollY);
+        if (el) {
+          const scroll = getScrollOffsets();
+          return Math.round(el.getBoundingClientRect().top + scroll.y);
+        }
       } catch(_) {}
       return null;
     }
@@ -1038,12 +1117,13 @@
         const sel = '.highlighttable .linenos pre > span, .highlighttable .linenos pre > a, .linenodiv pre > span, .linenodiv pre > a, .linenos span, .linenos a';
         const nodes = Array.from(md.querySelectorAll(sel));
         if (!nodes.length) return null;
-        const mid = window.scrollY + Math.round((window.innerHeight || 600) * 0.5);
+        const scroll = getScrollOffsets();
+        const mid = scroll.y + Math.round((window.innerHeight || 600) * 0.5);
         let best = null; let bestDy = Infinity;
         nodes.forEach((node) => {
           const ln = this._extractLineNumberFromNode(node);
           if (!ln) return;
-          const y = Math.round(node.getBoundingClientRect().top + window.scrollY);
+          const y = Math.round(node.getBoundingClientRect().top + scroll.y);
           const dy = Math.abs(y - mid);
           if (dy < bestDy) { bestDy = dy; best = ln; }
         });
