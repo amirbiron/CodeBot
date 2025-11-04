@@ -1,6 +1,7 @@
 # ===================================
 # Code Keeper Bot - Render Configuration
 # בוט שומר קבצי קוד - הגדרות Render
+# הערה: לניטור בלבד השתמשו ב-blueprint המצומצם render.monitoring.yaml
 # ===================================
 
 services:
