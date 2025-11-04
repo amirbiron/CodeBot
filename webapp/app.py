@@ -19,6 +19,7 @@ import threading
 import atexit
 import time as _time
 from werkzeug.http import http_date, parse_date
+from werkzeug.exceptions import HTTPException
 from flask_compress import Compress
 from pymongo import MongoClient, DESCENDING
 from pymongo.errors import PyMongoError
@@ -5779,6 +5780,8 @@ def server_error(e):
 @app.errorhandler(Exception)
 def handle_exception(e):
     """טיפול בכל שגיאה אחרת"""
+    if isinstance(e, HTTPException):
+        return e
     logger.exception("Unhandled exception")
     import traceback
     traceback.print_exc()
