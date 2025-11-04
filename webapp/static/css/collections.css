@@ -9,7 +9,9 @@
 .sidebar-item:hover{background:rgba(255,255,255,.14)}
 .sidebar-item .emoji{min-width:1.4rem}
 .sidebar-item .name{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.sidebar-item .count{opacity:.8;font-size:.9rem}
+.sidebar-item .count{opacity:.8;font-size:.9rem;display:flex;align-items:center;gap:.25rem}
+.sidebar-item .count-number{display:inline-block;min-width:1.2rem;text-align:center}
+.sidebar-item .share-indicator{font-size:.9rem}
 .collections-content{
   /* החזרת אזור הפריטים לרקע לבן וניגודיות טובה */
   background:#ffffff;
@@ -23,11 +25,21 @@
   overflow-x:hidden
 }
 .collection-items{display:flex;flex-direction:column;gap:.5rem;min-width:0}
-.collection-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:.5rem}
-.collection-header .title{font-weight:700;font-size:1rem}
-.collection-header .actions{display:flex;gap:.5rem}
+.collection-header{display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:.5rem;gap:.75rem;flex-wrap:wrap}
+.collection-header .title{display:flex;align-items:center;gap:.5rem;font-weight:700;font-size:1rem;flex:1;min-width:0}
+.collection-header .title .name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
+.collection-header .actions{display:flex;gap:.5rem;align-items:center;flex-wrap:wrap}
 .collection-header .actions .btn{background:#f8fafc;border:1px solid #e5e7eb;border-radius:6px;color:#374151;padding:.3rem .6rem;cursor:pointer}
+.collection-header .actions .btn.btn-sm{padding:.25rem .5rem;font-size:.85rem}
 .collection-header .actions .btn.btn-danger{background:#fff1f2;border-color:#fecdd3;color:#b91c1c}
+.collection-icon-btn{border:1px solid #e5e7eb;background:#f8fafc;border-radius:6px;padding:.25rem .45rem;font-size:1.2rem;line-height:1;cursor:pointer;transition:background .2s,border-color .2s,transform .2s}
+.collection-icon-btn:hover{background:#eef2ff;border-color:#c7d2fe;transform:translateY(-1px)}
+.share-controls{display:flex;align-items:center;gap:.4rem;background:#f8fafc;border:1px solid #e5e7eb;border-radius:8px;padding:.25rem .5rem}
+.share-controls .share-toggle{display:flex;align-items:center;gap:.25rem;font-size:.85rem;white-space:nowrap}
+.share-controls .share-toggle input{margin:0}
+.share-controls select{border:1px solid #d1d5db;border-radius:6px;padding:.25rem .4rem;background:#ffffff;color:#374151;font-size:.85rem}
+.share-controls select:disabled{opacity:.6}
+.share-controls .share-copy{padding:.25rem .5rem;font-size:.85rem}
 .collection-item{
   display:flex;
   align-items:flex-start;
@@ -74,3 +86,18 @@
 .collection-item .pin.pinned{background:#fff7ed;border-color:#f59e0b;color:#b45309}
 .loading,.empty,.error{opacity:.85}
 @media(max-width:900px){.collections-layout{grid-template-columns:1fr}}
+.collection-modal{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;z-index:12000;padding:1rem}
+.collection-modal__backdrop{position:absolute;inset:0;background:rgba(0,0,0,0.45);backdrop-filter:blur(4px)}
+.collection-modal__panel{position:relative;background:#ffffff;color:#1f2937;border-radius:16px;padding:1.25rem;max-width:420px;width:calc(100% - 2rem);box-shadow:0 18px 40px rgba(15,23,42,0.2);display:flex;flex-direction:column;gap:1rem}
+.collection-modal__title{margin:0;font-size:1.15rem;font-weight:600}
+.collection-modal__field{display:flex;flex-direction:column;gap:.4rem}
+.collection-modal__field label{font-weight:600;font-size:.95rem}
+.collection-modal__field input{border:1px solid #d1d5db;border-radius:8px;padding:.5rem .6rem;font-size:.95rem}
+.icon-grid{display:flex;flex-wrap:wrap;gap:.5rem}
+.icon-option{width:44px;height:44px;border:1px solid #d1d5db;border-radius:10px;background:#f9fafb;display:flex;align-items:center;justify-content:center;font-size:1.25rem;cursor:pointer;transition:background .2s,border-color .2s,transform .2s}
+.icon-option.active{border-color:#6366f1;background:#eef2ff;transform:scale(1.05)}
+.icon-option:focus-visible{outline:2px solid #6366f1;outline-offset:2px}
+.collection-modal__error{display:none;color:#b91c1c;font-size:.9rem}
+.collection-modal__actions{display:flex;justify-content:flex-end;gap:.5rem}
+.collection-modal__actions .btn{min-height:38px}
+@media(max-width:480px){.collection-modal__panel{padding:1rem;width:calc(100% - 1.25rem)}}

@@ -166,6 +166,18 @@ def list_collections():
             return jsonify({'ok': False, 'error': 'Invalid limit/skip'}), 400
         mgr = get_manager()
         result = mgr.list_collections(user_id, limit=limit, skip=skip)
+        if result.get('ok'):
+            collections = result.get('collections') or []
+            for col in collections:
+                try:
+                    share = col.get('share') or {}
+                    token = share.get('token')
+                    if bool(share.get('enabled')) and token:
+                        col['public_url'] = _build_public_collection_url(str(token))
+                    else:
+                        col.pop('public_url', None)
+                except Exception:
+                    continue
         return jsonify(result)
     except Exception as e:
         rid = _get_request_id()
@@ -187,6 +199,14 @@ def get_collection(collection_id: str):
         user_id = int(session['user_id'])
         mgr = get_manager()
         result = mgr.get_collection(user_id, collection_id)
+        if result.get('ok'):
+            col = result.get('collection') or {}
+            share = col.get('share') or {}
+            token = share.get('token')
+            if bool(share.get('enabled')) and token:
+                public_url = _build_public_collection_url(str(token))
+                result['public_url'] = public_url
+                col['public_url'] = public_url
         return jsonify(result)
     except Exception as e:
         rid = _get_request_id()
@@ -405,8 +425,15 @@ def update_share(collection_id: str):
             try:
                 col = result.get('collection') or {}
                 share = col.get('share') or {}
-                if bool(share.get('enabled')) and share.get('token'):
-                    result['public_url'] = _build_public_collection_url(str(share.get('token')))
+                token = share.get('token')
+                if bool(share.get('enabled')) and token:
+                    public_url = _build_public_collection_url(str(token))
+                    result['public_url'] = public_url
+                    col['public_url'] = public_url
+                else:
+                    result.pop('public_url', None)
+                    if isinstance(col, dict):
+                        col.pop('public_url', None)
             except Exception:
                 pass
         return jsonify(result)

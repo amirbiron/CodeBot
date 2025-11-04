@@ -36,7 +36,13 @@
       const r = await fetch(`/api/collections/${encodeURIComponent(id)}/reorder`, {method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify({order})});
       return r.json();
     },
+    async updateShare(id, payload){
+      const r = await fetch(`/api/collections/${encodeURIComponent(id)}/share`, {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload||{})});
+      return r.json();
+    },
   };
+
+  const ALLOWED_ICONS = ["📂","📘","🎨","🧩","🐛","⚙️","📝","🧪","💡","⭐","🔖","🚀"];
 
   const resolvedFileIdCache = new Map();
 
@@ -47,13 +53,18 @@
     try {
       const data = await api.listCollections();
       if (!data || !data.ok) throw new Error(data && data.error || 'שגיאה');
-      const items = (data.collections||[]).map(c => `
-        <button class="sidebar-item" data-id="${c.id}">
-          <span class="emoji">${escapeHtml(c.icon||'📂')}</span>
-          <span class="name">${escapeHtml(c.name||'ללא שם')}</span>
-          <span class="count">${Number(c.items_count||0)}</span>
-        </button>
-      `).join('');
+        const items = (data.collections || []).map((c) => {
+          const iconChar = (ALLOWED_ICONS.includes(c.icon) ? c.icon : (ALLOWED_ICONS[0] || '📂')) || '📂';
+          const shareActive = !!(c.share && c.share.enabled);
+          const countHtml = `${shareActive ? '<span class="share-indicator" title="האוסף משותף">🔗</span>' : ''}<span class="count-number">${Number(c.items_count || 0)}</span>`;
+          return `
+            <button class="sidebar-item" data-id="${c.id}">
+              <span class="emoji">${escapeHtml(iconChar)}</span>
+              <span class="name">${escapeHtml(c.name || 'ללא שם')}</span>
+              <span class="count">${countHtml}</span>
+            </button>
+          `;
+        }).join('');
       root.innerHTML = `
         <div class="sidebar-header">
           <div class="title">האוספים שלי</div>
@@ -72,18 +83,254 @@
     }
   }
 
-  function wireSidebarHandlers(root){
-    const list = root.querySelector('#collectionsList');
-    const search = root.querySelector('#collectionsSearch');
-    const createBtn = root.querySelector('#createCollectionBtn');
+  function setShareControlsBusy(toggleEl, visibilityEl, copyBtn, busy){
+    if (toggleEl) toggleEl.disabled = !!busy;
+    if (visibilityEl) visibilityEl.disabled = !!busy || !(toggleEl && toggleEl.checked);
+    if (copyBtn) {
+      const hasUrl = ((copyBtn.getAttribute('data-url') || '').trim().length > 0);
+      copyBtn.disabled = !!busy || !(toggleEl && toggleEl.checked) || !hasUrl;
+    }
+  }
 
-    if (createBtn) createBtn.addEventListener('click', async () => {
-      const name = prompt('שם האוסף:');
-      if (!name) return;
-      const res = await api.createCollection({name: name.slice(0,80), mode:'manual'});
-      if (!res || !res.ok) return alert(res && res.error || 'שגיאה ביצירה');
-      ensureCollectionsSidebar();
+  function resolvePublicUrl(col){
+    try {
+      if (!col) return '';
+      if (col.public_url) return String(col.public_url);
+      const share = col.share || {};
+      if (!share.enabled || !share.token) return '';
+      const base = String(window.location.origin || '').replace(/\/$/, '');
+      return `${base}/api/collections/shared/${encodeURIComponent(String(share.token))}`;
+    } catch (_err) {
+      return '';
+    }
+  }
+
+  function buildIconGridHtml(selected){
+    const fallback = ALLOWED_ICONS[0] || '📂';
+    const current = ALLOWED_ICONS.includes(selected) ? selected : fallback;
+    return ALLOWED_ICONS.map(icon => {
+      const isActive = icon === current;
+      const cls = `icon-option${isActive ? ' active' : ''}`;
+      return `<button type="button" class="${cls}" data-icon="${escapeHtml(icon)}">${escapeHtml(icon)}</button>`;
+    }).join('');
+  }
+
+  function openCreateCollectionDialog(){
+    if (document.querySelector('.collection-modal[data-modal="create-collection"]')) {
+      return;
+    }
+    const defaultIcon = ALLOWED_ICONS[0] || '📂';
+    const overlay = document.createElement('div');
+    overlay.className = 'collection-modal';
+    overlay.setAttribute('data-modal', 'create-collection');
+    overlay.innerHTML = `
+      <div class="collection-modal__backdrop"></div>
+      <div class="collection-modal__panel" role="dialog" aria-modal="true">
+        <h3 class="collection-modal__title">אוסף חדש</h3>
+        <div class="collection-modal__field">
+          <label for="collectionNameInput">שם האוסף</label>
+          <input id="collectionNameInput" type="text" maxlength="80" placeholder="לדוגמה: קטעים מועדפים">
+        </div>
+        <div class="collection-modal__field">
+          <label>בחר אייקון</label>
+          <div class="icon-grid">${buildIconGridHtml(defaultIcon)}</div>
+        </div>
+        <div class="collection-modal__error" aria-live="polite"></div>
+        <div class="collection-modal__actions">
+          <button type="button" class="btn btn-secondary cancel">בטל</button>
+          <button type="button" class="btn btn-primary confirm">צור</button>
+        </div>
+      </div>
+    `;
+    document.body.appendChild(overlay);
+
+    const nameInput = overlay.querySelector('#collectionNameInput');
+    const iconGrid = overlay.querySelector('.icon-grid');
+    const errorBox = overlay.querySelector('.collection-modal__error');
+    const cancelBtn = overlay.querySelector('.cancel');
+    const confirmBtn = overlay.querySelector('.confirm');
+    const backdrop = overlay.querySelector('.collection-modal__backdrop');
+    let selectedIcon = defaultIcon;
+
+    if (iconGrid) {
+      iconGrid.addEventListener('click', (ev) => {
+        const btn = ev.target.closest('.icon-option');
+        if (!btn) return;
+        selectedIcon = btn.getAttribute('data-icon') || defaultIcon;
+        iconGrid.querySelectorAll('.icon-option').forEach(el => el.classList.toggle('active', el === btn));
+      });
+    }
+
+    const showError = (msg) => {
+      if (!errorBox) return;
+      if (msg) {
+        errorBox.textContent = msg;
+        errorBox.style.display = 'block';
+      } else {
+        errorBox.textContent = '';
+        errorBox.style.display = 'none';
+      }
+    };
+
+    const cleanup = () => {
+      document.removeEventListener('keydown', onKeydown);
+      try { overlay.remove(); } catch (_err) {
+        if (overlay.parentNode) overlay.parentNode.removeChild(overlay);
+      }
+    };
+
+    const close = () => {
+      cleanup();
+    };
+
+    const onKeydown = (ev) => {
+      if (ev.key === 'Escape') {
+        ev.preventDefault();
+        close();
+      } else if (ev.key === 'Enter' && document.activeElement === nameInput) {
+        ev.preventDefault();
+        confirmBtn && confirmBtn.click();
+      }
+    };
+
+    document.addEventListener('keydown', onKeydown);
+    backdrop && backdrop.addEventListener('click', close);
+    cancelBtn && cancelBtn.addEventListener('click', close);
+
+    if (confirmBtn) {
+      confirmBtn.addEventListener('click', async () => {
+        const nameRaw = String(nameInput && nameInput.value ? nameInput.value : '').trim();
+        if (!nameRaw) {
+          showError('יש להזין שם לאוסף');
+          nameInput && nameInput.focus();
+          return;
+        }
+        showError('');
+        const iconToSend = ALLOWED_ICONS.includes(selectedIcon) ? selectedIcon : defaultIcon;
+        confirmBtn.disabled = true;
+        const originalLabel = confirmBtn.textContent || 'צור';
+        confirmBtn.textContent = 'יוצר...';
+        try {
+          const res = await api.createCollection({ name: nameRaw.slice(0, 80), mode: 'manual', icon: iconToSend });
+          if (!res || !res.ok) {
+            showError((res && res.error) || 'שגיאה ביצירת האוסף');
+            confirmBtn.disabled = false;
+            confirmBtn.textContent = originalLabel;
+            return;
+          }
+          close();
+          ensureCollectionsSidebar();
+          if (res.collection && res.collection.id) {
+            await renderCollectionItems(res.collection.id);
+          }
+        } catch (_err) {
+          showError('שגיאה ביצירת האוסף');
+          confirmBtn.disabled = false;
+          confirmBtn.textContent = originalLabel;
+        }
+      });
+    }
+
+    requestAnimationFrame(() => {
+      if (nameInput) {
+        nameInput.focus();
+        nameInput.select();
+      }
     });
+  }
+
+  function openIconPicker(initialIcon){
+    if (document.querySelector('.collection-modal[data-modal="icon-picker"]')) {
+      return Promise.resolve(null);
+    }
+    const defaultIcon = ALLOWED_ICONS.includes(initialIcon) ? initialIcon : (ALLOWED_ICONS[0] || '📂');
+    return new Promise((resolve) => {
+      const overlay = document.createElement('div');
+      overlay.className = 'collection-modal';
+      overlay.setAttribute('data-modal', 'icon-picker');
+      overlay.innerHTML = `
+        <div class="collection-modal__backdrop"></div>
+        <div class="collection-modal__panel" role="dialog" aria-modal="true">
+          <h3 class="collection-modal__title">בחר אייקון</h3>
+          <div class="collection-modal__field">
+            <div class="icon-grid">${buildIconGridHtml(defaultIcon)}</div>
+          </div>
+          <div class="collection-modal__actions">
+            <button type="button" class="btn btn-secondary cancel">בטל</button>
+            <button type="button" class="btn btn-primary confirm">שמור</button>
+          </div>
+        </div>
+      `;
+      document.body.appendChild(overlay);
+
+      const iconGrid = overlay.querySelector('.icon-grid');
+      const cancelBtn = overlay.querySelector('.cancel');
+      const confirmBtn = overlay.querySelector('.confirm');
+      const backdrop = overlay.querySelector('.collection-modal__backdrop');
+      let selectedIcon = defaultIcon;
+
+      if (iconGrid) {
+        iconGrid.addEventListener('click', (ev) => {
+          const btn = ev.target.closest('.icon-option');
+          if (!btn) return;
+          selectedIcon = btn.getAttribute('data-icon') || defaultIcon;
+          iconGrid.querySelectorAll('.icon-option').forEach(el => el.classList.toggle('active', el === btn));
+        });
+      }
+
+      const cleanup = () => {
+        document.removeEventListener('keydown', onKeydown);
+        try { overlay.remove(); } catch (_err) {
+          if (overlay.parentNode) overlay.parentNode.removeChild(overlay);
+        }
+      };
+
+      let settled = false;
+      const finish = (value) => {
+        if (settled) return;
+        settled = true;
+        cleanup();
+        resolve(value);
+      };
+
+      const onKeydown = (ev) => {
+        if (ev.key === 'Escape') {
+          ev.preventDefault();
+          finish(null);
+        } else if (ev.key === 'Enter') {
+          ev.preventDefault();
+          confirmBtn && confirmBtn.click();
+        }
+      };
+
+      document.addEventListener('keydown', onKeydown);
+      backdrop && backdrop.addEventListener('click', () => finish(null));
+      cancelBtn && cancelBtn.addEventListener('click', () => finish(null));
+      if (confirmBtn) {
+        confirmBtn.addEventListener('click', () => {
+          const iconToSend = ALLOWED_ICONS.includes(selectedIcon) ? selectedIcon : defaultIcon;
+          finish(iconToSend);
+        });
+      }
+
+      requestAnimationFrame(() => {
+        const activeBtn = overlay.querySelector('.icon-option.active');
+        if (activeBtn) {
+          activeBtn.focus();
+        }
+      });
+    });
+  }
+
+    function wireSidebarHandlers(root){
+      const list = root.querySelector('#collectionsList');
+      const search = root.querySelector('#collectionsSearch');
+      const createBtn = root.querySelector('#createCollectionBtn');
+      if (createBtn) {
+        createBtn.addEventListener('click', () => {
+          openCreateCollectionDialog();
+        });
+      }
 
     if (search) {
       search.addEventListener('input', () => {
@@ -118,52 +365,196 @@
       if (!colRes || !colRes.ok) throw new Error((colRes && colRes.error) || 'שגיאה');
       const col = colRes.collection || {};
 
-      const itemsHtml = (data.items||[]).map(it => `
-        <div class="collection-item" data-source="${escapeHtml(it.source||'regular')}" data-name="${escapeHtml(it.file_name||'')}" data-file-id="${escapeHtml(it.file_id || '')}">
-          <span class="drag" draggable="true">⋮⋮</span>
-          <a class="file" href="#" draggable="false" data-open="${escapeHtml(it.file_name||'')}">${escapeHtml(it.file_name||'')}</a>
-          <button class="pin ${it.pinned ? 'pinned' : ''}" title="${it.pinned ? 'בטל הצמדה' : 'הצמד'}">📌</button>
-          <button class="preview" title="תצוגה מקדימה" aria-label="תצוגה מקדימה">🧾</button>
-          <button class="remove" title="הסר">✕</button>
-        </div>
-      `).join('');
-
-      container.innerHTML = `
-        <div class="collection-header">
-          <div class="title">${escapeHtml(col.name || 'ללא שם')}</div>
-          <div class="actions">
-            <button class="btn btn-secondary rename">שנה שם</button>
-            <button class="btn btn-danger delete">מחק</button>
+        const itemsHtml = (data.items||[]).map(it => `
+          <div class="collection-item" data-source="${escapeHtml(it.source||'regular')}" data-name="${escapeHtml(it.file_name||'')}" data-file-id="${escapeHtml(it.file_id || '')}">
+            <span class="drag" draggable="true">⋮⋮</span>
+            <a class="file" href="#" draggable="false" data-open="${escapeHtml(it.file_name||'')}">${escapeHtml(it.file_name||'')}</a>
+            <button class="pin ${it.pinned ? 'pinned' : ''}" title="${it.pinned ? 'בטל הצמדה' : 'הצמד'}">📌</button>
+            <button class="preview" title="תצוגה מקדימה" aria-label="תצוגה מקדימה">🧾</button>
+            <button class="remove" title="הסר">✕</button>
           </div>
-        </div>
-        <div class="collection-items" id="collectionItems">${itemsHtml || '<div class="empty">אין פריטים</div>'}</div>
-      `;
+        `).join('');
+        const iconChar = (col.icon && ALLOWED_ICONS.includes(col.icon)) ? col.icon : (ALLOWED_ICONS[0] || '📂');
+        const share = col.share || {};
+        const shareEnabled = !!share.enabled;
+        const allowedVis = ['private', 'link'];
+        const shareVisibility = allowedVis.includes(share.visibility) ? share.visibility : (shareEnabled ? 'link' : 'private');
+        const shareUrl = resolvePublicUrl(col);
 
-      const itemsContainer = container.querySelector('#collectionItems');
-      wireDnd(itemsContainer, cid);
+        container.innerHTML = `
+          <div class="collection-header">
+            <div class="title">
+              <button class="collection-icon-btn" type="button" aria-label="בחר אייקון" title="בחר אייקון">${escapeHtml(iconChar)}</button>
+              <div class="name" title="${escapeHtml(col.name || 'ללא שם')}">${escapeHtml(col.name || 'ללא שם')}</div>
+            </div>
+            <div class="actions">
+              <div class="share-controls" data-enabled="${shareEnabled ? '1' : '0'}">
+                <label class="share-toggle">
+                  <input type="checkbox" class="share-enabled" ${shareEnabled ? 'checked' : ''}>
+                  <span>שיתוף</span>
+                </label>
+                <select class="share-visibility" ${shareEnabled ? '' : 'disabled'}>
+                  <option value="private" ${shareVisibility === 'private' ? 'selected' : ''}>פרטי</option>
+                  <option value="link" ${shareVisibility === 'link' ? 'selected' : ''}>קישור</option>
+                </select>
+                <button class="btn btn-secondary btn-sm share-copy" ${shareEnabled && shareUrl ? '' : 'disabled'} data-url="${shareUrl ? escapeHtml(shareUrl) : ''}">העתק קישור</button>
+              </div>
+              <button class="btn btn-secondary rename">שנה שם</button>
+              <button class="btn btn-danger delete">מחק</button>
+            </div>
+          </div>
+          <div class="collection-items" id="collectionItems">${itemsHtml || '<div class="empty">אין פריטים</div>'}</div>
+        `;
 
-      // התאמת טקסט דינמית לשמות קבצים ארוכים
-      autoFitText('#collectionItems .file', { minPx: 12, maxPx: 16 });
+        const iconBtn = container.querySelector('.collection-icon-btn');
+        if (iconBtn) {
+          iconBtn.addEventListener('click', async () => {
+            try {
+              const nextIcon = await openIconPicker(iconChar);
+              if (!nextIcon || nextIcon === iconChar) {
+                return;
+              }
+              const res = await api.updateCollection(cid, { icon: nextIcon });
+              if (!res || !res.ok) {
+                alert((res && res.error) || 'שגיאה בעדכון האייקון');
+                return;
+              }
+              ensureCollectionsSidebar();
+              await renderCollectionItems(cid);
+            } catch (_err) {
+              alert('שגיאה בעדכון האייקון');
+            }
+          });
+        }
 
-      // Header actions
-      const renameBtn = container.querySelector('.collection-header .rename');
-      const deleteBtn = container.querySelector('.collection-header .delete');
-      if (renameBtn) renameBtn.addEventListener('click', async () => {
-        const current = String(col.name || '');
-        const name = prompt('שם חדש לאוסף:', current);
-        if (!name) return;
-        const res = await api.updateCollection(cid, { name: name.slice(0, 80) });
-        if (!res || !res.ok) return alert((res && res.error) || 'שגיאה בעדכון שם');
-        ensureCollectionsSidebar();
-        await renderCollectionItems(cid);
-      });
-      if (deleteBtn) deleteBtn.addEventListener('click', async () => {
-        if (!confirm('למחוק את האוסף? הפעולה תסיר את האוסף ואת הקישורים שבו, אבל הקבצים עצמם יישארו זמינים בבוט ובקבצים.')) return;
-        const res = await api.deleteCollection(cid);
-        if (!res || !res.ok) return alert((res && res.error) || 'שגיאה במחיקה');
-        ensureCollectionsSidebar();
-        container.innerHTML = '<div class="empty">האוסף נמחק. הקבצים נשארים זמינים בבוט ובמסך הקבצים.</div>';
-      });
+        const shareControls = container.querySelector('.share-controls');
+        const shareToggleEl = shareControls ? shareControls.querySelector('.share-enabled') : null;
+        const shareVisibilityEl = shareControls ? shareControls.querySelector('.share-visibility') : null;
+        const shareCopyBtn = shareControls ? shareControls.querySelector('.share-copy') : null;
+        if (shareCopyBtn && !shareCopyBtn.dataset.label) {
+          shareCopyBtn.dataset.label = shareCopyBtn.textContent || 'העתק קישור';
+        }
+        setShareControlsBusy(shareToggleEl, shareVisibilityEl, shareCopyBtn, false);
+
+        if (shareCopyBtn) {
+          shareCopyBtn.addEventListener('click', async () => {
+            const url = shareCopyBtn.getAttribute('data-url') || '';
+            if (!url) {
+              alert('אין קישור שיתוף פעיל');
+              return;
+            }
+            const original = shareCopyBtn.dataset.label || shareCopyBtn.textContent || 'העתק קישור';
+            try {
+              if (navigator.clipboard && navigator.clipboard.writeText) {
+                await navigator.clipboard.writeText(url);
+              } else {
+                throw new Error('clipboard_unavailable');
+              }
+              shareCopyBtn.textContent = 'הועתק!';
+              setTimeout(() => {
+                shareCopyBtn.textContent = original;
+              }, 1600);
+            } catch (_err) {
+              try {
+                const manual = prompt('העתק את הקישור הבא:', url);
+                if (manual !== null) {
+                  shareCopyBtn.textContent = 'הועתק!';
+                  setTimeout(() => {
+                    shareCopyBtn.textContent = original;
+                  }, 1600);
+                }
+              } catch (_) {
+                alert('לא ניתן להעתיק את הקישור אוטומטית');
+              }
+            }
+          });
+        }
+
+        if (shareToggleEl) {
+          shareToggleEl.addEventListener('change', async () => {
+            const enabled = shareToggleEl.checked;
+            if (shareVisibilityEl) {
+              shareVisibilityEl.disabled = !enabled;
+            }
+            let errorMessage = '';
+            setShareControlsBusy(shareToggleEl, shareVisibilityEl, shareCopyBtn, true);
+            try {
+              const payload = { enabled };
+              if (enabled) {
+                payload.visibility = shareVisibilityEl ? shareVisibilityEl.value : 'link';
+              } else if (shareVisibilityEl) {
+                payload.visibility = shareVisibilityEl.value || 'private';
+              }
+              const res = await api.updateShare(cid, payload);
+              if (!res || !res.ok) {
+                errorMessage = (res && res.error) || '';
+                throw new Error(errorMessage || 'share_update_failed');
+              }
+            } catch (_err) {
+              shareToggleEl.checked = !enabled;
+              if (shareVisibilityEl) {
+                shareVisibilityEl.disabled = !shareToggleEl.checked;
+              }
+              alert(errorMessage || 'שגיאה בעדכון שיתוף');
+            } finally {
+              setShareControlsBusy(shareToggleEl, shareVisibilityEl, shareCopyBtn, false);
+            }
+            ensureCollectionsSidebar();
+            await renderCollectionItems(cid);
+          });
+        }
+
+        if (shareVisibilityEl) {
+          shareVisibilityEl.addEventListener('change', async () => {
+            if (!shareToggleEl || !shareToggleEl.checked) {
+              return;
+            }
+            const previous = shareVisibility;
+            let errorMessage = '';
+            setShareControlsBusy(shareToggleEl, shareVisibilityEl, shareCopyBtn, true);
+            try {
+              const visibility = shareVisibilityEl.value || 'link';
+              const res = await api.updateShare(cid, { enabled: true, visibility });
+              if (!res || !res.ok) {
+                errorMessage = (res && res.error) || '';
+                throw new Error(errorMessage || 'share_update_failed');
+              }
+            } catch (_err) {
+              shareVisibilityEl.value = previous;
+              alert(errorMessage || 'שגיאה בעדכון שיתוף');
+            } finally {
+              setShareControlsBusy(shareToggleEl, shareVisibilityEl, shareCopyBtn, false);
+            }
+            ensureCollectionsSidebar();
+            await renderCollectionItems(cid);
+          });
+        }
+
+        const itemsContainer = container.querySelector('#collectionItems');
+        wireDnd(itemsContainer, cid);
+
+        // התאמת טקסט דינמית לשמות קבצים ארוכים
+        autoFitText('#collectionItems .file', { minPx: 12, maxPx: 16 });
+
+        // Header actions
+        const renameBtn = container.querySelector('.collection-header .rename');
+        const deleteBtn = container.querySelector('.collection-header .delete');
+        if (renameBtn) renameBtn.addEventListener('click', async () => {
+          const current = String(col.name || '');
+          const name = prompt('שם חדש לאוסף:', current);
+          if (!name) return;
+          const res = await api.updateCollection(cid, { name: name.slice(0, 80) });
+          if (!res || !res.ok) return alert((res && res.error) || 'שגיאה בעדכון שם');
+          ensureCollectionsSidebar();
+          await renderCollectionItems(cid);
+        });
+        if (deleteBtn) deleteBtn.addEventListener('click', async () => {
+          if (!confirm('למחוק את האוסף? הפעולה תסיר את האוסף ואת הקישורים שבו, אבל הקבצים עצמם יישארו זמינים בבוט ובקבצים.')) return;
+          const res = await api.deleteCollection(cid);
+          if (!res || !res.ok) return alert((res && res.error) || 'שגיאה במחיקה');
+          ensureCollectionsSidebar();
+          container.innerHTML = '<div class="empty">האוסף נמחק. הקבצים נשארים זמינים בבוט ובמסך הקבצים.</div>';
+        });
 
       // Items actions (remove, open, pin)
       itemsContainer.addEventListener('click', async (ev) => {
