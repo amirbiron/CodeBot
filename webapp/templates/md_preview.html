@@ -253,6 +253,37 @@
   border-radius: 6px;
   font-family: 'Fira Code', 'Consolas', monospace;
 }
+#md-content .md-color-token {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35em;
+  white-space: nowrap;
+  font-family: inherit;
+  line-height: inherit;
+  vertical-align: baseline;
+}
+
+#md-content .md-color-token::after {
+  content: '';
+  display: inline-block;
+  width: 0.9em;
+  height: 0.9em;
+  border-radius: 0.2em;
+  border: 1px solid rgba(17, 24, 39, 0.2);
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.55) inset;
+  background: var(--md-color-swatch, transparent);
+  flex-shrink: 0;
+}
+
+#md-content code .md-color-token {
+  gap: 0.25em;
+}
+
+#md-content code .md-color-token::after {
+  width: 0.75em;
+  height: 0.75em;
+}
+
 /* חיווי למופע פעיל בחיפוש */
 #md-content .md-highlight.is-active {
   outline: 2px solid #ffd700;
@@ -1238,6 +1269,97 @@ function loadScript(src){
   });
 }
 
+function attachColorSwatches(root){
+  if (!root || !root.querySelector) return;
+  const BASE_REGEX = /#(?:[0-9a-fA-F]{3,4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})\b|(?:rgb|rgba|hsl|hsla)\s*\([^\)]+\)/gi;
+  const SKIP_TAGS = new Set(['SCRIPT','STYLE','NOSCRIPT','TEMPLATE']);
+  const supportsCssSupports = typeof CSS !== 'undefined' && typeof CSS.supports === 'function';
+  const colorProbe = document.createElement('span');
+
+  function isRenderableColor(str) {
+    if (!str) return false;
+    try {
+      if (supportsCssSupports && CSS.supports('color', str)) {
+        return true;
+      }
+    } catch(_) {}
+    try {
+      colorProbe.style.color = '';
+      colorProbe.style.color = str;
+      return !!colorProbe.style.color;
+    } catch(_) {
+      return false;
+    }
+  }
+  let walker;
+  try {
+    walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
+      acceptNode(node) {
+        if (!node || !node.nodeValue) return NodeFilter.FILTER_REJECT;
+        if (!node.nodeValue.trim()) return NodeFilter.FILTER_REJECT;
+        const parent = node.parentElement;
+        if (!parent) return NodeFilter.FILTER_REJECT;
+        if (parent.closest('[data-md-color-token]')) return NodeFilter.FILTER_REJECT;
+        if (parent.closest('pre')) return NodeFilter.FILTER_REJECT;
+        if (SKIP_TAGS.has(parent.tagName)) return NodeFilter.FILTER_REJECT;
+        const tester = new RegExp(BASE_REGEX.source, BASE_REGEX.flags);
+        return tester.test(node.nodeValue) ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_REJECT;
+      }
+    });
+  } catch(_) {
+    return;
+  }
+
+  const textNodes = [];
+  let current;
+  while ((current = walker.nextNode())) {
+    textNodes.push(current);
+  }
+  if (!textNodes.length) return;
+
+  textNodes.forEach(node => {
+    const value = node && node.nodeValue;
+    if (!value) return;
+    const regex = new RegExp(BASE_REGEX.source, BASE_REGEX.flags);
+    const matches = Array.from(value.matchAll(regex));
+    if (!matches.length) return;
+
+    const frag = document.createDocumentFragment();
+    let cursor = 0;
+    for (const match of matches) {
+      const rawMatch = (match && match[0]) || '';
+      const idx = typeof match?.index === 'number' ? match.index : value.indexOf(rawMatch, cursor);
+      const safeIndex = idx < 0 ? cursor : idx;
+      if (safeIndex > cursor) {
+        frag.appendChild(document.createTextNode(value.slice(cursor, safeIndex)));
+      }
+      const trimmed = rawMatch.trim();
+      if (!trimmed || !isRenderableColor(trimmed)) {
+        frag.appendChild(document.createTextNode(rawMatch));
+        cursor = safeIndex + rawMatch.length;
+        continue;
+      }
+      const token = document.createElement('span');
+      token.className = 'md-color-token';
+      token.setAttribute('data-md-color-token', '1');
+      token.dataset.mdColor = trimmed;
+      token.title = trimmed;
+      token.textContent = trimmed;
+      token.style.setProperty('--md-color-swatch', trimmed);
+      frag.appendChild(token);
+      cursor = safeIndex + rawMatch.length;
+    }
+    if (cursor < value.length) {
+      frag.appendChild(document.createTextNode(value.slice(cursor)));
+    }
+    if (node.parentNode) {
+      node.parentNode.replaceChild(frag, node);
+    }
+  });
+}
+
+try { if (typeof window !== 'undefined') { window.attachColorSwatches = attachColorSwatches; } } catch(_) {}
+
 (async function(){
   try{
     injectCss(CDN.hljsCss);
@@ -1338,6 +1460,7 @@ function loadScript(src){
     // רינדור ראשוני
     const container = document.getElementById('md-content');
     container.innerHTML = md.render(MD_TEXT || '');
+    attachColorSwatches(container);
     // בדיקת smoke מהירה: האם ::: tip מומר ל-admonition (לוג בלבד)
     try {
       const smoke = md.render('::: tip בדיקת טיפ\nתוכן\n:::');
