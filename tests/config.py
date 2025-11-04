@@ -45,6 +45,8 @@ class _Cfg:
         self.MAINTENANCE_AUTO_WARMUP_SECS = _coerce_int(
             os.getenv("MAINTENANCE_AUTO_WARMUP_SECS"), 30
         )
+        self.PUBLIC_BASE_URL = os.getenv("PUBLIC_BASE_URL")
+        self.WEBAPP_URL = os.getenv("WEBAPP_URL")
 
 
 config = _Cfg()
