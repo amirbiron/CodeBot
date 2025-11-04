@@ -42,7 +42,10 @@
     },
   };
 
-  const ALLOWED_ICONS = ["📂","📘","🎨","🧩","🐛","⚙️","📝","🧪","💡","⭐","🔖","🚀"];
+  const ALLOWED_ICONS = [
+    "📂","📘","🎨","🧩","🐛","⚙️","📝","🧪","💡","⭐","🔖","🚀",
+    "🖥️","💼","🖱️","⌨️","📱","💻","🖨️","📊","📈","📉","🔧","🛠️"
+  ];
 
   const resolvedFileIdCache = new Map();
 
@@ -376,30 +379,33 @@
             <button class="remove" title="הסר">✕</button>
           </div>
         `).join('');
-        const iconChar = (col.icon && ALLOWED_ICONS.includes(col.icon)) ? col.icon : (ALLOWED_ICONS[0] || '📂');
-        const share = col.share || {};
-        const shareEnabled = !!share.enabled;
-        const shareUrl = resolvePublicUrl(col);
-        container.innerHTML = `
-          <div class="collection-header">
-            <div class="title">
-              <button class="collection-icon-btn" type="button" aria-label="בחר אייקון" title="בחר אייקון">${escapeHtml(iconChar)}</button>
-              <div class="name" title="${escapeHtml(col.name || 'ללא שם')}">${escapeHtml(col.name || 'ללא שם')}</div>
+          const iconChar = (col.icon && ALLOWED_ICONS.includes(col.icon)) ? col.icon : (ALLOWED_ICONS[0] || '📂');
+          const share = col.share || {};
+          const shareEnabled = !!share.enabled;
+          const shareUrl = resolvePublicUrl(col);
+          container.innerHTML = `
+            <div class="collection-header">
+              <div class="title">
+                <button class="collection-icon-btn" type="button" aria-label="בחר אייקון" title="בחר אייקון">${escapeHtml(iconChar)}</button>
+                <div class="name" title="${escapeHtml(col.name || 'ללא שם')}">${escapeHtml(col.name || 'ללא שם')}</div>
+              </div>
+              <div class="share-controls" data-enabled="${shareEnabled ? '1' : '0'}">
+                <label class="share-toggle">
+                  <input type="checkbox" class="share-enabled" ${shareEnabled ? 'checked' : ''}>
+                  <span class="share-toggle__text">שיתוף</span>
+                </label>
+                <span class="share-divider" aria-hidden="true">|</span>
+                <button class="btn btn-secondary btn-sm share-copy" ${shareEnabled && shareUrl ? '' : 'disabled'} data-url="${shareUrl ? escapeHtml(shareUrl) : ''}" title="העתק קישור לשיתוף" aria-label="העתק קישור לשיתוף">
+                  <span class="share-copy__text">העתק</span>
+                </button>
+              </div>
+              <div class="actions">
+                <button class="btn btn-secondary rename">שנה שם</button>
+                <button class="btn btn-danger delete">מחק</button>
+              </div>
             </div>
-            <div class="share-controls" data-enabled="${shareEnabled ? '1' : '0'}">
-              <label class="share-toggle">
-                <input type="checkbox" class="share-enabled" ${shareEnabled ? 'checked' : ''}>
-                <span>שיתוף</span>
-              </label>
-              <button class="btn btn-secondary btn-sm share-copy" ${shareEnabled && shareUrl ? '' : 'disabled'} data-url="${shareUrl ? escapeHtml(shareUrl) : ''}">העתק קישור</button>
-            </div>
-            <div class="actions">
-              <button class="btn btn-secondary rename">שנה שם</button>
-              <button class="btn btn-danger delete">מחק</button>
-            </div>
-          </div>
-          <div class="collection-items" id="collectionItems">${itemsHtml || '<div class="empty">אין פריטים</div>'}</div>
-        `;
+            <div class="collection-items" id="collectionItems">${itemsHtml || '<div class="empty">אין פריטים</div>'}</div>
+          `;
 
         const iconBtn = container.querySelector('.collection-icon-btn');
         if (iconBtn) {
@@ -421,13 +427,14 @@
             }
           });
         }
-
-        const shareControls = container.querySelector('.share-controls');
-        const shareToggleEl = shareControls ? shareControls.querySelector('.share-enabled') : null;
-        const shareCopyBtn = shareControls ? shareControls.querySelector('.share-copy') : null;
-        if (shareCopyBtn && !shareCopyBtn.dataset.label) {
-          shareCopyBtn.dataset.label = shareCopyBtn.textContent || 'העתק קישור';
-        }
+          const shareControls = container.querySelector('.share-controls');
+          const shareToggleEl = shareControls ? shareControls.querySelector('.share-enabled') : null;
+          const shareCopyBtn = shareControls ? shareControls.querySelector('.share-copy') : null;
+          const shareCopyLabel = shareCopyBtn ? shareCopyBtn.querySelector('.share-copy__text') : null;
+          if (shareCopyBtn && !shareCopyBtn.dataset.label) {
+            const labelText = shareCopyLabel ? shareCopyLabel.textContent : shareCopyBtn.textContent;
+            shareCopyBtn.dataset.label = labelText && labelText.trim() ? labelText.trim() : 'העתק';
+          }
         setShareControlsBusy(shareToggleEl, shareCopyBtn, false);
 
         if (shareCopyBtn) {
@@ -437,24 +444,40 @@
               alert('אין קישור שיתוף פעיל');
               return;
             }
-            const original = shareCopyBtn.dataset.label || shareCopyBtn.textContent || 'העתק קישור';
+            const original = shareCopyBtn.dataset.label || (shareCopyLabel ? shareCopyLabel.textContent : '') || 'העתק';
             try {
               if (navigator.clipboard && navigator.clipboard.writeText) {
                 await navigator.clipboard.writeText(url);
               } else {
                 throw new Error('clipboard_unavailable');
               }
-              shareCopyBtn.textContent = 'הועתק!';
+              if (shareCopyLabel) {
+                shareCopyLabel.textContent = 'הועתק!';
+              } else {
+                shareCopyBtn.textContent = 'הועתק!';
+              }
               setTimeout(() => {
-                shareCopyBtn.textContent = original;
+                if (shareCopyLabel) {
+                  shareCopyLabel.textContent = original;
+                } else {
+                  shareCopyBtn.textContent = original;
+                }
               }, 1600);
             } catch (_err) {
               try {
                 const manual = prompt('העתק את הקישור הבא:', url);
                 if (manual !== null) {
-                  shareCopyBtn.textContent = 'הועתק!';
+                  if (shareCopyLabel) {
+                    shareCopyLabel.textContent = 'הועתק!';
+                  } else {
+                    shareCopyBtn.textContent = 'הועתק!';
+                  }
                   setTimeout(() => {
-                    shareCopyBtn.textContent = original;
+                    if (shareCopyLabel) {
+                      shareCopyLabel.textContent = original;
+                    } else {
+                      shareCopyBtn.textContent = original;
+                    }
                   }, 1600);
                 }
               } catch (_) {
