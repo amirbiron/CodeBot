@@ -104,6 +104,15 @@ MAX_INLINE_FILE_BYTES = 5 * 1024 * 1024  # 5MB לשליחה ישירה בבוט
 MAX_ZIP_TOTAL_BYTES = 50 * 1024 * 1024  # 50MB לקובץ ZIP אחד
 MAX_ZIP_FILES = 500  # מקסימום קבצים ב-ZIP אחד
 
+# חלון קירור להתראות PR "עודכן" כדי למנוע כפילויות תכופות
+try:
+    _PR_UPDATE_COOLDOWN_SECONDS = max(
+        0,
+        int(str(os.getenv("GITHUB_NOTIFICATIONS_PR_COOLDOWN", "600")).strip() or "600"),
+    )
+except Exception:
+    _PR_UPDATE_COOLDOWN_SECONDS = 600
+
 # מגבלות ייבוא ריפו (ייבוא תוכן, לא גיבוי)
 IMPORT_MAX_FILE_BYTES = 1 * 1024 * 1024  # 1MB לקובץ יחיד
 IMPORT_MAX_TOTAL_BYTES = 20 * 1024 * 1024  # 20MB לכל הייבוא
@@ -5701,32 +5710,56 @@ class GitHubMenuHandler:
                     else:
                         pulls = repo.get_pulls(state="all", sort="updated", direction="desc")
                         seen_prs = session.setdefault("notifications_seen_prs", {})
+                        baseline_dt = None
+                        if isinstance(last_pr_check_time, datetime):
+                            baseline_dt = self._to_utc_aware(last_pr_check_time)
+                        else:
+                            baseline_dt = self._parse_seen_pr_timestamp(last_pr_check_time)
+                        latest_processed_pr_ts = baseline_dt
                         for pr in pulls[:10]:
                             updated = self._to_utc_aware(getattr(pr, "updated_at", None))
-                            # Normalize baseline too (safety in case it was saved naive somehow)
-                            baseline = self._to_utc_aware(last_pr_check_time)
+                            if updated is not None and (
+                                latest_processed_pr_ts is None or updated > latest_processed_pr_ts
+                            ):
+                                latest_processed_pr_ts = updated
                             # אם אין updated או שאין אפשרות השוואה — עצור כדי למנוע עיבוד יתר של פריטים ישנים
-                            if baseline and (updated is None or updated <= baseline):
+                            if baseline_dt and (updated is None or updated <= baseline_dt):
                                 break
                             pr_number = getattr(pr, "number", None)
                             dedup_key = str(pr_number) if pr_number is not None else None
-                            if dedup_key and updated is not None:
-                                last_seen = self._parse_seen_pr_timestamp(seen_prs.get(dedup_key))
-                                if last_seen and updated <= last_seen:
-                                    continue
+                            last_seen = self._parse_seen_pr_timestamp(
+                                seen_prs.get(dedup_key) if dedup_key else None
+                            )
+                            if last_seen and updated is not None and updated <= last_seen:
+                                continue
                             created = self._to_utc_aware(getattr(pr, "created_at", None))
                             status = (
                                 "נפתח"
                                 if (pr.state == "open" and created and updated and created == updated)
-                                else ("מוזג" if getattr(pr, "merged", False) else ("נסגר" if pr.state == "closed" else "עודכן"))
+                                else (
+                                    "מוזג"
+                                    if getattr(pr, "merged", False)
+                                    else ("נסגר" if pr.state == "closed" else "עודכן")
+                                )
                             )
+                            if (
+                                status == "עודכן"
+                                and last_seen is not None
+                                and updated is not None
+                                and (updated - last_seen).total_seconds() < _PR_UPDATE_COOLDOWN_SECONDS
+                            ):
+                                continue
                             messages.append(
                                 f'🔔 PR {status}: <a href="{pr.html_url}">{safe_html_escape(pr.title)}</a>'
                             )
                             if dedup_key and updated is not None:
                                 seen_prs[dedup_key] = self._serialize_seen_pr_timestamp(updated)
                         session["notifications_last"] = session.get("notifications_last", {})
-                        session["notifications_last"]["pr"] = datetime.now(timezone.utc)
+                        now_dt = datetime.now(timezone.utc)
+                        if latest_processed_pr_ts and latest_processed_pr_ts > now_dt:
+                            session["notifications_last"]["pr"] = latest_processed_pr_ts
+                        else:
+                            session["notifications_last"]["pr"] = now_dt
                         # הגבלת גודל הזיכרון כדי למנוע צמיחה לא מבוקרת
                         try:
                             if len(seen_prs) > 60:
