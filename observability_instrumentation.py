@@ -12,6 +12,48 @@ from typing import Any, Callable, Optional, TypeVar, Union, cast
 import time
 import functools
 
+
+class _NullSpanContext:
+    __slots__ = ()
+
+    def __enter__(self):  # pragma: no cover - trivial
+        return None
+
+    def __exit__(self, *_exc_info):  # pragma: no cover - trivial
+        return False
+
+
+class _SpanContext:
+    __slots__ = ("_cm", "_attributes", "span")
+
+    def __init__(self, cm: Any, attributes: Optional[dict[str, Any]] = None) -> None:
+        self._cm = cm
+        self._attributes = attributes or {}
+        self.span = None
+
+    def __enter__(self):
+        if self._cm is None:
+            return None
+        try:
+            self.span = self._cm.__enter__()
+        except Exception:
+            self.span = None
+            return None
+        if self.span is not None and self._attributes:
+            try:
+                self.span.set_attributes(self._attributes)  # type: ignore[attr-defined]
+            except Exception:
+                pass
+        return self.span
+
+    def __exit__(self, exc_type, exc, tb):
+        if self._cm is None:
+            return False
+        try:
+            return bool(self._cm.__exit__(exc_type, exc, tb))
+        except Exception:
+            return False
+
 _T = TypeVar("_T")
 
 
@@ -24,6 +66,52 @@ def _get_tracer_and_meter():
         return tracer, meter
     except Exception:
         return None, None
+
+
+def start_span(span_name: str, attributes: Optional[dict[str, Any]] = None):
+    """Start a span manually (best-effort).
+
+    Returns a context manager whose __enter__ yields the span (or None when OTEL missing).
+    Safe to use as::
+
+        span_cm = start_span("my.span", {"key": "value"})
+        span = span_cm.__enter__()
+        try:
+            ...
+        finally:
+            span_cm.__exit__(None, None, None)
+    """
+
+    tracer, _meter = _get_tracer_and_meter()
+    if tracer is None:
+        return _NullSpanContext()
+    try:
+        cm = tracer.start_as_current_span(span_name)
+    except Exception:
+        return _NullSpanContext()
+    return _SpanContext(cm, attributes)
+
+
+def set_current_span_attributes(attributes: Optional[dict[str, Any]] = None) -> None:
+    """Attach attributes to the current span if tracing is active."""
+
+    if not attributes:
+        return
+    try:
+        from opentelemetry import trace  # type: ignore
+    except Exception:
+        return
+    try:
+        span = trace.get_current_span()
+    except Exception:
+        return
+    if span is None:
+        return
+    for key, value in attributes.items():
+        try:
+            span.set_attribute(str(key), value)  # type: ignore[attr-defined]
+        except Exception:
+            continue
 
 
 def traced(span_name: Optional[str] = None, attributes: Optional[dict[str, Any]] = None):
@@ -203,5 +291,4 @@ def traced(span_name: Optional[str] = None, attributes: Optional[dict[str, Any]]
 
     return decorator
 
-
-__all__ = ["traced"]
+__all__ = ["traced", "start_span", "set_current_span_attributes"]

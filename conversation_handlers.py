@@ -3,6 +3,7 @@ import os
 import re
 import asyncio
 import hashlib
+import secrets
 import time
 from io import BytesIO
 from datetime import datetime, timezone, timedelta
@@ -1305,30 +1306,29 @@ async def handle_file_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -
             file_id_str = ''
         
         # כפתורים מתקדמים מלאים
+        webapp_row = _get_webapp_button_row(file_id_str, file_name)
+        share_row = list(webapp_row) if webapp_row else []
+        share_row.append(InlineKeyboardButton("🔗 שתף קוד", callback_data=f"share_menu_idx:{file_index}"))
+
         keyboard = [
             [
-                InlineKeyboardButton("👁️ הצג קוד", callback_data=f"view_{file_index}"),
-                InlineKeyboardButton("✏️ ערוך", callback_data=f"edit_code_{file_index}")
+                InlineKeyboardButton("✏️ ערוך", callback_data=f"edit_code_{file_index}"),
+                InlineKeyboardButton("👁️ הצג קוד", callback_data=f"view_{file_index}")
             ],
             [
-                InlineKeyboardButton("📝 שנה שם", callback_data=f"edit_name_{file_index}"),
-                InlineKeyboardButton("📝 ערוך הערה", callback_data=f"edit_note_{file_index}")
+                InlineKeyboardButton("📝 ערוך הערה", callback_data=f"edit_note_{file_index}"),
+                InlineKeyboardButton("📝 שנה שם", callback_data=f"edit_name_{file_index}")
             ],
+            share_row,
             [
                 InlineKeyboardButton("📚 היסטוריה", callback_data=f"versions_{file_index}"),
                 InlineKeyboardButton("📥 הורד", callback_data=f"dl_{file_index}")
-            ],
-            [
-                InlineKeyboardButton("🔗 שתף קוד", callback_data=f"share_menu_idx:{file_index}")
             ],
             [
                 InlineKeyboardButton("🔄 שכפול", callback_data=f"clone_{file_index}"),
                 InlineKeyboardButton("🗑️ מחק", callback_data=f"del_{file_index}")
             ]
         ]
-        webapp_row = _get_webapp_button_row(file_id_str, file_name)
-        if webapp_row:
-            keyboard.insert(1, webapp_row)
 
         # כפתור חזרה בהתאם למקור הרשימה (שאר הקבצים/לפי ריפו)
         last_page = context.user_data.get('files_last_page')
@@ -1340,7 +1340,30 @@ async def handle_file_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         else:
             back_cb = f"files_page_{last_page}" if last_page else "files"
         keyboard.append([InlineKeyboardButton("🔙 חזרה לרשימה", callback_data=back_cb)])
-        
+
+        # הוסף כפתור מועדפים לפני היסטוריה/הורדה
+        try:
+            from database import db as _db
+            user_id = update.effective_user.id if getattr(update, 'effective_user', None) else None
+            is_fav_now = user_id is not None and bool(_db.is_favorite(user_id, file_name))
+        except Exception:
+            is_fav_now = False
+        fav_text = "💔 הסר ממועדפים" if is_fav_now else "⭐ הוסף למועדפים"
+        raw_id = file_id_str
+        if raw_id and (len("fav_toggle_id:") + len(raw_id)) <= 60:
+            fav_cb = f"fav_toggle_id:{raw_id}"
+        else:
+            try:
+                tok = secrets.token_urlsafe(6)
+            except Exception:
+                tok = "t"
+            short_tok = (tok[:24] if isinstance(tok, str) else "t")
+            tokens_map = context.user_data.get('fav_tokens') or {}
+            tokens_map[short_tok] = file_name
+            context.user_data['fav_tokens'] = tokens_map
+            fav_cb = f"fav_toggle_tok:{short_tok}"
+        keyboard.insert(3, [InlineKeyboardButton(fav_text, callback_data=fav_cb)])
+
         reply_markup = InlineKeyboardMarkup(keyboard)
         
         # הוסף הצגת הערה אם קיימת

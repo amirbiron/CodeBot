@@ -41,9 +41,14 @@ class ReminderScheduler:
 
     async def _load_existing_reminders(self):
         try:
-            reminders = self.db.get_pending_reminders(batch_size=1000)
-            for r in reminders:
-                await self.schedule_reminder(r)
+            due_reminders = self.db.get_pending_reminders(batch_size=1000)
+            for reminder in due_reminders:
+                await self.schedule_reminder(reminder)
+
+            upcoming = getattr(self.db, "get_future_reminders", None)
+            if callable(upcoming):
+                for reminder in upcoming(batch_size=2000):
+                    await self.schedule_reminder(reminder)
         except Exception as e:
             logger.error(f"Load reminders error: {e}")
 

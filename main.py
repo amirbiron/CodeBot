@@ -8,6 +8,7 @@ from __future__ import annotations
 
 # הגדרות מתקדמות
 import os
+import functools
 import logging
 import asyncio
 from datetime import datetime
@@ -77,6 +78,7 @@ generate_request_id = _observability_attr("generate_request_id", _default_genera
 emit_event = _observability_attr("emit_event", _noop)
 bind_user_context = _observability_attr("bind_user_context", _noop)
 bind_command = _observability_attr("bind_command", _noop)
+get_observability_context = _observability_attr("get_observability_context", lambda: {})
 from metrics import (
     telegram_updates_total,
     track_file_saved,
@@ -783,6 +785,10 @@ class CodeKeeperBot:
             self._install_correlation_layer()
         except Exception:
             pass
+        try:
+            self._install_tracing_layer()
+        except Exception:
+            pass
 
         # יצירת והזרקת Activity Reporter בזמן ריצה (מונע חיבורים מרובים בזמן import)
         try:
@@ -954,6 +960,143 @@ class CodeKeeperBot:
         except Exception:
             # אל תכשיל את האפליקציה במקרה של כשל
             pass
+
+    def _install_tracing_layer(self) -> None:
+        """Wrap process_update with OTEL span for end-to-end tracing."""
+        app = getattr(self, "application", None)
+        if app is None:
+            return
+        original = getattr(app, "process_update", None)
+        if not callable(original):
+            return
+        if getattr(app, "_codebot_tracing_installed", False):
+            return
+        try:
+            from observability_instrumentation import start_span, set_current_span_attributes  # type: ignore
+        except Exception:
+            return
+        if not callable(start_span):  # type: ignore[call-arg]
+            return
+
+        setattr(app, "_codebot_tracing_installed", True)
+
+        def _normalize_command(value: str | None) -> str:
+            try:
+                if not value:
+                    return ""
+                cleaned = str(value).strip().lower()
+                if cleaned.startswith("/"):
+                    cleaned = cleaned[1:]
+                if "@" in cleaned:
+                    cleaned = cleaned.split("@", 1)[0]
+                return cleaned[:80]
+            except Exception:
+                return ""
+
+        def _derive_command(update: Update) -> str:
+            try:
+                message = getattr(update, "effective_message", None)
+                if message is not None:
+                    text = getattr(message, "text", None)
+                    if isinstance(text, str):
+                        parts = text.split()
+                        if parts and parts[0].startswith("/"):
+                            return _normalize_command(parts[0])
+                callback = getattr(update, "callback_query", None)
+                if callback is not None:
+                    data = getattr(callback, "data", None)
+                    if isinstance(data, str) and data:
+                        return _normalize_command(data.split()[0])
+                inline = getattr(update, "inline_query", None)
+                if inline is not None:
+                    query = getattr(inline, "query", None)
+                    if isinstance(query, str) and query:
+                        return _normalize_command(query.split()[0])
+            except Exception:
+                return ""
+            return ""
+
+        def _collect_attrs(update: Update | None) -> dict[str, str]:
+            attrs: dict[str, str] = {"component": "telegram.bot"}
+            try:
+                ctx = get_observability_context() or {}
+            except Exception:
+                ctx = {}
+            if isinstance(ctx, dict):
+                cmd_ctx = _normalize_command(ctx.get("command")) if ctx.get("command") else ""
+                if cmd_ctx:
+                    attrs["command"] = cmd_ctx
+                req_id = str(ctx.get("request_id", "")).strip()
+                if req_id:
+                    attrs["request_id"] = req_id
+                user_hash = str(ctx.get("user_id", "")).strip()
+                if user_hash:
+                    attrs["user_id_hash"] = user_hash
+                chat_hash = str(ctx.get("chat_id", "")).strip()
+                if chat_hash:
+                    attrs["chat_id_hash"] = chat_hash
+            if update is not None:
+                try:
+                    upd_id = getattr(update, "update_id", None)
+                    if upd_id is not None:
+                        attrs["update.id"] = str(int(upd_id))
+                except Exception:
+                    pass
+                try:
+                    if getattr(update, "callback_query", None):
+                        attrs["update.type"] = "callback_query"
+                    elif getattr(update, "inline_query", None):
+                        attrs["update.type"] = "inline_query"
+                    elif getattr(update, "message", None):
+                        attrs["update.type"] = "message"
+                    else:
+                        attrs.setdefault("update.type", "other")
+                except Exception:
+                    pass
+                try:
+                    if "command" not in attrs:
+                        derived = _derive_command(update)
+                        if derived:
+                            attrs["command"] = derived
+                except Exception:
+                    pass
+            return attrs
+
+        @functools.wraps(original)
+        async def _process_update_with_span(update: Update, *args, **kwargs):
+            span_attrs = _collect_attrs(update)
+            span_cm = start_span("bot.update", span_attrs)
+            span = span_cm.__enter__()
+            if span is not None:
+                try:
+                    set_current_span_attributes({"component": "telegram.bot"})
+                except Exception:
+                    pass
+            error: Exception | None = None
+            try:
+                result = await original(update, *args, **kwargs)
+                if span is not None:
+                    try:
+                        span.set_attribute("status", "ok")  # type: ignore[attr-defined]
+                    except Exception:
+                        pass
+                return result
+            except Exception as exc:
+                error = exc
+                if span is not None:
+                    try:
+                        span.set_attribute("status", "error")  # type: ignore[attr-defined]
+                        span.set_attribute("error_signature", type(exc).__name__)  # type: ignore[attr-defined]
+                    except Exception:
+                        pass
+                raise
+            finally:
+                if error is None:
+                    span_cm.__exit__(None, None, None)
+                else:
+                    span_cm.__exit__(type(error), error, getattr(error, "__traceback__", None))
+
+        setattr(app, "process_update", _process_update_with_span)
     
     def setup_handlers(self):
         """הגדרת כל ה-handlers של הבוט בסדר הנכון"""
