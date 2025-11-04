@@ -92,14 +92,28 @@
     }
   }
 
+  function syncShareHintState(hintEl, enabled, visibility){
+    if (!hintEl) return;
+    const nextState = enabled ? (String(visibility || 'link').toLowerCase()) : 'private';
+    hintEl.querySelectorAll('.share-hint-option').forEach((opt) => {
+      const state = String(opt.getAttribute('data-state') || '').toLowerCase();
+      const isActive = state === nextState;
+      opt.classList.toggle('active', isActive);
+      opt.classList.toggle('inactive', !isActive);
+    });
+  }
+
   function resolvePublicUrl(col){
     try {
       if (!col) return '';
-      if (col.public_url) return String(col.public_url);
       const share = col.share || {};
-      if (!share.enabled || !share.token) return '';
+      if (!share.enabled) return '';
+      const direct = (col.public_url || col.publicUrl || '').trim();
+      if (direct) return String(direct);
+      const token = share.token || '';
+      if (!token) return '';
       const base = String(window.location.origin || '').replace(/\/$/, '');
-      return `${base}/api/collections/shared/${encodeURIComponent(String(share.token))}`;
+      return `${base}/collections/shared/${encodeURIComponent(String(token))}`;
     } catch (_err) {
       return '';
     }
@@ -399,6 +413,11 @@
                 </select>
                 <button class="btn btn-secondary btn-sm share-copy" ${shareEnabled && shareUrl ? '' : 'disabled'} data-url="${shareUrl ? escapeHtml(shareUrl) : ''}">העתק קישור</button>
               </div>
+              <div class="share-controls-hint">
+                <span class="share-hint-option" data-state="private"><span class="badge badge-private">פרטי</span> רק אתה רואה את האוסף</span>
+                <span class="hint-separator">·</span>
+                <span class="share-hint-option" data-state="link"><span class="badge badge-link">קישור</span> כל מי שמחזיק בקישור יכול לצפות</span>
+              </div>
               <button class="btn btn-secondary rename">שנה שם</button>
               <button class="btn btn-danger delete">מחק</button>
             </div>
@@ -428,6 +447,7 @@
         }
 
         const shareControls = container.querySelector('.share-controls');
+        const shareHintEl = container.querySelector('.share-controls-hint');
         const shareToggleEl = shareControls ? shareControls.querySelector('.share-enabled') : null;
         const shareVisibilityEl = shareControls ? shareControls.querySelector('.share-visibility') : null;
         const shareCopyBtn = shareControls ? shareControls.querySelector('.share-copy') : null;
@@ -435,6 +455,7 @@
           shareCopyBtn.dataset.label = shareCopyBtn.textContent || 'העתק קישור';
         }
         setShareControlsBusy(shareToggleEl, shareVisibilityEl, shareCopyBtn, false);
+        syncShareHintState(shareHintEl, shareEnabled, shareVisibility);
 
         if (shareCopyBtn) {
           shareCopyBtn.addEventListener('click', async () => {
@@ -476,6 +497,8 @@
             if (shareVisibilityEl) {
               shareVisibilityEl.disabled = !enabled;
             }
+            const currentVisibility = shareVisibilityEl ? (shareVisibilityEl.value || 'link') : 'link';
+            syncShareHintState(shareHintEl, enabled, currentVisibility);
             let errorMessage = '';
             setShareControlsBusy(shareToggleEl, shareVisibilityEl, shareCopyBtn, true);
             try {
@@ -495,6 +518,7 @@
               if (shareVisibilityEl) {
                 shareVisibilityEl.disabled = !shareToggleEl.checked;
               }
+              syncShareHintState(shareHintEl, shareToggleEl.checked, shareVisibilityEl ? (shareVisibilityEl.value || 'link') : 'link');
               alert(errorMessage || 'שגיאה בעדכון שיתוף');
             } finally {
               setShareControlsBusy(shareToggleEl, shareVisibilityEl, shareCopyBtn, false);
@@ -510,6 +534,8 @@
               return;
             }
             const previous = shareVisibility;
+            const nextVisibility = shareVisibilityEl.value || 'link';
+            syncShareHintState(shareHintEl, true, nextVisibility);
             let errorMessage = '';
             setShareControlsBusy(shareToggleEl, shareVisibilityEl, shareCopyBtn, true);
             try {
@@ -521,6 +547,7 @@
               }
             } catch (_err) {
               shareVisibilityEl.value = previous;
+              syncShareHintState(shareHintEl, true, previous);
               alert(errorMessage || 'שגיאה בעדכון שיתוף');
             } finally {
               setShareControlsBusy(shareToggleEl, shareVisibilityEl, shareCopyBtn, false);

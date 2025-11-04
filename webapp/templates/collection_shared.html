@@ -1,0 +1,35 @@
+{% extends "base.html" %}
+{% block title %}אוסף משותף · Code Keeper{% endblock %}
+
+{% block extra_css %}
+{{ super() }}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/collections.css') }}?v={{ static_version }}">
+{% endblock %}
+
+{% block content %}
+{% set shared_api_path = url_for('collections.get_shared_collection', token=share_token) %}
+<div class="shared-collection-page" data-share-token="{{ share_token }}" data-script-root="{{ request.script_root|default('') }}" data-api-url="{{ (request.script_root or '') ~ shared_api_path }}">
+  <div class="glass-card shared-collection-card" id="sharedCollectionRoot">
+    <div class="shared-collection-header">
+      <div class="shared-collection-icon" id="sharedCollectionIcon" aria-hidden="true">📂</div>
+      <div class="shared-collection-title">
+        <h1 id="sharedCollectionName">טוען…</h1>
+        <p id="sharedCollectionMeta" class="shared-collection-meta"></p>
+      </div>
+    </div>
+    <p class="shared-collection-description" id="sharedCollectionDescription"></p>
+    <div class="shared-collection-visibility-note" role="status">
+      <span class="badge badge-link">קישור</span>
+      כל מי שמחזיק בקישור הזה יכול לצפות ברשימה. לפתיחת קבצים דרושה התחברות ל-Code Keeper.
+    </div>
+    <div class="shared-collection-items" id="sharedCollectionItems" aria-live="polite">
+      <div class="loading">טוען…</div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+{{ super() }}
+<script src="{{ url_for('static', filename='js/collection_shared.js') }}?v={{ static_version }}" defer></script>
+{% endblock %}

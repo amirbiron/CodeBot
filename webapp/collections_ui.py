@@ -13,3 +13,8 @@ def collections_page():
     if 'user_id' not in session:
         return redirect('/login')
     return render_template('collections.html')
+
+
+@collections_ui.route('/collections/shared/<token>')
+def shared_collection_page(token: str):
+    return render_template('collection_shared.html', share_token=token)
