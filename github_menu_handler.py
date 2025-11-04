@@ -108,10 +108,10 @@ MAX_ZIP_FILES = 500  # מקסימום קבצים ב-ZIP אחד
 try:
     _PR_UPDATE_MIN_COOLDOWN_SECONDS = max(
         0,
-        int(str(os.getenv("GITHUB_NOTIFICATIONS_PR_MIN_COOLDOWN", "60")).strip() or "60"),
+        int(str(os.getenv("GITHUB_NOTIFICATIONS_PR_MIN_COOLDOWN", "30")).strip() or "30"),
     )
 except Exception:
-    _PR_UPDATE_MIN_COOLDOWN_SECONDS = 60
+    _PR_UPDATE_MIN_COOLDOWN_SECONDS = 30
 
 # מגבלות ייבוא ריפו (ייבוא תוכן, לא גיבוי)
 IMPORT_MAX_FILE_BYTES = 1 * 1024 * 1024  # 1MB לקובץ יחיד
