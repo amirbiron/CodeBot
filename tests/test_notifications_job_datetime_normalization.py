@@ -196,3 +196,42 @@ async def test_notifications_job_deduplicates_same_pr_update(monkeypatch):
 
     await handler._notifications_job(ctx, user_id=user_id, force=True)
     assert len(bot.sent) == 1
+
+
+@pytest.mark.asyncio
+async def test_notifications_seen_pr_cleanup_handles_mixed_storage(monkeypatch):
+    import github_menu_handler as gh
+
+    handler = gh.GitHubMenuHandler()
+    user_id = 789
+
+    session = handler.get_user_session(user_id)
+    session["selected_repo"] = "owner/name"
+    session["github_token"] = "tok"
+
+    seen = session.setdefault("notifications_seen_prs", {})
+    base = datetime.now(timezone.utc) - timedelta(hours=5)
+    for idx in range(70):
+        dt = base + timedelta(minutes=idx)
+        key = f"{idx}"
+        if idx % 2 == 0:
+            seen[key] = dt
+        else:
+            seen[key] = dt.isoformat()
+
+    session["notifications_last"] = {"pr": datetime.now(timezone.utc) - timedelta(minutes=10)}
+
+    pulls_holder = {"list": []}
+    issues_holder = {"list": []}
+    stub_repo = _StubRepo(pulls_holder, issues_holder)
+    monkeypatch.setattr(gh, "Github", lambda token: _StubGithub(token, stub_repo))
+
+    bot = _StubBot()
+    app = _StubApp()
+    ctx = types.SimpleNamespace(application=app, bot=bot, user_data={})
+
+    await handler._notifications_job(ctx, user_id=user_id, force=True)
+
+    seen_after = session.get("notifications_seen_prs", {})
+    assert len(seen_after) <= 50
+    assert all(isinstance(value, str) for value in seen_after.values())

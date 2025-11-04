@@ -213,6 +213,37 @@ class GitHubMenuHandler:
             # Fallback: return as-is if unexpected type
             return dt
 
+    def _serialize_seen_pr_timestamp(self, dt: datetime) -> str:
+        """Serialize datetime for notifications deduplication storage."""
+        try:
+            aware = self._to_utc_aware(dt)
+            if aware is not None:
+                return aware.isoformat()
+        except Exception:
+            pass
+        try:
+            return dt.isoformat()
+        except Exception:
+            return str(dt)
+
+    def _parse_seen_pr_timestamp(self, value: Any) -> Optional[datetime]:
+        """Parse stored notifications timestamp back into aware datetime."""
+        if isinstance(value, datetime):
+            return self._to_utc_aware(value)
+        if isinstance(value, str):
+            value_str = value.strip()
+            if not value_str:
+                return None
+            try:
+                parsed = datetime.fromisoformat(value_str)
+            except ValueError:
+                try:
+                    parsed = datetime.fromtimestamp(float(value_str), timezone.utc)
+                except (ValueError, TypeError):
+                    return None
+            return self._to_utc_aware(parsed)
+        return None
+
     async def show_browse_ref_menu(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """תפריט בחירת ref (ענף/תג) עם עימוד וטאבים."""
         query = update.callback_query
@@ -5671,15 +5702,7 @@ class GitHubMenuHandler:
                         pr_number = getattr(pr, "number", None)
                         dedup_key = str(pr_number) if pr_number is not None else None
                         if dedup_key and updated is not None:
-                            last_seen_raw = seen_prs.get(dedup_key)
-                            last_seen = None
-                            if isinstance(last_seen_raw, str):
-                                try:
-                                    last_seen = datetime.fromisoformat(last_seen_raw)
-                                except ValueError:
-                                    last_seen = None
-                            elif isinstance(last_seen_raw, datetime):
-                                last_seen = self._to_utc_aware(last_seen_raw)
+                            last_seen = self._parse_seen_pr_timestamp(seen_prs.get(dedup_key))
                             if last_seen and updated <= last_seen:
                                 continue
                         created = self._to_utc_aware(getattr(pr, "created_at", None))
@@ -5692,26 +5715,22 @@ class GitHubMenuHandler:
                             f'🔔 PR {status}: <a href="{pr.html_url}">{safe_html_escape(pr.title)}</a>'
                         )
                         if dedup_key and updated is not None:
-                            try:
-                                seen_prs[dedup_key] = updated.isoformat()
-                            except Exception:
-                                seen_prs[dedup_key] = updated
+                            seen_prs[dedup_key] = self._serialize_seen_pr_timestamp(updated)
                     session["notifications_last"] = session.get("notifications_last", {})
                     session["notifications_last"]["pr"] = datetime.now(timezone.utc)
                     # הגבלת גודל הזיכרון כדי למנוע צמיחה לא מבוקרת
                     try:
                         if len(seen_prs) > 60:
-                            # שמור את 50 העדכונים האחרונים לפי זמן
-                            sorted_items = sorted(
-                                (
-                                    (key, datetime.fromisoformat(value))
-                                    for key, value in seen_prs.items()
-                                    if isinstance(value, str)
-                                ),
-                                key=lambda item: item[1],
-                                reverse=True,
-                            )
-                            keep_keys = {key for key, _ in sorted_items[:50]}
+                            parsed_items = []
+                            for key, value in list(seen_prs.items()):
+                                parsed = self._parse_seen_pr_timestamp(value)
+                                if parsed is None:
+                                    seen_prs.pop(key, None)
+                                    continue
+                                seen_prs[key] = self._serialize_seen_pr_timestamp(parsed)
+                                parsed_items.append((key, parsed))
+                            parsed_items.sort(key=lambda item: item[1], reverse=True)
+                            keep_keys = {key for key, _ in parsed_items[:50]}
                             for key in list(seen_prs.keys()):
                                 if key not in keep_keys:
                                     seen_prs.pop(key, None)
