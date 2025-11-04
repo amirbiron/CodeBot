@@ -173,14 +173,13 @@
     async createNote(){
       try {
         const isMobile = (typeof window !== 'undefined') && ((window.matchMedia && window.matchMedia('(max-width: 480px)').matches) || (window.innerWidth <= 480));
-        const currentLine = this._currentVisibleLine();
         const payload = {
           content: '',
           // הנחתה קלה למובייל כדי למנוע קפיצה עם הופעת מקלדת
           position: { x: isMobile ? 80 : 120, y: window.scrollY + (isMobile ? 80 : 120) },
           size: { width: isMobile ? 200 : 260, height: isMobile ? 160 : 200 },
           color: '#FFFFCC',
-          line_start: Number.isInteger(currentLine) ? currentLine : null,
+          line_start: null,
           // חזרה להתנהגות הישנה: ללא עיגון לכותרות כברירת מחדל
           anchor_id: '',
           anchor_text: undefined
@@ -321,6 +320,8 @@
           el.style.top = targetY + 'px';
           el.dataset.pinned = 'true';
           if (el.dataset && el.dataset.anchorId) { delete el.dataset.anchorId; }
+          if (el.dataset && el.dataset.anchorLine) { delete el.dataset.anchorLine; }
+          if (el.dataset && el.dataset.relYOffset) { delete el.dataset.relYOffset; }
         } else if (isAnchored) {
           el.classList.add('is-pinned');
           el.classList.remove('is-floating');
@@ -378,8 +379,14 @@
       entry.data.size = payload.size;
       entry.data.anchor_id = PIN_SENTINEL;
       entry.data.anchor_text = '';
+      entry.data.line_start = null;
+      entry.data.line_end = null;
+      if (el.dataset) {
+        if (el.dataset.anchorLine) { delete el.dataset.anchorLine; }
+        if (el.dataset.relYOffset) { delete el.dataset.relYOffset; }
+      }
       this._applyPositionMode(el, entry.data, { reflow: false });
-      const requestPayload = Object.assign({}, payload, { anchor_id: PIN_SENTINEL, anchor_text: null });
+      const requestPayload = Object.assign({}, payload, { anchor_id: PIN_SENTINEL, anchor_text: null, line_start: null, line_end: null });
       this._queueSave(el, requestPayload);
       this._flushFor(el);
     }
@@ -392,9 +399,14 @@
       entry.data.size = payload.size;
       entry.data.anchor_id = '';
       entry.data.anchor_text = '';
+      entry.data.line_start = null;
+      entry.data.line_end = null;
       if (el.dataset && el.dataset.pinned) { delete el.dataset.pinned; }
+      if (el.dataset && el.dataset.anchorId) { delete el.dataset.anchorId; }
+      if (el.dataset && el.dataset.anchorLine) { delete el.dataset.anchorLine; }
+      if (el.dataset && el.dataset.relYOffset) { delete el.dataset.relYOffset; }
       this._applyPositionMode(el, entry.data, { reflow: true });
-      this._queueSave(el, Object.assign({}, payload, { anchor_id: null, anchor_text: null }));
+      this._queueSave(el, Object.assign({}, payload, { anchor_id: null, anchor_text: null, line_start: null, line_end: null }));
       this._flushFor(el);
     }
 
