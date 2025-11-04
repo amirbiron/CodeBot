@@ -91,15 +91,6 @@
     }
   }
 
-  function syncShareHintState(hintEl, enabled){
-    if (!hintEl) return;
-    if (enabled) {
-      hintEl.innerHTML = '<span class="badge badge-link">קישור</span> כל מי שמחזיק בקישור יכול לצפות בקבצים';
-    } else {
-      hintEl.innerHTML = '<span class="badge badge-private">כבוי</span> הקישור אינו פעיל כרגע';
-    }
-  }
-
   function resolvePublicUrl(col){
     try {
       if (!col) return '';
@@ -389,10 +380,6 @@
         const share = col.share || {};
         const shareEnabled = !!share.enabled;
         const shareUrl = resolvePublicUrl(col);
-        const shareHintHtml = shareEnabled
-          ? '<span class="badge badge-link">קישור</span> כל מי שמחזיק בקישור יכול לצפות בקבצים'
-          : '<span class="badge badge-private">כבוי</span> הקישור אינו פעיל כרגע';
-
         container.innerHTML = `
           <div class="collection-header">
             <div class="title">
@@ -407,7 +394,6 @@
                 </label>
                 <button class="btn btn-secondary btn-sm share-copy" ${shareEnabled && shareUrl ? '' : 'disabled'} data-url="${shareUrl ? escapeHtml(shareUrl) : ''}">העתק קישור</button>
               </div>
-              <div class="share-controls-hint">${shareHintHtml}</div>
               <button class="btn btn-secondary rename">שנה שם</button>
               <button class="btn btn-danger delete">מחק</button>
             </div>
@@ -437,14 +423,12 @@
         }
 
         const shareControls = container.querySelector('.share-controls');
-        const shareHintEl = container.querySelector('.share-controls-hint');
         const shareToggleEl = shareControls ? shareControls.querySelector('.share-enabled') : null;
         const shareCopyBtn = shareControls ? shareControls.querySelector('.share-copy') : null;
         if (shareCopyBtn && !shareCopyBtn.dataset.label) {
           shareCopyBtn.dataset.label = shareCopyBtn.textContent || 'העתק קישור';
         }
         setShareControlsBusy(shareToggleEl, shareCopyBtn, false);
-        syncShareHintState(shareHintEl, shareEnabled);
 
         if (shareCopyBtn) {
           shareCopyBtn.addEventListener('click', async () => {
@@ -483,7 +467,6 @@
         if (shareToggleEl) {
           shareToggleEl.addEventListener('change', async () => {
             const enabled = shareToggleEl.checked;
-            syncShareHintState(shareHintEl, enabled);
             let errorMessage = '';
             setShareControlsBusy(shareToggleEl, shareCopyBtn, true);
             try {
@@ -494,7 +477,6 @@
               }
             } catch (_err) {
               shareToggleEl.checked = !enabled;
-              syncShareHintState(shareHintEl, shareToggleEl.checked);
               alert(errorMessage || 'שגיאה בעדכון שיתוף');
             } finally {
               setShareControlsBusy(shareToggleEl, shareCopyBtn, false);
