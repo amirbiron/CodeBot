@@ -10,8 +10,22 @@
   const visibilityNoteEl = document.querySelector('.shared-collection-visibility-note');
 
   const token = pageRoot.getAttribute('data-share-token') || '';
+  const scriptRootAttr = pageRoot.getAttribute('data-script-root') || '';
   const apiUrlAttr = pageRoot.getAttribute('data-api-url') || '';
-  const apiUrl = apiUrlAttr || (token ? `/api/collections/shared/${encodeURIComponent(token)}` : '');
+
+  const joinWithScriptRoot = (root, path) => {
+    const normalizedPath = String(path || '');
+    if (!root) {
+      return normalizedPath;
+    }
+    const normalizedRoot = String(root).trim().replace(/\/$/, '');
+    if (!normalizedPath.startsWith('/')) {
+      return `${normalizedRoot}/${normalizedPath}`;
+    }
+    return `${normalizedRoot}${normalizedPath}`;
+  };
+
+  const apiUrl = apiUrlAttr || (token ? joinWithScriptRoot(scriptRootAttr, `/api/collections/shared/${encodeURIComponent(token)}`) : '');
 
   if (!token || !apiUrl) {
     renderError('קישור השיתוף אינו תקין');

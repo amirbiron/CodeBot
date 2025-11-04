@@ -91,10 +91,15 @@ def sanitize_input(text: str, max_length: int = 500) -> str:
 def _get_public_base_url() -> str:
     """הפקת בסיס כתובת ציבורית לפעולות שיתוף (UI ו-API)."""
     try:
-        base = getattr(_cfg, 'PUBLIC_BASE_URL', None) if _cfg is not None else None
-        if not base:
-            base = getattr(request, 'host_url', '') or ''
-        return str(base).rstrip('/')
+        configured_base = getattr(_cfg, 'PUBLIC_BASE_URL', None) if _cfg is not None else None
+        if configured_base:
+            return str(configured_base).rstrip('/')
+
+        host_base = str(getattr(request, 'host_url', '') or '').rstrip('/')
+        script_root = str(getattr(request, 'script_root', '') or '').strip()
+        if script_root:
+            script_root = '/' + script_root.strip('/') if script_root not in ('/', '') else ''
+        return f"{host_base}{script_root}".rstrip('/')
     except Exception:
         return ''
 
