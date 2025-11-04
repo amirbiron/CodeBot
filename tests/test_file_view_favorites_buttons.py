@@ -71,9 +71,13 @@ async def test_view_file_includes_favorites_button_with_id(monkeypatch):
 
     rm = captured.get('reply_markup')
     assert isinstance(rm, _Markup)
-    web_btn = rm.keyboard[0][0]
+    web_row = rm.keyboard[3]
+    web_btn = web_row[0]
     assert web_btn.text == "🌐 צפייה בWebApp"
     assert web_btn.url == "https://code-keeper-webapp.onrender.com/file/OID1"
+    share_btn = web_row[1]
+    assert share_btn.text == "🔗 שתף קוד"
+    assert share_btn.callback_data == "share_menu_idx:0"
     # Favorites row is inserted before the last back row
     flat = [(btn.text, btn.callback_data) for row in rm.keyboard for btn in row]
     assert any(text.startswith('⭐') or text.startswith('💔') for text, _ in flat)
@@ -113,9 +117,13 @@ async def test_view_file_uses_token_when_no_id_and_maps_token(monkeypatch):
     await fv.handle_view_file(upd, ctx)
 
     rm = captured.get('reply_markup')
-    web_btn = rm.keyboard[0][0]
+    web_row = rm.keyboard[3]
+    web_btn = web_row[0]
     assert web_btn.text == "🌐 צפייה בWebApp"
     assert web_btn.url == "https://code-keeper-webapp.onrender.com/files?q=t.py#results"
+    share_btn = web_row[1]
+    assert share_btn.text == "🔗 שתף קוד"
+    assert share_btn.callback_data == "share_menu_idx:0"
     flat = [(btn.text, btn.callback_data) for row in rm.keyboard for btn in row]
     # Expect token-based callback and mapping saved
     assert any(cb and cb.startswith('fav_toggle_tok:tokXYZ') for _, cb in flat)
