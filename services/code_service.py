@@ -127,21 +127,42 @@ def validate_code_input(code: str, file_name: str, user_id: int) -> Tuple[bool, 
             - error_message: הודעת שגיאה (אם יש)
     """
     try:
+        code_length = int(len(code or ""))
+    except TypeError:
+        code_length = 0
+    try:
         set_current_span_attributes({
-            "code.length": int(len(code or "")),
+            "code.length": code_length,
             "file_name": str(file_name or ""),
         })
     except Exception:
         pass
     if code_processor is None:
         # Minimal fallback: normalize only
-        return True, normalize_code(code), ""
-    ok, cleaned, msg = code_processor.validate_code_input(code, file_name, user_id)
+        ok = True
+        cleaned = normalize_code(code)
+        msg = ""
+    else:
+        ok, cleaned, msg = code_processor.validate_code_input(code, file_name, user_id)
     # לאחר שהוולידטור מריץ sanitize + normalize (עם טיפול מיוחד ל-Markdown),
     # אין לבצע נרמול חוזר שעלול לקצץ רווחי סוף שורה במסמכי Markdown.
     # אם בפועל נדרש נרמול נוסף בעתיד, יש להעביר דגלים תואמים לסוג הקובץ.
     try:
-        set_current_span_attributes({"validation.ok": bool(ok)})
+        try:
+            cleaned_length = int(len(cleaned or ""))
+        except TypeError:
+            cleaned_length = 0
+        span_attrs = {
+            "validation.ok": bool(ok),
+            "status": "ok" if ok else "error",
+            "cleaned.length": cleaned_length,
+            "code.length.original": code_length,
+        }
+        if file_name:
+            span_attrs["file_name"] = str(file_name)
+        if msg:
+            span_attrs["error.message"] = str(msg)
+        set_current_span_attributes(span_attrs)
     except Exception:
         pass
     return ok, cleaned, msg
