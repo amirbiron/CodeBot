@@ -147,3 +147,52 @@ async def test_to_utc_aware_normalizes_naive_and_preserves_aware():
     assert norm_aware is not None and norm_aware.tzinfo is timezone.utc
     # Same instant when converting aware -> aware
     assert int(norm_aware.timestamp()) == int(aware_dt.timestamp())
+
+
+@pytest.mark.asyncio
+async def test_notifications_job_deduplicates_same_pr_update(monkeypatch):
+    import github_menu_handler as gh
+
+    handler = gh.GitHubMenuHandler()
+    user_id = 456
+
+    session = handler.get_user_session(user_id)
+    session["selected_repo"] = "owner/name"
+    session["github_token"] = "tok"
+
+    pulls_holder = {"list": []}
+    issues_holder = {"list": []}
+
+    stub_repo = _StubRepo(pulls_holder, issues_holder)
+    monkeypatch.setattr(gh, "Github", lambda token: _StubGithub(token, stub_repo))
+
+    bot = _StubBot()
+    app = _StubApp()
+    ctx = types.SimpleNamespace(application=app, bot=bot, user_data={})
+
+    # Run once to set baseline
+    await handler._notifications_job(ctx, user_id=user_id, force=True)
+
+    future_time = datetime.now(timezone.utc) + timedelta(minutes=5)
+    pr = _StubPR(
+        state="open",
+        merged=False,
+        created_at=future_time - timedelta(minutes=1),
+        updated_at=future_time,
+        html_url="https://example.com/pr/99",
+        title="PR dup",
+    )
+    pr.number = 99  # PyGithub PRs מספקים שדה מספר
+    pulls_holder["list"] = [pr]
+
+    # החזרת קו הבסיס מעט אחורה כדי לדמות מרווח זמן קצר בין ריצות
+    session.setdefault("notifications_last", {})["pr"] = future_time - timedelta(minutes=1)
+
+    await handler._notifications_job(ctx, user_id=user_id, force=True)
+    assert len(bot.sent) == 1
+
+    # דמיון מצב שבו זמן הבסיס שוב מאחר ביחס ל- updated, ללא שינוי ב-PR
+    session["notifications_last"]["pr"] = future_time - timedelta(minutes=1)
+
+    await handler._notifications_job(ctx, user_id=user_id, force=True)
+    assert len(bot.sent) == 1

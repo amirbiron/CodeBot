@@ -5660,6 +5660,7 @@ class GitHubMenuHandler:
                     session["notifications_last"]["pr"] = datetime.now(timezone.utc)
                 else:
                     pulls = repo.get_pulls(state="all", sort="updated", direction="desc")
+                    seen_prs = session.setdefault("notifications_seen_prs", {})
                     for pr in pulls[:10]:
                         updated = self._to_utc_aware(getattr(pr, "updated_at", None))
                         # Normalize baseline too (safety in case it was saved naive somehow)
@@ -5667,6 +5668,20 @@ class GitHubMenuHandler:
                         # אם אין updated או שאין אפשרות השוואה — עצור כדי למנוע עיבוד יתר של פריטים ישנים
                         if baseline and (updated is None or updated <= baseline):
                             break
+                        pr_number = getattr(pr, "number", None)
+                        dedup_key = str(pr_number) if pr_number is not None else None
+                        if dedup_key and updated is not None:
+                            last_seen_raw = seen_prs.get(dedup_key)
+                            last_seen = None
+                            if isinstance(last_seen_raw, str):
+                                try:
+                                    last_seen = datetime.fromisoformat(last_seen_raw)
+                                except ValueError:
+                                    last_seen = None
+                            elif isinstance(last_seen_raw, datetime):
+                                last_seen = self._to_utc_aware(last_seen_raw)
+                            if last_seen and updated <= last_seen:
+                                continue
                         created = self._to_utc_aware(getattr(pr, "created_at", None))
                         status = (
                             "נפתח"
@@ -5676,8 +5691,32 @@ class GitHubMenuHandler:
                         messages.append(
                             f'🔔 PR {status}: <a href="{pr.html_url}">{safe_html_escape(pr.title)}</a>'
                         )
+                        if dedup_key and updated is not None:
+                            try:
+                                seen_prs[dedup_key] = updated.isoformat()
+                            except Exception:
+                                seen_prs[dedup_key] = updated
                     session["notifications_last"] = session.get("notifications_last", {})
                     session["notifications_last"]["pr"] = datetime.now(timezone.utc)
+                    # הגבלת גודל הזיכרון כדי למנוע צמיחה לא מבוקרת
+                    try:
+                        if len(seen_prs) > 60:
+                            # שמור את 50 העדכונים האחרונים לפי זמן
+                            sorted_items = sorted(
+                                (
+                                    (key, datetime.fromisoformat(value))
+                                    for key, value in seen_prs.items()
+                                    if isinstance(value, str)
+                                ),
+                                key=lambda item: item[1],
+                                reverse=True,
+                            )
+                            keep_keys = {key for key, _ in sorted_items[:50]}
+                            for key in list(seen_prs.keys()):
+                                if key not in keep_keys:
+                                    seen_prs.pop(key, None)
+                    except Exception:
+                        pass
             # Issues
             if settings.get("issues", True):
                 last_issues_check_time = last.get("issues")
