@@ -55,6 +55,21 @@ try:  # שמירה על יציבות גם בסביבות דוקס/CI
 except Exception:  # pragma: no cover
     cfg = None
 
+
+def _cfg_or_env(attr: str, default: Any = None, *, env_name: str | None = None) -> Any:
+    """משיג ערך מהקונפיג או מהסביבה, כולל תמיכה ב-Stubs פשוטים בטסטים."""
+    env_key = env_name or attr
+    value = None
+    if cfg is not None:
+        value = getattr(cfg, attr, None)
+    if value in (None, '') and env_key:
+        env_val = os.getenv(env_key)
+        if env_val not in (None, ''):
+            value = env_val
+    if value in (None, ''):
+        value = default
+    return value
+
 # Search engine & types
 try:
     from search_engine import search_engine, SearchType, SearchFilter, SortOrder
@@ -534,22 +549,13 @@ else:
     limiter = None
 
 # הגדרות
-if cfg is not None:
-    MONGODB_URL = cfg.MONGODB_URL
-    DATABASE_NAME = cfg.DATABASE_NAME
-    BOT_TOKEN = cfg.BOT_TOKEN
-    WEBAPP_URL = (cfg.WEBAPP_URL or 'https://code-keeper-webapp.onrender.com')
-    PUBLIC_BASE_URL = (cfg.PUBLIC_BASE_URL or '')
-    DOCUMENTATION_URL = (cfg.DOCUMENTATION_URL.rstrip('/') + '/')
-else:
-    # Fallback נדיר בסביבות דוקס בלבד
-    MONGODB_URL = os.getenv('MONGODB_URL')
-    DATABASE_NAME = os.getenv('DATABASE_NAME', 'code_keeper_bot')
-    BOT_TOKEN = os.getenv('BOT_TOKEN')
-    WEBAPP_URL = os.getenv('WEBAPP_URL', 'https://code-keeper-webapp.onrender.com')
-    PUBLIC_BASE_URL = os.getenv('PUBLIC_BASE_URL', '')
-    _DOCS_URL_RAW = (os.getenv('DOCUMENTATION_URL') or 'https://amirbiron.github.io/CodeBot/')
-    DOCUMENTATION_URL = (_DOCS_URL_RAW.rstrip('/') + '/')
+MONGODB_URL = _cfg_or_env('MONGODB_URL')
+DATABASE_NAME = _cfg_or_env('DATABASE_NAME', default='code_keeper_bot')
+BOT_TOKEN = _cfg_or_env('BOT_TOKEN')
+WEBAPP_URL = _cfg_or_env('WEBAPP_URL', default='https://code-keeper-webapp.onrender.com')
+PUBLIC_BASE_URL = _cfg_or_env('PUBLIC_BASE_URL', default='')
+_DOCS_URL_RAW = _cfg_or_env('DOCUMENTATION_URL', default='https://amirbiron.github.io/CodeBot/')
+DOCUMENTATION_URL = (_DOCS_URL_RAW.rstrip('/') + '/') if _DOCS_URL_RAW else 'https://amirbiron.github.io/CodeBot/'
 
 BOT_USERNAME = os.getenv('BOT_USERNAME', 'my_code_keeper_bot')
 BOT_USERNAME_CLEAN = (BOT_USERNAME or '').lstrip('@')
