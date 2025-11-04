@@ -13,6 +13,9 @@ class FakeCollection:
     def __init__(self) -> None:
         self.docs: List[Dict[str, Any]] = []
 
+    def __bool__(self) -> bool:
+        raise TypeError("Collection objects do not implement truth value testing or bool(). Please compare with None instead: collection is not None")
+
     def create_indexes(self, *a, **k):
         return None
 

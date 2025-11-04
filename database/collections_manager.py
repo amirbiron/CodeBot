@@ -1177,7 +1177,8 @@ class CollectionsManager:
             )
         except Exception:
             pass
-        if not getattr(self, "share_activity", None):
+        collection = getattr(self, "share_activity", None)
+        if collection is None:
             return
         try:
             record = {
@@ -1190,6 +1191,6 @@ class CollectionsManager:
                 "created_at": _now(),
             }
             record = {k: v for k, v in record.items() if v not in (None, "")}
-            self.share_activity.insert_one(record)
+            collection.insert_one(record)
         except Exception:
             return
