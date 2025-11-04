@@ -17,14 +17,24 @@
         <p id="sharedCollectionMeta" class="shared-collection-meta"></p>
       </div>
     </div>
-    <p class="shared-collection-description" id="sharedCollectionDescription"></p>
-    <div class="shared-collection-visibility-note" role="status">
-      <span class="badge badge-link">קישור</span>
-      כל מי שמחזיק בקישור הזה יכול לצפות ברשימה. לפתיחת קבצים דרושה התחברות ל-Code Keeper.
-    </div>
-    <div class="shared-collection-items" id="sharedCollectionItems" aria-live="polite">
-      <div class="loading">טוען…</div>
-    </div>
+      <p class="shared-collection-description" id="sharedCollectionDescription"></p>
+      <div class="shared-collection-visibility-note" role="status">
+        <span class="badge badge-link">קישור</span>
+        כל מי שמחזיק בקישור הזה יכול לצפות בקבצים, להוריד פריטים בודדים או את כל האוסף כקובץ ZIP.
+      </div>
+      <div class="shared-collection-actions" role="group" aria-label="פעולות על האוסף">
+        <button type="button" class="shared-action-button" id="sharedCollectionDownloadAll" disabled>
+          📦 הורד הכל (ZIP)
+        </button>
+      </div>
+      <div class="shared-collection-layout">
+        <div class="shared-collection-items" id="sharedCollectionItems" aria-live="polite">
+          <div class="loading">טוען…</div>
+        </div>
+        <aside class="shared-collection-viewer" id="sharedCollectionViewer" aria-live="polite">
+          <div class="viewer-placeholder">בחרו קובץ מתוך הרשימה כדי לצפות בתוכן</div>
+        </aside>
+      </div>
   </div>
 </div>
 {% endblock %}
