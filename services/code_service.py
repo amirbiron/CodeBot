@@ -135,13 +135,23 @@ def validate_code_input(code: str, file_name: str, user_id: int) -> Tuple[bool, 
         pass
     if code_processor is None:
         # Minimal fallback: normalize only
-        return True, normalize_code(code), ""
-    ok, cleaned, msg = code_processor.validate_code_input(code, file_name, user_id)
+        ok = True
+        cleaned = normalize_code(code)
+        msg = ""
+    else:
+        ok, cleaned, msg = code_processor.validate_code_input(code, file_name, user_id)
     # לאחר שהוולידטור מריץ sanitize + normalize (עם טיפול מיוחד ל-Markdown),
     # אין לבצע נרמול חוזר שעלול לקצץ רווחי סוף שורה במסמכי Markdown.
     # אם בפועל נדרש נרמול נוסף בעתיד, יש להעביר דגלים תואמים לסוג הקובץ.
     try:
-        set_current_span_attributes({"validation.ok": bool(ok)})
+        span_attrs = {
+            "validation.ok": bool(ok),
+            "status": "ok" if ok else "error",
+            "cleaned.length": int(len(cleaned or "")),
+        }
+        if msg:
+            span_attrs["error.message"] = str(msg)
+        set_current_span_attributes(span_attrs)
     except Exception:
         pass
     return ok, cleaned, msg
