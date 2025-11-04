@@ -137,7 +137,13 @@ def test_http_sync_retries_on_http_error(monkeypatch):
         lambda service, endpoint: retries.append((service, endpoint)),
     )
 
-    resp = http_sync.request("GET", "https://api.test.example/v1/status")
+    resp = http_sync.request(
+        "GET",
+        "https://api.test.example/v1/status",
+        backoff_base=0.0,
+        backoff_cap=0.0,
+        jitter=0.0,
+    )
     assert resp.status_code == 200
 
     assert statuses.count("http_error") == 2

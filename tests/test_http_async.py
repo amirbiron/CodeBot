@@ -157,7 +157,13 @@ async def test_async_request_retries_on_http_error(monkeypatch):
         lambda service, endpoint: retries.append((service, endpoint)),
     )
 
-    async with ha.request("GET", "https://service.example/api/resource") as resp:
+    async with ha.request(
+        "GET",
+        "https://service.example/api/resource",
+        backoff_base=0.0,
+        backoff_cap=0.0,
+        jitter=0.0,
+    ) as resp:
         assert resp.status == 200
 
     assert statuses.count("http_error") == 2
