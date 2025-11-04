@@ -867,6 +867,41 @@
             }
         });
         // --- תפריט קיצורי דרך ---
+        function ensureQuickAccessVisible(dropdown) {
+            if (!dropdown) return;
+            const runner = () => {
+                try {
+                    const rect = dropdown.getBoundingClientRect();
+                    const viewportHeight = window.innerHeight || document.documentElement.clientHeight || 0;
+                    const viewportWidth = window.innerWidth || document.documentElement.clientWidth || 0;
+                    const needScrollUp = rect.top < 12;
+                    const needScrollDown = rect.bottom > (viewportHeight - 12);
+                    const needVertical = needScrollUp || needScrollDown;
+                    const needHorizontal = rect.left < 12 || rect.right > (viewportWidth - 12);
+
+                    if (typeof dropdown.scrollIntoView === 'function' && (needVertical || needHorizontal)) {
+                        dropdown.scrollIntoView({
+                            behavior: 'smooth',
+                            block: needScrollUp ? 'start' : (needScrollDown ? 'end' : 'nearest'),
+                            inline: needHorizontal ? 'center' : 'nearest'
+                        });
+                        return;
+                    }
+
+                    if (needVertical) {
+                        const delta = needScrollUp ? rect.top - 12 : rect.bottom - (viewportHeight - 12);
+                        window.scrollBy({ top: delta, behavior: 'smooth' });
+                    }
+                } catch (e) {}
+            };
+
+            if (typeof window.requestAnimationFrame === 'function') {
+                window.requestAnimationFrame(runner);
+            } else {
+                setTimeout(runner, 0);
+            }
+        }
+
         function toggleQuickAccess(ev) {
             try { ev && ev.stopPropagation && ev.stopPropagation(); } catch (e) {}
             const dropdown = document.getElementById('quickAccessDropdown');
@@ -875,6 +910,8 @@
             dropdown.classList.toggle('active');
             toggle.classList.toggle('active');
             if (dropdown.classList.contains('active')) {
+                try { dropdown.scrollTop = 0; } catch (e) {}
+                ensureQuickAccessVisible(dropdown);
                 const closer = function(event) {
                     try {
                         const menu = document.querySelector('.quick-access-menu');
