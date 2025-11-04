@@ -15,11 +15,17 @@
       <script src="_static/jquery.js?v=5d32c60e"></script>
       <script src="_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
       <script src="_static/documentation_options.js?v=0062297a"></script>
-      <script src="_static/doctools.js?v=9a2dae69"></script>
+      <script src="_static/doctools.js?v=9bcbadda"></script>
       <script src="_static/sphinx_highlight.js?v=dc90522c"></script>
-      <script src="_static/translations.js?v=714bf7a6"></script>
-      <script src="https://unpkg.com/mermaid@10.2.0/dist/mermaid.min.js"></script>
-      <script>mermaid.initialize({startOnLoad:true});</script>
+      <script src="_static/translations.js?v=a336edf7"></script>
+      <script type="module" src="https://cdn.jsdelivr.net/npm/mermaid@11.2.0/dist/mermaid.esm.min.mjs"></script>
+      <script type="module" src="https://cdn.jsdelivr.net/npm/@mermaid-js/layout-elk@0.1.4/dist/mermaid-layout-elk.esm.min.mjs"></script>
+      <script type="module">import mermaid from "https://cdn.jsdelivr.net/npm/mermaid@11.2.0/dist/mermaid.esm.min.mjs";import elkLayouts from "https://cdn.jsdelivr.net/npm/@mermaid-js/layout-elk@0.1.4/dist/mermaid-layout-elk.esm.min.mjs";mermaid.registerLayoutLoaders(elkLayouts);mermaid.initialize({startOnLoad:false});</script>
+      <script src="https://cdn.jsdelivr.net/npm/d3@7.9.0/dist/d3.min.js"></script>
+      <script type="module">
+import mermaid from "https://cdn.jsdelivr.net/npm/mermaid@11.2.0/dist/mermaid.esm.min.mjs";
+window.addEventListener("load", () => mermaid.run());
+</script>
     <script src="_static/js/theme.js"></script>
     <link rel="index" title="אינדקס" href="genindex.html" />
     <link rel="search" title="חיפוש" href="search.html" />
@@ -123,7 +129,9 @@
 </ul>
 </li>
 <li class="toctree-l1"><a class="reference internal" href="whats-new.html">What’s New</a><ul>
-<li class="toctree-l2"><a class="reference internal" href="whats-new.html#id1">2025-10-15</a></li>
+<li class="toctree-l2"><a class="reference internal" href="whats-new.html#id1">2025-10-30</a></li>
+<li class="toctree-l2"><a class="reference internal" href="whats-new.html#id2">2025-10-29</a></li>
+<li class="toctree-l2"><a class="reference internal" href="whats-new.html#id3">2025-10-15</a></li>
 </ul>
 </li>
 <li class="toctree-l1"><a class="reference internal" href="architecture.html">ארכיטקטורה</a><ul>
@@ -132,6 +140,7 @@
 <li class="toctree-l2"><a class="reference internal" href="architecture.html#id4">מבנה תיקיות</a></li>
 <li class="toctree-l2"><a class="reference internal" href="architecture.html#id5">זרימות מרכזיות</a></li>
 <li class="toctree-l2"><a class="reference internal" href="architecture.html#id6">קישורים</a></li>
+<li class="toctree-l2"><a class="reference internal" href="architecture.html#http-aiohttp">תשתית HTTP – סשן aiohttp משותף</a></li>
 </ul>
 </li>
 <li class="toctree-l1"><a class="reference internal" href="contributing.html">מדריך תרומה</a><ul>
@@ -181,6 +190,7 @@
 <li class="toctree-l2"><a class="reference internal" href="configuration.html#environment-variables">Environment variables</a></li>
 <li class="toctree-l2"><a class="reference internal" href="configuration.html#databases-and-cache-pooling-timeouts">Databases and Cache (Pooling/Timeouts)</a></li>
 <li class="toctree-l2"><a class="reference internal" href="configuration.html#http-clients">HTTP Clients</a></li>
+<li class="toctree-l2"><a class="reference internal" href="configuration.html#http-async-async-http">שימוש ב‑http_async (Async HTTP)</a></li>
 <li class="toctree-l2"><a class="reference internal" href="configuration.html#http-sync-sync-http">שימוש ב‑http_sync (Sync HTTP)</a></li>
 <li class="toctree-l2"><a class="reference internal" href="configuration.html#flask">Flask</a></li>
 <li class="toctree-l2"><a class="reference internal" href="configuration.html#telegram-bot">Telegram Bot</a></li>
@@ -212,8 +222,9 @@
 <li class="toctree-l2"><a class="reference internal" href="performance-scaling.html#projection">Projection</a></li>
 <li class="toctree-l2"><a class="reference internal" href="performance-scaling.html#id1">דגשים</a></li>
 <li class="toctree-l2"><a class="reference internal" href="performance-scaling.html#connection-pooling-timeouts">כוונון Connection Pooling ו-Timeouts</a></li>
+<li class="toctree-l2"><a class="reference internal" href="performance-scaling.html#id2">לוגי איטיות (מהיר לאיתור צווארי בקבוק)</a></li>
 <li class="toctree-l2"><a class="reference internal" href="performance-scaling.html#env">בדיקות מהירות אחרי שינוי ENV</a></li>
-<li class="toctree-l2"><a class="reference internal" href="performance-scaling.html#id2">הנחיות לפי סביבה</a></li>
+<li class="toctree-l2"><a class="reference internal" href="performance-scaling.html#id3">הנחיות לפי סביבה</a></li>
 </ul>
 </li>
 <li class="toctree-l1"><a class="reference internal" href="large-files-runbook.html">טיפול בקבצים גדולים (Large Files)</a><ul>
@@ -467,6 +478,11 @@
 <li class="toctree-l4"><a class="reference internal" href="api/handlers.html#submodules">Submodules</a></li>
 </ul>
 </li>
+<li class="toctree-l3"><a class="reference internal" href="api/http_async.html">http_async module</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="api/http_async.html#http_async.get_session"><code class="docutils literal notranslate"><span class="pre">get_session()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/http_async.html#http_async.close_session"><code class="docutils literal notranslate"><span class="pre">close_session()</span></code></a></li>
+</ul>
+</li>
 <li class="toctree-l3"><a class="reference internal" href="api/http_sync.html">http_sync module</a><ul>
 <li class="toctree-l4"><a class="reference internal" href="api/http_sync.html#http_sync.get_session"><code class="docutils literal notranslate"><span class="pre">get_session()</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="api/http_sync.html#http_sync.request"><code class="docutils literal notranslate"><span class="pre">request()</span></code></a></li>
@@ -510,6 +526,7 @@
 <li class="toctree-l4"><a class="reference internal" href="api/metrics.html#metrics.get_boot_monotonic"><code class="docutils literal notranslate"><span class="pre">get_boot_monotonic()</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="api/metrics.html#metrics.mark_startup_complete"><code class="docutils literal notranslate"><span class="pre">mark_startup_complete()</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="api/metrics.html#metrics.note_first_request_latency"><code class="docutils literal notranslate"><span class="pre">note_first_request_latency()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/metrics.html#metrics.get_process_uptime_seconds"><code class="docutils literal notranslate"><span class="pre">get_process_uptime_seconds()</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="api/metrics.html#metrics.record_dependency_init"><code class="docutils literal notranslate"><span class="pre">record_dependency_init()</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="api/metrics.html#metrics.get_uptime_percentage"><code class="docutils literal notranslate"><span class="pre">get_uptime_percentage()</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="api/metrics.html#metrics.set_adaptive_observability_gauges"><code class="docutils literal notranslate"><span class="pre">set_adaptive_observability_gauges()</span></code></a></li>
@@ -683,10 +700,7 @@
 </li>
 </ul>
 </li>
-<li class="toctree-l2"><a class="reference internal" href="handlers/index.html#file-view-handler">File View Handler</a><ul>
-<li class="toctree-l3"><a class="reference internal" href="handlers/index.html#file-view-handler-module">File View Handler Module</a></li>
-</ul>
-</li>
+<li class="toctree-l2"><a class="reference internal" href="handlers/index.html#file-view-handler">File View Handler</a></li>
 <li class="toctree-l2"><a class="reference internal" href="handlers/index.html#pagination-handler">Pagination Handler</a></li>
 <li class="toctree-l2"><a class="reference internal" href="handlers/index.html#save-flow-handler">Save Flow Handler</a></li>
 <li class="toctree-l2"><a class="reference internal" href="handlers/index.html#states-handler">States Handler</a></li>
@@ -821,6 +835,8 @@
 <li class="toctree-l2"><a class="reference internal" href="testing.html#stubs">טעינת Stubs לטלגרם</a></li>
 <li class="toctree-l2"><a class="reference internal" href="testing.html#tmp-path">דוגמת שימוש ב‑tmp_path</a></li>
 <li class="toctree-l2"><a class="reference internal" href="testing.html#id2">מחיקה בטוחה</a></li>
+<li class="toctree-l2"><a class="reference internal" href="testing.html#mocking-http-github-menu-handler">Mocking HTTP ב‑github_menu_handler</a></li>
+<li class="toctree-l2"><a class="reference internal" href="testing.html#blueprint">רישום Blueprint בסביבת טסטים</a></li>
 <li class="toctree-l2"><a class="reference internal" href="testing.html#pytest-cov">כיסוי בדיקות (pytest-cov)</a></li>
 <li class="toctree-l2"><a class="reference internal" href="testing.html#ci">CI נתמך</a></li>
 <li class="toctree-l2"><a class="reference internal" href="testing.html#performance">בדיקות ביצועים (Performance)</a></li>
@@ -883,6 +899,7 @@
 <li class="toctree-l2"><a class="reference internal" href="troubleshooting.html#id1">שגיאות נפוצות</a></li>
 <li class="toctree-l2"><a class="reference internal" href="troubleshooting.html#importerror-telegram-conversationhandler-filters">ImportError בזמן טסטים (telegram / ConversationHandler / filters)</a></li>
 <li class="toctree-l2"><a class="reference internal" href="troubleshooting.html#parse-mode">שגיאות parse_mode</a></li>
+<li class="toctree-l2"><a class="reference internal" href="troubleshooting.html#asyncio-attached-to-a-different-loop-event-loop-is-closed">שגיאות asyncio: ”attached to a different loop“ / ”Event loop is closed“</a></li>
 <li class="toctree-l2"><a class="reference internal" href="troubleshooting.html#id2">דיבוג מהיר</a></li>
 <li class="toctree-l2"><a class="reference internal" href="troubleshooting.html#mongodb">בדיקת חיבור MongoDB</a></li>
 <li class="toctree-l2"><a class="reference internal" href="troubleshooting.html#id3">קישורים</a></li>
@@ -999,6 +1016,7 @@
 <li class="toctree-l2"><a class="reference internal" href="user/my_collections.html#id5">מגבלות ופרטיות</a></li>
 <li class="toctree-l2"><a class="reference internal" href="user/my_collections.html#api">API קצר (למפתחים)</a></li>
 <li class="toctree-l2"><a class="reference internal" href="user/my_collections.html#id6">טיפים</a></li>
+<li class="toctree-l2"><a class="reference internal" href="user/my_collections.html#id7">מובייל/טאבלט – גרירה לסידור</a></li>
 </ul>
 </li>
 <li class="toctree-l1"><a class="reference internal" href="user/share_code.html">שיתוף קוד (חשוב)</a><ul>
@@ -1056,6 +1074,13 @@
 <li class="toctree-l2"><a class="reference internal" href="webapp/caching.html#gotchas">Gotchas נפוצים</a></li>
 <li class="toctree-l2"><a class="reference internal" href="webapp/caching.html#cache-control">שילוב עם Cache-Control</a></li>
 <li class="toctree-l2"><a class="reference internal" href="webapp/caching.html#id3">קישורים נוספים</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="webapp/advanced-caching.html">מערכת Caching מתקדמת עם TTL דינמי</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="webapp/advanced-caching.html#id1">עקרונות</a></li>
+<li class="toctree-l2"><a class="reference internal" href="webapp/advanced-caching.html#id2">קוד לדוגמה</a></li>
+<li class="toctree-l2"><a class="reference internal" href="webapp/advanced-caching.html#id3">דגשים תפעוליים</a></li>
+<li class="toctree-l2"><a class="reference internal" href="webapp/advanced-caching.html#id4">קישורים</a></li>
 </ul>
 </li>
 <li class="toctree-l1"><a class="reference internal" href="webapp/static-checklist.html">Static Performance &amp; Security Checklist (gzip/br, Cache, SRI)</a><ul>
@@ -1160,6 +1185,32 @@
 </li>
 <li class="toctree-l1"><a class="reference internal" href="alerts.html">התראות (Alerts)</a><ul>
 <li class="toctree-l2"><a class="reference internal" href="alerts.html#id1">חוקי התראה לדוגמה</a></li>
+<li class="toctree-l2"><a class="reference internal" href="alerts.html#id2">ראו גם</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="observability/log_based_alerts.html">התראות מבוססות לוגים (Log‑based Alerts)</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="observability/log_based_alerts.html#id1">מה זה ולמה</a></li>
+<li class="toctree-l2"><a class="reference internal" href="observability/log_based_alerts.html#id2">הרכיבים בקוד</a></li>
+<li class="toctree-l2"><a class="reference internal" href="observability/log_based_alerts.html#id3">קבצי קונפיג</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="observability/log_based_alerts.html#config-error-signatures-yml">דוגמה מינימלית: <code class="docutils literal notranslate"><span class="pre">config/error_signatures.yml</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="observability/log_based_alerts.html#config-alerts-yml">דוגמה מינימלית: <code class="docutils literal notranslate"><span class="pre">config/alerts.yml</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="observability/log_based_alerts.html#option-b">Option B – חיבור בתוך הקוד (מומש)</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="observability/log_based_alerts.html#id4">משתני סביבה</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="observability/log_based_alerts.html#option-a-sidecar">Option A – Sidecar מזרם לוגים</a></li>
+<li class="toctree-l2"><a class="reference internal" href="observability/log_based_alerts.html#id5">ספים וקיבוץ – ברירות מחדל</a></li>
+<li class="toctree-l2"><a class="reference internal" href="observability/log_based_alerts.html#fingerprint">אסטרטגיית fingerprint וקנוניקליזציה</a></li>
+<li class="toctree-l2"><a class="reference internal" href="observability/log_based_alerts.html#id6">צ’קליסט למפתחים</a></li>
+<li class="toctree-l2"><a class="reference internal" href="observability/log_based_alerts.html#id7">בדיקה מקומית (סימולציה)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="observability/log_based_alerts.html#ai">הנחיות לסוכני AI</a></li>
+<li class="toctree-l2"><a class="reference internal" href="observability/log_based_alerts.html#id8">אבטחה ופרטיות</a></li>
+<li class="toctree-l2"><a class="reference internal" href="observability/log_based_alerts.html#rollout">Rollout מומלץ</a></li>
+<li class="toctree-l2"><a class="reference internal" href="observability/log_based_alerts.html#troubleshooting">Troubleshooting</a></li>
+<li class="toctree-l2"><a class="reference internal" href="observability/log_based_alerts.html#id9">ראו גם</a></li>
+<li class="toctree-l2"><a class="reference internal" href="observability/log_based_alerts.html#id10">קישורים לקוד</a></li>
 </ul>
 </li>
 <li class="toctree-l1"><a class="reference internal" href="sentry.html">Sentry</a><ul>
@@ -1207,6 +1258,15 @@
 <li class="toctree-l2"><a class="reference internal" href="chatops/commands.html#observe-v">/observe -v (מפורט)</a></li>
 <li class="toctree-l2"><a class="reference internal" href="chatops/commands.html#observe-vv">/observe -vv (מפורט מאוד)</a></li>
 <li class="toctree-l2"><a class="reference internal" href="chatops/commands.html#rate-limit">/rate_limit</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="chatops/observe.html">ChatOps – /observe: הרחבות -v ו- -vv</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="chatops/observe.html#id1">תחביר ופרמטרים</a></li>
+<li class="toctree-l2"><a class="reference internal" href="chatops/observe.html#id2">דוגמאות</a></li>
+<li class="toctree-l2"><a class="reference internal" href="chatops/observe.html#v">פלט לדוגמה – ‎-v</a></li>
+<li class="toctree-l2"><a class="reference internal" href="chatops/observe.html#vv">פלט לדוגמה – ‎-vv</a></li>
+<li class="toctree-l2"><a class="reference internal" href="chatops/observe.html#id3">הערות שימוש</a></li>
+<li class="toctree-l2"><a class="reference internal" href="chatops/observe.html#id4">קישורים רלוונטיים</a></li>
 </ul>
 </li>
 <li class="toctree-l1"><a class="reference internal" href="chatops/playbooks.html">Playbooks – תרחישים נפוצים</a><ul>
@@ -1321,8 +1381,8 @@
 </section>
 <section id="save-flow">
 <h2>Save Flow (תרשים מצבים)<a class="headerlink" href="#save-flow" title="Link to this heading"></a></h2>
-<div class="mermaid">
-            stateDiagram-v2
+<pre  class="mermaid">
+        stateDiagram-v2
     [*] --&gt; WAITING_FOR_FILENAME: /save
     WAITING_FOR_FILENAME --&gt; WAITING_FOR_CODE: שם קובץ התקבל
     WAITING_FOR_CODE --&gt; WAITING_FOR_NOTE: קוד התקבל
@@ -1330,11 +1390,11 @@
     WAITING_FOR_FILENAME --&gt; [*]: /cancel
     WAITING_FOR_CODE --&gt; [*]: /cancel
     WAITING_FOR_NOTE --&gt; [*]: /cancel
-        </div></section>
+    </pre></section>
 <section id="github-flow">
 <h2>GitHub Flow (תרשים מצבים)<a class="headerlink" href="#github-flow" title="Link to this heading"></a></h2>
-<div class="mermaid">
-            stateDiagram-v2
+<pre  class="mermaid">
+        stateDiagram-v2
     [*] --&gt; GITHUB_MENU: /github
     GITHUB_MENU --&gt; GITHUB_REPO_SELECT: &quot;בחר ריפו&quot;
     GITHUB_REPO_SELECT --&gt; GITHUB_FILE_BROWSE: ריפו נבחר
@@ -1343,7 +1403,7 @@
     GITHUB_MENU --&gt; [*]: חזרה
     GITHUB_REPO_SELECT --&gt; GITHUB_MENU: חזרה
     GITHUB_FILE_BROWSE --&gt; GITHUB_REPO_SELECT: חזרה
-        </div></section>
+    </pre></section>
 <section id="handler">
 <h2>דוגמת Handler תמציתית<a class="headerlink" href="#handler" title="Link to this heading"></a></h2>
 <div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">save_conversation</span> <span class="o">=</span> <span class="n">ConversationHandler</span><span class="p">(</span>
@@ -1597,128 +1657,128 @@
 <h3>GitHub – תפריט ושיחת העלאה<a class="headerlink" href="#github" title="Link to this heading"></a></h3>
 <div class="literal-block-wrapper docutils container" id="id14">
 <div class="code-block-caption"><span class="caption-text">github_menu_handler.py – github_menu_command</span><a class="headerlink" href="#id14" title="Link to this code"></a></div>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span>            <span class="k">if</span> <span class="n">_cl</span> <span class="ow">and</span> <span class="n">_cl</span> <span class="o">&gt;</span> <span class="n">IMPORT_MAX_TOTAL_BYTES</span><span class="p">:</span>
-                <span class="k">await</span> <span class="n">query</span><span class="o">.</span><span class="n">edit_message_text</span><span class="p">(</span><span class="s2">&quot;❌ ה‑ZIP גדול מדי לייבוא ישיר ברמת התוכן (מעל 20MB). נסה ייבוא סלקטיבי או ZIP חלקי.&quot;</span><span class="p">)</span>
-                <span class="k">return</span>
-            <span class="c1"># כתיבה בזרם לדיסק תוך שמירה על תקרה</span>
-            <span class="n">written</span> <span class="o">=</span> <span class="mi">0</span>
-            <span class="k">with</span> <span class="nb">open</span><span class="p">(</span><span class="n">zip_path</span><span class="p">,</span> <span class="s2">&quot;wb&quot;</span><span class="p">)</span> <span class="k">as</span> <span class="n">f</span><span class="p">:</span>
-                <span class="k">for</span> <span class="n">chunk</span> <span class="ow">in</span> <span class="n">resp</span><span class="o">.</span><span class="n">iter_content</span><span class="p">(</span><span class="n">chunk_size</span><span class="o">=</span><span class="mi">128</span> <span class="o">*</span> <span class="mi">1024</span><span class="p">):</span>
-                    <span class="k">if</span> <span class="ow">not</span> <span class="n">chunk</span><span class="p">:</span>
-                        <span class="k">continue</span>
-                    <span class="n">f</span><span class="o">.</span><span class="n">write</span><span class="p">(</span><span class="n">chunk</span><span class="p">)</span>
-                    <span class="n">written</span> <span class="o">+=</span> <span class="nb">len</span><span class="p">(</span><span class="n">chunk</span><span class="p">)</span>
-                    <span class="k">if</span> <span class="n">written</span> <span class="o">&gt;</span> <span class="n">IMPORT_MAX_TOTAL_BYTES</span><span class="p">:</span>
-                        <span class="k">await</span> <span class="n">query</span><span class="o">.</span><span class="n">edit_message_text</span><span class="p">(</span><span class="s2">&quot;❌ ה‑ZIP חורג ממגבלת ייבוא התוכן (20MB). נסה ייבוא סלקטיבי.&quot;</span><span class="p">)</span>
-                        <span class="k">return</span>
-            <span class="c1"># חליצה לתת-תיקייה ייעודית</span>
-            <span class="n">extracted_dir</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">tmp_dir</span><span class="p">,</span> <span class="s2">&quot;repo&quot;</span><span class="p">)</span>
-            <span class="n">os</span><span class="o">.</span><span class="n">makedirs</span><span class="p">(</span><span class="n">extracted_dir</span><span class="p">,</span> <span class="n">exist_ok</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
-            <span class="c1"># מדוד זמן חליצה</span>
-            <span class="k">with</span> <span class="n">track_performance</span><span class="p">(</span><span class="s2">&quot;github_zip_extract&quot;</span><span class="p">):</span>
-                <span class="k">with</span> <span class="n">_zip</span><span class="o">.</span><span class="n">ZipFile</span><span class="p">(</span><span class="n">zip_path</span><span class="p">,</span> <span class="s1">&#39;r&#39;</span><span class="p">)</span> <span class="k">as</span> <span class="n">zf</span><span class="p">:</span>
-                    <span class="n">zf</span><span class="o">.</span><span class="n">extractall</span><span class="p">(</span><span class="n">extracted_dir</span><span class="p">)</span>
-            <span class="c1"># מצא שורש (github zip מוסיף תיקיית prefix)</span>
-            <span class="c1"># נבחר תיקייה הראשונה מתחת extracted_dir</span>
-            <span class="n">roots</span> <span class="o">=</span> <span class="p">[</span><span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">extracted_dir</span><span class="p">,</span> <span class="n">d</span><span class="p">)</span> <span class="k">for</span> <span class="n">d</span> <span class="ow">in</span> <span class="n">os</span><span class="o">.</span><span class="n">listdir</span><span class="p">(</span><span class="n">extracted_dir</span><span class="p">)]</span>
-            <span class="n">root</span> <span class="o">=</span> <span class="kc">None</span>
-            <span class="k">for</span> <span class="n">p</span> <span class="ow">in</span> <span class="n">roots</span><span class="p">:</span>
-                <span class="k">if</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">isdir</span><span class="p">(</span><span class="n">p</span><span class="p">):</span>
-                    <span class="n">root</span> <span class="o">=</span> <span class="n">p</span>
-                    <span class="k">break</span>
-            <span class="k">if</span> <span class="ow">not</span> <span class="n">root</span><span class="p">:</span>
-                <span class="k">await</span> <span class="n">query</span><span class="o">.</span><span class="n">edit_message_text</span><span class="p">(</span><span class="s2">&quot;❌ לא נמצאו קבצים לאחר חליצה&quot;</span><span class="p">)</span>
-                <span class="k">return</span>
-            <span class="kn">from</span> <span class="nn">database</span> <span class="kn">import</span> <span class="n">db</span>
-            <span class="kn">from</span> <span class="nn">utils</span> <span class="kn">import</span> <span class="n">detect_language_from_filename</span>
-            <span class="n">repo_tag</span> <span class="o">=</span> <span class="sa">f</span><span class="s2">&quot;repo:</span><span class="si">{</span><span class="n">repo_full</span><span class="si">}</span><span class="s2">&quot;</span>
-            <span class="n">source_tag</span> <span class="o">=</span> <span class="s2">&quot;source:github&quot;</span>
-            <span class="c1"># מעבר על קבצים</span>
-            <span class="k">for</span> <span class="n">cur_dir</span><span class="p">,</span> <span class="n">dirnames</span><span class="p">,</span> <span class="n">filenames</span> <span class="ow">in</span> <span class="n">os</span><span class="o">.</span><span class="n">walk</span><span class="p">(</span><span class="n">root</span><span class="p">):</span>
-                <span class="c1"># סינון תיקיות מיותרות</span>
-                <span class="n">dirnames</span><span class="p">[:]</span> <span class="o">=</span> <span class="p">[</span><span class="n">d</span> <span class="k">for</span> <span class="n">d</span> <span class="ow">in</span> <span class="n">dirnames</span> <span class="k">if</span> <span class="n">d</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">IMPORT_SKIP_DIRS</span><span class="p">]</span>
-                <span class="k">for</span> <span class="n">name</span> <span class="ow">in</span> <span class="n">filenames</span><span class="p">:</span>
-                    <span class="c1"># דלג על קבצי ZIP עצמם או קבצים מוסתרים ענקיים</span>
-                    <span class="k">if</span> <span class="n">name</span><span class="o">.</span><span class="n">endswith</span><span class="p">(</span><span class="s1">&#39;.zip&#39;</span><span class="p">):</span>
-                        <span class="n">skipped</span> <span class="o">+=</span> <span class="mi">1</span>
-                        <span class="k">continue</span>
-                    <span class="n">file_path</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">cur_dir</span><span class="p">,</span> <span class="n">name</span><span class="p">)</span>
-                    <span class="n">rel_path</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">relpath</span><span class="p">(</span><span class="n">file_path</span><span class="p">,</span> <span class="n">root</span><span class="p">)</span>
-                    <span class="c1"># דלג על נתיבים חשודים</span>
-                    <span class="k">if</span> <span class="n">rel_path</span><span class="o">.</span><span class="n">startswith</span><span class="p">(</span><span class="s1">&#39;.&#39;</span><span class="p">):</span>
-                        <span class="n">skipped</span> <span class="o">+=</span> <span class="mi">1</span>
-                        <span class="k">continue</span>
-                    <span class="k">try</span><span class="p">:</span>
-                        <span class="c1"># קרא כ-bytes ובדוק בינארי/גודל</span>
-                        <span class="k">with</span> <span class="nb">open</span><span class="p">(</span><span class="n">file_path</span><span class="p">,</span> <span class="s1">&#39;rb&#39;</span><span class="p">)</span> <span class="k">as</span> <span class="n">fh</span><span class="p">:</span>
-                            <span class="n">raw</span> <span class="o">=</span> <span class="n">fh</span><span class="o">.</span><span class="n">read</span><span class="p">(</span><span class="n">IMPORT_MAX_FILE_BYTES</span> <span class="o">+</span> <span class="mi">1</span><span class="p">)</span>
-                        <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">raw</span><span class="p">)</span> <span class="o">&gt;</span> <span class="n">IMPORT_MAX_FILE_BYTES</span><span class="p">:</span>
-                            <span class="n">skipped</span> <span class="o">+=</span> <span class="mi">1</span>
-                            <span class="k">continue</span>
-                        <span class="c1"># heuristic: אם יש אפס-בייטים רבים → כנראה בינארי</span>
-                        <span class="k">if</span> <span class="sa">b</span><span class="s2">&quot;</span><span class="se">\x00</span><span class="s2">&quot;</span> <span class="ow">in</span> <span class="n">raw</span><span class="p">:</span>
-                            <span class="n">skipped</span> <span class="o">+=</span> <span class="mi">1</span>
-                            <span class="k">continue</span>
-                        <span class="k">try</span><span class="p">:</span>
-                            <span class="n">text</span> <span class="o">=</span> <span class="n">raw</span><span class="o">.</span><span class="n">decode</span><span class="p">(</span><span class="s1">&#39;utf-8&#39;</span><span class="p">)</span>
-                        <span class="k">except</span> <span class="ne">Exception</span><span class="p">:</span>
-                            <span class="k">try</span><span class="p">:</span>
-                                <span class="n">text</span> <span class="o">=</span> <span class="n">raw</span><span class="o">.</span><span class="n">decode</span><span class="p">(</span><span class="s1">&#39;latin-1&#39;</span><span class="p">)</span>
-                            <span class="k">except</span> <span class="ne">Exception</span><span class="p">:</span>
-                                <span class="n">skipped</span> <span class="o">+=</span> <span class="mi">1</span>
-                                <span class="k">continue</span>
-                        <span class="k">if</span> <span class="n">total_bytes</span> <span class="o">+</span> <span class="nb">len</span><span class="p">(</span><span class="n">raw</span><span class="p">)</span> <span class="o">&gt;</span> <span class="n">IMPORT_MAX_TOTAL_BYTES</span><span class="p">:</span>
-                            <span class="k">continue</span>
-                        <span class="k">if</span> <span class="n">saved</span> <span class="o">&gt;=</span> <span class="n">IMPORT_MAX_FILES</span><span class="p">:</span>
-                            <span class="k">continue</span>
-                        <span class="n">lang</span> <span class="o">=</span> <span class="n">detect_language_from_filename</span><span class="p">(</span><span class="n">rel_path</span><span class="p">)</span>
-                        <span class="c1"># בדוק אם קיים כבר עבור אותו ריפו (לפי תגית repo:)</span>
-                        <span class="n">prev_doc</span> <span class="o">=</span> <span class="n">db</span><span class="o">.</span><span class="n">get_latest_version</span><span class="p">(</span><span class="n">user_id</span><span class="p">,</span> <span class="n">rel_path</span><span class="p">)</span>
-                        <span class="n">prev_tags</span> <span class="o">=</span> <span class="p">(</span><span class="n">prev_doc</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s1">&#39;tags&#39;</span><span class="p">)</span> <span class="ow">or</span> <span class="p">[])</span> <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">prev_doc</span><span class="p">,</span> <span class="nb">dict</span><span class="p">)</span> <span class="k">else</span> <span class="p">[]</span>
-                        <span class="n">existed_for_repo</span> <span class="o">=</span> <span class="nb">any</span><span class="p">((</span><span class="nb">isinstance</span><span class="p">(</span><span class="n">t</span><span class="p">,</span> <span class="nb">str</span><span class="p">)</span> <span class="ow">and</span> <span class="n">t</span> <span class="o">==</span> <span class="n">repo_tag</span><span class="p">)</span> <span class="k">for</span> <span class="n">t</span> <span class="ow">in</span> <span class="n">prev_tags</span><span class="p">)</span>
-                        <span class="c1"># מדידת ביצוע עבור שמירה בודדת</span>
-                        <span class="k">with</span> <span class="n">track_performance</span><span class="p">(</span><span class="s2">&quot;github_import_save_file&quot;</span><span class="p">):</span>
-                            <span class="n">ok</span> <span class="o">=</span> <span class="n">db</span><span class="o">.</span><span class="n">save_file</span><span class="p">(</span><span class="n">user_id</span><span class="o">=</span><span class="n">user_id</span><span class="p">,</span> <span class="n">file_name</span><span class="o">=</span><span class="n">rel_path</span><span class="p">,</span> <span class="n">code</span><span class="o">=</span><span class="n">text</span><span class="p">,</span> <span class="n">programming_language</span><span class="o">=</span><span class="n">lang</span><span class="p">,</span> <span class="n">extra_tags</span><span class="o">=</span><span class="p">[</span><span class="n">repo_tag</span><span class="p">,</span> <span class="n">source_tag</span><span class="p">])</span>
-                        <span class="k">if</span> <span class="n">ok</span><span class="p">:</span>
-                            <span class="k">if</span> <span class="n">existed_for_repo</span><span class="p">:</span>
-                                <span class="n">updated</span> <span class="o">+=</span> <span class="mi">1</span>
-                            <span class="k">else</span><span class="p">:</span>
-                                <span class="n">saved</span> <span class="o">+=</span> <span class="mi">1</span>
-                            <span class="n">total_bytes</span> <span class="o">+=</span> <span class="nb">len</span><span class="p">(</span><span class="n">raw</span><span class="p">)</span>
-                        <span class="k">else</span><span class="p">:</span>
-                            <span class="n">skipped</span> <span class="o">+=</span> <span class="mi">1</span>
-                    <span class="k">except</span> <span class="ne">Exception</span><span class="p">:</span>
-                        <span class="n">skipped</span> <span class="o">+=</span> <span class="mi">1</span>
-            <span class="k">try</span><span class="p">:</span>
-                <span class="n">track_github_sync</span><span class="p">(</span><span class="n">user_id</span><span class="o">=</span><span class="n">user_id</span><span class="p">,</span> <span class="n">files_count</span><span class="o">=</span><span class="n">saved</span> <span class="o">+</span> <span class="n">updated</span><span class="p">,</span> <span class="n">success</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
-                <span class="n">emit_event</span><span class="p">(</span><span class="s2">&quot;github_sync&quot;</span><span class="p">,</span> <span class="n">severity</span><span class="o">=</span><span class="s2">&quot;info&quot;</span><span class="p">,</span> <span class="n">user_id</span><span class="o">=</span><span class="nb">int</span><span class="p">(</span><span class="n">user_id</span><span class="p">),</span> <span class="n">files_count</span><span class="o">=</span><span class="nb">int</span><span class="p">(</span><span class="n">saved</span> <span class="o">+</span> <span class="n">updated</span><span class="p">),</span> <span class="n">success</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
-            <span class="k">except</span> <span class="ne">Exception</span><span class="p">:</span>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span>        <span class="n">מדלג</span> <span class="n">על</span> <span class="n">בינאריים</span><span class="p">,</span> <span class="n">קבצי</span> <span class="n">ענק</span><span class="p">,</span> <span class="n">ותיקיות</span> <span class="n">מיותרות</span><span class="o">.</span> <span class="n">מנקה</span> <span class="n">tmp</span> <span class="n">בסוף</span><span class="o">.</span>
+        <span class="s2">&quot;&quot;&quot;</span>
+<span class="s2">        query = update.callback_query</span>
+<span class="s2">        user_id = query.from_user.id</span>
+<span class="s2">        token = self.get_user_token(user_id)</span>
+<span class="s2">        if not token:</span>
+<span class="s2">            try:</span>
+<span class="s2">                emit_event(&quot;github_import_repo_error&quot;, severity=&quot;error&quot;, error=&quot;missing_token&quot;, repo=repo_full, branch=branch)</span>
+<span class="s2">            except Exception:</span>
+<span class="s2">                pass</span>
+<span class="s2">            await query.edit_message_text(&quot;❌ חסר טוקן GitHub&quot;)</span>
+<span class="s2">            return</span>
+<span class="s2">        # יצירת לקוח GitHub</span>
+<span class="s2">        try:</span>
+<span class="s2">            g = Github(token)</span>
+<span class="s2">        except Exception as e:</span>
+<span class="s2">            try:</span>
+<span class="s2">                emit_event(&quot;github_import_repo_error&quot;, severity=&quot;error&quot;, error=str(e), repo=repo_full, branch=branch)</span>
+<span class="s2">            except Exception:</span>
+<span class="s2">                pass</span>
+<span class="s2">            await query.edit_message_text(f&quot;❌ שגיאה בהכנת חיבור ל‑GitHub: </span><span class="si">{e}</span><span class="s2">&quot;)</span>
+<span class="s2">            return</span>
+<span class="s2">        try:</span>
+<span class="s2">            repo = g.get_repo(repo_full)</span>
+<span class="s2">        except Exception as e:</span>
+<span class="s2">            await query.edit_message_text(f&quot;❌ שגיאה בטעינת ריפו: </span><span class="si">{e}</span><span class="s2">&quot;)</span>
+<span class="s2">            return</span>
+<span class="s2">        await query.edit_message_text(&quot;⏳ מוריד ZIP רשמי ומייבא קבצים… זה עשוי לקחת 1–8 דקות&quot;)</span>
+<span class="s2">        import zipfile as _zip</span>
+<span class="s2">        tmp_dir = None</span>
+<span class="s2">        zip_path = None</span>
+<span class="s2">        extracted_dir = None</span>
+<span class="s2">        saved = 0</span>
+<span class="s2">        updated = 0</span>
+<span class="s2">        total_bytes = 0</span>
+<span class="s2">        skipped = 0</span>
+<span class="s2">        try:</span>
+<span class="s2">            # קבלת קישור zipball עבור branch</span>
+<span class="s2">            try:</span>
+<span class="s2">                url = repo.get_archive_link(&quot;zipball&quot;, ref=branch)</span>
+<span class="s2">            except TypeError:</span>
+<span class="s2">                # גרסאות PyGithub ישנות לא מקבלות ref; ננסה ללא ref</span>
+<span class="s2">                url = repo.get_archive_link(&quot;zipball&quot;)</span>
+<span class="s2">            # הורדה במצב זרימה + מניעת דחיסה מיותרת</span>
+<span class="s2">            _headers = {&quot;Accept-Encoding&quot;: &quot;identity&quot;}</span>
+<span class="s2">            resp = http_request(&#39;GET&#39;, url, headers=_headers, stream=True, timeout=60)</span>
+<span class="s2">            resp.raise_for_status()</span>
+<span class="s2">            # עבודה ב-/tmp בלבד</span>
+<span class="s2">            tmp_dir = tempfile.mkdtemp(prefix=&quot;codebot-gh-import-&quot;)</span>
+<span class="s2">            zip_path = os.path.join(tmp_dir, &quot;repo.zip&quot;)</span>
+<span class="s2">            # בדיקת Content-Length מול תקרת IMPORT_MAX_TOTAL_BYTES (safety)</span>
+<span class="s2">            try:</span>
+<span class="s2">                _cl = int(resp.headers.get(&quot;Content-Length&quot;, &quot;0&quot;))</span>
+<span class="s2">            except Exception:</span>
+<span class="s2">                _cl = 0</span>
+<span class="s2">            if _cl and _cl &gt; IMPORT_MAX_TOTAL_BYTES:</span>
+<span class="s2">                await query.edit_message_text(&quot;❌ ה‑ZIP גדול מדי לייבוא ישיר ברמת התוכן (מעל 20MB). נסה ייבוא סלקטיבי או ZIP חלקי.&quot;)</span>
+<span class="s2">                return</span>
+<span class="s2">            # כתיבה בזרם לדיסק תוך שמירה על תקרה</span>
+<span class="s2">            written = 0</span>
+<span class="s2">            with open(zip_path, &quot;wb&quot;) as f:</span>
+<span class="s2">                for chunk in resp.iter_content(chunk_size=128 * 1024):</span>
+<span class="s2">                    if not chunk:</span>
+<span class="s2">                        continue</span>
+<span class="s2">                    f.write(chunk)</span>
+<span class="s2">                    written += len(chunk)</span>
+<span class="s2">                    if written &gt; IMPORT_MAX_TOTAL_BYTES:</span>
+<span class="s2">                        await query.edit_message_text(&quot;❌ ה‑ZIP חורג ממגבלת ייבוא התוכן (20MB). נסה ייבוא סלקטיבי.&quot;)</span>
+<span class="s2">                        return</span>
+<span class="s2">            # חליצה לתת-תיקייה ייעודית</span>
+<span class="s2">            extracted_dir = os.path.join(tmp_dir, &quot;repo&quot;)</span>
+<span class="s2">            os.makedirs(extracted_dir, exist_ok=True)</span>
+<span class="s2">            # מדוד זמן חליצה</span>
+<span class="s2">            with track_performance(&quot;github_zip_extract&quot;):</span>
+<span class="s2">                with _zip.ZipFile(zip_path, &#39;r&#39;) as zf:</span>
+<span class="s2">                    zf.extractall(extracted_dir)</span>
+<span class="s2">            # מצא שורש (github zip מוסיף תיקיית prefix)</span>
+<span class="s2">            # נבחר תיקייה הראשונה מתחת extracted_dir</span>
+<span class="s2">            roots = [os.path.join(extracted_dir, d) for d in os.listdir(extracted_dir)]</span>
+<span class="s2">            root = None</span>
+<span class="s2">            for p in roots:</span>
+<span class="s2">                if os.path.isdir(p):</span>
+<span class="s2">                    root = p</span>
+<span class="s2">                    break</span>
+<span class="s2">            if not root:</span>
+<span class="s2">                await query.edit_message_text(&quot;❌ לא נמצאו קבצים לאחר חליצה&quot;)</span>
+<span class="s2">                return</span>
+<span class="s2">            from database import db</span>
+<span class="s2">            from utils import detect_language_from_filename</span>
+<span class="s2">            repo_tag = f&quot;repo:</span><span class="si">{repo_full}</span><span class="s2">&quot;</span>
+<span class="s2">            source_tag = &quot;source:github&quot;</span>
+<span class="s2">            # מעבר על קבצים</span>
+<span class="s2">            for cur_dir, dirnames, filenames in os.walk(root):</span>
+<span class="s2">                # סינון תיקיות מיותרות</span>
+<span class="s2">                dirnames[:] = [d for d in dirnames if d not in IMPORT_SKIP_DIRS]</span>
+<span class="s2">                for name in filenames:</span>
 </pre></div>
 </div>
 </div>
 <div class="literal-block-wrapper docutils container" id="id15">
 <div class="code-block-caption"><span class="caption-text">main.py – הגדרת upload_conv_handler (FILE_UPLOAD/REPO_SELECT/FOLDER_SELECT)</span><a class="headerlink" href="#id15" title="Link to this code"></a></div>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span>            <span class="k">except</span> <span class="ne">Exception</span><span class="p">:</span>
-                <span class="k">pass</span>
-            <span class="k">try</span><span class="p">:</span>
-                <span class="kn">from</span> <span class="nn">refactor_handlers</span> <span class="kn">import</span> <span class="n">set_activity_reporter</span> <span class="k">as</span> <span class="n">set_rh_activity_reporter</span>
-                <span class="n">set_rh_activity_reporter</span><span class="p">(</span><span class="n">created_reporter</span><span class="p">)</span>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span>                    <span class="n">Application</span><span class="o">.</span><span class="n">builder</span><span class="p">()</span>
+                    <span class="o">.</span><span class="n">token</span><span class="p">(</span><span class="n">dummy_token</span><span class="p">)</span>
+                    <span class="o">.</span><span class="n">defaults</span><span class="p">(</span><span class="n">Defaults</span><span class="p">(</span><span class="n">parse_mode</span><span class="o">=</span><span class="n">ParseMode</span><span class="o">.</span><span class="n">HTML</span><span class="p">))</span>
+                    <span class="o">.</span><span class="n">build</span><span class="p">()</span>
+                <span class="p">)</span>
             <span class="k">except</span> <span class="ne">Exception</span><span class="p">:</span>
-                <span class="k">pass</span>
-        <span class="k">except</span> <span class="ne">Exception</span><span class="p">:</span>
-            <span class="c1"># בסביבות CI/טסטים, אל נכשיל את הבנייה</span>
-            <span class="n">reporter</span> <span class="o">=</span> <span class="kc">None</span>
-
-        <span class="bp">self</span><span class="o">.</span><span class="n">setup_handlers</span><span class="p">()</span>
-        <span class="bp">self</span><span class="o">.</span><span class="n">advanced_handlers</span> <span class="o">=</span> <span class="n">AdvancedBotHandlers</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">application</span><span class="p">)</span>
-        <span class="c1"># רישום קטגוריית &quot;⭐ מועדפים&quot; לתפריט &quot;📚 הקבצים&quot;</span>
-        <span class="k">try</span><span class="p">:</span>
-            <span class="kn">from</span> <span class="nn">conversation_handlers</span> <span class="kn">import</span> <span class="n">setup_favorites_category_handlers</span> <span class="k">as</span> <span class="n">_setup_fav</span>
-            <span class="n">_setup_fav</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">application</span><span class="p">)</span>
-        <span class="k">except</span> <span class="ne">Exception</span><span class="p">:</span>
-            <span class="k">pass</span>
-        <span class="c1"># Rate limiter instance (לאחר בניית האפליקציה)</span>
-        <span class="k">try</span><span class="p">:</span>
+                <span class="c1"># בנאי ידני מינימלי: אובייקט עם הממשקים הדרושים לטסטים/סביבות חסרות</span>
+                <span class="k">class</span> <span class="nc">_MiniApp</span><span class="p">:</span>
+                    <span class="k">def</span> <span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+                        <span class="bp">self</span><span class="o">.</span><span class="n">handlers</span> <span class="o">=</span> <span class="p">[]</span>
+                        <span class="bp">self</span><span class="o">.</span><span class="n">bot_data</span> <span class="o">=</span> <span class="p">{}</span>
+                        <span class="bp">self</span><span class="o">.</span><span class="n">_error_handlers</span> <span class="o">=</span> <span class="p">[]</span>
+                        <span class="k">class</span> <span class="nc">_JobQ</span><span class="p">:</span>
+                            <span class="k">def</span> <span class="nf">run_once</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="o">*</span><span class="n">a</span><span class="p">,</span> <span class="o">**</span><span class="n">k</span><span class="p">):</span>
+                                <span class="k">return</span> <span class="kc">None</span>
+                        <span class="bp">self</span><span class="o">.</span><span class="n">job_queue</span> <span class="o">=</span> <span class="n">_JobQ</span><span class="p">()</span>
+                    <span class="k">def</span> <span class="nf">add_handler</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="o">*</span><span class="n">a</span><span class="p">,</span> <span class="o">**</span><span class="n">k</span><span class="p">):</span>
+                        <span class="c1"># שמירה במבנה יציב לטסטים: (args_tuple, kwargs_dict)</span>
+                        <span class="c1"># args_tuple מובטח באורך ≥ 2 כך ש-index [1] לא יקרוס.</span>
+                        <span class="n">handler_obj</span> <span class="o">=</span> <span class="kc">None</span>
+                        <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">a</span><span class="p">)</span> <span class="o">&gt;=</span> <span class="mi">1</span><span class="p">:</span>
 </pre></div>
 </div>
 </div>
@@ -1727,7 +1787,8 @@
 <h3>Backup – תפריט<a class="headerlink" href="#backup" title="Link to this heading"></a></h3>
 <div class="literal-block-wrapper docutils container" id="id16">
 <div class="code-block-caption"><span class="caption-text">backup_menu_handler.py – show_backup_menu</span><a class="headerlink" href="#id16" title="Link to this code"></a></div>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span>    <span class="n">text</span> <span class="o">=</span> <span class="n">build_button_text</span><span class="p">(</span><span class="n">prim_use</span><span class="p">,</span> <span class="n">version_text</span><span class="p">,</span> <span class="s2">&quot;&quot;</span><span class="p">)</span>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span>    <span class="c1"># 2) נסה ללא דירוג</span>
+    <span class="n">text</span> <span class="o">=</span> <span class="n">build_button_text</span><span class="p">(</span><span class="n">prim_use</span><span class="p">,</span> <span class="n">version_text</span><span class="p">,</span> <span class="s2">&quot;&quot;</span><span class="p">)</span>
     <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">text</span><span class="p">)</span> <span class="o">&lt;=</span> <span class="n">MAX_LEN</span><span class="p">:</span>
         <span class="k">return</span> <span class="n">text</span>
     <span class="c1"># 3) נפילה סופית: שם קצר מאוד עם גרסה</span>
@@ -1741,13 +1802,13 @@
     <span class="k">def</span> <span class="nf">_get_session</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">user_id</span><span class="p">:</span> <span class="nb">int</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]:</span>
         <span class="k">if</span> <span class="n">user_id</span> <span class="ow">not</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">user_sessions</span><span class="p">:</span>
             <span class="bp">self</span><span class="o">.</span><span class="n">user_sessions</span><span class="p">[</span><span class="n">user_id</span><span class="p">]</span> <span class="o">=</span> <span class="p">{}</span>
-        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">user_sessions</span><span class="p">[</span><span class="n">user_id</span><span class="p">]</span>
 </pre></div>
 </div>
 </div>
 <div class="literal-block-wrapper docutils container" id="id17">
 <div class="code-block-caption"><span class="caption-text">backup_menu_handler.py – handle_callback_query (קטע ראשון)</span><a class="headerlink" href="#id17" title="Link to this code"></a></div>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span>    <span class="k">async</span> <span class="k">def</span> <span class="nf">show_backup_menu</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">update</span><span class="p">:</span> <span class="n">Update</span><span class="p">,</span> <span class="n">context</span><span class="p">:</span> <span class="n">ContextTypes</span><span class="o">.</span><span class="n">DEFAULT_TYPE</span><span class="p">):</span>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span>    
+    <span class="k">async</span> <span class="k">def</span> <span class="nf">show_backup_menu</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">update</span><span class="p">:</span> <span class="n">Update</span><span class="p">,</span> <span class="n">context</span><span class="p">:</span> <span class="n">ContextTypes</span><span class="o">.</span><span class="n">DEFAULT_TYPE</span><span class="p">):</span>
         <span class="n">query</span> <span class="o">=</span> <span class="n">update</span><span class="o">.</span><span class="n">callback_query</span> <span class="k">if</span> <span class="n">update</span><span class="o">.</span><span class="n">callback_query</span> <span class="k">else</span> <span class="kc">None</span>
         <span class="k">if</span> <span class="n">query</span><span class="p">:</span>
             <span class="k">await</span> <span class="n">query</span><span class="o">.</span><span class="n">answer</span><span class="p">()</span>
@@ -1795,7 +1856,6 @@
         <span class="k">elif</span> <span class="n">data</span><span class="o">.</span><span class="n">startswith</span><span class="p">(</span><span class="s2">&quot;backup_download_id:&quot;</span><span class="p">):</span>
             <span class="n">backup_id</span> <span class="o">=</span> <span class="n">data</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="s2">&quot;:&quot;</span><span class="p">,</span> <span class="mi">1</span><span class="p">)[</span><span class="mi">1</span><span class="p">]</span>
             <span class="c1"># הורדה בפועל של קובץ הגיבוי לפי מזהה</span>
-            <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">_download_by_id</span><span class="p">(</span><span class="n">update</span><span class="p">,</span> <span class="n">context</span><span class="p">,</span> <span class="n">backup_id</span><span class="p">)</span>
 </pre></div>
 </div>
 </div>

@@ -31,7 +31,7 @@ class _NullCache:
 # נשתמש ב-Protocol ו-non-optional binding עם fallback כדי לשמר טיפוסים חזקים.
 try:  # נסה להביא את cache (גם אם המודול ממוקף)
     from cache_manager import cache as _cache_instance  # type: ignore
-    cache: _CacheLike = cast("_CacheLike", _cache_instance)
+    cache: _CacheLike = cast(_CacheLike, _cache_instance)
 except Exception:  # pragma: no cover - fallback ללא-אופ
     cache: _CacheLike = _NullCache()
 

@@ -36,6 +36,17 @@ Projection
   - ``REQUESTS_POOL_CONNECTIONS=20`` ו-``REQUESTS_POOL_MAXSIZE=100``.
   - ``REQUESTS_RETRIES=2`` עם ``REQUESTS_RETRY_BACKOFF=0.2``.
 
+לוגי איטיות (מהיר לאיתור צווארי בקבוק)
+---------------------------------------
+
+- WebApp Flask: הגדירו ``SLOW_MS`` (למשל ``500``) כדי לרשום בקשות איטיות כ-``slow_request`` עם path/method/status/ms.
+- HTTP סינכרוני: הגדירו ``HTTP_SLOW_MS`` (למשל ``400``) כדי לרשום ``slow_http`` עם method/url/status/ms.
+- MongoDB: הגדירו ``DB_SLOW_MS`` (למשל ``20``) כדי לרשום ``slow_mongo`` דרך CommandListener.
+
+טיפים:
+- התחילו בספים שמרניים בפרוד והורידו/העלו בהתאם לרעש/תועלת.
+- רגישו מידע: הלוגים אינם כוללים כותרות/סודות; מומלץ לא לכלול query params רגישים ב-URLים.
+
 בדיקות מהירות אחרי שינוי ENV
 ------------------------------
 

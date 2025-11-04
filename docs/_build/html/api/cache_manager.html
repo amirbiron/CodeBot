@@ -15,9 +15,9 @@
       <script src="../_static/jquery.js?v=5d32c60e"></script>
       <script src="../_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
       <script src="../_static/documentation_options.js?v=0062297a"></script>
-      <script src="../_static/doctools.js?v=9a2dae69"></script>
+      <script src="../_static/doctools.js?v=9bcbadda"></script>
       <script src="../_static/sphinx_highlight.js?v=dc90522c"></script>
-      <script src="../_static/translations.js?v=714bf7a6"></script>
+      <script src="../_static/translations.js?v=a336edf7"></script>
     <script src="../_static/js/theme.js"></script>
     <link rel="index" title="אינדקס" href="../genindex.html" />
     <link rel="search" title="חיפוש" href="../search.html" />
@@ -121,7 +121,9 @@
 </ul>
 </li>
 <li class="toctree-l1"><a class="reference internal" href="../whats-new.html">What’s New</a><ul>
-<li class="toctree-l2"><a class="reference internal" href="../whats-new.html#id1">2025-10-15</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../whats-new.html#id1">2025-10-30</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../whats-new.html#id2">2025-10-29</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../whats-new.html#id3">2025-10-15</a></li>
 </ul>
 </li>
 <li class="toctree-l1"><a class="reference internal" href="../architecture.html">ארכיטקטורה</a><ul>
@@ -130,6 +132,7 @@
 <li class="toctree-l2"><a class="reference internal" href="../architecture.html#id4">מבנה תיקיות</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../architecture.html#id5">זרימות מרכזיות</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../architecture.html#id6">קישורים</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../architecture.html#http-aiohttp">תשתית HTTP – סשן aiohttp משותף</a></li>
 </ul>
 </li>
 <li class="toctree-l1"><a class="reference internal" href="../contributing.html">מדריך תרומה</a><ul>
@@ -179,6 +182,7 @@
 <li class="toctree-l2"><a class="reference internal" href="../configuration.html#environment-variables">Environment variables</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../configuration.html#databases-and-cache-pooling-timeouts">Databases and Cache (Pooling/Timeouts)</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../configuration.html#http-clients">HTTP Clients</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../configuration.html#http-async-async-http">שימוש ב‑http_async (Async HTTP)</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../configuration.html#http-sync-sync-http">שימוש ב‑http_sync (Sync HTTP)</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../configuration.html#flask">Flask</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../configuration.html#telegram-bot">Telegram Bot</a></li>
@@ -210,8 +214,9 @@
 <li class="toctree-l2"><a class="reference internal" href="../performance-scaling.html#projection">Projection</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../performance-scaling.html#id1">דגשים</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../performance-scaling.html#connection-pooling-timeouts">כוונון Connection Pooling ו-Timeouts</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../performance-scaling.html#id2">לוגי איטיות (מהיר לאיתור צווארי בקבוק)</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../performance-scaling.html#env">בדיקות מהירות אחרי שינוי ENV</a></li>
-<li class="toctree-l2"><a class="reference internal" href="../performance-scaling.html#id2">הנחיות לפי סביבה</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../performance-scaling.html#id3">הנחיות לפי סביבה</a></li>
 </ul>
 </li>
 <li class="toctree-l1"><a class="reference internal" href="../large-files-runbook.html">טיפול בקבצים גדולים (Large Files)</a><ul>
@@ -465,6 +470,11 @@
 <li class="toctree-l4"><a class="reference internal" href="handlers.html#submodules">Submodules</a></li>
 </ul>
 </li>
+<li class="toctree-l3"><a class="reference internal" href="http_async.html">http_async module</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="http_async.html#http_async.get_session"><code class="docutils literal notranslate"><span class="pre">get_session()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="http_async.html#http_async.close_session"><code class="docutils literal notranslate"><span class="pre">close_session()</span></code></a></li>
+</ul>
+</li>
 <li class="toctree-l3"><a class="reference internal" href="http_sync.html">http_sync module</a><ul>
 <li class="toctree-l4"><a class="reference internal" href="http_sync.html#http_sync.get_session"><code class="docutils literal notranslate"><span class="pre">get_session()</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="http_sync.html#http_sync.request"><code class="docutils literal notranslate"><span class="pre">request()</span></code></a></li>
@@ -508,6 +518,7 @@
 <li class="toctree-l4"><a class="reference internal" href="metrics.html#metrics.get_boot_monotonic"><code class="docutils literal notranslate"><span class="pre">get_boot_monotonic()</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="metrics.html#metrics.mark_startup_complete"><code class="docutils literal notranslate"><span class="pre">mark_startup_complete()</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="metrics.html#metrics.note_first_request_latency"><code class="docutils literal notranslate"><span class="pre">note_first_request_latency()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="metrics.html#metrics.get_process_uptime_seconds"><code class="docutils literal notranslate"><span class="pre">get_process_uptime_seconds()</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="metrics.html#metrics.record_dependency_init"><code class="docutils literal notranslate"><span class="pre">record_dependency_init()</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="metrics.html#metrics.get_uptime_percentage"><code class="docutils literal notranslate"><span class="pre">get_uptime_percentage()</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="metrics.html#metrics.set_adaptive_observability_gauges"><code class="docutils literal notranslate"><span class="pre">set_adaptive_observability_gauges()</span></code></a></li>
@@ -681,10 +692,7 @@
 </li>
 </ul>
 </li>
-<li class="toctree-l2"><a class="reference internal" href="../handlers/index.html#file-view-handler">File View Handler</a><ul>
-<li class="toctree-l3"><a class="reference internal" href="../handlers/index.html#file-view-handler-module">File View Handler Module</a></li>
-</ul>
-</li>
+<li class="toctree-l2"><a class="reference internal" href="../handlers/index.html#file-view-handler">File View Handler</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../handlers/index.html#pagination-handler">Pagination Handler</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../handlers/index.html#save-flow-handler">Save Flow Handler</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../handlers/index.html#states-handler">States Handler</a></li>
@@ -819,6 +827,8 @@
 <li class="toctree-l2"><a class="reference internal" href="../testing.html#stubs">טעינת Stubs לטלגרם</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../testing.html#tmp-path">דוגמת שימוש ב‑tmp_path</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../testing.html#id2">מחיקה בטוחה</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../testing.html#mocking-http-github-menu-handler">Mocking HTTP ב‑github_menu_handler</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../testing.html#blueprint">רישום Blueprint בסביבת טסטים</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../testing.html#pytest-cov">כיסוי בדיקות (pytest-cov)</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../testing.html#ci">CI נתמך</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../testing.html#performance">בדיקות ביצועים (Performance)</a></li>
@@ -881,6 +891,7 @@
 <li class="toctree-l2"><a class="reference internal" href="../troubleshooting.html#id1">שגיאות נפוצות</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../troubleshooting.html#importerror-telegram-conversationhandler-filters">ImportError בזמן טסטים (telegram / ConversationHandler / filters)</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../troubleshooting.html#parse-mode">שגיאות parse_mode</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../troubleshooting.html#asyncio-attached-to-a-different-loop-event-loop-is-closed">שגיאות asyncio: ”attached to a different loop“ / ”Event loop is closed“</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../troubleshooting.html#id2">דיבוג מהיר</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../troubleshooting.html#mongodb">בדיקת חיבור MongoDB</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../troubleshooting.html#id3">קישורים</a></li>
@@ -997,6 +1008,7 @@
 <li class="toctree-l2"><a class="reference internal" href="../user/my_collections.html#id5">מגבלות ופרטיות</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../user/my_collections.html#api">API קצר (למפתחים)</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../user/my_collections.html#id6">טיפים</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../user/my_collections.html#id7">מובייל/טאבלט – גרירה לסידור</a></li>
 </ul>
 </li>
 <li class="toctree-l1"><a class="reference internal" href="../user/share_code.html">שיתוף קוד (חשוב)</a><ul>
@@ -1054,6 +1066,13 @@
 <li class="toctree-l2"><a class="reference internal" href="../webapp/caching.html#gotchas">Gotchas נפוצים</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../webapp/caching.html#cache-control">שילוב עם Cache-Control</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../webapp/caching.html#id3">קישורים נוספים</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../webapp/advanced-caching.html">מערכת Caching מתקדמת עם TTL דינמי</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../webapp/advanced-caching.html#id1">עקרונות</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../webapp/advanced-caching.html#id2">קוד לדוגמה</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../webapp/advanced-caching.html#id3">דגשים תפעוליים</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../webapp/advanced-caching.html#id4">קישורים</a></li>
 </ul>
 </li>
 <li class="toctree-l1"><a class="reference internal" href="../webapp/static-checklist.html">Static Performance &amp; Security Checklist (gzip/br, Cache, SRI)</a><ul>
@@ -1158,6 +1177,32 @@
 </li>
 <li class="toctree-l1"><a class="reference internal" href="../alerts.html">התראות (Alerts)</a><ul>
 <li class="toctree-l2"><a class="reference internal" href="../alerts.html#id1">חוקי התראה לדוגמה</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../alerts.html#id2">ראו גם</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../observability/log_based_alerts.html">התראות מבוססות לוגים (Log‑based Alerts)</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../observability/log_based_alerts.html#id1">מה זה ולמה</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../observability/log_based_alerts.html#id2">הרכיבים בקוד</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../observability/log_based_alerts.html#id3">קבצי קונפיג</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../observability/log_based_alerts.html#config-error-signatures-yml">דוגמה מינימלית: <code class="docutils literal notranslate"><span class="pre">config/error_signatures.yml</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../observability/log_based_alerts.html#config-alerts-yml">דוגמה מינימלית: <code class="docutils literal notranslate"><span class="pre">config/alerts.yml</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../observability/log_based_alerts.html#option-b">Option B – חיבור בתוך הקוד (מומש)</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../observability/log_based_alerts.html#id4">משתני סביבה</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../observability/log_based_alerts.html#option-a-sidecar">Option A – Sidecar מזרם לוגים</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../observability/log_based_alerts.html#id5">ספים וקיבוץ – ברירות מחדל</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../observability/log_based_alerts.html#fingerprint">אסטרטגיית fingerprint וקנוניקליזציה</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../observability/log_based_alerts.html#id6">צ’קליסט למפתחים</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../observability/log_based_alerts.html#id7">בדיקה מקומית (סימולציה)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../observability/log_based_alerts.html#ai">הנחיות לסוכני AI</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../observability/log_based_alerts.html#id8">אבטחה ופרטיות</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../observability/log_based_alerts.html#rollout">Rollout מומלץ</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../observability/log_based_alerts.html#troubleshooting">Troubleshooting</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../observability/log_based_alerts.html#id9">ראו גם</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../observability/log_based_alerts.html#id10">קישורים לקוד</a></li>
 </ul>
 </li>
 <li class="toctree-l1"><a class="reference internal" href="../sentry.html">Sentry</a><ul>
@@ -1205,6 +1250,15 @@
 <li class="toctree-l2"><a class="reference internal" href="../chatops/commands.html#observe-v">/observe -v (מפורט)</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../chatops/commands.html#observe-vv">/observe -vv (מפורט מאוד)</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../chatops/commands.html#rate-limit">/rate_limit</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../chatops/observe.html">ChatOps – /observe: הרחבות -v ו- -vv</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../chatops/observe.html#id1">תחביר ופרמטרים</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../chatops/observe.html#id2">דוגמאות</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../chatops/observe.html#v">פלט לדוגמה – ‎-v</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../chatops/observe.html#vv">פלט לדוגמה – ‎-vv</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../chatops/observe.html#id3">הערות שימוש</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../chatops/observe.html#id4">קישורים רלוונטיים</a></li>
 </ul>
 </li>
 <li class="toctree-l1"><a class="reference internal" href="../chatops/playbooks.html">Playbooks – תרחישים נפוצים</a><ul>
@@ -1309,28 +1363,28 @@
 Advanced Cache Manager with Redis</p>
 <dl class="py class">
 <dt class="sig sig-object py" id="cache_manager.DynamicTTL">
-<em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">cache_manager.</span></span><span class="sig-name descname"><span class="pre">DynamicTTL</span></span><a class="reference internal" href="../_modules/cache_manager.html#DynamicTTL"><span class="viewcode-link"><span class="pre">[מקור]</span></span></a><a class="headerlink" href="#cache_manager.DynamicTTL" title="Link to this definition"></a></dt>
-<dd><p>Bases: <a class="reference external" href="https://docs.python.org/3/library/functions.html#object" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">object</span></code></a></p>
+<em class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">cache_manager.</span></span><span class="sig-name descname"><span class="pre">DynamicTTL</span></span><a class="reference internal" href="../_modules/cache_manager.html#DynamicTTL"><span class="viewcode-link"><span class="pre">[מקור]</span></span></a><a class="headerlink" href="#cache_manager.DynamicTTL" title="Link to this definition"></a></dt>
+<dd><p>Bases: <code class="xref py py-class docutils literal notranslate"><span class="pre">object</span></code></p>
 <p>ניהול TTL דינמי לפי סוג תוכן וקונטקסט.</p>
 <p>הערכים כאן מייצגים TTL בסיסי בשניות עבור סוגי תוכן שכיחים.</p>
 <dl class="py attribute">
 <dt class="sig sig-object py" id="cache_manager.DynamicTTL.BASE_TTL">
-<span class="sig-name descname"><span class="pre">BASE_TTL</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Dict" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">Dict</span></code></a><span class="pre">[</span><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">str</span></code></a><span class="pre">,</span> <a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">int</span></code></a><span class="pre">]</span></em><em class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">{'bookmarks':</span> <span class="pre">120,</span> <span class="pre">'collections_detail':</span> <span class="pre">30,</span> <span class="pre">'collections_items':</span> <span class="pre">30,</span> <span class="pre">'collections_list':</span> <span class="pre">60,</span> <span class="pre">'file_content':</span> <span class="pre">3600,</span> <span class="pre">'file_list':</span> <span class="pre">60,</span> <span class="pre">'markdown_render':</span> <span class="pre">1800,</span> <span class="pre">'public_stats':</span> <span class="pre">600,</span> <span class="pre">'search_results':</span> <span class="pre">180,</span> <span class="pre">'settings':</span> <span class="pre">60,</span> <span class="pre">'tags':</span> <span class="pre">300,</span> <span class="pre">'user_stats':</span> <span class="pre">300}</span></em><a class="headerlink" href="#cache_manager.DynamicTTL.BASE_TTL" title="Link to this definition"></a></dt>
+<span class="sig-name descname"><span class="pre">BASE_TTL</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><code class="xref py py-class docutils literal notranslate"><span class="pre">Dict</span></code><span class="pre">[</span><code class="xref py py-class docutils literal notranslate"><span class="pre">str</span></code><span class="pre">,</span> <code class="xref py py-class docutils literal notranslate"><span class="pre">int</span></code><span class="pre">]</span></em><em class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">{'bookmarks':</span> <span class="pre">120,</span> <span class="pre">'collections_detail':</span> <span class="pre">30,</span> <span class="pre">'collections_items':</span> <span class="pre">30,</span> <span class="pre">'collections_list':</span> <span class="pre">60,</span> <span class="pre">'file_content':</span> <span class="pre">3600,</span> <span class="pre">'file_list':</span> <span class="pre">60,</span> <span class="pre">'markdown_render':</span> <span class="pre">1800,</span> <span class="pre">'public_stats':</span> <span class="pre">600,</span> <span class="pre">'search_results':</span> <span class="pre">180,</span> <span class="pre">'settings':</span> <span class="pre">60,</span> <span class="pre">'tags':</span> <span class="pre">300,</span> <span class="pre">'user_stats':</span> <span class="pre">300}</span></em><a class="headerlink" href="#cache_manager.DynamicTTL.BASE_TTL" title="Link to this definition"></a></dt>
 <dd></dd></dl>
 
 <dl class="py method">
 <dt class="sig sig-object py" id="cache_manager.DynamicTTL.calculate_ttl">
-<em class="property"><span class="pre">classmethod</span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">calculate_ttl</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">content_type</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">context</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/cache_manager.html#DynamicTTL.calculate_ttl"><span class="viewcode-link"><span class="pre">[מקור]</span></span></a><a class="headerlink" href="#cache_manager.DynamicTTL.calculate_ttl" title="Link to this definition"></a></dt>
+<em class="property"><span class="k"><span class="pre">classmethod</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">calculate_ttl</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">content_type</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">context</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/cache_manager.html#DynamicTTL.calculate_ttl"><span class="viewcode-link"><span class="pre">[מקור]</span></span></a><a class="headerlink" href="#cache_manager.DynamicTTL.calculate_ttl" title="Link to this definition"></a></dt>
 <dd><p>חשב TTL בסיסי מוכוון קונטקסט.</p>
 <p>מבטיח גבולות בטוחים: מינימום 30 שניות, מקסימום 7200 (שעתיים).</p>
 <dl class="field-list simple">
 <dt class="field-odd">Return type<span class="colon">:</span></dt>
-<dd class="field-odd"><p><span class="sphinx_autodoc_typehints-type"><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">int</span></code></a></span></p>
+<dd class="field-odd"><p><span class="sphinx_autodoc_typehints-type"><code class="xref py py-class docutils literal notranslate"><span class="pre">int</span></code></span></p>
 </dd>
 <dt class="field-even">פרמטרים<span class="colon">:</span></dt>
 <dd class="field-even"><ul class="simple">
-<li><p><strong>content_type</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><em>str</em></a>)</p></li>
-<li><p><strong>context</strong> (<a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Dict" title="(in Python v3.14)"><em>Dict</em></a><em>[</em><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><em>str</em></a><em>, </em><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Any" title="(in Python v3.14)"><em>Any</em></a><em>] </em><em>| </em><em>None</em>)</p></li>
+<li><p><strong>content_type</strong> (<em>str</em>)</p></li>
+<li><p><strong>context</strong> (<em>Dict</em><em>[</em><em>str</em><em>, </em><em>Any</em><em>] </em><em>| </em><em>None</em>)</p></li>
 </ul>
 </dd>
 </dl>
@@ -1340,28 +1394,28 @@ Advanced Cache Manager with Redis</p>
 
 <dl class="py class">
 <dt class="sig sig-object py" id="cache_manager.ActivityBasedTTL">
-<em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">cache_manager.</span></span><span class="sig-name descname"><span class="pre">ActivityBasedTTL</span></span><a class="reference internal" href="../_modules/cache_manager.html#ActivityBasedTTL"><span class="viewcode-link"><span class="pre">[מקור]</span></span></a><a class="headerlink" href="#cache_manager.ActivityBasedTTL" title="Link to this definition"></a></dt>
-<dd><p>Bases: <a class="reference external" href="https://docs.python.org/3/library/functions.html#object" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">object</span></code></a></p>
+<em class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">cache_manager.</span></span><span class="sig-name descname"><span class="pre">ActivityBasedTTL</span></span><a class="reference internal" href="../_modules/cache_manager.html#ActivityBasedTTL"><span class="viewcode-link"><span class="pre">[מקור]</span></span></a><a class="headerlink" href="#cache_manager.ActivityBasedTTL" title="Link to this definition"></a></dt>
+<dd><p>Bases: <code class="xref py py-class docutils literal notranslate"><span class="pre">object</span></code></p>
 <p>התאמת TTL לפי שעות פעילות (best-effort).</p>
 <dl class="py method">
 <dt class="sig sig-object py" id="cache_manager.ActivityBasedTTL.get_activity_multiplier">
-<em class="property"><span class="pre">classmethod</span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">get_activity_multiplier</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="../_modules/cache_manager.html#ActivityBasedTTL.get_activity_multiplier"><span class="viewcode-link"><span class="pre">[מקור]</span></span></a><a class="headerlink" href="#cache_manager.ActivityBasedTTL.get_activity_multiplier" title="Link to this definition"></a></dt>
+<em class="property"><span class="k"><span class="pre">classmethod</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">get_activity_multiplier</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="../_modules/cache_manager.html#ActivityBasedTTL.get_activity_multiplier"><span class="viewcode-link"><span class="pre">[מקור]</span></span></a><a class="headerlink" href="#cache_manager.ActivityBasedTTL.get_activity_multiplier" title="Link to this definition"></a></dt>
 <dd><dl class="field-list simple">
 <dt class="field-odd">Return type<span class="colon">:</span></dt>
-<dd class="field-odd"><p><span class="sphinx_autodoc_typehints-type"><a class="reference external" href="https://docs.python.org/3/library/functions.html#float" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">float</span></code></a></span></p>
+<dd class="field-odd"><p><span class="sphinx_autodoc_typehints-type"><code class="xref py py-class docutils literal notranslate"><span class="pre">float</span></code></span></p>
 </dd>
 </dl>
 </dd></dl>
 
 <dl class="py method">
 <dt class="sig sig-object py" id="cache_manager.ActivityBasedTTL.adjust_ttl">
-<em class="property"><span class="pre">classmethod</span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">adjust_ttl</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">base_ttl</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/cache_manager.html#ActivityBasedTTL.adjust_ttl"><span class="viewcode-link"><span class="pre">[מקור]</span></span></a><a class="headerlink" href="#cache_manager.ActivityBasedTTL.adjust_ttl" title="Link to this definition"></a></dt>
+<em class="property"><span class="k"><span class="pre">classmethod</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">adjust_ttl</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">base_ttl</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/cache_manager.html#ActivityBasedTTL.adjust_ttl"><span class="viewcode-link"><span class="pre">[מקור]</span></span></a><a class="headerlink" href="#cache_manager.ActivityBasedTTL.adjust_ttl" title="Link to this definition"></a></dt>
 <dd><dl class="field-list simple">
 <dt class="field-odd">Return type<span class="colon">:</span></dt>
-<dd class="field-odd"><p><span class="sphinx_autodoc_typehints-type"><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">int</span></code></a></span></p>
+<dd class="field-odd"><p><span class="sphinx_autodoc_typehints-type"><code class="xref py py-class docutils literal notranslate"><span class="pre">int</span></code></span></p>
 </dd>
 <dt class="field-even">פרמטרים<span class="colon">:</span></dt>
-<dd class="field-even"><p><strong>base_ttl</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.14)"><em>int</em></a>)</p>
+<dd class="field-even"><p><strong>base_ttl</strong> (<em>int</em>)</p>
 </dd>
 </dl>
 </dd></dl>
@@ -1371,27 +1425,26 @@ Advanced Cache Manager with Redis</p>
 <dl class="py function">
 <dt class="sig sig-object py" id="cache_manager.build_cache_key">
 <span class="sig-prename descclassname"><span class="pre">cache_manager.</span></span><span class="sig-name descname"><span class="pre">build_cache_key</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="o"><span class="pre">*</span></span><span class="n"><span class="pre">parts</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/cache_manager.html#build_cache_key"><span class="viewcode-link"><span class="pre">[מקור]</span></span></a><a class="headerlink" href="#cache_manager.build_cache_key" title="Link to this definition"></a></dt>
-<dd><p>בניית מפתח cache יעיל ומובנה מהחלקים הנתונים.
-:rtype: <span class="sphinx_autodoc_typehints-type"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">str</span></code></a></span></p>
+<dd><p>בניית מפתח cache יעיל ומובנה מהחלקים הנתונים.</p>
 <ul class="simple">
 <li><p>מסנן חלקים ריקים</p></li>
 <li><p>ממיר לתווים בטוחים (רווחים/סלאשים)</p></li>
 <li><p>מגביל אורך ומוסיף hash קצר במידת הצורך</p></li>
 </ul>
 <dl class="field-list simple">
-<dt class="field-odd">פרמטרים<span class="colon">:</span></dt>
-<dd class="field-odd"><p><strong>parts</strong> (<a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Any" title="(in Python v3.14)"><em>Any</em></a>)</p>
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p><span class="sphinx_autodoc_typehints-type"><code class="xref py py-class docutils literal notranslate"><span class="pre">str</span></code></span></p>
 </dd>
-<dt class="field-even">Return type<span class="colon">:</span></dt>
-<dd class="field-even"><p><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)">str</a></p>
+<dt class="field-even">פרמטרים<span class="colon">:</span></dt>
+<dd class="field-even"><p><strong>parts</strong> (<em>Any</em>)</p>
 </dd>
 </dl>
 </dd></dl>
 
 <dl class="py class">
 <dt class="sig sig-object py" id="cache_manager.CacheManager">
-<em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">cache_manager.</span></span><span class="sig-name descname"><span class="pre">CacheManager</span></span><a class="reference internal" href="../_modules/cache_manager.html#CacheManager"><span class="viewcode-link"><span class="pre">[מקור]</span></span></a><a class="headerlink" href="#cache_manager.CacheManager" title="Link to this definition"></a></dt>
-<dd><p>Bases: <a class="reference external" href="https://docs.python.org/3/library/functions.html#object" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">object</span></code></a></p>
+<em class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">cache_manager.</span></span><span class="sig-name descname"><span class="pre">CacheManager</span></span><a class="reference internal" href="../_modules/cache_manager.html#CacheManager"><span class="viewcode-link"><span class="pre">[מקור]</span></span></a><a class="headerlink" href="#cache_manager.CacheManager" title="Link to this definition"></a></dt>
+<dd><p>Bases: <code class="xref py py-class docutils literal notranslate"><span class="pre">object</span></code></p>
 <p>מנהל Cache מתקדם עם Redis</p>
 <dl class="py method">
 <dt class="sig sig-object py" id="cache_manager.CacheManager.__init__">
@@ -1410,10 +1463,10 @@ Advanced Cache Manager with Redis</p>
 <dd><p>קבלת ערך מה-cache</p>
 <dl class="field-list simple">
 <dt class="field-odd">Return type<span class="colon">:</span></dt>
-<dd class="field-odd"><p><span class="sphinx_autodoc_typehints-type"><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Optional" title="(in Python v3.14)"><code class="xref py py-data docutils literal notranslate"><span class="pre">Optional</span></code></a>[<a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Any" title="(in Python v3.14)"><code class="xref py py-data docutils literal notranslate"><span class="pre">Any</span></code></a>]</span></p>
+<dd class="field-odd"><p><span class="sphinx_autodoc_typehints-type"><code class="xref py py-data docutils literal notranslate"><span class="pre">Optional</span></code>[<code class="xref py py-data docutils literal notranslate"><span class="pre">Any</span></code>]</span></p>
 </dd>
 <dt class="field-even">פרמטרים<span class="colon">:</span></dt>
-<dd class="field-even"><p><strong>key</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><em>str</em></a>)</p>
+<dd class="field-even"><p><strong>key</strong> (<em>str</em>)</p>
 </dd>
 </dl>
 </dd></dl>
@@ -1424,13 +1477,13 @@ Advanced Cache Manager with Redis</p>
 <dd><p>שמירת ערך ב-cache</p>
 <dl class="field-list simple">
 <dt class="field-odd">Return type<span class="colon">:</span></dt>
-<dd class="field-odd"><p><span class="sphinx_autodoc_typehints-type"><a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">bool</span></code></a></span></p>
+<dd class="field-odd"><p><span class="sphinx_autodoc_typehints-type"><code class="xref py py-class docutils literal notranslate"><span class="pre">bool</span></code></span></p>
 </dd>
 <dt class="field-even">פרמטרים<span class="colon">:</span></dt>
 <dd class="field-even"><ul class="simple">
-<li><p><strong>key</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><em>str</em></a>)</p></li>
-<li><p><strong>value</strong> (<a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Any" title="(in Python v3.14)"><em>Any</em></a>)</p></li>
-<li><p><strong>expire_seconds</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.14)"><em>int</em></a>)</p></li>
+<li><p><strong>key</strong> (<em>str</em>)</p></li>
+<li><p><strong>value</strong> (<em>Any</em>)</p></li>
+<li><p><strong>expire_seconds</strong> (<em>int</em>)</p></li>
 </ul>
 </dd>
 </dl>
@@ -1442,14 +1495,14 @@ Advanced Cache Manager with Redis</p>
 <dd><p>שמירה ב-cache עם TTL דינמי ותיעוד מינימלי במטריקות/לוגים.</p>
 <dl class="field-list simple">
 <dt class="field-odd">Return type<span class="colon">:</span></dt>
-<dd class="field-odd"><p><span class="sphinx_autodoc_typehints-type"><a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">bool</span></code></a></span></p>
+<dd class="field-odd"><p><span class="sphinx_autodoc_typehints-type"><code class="xref py py-class docutils literal notranslate"><span class="pre">bool</span></code></span></p>
 </dd>
 <dt class="field-even">פרמטרים<span class="colon">:</span></dt>
 <dd class="field-even"><ul class="simple">
-<li><p><strong>key</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><em>str</em></a>)</p></li>
-<li><p><strong>value</strong> (<a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Any" title="(in Python v3.14)"><em>Any</em></a>)</p></li>
-<li><p><strong>content_type</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><em>str</em></a>)</p></li>
-<li><p><strong>context</strong> (<a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Dict" title="(in Python v3.14)"><em>Dict</em></a><em>[</em><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><em>str</em></a><em>, </em><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Any" title="(in Python v3.14)"><em>Any</em></a><em>] </em><em>| </em><em>None</em>)</p></li>
+<li><p><strong>key</strong> (<em>str</em>)</p></li>
+<li><p><strong>value</strong> (<em>Any</em>)</p></li>
+<li><p><strong>content_type</strong> (<em>str</em>)</p></li>
+<li><p><strong>context</strong> (<em>Dict</em><em>[</em><em>str</em><em>, </em><em>Any</em><em>] </em><em>| </em><em>None</em>)</p></li>
 </ul>
 </dd>
 </dl>
@@ -1457,18 +1510,18 @@ Advanced Cache Manager with Redis</p>
 
 <dl class="py method">
 <dt class="sig sig-object py" id="cache_manager.CacheManager.get_with_refresh">
-<span class="sig-name descname"><span class="pre">get_with_refresh</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">key</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">refresh_func</span></span></em>, <em class="sig-param"><span class="o"><span class="pre">*</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">content_type</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">context</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/cache_manager.html#CacheManager.get_with_refresh"><span class="viewcode-link"><span class="pre">[מקור]</span></span></a><a class="headerlink" href="#cache_manager.CacheManager.get_with_refresh" title="Link to this definition"></a></dt>
+<span class="sig-name descname"><span class="pre">get_with_refresh</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">key</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">refresh_func</span></span></em>, <em class="sig-param"><span class="keyword-only-separator o"><abbr title="Keyword-only parameters separator (PEP 3102)"><span class="pre">*</span></abbr></span></em>, <em class="sig-param"><span class="n"><span class="pre">content_type</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">context</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/cache_manager.html#CacheManager.get_with_refresh"><span class="viewcode-link"><span class="pre">[מקור]</span></span></a><a class="headerlink" href="#cache_manager.CacheManager.get_with_refresh" title="Link to this definition"></a></dt>
 <dd><p>קריאה מ-cache; אם חסר – מחשב, שומר דינמית ומחזיר.</p>
 <dl class="field-list simple">
 <dt class="field-odd">Return type<span class="colon">:</span></dt>
-<dd class="field-odd"><p><span class="sphinx_autodoc_typehints-type"><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Any" title="(in Python v3.14)"><code class="xref py py-data docutils literal notranslate"><span class="pre">Any</span></code></a></span></p>
+<dd class="field-odd"><p><span class="sphinx_autodoc_typehints-type"><code class="xref py py-data docutils literal notranslate"><span class="pre">Any</span></code></span></p>
 </dd>
 <dt class="field-even">פרמטרים<span class="colon">:</span></dt>
 <dd class="field-even"><ul class="simple">
-<li><p><strong>key</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><em>str</em></a>)</p></li>
-<li><p><strong>refresh_func</strong> (<a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Callable" title="(in Python v3.14)"><em>Callable</em></a><em>[</em><em>[</em><em>]</em><em>, </em><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Any" title="(in Python v3.14)"><em>Any</em></a><em>]</em>)</p></li>
-<li><p><strong>content_type</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><em>str</em></a>)</p></li>
-<li><p><strong>context</strong> (<a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Dict" title="(in Python v3.14)"><em>Dict</em></a><em>[</em><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><em>str</em></a><em>, </em><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Any" title="(in Python v3.14)"><em>Any</em></a><em>] </em><em>| </em><em>None</em>)</p></li>
+<li><p><strong>key</strong> (<em>str</em>)</p></li>
+<li><p><strong>refresh_func</strong> (<em>Callable</em><em>[</em><em>[</em><em>]</em><em>, </em><em>Any</em><em>]</em>)</p></li>
+<li><p><strong>content_type</strong> (<em>str</em>)</p></li>
+<li><p><strong>context</strong> (<em>Dict</em><em>[</em><em>str</em><em>, </em><em>Any</em><em>] </em><em>| </em><em>None</em>)</p></li>
 </ul>
 </dd>
 </dl>
@@ -1480,10 +1533,10 @@ Advanced Cache Manager with Redis</p>
 <dd><p>מחיקת ערך מה-cache</p>
 <dl class="field-list simple">
 <dt class="field-odd">Return type<span class="colon">:</span></dt>
-<dd class="field-odd"><p><span class="sphinx_autodoc_typehints-type"><a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">bool</span></code></a></span></p>
+<dd class="field-odd"><p><span class="sphinx_autodoc_typehints-type"><code class="xref py py-class docutils literal notranslate"><span class="pre">bool</span></code></span></p>
 </dd>
 <dt class="field-even">פרמטרים<span class="colon">:</span></dt>
-<dd class="field-even"><p><strong>key</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><em>str</em></a>)</p>
+<dd class="field-even"><p><strong>key</strong> (<em>str</em>)</p>
 </dd>
 </dl>
 </dd></dl>
@@ -1494,10 +1547,10 @@ Advanced Cache Manager with Redis</p>
 <dd><p>מחיקת כל המפתחות שמתאימים לתבנית</p>
 <dl class="field-list simple">
 <dt class="field-odd">Return type<span class="colon">:</span></dt>
-<dd class="field-odd"><p><span class="sphinx_autodoc_typehints-type"><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">int</span></code></a></span></p>
+<dd class="field-odd"><p><span class="sphinx_autodoc_typehints-type"><code class="xref py py-class docutils literal notranslate"><span class="pre">int</span></code></span></p>
 </dd>
 <dt class="field-even">פרמטרים<span class="colon">:</span></dt>
-<dd class="field-even"><p><strong>pattern</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><em>str</em></a>)</p>
+<dd class="field-even"><p><strong>pattern</strong> (<em>str</em>)</p>
 </dd>
 </dl>
 </dd></dl>
@@ -1508,10 +1561,10 @@ Advanced Cache Manager with Redis</p>
 <dd><p>מחיקת כל ה-cache של משתמש ספציפי</p>
 <dl class="field-list simple">
 <dt class="field-odd">Return type<span class="colon">:</span></dt>
-<dd class="field-odd"><p><span class="sphinx_autodoc_typehints-type"><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">int</span></code></a></span></p>
+<dd class="field-odd"><p><span class="sphinx_autodoc_typehints-type"><code class="xref py py-class docutils literal notranslate"><span class="pre">int</span></code></span></p>
 </dd>
 <dt class="field-even">פרמטרים<span class="colon">:</span></dt>
-<dd class="field-even"><p><strong>user_id</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.14)"><em>int</em></a>)</p>
+<dd class="field-even"><p><strong>user_id</strong> (<em>int</em>)</p>
 </dd>
 </dl>
 </dd></dl>
@@ -1519,15 +1572,14 @@ Advanced Cache Manager with Redis</p>
 <dl class="py method">
 <dt class="sig sig-object py" id="cache_manager.CacheManager.clear_all">
 <span class="sig-name descname"><span class="pre">clear_all</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="../_modules/cache_manager.html#CacheManager.clear_all"><span class="viewcode-link"><span class="pre">[מקור]</span></span></a><a class="headerlink" href="#cache_manager.CacheManager.clear_all" title="Link to this definition"></a></dt>
-<dd><p>ניקוי כל המטמון באופן מבוקר.
-:rtype: <span class="sphinx_autodoc_typehints-type"><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">int</span></code></a></span></p>
+<dd><p>ניקוי כל המטמון באופן מבוקר.</p>
 <ul class="simple">
 <li><p>אם Redis מושבת – מחזיר 0.</p></li>
 <li><p>אם Redis פעיל – מוחק את כל המפתחות באמצעות SCAN+DEL (best-effort).</p></li>
 </ul>
 <dl class="field-list simple">
 <dt class="field-odd">Return type<span class="colon">:</span></dt>
-<dd class="field-odd"><p><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.14)">int</a></p>
+<dd class="field-odd"><p><span class="sphinx_autodoc_typehints-type"><code class="xref py py-class docutils literal notranslate"><span class="pre">int</span></code></span></p>
 </dd>
 </dl>
 </dd></dl>
@@ -1539,12 +1591,12 @@ Advanced Cache Manager with Redis</p>
 <p>דפוסים נפוצים מעוגנים לאחור בהתאם למפתחות הקיימים בקוד.</p>
 <dl class="field-list simple">
 <dt class="field-odd">Return type<span class="colon">:</span></dt>
-<dd class="field-odd"><p><span class="sphinx_autodoc_typehints-type"><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">int</span></code></a></span></p>
+<dd class="field-odd"><p><span class="sphinx_autodoc_typehints-type"><code class="xref py py-class docutils literal notranslate"><span class="pre">int</span></code></span></p>
 </dd>
 <dt class="field-even">פרמטרים<span class="colon">:</span></dt>
 <dd class="field-even"><ul class="simple">
-<li><p><strong>file_id</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><em>str</em></a>)</p></li>
-<li><p><strong>user_id</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><em>str</em></a><em> | </em><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.14)"><em>int</em></a><em> | </em><em>None</em>)</p></li>
+<li><p><strong>file_id</strong> (<em>str</em>)</p></li>
+<li><p><strong>user_id</strong> (<em>int</em><em> | </em><em>str</em><em> | </em><em>None</em>)</p></li>
 </ul>
 </dd>
 </dl>
@@ -1561,12 +1613,12 @@ Advanced Cache Manager with Redis</p>
 - לא מוחקים מפתחות ללא TTL (ttl == -1) כדי להימנע מפגיעה בקאש ארוך-חיים.</p>
 <dl class="field-list simple">
 <dt class="field-odd">Return type<span class="colon">:</span></dt>
-<dd class="field-odd"><p><span class="sphinx_autodoc_typehints-type"><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">int</span></code></a></span></p>
+<dd class="field-odd"><p><span class="sphinx_autodoc_typehints-type"><code class="xref py py-class docutils literal notranslate"><span class="pre">int</span></code></span></p>
 </dd>
 <dt class="field-even">פרמטרים<span class="colon">:</span></dt>
 <dd class="field-even"><ul class="simple">
-<li><p><strong>max_scan</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.14)"><em>int</em></a>)</p></li>
-<li><p><strong>ttl_seconds_threshold</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.14)"><em>int</em></a>)</p></li>
+<li><p><strong>max_scan</strong> (<em>int</em>)</p></li>
+<li><p><strong>ttl_seconds_threshold</strong> (<em>int</em>)</p></li>
 </ul>
 </dd>
 </dl>
@@ -1578,7 +1630,7 @@ Advanced Cache Manager with Redis</p>
 <dd><p>סטטיסטיקות cache</p>
 <dl class="field-list simple">
 <dt class="field-odd">Return type<span class="colon">:</span></dt>
-<dd class="field-odd"><p><span class="sphinx_autodoc_typehints-type"><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Dict" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">Dict</span></code></a>[<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">str</span></code></a>, <a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Any" title="(in Python v3.14)"><code class="xref py py-data docutils literal notranslate"><span class="pre">Any</span></code></a>]</span></p>
+<dd class="field-odd"><p><span class="sphinx_autodoc_typehints-type"><code class="xref py py-class docutils literal notranslate"><span class="pre">Dict</span></code>[<code class="xref py py-class docutils literal notranslate"><span class="pre">str</span></code>, <code class="xref py py-data docutils literal notranslate"><span class="pre">Any</span></code>]</span></p>
 </dd>
 </dl>
 </dd></dl>
@@ -1588,22 +1640,21 @@ Advanced Cache Manager with Redis</p>
 <dl class="py function">
 <dt class="sig sig-object py" id="cache_manager.dynamic_cache">
 <span class="sig-prename descclassname"><span class="pre">cache_manager.</span></span><span class="sig-name descname"><span class="pre">dynamic_cache</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">content_type</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">key_prefix</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/cache_manager.html#dynamic_cache"><span class="viewcode-link"><span class="pre">[מקור]</span></span></a><a class="headerlink" href="#cache_manager.dynamic_cache" title="Link to this definition"></a></dt>
-<dd><p>דקורטור ל-caching דינמי ל-Flask endpoints.
-:rtype: <span class="sphinx_autodoc_typehints-type"><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Callable" title="(in Python v3.14)"><code class="xref py py-data docutils literal notranslate"><span class="pre">Callable</span></code></a>[[<a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Callable" title="(in Python v3.14)"><code class="xref py py-data docutils literal notranslate"><span class="pre">Callable</span></code></a>[[<a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.ParamSpec" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">ParamSpec</span></code></a>(<code class="docutils literal notranslate"><span class="pre">P</span></code>, bound= <a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.14)"><code class="xref py py-obj docutils literal notranslate"><span class="pre">None</span></code></a>)], <a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.TypeVar" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">TypeVar</span></code></a>(<code class="docutils literal notranslate"><span class="pre">R</span></code>)]], <a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Callable" title="(in Python v3.14)"><code class="xref py py-data docutils literal notranslate"><span class="pre">Callable</span></code></a>[[<a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.ParamSpec" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">ParamSpec</span></code></a>(<code class="docutils literal notranslate"><span class="pre">P</span></code>, bound= <a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.14)"><code class="xref py py-obj docutils literal notranslate"><span class="pre">None</span></code></a>)], <a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.TypeVar" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">TypeVar</span></code></a>(<code class="docutils literal notranslate"><span class="pre">R</span></code>)]]</span></p>
+<dd><p>דקורטור ל-caching דינמי ל-Flask endpoints.</p>
 <ul class="simple">
 <li><p>בונה מפתח קאש יציב הכולל משתמש/נתיב/פרמטרים</p></li>
 <li><p>שומר רק טיפוסים serializable; עבור Response עם JSON שומר את ה-data בלבד</p></li>
 <li><p>Fail-open: לעולם לא מפיל endpoint על בעיות קאש</p></li>
 </ul>
 <dl class="field-list simple">
-<dt class="field-odd">פרמטרים<span class="colon">:</span></dt>
-<dd class="field-odd"><ul class="simple">
-<li><p><strong>content_type</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><em>str</em></a>)</p></li>
-<li><p><strong>key_prefix</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><em>str</em></a><em> | </em><em>None</em>)</p></li>
-</ul>
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p><span class="sphinx_autodoc_typehints-type"><code class="xref py py-data docutils literal notranslate"><span class="pre">Callable</span></code>[[<code class="xref py py-data docutils literal notranslate"><span class="pre">Callable</span></code>[[<code class="xref py py-class docutils literal notranslate"><span class="pre">ParamSpec</span></code>(<code class="docutils literal notranslate"><span class="pre">P</span></code>, bound= <code class="xref py py-obj docutils literal notranslate"><span class="pre">None</span></code>)], <code class="xref py py-class docutils literal notranslate"><span class="pre">TypeVar</span></code>(<code class="docutils literal notranslate"><span class="pre">R</span></code>)]], <code class="xref py py-data docutils literal notranslate"><span class="pre">Callable</span></code>[[<code class="xref py py-class docutils literal notranslate"><span class="pre">ParamSpec</span></code>(<code class="docutils literal notranslate"><span class="pre">P</span></code>, bound= <code class="xref py py-obj docutils literal notranslate"><span class="pre">None</span></code>)], <code class="xref py py-class docutils literal notranslate"><span class="pre">TypeVar</span></code>(<code class="docutils literal notranslate"><span class="pre">R</span></code>)]]</span></p>
 </dd>
-<dt class="field-even">Return type<span class="colon">:</span></dt>
-<dd class="field-even"><p><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Callable" title="(in Python v3.14)"><em>Callable</em></a>[[<a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Callable" title="(in Python v3.14)"><em>Callable</em></a>[[~P], <em>R</em>]], <a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Callable" title="(in Python v3.14)"><em>Callable</em></a>[[~P], <em>R</em>]]</p>
+<dt class="field-even">פרמטרים<span class="colon">:</span></dt>
+<dd class="field-even"><ul class="simple">
+<li><p><strong>content_type</strong> (<em>str</em>)</p></li>
+<li><p><strong>key_prefix</strong> (<em>str</em><em> | </em><em>None</em>)</p></li>
+</ul>
 </dd>
 </dl>
 </dd></dl>
@@ -1615,8 +1666,8 @@ Advanced Cache Manager with Redis</p>
 <dl class="field-list simple">
 <dt class="field-odd">פרמטרים<span class="colon">:</span></dt>
 <dd class="field-odd"><ul class="simple">
-<li><p><strong>expire_seconds</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.14)"><em>int</em></a>)</p></li>
-<li><p><strong>key_prefix</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><em>str</em></a>)</p></li>
+<li><p><strong>expire_seconds</strong> (<em>int</em>)</p></li>
+<li><p><strong>key_prefix</strong> (<em>str</em>)</p></li>
 </ul>
 </dd>
 </dl>
@@ -1629,8 +1680,8 @@ Advanced Cache Manager with Redis</p>
 <dl class="field-list simple">
 <dt class="field-odd">פרמטרים<span class="colon">:</span></dt>
 <dd class="field-odd"><ul class="simple">
-<li><p><strong>expire_seconds</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.14)"><em>int</em></a>)</p></li>
-<li><p><strong>key_prefix</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><em>str</em></a>)</p></li>
+<li><p><strong>expire_seconds</strong> (<em>int</em>)</p></li>
+<li><p><strong>key_prefix</strong> (<em>str</em>)</p></li>
 </ul>
 </dd>
 </dl>
