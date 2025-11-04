@@ -378,54 +378,7 @@ def reorder_items(collection_id: str):
         return jsonify({'ok': False, 'error': 'שגיאה בסידור פריטים'}), 500
 
 
-# --- Phase 2: Export & Share ---
-
-@collections_bp.route('/<collection_id>/export', methods=['GET'])
-@require_auth
-@traced("collections.export")
-def export_collection(collection_id: str):
-    """ייצוא אוסף כ-JSON או Markdown (format=json|md)."""
-    try:
-        user_id = int(session['user_id'])
-        fmt = str(request.args.get('format') or 'json').lower()
-        mgr = get_manager()
-        col_res = mgr.get_collection(user_id, collection_id)
-        if not col_res.get('ok'):
-            return jsonify(col_res), 404
-        items_res = mgr.get_collection_items(user_id, collection_id, page=1, per_page=200, include_computed=True)
-        if not items_res.get('ok'):
-            return jsonify(items_res), 500
-
-        collection = col_res.get('collection') or {}
-        items = items_res.get('items') or []
-
-        if fmt == 'md' or fmt == 'markdown':
-            # בנה Markdown פשוט עם כותרת ורשימת פריטים
-            lines = [f"# {collection.get('name') or 'אוסף'}", ""]
-            desc = (collection.get('description') or '').strip()
-            if desc:
-                lines.extend([desc, ""])
-            for it in items:
-                icon = '🔗' if bool(it.get('is_file_active', True)) else '🚫'
-                lines.append(f"- {icon} `{it.get('file_name')}`")
-            content = "\n".join(lines)
-            return content, 200, {"Content-Type": "text/markdown; charset=utf-8"}
-
-        # ברירת מחדל: JSON
-        return jsonify({
-            'ok': True,
-            'collection': collection,
-            'items': items,
-        })
-    except Exception as e:
-        rid = _get_request_id()
-        try:
-            emit_event("collections_export_error", severity="anomaly", operation="collections.export", handled=True, request_id=rid, collection_id=str(collection_id), error=str(e))
-        except Exception:
-            pass
-        logger.error("Error exporting collection: %s", e)
-        return jsonify({'ok': False, 'error': 'שגיאה ביצוא האוסף'}), 500
-
+# --- Phase 2: Share ---
 
 @collections_bp.route('/<collection_id>/share', methods=['POST'])
 @require_auth
