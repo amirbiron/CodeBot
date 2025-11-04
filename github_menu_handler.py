@@ -5664,115 +5664,126 @@ class GitHubMenuHandler:
             if not user_id:
                 return
             session = self.get_user_session(user_id)
-            token = self.get_user_token(user_id)
-            repo_name = session.get("selected_repo")
-            settings = (
-                context.application.user_data.get(user_id, {}).get("notifications")
-                if hasattr(context.application, "user_data")
-                else None
-            )
-            if settings is None:
-                settings = context.user_data.get("notifications", {})
-            if not (token and repo_name):
+            running_key = "_notifications_running"
+            if session.get(running_key):
+                try:
+                    logger.debug("notifications job skipped (already running)", extra={"user_id": int(user_id)})
+                except Exception:
+                    pass
                 return
-            if not force and not (settings and settings.get("enabled")):
-                return
-            g = Github(token)
-            repo = g.get_repo(repo_name)
-            # נהל זיכרון "נבדק לאחרונה"
-            last = session.get("notifications_last", {"pr": None, "issues": None})
-            messages = []
-            # PRs
-            if settings.get("pr", True):
-                last_pr_check_time = last.get("pr")
-                # If this is the first run (no baseline), set a baseline without sending backlog
-                if last_pr_check_time is None:
-                    session["notifications_last"] = session.get("notifications_last", {})
-                    session["notifications_last"]["pr"] = datetime.now(timezone.utc)
-                else:
-                    pulls = repo.get_pulls(state="all", sort="updated", direction="desc")
-                    seen_prs = session.setdefault("notifications_seen_prs", {})
-                    for pr in pulls[:10]:
-                        updated = self._to_utc_aware(getattr(pr, "updated_at", None))
-                        # Normalize baseline too (safety in case it was saved naive somehow)
-                        baseline = self._to_utc_aware(last_pr_check_time)
-                        # אם אין updated או שאין אפשרות השוואה — עצור כדי למנוע עיבוד יתר של פריטים ישנים
-                        if baseline and (updated is None or updated <= baseline):
-                            break
-                        pr_number = getattr(pr, "number", None)
-                        dedup_key = str(pr_number) if pr_number is not None else None
-                        if dedup_key and updated is not None:
-                            last_seen = self._parse_seen_pr_timestamp(seen_prs.get(dedup_key))
-                            if last_seen and updated <= last_seen:
-                                continue
-                        created = self._to_utc_aware(getattr(pr, "created_at", None))
-                        status = (
-                            "נפתח"
-                            if (pr.state == "open" and created and updated and created == updated)
-                            else ("מוזג" if getattr(pr, "merged", False) else ("נסגר" if pr.state == "closed" else "עודכן"))
-                        )
-                        messages.append(
-                            f'🔔 PR {status}: <a href="{pr.html_url}">{safe_html_escape(pr.title)}</a>'
-                        )
-                        if dedup_key and updated is not None:
-                            seen_prs[dedup_key] = self._serialize_seen_pr_timestamp(updated)
-                    session["notifications_last"] = session.get("notifications_last", {})
-                    session["notifications_last"]["pr"] = datetime.now(timezone.utc)
-                    # הגבלת גודל הזיכרון כדי למנוע צמיחה לא מבוקרת
-                    try:
-                        if len(seen_prs) > 60:
-                            parsed_items = []
-                            for key, value in list(seen_prs.items()):
-                                parsed = self._parse_seen_pr_timestamp(value)
-                                if parsed is None:
-                                    seen_prs.pop(key, None)
-                                    continue
-                                seen_prs[key] = self._serialize_seen_pr_timestamp(parsed)
-                                parsed_items.append((key, parsed))
-                            parsed_items.sort(key=lambda item: item[1], reverse=True)
-                            keep_keys = {key for key, _ in parsed_items[:50]}
-                            for key in list(seen_prs.keys()):
-                                if key not in keep_keys:
-                                    seen_prs.pop(key, None)
-                    except Exception:
-                        pass
-            # Issues
-            if settings.get("issues", True):
-                last_issues_check_time = last.get("issues")
-                if last_issues_check_time is None:
-                    session["notifications_last"] = session.get("notifications_last", {})
-                    session["notifications_last"]["issues"] = datetime.now(timezone.utc)
-                else:
-                    issues = repo.get_issues(state="all", sort="updated", direction="desc")
-                    count = 0
-                    for issue in issues:
-                        if issue.pull_request is not None:
-                            continue
-                        updated = self._to_utc_aware(getattr(issue, "updated_at", None))
-                        baseline = self._to_utc_aware(last_issues_check_time)
-                        # אם אין updated או שאין אפשרות השוואה — עצור כדי למנוע עיבוד יתר של פריטים ישנים
-                        if baseline and (updated is None or updated <= baseline):
-                            break
-                        created = self._to_utc_aware(getattr(issue, "created_at", None))
-                        status = (
-                            "נפתח"
-                            if (issue.state == "open" and created and updated and created == updated)
-                            else ("נסגר" if issue.state == "closed" else "עודכן")
-                        )
-                        messages.append(
-                            f'🔔 Issue {status}: <a href="{issue.html_url}">{safe_html_escape(issue.title)}</a>'
-                        )
-                        count += 1
-                        if count >= 10:
-                            break
-                    session["notifications_last"] = session.get("notifications_last", {})
-                    session["notifications_last"]["issues"] = datetime.now(timezone.utc)
-            # שלח הודעה אם יש
-            if messages:
-                text = "\n".join(messages)
-                await context.bot.send_message(
-                    chat_id=user_id, text=text, parse_mode="HTML", disable_web_page_preview=True
+            session[running_key] = True
+            try:
+                token = self.get_user_token(user_id)
+                repo_name = session.get("selected_repo")
+                settings = (
+                    context.application.user_data.get(user_id, {}).get("notifications")
+                    if hasattr(context.application, "user_data")
+                    else None
                 )
+                if settings is None:
+                    settings = context.user_data.get("notifications", {})
+                if not (token and repo_name):
+                    return
+                if not force and not (settings and settings.get("enabled")):
+                    return
+                g = Github(token)
+                repo = g.get_repo(repo_name)
+                # נהל זיכרון "נבדק לאחרונה"
+                last = session.get("notifications_last", {"pr": None, "issues": None})
+                messages = []
+                # PRs
+                if settings.get("pr", True):
+                    last_pr_check_time = last.get("pr")
+                    # If this is the first run (no baseline), set a baseline without sending backlog
+                    if last_pr_check_time is None:
+                        session["notifications_last"] = session.get("notifications_last", {})
+                        session["notifications_last"]["pr"] = datetime.now(timezone.utc)
+                    else:
+                        pulls = repo.get_pulls(state="all", sort="updated", direction="desc")
+                        seen_prs = session.setdefault("notifications_seen_prs", {})
+                        for pr in pulls[:10]:
+                            updated = self._to_utc_aware(getattr(pr, "updated_at", None))
+                            # Normalize baseline too (safety in case it was saved naive somehow)
+                            baseline = self._to_utc_aware(last_pr_check_time)
+                            # אם אין updated או שאין אפשרות השוואה — עצור כדי למנוע עיבוד יתר של פריטים ישנים
+                            if baseline and (updated is None or updated <= baseline):
+                                break
+                            pr_number = getattr(pr, "number", None)
+                            dedup_key = str(pr_number) if pr_number is not None else None
+                            if dedup_key and updated is not None:
+                                last_seen = self._parse_seen_pr_timestamp(seen_prs.get(dedup_key))
+                                if last_seen and updated <= last_seen:
+                                    continue
+                            created = self._to_utc_aware(getattr(pr, "created_at", None))
+                            status = (
+                                "נפתח"
+                                if (pr.state == "open" and created and updated and created == updated)
+                                else ("מוזג" if getattr(pr, "merged", False) else ("נסגר" if pr.state == "closed" else "עודכן"))
+                            )
+                            messages.append(
+                                f'🔔 PR {status}: <a href="{pr.html_url}">{safe_html_escape(pr.title)}</a>'
+                            )
+                            if dedup_key and updated is not None:
+                                seen_prs[dedup_key] = self._serialize_seen_pr_timestamp(updated)
+                        session["notifications_last"] = session.get("notifications_last", {})
+                        session["notifications_last"]["pr"] = datetime.now(timezone.utc)
+                        # הגבלת גודל הזיכרון כדי למנוע צמיחה לא מבוקרת
+                        try:
+                            if len(seen_prs) > 60:
+                                parsed_items = []
+                                for key, value in list(seen_prs.items()):
+                                    parsed = self._parse_seen_pr_timestamp(value)
+                                    if parsed is None:
+                                        seen_prs.pop(key, None)
+                                        continue
+                                    seen_prs[key] = self._serialize_seen_pr_timestamp(parsed)
+                                    parsed_items.append((key, parsed))
+                                parsed_items.sort(key=lambda item: item[1], reverse=True)
+                                keep_keys = {key for key, _ in parsed_items[:50]}
+                                for key in list(seen_prs.keys()):
+                                    if key not in keep_keys:
+                                        seen_prs.pop(key, None)
+                        except Exception:
+                            pass
+                # Issues
+                if settings.get("issues", True):
+                    last_issues_check_time = last.get("issues")
+                    if last_issues_check_time is None:
+                        session["notifications_last"] = session.get("notifications_last", {})
+                        session["notifications_last"]["issues"] = datetime.now(timezone.utc)
+                    else:
+                        issues = repo.get_issues(state="all", sort="updated", direction="desc")
+                        count = 0
+                        for issue in issues:
+                            if issue.pull_request is not None:
+                                continue
+                            updated = self._to_utc_aware(getattr(issue, "updated_at", None))
+                            baseline = self._to_utc_aware(last_issues_check_time)
+                            # אם אין updated או שאין אפשרות השוואה — עצור כדי למנוע עיבוד יתר של פריטים ישנים
+                            if baseline and (updated is None or updated <= baseline):
+                                break
+                            created = self._to_utc_aware(getattr(issue, "created_at", None))
+                            status = (
+                                "נפתח"
+                                if (issue.state == "open" and created and updated and created == updated)
+                                else ("נסגר" if issue.state == "closed" else "עודכן")
+                            )
+                            messages.append(
+                                f'🔔 Issue {status}: <a href="{issue.html_url}">{safe_html_escape(issue.title)}</a>'
+                            )
+                            count += 1
+                            if count >= 10:
+                                break
+                        session["notifications_last"] = session.get("notifications_last", {})
+                        session["notifications_last"]["issues"] = datetime.now(timezone.utc)
+                # שלח הודעה אם יש
+                if messages:
+                    text = "\n".join(messages)
+                    await context.bot.send_message(
+                        chat_id=user_id, text=text, parse_mode="HTML", disable_web_page_preview=True
+                    )
+            finally:
+                session.pop(running_key, None)
         except Exception as e:
             # שלח Stacktrace מלא ליומן (Sentry יקלט דרך LoggingIntegration)
             logger.exception("notifications job error")
