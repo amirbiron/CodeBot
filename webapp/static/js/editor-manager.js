@@ -246,6 +246,20 @@
           return;
         }
 
+        // המתנה קצרה (עד ~500ms) למקרה שה-bundle מגדיר את window.CodeMirror6 באיחור קצר
+        {
+          let attempts = 0;
+          while (
+            (!window.CodeMirror6 ||
+             !window.CodeMirror6.EditorView ||
+             !window.CodeMirror6.EditorState) &&
+            attempts < 10
+          ) {
+            await new Promise((resolve) => setTimeout(resolve, 50));
+            attempts++;
+          }
+        }
+
         if (window.CodeMirror6 && window.CodeMirror6.EditorView && window.CodeMirror6.EditorState) {
           this._cdnUrl = null;
           return;
