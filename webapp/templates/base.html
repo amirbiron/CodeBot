@@ -90,6 +90,19 @@
             z-index: 0;
         }
 
+        /* מצב קל: מניעת עומסים/קריסות בווב־ויו של אנדרואיד/טלגרם */
+        body.reduce-effects::before {
+            display: none !important; /* הסרת רקע קבוע כבד */
+        }
+        body.reduce-effects .navbar,
+        body.reduce-effects .glass-card {
+            backdrop-filter: none !important;
+            -webkit-backdrop-filter: none !important;
+            background: rgba(0, 0, 0, 0.18) !important;
+            border-color: rgba(255, 255, 255, 0.14) !important;
+            box-shadow: none !important;
+        }
+
         /* מונע חריגת תוכן לרוחב שיוצרת גלילה אופקית */
         .main-content, .container {
             max-width: 100%;
@@ -719,6 +732,21 @@
                 // העדפת עורך מהשרת (אם קיימת) — כדי לאפשר ברירת מחדל Codemirror
                 // נשמר במשתנה גלובלי שה-JS של העורך יוכל לקרוא
                 try { window.__serverPreferredEditor = '{{ session.get("preferred_editor", "") }}'; } catch (e) {}
+
+                // זיהוי תנאים בעייתיים והפעלת מצב קל להפחתת אפקטים כבדים
+                try {
+                    var params = new URLSearchParams(window.location.search || '');
+                    var forceLite = params.get('lite') === '1';
+                    var ua = String(navigator.userAgent || '').toLowerCase();
+                    var isAndroid = /android/.test(ua);
+                    var isSamsung = /samsung|sm\-/.test(ua);
+                    var isTelegram = !!(window.Telegram && window.Telegram.WebApp);
+                    var supportsBackdrop = !!(window.CSS && (CSS.supports('backdrop-filter', 'blur(1px)') || CSS.supports('-webkit-backdrop-filter', 'blur(1px)')));
+                    var lowMem = (typeof navigator.deviceMemory === 'number' && navigator.deviceMemory <= 3);
+                    if (forceLite || isTelegram || isAndroid || isSamsung || !supportsBackdrop || lowMem) {
+                        document.body.classList.add('reduce-effects');
+                    }
+                } catch (_) {}
             } catch (e) {}
         })();
     </script>
