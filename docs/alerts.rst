@@ -90,3 +90,16 @@
 -------
 
 - :doc:`observability/log_based_alerts`
+
+התראות מערכת – דיסק כמעט מלא
+-------------------------------
+
+בנוסף לחוקי Prometheus, הבוט מפעיל התרעת מערכת פנימית לפני שמירת קובצי ZIP כאשר המקום הפנוי בדיסק נמוך מהסף.
+
+- שם אירוע: ``disk_low_space`` (נרשם גם ב‑observability)
+- ערוץ: Internal Alerts (Telegram/Slack אם מוגדרים ``ALERT_TELEGRAM_*``)
+- DM למנהלים: אם מוגדרים ``BOT_TOKEN`` ו‑``ADMIN_USER_IDS`` — נשלחת הודעה פרטית לכל אדמין
+- סף ברירת מחדל: 200MB; ניתן לשנות בעזרת ``BACKUPS_DISK_MIN_FREE_BYTES``
+- Rate‑limit: התרעה אחת לכל 10 דקות כדי למנוע הצפה
+
+ראו גם בטבלת ENV: ``BACKUPS_DISK_MIN_FREE_BYTES``.

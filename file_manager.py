@@ -99,7 +99,7 @@ class BackupManager:
     def _maybe_alert_low_space(self) -> None:
         """בדיקת מקום פנוי בדיסק לפני כתיבה והתרעה לאדמין אם נמוך.
 
-        - סף ברירת מחדל: 100MB (ניתן לשינוי ב‑BACKUPS_DISK_MIN_FREE_BYTES)
+        - סף ברירת מחדל: 200MB (ניתן לשינוי ב‑BACKUPS_DISK_MIN_FREE_BYTES)
         - Rate limit: התרעה אחת לכל 10 דקות כדי להימנע מספאם
         """
         try:
@@ -110,11 +110,11 @@ class BackupManager:
                 # תמיכה נכונה במשתנה סביבה ריק: אם ה‑ENV קיים אך ריק → השתמש בברירת המחדל
                 _env_val = os.getenv("BACKUPS_DISK_MIN_FREE_BYTES")
                 if _env_val is None or not str(_env_val).strip():
-                    threshold = 100 * 1024 * 1024
+                    threshold = 200 * 1024 * 1024
                 else:
                     threshold = int(_env_val)
             except Exception:
-                threshold = 100 * 1024 * 1024
+                threshold = 200 * 1024 * 1024
             limit = max(1, threshold)
             if free_bytes <= 0 or free_bytes < limit:
                 now = time.time()
