@@ -281,6 +281,9 @@ def request(method: str, url: str, **kwargs):
     last_status_label: Optional[str] = None
     last_error_signature: Optional[str] = None
 
+    def _total_retries() -> int:
+        return max(0, retries_performed + observed_retry_history)
+
     max_attempts = max(1, policy.max_attempts)
 
     try:
@@ -328,7 +331,7 @@ def request(method: str, url: str, **kwargs):
                                 service=display_service,
                                 endpoint=display_endpoint,
                                 error_signature="HTTPStatus",
-                                retries=max(retries_performed, observed_retry_history),
+                                retries=_total_retries(),
                             )
                         except Exception:
                             pass
@@ -381,7 +384,7 @@ def request(method: str, url: str, **kwargs):
                 except Exception:
                     pass
                 try:
-                    retry_count_value = max(retries_performed, observed_retry_history)
+                    retry_count_value = _total_retries()
                     span.set_attribute("retry_count", int(max(0, retry_count_value)))  # type: ignore[attr-defined]
                 except Exception:
                     pass
@@ -405,7 +408,7 @@ def request(method: str, url: str, **kwargs):
                 except Exception:
                     pass
                 try:
-                    retry_count_value = max(retries_performed, observed_retry_history)
+                    retry_count_value = _total_retries()
                     span.set_attribute("retry_count", int(max(0, retry_count_value)))  # type: ignore[attr-defined]
                 except Exception:
                     pass
@@ -416,7 +419,7 @@ def request(method: str, url: str, **kwargs):
                     service=display_service,
                     endpoint=display_endpoint,
                     error_signature=last_error_signature or type(error).__name__,
-                    retries=max(retries_performed, observed_retry_history),
+                    retries=_total_retries(),
                 )
             except Exception:
                 pass
@@ -436,7 +439,7 @@ def request(method: str, url: str, **kwargs):
             except Exception:
                 pass
             try:
-                retry_count_value = max(retries_performed, observed_retry_history)
+                retry_count_value = _total_retries()
                 span.set_attribute("retry_count", int(max(0, retry_count_value)))  # type: ignore[attr-defined]
             except Exception:
                 pass
@@ -450,7 +453,7 @@ def request(method: str, url: str, **kwargs):
                 service=display_service,
                 endpoint=display_endpoint,
                 error_signature=last_error_signature or "RetriesExhausted",
-                retries=max(retries_performed, observed_retry_history),
+                retries=_total_retries(),
             )
         except Exception:
             pass
