@@ -529,7 +529,6 @@ async def test_share_folder_link_sends_link_and_stays(monkeypatch):
     assert any("הורד תיקייה" in t for t in texts)
 
 
-
 def test_resolve_backup_version_increments_when_new_id_missing():
     import github_menu_handler as gh
 
