@@ -46,6 +46,7 @@ if ROOT_DIR not in sys.path:
 
 # מייבא לאחר הוספת ROOT_DIR ל-PYTHONPATH כדי למנוע כשל ייבוא בדיפלוי
 from http_sync import request as http_request  # noqa: E402
+from resilience import CircuitBreakerPolicy, RetryPolicy  # noqa: E402
 
 # נרמול טקסט/קוד לפני שמירה (הסרת תווים נסתרים, כיווניות, אחידות שורות)
 from utils import normalize_code  # noqa: E402
@@ -755,6 +756,13 @@ def inject_globals():
     if theme not in {'classic','ocean','forest','high-contrast'}:
         theme = 'classic'
 
+    # מצב UI ישן/פשוט (רולבאק עיצוב) – ניתן לשלוט דרך ENV
+    try:
+        legacy_ui_env = (os.getenv('WEBAPP_LEGACY_UI', '1') or '1').strip()
+        legacy_ui_flag = legacy_ui_env not in ('0', 'false', 'False')
+    except Exception:
+        legacy_ui_flag = True
+
     show_welcome_modal = False
     if user_id:
         # אם אין user_doc (למשל כשל זמני ב-DB) נ fallback לסשן כדי לא לחסום משתמשים חדשים
@@ -785,6 +793,7 @@ def inject_globals():
         'bot_username': BOT_USERNAME_CLEAN,
         'ui_font_scale': font_scale,
         'ui_theme': theme,
+        'legacy_ui': legacy_ui_flag,
         # גרסה סטטית לצירוף לסטטיקה (cache-busting)
         'static_version': _STATIC_VERSION,
         # קישור לתיעוד (לשימוש בתבניות)
@@ -1133,7 +1142,22 @@ def _fetch_uptime_from_uptimerobot() -> Optional[Dict[str, Any]]:
         if UPTIME_MONITOR_ID and not api_key_is_monitor_specific:
             payload['monitors'] = UPTIME_MONITOR_ID
         # שמירה על זמן תגובה קצר בעמוד הבית – timeout אגרסיבי כדי לא לחסום את ה-WSGI
-        resp = http_request('POST', url, data=payload, timeout=3)
+        # מגבילים גם נסיונות לרק 1 ו-CB קצר כדי למנוע האטות וקריסות UI
+        resp = http_request(
+            'POST',
+            url,
+            data=payload,
+            timeout=1.2,
+            max_attempts=1,
+            circuit_policy=CircuitBreakerPolicy(
+                failure_threshold=3,
+                recovery_seconds=15.0,
+                half_open_successes=1,
+                success_window=10,
+            ),
+            service='api.uptimerobot.com',
+            endpoint='v2/getMonitors',
+        )
         if resp.status_code != 200:
             return None
         body = resp.json() if resp.content else {}
@@ -1184,7 +1208,16 @@ def fetch_external_uptime() -> Optional[Dict[str, Any]]:
         result = None
     if result is not None:
         _set_uptime_cache(result)
-    return result
+        return result
+    # אם נכשל – נחזיר את התוצאה התקינה האחרונה גם אם פגה ה-TTL (stale-while-revalidate)
+    try:
+        with _uptime_cache_lock:
+            stale = _uptime_cache.get('data')
+        if stale is not None:
+            return stale
+    except Exception:
+        pass
+    return None
 
 def get_internal_share(share_id: str) -> Optional[Dict[str, Any]]:
     """שליפת שיתוף פנימי מה-DB (internal_shares) עם בדיקת תוקף."""
