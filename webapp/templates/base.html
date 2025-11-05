@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html dir="rtl" lang="he"{% if legacy_ui %} data-legacy-ui="1"{% endif %}>
+<html dir="rtl" lang="he">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
@@ -41,30 +41,6 @@
             --ui-font-scale: 1;
         }
 
-        /* Legacy (classic) flat UI overrides */
-        :root[data-legacy-ui="1"] body { background: #f7fafc; color: #1a202c; }
-        :root[data-legacy-ui="1"] body::before { display: none !important; }
-        :root[data-legacy-ui="1"] .navbar {
-            background: #ffffff;
-            backdrop-filter: none;
-            -webkit-backdrop-filter: none;
-            border-bottom: 1px solid #e2e8f0;
-            color: #2d3748;
-            box-shadow: none;
-        }
-        :root[data-legacy-ui="1"] .logo,
-        :root[data-legacy-ui="1"] .nav-link { color: #2d3748; }
-        :root[data-legacy-ui="1"] .glass-card {
-            background: #ffffff;
-            border: 1px solid #e2e8f0;
-            backdrop-filter: none;
-            -webkit-backdrop-filter: none;
-            box-shadow: 0 1px 2px rgba(0,0,0,0.04);
-        }
-        :root[data-legacy-ui="1"] .btn-primary { background: var(--primary); color: #ffffff; }
-        :root[data-legacy-ui="1"] .btn-secondary { background: #f1f5f9; color: #2d3748; border: 1px solid #e2e8f0; }
-        :root[data-legacy-ui="1"] .badge { background: #f1f5f9; border-color: #e2e8f0; color: #2d3748; }
-
         /* Theme palettes */
         :root[data-theme="classic"] {
             --primary: #667eea;
@@ -86,11 +62,6 @@
         }
 
         html, body { height: 100%; overflow-x: hidden; }
-        /* הבטחה לרקע סגול גם אם יש override חיצוני/קאש */
-        html, body {
-            background: linear-gradient(135deg, var(--primary) 0%, var(--secondary) 100%) !important;
-            background-color: var(--primary) !important; /* fallback */
-        }
 
         body {
             font-family: 'Heebo', sans-serif;
@@ -102,8 +73,22 @@
             font-size: calc(16px * var(--ui-font-scale, 1));
         }
 
-        /* ביטול שכבת ה-SVG המבהירה כדי לשמור על רקע סגול נקי */
-        body::before { display: none !important; }
+        body::before {
+            content: '';
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            /* מרכז את ה"גל" ומונע בריחה שמאלה במסכים צרים */
+            background: url('data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1440 320"><path fill="%23ffffff" fill-opacity="0.05" d="M0,96L48,112C96,128,192,160,288,160C384,160,480,128,576,122.7C672,117,768,139,864,138.7C960,139,1056,117,1152,101.3C1248,85,1344,75,1392,69.3L1440,64L1440,320L1392,320C1344,320,1248,320,1152,320C1056,320,960,320,864,320C768,320,672,320,576,320C480,320,384,320,288,320C192,320,96,320,48,320L0,320Z"/></svg>') no-repeat bottom center;
+            background-size: 100% auto;
+            background-attachment: fixed;
+            inset: 0;
+            overflow: hidden;
+            pointer-events: none;
+            z-index: 0;
+        }
 
         /* מונע חריגת תוכן לרוחב שיוצרת גלילה אופקית */
         .main-content, .container {
@@ -111,7 +96,13 @@
             overflow-x: hidden;
         }
 
-        /* (הוסרה התאמה ל-body::before במסכים צרים – הפסאודו-אלמנט מנוטרל) */
+        /* במסכים צרים הגל יתאים לרוחב המסך במרכז */
+        @media (max-width: 480px) {
+            body::before {
+                background-position: bottom center;
+                background-size: 140% auto; /* מעט יותר רחב כדי להימנע משוליים לבנים */
+            }
+        }
 
         .navbar {
             background: var(--glass);

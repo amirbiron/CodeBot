@@ -46,7 +46,6 @@ if ROOT_DIR not in sys.path:
 
 # מייבא לאחר הוספת ROOT_DIR ל-PYTHONPATH כדי למנוע כשל ייבוא בדיפלוי
 from http_sync import request as http_request  # noqa: E402
-from resilience import CircuitBreakerPolicy, RetryPolicy  # noqa: E402
 
 # נרמול טקסט/קוד לפני שמירה (הסרת תווים נסתרים, כיווניות, אחידות שורות)
 from utils import normalize_code  # noqa: E402
@@ -160,15 +159,6 @@ except Exception:
         def get_stats(self) -> Dict[str, Any]:  # pragma: no cover - fallback only
             return {"enabled": False}
     cache = _NoCache()
-
-# Cache metrics aggregator (optional)
-try:  # noqa: E402
-    from webapp.cache_metrics import collect_cache_metrics  # type: ignore
-except Exception:  # pragma: no cover
-    try:
-        from cache_metrics import collect_cache_metrics  # type: ignore
-    except Exception:  # pragma: no cover
-        collect_cache_metrics = None  # type: ignore
 
 # יצירת האפליקציה
 app = Flask(__name__)
@@ -756,13 +746,6 @@ def inject_globals():
     if theme not in {'classic','ocean','forest','high-contrast'}:
         theme = 'classic'
 
-    # מצב UI ישן/פשוט (רולבאק עיצוב) – ניתן לשלוט דרך ENV
-    try:
-        legacy_ui_env = (os.getenv('WEBAPP_LEGACY_UI', '1') or '1').strip()
-        legacy_ui_flag = legacy_ui_env not in ('0', 'false', 'False')
-    except Exception:
-        legacy_ui_flag = True
-
     show_welcome_modal = False
     if user_id:
         # אם אין user_doc (למשל כשל זמני ב-DB) נ fallback לסשן כדי לא לחסום משתמשים חדשים
@@ -793,7 +776,6 @@ def inject_globals():
         'bot_username': BOT_USERNAME_CLEAN,
         'ui_font_scale': font_scale,
         'ui_theme': theme,
-        'legacy_ui': legacy_ui_flag,
         # גרסה סטטית לצירוף לסטטיקה (cache-busting)
         'static_version': _STATIC_VERSION,
         # קישור לתיעוד (לשימוש בתבניות)
@@ -1142,22 +1124,7 @@ def _fetch_uptime_from_uptimerobot() -> Optional[Dict[str, Any]]:
         if UPTIME_MONITOR_ID and not api_key_is_monitor_specific:
             payload['monitors'] = UPTIME_MONITOR_ID
         # שמירה על זמן תגובה קצר בעמוד הבית – timeout אגרסיבי כדי לא לחסום את ה-WSGI
-        # מגבילים גם נסיונות לרק 1 ו-CB קצר כדי למנוע האטות וקריסות UI
-        resp = http_request(
-            'POST',
-            url,
-            data=payload,
-            timeout=1.2,
-            max_attempts=1,
-            circuit_policy=CircuitBreakerPolicy(
-                failure_threshold=3,
-                recovery_seconds=15.0,
-                half_open_successes=1,
-                success_window=10,
-            ),
-            service='api.uptimerobot.com',
-            endpoint='v2/getMonitors',
-        )
+        resp = http_request('POST', url, data=payload, timeout=3)
         if resp.status_code != 200:
             return None
         body = resp.json() if resp.content else {}
@@ -1208,16 +1175,7 @@ def fetch_external_uptime() -> Optional[Dict[str, Any]]:
         result = None
     if result is not None:
         _set_uptime_cache(result)
-        return result
-    # אם נכשל – נחזיר את התוצאה התקינה האחרונה גם אם פגה ה-TTL (stale-while-revalidate)
-    try:
-        with _uptime_cache_lock:
-            stale = _uptime_cache.get('data')
-        if stale is not None:
-            return stale
-    except Exception:
-        pass
-    return None
+    return result
 
 def get_internal_share(share_id: str) -> Optional[Dict[str, Any]]:
     """שליפת שיתוף פנימי מה-DB (internal_shares) עם בדיקת תוקף."""
@@ -5198,13 +5156,6 @@ def settings():
                          persistent_login_enabled=has_persistent,
                          persistent_days=PERSISTENT_LOGIN_DAYS)
 
-
-@app.route('/cache-dashboard')
-@admin_required
-def cache_dashboard():
-    """דשבורד ביצועי קאש (אדמין בלבד)."""
-    return render_template('cache_dashboard.html')
-
 @app.route('/health')
 @_limiter_exempt()
 def health():
@@ -5257,40 +5208,6 @@ def api_cache_stats():
     except Exception:
         return jsonify({"enabled": False, "error": "unavailable"}), 200
 
-
-@app.route('/api/cache/metrics', methods=['GET'])
-@admin_required
-def api_cache_metrics():
-    """מטריקות קאש לאדמין: hit_rate, hits/misses, avg_latency, used_memory.
-
-    מחזיר מבנה מלא גם כאשר Redis כבוי.
-    """
-    try:
-        if collect_cache_metrics:
-            data = collect_cache_metrics()  # type: ignore[misc]
-        else:
-            stats = cache.get_stats()
-            enabled = bool(stats.get('enabled', False))
-            data = {
-                "enabled": enabled,
-                "status": "ok" if enabled else "disabled",
-                "message": None if enabled else "Redis כבוי",
-                "metrics": {
-                    "hit_rate": float(stats.get('hit_rate', 0.0) or 0.0),
-                    "hits": int(stats.get('keyspace_hits', 0) or 0),
-                    "misses": int(stats.get('keyspace_misses', 0) or 0),
-                    "avg_latency_ms": 0.0,
-                    "used_memory": stats.get('used_memory', '0'),
-                },
-            }
-        return jsonify(data), 200
-    except Exception:
-        return jsonify({
-            "enabled": False,
-            "status": "disabled",
-            "message": "unavailable",
-            "metrics": {"hit_rate": 0.0, "hits": 0, "misses": 0, "avg_latency_ms": 0.0, "used_memory": "0"},
-        }), 200
 
 @app.route('/api/cache/warm', methods=['POST'])
 @login_required
