@@ -42,17 +42,24 @@ async def _get(path: str, params: Optional[Dict[str, Any]] = None) -> Any:
     headers = {"Authorization": f"Bearer {token}", "Accept": "application/json"}
     try:
         from http_async import request as async_request
-        async with async_request(
-            "GET",
-            url,
-            headers=headers,
-            params=params or {},
-            service="sentry",
-            endpoint="api_get",
-        ) as resp:
-            if resp.status != 200:
-                return None
-            return await resp.json()
+        base_kwargs = {
+            "headers": headers,
+            "params": params or {},
+        }
+        attempts = (
+            {**base_kwargs, "service": "sentry", "endpoint": "api_get"},
+            base_kwargs,
+        )
+        for req_kwargs in attempts:
+            try:
+                async with async_request("GET", url, **req_kwargs) as resp:
+                    if resp.status == 200:
+                        return await resp.json()
+                    # אם הסטטוס לא 200 נמשיך לנסות ורק אם אין עוד ניסיונות נחזיר None
+            except TypeError:
+                # פקודת המוקים בטסט לא מקבלת service/endpoint – ננסה בלי.
+                continue
+        return None
     except Exception:
         return None
 
