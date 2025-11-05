@@ -693,25 +693,25 @@ class DocumentHandler:
             target_path = backup_manager.backup_dir / f"{backup_id}.zip"
             try:
                 try:
-                    ztest = zipfile.ZipFile(BytesIO(raw_bytes))
-                    try:
-                        ztest.getinfo("metadata.json")
-                        md_bytes = raw_bytes
-                    except KeyError:
-                        md = {
-                            "backup_id": backup_id,
-                            "backup_type": "generic_zip",
-                            "user_id": update.effective_user.id,
-                            "created_at": datetime.now(timezone.utc).isoformat(),
-                            "original_filename": document.file_name,
-                            "source": "uploaded_document",
-                        }
-                        out_buf = BytesIO()
-                        with zipfile.ZipFile(out_buf, "w", compression=zipfile.ZIP_DEFLATED) as zout:
-                            for name in ztest.namelist():
-                                zout.writestr(name, ztest.read(name))
-                            zout.writestr("metadata.json", json.dumps(md, indent=2))
-                        md_bytes = out_buf.getvalue()
+                    with zipfile.ZipFile(BytesIO(raw_bytes), "r") as ztest:
+                        try:
+                            ztest.getinfo("metadata.json")
+                            md_bytes = raw_bytes
+                        except KeyError:
+                            md = {
+                                "backup_id": backup_id,
+                                "backup_type": "generic_zip",
+                                "user_id": update.effective_user.id,
+                                "created_at": datetime.now(timezone.utc).isoformat(),
+                                "original_filename": document.file_name,
+                                "source": "uploaded_document",
+                            }
+                            out_buf = BytesIO()
+                            with zipfile.ZipFile(out_buf, "w", compression=zipfile.ZIP_DEFLATED) as zout:
+                                for name in ztest.namelist():
+                                    zout.writestr(name, ztest.read(name))
+                                zout.writestr("metadata.json", json.dumps(md, indent=2))
+                            md_bytes = out_buf.getvalue()
                 except Exception:
                     md_bytes = raw_bytes
 
