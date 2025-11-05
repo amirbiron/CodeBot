@@ -22,6 +22,13 @@ from database import db
 
 logger = logging.getLogger(__name__)
 
+# Observability events (best-effort)
+try:
+    from observability import emit_event  # type: ignore
+except Exception:  # pragma: no cover
+    def emit_event(event: str, severity: str = "info", **fields):
+        return None
+
 class GoogleDriveMenuHandler:
     def __init__(self):
         self.sessions: Dict[int, Dict[str, Any]] = {}
@@ -54,8 +61,16 @@ class GoogleDriveMenuHandler:
             try:
                 uid = ctx.job.data["user_id"]
                 logger.info(f"drive_scheduled_backup_start user_id={uid}")
+                try:
+                    emit_event("drive_scheduled_backup_start", severity="info", user_id=int(uid))
+                except Exception:
+                    pass
                 ok = gdrive.perform_scheduled_backup(uid)
                 logger.info(f"drive_scheduled_backup_result user_id={uid} ok={ok}")
+                try:
+                    emit_event("drive_scheduled_backup_result", severity=("info" if ok else "warn"), user_id=int(uid), ok=bool(ok))
+                except Exception:
+                    pass
                 if ok:
                     await ctx.bot.send_message(chat_id=uid, text="☁️ גיבוי אוטומטי ל‑Drive הושלם בהצלחה")
                 # עדכן זמן הבא בהעדפות
@@ -71,10 +86,29 @@ class GoogleDriveMenuHandler:
                         setattr(ctx.job, "next_t", next_dt)
                     except Exception:
                         pass
-                except Exception:
+                    try:
+                        emit_event(
+                            "drive_scheduled_backup_update_prefs",
+                            severity="info",
+                            user_id=int(uid),
+                            next_at=str(update_prefs.get("schedule_next_at")),
+                            last_at=str(update_prefs.get("last_backup_at")),
+                            last_full_at=str(update_prefs.get("last_full_backup_at") or "")
+                        )
+                    except Exception:
+                        pass
+                except Exception as e:
                     logger.exception("drive_scheduled_backup_update_prefs_failed")
-            except Exception:
+                    try:
+                        emit_event("drive_scheduled_backup_update_prefs_failed", severity="error", user_id=int(uid), error=str(e))
+                    except Exception:
+                        pass
+            except Exception as e:
                 logger.exception("drive_scheduled_backup_error")
+                try:
+                    emit_event("drive_scheduled_backup_error", severity="error", error=str(e))
+                except Exception:
+                    pass
 
         try:
             jobs = context.bot_data.setdefault("drive_schedule_jobs", {})
@@ -152,14 +186,31 @@ class GoogleDriveMenuHandler:
                 )
             except Exception:
                 pass
+            # Emit event על יצירת ה-Job
+            try:
+                emit_event(
+                    "drive_schedule_job_set",
+                    severity="info",
+                    user_id=int(user_id),
+                    key=str(sched_key),
+                    interval_s=int(seconds),
+                    first_s=int(first_seconds),
+                    planned_next=str(planned_next.isoformat()),
+                )
+            except Exception:
+                pass
             # אל תדרוס schedule_next_at קיים ותקין; עדכן רק אם חסר/עבר
             try:
                 if not nxt_dt or nxt_dt <= now_dt:
                     db.save_drive_prefs(user_id, {"schedule_next_at": planned_next.isoformat()})
             except Exception:
                 pass
-        except Exception:
+        except Exception as e:
             logger.exception("drive_schedule_job_setup_failed")
+            try:
+                emit_event("drive_schedule_job_setup_failed", severity="error", user_id=int(user_id), key=str(sched_key), error=str(e))
+            except Exception:
+                pass
 
     async def menu(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         # Feature flag: allow fallback to old behavior if disabled
