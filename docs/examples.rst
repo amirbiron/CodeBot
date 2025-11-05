@@ -11,14 +11,14 @@
 
 .. code-block:: python
 
-   from main import CodeKeeperBot
+   from main import create_application
    from config import config
    
-   # יצירת מופע של הבוט
-   bot = CodeKeeperBot()
+   # יצירת אפליקציית הבוט
+   app = create_application(config.BOT_TOKEN)
    
    # הפעלת הבוט
-   bot.run()
+   app.run_polling()
 
 שמירת קוד חדש
 ~~~~~~~~~~~~~~
