@@ -211,7 +211,8 @@ def list_public(q: Optional[str] = None, page: int = 1, per_page: int = 30, tags
                 "title": r.get("title"),
                 "description": r.get("description"),
                 "url": r.get("url"),
-                "logo_url": None,  # future: build from file_id if a proxy endpoint is added
+                # Expose proxy URL for logo if a Telegram file_id is present
+                "logo_url": (f"/api/community-library/logo/{r.get('logo_file_id')}" if r.get("logo_file_id") else None),
                 "tags": r.get("tags") or [],
                 "featured": bool(r.get("featured", False)),
                 "approved_at": r.get("approved_at"),
