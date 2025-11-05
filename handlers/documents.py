@@ -599,7 +599,9 @@ class DocumentHandler:
             file_bytes.seek(0)
             raw_bytes = file_bytes.read()
 
-            await self._maybe_store_zip_copy(update, context, document, raw_bytes)
+            handled_zip = await self._maybe_store_zip_copy(update, context, document, raw_bytes)
+            if handled_zip:
+                return
 
             content, detected_encoding = self._decode_bytes(raw_bytes)
             if content is None:
@@ -676,7 +678,7 @@ class DocumentHandler:
         context: ContextTypes.DEFAULT_TYPE,
         document,
         raw_bytes: bytes,
-    ) -> None:
+    ) -> bool:
         try:
             is_zip_hint = ((document.mime_type or "").lower() == "application/zip") or (
                 (document.file_name or "").lower().endswith(".zip")
@@ -687,7 +689,7 @@ class DocumentHandler:
             except Exception:
                 is_zip_actual = False
             if not (is_zip_hint and is_zip_actual):
-                return
+                return False
 
             backup_id = f"upload_{update.effective_user.id}_{int(datetime.now(timezone.utc).timestamp())}"
             target_path = backup_manager.backup_dir / f"{backup_id}.zip"
@@ -734,10 +736,12 @@ class DocumentHandler:
                     "✅ קובץ ZIP נשמר בהצלחה לרשימת ה‑ZIP השמורים.\n"
                     "📦 ניתן למצוא אותו תחת: '📚' > '📦 קבצי ZIP' או ב‑Batch/GitHub."
                 )
+                return True
             except Exception as err:
                 logger.warning("Failed to persist uploaded ZIP: %s", err)
         except Exception:
             pass
+        return False
 
     async def _store_large_file(
         self,

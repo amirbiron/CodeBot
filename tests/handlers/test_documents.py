@@ -260,6 +260,10 @@ async def test_handle_document_stores_zip_copy(handler_env):
 
     assert handler_env["backup"].saved_bytes, "ZIP צריך להישמר כמטען גיבוי"
     assert any("ZIP" in msg for msg, _ in replies.messages)
+    assert not handler_env["errors"], "שמירת ZIP לא אמורה להשפיע על error counters"
+    assert not any(evt[0] == "file_read_unreadable" for evt in handler_env["events"] if evt), (
+        "לא אמורה לצאת התראה על קובץ לא קריא לאחר שמירת ZIP"
+    )
 
 
 @pytest.mark.asyncio
