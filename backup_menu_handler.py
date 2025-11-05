@@ -517,9 +517,8 @@ class BackupMenuHandler:
                         filtered.append(b)
                 except Exception:
                     continue
-            # אם הסינון לפי ריפו מחזיר רשימה ריקה, הצג את כל הגיבויים כדי למנוע תחושת "הכול נעלם".
-            if filtered:
-                backups = filtered
+            # תמיד החל סינון לפי ריפו; אם יוצא ריק, יוצג מסר "אין גיבויים לריפו הזה"
+            backups = filtered
         backups = self._merge_cached_backups(context, user_id, backups)
         if not backups:
             # קבע יעד חזרה: ל"📚" אם זה המקור, אחרת לתפריט הגיבוי של GitHub אם יש הקשר, אחרת לתפריט הגיבוי הכללי
