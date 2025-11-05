@@ -686,6 +686,9 @@ async def show_all_files(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             [InlineKeyboardButton("📁 שאר הקבצים", callback_data="show_regular_files")],
             [InlineKeyboardButton("⭐ מועדפים", callback_data="show_favorites")],
             [InlineKeyboardButton("🗑️ סל מיחזור", callback_data="recycle_bin")],
+            # Community library shortcuts
+            [InlineKeyboardButton("📙 ספריית קהילה (Web)", url=f"{os.getenv('WEBAPP_URL', 'https://code-keeper-webapp.onrender.com')}/community-library")],
+            [InlineKeyboardButton("➕ הוסף מוצר משלך", callback_data="community_submit")],
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
         await update.message.reply_text(
@@ -754,6 +757,8 @@ async def show_all_files_callback(update: Update, context: ContextTypes.DEFAULT_
             [InlineKeyboardButton("📁 שאר הקבצים", callback_data="show_regular_files")],
             [InlineKeyboardButton("⭐ מועדפים", callback_data="show_favorites")],
             [InlineKeyboardButton("🗑️ סל מיחזור", callback_data="recycle_bin")],
+            [InlineKeyboardButton("📙 ספריית קהילה (Web)", url=f"{os.getenv('WEBAPP_URL', 'https://code-keeper-webapp.onrender.com')}/community-library")],
+            [InlineKeyboardButton("➕ הוסף מוצר משלך", callback_data="community_submit")],
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
         await TelegramUtils.safe_edit_message_text(
@@ -773,6 +778,194 @@ async def show_all_files_callback(update: Update, context: ContextTypes.DEFAULT_
         await TelegramUtils.safe_edit_message_text(query, "❌ שגיאה בטעינת התפריט")
     
     return ConversationHandler.END
+
+# --- Community Library submission flow ---
+from handlers.states import (
+    CL_COLLECT_TITLE,
+    CL_COLLECT_DESCRIPTION,
+    CL_COLLECT_URL,
+    CL_COLLECT_LOGO,
+)
+from services.community_library_service import submit_item as _cl_submit
+from chatops.permissions import admin_required as _admin_required
+
+async def community_submit_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    query = update.callback_query
+    await TelegramUtils.safe_answer(query)
+    context.user_data['cl_item'] = {}
+    await TelegramUtils.safe_edit_message_text(
+        query,
+        "🧩 נתחיל בהגשה לספריית הקהילה\n\nשלח/י שם מוצר (3–120 תווים)",
+        reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("❌ ביטול", callback_data="files")]])
+    )
+    return CL_COLLECT_TITLE
+
+async def community_collect_title(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    title = (update.message.text or '').strip()
+    if len(title) < 3:
+        await update.message.reply_text("❌ שם קצר מדי. נסה/י שוב.")
+        return CL_COLLECT_TITLE
+    context.user_data.setdefault('cl_item', {})['title'] = title[:120]
+    await update.message.reply_text("תודה! עכשיו תיאור קצר (עד 600 תווים)")
+    return CL_COLLECT_DESCRIPTION
+
+async def community_collect_description(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    desc = (update.message.text or '').strip()
+    context.user_data.setdefault('cl_item', {})['description'] = desc[:600]
+    await update.message.reply_text("קישור ל־URL (http/https)")
+    return CL_COLLECT_URL
+
+async def community_collect_url(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    url = (update.message.text or '').strip()
+    if not (url.startswith('http://') or url.startswith('https://')):
+        await update.message.reply_text("❌ URL לא תקין. נא להזין קישור שמתחיל ב-http/https")
+        return CL_COLLECT_URL
+    context.user_data.setdefault('cl_item', {})['url'] = url[:2048]
+    await update.message.reply_text("לוגו (אופציונלי): שלחו תמונה עכשיו או כתבו 'דלג'")
+    return CL_COLLECT_LOGO
+
+async def community_collect_logo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    logo_file_id: Optional[str] = None
+    if getattr(update.message, 'photo', None):
+        try:
+            sizes = update.message.photo or []
+            if sizes:
+                logo_file_id = sizes[-1].file_id
+        except Exception:
+            logo_file_id = None
+    else:
+        text = (update.message.text or '').strip().lower()
+        if text not in {'דלג','skip','no','לא'}:
+            # treat as skip if not a photo
+            pass
+    user = update.effective_user
+    payload = context.user_data.get('cl_item') or {}
+    payload['logo_file_id'] = logo_file_id
+    res = _cl_submit(
+        title=payload.get('title',''),
+        description=payload.get('description',''),
+        url=payload.get('url',''),
+        user_id=int(user.id),
+        username=getattr(user, 'username', None),
+        tags=None,
+        featured=False,
+    )
+    if not res.get('ok'):
+        await update.message.reply_text(f"❌ בקשה נדחתה: {res.get('error','שגיאה')}" )
+        return ConversationHandler.END
+    req_id = res.get('id')
+    await update.message.reply_text("✅ הבקשה התקבלה ותמתין לאישור מנהל. תודה!")
+    # notify admins (best-effort)
+    try:
+        from chatops.permissions import get_admin_user_ids
+        admins = list(get_admin_user_ids())
+    except Exception:
+        admins = []
+    if admins:
+        try:
+            kb = InlineKeyboardMarkup([
+                [InlineKeyboardButton("✅ אשר", callback_data=f"community_approve:{req_id or ''}")],
+            ])
+            text = (
+                "🆕 הגשה חדשה לספריית הקהילה\n\n"
+                f"כותרת: {payload.get('title','')}\n"
+                f"URL: {payload.get('url','')}\n"
+                f"מאת: @{getattr(user,'username','') or user.id}"
+            )
+            for aid in admins:
+                try:
+                    await context.bot.send_message(chat_id=int(aid), text=text, reply_markup=kb)
+                except Exception:
+                    pass
+        except Exception:
+            pass
+    context.user_data.pop('cl_item', None)
+    return ConversationHandler.END
+
+@_admin_required
+async def community_inline_approve(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await TelegramUtils.safe_answer(query)
+    data = (query.data or '')
+    item_id = data.split(':',1)[-1]
+    if not item_id:
+        await TelegramUtils.safe_edit_message_text(query, "❌ מזהה לא תקין")
+        return ConversationHandler.END
+    try:
+        from services.community_library_service import approve_item as _approve
+        ok = _approve(item_id, int(update.effective_user.id))
+    except Exception:
+        ok = False
+    await TelegramUtils.safe_edit_message_text(query, "✅ אושר" if ok else "❌ שגיאה באישור")
+    return ConversationHandler.END
+
+@_admin_required
+async def community_queue_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    try:
+        from services.community_library_service import list_pending
+        from database import db as _db
+        items = list_pending(limit=20)
+        if not items:
+            await update.message.reply_text("ℹ️ אין פריטים בהמתנה")
+            return
+        lines = ["📥 תור המתנה (ראשונים):"]
+        kb_rows = []
+        for it in items[:10]:
+            try:
+                iid = str(it.get('_id') or '')
+                title = it.get('title', '')
+                kb_rows.append([InlineKeyboardButton(f"✅ אשר: {title[:30]}", callback_data=f"community_approve:{iid}")])
+                lines.append(f"- {title} ({iid})")
+            except Exception:
+                continue
+        await update.message.reply_text("\n".join(lines), reply_markup=InlineKeyboardMarkup(kb_rows) if kb_rows else None)
+    except Exception as e:
+        await update.message.reply_text(f"❌ שגיאה: {e}")
+
+@_admin_required
+async def community_approve_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    args = context.args or []
+    if not args:
+        await update.message.reply_text("שימוש: /community_approve <id>")
+        return
+    iid = args[0]
+    try:
+        from services.community_library_service import approve_item
+        ok = approve_item(iid, int(update.effective_user.id))
+        await update.message.reply_text("✅ אושר" if ok else "❌ כשל באישור")
+    except Exception as e:
+        await update.message.reply_text(f"❌ שגיאה: {e}")
+
+@_admin_required
+async def community_reject_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    args = context.args or []
+    if len(args) < 2:
+        await update.message.reply_text("שימוש: /community_reject <id> <reason>")
+        return
+    iid = args[0]
+    reason = " ".join(args[1:])
+    try:
+        from services.community_library_service import reject_item
+        ok = reject_item(iid, int(update.effective_user.id), reason)
+        await update.message.reply_text("🛑 נדחה" if ok else "❌ כשל בדחייה")
+        # notify submitter best-effort
+        try:
+            from database import db as _db
+            coll = getattr(_db, 'community_library_collection', None)
+            if coll is None:
+                coll = getattr(_db.db, 'community_library_items')
+            doc = coll.find_one({'_id': __import__('bson').ObjectId(iid)}) if coll is not None else None
+        except Exception:
+            doc = None
+        if isinstance(doc, dict):
+            uid = doc.get('user_id')
+            if uid:
+                try:
+                    await context.bot.send_message(chat_id=int(uid), text=f"❌ בקשתך נדחתה: {reason}")
+                except Exception:
+                    pass
+    except Exception as e:
+        await update.message.reply_text(f"❌ שגיאה: {e}")
 
 async def show_regular_files_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """הצגת קבצים רגילים בלבד"""

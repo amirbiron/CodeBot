@@ -287,6 +287,12 @@ class BotConfig(BaseSettings):
         description="Enable 'My Collections' feature (API/UI)"
     )
 
+    # Community Library (bots/apps) feature flag
+    COMMUNITY_LIBRARY_ENABLED: bool = Field(
+        default=True,
+        description="Enable Community Library (public catalog, bot submit/approve, API/UI)"
+    )
+
     # Pagination defaults
     SEARCH_PAGE_SIZE: int = Field(
         default=200,

@@ -1,0 +1,34 @@
+{% extends "base.html" %}
+{% block title %}📙 ספריית הקהילה{% endblock %}
+{% block head_extra %}
+<link rel="stylesheet" href="/static/css/community_library.css?v={{ static_version }}">
+{% endblock %}
+{% block content %}
+<div class="community-header">
+  <div class="title">
+    <h1>📙 ספריית הקהילה</h1>
+    <p class="subtitle">גלו כלים שבנו משתמשי CodeBot</p>
+  </div>
+  <div class="actions">
+    <a class="btn primary" href="https://t.me/{{ bot_username }}">+ הוסף מוצר דרך הבוט</a>
+  </div>
+</div>
+
+<div class="community-controls">
+  <input id="search" type="text" placeholder="🔍 חפש לפי שם או תיאור..." />
+  <select id="category" disabled>
+    <option>קטגוריה (בקרוב)</option>
+  </select>
+  <button id="clearBtn" class="btn">נקה</button>
+</div>
+
+<div id="grid" class="community-grid"></div>
+
+<div id="empty" class="empty-state" style="display:none">
+  <div class="icon">📭</div>
+  <div class="text">אין עדיין מוצרים תואמים.</div>
+  <a class="btn primary" href="https://t.me/{{ bot_username }}">הוסיפו מוצר עכשיו</a>
+</div>
+
+<script src="/static/js/community_library.js?v={{ static_version }}"></script>
+{% endblock %}

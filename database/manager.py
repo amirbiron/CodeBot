@@ -122,6 +122,7 @@ class DatabaseManager:
     large_files_collection: CollectionLike
     backup_ratings_collection: Optional[CollectionLike]
     internal_shares_collection: Optional[CollectionLike]
+    community_library_collection: Optional[CollectionLike]
     _repo: Optional[Any]
 
     def __init__(self):
@@ -132,6 +133,7 @@ class DatabaseManager:
         self.large_files_collection = _StubCollection()
         self.backup_ratings_collection = _StubCollection()
         self.internal_shares_collection = _StubCollection()
+        self.community_library_collection = _StubCollection()
         self._repo = None
         self.connect()
 
@@ -192,6 +194,7 @@ class DatabaseManager:
             self.collection = NoOpCollection()
             self.large_files_collection = NoOpCollection()
             self.backup_ratings_collection = NoOpCollection()
+            self.community_library_collection = NoOpCollection()
             emit_event("db_disabled", reason="docs_or_ci_mode")
 
         # אם pymongo לא מותקן (למשל בסביבת בדיקות קלה) — עבור למצב no-op
@@ -296,6 +299,11 @@ class DatabaseManager:
             self.large_files_collection = self.db.large_files
             self.backup_ratings_collection = self.db.backup_ratings
             self.internal_shares_collection = self.db.internal_shares
+            # Community Library public catalog
+            try:
+                self.community_library_collection = self.db.community_library_items
+            except Exception:
+                self.community_library_collection = None
             self.client.admin.command('ping')
             self._create_indexes()
             emit_event("db_connected", severity="info")
@@ -444,6 +452,18 @@ class DatabaseManager:
                     IndexModel([("expires_at", ASCENDING)], name="expires_ttl", expireAfterSeconds=0),
                 ]
                 self.internal_shares_collection.create_indexes(internal_shares_indexes)
+            # Community library indexes (best-effort)
+            try:
+                if self.community_library_collection is not None:
+                    community_indexes = [
+                        IndexModel([("status", ASCENDING), ("submitted_at", DESCENDING)], name="status_submitted_idx"),
+                        IndexModel([("status", ASCENDING), ("approved_at", DESCENDING)], name="status_approved_idx"),
+                        IndexModel([("user_id", ASCENDING)], name="user_id_idx"),
+                        IndexModel([("featured", DESCENDING), ("approved_at", DESCENDING)], name="featured_approved_idx"),
+                    ]
+                    self.community_library_collection.create_indexes(community_indexes)
+            except Exception:
+                pass
         except Exception as e:
             msg = str(e)
             if 'IndexOptionsConflict' in msg or 'already exists with a different name' in msg:
