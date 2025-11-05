@@ -1,3 +1,4 @@
+import types
 import pytest
 
 
@@ -89,3 +90,66 @@ def test_http_sync_request_propagates_exceptions(monkeypatch):
 
     exit_events = [evt for evt in events if evt[0] == "exit"]
     assert exit_events and exit_events[0][1] is RuntimeError
+
+
+def test_http_sync_retries_on_http_error(monkeypatch):
+    import http_sync
+
+    # Speed up retries in CI: eliminate backoff sleep
+    monkeypatch.setenv("HTTP_RESILIENCE_BACKOFF_BASE", "0.0")
+    monkeypatch.setenv("HTTP_RESILIENCE_BACKOFF_MAX", "0.0")
+    monkeypatch.setenv("HTTP_RESILIENCE_JITTER", "0.0")
+    # Force no sleeping regardless of policy
+    monkeypatch.setattr(http_sync, "_sleep_with_backoff", lambda *a, **k: None, raising=False)
+
+    class _Session:
+        def __init__(self):
+            self.calls = 0
+
+        def request(self, *args, **kwargs):
+            self.calls += 1
+
+            class _Resp:
+                def __init__(self, status_code):
+                    self.status_code = status_code
+
+                raw = types.SimpleNamespace(retries=types.SimpleNamespace(history=[object(), object()]))
+
+                def close(self):
+                    return None
+
+            if self.calls < 3:
+                return _Resp(502)
+            return _Resp(200)
+
+    session = _Session()
+    monkeypatch.setattr(http_sync, "get_session", lambda: session, raising=False)
+
+    statuses: list[str] = []
+    retries: list[tuple[str, str]] = []
+
+    monkeypatch.setattr(
+        http_sync,
+        "note_request_duration",
+        lambda service, endpoint, status, duration: statuses.append(status),
+    )
+    monkeypatch.setattr(
+        http_sync,
+        "note_retry",
+        lambda service, endpoint: retries.append((service, endpoint)),
+    )
+
+    resp = http_sync.request(
+        "GET",
+        "https://api.test.example/v1/status",
+        backoff_base=0.0,
+        backoff_cap=0.0,
+        jitter=0.0,
+        max_attempts=3,
+    )
+    assert resp.status_code == 200
+
+    assert statuses.count("http_error") == 2
+    assert statuses[-1] == "success"
+    assert len(retries) == 2
+    assert session.calls == 3

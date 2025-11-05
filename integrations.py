@@ -346,9 +346,14 @@ class PastebinIntegration:
                 })
             except Exception:
                 pass
-            from http_async import get_session  # lazy import להימנע מתלויות מעגליות
-            session = get_session()
-            async with session.post(f"{self.base_url}/api_post.php", data=data) as response:
+            from http_async import request as async_request  # lazy import להימנע מתלויות מעגליות
+            async with async_request(
+                "POST",
+                f"{self.base_url}/api_post.php",
+                data=data,
+                service="pastebin",
+                endpoint="create_paste",
+            ) as response:
                     result = await response.text()
                     
                     if response.status == 200 and result.startswith('https://pastebin.com/'):
@@ -388,9 +393,13 @@ class PastebinIntegration:
         
         try:
             raw_url = f"https://pastebin.com/raw/{paste_id}"
-            from http_async import get_session
-            session = get_session()
-            async with session.get(raw_url) as response:
+            from http_async import request as async_request
+            async with async_request(
+                "GET",
+                raw_url,
+                service="pastebin",
+                endpoint="get_content",
+            ) as response:
                     if response.status == 200:
                         content = await response.text()
                         logger.info(f"נשלף תוכן מ-Pastebin: {paste_id}")
@@ -707,14 +716,16 @@ class WebhookIntegration:
             "data": data
         }
         
-        from http_async import get_session
-        session = get_session()
+        from http_async import request as async_request
         for webhook in relevant_webhooks:
             try:
-                async with session.post(
+                async with async_request(
+                    "POST",
                     webhook["url"],
                     json=payload,
                     headers={"Content-Type": "application/json"},
+                    service="webhook",
+                    endpoint="trigger",
                 ) as response:
                     if response.status == 200:
                         logger.info(f"Webhook נשלח בהצלחה: {webhook['url']}")

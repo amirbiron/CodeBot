@@ -197,8 +197,8 @@ rg -n "(shutil.rmtree|os.remove|Path.unlink|rm -rf|rimraf)" -S
 
 ### סטטוסים נדרשים ב-PR
 - "🔍 Code Quality & Security"
-- "🧪 Unit Tests (3.11)"
-- "🧪 Unit Tests (3.12)"
+- "Unit Tests (3.11)"
+- "Unit Tests (3.12)"
 
 ### נוספים
 - אין `paths-ignore` על `.cursorrules` – שינוי בו מריץ CI

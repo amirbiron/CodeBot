@@ -551,11 +551,18 @@ class GitHubMenuHandler:
 
     async def apply_rate_limit_delay(self, user_id: int):
         """מוסיף השהייה בין בקשות API; מכבד מצב Backoff גלובלי."""
-        base_delay = 2.0
+        try:
+            base_delay = float(os.getenv("GITHUB_API_BASE_DELAY", "2.0"))
+        except Exception:
+            base_delay = 2.0
         try:
             if github_backoff_state is not None and github_backoff_state.get().is_active():
                 # Increase delay under backoff to reduce pressure
-                base_delay = 5.0
+                try:
+                    backoff_delay = float(os.getenv("GITHUB_BACKOFF_DELAY", "5.0"))
+                except Exception:
+                    backoff_delay = 5.0
+                base_delay = max(base_delay, backoff_delay)
         except Exception:
             pass
         current_time = time.time()

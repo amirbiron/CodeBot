@@ -53,22 +53,26 @@ async def test_rate_limit_command_happy_path(monkeypatch):
             return self
         async def __aexit__(self, exc_type, exc, tb):
             return False
+        async def release(self):
+            return None
 
-    class _Sess:
-        def __init__(self, *a, **k):
-            pass
+    class _Ctx:
+        def __init__(self, resp):
+            self._resp = resp
         async def __aenter__(self):
-            return self
+            return self._resp
         async def __aexit__(self, exc_type, exc, tb):
             return False
-        def get(self, *a, **k):
-            # 80% used -> should warn in message
-            return _Resp({
-                "resources": {"core": {"limit": 1000, "remaining": 200}}
-            })
 
     import http_async as ha
-    monkeypatch.setattr(ha, 'get_session', lambda: _Sess(), raising=False)
+    monkeypatch.setattr(
+        ha,
+        'request',
+        lambda *a, **k: _Ctx(_Resp({
+            "resources": {"core": {"limit": 1000, "remaining": 200}}
+        })),
+        raising=False,
+    )
 
     class _Msg:
         def __init__(self):

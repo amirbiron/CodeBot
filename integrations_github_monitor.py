@@ -18,11 +18,13 @@ async def fetch_rate_limit(token: Optional[str] = None) -> Dict[str, Any]:
     if not tok:
         return {}
     try:
-        from http_async import get_session
-        session = get_session()
-        async with session.get(
+        from http_async import request as async_request
+        async with async_request(
+            "GET",
             "https://api.github.com/rate_limit",
             headers={"Authorization": f"token {tok}"},
+            service="github",
+            endpoint="rate_limit",
         ) as resp:
             return await resp.json()
     except Exception:

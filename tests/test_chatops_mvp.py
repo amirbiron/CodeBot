@@ -42,6 +42,9 @@ async def test_status_command_outputs_basic_health(monkeypatch):
     # Make the test user an admin so the command is allowed
     os.environ["ADMIN_USER_IDS"] = str(upd.effective_user.id)
 
+    # Avoid real GitHub API calls in CI: force skip in status_command
+    monkeypatch.delenv("GITHUB_TOKEN", raising=False)
+
     # Ensure Redis disabled in test unless actually configured
     import cache_manager as cm
     monkeypatch.setattr(cm.cache, "is_enabled", False, raising=False)
@@ -131,6 +134,9 @@ async def test_status_command_emojis_and_components(monkeypatch):
     # Admin
     os.environ["ADMIN_USER_IDS"] = str(upd.effective_user.id)
 
+    # Avoid real GitHub API calls in CI: force skip in status_command
+    monkeypatch.delenv("GITHUB_TOKEN", raising=False)
+
     # Mock DB check to succeed (new behavior uses check_db_connection)
     import bot_handlers as bh
     async def _ok():
@@ -166,19 +172,24 @@ async def test_rate_limit_command_with_warning(monkeypatch):
             return self
         async def __aexit__(self, exc_type, exc, tb):
             return False
+        async def release(self):
+            return None
 
-    class _Session:
-        def __init__(self, *a, **k):
-            pass
+    class _Ctx:
+        def __init__(self, resp):
+            self._resp = resp
         async def __aenter__(self):
-            return self
+            return self._resp
         async def __aexit__(self, exc_type, exc, tb):
             return False
-        def get(self, *a, **k):
-            return _Resp()
 
     import http_async as ha
-    monkeypatch.setattr(ha, "get_session", lambda: _Session(), raising=False)
+    monkeypatch.setattr(
+        ha,
+        "request",
+        lambda *a, **k: _Ctx(_Resp()),
+        raising=False,
+    )
 
     await adv.rate_limit_command(upd, ctx)
     out = "\n".join(upd.message.texts)
