@@ -14,6 +14,7 @@ def dummy_db(monkeypatch):
         def __init__(self):
             self.saved_snippets = []
             self.saved_large_files = []
+            self.saved_selected_repo = None
 
         def save_code_snippet(self, snippet):
             self.saved_snippets.append(snippet)
@@ -29,6 +30,9 @@ def dummy_db(monkeypatch):
         def get_large_file(self, user_id, file_name):
             return {"_id": "large-id"}
 
+        def save_selected_repo(self, user_id, repo_full):
+            self.saved_selected_repo = (user_id, repo_full)
+
     db = _DB()
     monkeypatch.setattr(documents_mod, "db", db, raising=False)
     return db
@@ -43,6 +47,8 @@ def dummy_backup(monkeypatch, tmp_path):
             self.restore_calls = []
 
         def save_backup_bytes(self, data, metadata):
+            if getattr(self, "raise_on_save", False):
+                raise IOError("cannot save backup")
             self.saved_bytes.append((data, metadata))
 
         def restore_from_backup(self, **kwargs):
@@ -388,4 +394,276 @@ async def test_handle_document_github_restore_zip(monkeypatch, handler_env):
 
     assert repo_instance.edited == "new-sha", "Git commit חדש אמור להיכתב ל-branch"
     assert any("שחזור" in msg for msg, _ in replies.messages)
+
+
+@pytest.mark.asyncio
+async def test_handle_document_github_create_repo_empty_repo(monkeypatch, handler_env):
+    zip_bytes = io.BytesIO()
+    with zipfile.ZipFile(zip_bytes, "w") as zf:
+        zf.writestr("root/file.txt", "print('hi')")
+    payload = zip_bytes.getvalue()
+
+    created_files = []
+
+    class FakeGithubException(Exception):
+        pass
+
+    class FakeRepo:
+        def __init__(self):
+            self.default_branch = "main"
+            self.full_name = "owner/generated"
+
+        def create_file(self, path, message, content, branch):
+            created_files.append((path, message, content, branch))
+
+        def get_git_ref(self, name):
+            raise FakeGithubException("no ref")
+
+        def get_git_commit(self, sha):
+            raise FakeGithubException("no commit")
+
+    repo_instance = FakeRepo()
+
+    class FakeUser:
+        def create_repo(self, name, private, auto_init):
+            return repo_instance
+
+    class FakeGithub:
+        def __init__(self, token):
+            self.token = token
+
+        def get_user(self):
+            return FakeUser()
+
+    class FakeInputGitTreeElement:
+        def __init__(self, **kwargs):
+            self.kwargs = kwargs
+
+    originals = {
+        "github": sys.modules.get("github"),
+        "github.GithubException": sys.modules.get("github.GithubException"),
+        "github.InputGitTreeElement": sys.modules.get("github.InputGitTreeElement"),
+    }
+    github_module = types.ModuleType("github")
+    github_module.Github = FakeGithub
+    github_exception_module = types.ModuleType("github.GithubException")
+    github_exception_module.GithubException = FakeGithubException
+    github_igte_module = types.ModuleType("github.InputGitTreeElement")
+    github_igte_module.InputGitTreeElement = FakeInputGitTreeElement
+
+    sys.modules["github"] = github_module
+    sys.modules["github.GithubException"] = github_exception_module
+    sys.modules["github.InputGitTreeElement"] = github_igte_module
+
+    bot = _DummyBot(payload)
+    update, replies = _make_update({
+        "file_name": "root.zip",
+        "file_size": len(payload),
+        "file_id": "fid-gh-create-empty",
+        "mime_type": "application/zip",
+    })
+
+    class _GHHandler:
+        def get_user_session(self, user_id):
+            return {"selected_repo": "owner/previous"}
+
+        def get_user_token(self, user_id):
+            return "token"
+
+    context = types.SimpleNamespace(
+        bot=bot,
+        user_data={"upload_mode": "github_create_repo_from_zip"},
+        bot_data={"github_handler": _GHHandler()},
+    )
+
+    try:
+        await handler_env["handler"].handle_document(update, context)
+    finally:
+        for name, module in originals.items():
+            if module is None:
+                sys.modules.pop(name, None)
+            else:
+                sys.modules[name] = module
+
+    assert created_files, "צפויה יצירת קובץ באמצעות Contents API לריפו ריק"
+    assert created_files[0][0] == "file.txt"
+    assert handler_env["db"].saved_selected_repo == (1, repo_instance.full_name)
+    assert any("✅" in msg for msg, _ in replies.messages), "צפויה הודעת הצלחה על יצירת הריפו"
+    assert context.user_data.get("upload_mode") is None
+
+
+@pytest.mark.asyncio
+async def test_handle_document_github_create_repo_with_base_commit(monkeypatch, handler_env):
+    zip_bytes = io.BytesIO()
+    with zipfile.ZipFile(zip_bytes, "w") as zf:
+        zf.writestr("root/app.py", "print('app')")
+        zf.writestr("root/lib.txt", "data")
+    payload = zip_bytes.getvalue()
+
+    class FakeGithubException(Exception):
+        pass
+
+    class FakeRepo:
+        def __init__(self):
+            self.default_branch = "main"
+            self.full_name = "owner/existing"
+            self.blobs = []
+            self.last_tree = None
+            self.last_commit = None
+            self.edited_sha = None
+
+        def create_file(self, *args, **kwargs):
+            raise AssertionError("should not call create_file when base commit exists")
+
+        def get_git_ref(self, name):
+            repo = self
+
+            class _Ref:
+                def __init__(self):
+                    self.object = types.SimpleNamespace(sha="base-sha")
+
+                def edit(self_inner, sha):
+                    repo.edited_sha = sha
+
+            return _Ref()
+
+        def get_git_commit(self, sha):
+            return types.SimpleNamespace(tree="base-tree", sha=sha)
+
+        def create_git_blob(self, data, encoding):
+            blob = types.SimpleNamespace(sha=f"blob-{len(self.blobs)}")
+            self.blobs.append((data, encoding))
+            return blob
+
+        def create_git_tree(self, elements, base_tree):
+            self.last_tree = (elements, base_tree)
+            return types.SimpleNamespace(sha="tree-sha")
+
+        def create_git_commit(self, message, tree, parents):
+            self.last_commit = (message, tree, parents)
+            return types.SimpleNamespace(sha="new-sha")
+
+    repo_instance = FakeRepo()
+
+    class FakeUser:
+        def create_repo(self, name, private, auto_init):
+            return repo_instance
+
+    class FakeGithub:
+        def __init__(self, token):
+            self.token = token
+
+        def get_user(self):
+            return FakeUser()
+
+        def get_repo(self, full_name):
+            return repo_instance
+
+    class FakeInputGitTreeElement:
+        def __init__(self, **kwargs):
+            self.kwargs = kwargs
+
+    originals = {
+        "github": sys.modules.get("github"),
+        "github.GithubException": sys.modules.get("github.GithubException"),
+        "github.InputGitTreeElement": sys.modules.get("github.InputGitTreeElement"),
+    }
+    github_module = types.ModuleType("github")
+    github_module.Github = FakeGithub
+    github_exception_module = types.ModuleType("github.GithubException")
+    github_exception_module.GithubException = FakeGithubException
+    github_igte_module = types.ModuleType("github.InputGitTreeElement")
+    github_igte_module.InputGitTreeElement = FakeInputGitTreeElement
+
+    sys.modules["github"] = github_module
+    sys.modules["github.GithubException"] = github_exception_module
+    sys.modules["github.InputGitTreeElement"] = github_igte_module
+
+    bot = _DummyBot(payload)
+    update, replies = _make_update({
+        "file_name": "root.zip",
+        "file_size": len(payload),
+        "file_id": "fid-gh-create-tree",
+        "mime_type": "application/zip",
+    })
+
+    class _GHHandler:
+        def get_user_session(self, user_id):
+            return {"selected_repo": "owner/existing"}
+
+        def get_user_token(self, user_id):
+            return "token"
+
+    context = types.SimpleNamespace(
+        bot=bot,
+        user_data={"upload_mode": "github_create_repo_from_zip"},
+        bot_data={"github_handler": _GHHandler()},
+    )
+
+    try:
+        await handler_env["handler"].handle_document(update, context)
+    finally:
+        for name, module in originals.items():
+            if module is None:
+                sys.modules.pop(name, None)
+            else:
+                sys.modules[name] = module
+
+    assert repo_instance.edited_sha == "new-sha"
+    assert repo_instance.last_tree is not None and repo_instance.last_tree[1] == "base-tree"
+    assert len(repo_instance.last_tree[0]) == 2
+    assert handler_env["db"].saved_selected_repo == (1, repo_instance.full_name)
+    assert any("✅" in msg for msg, _ in replies.messages)
+    assert context.user_data.get("upload_mode") is None
+
+
+@pytest.mark.asyncio
+async def test_handle_document_zip_import_invalid_archive(handler_env):
+    payload = b"not-a-zip"
+    bot = _DummyBot(payload)
+    update, replies = _make_update({
+        "file_name": "bad.zip",
+        "file_size": len(payload),
+        "file_id": "fid-zip-invalid",
+        "mime_type": "application/zip",
+    })
+    context = types.SimpleNamespace(
+        bot=bot,
+        user_data={"upload_mode": "zip_import"},
+        bot_data={},
+    )
+
+    await handler_env["handler"].handle_document(update, context)
+
+    assert handler_env["backup"].restore_calls == []
+    assert any("❌" in msg for msg, _ in replies.messages)
+    assert context.user_data.get("upload_mode") is None
+
+
+@pytest.mark.asyncio
+async def test_handle_document_zip_copy_failure_continues_processing(handler_env):
+    handler_env["backup"].raise_on_save = True
+
+    zip_bytes = io.BytesIO()
+    with zipfile.ZipFile(zip_bytes, "w") as zf:
+        zf.writestr("inner.txt", "content")
+    payload = zip_bytes.getvalue()
+
+    bot = _DummyBot(payload)
+    update, replies = _make_update({
+        "file_name": "arch.zip",
+        "file_size": len(payload),
+        "file_id": "fid-zip-fail",
+        "mime_type": "application/zip",
+    })
+    context = types.SimpleNamespace(bot=bot, user_data={}, bot_data={})
+
+    await handler_env["handler"].handle_document(update, context)
+
+    assert handler_env["backup"].saved_bytes == []
+    assert handler_env["errors"], "צפוי אינקרמנט לאחר כישלון קריאת טקסט"
+    assert any(
+        evt[0] == "file_read_unreadable" for evt in handler_env["events"] if isinstance(evt, tuple) and evt
+    )
+    assert any("❌" in msg for msg, _ in replies.messages)
 
