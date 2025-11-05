@@ -2047,6 +2047,44 @@ class CodeKeeperBot:
     
     async def handle_document(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """מטפל בקבצים באמצעות DocumentHandler הייעודי."""
+        message = getattr(update, "effective_message", None)
+        if message is None:
+            message = getattr(update, "message", None)
+        document = getattr(message, "document", None) if message else None
+
+        if document:
+            size_limit_bytes = 20 * 1024 * 1024
+            file_size = getattr(document, "file_size", None)
+
+            if file_size is None:
+                try:
+                    telegram_file = await document.get_file()
+                    file_size = getattr(telegram_file, "file_size", None)
+                except Exception as exc:
+                    logger.warning("Failed to resolve document size: %s", exc)
+
+            if file_size is None:
+                warning_text = (
+                    "⚠️ לא הצלחתי לבדוק את גודל הקובץ.\n"
+                    "המגבלה להעלאת קבצים היא 20MB. ודא שהקובץ קטן מהמגבלה ונסה שוב."
+                )
+                if message and hasattr(message, "reply_text"):
+                    await message.reply_text(warning_text)
+                else:
+                    logger.warning("Document rejected: unknown size, limit is 20MB")
+                return
+
+            if file_size > size_limit_bytes:
+                warning_text = (
+                    "❗️הקובץ גדול מדי.\n"
+                    "המגבלה להעלאת קבצים היא 20MB. נסה לכווץ או לחלק את הקובץ."
+                )
+                if message and hasattr(message, "reply_text"):
+                    await message.reply_text(warning_text)
+                else:
+                    logger.warning("Document rejected: size exceeds 20MB limit")
+                return
+
         await self.document_handler.handle_document(update, context)
 
     async def handle_text_message(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
