@@ -2047,6 +2047,21 @@ class CodeKeeperBot:
     
     async def handle_document(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """מטפל בקבצים באמצעות DocumentHandler הייעודי."""
+        message = update.effective_message
+        document = getattr(message, "document", None) if message else None
+
+        if document and document.file_size is not None:
+            if document.file_size > 20 * 1024 * 1024:
+                warning_text = (
+                    "❗️הקובץ גדול מדי.\n"
+                    "המגבלה להעלאת קבצים היא 20MB. נסה לכווץ או לחלק את הקובץ."
+                )
+                if message and hasattr(message, "reply_text"):
+                    await message.reply_text(warning_text)
+                else:
+                    logger.warning("Document rejected: size exceeds 20MB limit")
+                return
+
         await self.document_handler.handle_document(update, context)
 
     async def handle_text_message(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
