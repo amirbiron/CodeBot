@@ -115,7 +115,8 @@ class BackupManager:
                     threshold = int(_env_val)
             except Exception:
                 threshold = 100 * 1024 * 1024
-            if free_bytes > 0 and free_bytes < max(1, threshold):
+            limit = max(1, threshold)
+            if free_bytes <= 0 or free_bytes < limit:
                 now = time.time()
                 if now - self._last_disk_warn_ts < 600:  # 10 דקות
                     return
