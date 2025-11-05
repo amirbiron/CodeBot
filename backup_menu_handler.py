@@ -1,7 +1,9 @@
 import logging
 import os
+from datetime import datetime, timezone
 from typing import Any, Dict, Optional
 import zipfile
+from types import SimpleNamespace
 
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, InputFile
 from telegram.ext import ContextTypes
@@ -160,6 +162,85 @@ class BackupMenuHandler:
             self.user_sessions[user_id] = {}
         return self.user_sessions[user_id]
     
+    def _get_cached_backup(self, context: ContextTypes.DEFAULT_TYPE, user_id: int, backup_id: str) -> Optional[SimpleNamespace]:
+        try:
+            cache = context.user_data.get("_recent_backups", {})
+        except Exception:
+            return None
+        data = cache.get(backup_id)
+        if not data:
+            return None
+        file_path = data.get("file_path")
+        if not file_path or not os.path.exists(file_path):
+            return None
+        created_at_raw = data.get("created_at")
+        created_at_dt: datetime
+        if isinstance(created_at_raw, datetime):
+            created_at_dt = created_at_raw if created_at_raw.tzinfo else created_at_raw.replace(tzinfo=timezone.utc)
+        elif isinstance(created_at_raw, str):
+            try:
+                created_at_dt = datetime.fromisoformat(created_at_raw)
+                if created_at_dt.tzinfo is None:
+                    created_at_dt = created_at_dt.replace(tzinfo=timezone.utc)
+            except Exception:
+                created_at_dt = datetime.now(timezone.utc)
+        else:
+            created_at_dt = datetime.now(timezone.utc)
+        try:
+            total_size = int(data.get("total_size") or 0)
+        except Exception:
+            total_size = 0
+        try:
+            file_count = int(data.get("file_count") or 0)
+        except Exception:
+            file_count = 0
+        return SimpleNamespace(
+            backup_id=backup_id,
+            user_id=user_id,
+            created_at=created_at_dt,
+            file_count=file_count,
+            total_size=total_size,
+            backup_type=data.get("backup_type", "github_repo_zip"),
+            status="completed",
+            file_path=file_path,
+            repo=data.get("repo"),
+            path=data.get("path"),
+            metadata=data,
+        )
+
+    def _merge_cached_backups(self, context: ContextTypes.DEFAULT_TYPE, user_id: int, backups: list[Any]) -> list[Any]:
+        try:
+            cache = context.user_data.get("_recent_backups", {})
+        except Exception:
+            cache = {}
+        if not cache:
+            return backups
+        existing_ids = {getattr(b, "backup_id", "") for b in backups}
+        extras: list[Any] = []
+        if isinstance(cache, dict):
+            for bid in list(cache.keys()):
+                if bid in existing_ids:
+                    cache.pop(bid, None)
+                    continue
+                cached = self._get_cached_backup(context, user_id, bid)
+                if cached:
+                    extras.append(cached)
+        if extras:
+            backups.extend(extras)
+            try:
+                backups.sort(key=lambda b: getattr(b, "created_at", datetime.now(timezone.utc)), reverse=True)
+            except Exception:
+                pass
+        return backups
+
+    def _forget_cached_backup(self, context: ContextTypes.DEFAULT_TYPE, backup_id: str) -> None:
+        try:
+            cache = context.user_data.get("_recent_backups", {})
+            if isinstance(cache, dict):
+                cache.pop(backup_id, None)
+        except Exception:
+            pass
+
     async def show_backup_menu(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         query = update.callback_query if update.callback_query else None
         if query:
@@ -236,6 +317,7 @@ class BackupMenuHandler:
                 deleted = res.get("deleted", 0)
                 if deleted:
                     await update.callback_query.edit_message_text("✅ הגיבוי נמחק")
+                    self._forget_cached_backup(context, backup_id)
                     await self._show_backups_list(update, context)
                 else:
                     await update.callback_query.edit_message_text("❌ המחיקה נכשלה")
@@ -301,6 +383,8 @@ class BackupMenuHandler:
                 # נקה מצב מחיקה ורענן רשימה
                 context.user_data.pop("backup_delete_mode", None)
                 context.user_data.pop("backup_delete_selected", None)
+                for bid in sel:
+                    self._forget_cached_backup(context, bid)
                 try:
                     await self._show_backups_list(update, context)
                 except Exception:
@@ -434,6 +518,7 @@ class BackupMenuHandler:
                 except Exception:
                     continue
             backups = filtered
+        backups = self._merge_cached_backups(context, user_id, backups)
         if not backups:
             # קבע יעד חזרה: ל"📚" אם זה המקור, אחרת לתפריט הגיבוי של GitHub אם יש הקשר, אחרת לתפריט הגיבוי הכללי
             if zip_back_to == 'files':
@@ -611,6 +696,8 @@ class BackupMenuHandler:
         info_list = backup_manager.list_backups(user_id)
         match = next((b for b in info_list if b.backup_id == backup_id), None)
         if not match:
+            match = self._get_cached_backup(context, user_id, backup_id)
+        if not match:
             await query.edit_message_text("❌ הגיבוי לא נמצא")
             return
         # שלוף דירוג נוכחי אם קיים
@@ -675,6 +762,8 @@ class BackupMenuHandler:
         # מצא את קובץ הגיבוי
         info_list = backup_manager.list_backups(user_id)
         match = next((b for b in info_list if b.backup_id == backup_id), None)
+        if not match:
+            match = self._get_cached_backup(context, user_id, backup_id)
         if not match or not match.file_path or not os.path.exists(match.file_path):
             await query.edit_message_text("❌ הגיבוי לא נמצא בדיסק")
             return
@@ -696,6 +785,8 @@ class BackupMenuHandler:
         await query.answer()
         info_list = backup_manager.list_backups(user_id)
         match = next((b for b in info_list if b.backup_id == backup_id), None)
+        if not match:
+            match = self._get_cached_backup(context, user_id, backup_id)
         if not match or not match.file_path or not os.path.exists(match.file_path):
             await query.edit_message_text("❌ הגיבוי לא נמצא בדיסק")
             return
