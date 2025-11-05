@@ -20,5 +20,8 @@ MESSAGES = {
         "🔧 לכל תקלה בבוט נא לשלוח הודעה ל-@moominAmir\n"
     ),
     "choose_view": "בחר/י דרך להצגת הקבצים:",
+    # Community Library
+    "community_library": "📙 ספריית הקהילה",
+    "community_submit_received": "✅ הבקשה התקבלה ותמתין לאישור מנהל. תודה!",
 }
 

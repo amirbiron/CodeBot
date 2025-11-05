@@ -473,6 +473,31 @@ except Exception as e:
             # אם גם הרישום הדיאגנוסטי נכשל – נכשיל את הטסט כדי לא להסתיר תקלה אמיתית
             raise
 
+# Community Library API/UI (feature-flagged)
+try:
+    _enabled_comm = True if _cfg is None else bool(getattr(_cfg, 'COMMUNITY_LIBRARY_ENABLED', True))
+    if _IS_PYTEST:
+        _enabled_comm = True
+    if _enabled_comm:
+        try:
+            from webapp.community_library_api import community_lib_bp  # type: ignore  # noqa: E402
+            app.register_blueprint(community_lib_bp)
+        except Exception as _e:
+            try:
+                logger.info("community_library_api not registered: %s", _e)
+            except Exception:
+                pass
+        try:
+            from webapp.community_library_ui import community_library_ui  # type: ignore  # noqa: E402
+            app.register_blueprint(community_library_ui)
+        except Exception as _e:
+            try:
+                logger.info("community_library_ui not registered: %s", _e)
+            except Exception:
+                pass
+except Exception:
+    pass
+
 # --- Metrics helpers (import guarded to avoid hard deps in docs/CI) ---
 try:
     from metrics import (
