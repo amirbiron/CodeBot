@@ -74,6 +74,35 @@ def test_http_sync_request_records_attributes(monkeypatch):
     assert any(key == "retry_count" and value == 2 for key, value in attr_pairs)
 
 
+def test_http_sync_request_reports_combined_retry_count(monkeypatch):
+    events = _install_span_stubs(monkeypatch)
+
+    class _Session:
+        def __init__(self) -> None:
+            self.calls = 0
+
+        def request(self, *args, **kwargs):
+            self.calls += 1
+            if self.calls == 1:
+                return _DummyResponse(status_code=502, history_len=3)
+            if self.calls == 2:
+                return _DummyResponse(status_code=502, history_len=1)
+            return _DummyResponse(status_code=200, history_len=0)
+
+    import http_sync
+
+    session = _Session()
+    monkeypatch.setattr(http_sync, "get_session", lambda: session, raising=False)
+    monkeypatch.setattr(http_sync, "_sleep_with_backoff", lambda *a, **k: None, raising=False)
+
+    resp = http_sync.request("GET", "https://example.com/resource", max_attempts=3)
+    assert resp.status_code == 200
+    assert session.calls == 3
+
+    attr_pairs = [(key, value) for kind, key, value in (evt for evt in events if evt[0] == "attr")]
+    assert ("retry_count", 5) in attr_pairs
+
+
 def test_http_sync_request_propagates_exceptions(monkeypatch):
     events = _install_span_stubs(monkeypatch)
 

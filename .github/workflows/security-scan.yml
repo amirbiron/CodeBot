@@ -15,7 +15,7 @@ concurrency:
 
 jobs:
   security-scan:
-    name: "🛡️ Security Analysis"
+    name: "🛡️ Security Analysis (heavy)"
     runs-on: ubuntu-latest
     continue-on-error: true
     permissions:
