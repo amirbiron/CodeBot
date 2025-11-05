@@ -100,6 +100,46 @@ async def test_show_backups_list_empty_back_targets(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_show_backups_list_repo_filter_empty(monkeypatch):
+    import backup_menu_handler as bmh
+
+    handler = bmh.BackupMenuHandler()
+
+    # Return backups that do NOT match the requested repo
+    infos = [
+        _make_backup_info(backup_id="b_other", repo="owner/other"),
+        _make_backup_info(backup_id="b_other2", repo="owner/another"),
+    ]
+    monkeypatch.setattr(bmh, "backup_manager", types.SimpleNamespace(list_backups=lambda uid: infos))
+
+    class _Q:
+        def __init__(self):
+            self.from_user = types.SimpleNamespace(id=77)
+            self.edited = []
+        async def answer(self, *a, **k):
+            return None
+        async def edit_message_text(self, text, reply_markup=None):
+            self.edited.append((text, reply_markup))
+
+    class _Upd:
+        def __init__(self):
+            self.callback_query = _Q()
+            self.effective_user = types.SimpleNamespace(id=77)
+
+    class _Ctx:
+        def __init__(self):
+            self.user_data = {"github_backup_context_repo": "owner/target"}
+
+    upd, ctx = _Upd(), _Ctx()
+    await handler._show_backups_list(upd, ctx)
+    text, markup = upd.callback_query.edited[-1]
+    # Expect repo-specific empty state, not a list of all backups
+    assert "לא נמצאו גיבויים עבור הריפו" in text
+    assert "owner/target" in text
+    # Back button should lead to GitHub backup menu in repo context
+    assert markup.inline_keyboard[-1][0].callback_data == "github_backup_menu"
+
+@pytest.mark.asyncio
 async def test_delete_mode_toggle_selection_and_execute(monkeypatch):
     import backup_menu_handler as bmh
 
