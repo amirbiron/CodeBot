@@ -587,8 +587,9 @@ class CacheManager:
                 )
             }
         except Exception as e:
+            # נרשום את החריגה בלוגים אך לא נחשוף פרטים ללקוח
             logger.error(f"שגיאה בקבלת סטטיסטיקות cache: {e}")
-            return {"enabled": True, "error": str(e)}
+            return {"enabled": True, "error": "unavailable"}
 
 
 # ===================== Flask dynamic cache decorator =====================
