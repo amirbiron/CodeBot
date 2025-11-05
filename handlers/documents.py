@@ -588,7 +588,7 @@ class DocumentHandler:
             file_bytes.seek(0)
             raw_bytes = file_bytes.read()
 
-            self._maybe_store_zip_copy(update, context, document, raw_bytes)
+            await self._maybe_store_zip_copy(update, context, document, raw_bytes)
 
             content, detected_encoding = self._decode_bytes(raw_bytes)
             if content is None:
@@ -659,7 +659,13 @@ class DocumentHandler:
                 return content, encoding
         return None, None
 
-    def _maybe_store_zip_copy(self, update: Update, context: ContextTypes.DEFAULT_TYPE, document, raw_bytes: bytes) -> None:
+    async def _maybe_store_zip_copy(
+        self,
+        update: Update,
+        context: ContextTypes.DEFAULT_TYPE,
+        document,
+        raw_bytes: bytes,
+    ) -> None:
         try:
             is_zip_hint = ((document.mime_type or "").lower() == "application/zip") or (
                 (document.file_name or "").lower().endswith(".zip")
