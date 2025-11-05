@@ -14,8 +14,10 @@ import asyncio
 from datetime import datetime
 
 import signal
+import socket
 import sys
 import time
+from urllib.parse import urlparse
 try:
     import pymongo
     _HAS_PYMONGO = True
@@ -89,10 +91,14 @@ from rate_limiter import RateLimiter
 try:
     # Optional advanced limits backend (limits + Redis)
     from limits import RateLimitItemPerMinute
-    from limits.storage import RedisStorage
+    from limits.storage import RedisStorage, MemoryStorage
     from limits.strategies import MovingWindowRateLimiter
     _LIMITS_AVAILABLE = True
 except Exception:
+    RateLimitItemPerMinute = None  # type: ignore[assignment]
+    RedisStorage = None  # type: ignore[assignment]
+    MemoryStorage = None  # type: ignore[assignment]
+    MovingWindowRateLimiter = None  # type: ignore[assignment]
     _LIMITS_AVAILABLE = False
 from database import CodeSnippet, DatabaseManager, db
 from services import code_service as code_processor
@@ -186,6 +192,82 @@ except Exception:
     pass
 
 logger = logging.getLogger(__name__)
+
+def _redis_socket_available(redis_url: str, timeout: float = 0.25) -> bool:
+    """
+    בדיקת reachability בסיסית ל-Redis כדי להימנע מהמתנה ארוכה בזמן טסטים/CI.
+
+    אם לא ניתן להגיע ל-Redis במהירות, נחזור False ונשתמש בפולבק.
+    """
+    if not redis_url:
+        return False
+    try:
+        parsed = urlparse(str(redis_url))
+    except Exception:
+        return False
+
+    scheme = (parsed.scheme or "").lower()
+    default_ports = {
+        "redis": 6379,
+        "rediss": 6379,
+        "redis+sentinel": 26379,
+    }
+    default_port = default_ports.get(scheme)
+    if default_port is None:
+        return False
+
+    host = parsed.hostname
+    try:
+        port = parsed.port
+    except ValueError:
+        port = None
+
+    if host is None:
+        netloc = parsed.netloc
+        if not netloc:
+            return False
+        if "@" in netloc:
+            netloc = netloc.split("@", 1)[1]
+        first_endpoint = netloc.split(",", 1)[0]
+        first_endpoint = first_endpoint.strip()
+        if not first_endpoint:
+            return False
+        if first_endpoint.startswith("[") and "]" in first_endpoint:
+            end_idx = first_endpoint.find("]")
+            host = first_endpoint[1:end_idx]
+            remainder = first_endpoint[end_idx + 1:]
+            if remainder.startswith(":"):
+                try:
+                    port = int(remainder[1:])
+                except ValueError:
+                    port = None
+        else:
+            if ":" in first_endpoint:
+                host_part, port_part = first_endpoint.rsplit(":", 1)
+                host = host_part
+                try:
+                    port = int(port_part)
+                except ValueError:
+                    port = None
+            else:
+                host = first_endpoint
+
+    if not host:
+        return False
+
+    port = port or default_port
+    if not port:
+        return False
+
+    try:
+        sock = socket.create_connection((host, int(port)), timeout=timeout)
+    except Exception:
+        return False
+    try:
+        sock.close()
+    except Exception:
+        pass
+    return True
 
 # הבטחת לולאת asyncio כברירת מחדל (תמיכה ב-Python 3.11 בסביבת טסטים)
 # מתקין Policy חסין שמייצר לולאה חדשה אם אין אחת זמינה, גם אם asyncio.run() ניקה את הלולאה.
@@ -863,20 +945,61 @@ class CodeKeeperBot:
         # Rate limiter instance (לאחר בניית האפליקציה)
         try:
             self._rate_limiter = RateLimiter(max_per_minute=int(getattr(config, 'RATE_LIMIT_PER_MINUTE', 30) or 30))
-            # If advanced backend available and REDIS_URL configured, enable shadow-mode counters
+            # הגדרת דגל shadow כברירת מחדל (גם אם אין מגביל מתקדם)
+            self._shadow_mode = bool(getattr(config, 'RATE_LIMIT_SHADOW_MODE', False))
+            # אתחול משתנים כדי למנוע AttributeError downstream
             self._advanced_limiter = None
+            self._limits_storage = None
+            self._per_user_global = None
+
             if _LIMITS_AVAILABLE:
                 try:
                     redis_url = getattr(config, 'REDIS_URL', None) or os.getenv('REDIS_URL')
+                    storage = None
+                    use_memory_fallback = False
+
                     if redis_url:
-                        self._limits_storage = RedisStorage(str(redis_url))
-                        self._advanced_limiter = MovingWindowRateLimiter(self._limits_storage)
+                        # ודא חיבור מהיר ל-Redis; אם נכשל, נשתמש ב-MemoryStorage כדי למנוע TIMEOUT בטסטים
+                        connect_timeout = getattr(config, 'REDIS_CONNECT_TIMEOUT', None)
+                        try:
+                            connect_timeout = float(connect_timeout) if connect_timeout is not None else 0.25
+                        except Exception:
+                            connect_timeout = 0.25
+                        connect_timeout = max(0.05, connect_timeout)
+
+                        if _redis_socket_available(str(redis_url), timeout=connect_timeout):
+                            try:
+                                storage = RedisStorage(str(redis_url))
+                            except Exception:
+                                storage = None
+                                use_memory_fallback = True
+                        else:
+                            use_memory_fallback = True
+
+                        if use_memory_fallback and storage is None:
+                            try:
+                                logger.warning(
+                                    "Redis advanced limiter לא נגיש – מעבר ל-MemoryStorage",
+                                    extra={"redis_url": str(redis_url)},
+                                )
+                            except Exception:
+                                pass
+
+                    if storage is None and redis_url and use_memory_fallback and MemoryStorage is not None:
+                        try:
+                            storage = MemoryStorage()
+                        except Exception:
+                            storage = None
+
+                    if storage is not None:
+                        self._limits_storage = storage
+                        self._advanced_limiter = MovingWindowRateLimiter(storage)
                         self._per_user_global = RateLimitItemPerMinute(50)
-                        self._shadow_mode = bool(getattr(config, 'RATE_LIMIT_SHADOW_MODE', False))
                 except Exception:
                     self._advanced_limiter = None
         except Exception:
             self._rate_limiter = RateLimiter(max_per_minute=30)
+            self._shadow_mode = False
 
         # חשיפה גלובלית של האובייקט הנוכחי עבור main()/טסטים
         try:
