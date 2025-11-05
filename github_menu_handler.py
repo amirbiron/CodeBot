@@ -253,6 +253,35 @@ class GitHubMenuHandler:
             return self._to_utc_aware(parsed)
         return None
 
+    def _cache_recent_backup(
+        self,
+        context: ContextTypes.DEFAULT_TYPE,
+        *,
+        backup_id: Optional[str],
+        repo_full_name: Optional[str],
+        path: str,
+        file_count: int,
+        total_size: int,
+        created_at: Optional[str],
+    ) -> None:
+        if not backup_id:
+            return
+        try:
+            cache = context.user_data.setdefault("_recent_backups", {})
+            entry = {
+                "file_path": os.path.join(str(backup_manager.backup_dir), f"{backup_id}.zip"),
+                "repo": repo_full_name,
+                "path": path,
+                "file_count": file_count,
+                "total_size": total_size,
+                "created_at": created_at,
+            }
+            cache[backup_id] = entry
+            while len(cache) > 10:
+                cache.pop(next(iter(cache)))
+        except Exception:
+            pass
+
     async def show_browse_ref_menu(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """תפריט בחירת ref (ענף/תג) עם עימוד וטאבים."""
         query = update.callback_query
@@ -2396,6 +2425,8 @@ class GitHubMenuHandler:
                                 pass
                             raise
 
+                            self._cache_recent_backup(context, backup_id=metadata.get("backup_id"), repo_full_name=repo.full_name, path=current_path or "", file_count=file_count, total_size=total_bytes, created_at=metadata.get("created_at"))
+
                         # שם ידידותי ושליחה/קישור
                         try:
                             infos = backup_manager.list_backups(user_id)
@@ -2613,6 +2644,7 @@ class GitHubMenuHandler:
                 # שמור גיבוי (Mongo/FS בהתאם לקונפיג)
                 try:
                     backup_manager.save_backup_bytes(zip_buffer.getvalue(), metadata)
+                    self._cache_recent_backup(context, backup_id=metadata.get("backup_id"), repo_full_name=repo.full_name, path=current_path or "", file_count=total_files, total_size=total_bytes, created_at=metadata.get("created_at"))
                 except Exception as e:
                     logger.warning(f"Failed to persist GitHub ZIP: {e}")
                     try:
