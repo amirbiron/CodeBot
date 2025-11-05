@@ -30,7 +30,8 @@ def _api_base() -> str:
 def is_configured() -> bool:
     token = os.getenv("SENTRY_AUTH_TOKEN")
     org = os.getenv("SENTRY_ORG") or os.getenv("SENTRY_ORG_SLUG")
-    return bool(token and org and aiohttp is not None)
+    # http_async.request handles the calls when aiohttp is unavailable, so env vars are enough.
+    return bool(token and org)
 
 
 async def _get(path: str, params: Optional[Dict[str, Any]] = None) -> Any:
