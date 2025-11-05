@@ -889,6 +889,30 @@ class BackupManager:
                                     total_size = p.stat().st_size
                                 except Exception:
                                     total_size = 0
+                                # ודא שייכות למשתמש גם במצב תאימות: מטאדטה או דפוס שם המכיל את המזהה
+                                owner_ok = False
+                                try:
+                                    if metadata is not None:
+                                        u = metadata.get('user_id')
+                                        if isinstance(u, int) and int(u) == int(user_id):
+                                            owner_ok = True
+                                        elif isinstance(u, str) and u.isdigit() and int(u) == int(user_id):
+                                            owner_ok = True
+                                except Exception:
+                                    owner_ok = False
+                                if not owner_ok:
+                                    try:
+                                        base = os.path.splitext(os.path.basename(p))[0]
+                                        # חפש את user_id כמילה/חלק מופרד בקו תחתון
+                                        m = re.search(rf"(?:^|_)({int(user_id)})($|_|\b)", base)
+                                        if m:
+                                            owner_ok = True
+                                    except Exception:
+                                        owner_ok = False
+                                if not owner_ok:
+                                    # ללא הוכחת בעלות — אל תציג כדי למנוע זליגה
+                                    continue
+
                                 backups.append(BackupInfo(
                                     backup_id=backup_id,
                                     user_id=int(user_id),
