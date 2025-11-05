@@ -1248,6 +1248,18 @@
     <script>
         // Work State persistence: שמירת URL וגלילה לשחזור מצב עבודה
         (function workStatePersistence(){
+            // ב-WebView/Android/מצב קל – נטרל שחזור מצב כדי למנוע לולאות/קפיצות
+            try {
+                var ua = String(navigator.userAgent || '').toLowerCase();
+                var isAndroid = /android/.test(ua);
+                var isTelegram = !!(window.Telegram && window.Telegram.WebApp);
+                var paramsNR = new URLSearchParams(window.location.search || '');
+                var noRestoreParam = paramsNR.get('no_restore') === '1';
+                var isLiteMode = document.body.classList.contains('reduce-effects');
+                if (isAndroid || isTelegram || noRestoreParam || isLiteMode) {
+                    return; // השבתה מלאה של מנגנון השחזור בסביבה רגישה
+                }
+            } catch(_) {}
             const STORAGE_KEY = 'work_state';
             function loadState(){ try { return JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}'); } catch(_) { return {}; } }
             function saveState(s){ try { localStorage.setItem(STORAGE_KEY, JSON.stringify(s || {})); } catch(_) {} }
