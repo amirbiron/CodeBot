@@ -686,10 +686,15 @@ async def show_all_files(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             [InlineKeyboardButton("📁 שאר הקבצים", callback_data="show_regular_files")],
             [InlineKeyboardButton("⭐ מועדפים", callback_data="show_favorites")],
             [InlineKeyboardButton("🗑️ סל מיחזור", callback_data="recycle_bin")],
-            # Community library shortcuts
-            [InlineKeyboardButton("📙 ספריית קהילה (Web)", url=f"{os.getenv('WEBAPP_URL', 'https://code-keeper-webapp.onrender.com')}/community-library")],
-            [InlineKeyboardButton("➕ הוסף מוצר משלך", callback_data="community_submit")],
         ]
+        # Community library shortcuts – only if feature is enabled
+        try:
+            enabled_comm = bool(getattr(config, 'COMMUNITY_LIBRARY_ENABLED', True))
+        except Exception:
+            enabled_comm = True
+        if enabled_comm:
+            keyboard.append([InlineKeyboardButton("📙 ספריית קהילה (Web)", url=f"{os.getenv('WEBAPP_URL', 'https://code-keeper-webapp.onrender.com')}/community-library")])
+            keyboard.append([InlineKeyboardButton("➕ הוסף מוצר משלך", callback_data="community_submit")])
         reply_markup = InlineKeyboardMarkup(keyboard)
         await update.message.reply_text(
             "בחר/י דרך להצגת הקבצים:",
@@ -757,9 +762,14 @@ async def show_all_files_callback(update: Update, context: ContextTypes.DEFAULT_
             [InlineKeyboardButton("📁 שאר הקבצים", callback_data="show_regular_files")],
             [InlineKeyboardButton("⭐ מועדפים", callback_data="show_favorites")],
             [InlineKeyboardButton("🗑️ סל מיחזור", callback_data="recycle_bin")],
-            [InlineKeyboardButton("📙 ספריית קהילה (Web)", url=f"{os.getenv('WEBAPP_URL', 'https://code-keeper-webapp.onrender.com')}/community-library")],
-            [InlineKeyboardButton("➕ הוסף מוצר משלך", callback_data="community_submit")],
         ]
+        try:
+            enabled_comm = bool(getattr(config, 'COMMUNITY_LIBRARY_ENABLED', True))
+        except Exception:
+            enabled_comm = True
+        if enabled_comm:
+            keyboard.append([InlineKeyboardButton("📙 ספריית קהילה (Web)", url=f"{os.getenv('WEBAPP_URL', 'https://code-keeper-webapp.onrender.com')}/community-library")])
+            keyboard.append([InlineKeyboardButton("➕ הוסף מוצר משלך", callback_data="community_submit")])
         reply_markup = InlineKeyboardMarkup(keyboard)
         await TelegramUtils.safe_edit_message_text(
             query,
@@ -847,6 +857,7 @@ async def community_collect_logo(update: Update, context: ContextTypes.DEFAULT_T
         url=payload.get('url',''),
         user_id=int(user.id),
         username=getattr(user, 'username', None),
+        logo_file_id=payload.get('logo_file_id'),
         tags=None,
         featured=False,
     )

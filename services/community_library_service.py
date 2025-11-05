@@ -113,14 +113,19 @@ def submit_item(
     }
     coll = _coll()
     try:
-        res = coll.insert_one(doc) if coll is not None else None
+        if coll is None:
+            emit_event("community_submit_error", severity="warn", error="db_unavailable")
+            return {"ok": False, "error": "database_unavailable"}
+        res = coll.insert_one(doc)
         item_id = getattr(res, 'inserted_id', None)
+        if not item_id:
+            emit_event("community_submit_error", severity="warn", error="no_inserted_id")
+            return {"ok": False, "error": "persist_failed"}
         emit_event("community_item_submitted", severity="info", user_id=int(user_id))
-        return {"ok": True, "id": str(item_id) if item_id else None}
+        return {"ok": True, "id": str(item_id)}
     except Exception as e:  # pragma: no cover - no-op envs
         emit_event("community_submit_error", severity="warn", error=str(e))
-        # Fail-open: report success in environments without DB
-        return {"ok": True, "id": None}
+        return {"ok": False, "error": "persist_failed"}
 
 
 def approve_item(item_id: str, admin_id: int) -> bool:

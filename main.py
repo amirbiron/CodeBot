@@ -1613,39 +1613,44 @@ class CodeKeeperBot:
 
         # --- Community Library handlers ---
         try:
-            from conversation_handlers import (
-                community_submit_start,
-                community_collect_title,
-                community_collect_description,
-                community_collect_url,
-                community_collect_logo,
-                community_inline_approve,
-            )
-            from handlers.states import (
-                CL_COLLECT_TITLE,
-                CL_COLLECT_DESCRIPTION,
-                CL_COLLECT_URL,
-                CL_COLLECT_LOGO,
-            )
-            # Approve via inline button (admin-only wrapper inside function)
-            self.application.add_handler(CallbackQueryHandler(community_inline_approve, pattern=r'^community_approve:'))
-            # Submission flow
-            comm_conv = ConversationHandler(
-                entry_points=[CallbackQueryHandler(community_submit_start, pattern=r'^community_submit$')],
-                states={
-                    CL_COLLECT_TITLE: [MessageHandler(filters.TEXT & ~filters.COMMAND, community_collect_title)],
-                    CL_COLLECT_DESCRIPTION: [MessageHandler(filters.TEXT & ~filters.COMMAND, community_collect_description)],
-                    CL_COLLECT_URL: [MessageHandler(filters.TEXT & ~filters.COMMAND, community_collect_url)],
-                    CL_COLLECT_LOGO: [MessageHandler((filters.PHOTO | filters.TEXT) & ~filters.COMMAND, community_collect_logo)],
-                },
-                fallbacks=[CommandHandler('cancel', lambda u, c: ConversationHandler.END)],
-            )
-            self.application.add_handler(comm_conv)
-        except Exception as _e:
+            enabled_comm = bool(getattr(config, 'COMMUNITY_LIBRARY_ENABLED', True))
+        except Exception:
+            enabled_comm = True
+        if enabled_comm:
             try:
-                logger.info("Community library handlers not registered: %s", _e)
-            except Exception:
-                pass
+                from conversation_handlers import (
+                    community_submit_start,
+                    community_collect_title,
+                    community_collect_description,
+                    community_collect_url,
+                    community_collect_logo,
+                    community_inline_approve,
+                )
+                from handlers.states import (
+                    CL_COLLECT_TITLE,
+                    CL_COLLECT_DESCRIPTION,
+                    CL_COLLECT_URL,
+                    CL_COLLECT_LOGO,
+                )
+                # Approve via inline button (admin-only wrapper inside function)
+                self.application.add_handler(CallbackQueryHandler(community_inline_approve, pattern=r'^community_approve:'))
+                # Submission flow
+                comm_conv = ConversationHandler(
+                    entry_points=[CallbackQueryHandler(community_submit_start, pattern=r'^community_submit$')],
+                    states={
+                        CL_COLLECT_TITLE: [MessageHandler(filters.TEXT & ~filters.COMMAND, community_collect_title)],
+                        CL_COLLECT_DESCRIPTION: [MessageHandler(filters.TEXT & ~filters.COMMAND, community_collect_description)],
+                        CL_COLLECT_URL: [MessageHandler(filters.TEXT & ~filters.COMMAND, community_collect_url)],
+                        CL_COLLECT_LOGO: [MessageHandler((filters.PHOTO | filters.TEXT) & ~filters.COMMAND, community_collect_logo)],
+                    },
+                    fallbacks=[CommandHandler('cancel', lambda u, c: ConversationHandler.END)],
+                )
+                self.application.add_handler(comm_conv)
+            except Exception as _e:
+                try:
+                    logger.info("Community library handlers not registered: %s", _e)
+                except Exception:
+                    pass
 
         # הוספת Refactoring handlers (אם זמינים)
         try:
@@ -1674,12 +1679,17 @@ class CodeKeeperBot:
         self.application.add_handler(CommandHandler("recycle_backfill", recycle_backfill_command))
         # פקודות מנהלי ספריית קהילה
         try:
-            from conversation_handlers import community_queue_command, community_approve_command, community_reject_command
-            self.application.add_handler(CommandHandler("community_queue", community_queue_command))
-            self.application.add_handler(CommandHandler("community_approve", community_approve_command))
-            self.application.add_handler(CommandHandler("community_reject", community_reject_command))
+            enabled_comm = bool(getattr(config, 'COMMUNITY_LIBRARY_ENABLED', True))
         except Exception:
-            pass
+            enabled_comm = True
+        if enabled_comm:
+            try:
+                from conversation_handlers import community_queue_command, community_approve_command, community_reject_command
+                self.application.add_handler(CommandHandler("community_queue", community_queue_command))
+                self.application.add_handler(CommandHandler("community_approve", community_approve_command))
+                self.application.add_handler(CommandHandler("community_reject", community_reject_command))
+            except Exception:
+                pass
         # הפקודה /start המקורית הופכת להיות חלק מה-conv_handler, אז היא לא כאן.
         self.application.add_handler(CommandHandler("help", self.help_command))
         self.application.add_handler(CommandHandler("save", self.save_command))
