@@ -159,7 +159,7 @@ class BackupMenuHandler:
         if user_id not in self.user_sessions:
             self.user_sessions[user_id] = {}
         return self.user_sessions[user_id]
-    
+
     async def show_backup_menu(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         query = update.callback_query if update.callback_query else None
         if query:
