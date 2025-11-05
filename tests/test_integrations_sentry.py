@@ -3,6 +3,7 @@ import types
 import pytest
 
 import integrations_sentry as sc
+import http_async as ha
 
 
 class _Resp:
@@ -15,6 +16,8 @@ class _Resp:
         return False
     async def json(self):
         return self._data
+    async def release(self):
+        return None
 
 
 class _Session:
@@ -70,10 +73,22 @@ async def test_is_configured_and_fallback(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_get_recent_issues_and_search_and_issue_events(monkeypatch):
-    # Configure env and stub aiohttp
+    # Configure env and stub request context
     monkeypatch.setenv("SENTRY_AUTH_TOKEN", "t")
     monkeypatch.setenv("SENTRY_ORG", "org1")
-    monkeypatch.setattr(sc, "aiohttp", _Aiohttp, raising=False)
+
+    class _Ctx:
+        def __init__(self, resp):
+            self._resp = resp
+        async def __aenter__(self):
+            return self._resp
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+    def _fake_request(method, url, **kwargs):
+        return _Ctx(_Session().get(url, **kwargs))
+
+    monkeypatch.setattr(ha, "request", _fake_request, raising=False)
 
     issues = await sc.get_recent_issues(limit=5)
     assert issues and issues[0]["shortId"] == "S-1"

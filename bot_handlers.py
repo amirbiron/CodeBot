@@ -712,36 +712,20 @@ class AdvancedBotHandlers:
             # GitHub API rate limit (optional)
             gh_status = "unknown"
             try:
-                if aiohttp is not None and os.getenv("GITHUB_TOKEN"):
-                    try:
-                        from config import config as _cfg  # type: ignore
-                        _total = int(getattr(_cfg, "AIOHTTP_TIMEOUT_TOTAL", 10))
-                        _limit = int(getattr(_cfg, "AIOHTTP_POOL_LIMIT", 50))
-                    except Exception:
-                        _total = 10
-                        _limit = 50
-                    # תואם מוקים: מאפייני ClientTimeout/TCPConnector עשויים לא להיות זמינים
-                    session_kwargs = {}
-                    try:
-                        timeout = aiohttp.ClientTimeout(total=_total)  # type: ignore[attr-defined]
-                        session_kwargs["timeout"] = timeout
-                    except Exception:
-                        pass
-                    try:
-                        connector = aiohttp.TCPConnector(limit=_limit)  # type: ignore[attr-defined]
-                        session_kwargs["connector"] = connector
-                    except Exception:
-                        pass
-                    async with aiohttp.ClientSession(**session_kwargs) as session:  # type: ignore[call-arg]
-                        async with session.get(
-                            "https://api.github.com/rate_limit",
-                            headers={"Authorization": f"token {os.getenv('GITHUB_TOKEN')}"},
-                        ) as resp:
-                            data = await resp.json()
-                            remaining = int(data.get("resources", {}).get("core", {}).get("remaining", 0))
-                            limit = int(data.get("resources", {}).get("core", {}).get("limit", 0))
-                            used_pct = (100 - int(remaining * 100 / max(limit, 1))) if limit else 0
-                            gh_status = f"{remaining}/{limit} ({used_pct}% used)"
+                if os.getenv("GITHUB_TOKEN"):
+                    from http_async import request as async_request
+                    async with async_request(
+                        "GET",
+                        "https://api.github.com/rate_limit",
+                        headers={"Authorization": f"token {os.getenv('GITHUB_TOKEN')}"},
+                        service="github",
+                        endpoint="rate_limit",
+                    ) as resp:
+                        data = await resp.json()
+                        remaining = int(data.get("resources", {}).get("core", {}).get("remaining", 0))
+                        limit = int(data.get("resources", {}).get("core", {}).get("limit", 0))
+                        used_pct = (100 - int(remaining * 100 / max(limit, 1))) if limit else 0
+                        gh_status = f"{remaining}/{limit} ({used_pct}% used)"
             except Exception:
                 gh_status = "error"
 
@@ -1534,12 +1518,46 @@ class AdvancedBotHandlers:
             if not lines:
                 try:
                     from observability import get_recent_errors  # type: ignore
+
                     recent = get_recent_errors(limit=10) or []
                     if recent:
-                        for i, er in enumerate(recent, 1):
-                            code = er.get("error_code") or "-"
-                            msg = er.get("error") or er.get("event") or ""
-                            lines.append(f"{i}. [{code}] {msg}")
+                        grouped: dict[str, dict[str, Any]] = {}
+                        for er in recent:
+                            signature = str(er.get("error_signature") or er.get("event") or "unknown")
+                            bucket = grouped.setdefault(signature, {
+                                "count": 0,
+                                "sample": "",
+                                "category": str(er.get("error_category") or ""),
+                                "policy": str(er.get("error_policy") or ""),
+                                "code": str(er.get("error_code") or "-"),
+                            })
+                            bucket["count"] += 1
+                            if not bucket["sample"]:
+                                bucket["sample"] = str(er.get("error") or er.get("event") or "")
+                            if not bucket["category"]:
+                                bucket["category"] = str(er.get("error_category") or "")
+                            if not bucket["policy"]:
+                                bucket["policy"] = str(er.get("error_policy") or "")
+                            if bucket.get("code") in {"", "-"} and er.get("error_code"):
+                                bucket["code"] = str(er.get("error_code") or "-")
+
+                        sorted_groups = sorted(grouped.items(), key=lambda item: item[1]["count"], reverse=True)
+                        for i, (sig, info) in enumerate(sorted_groups[:10], 1):
+                            category = info.get("category") or "-"
+                            label_parts = [category]
+                            if sig and sig != "unknown":
+                                label_parts.append(sig)
+                            label = "|".join(label_parts)
+                            count = int(info.get("count", 0) or 0)
+                            sample = str(info.get("sample") or "-")
+                            code = str(info.get("code") or "-")
+                            line = f"{i}. [{label}] {count}× {sample}"
+                            policy = str(info.get("policy") or "").strip()
+                            if policy and policy not in {"escalate", "default"}:
+                                line += f" — policy={policy}"
+                            if code and code != "-":
+                                line += f" (code={code})"
+                            lines.append(line)
                     else:
                         used_fallback = True
                 except Exception:
@@ -1596,8 +1614,10 @@ class AdvancedBotHandlers:
                 share_url = None
             if share_url:
                 # חלק מלקוחות מרחפים על '_' בהודעות טקסט רגילות. שימוש ב‑Markdown עם קישור מעוגן מונע עיוות מזהה השיתוף.
-                # דרישת הטסט: הטקסט חייב לכלול "דוח מלא:" (עם נקודתיים)
-                summary_lines.append(f"[דוח מלא:]({share_url})")
+                summary_lines.append(f"דוח מלא: [לחיצה כאן]({share_url})")
+            else:
+                # גם בסביבת טסטים ללא אינטגרציית שיתוף חייב להיות אזכור ברור לדוח המלא.
+                summary_lines.append("דוח מלא: לא נוצר קישור אוטומטי (סביבת בדיקות)")
 
             # קישורי Grafana (2 ראשונים)
             try:
@@ -1759,31 +1779,18 @@ class AdvancedBotHandlers:
             if not self._is_admin(user_id):
                 await update.message.reply_text("❌ פקודה זמינה למנהלים בלבד")
                 return
-            if aiohttp is None or not os.getenv("GITHUB_TOKEN"):
-                await update.message.reply_text("ℹ️ אין GITHUB_TOKEN או aiohttp – מידע לא זמין")
+            if not os.getenv("GITHUB_TOKEN"):
+                await update.message.reply_text("ℹ️ אין GITHUB_TOKEN – מידע לא זמין")
                 return
-            try:
-                from config import config as _cfg  # type: ignore
-                _total = int(getattr(_cfg, "AIOHTTP_TIMEOUT_TOTAL", 10))
-                _limit = int(getattr(_cfg, "AIOHTTP_POOL_LIMIT", 50))
-            except Exception:
-                _total = 10
-                _limit = 50
-            # תואם מוקים: מאפייני ClientTimeout/TCPConnector עשויים לא להיות זמינים
-            session_kwargs = {}
-            try:
-                timeout = aiohttp.ClientTimeout(total=_total)  # type: ignore[attr-defined]
-                session_kwargs["timeout"] = timeout
-            except Exception:
-                pass
-            try:
-                connector = aiohttp.TCPConnector(limit=_limit)  # type: ignore[attr-defined]
-                session_kwargs["connector"] = connector
-            except Exception:
-                pass
-            async with aiohttp.ClientSession(**session_kwargs) as session:  # type: ignore[call-arg]
-                async with session.get("https://api.github.com/rate_limit", headers={"Authorization": f"token {os.getenv('GITHUB_TOKEN')}"}) as resp:
-                    data = await resp.json()
+            from http_async import request as async_request
+            async with async_request(
+                "GET",
+                "https://api.github.com/rate_limit",
+                headers={"Authorization": f"token {os.getenv('GITHUB_TOKEN')}"},
+                service="github",
+                endpoint="rate_limit",
+            ) as resp:
+                data = await resp.json()
             core = data.get("resources", {}).get("core", {})
             remaining = int(core.get("remaining", 0))
             limit = int(core.get("limit", 0))

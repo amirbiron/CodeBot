@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta
+import re
 from zoneinfo import ZoneInfo
 from typing import Optional
 
@@ -11,7 +12,9 @@ def parse_time(text: str, user_tz: str) -> Optional[datetime]:
     Supports:
     - "tomorrow HH:MM"
     - "HH:MM" (today)
-    - "in X hours" / "בעוד X שעות"
+    - "in X hours" / "בעוד X שעות" / "בעוד שעה"
+    - "in X minutes" / "בעוד X דקות" / "בעוד דקה"
+    - "בעוד רבע שעה" (15 דקות) / "בעוד חצי שעה" (30 דקות)
     - ISO-like "YYYY-MM-DD HH:MM"
     """
     try:
@@ -37,21 +40,33 @@ def parse_time(text: str, user_tz: str) -> Optional[datetime]:
                 dt = dt + timedelta(days=1)
             return dt
 
-        # in X hours
-        if text.lower().startswith("in ") and "hour" in text.lower():
-            try:
-                num = int("".join([c for c in text if c.isdigit()]))
-                return now + timedelta(hours=num)
-            except Exception:
-                pass
+        # Hebrew specific quick phrases first
+        if re.match(r"^בעוד\s+רבע\s+שעה\s*$", text):
+            return now + timedelta(minutes=15)
+        if re.match(r"^בעוד\s+חצי\s+שעה\s*$", text):
+            return now + timedelta(minutes=30)
 
-        # בעידן X שעות
-        if text.startswith("בעוד") and "שעות" in text:
-            try:
-                num = int("".join([c for c in text if c.isdigit()]))
-                return now + timedelta(hours=num)
-            except Exception:
-                pass
+        # Hebrew minutes: "בעוד X דקות" or "בעוד דקה"
+        m = re.match(r"^בעוד\s+(\d+)\s*דקות?\s*$", text)
+        if m:
+            return now + timedelta(minutes=int(m.group(1)))
+        if re.match(r"^בעוד\s+דקה\s*$", text):
+            return now + timedelta(minutes=1)
+
+        # Hebrew hours: "בעוד X שעות" or "בעוד שעה"
+        m = re.match(r"^בעוד\s+(\d+)\s*שעות?\s*$", text)
+        if m:
+            return now + timedelta(hours=int(m.group(1)))
+        if re.match(r"^בעוד\s+שעה\s*$", text):
+            return now + timedelta(hours=1)
+
+        # English minutes/hours: "in X minutes/hours"
+        m = re.match(r"^in\s+(\d+)\s*minutes?\s*$", text, flags=re.IGNORECASE)
+        if m:
+            return now + timedelta(minutes=int(m.group(1)))
+        m = re.match(r"^in\s+(\d+)\s*hours?\s*$", text, flags=re.IGNORECASE)
+        if m:
+            return now + timedelta(hours=int(m.group(1)))
 
         # ISO-like
         for fmt in ("%Y-%m-%d %H:%M", "%Y/%m/%d %H:%M"):

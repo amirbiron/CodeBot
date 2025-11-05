@@ -39,7 +39,7 @@ async def test_rate_limit_command_happy_path(monkeypatch):
     import bot_handlers as bh
     importlib.reload(bh)
 
-    # Provide token and stub aiohttp; mark user as admin
+    # Provide token and stub session; mark user as admin
     monkeypatch.setenv('GITHUB_TOKEN', 't')
     monkeypatch.setattr(bh.AdvancedBotHandlers, '_is_admin', lambda self, uid: True)
 
@@ -53,25 +53,26 @@ async def test_rate_limit_command_happy_path(monkeypatch):
             return self
         async def __aexit__(self, exc_type, exc, tb):
             return False
+        async def release(self):
+            return None
 
-    class _Sess:
-        def __init__(self, *a, **k):
-            pass
+    class _Ctx:
+        def __init__(self, resp):
+            self._resp = resp
         async def __aenter__(self):
-            return self
+            return self._resp
         async def __aexit__(self, exc_type, exc, tb):
             return False
-        def get(self, *a, **k):
-            # 80% used -> should warn in message
-            return _Resp({
-                "resources": {"core": {"limit": 1000, "remaining": 200}}
-            })
 
-    monkeypatch.setattr(bh, 'aiohttp', type('A', (), {
-        'ClientSession': _Sess,
-        'ClientTimeout': lambda *a, **k: None,
-        'TCPConnector': lambda *a, **k: None,
-    }))
+    import http_async as ha
+    monkeypatch.setattr(
+        ha,
+        'request',
+        lambda *a, **k: _Ctx(_Resp({
+            "resources": {"core": {"limit": 1000, "remaining": 200}}
+        })),
+        raising=False,
+    )
 
     class _Msg:
         def __init__(self):

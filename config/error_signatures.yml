@@ -1,0 +1,63 @@
+noise_allowlist:
+  - 'client disconnected|Broken pipe|499|context canceled'
+
+categories:
+  config:
+    description: תקלות קונפיגורציה/תשתית שיש לתקן מיד
+    default_severity: critical
+    default_policy: escalate
+    signatures:
+      - id: oom_killed
+        summary: תהליך סיים בזיכרון נגמר
+        pattern: 'Out of memory|OOMKilled|memory limit exceeded'
+      - id: too_many_open_files
+        summary: מערכת הקבצים חרגה ממספר הקבצים הפתוחים
+        pattern: 'Too many open files|ENFILE|EMFILE'
+      - id: disk_full
+        summary: אין מקום בדיסק
+        pattern: 'No space left on device|ENOSPC'
+
+  retryable:
+    description: תקלות שמתאוששות לאחר ריטרי מבוקר
+    default_severity: anomaly
+    default_policy: retry
+    signatures:
+      - id: network_reset
+        summary: חיבור רשת נותק זמנית
+        pattern: 'ECONNRESET|ETIMEDOUT|EAI_AGAIN|socket hang up'
+      - id: db_locked
+        summary: מסד הנתונים נעול או עסוק זמנית
+        pattern: 'SQLITE_BUSY|deadlock|could not obtain lock'
+
+  third_party:
+    description: כשלי ספק חיצוני או תלות חיצונית
+    default_severity: anomaly
+    default_policy: escalate
+    signatures:
+      - id: tls_certificate_expired
+        summary: תעודת TLS/SSL פגה מצד שרת חיצוני
+        pattern: 'certificate verify failed|x509: .* expired'
+
+  transient:
+    description: תקלות חולפות שאינן מחייבות פעולה מידית
+    default_severity: anomaly
+    default_policy: retry
+    signatures:
+      - id: worker_timeout
+        summary: תהליך שרת נתקע או לא השיב בזמן
+        pattern: 'gunicorn.*worker timeout|uvicorn.error'
+      - id: process_exit_non_zero
+        summary: תהליך רקע הסתיים בקוד שגיאה
+        pattern: 'Exited with code (?!0)\\d+'
+
+  user_error:
+    description: קלט או פעולה לא תקינה מצד המשתמש
+    default_severity: warning
+    default_policy: notify
+    signatures:
+      - id: python_traceback
+        summary: שגיאה בקוד Python שסיפק המשתמש
+        pattern: 'Traceback \\('
+      - id: js_reference_error
+        summary: שגיאה בקוד JavaScript שסיפק המשתמש
+        pattern: 'UnhandledPromiseRejection|TypeError:|ReferenceError:'

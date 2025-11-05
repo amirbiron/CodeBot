@@ -30,7 +30,8 @@ def _api_base() -> str:
 def is_configured() -> bool:
     token = os.getenv("SENTRY_AUTH_TOKEN")
     org = os.getenv("SENTRY_ORG") or os.getenv("SENTRY_ORG_SLUG")
-    return bool(token and org and aiohttp is not None)
+    # http_async.request handles the calls when aiohttp is unavailable, so env vars are enough.
+    return bool(token and org)
 
 
 async def _get(path: str, params: Optional[Dict[str, Any]] = None) -> Any:
@@ -38,23 +39,27 @@ async def _get(path: str, params: Optional[Dict[str, Any]] = None) -> Any:
         return None
     token = os.getenv("SENTRY_AUTH_TOKEN") or ""
     url = f"{_api_base()}/{path.lstrip('/')}"
-    # קרא ברירות מחדל גלובליות אם קיימות, עם fallback שמרני
-    try:
-        from config import config  # type: ignore
-        _total = int(getattr(config, "AIOHTTP_TIMEOUT_TOTAL", 8))
-        _limit = int(getattr(config, "AIOHTTP_POOL_LIMIT", 50))
-    except Exception:
-        _total = 8
-        _limit = 50
-    timeout = aiohttp.ClientTimeout(total=_total)  # type: ignore[attr-defined]
-    connector = aiohttp.TCPConnector(limit=_limit)
     headers = {"Authorization": f"Bearer {token}", "Accept": "application/json"}
     try:
-        async with aiohttp.ClientSession(timeout=timeout, connector=connector) as session:  # type: ignore[call-arg]
-            async with session.get(url, headers=headers, params=params or {}) as resp:
-                if resp.status != 200:
-                    return None
-                return await resp.json()
+        from http_async import request as async_request
+        base_kwargs = {
+            "headers": headers,
+            "params": params or {},
+        }
+        attempts = (
+            {**base_kwargs, "service": "sentry", "endpoint": "api_get"},
+            base_kwargs,
+        )
+        for req_kwargs in attempts:
+            try:
+                async with async_request("GET", url, **req_kwargs) as resp:
+                    if resp.status == 200:
+                        return await resp.json()
+                    # אם הסטטוס לא 200 נמשיך לנסות ורק אם אין עוד ניסיונות נחזיר None
+            except TypeError:
+                # פקודת המוקים בטסט לא מקבלת service/endpoint – ננסה בלי.
+                continue
+        return None
     except Exception:
         return None
 

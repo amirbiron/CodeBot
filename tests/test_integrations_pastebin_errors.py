@@ -6,6 +6,7 @@ import pytest
 @pytest.mark.asyncio
 async def test_pastebin_create_and_get_handle_errors(monkeypatch):
     import integrations as integ
+    import http_async as ha
     importlib.reload(integ)
 
     # Ensure pastebin is available
@@ -21,25 +22,25 @@ async def test_pastebin_create_and_get_handle_errors(monkeypatch):
             return self
         async def __aexit__(self, exc_type, exc, tb):
             return False
+        async def release(self):
+            return None
 
-    class _Sess:
-        def __init__(self, *a, **k):
-            pass
+    class _Ctx:
+        def __init__(self, resp):
+            self._resp = resp
         async def __aenter__(self):
-            return self
+            return self._resp
         async def __aexit__(self, exc_type, exc, tb):
             return False
-        def post(self, *a, **k):
-            return _Resp(status=500, text='error')
-        def get(self, *a, **k):
-            # simulate 404 fetch
-            return _Resp(status=404, text='not found')
 
-    monkeypatch.setattr(integ, 'aiohttp', types.SimpleNamespace(
-        ClientSession=_Sess,
-        ClientTimeout=lambda *a, **k: None,
-        TCPConnector=lambda *a, **k: None,
-    ))
+    def _fake_request(method, url, **kwargs):
+        if str(method).upper() == 'POST':
+            resp = _Resp(status=500, text='error')
+        else:
+            resp = _Resp(status=404, text='not found')
+        return _Ctx(resp)
+
+    monkeypatch.setattr(ha, 'request', _fake_request, raising=False)
 
     out = await integ.pastebin_integration.create_paste('code', 'f.py', 'python')
     assert out is None

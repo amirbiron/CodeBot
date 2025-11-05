@@ -192,8 +192,8 @@ def test_file_operations(tmp_path):
 
 חייבים לעבור:
 - ✅ 🔍 Code Quality & Security
-- ✅ 🧪 Unit Tests (3.11)
-- ✅ 🧪 Unit Tests (3.12)
+- ✅ Unit Tests (3.11)
+- ✅ Unit Tests (3.12)
 
 ## 🗺️ ניווט במערכת
 
@@ -535,8 +535,8 @@ safe_rmtree(Path("/tmp/test-data"), allow_under=Path("/tmp"))
 
 חייב לעבור **בדיוק 3**:
 - ✅ 🔍 Code Quality & Security
-- ✅ 🧪 Unit Tests (3.11)
-- ✅ 🧪 Unit Tests (3.12)
+- ✅ Unit Tests (3.11)
+- ✅ Unit Tests (3.12)
 
 אם אחד נכשל - **ה-PR לא יעבור**.
 
@@ -987,8 +987,8 @@ black --check .
 - GitHub Actions workflows
 - סטטוסי בדיקה נדרשים:
   - 🔍 Code Quality & Security
-  - 🧪 Unit Tests (3.11)
-  - 🧪 Unit Tests (3.12)
+  - Unit Tests (3.11)
+  - Unit Tests (3.12)
 - איך לדבג כשלונות ב-CI
 
 #### ג. כללים

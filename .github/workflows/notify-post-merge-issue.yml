@@ -1,0 +1,277 @@
+name: Notify on post-merge test failures (Issues)
+
+on:
+  workflow_run:
+    workflows: ["CI/CD Pipeline"]
+    types: [completed]
+  workflow_dispatch:
+    inputs:
+      action:
+        description: "open or close a TEST issue notification"
+        required: false
+        default: "open"
+
+permissions:
+  contents: read
+  actions: read
+  issues: write
+
+jobs:
+  open-issue-on-failure:
+    name: Open issue and mention on failure
+    runs-on: ubuntu-latest
+    # נריץ תמיד על ריצות push ל-main, ונחליט בתוך הסקריפט אם יש כשלונות אמיתיים
+    if: >
+      github.event_name == 'workflow_run' &&
+      github.event.workflow_run.event == 'push' &&
+      github.event.workflow_run.head_branch == 'main'
+    steps:
+      - name: Detect failures (jobs/tests)
+        id: detect
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RUN_ID: ${{ github.event.workflow_run.id }}
+        run: |
+          set -euo pipefail
+          reposlug="${GITHUB_REPOSITORY}"
+
+          # 1) Detect failed jobs via Actions API
+          jobs_url="https://api.github.com/repos/${reposlug}/actions/runs/${RUN_ID}/jobs?per_page=100"
+          jobs_json=$(curl -fsSL -H "Authorization: Bearer ${GITHUB_TOKEN}" -H "Accept: application/vnd.github+json" "$jobs_url")
+          failed_jobs=$(printf '%s' "$jobs_json" | jq -r '.jobs // [] | map(select((.conclusion // "unknown") != "success"))')
+          failed_jobs_count=$(printf '%s' "$failed_jobs" | jq -r 'length')
+          failed_jobs_text=$(printf '%s' "$failed_jobs" | jq -r 'if length>0 then (map("- " + (.name // "job") + ": " + (.html_url // "")) | join("\n")) else "" end')
+
+          # 2) Detect failed tests by parsing pytest JSON artifacts (unit-durations-*.json)
+          arts_url="https://api.github.com/repos/${reposlug}/actions/runs/${RUN_ID}/artifacts?per_page=100"
+          arts_json=$(curl -fsSL -H "Authorization: Bearer ${GITHUB_TOKEN}" -H "Accept: application/vnd.github+json" "$arts_url")
+          art_ids=$(printf '%s' "$arts_json" | jq -r '.artifacts // [] | map(select((.name // "") | startswith("unit-durations-"))) | .[].id') || true
+          tmpdir=$(mktemp -d)
+          tests_failed_total=0
+          for aid in $art_ids; do
+            curl -fsSL -H "Authorization: Bearer ${GITHUB_TOKEN}" -H "Accept: application/vnd.github+json" \
+              "https://api.github.com/repos/${reposlug}/actions/artifacts/${aid}/zip" -o "$tmpdir/a_${aid}.zip" || true
+            unzip -p "$tmpdir/a_${aid}.zip" unit-durations.json 2>/dev/null > "$tmpdir/u_${aid}.json" || true
+            if [ -s "$tmpdir/u_${aid}.json" ]; then
+              # Try several common fields for failures count
+              fc=$(jq -r '(.summary.failed // .summary.num_failed // .summary.failures // 0) // 0' "$tmpdir/u_${aid}.json" 2>/dev/null || echo 0)
+              case "$fc" in ''|null) fc=0;; esac
+              tests_failed_total=$(( tests_failed_total + fc ))
+            fi
+          done
+
+          # Aggregate decision
+          has_failures=0
+          if [ "${failed_jobs_count}" != "0" ] || [ "$tests_failed_total" -gt 0 ]; then
+            has_failures=1
+          fi
+
+          printf 'has_failures=%s\n' "$has_failures" >> "$GITHUB_OUTPUT"
+          printf 'failed_jobs_text<<__TXT__\n%s\n__TXT__\n' "$failed_jobs_text" >> "$GITHUB_OUTPUT"
+          printf 'tests_failed_total=%s\n' "$tests_failed_total" >> "$GITHUB_OUTPUT"
+      - name: Create/Update failure issue
+        uses: actions/github-script@v7
+        env:
+          HAS_FAILURES: ${{ steps.detect.outputs.has_failures }}
+          FAILED_JOBS_TEXT: ${{ steps.detect.outputs.failed_jobs_text }}
+          TESTS_FAILED_TOTAL: ${{ steps.detect.outputs.tests_failed_total }}
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const run = context.payload.workflow_run;
+            const { owner, repo } = context.repo;
+
+            const shortSha = run.head_sha.slice(0, 7);
+            const title = `Post-merge failure: ${run.name} on main @ ${shortSha}`;
+
+            // Fetch commit message (first line) for context
+            let commitMessage = '';
+            try {
+              const commit = await github.rest.repos.getCommit({ owner, repo, ref: run.head_sha });
+              commitMessage = (commit.data.commit.message || '').split('\n')[0];
+            } catch (e) {
+              commitMessage = '';
+            }
+
+            // Use precomputed detection results (jobs and tests)
+            const hasFailures = (process.env.HAS_FAILURES || '').toString().trim();
+            const failedJobsText = process.env.FAILED_JOBS_TEXT || '';
+            const testsFailedTotal = parseInt(process.env.TESTS_FAILED_TOTAL || '0', 10);
+            if (hasFailures !== '1') {
+              core.info('No failures detected (jobs/tests); skipping issue creation');
+              return;
+            }
+
+            const bodyLines = [
+              `@amirbiron 🚨 בדיקות post-merge נכשלו.`,
+              `Workflow: ${run.name}`,
+              `Branch: ${run.head_branch}`,
+              `Commit: ${shortSha}${commitMessage ? ` — ${commitMessage}` : ''}`,
+              `[קישור להרצה](${run.html_url})`,
+              failedJobsText ? '\nJobs שנכשלו:\n' + failedJobsText : '',
+              Number.isFinite(testsFailedTotal) && testsFailedTotal > 0 ? `\nסך בדיקות שנכשלו: ${testsFailedTotal}` : ''
+            ].filter(Boolean);
+            const body = bodyLines.join('\n');
+
+            // Try to find an existing open issue with the same title
+            const existing = await github.paginate(github.rest.issues.listForRepo, {
+              owner, repo, state: 'open', per_page: 100
+            });
+            const dup = existing.find(i => i.title === title);
+
+            // Ensure useful labels (best-effort)
+            const desiredLabels = ['post-merge-failure', 'automated'];
+            for (const name of desiredLabels) {
+              try {
+                await github.rest.issues.createLabel({ owner, repo, name, color: name === 'post-merge-failure' ? 'B60205' : '6A737D' });
+              } catch (e) {
+                // 422 if exists - ignore
+              }
+            }
+
+            if (dup) {
+              // Update existing issue with a new comment and ensure labels/assignee
+              await github.rest.issues.createComment({ owner, repo, issue_number: dup.number, body });
+              try { await github.rest.issues.addLabels({ owner, repo, issue_number: dup.number, labels: desiredLabels }); } catch (e) {}
+              try { await github.rest.issues.addAssignees({ owner, repo, issue_number: dup.number, assignees: ['amirbiron'] }); } catch (e) {}
+              core.info(`Updated existing issue #${dup.number}`);
+            } else {
+              // Create new issue
+              const created = await github.rest.issues.create({
+                owner, repo,
+                title,
+                body,
+                assignees: ['amirbiron']
+              });
+              const num = created.data.number;
+              try { await github.rest.issues.addLabels({ owner, repo, issue_number: num, labels: desiredLabels }); } catch (e) {}
+              core.info(`Created issue #${num}`);
+            }
+
+  close-issue-on-success:
+    name: Close issue on success
+    runs-on: ubuntu-latest
+    if: >
+      github.event_name == 'workflow_run' &&
+      github.event.workflow_run.event == 'push' &&
+      github.event.workflow_run.head_branch == 'main' &&
+      github.event.workflow_run.conclusion == 'success'
+    steps:
+      - name: Verify no failures (jobs/tests)
+        id: verify
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RUN_ID: ${{ github.event.workflow_run.id }}
+        run: |
+          set -euo pipefail
+          reposlug="${GITHUB_REPOSITORY}"
+
+          jobs_url="https://api.github.com/repos/${reposlug}/actions/runs/${RUN_ID}/jobs?per_page=100"
+          jobs_json=$(curl -fsSL -H "Authorization: Bearer ${GITHUB_TOKEN}" -H "Accept: application/vnd.github+json" "$jobs_url")
+          failed_jobs_count=$(printf '%s' "$jobs_json" | jq -r '([.jobs[] | select((.conclusion // "unknown") != "success")] | length) // 0') || echo 0
+
+          arts_url="https://api.github.com/repos/${reposlug}/actions/runs/${RUN_ID}/artifacts?per_page=100"
+          arts_json=$(curl -fsSL -H "Authorization: Bearer ${GITHUB_TOKEN}" -H "Accept: application/vnd.github+json" "$arts_url")
+          art_ids=$(printf '%s' "$arts_json" | jq -r '.artifacts // [] | map(select((.name // "") | startswith("unit-durations-"))) | .[].id') || true
+          tmpdir=$(mktemp -d)
+          tests_failed_total=0
+          for aid in $art_ids; do
+            curl -fsSL -H "Authorization: Bearer ${GITHUB_TOKEN}" -H "Accept: application/vnd.github+json" \
+              "https://api.github.com/repos/${reposlug}/actions/artifacts/${aid}/zip" -o "$tmpdir/a_${aid}.zip" || true
+            unzip -p "$tmpdir/a_${aid}.zip" unit-durations.json 2>/dev/null > "$tmpdir/u_${aid}.json" || true
+            if [ -s "$tmpdir/u_${aid}.json" ]; then
+              fc=$(jq -r '(.summary.failed // .summary.num_failed // .summary.failures // 0) // 0' "$tmpdir/u_${aid}.json" 2>/dev/null || echo 0)
+              case "$fc" in ''|null) fc=0;; esac
+              tests_failed_total=$(( tests_failed_total + fc ))
+            fi
+          done
+
+          has_failures=0
+          if [ "${failed_jobs_count}" != "0" ] || [ "$tests_failed_total" -gt 0 ]; then
+            has_failures=1
+          fi
+          printf 'has_failures=%s\n' "$has_failures" >> "$GITHUB_OUTPUT"
+
+      - name: Close matching failure issue if exists (only if no failed jobs/tests)
+        uses: actions/github-script@v7
+        env:
+          HAS_FAILURES: ${{ steps.verify.outputs.has_failures }}
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const run = context.payload.workflow_run;
+            const { owner, repo } = context.repo;
+            const hasFailures = (process.env.HAS_FAILURES || '').toString().trim();
+            if (hasFailures === '1') {
+              core.info('Failures still detected (jobs/tests); not closing failure issue.');
+              return;
+            }
+
+            const titlePrefix = `Post-merge failure: ${run.name} on main @`;
+            // fetch open issues labeled as post-merge failures
+            const openIssues = await github.paginate(github.rest.issues.listForRepo, {
+              owner, repo, state: 'open', per_page: 100, labels: 'post-merge-failure'
+            });
+            // filter to our workflow's failure issues (exclude PRs)
+            const candidates = openIssues
+              .filter(i => !i.pull_request)
+              .filter(i => i.title && i.title.startsWith(titlePrefix));
+            if (candidates.length === 0) {
+              core.info('No open post-merge failure issues to close for this workflow');
+              return;
+            }
+            // close the most recent
+            candidates.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+            const issue = candidates[0];
+            await github.rest.issues.createComment({ owner, repo, issue_number: issue.number, body: '✅ הריצה האחרונה על main עברה בהצלחה. סוגר את התקלה האחרונה.' });
+            await github.rest.issues.update({ owner, repo, issue_number: issue.number, state: 'closed' });
+            core.info(`Closed latest failure issue #${issue.number}`);
+
+  test-issue:
+    name: Manual test – open/close issue and mention
+    runs-on: ubuntu-latest
+    if: github.event_name == 'workflow_dispatch'
+    steps:
+      - name: Open/Close TEST issue
+        uses: actions/github-script@v7
+        env:
+          ACTION: ${{ github.event.inputs.action }}
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const { owner, repo } = context.repo;
+            const action = (process.env.ACTION || 'open').toLowerCase();
+            const title = '[TEST] Post-merge failure notification check';
+            const labels = ['automated', 'notify-test'];
+
+            // ensure labels exist
+            for (const name of labels) {
+              try { await github.rest.issues.createLabel({ owner, repo, name, color: name === 'notify-test' ? '0366D6' : '6A737D' }); } catch {}
+            }
+
+            // find existing test issue
+            const openIssues = await github.paginate(github.rest.issues.listForRepo, { owner, repo, state: 'open', per_page: 100 });
+            const existing = openIssues.find(i => i.title === title);
+
+            if (action === 'close') {
+              if (existing) {
+                await github.rest.issues.createComment({ owner, repo, issue_number: existing.number, body: '✅ בדיקת פושים: סוגר את אישוז המבחן.' });
+                await github.rest.issues.update({ owner, repo, issue_number: existing.number, state: 'closed' });
+                core.info(`Closed TEST issue #${existing.number}`);
+              } else {
+                core.info('No TEST issue to close');
+              }
+              return;
+            }
+
+            // default: open
+            if (existing) {
+              await github.rest.issues.createComment({ owner, repo, issue_number: existing.number, body: '@amirbiron 🔔 בדיקת פושים – אזכור מבחן' });
+              try { await github.rest.issues.addAssignees({ owner, repo, issue_number: existing.number, assignees: ['amirbiron'] }); } catch {}
+              try { await github.rest.issues.addLabels({ owner, repo, issue_number: existing.number, labels }); } catch {}
+              core.info(`Updated TEST issue #${existing.number}`);
+            } else {
+              const created = await github.rest.issues.create({ owner, repo, title, body: '@amirbiron 🔔 בדיקת פושים – זהו אישוז מבחן', assignees: ['amirbiron'] });
+              try { await github.rest.issues.addLabels({ owner, repo, issue_number: created.data.number, labels }); } catch {}
+              core.info(`Created TEST issue #${created.data.number}`);
+            }

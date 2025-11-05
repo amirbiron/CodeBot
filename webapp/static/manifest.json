@@ -15,32 +15,32 @@
   "shortcuts": [
     {
       "name": "צור קטע קוד חדש",
-      "url": "/upload",
-      "short_name": "חדש",
-      "icons": [
-        { "src": "/static/icons/app-icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any maskable" }
-      ]
-    },
-    {
-      "name": "מועדפים",
-      "url": "/files?category=favorites#results",
-      "short_name": "מועדפים",
+      "url": "/upload?entry=shortcut",
+      "short_name": "צור קטע קוד חדש",
       "icons": [
         { "src": "/static/icons/app-icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any maskable" }
       ]
     },
     {
       "name": "נפתחו לאחרונה",
-      "url": "/files?category=recent#results",
-      "short_name": "אחרונים",
+      "url": "/files?category=recent&entry=shortcut#results",
+      "short_name": "נפתחו לאחרונה",
       "icons": [
         { "src": "/static/icons/app-icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any maskable" }
       ]
     },
     {
       "name": "האוספים שלי",
-      "url": "/collections",
-      "short_name": "אוספים",
+      "url": "/collections?entry=shortcut",
+      "short_name": "האוספים שלי",
+      "icons": [
+        { "src": "/static/icons/app-icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any maskable" }
+      ]
+    },
+    {
+      "name": "מועדפים",
+      "url": "/files?category=favorites&entry=shortcut#results",
+      "short_name": "מועדפים",
       "icons": [
         { "src": "/static/icons/app-icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any maskable" }
       ]

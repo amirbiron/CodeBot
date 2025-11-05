@@ -8,6 +8,10 @@
     <!-- Fonts -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <!-- Preconnect CDNs for faster CodeMirror ESM loads -->
+    <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
+    <link rel="preconnect" href="https://unpkg.com" crossorigin>
+    <link rel="preconnect" href="https://esm.sh" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Heebo:wght@300;400;500;600;700&display=swap" rel="stylesheet">
 
     <!-- Icons -->
@@ -103,7 +107,7 @@
         .navbar {
             background: var(--glass);
             backdrop-filter: blur(20px);
-            border-bottom: 1px solid var(--glass-border);
+            border-bottom: 0; /* הסרת הקו האופקי העליון */
             padding: 1rem 0;
             position: static;
             top: auto;
@@ -263,6 +267,49 @@
         .btn-secondary:hover {
             background: rgba(255, 255, 255, 0.2);
         }
+
+        .workspace-btn {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            border: none;
+            position: relative;
+            color: white;
+        }
+
+        .workspace-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(102, 126, 234, 0.4);
+        }
+
+        .collection-option {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            margin: 0.25rem 0;
+        }
+
+        .collection-option input[type="radio"] {
+            flex: 0 0 auto;
+        }
+
+        .workspace-collection-option {
+            margin: 0.5rem 0;
+            padding: 0.5rem;
+            background: rgba(102, 126, 234, 0.1);
+            border-radius: 8px;
+            border: 1px solid rgba(102, 126, 234, 0.3);
+        }
+
+        .workspace-collection-option span {
+            font-weight: 600;
+        }
+
+        .collection-option-divider {
+            margin: 0.75rem 0 0.5rem;
+            font-size: 0.85rem;
+            color: #666;
+            border-top: 1px solid #ddd;
+            padding-top: 0.5rem;
+        }
         
         .btn-icon {
             display: inline-flex;
@@ -340,7 +387,7 @@
                 flex-direction: column;
                 padding: 0;
                 gap: 1rem;
-                border-top: 1px solid var(--glass-border);
+                border-top: 0; /* מניעת קו אופקי נוסף במובייל */
                 max-height: 0;
                 overflow: hidden;
                 opacity: 0;
@@ -606,14 +653,50 @@
             .recent-files-modal .modal-header h3, .recent-file-item { color: #e0e0e0; }
             .recent-files-modal .file-meta, .recent-files-modal .no-files { color: #999; }
         }
+.welcome-modal { position: fixed; inset: 0; display: none; align-items: center; justify-content: center; z-index: 11000; }
+.welcome-modal.active { display: flex; }
+.welcome-modal__backdrop { position: absolute; inset: 0; background: rgba(0, 0, 0, 0.55); backdrop-filter: blur(6px); }
+.welcome-modal__content {
+    position: relative;
+    background: #1f2a44;
+    color: #fff;
+    border-radius: 20px;
+    max-width: 420px;
+    width: calc(100% - 2rem);
+    padding: 2rem 1.75rem;
+    text-align: center;
+    box-shadow: 0 18px 40px rgba(0, 0, 0, 0.35);
+}
+.welcome-modal__content h2 { margin: 0 0 1rem; font-size: 1.6rem; }
+.welcome-modal__content p { margin: 0.75rem 0; color: rgba(255, 255, 255, 0.85); }
+.welcome-modal__actions { display: flex; flex-wrap: wrap; gap: 1rem; justify-content: center; margin-top: 1.5rem; }
+.welcome-modal__close {
+    position: absolute;
+    top: 0.75rem;
+    left: 0.75rem;
+    background: transparent;
+    border: none;
+    color: rgba(255, 255, 255, 0.75);
+    font-size: 1.25rem;
+    cursor: pointer;
+}
+.welcome-modal__close:hover,
+.welcome-modal__close:focus { color: #fff; }
+.welcome-modal__actions .btn { min-width: 180px; }
+.welcome-modal__note { font-size: 0.95rem; margin-top: 1rem; color: rgba(255,255,255,0.75); }
+.welcome-modal__note a { color: #fff; text-decoration: underline; }
+@media (max-width: 480px) {
+    .welcome-modal__content { padding: 1.5rem 1.25rem; }
+}
+
     </style>
     
     {% block extra_css %}{% endblock %}
-    <link rel="stylesheet" href="{{ url_for('static', filename='css/collections.css') }}">
-    <link rel="stylesheet" href="{{ url_for('static', filename='css/codemirror-custom.css') }}">
-    <link rel="stylesheet" href="{{ url_for('static', filename='css/markdown-enhanced.css') }}">
-    <link rel="stylesheet" href="{{ url_for('static', filename='css/global_search.css') }}">
-    <link rel="stylesheet" href="{{ url_for('static', filename='css/high-contrast.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/collections.css') }}?v={{ static_version }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/codemirror-custom.css') }}?v={{ static_version }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/markdown-enhanced.css') }}?v={{ static_version }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/global_search.css') }}?v={{ static_version }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/high-contrast.css') }}?v={{ static_version }}">
 </head>
 <body>
     <script>
@@ -657,9 +740,9 @@
                         <i class="fas fa-rocket"></i>
                     </button>
                     <div class="quick-access-dropdown" id="quickAccessDropdown">
-                        <a href="/upload" class="quick-access-item" title="הוסף קובץ חדש">
+                        <a href="/upload" class="quick-access-item" title="צור קטע קוד חדש">
                             <span class="qa-icon">➕</span>
-                            <span class="qa-label">קובץ חדש</span>
+                            <span class="qa-label">צור קטע קוד חדש</span>
                         </a>
                         <button class="quick-access-item" onclick="openGlobalSearch()" title="חיפוש בכל הקבצים">
                             <span class="qa-icon">🔍</span>
@@ -671,7 +754,7 @@
                         </a>
                         <button class="quick-access-item" onclick="showRecentFiles()" title="קבצים שנפתחו לאחרונה">
                             <span class="qa-icon">🕓</span>
-                            <span class="qa-label">אחרונים</span>
+                            <span class="qa-label">נפתחו לאחרונה</span>
                         </button>
                         <!-- הוסר: כפתור הגדרות בתוך חלונית קיצורי הדרך -->
                     </div>
@@ -734,7 +817,34 @@
         </div>
       </div>
     </div>
-    
+
+{% if show_welcome_modal %}
+<div id="welcomeModal" class="welcome-modal" role="dialog" aria-modal="true" aria-labelledby="welcomeModalTitle">
+  <div class="welcome-modal__backdrop"></div>
+  <div class="welcome-modal__content">
+    <button type="button" class="welcome-modal__close" aria-label="סגור מודאל">
+      <i class="fas fa-times"></i>
+    </button>
+    <h2 id="welcomeModalTitle">ברוכים הבאים ל-CodeKeeper WebApp! 👋</h2>
+    <p>כדי להתחיל בקלות הכנו עבורך מדריך מפורט שיעשה סדר בכל האפשרויות.</p>
+    <div class="welcome-modal__actions">
+      <a id="welcomePrimaryCta"
+         class="btn btn-primary btn-icon"
+         href="{{ welcome_primary_guide_url }}"
+         data-guide-url="{{ welcome_primary_guide_url }}">
+        <i class="fas fa-book"></i>
+        📘 מדריך תפעול WebApp
+      </a>
+      <button id="welcomeSkipBtn" type="button" class="btn btn-secondary btn-icon">
+        <i class="fas fa-forward"></i>
+        דלג לעכשיו
+      </button>
+    </div>
+    <p class="welcome-modal__note">מומלץ לגלול לתחתית העמוד ולבחור בשמירת המדריך.</p>
+  </div>
+</div>
+{% endif %}
+
     <script>
         function toggleMobileMenu() {
             const menu = document.getElementById('navMenu');
@@ -757,6 +867,41 @@
             }
         });
         // --- תפריט קיצורי דרך ---
+        function ensureQuickAccessVisible(dropdown) {
+            if (!dropdown) return;
+            const runner = () => {
+                try {
+                    const rect = dropdown.getBoundingClientRect();
+                    const viewportHeight = window.innerHeight || document.documentElement.clientHeight || 0;
+                    const viewportWidth = window.innerWidth || document.documentElement.clientWidth || 0;
+                    const needScrollUp = rect.top < 12;
+                    const needScrollDown = rect.bottom > (viewportHeight - 12);
+                    const needVertical = needScrollUp || needScrollDown;
+                    const needHorizontal = rect.left < 12 || rect.right > (viewportWidth - 12);
+
+                    if (typeof dropdown.scrollIntoView === 'function' && (needVertical || needHorizontal)) {
+                        dropdown.scrollIntoView({
+                            behavior: 'smooth',
+                            block: needScrollUp ? 'start' : (needScrollDown ? 'end' : 'nearest'),
+                            inline: needHorizontal ? 'center' : 'nearest'
+                        });
+                        return;
+                    }
+
+                    if (needVertical) {
+                        const delta = needScrollUp ? rect.top - 12 : rect.bottom - (viewportHeight - 12);
+                        window.scrollBy({ top: delta, behavior: 'smooth' });
+                    }
+                } catch (e) {}
+            };
+
+            if (typeof window.requestAnimationFrame === 'function') {
+                window.requestAnimationFrame(runner);
+            } else {
+                setTimeout(runner, 0);
+            }
+        }
+
         function toggleQuickAccess(ev) {
             try { ev && ev.stopPropagation && ev.stopPropagation(); } catch (e) {}
             const dropdown = document.getElementById('quickAccessDropdown');
@@ -765,6 +910,8 @@
             dropdown.classList.toggle('active');
             toggle.classList.toggle('active');
             if (dropdown.classList.contains('active')) {
+                try { dropdown.scrollTop = 0; } catch (e) {}
+                ensureQuickAccessVisible(dropdown);
                 const closer = function(event) {
                     try {
                         const menu = document.querySelector('.quick-access-menu');
@@ -861,6 +1008,30 @@
             if (modal) modal.remove();
         }
 
+        async function navigateToWorkspace() {
+            try {
+                const res = await fetch('/api/collections?limit=100');
+                if (!res.ok) {
+                    throw new Error('HTTP ' + res.status);
+                }
+                const data = await res.json();
+                if (!data || !data.ok) {
+                    throw new Error((data && data.error) || 'שגיאה בטעינת אוספים');
+                }
+                const collections = Array.isArray(data.collections) ? data.collections : [];
+                const workspace = collections.find(c => c && c.name === 'שולחן עבודה');
+                if (workspace && workspace.id) {
+                    const target = encodeURIComponent(String(workspace.id));
+                    window.location.href = `/collections/${target}`;
+                    return;
+                }
+                alert('אוסף שולחן עבודה לא נמצא');
+            } catch (err) {
+                console.error('Error navigating to workspace:', err);
+                alert('שגיאה בטעינת שולחן העבודה');
+            }
+        }
+
         function getFileIcon(language) {
             const icons = {
                 'python': '🐍',
@@ -942,6 +1113,40 @@
         // Add to Collection modal helpers
         function getLastCollectionId(){ try { return localStorage.getItem('last_collection_id') || ''; } catch(_) { return ''; } }
         function setLastCollectionId(id){ try { localStorage.setItem('last_collection_id', String(id||'')); } catch(_) {} }
+        function renderCollectionOptions(collections, lastSelected){
+            const list = Array.isArray(collections) ? collections : [];
+            const lastIdStr = String(lastSelected || '').trim();
+            const hasLast = lastIdStr && list.some(c => c && c.id !== undefined && String(c.id) === lastIdStr);
+            const workspace = list.find(c => c && c.name === 'שולחן עבודה' && c.id);
+            const others = list.filter(c => c && c.name !== 'שולחן עבודה' && c.id);
+
+            let selected = hasLast ? lastIdStr : '';
+            if (!selected && workspace && workspace.id) {
+                selected = String(workspace.id);
+            }
+
+            let html = '';
+            if (workspace && workspace.id) {
+                const isSelected = selected === String(workspace.id);
+                html += `<label class="collection-option workspace-collection-option"><input type="radio" name="collectionId" value="${workspace.id}" ${isSelected ? 'checked' : ''}><span>🖥️ ${escapeHtml(workspace.name || '')}</span></label>`;
+                if (others.length > 0) {
+                    html += '<div class="collection-option-divider">אוספים אחרים:</div>';
+                }
+            }
+
+            html += others.map(col => {
+                if (!col || col.id === undefined) {
+                    return '';
+                }
+                const isSelected = selected === String(col.id);
+                return `<label class="collection-option"><input type="radio" name="collectionId" value="${col.id}" ${isSelected ? 'checked' : ''}><span>${escapeHtml(col.name || '')}</span></label>`;
+            }).join('');
+
+            if (!html) {
+                return '<div class="empty">אין אוספים. צור אוסף חדש במסך "האוספים שלי"</div>';
+            }
+            return html;
+        }
         window.openAddToCollectionModal = async function(fileName){
             const modal = document.getElementById('addToCollectionModal');
             const body = document.getElementById('addToCollectionBody');
@@ -952,8 +1157,7 @@
               const data = await res.json();
               if (!data || !data.ok) throw new Error(data && data.error || 'שגיאה');
               const last = getLastCollectionId();
-              const items = (data.collections||[]).map(c => `<label style="display:flex;align-items:center;gap:.5rem;margin:.25rem 0;"><input type="radio" name="collectionId" value="${c.id}" ${String(c.id)===String(last)?'checked':''}><span>${escapeHtml(c.name||'')}</span></label>`).join('');
-              body.innerHTML = items || '<div class="empty">אין אוספים. צור אוסף חדש במסך "האוספים שלי"</div>';
+              body.innerHTML = renderCollectionOptions(data.collections, last);
             } catch (e) {
               body.innerHTML = '<div class="error">שגיאה בטעינת אוספים</div>';
             }
@@ -970,8 +1174,7 @@
               const data = await res.json();
               if (!data || !data.ok) throw new Error(data && data.error || 'שגיאה');
               const last = getLastCollectionId();
-              const items = (data.collections||[]).map(c => `<label style="display:flex;align-items:center;gap:.5rem;margin:.25rem 0;"><input type="radio" name="collectionId" value="${c.id}" ${String(c.id)===String(last)?'checked':''}><span>${escapeHtml(c.name||'')}</span></label>`).join('');
-              body.innerHTML = items || '<div class="empty">אין אוספים. צור אוסף חדש במסך "האוספים שלי"</div>';
+              body.innerHTML = renderCollectionOptions(data.collections, last);
             } catch (e) {
               body.innerHTML = '<div class="error">שגיאה בטעינת אוספים</div>';
             }
@@ -1046,14 +1249,26 @@
                 t = setTimeout(() => { const s = buildState(); saveState(s); tryThrottlePost(s); }, 200);
             }
 
-            // Restore only on reload/back-forward or external entry, once per tab
+            // Restore only on reload/back-forward or generic entry (/, /dashboard) without intent, once per tab
             try {
                 const nav = (performance && performance.getEntriesByType) ? (performance.getEntriesByType('navigation')[0] || null) : null;
                 const navType = (nav && nav.type) || '';
                 const hasRef = !!document.referrer;
                 let sameOriginRef = false;
                 try { sameOriginRef = hasRef && (new URL(document.referrer)).origin === window.location.origin; } catch(_) { sameOriginRef = false; }
-                const allowRestore = !sessionStorage.getItem('ws_restored') && (navType === 'reload' || navType === 'back_forward' || !sameOriginRef);
+                const params = new URLSearchParams(window.location.search || '');
+                const isShortcutIntent = (params.get('entry') === 'shortcut') || (params.get('no_restore') === '1');
+                const isReloadOrBack = (navType === 'reload' || navType === 'back_forward');
+                const isExternalEntry = !sameOriginRef;
+                const isGenericEntry = (
+                    window.location.pathname === '/' ||
+                    (window.location.pathname === '/dashboard' && (!window.location.search || window.location.search === '') && (!window.location.hash || window.location.hash === '' || window.location.hash === '#'))
+                );
+                const allowRestoreCandidate = !sessionStorage.getItem('ws_restored');
+                const allowRestore = allowRestoreCandidate && !isShortcutIntent && (
+                    isReloadOrBack ||
+                    (isExternalEntry && isGenericEntry)
+                );
                 const st = loadState();
                 const current = window.location.pathname + window.location.search + window.location.hash;
                 if (allowRestore && st && typeof st.last_url === 'string' && st.last_url.startsWith('/') && st.last_url !== current) {
@@ -1083,9 +1298,52 @@
             });
         })();
     </script>
-    <script src="{{ url_for('static', filename='js/global_search.js') }}" defer></script>
-    <script type="module" src="{{ url_for('static', filename='js/editor-manager.js') }}" defer></script>
-    <script src="{{ url_for('static', filename='js/collections.js') }}" defer></script>
+    <script src="{{ url_for('static', filename='js/global_search.js') }}?v={{ static_version }}" defer></script>
+    <script type="module" src="{{ url_for('static', filename='js/editor-manager.js') }}?v={{ static_version }}" defer></script>
+    <script src="{{ url_for('static', filename='js/collections.js') }}?v={{ static_version }}" defer></script>
+<script>
+    (function welcomeModalInit(){
+        const modal = document.getElementById('welcomeModal');
+        if (!modal) { return; }
+        const backdrop = modal.querySelector('.welcome-modal__backdrop');
+        const closeBtn = modal.querySelector('.welcome-modal__close');
+        const skipBtn = document.getElementById('welcomeSkipBtn');
+        const primaryBtn = document.getElementById('welcomePrimaryCta');
+        const sendAck = () => {
+            try {
+                fetch('/api/welcome/ack', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: '{}'
+                }).catch(() => {});
+            } catch (_) {}
+        };
+        const removeModal = () => {
+            modal.classList.remove('active');
+            setTimeout(() => {
+                try { modal.remove(); } catch (_) {}
+            }, 250);
+        };
+        const dismiss = (targetUrl) => {
+            sendAck();
+            removeModal();
+            if (targetUrl) {
+                window.location.href = targetUrl;
+            }
+        };
+        modal.classList.add('active');
+        const bind = (el, handler) => { if (el) { el.addEventListener('click', handler); } };
+        bind(backdrop, () => dismiss());
+        bind(closeBtn, () => dismiss());
+        bind(skipBtn, () => dismiss());
+        bind(primaryBtn, (event) => {
+            event.preventDefault();
+            const href = primaryBtn.getAttribute('href') || primaryBtn.dataset.guideUrl || '';
+            dismiss(href);
+        });
+    })();
+</script>
+
     {% block extra_js %}{% endblock %}
 </body>
 </html>

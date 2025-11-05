@@ -6,6 +6,7 @@ import pytest
 @pytest.mark.asyncio
 async def test_webhook_trigger_handles_timeouts_and_errors(monkeypatch):
     import integrations as integ
+    import http_async as ha
     importlib.reload(integ)
 
     # Prepare a couple of webhooks (one will timeout, the other raises)
@@ -20,30 +21,29 @@ async def test_webhook_trigger_handles_timeouts_and_errors(monkeypatch):
             return self
         async def __aexit__(self, exc_type, exc, tb):
             return False
+        async def release(self):
+            return None
 
-    class _Sess:
-        def __init__(self, *a, **k):
-            pass
+    class _CtxOk:
+        def __init__(self, resp):
+            self._resp = resp
         async def __aenter__(self):
-            return self
+            return self._resp
         async def __aexit__(self, exc_type, exc, tb):
             return False
-        def post(self, url, *a, **k):
-            if url.endswith('/ok'):
-                return _Resp(status=200)
-            # simulate exception during __aenter__ to test error path
-            class _Boom:
-                async def __aenter__(self):
-                    raise RuntimeError('boom')
-                async def __aexit__(self, exc_type, exc, tb):
-                    return False
-            return _Boom()
 
-    monkeypatch.setattr(integ, 'aiohttp', types.SimpleNamespace(
-        ClientSession=_Sess,
-        ClientTimeout=lambda *a, **k: None,
-        TCPConnector=lambda *a, **k: None,
-    ))
+    class _CtxFail:
+        async def __aenter__(self):
+            raise RuntimeError('boom')
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+    def _fake_request(method, url, **kwargs):
+        if url.endswith('/ok'):
+            return _CtxOk(_Resp(status=200))
+        return _CtxFail()
+
+    monkeypatch.setattr(ha, 'request', _fake_request, raising=False)
 
     await integ.webhook_integration.trigger_webhook(1, 'file_created', {'x': 1})
     # If no exceptions bubble up, handler is resilient as expected

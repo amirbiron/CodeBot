@@ -81,6 +81,16 @@ class BotConfig(BaseSettings):
     MONGODB_APPNAME: Optional[str] = Field(
         default=None, description="MongoDB appName client metadata"
     )
+    MONGODB_COMPRESSORS: Optional[str] = Field(
+        default=None,
+        description="Comma-separated compressor names supported by server (e.g., zstd,snappy,zlib)",
+    )
+    MONGODB_HEARTBEAT_FREQUENCY_MS: int = Field(
+        default=10_000,
+        ge=1000,
+        le=600_000,
+        description="Server monitor heartbeat frequency in milliseconds",
+    )
 
     # Cache/Redis
     REDIS_URL: Optional[str] = Field(default=None, description="Redis URL")
@@ -114,6 +124,44 @@ class BotConfig(BaseSettings):
         ge=1,
         le=300,
         description="Default total timeout (seconds) for aiohttp client sessions",
+    )
+    AIOHTTP_LIMIT_PER_HOST: int = Field(
+        default=25,
+        ge=0,
+        le=10_000,
+        description="Per-host connection limit for aiohttp TCPConnector (0 = unlimited)",
+    )
+
+    # HTTP client pooling/timeouts (requests)
+    REQUESTS_POOL_CONNECTIONS: int = Field(
+        default=20,
+        ge=1,
+        le=10_000,
+        description="HTTPAdapter pool_connections for requests.Session",
+    )
+    REQUESTS_POOL_MAXSIZE: int = Field(
+        default=100,
+        ge=1,
+        le=100_000,
+        description="HTTPAdapter pool_maxsize for requests.Session",
+    )
+    REQUESTS_TIMEOUT: float = Field(
+        default=8.0,
+        ge=0.1,
+        le=600.0,
+        description="Default timeout (seconds) for requests.Session operations",
+    )
+    REQUESTS_RETRIES: int = Field(
+        default=2,
+        ge=0,
+        le=10,
+        description="Number of retry attempts for transient HTTP errors (if supported)",
+    )
+    REQUESTS_RETRY_BACKOFF: float = Field(
+        default=0.2,
+        ge=0.0,
+        le=60.0,
+        description="Exponential backoff factor between retries for requests",
     )
 
     # Rate limiting
@@ -256,6 +304,10 @@ class BotConfig(BaseSettings):
     # Observability / Sentry
     SENTRY_DSN: Optional[str] = Field(
         default=None, description="Sentry DSN for error reporting"
+    )
+    # Enable admin-only test button in notifications menu
+    SENTRY_TEST_BUTTON_ENABLED: bool = Field(
+        default=False, description="Enable 'Send Sentry test event' admin button"
     )
 
     # Metrics DB

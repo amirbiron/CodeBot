@@ -11,8 +11,21 @@ Code Service Module
 - חיפוש בקוד
 """
 
-from typing import Any, Dict, List, Tuple, Optional
+from typing import Any, Dict, List, Tuple, Optional, Callable, TypeVar
 from utils import normalize_code
+
+try:
+    from observability_instrumentation import traced, set_current_span_attributes
+except Exception:  # pragma: no cover
+    _F = TypeVar("_F", bound=Callable[..., Any])
+
+    def traced(*_a: Any, **_k: Any) -> Callable[[_F], _F]:
+        def _inner(func: _F) -> _F:
+            return func
+        return _inner
+
+    def set_current_span_attributes(*_a: Any, **_k: Any) -> None:
+        return None
 
 # Thin wrapper around existing code_processor to allow future swap/refactor
 # We keep a loose type here to avoid importing heavy optional deps during type checking/runtime.
@@ -97,6 +110,7 @@ def detect_language(code: str, filename: str) -> str:
     return _fallback_detect_language(code, filename)
 
 
+@traced("code.validate_input")
 def validate_code_input(code: str, file_name: str, user_id: int) -> Tuple[bool, str, str]:
     """
     בודק ומנקה קלט קוד.
@@ -112,16 +126,49 @@ def validate_code_input(code: str, file_name: str, user_id: int) -> Tuple[bool, 
             - cleaned_code: הקוד המנוקה
             - error_message: הודעת שגיאה (אם יש)
     """
+    try:
+        code_length = int(len(code or ""))
+    except TypeError:
+        code_length = 0
+    try:
+        set_current_span_attributes({
+            "code.length": code_length,
+            "file_name": str(file_name or ""),
+        })
+    except Exception:
+        pass
     if code_processor is None:
         # Minimal fallback: normalize only
-        return True, normalize_code(code), ""
-    ok, cleaned, msg = code_processor.validate_code_input(code, file_name, user_id)
+        ok = True
+        cleaned = normalize_code(code)
+        msg = ""
+    else:
+        ok, cleaned, msg = code_processor.validate_code_input(code, file_name, user_id)
     # לאחר שהוולידטור מריץ sanitize + normalize (עם טיפול מיוחד ל-Markdown),
     # אין לבצע נרמול חוזר שעלול לקצץ רווחי סוף שורה במסמכי Markdown.
     # אם בפועל נדרש נרמול נוסף בעתיד, יש להעביר דגלים תואמים לסוג הקובץ.
+    try:
+        try:
+            cleaned_length = int(len(cleaned or ""))
+        except TypeError:
+            cleaned_length = 0
+        span_attrs = {
+            "validation.ok": bool(ok),
+            "status": "ok" if ok else "error",
+            "cleaned.length": cleaned_length,
+            "code.length.original": code_length,
+        }
+        if file_name:
+            span_attrs["file_name"] = str(file_name)
+        if msg:
+            span_attrs["error.message"] = str(msg)
+        set_current_span_attributes(span_attrs)
+    except Exception:
+        pass
     return ok, cleaned, msg
 
 
+@traced("code.analyze")
 def analyze_code(code: str, language: str) -> Dict[str, Any]:
     """
     מבצע ניתוח על קטע קוד עבור שפה נתונה.
@@ -136,27 +183,55 @@ def analyze_code(code: str, language: str) -> Dict[str, Any]:
             - complexity: מורכבות הקוד
             - metrics: מטריקות נוספות
     """
+    try:
+        set_current_span_attributes({
+            "language": str(language or ""),
+            "code.length": int(len(code or "")),
+        })
+    except Exception:
+        pass
     if code_processor is None:
         return {"language": language, "length": len(code)}
     return code_processor.analyze_code(code, language)
 
 
+@traced("code.extract_functions")
 def extract_functions(code: str, language: str) -> List[Dict[str, Any]]:
     """Extract function definitions from code."""
+    try:
+        set_current_span_attributes({
+            "language": str(language or ""),
+            "code.length": int(len(code or "")),
+        })
+    except Exception:
+        pass
     if code_processor is None:
         return []
     return code_processor.extract_functions(code, language)
 
 
+@traced("code.stats")
 def get_code_stats(code: str) -> Dict[str, Any]:
     """Compute simple statistics for a code snippet."""
+    try:
+        set_current_span_attributes({"code.length": int(len(code or ""))})
+    except Exception:
+        pass
     if code_processor is None:
         return {"length": len(code)}
     return code_processor.get_code_stats(code)
 
 
+@traced("code.highlight")
 def highlight_code(code: str, language: str) -> str:
     """Return syntax highlighted representation for code."""
+    try:
+        set_current_span_attributes({
+            "language": str(language or ""),
+            "code.length": int(len(code or "")),
+        })
+    except Exception:
+        pass
     if code_processor is None:
         return code
     return code_processor.highlight_code(code, language)

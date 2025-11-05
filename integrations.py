@@ -13,7 +13,6 @@ from datetime import datetime, timezone, timedelta
 import os
 from typing import Any, Dict, List, Optional
 
-import aiohttp
 import requests
 from github import Github, InputFileContent
 from github.GithubException import GithubException
@@ -22,15 +21,48 @@ from config import config
 
 logger = logging.getLogger(__name__)
 
+try:
+    from observability_instrumentation import traced, set_current_span_attributes
+except Exception:  # pragma: no cover
+    def traced(*_a, **_k):  # type: ignore
+        def _inner(f):
+            return f
+        return _inner
+
+    def set_current_span_attributes(*_a, **_k):  # type: ignore
+        return None
+
+
+def _get_github_token() -> Optional[str]:
+    """השג את טוקן ה-GitHub בצורה חסינה גם כשאין שדה על האובייקט."""
+
+    token = getattr(config, "GITHUB_TOKEN", None)
+    if token:
+        return token
+    # תאימות לאחור: ייתכן שטסטים מזריקים רק משתני סביבה ללא שדה בקונפיג
+    return os.getenv("GITHUB_TOKEN")
+
+
+def _get_pastebin_api_key() -> Optional[str]:
+    """השג את מפתח ה-API של Pastebin גם כשאין שדה ישיר על האובייקט."""
+
+    api_key = getattr(config, "PASTEBIN_API_KEY", None)
+    if api_key:
+        return api_key
+    # תאימות לאחור: תמיכה בטסטים שמגדירים רק משתנה סביבה
+    return os.getenv("PASTEBIN_API_KEY")
+
+
 class GitHubGistIntegration:
     """אינטגרציה עם GitHub Gist"""
     
     def __init__(self):
         self.github = None
         self.user = None
-        if config.GITHUB_TOKEN:
+        token = _get_github_token()
+        if token:
             try:
-                self.github = Github(config.GITHUB_TOKEN)
+                self.github = Github(token)
                 self.user = self.github.get_user()
                 logger.info(f"התחבר ל-GitHub בתור: {self.user.login}")
             except GithubException as e:
@@ -40,15 +72,28 @@ class GitHubGistIntegration:
         """בדיקה אם האינטגרציה זמינה"""
         return self.github is not None and self.user is not None
     
+    @traced("integration.github.create_gist")
     def create_gist(self, file_name: str, code: str, language: str, 
                    description: str = "", public: bool = True) -> Optional[Dict[str, Any]]:
         """יצירת Gist חדש"""
         
         if not self.is_available():
             logger.error("GitHub Gist לא זמין - אין טוקן או שגיאה בהתחברות")
+            try:
+                set_current_span_attributes({"status": "error", "reason": "unavailable"})
+            except Exception:
+                pass
             return None
 
         try:
+            try:
+                set_current_span_attributes({
+                    "file_name": str(file_name or ""),
+                    "language": str(language or ""),
+                    "public": bool(public),
+                })
+            except Exception:
+                pass
             # הכנת תיאור
             if not description:
                 description = f"קטע קוד {language} - {file_name}"
@@ -89,15 +134,28 @@ class GitHubGistIntegration:
             
         except GithubException as e:
             logger.error(f"שגיאה ביצירת Gist: {e}")
+            try:
+                set_current_span_attributes({"status": "error", "error_signature": type(e).__name__})
+            except Exception:
+                pass
             return None
         except Exception as e:
             logger.error(f"שגיאה כללית ביצירת Gist: {e}")
+            try:
+                set_current_span_attributes({"status": "error", "error_signature": type(e).__name__})
+            except Exception:
+                pass
             return None
 
+    @traced("integration.github.create_gist_multi")
     def create_gist_multi(self, files_map: Dict[str, str], description: str = "", public: bool = True) -> Optional[Dict[str, Any]]:
         """יצירת Gist עם מספר קבצים"""
         if not self.is_available():
             logger.error("GitHub Gist לא זמין - אין טוקן או שגיאה בהתחברות")
+            try:
+                set_current_span_attributes({"status": "error", "reason": "unavailable"})
+            except Exception:
+                pass
             return None
         try:
             if not description:
@@ -137,9 +195,17 @@ class GitHubGistIntegration:
             return result
         except GithubException as e:
             logger.error(f"שגיאה ביצירת Gist מרובה קבצים: {e}")
+            try:
+                set_current_span_attributes({"status": "error", "error_signature": type(e).__name__})
+            except Exception:
+                pass
             return None
         except Exception as e:
             logger.error(f"שגיאה כללית ביצירת Gist מרובה קבצים: {e}")
+            try:
+                set_current_span_attributes({"status": "error", "error_signature": type(e).__name__})
+            except Exception:
+                pass
             return None
     
     def update_gist(self, gist_id: str, file_name: str, new_code: str) -> Optional[Dict[str, Any]]:
@@ -219,19 +285,24 @@ class PastebinIntegration:
     """אינטגרציה עם Pastebin"""
     
     def __init__(self):
-        self.api_key = config.PASTEBIN_API_KEY
+        self.api_key = _get_pastebin_api_key()
         self.base_url = "https://pastebin.com/api"
         
     def is_available(self) -> bool:
         """בדיקה אם האינטגרציה זמינה"""
         return bool(self.api_key)
     
+    @traced("integration.pastebin.create")
     async def create_paste(self, code: str, file_name: str, language: str = None,
                           private: bool = True, expire: str = "1M") -> Optional[Dict[str, Any]]:
         """יצירת paste חדש"""
         
         if not self.is_available():
             logger.error("Pastebin לא זמין - אין API key")
+            try:
+                set_current_span_attributes({"status": "error", "reason": "unavailable"})
+            except Exception:
+                pass
             return None
         
         # מיפוי שפות ל-Pastebin format
@@ -266,20 +337,23 @@ class PastebinIntegration:
         }
         
         try:
-            # שמור תאימות לאחור: ברירת מחדל 15s ל-Pastebin, ניתן לדרוס ב-ENV/Config
             try:
-                env_total = os.getenv("AIOHTTP_TIMEOUT_TOTAL")
-                _total = int(env_total) if env_total not in (None, "") else 15
+                set_current_span_attributes({
+                    "file_name": str(file_name or ""),
+                    "language": str(language or ""),
+                    "private": bool(private),
+                    "expire": str(expire or ""),
+                })
             except Exception:
-                _total = 15
-            try:
-                _limit = int(getattr(config, "AIOHTTP_POOL_LIMIT", 50))
-            except Exception:
-                _limit = 50
-            timeout = aiohttp.ClientTimeout(total=_total)
-            connector = aiohttp.TCPConnector(limit=_limit)
-            async with aiohttp.ClientSession(timeout=timeout, connector=connector) as session:
-                async with session.post(f"{self.base_url}/api_post.php", data=data) as response:
+                pass
+            from http_async import request as async_request  # lazy import להימנע מתלויות מעגליות
+            async with async_request(
+                "POST",
+                f"{self.base_url}/api_post.php",
+                data=data,
+                service="pastebin",
+                endpoint="create_paste",
+            ) as response:
                     result = await response.text()
                     
                     if response.status == 200 and result.startswith('https://pastebin.com/'):
@@ -299,31 +373,51 @@ class PastebinIntegration:
                         }
                     else:
                         logger.error(f"שגיאה ביצירת Pastebin paste: {result}")
+                        try:
+                            set_current_span_attributes({"status": "error", "error_signature": "PastebinError"})
+                        except Exception:
+                            pass
                         return None
                         
         except Exception as e:
             logger.error(f"שגיאה כללית ב-Pastebin: {e}")
+            try:
+                set_current_span_attributes({"status": "error", "error_signature": type(e).__name__})
+            except Exception:
+                pass
             return None
     
+    @traced("integration.pastebin.get_content")
     async def get_paste_content(self, paste_id: str) -> Optional[str]:
         """קבלת תוכן paste"""
         
         try:
             raw_url = f"https://pastebin.com/raw/{paste_id}"
-            timeout = aiohttp.ClientTimeout(total=int(getattr(config, "AIOHTTP_TIMEOUT_TOTAL", 10)))
-            connector = aiohttp.TCPConnector(limit=int(getattr(config, "AIOHTTP_POOL_LIMIT", 50)))
-            async with aiohttp.ClientSession(timeout=timeout, connector=connector) as session:
-                async with session.get(raw_url) as response:
+            from http_async import request as async_request
+            async with async_request(
+                "GET",
+                raw_url,
+                service="pastebin",
+                endpoint="get_content",
+            ) as response:
                     if response.status == 200:
                         content = await response.text()
                         logger.info(f"נשלף תוכן מ-Pastebin: {paste_id}")
                         return content
                     else:
                         logger.error(f"שגיאה בשליפת תוכן מ-Pastebin: {response.status}")
+                        try:
+                            set_current_span_attributes({"status": "error", "http.status_code": int(response.status)})
+                        except Exception:
+                            pass
                         return None
                         
         except Exception as e:
             logger.error(f"שגיאה בשליפת תוכן מ-Pastebin: {e}")
+            try:
+                set_current_span_attributes({"status": "error", "error_signature": type(e).__name__})
+            except Exception:
+                pass
             return None
 
 class CodeSharingService:
@@ -348,10 +442,19 @@ class CodeSharingService:
         
         return services
     
+    @traced("integration.share_code")
     async def share_code(self, service: str, file_name: str, code: str, 
                         language: str, description: str = "", **kwargs) -> Optional[Dict[str, Any]]:
         """שיתוף קוד בשירות נבחר"""
         
+        try:
+            set_current_span_attributes({
+                "service": str(service or ""),
+                "language": str(language or ""),
+                "file_name": str(file_name or ""),
+            })
+        except Exception:
+            pass
         if service == "gist" and self.gist.is_available():
             return self.gist.create_gist(file_name, code, language, description, **kwargs)
         
@@ -363,6 +466,10 @@ class CodeSharingService:
         
         else:
             logger.error(f"שירות שיתוף לא זמין: {service}")
+            try:
+                set_current_span_attributes({"status": "error", "reason": "service_unavailable"})
+            except Exception:
+                pass
             return None
     
     def _create_internal_share(self, file_name: str, code: str, 
@@ -490,9 +597,10 @@ class GitRepositoryIntegration:
     
     def __init__(self):
         self.github = None
-        if config.GITHUB_TOKEN:
+        token = _get_github_token()
+        if token:
             try:
-                self.github = Github(config.GITHUB_TOKEN)
+                self.github = Github(token)
             except Exception as e:
                 logger.error(f"שגיאה בהתחברות ל-GitHub: {e}")
     
@@ -608,35 +716,25 @@ class WebhookIntegration:
             "data": data
         }
         
-        try:
-            _total = int(getattr(config, "AIOHTTP_TIMEOUT_TOTAL", 10))
-        except Exception:
-            _total = 10
-        try:
-            _limit = int(getattr(config, "AIOHTTP_POOL_LIMIT", 50))
-        except Exception:
-            _limit = 50
-        timeout = aiohttp.ClientTimeout(total=_total)
-        connector = aiohttp.TCPConnector(limit=_limit)
-        async with aiohttp.ClientSession(timeout=timeout, connector=connector) as session:
-            for webhook in relevant_webhooks:
-                try:
-                    async with session.post(
-                        webhook["url"],
-                        json=payload,
-                        headers={"Content-Type": "application/json"},
-                        timeout=timeout
-                    ) as response:
-                        
-                        if response.status == 200:
-                            logger.info(f"Webhook נשלח בהצלחה: {webhook['url']}")
-                        else:
-                            logger.warning(f"Webhook החזיר שגיאה {response.status}: {webhook['url']}")
-                            
-                except asyncio.TimeoutError:
-                    logger.warning(f"Webhook timeout: {webhook['url']}")
-                except Exception as e:
-                    logger.error(f"שגיאה בשליחת webhook: {e}")
+        from http_async import request as async_request
+        for webhook in relevant_webhooks:
+            try:
+                async with async_request(
+                    "POST",
+                    webhook["url"],
+                    json=payload,
+                    headers={"Content-Type": "application/json"},
+                    service="webhook",
+                    endpoint="trigger",
+                ) as response:
+                    if response.status == 200:
+                        logger.info(f"Webhook נשלח בהצלחה: {webhook['url']}")
+                    else:
+                        logger.warning(f"Webhook החזיר שגיאה {response.status}: {webhook['url']}")
+            except asyncio.TimeoutError:
+                logger.warning(f"Webhook timeout: {webhook['url']}")
+            except Exception as e:
+                logger.error(f"שגיאה בשליחת webhook: {e}")
 
 # יצירת אינסטנסים גלובליים
 gist_integration = GitHubGistIntegration()

@@ -12,7 +12,7 @@ from __future__ import annotations
 import logging
 import os
 import uuid
-from typing import Any, Dict
+from typing import Any, Dict, Mapping, Optional
 import time
 from fnmatch import fnmatch
 import threading
@@ -23,12 +23,19 @@ import structlog
 from collections import deque
 from datetime import datetime, timezone
 
+try:  # Optional during lightweight environments
+    from monitoring.error_signatures import ErrorSignatures, SignatureMatch  # type: ignore
+except Exception:  # pragma: no cover
+    ErrorSignatures = None  # type: ignore
+    SignatureMatch = None  # type: ignore
 try:  # Optional OpenTelemetry
     from opentelemetry.trace import get_current_span  # type: ignore
 except Exception:  # pragma: no cover
     get_current_span = None  # type: ignore
 
 SCHEMA_VERSION = "1.0"
+
+LOGGER = logging.getLogger(__name__)
 
 # Custom log level for anomalies
 ANOMALY_LEVEL_NUM = 35  # between WARNING(30) and ERROR(40)
@@ -39,6 +46,9 @@ if not hasattr(logging, "ANOMALY"):
 _SENTRY_INIT_DONE = False
 # Track the DSN used for initialization to allow re-init if DSN changes during tests/runtime
 _SENTRY_DSN_USED: str | None = None
+
+_ERROR_SIGNATURES_CACHE: Optional["ErrorSignatures"] = None
+_ERROR_SIGNATURES_LOCK = threading.Lock()
 
 
 def _add_otel_ids(logger, method, event_dict: Dict[str, Any]):
@@ -64,6 +74,312 @@ def _redact_sensitive(logger, method, event_dict: Dict[str, Any]):
                     event_dict[key] = "[REDACTED]"
             except Exception:
                 continue
+    except Exception:
+        return event_dict
+    return event_dict
+
+
+def _env_true(key: str) -> bool:
+    try:
+        return str(os.getenv(key, "")).strip().lower() in {"1", "true", "yes", "on"}
+    except Exception:
+        return False
+
+
+def _set_sentry_tag(name: str, value: str) -> None:
+    if not value:
+        return
+    try:
+        import sentry_sdk  # type: ignore
+
+        sentry_sdk.set_tag(str(name), str(value))  # type: ignore[attr-defined]
+    except Exception:
+        return
+
+
+def _hash_identifier(raw: Any) -> str:
+    try:
+        if raw is None:
+            return ""
+        text = str(raw).strip()
+    except Exception:
+        text = ""
+    if not text:
+        return ""
+    try:
+        digest = hashlib.sha256(text.encode("utf-8", "ignore")).hexdigest()
+    except Exception:
+        return ""
+    return digest[:16]
+
+
+def _sanitize_command_identifier(command: Any | None) -> str:
+    try:
+        raw = "" if command is None else str(command).strip()
+    except Exception:
+        raw = ""
+    if not raw:
+        return ""
+    sanitized = raw.replace("\n", " ").split()[0]
+    if sanitized.startswith("/"):
+        sanitized = sanitized[1:]
+    if "@" in sanitized:
+        sanitized = sanitized.split("@", 1)[0]
+    sanitized = sanitized.lower()
+    if len(sanitized) > 80:
+        sanitized = sanitized[:80]
+    return sanitized
+
+
+def get_observability_context() -> Dict[str, str]:
+    try:
+        ctx = structlog.contextvars.get_contextvars()
+    except Exception:
+        return {}
+    if not isinstance(ctx, dict):
+        return {}
+    result: Dict[str, str] = {}
+    for key in ("request_id", "command", "user_id", "chat_id"):
+        try:
+            val = ctx.get(key)
+        except Exception:
+            val = None
+        if val:
+            result[str(key)] = str(val)
+    return result
+
+
+def get_request_id(default: str = "") -> str:
+    try:
+        rid = get_observability_context().get("request_id", "")
+    except Exception:
+        rid = ""
+    return str(rid or default)
+
+
+def bind_command(command: str | None) -> None:
+    sanitized = _sanitize_command_identifier(command)
+    if not sanitized:
+        return
+    try:
+        structlog.contextvars.bind_contextvars(command=sanitized)
+    except Exception:
+        pass
+    _set_sentry_tag("command", sanitized)
+
+
+def bind_user_context(*, user_id: Any | None = None, chat_id: Any | None = None) -> None:
+    to_bind: Dict[str, str] = {}
+    user_hash = _hash_identifier(user_id)
+    if user_hash:
+        to_bind["user_id"] = user_hash
+        _set_sentry_tag("user_id", user_hash)
+    chat_hash = _hash_identifier(chat_id)
+    if chat_hash:
+        to_bind["chat_id"] = chat_hash
+        _set_sentry_tag("chat_id", chat_hash)
+    if to_bind:
+        try:
+            structlog.contextvars.bind_contextvars(**to_bind)
+        except Exception:
+            pass
+
+
+def _trace_headers() -> Dict[str, str]:
+    try:
+        from opentelemetry.propagate import inject  # type: ignore
+    except Exception:
+        return {}
+    carrier: Dict[str, str] = {}
+    try:
+        inject(carrier)  # type: ignore[call-overload]
+    except TypeError:
+        try:
+            inject(lambda c, k, v: carrier.__setitem__(str(k), str(v)))  # type: ignore[arg-type]
+        except Exception:
+            return {}
+    except Exception:
+        return {}
+    normalized: Dict[str, str] = {}
+    for key, value in carrier.items():
+        if not key or not value:
+            continue
+        normalized[str(key)] = str(value)
+    return normalized
+
+
+def prepare_outgoing_headers(headers: Mapping[str, Any] | None = None) -> Dict[str, str]:
+    prepared: Dict[str, str] = {}
+    existing_lower: set[str] = set()
+    if headers:
+        for key, value in headers.items():
+            if key is None or value is None:
+                continue
+            try:
+                skey = str(key)
+                svalue = str(value)
+            except Exception:
+                continue
+            prepared[skey] = svalue
+            existing_lower.add(skey.lower())
+
+    rid = get_request_id("")
+    if rid and "x-request-id" not in existing_lower:
+        prepared["X-Request-ID"] = rid
+        existing_lower.add("x-request-id")
+
+    for key, value in _trace_headers().items():
+        lower = key.lower()
+        if lower in existing_lower:
+            continue
+        prepared[key] = value
+        existing_lower.add(lower)
+
+    return prepared
+
+
+def _get_error_signatures() -> Optional["ErrorSignatures"]:
+    if ErrorSignatures is None:  # pragma: no cover - optional dependency
+        return None
+    global _ERROR_SIGNATURES_CACHE
+    cache = _ERROR_SIGNATURES_CACHE
+    if cache is not None:
+        return cache
+    with _ERROR_SIGNATURES_LOCK:
+        cache = _ERROR_SIGNATURES_CACHE
+        if cache is not None:
+            return cache
+        path = os.getenv("ERROR_SIGNATURES_PATH", "config/error_signatures.yml")
+        try:
+            cache = ErrorSignatures(path)  # type: ignore[call-arg]
+        except Exception:
+            cache = None
+        _ERROR_SIGNATURES_CACHE = cache
+        return cache
+
+
+def _classify_error_context(fields: Dict[str, Any], fallback: str = "") -> Optional["SignatureMatch"]:
+    signatures = _get_error_signatures()
+    if signatures is None:
+        return None
+
+    candidates: list[str] = []
+    seen: set[str] = set()
+
+    def _extend(value: Any) -> None:
+        if value is None:
+            return
+        if isinstance(value, (list, tuple, set)):
+            for item in value:
+                _extend(item)
+            return
+        try:
+            text = str(value)
+        except Exception:
+            return
+        text = text.strip()
+        if not text:
+            return
+        if text not in seen:
+            seen.add(text)
+            candidates.append(text)
+
+    if fallback:
+        _extend(fallback)
+
+    for key in ("error", "message", "detail", "description", "operation", "event", "status", "response_text"):
+        _extend(fields.get(key))
+
+    combined = " | ".join(candidates[:4]) if candidates else ""
+    probe_lines = [combined] if combined else []
+    probe_lines.extend(candidates)
+
+    for text in probe_lines:
+        if not text:
+            continue
+        try:
+            match = signatures.match(text)
+        except Exception:
+            continue
+        if match:
+            return match
+    return None
+
+
+def classify_error(fields: Mapping[str, Any] | None = None, fallback: str = "") -> Optional["SignatureMatch"]:
+    try:
+        payload = dict(fields or {})
+    except Exception:
+        payload = {}
+    try:
+        return _classify_error_context(payload, fallback)
+    except Exception:
+        return None
+
+
+# Lazy singleton for the log aggregator to avoid repeated construction
+_LOG_AGG_SINGLETON = None  # type: ignore[var-annotated]
+_LOG_AGG_SHADOW = False
+
+
+def _mirror_to_log_aggregator(logger, method, event_dict: Dict[str, Any]):
+    """Mirror warning/error/anomaly logs into the in-process aggregator.
+
+    Fail-open: never raises; ignores internal/system events to avoid loops.
+    Controlled via ENV:
+      - LOG_AGGREGATOR_ENABLED={1|true|yes|on}
+      - LOG_AGGREGATOR_SHADOW={1|true|yes|on}
+      - ERROR_SIGNATURES_PATH, ALERTS_GROUPING_CONFIG
+    """
+    try:
+        if not _env_true("LOG_AGGREGATOR_ENABLED"):
+            return event_dict
+
+        level = str(event_dict.get("level") or "").upper()
+        if level not in {"WARNING", "ERROR", "CRITICAL", "ANOMALY"}:
+            return event_dict
+
+        ev_name = str(event_dict.get("event") or "").strip().lower()
+        # Avoid recursion/loops by skipping our own internal/system events
+        if ev_name in {"internal_alert", "alert_received", "single_error_alert_fallback", "log_aggregator_shadow_emit"}:
+            return event_dict
+
+        parts = [
+            str(event_dict.get("event") or ""),
+            str(event_dict.get("error") or event_dict.get("message") or ""),
+            str(event_dict.get("status_code") or ""),
+            str(event_dict.get("route") or ""),
+        ]
+        line = " ".join(p for p in parts if p).strip()
+        if not line:
+            return event_dict
+
+        # Lazy create singleton with current ENV configuration
+        global _LOG_AGG_SINGLETON, _LOG_AGG_SHADOW
+        if _LOG_AGG_SINGLETON is None:
+            sig_path = os.getenv("ERROR_SIGNATURES_PATH", "config/error_signatures.yml")
+            grp_path = os.getenv("ALERTS_GROUPING_CONFIG", "config/alerts.yml")
+            shadow = _env_true("LOG_AGGREGATOR_SHADOW")
+            try:
+                from monitoring.log_analyzer import LogEventAggregator  # type: ignore
+                _LOG_AGG_SINGLETON = LogEventAggregator(
+                    signatures_path=str(sig_path),
+                    alerts_config_path=str(grp_path),
+                    shadow=bool(shadow),
+                )
+                _LOG_AGG_SHADOW = bool(shadow)
+            except Exception:
+                # If aggregator unavailable, skip
+                return event_dict
+        else:
+            # If SHADOW env toggled after creation, don't recreate here (tests may reset process)
+            pass
+
+        try:
+            _LOG_AGG_SINGLETON.analyze_line(line)  # type: ignore[attr-defined]
+        except Exception:
+            # Never break logging on aggregator errors
+            return event_dict
     except Exception:
         return event_dict
     return event_dict
@@ -149,6 +465,7 @@ def setup_structlog_logging(min_level: str | int = "INFO") -> None:
             _redact_sensitive,
             _add_schema_version,
             structlog.processors.add_log_level,
+            _mirror_to_log_aggregator,
             _maybe_sample_info,
             structlog.processors.TimeStamper(fmt="iso"),
             _choose_renderer(),
@@ -169,24 +486,67 @@ def bind_request_id(request_id: str) -> None:
         structlog.contextvars.bind_contextvars(request_id=request_id)
     except Exception:
         pass
+    _set_sentry_tag("request_id", request_id)
 
 
 def emit_event(event: str, severity: str = "info", **fields: Any) -> None:
     logger = structlog.get_logger()
     fields.setdefault("event", event)
-    # Keep a lightweight in-memory buffer of recent errors for ChatOps /errors fallback
-    try:
-        if severity in {"error", "critical"}:
+
+    if severity in {"error", "critical"}:
+        ctx = get_observability_context()
+        request_id = str(fields.get("request_id") or ctx.get("request_id") or "").strip()
+        if request_id and "request_id" not in fields:
+            fields["request_id"] = request_id
+
+        command_tag = _sanitize_command_identifier(fields.get("command")) or str(ctx.get("command") or "")
+        user_tag = _hash_identifier(fields.get("user_id")) or str(ctx.get("user_id") or "")
+        chat_tag = _hash_identifier(fields.get("chat_id")) or str(ctx.get("chat_id") or "")
+        message_text = str(fields.get("error") or fields.get("message") or event)
+
+        classification = _classify_error_context(fields, message_text)
+        if classification is not None:
+            category = str(getattr(classification, "category", "") or "").strip()
+            signature_id = str(getattr(classification, "signature_id", "") or "").strip()
+            summary = str(getattr(classification, "summary", "") or "").strip()
+            severity_hint = str(getattr(classification, "severity", "") or "").strip()
+            policy_hint = str(getattr(classification, "policy", "") or "").strip()
+            metadata = getattr(classification, "metadata", {}) or {}
+
+            if category and "error_category" not in fields:
+                fields["error_category"] = category
+            if signature_id and "error_signature" not in fields:
+                fields["error_signature"] = signature_id
+            if summary and "error_summary" not in fields:
+                fields["error_summary"] = summary
+            if policy_hint and "error_policy" not in fields:
+                fields["error_policy"] = policy_hint
+            if severity_hint and "error_severity_hint" not in fields:
+                fields["error_severity_hint"] = severity_hint
+            if metadata and "error_metadata" not in fields:
+                safe_meta = {str(k): str(v) for k, v in metadata.items() if v is not None}
+                if safe_meta:
+                    fields["error_metadata"] = safe_meta
+            if category:
+                _set_sentry_tag("error_category", category)
+            if signature_id:
+                _set_sentry_tag("error_signature", signature_id)
+
+        # Keep a lightweight in-memory buffer of recent errors for ChatOps /errors fallback
+        try:
             _RECENT_ERRORS.append({
                 "ts": datetime.now(timezone.utc).isoformat(),
                 "event": str(event),
                 "error_code": str(fields.get("error_code") or ""),
                 "error": str(fields.get("error") or fields.get("message") or ""),
                 "operation": str(fields.get("operation") or ""),
+                "error_category": str(fields.get("error_category") or ""),
+                "error_signature": str(fields.get("error_signature") or ""),
+                "error_policy": str(fields.get("error_policy") or ""),
             })
-    except Exception:
-        pass
-    if severity in {"error", "critical"}:
+        except Exception:
+            pass
+
         # best-effort: alert per single error (rate-limited via env)
         try:
             _maybe_alert_single_error(event, fields)
@@ -196,13 +556,19 @@ def emit_event(event: str, severity: str = "info", **fields: Any) -> None:
         # כדי להבטיח אירוע גם כאשר ה-LoggingIntegration לא קולט structlog
         try:
             import sentry_sdk  # type: ignore
-            rid = str(fields.get("request_id") or "")
-            # בחר מסר קריא: error/message/event
-            message_text = str(fields.get("error") or fields.get("message") or event)
+
             with sentry_sdk.push_scope() as scope:  # type: ignore[attr-defined]
-                if rid:
+                for key, value in (
+                    ("request_id", request_id),
+                    ("command", command_tag),
+                    ("user_id", user_tag),
+                    ("chat_id", chat_tag),
+                ):
+                    value_str = str(value).strip()
+                    if not value_str:
+                        continue
                     try:
-                        scope.set_tag("request_id", rid)  # type: ignore[attr-defined]
+                        scope.set_tag(key, value_str)  # type: ignore[attr-defined]
                     except Exception:
                         pass
                 sentry_sdk.capture_message(message_text, level="error")  # type: ignore[attr-defined]
@@ -232,6 +598,7 @@ def init_sentry() -> None:
         except Exception:
             dsn = None
     if not dsn:
+        LOGGER.warning("sentry init skipped: missing DSN", extra={"event": "sentry_init_skipped", "reason": "missing_dsn"})
         return
     # If already initialized with the same DSN, skip. If DSN differs (e.g., in tests), allow re-init.
     if _SENTRY_INIT_DONE and (_SENTRY_DSN_USED == dsn):
@@ -280,7 +647,11 @@ def init_sentry() -> None:
         )
         _SENTRY_INIT_DONE = True
         _SENTRY_DSN_USED = dsn
-    except Exception:
+    except Exception as exc:
+        LOGGER.exception(
+            "sentry init failed",
+            extra={"event": "sentry_init_failed", "error": str(exc)},
+        )
         return
 
 

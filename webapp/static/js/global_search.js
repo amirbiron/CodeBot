@@ -93,9 +93,18 @@
   window.performGlobalSearch = performGlobalSearch;
 
   function getSelectedLanguages(){
+    // תמיכה ב־UI חדש: תפריט קטן שנפתח עם צ'קבוקסים
+    const dropdown = document.getElementById('languageFilterDropdown');
+    if (dropdown) {
+      const checked = dropdown.querySelectorAll('input.lang-checkbox:checked');
+      if (checked && checked.length) {
+        return Array.from(checked).map(cb => cb.value);
+      }
+    }
+    // תאימות לאחור: select#filterLanguages
     const sel = $('filterLanguages');
     if (!sel) return [];
-    return Array.from(sel.selectedOptions).map(o => o.value);
+    return Array.from(sel.selectedOptions || []).map(o => o.value);
   }
 
   function displayResults(data){

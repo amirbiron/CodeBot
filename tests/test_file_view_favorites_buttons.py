@@ -4,9 +4,10 @@ import pytest
 
 
 class _Btn:
-    def __init__(self, text, callback_data=None):
+    def __init__(self, text, callback_data=None, url=None, **_):
         self.text = text
         self.callback_data = callback_data
+        self.url = url
 
 
 class _Markup:
@@ -70,6 +71,13 @@ async def test_view_file_includes_favorites_button_with_id(monkeypatch):
 
     rm = captured.get('reply_markup')
     assert isinstance(rm, _Markup)
+    web_row = rm.keyboard[3]
+    web_btn = web_row[0]
+    assert web_btn.text == "🌐 צפייה בWebApp"
+    assert web_btn.url == "https://code-keeper-webapp.onrender.com/file/OID1"
+    share_btn = web_row[1]
+    assert share_btn.text == "🔗 שתף קוד"
+    assert share_btn.callback_data == "share_menu_idx:0"
     # Favorites row is inserted before the last back row
     flat = [(btn.text, btn.callback_data) for row in rm.keyboard for btn in row]
     assert any(text.startswith('⭐') or text.startswith('💔') for text, _ in flat)
@@ -109,6 +117,13 @@ async def test_view_file_uses_token_when_no_id_and_maps_token(monkeypatch):
     await fv.handle_view_file(upd, ctx)
 
     rm = captured.get('reply_markup')
+    web_row = rm.keyboard[3]
+    web_btn = web_row[0]
+    assert web_btn.text == "🌐 צפייה בWebApp"
+    assert web_btn.url == "https://code-keeper-webapp.onrender.com/files?q=t.py#results"
+    share_btn = web_row[1]
+    assert share_btn.text == "🔗 שתף קוד"
+    assert share_btn.callback_data == "share_menu_idx:0"
     flat = [(btn.text, btn.callback_data) for row in rm.keyboard for btn in row]
     # Expect token-based callback and mapping saved
     assert any(cb and cb.startswith('fav_toggle_tok:tokXYZ') for _, cb in flat)
@@ -150,10 +165,55 @@ async def test_view_direct_file_includes_favorites_button_with_id(monkeypatch):
 
     rm = captured.get('reply_markup')
     assert isinstance(rm, _Markup)
+    web_btn = rm.keyboard[0][0]
+    assert web_btn.text == "🌐 צפייה בWebApp"
+    assert web_btn.url == "https://code-keeper-webapp.onrender.com/file/ID789"
     flat = [(btn.text, btn.callback_data) for row in rm.keyboard for btn in row]
     # Should include remove-from-favorites label and id-based callback
     assert any(text.startswith('💔') for text, _ in flat)
     assert any(cb and cb.startswith('fav_toggle_id:ID789') for _, cb in flat)
+
+
+@pytest.mark.asyncio
+async def test_view_direct_large_file_uses_search_fallback(monkeypatch):
+    class _DB:
+        def get_file_by_id(self, file_id):
+            return None
+        def get_large_file_by_id(self, file_id):
+            return {
+                '_id': 'LF999',
+                'file_name': 'big data.csv',
+                'content': 'col1,col2',
+                'programming_language': 'csv',
+                'description': '',
+            }
+        def get_large_file(self, uid, name):
+            return None
+        def is_favorite(self, uid, name):
+            return False
+
+    fake_db_mod = types.SimpleNamespace(db=_DB())
+    monkeypatch.setitem(sys.modules, 'database', fake_db_mod)
+
+    import handlers.file_view as fv
+    monkeypatch.setattr(fv, 'InlineKeyboardButton', _Btn, raising=True)
+    monkeypatch.setattr(fv, 'InlineKeyboardMarkup', _Markup, raising=True)
+
+    captured = {}
+    async def _safe_edit(query, text, reply_markup=None, parse_mode=None):
+        captured['reply_markup'] = reply_markup
+    monkeypatch.setattr(fv.TelegramUtils, 'safe_edit_message_text', _safe_edit, raising=True)
+
+    ctx = _Ctx()
+    upd = _Update('view_direct_id:LF999')
+
+    await fv.handle_view_direct_file(upd, ctx)
+
+    rm = captured.get('reply_markup')
+    assert isinstance(rm, _Markup)
+    web_btn = rm.keyboard[0][0]
+    assert web_btn.text == "🌐 צפייה בWebApp"
+    assert web_btn.url == "https://code-keeper-webapp.onrender.com/files?q=big+data.csv#results"
 
 
 @pytest.mark.asyncio

@@ -529,3 +529,53 @@ async def test_share_folder_link_sends_link_and_stays(monkeypatch):
     assert any("הורד תיקייה" in t for t in texts)
 
 
+def test_resolve_backup_version_increments_when_new_id_missing():
+    import github_menu_handler as gh
+
+    handler = gh.GitHubMenuHandler()
+    ctx = types.SimpleNamespace(user_data={})
+    infos = [types.SimpleNamespace(repo="owner/repo", backup_id=f"bid{i}") for i in range(3)]
+
+    version = handler._resolve_backup_version(ctx, "owner/repo", infos, "bid_new")
+
+    assert version == 4
+
+
+def test_resolve_backup_version_returns_existing_length_when_present():
+    import github_menu_handler as gh
+
+    handler = gh.GitHubMenuHandler()
+    ctx = types.SimpleNamespace(user_data={})
+    infos = [
+        types.SimpleNamespace(repo="owner/repo", backup_id="bid1"),
+        types.SimpleNamespace(repo="owner/repo", backup_id="bid_new"),
+        types.SimpleNamespace(repo="owner/repo", backup_id="bid2"),
+    ]
+
+    version = handler._resolve_backup_version(ctx, "owner/repo", infos, "bid_new")
+
+    assert version == len(infos)
+
+
+def test_resolve_backup_version_uses_cache_when_list_is_stale():
+    import github_menu_handler as gh
+
+    handler = gh.GitHubMenuHandler()
+    ctx = types.SimpleNamespace(user_data={})
+    infos = [types.SimpleNamespace(repo="owner/repo", backup_id=f"bid{i}") for i in range(2)]
+
+    handler._cache_recent_backup(
+        ctx,
+        backup_id="bid_cached",
+        repo_full_name="owner/repo",
+        path="",
+        file_count=1,
+        total_size=123,
+        created_at="2025-01-01T00:00:00Z",
+    )
+
+    version = handler._resolve_backup_version(ctx, "owner/repo", infos, "bid_cached")
+
+    assert version == len(infos) + 1
+
+

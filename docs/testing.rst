@@ -76,6 +76,56 @@ Testing Guide
            raise RuntimeError(f"Refusing to delete unsafe path: {p}")
        shutil.rmtree(p)
 
+Mocking HTTP ב‑github_menu_handler
+----------------------------------
+
+בגלל שינוי התשתית ל‑HTTP במודול ``github_menu_handler`` הוגדר שכבת shim יציבה לטסטים:
+
+- ``gh.requests.get`` – ממשק GET שניתן לבצע עליו monkeypatch בקלות.
+- ``gh.http_request`` – שכבת עטיפה לכל הבקשות; ב‑GET היא קוראת ל‑``gh.requests.get`` וב‑non‑GET קוראת ישירות ל‑``gh._http_sync_request``.
+
+הנחיות מעשיות:
+
+- עבור הורדות/GET (למשל zipball): עדיף לבצע monkeypatch על ``gh.requests.get`` במקום על ``requests.get`` הגלובלי.
+- עבור קריאות non‑GET (POST/PUT/DELETE): בצעו monkeypatch על ``gh._http_sync_request``.
+- אין יציאה לרשת בזמן טסטים – תמיד למקבש (monkeypatch) את הקריאות.
+
+דוגמה – Mock ל‑GET דרך ה‑shim:
+
+.. code-block:: python
+
+   import github_menu_handler as gh
+
+   def test_zip_download(monkeypatch):
+       class _Resp:
+           headers = {"Content-Length": "10"}
+           def raise_for_status(self):
+               pass
+           def iter_content(self, chunk_size=131072):
+               yield b"1234567890"
+
+       def fake_get(url, **kwargs):
+           return _Resp()
+
+       monkeypatch.setattr(gh.requests, "get", fake_get)
+       # המשך הקריאה לפונקציה שבפועל מבצעת את ההורדה…
+
+דוגמה – Mock ל‑non‑GET דרך ``_http_sync_request``:
+
+.. code-block:: python
+
+   import github_menu_handler as gh
+
+   def test_non_get(monkeypatch):
+       sentinel = object()
+
+       def fake_req(method, url, **kw):
+           assert method == "POST"
+           return sentinel
+
+       monkeypatch.setattr(gh, "_http_sync_request", fake_req)
+       assert gh.http_request("POST", "https://example.com", data=b"x") is sentinel
+
 רישום Blueprint בסביבת טסטים
 ------------------------------
 
@@ -118,7 +168,7 @@ Testing Guide
 CI נתמך
 -------
 
-- ה‑PR חייב לעבור סטטוסים: "🔍 Code Quality & Security", "🧪 Unit Tests (3.11)", "🧪 Unit Tests (3.12)".
+- ה‑PR חייב לעבור סטטוסים: "🔍 Code Quality & Security", "Unit Tests (3.11)", "Unit Tests (3.12)".
 
 בדיקות ביצועים (Performance)
 -----------------------------

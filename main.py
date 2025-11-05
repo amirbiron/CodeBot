@@ -8,6 +8,7 @@ from __future__ import annotations
 
 # הגדרות מתקדמות
 import os
+import functools
 import logging
 import asyncio
 from datetime import datetime
@@ -44,13 +45,40 @@ from telegram.ext import (Application, CommandHandler, ContextTypes,
                           PicklePersistence, InlineQueryHandler, ApplicationHandlerStop, TypeHandler)
 
 from config import config
-from observability import (
-    setup_structlog_logging,
-    init_sentry,
-    bind_request_id,
-    generate_request_id,
-    emit_event,
-)
+try:
+    import observability as _observability
+except Exception:
+    _observability = None
+
+
+def _noop(*_a, **_k):  # type: ignore[unused-argument]
+    return None
+
+
+def _default_generate_request_id() -> str:
+    try:
+        return str(int(time.time() * 1000))[-8:]
+    except Exception:
+        return ""
+
+
+def _observability_attr(name: str, default):
+    if _observability is None:
+        return default
+    try:
+        return getattr(_observability, name)
+    except AttributeError:
+        return default
+
+
+setup_structlog_logging = _observability_attr("setup_structlog_logging", _noop)
+init_sentry = _observability_attr("init_sentry", _noop)
+bind_request_id = _observability_attr("bind_request_id", _noop)
+generate_request_id = _observability_attr("generate_request_id", _default_generate_request_id)
+emit_event = _observability_attr("emit_event", _noop)
+bind_user_context = _observability_attr("bind_user_context", _noop)
+bind_command = _observability_attr("bind_command", _noop)
+get_observability_context = _observability_attr("get_observability_context", lambda: {})
 from metrics import (
     telegram_updates_total,
     track_file_saved,
@@ -119,6 +147,31 @@ try:
 except Exception:
     # אל תכשיל את האפליקציה אם תצורת observability נכשלה
     pass
+
+# סגירת סשן aiohttp משותף בסיום התהליך (best-effort)
+@atexit.register
+def _shutdown_http_shared_session() -> None:
+    try:
+        from http_async import close_session  # type: ignore
+    except Exception:
+        return
+    try:
+        loop = asyncio.get_event_loop()
+        if not loop.is_closed():
+            loop.run_until_complete(close_session())
+    except RuntimeError:
+        # אין event loop פעיל
+        try:
+            # חשוב להשתמש באותו מודול asyncio של המודול (ניתן ל-monkeypatch בטסטים)
+            _loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(_loop)
+            _loop.run_until_complete(close_session())
+            _loop.close()
+        except Exception:
+            pass
+    except Exception:
+        # אל תהרוס כיבוי
+        pass
 
 # Optional: Initialize OpenTelemetry for the bot process as well (no Flask app here)
 try:
@@ -732,6 +785,10 @@ class CodeKeeperBot:
             self._install_correlation_layer()
         except Exception:
             pass
+        try:
+            self._install_tracing_layer()
+        except Exception:
+            pass
 
         # יצירת והזרקת Activity Reporter בזמן ריצה (מונע חיבורים מרובים בזמן import)
         try:
@@ -839,6 +896,49 @@ class CodeKeeperBot:
                 bind_request_id(req_id)
             except Exception:
                 pass
+            try:
+                user = getattr(update, "effective_user", None)
+                chat = getattr(update, "effective_chat", None)
+                uid = getattr(user, "id", None)
+                cid = getattr(chat, "id", None)
+                bind_user_context(user_id=uid, chat_id=cid)
+            except Exception:
+                pass
+            try:
+                command_name = ""
+                message = getattr(update, "effective_message", None)
+                if message is not None:
+                    text = getattr(message, "text", None)
+                    if isinstance(text, str):
+                        parts = text.split()
+                        if parts and parts[0].startswith("/"):
+                            command_name = parts[0]
+                if not command_name:
+                    callback = getattr(update, "callback_query", None)
+                    if callback is not None:
+                        data = getattr(callback, "data", None)
+                        if isinstance(data, str):
+                            parts = data.split()
+                            if parts:
+                                command_name = parts[0]
+                if not command_name and getattr(update, "inline_query", None):
+                    command_name = "inline_query"
+                if command_name:
+                    cleaned = command_name.strip()
+                    if cleaned.startswith("/"):
+                        cleaned = cleaned[1:]
+                    if "@" in cleaned:
+                        cleaned = cleaned.split("@", 1)[0]
+                    cleaned = cleaned.lower()
+                    if cleaned:
+                        bind_command(f"bot:{cleaned}")
+                        try:
+                            if hasattr(context, "user_data"):
+                                context.user_data["command"] = cleaned
+                        except Exception:
+                            pass
+            except Exception:
+                pass
             # עדכון מטריקה כללית על סוג ה-update
             try:
                 upd_type = (
@@ -860,12 +960,180 @@ class CodeKeeperBot:
         except Exception:
             # אל תכשיל את האפליקציה במקרה של כשל
             pass
+
+    def _install_tracing_layer(self) -> None:
+        """Wrap process_update with OTEL span for end-to-end tracing."""
+        app = getattr(self, "application", None)
+        if app is None:
+            return
+        original = getattr(app, "process_update", None)
+        if not callable(original):
+            return
+        if getattr(app, "_codebot_tracing_installed", False):
+            return
+        try:
+            from observability_instrumentation import start_span, set_current_span_attributes  # type: ignore
+        except Exception:
+            return
+        if not callable(start_span):  # type: ignore[call-arg]
+            return
+
+        setattr(app, "_codebot_tracing_installed", True)
+
+        def _normalize_command(value: str | None) -> str:
+            try:
+                if not value:
+                    return ""
+                cleaned = str(value).strip().lower()
+                if cleaned.startswith("/"):
+                    cleaned = cleaned[1:]
+                if "@" in cleaned:
+                    cleaned = cleaned.split("@", 1)[0]
+                return cleaned[:80]
+            except Exception:
+                return ""
+
+        def _derive_command(update: Update) -> str:
+            try:
+                message = getattr(update, "effective_message", None)
+                if message is not None:
+                    text = getattr(message, "text", None)
+                    if isinstance(text, str):
+                        parts = text.split()
+                        if parts and parts[0].startswith("/"):
+                            return _normalize_command(parts[0])
+                callback = getattr(update, "callback_query", None)
+                if callback is not None:
+                    data = getattr(callback, "data", None)
+                    if isinstance(data, str) and data:
+                        return _normalize_command(data.split()[0])
+                inline = getattr(update, "inline_query", None)
+                if inline is not None:
+                    query = getattr(inline, "query", None)
+                    if isinstance(query, str) and query:
+                        return _normalize_command(query.split()[0])
+            except Exception:
+                return ""
+            return ""
+
+        def _collect_attrs(update: Update | None) -> dict[str, str]:
+            attrs: dict[str, str] = {"component": "telegram.bot"}
+            try:
+                ctx = get_observability_context() or {}
+            except Exception:
+                ctx = {}
+            if isinstance(ctx, dict):
+                cmd_ctx = _normalize_command(ctx.get("command")) if ctx.get("command") else ""
+                if cmd_ctx:
+                    attrs["command"] = cmd_ctx
+                req_id = str(ctx.get("request_id", "")).strip()
+                if req_id:
+                    attrs["request_id"] = req_id
+                user_hash = str(ctx.get("user_id", "")).strip()
+                if user_hash:
+                    attrs["user_id_hash"] = user_hash
+                chat_hash = str(ctx.get("chat_id", "")).strip()
+                if chat_hash:
+                    attrs["chat_id_hash"] = chat_hash
+            if update is not None:
+                try:
+                    upd_id = getattr(update, "update_id", None)
+                    if upd_id is not None:
+                        attrs["update.id"] = str(int(upd_id))
+                except Exception:
+                    pass
+                try:
+                    if getattr(update, "callback_query", None):
+                        attrs["update.type"] = "callback_query"
+                    elif getattr(update, "inline_query", None):
+                        attrs["update.type"] = "inline_query"
+                    elif getattr(update, "message", None):
+                        attrs["update.type"] = "message"
+                    else:
+                        attrs.setdefault("update.type", "other")
+                except Exception:
+                    pass
+                try:
+                    if "command" not in attrs:
+                        derived = _derive_command(update)
+                        if derived:
+                            attrs["command"] = derived
+                except Exception:
+                    pass
+            return attrs
+
+        @functools.wraps(original)
+        async def _process_update_with_span(update: Update, *args, **kwargs):
+            span_attrs = _collect_attrs(update)
+            span_cm = start_span("bot.update", span_attrs)
+            span = span_cm.__enter__()
+            if span is not None:
+                try:
+                    set_current_span_attributes({"component": "telegram.bot"})
+                except Exception:
+                    pass
+            error: Exception | None = None
+            try:
+                result = await original(update, *args, **kwargs)
+                if span is not None:
+                    try:
+                        span.set_attribute("status", "ok")  # type: ignore[attr-defined]
+                    except Exception:
+                        pass
+                return result
+            except Exception as exc:
+                error = exc
+                if span is not None:
+                    try:
+                        span.set_attribute("status", "error")  # type: ignore[attr-defined]
+                        span.set_attribute("error_signature", type(exc).__name__)  # type: ignore[attr-defined]
+                    except Exception:
+                        pass
+                raise
+            finally:
+                if error is None:
+                    span_cm.__exit__(None, None, None)
+                else:
+                    span_cm.__exit__(type(error), error, getattr(error, "__traceback__", None))
+
+        setattr(app, "process_update", _process_update_with_span)
     
     def setup_handlers(self):
         """הגדרת כל ה-handlers של הבוט בסדר הנכון"""
 
         # Maintenance gate: if enabled, short-circuit most interactions
-        if config.MAINTENANCE_MODE:
+        # שימוש ב-getattr עבור תאימות לטסטים שמחליפים את config באובייקט מינימלי
+        maintenance_flag_raw = getattr(config, "MAINTENANCE_MODE", False)
+
+        def _coerce_flag(value):
+            try:
+                if value is None:
+                    return None
+                if isinstance(value, str):
+                    normalized = value.strip().lower()
+                    if not normalized:
+                        return None
+                    if normalized in {"1", "true", "yes", "on"}:
+                        return True
+                    if normalized in {"0", "false", "no", "off"}:
+                        return False
+                    return None
+                if isinstance(value, (bool, int)):
+                    return bool(value)
+            except Exception:
+                return None
+            return None
+
+        maintenance_flag = _coerce_flag(maintenance_flag_raw)
+
+        env_override = _coerce_flag(os.getenv("MAINTENANCE_MODE"))
+        if env_override is not None:
+            maintenance_flag = env_override
+
+        if maintenance_flag is None:
+            maintenance_flag = False
+
+        if maintenance_flag:
             # הגדרת חלון זמן פנימי שבו הודעת תחזוקה פעילה, כך שגם אם מחיקת ה-handlers לא תתבצע
             # ההודעה תיכבה אוטומטית לאחר ה-warmup.
             try:
@@ -891,12 +1159,45 @@ class CodeKeeperBot:
                 is_active = True if active_until is None else (active_until > 0 and now < active_until)
                 if not is_active:
                     return ConversationHandler.END
-                try:
-                    await (update.callback_query.edit_message_text if getattr(update, 'callback_query', None) else update.message.reply_text)(
-                        config.MAINTENANCE_MESSAGE
-                    )
-                except Exception:
-                    pass
+
+                maintenance_text = getattr(config, "MAINTENANCE_MESSAGE", "") or ""
+                sent = False
+
+                callback_query = getattr(update, "callback_query", None)
+                if callback_query is not None:
+                    try:
+                        try:
+                            await callback_query.answer(cache_time=1, show_alert=False)
+                        except Exception:
+                            pass
+                        await callback_query.edit_message_text(maintenance_text)
+                        sent = True
+                    except Exception:
+                        sent = False
+
+                if not sent:
+                    message = getattr(update, "message", None)
+                    if message is None:
+                        message = getattr(update, "effective_message", None)
+                    if message is None and callback_query is not None:
+                        message = getattr(callback_query, "message", None)
+                    if message is not None and hasattr(message, "reply_text"):
+                        try:
+                            await message.reply_text(maintenance_text)
+                            sent = True
+                        except Exception:
+                            sent = False
+
+                if not sent:
+                    try:
+                        chat = getattr(update, "effective_chat", None)
+                        bot = getattr(context, "bot", None)
+                        chat_id = getattr(chat, "id", None)
+                        if bot is not None and chat_id is not None:
+                            await bot.send_message(chat_id=chat_id, text=maintenance_text)
+                    except Exception:
+                        pass
+
                 return ConversationHandler.END
             # Catch-all high-priority handlers during maintenance (keep references for clean removal)
             self._maintenance_message_handler = MessageHandler(filters.ALL, maintenance_reply)
@@ -939,22 +1240,53 @@ class CodeKeeperBot:
         # --- Rate limiting gate (גבוה עדיפות, לפני שאר ה-handlers) ---
         async def _rate_limit_gate(update: Update, context: ContextTypes.DEFAULT_TYPE):
             try:
-                user = (getattr(update, 'effective_user', None) or getattr(getattr(update, 'callback_query', None), 'from_user', None))
+                user = (
+                    getattr(update, 'effective_user', None)
+                    or getattr(getattr(update, 'callback_query', None), 'from_user', None)
+                )
                 user_id = int(getattr(user, 'id', 0) or 0)
             except Exception:
                 user_id = 0
             if user_id:
-                # Admin bypass – אדמינים לא מוגבלים ע״י השער הגלובלי
+                # עקיפת אדמין – אדמינים לא מוגבלים ע"י השער הגלובלי
                 try:
                     admins = get_admin_ids()
                 except Exception:
                     admins = []
                 if admins and user_id in admins:
                     return  # מעבר חופשי לאדמין
+
+                # Fallback-counter פשוט פר-משתמש בחלון של 60ש׳ כדי לכסות תקלות נדירות
+                # במימוש הראשי של המגביל. לא מחליף את המגביל, רק מחמיר אם צריך.
+                blocked_by_local = False
+                try:
+                    udata = getattr(context, 'user_data', None)
+                    if isinstance(udata, dict):
+                        now_ts = time.time()
+                        local = udata.get('_rl_local')
+                        limit_val = int(getattr(getattr(self, '_rate_limiter', object()), 'max_per_minute', 30) or 30)
+                        if not isinstance(local, dict) or (now_ts - float(local.get('start_ts', 0.0) or 0.0)) >= 60.0:
+                            local = {'start_ts': now_ts, 'count': 0}
+                            # שמור מיידית את תחילת החלון החדש כדי לא לאבד state גם אם תתרחש חסימה בבקשה הנוכחית
+                            udata['_rl_local'] = local
+                        # ספר את הקריאה הנוכחית בחלון הנוכחי
+                        next_count = int(local.get('count', 0)) + 1
+                        if next_count > limit_val:
+                            blocked_by_local = True
+                            # אל תעדכן את המונה כאשר חוסמים – נשמור על עקביות מינימלית
+                        else:
+                            local['count'] = next_count
+                            udata['_rl_local'] = local
+                except Exception:
+                    # אם יש שגיאה, אל תחסום – נשען על המגביל הראשי
+                    blocked_by_local = False
+
+                # בדיקה במגביל הראשי
                 try:
                     allowed = await self._rate_limiter.check_rate_limit(user_id)
                 except Exception:
                     allowed = True
+
                 # Optional: advanced per-user global limit in shadow mode (logging only)
                 try:
                     adv = getattr(self, '_advanced_limiter', None)
@@ -962,12 +1294,17 @@ class CodeKeeperBot:
                         key = f"tg:global:{user_id}"
                         ok = adv.hit(self._per_user_global, key)
                         if not ok and getattr(self, '_shadow_mode', False):
-                            logger.info("Rate limit would block (shadow mode)", extra={"user_id": user_id, "scope": "global", "limit": "global_user"})
-                        # In shadow mode we don't block based on advanced limiter; rely on in-memory gate
+                            logger.info(
+                                "Rate limit would block (shadow mode)",
+                                extra={"user_id": user_id, "scope": "global", "limit": "global_user"},
+                            )
+                        # במצב shadow אין חסימה על בסיס advanced; נשענים על in-memory gate
                 except Exception:
                     pass
-                if not allowed:
-                    # חסימה שקטה+הודעה קצרה
+
+                should_block = (not allowed) or blocked_by_local
+                if should_block:
+                    # חסימה שקטה + הודעה קצרה
                     try:
                         cq = getattr(update, 'callback_query', None)
                         if cq is not None:
@@ -986,7 +1323,7 @@ class CodeKeeperBot:
                         if hasattr(self._rate_limiter, 'get_current_usage_ratio'):
                             ratio = float(await self._rate_limiter.get_current_usage_ratio(user_id))
                         if ratio >= 0.8:
-                            # מנגנון אנטי-ספאם: אזהרה לכל היותר פעם בדקה למשתמש
+                            # אנטי-ספאם: אזהרה לכל היותר פעם בדקה למשתמש
                             now_ts = time.time()
                             udata = getattr(context, 'user_data', None)
                             last_ts = 0.0
@@ -1538,18 +1875,34 @@ class CodeKeeperBot:
         query = " ".join(context.args)
         
         # זיהוי אם זה חיפוש לפי תגית
-        tags = []
+        tags: list[str] = []
+        # תמיכה בגרסאות ישנות של הקונפיג שלא כוללות SUPPORTED_LANGUAGES
+        try:
+            supported_languages = getattr(config, "SUPPORTED_LANGUAGES", []) or []
+        except Exception:
+            supported_languages = []
+        normalized_languages = {lang.lower(): lang for lang in supported_languages if isinstance(lang, str)}
+
+        language_filter: str | None = None
+        search_term = query
+
         if query.startswith('#'):
             tags = [query[1:]]
-            query = ""
-        elif query in config.SUPPORTED_LANGUAGES:
+            search_term = ""
+        else:
+            matched_language = normalized_languages.get(query.lower()) if normalized_languages else None
+            if matched_language is not None:
+                language_filter = matched_language
+                search_term = ""
+
+        if language_filter is not None:
             # חיפוש לפי שפה
             with track_performance("search_by_language", labels={"operation": "search_by_language"}):
-                results = db.search_code(user_id, "", programming_language=query)
+                results = db.search_code(user_id, "", programming_language=language_filter)
         else:
-            # חיפוש חופשי
+            # חיפוש חופשי או לפי תגית
             with track_performance("search_free", labels={"operation": "search_free"}):
-                results = db.search_code(user_id, query, tags=tags)
+                results = db.search_code(user_id, search_term, tags=tags)
         
         if not results:
             await update.message.reply_text(

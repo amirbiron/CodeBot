@@ -9,7 +9,8 @@ from typing import Any, Dict, Optional, Tuple, List
 import zipfile as _zipfile
 from types import SimpleNamespace as _SimpleNamespace
 
-import requests
+from http_sync import request as http_request
+import requests  # for precise exception handling
 try:
     from googleapiclient.discovery import build  # type: ignore
     from googleapiclient.errors import HttpError  # type: ignore
@@ -33,6 +34,8 @@ import logging
 
 DEVICE_CODE_URL = "https://oauth2.googleapis.com/device/code"
 TOKEN_URL = "https://oauth2.googleapis.com/token"
+# ברירת מחדל בהיעדר קונפיג מלא (למשל בטסטים שמזריקים Stub לקונפיג)
+DEFAULT_GOOGLE_OAUTH_SCOPES = "https://www.googleapis.com/auth/drive.file"
 
 
 def _now_utc() -> datetime:
@@ -44,17 +47,30 @@ def start_device_authorization(user_id: int) -> Dict[str, Any]:
 
     Returns a dict with: verification_url, user_code, device_code, interval, expires_in.
     """
-    if not config.GOOGLE_CLIENT_ID:
+    client_id = getattr(config, "GOOGLE_CLIENT_ID", None)
+    if not client_id:
         raise RuntimeError("GOOGLE_CLIENT_ID is not set")
+    scopes = getattr(config, "GOOGLE_OAUTH_SCOPES", DEFAULT_GOOGLE_OAUTH_SCOPES) or DEFAULT_GOOGLE_OAUTH_SCOPES
+    if isinstance(scopes, (list, tuple, set)):
+        cleaned_scopes = []
+        for scope in scopes:
+            if scope is None:
+                continue
+            scope_text = str(scope).strip()
+            if scope_text:
+                cleaned_scopes.append(scope_text)
+        scope_str = " ".join(cleaned_scopes) or DEFAULT_GOOGLE_OAUTH_SCOPES
+    else:
+        scope_str = str(scopes).strip() or DEFAULT_GOOGLE_OAUTH_SCOPES
     payload = {
-        "client_id": config.GOOGLE_CLIENT_ID,
-        "scope": config.GOOGLE_OAUTH_SCOPES,
+        "client_id": client_id,
+        "scope": scope_str,
     }
     # Some Google OAuth client types (e.g., Web) require client_secret
     if getattr(config, "GOOGLE_CLIENT_SECRET", None):
         payload["client_secret"] = config.GOOGLE_CLIENT_SECRET  # type: ignore[index]
     try:
-        response = requests.post(DEVICE_CODE_URL, data=payload, timeout=15)
+        response = http_request('POST', DEVICE_CODE_URL, data=payload, timeout=15)
         # If unauthorized/invalid_client, surface clearer message
         if response.status_code >= 400:
             try:
@@ -65,6 +81,7 @@ def start_device_authorization(user_id: int) -> Dict[str, Any]:
             raise RuntimeError(f"Device auth start failed: {msg}")
         data = response.json()
     except requests.RequestException as e:
+        # Network/HTTP-layer errors only; אל תמסך שגיאות JSON/קוד
         raise RuntimeError("Device auth request error") from e
     # Persist device flow state in memory is handled by caller; tokens saved on success.
     return {
@@ -84,15 +101,19 @@ def poll_device_token(device_code: str) -> Optional[Dict[str, Any]]:
         - None if authorization is still pending or needs to slow down
         - dict with {"error": <code>, "error_description": <str>} on user-facing errors
     """
+    client_id = getattr(config, "GOOGLE_CLIENT_ID", None)
+    if not client_id:
+        raise RuntimeError("GOOGLE_CLIENT_ID is not set")
     payload = {
-        "client_id": config.GOOGLE_CLIENT_ID,
+        "client_id": client_id,
         "device_code": device_code,
         "grant_type": "urn:ietf:params:oauth:grant-type:device_code",
     }
     # Include client_secret if configured to satisfy clients that require it
     if getattr(config, "GOOGLE_CLIENT_SECRET", None):
         payload["client_secret"] = config.GOOGLE_CLIENT_SECRET  # type: ignore[index]
-    resp = requests.post(TOKEN_URL, data=payload, timeout=20)
+    # Use pooled HTTP client (http_sync); tests can monkeypatch gds.http_request
+    resp = http_request('POST', TOKEN_URL, data=payload, timeout=20)
     if resp.status_code >= 400:
         # Try to parse structured OAuth error
         try:
@@ -141,13 +162,22 @@ def _load_tokens(user_id: int) -> Optional[Dict[str, Any]]:
 def _credentials_from_tokens(tokens: Dict[str, Any]) -> Credentials:
     if Credentials is None:
         raise RuntimeError("Google libraries are not installed")
+    client_id = getattr(config, "GOOGLE_CLIENT_ID", None)
+    client_secret = getattr(config, "GOOGLE_CLIENT_SECRET", None)
+    scopes_cfg = tokens.get("scope") or getattr(config, "GOOGLE_OAUTH_SCOPES", DEFAULT_GOOGLE_OAUTH_SCOPES)
+    if isinstance(scopes_cfg, (list, tuple, set)):
+        scopes_list = [str(s).strip() for s in scopes_cfg if str(s).strip()]
+    else:
+        scopes_list = str(scopes_cfg or "").split()
+    if not scopes_list:
+        scopes_list = DEFAULT_GOOGLE_OAUTH_SCOPES.split()
     return Credentials(
         token=tokens.get("access_token"),
         refresh_token=tokens.get("refresh_token"),
         token_uri=TOKEN_URL,
-        client_id=config.GOOGLE_CLIENT_ID,
-        client_secret=config.GOOGLE_CLIENT_SECRET or None,
-        scopes=(tokens.get("scope") or config.GOOGLE_OAUTH_SCOPES).split(),
+        client_id=client_id,
+        client_secret=client_secret or None,
+        scopes=scopes_list,
     )
 
 

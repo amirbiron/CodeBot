@@ -73,6 +73,10 @@ Code Keeper Bot - תיעוד API
    user/github_browse
    user/download_repo
 
+.. note::
+   חלק מהפיצ'רים (Bookmarks, Collections, Sticky Notes) זמינים ב‑WebApp בלבד (לא בבוט).
+   ראו :doc:`webapp/overview` לפרטים נוספים.
+
 .. toctree::
    :maxdepth: 2
    :caption: איכות וקונבנציות:
@@ -102,6 +106,7 @@ Code Keeper Bot - תיעוד API
    logging_schema
    metrics
    alerts
+   observability/log_based_alerts
    sentry
    runbooks/logging-levels
    runbooks/github_backup_restore
@@ -147,6 +152,9 @@ Code Keeper Bot - תיעוד API
 * 🔗 אינטגרציה עם GitHub
 * 📦 גיבוי ושחזור נתונים
 * 🔐 אבטחה והצפנה
+* 📑 סימניות ואוספים - ארגון מתקדם של הקוד
+* 📝 פתקים דביקים - הערות ויזואליות
+* ⏰ תזכורות - ניהול זמן ומשימות
 
 תכונות עיקריות
 ---------------
@@ -166,6 +174,13 @@ Code Keeper Bot - תיעוד API
    - גיבוי אוטומטי
    - סטטיסטיקות שימוש
    - ניהול משתמשים
+
+**ארגון וניהול אישי:**
+   - סימניות (Bookmarks) - סימון נקודות חשובות בקוד
+   - אוספים (Collections) - ארגון קבצים לפי נושאים
+   - פתקים דביקים (Sticky Notes) - הערות ויזואליות על הקוד
+   - מועדפים (Favorites) - סימון קבצים חשובים
+   - תזכורות (Reminders) - תזכורות זמן משימות
 
 התחלה מהירה
 ------------

@@ -8,7 +8,37 @@
   if (typeof window === 'undefined') return;
 
   function debounce(fn, wait){
-    let t; return function(){ const ctx = this, args = arguments; clearTimeout(t); t = setTimeout(()=>fn.apply(ctx, args), wait); };
+    let t = null;
+    let lastArgs = [];
+    let lastContext = null;
+    const invoke = () => {
+      const ctx = lastContext;
+      const args = lastArgs;
+      lastArgs = [];
+      lastContext = null;
+      return fn.apply(ctx, args);
+    };
+    const debounced = function(...args){
+      lastArgs = args;
+      lastContext = this;
+      if (t) { clearTimeout(t); }
+      t = setTimeout(() => {
+        t = null;
+        invoke();
+      }, wait);
+    };
+    debounced.flush = function(){
+      if (!t) return undefined;
+      clearTimeout(t);
+      t = null;
+      return invoke();
+    };
+    debounced.cancel = function(){
+      if (t) { clearTimeout(t); t = null; }
+      lastArgs = [];
+      lastContext = null;
+    };
+    return debounced;
   }
 
   function createEl(tag, className, attrs){
@@ -20,36 +50,100 @@
 
   function clamp(n, min, max){ return Math.min(Math.max(n, min), max); }
 
+  function getScrollOffsets(){
+    if (typeof window === 'undefined') return { x: 0, y: 0 };
+    const doc = window.document || {};
+    const docEl = doc.documentElement || {};
+    const body = doc.body || {};
+    const scrollingEl = doc.scrollingElement || {};
+    const vv = window.visualViewport || null;
+
+    const pick = (values) => {
+      for (const val of values) {
+        if (typeof val === 'number' && Number.isFinite(val) && Math.abs(val) > 0.5) {
+          return val;
+        }
+      }
+      for (const val of values) {
+        if (typeof val === 'number' && Number.isFinite(val)) {
+          return val;
+        }
+      }
+      return 0;
+    };
+
+    const xCandidates = [
+      window.scrollX,
+      window.pageXOffset,
+      scrollingEl ? scrollingEl.scrollLeft : undefined,
+      docEl ? docEl.scrollLeft : undefined,
+      body ? body.scrollLeft : undefined,
+      vv ? vv.pageLeft : undefined,
+      vv ? vv.offsetLeft : undefined,
+    ];
+    const yCandidates = [
+      window.scrollY,
+      window.pageYOffset,
+      scrollingEl ? scrollingEl.scrollTop : undefined,
+      docEl ? docEl.scrollTop : undefined,
+      body ? body.scrollTop : undefined,
+      vv ? vv.pageTop : undefined,
+      vv ? vv.offsetTop : undefined,
+    ];
+
+    return { x: pick(xCandidates), y: pick(yCandidates) };
+  }
+  const PIN_SENTINEL = '__pinned__';
+  const AUTO_SAVE_DEBOUNCE_MS = 500;
+  const AUTO_SAVE_FORCE_INTERVAL_MS = 3500;
+  const CACHE_TTL_MS = 24 * 60 * 60 * 1000; // 24h
+
   class StickyNotesManager {
     constructor(fileId){
       this.fileId = fileId;
       this.notes = new Map();
-      this._saveDebounced = debounce(this._performSaveBatch.bind(this), 400);
+      this._saveDebounced = debounce(this._performSaveBatch.bind(this), AUTO_SAVE_DEBOUNCE_MS);
       this._pending = new Map();
+      this._inFlight = new Map();
+      this._autoFlushTimer = null;
+      this._autoFlushBusy = false;
+      this._lineIndex = new Map(); // lineNumber -> pageY
+      this._cacheKey = `sticky-notes:${String(fileId)}`;
+      this._renderedFromCache = false;
+      this._pendingSeq = new Map(); // noteId -> monotonic version of pending edits
       this._init();
     }
 
     async _init(){
       try {
+        this._rebuildLineIndex();
+        this._loadCacheAndRender();
         await this.loadNotes();
         this._createFab();
-        window.addEventListener('resize', () => this._reflowWithinViewport());
-        window.addEventListener('scroll', () => this._reflowWithinViewport(), { passive: true });
+        window.addEventListener('resize', () => { this._rebuildLineIndex(); this._reflowWithinViewport(); this._updateAnchoredPositions(); });
+        window.addEventListener('scroll', () => { this._reflowWithinViewport(); this._updateAnchoredPositions(); }, { passive: true });
         // במובייל: שינוי visual viewport (מקלדת) עלול להזיז את הפתקים – נתאים אותם לבטיחות
         if (window.visualViewport) {
           const reflow = () => this._reflowWithinViewport();
           try { window.visualViewport.addEventListener('resize', reflow, { passive: true }); } catch(_) { window.visualViewport.addEventListener('resize', reflow); }
           try { window.visualViewport.addEventListener('scroll', reflow, { passive: true }); } catch(_) { window.visualViewport.addEventListener('scroll', reflow); }
         }
+        this._setupLifecycleGuards();
+        this._setupDomObservers();
       } catch(e){ console.error('StickyNotes init failed', e); }
     }
 
     async loadNotes(){
       try {
-        const resp = await fetch(`/api/sticky-notes/${encodeURIComponent(this.fileId)}`);
+        const url = `/api/sticky-notes/${encodeURIComponent(this.fileId)}?_=${Date.now()}`;
+        const resp = await fetch(url, { cache: 'no-store', headers: { 'Cache-Control': 'no-cache' } });
         const data = await resp.json();
         if (!data || data.ok === false) return;
-        (data.notes || []).forEach(n => this._renderNote(n));
+        // החלף תוכן מהרשימה העדכנית מהשרת
+        const fresh = Array.isArray(data.notes) ? data.notes : [];
+        this._clearAllNotes();
+        fresh.forEach(n => this._renderNote(n));
+        this._saveCache(fresh);
       } catch(e){ console.error('loadNotes error', e); }
     }
 
@@ -60,38 +154,81 @@
       document.body.appendChild(btn);
     }
 
+    _setupLifecycleGuards(){
+      if (this._didSetupLifecycleGuards) return;
+      this._didSetupLifecycleGuards = true;
+      const flush = () => {
+        try {
+          this._flushPendingKeepalive();
+        } catch(err) {
+          console.warn('sticky note: lifecycle keepalive flush failed', err);
+        }
+        try {
+          this._flushDebounceTimer();
+        } catch(err) {
+          console.warn('sticky note: lifecycle debounce flush failed', err);
+        }
+      };
+      try {
+        window.addEventListener('beforeunload', flush, { capture: true });
+      } catch(_) {
+        window.addEventListener('beforeunload', flush);
+      }
+      try {
+        window.addEventListener('pagehide', (ev) => {
+          try {
+            if (ev && typeof ev.persisted === 'boolean' && ev.persisted) return;
+          } catch(_) {}
+          flush();
+        }, { capture: true });
+      } catch(_) {
+        window.addEventListener('pagehide', () => flush());
+      }
+      try {
+        document.addEventListener('visibilitychange', () => {
+          try {
+            if (document.visibilityState === 'hidden') flush();
+          } catch(_) {
+            flush();
+          }
+        });
+      } catch(_) {}
+    }
+
     _nearestAnchor(){
       try {
         const container = document.getElementById('md-content') || document.body;
         const headers = Array.from(container.querySelectorAll('h1, h2, h3, h4, h5, h6'));
         if (!headers.length) return null;
-        const targetY = window.scrollY + Math.min(160, Math.round((window.innerHeight || 600) * 0.25));
+        const scroll = getScrollOffsets();
+        const targetY = scroll.y + Math.min(160, Math.round((window.innerHeight || 600) * 0.25));
         let best = null; let bestDy = Infinity;
         for (const h of headers) {
-          const y = Math.round(h.getBoundingClientRect().top + window.scrollY);
+          const y = Math.round(h.getBoundingClientRect().top + scroll.y);
           const dy = Math.abs(y - targetY);
           if (dy < bestDy) { bestDy = dy; best = h; }
         }
         if (!best) return null;
         const id = best.id || '';
         const text = (best.textContent || '').trim().slice(0, 120);
-        return id ? { id, text, y: Math.round(best.getBoundingClientRect().top + window.scrollY) } : null;
+        return id ? { id, text, y: Math.round(best.getBoundingClientRect().top + scroll.y) } : null;
       } catch(_) { return null; }
     }
 
     async createNote(){
       try {
         const isMobile = (typeof window !== 'undefined') && ((window.matchMedia && window.matchMedia('(max-width: 480px)').matches) || (window.innerWidth <= 480));
-        const anchor = this._nearestAnchor();
+        const scroll = getScrollOffsets();
         const payload = {
           content: '',
           // הנחתה קלה למובייל כדי למנוע קפיצה עם הופעת מקלדת
-          position: { x: isMobile ? 80 : 120, y: window.scrollY + (isMobile ? 80 : 120) },
+          position: { x: isMobile ? 80 : 120, y: scroll.y + (isMobile ? 80 : 120) },
           size: { width: isMobile ? 200 : 260, height: isMobile ? 160 : 200 },
           color: '#FFFFCC',
           line_start: null,
-          anchor_id: anchor ? anchor.id : undefined,
-          anchor_text: anchor ? anchor.text : undefined
+          // חזרה להתנהגות הישנה: ללא עיגון לכותרות כברירת מחדל
+          anchor_id: '',
+          anchor_text: undefined
         };
         const resp = await fetch(`/api/sticky-notes/${encodeURIComponent(this.fileId)}`, {
           method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload)
@@ -106,20 +243,39 @@
     _renderNote(note, focus){
       const el = createEl('div', 'sticky-note');
       el.dataset.noteId = note.id;
-      if (note.anchor_id) el.dataset.anchorId = String(note.anchor_id);
-      // קביעת מיקום התחלתי – אם יש עוגן נשתמש בו, אחרת לפי שמור
-      const initialX = (note.position?.x ?? note.position_x ?? 120);
-      const initialY = (note.position?.y ?? note.position_y ?? (window.scrollY + 120));
-      el.style.left = initialX + 'px';
-      el.style.top = initialY + 'px';
-      el.style.width = (note.size?.width ?? note.width ?? 260) + 'px';
-      el.style.height = (note.size?.height ?? note.height ?? 200) + 'px';
+      if (note.anchor_id === PIN_SENTINEL) {
+        el.dataset.pinned = 'true';
+      }
+        // קביעת מיקום התחלתי – אם יש עוגן נשתמש בו, אחרת לפי שמור
+        let initialX = (typeof note.position?.x === 'number') ? note.position.x : null;
+        if (!Number.isFinite(initialX)) {
+          initialX = (typeof note.position_x === 'number') ? note.position_x : 120;
+        }
+        let initialY = (typeof note.position?.y === 'number') ? note.position.y : null;
+        if (!Number.isFinite(initialY)) {
+          if (typeof note.position_y === 'number') {
+            initialY = note.position_y;
+          } else {
+            initialY = getScrollOffsets().y + 120;
+          }
+        }
+      note.position = note.position && typeof note.position === 'object' ? note.position : {};
+      if (typeof note.position.x !== 'number') note.position.x = initialX;
+      if (typeof note.position.y !== 'number') note.position.y = initialY;
+      note.size = note.size && typeof note.size === 'object' ? note.size : {};
+      if (typeof note.size.width !== 'number') note.size.width = note.width ?? 260;
+      if (typeof note.size.height !== 'number') note.size.height = note.height ?? 200;
+      el.style.left = note.position.x + 'px';
+      el.style.top = note.position.y + 'px';
+      el.style.width = note.size.width + 'px';
+      el.style.height = note.size.height + 'px';
       if (note.color) el.style.backgroundColor = note.color;
 
       const header = createEl('div', 'sticky-note-header');
       const drag = createEl('div', 'sticky-note-drag');
       const actions = createEl('div', 'sticky-note-actions');
-      const pinBtn = createEl('button', 'sticky-note-btn sticky-note-pin', { title: 'הצמד/בטל עיגון לכותרת' }); pinBtn.textContent = '📌';
+      const isPinnedInitial = note.anchor_id === PIN_SENTINEL;
+      const pinBtn = createEl('button', 'sticky-note-btn sticky-note-pin', { title: 'הצמד/בטל נעיצה', 'aria-pressed': isPinnedInitial ? 'true' : 'false' }); pinBtn.textContent = '📌';
       const minimizeBtn = createEl('button', 'sticky-note-btn', { title: 'מזער' }); minimizeBtn.textContent = '—';
       const deleteBtn = createEl('button', 'sticky-note-btn', { title: 'מחיקה' }); deleteBtn.textContent = '×';
       actions.appendChild(pinBtn); actions.appendChild(minimizeBtn); actions.appendChild(deleteBtn);
@@ -140,13 +296,17 @@
       document.body.appendChild(el);
 
       if (note.is_minimized) el.classList.add('is-minimized');
+      if (isPinnedInitial) el.classList.add('is-pinned');
 
       // interactions
       this._enableDrag(el, drag);
       this._enableResize(el, resizer);
-      // בעת פוקוס, הצמד לעוגן (במיוחד במובייל בעת הופעת מקלדת)
       textarea.addEventListener('focus', () => {
-        try { this._positionRelativeToAnchor(el); this._reflowWithinViewport(el); } catch(_){ }
+        try {
+          if (!this._isPinned(el)) {
+            this._reflowWithinViewport(el);
+          }
+        } catch(_){ }
       });
 
       textarea.addEventListener('input', () => {
@@ -169,20 +329,177 @@
       if (focus) try { textarea.focus(); } catch(_) {}
       if (note.updated_at) { try { el.dataset.updatedAt = String(note.updated_at); } catch(_) {} }
       this.notes.set(note.id, { el, data: note });
-      // אם יש עוגן – תמקם יחסית אליו כבר בהתחלה
-      this._positionRelativeToAnchor(el);
+      this._applyPositionMode(el, note, { initial: true });
       this._reflowWithinViewport(el);
+      this._updateAnchoredNotePosition(el, note);
       return el;
     }
 
-    _notePayloadFromEl(el){
-      const rect = el.getBoundingClientRect();
-      const x = Math.round(rect.left + window.scrollX);
-      const y = Math.round(rect.top + window.scrollY);
-      const w = Math.round(rect.width);
-      const h = Math.round(rect.height);
-      const payload = { position: { x, y }, size: { width: w, height: h } };
-      return payload;
+      _notePayloadFromEl(el){
+        const rect = el.getBoundingClientRect();
+        const scroll = getScrollOffsets();
+        const x = Math.round(rect.left + scroll.x);
+        const y = Math.round(rect.top + scroll.y);
+        const w = Math.round(rect.width);
+        const h = Math.round(rect.height);
+        const payload = { position: { x, y }, size: { width: w, height: h } };
+        return payload;
+      }
+
+    _getEntry(el){
+      if (!el || !el.dataset) return null;
+      const id = el.dataset.noteId;
+      if (!id) return null;
+      return this.notes.get(id) || null;
+    }
+
+    _updatePinButtonState(el, isPinned){
+      const pinBtn = el ? el.querySelector('.sticky-note-pin') : null;
+      if (!pinBtn) return;
+      const active = !!isPinned;
+      pinBtn.classList.toggle('is-active', active);
+      pinBtn.setAttribute('aria-pressed', active ? 'true' : 'false');
+      pinBtn.title = active ? 'בטל נעיצה' : 'נעץ פתק למסמך';
+    }
+
+      _applyPositionMode(el, note, opts){
+        try {
+          if (!el || !note) return;
+          const scroll = getScrollOffsets();
+          const rect = el.getBoundingClientRect();
+          const currentAbsX = Math.round(rect.left + scroll.x);
+          const currentAbsY = Math.round(rect.top + scroll.y);
+          const currentViewportX = Math.round(rect.left);
+          const currentViewportY = Math.round(rect.top);
+          const isPinned = note.anchor_id === PIN_SENTINEL;
+          const isAnchored = !!(note.anchor_id && note.anchor_id !== PIN_SENTINEL) || (Number.isInteger(note.line_start) && note.line_start > 0);
+          if (isPinned) {
+            el.classList.add('is-pinned');
+            el.classList.remove('is-floating');
+            el.style.position = 'absolute';
+            let targetX = (typeof note.position?.x === 'number') ? note.position.x : currentAbsX;
+            let targetY = (typeof note.position?.y === 'number') ? note.position.y : currentAbsY;
+            if (!Number.isFinite(targetX)) targetX = currentAbsX;
+            if (!Number.isFinite(targetY)) targetY = currentAbsY;
+            el.style.left = targetX + 'px';
+            el.style.top = targetY + 'px';
+            el.dataset.pinned = 'true';
+            if (el.dataset && el.dataset.anchorId) { delete el.dataset.anchorId; }
+            if (el.dataset && el.dataset.anchorLine) { delete el.dataset.anchorLine; }
+            if (el.dataset && el.dataset.relYOffset) { delete el.dataset.relYOffset; }
+          } else if (isAnchored) {
+            el.classList.add('is-pinned');
+            el.classList.remove('is-floating');
+            el.style.position = 'absolute';
+            let targetX = (typeof note.position?.x === 'number') ? note.position.x : currentAbsX;
+            if (!Number.isFinite(targetX)) targetX = currentAbsX;
+            el.style.left = targetX + 'px';
+            if (el.dataset && el.dataset.pinned) { delete el.dataset.pinned; }
+            if (note.anchor_id && note.anchor_id !== PIN_SENTINEL) {
+              el.dataset.anchorId = String(note.anchor_id);
+            } else if (Number.isInteger(note.line_start) && note.line_start > 0) {
+              el.dataset.anchorLine = String(note.line_start);
+            }
+            // החישוב בפועל של top ייעשה ע"י _updateAnchoredNotePosition
+          } else {
+            el.classList.add('is-floating');
+            el.classList.remove('is-pinned');
+            el.style.position = 'fixed';
+            if (el.dataset && el.dataset.pinned) { delete el.dataset.pinned; }
+            const width = (typeof note.size?.width === 'number') ? note.size.width : (parseInt(el.style.width || '260', 10) || 260);
+            const height = (typeof note.size?.height === 'number') ? note.size.height : (parseInt(el.style.height || '200', 10) || 200);
+            let left = (typeof note.position?.x === 'number') ? note.position.x - scroll.x : currentViewportX;
+            let top = (typeof note.position?.y === 'number') ? note.position.y - scroll.y : currentViewportY;
+            if (!Number.isFinite(left)) left = currentViewportX;
+            if (!Number.isFinite(top)) top = currentViewportY;
+            const vp = window.visualViewport;
+            const vpW = Math.max(100, (vp ? vp.width : window.innerWidth) || window.innerWidth || 320);
+            const vpH = Math.max(100, (vp ? vp.height : window.innerHeight) || window.innerHeight || 320);
+            const maxLeft = Math.max(12, vpW - width - 12);
+            const maxTop = Math.max(60, vpH - height - 20);
+            left = clamp(Math.round(left), 12, maxLeft);
+            top = clamp(Math.round(top), 60, maxTop);
+            el.style.left = left + 'px';
+            el.style.top = top + 'px';
+            if (!opts || opts.reflow !== false) {
+              this._reflowWithinViewport(el);
+            }
+          }
+          this._updatePinButtonState(el, isPinned);
+        } catch(e) {
+          console.warn('sticky note: applyPositionMode failed', e);
+        }
+      }
+
+    _isPinned(el){
+      const entry = this._getEntry(el);
+      const anchorId = entry && entry.data ? (entry.data.anchor_id || '') : '';
+      if (anchorId === PIN_SENTINEL) return true;
+      return !!(el && el.dataset && el.dataset.pinned === 'true');
+    }
+
+    _pinNote(el){
+      const entry = this._getEntry(el);
+      if (!entry) return;
+      const payload = this._notePayloadFromEl(el);
+      entry.data.position = payload.position;
+      entry.data.size = payload.size;
+      entry.data.anchor_id = PIN_SENTINEL;
+      entry.data.anchor_text = '';
+      entry.data.line_start = null;
+      entry.data.line_end = null;
+      if (el.dataset) {
+        if (el.dataset.anchorLine) { delete el.dataset.anchorLine; }
+        if (el.dataset.relYOffset) { delete el.dataset.relYOffset; }
+      }
+      this._applyPositionMode(el, entry.data, { reflow: false });
+      const requestPayload = Object.assign({}, payload, { anchor_id: PIN_SENTINEL, anchor_text: null, line_start: null, line_end: null });
+      this._queueSave(el, requestPayload);
+      this._flushFor(el);
+    }
+
+    _unpinNote(el){
+      const entry = this._getEntry(el);
+      if (!entry) return;
+      const payload = this._notePayloadFromEl(el);
+      entry.data.position = payload.position;
+      entry.data.size = payload.size;
+      entry.data.anchor_id = '';
+      entry.data.anchor_text = '';
+      entry.data.line_start = null;
+      entry.data.line_end = null;
+      if (el.dataset && el.dataset.pinned) { delete el.dataset.pinned; }
+      if (el.dataset && el.dataset.anchorId) { delete el.dataset.anchorId; }
+      if (el.dataset && el.dataset.anchorLine) { delete el.dataset.anchorLine; }
+      if (el.dataset && el.dataset.relYOffset) { delete el.dataset.relYOffset; }
+      this._applyPositionMode(el, entry.data, { reflow: true });
+      this._queueSave(el, Object.assign({}, payload, { anchor_id: null, anchor_text: null, line_start: null, line_end: null }));
+      this._flushFor(el);
+    }
+
+    _syncEntryFromFragment(id, fragment){
+      const entry = this.notes.get(id);
+      if (!entry || !fragment) return;
+      if (Object.prototype.hasOwnProperty.call(fragment, 'content')) {
+        entry.data.content = fragment.content;
+      }
+      if (fragment.position && typeof fragment.position === 'object') {
+        entry.data.position = Object.assign({}, entry.data.position || {}, fragment.position);
+      }
+      if (fragment.size && typeof fragment.size === 'object') {
+        entry.data.size = Object.assign({}, entry.data.size || {}, fragment.size);
+      }
+      if (Object.prototype.hasOwnProperty.call(fragment, 'anchor_id')) {
+        const val = fragment.anchor_id;
+        entry.data.anchor_id = (val === null || val === undefined || val === '') ? '' : String(val);
+      }
+      if (Object.prototype.hasOwnProperty.call(fragment, 'anchor_text')) {
+        const val = fragment.anchor_text;
+        entry.data.anchor_text = val ? String(val) : '';
+      }
+      if (Object.prototype.hasOwnProperty.call(fragment, 'is_minimized')) {
+        entry.data.is_minimized = !!fragment.is_minimized;
+      }
     }
 
     _enableDrag(el, handle){
@@ -197,9 +514,13 @@
         // חשב מיקום מוחלט בדף בעת התחלת גרירה כדי למנוע "קפיצה" במובייל
         const parsedLeft = parseInt(el.style.left || '', 10);
         const parsedTop = parseInt(el.style.top || '', 10);
-        origLeft = Number.isFinite(parsedLeft) ? parsedLeft : Math.round(r.left + window.scrollX);
-        origTop = Number.isFinite(parsedTop) ? parsedTop : Math.round(r.top + window.scrollY);
-        startScrollX = window.scrollX; startScrollY = window.scrollY;
+        const scroll = getScrollOffsets();
+        const isAbsolute = el.classList ? el.classList.contains('is-pinned') : false;
+        const fallbackLeft = Math.round(r.left + (isAbsolute ? scroll.x : 0));
+        const fallbackTop = Math.round(r.top + (isAbsolute ? scroll.y : 0));
+        origLeft = Number.isFinite(parsedLeft) ? parsedLeft : fallbackLeft;
+        origTop = Number.isFinite(parsedTop) ? parsedTop : fallbackTop;
+        startScrollX = scroll.x; startScrollY = scroll.y;
         try { e.preventDefault(); } catch(_) {}
         longPressHandled = false;
         try { clearTimeout(pressTimer); } catch(_) {}
@@ -215,7 +536,8 @@
         const ev = e.touches ? e.touches[0] : e;
         const dx = ev.clientX - startX; const dy = ev.clientY - startY;
         if (Math.abs(dx) > 6 || Math.abs(dy) > 6) { try { clearTimeout(pressTimer); } catch(_) {} }
-        const sx = window.scrollX - startScrollX; const sy = window.scrollY - startScrollY;
+        const scroll = getScrollOffsets();
+        const sx = scroll.x - startScrollX; const sy = scroll.y - startScrollY;
         el.style.left = Math.round(origLeft + dx + sx) + 'px';
         el.style.top = Math.round(origTop + dy + sy) + 'px';
       };
@@ -225,19 +547,18 @@
         if (longPressHandled) { dragging=false; return; }
         dragging=false;
         const payload = this._notePayloadFromEl(el);
-        this._queueSave(el, payload); this._flushFor(el);
-        // לאחר גרירה ידנית – ננתק עוגן אם התרחקנו משמעותית
-        try {
-          const anchorId = el.dataset.anchorId;
-          if (anchorId) {
-            const anchor = document.getElementById(anchorId);
-            if (anchor) {
-              const ay = Math.round(anchor.getBoundingClientRect().top + window.scrollY);
-              const y = parseInt(el.style.top||'0',10) || 0;
-              if (Math.abs(y - ay) > 300) { delete el.dataset.anchorId; this._queueSave(el, { anchor_id: null, anchor_text: null }); }
-            }
-          }
-        } catch(_) {}
+        const wasPinned = this._isPinned(el);
+        const entry = this._getEntry(el);
+        if (entry) {
+          entry.data.position = payload.position;
+          entry.data.size = payload.size;
+        }
+        if (wasPinned) {
+          this._queueSave(el, Object.assign({}, payload, { anchor_id: PIN_SENTINEL, anchor_text: null }));
+        } else {
+          this._queueSave(el, payload);
+        }
+        this._flushFor(el);
       };
       // מניעת מחוות ברירת מחדל במובייל
       try { handle.style.touchAction = 'none'; } catch(_) {}
@@ -250,22 +571,16 @@
     }
     _toggleAnchor(el){
       try {
-        const has = !!el.dataset.anchorId;
-        if (has) {
-          delete el.dataset.anchorId;
-          this._queueSave(el, { anchor_id: null, anchor_text: null });
-          this._flushFor(el);
+        if (!el) return;
+        if (this._isPinned(el)) {
+          this._unpinNote(el);
           return;
         }
-        const anchor = this._nearestAnchor();
-        if (anchor && anchor.id) {
-          el.dataset.anchorId = anchor.id;
-          this._queueSave(el, { anchor_id: anchor.id, anchor_text: anchor.text });
-          this._flushFor(el);
-          this._positionRelativeToAnchor(el);
-          this._reflowWithinViewport(el);
-        }
-      } catch(_) {}
+        // חזרה להתנהגות הישנה: נעיצה מיידית למיקום מוחלט
+        this._pinNote(el);
+      } catch(e) {
+        console.warn('sticky note: toggle pin failed', e);
+      }
     }
 
     _enableResize(el, handle){
@@ -311,52 +626,373 @@
         }
       } catch(_) {}
       this._pending.set(id, pending);
+      this._syncEntryFromFragment(id, pending);
+      // advance per-note pending version to avoid dropping newer edits after batch
+      try {
+        const nextSeq = (this._pendingSeq.get(id) || 0) + 1;
+        this._pendingSeq.set(id, nextSeq);
+      } catch(_) {}
       this._saveDebounced();
+      this._ensureBackgroundAutoFlush();
+    }
+
+    _flushPendingKeepalive(){
+      try {
+        const combined = new Map();
+        try {
+          if (this._pending && this._pending.size) {
+            for (const [id, data] of this._pending.entries()) {
+              if (data) combined.set(id, data);
+            }
+          }
+        } catch(_) {}
+        try {
+          if (this._inFlight && this._inFlight.size) {
+            for (const [id, info] of this._inFlight.entries()) {
+              if (info && info.data && !combined.has(id)) {
+                combined.set(id, info.data);
+              }
+            }
+          }
+        } catch(_) {}
+        if (!combined.size) return;
+        for (const [id, data] of combined.entries()){
+          try {
+            if (!data) continue;
+            const body = JSON.stringify(data);
+            if (typeof fetch === 'function') {
+              try {
+                fetch(`/api/sticky-notes/note/${encodeURIComponent(id)}`, {
+                  method: 'PUT',
+                  headers: { 'Content-Type': 'application/json' },
+                  body,
+                  keepalive: true,
+                }).catch(()=>{});
+              } catch(e) {
+                console.warn('sticky note: keepalive request failed', id, e);
+              }
+            }
+          } catch(err) {
+            console.warn('sticky note: keepalive serialization failed', id, err);
+          }
+        }
+      } catch(_) {
+        return;
+      }
+    }
+
+    _clonePayload(data){
+      if (!data || typeof data !== 'object') return data;
+      try {
+        return JSON.parse(JSON.stringify(data));
+      } catch(_) {
+        const shallow = Object.assign({}, data);
+        try {
+          if (data.position && typeof data.position === 'object') {
+            shallow.position = Object.assign({}, data.position);
+          }
+        } catch(_) {}
+        try {
+          if (data.size && typeof data.size === 'object') {
+            shallow.size = Object.assign({}, data.size);
+          }
+        } catch(_) {}
+        return shallow;
+      }
+    }
+
+    _registerInFlight(id, data, promise){
+      let snapshot = null;
+      try {
+        snapshot = this._clonePayload(data);
+      } catch(_) {
+        snapshot = data;
+      }
+      this._inFlight.set(id, { data: snapshot, promise });
+      if (promise && typeof promise.finally === 'function') {
+        promise.finally(() => {
+          const current = this._inFlight.get(id);
+          if (current && current.promise === promise) {
+            this._inFlight.delete(id);
+            if ((!this._pending || this._pending.size === 0) && (!this._inFlight || this._inFlight.size === 0)) {
+              this._stopBackgroundAutoFlush();
+            }
+          }
+        });
+      }
+    }
+
+    _setNoteUpdatedAt(id, iso){
+      if (!iso) return;
+      const entry = this.notes.get(id);
+      if (!entry) return;
+      if (entry.el) {
+        try { entry.el.dataset.updatedAt = String(iso); } catch(_) {}
+      }
+      if (entry.data && typeof entry.data === 'object') {
+        try { entry.data.updated_at = iso; } catch(_) {}
+      }
+    }
+
+    _mergePending(id, fragment){
+      if (!id || !fragment) return;
+      const existing = this._pending.get(id);
+      let next;
+      if (existing) {
+        next = this._clonePayload(existing) || {};
+        const fragmentClone = this._clonePayload(fragment) || {};
+        Object.assign(next, fragmentClone);
+      } else {
+        next = this._clonePayload(fragment);
+      }
+      this._pending.set(id, next);
+      this._syncEntryFromFragment(id, next);
+      try { this._saveDebounced(); } catch(_) {}
+      this._ensureBackgroundAutoFlush();
+    }
+
+    _sendUpdate(id, data){
+      const payload = this._clonePayload(data) || {};
+      const url = `/api/sticky-notes/note/${encodeURIComponent(id)}`;
+      const send = async (payloadObj) => {
+        const resp = await fetch(url, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payloadObj),
+          keepalive: true,
+        });
+        let json = null;
+        try { json = await resp.json(); } catch(_) {}
+        return { resp, json };
+      };
+
+      const attempt = async () => {
+        try {
+          const { resp, json } = await send(payload);
+          if (resp.status === 409) {
+            console.warn('sticky note update conflict, retrying once with fresh timestamp', id);
+            let serverUpdatedAt = null;
+            if (json && json.updated_at) {
+              serverUpdatedAt = String(json.updated_at);
+              this._setNoteUpdatedAt(id, serverUpdatedAt);
+            }
+            if (serverUpdatedAt) {
+              const retryPayload = Object.assign({}, payload, { prev_updated_at: serverUpdatedAt });
+              try {
+                const { resp: retryResp, json: retryJson } = await send(retryPayload);
+                if (retryResp.status === 409) {
+                  console.warn('sticky note update conflict persisted after retry', id);
+                  if (retryJson && retryJson.updated_at) {
+                    this._setNoteUpdatedAt(id, String(retryJson.updated_at));
+                    this._mergePending(id, Object.assign({}, retryPayload, { prev_updated_at: String(retryJson.updated_at) }));
+                  } else if (serverUpdatedAt) {
+                    this._mergePending(id, Object.assign({}, retryPayload));
+                  }
+                  return false;
+                }
+                if (retryJson && retryJson.updated_at) {
+                  this._setNoteUpdatedAt(id, String(retryJson.updated_at));
+                }
+                return true;
+              } catch(retryErr) {
+                console.warn('sticky note retry failed', id, retryErr);
+                this._mergePending(id, Object.assign({}, retryPayload));
+                return false;
+              }
+            }
+            this._mergePending(id, Object.assign({}, payload, serverUpdatedAt ? { prev_updated_at: serverUpdatedAt } : {}));
+            return false;
+          }
+          if (json && json.updated_at) {
+            this._setNoteUpdatedAt(id, String(json.updated_at));
+          }
+          if (!resp.ok) {
+            this._mergePending(id, Object.assign({}, payload));
+          }
+          return resp.ok;
+        } catch(err) {
+          console.warn('save note failed', id, err);
+          this._mergePending(id, Object.assign({}, payload));
+          return false;
+        }
+      };
+
+      const promise = attempt();
+      this._registerInFlight(id, payload, promise);
+      return promise;
     }
 
     async _performSaveBatch(){
+      try {
+        if (!this._pending || this._pending.size === 0) {
+          if (!this._inFlight || this._inFlight.size === 0) {
+            this._stopBackgroundAutoFlush();
+          }
+          return;
+        }
+      } catch(_) {}
       const entries = Array.from(this._pending.entries());
-      this._pending.clear();
-      for (const [id, data] of entries){
-        try {
-          const resp = await fetch(`/api/sticky-notes/note/${encodeURIComponent(id)}`, {
-            method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data)
-          });
-          let j = null; try { j = await resp.json(); } catch(_) {}
-          if (resp.status === 409) {
-            console.warn('sticky note update conflict, changes not applied', id);
-            // אם השרת מחזיר updated_at עדכני – עדכן מקומית כדי לא להיכנס ללופ קונפליקטים
-            if (j && j.updated_at) {
-              const item = this.notes.get(id);
-              if (item && item.el) { try { item.el.dataset.updatedAt = String(j.updated_at); } catch(_) {} }
+      // capture snapshot with versions to avoid dropping newer edits queued during flight
+      const snapshots = entries.map(([id, fragment]) => ({
+        id: String(id),
+        seq: (this._pendingSeq.get(String(id)) || 0),
+        payload: this._clonePayload(fragment) || {}
+      }));
+      const batchPayload = snapshots.map(s => Object.assign({ id: s.id }, s.payload));
+      const url = `/api/sticky-notes/batch`;
+      let usedBatch = false;
+      try {
+        const resp = await fetch(url, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ updates: batchPayload }),
+          keepalive: true,
+        });
+        if (resp.ok) {
+          const json = await resp.json().catch(() => null);
+          if (json && json.ok && Array.isArray(json.results)) {
+            usedBatch = true;
+            for (const result of json.results) {
+              const id = String(result.id || '');
+              if (!id) continue;
+              const snap = snapshots.find(s => s.id === id) || null;
+              const currentSeq = (this._pendingSeq.get(id) || 0);
+              if (result.ok) {
+                if (result.updated_at) { this._setNoteUpdatedAt(id, String(result.updated_at)); }
+                // clear pending only if no newer edits arrived during request
+                if (snap && currentSeq === snap.seq) {
+                  this._pending.delete(id);
+                }
+              } else if (Number(result.status) === 409) {
+                // conflict – set prev_updated_at for next retry without overriding newer local edits
+                const patch = {};
+                if (result.updated_at) patch.prev_updated_at = String(result.updated_at);
+                this._mergePending(id, patch);
+              } else {
+                // failure – keep pending (no-op). Ensure we still retain the last snapshot if nothing newer exists
+                if (snap && currentSeq === snap.seq) {
+                  this._mergePending(id, Object.assign({}, snap.payload));
+                }
+              }
             }
-            continue;
           }
-          if (j && j.updated_at) {
-            const item = this.notes.get(id);
-            if (item && item.el) { try { item.el.dataset.updatedAt = String(j.updated_at); } catch(_) {} }
+        }
+      } catch(err) {
+        // ignore, will fallback to single updates below
+      }
+      if (!usedBatch) {
+        // Fallback to per-note PUT
+        for (const [id] of entries){
+          const current = this._pending.get(id);
+          if (!current) continue;
+          this._pending.delete(id);
+          const didSucceed = await this._sendUpdate(id, current);
+          if (!didSucceed && !this._pending.has(id)) {
+            // במקרה של כישלון המידע הוחזר ל-pending בתוך _sendUpdate
           }
-        } catch(e){ console.warn('save note failed', id, e); }
+        }
+      }
+      if ((!this._pending || this._pending.size === 0) && (!this._inFlight || this._inFlight.size === 0)) {
+        this._stopBackgroundAutoFlush();
       }
     }
 
     async _flushFor(el){
       const id = el.dataset.noteId;
       const data = this._pending.get(id);
-      if (!data) return;
+      if (!data) {
+        const existingFlight = this._inFlight.get(id);
+        if (existingFlight && existingFlight.promise && typeof existingFlight.promise.then === 'function') {
+          try { await existingFlight.promise; } catch(_) {}
+        }
+        return;
+      }
       this._pending.delete(id);
+      await this._sendUpdate(id, data);
+      if ((!this._pending || this._pending.size === 0) && (!this._inFlight || this._inFlight.size === 0)) {
+        this._stopBackgroundAutoFlush();
+      }
+    }
+
+    _ensureBackgroundAutoFlush(){
       try {
-        const resp = await fetch(`/api/sticky-notes/note/${encodeURIComponent(id)}`, {
-          method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data)
-        });
-        let j = null; try { j = await resp.json(); } catch(_) {}
-        if (resp.status === 409) {
-          console.warn('sticky note update conflict (flush), not applied', id);
-          if (j && j.updated_at) { try { el.dataset.updatedAt = String(j.updated_at); } catch(_) {} }
+        if (this._autoFlushTimer) return;
+        this._autoFlushTimer = setInterval(() => {
+          this._runAutoFlushTick();
+        }, AUTO_SAVE_FORCE_INTERVAL_MS);
+      } catch(err) {
+        console.warn('sticky note: failed to start auto flush interval', err);
+      }
+    }
+
+      _stopBackgroundAutoFlush(){
+        if (!this._autoFlushTimer) return;
+        if ((this._pending && this._pending.size > 0) || (this._inFlight && this._inFlight.size > 0)) return;
+      try {
+        clearInterval(this._autoFlushTimer);
+      } catch(_) {}
+      this._autoFlushTimer = null;
+      this._autoFlushBusy = false;
+    }
+
+    _flushDebounceTimer(){
+      if (!this._saveDebounced) return;
+      try {
+        let maybePromise = null;
+        if (typeof this._saveDebounced.flush === 'function') {
+          maybePromise = this._saveDebounced.flush();
+        }
+        const isPromise = maybePromise && typeof maybePromise.then === 'function';
+        if (!isPromise && this._pending && this._pending.size > 0) {
+          maybePromise = this._performSaveBatch();
+        }
+        if (maybePromise && typeof maybePromise.then === 'function') {
+          maybePromise.catch(err => console.warn('sticky note: flush promise rejected', err));
+        }
+      } catch(err) {
+        console.warn('sticky note: debounce flush failed', err);
+      }
+    }
+
+    _runAutoFlushTick(){
+      try {
+        if (this._autoFlushBusy) return;
+        if (!this._pending || this._pending.size === 0) {
+          this._stopBackgroundAutoFlush();
           return;
         }
-        if (j && j.updated_at) { try { el.dataset.updatedAt = String(j.updated_at); } catch(_) {} }
-      } catch(e){ console.warn('flush save failed', id, e); }
+        this._autoFlushBusy = true;
+        let op = null;
+        try {
+          if (this._saveDebounced && typeof this._saveDebounced.flush === 'function') {
+            op = this._saveDebounced.flush();
+          }
+          if ((!op || typeof op.then !== 'function') && this._pending && this._pending.size > 0) {
+            op = this._performSaveBatch();
+          }
+        } catch(err) {
+          console.warn('sticky note: auto flush invoke failed', err);
+          this._autoFlushBusy = false;
+          return;
+        }
+        if (op && typeof op.then === 'function') {
+          op.catch(err => console.warn('sticky note: auto flush promise failed', err))
+            .finally(() => {
+              this._autoFlushBusy = false;
+              if (!this._pending || this._pending.size === 0) {
+                this._stopBackgroundAutoFlush();
+              }
+            });
+        } else {
+          this._autoFlushBusy = false;
+          if (!this._pending || this._pending.size === 0) {
+            this._stopBackgroundAutoFlush();
+          }
+        }
+      } catch(err) {
+        console.warn('sticky note: auto flush tick failed', err);
+        this._autoFlushBusy = false;
+      }
     }
 
     async _deleteNoteEl(el){
@@ -366,44 +1002,200 @@
       this.notes.delete(id);
     }
 
-    _positionRelativeToAnchor(el){
-      try {
-        const anchorId = el?.dataset?.anchorId;
-        if (!anchorId) return;
-        const anchor = document.getElementById(anchorId);
-        if (!anchor) return;
-        const rect = anchor.getBoundingClientRect();
-        const anchorTop = Math.round(rect.top + window.scrollY);
-        const desiredTop = clamp(anchorTop + 12, 60, Math.max(100, (window.visualViewport ? window.visualViewport.height : window.innerHeight) - 20) + window.scrollY);
-        // שמור X קיים אבל הגבל בתוך viewport הנוכחי
-        const currentLeft = parseInt(el.style.left || '120', 10) || 120;
-        el.style.top = desiredTop + 'px';
-        el.style.left = currentLeft + 'px';
-      } catch(_) { }
-    }
-
     _reflowWithinViewport(target){
       const items = target ? [target] : Array.from(document.querySelectorAll('.sticky-note'));
       const vp = window.visualViewport;
       const vpW = Math.max(100, (vp ? vp.width : window.innerWidth) || window.innerWidth || 320);
       const vpH = Math.max(100, (vp ? vp.height : window.innerHeight) || window.innerHeight || 320);
-      const vpLeft = vp ? Math.round(vp.offsetLeft + window.scrollX) : window.scrollX;
-      const vpTop = vp ? Math.round(vp.offsetTop + window.scrollY) : window.scrollY;
-      const maxX = vpLeft + vpW - 20;
-      const maxY = vpTop + vpH - 20;
+      const minLeft = 12;
+      const minTop = 60;
       items.forEach(el => {
+        if (!el || !(el instanceof HTMLElement)) return;
+        if (el.classList.contains('is-pinned')) {
+          return;
+        }
         const rect = el.getBoundingClientRect();
-        // אם יש עוגן – מצב יחסי אליו קודם
-        this._positionRelativeToAnchor(el);
-        let x = parseInt(el.style.left || String(Math.round(rect.left + window.scrollX)), 10) || Math.round(rect.left + window.scrollX);
-        let y = parseInt(el.style.top || String(Math.round(rect.top + window.scrollY)), 10) || Math.round(rect.top + window.scrollY);
+        let x = parseInt(el.style.left || String(Math.round(rect.left)), 10);
+        if (!Number.isFinite(x)) x = Math.round(rect.left);
+        let y = parseInt(el.style.top || String(Math.round(rect.top)), 10);
+        if (!Number.isFinite(y)) y = Math.round(rect.top);
         let w = Math.round(rect.width);
         let h = Math.round(rect.height);
-        x = clamp(x, vpLeft, maxX - w);
-        y = clamp(y, Math.max(60, vpTop), maxY - h);
+        const maxLeft = Math.max(minLeft, vpW - w - minLeft);
+        const maxTop = Math.max(minTop, vpH - h - 20);
+        x = clamp(x, minLeft, maxLeft);
+        y = clamp(y, minTop, maxTop);
         w = clamp(w, 120, 1200); h = clamp(h, 80, 1200);
-        el.style.left = x + 'px'; el.style.top = y + 'px'; el.style.width = w + 'px'; el.style.height = h + 'px';
+        el.style.left = x + 'px';
+        el.style.top = y + 'px';
+        el.style.width = w + 'px';
+        el.style.height = h + 'px';
       });
+    }
+
+    _setupDomObservers(){
+      try {
+        const md = document.getElementById('md-content');
+        if (!md || typeof MutationObserver === 'undefined') return;
+        const obs = new MutationObserver(() => { try { this._rebuildLineIndex(); this._updateAnchoredPositions(); } catch(_) {} });
+        obs.observe(md, { childList: true, subtree: true, characterData: true });
+        this._domObserver = obs;
+      } catch(_) {}
+    }
+
+    _rebuildLineIndex(){
+      try {
+        this._lineIndex = new Map();
+        const md = document.getElementById('md-content') || document;
+        const sel = '.highlighttable .linenos pre > span, .highlighttable .linenos pre > a, .linenodiv pre > span, .linenodiv pre > a, .linenos span, .linenos a';
+        const nodes = Array.from(md.querySelectorAll(sel));
+        const scroll = getScrollOffsets();
+        nodes.forEach((node) => {
+          const ln = this._extractLineNumberFromNode(node);
+          if (!ln) return;
+          const y = Math.round(node.getBoundingClientRect().top + scroll.y);
+          if (!this._lineIndex.has(ln)) this._lineIndex.set(ln, y);
+        });
+      } catch(_) {}
+    }
+
+    _extractLineNumberFromNode(node){
+      try {
+        const text = (node && node.textContent ? node.textContent.trim() : '');
+        let num = parseInt(text, 10);
+        if (Number.isFinite(num) && num > 0) return num;
+        const href = node && node.getAttribute ? node.getAttribute('href') : null;
+        if (href) {
+          let m = href.match(/#(?:L|line-?)(\d+)$/i);
+          if (!m) m = href.match(/#(\d+)$/);
+          if (m) {
+            num = parseInt(m[1], 10);
+            if (Number.isFinite(num) && num > 0) return num;
+          }
+        }
+        // fallback to index in parent
+        const p = node && node.parentElement;
+        if (p) {
+          const idx = Array.from(p.children).indexOf(node);
+          if (idx >= 0) return idx + 1;
+        }
+      } catch(_) {}
+      return null;
+    }
+
+    _getYForLine(lineNum){
+      if (!Number.isInteger(lineNum) || lineNum <= 0) return null;
+      if (this._lineIndex && this._lineIndex.has(lineNum)) return this._lineIndex.get(lineNum);
+      try {
+        const sel = `.highlighttable .linenos pre > span:nth-child(${lineNum}), .highlighttable .linenos pre > a:nth-child(${lineNum}), .linenodiv pre > span:nth-child(${lineNum}), .linenodiv pre > a:nth-child(${lineNum}), .linenos span:nth-child(${lineNum}), .linenos a:nth-child(${lineNum})`;
+        const node = document.querySelector(sel);
+        if (node) {
+          const scroll = getScrollOffsets();
+          return Math.round(node.getBoundingClientRect().top + scroll.y);
+        }
+      } catch(_) {}
+      return null;
+    }
+
+    _getYForAnchor(anchorId){
+      try {
+        if (!anchorId) return null;
+        const md = document.getElementById('md-content') || document;
+        let el = md.querySelector(`#${CSS.escape(anchorId)}`);
+        if (!el) el = document.getElementById(anchorId);
+        if (el) {
+          const scroll = getScrollOffsets();
+          return Math.round(el.getBoundingClientRect().top + scroll.y);
+        }
+      } catch(_) {}
+      return null;
+    }
+
+    _currentVisibleLine(){
+      try {
+        const md = document.getElementById('md-content') || document;
+        const sel = '.highlighttable .linenos pre > span, .highlighttable .linenos pre > a, .linenodiv pre > span, .linenodiv pre > a, .linenos span, .linenos a';
+        const nodes = Array.from(md.querySelectorAll(sel));
+        if (!nodes.length) return null;
+        const scroll = getScrollOffsets();
+        const mid = scroll.y + Math.round((window.innerHeight || 600) * 0.5);
+        let best = null; let bestDy = Infinity;
+        nodes.forEach((node) => {
+          const ln = this._extractLineNumberFromNode(node);
+          if (!ln) return;
+          const y = Math.round(node.getBoundingClientRect().top + scroll.y);
+          const dy = Math.abs(y - mid);
+          if (dy < bestDy) { bestDy = dy; best = ln; }
+        });
+        return best;
+      } catch(_) { return null; }
+    }
+
+    _updateAnchoredNotePosition(el, note){
+      try {
+        const entry = this._getEntry(el);
+        const data = entry ? entry.data : (note || null);
+        if (!data) return;
+        let anchorY = null;
+        if (Number.isInteger(data.line_start) && data.line_start > 0) {
+          anchorY = this._getYForLine(data.line_start);
+        } else if (data.anchor_id && data.anchor_id !== PIN_SENTINEL) {
+          anchorY = this._getYForAnchor(data.anchor_id);
+        }
+        if (anchorY == null) return;
+        let rel = 0;
+        try {
+          if (el.dataset && typeof el.dataset.relYOffset !== 'undefined') {
+            rel = parseInt(el.dataset.relYOffset || '0', 10) || 0;
+          } else {
+            const targetY = (typeof data.position?.y === 'number') ? data.position.y : (parseInt(el.style.top || '0', 10) || 0);
+            rel = Math.round(targetY - anchorY);
+            if (el.dataset) el.dataset.relYOffset = String(rel);
+          }
+        } catch(_) {}
+        el.style.top = (anchorY + rel) + 'px';
+      } catch(_) {}
+    }
+
+    _updateAnchoredPositions(){
+      try {
+        for (const [id, entry] of this.notes.entries()){
+          if (!entry || !entry.el || !entry.data) continue;
+          const d = entry.data;
+          const isAnchored = (Number.isInteger(d.line_start) && d.line_start > 0) || (d.anchor_id && d.anchor_id !== PIN_SENTINEL);
+          if (!isAnchored) continue;
+          this._updateAnchoredNotePosition(entry.el, d);
+        }
+      } catch(_) {}
+    }
+
+    _clearAllNotes(){
+      try {
+        for (const [id, entry] of this.notes.entries()){
+          try { entry && entry.el && entry.el.remove && entry.el.remove(); } catch(_) {}
+        }
+      } catch(_) {}
+      this.notes.clear();
+    }
+
+    _loadCacheAndRender(){
+      try {
+        const raw = localStorage.getItem(this._cacheKey);
+        if (!raw) return;
+        const parsed = JSON.parse(raw);
+        if (!parsed || !Array.isArray(parsed.notes)) return;
+        const ts = Number(parsed.ts || 0);
+        if (ts && (Date.now() - ts) > CACHE_TTL_MS) return;
+        (parsed.notes || []).forEach(n => this._renderNote(n));
+        this._renderedFromCache = true;
+      } catch(_) {}
+    }
+
+    _saveCache(notesArray){
+      try {
+        const payload = { ts: Date.now(), notes: Array.isArray(notesArray) ? notesArray : [] };
+        localStorage.setItem(this._cacheKey, JSON.stringify(payload));
+      } catch(_) {}
     }
   }
 

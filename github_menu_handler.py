@@ -8,15 +8,32 @@ import logging
 import os
 import re
 import time
-import zipfile
+import zipfile as _stdlib_zipfile
 from datetime import datetime, timezone
 import tempfile
 import shutil
 from html import escape
 from io import BytesIO
 from typing import Any, Dict, Optional
-import requests
+from http_sync import request as _http_sync_request
 import errno
+
+# Shim: expose a 'requests' object for tests and route GETs through it.
+# This allows monkeypatching gh.requests.get in tests while still using
+# our pooled http client under the hood.
+class _RequestsShim:
+    def get(self, url, **kwargs):
+        return _http_sync_request('GET', url, **kwargs)
+
+
+# Expose for tests: monkeypatch sets gh.requests.get
+requests = _RequestsShim()
+
+
+def http_request(method, url, **kwargs):
+    if str(method).upper() == 'GET':
+        return requests.get(url, **kwargs)
+    return _http_sync_request(method, url, **kwargs)
 
 from github import Github, GithubException
 from github.InputGitTreeElement import InputGitTreeElement
@@ -63,6 +80,19 @@ except Exception:  # pragma: no cover
     def track_github_sync(*a, **k):  # type: ignore
         return None
 
+# יצירת Proxy ל-zipfile כדי לאפשר monkeypatch בטוח שאינו יוצר רקורסיה
+class _ZipfileProxy:
+    def __init__(self, real_module):
+        self._real = real_module
+
+    def __getattr__(self, name):
+        # העברת תכונות ברירת מחדל למודול האמיתי
+        return getattr(self._real, name)
+
+# שים לב: בתוך מודול זה, השם 'zipfile' מפנה לפרוקסי, כך ש-monkeypatch על
+# zipfile.ZipFile ישפיע רק כאן, בעוד קריאות מחזירות ל-zipfile המקורי בתוך ה-WRAPPER
+zipfile = _ZipfileProxy(_stdlib_zipfile)
+
 # הגדרת לוגר
 logger = logging.getLogger(__name__)
 
@@ -73,6 +103,15 @@ REPO_SELECT, FILE_UPLOAD, FOLDER_SELECT = range(3)
 MAX_INLINE_FILE_BYTES = 5 * 1024 * 1024  # 5MB לשליחה ישירה בבוט
 MAX_ZIP_TOTAL_BYTES = 50 * 1024 * 1024  # 50MB לקובץ ZIP אחד
 MAX_ZIP_FILES = 500  # מקסימום קבצים ב-ZIP אחד
+
+# חלון קירור מינימלי להתראות PR "עודכן" (ניתן לכיול דרך ENV)
+try:
+    _PR_UPDATE_MIN_COOLDOWN_SECONDS = max(
+        0,
+        int(str(os.getenv("GITHUB_NOTIFICATIONS_PR_MIN_COOLDOWN", "30")).strip() or "30"),
+    )
+except Exception:
+    _PR_UPDATE_MIN_COOLDOWN_SECONDS = 30
 
 # מגבלות ייבוא ריפו (ייבוא תוכן, לא גיבוי)
 IMPORT_MAX_FILE_BYTES = 1 * 1024 * 1024  # 1MB לקובץ יחיד
@@ -182,6 +221,90 @@ class GitHubMenuHandler:
         except Exception:
             # Fallback: return as-is if unexpected type
             return dt
+
+    def _serialize_seen_pr_timestamp(self, dt: datetime) -> str:
+        """Serialize datetime for notifications deduplication storage."""
+        try:
+            aware = self._to_utc_aware(dt)
+            if aware is not None:
+                return aware.isoformat()
+        except Exception:
+            pass
+        try:
+            return dt.isoformat()
+        except Exception:
+            return str(dt)
+
+    def _parse_seen_pr_timestamp(self, value: Any) -> Optional[datetime]:
+        """Parse stored notifications timestamp back into aware datetime."""
+        if isinstance(value, datetime):
+            return self._to_utc_aware(value)
+        if isinstance(value, str):
+            value_str = value.strip()
+            if not value_str:
+                return None
+            try:
+                parsed = datetime.fromisoformat(value_str)
+            except ValueError:
+                try:
+                    parsed = datetime.fromtimestamp(float(value_str), timezone.utc)
+                except (ValueError, TypeError):
+                    return None
+            return self._to_utc_aware(parsed)
+        return None
+
+    def _cache_recent_backup(
+        self,
+        context: ContextTypes.DEFAULT_TYPE,
+        *,
+        backup_id: Optional[str],
+        repo_full_name: Optional[str],
+        path: str,
+        file_count: int,
+        total_size: int,
+        created_at: Optional[str],
+    ) -> None:
+        if not backup_id:
+            return
+        try:
+            cache = context.user_data.setdefault("_recent_backups", {})
+            entry = {
+                "file_path": os.path.join(str(backup_manager.backup_dir), f"{backup_id}.zip"),
+                "repo": repo_full_name,
+                "path": path,
+                "file_count": file_count,
+                "total_size": total_size,
+                "created_at": created_at,
+                "backup_id": backup_id,
+            }
+            cache[backup_id] = entry
+            while len(cache) > 10:
+                cache.pop(next(iter(cache)))
+        except Exception:
+            pass
+
+    def _resolve_backup_version(
+        self,
+        context: ContextTypes.DEFAULT_TYPE,
+        repo_full_name: Optional[str],
+        infos: list[Any],
+        backup_id: Optional[str],
+    ) -> int:
+        repo_backups = [b for b in infos if getattr(b, "repo", None) == repo_full_name]
+        count = len(repo_backups)
+        if backup_id:
+            for b in repo_backups:
+                if getattr(b, "backup_id", None) == backup_id:
+                    return max(1, count)
+            try:
+                cache = context.user_data.get("_recent_backups", {})
+                if isinstance(cache, dict):
+                    entry = cache.get(backup_id)
+                    if entry and entry.get("repo") == repo_full_name:
+                        return max(1, count + 1)
+            except Exception:
+                pass
+        return max(1, count + 1)
 
     async def show_browse_ref_menu(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """תפריט בחירת ref (ענף/תג) עם עימוד וטאבים."""
@@ -357,11 +480,36 @@ class GitHubMenuHandler:
         """בודק את מגבלת ה-API של GitHub"""
         try:
             rate_limit = github_client.get_rate_limit()
-            core_limit = rate_limit.core
+            # תאימות קדימה ואחורה: PyGithub ישן (rate.core) מול חדש (rate.resources["core"]).
+            core_limit = getattr(rate_limit, "core", None)
+            if core_limit is None:
+                resources = getattr(rate_limit, "resources", None)
+                if resources is not None:
+                    try:
+                        core_limit = resources["core"]  # type: ignore[index]
+                    except Exception:
+                        try:
+                            core_limit = resources.get("core")  # type: ignore[attr-defined]
+                        except Exception:
+                            core_limit = None
 
-            if core_limit.remaining < 10:
-                reset_time = core_limit.reset
-                minutes_until_reset = max(1, int((reset_time - time.time()) / 60))
+            # אם לא הצלחנו לקבל נתוני core – נמשיך בלי לחסום את הזרימה
+            if core_limit is None:
+                return True
+
+            if getattr(core_limit, "remaining", None) is not None and core_limit.remaining < 10:
+                reset_time = getattr(core_limit, "reset", None)
+                # תמיכה גם ב-timestamp וגם ב-datetime
+                try:
+                    if isinstance(reset_time, (int, float)):
+                        seconds_left = reset_time - time.time()
+                    elif hasattr(reset_time, "timestamp"):
+                        seconds_left = reset_time.timestamp() - time.time()  # type: ignore[call-arg]
+                    else:
+                        seconds_left = 0
+                except Exception:
+                    seconds_left = 0
+                minutes_until_reset = max(1, int(seconds_left / 60))
 
                 error_message = (
                     f"⏳ חריגה ממגבלת GitHub API\n"
@@ -403,11 +551,18 @@ class GitHubMenuHandler:
 
     async def apply_rate_limit_delay(self, user_id: int):
         """מוסיף השהייה בין בקשות API; מכבד מצב Backoff גלובלי."""
-        base_delay = 2.0
+        try:
+            base_delay = float(os.getenv("GITHUB_API_BASE_DELAY", "2.0"))
+        except Exception:
+            base_delay = 2.0
         try:
             if github_backoff_state is not None and github_backoff_state.get().is_active():
                 # Increase delay under backoff to reduce pressure
-                base_delay = 5.0
+                try:
+                    backoff_delay = float(os.getenv("GITHUB_BACKOFF_DELAY", "5.0"))
+                except Exception:
+                    backoff_delay = 5.0
+                base_delay = max(base_delay, backoff_delay)
         except Exception:
             pass
         current_time = time.time()
@@ -684,7 +839,7 @@ class GitHubMenuHandler:
                 url = repo.get_archive_link("zipball")
             # הורדה במצב זרימה + מניעת דחיסה מיותרת
             _headers = {"Accept-Encoding": "identity"}
-            resp = requests.get(url, headers=_headers, stream=True, timeout=60)
+            resp = http_request('GET', url, headers=_headers, stream=True, timeout=60)
             resp.raise_for_status()
             # עבודה ב-/tmp בלבד
             tmp_dir = tempfile.mkdtemp(prefix="codebot-gh-import-")
@@ -2212,7 +2367,7 @@ class GitHubMenuHandler:
                         from datetime import datetime as _dt, timezone as _tz
                         url = repo.get_archive_link("zipball")
                         headers = {"Accept-Encoding": "identity"}
-                        r = requests.get(url, headers=headers, stream=True, timeout=180)
+                        r = http_request('GET', url, headers=headers, stream=True, timeout=180)
                         r.raise_for_status()
                         # בדיקת גודל מראש (אם ידוע)
                         try:
@@ -2301,14 +2456,29 @@ class GitHubMenuHandler:
                                 pass
                             raise
 
+                        self._cache_recent_backup(
+                            context,
+                            backup_id=metadata.get("backup_id"),
+                            repo_full_name=repo.full_name,
+                            path=current_path or "",
+                            file_count=file_count,
+                            total_size=total_bytes,
+                            created_at=metadata.get("created_at"),
+                        )
+
                         # שם ידידותי ושליחה/קישור
                         try:
                             infos = backup_manager.list_backups(user_id)
-                            vcount = len([b for b in infos if getattr(b, 'repo', None) == repo.full_name])
                         except Exception:
-                            vcount = 1
+                            infos = []
+                        version_number = self._resolve_backup_version(
+                            context,
+                            repo.full_name,
+                            infos,
+                            metadata.get("backup_id"),
+                        )
                         date_str = _dt.now(_tz.utc).strftime('%d-%m-%y %H.%M')
-                        filename = f"BKP zip {repo.name} v{vcount} - {date_str}.zip"
+                        filename = f"BKP zip {repo.name} v{version_number} - {date_str}.zip"
                         caption = f"📦 ריפו מלא — {format_bytes(total_bytes)}.\n💾 נשמר ברשימת הגיבויים."
                         if not too_big_for_telegram and total_bytes <= MAX_ZIP_TOTAL_BYTES:
                             try:
@@ -2328,12 +2498,7 @@ class GitHubMenuHandler:
                         try:
                             backup_id = metadata.get("backup_id")
                             date_str2 = _dt.now(_tz.utc).strftime('%d/%m/%y %H:%M')
-                            try:
-                                infos = backup_manager.list_backups(user_id)
-                                vcount = len([b for b in infos if getattr(b, 'repo', None) == repo.full_name])
-                                v_text = f"(v{vcount}) " if vcount else ""
-                            except Exception:
-                                v_text = ""
+                            v_text = f"(v{version_number}) " if version_number else ""
                             summary_line = f"⬇️ backup zip {repo.name} – {date_str2} – {v_text}{format_bytes(total_bytes)}"
                             try:
                                 from database import db as _db
@@ -2413,44 +2578,75 @@ class GitHubMenuHandler:
                     # הגנה מפני רקורסיות/לולאות בנתיבים (למשל קישורים/תוכן בעייתי)
                     visited_paths: set[str] = set()
 
-                    async def add_path_to_zip(path: str, rel_prefix: str):
-                        # קבל את התוכן עבור הנתיב
-                        contents = repo.get_contents(path or "")
-                        if not isinstance(contents, list):
-                            contents = [contents]
-                        for item in contents:
-                            if item.type == "dir":
-                                # הימנע מלולאות: אל תבקר שוב באותו נתיב
-                                next_path = item.path
-                                if next_path in visited_paths:
-                                    continue
-                                visited_paths.add(next_path)
-                                await self.apply_rate_limit_delay(user_id)
-                                await add_path_to_zip(next_path, f"{rel_prefix}{item.name}/")
-                            elif item.type == "file":
-                                await self.apply_rate_limit_delay(user_id)
-                                file_obj = repo.get_contents(item.path)
-                                # תמיכה ב־API מדומה שמחזירה רשימה גם עבור קובץ בודד
-                                if isinstance(file_obj, list):
-                                    if not file_obj:
+                    async def walk_and_zip(start_path: str, base_prefix: str) -> None:
+                        # Seed root to avoid cycles that point back to the start
+                        if start_path:
+                            visited_paths.add(start_path)
+                        stack: list[tuple[str, str]] = [(start_path, base_prefix)]
+                        while stack:
+                            path, rel_prefix = stack.pop()
+                            # הגנה מפני מחזורי תיקיות או API בעייתי שמוביל לרקורסיה
+                            try:
+                                contents = repo.get_contents(path or "")
+                            except RecursionError:
+                                # דלג על הנתיב הבעייתי והמשך לבאים
+                                continue
+                            except Exception:
+                                # במקרה של שגיאה אחרת – דלג על הנתיב הזה בלבד
+                                continue
+                            if not isinstance(contents, list):
+                                contents = [contents]
+                            for item in contents:
+                                if item.type == "dir":
+                                    next_path = item.path
+                                    if next_path in visited_paths:
                                         continue
-                                    file_obj = file_obj[0]
-                                file_size = getattr(file_obj, "size", 0) or 0
-                                nonlocal total_bytes, total_files, skipped_large
-                                if file_size > MAX_INLINE_FILE_BYTES:
-                                    skipped_large += 1
-                                    continue
-                                if total_files >= MAX_ZIP_FILES:
-                                    continue
-                                if total_bytes + file_size > MAX_ZIP_TOTAL_BYTES:
-                                    continue
-                                data = file_obj.decoded_content
-                                arcname = f"{zip_root}/{rel_prefix}{item.name}"
-                                zipf.writestr(arcname, data)
-                                total_bytes += len(data)
-                                total_files += 1
+                                    visited_paths.add(next_path)
+                                    await self.apply_rate_limit_delay(user_id)
+                                    stack.append((next_path, f"{rel_prefix}{item.name}/"))
+                                elif item.type == "file":
+                                    await self.apply_rate_limit_delay(user_id)
+                                    # שלוף אובייקט קובץ מלא מה-API (עם תוכן), ונפילה נעימה לנתונים שכבר קיימים ב-item
+                                    file_obj = None
+                                    try:
+                                        fetched = repo.get_contents(item.path)
+                                        if isinstance(fetched, list):
+                                            fetched = fetched[0] if fetched else None
+                                        file_obj = fetched
+                                    except RecursionError:
+                                        file_obj = None
+                                    except Exception:
+                                        file_obj = None
 
-                    await add_path_to_zip(current_path, "")
+                                    # קבע גודל ותוכן עם נפילות בטוחות
+                                    data = None
+                                    file_size = 0
+                                    if file_obj is not None:
+                                        file_size = int(getattr(file_obj, "size", 0) or 0)
+                                        data = getattr(file_obj, "decoded_content", None)
+                                    if data is None and hasattr(item, "decoded_content"):
+                                        data = getattr(item, "decoded_content", None)
+                                    if not file_size:
+                                        file_size = int(getattr(item, "size", 0) or 0)
+                                    if not file_size and isinstance(data, (bytes, bytearray)):
+                                        file_size = len(data)
+                                    nonlocal total_bytes, total_files, skipped_large
+                                    if file_size > MAX_INLINE_FILE_BYTES:
+                                        skipped_large += 1
+                                        continue
+                                    if total_files >= MAX_ZIP_FILES:
+                                        continue
+                                    if total_bytes + file_size > MAX_ZIP_TOTAL_BYTES:
+                                        continue
+                                    if data is None:
+                                        # לא הצלחנו להשיג תוכן – דלג על הקובץ בבטחה
+                                        continue
+                                    arcname = f"{zip_root}/{rel_prefix}{item.name}"
+                                    zipf.writestr(arcname, data)
+                                    total_bytes += len(data)
+                                    total_files += 1
+
+                    await walk_and_zip(current_path, "")
                 # הוסף metadata.json
                 metadata = {
                     "backup_id": f"backup_{user_id}_{int(datetime.now(timezone.utc).timestamp())}",
@@ -2470,12 +2666,17 @@ class GitHubMenuHandler:
                 # שם ידידותי ל-folder/repo
                 try:
                     infos = backup_manager.list_backups(user_id)
-                    vcount = len([b for b in infos if getattr(b, 'repo', None) == repo.full_name])
                 except Exception:
-                    vcount = 1
+                    infos = []
+                version_number = self._resolve_backup_version(
+                    context,
+                    repo.full_name,
+                    infos,
+                    metadata.get("backup_id"),
+                )
                 date_str = datetime.now(timezone.utc).strftime('%d-%m-%y %H.%M')
                 name_part = repo.name if not current_path else current_path.split('/')[-1]
-                filename = f"BKP zip {name_part} v{vcount} - {date_str}.zip"
+                filename = f"BKP zip {name_part} v{version_number} - {date_str}.zip"
                 zip_buffer.name = filename
                 caption = (
                     f"📦 קובץ ZIP לתיקייה: /{current_path or ''}\n"
@@ -2487,6 +2688,7 @@ class GitHubMenuHandler:
                 # שמור גיבוי (Mongo/FS בהתאם לקונפיג)
                 try:
                     backup_manager.save_backup_bytes(zip_buffer.getvalue(), metadata)
+                    self._cache_recent_backup(context, backup_id=metadata.get("backup_id"), repo_full_name=repo.full_name, path=current_path or "", file_count=total_files, total_size=total_bytes, created_at=metadata.get("created_at"))
                 except Exception as e:
                     logger.warning(f"Failed to persist GitHub ZIP: {e}")
                     try:
@@ -2505,12 +2707,7 @@ class GitHubMenuHandler:
                 try:
                     backup_id = metadata.get("backup_id")
                     date_str = datetime.now(timezone.utc).strftime('%d/%m/%y %H:%M')
-                    try:
-                        infos = backup_manager.list_backups(user_id)
-                        vcount = len([b for b in infos if getattr(b, 'repo', None) == repo.full_name])
-                        v_text = f"(v{vcount}) " if vcount else ""
-                    except Exception:
-                        v_text = ""
+                    v_text = f"(v{version_number}) " if version_number else ""
                     summary_line = f"⬇️ backup zip {repo.name} – {date_str} – {v_text}{format_bytes(total_bytes)}"
                     try:
                         from database import db as _db
@@ -2534,7 +2731,8 @@ class GitHubMenuHandler:
                 except Exception:
                     pass
             except Exception as e:
-                logger.error(f"Error creating ZIP: {e}")
+                # לוג כולל traceback כדי לאבחן כשלים נדירים (למשל רקורסיה)
+                logger.exception(f"Error creating ZIP: {e}")
                 try:
                     emit_event(
                         "github_zip_create_error",
@@ -2980,6 +3178,8 @@ class GitHubMenuHandler:
             await self.set_notifications_interval(update, context)
         elif query.data == "notifications_check_now":
             await self.notifications_check_now(update, context)
+        elif query.data == "notifications_sentry_test":
+            await self.notifications_sentry_test(update, context)
 
         elif query.data == "pr_menu":
             await self.show_pr_menu(update, context)
@@ -3057,7 +3257,7 @@ class GitHubMenuHandler:
                     url = repo.get_archive_link("zipball")
                     with tempfile.TemporaryDirectory(prefix="repo_val_") as tmp:
                         zip_path = os.path.join(tmp, "repo.zip")
-                        r = requests.get(url, timeout=60)
+                        r = http_request('GET', url, timeout=60)
                         r.raise_for_status()
                         with open(zip_path, "wb") as f:
                             f.write(r.content)
@@ -3248,6 +3448,16 @@ class GitHubMenuHandler:
             return
 
         try:
+            # אcknowledge מהיר ל-Callback כדי למנוע "תקיעה" של הכפתור בטלגרם
+            acked = False
+            if query:
+                try:
+                    await query.answer()
+                    acked = True
+                except Exception:
+                    # אם כבר נענה קודם, נמשיך בלי לזרוק
+                    acked = True
+
             # בדוק אם יש repos ב-context.user_data ואם הם עדיין תקפים
             cache_time = context.user_data.get("repos_cache_time", 0)
             current_time = time.time()
@@ -3257,6 +3467,12 @@ class GitHubMenuHandler:
             needs_refresh = "repos" not in context.user_data or cache_age > cache_max_age
 
             if needs_refresh:
+                # הצג הודעת טעינה מיידית לפני קריאה איטית ל‑GitHub
+                if query:
+                    try:
+                        await query.edit_message_text("⏳ טוען רשימת ריפוזיטוריז…")
+                    except Exception:
+                        pass
                 logger.info(
                     f"[GitHub API] Fetching repos for user {user_id} (cache age: {int(cache_age)}s)"
                 )
@@ -3268,26 +3484,49 @@ class GitHubMenuHandler:
 
                 # בדוק rate limit לפני הבקשה
                 rate = g.get_rate_limit()
-                logger.info(
-                    f"[GitHub API] Rate limit - Remaining: {rate.core.remaining}/{rate.core.limit}"
-                )
+                # תמיכה במבני RateLimit שונים (ישן/חדש)
+                core_limit = getattr(rate, "core", None)
+                if core_limit is None:
+                    resources = getattr(rate, "resources", None)
+                    if resources is not None:
+                        try:
+                            core_limit = resources["core"]  # type: ignore[index]
+                        except Exception:
+                            try:
+                                core_limit = resources.get("core")  # type: ignore[attr-defined]
+                            except Exception:
+                                core_limit = None
 
-                if rate.core.remaining < 100:
+                if core_limit is not None and getattr(core_limit, "remaining", None) is not None:
+                    logger.info(
+                        f"[GitHub API] Rate limit - Remaining: {core_limit.remaining}/{getattr(core_limit, 'limit', 'unknown')}"
+                    )
+                else:
+                    logger.info("[GitHub API] Rate limit - Remaining: unknown")
+
+                if core_limit is not None and getattr(core_limit, "remaining", None) is not None and core_limit.remaining < 100:
                     logger.warning(
-                        f"[GitHub API] Low on API calls! Only {rate.core.remaining} remaining"
+                        f"[GitHub API] Low on API calls! Only {core_limit.remaining} remaining"
                     )
 
-                if rate.core.remaining < 10:
+                if core_limit is not None and getattr(core_limit, "remaining", None) is not None and core_limit.remaining < 10:
                     # אם יש cache ישן, השתמש בו במקום לחסום
                     if "repos" in context.user_data:
                         logger.warning(f"[GitHub API] Using stale cache due to rate limit")
                         all_repos = context.user_data["repos"]
                     else:
                         if query:
-                            await query.answer(
-                                f"⏳ מגבלת API נמוכה! נותרו רק {rate.core.remaining} בקשות",
-                                show_alert=True,
+                            msg = (
+                                f"⏳ מגבלת API נמוכה! נותרו רק {core_limit.remaining} בקשות"
                             )
+                            # לאחר ack אסור לקרוא שוב ל-answer; נערוך את ההודעה במקום
+                            try:
+                                if acked:
+                                    await query.edit_message_text(msg)
+                                else:
+                                    await query.answer(msg, show_alert=True)
+                            except Exception:
+                                pass
                             return
                 else:
                     # הוסף delay בין בקשות
@@ -3385,7 +3624,14 @@ class GitHubMenuHandler:
                 error_msg = f"❌ שגיאה: {error_msg}"
 
             if query:
-                await query.answer(error_msg, show_alert=True)
+                try:
+                    if 'acked' in locals() and acked:
+                        # לאחר ack – אין answer נוסף; נערוך טקסט במקום
+                        await query.edit_message_text(error_msg)
+                    else:
+                        await query.answer(error_msg, show_alert=True)
+                except Exception:
+                    pass
             else:
                 try:
                     await update.callback_query.answer(error_msg, show_alert=True)
@@ -3638,20 +3884,32 @@ class GitHubMenuHandler:
                 pass
             logger.info(f"[GitHub API] Checking rate limit before uploading file")
             rate = g.get_rate_limit()
-            logger.info(
-                f"[GitHub API] Rate limit - Remaining: {rate.core.remaining}/{rate.core.limit}"
-            )
-
-            if rate.core.remaining < 100:
-                logger.warning(
-                    f"[GitHub API] Low on API calls! Only {rate.core.remaining} remaining"
+            core_limit = getattr(rate, "core", None)
+            if core_limit is None:
+                resources = getattr(rate, "resources", None)
+                if resources is not None:
+                    try:
+                        core_limit = resources["core"]  # type: ignore[index]
+                    except Exception:
+                        try:
+                            core_limit = resources.get("core")  # type: ignore[attr-defined]
+                        except Exception:
+                            core_limit = None
+            if core_limit is not None and getattr(core_limit, "remaining", None) is not None:
+                logger.info(
+                    f"[GitHub API] Rate limit - Remaining: {core_limit.remaining}/{getattr(core_limit, 'limit', 'unknown')}"
                 )
-
-            if rate.core.remaining < 10:
-                await update.callback_query.answer(
-                    f"⏳ מגבלת API נמוכה מדי! נותרו רק {rate.core.remaining} בקשות", show_alert=True
-                )
-                return
+                if core_limit.remaining < 100:
+                    logger.warning(
+                        f"[GitHub API] Low on API calls! Only {core_limit.remaining} remaining"
+                    )
+                if core_limit.remaining < 10:
+                    await update.callback_query.answer(
+                        f"⏳ מגבלת API נמוכה מדי! נותרו רק {core_limit.remaining} בקשות", show_alert=True
+                    )
+                    return
+            else:
+                logger.info("[GitHub API] Rate limit - Remaining: unknown")
 
             # הוסף delay בין בקשות
             await self.apply_rate_limit_delay(user_id)
@@ -3817,22 +4075,34 @@ class GitHubMenuHandler:
                         pass
                     logger.info(f"[GitHub API] Checking rate limit before file upload")
                     rate = g.get_rate_limit()
-                    logger.info(
-                        f"[GitHub API] Rate limit - Remaining: {rate.core.remaining}/{rate.core.limit}"
-                    )
-
-                    if rate.core.remaining < 100:
-                        logger.warning(
-                            f"[GitHub API] Low on API calls! Only {rate.core.remaining} remaining"
+                    core_limit = getattr(rate, "core", None)
+                    if core_limit is None:
+                        resources = getattr(rate, "resources", None)
+                        if resources is not None:
+                            try:
+                                core_limit = resources["core"]  # type: ignore[index]
+                            except Exception:
+                                try:
+                                    core_limit = resources.get("core")  # type: ignore[attr-defined]
+                                except Exception:
+                                    core_limit = None
+                    if core_limit is not None and getattr(core_limit, "remaining", None) is not None:
+                        logger.info(
+                            f"[GitHub API] Rate limit - Remaining: {core_limit.remaining}/{getattr(core_limit, 'limit', 'unknown')}"
                         )
-
-                    if rate.core.remaining < 10:
-                        await update.message.reply_text(
-                            f"⏳ מגבלת API נמוכה מדי!\n"
-                            f"נותרו רק {rate.core.remaining} בקשות\n"
-                            f"נסה שוב מאוחר יותר"
-                        )
-                        return ConversationHandler.END
+                        if core_limit.remaining < 100:
+                            logger.warning(
+                                f"[GitHub API] Low on API calls! Only {core_limit.remaining} remaining"
+                            )
+                        if core_limit.remaining < 10:
+                            await update.message.reply_text(
+                                f"⏳ מגבלת API נמוכה מדי!\n"
+                                f"נותרו רק {core_limit.remaining} בקשות\n"
+                                f"נסה שוב מאוחר יותר"
+                            )
+                            return ConversationHandler.END
+                    else:
+                        logger.info("[GitHub API] Rate limit - Remaining: unknown")
 
                     # הוסף delay בין בקשות
                     await self.apply_rate_limit_delay(user_id)
@@ -5282,6 +5552,18 @@ class GitHubMenuHandler:
             ],
             [InlineKeyboardButton("בדוק עכשיו", callback_data="notifications_check_now")],
         ]
+        # כפתור בדיקת Sentry לאדמינים בלבד
+        try:
+            is_admin = user_id in getattr(config, 'ADMIN_USER_IDS', [])
+        except Exception:
+            is_admin = False
+        # הצג את כפתור בדיקת Sentry רק כשמאופשר במפורש
+        try:
+            sentry_btn_enabled = bool(getattr(config, 'SENTRY_TEST_BUTTON_ENABLED', False))
+        except Exception:
+            sentry_btn_enabled = False
+        if is_admin and sentry_btn_enabled:
+            keyboard.append([InlineKeyboardButton("🧪 שלח אירוע בדיקה ל‑Sentry", callback_data="notifications_sentry_test")])
         text = (
             f"🔔 התראות לריפו: <code>{session['selected_repo']}</code>\n"
             f"מצב: {'פעיל' if enabled else 'כבוי'} | ⏱ {freq_display}\n"
@@ -5379,10 +5661,82 @@ class GitHubMenuHandler:
             if "Message is not modified" not in str(e):
                 raise
 
+    async def notifications_sentry_test(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """שולח אירוע בדיקה ל‑Sentry (אדמינים בלבד)."""
+        query = update.callback_query
+        user_id = query.from_user.id
+        try:
+            logger.info("notifications_sentry_test: received", extra={"user_id": int(user_id)})
+        except Exception:
+            pass
+        # הרשאה: רק אדמין
+        try:
+            is_admin = user_id in getattr(config, 'ADMIN_USER_IDS', [])
+        except Exception:
+            is_admin = False
+        if not is_admin:
+            try:
+                logger.warning("notifications_sentry_test: blocked_not_admin", extra={"user_id": int(user_id)})
+            except Exception:
+                pass
+            try:
+                await query.answer("אין הרשאה", show_alert=True)
+            except Exception:
+                pass
+            return
+        # פיצ'ר כבוי כברירת מחדל – אל תבצע אם לא מאופשר
+        try:
+            enabled_flag = bool(getattr(config, 'SENTRY_TEST_BUTTON_ENABLED', False))
+            if not enabled_flag:
+                try:
+                    logger.info("notifications_sentry_test: disabled_by_flag", extra={"user_id": int(user_id)})
+                except Exception:
+                    pass
+                try:
+                    await query.answer("הפיצ׳ר מנוטרל", show_alert=True)
+                except Exception:
+                    pass
+                return
+        except Exception:
+            return
+        # צור חריגה יזומה ושלח לסנטרי עם Stacktrace
+        try:
+            raise RuntimeError("Sentry test: manual button")
+        except Exception as e:
+            logger.exception("sentry test button")
+            try:  # pragma: no cover - תלוי בנוכחות sentry_sdk
+                import sentry_sdk  # type: ignore
+                sentry_sdk.capture_exception(e)  # type: ignore[attr-defined]
+            except Exception:
+                pass
+        try:
+            await query.answer("נשלח אירוע בדיקה ל‑Sentry", show_alert=True)
+            try:
+                logger.info("notifications_sentry_test: toast_sent", extra={"user_id": int(user_id)})
+            except Exception:
+                pass
+        except Exception:
+            pass
+        # רענן תפריט
+        try:
+            await self.show_notifications_menu(update, context)
+        except BadRequest as e:
+            if "Message is not modified" not in str(e):
+                raise
+
     async def _notifications_job(
         self, context: ContextTypes.DEFAULT_TYPE, user_id: Optional[int] = None, force: bool = False
     ):
         try:
+            # נתב בדיקה יזומה: אם מופעל ENV ובוצעה בקשה יזומה (force=True),
+            # זרוק חריגה מבוקרת כדי לאמת אינטגרציית Sentry מיד, ללא המתנה לאירוע אמיתי.
+            try:
+                _flag = str(os.getenv("SENTRY_TEST_NOTIFICATIONS_JOB", "")).lower() in {"1", "true", "yes", "on"}
+            except Exception:
+                _flag = False
+            if force and _flag:
+                raise RuntimeError("Sentry test: notifications job forced error")
+
             if user_id is None:
                 job = getattr(context, "job", None)
                 if job and getattr(job, "data", None):
@@ -5390,90 +5744,169 @@ class GitHubMenuHandler:
             if not user_id:
                 return
             session = self.get_user_session(user_id)
-            token = self.get_user_token(user_id)
-            repo_name = session.get("selected_repo")
-            settings = (
-                context.application.user_data.get(user_id, {}).get("notifications")
-                if hasattr(context.application, "user_data")
-                else None
-            )
-            if settings is None:
-                settings = context.user_data.get("notifications", {})
-            if not (token and repo_name):
+            running_key = "_notifications_running"
+            if session.get(running_key):
+                try:
+                    logger.debug("notifications job skipped (already running)", extra={"user_id": int(user_id)})
+                except Exception:
+                    pass
                 return
-            if not force and not (settings and settings.get("enabled")):
-                return
-            g = Github(token)
-            repo = g.get_repo(repo_name)
-            # נהל זיכרון "נבדק לאחרונה"
-            last = session.get("notifications_last", {"pr": None, "issues": None})
-            messages = []
-            # PRs
-            if settings.get("pr", True):
-                last_pr_check_time = last.get("pr")
-                # If this is the first run (no baseline), set a baseline without sending backlog
-                if last_pr_check_time is None:
-                    session["notifications_last"] = session.get("notifications_last", {})
-                    session["notifications_last"]["pr"] = datetime.now(timezone.utc)
-                else:
-                    pulls = repo.get_pulls(state="all", sort="updated", direction="desc")
-                    for pr in pulls[:10]:
-                        updated = self._to_utc_aware(getattr(pr, "updated_at", None))
-                        # Normalize baseline too (safety in case it was saved naive somehow)
-                        baseline = self._to_utc_aware(last_pr_check_time)
-                        # אם אין updated או שאין אפשרות השוואה — עצור כדי למנוע עיבוד יתר של פריטים ישנים
-                        if baseline and (updated is None or updated <= baseline):
-                            break
-                        created = self._to_utc_aware(getattr(pr, "created_at", None))
-                        status = (
-                            "נפתח"
-                            if (pr.state == "open" and created and updated and created == updated)
-                            else ("מוזג" if getattr(pr, "merged", False) else ("נסגר" if pr.state == "closed" else "עודכן"))
-                        )
-                        messages.append(
-                            f'🔔 PR {status}: <a href="{pr.html_url}">{safe_html_escape(pr.title)}</a>'
-                        )
-                    session["notifications_last"] = session.get("notifications_last", {})
-                    session["notifications_last"]["pr"] = datetime.now(timezone.utc)
-            # Issues
-            if settings.get("issues", True):
-                last_issues_check_time = last.get("issues")
-                if last_issues_check_time is None:
-                    session["notifications_last"] = session.get("notifications_last", {})
-                    session["notifications_last"]["issues"] = datetime.now(timezone.utc)
-                else:
-                    issues = repo.get_issues(state="all", sort="updated", direction="desc")
-                    count = 0
-                    for issue in issues:
-                        if issue.pull_request is not None:
-                            continue
-                        updated = self._to_utc_aware(getattr(issue, "updated_at", None))
-                        baseline = self._to_utc_aware(last_issues_check_time)
-                        # אם אין updated או שאין אפשרות השוואה — עצור כדי למנוע עיבוד יתר של פריטים ישנים
-                        if baseline and (updated is None or updated <= baseline):
-                            break
-                        created = self._to_utc_aware(getattr(issue, "created_at", None))
-                        status = (
-                            "נפתח"
-                            if (issue.state == "open" and created and updated and created == updated)
-                            else ("נסגר" if issue.state == "closed" else "עודכן")
-                        )
-                        messages.append(
-                            f'🔔 Issue {status}: <a href="{issue.html_url}">{safe_html_escape(issue.title)}</a>'
-                        )
-                        count += 1
-                        if count >= 10:
-                            break
-                    session["notifications_last"] = session.get("notifications_last", {})
-                    session["notifications_last"]["issues"] = datetime.now(timezone.utc)
-            # שלח הודעה אם יש
-            if messages:
-                text = "\n".join(messages)
-                await context.bot.send_message(
-                    chat_id=user_id, text=text, parse_mode="HTML", disable_web_page_preview=True
+            session[running_key] = True
+            try:
+                token = self.get_user_token(user_id)
+                repo_name = session.get("selected_repo")
+                settings = (
+                    context.application.user_data.get(user_id, {}).get("notifications")
+                    if hasattr(context.application, "user_data")
+                    else None
                 )
+                if settings is None:
+                    settings = context.user_data.get("notifications", {})
+                if not isinstance(settings, dict):
+                    settings = {}
+                if not (token and repo_name):
+                    return
+                if not force and not (settings and settings.get("enabled")):
+                    return
+                g = Github(token)
+                repo = g.get_repo(repo_name)
+                # נהל זיכרון "נבדק לאחרונה"
+                last = session.get("notifications_last", {"pr": None, "issues": None})
+                messages = []
+                # PRs
+                if settings.get("pr", True):
+                    last_pr_check_time = last.get("pr")
+                    # If this is the first run (no baseline), set a baseline without sending backlog
+                    if last_pr_check_time is None:
+                        session["notifications_last"] = session.get("notifications_last", {})
+                        session["notifications_last"]["pr"] = datetime.now(timezone.utc)
+                    else:
+                        pulls = repo.get_pulls(state="all", sort="updated", direction="desc")
+                        seen_prs = session.setdefault("notifications_seen_prs", {})
+                        try:
+                            interval_seconds = int(settings.get("interval", 300) or 300)
+                        except Exception:
+                            interval_seconds = 300
+                        interval_seconds = max(1, interval_seconds)
+                        cooldown_seconds = max(_PR_UPDATE_MIN_COOLDOWN_SECONDS, interval_seconds)
+                        baseline_dt = None
+                        if isinstance(last_pr_check_time, datetime):
+                            baseline_dt = self._to_utc_aware(last_pr_check_time)
+                        else:
+                            baseline_dt = self._parse_seen_pr_timestamp(last_pr_check_time)
+                        latest_processed_pr_ts = baseline_dt
+                        for pr in pulls[:10]:
+                            updated = self._to_utc_aware(getattr(pr, "updated_at", None))
+                            if updated is not None and (
+                                latest_processed_pr_ts is None or updated > latest_processed_pr_ts
+                            ):
+                                latest_processed_pr_ts = updated
+                            # אם אין updated או שאין אפשרות השוואה — עצור כדי למנוע עיבוד יתר של פריטים ישנים
+                            if baseline_dt and (updated is None or updated <= baseline_dt):
+                                break
+                            pr_number = getattr(pr, "number", None)
+                            dedup_key = str(pr_number) if pr_number is not None else None
+                            last_seen = self._parse_seen_pr_timestamp(
+                                seen_prs.get(dedup_key) if dedup_key else None
+                            )
+                            if last_seen and updated is not None and updated <= last_seen:
+                                continue
+                            created = self._to_utc_aware(getattr(pr, "created_at", None))
+                            status = (
+                                "נפתח"
+                                if (pr.state == "open" and created and updated and created == updated)
+                                else (
+                                    "מוזג"
+                                    if getattr(pr, "merged", False)
+                                    else ("נסגר" if pr.state == "closed" else "עודכן")
+                                )
+                            )
+                            if (
+                                status == "עודכן"
+                                and last_seen is not None
+                                and updated is not None
+                                and (updated - last_seen).total_seconds() < cooldown_seconds
+                            ):
+                                continue
+                            messages.append(
+                                f'🔔 PR {status}: <a href="{pr.html_url}">{safe_html_escape(pr.title)}</a>'
+                            )
+                            if dedup_key and updated is not None:
+                                seen_prs[dedup_key] = self._serialize_seen_pr_timestamp(updated)
+                        session["notifications_last"] = session.get("notifications_last", {})
+                        now_dt = datetime.now(timezone.utc)
+                        safe_baseline = None
+                        if latest_processed_pr_ts is not None:
+                            safe_baseline = latest_processed_pr_ts
+                            if safe_baseline > now_dt:
+                                safe_baseline = now_dt
+                        session["notifications_last"]["pr"] = safe_baseline or now_dt
+                        # הגבלת גודל הזיכרון כדי למנוע צמיחה לא מבוקרת
+                        try:
+                            if len(seen_prs) > 60:
+                                parsed_items = []
+                                for key, value in list(seen_prs.items()):
+                                    parsed = self._parse_seen_pr_timestamp(value)
+                                    if parsed is None:
+                                        seen_prs.pop(key, None)
+                                        continue
+                                    seen_prs[key] = self._serialize_seen_pr_timestamp(parsed)
+                                    parsed_items.append((key, parsed))
+                                parsed_items.sort(key=lambda item: item[1], reverse=True)
+                                keep_keys = {key for key, _ in parsed_items[:50]}
+                                for key in list(seen_prs.keys()):
+                                    if key not in keep_keys:
+                                        seen_prs.pop(key, None)
+                        except Exception:
+                            pass
+                # Issues
+                if settings.get("issues", True):
+                    last_issues_check_time = last.get("issues")
+                    if last_issues_check_time is None:
+                        session["notifications_last"] = session.get("notifications_last", {})
+                        session["notifications_last"]["issues"] = datetime.now(timezone.utc)
+                    else:
+                        issues = repo.get_issues(state="all", sort="updated", direction="desc")
+                        count = 0
+                        for issue in issues:
+                            if issue.pull_request is not None:
+                                continue
+                            updated = self._to_utc_aware(getattr(issue, "updated_at", None))
+                            baseline = self._to_utc_aware(last_issues_check_time)
+                            # אם אין updated או שאין אפשרות השוואה — עצור כדי למנוע עיבוד יתר של פריטים ישנים
+                            if baseline and (updated is None or updated <= baseline):
+                                break
+                            created = self._to_utc_aware(getattr(issue, "created_at", None))
+                            status = (
+                                "נפתח"
+                                if (issue.state == "open" and created and updated and created == updated)
+                                else ("נסגר" if issue.state == "closed" else "עודכן")
+                            )
+                            messages.append(
+                                f'🔔 Issue {status}: <a href="{issue.html_url}">{safe_html_escape(issue.title)}</a>'
+                            )
+                            count += 1
+                            if count >= 10:
+                                break
+                        session["notifications_last"] = session.get("notifications_last", {})
+                        session["notifications_last"]["issues"] = datetime.now(timezone.utc)
+                # שלח הודעה אם יש
+                if messages:
+                    text = "\n".join(messages)
+                    await context.bot.send_message(
+                        chat_id=user_id, text=text, parse_mode="HTML", disable_web_page_preview=True
+                    )
+            finally:
+                session.pop(running_key, None)
         except Exception as e:
-            logger.error(f"notifications job error: {e}")
+            # שלח Stacktrace מלא ליומן (Sentry יקלט דרך LoggingIntegration)
+            logger.exception("notifications job error")
+            # וגם נסה לדווח ישירות ל‑Sentry כ‑fallback
+            try:  # pragma: no cover - תלוי בנוכחות sentry_sdk
+                import sentry_sdk  # type: ignore
+                sentry_sdk.capture_exception(e)  # type: ignore[attr-defined]
+            except Exception:
+                pass
 
     async def show_pr_menu(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         query = update.callback_query

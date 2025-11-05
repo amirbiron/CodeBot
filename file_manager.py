@@ -886,6 +886,139 @@ class BackupManager:
             except Exception:
                 pass
 
+            # אם לא נמצאו כלל גיבויים למשתמש — אפשר מצב תאימות רכה עבור אדמין/דגל ENV
+            try:
+                allow_legacy = False
+                # אדמין? (לפי ENV ADMIN_USER_IDS)
+                try:
+                    admins_raw = os.getenv("ADMIN_USER_IDS", "")
+                    if admins_raw:
+                        admin_ids = {int(x.strip()) for x in admins_raw.split(',') if x.strip().isdigit()}
+                        if int(user_id) in admin_ids:
+                            allow_legacy = True
+                except Exception:
+                    pass
+                # או דגל תאימות ייעודי
+                if not allow_legacy:
+                    flag = str(os.getenv("BACKUPS_SHOW_ALL_IF_EMPTY", "")).strip().lower()
+                    allow_legacy = flag in ("1", "true", "yes", "on")
+            except Exception:
+                allow_legacy = False
+
+            if allow_legacy and not backups:
+                try:
+                    # בטעינת תאימות: הצג את כל קבצי ה‑ZIP מכל הנתיבים הידועים, גם ללא user_id מפורש.
+                    # מיפוי נתיבים ייחודי למניעת כפילויות
+                    seen_paths_all: Set[str] = set()
+                    # build search_dirs כמו קודם
+                    search_dirs_legacy: List[Path] = [self.backup_dir]
+                    with suppress(Exception):
+                        if getattr(self, "legacy_backup_dir", None) and isinstance(self.legacy_backup_dir, Path) and self.legacy_backup_dir.exists():
+                            search_dirs_legacy.append(self.legacy_backup_dir)
+                    with suppress(Exception):
+                        app_backups = Path("/app/backups")
+                        if app_backups != self.backup_dir and app_backups.exists():
+                            search_dirs_legacy.append(app_backups)
+                    for d in search_dirs_legacy:
+                        with suppress(Exception):
+                            for p in d.glob("*.zip"):
+                                try:
+                                    rp = str(p.resolve())
+                                except Exception:
+                                    rp = str(p)
+                                if rp in seen_paths_all:
+                                    continue
+                                seen_paths_all.add(rp)
+                                # נסה לקרוא metadata.json — אך אל תדרוש user_id
+                                metadata: Optional[Dict[str, Any]] = None
+                                backup_id = os.path.splitext(os.path.basename(p))[0]
+                                created_at = None
+                                file_count = 0
+                                backup_type = "unknown"
+                                repo = None
+                                path = None
+                                with suppress(Exception):
+                                    with zipfile.ZipFile(p, 'r') as zf:
+                                        with suppress(Exception):
+                                            md_raw = zf.read('metadata.json')
+                                            metadata = json.loads(md_raw) if md_raw else None
+                                        # שדות עזר אם קיימים
+                                        if metadata:
+                                            with suppress(Exception):
+                                                bid = metadata.get('backup_id')
+                                                if isinstance(bid, str) and bid:
+                                                    backup_id = bid
+                                            with suppress(Exception):
+                                                cat = metadata.get('created_at')
+                                                if isinstance(cat, str) and cat:
+                                                    created_at = datetime.fromisoformat(cat)
+                                                    if created_at.tzinfo is None:
+                                                        created_at = created_at.replace(tzinfo=timezone.utc)
+                                            with suppress(Exception):
+                                                fc = metadata.get('file_count')
+                                                if isinstance(fc, int):
+                                                    file_count = fc
+                                            with suppress(Exception):
+                                                backup_type = metadata.get('backup_type', backup_type)
+                                            with suppress(Exception):
+                                                repo = metadata.get('repo')
+                                            with suppress(Exception):
+                                                path = metadata.get('path')
+                                        # אם לא קיים file_count — חשב
+                                        if file_count == 0:
+                                            try:
+                                                non_dirs = [n for n in zf.namelist() if not n.endswith('/')]
+                                                file_count = len(non_dirs)
+                                            except Exception:
+                                                file_count = 0
+                                if not created_at:
+                                    with suppress(Exception):
+                                        created_at = datetime.fromtimestamp(p.stat().st_mtime, tz=timezone.utc)
+                                try:
+                                    total_size = p.stat().st_size
+                                except Exception:
+                                    total_size = 0
+                                # ודא שייכות למשתמש גם במצב תאימות: מטאדטה או דפוס שם המכיל את המזהה
+                                owner_ok = False
+                                try:
+                                    if metadata is not None:
+                                        u = metadata.get('user_id')
+                                        if isinstance(u, int) and int(u) == int(user_id):
+                                            owner_ok = True
+                                        elif isinstance(u, str) and u.isdigit() and int(u) == int(user_id):
+                                            owner_ok = True
+                                except Exception:
+                                    owner_ok = False
+                                if not owner_ok:
+                                    try:
+                                        base = os.path.splitext(os.path.basename(p))[0]
+                                        # חפש את user_id כמילה/חלק מופרד בקו תחתון
+                                        m = re.search(rf"(?:^|_)({int(user_id)})($|_|\b)", base)
+                                        if m:
+                                            owner_ok = True
+                                    except Exception:
+                                        owner_ok = False
+                                if not owner_ok:
+                                    # ללא הוכחת בעלות — אל תציג כדי למנוע זליגה
+                                    continue
+
+                                backups.append(BackupInfo(
+                                    backup_id=backup_id,
+                                    user_id=int(user_id),
+                                    created_at=created_at or datetime.now(timezone.utc),
+                                    file_count=file_count,
+                                    total_size=total_size,
+                                    backup_type=backup_type,
+                                    status="completed",
+                                    file_path=rp,
+                                    repo=repo,
+                                    path=path,
+                                    metadata=metadata,
+                                ))
+                except Exception:
+                    # תאימות לאחור היא best-effort בלבד
+                    pass
+
             # מיון לפי תאריך יצירה
             backups.sort(key=lambda x: x.created_at, reverse=True)
 

@@ -44,7 +44,8 @@ except Exception:  # pragma: no cover
 
 
 ALLOWED_ICONS: List[str] = [
-    "📂","📘","🎨","🧩","🐛","⚙️","📝","🧪","💡","⭐","🔖","🚀"
+    "📂","📘","🎨","🧩","🐛","⚙️","📝","🧪","💡","⭐","🔖","🚀",
+    "🖥️","💼","🖱️","⌨️","📱","💻","🖨️","📊","📈","📉","🔧","🛠️"
 ]
 COLLECTION_COLORS: List[str] = [
     "blue","green","purple","orange","red","teal","pink","yellow"
@@ -91,6 +92,16 @@ class CollectionsManager:
         self.collections = db.user_collections
         self.items = db.collection_items
         self.code_snippets = getattr(db, "code_snippets", None)
+        # תמיכה בקבצים גדולים (large_files) לצורך בדיקת סטטוס פעילות
+        try:
+            self.large_files = getattr(db, "large_files", None)
+        except Exception:
+            self.large_files = None
+        # תיעוד פעילות צפייה/הורדה בשיתופים
+        try:
+            self.share_activity = getattr(db, "collection_share_activity", None)
+        except Exception:
+            self.share_activity = None
         self._ensure_indexes()
 
     # --- Indexes ---
@@ -111,6 +122,54 @@ class CollectionsManager:
             ])
         except Exception:
             pass
+
+    def ensure_default_collections(self, user_id: int) -> bool:
+        """מאבטח יצירה של אוספים מובנים עבור משתמש חדש.
+
+        מחזיר True אם נוצר אוסף חדש (למשל "שולחן עבודה"), אחרת False.
+        """
+        try:
+            uid = int(user_id)
+        except Exception:
+            return False
+
+        try:
+            existing = self.collections.find_one({
+                "user_id": uid,
+                "name": "שולחן עבודה",
+            })
+        except Exception:
+            existing = None
+
+        if existing:
+            return False
+
+        created = False
+        try:
+            result = self.create_collection(
+                user_id=uid,
+                name="שולחן עבודה",
+                description="קבצים שאני עובד עליהם כרגע",
+                mode="manual",
+                icon="🖥️",
+                color="purple",
+                is_favorite=True,
+                sort_order=-1,
+            )
+            created = bool(result.get("ok")) if isinstance(result, dict) else False
+        except Exception:
+            created = False
+
+        if created:
+            try:
+                cache.delete_pattern(f"collections_list:{uid}:*")
+                cache.delete_pattern(f"collections_list:v2:{uid}:*")
+                cache.delete_pattern(f"collections_detail:{uid}:*")
+                cache.delete_pattern(f"collections_items:{uid}:*")
+            except Exception:
+                pass
+
+        return created
 
     # --- Validators ---
     def _validate_name(self, name: str) -> bool:
@@ -576,6 +635,7 @@ class CollectionsManager:
         page: int = 1,
         per_page: int = 20,
         include_computed: bool = True,
+        fetch_all: bool = False,
     ) -> Dict[str, Any]:
         try:
             cid = ObjectId(collection_id)
@@ -639,23 +699,77 @@ class CollectionsManager:
             out_items.sort(key=_sort_key)
 
             # דפדוף
-            try:
-                p = max(1, int(page or 1))
-                pp = max(1, min(200, int(per_page or 20)))
-            except Exception:
-                p, pp = 1, 20
-            start = (p - 1) * pp
-            end = start + pp
-            page_items = out_items[start:end]
+            if fetch_all:
+                p = 1
+                pp = len(out_items)
+                page_items = list(out_items)
+            else:
+                try:
+                    p = max(1, int(page or 1))
+                    pp = max(1, min(200, int(per_page or 20)))
+                except Exception:
+                    p, pp = 1, 20
+                start = (p - 1) * pp
+                end = start + pp
+                page_items = out_items[start:end]
 
-            # החזרה
+            # חישוב סטטוס פעילות קובץ (Data integrity): ערך בוליאני is_file_active
+            try:
+                active_map: Dict[Tuple[str, str], bool] = {}
+                # אסוף זוגות ייחודיים (source, file_name) מהעמוד בלבד
+                uniq: List[Tuple[str, str]] = []
+                seen_keys: set[Tuple[str, str]] = set()
+                for it in page_items:
+                    src = str(it.get("source") or "regular")
+                    fn = str(it.get("file_name") or "")
+                    if not fn:
+                        continue
+                    k = (src, fn)
+                    if k not in seen_keys:
+                        seen_keys.add(k)
+                        uniq.append(k)
+
+                # בדיקה נאיבית (מספקת ל-per_page ≤ 200) עם גישה בטוחה למסד
+                for src, fn in uniq:
+                    is_active = True
+                    try:
+                        if src == "large" and self.large_files is not None:
+                            doc = self.large_files.find_one({
+                                "user_id": int(user_id),
+                                "file_name": fn,
+                                "$or": [{"is_active": True}, {"is_active": {"$exists": False}}],
+                            })
+                            is_active = bool(doc is not None)
+                        elif self.code_snippets is not None:
+                            doc = self.code_snippets.find_one({
+                                "user_id": int(user_id),
+                                "file_name": fn,
+                                "$or": [{"is_active": True}, {"is_active": {"$exists": False}}],
+                            })
+                            is_active = bool(doc is not None)
+                    except Exception:
+                        # אם יש כשל במסד – נניח פעיל כדי לא להסתיר פריטים (fail-open)
+                        is_active = True
+                    active_map[(src, fn)] = is_active
+            except Exception:
+                active_map = {}
+
+            # החזרה (כולל is_file_active לכל פריט)
+            items_out: List[Dict[str, Any]] = []
+            for x in page_items:
+                item_pub = self._public_item(x)
+                key = (str(item_pub.get("source") or "regular"), str(item_pub.get("file_name") or ""))
+                item_pub["is_file_active"] = bool(active_map.get(key, True))
+                items_out.append(item_pub)
+
             return {
                 "ok": True,
-                "items": [self._public_item(x) for x in page_items],
+                "items": items_out,
                 "page": p,
                 "per_page": pp,
                 "total_manual": manual_total,
                 "total_computed": comp_total,
+                "total_items": len(out_items),
             }
         except Exception as e:
             emit_event("collections_get_items_error", severity="error", user_id=int(user_id), error=str(e))
@@ -712,6 +826,21 @@ class CollectionsManager:
 
     # --- Public mappers ---
     def _public_collection(self, d: Dict[str, Any]) -> Dict[str, Any]:
+        share_raw = d.get("share")
+        share_dict: Dict[str, Any]
+        if isinstance(share_raw, dict):
+            share_dict = dict(share_raw)
+        else:
+            share_dict = {}
+        share_dict.pop("visibility", None)
+        share_enabled = bool(share_dict.get("enabled", False))
+        token_val = share_dict.get("token")
+        if token_val is not None:
+            try:
+                token_val = str(token_val)
+            except Exception:
+                token_val = None
+
         return {
             "id": str(d.get("_id")) if d.get("_id") is not None else None,
             "user_id": d.get("user_id"),
@@ -729,7 +858,10 @@ class CollectionsManager:
             "is_active": bool(d.get("is_active", True)),
             "created_at": (d.get("created_at").isoformat() if isinstance(d.get("created_at"), datetime) else None),
             "updated_at": (d.get("updated_at").isoformat() if isinstance(d.get("updated_at"), datetime) else None),
-            "share": d.get("share") or {"enabled": False, "token": None, "visibility": "private"},
+            "share": {
+                "enabled": share_enabled,
+                "token": token_val,
+            },
         }
 
     def _public_item(self, d: Dict[str, Any]) -> Dict[str, Any]:
@@ -745,3 +877,369 @@ class CollectionsManager:
             "added_at": (d.get("added_at").isoformat() if isinstance(d.get("added_at"), datetime) else None),
             "updated_at": (d.get("updated_at").isoformat() if isinstance(d.get("updated_at"), datetime) else None),
         }
+
+    # --- Sharing helpers ---
+    def set_share(self, user_id: int, collection_id: str, enabled: bool) -> Dict[str, Any]:
+        """הפעלה/ביטול שיתוף לאוסף. יוצר token אם נדרש."""
+        try:
+            cid = ObjectId(collection_id)
+        except Exception:
+            return {"ok": False, "error": "collection_id לא תקין"}
+
+        try:
+            # שלוף כדי לבדוק token קיים
+            doc = self.collections.find_one({"_id": cid, "user_id": int(user_id)})
+            if not doc:
+                return {"ok": False, "error": "האוסף לא נמצא"}
+            share = dict(doc.get("share") or {})
+            token = share.get("token")
+            if enabled and not token:
+                try:
+                    import secrets
+                    token = secrets.token_urlsafe(16)
+                except Exception:
+                    import uuid
+                    token = uuid.uuid4().hex
+            token_str: Optional[str]
+            if token is None:
+                token_str = None
+            else:
+                try:
+                    token_str = str(token)
+                except Exception:
+                    token_str = None
+            new_share = {
+                "enabled": bool(enabled),
+                "token": token_str,
+            }
+            self.collections.update_one(
+                {"_id": cid, "user_id": int(user_id)},
+                {"$set": {"share": new_share, "updated_at": _now()}},
+            )
+            emit_event("collections_share_update", user_id=int(user_id), collection_id=str(collection_id), enabled=bool(enabled))
+            # החזר מיפוי ציבורי עדכני
+            doc["share"] = new_share
+            return {"ok": True, "collection": self._public_collection(doc)}
+        except Exception as e:
+            emit_event("collections_share_update_error", severity="error", user_id=int(user_id), error=str(e))
+            return {"ok": False, "error": "שגיאה בעדכון שיתוף"}
+
+    def get_collection_by_share_token(self, token: str) -> Dict[str, Any]:
+        """שליפת אוסף לשיתוף ציבורי לפי token.
+
+        מחזיר {ok, collection} ללא אימות משתמש. אם לא נמצא – ok=False.
+        """
+        if not token:
+            return {"ok": False, "error": "token חסר"}
+        try:
+            doc = self.collections.find_one({
+                "share.token": str(token),
+                "share.enabled": True,
+                "$or": [{"is_active": True}, {"is_active": {"$exists": False}}],
+            })
+            if not doc:
+                return {"ok": False, "error": "לא נמצא"}
+            return {"ok": True, "collection": self._public_collection(doc)}
+        except Exception:
+            return {"ok": False, "error": "שגיאה בשליפה"}
+
+    # --- Sharing advanced helpers ---
+
+    def _fetch_regular_file(self, user_id: int, file_name: str, *, include_code: bool = False) -> Optional[Dict[str, Any]]:
+        if self.code_snippets is None:
+            return None
+        query = {
+            "user_id": int(user_id),
+            "file_name": str(file_name),
+            "$or": [{"is_active": True}, {"is_active": {"$exists": False}}],
+        }
+        projection = None if include_code else {"code": 0}
+        doc: Optional[Dict[str, Any]] = None
+        try:
+            doc_found = self.code_snippets.find_one(query, projection=projection, sort=[("version", -1), ("updated_at", -1), ("_id", -1)])
+            if doc_found is not None:
+                doc = dict(doc_found)
+        except TypeError:
+            try:
+                doc_found = self.code_snippets.find_one(query)
+                if doc_found is not None:
+                    doc = dict(doc_found)
+            except Exception:
+                doc = None
+        except Exception:
+            doc = None
+        if doc is None:
+            try:
+                raw = self.code_snippets.find(query, projection=projection)
+                docs_list = list(raw) if not isinstance(raw, list) else raw
+                if docs_list:
+                    def _sort_key(d: Dict[str, Any]) -> Tuple[int, float]:
+                        try:
+                            ver = int(d.get("version") or 0)
+                        except Exception:
+                            ver = 0
+                        ts_raw = d.get("updated_at") or d.get("created_at")
+                        try:
+                            ts = float(ts_raw.timestamp()) if hasattr(ts_raw, "timestamp") else 0.0
+                        except Exception:
+                            ts = 0.0
+                        return (ver, ts)
+
+                    docs_list = [dict(d) for d in docs_list]
+                    docs_list.sort(key=_sort_key, reverse=True)
+                    doc = docs_list[0]
+            except Exception:
+                doc = None
+        if doc is None:
+            return None
+        if not include_code and "code" in doc:
+            doc.pop("code", None)
+        return doc
+
+    def _fetch_large_file(self, user_id: int, file_name: str, *, include_content: bool = False) -> Optional[Dict[str, Any]]:
+        if self.large_files is None:
+            return None
+        query = {
+            "user_id": int(user_id),
+            "file_name": str(file_name),
+            "$or": [{"is_active": True}, {"is_active": {"$exists": False}}],
+        }
+        projection = None if include_content else {"content": 0}
+        doc: Optional[Dict[str, Any]] = None
+        try:
+            doc_found = self.large_files.find_one(query, projection=projection, sort=[("updated_at", -1), ("_id", -1)])
+            if doc_found is not None:
+                doc = dict(doc_found)
+        except TypeError:
+            try:
+                doc_found = self.large_files.find_one(query)
+                if doc_found is not None:
+                    doc = dict(doc_found)
+            except Exception:
+                doc = None
+        except Exception:
+            doc = None
+        if doc is None:
+            try:
+                raw = self.large_files.find(query, projection=projection)
+                docs_list = list(raw) if not isinstance(raw, list) else raw
+                if docs_list:
+                    def _sort_key(d: Dict[str, Any]) -> float:
+                        ts_raw = d.get("updated_at") or d.get("created_at")
+                        try:
+                            return float(ts_raw.timestamp()) if hasattr(ts_raw, "timestamp") else 0.0
+                        except Exception:
+                            return 0.0
+
+                    docs_list = [dict(d) for d in docs_list]
+                    docs_list.sort(key=_sort_key, reverse=True)
+                    doc = docs_list[0]
+            except Exception:
+                doc = None
+        if doc is None:
+            return None
+        if not include_content and "content" in doc:
+            doc.pop("content", None)
+        return doc
+
+    def resolve_share_doc_refs(
+        self,
+        user_id: int,
+        items: List[Dict[str, Any]],
+    ) -> Tuple[Dict[str, Dict[str, Any]], Dict[Tuple[str, str], Dict[str, Any]]]:
+        by_doc: Dict[str, Dict[str, Any]] = {}
+        by_key: Dict[Tuple[str, str], Dict[str, Any]] = {}
+        for it in items:
+            try:
+                source_raw = it.get("source")
+                source = str(source_raw or "regular").lower()
+            except Exception:
+                source = "regular"
+            file_name = str(it.get("file_name") or "").strip()
+            if not file_name:
+                continue
+            if source == "large":
+                doc_meta = self._fetch_large_file(user_id, file_name, include_content=False)
+            else:
+                doc_meta = self._fetch_regular_file(user_id, file_name, include_code=False)
+                source = "regular"
+            if not isinstance(doc_meta, dict):
+                continue
+            doc_id_raw = doc_meta.get("_id")
+            try:
+                doc_id = str(doc_id_raw)
+            except Exception:
+                doc_id = None
+            if not doc_id:
+                continue
+            info = {
+                "doc_id": doc_id,
+                "source": source,
+                "file_name": file_name,
+                "language": str(doc_meta.get("programming_language") or "text"),
+                "description": doc_meta.get("description") or "",
+                "tags": list(doc_meta.get("tags") or []),
+                "updated_at": doc_meta.get("updated_at"),
+                "created_at": doc_meta.get("created_at"),
+                "file_size": doc_meta.get("file_size"),
+                "lines_count": doc_meta.get("lines_count"),
+                "metadata": doc_meta,
+            }
+            by_doc[doc_id] = info
+            by_key[(source, file_name)] = info
+        return by_doc, by_key
+
+    def get_share_context(self, token: str) -> Dict[str, Any]:
+        base = self.get_collection_by_share_token(token)
+        if not base.get("ok"):
+            return {"ok": False, "error": base.get("error", "לא נמצא")}
+        collection = base.get("collection") or {}
+        owner_id = collection.get("user_id")
+        collection_id = collection.get("id")
+        if owner_id is None or collection_id is None:
+            return {"ok": False, "error": "לא נמצא"}
+        items_res = self.get_collection_items(owner_id, collection_id, page=1, per_page=200, include_computed=True, fetch_all=True)
+        if not items_res.get("ok"):
+            return {"ok": False, "error": items_res.get("error", "שגיאה בשליפת פריטים")}
+        items = items_res.get("items") or []
+        by_doc, by_key = self.resolve_share_doc_refs(owner_id, items)
+        return {
+            "ok": True,
+            "collection": collection,
+            "owner_id": owner_id,
+            "collection_id": collection_id,
+            "items": items,
+            "items_result": items_res,
+            "doc_refs": by_doc,
+            "doc_refs_by_key": by_key,
+        }
+
+    def get_shared_file_details(self, token: str, file_id: str) -> Dict[str, Any]:
+        ctx = self.get_share_context(token)
+        if not ctx.get("ok"):
+            return ctx
+        doc_refs: Dict[str, Dict[str, Any]] = ctx.get("doc_refs", {})
+        meta = doc_refs.get(str(file_id))
+        if not isinstance(meta, dict):
+            return {"ok": False, "error": "לא נמצא"}
+        owner_id = ctx.get("owner_id")
+        if owner_id is None:
+            return {"ok": False, "error": "לא נמצא"}
+        source = meta.get("source", "regular") or "regular"
+        file_name = meta.get("file_name") or ""
+        if source == "large":
+            full_doc = self._fetch_large_file(owner_id, file_name, include_content=True)
+            content_field = "content"
+        else:
+            full_doc = self._fetch_regular_file(owner_id, file_name, include_code=True)
+            content_field = "code"
+            source = "regular"
+        if not isinstance(full_doc, dict):
+            return {"ok": False, "error": "לא נמצא"}
+        raw_content = full_doc.get(content_field)
+        if not isinstance(raw_content, str):
+            raw_content = ""
+        size_bytes = len(raw_content.encode("utf-8", errors="ignore")) if raw_content else 0
+        lines_count = len(raw_content.splitlines())
+        payload = {
+            "id": str(full_doc.get("_id")),
+            "file_name": file_name,
+            "language": str(full_doc.get("programming_language") or meta.get("language") or "text"),
+            "description": full_doc.get("description") or meta.get("description") or "",
+            "tags": list(full_doc.get("tags") or meta.get("tags") or []),
+            "created_at": full_doc.get("created_at") or meta.get("created_at"),
+            "updated_at": full_doc.get("updated_at") or meta.get("updated_at"),
+            "size_bytes": size_bytes,
+            "lines_count": lines_count,
+            "source": source,
+            "content": raw_content,
+        }
+        return {
+            "ok": True,
+            "collection": ctx.get("collection"),
+            "file": payload,
+            "context": ctx,
+        }
+
+    def collect_shared_documents(self, token: str) -> Dict[str, Any]:
+        ctx = self.get_share_context(token)
+        if not ctx.get("ok"):
+            return ctx
+        owner_id = ctx.get("owner_id")
+        docs: List[Dict[str, Any]] = []
+        if owner_id is None:
+            return {"ok": False, "error": "לא נמצא"}
+        for meta in ctx.get("doc_refs", {}).values():
+            if not isinstance(meta, dict):
+                continue
+            source = meta.get("source", "regular") or "regular"
+            file_name = meta.get("file_name") or ""
+            if source == "large":
+                full_doc = self._fetch_large_file(owner_id, file_name, include_content=True)
+                content_field = "content"
+            else:
+                full_doc = self._fetch_regular_file(owner_id, file_name, include_code=True)
+                content_field = "code"
+                source = "regular"
+            if not isinstance(full_doc, dict):
+                continue
+            raw_content = full_doc.get(content_field)
+            if not isinstance(raw_content, str):
+                raw_content = ""
+            docs.append({
+                "id": str(full_doc.get("_id")),
+                "file_name": file_name,
+                "content": raw_content,
+                "language": str(full_doc.get("programming_language") or meta.get("language") or "text"),
+                "description": full_doc.get("description") or meta.get("description") or "",
+                "tags": list(full_doc.get("tags") or meta.get("tags") or []),
+                "source": source,
+                "size_bytes": len(raw_content.encode("utf-8", errors="ignore")) if raw_content else 0,
+                "lines_count": len(raw_content.splitlines()),
+            })
+        return {
+            "ok": True,
+            "collection": ctx.get("collection"),
+            "documents": docs,
+            "context": ctx,
+        }
+
+    def log_share_activity(
+        self,
+        token: str,
+        *,
+        collection_id: Optional[str] = None,
+        file_id: Optional[str] = None,
+        event: str = "view",
+        ip: Optional[str] = None,
+        user_agent: Optional[str] = None,
+    ) -> None:
+        try:
+            emit_event(
+                "collections_share_activity",
+                operation=str(event),
+                token=str(token),
+                collection_id=str(collection_id) if collection_id is not None else None,
+                file_id=str(file_id) if file_id is not None else None,
+                ip=ip,
+                user_agent=user_agent,
+            )
+        except Exception:
+            pass
+        collection = getattr(self, "share_activity", None)
+        if collection is None:
+            return
+        try:
+            record = {
+                "token": str(token),
+                "collection_id": str(collection_id) if collection_id is not None else None,
+                "file_id": str(file_id) if file_id is not None else None,
+                "event": str(event),
+                "ip": ip,
+                "user_agent": user_agent,
+                "created_at": _now(),
+            }
+            record = {k: v for k, v in record.items() if v not in (None, "")}
+            collection.insert_one(record)
+        except Exception:
+            return

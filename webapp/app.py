@@ -14,11 +14,12 @@ from datetime import datetime, timezone
 from functools import wraps
 from typing import Optional, Dict, Any, List
 
-from flask import Flask, render_template, jsonify, request, session, redirect, url_for, send_file, abort, Response
+from flask import Flask, render_template, jsonify, request, session, redirect, url_for, send_file, abort, Response, g
 import threading
 import atexit
 import time as _time
 from werkzeug.http import http_date, parse_date
+from werkzeug.exceptions import HTTPException
 from flask_compress import Compress
 from pymongo import MongoClient, DESCENDING
 from pymongo.errors import PyMongoError
@@ -28,7 +29,6 @@ from pygments.util import ClassNotFound
 from pygments.formatters import HtmlFormatter
 from bson import ObjectId
 from bson.errors import InvalidId
-import requests
 from datetime import timedelta
 import re
 import sys
@@ -44,6 +44,9 @@ ROOT_DIR = str(Path(__file__).resolve().parents[1])
 if ROOT_DIR not in sys.path:
     sys.path.insert(0, ROOT_DIR)
 
+# מייבא לאחר הוספת ROOT_DIR ל-PYTHONPATH כדי למנוע כשל ייבוא בדיפלוי
+from http_sync import request as http_request  # noqa: E402
+
 # נרמול טקסט/קוד לפני שמירה (הסרת תווים נסתרים, כיווניות, אחידות שורות)
 from utils import normalize_code  # noqa: E402
 
@@ -52,6 +55,21 @@ try:  # שמירה על יציבות גם בסביבות דוקס/CI
     from config import config as cfg
 except Exception:  # pragma: no cover
     cfg = None
+
+
+def _cfg_or_env(attr: str, default: Any = None, *, env_name: str | None = None) -> Any:
+    """משיג ערך מהקונפיג או מהסביבה, כולל תמיכה ב-Stubs פשוטים בטסטים."""
+    env_key = env_name or attr
+    value = None
+    if cfg is not None:
+        value = getattr(cfg, attr, None)
+    if value in (None, '') and env_key:
+        env_val = os.getenv(env_key)
+        if env_val not in (None, ''):
+            value = env_val
+    if value in (None, ''):
+        value = default
+    return value
 
 # Search engine & types
 try:
@@ -66,7 +84,14 @@ except Exception:
 
 # Structured logging (optional and safe-noop fallbacks)
 try:
-    from observability import emit_event, bind_request_id, generate_request_id
+    from observability import (
+        emit_event,
+        bind_request_id,
+        generate_request_id,
+        bind_user_context,
+        bind_command,
+        get_observability_context,
+    )
 except Exception:  # pragma: no cover
     def emit_event(event: str, severity: str = "info", **fields):
         return None
@@ -77,6 +102,12 @@ except Exception:  # pragma: no cover
             return str(int(time.time() * 1000))[-8:]
         except Exception:
             return ""
+    def bind_user_context(*_a, **_k):
+        return None
+    def bind_command(_identifier: str | None = None) -> None:
+        return None
+    def get_observability_context() -> Dict[str, Any]:
+        return {}
 
 # Alertmanager forwarding (optional)
 try:
@@ -170,9 +201,78 @@ def _compute_static_version() -> str:
 
 _STATIC_VERSION = _compute_static_version()
 
+# מזהי המדריכים המשותפים לזרימת ה-Onboarding בווב
+WELCOME_GUIDE_PRIMARY_SHARE_ID = "JjvpJFTXZO0oHtoC"
+WELCOME_GUIDE_SECONDARY_SHARE_ID = "sdVOAx6hUGsH4Anr"
+
 # Guards for first-request and DB init race conditions
 _FIRST_REQUEST_LOCK = threading.Lock()
 _FIRST_REQUEST_RECORDED = False
+
+
+def _build_request_span_attrs() -> Dict[str, str]:
+    attrs: Dict[str, str] = {"component": "flask.webapp"}
+    try:
+        method = getattr(request, "method", "")
+        if method:
+            attrs["http.method"] = str(method).upper()
+    except Exception:
+        pass
+    try:
+        endpoint = getattr(request, "endpoint", "") or ""
+        if endpoint:
+            attrs["endpoint"] = endpoint
+    except Exception:
+        pass
+    try:
+        path = getattr(request, "path", "") or ""
+        if path:
+            attrs["http.target"] = path
+    except Exception:
+        pass
+    try:
+        rid = getattr(request, "_req_id", None)
+        if not rid:
+            rid = request.headers.get("X-Request-ID")
+        if rid:
+            attrs["request_id"] = str(rid)
+    except Exception:
+        pass
+    try:
+        ctx = get_observability_context() or {}
+        if isinstance(ctx, dict):
+            if ctx.get("command"):
+                attrs["command"] = str(ctx["command"])
+            if ctx.get("user_id"):
+                attrs["user_id_hash"] = str(ctx["user_id"])
+            if ctx.get("chat_id"):
+                attrs["chat_id_hash"] = str(ctx["chat_id"])
+    except Exception:
+        pass
+    return {k: v for k, v in attrs.items() if v not in ("", None)}
+
+
+@app.before_request
+def _otel_start_request_span():
+    try:
+        attrs = _build_request_span_attrs()
+        span_cm = start_span("web.request", attrs)
+    except Exception:
+        setattr(g, "_otel_span_cm", None)
+        setattr(g, "_otel_span", None)
+        setattr(g, "_otel_response_status", None)
+        setattr(g, "_otel_cache_hit", None)
+        return
+    span = span_cm.__enter__()
+    setattr(g, "_otel_span_cm", span_cm)
+    setattr(g, "_otel_span", span)
+    setattr(g, "_otel_response_status", None)
+    setattr(g, "_otel_cache_hit", None)
+    if span is not None:
+        try:
+            set_current_span_attributes({"component": "flask.webapp"})
+        except Exception:
+            pass
 # --- OpenTelemetry (optional, fail-open) ---
 try:
     from observability_otel import setup_telemetry as _setup_otel
@@ -187,12 +287,25 @@ except Exception:
 
 # Manual tracing decorator (fail-open)
 try:
-    from observability_instrumentation import traced
+    from observability_instrumentation import traced, start_span, set_current_span_attributes
 except Exception:  # pragma: no cover
     def traced(*_a, **_k):
         def _inner(f):
             return f
         return _inner
+
+    class _NoSpan:
+        def __enter__(self):  # pragma: no cover
+            return None
+
+        def __exit__(self, *_exc):  # pragma: no cover
+            return False
+
+    def start_span(*_a, **_k):  # type: ignore
+        return _NoSpan()
+
+    def set_current_span_attributes(*_a, **_k):  # type: ignore
+        return None
 # --- Correlation ID across services (request_id) ---
 try:
     from observability import generate_request_id as _gen_rid, bind_request_id as _bind_rid
@@ -518,22 +631,13 @@ else:
     limiter = None
 
 # הגדרות
-if cfg is not None:
-    MONGODB_URL = cfg.MONGODB_URL
-    DATABASE_NAME = cfg.DATABASE_NAME
-    BOT_TOKEN = cfg.BOT_TOKEN
-    WEBAPP_URL = (cfg.WEBAPP_URL or 'https://code-keeper-webapp.onrender.com')
-    PUBLIC_BASE_URL = (cfg.PUBLIC_BASE_URL or '')
-    DOCUMENTATION_URL = (cfg.DOCUMENTATION_URL.rstrip('/') + '/')
-else:
-    # Fallback נדיר בסביבות דוקס בלבד
-    MONGODB_URL = os.getenv('MONGODB_URL')
-    DATABASE_NAME = os.getenv('DATABASE_NAME', 'code_keeper_bot')
-    BOT_TOKEN = os.getenv('BOT_TOKEN')
-    WEBAPP_URL = os.getenv('WEBAPP_URL', 'https://code-keeper-webapp.onrender.com')
-    PUBLIC_BASE_URL = os.getenv('PUBLIC_BASE_URL', '')
-    _DOCS_URL_RAW = (os.getenv('DOCUMENTATION_URL') or 'https://amirbiron.github.io/CodeBot/')
-    DOCUMENTATION_URL = (_DOCS_URL_RAW.rstrip('/') + '/')
+MONGODB_URL = _cfg_or_env('MONGODB_URL')
+DATABASE_NAME = _cfg_or_env('DATABASE_NAME', default='code_keeper_bot')
+BOT_TOKEN = _cfg_or_env('BOT_TOKEN')
+WEBAPP_URL = _cfg_or_env('WEBAPP_URL', default='https://code-keeper-webapp.onrender.com')
+PUBLIC_BASE_URL = _cfg_or_env('PUBLIC_BASE_URL', default='')
+_DOCS_URL_RAW = _cfg_or_env('DOCUMENTATION_URL', default='https://amirbiron.github.io/CodeBot/')
+DOCUMENTATION_URL = (_DOCS_URL_RAW.rstrip('/') + '/') if _DOCS_URL_RAW else 'https://amirbiron.github.io/CodeBot/'
 
 BOT_USERNAME = os.getenv('BOT_USERNAME', 'my_code_keeper_bot')
 BOT_USERNAME_CLEAN = (BOT_USERNAME or '').lstrip('@')
@@ -593,10 +697,19 @@ db = None
 @app.context_processor
 def inject_globals():
     """הזרקת משתנים גלובליים לכל התבניות"""
+    user_id = session.get('user_id')
+    user_doc: Dict[str, Any] = {}
+    db_ref = None
+    if user_id:
+        try:
+            db_ref = get_db()
+            user_doc = db_ref.users.find_one({'user_id': user_id}) or {}
+        except Exception:
+            user_doc = {}
+
     # קביעת גודל גופן מהעדפות משתמש/קוקי
     font_scale = 1.0
     try:
-        # Cookie קודם
         cookie_val = request.cookies.get('ui_font_scale')
         if cookie_val:
             try:
@@ -605,29 +718,25 @@ def inject_globals():
                     font_scale = v
             except Exception:
                 pass
-        # אם מחובר - העדפת DB גוברת
-        if 'user_id' in session:
+        if user_id and user_doc:
             try:
-                _db = get_db()
-                u = _db.users.find_one({'user_id': session['user_id']}) or {}
-                v = float(((u.get('ui_prefs') or {}).get('font_scale')) or font_scale)
+                v = float(((user_doc.get('ui_prefs') or {}).get('font_scale')) or font_scale)
                 if 0.85 <= v <= 1.6:
                     font_scale = v
             except Exception:
                 pass
     except Exception:
         pass
+
     # ערכת נושא
     theme = 'classic'
     try:
         cookie_theme = (request.cookies.get('ui_theme') or '').strip().lower()
         if cookie_theme:
             theme = cookie_theme
-        if 'user_id' in session:
+        if user_id and user_doc:
             try:
-                _db = get_db()
-                u = _db.users.find_one({'user_id': session['user_id']}) or {}
-                t = ((u.get('ui_prefs') or {}).get('theme') or '').strip().lower()
+                t = ((user_doc.get('ui_prefs') or {}).get('theme') or '').strip().lower()
                 if t:
                     theme = t
             except Exception:
@@ -636,6 +745,18 @@ def inject_globals():
         pass
     if theme not in {'classic','ocean','forest','high-contrast'}:
         theme = 'classic'
+
+    show_welcome_modal = False
+    if user_id:
+        # אם אין user_doc (למשל כשל זמני ב-DB) נ fallback לסשן כדי לא לחסום משתמשים חדשים
+        if user_doc:
+            show_welcome_modal = not bool(user_doc.get('has_seen_welcome_modal'))
+        else:
+            try:
+                show_welcome_modal = not bool(session.get('user_data', {}).get('has_seen_welcome_modal', False))
+            except Exception:
+                show_welcome_modal = False
+
     # SRI map (optional): only set if provided via env to avoid mismatches
     sri_map = {}
     try:
@@ -643,6 +764,13 @@ def inject_globals():
             sri_map['fa'] = FA_SRI_HASH
     except Exception:
         sri_map = {}
+
+    try:
+        primary_guide_url = url_for('public_share', share_id=WELCOME_GUIDE_PRIMARY_SHARE_ID, view='md')
+        secondary_guide_url = url_for('public_share', share_id=WELCOME_GUIDE_SECONDARY_SHARE_ID, view='md')
+    except Exception:
+        primary_guide_url = f"/share/{WELCOME_GUIDE_PRIMARY_SHARE_ID}?view=md"
+        secondary_guide_url = f"/share/{WELCOME_GUIDE_SECONDARY_SHARE_ID}?view=md"
 
     return {
         'bot_username': BOT_USERNAME_CLEAN,
@@ -659,6 +787,10 @@ def inject_globals():
         'uptime_widget_id': UPTIME_WIDGET_ID,
         # SRI hashes for CDN assets (optional; provided via env)
         'cdn_sri': sri_map if sri_map else None,
+        # Welcome modal config
+        'show_welcome_modal': show_welcome_modal,
+        'welcome_primary_guide_url': primary_guide_url,
+        'welcome_secondary_guide_url': secondary_guide_url,
     }
 
  
@@ -946,7 +1078,7 @@ def _fetch_uptime_from_betteruptime() -> Optional[Dict[str, Any]]:
         # SLA endpoint per issue suggestion
         url = f'https://uptime.betterstack.com/api/v2/monitors/{UPTIME_MONITOR_ID}/sla'
         headers = {'Authorization': f'Bearer {UPTIME_API_KEY}'}
-        resp = requests.get(url, headers=headers, timeout=8)
+        resp = http_request('GET', url, headers=headers, timeout=8)
         if resp.status_code != 200:
             return None
         body = resp.json() if resp.content else {}
@@ -991,7 +1123,8 @@ def _fetch_uptime_from_uptimerobot() -> Optional[Dict[str, Any]]:
             api_key_is_monitor_specific = False
         if UPTIME_MONITOR_ID and not api_key_is_monitor_specific:
             payload['monitors'] = UPTIME_MONITOR_ID
-        resp = requests.post(url, data=payload, timeout=10)
+        # שמירה על זמן תגובה קצר בעמוד הבית – timeout אגרסיבי כדי לא לחסום את ה-WSGI
+        resp = http_request('POST', url, data=payload, timeout=3)
         if resp.status_code != 200:
             return None
         body = resp.json() if resp.content else {}
@@ -1167,7 +1300,8 @@ def try_persistent_login():
             'first_name': user.get('first_name', ''),
             'last_name': user.get('last_name', ''),
             'username': user.get('username', ''),
-            'photo_url': ''
+            'photo_url': '',
+            'has_seen_welcome_modal': bool(user.get('has_seen_welcome_modal', False))
         }
         session.permanent = True
     except Exception:
@@ -1179,7 +1313,11 @@ def try_persistent_login():
 def _correlation_bind():
     """Bind a short request_id to structlog context and store for response header."""
     try:
-        rid = _gen_rid() or ""
+        try:
+            incoming = str(request.headers.get("X-Request-ID", "")).strip()
+        except Exception:
+            incoming = ""
+        rid = incoming or (_gen_rid() or "")
         if rid:
             try:
                 _bind_rid(rid)
@@ -1190,6 +1328,47 @@ def _correlation_bind():
                 setattr(request, "_req_id", rid)
             except Exception:
                 pass
+            try:
+                set_current_span_attributes({"request_id": rid})
+            except Exception:
+                pass
+        try:
+            uid = session.get("user_id") if "user_id" in session else None
+        except Exception:
+            uid = None
+        try:
+            bind_user_context(user_id=uid)
+        except Exception:
+            pass
+        try:
+            ctx = get_observability_context() or {}
+        except Exception:
+            ctx = {}
+        try:
+            updates: Dict[str, Any] = {}
+            if isinstance(ctx, dict):
+                if ctx.get("user_id"):
+                    updates["user_id_hash"] = ctx["user_id"]
+                if ctx.get("chat_id"):
+                    updates["chat_id_hash"] = ctx["chat_id"]
+            if updates:
+                set_current_span_attributes(updates)
+        except Exception:
+            pass
+        try:
+            method = getattr(request, "method", "") or ""
+            endpoint = getattr(request, "endpoint", "") or ""
+            path_hint = getattr(request, "path", "") or ""
+            identifier = endpoint or path_hint
+            if identifier:
+                cmd = f"webapp:{method.upper()}:{identifier}" if method else f"webapp:{identifier}"
+                bind_command(cmd)
+                try:
+                    set_current_span_attributes({"command": cmd})
+                except Exception:
+                    pass
+        except Exception:
+            pass
     except Exception:
         pass
 
@@ -1241,6 +1420,95 @@ def _metrics_after(resp):
         pass
     return resp
 
+
+@app.after_request
+def _otel_record_response(resp):
+    try:
+        setattr(g, "_otel_response_status", int(getattr(resp, "status_code", 0) or 0))
+    except Exception:
+        setattr(g, "_otel_response_status", None)
+    span = getattr(g, "_otel_span", None)
+    if span is not None:
+        try:
+            span.set_attribute("http.status_code", int(getattr(resp, "status_code", 0) or 0))  # type: ignore[attr-defined]
+        except Exception:
+            pass
+        try:
+            cache_hit_flag = getattr(g, "_otel_cache_hit", None)
+            if cache_hit_flag is not None:
+                span.set_attribute("cache_hit", bool(cache_hit_flag))  # type: ignore[attr-defined]
+        except Exception:
+            pass
+        try:
+            code = int(getattr(resp, "status_code", 0) or 0)
+            span.set_attribute("status", "error" if code >= 500 else "ok")  # type: ignore[attr-defined]
+        except Exception:
+            pass
+    return resp
+
+
+@app.teardown_request
+def _otel_teardown_request(exc):
+    span_cm = getattr(g, "_otel_span_cm", None)
+    if span_cm is None:
+        return
+    span = getattr(g, "_otel_span", None)
+    if span is not None and exc is not None:
+        try:
+            span.set_attribute("status", "error")  # type: ignore[attr-defined]
+            span.set_attribute("error_signature", type(exc).__name__)  # type: ignore[attr-defined]
+        except Exception:
+            pass
+    status_code = getattr(g, "_otel_response_status", None)
+    if span is not None and status_code is not None:
+        try:
+            span.set_attribute("http.status_code", int(status_code))  # type: ignore[attr-defined]
+        except Exception:
+            pass
+    cache_hit_flag = getattr(g, "_otel_cache_hit", None)
+    if span is not None and cache_hit_flag is not None:
+        try:
+            span.set_attribute("cache_hit", bool(cache_hit_flag))  # type: ignore[attr-defined]
+        except Exception:
+            pass
+    if exc is None:
+        span_cm.__exit__(None, None, None)
+    else:
+        span_cm.__exit__(type(exc), exc, getattr(exc, "__traceback__", None))
+    setattr(g, "_otel_span_cm", None)
+    setattr(g, "_otel_span", None)
+    setattr(g, "_otel_response_status", None)
+    setattr(g, "_otel_cache_hit", None)
+
+
+# --- Slow request logging (server-side) ---
+@app.after_request
+def _log_slow_request(resp):
+    try:
+        start = float(getattr(request, "_metrics_start", 0.0) or 0.0)
+        if not start:
+            return resp
+        dur_ms = ( _time.perf_counter() - start ) * 1000.0
+        try:
+            slow_ms = float(os.getenv("SLOW_MS", "0") or 0)
+        except Exception:
+            slow_ms = 0.0
+        if slow_ms and dur_ms > slow_ms:
+            try:
+                logger.warning(
+                    "slow_request",
+                    extra={
+                        "path": getattr(request, "path", "") or "",
+                        "method": getattr(request, "method", "GET"),
+                        "status": int(getattr(resp, "status_code", 0) or 0),
+                        "ms": round(dur_ms, 1),
+                    },
+                )
+            except Exception:
+                pass
+    except Exception:
+        pass
+    return resp
 
 # --- Default CSP for HTML pages (allows CodeMirror ESM + workers) ---
 @app.after_request
@@ -1613,6 +1881,10 @@ def api_search_global():
     start_time = time.time()
     user_id = session['user_id']
     try:
+        setattr(g, "_otel_cache_hit", False)
+    except Exception:
+        pass
+    try:
         # Soft-warning ב-80% מניצול ההגבלה (למיטב היכולת; תלוי במימוש limiter)
         try:
             if limiter is not None and hasattr(limiter, 'current_limit'):
@@ -1755,6 +2027,10 @@ def api_search_global():
                     try:
                         search_cache_hits.inc()
                         search_counter.labels(search_type=search_type_str, status='cache_hit').inc()
+                    except Exception:
+                        pass
+                    try:
+                        setattr(g, "_otel_cache_hit", True)
                     except Exception:
                         pass
                     return jsonify(dict(cached, cached=True))
@@ -2149,13 +2425,51 @@ def telegram_auth():
     
     # שמירת נתוני המשתמש בסשן
     user_id = int(auth_data['id'])
+    user_doc: Dict[str, Any] = {}
+    try:
+        db = get_db()
+    except Exception:
+        db = None
+    now_utc = datetime.now(timezone.utc)
+    if db is not None:
+        try:
+            user_doc = db.users.find_one({'user_id': user_id}) or {}
+        except Exception:
+            user_doc = {}
+        try:
+            db.users.update_one(
+                {'user_id': user_id},
+                {
+                    '$set': {
+                        'user_id': user_id,
+                        'first_name': auth_data.get('first_name', ''),
+                        'last_name': auth_data.get('last_name', ''),
+                        'username': auth_data.get('username', ''),
+                        'photo_url': auth_data.get('photo_url', ''),
+                        'updated_at': now_utc,
+                    },
+                    '$setOnInsert': {
+                        'created_at': now_utc,
+                        'has_seen_welcome_modal': False,
+                    },
+                },
+                upsert=True,
+            )
+        except Exception:
+            pass
+        try:
+            from database.collections_manager import CollectionsManager
+            CollectionsManager(db).ensure_default_collections(user_id)
+        except Exception:
+            pass
     session['user_id'] = user_id
     session['user_data'] = {
         'id': user_id,
         'first_name': auth_data.get('first_name', ''),
         'last_name': auth_data.get('last_name', ''),
         'username': auth_data.get('username', ''),
-        'photo_url': auth_data.get('photo_url', '')
+        'photo_url': auth_data.get('photo_url', ''),
+        'has_seen_welcome_modal': bool((user_doc or {}).get('has_seen_welcome_modal', False))
     }
     
     # הפוך את הסשן לקבוע לכל המשתמשים (30 יום)
@@ -2199,17 +2513,45 @@ def token_auth():
         db.webapp_tokens.delete_one({'_id': token_doc['_id']})
         
         # שליפת פרטי המשתמש
-        user = db.users.find_one({'user_id': int(user_id)})
+        now_utc = datetime.now(timezone.utc)
+        user = db.users.find_one({'user_id': int(user_id)}) or {}
+        try:
+            db.users.update_one(
+                {'user_id': int(user_id)},
+                {
+                    '$set': {
+                        'user_id': int(user_id),
+                        'first_name': user.get('first_name') or token_doc.get('first_name', ''),
+                        'last_name': user.get('last_name') or token_doc.get('last_name', ''),
+                        'username': token_doc.get('username', user.get('username', '')),
+                        'photo_url': user.get('photo_url', ''),
+                        'updated_at': now_utc,
+                    },
+                    '$setOnInsert': {
+                        'created_at': now_utc,
+                        'has_seen_welcome_modal': False,
+                    },
+                },
+                upsert=True,
+            )
+        except Exception:
+            pass
+        try:
+            from database.collections_manager import CollectionsManager
+            CollectionsManager(db).ensure_default_collections(int(user_id))
+        except Exception:
+            pass
         
         # שמירת נתוני המשתמש בסשן
         user_id_int = int(user_id)
         session['user_id'] = user_id_int
         session['user_data'] = {
             'id': user_id_int,
-            'first_name': user.get('first_name', ''),
-            'last_name': user.get('last_name', ''),
+            'first_name': user.get('first_name', token_doc.get('first_name', '')),
+            'last_name': user.get('last_name', token_doc.get('last_name', '')),
             'username': token_doc.get('username', ''),
-            'photo_url': ''
+            'photo_url': user.get('photo_url', ''),
+            'has_seen_welcome_modal': bool(user.get('has_seen_welcome_modal', False))
         }
         
         # הפוך את הסשן לקבוע לכל המשתמשים (30 יום)
@@ -2829,6 +3171,9 @@ def files():
                              has_next=page < total_pages,
                              bot_username=BOT_USERNAME_CLEAN)
 
+    # שימוש בסיסי: במצב ברירת מחדל אין פג'ינציית cursor
+    use_cursor = False
+
     # אם לא עשינו aggregation כבר (בקטגוריות large/other) — עבור all נשתמש גם באגרגציה
     if not category_filter:
         sort_dir = -1 if sort_by.startswith('-') else 1
@@ -2984,6 +3329,7 @@ def files():
                          total_pages=total_pages,
                          has_prev=page > 1,
                          has_next=page < total_pages,
+                         cursor_mode=use_cursor,
                          next_cursor=(next_cursor_token if 'next_cursor_token' in locals() else None),
                          selected_repo=selected_repo_value,
                          bot_username=BOT_USERNAME_CLEAN)
@@ -3161,6 +3507,97 @@ def view_file(file_id):
     resp.headers['Last-Modified'] = last_modified_str
     return resp
 
+
+@app.route('/api/file/<file_id>/preview')
+@login_required
+@traced("file.preview")
+def file_preview(file_id):
+    """מחזיר preview (עד 20 שורות ראשונות) של קובץ קוד כ-HTML מודגש.
+
+    שימושי להצגה מהירה בתוך כרטיס בעמוד הקבצים, ללא ניווט לעמוד מלא.
+    """
+    db = get_db()
+    user_id = session['user_id']
+
+    # שליפת הקובץ למשתמש הנוכחי
+    try:
+        file = db.code_snippets.find_one({
+            '_id': ObjectId(file_id),
+            'user_id': user_id,
+        })
+    except (InvalidId, TypeError):
+        return jsonify({'ok': False, 'error': 'Invalid file ID'}), 400
+    except PyMongoError as e:
+        logger.exception("DB error fetching file preview", extra={
+            "file_id": file_id,
+            "user_id": user_id,
+            "error": str(e),
+        })
+        return jsonify({'ok': False, 'error': 'Database error'}), 500
+
+    if not file:
+        return jsonify({'ok': False, 'error': 'File not found'}), 404
+
+    code = file.get('code', '') or ''
+    language = (file.get('programming_language') or 'text').lower()
+
+    if not code.strip():
+        return jsonify({'ok': False, 'error': 'File is empty'}), 400
+
+    # אם נשמר כ-text אבל הסיומת .md – תייג כ-markdown לתצוגה נכונה
+    try:
+        if (not language or language == 'text') and str(file.get('file_name') or '').lower().endswith('.md'):
+            language = 'markdown'
+    except Exception:
+        pass
+
+    # הגבלת גודל עבור preview כדי להגן על הלקוח (נמדד בבייטים)
+    MAX_PREVIEW_SIZE = 100 * 1024  # 100KB
+    try:
+        size_bytes = len(code.encode('utf-8', errors='replace'))
+    except Exception:
+        # הגנה קיצונית: אם אירעה תקלה חריגה, נ fallback לאורך התווים
+        size_bytes = len(code)
+    if size_bytes > MAX_PREVIEW_SIZE:
+        return jsonify({'ok': False, 'error': 'File too large for preview', 'size': size_bytes}), 413
+
+    # מניעת תצוגת קבצים בינאריים
+    if is_binary_file(code, file.get('file_name', '')):
+        return jsonify({'ok': False, 'error': 'Binary file cannot be previewed'}), 400
+
+    # בניית קטע התצוגה – 20 שורות ראשונות
+    lines = code.split('\n')
+    total_lines = len(lines)
+    preview_lines = min(20, total_lines)
+    preview_code = '\n'.join(lines[:preview_lines])
+
+    # הדגשת תחביר
+    try:
+        lexer = get_lexer_by_name(language, stripall=True)
+    except ClassNotFound:
+        try:
+            lexer = guess_lexer(preview_code)
+        except ClassNotFound:
+            lexer = get_lexer_by_name('text')
+
+    formatter = HtmlFormatter(
+        style='github-dark',
+        linenos=False,
+        cssclass='preview-highlight',
+        nowrap=False,
+    )
+    highlighted_html = highlight(preview_code, lexer, formatter)
+    css = formatter.get_style_defs('.preview-highlight')
+
+    return jsonify({
+        'ok': True,
+        'highlighted_html': highlighted_html,
+        'syntax_css': css,
+        'total_lines': total_lines,
+        'preview_lines': preview_lines,
+        'language': language,
+        'has_more': total_lines > preview_lines,
+    })
 
 @app.route('/api/files/recent')
 @login_required
@@ -3763,7 +4200,14 @@ def md_preview(file_id):
         'language': 'markdown',
     }
     # העבר את התוכן ללקוח בתור JSON כדי למנוע בעיות escaping
-    html = render_template('md_preview.html', user=session.get('user_data', {}), file=file_data, md_code=code, bot_username=BOT_USERNAME_CLEAN)
+    html = render_template(
+        'md_preview.html',
+        user=session.get('user_data', {}),
+        file=file_data,
+        md_code=code,
+        bot_username=BOT_USERNAME_CLEAN,
+        can_save_shared=False,
+    )
     if should_cache and md_cache_key:
         try:
             cache.set_dynamic(
@@ -3795,6 +4239,7 @@ def create_public_share(file_id):
     try:
         db = get_db()
         user_id = session['user_id']
+
         try:
             file = db.code_snippets.find_one({
                 '_id': ObjectId(file_id),
@@ -3806,9 +4251,37 @@ def create_public_share(file_id):
         if not file:
             return jsonify({'ok': False, 'error': 'קובץ לא נמצא'}), 404
 
+        payload = {}
+        try:
+            payload = request.get_json(silent=True) or {}
+        except Exception:
+            payload = {}
+
+        share_type = ''
+        try:
+            share_type = str(payload.get('type') or payload.get('mode') or payload.get('variant') or request.args.get('type') or request.args.get('variant') or request.args.get('mode') or '').strip().lower()
+        except Exception:
+            share_type = ''
+
+        permanent_flag = False
+        if share_type in {'permanent', 'forever'}:
+            permanent_flag = True
+        elif isinstance(payload.get('permanent'), bool):
+            permanent_flag = payload.get('permanent')
+        elif isinstance(payload.get('permanent'), str):
+            try:
+                permanent_flag = payload.get('permanent').strip().lower() in {'1', 'true', 'yes'}
+            except Exception:
+                permanent_flag = False
+        elif request.args.get('permanent') is not None:
+            try:
+                permanent_flag = str(request.args.get('permanent')).strip().lower() in {'1', 'true', 'yes'}
+            except Exception:
+                permanent_flag = False
+
         share_id = secrets.token_urlsafe(12)
         now = datetime.now(timezone.utc)
-        expires_at = now + timedelta(days=PUBLIC_SHARE_TTL_DAYS)
+        expires_at = None if permanent_flag else now + timedelta(days=PUBLIC_SHARE_TTL_DAYS)
 
         doc = {
             'share_id': share_id,
@@ -3818,8 +4291,10 @@ def create_public_share(file_id):
             'description': file.get('description') or '',
             'created_at': now,
             'views': 0,
-            'expires_at': expires_at,
+            'is_permanent': permanent_flag,
         }
+        if not permanent_flag and expires_at is not None:
+            doc['expires_at'] = expires_at
 
         coll = db.internal_shares
         # ניסיון ליצור אינדקסים רלוונטיים (בטוח לקרוא מספר פעמים)
@@ -3839,9 +4314,108 @@ def create_public_share(file_id):
         # בסיס ליצירת URL ציבורי: קודם PUBLIC_BASE_URL, אחר כך WEBAPP_URL, ולבסוף host_url מהבקשה
         base = (PUBLIC_BASE_URL or WEBAPP_URL or request.host_url or '').rstrip('/')
         share_url = f"{base}/share/{share_id}" if base else f"/share/{share_id}"
-        return jsonify({'ok': True, 'url': share_url, 'share_id': share_id, 'expires_at': expires_at.isoformat()})
+
+        response_payload = {
+            'ok': True,
+            'url': share_url,
+            'share_id': share_id,
+            'is_permanent': permanent_flag,
+        }
+        if expires_at is not None:
+            response_payload['expires_at'] = expires_at.isoformat()
+
+        return jsonify(response_payload)
     except Exception:
         return jsonify({'ok': False, 'error': 'שגיאה לא צפויה'}), 500
+
+
+@app.route('/api/shared/save', methods=['POST'])
+@login_required
+def api_save_shared_file():
+    try:
+        payload = request.get_json(silent=True) or {}
+        share_id = str(payload.get('share_id') or '').strip()
+        if not share_id:
+            return jsonify({'ok': False, 'error': 'share_id נדרש'}), 400
+
+        share_doc = get_internal_share(share_id)
+        if not share_doc:
+            return jsonify({'ok': False, 'error': 'השיתוף לא נמצא'}), 404
+
+        raw_code = share_doc.get('code', '')
+        code = normalize_code(raw_code if isinstance(raw_code, str) else str(raw_code or ''))
+
+        requested_name = str(payload.get('file_name') or share_doc.get('file_name') or '').strip()
+        if not requested_name:
+            requested_name = 'מדריך WebApp'
+        safe_name = requested_name
+        name_path = Path(safe_name)
+        if not name_path.suffix:
+            safe_name = f"{safe_name}.md"
+        elif name_path.suffix.lower() not in {'.md', '.markdown'}:
+            safe_name = f"{name_path.stem}.md"
+
+        language = (share_doc.get('language') or 'markdown').lower()
+        if not language or language == 'text':
+            language = 'markdown'
+
+        user_id = session['user_id']
+        db = get_db()
+        now_utc = datetime.now(timezone.utc)
+
+        try:
+            prev = db.code_snippets.find_one(
+                {
+                    'user_id': user_id,
+                    'file_name': safe_name,
+                    '$or': [
+                        {'is_active': True},
+                        {'is_active': {'$exists': False}}
+                    ]
+                },
+                sort=[('version', -1)],
+            )
+        except Exception:
+            prev = None
+
+        version = int((prev or {}).get('version', 0) or 0) + 1
+        description = share_doc.get('description') or (prev or {}).get('description') or ''
+        try:
+            tags = list((prev or {}).get('tags') or [])
+        except Exception:
+            tags = []
+
+        snippet_doc = {
+            'user_id': user_id,
+            'file_name': safe_name,
+            'code': code,
+            'programming_language': language,
+            'description': description,
+            'tags': tags,
+            'version': version,
+            'created_at': now_utc,
+            'updated_at': now_utc,
+            'is_active': True,
+        }
+
+        try:
+            res = db.code_snippets.insert_one(snippet_doc)
+        except Exception as exc:
+            logger.exception("Failed to save shared guide", extra={'share_id': share_id, 'user_id': user_id, 'error': str(exc)})
+            return jsonify({'ok': False, 'error': 'שמירת המדריך נכשלה'}), 500
+
+        inserted_id = str(getattr(res, 'inserted_id', '') or '')
+
+        try:
+            cache.invalidate_user_cache(user_id)
+            cache.invalidate_file_related(file_id=safe_name, user_id=user_id)
+        except Exception:
+            pass
+
+        return jsonify({'ok': True, 'file_id': inserted_id, 'file_name': safe_name, 'version': version})
+    except Exception:
+        return jsonify({'ok': False, 'error': 'שגיאה לא צפויה'}), 500
+
 
 @app.route('/upload', methods=['GET', 'POST'])
 @login_required
@@ -4867,6 +5441,30 @@ def api_ui_prefs():
         return jsonify({'ok': False, 'error': 'שגיאה לא צפויה'}), 500
 
 
+@app.route('/api/welcome/ack', methods=['POST'])
+@login_required
+def api_welcome_ack():
+    try:
+        db = get_db()
+        user_id = session['user_id']
+        now_utc = datetime.now(timezone.utc)
+        db.users.update_one(
+            {'user_id': user_id},
+            {'$set': {'has_seen_welcome_modal': True, 'updated_at': now_utc}, '$setOnInsert': {'created_at': now_utc}},
+            upsert=True,
+        )
+        try:
+            user_data = dict(session.get('user_data') or {})
+            user_data['has_seen_welcome_modal'] = True
+            session['user_data'] = user_data
+            session.modified = True
+        except Exception:
+            pass
+        return jsonify({'ok': True})
+    except Exception:
+        return jsonify({'ok': False, 'error': 'שגיאה לא צפויה'}), 500
+
+
 # --- User preferences (generic) ---
 @app.route('/api/user/preferences', methods=['POST'])
 @login_required
@@ -5041,6 +5639,9 @@ def public_share(share_id):
     file_name = doc.get('file_name', 'snippet.txt')
     description = doc.get('description', '')
 
+    can_save_shared = bool(session.get('user_id'))
+    user_context = session.get('user_data', {}) if can_save_shared else {}
+
     # אם view=md והמסמך Markdown – נרנדר את עמוד md_preview עם דגל is_public
     try:
         view = (request.args.get('view') or '').strip().lower()
@@ -5053,7 +5654,15 @@ def public_share(share_id):
             'file_name': file_name or 'README.md',
             'language': 'markdown',
         }
-        return render_template('md_preview.html', user={}, file=file_data, md_code=code, bot_username=BOT_USERNAME_CLEAN, is_public=True)
+        return render_template(
+            'md_preview.html',
+            user=user_context,
+            file=file_data,
+            md_code=code,
+            bot_username=BOT_USERNAME_CLEAN,
+            is_public=True,
+            can_save_shared=can_save_shared,
+        )
 
     # ברירת מחדל: תצוגת קוד (כמו קודם)
     try:
@@ -5171,6 +5780,8 @@ def server_error(e):
 @app.errorhandler(Exception)
 def handle_exception(e):
     """טיפול בכל שגיאה אחרת"""
+    if isinstance(e, HTTPException):
+        return e
     logger.exception("Unhandled exception")
     import traceback
     traceback.print_exc()
