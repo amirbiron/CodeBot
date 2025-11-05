@@ -12,7 +12,7 @@ import time
 import zipfile
 from datetime import datetime, timezone
 from io import BytesIO
-from typing import Awaitable, Callable, List, Optional, Protocol, Sequence
+from typing import Awaitable, Callable, Iterable, List, Optional, Protocol, Sequence
 
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.constants import ParseMode
@@ -45,16 +45,60 @@ class DocumentHandler:
         notify_admins: Callable[[ContextTypes.DEFAULT_TYPE, str], Awaitable[None]],
         get_reporter: Callable[[], Optional[_ReporterProto]],
         log_user_activity: Callable[[Update, ContextTypes.DEFAULT_TYPE], Awaitable[None]],
-        encodings_to_try: Sequence[str],
+        encodings_to_try: Sequence[str] | Callable[[], Sequence[str]],
         emit_event: Callable[..., object] | None,
         errors_total: Optional[_MetricProto],
     ) -> None:
         self._notify_admins = notify_admins
         self._get_reporter = get_reporter
         self._log_user_activity = log_user_activity
-        self._encodings_to_try = tuple(encodings_to_try)
+        self._encodings_provider: Callable[[], Sequence[str]] | None = (
+            encodings_to_try if callable(encodings_to_try) else None
+        )
+        if callable(encodings_to_try):
+            try:
+                initial_encodings: Sequence[str] = encodings_to_try()
+            except Exception as exc:
+                logger.debug("Dynamic encoding provider failed during init: %s", exc)
+                initial_encodings = ()
+        else:
+            initial_encodings = encodings_to_try
+
+        self._encodings_to_try = self._normalize_encodings(initial_encodings)
+        if not self._encodings_to_try:
+            # מנע מצב שבו אין קידודים בכלל
+            self._encodings_to_try = ("utf-8",)
+        self._last_encodings_attempted = self._encodings_to_try
         self._emit_event = emit_event
         self._errors_total = errors_total
+
+    @staticmethod
+    def _normalize_encodings(values: Sequence[str] | Iterable[str]) -> tuple[str, ...]:
+        cleaned: list[str] = []
+        for value in values:
+            if not value:
+                continue
+            try:
+                text = str(value).strip()
+            except Exception:
+                continue
+            if not text:
+                continue
+            cleaned.append(text)
+        return tuple(cleaned)
+
+    def _current_encodings(self) -> tuple[str, ...]:
+        provider = self._encodings_provider
+        if provider is not None:
+            try:
+                resolved = self._normalize_encodings(provider())
+            except Exception as exc:
+                logger.debug("Dynamic encoding provider failed: %s", exc)
+            else:
+                if resolved:
+                    self._encodings_to_try = resolved
+                    return resolved
+        return self._encodings_to_try
 
     async def handle_document(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """נתיב ראשי לטיפול בקובץ שנשלח."""
@@ -605,13 +649,15 @@ class DocumentHandler:
 
             content, detected_encoding = self._decode_bytes(raw_bytes)
             if content is None:
-                logger.error("❌ לא ניתן לקרוא את הקובץ באף קידוד: %s", self._encodings_to_try)
+                attempted = getattr(self, "_last_encodings_attempted", self._current_encodings())
+                attempted_display = [str(enc) for enc in attempted if enc]
+                logger.error("❌ לא ניתן לקרוא את הקובץ באף קידוד: %s", attempted_display)
                 if self._emit_event is not None:
                     try:
                         self._emit_event(
                             "file_read_unreadable",
                             severity="error",
-                            attempted_encodings=",".join(self._encodings_to_try),
+                            attempted_encodings=",".join(attempted_display),
                         )
                     except Exception:
                         pass
@@ -622,7 +668,7 @@ class DocumentHandler:
                         pass
                 await update.message.reply_text(
                     "❌ לא ניתן לקרוא את הקובץ!\n"
-                    + f"📝 ניסיתי את הקידודים: {', '.join(self._encodings_to_try)}\n"
+                    + f"📝 ניסיתי את הקידודים: {', '.join(attempted_display)}\n"
                     + "💡 אנא ודא שזהו קובץ טקסט/קוד ולא קובץ בינארי"
                 )
                 return
@@ -657,7 +703,10 @@ class DocumentHandler:
             await update.message.reply_text("❌ שגיאה בעיבוד הקובץ")
 
     def _decode_bytes(self, raw_bytes: bytes) -> tuple[Optional[str], Optional[str]]:
-        for encoding in self._encodings_to_try:
+        encodings = self._current_encodings()
+        self._last_encodings_attempted = encodings
+
+        for encoding in encodings:
             try:
                 content = raw_bytes.decode(encoding)
             except UnicodeDecodeError:
