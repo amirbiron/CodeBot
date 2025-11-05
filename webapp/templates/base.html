@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html dir="rtl" lang="he"{% if legacy_ui %} data-legacy-ui="1"{% endif %}>
+<html dir="rtl" lang="he">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
@@ -40,30 +40,6 @@
             --glass-border: rgba(255, 255, 255, 0.2);
             --ui-font-scale: 1;
         }
-
-        /* Legacy (classic) flat UI overrides */
-        :root[data-legacy-ui="1"] body { background: #f7fafc; color: #1a202c; }
-        :root[data-legacy-ui="1"] body::before { display: none !important; }
-        :root[data-legacy-ui="1"] .navbar {
-            background: #ffffff;
-            backdrop-filter: none;
-            -webkit-backdrop-filter: none;
-            border-bottom: 1px solid #e2e8f0;
-            color: #2d3748;
-            box-shadow: none;
-        }
-        :root[data-legacy-ui="1"] .logo,
-        :root[data-legacy-ui="1"] .nav-link { color: #2d3748; }
-        :root[data-legacy-ui="1"] .glass-card {
-            background: #ffffff;
-            border: 1px solid #e2e8f0;
-            backdrop-filter: none;
-            -webkit-backdrop-filter: none;
-            box-shadow: 0 1px 2px rgba(0,0,0,0.04);
-        }
-        :root[data-legacy-ui="1"] .btn-primary { background: var(--primary); color: #ffffff; }
-        :root[data-legacy-ui="1"] .btn-secondary { background: #f1f5f9; color: #2d3748; border: 1px solid #e2e8f0; }
-        :root[data-legacy-ui="1"] .badge { background: #f1f5f9; border-color: #e2e8f0; color: #2d3748; }
 
         /* Theme palettes */
         :root[data-theme="classic"] {
@@ -112,19 +88,6 @@
             overflow: hidden;
             pointer-events: none;
             z-index: 0;
-        }
-
-        /* מצב קל: מניעת עומסים/קריסות בווב־ויו של אנדרואיד/טלגרם */
-        body.reduce-effects::before {
-            display: none !important; /* הסרת רקע קבוע כבד */
-        }
-        body.reduce-effects .navbar,
-        body.reduce-effects .glass-card {
-            backdrop-filter: none !important;
-            -webkit-backdrop-filter: none !important;
-            background: rgba(0, 0, 0, 0.18) !important;
-            border-color: rgba(255, 255, 255, 0.14) !important;
-            box-shadow: none !important;
         }
 
         /* מונע חריגת תוכן לרוחב שיוצרת גלילה אופקית */
@@ -756,21 +719,6 @@
                 // העדפת עורך מהשרת (אם קיימת) — כדי לאפשר ברירת מחדל Codemirror
                 // נשמר במשתנה גלובלי שה-JS של העורך יוכל לקרוא
                 try { window.__serverPreferredEditor = '{{ session.get("preferred_editor", "") }}'; } catch (e) {}
-
-                // זיהוי תנאים בעייתיים והפעלת מצב קל להפחתת אפקטים כבדים
-                try {
-                    var params = new URLSearchParams(window.location.search || '');
-                    var forceLite = params.get('lite') === '1';
-                    var ua = String(navigator.userAgent || '').toLowerCase();
-                    var isAndroid = /android/.test(ua);
-                    var isSamsung = /samsung|sm\-/.test(ua);
-                    var isTelegram = !!(window.Telegram && window.Telegram.WebApp);
-                    var supportsBackdrop = !!(window.CSS && (CSS.supports('backdrop-filter', 'blur(1px)') || CSS.supports('-webkit-backdrop-filter', 'blur(1px)')));
-                    var lowMem = (typeof navigator.deviceMemory === 'number' && navigator.deviceMemory <= 3);
-                    if (forceLite || isTelegram || isAndroid || isSamsung || !supportsBackdrop || lowMem) {
-                        document.body.classList.add('reduce-effects');
-                    }
-                } catch (_) {}
             } catch (e) {}
         })();
     </script>
@@ -1272,18 +1220,6 @@
     <script>
         // Work State persistence: שמירת URL וגלילה לשחזור מצב עבודה
         (function workStatePersistence(){
-            // ב-WebView/Android/מצב קל – נטרל שחזור מצב כדי למנוע לולאות/קפיצות
-            try {
-                var ua = String(navigator.userAgent || '').toLowerCase();
-                var isAndroid = /android/.test(ua);
-                var isTelegram = !!(window.Telegram && window.Telegram.WebApp);
-                var paramsNR = new URLSearchParams(window.location.search || '');
-                var noRestoreParam = paramsNR.get('no_restore') === '1';
-                var isLiteMode = document.body.classList.contains('reduce-effects');
-                if (isAndroid || isTelegram || noRestoreParam || isLiteMode) {
-                    return; // השבתה מלאה של מנגנון השחזור בסביבה רגישה
-                }
-            } catch(_) {}
             const STORAGE_KEY = 'work_state';
             function loadState(){ try { return JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}'); } catch(_) { return {}; } }
             function saveState(s){ try { localStorage.setItem(STORAGE_KEY, JSON.stringify(s || {})); } catch(_) {} }
