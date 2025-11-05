@@ -79,3 +79,41 @@ async def test_disk_low_alert_sends_events_and_admin_dm(tmp_path, monkeypatch):
     assert len(captured["dms"]) >= 2
     for rec in captured["dms"]:
         assert "api.telegram.org" in rec["url"] and rec["json"].get("chat_id") in (77, 88)
+
+
+@pytest.mark.asyncio
+async def test_disk_low_alert_uses_default_when_env_empty(tmp_path, monkeypatch):
+    # Force FS and dir
+    monkeypatch.setenv("BACKUPS_STORAGE", "fs")
+    monkeypatch.setenv("BACKUPS_DIR", str(tmp_path))
+    # Env empty string → should fallback to default 100MB
+    monkeypatch.setenv("BACKUPS_DISK_MIN_FREE_BYTES", "")
+    # Admins + token for DM
+    monkeypatch.setenv("ADMIN_USER_IDS", "99")
+    monkeypatch.setenv("BOT_TOKEN", "123:TEST")
+
+    captured = {"events": [], "alerts": [], "dms": []}
+
+    def _emit_event(event, severity="info", **fields):
+        captured["events"].append((event, severity, fields))
+
+    def _emit_internal_alert(name: str, severity: str = "info", summary: str = "", **details):
+        captured["alerts"].append((name, severity, summary, details))
+
+    def _http_request(method, url, json=None, timeout=5):
+        captured["dms"].append({"method": method, "url": url, "json": json, "timeout": timeout})
+        return types.SimpleNamespace(status_code=200)
+
+    monkeypatch.setitem(sys.modules, "observability", types.SimpleNamespace(emit_event=_emit_event))
+    monkeypatch.setitem(sys.modules, "internal_alerts", types.SimpleNamespace(emit_internal_alert=_emit_internal_alert))
+    monkeypatch.setitem(sys.modules, "http_sync", types.SimpleNamespace(request=_http_request))
+
+    import file_manager as fm
+    DU = namedtuple("DU", "total used free")
+    # Free 50MB, default threshold=100MB → should alert
+    monkeypatch.setattr(fm.shutil, "disk_usage", lambda path: DU(10**9, 9*10**8, 50 * 1024 * 1024))
+
+    mgr = fm.BackupManager()
+    mgr._last_disk_warn_ts = 0.0
+    assert mgr.save_backup_bytes(_make_zip_bytes("bid_2", 5), {"backup_id": "bid_2", "user_id": 5}) == "bid_2"
+    assert any(e[0] == "disk_low_space" for e in captured["events"])  # default used

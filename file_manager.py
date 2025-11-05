@@ -107,7 +107,12 @@ class BackupManager:
             usage = shutil.disk_usage(self.backup_dir)
             free_bytes = int(getattr(usage, 'free', 0) or 0)
             try:
-                threshold = int(os.getenv("BACKUPS_DISK_MIN_FREE_BYTES", str(100 * 1024 * 1024)) or 0)
+                # תמיכה נכונה במשתנה סביבה ריק: אם ה‑ENV קיים אך ריק → השתמש בברירת המחדל
+                _env_val = os.getenv("BACKUPS_DISK_MIN_FREE_BYTES")
+                if _env_val is None or not str(_env_val).strip():
+                    threshold = 100 * 1024 * 1024
+                else:
+                    threshold = int(_env_val)
             except Exception:
                 threshold = 100 * 1024 * 1024
             if free_bytes > 0 and free_bytes < max(1, threshold):
