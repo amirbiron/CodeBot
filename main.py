@@ -847,7 +847,7 @@ class CodeKeeperBot:
             notify_admins=notify_admins,
             get_reporter=lambda: reporter,
             log_user_activity=log_user_activity,
-            encodings_to_try=ENCODINGS_TO_TRY,
+            encodings_to_try=lambda: ENCODINGS_TO_TRY,
             emit_event=emit_event,
             errors_total=errors_total,
         )
