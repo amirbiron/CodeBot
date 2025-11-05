@@ -2705,16 +2705,38 @@ def dashboard():
             'recent_files': recent_files
         }
         
+        # זיהוי מצב "קל" מהשרת (אנדרואיד/טלגרם/בקשה מפורשת)
+        try:
+            ua = (request.headers.get('User-Agent') or '').lower()
+            lite_q = (request.args.get('lite') or '').strip() == '1'
+            is_android = 'android' in ua
+            is_telegram = 'telegram' in ua or 'tgminiapp' in ua
+            is_samsung = 'samsung' in ua or 'sm-' in ua
+            lite_mode = bool(lite_q or is_android or is_telegram or is_samsung)
+        except Exception:
+            lite_mode = False
+
         return render_template('dashboard.html', 
                              user=session['user_data'],
                              stats=stats,
-                             bot_username=BOT_USERNAME_CLEAN)
+                             bot_username=BOT_USERNAME_CLEAN,
+                             lite_mode=lite_mode)
                              
     except Exception as e:
         logger.exception("Error in dashboard")
         import traceback
         traceback.print_exc()
         # נסה להציג דשבורד ריק במקרה של שגיאה
+        try:
+            ua = (request.headers.get('User-Agent') or '').lower()
+            lite_q = (request.args.get('lite') or '').strip() == '1'
+            is_android = 'android' in ua
+            is_telegram = 'telegram' in ua or 'tgminiapp' in ua
+            is_samsung = 'samsung' in ua or 'sm-' in ua
+            lite_mode = bool(lite_q or is_android or is_telegram or is_samsung)
+        except Exception:
+            lite_mode = False
+
         return render_template('dashboard.html', 
                              user=session.get('user_data', {}),
                              stats={
@@ -2724,7 +2746,8 @@ def dashboard():
                                  'recent_files': []
                              },
                              error="אירעה שגיאה בטעינת הנתונים. אנא נסה שוב.",
-                             bot_username=BOT_USERNAME_CLEAN)
+                             bot_username=BOT_USERNAME_CLEAN,
+                             lite_mode=lite_mode)
 
 @app.route('/files')
 @login_required
