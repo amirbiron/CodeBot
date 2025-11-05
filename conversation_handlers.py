@@ -786,7 +786,7 @@ from handlers.states import (
     CL_COLLECT_URL,
     CL_COLLECT_LOGO,
 )
-from services.community_library_service import submit_item as _cl_submit
+from services.community_library_service import submit_item as _cl_submit, ObjectId as _CLObjectId
 from chatops.permissions import admin_required as _admin_required
 
 async def community_submit_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
@@ -896,6 +896,23 @@ async def community_inline_approve(update: Update, context: ContextTypes.DEFAULT
         ok = _approve(item_id, int(update.effective_user.id))
     except Exception:
         ok = False
+    # Notify submitter best-effort
+    if ok:
+        try:
+            from database import db as _db
+            coll = getattr(_db, 'community_library_collection', None)
+            if coll is None:
+                coll = getattr(_db.db, 'community_library_items')
+            doc = coll.find_one({'_id': _CLObjectId(item_id)}) if coll is not None else None
+            if isinstance(doc, dict):
+                uid = doc.get('user_id')
+                if uid:
+                    try:
+                        await context.bot.send_message(chat_id=int(uid), text="✅ בקשתך לספריית הקהילה אושרה! 🎉")
+                    except Exception:
+                        pass
+        except Exception:
+            pass
     await TelegramUtils.safe_edit_message_text(query, "✅ אושר" if ok else "❌ שגיאה באישור")
     return ConversationHandler.END
 
@@ -933,6 +950,23 @@ async def community_approve_command(update: Update, context: ContextTypes.DEFAUL
         from services.community_library_service import approve_item
         ok = approve_item(iid, int(update.effective_user.id))
         await update.message.reply_text("✅ אושר" if ok else "❌ כשל באישור")
+        # Notify submitter
+        if ok:
+            try:
+                from database import db as _db
+                coll = getattr(_db, 'community_library_collection', None)
+                if coll is None:
+                    coll = getattr(_db.db, 'community_library_items')
+                doc = coll.find_one({'_id': _CLObjectId(iid)}) if coll is not None else None
+                if isinstance(doc, dict):
+                    uid = doc.get('user_id')
+                    if uid:
+                        try:
+                            await context.bot.send_message(chat_id=int(uid), text="✅ בקשתך לספריית הקהילה אושרה! 🎉")
+                        except Exception:
+                            pass
+            except Exception:
+                pass
     except Exception as e:
         await update.message.reply_text(f"❌ שגיאה: {e}")
 
@@ -954,7 +988,7 @@ async def community_reject_command(update: Update, context: ContextTypes.DEFAULT
             coll = getattr(_db, 'community_library_collection', None)
             if coll is None:
                 coll = getattr(_db.db, 'community_library_items')
-            doc = coll.find_one({'_id': __import__('bson').ObjectId(iid)}) if coll is not None else None
+            doc = coll.find_one({'_id': _CLObjectId(iid)}) if coll is not None else None
         except Exception:
             doc = None
         if isinstance(doc, dict):
