@@ -4,6 +4,7 @@ import os
 import sys
 import types
 from collections import namedtuple
+from urllib.parse import urlparse
 
 import pytest
 
@@ -78,7 +79,8 @@ async def test_disk_low_alert_sends_events_and_admin_dm(tmp_path, monkeypatch):
     # Assert admin DMs were attempted for both admins
     assert len(captured["dms"]) >= 2
     for rec in captured["dms"]:
-        assert "api.telegram.org" in rec["url"] and rec["json"].get("chat_id") in (77, 88)
+        url_host = urlparse(rec["url"]).hostname
+        assert url_host == "api.telegram.org" and rec["json"].get("chat_id") in (77, 88)
 
 
 @pytest.mark.asyncio
