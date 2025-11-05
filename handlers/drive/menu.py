@@ -2,6 +2,7 @@ from typing import Any, Dict, Optional
 import os
 import asyncio
 from datetime import datetime, timezone, timedelta
+import logging
 try:
     from zoneinfo import ZoneInfo  # Python 3.9+
 except Exception:  # pragma: no cover
@@ -19,6 +20,7 @@ from config import config
 from file_manager import backup_manager
 from database import db
 
+logger = logging.getLogger(__name__)
 
 class GoogleDriveMenuHandler:
     def __init__(self):
@@ -51,7 +53,9 @@ class GoogleDriveMenuHandler:
         async def _scheduled_backup_cb(ctx: ContextTypes.DEFAULT_TYPE):
             try:
                 uid = ctx.job.data["user_id"]
+                logger.info(f"drive_scheduled_backup_start user_id={uid}")
                 ok = gdrive.perform_scheduled_backup(uid)
+                logger.info(f"drive_scheduled_backup_result user_id={uid} ok={ok}")
                 if ok:
                     await ctx.bot.send_message(chat_id=uid, text="☁️ גיבוי אוטומטי ל‑Drive הושלם בהצלחה")
                 # עדכן זמן הבא בהעדפות
@@ -62,10 +66,15 @@ class GoogleDriveMenuHandler:
                     if ok:
                         update_prefs["last_full_backup_at"] = now_dt.isoformat()
                     db.save_drive_prefs(uid, update_prefs)
+                    # עדכן גם על ה-Job עצמו עבור תצוגת סטטוס
+                    try:
+                        setattr(ctx.job, "next_t", next_dt)
+                    except Exception:
+                        pass
                 except Exception:
-                    pass
+                    logger.exception("drive_scheduled_backup_update_prefs_failed")
             except Exception:
-                pass
+                logger.exception("drive_scheduled_backup_error")
 
         try:
             jobs = context.bot_data.setdefault("drive_schedule_jobs", {})
@@ -130,6 +139,19 @@ class GoogleDriveMenuHandler:
                 _scheduled_backup_cb, interval=seconds, first=first_seconds, name=f"drive_{user_id}", data={"user_id": user_id}
             )
             jobs[user_id] = job
+            # עדכן next_t על האובייקט עצמו כדי לאפשר תצוגה מדויקת ב-status
+            try:
+                setattr(job, "next_t", planned_next)
+            except Exception:
+                pass
+            # לוג אינפורמטיבי על יצירת ה-Job
+            try:
+                logger.info(
+                    "drive_schedule_job_set user_id=%s key=%s interval_s=%s first_s=%s planned_next=%s",
+                    user_id, sched_key, seconds, first_seconds, planned_next.isoformat()
+                )
+            except Exception:
+                pass
             # אל תדרוס schedule_next_at קיים ותקין; עדכן רק אם חסר/עבר
             try:
                 if not nxt_dt or nxt_dt <= now_dt:
@@ -137,7 +159,7 @@ class GoogleDriveMenuHandler:
             except Exception:
                 pass
         except Exception:
-            pass
+            logger.exception("drive_schedule_job_setup_failed")
 
     async def menu(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         # Feature flag: allow fallback to old behavior if disabled
