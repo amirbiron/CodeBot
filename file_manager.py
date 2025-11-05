@@ -9,6 +9,8 @@ import logging
 from contextlib import suppress
 import io
 import re
+import shutil
+import time
 
 try:
     import gridfs  # from pymongo
@@ -91,6 +93,95 @@ class BackupManager:
         # שמור נתיב legacy ראשי למטרות תאימות (ישומש בחיפוש)
         self.legacy_backup_dir = legacy_candidates[0] if legacy_candidates else None
         self.max_backup_size = 100 * 1024 * 1024  # 100MB
+        # מנגנון התרעה פשוט למניעת הצפה
+        self._last_disk_warn_ts: float = 0.0
+
+    def _maybe_alert_low_space(self) -> None:
+        """בדיקת מקום פנוי בדיסק לפני כתיבה והתרעה לאדמין אם נמוך.
+
+        - סף ברירת מחדל: 200MB (ניתן לשינוי ב‑BACKUPS_DISK_MIN_FREE_BYTES)
+        - Rate limit: התרעה אחת לכל 10 דקות כדי להימנע מספאם
+        """
+        try:
+            # חישוב מקום פנוי על הפיילסיסטם של תיקיית הגיבויים
+            usage = shutil.disk_usage(self.backup_dir)
+            free_bytes = int(getattr(usage, 'free', 0) or 0)
+            try:
+                # תמיכה נכונה במשתנה סביבה ריק: אם ה‑ENV קיים אך ריק → השתמש בברירת המחדל
+                _env_val = os.getenv("BACKUPS_DISK_MIN_FREE_BYTES")
+                if _env_val is None or not str(_env_val).strip():
+                    threshold = 200 * 1024 * 1024
+                else:
+                    threshold = int(_env_val)
+            except Exception:
+                threshold = 200 * 1024 * 1024
+            limit = max(1, threshold)
+            if free_bytes <= 0 or free_bytes < limit:
+                now = time.time()
+                if now - self._last_disk_warn_ts < 600:  # 10 דקות
+                    return
+                self._last_disk_warn_ts = now
+                # נסה לפלוט אירוע מובנה + התראה פנימית
+                try:
+                    from observability import emit_event  # type: ignore
+                except Exception:
+                    emit_event = None  # type: ignore
+                try:
+                    from internal_alerts import emit_internal_alert  # type: ignore
+                except Exception:
+                    emit_internal_alert = None  # type: ignore
+                msg = "⚠️ הדיסק כמעט מלא – מומלץ לנקות גיבויים או להגדיל נפח"
+                details = {
+                    "path": str(self.backup_dir),
+                    "free_bytes": int(free_bytes),
+                    "threshold_bytes": int(threshold),
+                }
+                try:
+                    if emit_event is not None:
+                        emit_event("disk_low_space", severity="warn", **details)
+                except Exception:
+                    pass
+                try:
+                    if emit_internal_alert is not None:
+                        # סיכום קצר + פרטים טכניים לצפייה ב‑ChatOps/Telegram
+                        emit_internal_alert("disk_low_space", severity="warn", summary=msg, **details)
+                except Exception:
+                    pass
+
+                # הודעה ישירה למנהלים דרך הבוט (ADMIN_USER_IDS + BOT_TOKEN)
+                try:
+                    admins_raw = os.getenv("ADMIN_USER_IDS", "")
+                    if admins_raw:
+                        admin_ids = [int(x.strip()) for x in admins_raw.split(',') if x.strip().isdigit()]
+                    else:
+                        admin_ids = []
+                except Exception:
+                    admin_ids = []
+                bot_token = os.getenv("BOT_TOKEN", "")
+                if bot_token and admin_ids:
+                    text = f"{msg}\nנתיב: {details['path']}\nפנוי: {details['free_bytes']:,}B (סף {details['threshold_bytes']:,}B)"
+                    try:
+                        # העדף http_sync.request אם זמין, אחרת requests
+                        try:
+                            from http_sync import request as _request  # type: ignore
+                        except Exception:
+                            _request = None  # type: ignore
+                        api = f"https://api.telegram.org/bot{bot_token}/sendMessage"
+                        for admin_id in admin_ids:
+                            payload = {"chat_id": int(admin_id), "text": text}
+                            try:
+                                if _request is not None:
+                                    _request('POST', api, json=payload, timeout=5)
+                                else:
+                                    import requests  # type: ignore
+                                    requests.post(api, json=payload, timeout=5)
+                            except Exception:
+                                continue
+                    except Exception:
+                        pass
+        except Exception:
+            # לא לשבור זרימה בגיבוי — התרעה היא best‑effort
+            return
 
     def _is_safe_path(self, target: Path, allow_under: Path) -> bool:
         """בדיקת בטיחות למסלול לפני מחיקה/ניקוי.
@@ -372,6 +463,8 @@ class BackupManager:
         אם storage==fs: שומר לקובץ תחת backup_dir.
         """
         try:
+            # בדיקת מקום פנוי לפני כתיבה
+            self._maybe_alert_low_space()
             backup_id = metadata.get("backup_id") or f"backup_{int(datetime.now(timezone.utc).timestamp())}"
             # נסה להטמיע/לעדכן metadata.json בתוך ה-ZIP כך שיכלול לפחות backup_id ו-user_id אם סופק
             try:
@@ -456,6 +549,8 @@ class BackupManager:
     def save_backup_file(self, file_path: str) -> Optional[str]:
         """שומר קובץ ZIP קיים לאחסון היעד (Mongo/FS) ומחזיר backup_id אם הצליח."""
         try:
+            # בדיקת מקום פנוי לפני כתיבה/העתקה
+            self._maybe_alert_low_space()
             # 1) קרא מטאדטה מתוך ה‑ZIP (ללא קריאה של כל הקובץ לזיכרון)
             metadata: Dict[str, Any] = {}
             try:
