@@ -2,6 +2,7 @@ from typing import Any, Dict, Optional
 import os
 import asyncio
 from datetime import datetime, timezone, timedelta
+import logging
 try:
     from zoneinfo import ZoneInfo  # Python 3.9+
 except Exception:  # pragma: no cover
@@ -19,6 +20,14 @@ from config import config
 from file_manager import backup_manager
 from database import db
 
+logger = logging.getLogger(__name__)
+
+# Observability events (best-effort)
+try:
+    from observability import emit_event  # type: ignore
+except Exception:  # pragma: no cover
+    def emit_event(event: str, severity: str = "info", **fields):
+        return None
 
 class GoogleDriveMenuHandler:
     def __init__(self):
@@ -51,7 +60,17 @@ class GoogleDriveMenuHandler:
         async def _scheduled_backup_cb(ctx: ContextTypes.DEFAULT_TYPE):
             try:
                 uid = ctx.job.data["user_id"]
+                logger.info(f"drive_scheduled_backup_start user_id={uid}")
+                try:
+                    emit_event("drive_scheduled_backup_start", severity="info", user_id=int(uid))
+                except Exception:
+                    pass
                 ok = gdrive.perform_scheduled_backup(uid)
+                logger.info(f"drive_scheduled_backup_result user_id={uid} ok={ok}")
+                try:
+                    emit_event("drive_scheduled_backup_result", severity=("info" if ok else "warn"), user_id=int(uid), ok=bool(ok))
+                except Exception:
+                    pass
                 if ok:
                     await ctx.bot.send_message(chat_id=uid, text="☁️ גיבוי אוטומטי ל‑Drive הושלם בהצלחה")
                 # עדכן זמן הבא בהעדפות
@@ -62,10 +81,34 @@ class GoogleDriveMenuHandler:
                     if ok:
                         update_prefs["last_full_backup_at"] = now_dt.isoformat()
                     db.save_drive_prefs(uid, update_prefs)
+                    # עדכן גם על ה-Job עצמו עבור תצוגת סטטוס
+                    try:
+                        setattr(ctx.job, "next_t", next_dt)
+                    except Exception:
+                        pass
+                    try:
+                        emit_event(
+                            "drive_scheduled_backup_update_prefs",
+                            severity="info",
+                            user_id=int(uid),
+                            next_at=str(update_prefs.get("schedule_next_at")),
+                            last_at=str(update_prefs.get("last_backup_at")),
+                            last_full_at=str(update_prefs.get("last_full_backup_at") or "")
+                        )
+                    except Exception:
+                        pass
+                except Exception as e:
+                    logger.exception("drive_scheduled_backup_update_prefs_failed")
+                    try:
+                        emit_event("drive_scheduled_backup_update_prefs_failed", severity="error", user_id=int(uid), error=str(e))
+                    except Exception:
+                        pass
+            except Exception as e:
+                logger.exception("drive_scheduled_backup_error")
+                try:
+                    emit_event("drive_scheduled_backup_error", severity="error", error=str(e))
                 except Exception:
                     pass
-            except Exception:
-                pass
 
         try:
             jobs = context.bot_data.setdefault("drive_schedule_jobs", {})
@@ -130,14 +173,44 @@ class GoogleDriveMenuHandler:
                 _scheduled_backup_cb, interval=seconds, first=first_seconds, name=f"drive_{user_id}", data={"user_id": user_id}
             )
             jobs[user_id] = job
+            # עדכן next_t על האובייקט עצמו כדי לאפשר תצוגה מדויקת ב-status
+            try:
+                setattr(job, "next_t", planned_next)
+            except Exception:
+                pass
+            # לוג אינפורמטיבי על יצירת ה-Job
+            try:
+                logger.info(
+                    "drive_schedule_job_set user_id=%s key=%s interval_s=%s first_s=%s planned_next=%s",
+                    user_id, sched_key, seconds, first_seconds, planned_next.isoformat()
+                )
+            except Exception:
+                pass
+            # Emit event על יצירת ה-Job
+            try:
+                emit_event(
+                    "drive_schedule_job_set",
+                    severity="info",
+                    user_id=int(user_id),
+                    key=str(sched_key),
+                    interval_s=int(seconds),
+                    first_s=int(first_seconds),
+                    planned_next=str(planned_next.isoformat()),
+                )
+            except Exception:
+                pass
             # אל תדרוס schedule_next_at קיים ותקין; עדכן רק אם חסר/עבר
             try:
                 if not nxt_dt or nxt_dt <= now_dt:
                     db.save_drive_prefs(user_id, {"schedule_next_at": planned_next.isoformat()})
             except Exception:
                 pass
-        except Exception:
-            pass
+        except Exception as e:
+            logger.exception("drive_schedule_job_setup_failed")
+            try:
+                emit_event("drive_schedule_job_setup_failed", severity="error", user_id=int(user_id), key=str(sched_key), error=str(e))
+            except Exception:
+                pass
 
     async def menu(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         # Feature flag: allow fallback to old behavior if disabled
@@ -432,6 +505,18 @@ class GoogleDriveMenuHandler:
                         fid = gdrive.upload_bytes(user_id, friendly, data_bytes, sub_path=sub_path)
                         ok_any = ok_any or bool(fid)
                     if ok_any:
+                        # עדכון מועד הבא אם יש תזמון פעיל
+                        try:
+                            prefs = db.get_drive_prefs(user_id) or {}
+                            key = prefs.get("schedule")
+                            if key:
+                                seconds = self._interval_seconds(str(key))
+                                now_dt = datetime.now(timezone.utc)
+                                next_dt = now_dt + timedelta(seconds=seconds)
+                                db.save_drive_prefs(user_id, {"last_backup_at": now_dt.isoformat(), "schedule_next_at": next_dt.isoformat()})
+                                await self._ensure_schedule_job(context, user_id, str(key))
+                        except Exception:
+                            pass
                         await query.edit_message_text("✅ הועלו גיבויי ריפו לפי תיקיות")
                     else:
                         kb = [
@@ -467,6 +552,18 @@ class GoogleDriveMenuHandler:
                     sub_path = gdrive.compute_subpath(category)
                     fid = gdrive.upload_bytes(user_id, friendly, data_bytes, sub_path=sub_path)
                     if fid:
+                        # עדכון מועד הבא אם יש תזמון פעיל
+                        try:
+                            prefs = db.get_drive_prefs(user_id) or {}
+                            key = prefs.get("schedule")
+                            if key:
+                                seconds = self._interval_seconds(str(key))
+                                now_dt = datetime.now(timezone.utc)
+                                next_dt = now_dt + timedelta(seconds=seconds)
+                                db.save_drive_prefs(user_id, {"last_backup_at": now_dt.isoformat(), "schedule_next_at": next_dt.isoformat()})
+                                await self._ensure_schedule_job(context, user_id, str(key))
+                        except Exception:
+                            pass
                         await query.edit_message_text("✅ גיבוי הועלה ל‑Drive")
                     else:
                         kb = [
@@ -513,6 +610,18 @@ class GoogleDriveMenuHandler:
                     uploaded_any = uploaded_any or bool(fid)
             sess["adv_selected"] = set()
             if uploaded_any:
+                # עדכון מועד הבא אם יש תזמון פעיל
+                try:
+                    prefs = db.get_drive_prefs(user_id) or {}
+                    key = prefs.get("schedule")
+                    if key:
+                        seconds = self._interval_seconds(str(key))
+                        now_dt = datetime.now(timezone.utc)
+                        next_dt = now_dt + timedelta(seconds=seconds)
+                        db.save_drive_prefs(user_id, {"last_backup_at": now_dt.isoformat(), "schedule_next_at": next_dt.isoformat()})
+                        await self._ensure_schedule_job(context, user_id, str(key))
+                except Exception:
+                    pass
                 await query.edit_message_text("✅ הועלו הגיבויים שנבחרו")
             else:
                 kb = [
@@ -779,6 +888,18 @@ class GoogleDriveMenuHandler:
                     return
                 sess["zip_done"] = True
                 sess["last_upload"] = "zip"
+                # עדכון מועד הבא אם יש תזמון פעיל (upload_all_saved_zip_backups כבר מעדכן last_backup_at)
+                try:
+                    prefs = db.get_drive_prefs(user_id) or {}
+                    key = prefs.get("schedule")
+                    if key:
+                        seconds = self._interval_seconds(str(key))
+                        now_dt = datetime.now(timezone.utc)
+                        next_dt = now_dt + timedelta(seconds=seconds)
+                        db.save_drive_prefs(user_id, {"schedule_next_at": next_dt.isoformat()})
+                        await self._ensure_schedule_job(context, user_id, str(key))
+                except Exception:
+                    pass
                 await self._render_simple_selection(update, context, header_prefix=f"✅ הועלו {count} גיבויי ZIP ל‑Drive\n\n")
                 return
             if selected == "all":
@@ -795,10 +916,20 @@ class GoogleDriveMenuHandler:
                 # העלאה בת׳רד נפרד
                 fid = await asyncio.to_thread(gdrive.upload_bytes, user_id, friendly, data_bytes, None, sub_path)
                 if fid:
-                    # עדכן את זמן הגיבוי האחרון לצורך חישוב מועד הבא
+                    # עדכן את זמן הגיבוי האחרון ומועד הבא אם יש תזמון פעיל
                     try:
-                        now_iso = datetime.now(timezone.utc).isoformat()
-                        db.save_drive_prefs(user_id, {"last_backup_at": now_iso, "last_full_backup_at": now_iso})
+                        now_dt = datetime.now(timezone.utc)
+                        now_iso = now_dt.isoformat()
+                        update = {"last_backup_at": now_iso, "last_full_backup_at": now_iso}
+                        prefs = db.get_drive_prefs(user_id) or {}
+                        key = prefs.get("schedule")
+                        if key:
+                            seconds = self._interval_seconds(str(key))
+                            next_dt = now_dt + timedelta(seconds=seconds)
+                            update["schedule_next_at"] = next_dt.isoformat()
+                        db.save_drive_prefs(user_id, update)
+                        if key:
+                            await self._ensure_schedule_job(context, user_id, str(key))
                     except Exception:
                         pass
                     sess["all_done"] = True
