@@ -102,6 +102,8 @@ http://localhost:5000
 | `UPTIME_WIDGET_ID` | מזהה widget (Better Stack) | ❌ | - |
 | `UPTIME_WIDGET_SCRIPT_URL` | URL סקריפט widget | ❌ | `https://uptime.betterstack.com/widgets/announcement.js` |
 | `UPTIME_CACHE_TTL_SECONDS` | TTL מטמון לתוצאות | ❌ | `120` |
+| `ADMIN_USER_IDS` | מזהי משתמש (טלגרם) עם הרשאות אדמין (CSV) | ❌ | - |
+| `PREMIUM_USER_IDS` | מזהי משתמש (טלגרם) לסטטוס פרימיום (CSV) | ❌ | - |
 
 ## מבנה הפרויקט 📁
 
