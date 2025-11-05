@@ -160,15 +160,6 @@ except Exception:
             return {"enabled": False}
     cache = _NoCache()
 
-# Cache metrics aggregator (optional)
-try:  # noqa: E402
-    from webapp.cache_metrics import collect_cache_metrics  # type: ignore
-except Exception:  # pragma: no cover
-    try:
-        from cache_metrics import collect_cache_metrics  # type: ignore
-    except Exception:  # pragma: no cover
-        collect_cache_metrics = None  # type: ignore
-
 # יצירת האפליקציה
 app = Flask(__name__)
 app.secret_key = os.getenv('SECRET_KEY', 'dev-secret-key-change-in-production')
@@ -5165,13 +5156,6 @@ def settings():
                          persistent_login_enabled=has_persistent,
                          persistent_days=PERSISTENT_LOGIN_DAYS)
 
-
-@app.route('/cache-dashboard')
-@admin_required
-def cache_dashboard():
-    """דשבורד ביצועי קאש (אדמין בלבד)."""
-    return render_template('cache_dashboard.html')
-
 @app.route('/health')
 @_limiter_exempt()
 def health():
@@ -5224,40 +5208,6 @@ def api_cache_stats():
     except Exception:
         return jsonify({"enabled": False, "error": "unavailable"}), 200
 
-
-@app.route('/api/cache/metrics', methods=['GET'])
-@admin_required
-def api_cache_metrics():
-    """מטריקות קאש לאדמין: hit_rate, hits/misses, avg_latency, used_memory.
-
-    מחזיר מבנה מלא גם כאשר Redis כבוי.
-    """
-    try:
-        if collect_cache_metrics:
-            data = collect_cache_metrics()  # type: ignore[misc]
-        else:
-            stats = cache.get_stats()
-            enabled = bool(stats.get('enabled', False))
-            data = {
-                "enabled": enabled,
-                "status": "ok" if enabled else "disabled",
-                "message": None if enabled else "Redis כבוי",
-                "metrics": {
-                    "hit_rate": float(stats.get('hit_rate', 0.0) or 0.0),
-                    "hits": int(stats.get('keyspace_hits', 0) or 0),
-                    "misses": int(stats.get('keyspace_misses', 0) or 0),
-                    "avg_latency_ms": 0.0,
-                    "used_memory": stats.get('used_memory', '0'),
-                },
-            }
-        return jsonify(data), 200
-    except Exception:
-        return jsonify({
-            "enabled": False,
-            "status": "disabled",
-            "message": "unavailable",
-            "metrics": {"hit_rate": 0.0, "hits": 0, "misses": 0, "avg_latency_ms": 0.0, "used_memory": "0"},
-        }), 200
 
 @app.route('/api/cache/warm', methods=['POST'])
 @login_required
