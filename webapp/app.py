@@ -1618,6 +1618,16 @@ def is_admin(user_id: int) -> bool:
     admin_ids = [int(x.strip()) for x in admin_ids_list if x.strip().isdigit()]
     return user_id in admin_ids
 
+def is_premium(user_id: int) -> bool:
+    """בודק אם משתמש הוא פרימיום לפי ENV PREMIUM_USER_IDS"""
+    try:
+        premium_ids_env = os.getenv('PREMIUM_USER_IDS', '')
+        premium_ids_list = premium_ids_env.split(',') if premium_ids_env else []
+        premium_ids = [int(x.strip()) for x in premium_ids_list if x.strip().isdigit()]
+        return user_id in premium_ids
+    except Exception:
+        return False
+
 
 # ===== Global Content Search API =====
 def _search_limiter_decorator(rule: str):
@@ -5117,6 +5127,8 @@ def settings():
     
     # בדיקה אם המשתמש הוא אדמין
     user_is_admin = is_admin(user_id)
+    # בדיקה אם המשתמש הוא פרימיום
+    user_is_premium = is_premium(user_id)
 
     # בדיקה האם יש חיבור קבוע פעיל
     has_persistent = False
@@ -5140,6 +5152,7 @@ def settings():
     return render_template('settings.html',
                          user=session['user_data'],
                          is_admin=user_is_admin,
+                         is_premium=user_is_premium,
                          persistent_login_enabled=has_persistent,
                          persistent_days=PERSISTENT_LOGIN_DAYS)
 
@@ -5586,15 +5599,34 @@ def api_me():
             prefs = (u.get('ui_prefs') or {})
         except Exception:
             prefs = {}
+        uid = session['user_id']
+        role_flags = {
+            'is_admin': is_admin(uid),
+            'is_premium': is_premium(uid),
+        }
+        # קביעת תפקיד עיקרי ותווית ידידותית
+        if role_flags['is_admin']:
+            role = 'admin'
+            role_label = 'משתמש אדמין'
+        elif role_flags['is_premium']:
+            role = 'premium'
+            role_label = 'משתמש פרימיום 💎'
+        else:
+            role = 'regular'
+            role_label = 'משתמש רגיל'
+
         return jsonify({
             'ok': True,
             'authenticated': True,
             'user': {
-                'user_id': session['user_id'],
+                'user_id': uid,
                 'username': user_data.get('username'),
                 'first_name': user_data.get('first_name'),
                 'last_name': user_data.get('last_name'),
             },
+            'role': role,
+            'role_label': role_label,
+            'roles': role_flags,
             'ui_prefs': {
                 'font_scale': prefs.get('font_scale'),
                 'theme': prefs.get('theme'),
