@@ -2047,7 +2047,9 @@ class CodeKeeperBot:
     
     async def handle_document(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """מטפל בקבצים באמצעות DocumentHandler הייעודי."""
-        message = update.effective_message
+        message = getattr(update, "effective_message", None)
+        if message is None:
+            message = getattr(update, "message", None)
         document = getattr(message, "document", None) if message else None
 
         if document:
