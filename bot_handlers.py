@@ -109,6 +109,8 @@ class AdvancedBotHandlers:
         self.application.add_handler(CommandHandler("recent", self.recent_command))
         self.application.add_handler(CommandHandler("info", self.info_command))
         self.application.add_handler(CommandHandler("broadcast", self.broadcast_command))
+        # פקודת DM למנהלים – שליחת הודעה פרטית עם שימור רווחים (HTML <pre>)
+        self.application.add_handler(CommandHandler("dm", self.dm_command))
         # חיפוש
         self.application.add_handler(CommandHandler("search", self.search_command))
         # ChatOps MVP + Stage 2 commands
@@ -2412,6 +2414,89 @@ class AdvancedBotHandlers:
             f"🧹 סומנו כחסומים/לא זמינים: {removed_count}"
         )
         await update.message.reply_text(summary)
+
+    async def dm_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """שליחת הודעה פרטית למשתמש יחיד (למנהלים בלבד).
+
+        שימוש:
+        /dm <user_id|@username> <message...>
+
+        ההודעה נשלחת ב-HTML עם עטיפת <pre> כדי לשמר רווחים ושורות.
+        """
+        caller_id = update.effective_user.id
+        if not self._is_admin(caller_id):
+            await update.message.reply_text("❌ פקודה זמינה רק למנהלים")
+            return
+
+        raw = (getattr(update.message, 'text', None) or '').strip()
+        # תמיכה ב-/dm@BotUserName
+        m = re.match(r"^/dm(?:@\S+)?\s+(\S+)\s+([\s\S]+)$", raw)
+        if not m:
+            await update.message.reply_text(
+                "📬 שימוש: /dm <user_id|@username> <message>\nדוגמה: /dm 123456 היי! קיבלת פרימיום 💎"
+            )
+            return
+
+        recipient_token = m.group(1).strip()
+        message_text = m.group(2)
+
+        # Resolve recipient
+        target_id: Optional[int] = None
+        if recipient_token.lstrip("-").isdigit():
+            try:
+                target_id = int(recipient_token)
+            except Exception:
+                target_id = None
+        else:
+            # username: strip leading @ and query DB
+            uname = recipient_token[1:] if recipient_token.startswith('@') else recipient_token
+            try:
+                if hasattr(db, 'db') and db.db is not None and hasattr(db.db, 'users'):
+                    # נסה התאמה מדויקת ואז lowercase
+                    doc = db.db.users.find_one({"username": uname}) or db.db.users.find_one({"username": uname.lower()})
+                    if doc and doc.get('user_id'):
+                        target_id = int(doc['user_id'])
+            except Exception:
+                target_id = None
+
+        if not target_id:
+            await update.message.reply_text("❌ נמענ/ת לא נמצא/ה. ספק/י user_id תקין או @username קיים.")
+            return
+
+        # HTML-safe with preserved whitespace/newlines
+        safe = "<pre>" + html.escape(message_text) + "</pre>"
+
+        try:
+            await context.bot.send_message(
+                chat_id=target_id,
+                text=safe,
+                parse_mode=ParseMode.HTML,
+                disable_web_page_preview=True,
+            )
+            await update.message.reply_text(f"✅ ההודעה נשלחה ל-{target_id} ({len(message_text)} תווים)")
+        except telegram.error.RetryAfter as e:
+            # המתן ונסה שוב פעם אחת
+            try:
+                await asyncio.sleep(float(getattr(e, 'retry_after', 1.0)) + 0.5)
+                await context.bot.send_message(
+                    chat_id=target_id,
+                    text=safe,
+                    parse_mode=ParseMode.HTML,
+                    disable_web_page_preview=True,
+                )
+                await update.message.reply_text(f"✅ ההודעה נשלחה ל-{target_id} לאחר המתנה (Rate Limit)")
+            except Exception as e2:
+                await update.message.reply_text(f"❌ שליחה נכשלה לאחר המתנה: {type(e2).__name__}")
+        except telegram.error.Forbidden:
+            # ייתכן שהמשתמש חסם את הבוט – נסמן ב-DB
+            try:
+                if hasattr(db, 'db') and db.db is not None and hasattr(db.db, 'users'):
+                    db.db.users.update_one({"user_id": target_id}, {"$set": {"blocked": True}})
+            except Exception:
+                pass
+            await update.message.reply_text("⚠️ לא ניתן לשלוח (המשתמש חסם את הבוט או בוטק). סומן כ-blocked.")
+        except Exception as e:
+            await update.message.reply_text(f"❌ שגיאה בשליחה: {type(e).__name__}")
     
     async def handle_callback_query(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """טיפול בלחיצות על כפתורים"""
