@@ -156,7 +156,8 @@ class CircuitBreaker:
         self.display_service = display_service
         self.display_endpoint = display_endpoint
         self.policy = policy
-        self._lock = threading.Lock()
+        # Use RLock so nested calls (success_rate inside _update_metrics) do not deadlock.
+        self._lock = threading.RLock()
         self._state = "closed"
         self._failure_count = 0
         self._success_during_half_open = 0
