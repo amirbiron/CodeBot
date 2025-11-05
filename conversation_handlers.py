@@ -908,7 +908,12 @@ async def community_inline_approve(update: Update, context: ContextTypes.DEFAULT
                 uid = doc.get('user_id')
                 if uid:
                     try:
-                        await context.bot.send_message(chat_id=int(uid), text="✅ בקשתך לספריית הקהילה אושרה! 🎉")
+                        base = _resolve_webapp_base_url() or DEFAULT_WEBAPP_URL
+                        msg = (
+                            "🎉 איזה כיף! הבקשה שלך אושרה ונוספה לספריית הקהילה.\n"
+                            f"אפשר לצפות כאן: {base}/community-library"
+                        )
+                        await context.bot.send_message(chat_id=int(uid), text=msg)
                     except Exception:
                         pass
         except Exception:
@@ -962,7 +967,12 @@ async def community_approve_command(update: Update, context: ContextTypes.DEFAUL
                     uid = doc.get('user_id')
                     if uid:
                         try:
-                            await context.bot.send_message(chat_id=int(uid), text="✅ בקשתך לספריית הקהילה אושרה! 🎉")
+                            base = _resolve_webapp_base_url() or DEFAULT_WEBAPP_URL
+                            msg = (
+                                "🎉 איזה כיף! הבקשה שלך אושרה ונוספה לספריית הקהילה.\n"
+                                f"אפשר לצפות כאן: {base}/community-library"
+                            )
+                            await context.bot.send_message(chat_id=int(uid), text=msg)
                         except Exception:
                             pass
             except Exception:
@@ -995,7 +1005,12 @@ async def community_reject_command(update: Update, context: ContextTypes.DEFAULT
             uid = doc.get('user_id')
             if uid:
                 try:
-                    await context.bot.send_message(chat_id=int(uid), text=f"❌ בקשתך נדחתה: {reason}")
+                    msg = (
+                        "🙂 תודה על ההגשה! כרגע הבקשה לא אושרה.\n"
+                        f"סיבה: {reason}\n"
+                        "נשמח לשינויים קטנים ולהגשה מחדש."
+                    )
+                    await context.bot.send_message(chat_id=int(uid), text=msg)
                 except Exception:
                     pass
     except Exception as e:
