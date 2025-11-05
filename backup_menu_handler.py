@@ -216,13 +216,18 @@ class BackupMenuHandler:
         if not cache:
             return backups
         existing_ids = {getattr(b, "backup_id", "") for b in backups}
+        if isinstance(cache, dict):
+            for bid in list(cache.keys()):
+                if bid in existing_ids:
+                    cache.pop(bid, None)
         extras: list[Any] = []
-        for bid in list(cache.keys()):
-            if bid in existing_ids:
-                continue
-            cached = self._get_cached_backup(context, user_id, bid)
-            if cached:
-                extras.append(cached)
+        if isinstance(cache, dict):
+            for bid in list(cache.keys()):
+                if bid in existing_ids:
+                    continue
+                cached = self._get_cached_backup(context, user_id, bid)
+                if cached:
+                    extras.append(cached)
         if extras:
             backups.extend(extras)
             try:

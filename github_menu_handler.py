@@ -275,12 +275,36 @@ class GitHubMenuHandler:
                 "file_count": file_count,
                 "total_size": total_size,
                 "created_at": created_at,
+                "backup_id": backup_id,
             }
             cache[backup_id] = entry
             while len(cache) > 10:
                 cache.pop(next(iter(cache)))
         except Exception:
             pass
+
+    def _resolve_backup_version(
+        self,
+        context: ContextTypes.DEFAULT_TYPE,
+        repo_full_name: Optional[str],
+        infos: list[Any],
+        backup_id: Optional[str],
+    ) -> int:
+        repo_backups = [b for b in infos if getattr(b, "repo", None) == repo_full_name]
+        count = len(repo_backups)
+        if backup_id:
+            for b in repo_backups:
+                if getattr(b, "backup_id", None) == backup_id:
+                    return max(1, count)
+            try:
+                cache = context.user_data.get("_recent_backups", {})
+                if isinstance(cache, dict):
+                    entry = cache.get(backup_id)
+                    if entry and entry.get("repo") == repo_full_name:
+                        return max(1, count + 1)
+            except Exception:
+                pass
+        return max(1, count + 1)
 
     async def show_browse_ref_menu(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """תפריט בחירת ref (ענף/תג) עם עימוד וטאבים."""
@@ -2425,16 +2449,29 @@ class GitHubMenuHandler:
                                 pass
                             raise
 
-                            self._cache_recent_backup(context, backup_id=metadata.get("backup_id"), repo_full_name=repo.full_name, path=current_path or "", file_count=file_count, total_size=total_bytes, created_at=metadata.get("created_at"))
+                        self._cache_recent_backup(
+                            context,
+                            backup_id=metadata.get("backup_id"),
+                            repo_full_name=repo.full_name,
+                            path=current_path or "",
+                            file_count=file_count,
+                            total_size=total_bytes,
+                            created_at=metadata.get("created_at"),
+                        )
 
                         # שם ידידותי ושליחה/קישור
                         try:
                             infos = backup_manager.list_backups(user_id)
-                            vcount = len([b for b in infos if getattr(b, 'repo', None) == repo.full_name])
                         except Exception:
-                            vcount = 1
+                            infos = []
+                        version_number = self._resolve_backup_version(
+                            context,
+                            repo.full_name,
+                            infos,
+                            metadata.get("backup_id"),
+                        )
                         date_str = _dt.now(_tz.utc).strftime('%d-%m-%y %H.%M')
-                        filename = f"BKP zip {repo.name} v{vcount} - {date_str}.zip"
+                        filename = f"BKP zip {repo.name} v{version_number} - {date_str}.zip"
                         caption = f"📦 ריפו מלא — {format_bytes(total_bytes)}.\n💾 נשמר ברשימת הגיבויים."
                         if not too_big_for_telegram and total_bytes <= MAX_ZIP_TOTAL_BYTES:
                             try:
@@ -2454,12 +2491,7 @@ class GitHubMenuHandler:
                         try:
                             backup_id = metadata.get("backup_id")
                             date_str2 = _dt.now(_tz.utc).strftime('%d/%m/%y %H:%M')
-                            try:
-                                infos = backup_manager.list_backups(user_id)
-                                vcount = len([b for b in infos if getattr(b, 'repo', None) == repo.full_name])
-                                v_text = f"(v{vcount}) " if vcount else ""
-                            except Exception:
-                                v_text = ""
+                            v_text = f"(v{version_number}) " if version_number else ""
                             summary_line = f"⬇️ backup zip {repo.name} – {date_str2} – {v_text}{format_bytes(total_bytes)}"
                             try:
                                 from database import db as _db
@@ -2627,12 +2659,17 @@ class GitHubMenuHandler:
                 # שם ידידותי ל-folder/repo
                 try:
                     infos = backup_manager.list_backups(user_id)
-                    vcount = len([b for b in infos if getattr(b, 'repo', None) == repo.full_name])
                 except Exception:
-                    vcount = 1
+                    infos = []
+                version_number = self._resolve_backup_version(
+                    context,
+                    repo.full_name,
+                    infos,
+                    metadata.get("backup_id"),
+                )
                 date_str = datetime.now(timezone.utc).strftime('%d-%m-%y %H.%M')
                 name_part = repo.name if not current_path else current_path.split('/')[-1]
-                filename = f"BKP zip {name_part} v{vcount} - {date_str}.zip"
+                filename = f"BKP zip {name_part} v{version_number} - {date_str}.zip"
                 zip_buffer.name = filename
                 caption = (
                     f"📦 קובץ ZIP לתיקייה: /{current_path or ''}\n"
@@ -2663,12 +2700,7 @@ class GitHubMenuHandler:
                 try:
                     backup_id = metadata.get("backup_id")
                     date_str = datetime.now(timezone.utc).strftime('%d/%m/%y %H:%M')
-                    try:
-                        infos = backup_manager.list_backups(user_id)
-                        vcount = len([b for b in infos if getattr(b, 'repo', None) == repo.full_name])
-                        v_text = f"(v{vcount}) " if vcount else ""
-                    except Exception:
-                        v_text = ""
+                    v_text = f"(v{version_number}) " if version_number else ""
                     summary_line = f"⬇️ backup zip {repo.name} – {date_str} – {v_text}{format_bytes(total_bytes)}"
                     try:
                         from database import db as _db
