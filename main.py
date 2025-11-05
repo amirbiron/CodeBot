@@ -2054,6 +2054,19 @@ class CodeKeeperBot:
 
         if document:
             size_limit_bytes = 20 * 1024 * 1024
+
+            if getattr(document, "file_size", None) is not None:
+                if document.file_size > 20 * 1024 * 1024:
+                    warning_text = (
+                        "❗️הקובץ גדול מדי.\n"
+                        "המגבלה להעלאת קבצים היא 20MB. נסה לכווץ או לחלק את הקובץ."
+                    )
+                    if message and hasattr(message, "reply_text"):
+                        await message.reply_text(warning_text)
+                    else:
+                        logger.warning("Document rejected: size exceeds 20MB limit")
+                    return
+
             file_size = getattr(document, "file_size", None)
 
             if file_size is None:
