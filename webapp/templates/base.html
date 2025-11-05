@@ -227,6 +227,17 @@
             padding: 2rem;
             margin-bottom: 2rem;
         }
+        /* Fallback: when backdrop-filter is unsupported, הימנע ממראה "לבן" על רקע סגול */
+        @supports not ((-webkit-backdrop-filter: blur(1px)) or (backdrop-filter: blur(1px))) {
+            .navbar,
+            .glass-card {
+                backdrop-filter: none !important;
+                -webkit-backdrop-filter: none !important;
+                background: rgba(30, 41, 59, 0.35) !important; /* כחול-אפור כהה שקוף */
+                border-color: rgba(255, 255, 255, 0.14) !important;
+                box-shadow: none !important;
+            }
+        }
         /* מניעת חיתוך כרטיסים בשוליים בכל המסכים (כולל RTL) */
         .main-content .glass-card,
         .main-content .feature-card,
