@@ -11,14 +11,14 @@
 
 .. code-block:: python
 
-   from main import CodeKeeperBot
+   from main import create_application
    from config import config
    
-   # יצירת מופע של הבוט
-   bot = CodeKeeperBot()
+   # יצירת אפליקציית הבוט
+   app = create_application(config.BOT_TOKEN)
    
    # הפעלת הבוט
-   bot.run()
+   app.run_polling()
 
 שמירת קוד חדש
 ~~~~~~~~~~~~~~
@@ -381,3 +381,42 @@ Retry Logic
        # חשב מחדש
        stats = await calculate_stats()
        await cache.set("user_stats_123", stats)
+
+שיתוף ציבורי דרך ה‑API (curl)
+------------------------------
+
+.. code-block:: sh
+
+   # יצירת שיתוף ציבורי זמני לקובץ נתון
+   curl -isS -X POST \
+     "https://<host>/api/share/<file_id>" \
+     -H 'Content-Type: application/json' \
+     -d '{}'
+
+   # יצירת שיתוף ציבורי קבוע (ללא תאריך תפוגה)
+   curl -isS -X POST \
+     "https://<host>/api/share/<file_id>" \
+     -H 'Content-Type: application/json' \
+     -d '{"type": "permanent"}'
+
+   # הפלט ישיב URL ציבורי, לדוגמה:
+   # {"share_url": "https://<host>/share/<share_id>"}
+
+דוגמת Markdown מתקדמת לתצוגה
+------------------------------
+
+.. code-block:: markdown
+
+   # דוגמה ל‑GFM + משימות
+   
+   - [x] פריט שבוצע
+   - [ ] פריט בהמתנה
+
+   ```mermaid
+   graph TD
+     A[Start] --> B{Decision}
+     B -->|Yes| C[Path 1]
+     B -->|No| D[Path 2]
+   ```
+
+   $$ E = mc^2 $$

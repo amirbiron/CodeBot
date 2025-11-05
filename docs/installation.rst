@@ -27,8 +27,8 @@
 
 .. code-block:: bash
 
-   git clone https://github.com/your-repo/code-keeper-bot.git
-   cd code-keeper-bot
+   git clone https://github.com/amirbiron/CodeBot.git
+   cd CodeBot
 
 2. התקן תלויות
 ~~~~~~~~~~~~~~
