@@ -190,6 +190,32 @@ async def test_handle_document_saves_large_file(handler_env):
 
 
 @pytest.mark.asyncio
+async def test_handle_document_records_activity_with_reporter(handler_env):
+    payload = ("#" * 5000).encode()
+    bot = _DummyBot(payload)
+    update, _ = _make_update({
+        "file_name": "activity.py",
+        "file_size": len(payload),
+        "file_id": "fid-activity",
+        "mime_type": "text/plain",
+    })
+    context = types.SimpleNamespace(bot=bot, user_data={}, bot_data={})
+
+    reports = []
+
+    class Reporter:
+        def report_activity(self, user_id):
+            reports.append(user_id)
+
+    handler_env["handler"]._get_reporter = lambda: Reporter()
+
+    await handler_env["handler"].handle_document(update, context)
+
+    assert reports == [1]
+    assert handler_env["db"].saved_large_files, "עדיין צריך לשמור כקובץ גדול"
+
+
+@pytest.mark.asyncio
 async def test_handle_document_collects_zip_items(handler_env):
     payload = b"sample"
     bot = _DummyBot(payload)
@@ -667,3 +693,171 @@ async def test_handle_document_zip_copy_failure_continues_processing(handler_env
     )
     assert any("❌" in msg for msg, _ in replies.messages)
 
+
+@pytest.mark.asyncio
+async def test_handle_document_github_restore_zip_with_purge(handler_env):
+    zip_bytes = io.BytesIO()
+    with zipfile.ZipFile(zip_bytes, "w") as zf:
+        zf.writestr("root/file.txt", "hello")
+    payload = zip_bytes.getvalue()
+
+    class FakeRepo:
+        def __init__(self):
+            self.default_branch = "main"
+            self.purged = False
+            self.edited = None
+
+        def get_git_ref(self, name):
+            class _Ref:
+                def __init__(self, outer):
+                    self.outer = outer
+                    self.object = types.SimpleNamespace(sha="base-sha")
+
+                def edit(self_inner, sha):
+                    self_inner.outer.edited = sha
+
+            return _Ref(self)
+
+        def get_git_commit(self, sha):
+            return types.SimpleNamespace(tree="base-tree", sha=sha)
+
+        def create_git_blob(self, data, encoding):
+            return types.SimpleNamespace(sha="blob-sha")
+
+        def create_git_tree(self, elements, base_tree=None):
+            if base_tree is None:
+                self.purged = True
+            return types.SimpleNamespace(sha="tree-sha")
+
+        def create_git_commit(self, message, tree, parents):
+            return types.SimpleNamespace(sha="new-sha")
+
+    repo_instance = FakeRepo()
+
+    class FakeGithub:
+        def __init__(self, token):
+            self.token = token
+
+        def get_repo(self, repo_full):
+            if repo_full == "owner/expected":
+                return repo_instance
+            raise Exception("fallback")
+
+    class FakeInputGitTreeElement:
+        def __init__(self, **kwargs):
+            self.kwargs = kwargs
+
+    originals = {
+        "github": sys.modules.get("github"),
+        "github.InputGitTreeElement": sys.modules.get("github.InputGitTreeElement"),
+    }
+    github_module = types.ModuleType("github")
+    github_module.Github = FakeGithub
+    github_igte_module = types.ModuleType("github.InputGitTreeElement")
+    github_igte_module.InputGitTreeElement = FakeInputGitTreeElement
+    sys.modules["github"] = github_module
+    sys.modules["github.InputGitTreeElement"] = github_igte_module
+
+    bot = _DummyBot(payload)
+    update, replies = _make_update({
+        "file_name": "repo.zip",
+        "file_size": len(payload),
+        "file_id": "fid-gh-restore-purge",
+        "mime_type": "application/zip",
+    })
+
+    class _GHHandler:
+        def __init__(self):
+            self.session = {"selected_repo": "owner/current"}
+
+        def get_user_session(self, user_id):
+            return self.session
+
+        def get_user_token(self, user_id):
+            return "token"
+
+    context = types.SimpleNamespace(
+        bot=bot,
+        user_data={
+            "upload_mode": "github_restore_zip_to_repo",
+            "github_restore_zip_purge": True,
+            "zip_restore_expected_repo_full": "owner/expected",
+        },
+        bot_data={"github_handler": _GHHandler()},
+    )
+
+    try:
+        await handler_env["handler"].handle_document(update, context)
+    finally:
+        for name, module in originals.items():
+            if module is None:
+                sys.modules.pop(name, None)
+            else:
+                sys.modules[name] = module
+
+    assert repo_instance.purged is True
+    assert repo_instance.edited == "new-sha"
+    assert any("⚠️" in msg for msg, _ in replies.messages)
+
+
+@pytest.mark.asyncio
+async def test_handle_document_github_restore_zip_repo_not_accessible(handler_env):
+    zip_bytes = io.BytesIO()
+    with zipfile.ZipFile(zip_bytes, "w") as zf:
+        zf.writestr("root/file.txt", "hello")
+    payload = zip_bytes.getvalue()
+
+    class FakeGithub:
+        def __init__(self, token):
+            self.token = token
+
+        def get_repo(self, repo_full):
+            raise Exception("not accessible")
+
+    class FakeInputGitTreeElement:
+        def __init__(self, **kwargs):
+            self.kwargs = kwargs
+
+    originals = {
+        "github": sys.modules.get("github"),
+        "github.InputGitTreeElement": sys.modules.get("github.InputGitTreeElement"),
+    }
+    github_module = types.ModuleType("github")
+    github_module.Github = FakeGithub
+    github_igte_module = types.ModuleType("github.InputGitTreeElement")
+    github_igte_module.InputGitTreeElement = FakeInputGitTreeElement
+    sys.modules["github"] = github_module
+    sys.modules["github.InputGitTreeElement"] = github_igte_module
+
+    bot = _DummyBot(payload)
+    update, replies = _make_update({
+        "file_name": "repo.zip",
+        "file_size": len(payload),
+        "file_id": "fid-gh-restore-error",
+        "mime_type": "application/zip",
+    })
+
+    class _GHHandler:
+        def get_user_session(self, user_id):
+            return {"selected_repo": "owner/repo"}
+
+        def get_user_token(self, user_id):
+            return "token"
+
+    context = types.SimpleNamespace(
+        bot=bot,
+        user_data={"upload_mode": "github_restore_zip_to_repo"},
+        bot_data={"github_handler": _GHHandler()},
+    )
+
+    try:
+        await handler_env["handler"].handle_document(update, context)
+    finally:
+        for name, module in originals.items():
+            if module is None:
+                sys.modules.pop(name, None)
+            else:
+                sys.modules[name] = module
+
+    assert any("❌" in msg for msg, _ in replies.messages)
+    assert context.user_data.get("upload_mode") is None
