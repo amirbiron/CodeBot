@@ -920,14 +920,14 @@ class GoogleDriveMenuHandler:
                     try:
                         now_dt = datetime.now(timezone.utc)
                         now_iso = now_dt.isoformat()
-                        update = {"last_backup_at": now_iso, "last_full_backup_at": now_iso}
+                        prefs_update = {"last_backup_at": now_iso, "last_full_backup_at": now_iso}
                         prefs = db.get_drive_prefs(user_id) or {}
                         key = prefs.get("schedule")
                         if key:
                             seconds = self._interval_seconds(str(key))
                             next_dt = now_dt + timedelta(seconds=seconds)
-                            update["schedule_next_at"] = next_dt.isoformat()
-                        db.save_drive_prefs(user_id, update)
+                            prefs_update["schedule_next_at"] = next_dt.isoformat()
+                        db.save_drive_prefs(user_id, prefs_update)
                         if key:
                             await self._ensure_schedule_job(context, user_id, str(key))
                     except Exception:
