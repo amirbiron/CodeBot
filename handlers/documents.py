@@ -12,7 +12,7 @@ import time
 import zipfile
 from datetime import datetime, timezone
 from io import BytesIO
-from typing import Awaitable, Callable, List, Optional, Sequence
+from typing import Awaitable, Callable, List, Optional, Protocol, Sequence
 
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.constants import ParseMode
@@ -26,17 +26,28 @@ from html import escape as html_escape
 logger = logging.getLogger(__name__)
 
 
+class _ReporterProto(Protocol):
+    """Protocol for activity reporter."""
+    def report_activity(self, user_id: int) -> None: ...
+
+
+class _MetricProto(Protocol):
+    """Protocol for Prometheus Counter metric."""
+    def labels(self, **labelkwargs) -> _MetricProto: ...
+    def inc(self, amount: float = 1) -> None: ...
+
+
 class DocumentHandler:
     """אחראי על טיפול בכל המסלולים של קבצים שמגיעים לבוט."""
 
     def __init__(
         self,
         notify_admins: Callable[[ContextTypes.DEFAULT_TYPE, str], Awaitable[None]],
-        get_reporter: Callable[[], Optional[object]],
+        get_reporter: Callable[[], Optional[_ReporterProto]],
         log_user_activity: Callable[[Update, ContextTypes.DEFAULT_TYPE], Awaitable[None]],
         encodings_to_try: Sequence[str],
         emit_event: Callable[..., object] | None,
-        errors_total: object | None,
+        errors_total: Optional[_MetricProto],
     ) -> None:
         self._notify_admins = notify_admins
         self._get_reporter = get_reporter
