@@ -170,9 +170,9 @@ class BackupMenuHandler:
         data = cache.get(backup_id)
         if not data:
             return None
-        file_path = data.get("file_path")
-        if not file_path or not os.path.exists(file_path):
-            return None
+        # ייתכן שהקובץ המקומי עדיין לא נוצר (בייחוד כשהאחסון הוא GridFS והעותק המקומי נשלף לפי דרישה).
+        # אל תכשיל תצוגת פרטי הגיבוי — נוודא קיום קובץ רק בעת הורדה בפועל.
+        file_path = data.get("file_path") or ""
         created_at_raw = data.get("created_at")
         created_at_dt: datetime
         if isinstance(created_at_raw, datetime):
@@ -517,7 +517,9 @@ class BackupMenuHandler:
                         filtered.append(b)
                 except Exception:
                     continue
-            backups = filtered
+            # אם הסינון לפי ריפו מחזיר רשימה ריקה, הצג את כל הגיבויים כדי למנוע תחושת "הכול נעלם".
+            if filtered:
+                backups = filtered
         backups = self._merge_cached_backups(context, user_id, backups)
         if not backups:
             # קבע יעד חזרה: ל"📚" אם זה המקור, אחרת לתפריט הגיבוי של GitHub אם יש הקשר, אחרת לתפריט הגיבוי הכללי
