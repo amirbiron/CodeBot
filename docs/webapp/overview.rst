@@ -33,9 +33,9 @@
 ראו גם
 ------
 
-- :doc:`user/bookmarks`
-- :doc:`user/my_collections`
-- :doc:`user/sticky_notes`
-- :doc:`webapp/bulk-actions`
-- :doc:`webapp/editor`
+- :doc:`/user/bookmarks`
+- :doc:`/user/my_collections`
+- :doc:`/user/sticky_notes`
+- :doc:`/webapp/bulk-actions`
+- :doc:`/webapp/editor`
 
