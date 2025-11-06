@@ -1335,7 +1335,7 @@ class AdvancedBotHandlers:
         """
         try:
             # Admins only handled by decorator; parse args
-            args = context.args or []
+            args = list(getattr(context, "args", []) or [])
             if len(args) < 2:
                 await update.message.reply_text("ℹ️ שימוש: /silence <name|pattern> <duration> [reason...] [severity=<level>] [--force]")
                 return
@@ -1421,7 +1421,7 @@ class AdvancedBotHandlers:
     async def unsilence_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """/unsilence <id|pattern> – disable active silence(s)."""
         try:
-            args = context.args or []
+            args = list(getattr(context, "args", []) or [])
             if not args:
                 await update.message.reply_text("ℹ️ שימוש: /unsilence <id|pattern>")
                 return
@@ -1522,7 +1522,7 @@ class AdvancedBotHandlers:
                 await update.message.reply_text("❌ פקודה זמינה למנהלים בלבד")
                 return
 
-            args = context.args or []
+            args = list(getattr(context, "args", []) or [])
 
             # Helper: build Sentry query link for a given error_signature
             def _sentry_query_link(signature: str) -> Optional[str]:
