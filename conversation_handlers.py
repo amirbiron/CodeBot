@@ -1225,7 +1225,8 @@ async def snippet_reject_start(update: Update, context: ContextTypes.DEFAULT_TYP
 
 
 async def snippet_collect_reject_reason(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    reason = (update.message.text or '').strip()
+    reason_text = (update.message.text or '').strip()
+    reason = reason_text if reason_text else None
     item_id = str(context.user_data.get('sn_reject_id') or '')
     if not item_id:
         await _maybe_await(update.message.reply_text("❌ מזהה לא תקין"))
@@ -1233,7 +1234,7 @@ async def snippet_collect_reject_reason(update: Update, context: ContextTypes.DE
     ok = False
     try:
         from services.snippet_library_service import reject_snippet as _reject
-        ok = _reject(item_id, int(update.effective_user.id), reason or 'rejected')
+        ok = _reject(item_id, int(update.effective_user.id), reason)
     except Exception:
         ok = False
     await _maybe_await(update.message.reply_text("🛑 נדחה" if ok else "❌ כשל בדחייה"))
