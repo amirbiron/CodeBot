@@ -509,7 +509,7 @@ try:
         record_dependency_init,
      )
 except Exception:  # pragma: no cover
-    def record_request_outcome(status_code: int, duration_seconds: float) -> None:
+    def record_request_outcome(status_code: int, duration_seconds: float, **_kwargs) -> None:
         return None
     def record_http_request(method: str, endpoint: str, status_code: int, duration_seconds: float) -> None:
         return None
@@ -1413,6 +1413,7 @@ def _add_request_id_header(resp):
 def _metrics_start_timer():  # minimal, best-effort
     try:
         request._metrics_start = _time.perf_counter( )
+        setattr(g, "_otel_cache_hit", None)
     except Exception:
         pass
 
@@ -1424,10 +1425,18 @@ def _metrics_after(resp):
         if start:
             dur = max(0.0, float(_time.perf_counter() - start))
             status = int(getattr(resp, "status_code", 0) or 0)
-            record_request_outcome(status, dur)
+            endpoint = getattr(request, "endpoint", None)
+            handler_label = endpoint or getattr(request, "path", "")
+            cache_flag = getattr(g, "_otel_cache_hit", None)
+            record_request_outcome(
+                status,
+                dur,
+                source="webapp",
+                handler=handler_label,
+                cache_hit=cache_flag,
+            )
             try:
                 method = getattr(request, "method", "GET")
-                endpoint = getattr(request, "endpoint", None)
                 record_http_request(method, endpoint, status, dur)
             except Exception:
                 pass

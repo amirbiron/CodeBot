@@ -62,12 +62,50 @@
       ],
       "gridPos": {"h": 8, "w": 24, "x": 0, "y": 28}
     },
-    {
-      "type": "timeseries",
-      "title": "Telegram updates (received)",
-      "targets": [{"expr": "rate(telegram_updates_total{status=\"received\"}[1m])"}],
-      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 36}
-    }
+      {
+        "type": "timeseries",
+        "title": "Telegram updates (received)",
+        "targets": [{"expr": "rate(telegram_updates_total{status=\"received\"}[1m])"}],
+        "gridPos": {"h": 8, "w": 12, "x": 0, "y": 36}
+      },
+      {
+        "type": "stat",
+        "title": "Handler Requests/sec",
+        "targets": [{"expr": "sum(rate(codebot_handler_requests_total[1m]))"}],
+        "gridPos": {"h": 4, "w": 6, "x": 12, "y": 36},
+        "fieldConfig": {
+          "defaults": {
+            "unit": "ops",
+            "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "red", "value": 100}]}
+          }
+        }
+      },
+      {
+        "type": "timeseries",
+        "title": "Handler P95 Latency",
+        "targets": [{"expr": "histogram_quantile(0.95, sum by (handler, le) (rate(codebot_handler_latency_seconds_bucket[5m])))"}],
+        "gridPos": {"h": 8, "w": 24, "x": 0, "y": 44},
+        "fieldConfig": {"defaults": {"unit": "s"}}
+      },
+      {
+        "type": "timeseries",
+        "title": "Command Requests/sec",
+        "targets": [{"expr": "sum by (command) (rate(codebot_command_requests_total[5m]))"}],
+        "gridPos": {"h": 8, "w": 24, "x": 0, "y": 52}
+      },
+      {
+        "type": "timeseries",
+        "title": "Command P95 Latency",
+        "targets": [{"expr": "histogram_quantile(0.95, sum by (command, le) (rate(codebot_command_latency_seconds_bucket[5m])))"}],
+        "gridPos": {"h": 8, "w": 24, "x": 0, "y": 60},
+        "fieldConfig": {"defaults": {"unit": "s"}}
+      },
+      {
+        "type": "timeseries",
+        "title": "DB Operations/sec",
+        "targets": [{"expr": "sum by (operation) (rate(codebot_db_requests_total[5m]))"}],
+        "gridPos": {"h": 8, "w": 24, "x": 0, "y": 68}
+      }
   ],
   "schemaVersion": 36,
   "style": "dark",

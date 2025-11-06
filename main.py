@@ -9,6 +9,7 @@ from __future__ import annotations
 # הגדרות מתקדמות
 import os
 import functools
+import inspect
 import logging
 import asyncio
 from datetime import datetime
@@ -86,6 +87,7 @@ from metrics import (
     track_search_performed,
     track_performance,
     errors_total,
+    record_request_outcome,
 )
 from rate_limiter import RateLimiter
 try:
@@ -192,6 +194,226 @@ except Exception:
     pass
 
 logger = logging.getLogger(__name__)
+
+
+def _command_label_from_handler(handler) -> str:
+    """הפקת שם פקודה ידידותי למדדים מתוך CommandHandler."""
+    try:
+        commands = list(getattr(handler, "commands", []) or [])
+    except Exception:
+        commands = []
+    if commands:
+        name = sorted(str(cmd).lstrip('/') for cmd in commands if cmd)[:1]
+        if name:
+            return f"/{name[0]}"
+    try:
+        base = getattr(handler.callback, "__name__", "")
+    except Exception:
+        base = ""
+    base = (base or "command").lstrip('_')
+    return f"/{base}" if not base.startswith('/') else base
+
+
+def _wrap_command_callback(callback, command_label: str):
+    if getattr(callback, "_metrics_wrapped", False):
+        return callback
+
+    if inspect.iscoroutinefunction(callback):
+        async def _wrapped(update, context, *args, __orig=callback):
+            start = time.perf_counter()
+            status_code = 200
+            status_label = "ok"
+            try:
+                return await __orig(update, context, *args)
+            except ApplicationHandlerStop:
+                status_code = 499
+                status_label = "cancelled"
+                raise
+            except Exception:
+                status_code = 500
+                status_label = "error"
+                raise
+            finally:
+                try:
+                    record_request_outcome(
+                        status_code,
+                        max(0.0, time.perf_counter() - start),
+                        source="telegram",
+                        command=command_label,
+                        cache_hit=None,
+                        status_label=status_label,
+                    )
+                except Exception:
+                    pass
+        _wrapped._metrics_wrapped = True  # type: ignore[attr-defined]
+        try:
+            _wrapped.__name__ = getattr(callback, "__name__", "wrapped_command")
+        except Exception:
+            pass
+        return _wrapped
+
+    def _wrapped_sync(update, context, *args, __orig=callback):
+        start = time.perf_counter()
+        status_code = 200
+        status_label = "ok"
+        try:
+            return __orig(update, context, *args)
+        except ApplicationHandlerStop:
+            status_code = 499
+            status_label = "cancelled"
+            raise
+        except Exception:
+            status_code = 500
+            status_label = "error"
+            raise
+        finally:
+            try:
+                record_request_outcome(
+                    status_code,
+                    max(0.0, time.perf_counter() - start),
+                    source="telegram",
+                    command=command_label,
+                    cache_hit=None,
+                    status_label=status_label,
+                )
+            except Exception:
+                pass
+
+    _wrapped_sync._metrics_wrapped = True  # type: ignore[attr-defined]
+    return _wrapped_sync
+
+
+def _instrument_command_handlers(application) -> None:
+    from telegram.ext import CommandHandler as _CommandHandler  # local import to avoid cycles
+
+    try:
+        handlers = list(getattr(application, "handlers", []) or [])
+    except Exception:
+        return
+
+    for handler in handlers:
+        if not isinstance(handler, _CommandHandler):
+            continue
+        try:
+            callback = handler.callback
+        except Exception:
+            continue
+        if getattr(callback, "_metrics_wrapped", False):
+            continue
+        label = _command_label_from_handler(handler)
+        wrapped = _wrap_command_callback(callback, label)
+        try:
+            handler.callback = wrapped
+        except Exception:
+            pass
+
+
+def _wrap_github_callback(callback):
+    if getattr(callback, "_metrics_wrapped", False):
+        return callback
+
+    async def _wrapped(update, context, *args, __orig=callback):
+        query = getattr(update, "callback_query", None)
+        raw = str(getattr(query, "data", "") or "")
+        action = (raw.split(":", 1)[0] or "unknown").strip() or "unknown"
+        start = time.perf_counter()
+        status_code = 200
+        status_label = "ok"
+        try:
+            return await __orig(update, context, *args)
+        except ApplicationHandlerStop:
+            status_code = 499
+            status_label = "cancelled"
+            raise
+        except Exception:
+            status_code = 500
+            status_label = "error"
+            raise
+        finally:
+            try:
+                record_request_outcome(
+                    status_code,
+                    max(0.0, time.perf_counter() - start),
+                    source="telegram",
+                    handler=f"github:{action}",
+                    cache_hit=None,
+                    status_label=status_label,
+                )
+            except Exception:
+                pass
+
+    _wrapped._metrics_wrapped = True  # type: ignore[attr-defined]
+    try:
+        _wrapped.__name__ = getattr(callback, "__name__", "github_callback")
+    except Exception:
+        pass
+    return _wrapped
+
+
+def _wrap_handler_callback(callback, handler_label: str):
+    if getattr(callback, "_metrics_wrapped", False):
+        return callback
+
+    if inspect.iscoroutinefunction(callback):
+        async def _wrapped(update, context, *args, __orig=callback):
+            start = time.perf_counter()
+            status_code = 200
+            status_label = "ok"
+            try:
+                return await __orig(update, context, *args)
+            except ApplicationHandlerStop:
+                status_code = 499
+                status_label = "cancelled"
+                raise
+            except Exception:
+                status_code = 500
+                status_label = "error"
+                raise
+            finally:
+                try:
+                    record_request_outcome(
+                        status_code,
+                        max(0.0, time.perf_counter() - start),
+                        source="telegram",
+                        handler=handler_label,
+                        cache_hit=None,
+                        status_label=status_label,
+                    )
+                except Exception:
+                    pass
+        _wrapped._metrics_wrapped = True  # type: ignore[attr-defined]
+        return _wrapped
+
+    def _wrapped_sync(update, context, *args, __orig=callback):
+        start = time.perf_counter()
+        status_code = 200
+        status_label = "ok"
+        try:
+            return __orig(update, context, *args)
+        except ApplicationHandlerStop:
+            status_code = 499
+            status_label = "cancelled"
+            raise
+        except Exception:
+            status_code = 500
+            status_label = "error"
+            raise
+        finally:
+            try:
+                record_request_outcome(
+                    status_code,
+                    max(0.0, time.perf_counter() - start),
+                    source="telegram",
+                    handler=handler_label,
+                    cache_hit=None,
+                    status_label=status_label,
+                )
+            except Exception:
+                pass
+
+    _wrapped_sync._metrics_wrapped = True  # type:ignore[attr-defined]
+    return _wrapped_sync
+
 
 def _redis_socket_available(redis_url: str, timeout: float = 0.25) -> bool:
     """
@@ -1510,6 +1732,18 @@ class CodeKeeperBot:
         # --- GitHub handlers - חייבים להיות לפני ה-handler הגלובלי! ---
         # יצירת instance יחיד של GitHubMenuHandler ושמירה ב-bot_data
         github_handler = GitHubMenuHandler()
+        try:
+            github_handler.handle_menu_callback = _wrap_github_callback(github_handler.handle_menu_callback)
+        except Exception:
+            pass
+        try:
+            github_handler.handle_text_input = _wrap_handler_callback(github_handler.handle_text_input, "github:text_input")
+        except Exception:
+            pass
+        try:
+            github_handler.handle_file_upload = _wrap_handler_callback(github_handler.handle_file_upload, "github:file_upload")
+        except Exception:
+            pass
         self.application.bot_data['github_handler'] = github_handler
         logger.info("✅ GitHubMenuHandler instance created and stored in bot_data")
         try:
@@ -1639,7 +1873,7 @@ class CodeKeeperBot:
                 logger.info(f"🔗 Routing GitHub-related text input from user {update.effective_user.id}")
                 return await github_handler.handle_text_input(update, context)
             return False
-        
+
         # הוסף את ה-handler עם עדיפות גבוהה
         self.application.add_handler(
             MessageHandler(filters.TEXT & ~filters.COMMAND, handle_github_text),
@@ -1654,9 +1888,9 @@ class CodeKeeperBot:
             group=-1
         )
 
-        
+
         logger.info("✅ GitHub handler נוסף בהצלחה")
-        
+
         # Handler נפרד לטיפול בטוקן GitHub
         async def handle_github_token(update: Update, context: ContextTypes.DEFAULT_TYPE):
             text = update.message.text
@@ -1666,17 +1900,17 @@ class CodeKeeperBot:
                     github_handler.user_sessions[user_id] = {}
                 # שמירה בזיכרון בלבד לשימוש שוטף
                 github_handler.user_sessions[user_id]['github_token'] = text
-                
+
                 # שמור גם במסד נתונים (עם הצפנה אם מוגדר מפתח)
                 db.save_github_token(user_id, text)
-                
+
                 await update.message.reply_text(
                     "✅ טוקן נשמר בהצלחה!\n"
                     "כעת תוכל לגשת לריפוזיטוריז הפרטיים שלך.\n\n"
                     "שלח /github כדי לחזור לתפריט."
                 )
                 return
-        
+
         # הוסף את ה-handler
         self.application.add_handler(
             MessageHandler(filters.Regex('^(ghp_|github_pat_)'), handle_github_token),
@@ -1789,6 +2023,11 @@ class CodeKeeperBot:
         from conversation_handlers import handle_callback_query
         _register_catch_all_callback(self.application, handle_callback_query)
 
+        try:
+            _instrument_command_handlers(self.application)
+        except Exception:
+            pass
+
         # ספור סופי
         final_handler_count = len(self.application.handlers)
         logger.info(f"🔍 כמות handlers סופית: {final_handler_count}")
@@ -1899,6 +2138,11 @@ class CodeKeeperBot:
             MessageHandler(filters.TEXT & ~filters.COMMAND, self.handle_text_message)
         )
         
+        try:
+            _instrument_command_handlers(self.application)
+        except Exception:
+            pass
+
         # --- שלב 5: טיפול בשגיאות ---
         self.application.add_error_handler(self.error_handler)
     
