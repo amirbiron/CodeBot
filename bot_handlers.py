@@ -1283,11 +1283,16 @@ class AdvancedBotHandlers:
                 await update.message.reply_text("❌ פקודה זמינה למנהלים בלבד")
                 return
             try:
-                from predictive_engine import evaluate_predictions  # type: ignore
+                from predictive_engine import evaluate_predictions, note_observation  # type: ignore
             except Exception:
                 await update.message.reply_text("ℹ️ מנוע חיזוי אינו זמין בסביבה זו")
                 return
             horizon = 3 * 60 * 60  # 3h
+            # Ensure we have a fresh observation snapshot before evaluating
+            try:
+                note_observation()
+            except Exception:
+                pass
             trends = evaluate_predictions(horizon_seconds=horizon) or []
             if not trends:
                 await update.message.reply_text("🔮 אין נתונים מספיקים לחיזוי כרגע")
