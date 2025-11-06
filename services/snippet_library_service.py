@@ -47,7 +47,7 @@ def submit_snippet(
     lang_s = _sanitize_text(language, 40)
     if len(title_s) < 3:
         return {"ok": False, "error": "הכותרת חייבת להיות 3..180 תווים"}
-    if len(desc_s) < 5:
+    if len(desc_s) < 4:
         return {"ok": False, "error": "התיאור קצר מדי"}
     if not code or not str(code).strip():
         return {"ok": False, "error": "נדרש קוד עבור הסניפט"}
