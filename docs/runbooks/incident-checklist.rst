@@ -12,6 +12,12 @@ Incident Checklist (On‑Call)
 4. אספו ``request_id`` וריצו ``/triage <request_id>`` לקבלת קישורי Grafana/Sentry.
 5. אם יש 429 משירות חיצוני – שקלו הגדלת ``CIRCUIT_BREAKER_RECOVERY_SECONDS`` זמנית.
 
+סטטוסי מעקב אחידים
+--------------------
+- ``2xx``: הצלחה. בדקו חריגות בהיקף/לטנציה בלבד.
+- ``cancelled``: בוטל ע"י משתמש/זרימה (ללא כשל). בדקו אם הביטול צפוי.
+- ``error``/``5xx``: כשל. פעלו לפי הטקסונומיה/``policy`` ובדקו Top Signatures.
+
 קישורים
 -------
 - :doc:`/observability/log_based_alerts`
