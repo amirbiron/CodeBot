@@ -1634,17 +1634,16 @@ class AdvancedBotHandlers:
                     grouped: dict[str, dict[str, Any]] = {}
                     for er in recent:
                         ts_raw = er.get("ts") or er.get("timestamp") or ""
-                        ts = _parse_ts(ts_raw)
-                        if ts is None:
-                            ts = now
+                        ts_parsed = _parse_ts(ts_raw)
+                        error_ts: datetime = ts_parsed if ts_parsed is not None else now
                         try:
-                            if ts.tzinfo is None:
-                                ts = ts.replace(tzinfo=timezone.utc)
+                            if error_ts.tzinfo is None:
+                                error_ts = error_ts.replace(tzinfo=timezone.utc)
                             else:
-                                ts = ts.astimezone(timezone.utc)
+                                error_ts = error_ts.astimezone(timezone.utc)
                         except Exception:
-                            ts = now
-                        if ts < start:
+                            error_ts = now
+                        if error_ts < start:
                             continue
                         signature = str(er.get("error_signature") or er.get("event") or "unknown")
                         bucket = grouped.setdefault(signature, {
