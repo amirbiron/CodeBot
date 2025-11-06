@@ -1341,6 +1341,7 @@ class AdvancedBotHandlers:
         try:
             # Admins only handled by decorator; parse args
             args = list(getattr(context, "args", []) or [])
+            # (no additional args parsing here)
             if len(args) < 2:
                 await update.message.reply_text("ℹ️ שימוש: /silence <name|pattern> <duration> [reason...] [severity=<level>] [--force]")
                 return
@@ -1528,6 +1529,24 @@ class AdvancedBotHandlers:
                 return
 
             args = list(getattr(context, "args", []) or [])
+            # Optional filters: service=..., endpoint=...
+            svc_filter = None
+            ep_filter = None
+            try:
+                for tok in args:
+                    t = str(tok or "").strip()
+                    if "=" not in t:
+                        continue
+                    k, v = t.split("=", 1)
+                    key = (k or "").strip().lower()
+                    val = (v or "").strip()
+                    if key == "service" and val:
+                        svc_filter = val
+                    elif key == "endpoint" and val:
+                        ep_filter = val
+            except Exception:
+                svc_filter = svc_filter or None
+                ep_filter = ep_filter or None
 
             # Helper: build Sentry query link for a given error_signature
             def _sentry_query_link(signature: str) -> Optional[str]:
