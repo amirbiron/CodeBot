@@ -368,6 +368,7 @@ class Repository:
                     results_out: List[Dict[str, Any]] = []
                     for d in items:
                         results_out.append({
+                            '_id': d.get('_id'),
                             'file_name': d.get('file_name'),
                             'programming_language': d.get('programming_language'),
                             'tags': d.get('tags'),
@@ -398,7 +399,7 @@ class Repository:
                 {"$replaceRoot": {"newRoot": "$latest"}},
                 {"$sort": {sort_key: sort_dir}},
                 {"$limit": max(1, int(limit or 50))},
-                {"$project": {"_id": 0, "file_name": 1, "programming_language": 1, "tags": 1, "description": 1, "favorited_at": 1, "updated_at": 1, "code": 1}},
+                {"$project": {"_id": "$_id", "file_name": 1, "programming_language": 1, "tags": 1, "description": 1, "favorited_at": 1, "updated_at": 1, "code": 1}},
             ]
             rows = list(self.manager.collection.aggregate(pipeline, allowDiskUse=True))
             if rows:
@@ -440,6 +441,7 @@ class Repository:
                     results_out: List[Dict[str, Any]] = []
                     for d in items:
                         results_out.append({
+                            '_id': d.get('_id'),
                             'file_name': d.get('file_name'),
                             'programming_language': d.get('programming_language'),
                             'tags': d.get('tags'),

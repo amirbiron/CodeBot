@@ -57,10 +57,16 @@ class _DBWithItems:
             items.append({"file_name": f"f{i}.py", "programming_language": "python", "_id": f"id-{i}"})
         return items
 
+
+def _make_db_module(db_impl):
+    fake_manager_cls = type('DatabaseManager', (), {})
+    return types.SimpleNamespace(db=db_impl, DatabaseManager=fake_manager_cls)
+
+
 @pytest.mark.asyncio
 async def test_show_favorites_callback_empty_list(monkeypatch):
     # Provide fake database module so `from database import db` works at call time
-    fake_db_mod = types.SimpleNamespace(db=_DBEmpty())
+    fake_db_mod = _make_db_module(_DBEmpty())
     monkeypatch.setitem(sys.modules, 'database', fake_db_mod)
     
     import conversation_handlers as ch
@@ -82,7 +88,7 @@ async def test_show_favorites_callback_empty_list(monkeypatch):
 @pytest.mark.asyncio
 async def test_show_favorites_callback_with_items_and_pagination(monkeypatch):
     # Fake database returns multiple items
-    fake_db_mod = types.SimpleNamespace(db=_DBWithItems(n=12))
+    fake_db_mod = _make_db_module(_DBWithItems(n=12))
     monkeypatch.setitem(sys.modules, 'database', fake_db_mod)
 
     # Fake handlers.pagination.build_pagination_row
@@ -117,10 +123,11 @@ async def test_show_favorites_callback_with_items_and_pagination(monkeypatch):
     assert ctx.user_data.get('files_origin', {}).get('type') == 'favorites'
     assert ctx.user_data.get('files_last_page') == 1
     assert ctx.user_data.get('files_cache'), "files_cache should be populated"
+    assert ctx.user_data['files_cache']['0'].get('_id') == 'id-0'
 
 @pytest.mark.asyncio
 async def test_show_favorites_page_callback_next_page(monkeypatch):
-    fake_db_mod = types.SimpleNamespace(db=_DBWithItems(n=12))
+    fake_db_mod = _make_db_module(_DBWithItems(n=12))
     monkeypatch.setitem(sys.modules, 'database', fake_db_mod)
 
     handlers_mod = types.ModuleType('handlers')

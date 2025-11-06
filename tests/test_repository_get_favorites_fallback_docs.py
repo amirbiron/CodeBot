@@ -40,6 +40,7 @@ def test_get_favorites_fallback_docs_is_used(repo):
     repo.manager.collection.insert_one({'_id': 'fa-3', 'user_id': 42, 'file_name': 'old.py', 'version': 1, 'programming_language': 'python', 'is_favorite': False})
 
     favs = repo.get_favorites(42, sort_by='name')
+    assert all('_id' in f and f['_id'] for f in favs)
     names = [f['file_name'] for f in favs]
     assert set(names) == {'fav1.py', 'fav2.js'}
 
