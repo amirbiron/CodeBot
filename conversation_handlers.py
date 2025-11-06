@@ -2,6 +2,7 @@ import logging
 import os
 import re
 import asyncio
+import inspect
 import hashlib
 import secrets
 import time
@@ -222,6 +223,12 @@ async def _safe_edit_message_text(query, text: str, reply_markup=None, parse_mod
             return
         raise
 
+
+async def _maybe_await(result):
+    if inspect.isawaitable(result):
+        return await result
+    return result
+
 def _truncate_middle(text: str, max_len: int) -> str:
     """מקצר מחרוזת באמצע עם אליפסיס אם חורגת מאורך נתון."""
     if max_len <= 0:
@@ -365,7 +372,7 @@ async def community_catalog_menu(update: Update, context: ContextTypes.DEFAULT_T
         [InlineKeyboardButton("➕ הוסף מוצר משלך", callback_data="community_submit")],
         [InlineKeyboardButton("↩️ חזרה", callback_data="files")],
     ]
-    await _safe_edit_message_text(query, "📳 ממשקי משתמשים", InlineKeyboardMarkup(keyboard))
+    await _maybe_await(_safe_edit_message_text(query, "📳 ממשקי משתמשים", InlineKeyboardMarkup(keyboard)))
     return ConversationHandler.END
 
 
@@ -379,7 +386,7 @@ async def snippets_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
         [InlineKeyboardButton("➕ הוסף סניפט משלך", callback_data="snippet_submit")],
         [InlineKeyboardButton("↩️ חזרה", callback_data="files")],
     ]
-    await _safe_edit_message_text(query, "📃 ספריית סניפטים", InlineKeyboardMarkup(keyboard))
+    await _maybe_await(_safe_edit_message_text(query, "📃 ספריית סניפטים", InlineKeyboardMarkup(keyboard)))
     return ConversationHandler.END
 
 HELP_PAGES = [
@@ -1090,11 +1097,11 @@ async def snippet_submit_start(update: Update, context: ContextTypes.DEFAULT_TYP
     query = update.callback_query
     await TelegramUtils.safe_answer(query)
     context.user_data['sn_item'] = {}
-    await _safe_edit_message_text(
+    await _maybe_await(_safe_edit_message_text(
         query,
         "🧩 נתחיל בהוספת סניפט\n\nשלח/י כותרת (3–180 תווים)",
         InlineKeyboardMarkup([[InlineKeyboardButton("❌ ביטול", callback_data="files")]])
-    )
+    ))
     return SN_COLLECT_TITLE
 
 
@@ -1190,12 +1197,12 @@ async def snippet_inline_approve(update: Update, context: ContextTypes.DEFAULT_T
             ok = _approve(item_id, int(update.effective_user.id))
         except Exception:
             ok = False
-        await _safe_edit_message_text(query, "עודכן." if ok else "שגיאה.")
+        await _maybe_await(_safe_edit_message_text(query, "עודכן." if ok else "שגיאה."))
         return ConversationHandler.END
     if action == 'snippet_reject':
         # עבור לדיאלוג איסוף סיבת דחייה
         context.user_data['sn_reject_id'] = item_id
-        await _safe_edit_message_text(query, "נא לציין סיבת דחייה לסניפט זה:" )
+        await _maybe_await(_safe_edit_message_text(query, "נא לציין סיבת דחייה לסניפט זה:"))
         return SN_REJECT_REASON
     return ConversationHandler.END
 
@@ -1210,7 +1217,7 @@ async def snippet_reject_start(update: Update, context: ContextTypes.DEFAULT_TYP
     except ValueError:
         return ConversationHandler.END
     context.user_data['sn_reject_id'] = item_id
-    await _safe_edit_message_text(query, "נא לציין סיבת דחייה לסניפט זה:")
+    await _maybe_await(_safe_edit_message_text(query, "נא לציין סיבת דחייה לסניפט זה:"))
     return SN_REJECT_REASON
 
 
