@@ -209,6 +209,20 @@ Troubleshooting
 .. note::
    צילום מסך יתווסף בהמשך ב‑``docs/_static/``.
 
+פלט לדוגמה (Placeholder)
+~~~~~~~~~~~~~~~~~~~~~~~~~
+
+.. code-block:: text
+
+   🔥 Top error signatures (window=30m)
+   1) NET_RESET (network_db, policy=retry) — count=12
+      [📄 דוגמאות] [🔎 Sentry]
+   2) TYPE_ERROR (app_runtime, policy=notify) — count=7
+      [📄 דוגמאות] [🔎 Sentry]
+   3) OOM (critical, policy=escalate) — count=2
+      [📄 דוגמאות] [🔎 Sentry]
+
+
 קריאת המשך – ``classify_error()``
 ---------------------------------
 הפונקציה :py:func:`observability.classify_error` מאפשרת לסווג שגיאה חיצונית/פנימית לצורך קבלת ``category``/``policy``:
