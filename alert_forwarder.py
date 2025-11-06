@@ -150,7 +150,7 @@ def forward_alerts(alerts: List[Dict[str, Any]]) -> None:
         try:
             text = _format_alert_text(alert)
             labels = alert.get("labels", {}) or {}
-            severity = labels.get("severity") or labels.get("level") or "info"
+            severity = str(labels.get("severity") or labels.get("level") or "info")
             # Emit the base receipt event consistently as anomaly to reflect detection,
             # while preserving the original label in a separate field for observability.
             mapped_severity = "anomaly"
