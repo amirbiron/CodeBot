@@ -432,7 +432,14 @@ class TelegramUtils:
                 kwargs["show_alert"] = True
             if cache_time is not None:
                 kwargs["cache_time"] = int(cache_time)
-            await query.answer(**kwargs)
+
+            answer_func = getattr(query, "answer", None)
+            if not callable(answer_func):
+                return
+
+            result = answer_func(**kwargs)
+            if asyncio.iscoroutine(result):
+                await result
         except Exception as e:
             msg = str(e).lower()
             if "query is too old" in msg or "query_id_invalid" in msg or "message to edit not found" in msg:
