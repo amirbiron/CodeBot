@@ -7,9 +7,15 @@ Adaptive alert manager for Smart Observability v4.
 - Sends critical alerts to Telegram and Grafana annotations and logs dispatches
 
 Environment variables used (optional; fail-open if missing):
+
 - ALERT_TELEGRAM_BOT_TOKEN, ALERT_TELEGRAM_CHAT_ID
 - GRAFANA_URL (e.g. https://grafana.example.com)
 - GRAFANA_API_TOKEN (Bearer token)
+- ALERT_COOLDOWN_SEC (override global cooldown between alerts)
+- ALERT_THRESHOLD_SCALE / ALERT_ERROR_THRESHOLD_SCALE / ALERT_LATENCY_THRESHOLD_SCALE
+  (multiply adaptive thresholds to widen the "normal" band)
+- ALERT_MIN_SAMPLE_COUNT / ALERT_ERROR_MIN_SAMPLE_COUNT / ALERT_LATENCY_MIN_SAMPLE_COUNT
+  (require a minimum number of samples in the evaluation window before alerting)
 """
 from __future__ import annotations
 
@@ -34,10 +40,57 @@ except Exception:  # pragma: no cover
         return None
 
 
+# --- Configuration helpers ---
+def _parse_float_env(name: str, default: float) -> float:
+    try:
+        raw = os.getenv(name)
+        if raw is None or not str(raw).strip():
+            return float(default)
+        return float(raw)
+    except Exception:
+        return float(default)
+
+
+def _parse_int_env(name: str, default: int) -> int:
+    try:
+        raw = os.getenv(name)
+        if raw is None or not str(raw).strip():
+            return int(default)
+        return int(float(raw))
+    except Exception:
+        return int(default)
+
+
+def _get_positive_float(name: str, default: float) -> float:
+    val = _parse_float_env(name, default)
+    return val if val > 0 else float(default)
+
+
+def _get_non_negative_int(name: str, default: int) -> int:
+    val = _parse_int_env(name, default)
+    return val if val >= 0 else int(default)
+
+
 # --- In-memory state ---
 _WINDOW_SEC = 3 * 60 * 60  # 3 hours
 _RECOMPUTE_EVERY_SEC = 5 * 60  # 5 minutes
 _COOLDOWN_SEC = 5 * 60  # minimum gap between alerts of same type
+
+_COOLDOWN_SEC = _get_non_negative_int("ALERT_COOLDOWN_SEC", _COOLDOWN_SEC)
+
+_DEFAULT_THRESHOLD_SCALE = _get_positive_float("ALERT_THRESHOLD_SCALE", 1.0)
+_THRESHOLD_SCALES = {
+    "error_rate_percent": _get_positive_float("ALERT_ERROR_THRESHOLD_SCALE", _DEFAULT_THRESHOLD_SCALE),
+    "latency_seconds": _get_positive_float("ALERT_LATENCY_THRESHOLD_SCALE", _DEFAULT_THRESHOLD_SCALE),
+}
+
+_DEFAULT_MIN_SAMPLE_COUNT = _get_non_negative_int("ALERT_MIN_SAMPLE_COUNT", 15)
+_ERROR_MIN_SAMPLE_COUNT = _get_non_negative_int("ALERT_ERROR_MIN_SAMPLE_COUNT", _DEFAULT_MIN_SAMPLE_COUNT)
+_LATENCY_MIN_SAMPLE_COUNT = _get_non_negative_int("ALERT_LATENCY_MIN_SAMPLE_COUNT", _DEFAULT_MIN_SAMPLE_COUNT)
+_MIN_SAMPLE_REQUIREMENTS = {
+    "error_rate_percent": _ERROR_MIN_SAMPLE_COUNT,
+    "latency_seconds": _LATENCY_MIN_SAMPLE_COUNT,
+}
 
 _samples: Deque[Tuple[float, bool, float]] = deque(maxlen=200_000)  # (ts, is_error, latency_s)
 _last_recompute_ts: float = 0.0
@@ -160,8 +213,8 @@ def _recompute_thresholds(now_ts: float) -> None:
     err_mean, err_std = _mean_std(err_rates)
     lat_mean, lat_std = _mean_std(avg_lats)
 
-    err_thr = max(0.0, err_mean + 3.0 * err_std)
-    lat_thr = max(0.0, lat_mean + 3.0 * lat_std)
+    err_thr = max(0.0, err_mean + 3.0 * err_std) * _THRESHOLD_SCALES["error_rate_percent"]
+    lat_thr = max(0.0, lat_mean + 3.0 * lat_std) * _THRESHOLD_SCALES["latency_seconds"]
 
     _thresholds["error_rate_percent"] = _MetricThreshold(
         mean=err_mean, std=err_std, threshold=err_thr, updated_at_ts=now_ts
@@ -197,22 +250,32 @@ def _update_gauges(
         return
 
 
-def get_current_error_rate_percent(window_sec: int = 300) -> float:
-    """Return error rate percent for the last window (default 5 minutes)."""
+def _collect_recent_samples(window_sec: int) -> Tuple[int, int, float]:
     try:
         now_ts = _now()
         start = now_ts - max(1, int(window_sec))
-        total = 0.0
-        errors = 0.0
-        for ts, is_err, _lat in reversed(_samples):
+        total = 0
+        errors = 0
+        sum_lat = 0.0
+        for ts, is_err, lat in reversed(_samples):
             if ts < start:
                 break
-            total += 1.0
+            total += 1
             if is_err:
-                errors += 1.0
-        if total <= 0.0:
+                errors += 1
+            sum_lat += float(lat)
+        return total, errors, sum_lat
+    except Exception:
+        return 0, 0, 0.0
+
+
+def get_current_error_rate_percent(window_sec: int = 300) -> float:
+    """Return error rate percent for the last window (default 5 minutes)."""
+    try:
+        total, errors, _ = _collect_recent_samples(window_sec)
+        if total <= 0:
             return 0.0
-        return (errors / total) * 100.0
+        return (float(errors) / float(total)) * 100.0
     except Exception:
         return 0.0
 
@@ -220,18 +283,10 @@ def get_current_error_rate_percent(window_sec: int = 300) -> float:
 def get_current_avg_latency_seconds(window_sec: int = 300) -> float:
     """Return average latency in seconds for the last window (default 5 minutes)."""
     try:
-        now_ts = _now()
-        start = now_ts - max(1, int(window_sec))
-        total = 0.0
-        sum_lat = 0.0
-        for ts, _is_err, lat in reversed(_samples):
-            if ts < start:
-                break
-            total += 1.0
-            sum_lat += float(lat)
-        if total <= 0.0:
+        total, _errors, sum_lat = _collect_recent_samples(window_sec)
+        if total <= 0:
             return 0.0
-        return sum_lat / total
+        return float(sum_lat) / float(total)
     except Exception:
         return 0.0
 
@@ -277,10 +332,17 @@ def get_thresholds_snapshot() -> Dict[str, Dict[str, float]]:
     return out
 
 
-def _should_fire(kind: str, value: float) -> bool:
+def _should_fire(kind: str, value: float, sample_count: Optional[int] = None) -> bool:
     thr = _thresholds.get(kind)
     if not thr:
         return False
+    if sample_count is not None:
+        try:
+            min_required = int(_MIN_SAMPLE_REQUIREMENTS.get(kind, 0))
+        except Exception:
+            min_required = 0
+        if sample_count < max(0, min_required):
+            return False
     return value > max(0.0, float(thr.threshold or 0.0))
 
 
@@ -293,25 +355,34 @@ def check_and_emit_alerts(now_ts: Optional[float] = None) -> None:
     try:
         _recompute_if_due(t)
 
+        window_sec = 5 * 60
+        total_samples, error_samples, latency_sum = _collect_recent_samples(window_sec)
+
         # Error rate
-        cur_err_pct = get_current_error_rate_percent(window_sec=5 * 60)
-        if _should_fire("error_rate_percent", cur_err_pct):
+        cur_err_pct = (float(error_samples) / float(total_samples) * 100.0) if total_samples > 0 else 0.0
+        if _should_fire("error_rate_percent", cur_err_pct, total_samples):
             _emit_critical_once(
                 key="error_rate_percent",
                 name="High Error Rate",
                 summary=f"error_rate={cur_err_pct:.2f}% > threshold={_thresholds['error_rate_percent'].threshold:.2f}%",
-                details={"current_percent": round(cur_err_pct, 4)},
+                details={
+                    "current_percent": round(cur_err_pct, 4),
+                    "sample_count": int(total_samples),
+                },
                 now_ts=t,
             )
 
         # Latency
-        cur_lat = get_current_avg_latency_seconds(window_sec=5 * 60)
-        if _should_fire("latency_seconds", cur_lat):
+        cur_lat = (float(latency_sum) / float(total_samples)) if total_samples > 0 else 0.0
+        if _should_fire("latency_seconds", cur_lat, total_samples):
             _emit_critical_once(
                 key="latency_seconds",
                 name="High Latency",
                 summary=f"avg_latency={cur_lat:.3f}s > threshold={_thresholds['latency_seconds'].threshold:.3f}s",
-                details={"current_seconds": round(cur_lat, 4)},
+                details={
+                    "current_seconds": round(cur_lat, 4),
+                    "sample_count": int(total_samples),
+                },
                 now_ts=t,
             )
     except Exception:
