@@ -73,6 +73,18 @@ Endpoints
      - ✅
      - -
      - HTML (rendered)
+   * - ``/api/welcome/ack``
+     - POST
+     - סימון הדגל ``has_seen_welcome_modal`` והסתרת מודאל ה־Welcome לצמיתות
+     - ✅
+     - -
+     - ``{"ok": true}``
+   * - ``/api/shared/save``
+     - POST
+     - שמירת שיתוף פנימי כקובץ Markdown תחת חשבון המשתמש
+     - ✅
+     - ``{"share_id": "string", "file_name": "optional override"}``
+     - ``{"ok": true, "file_id": "...", "file_name": "...", "version": 1}``
    * - ``/api/stats``
      - GET
      - סטטיסטיקות
@@ -130,6 +142,21 @@ Errors
 .. code-block:: json
 
    {"error": "File not found", "file_id": "507f1f77bcf86cd799439011"}
+
+שגיאות נפוצות – ``POST /api/shared/save``
+-----------------------------------------
+
+.. code-block:: json
+
+   {"error": "Missing share_id"}
+
+.. code-block:: json
+
+   {"error": "Share not found", "share_id": "abcd1234"}
+
+.. code-block:: json
+
+   {"error": "Invalid file name"}
 
 קישורים
 -------
