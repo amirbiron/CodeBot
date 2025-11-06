@@ -124,6 +124,7 @@ def test_get_favorites_sort_and_filter(repo):
 
     # default: sort by favorited_at desc (date)
     favs = repo.get_favorites(1)
+    assert all('_id' in f and f['_id'] for f in favs)
     names = [f['file_name'] for f in favs]
     # ודא שהוחזרו בדיוק שני מועדפים ושהם הקבצים המצופים
     assert set(names) == {'a.py', 'b.js'}
