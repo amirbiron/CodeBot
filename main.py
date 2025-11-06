@@ -2018,6 +2018,7 @@ class CodeKeeperBot:
                     SN_COLLECT_DESCRIPTION,
                     SN_COLLECT_CODE,
                     SN_COLLECT_LANGUAGE,
+                    SN_REJECT_REASON,
                 )
                 # Approve via inline button (admin-only wrapper inside function)
                 self.application.add_handler(CallbackQueryHandler(community_inline_approve, pattern=r'^community_approve:'))
