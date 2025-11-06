@@ -163,7 +163,7 @@ async def test_instrument_command_handlers_wraps_existing_handlers():
         return "hi"
 
     handler = CommandHandler("hi", say_hi)
-    application = types.SimpleNamespace(handlers=[handler])
+    application = types.SimpleNamespace(handlers={0: [handler]})
 
     main._instrument_command_handlers(application)
 

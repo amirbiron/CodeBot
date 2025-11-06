@@ -12,6 +12,7 @@ import functools
 import inspect
 import logging
 import asyncio
+from typing import Any
 from datetime import datetime
 
 import signal
@@ -287,9 +288,22 @@ def _instrument_command_handlers(application) -> None:
     from telegram.ext import CommandHandler as _CommandHandler  # local import to avoid cycles
 
     try:
-        handlers = list(getattr(application, "handlers", []) or [])
+        raw_handlers = getattr(application, "handlers", None)
     except Exception:
         return
+
+    handlers: list[Any] = []
+    if isinstance(raw_handlers, dict):
+        for group in raw_handlers.values():
+            try:
+                handlers.extend(list(group or []))
+            except TypeError:
+                continue
+    elif raw_handlers:
+        try:
+            handlers = list(raw_handlers)
+        except TypeError:
+            handlers = [raw_handlers]
 
     for handler in handlers:
         if not isinstance(handler, _CommandHandler):
