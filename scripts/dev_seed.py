@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
 import re
+import os
+import sys
 from pathlib import Path
 from datetime import datetime, timezone
 
@@ -42,10 +44,29 @@ def parse_snippets(md_text: str):
     return blocks
 
 
+def _is_local_mongo() -> bool:
+    """Best-effort safety: אל תזרע בדפולט ב-DB שאינו לוקאלי.
+
+    מותר לעקוף עם --force או ALLOW_SEED_NON_LOCAL=1.
+    """
+    url = os.getenv('MONGODB_URL', '')
+    if not url:
+        # אין URL – נניח סביבת DEV (DatabaseManager עלול להיות noop)
+        return True
+    u = url.strip().lower()
+    return ('localhost' in u) or ('127.0.0.1' in u)
+
+
 def seed():
     if _db is None or getattr(_db, 'snippets_collection', None) is None:
         print('DB unavailable; skipping seed')
         return
+    # Safety guard: require local DB unless forced
+    forced = ('--force' in sys.argv) or (os.getenv('ALLOW_SEED_NON_LOCAL', '').strip() in {'1', 'true', 'yes'})
+    if not _is_local_mongo() and not forced:
+        print('Refusing to seed non-local MongoDB. Re-run with --force or ALLOW_SEED_NON_LOCAL=1')
+        return
+
     text = SNIPPETS_MD.read_text(encoding='utf-8')
     items = parse_snippets(text)
     coll = _db.snippets_collection

@@ -5,6 +5,7 @@ from typing import List
 import logging
 
 from cache_manager import dynamic_cache
+import datetime as _dt
 from services.snippet_library_service import list_public_snippets
 
 logger = logging.getLogger(__name__)
@@ -29,9 +30,26 @@ def get_public_snippets():
         page = _parse_int(request.args.get('page'), 1, 1, 10000)
         per_page = _parse_int(request.args.get('per_page'), 30, 1, 60)
         items, total = list_public_snippets(q=q, language=language, page=page, per_page=per_page)
+        # Serialize datetimes to ISO strings to avoid Flask jsonify TypeError
+        def _iso(val):
+            try:
+                if isinstance(val, _dt.datetime):
+                    return val.isoformat()
+            except Exception:
+                pass
+            return val
+        safe_items = []
+        for it in items or []:
+            try:
+                d = dict(it)
+            except Exception:
+                d = {}
+            if 'approved_at' in d:
+                d['approved_at'] = _iso(d.get('approved_at'))
+            safe_items.append(d)
         return jsonify({
             'ok': True,
-            'items': items,
+            'items': safe_items,
             'page': page,
             'per_page': per_page,
             'total': total,

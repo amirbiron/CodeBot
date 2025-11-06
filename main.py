@@ -2003,6 +2003,8 @@ class CodeKeeperBot:
                     snippet_collect_code,
                     snippet_collect_language,
                     snippet_inline_approve,
+                    snippet_reject_start,
+                    snippet_collect_reject_reason,
                     show_community_hub,
                     community_catalog_menu,
                     snippets_menu,
