@@ -84,6 +84,10 @@ _THRESHOLD_SCALES = {
     "latency_seconds": _get_positive_float("ALERT_LATENCY_THRESHOLD_SCALE", _DEFAULT_THRESHOLD_SCALE),
 }
 
+# Optional minimum floors to prevent zero/near-zero thresholds causing noise bursts
+_MIN_ERR_RATE_FLOOR = max(0.0, _parse_float_env("ALERT_MIN_ERROR_RATE_PERCENT", 5.0))
+_MIN_LATENCY_FLOOR = max(0.0, _parse_float_env("ALERT_MIN_LATENCY_SECONDS", 1.0))
+
 _DEFAULT_MIN_SAMPLE_COUNT = _get_non_negative_int("ALERT_MIN_SAMPLE_COUNT", 15)
 _ERROR_MIN_SAMPLE_COUNT = _get_non_negative_int("ALERT_ERROR_MIN_SAMPLE_COUNT", _DEFAULT_MIN_SAMPLE_COUNT)
 _LATENCY_MIN_SAMPLE_COUNT = _get_non_negative_int("ALERT_LATENCY_MIN_SAMPLE_COUNT", _DEFAULT_MIN_SAMPLE_COUNT)
@@ -215,6 +219,9 @@ def _recompute_thresholds(now_ts: float) -> None:
 
     err_thr = max(0.0, err_mean + 3.0 * err_std) * _THRESHOLD_SCALES["error_rate_percent"]
     lat_thr = max(0.0, lat_mean + 3.0 * lat_std) * _THRESHOLD_SCALES["latency_seconds"]
+    # Apply safety floors (configurable via env)
+    err_thr = max(err_thr, _MIN_ERR_RATE_FLOOR)
+    lat_thr = max(lat_thr, _MIN_LATENCY_FLOOR)
 
     _thresholds["error_rate_percent"] = _MetricThreshold(
         mean=err_mean, std=err_std, threshold=err_thr, updated_at_ts=now_ts
