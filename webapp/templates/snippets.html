@@ -28,6 +28,8 @@
 {% block extra_js %}
 <!-- Highlight.js core -->
 <script defer src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+<!-- Highlight.js line numbers plugin -->
+<script defer src="https://cdnjs.cloudflare.com/ajax/libs/highlightjs-line-numbers.js/2.11.0/highlightjs-line-numbers.min.js"></script>
 <!-- Our page script (runs after hljs is available due to defer order) -->
 <script defer src="/static/js/snippets.js?v={{ static_version }}"></script>
 {% endblock %}

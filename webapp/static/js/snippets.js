@@ -36,6 +36,12 @@
             el.innerHTML = res.value;
             el.classList.add('hljs');
           }
+          // Line numbers
+          try {
+            if (window.hljs && typeof window.hljs.lineNumbersBlock === 'function') {
+              window.hljs.lineNumbersBlock(el, { singleLine: true });
+            }
+          } catch(_) {}
         } catch (_) {}
       });
     } catch (_) {}

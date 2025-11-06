@@ -39,3 +39,32 @@
 
 /* Responsive: make sure long code doesn't break cards */
 .glass-card .code-block { margin-top: .5rem; }
+
+/* Line numbers styling to match file viewer */
+.hljs-ln {
+  width: 100% !important;
+  table-layout: fixed;
+  border-collapse: separate;
+  border-spacing: 0;
+}
+.hljs-ln tr { vertical-align: top; }
+.hljs-ln td {
+  padding: 0;
+}
+.hljs-ln-numbers {
+  width: 3.5rem;
+  user-select: none;
+  opacity: 0.5;
+  text-align: right;
+  padding-right: .75rem;
+  white-space: pre;
+}
+.hljs-ln-code {
+  width: auto;
+}
+.hljs-ln-code > .hljs-ln-line {
+  white-space: pre-wrap;
+  word-break: break-word;
+  overflow-wrap: anywhere;
+  display: block;
+}
