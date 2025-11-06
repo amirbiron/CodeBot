@@ -122,6 +122,8 @@ def _severity_rank(value: str | None) -> int:
         v = (value or "").strip().lower()
         if v in {"critical", "fatal", "crit"}:
             return 3
+        if v in {"error", "err", "errors"}:
+            return 2
         if v in {"warning", "warn"}:
             return 2
         if v in {"info", "notice", "anomaly"}:
