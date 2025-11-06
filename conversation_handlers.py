@@ -1225,7 +1225,7 @@ async def snippet_collect_reject_reason(update: Update, context: ContextTypes.DE
     reason = (update.message.text or '').strip()
     item_id = str(context.user_data.get('sn_reject_id') or '')
     if not item_id:
-        await update.message.reply_text("❌ מזהה לא תקין")
+        await _maybe_await(update.message.reply_text("❌ מזהה לא תקין"))
         return ConversationHandler.END
     ok = False
     try:
@@ -1233,7 +1233,7 @@ async def snippet_collect_reject_reason(update: Update, context: ContextTypes.DE
         ok = _reject(item_id, int(update.effective_user.id), reason or 'rejected')
     except Exception:
         ok = False
-    await update.message.reply_text("🛑 נדחה" if ok else "❌ כשל בדחייה")
+    await _maybe_await(update.message.reply_text("🛑 נדחה" if ok else "❌ כשל בדחייה"))
     context.user_data.pop('sn_reject_id', None)
     return ConversationHandler.END
 
