@@ -1,5 +1,6 @@
 import logging
 import hashlib
+import time
 from dataclasses import asdict
 from datetime import datetime, timezone, timedelta
 from typing import Any, Dict, List, Optional, Tuple, Protocol, runtime_checkable, Callable, TypeVar, cast
@@ -70,6 +71,12 @@ except Exception:  # pragma: no cover
         yield
 
 try:
+    from metrics import record_db_operation  # type: ignore
+except Exception:  # pragma: no cover
+    def record_db_operation(*_a, **_k):  # type: ignore
+        return None
+
+try:
     from observability_instrumentation import traced, set_current_span_attributes
 except Exception:  # pragma: no cover
     def traced(*_a, **_k):  # type: ignore
@@ -79,6 +86,36 @@ except Exception:  # pragma: no cover
 
     def set_current_span_attributes(*_a, **_k):  # type: ignore
         return None
+
+
+def _instrument_db(operation_name: str):
+    def _decorator(func: Callable[..., Any]):
+        if getattr(func, "_db_metrics_wrapped", False):
+            return func
+
+        def _wrapper(self, *args, **kwargs):
+            start = time.perf_counter()
+            status = "ok"
+            try:
+                result = func(self, *args, **kwargs)
+                if isinstance(result, bool):
+                    status = "ok" if result else "fail"
+                return result
+            except Exception:
+                status = "error"
+                raise
+            finally:
+                try:
+                    record_db_operation(operation_name, max(0.0, time.perf_counter() - start), status=status)
+                except Exception:
+                    pass
+
+        _wrapper.__name__ = getattr(func, "__name__", f"wrapped_{operation_name}")
+        _wrapper.__doc__ = getattr(func, "__doc__", None)
+        _wrapper._db_metrics_wrapped = True  # type: ignore[attr-defined]
+        return _wrapper
+
+    return _decorator
 
 
 def _hash_identifier(value: Any) -> str:
@@ -100,6 +137,7 @@ class Repository:
     def __init__(self, manager: DatabaseManager):
         self.manager = manager
 
+    @_instrument_db("db.save_code_snippet")
     def save_code_snippet(self, snippet: CodeSnippet) -> bool:
         try:
             # Normalize code before persisting
@@ -601,6 +639,7 @@ class Repository:
         return self.save_code_snippet(snippet)
 
     @cached(expire_seconds=180, key_prefix="latest_version")
+    @_instrument_db("db.get_latest_version")
     def get_latest_version(self, user_id: int, file_name: str) -> Optional[Dict]:
         try:
             # Fast-path for in-memory collections in tests
@@ -647,6 +686,7 @@ class Repository:
             emit_event("db_get_file_error", severity="error", error=str(e))
             return None
 
+    @_instrument_db("db.get_all_versions")
     def get_all_versions(self, user_id: int, file_name: str) -> List[Dict]:
         try:
             return list(self.manager.collection.find(
@@ -672,6 +712,7 @@ class Repository:
 
     @cached(expire_seconds=120, key_prefix="user_files")
     @traced("db.get_user_files")
+    @_instrument_db("db.get_user_files")
     def get_user_files(
         self,
         user_id: int,
@@ -732,6 +773,7 @@ class Repository:
 
     @cached(expire_seconds=300, key_prefix="search_code")
     @traced("db.search_code")
+    @_instrument_db("db.search_code")
     def search_code(self, user_id: int, query: str, programming_language: Optional[str] = None, tags: Optional[List[str]] = None, limit: int = 20) -> List[Dict]:
         try:
             try:
@@ -776,6 +818,7 @@ class Repository:
 
     @cached(expire_seconds=20, key_prefix="files_by_repo")
     @traced("db.get_user_files_by_repo")
+    @_instrument_db("db.get_user_files_by_repo")
     def get_user_files_by_repo(self, user_id: int, repo_tag: str, page: int = 1, per_page: int = 50) -> Tuple[List[Dict], int]:
         """מחזיר קבצים לפי תגית ריפו עם דפדוף, וכן ספירת סה"כ קבצים (distinct לפי file_name)."""
         try:
@@ -834,6 +877,7 @@ class Repository:
             return [], 0
 
     @cached(expire_seconds=20, key_prefix="regular_files")
+    @_instrument_db("db.get_regular_files_paginated")
     def get_regular_files_paginated(self, user_id: int, page: int = 1, per_page: int = 10) -> Tuple[List[Dict], int]:
         """רשימת "שאר הקבצים" (ללא תגיות שמתחילות ב-"repo:") עם עימוד אמיתי וספירה.
 
@@ -1464,6 +1508,7 @@ class Repository:
             return []
 
     # Users auxiliary data
+    @_instrument_db("db.save_github_token")
     def save_github_token(self, user_id: int, token: str) -> bool:
         try:
             from secret_manager import encrypt_secret
@@ -1481,6 +1526,7 @@ class Repository:
             emit_event("db_save_github_token_error", severity="error", error=str(e))
             return False
 
+    @_instrument_db("db.get_github_token")
     def get_github_token(self, user_id: int) -> Optional[str]:
         try:
             users_collection = self.manager.db.users
@@ -1498,6 +1544,7 @@ class Repository:
             emit_event("db_get_github_token_error", severity="error", error=str(e))
             return None
 
+    @_instrument_db("db.delete_github_token")
     def delete_github_token(self, user_id: int) -> bool:
         try:
             users_collection = self.manager.db.users
@@ -1511,6 +1558,7 @@ class Repository:
             return False
 
         
+    @_instrument_db("db.save_selected_repo")
     def save_selected_repo(self, user_id: int, repo_name: str) -> bool:
         try:
             users_collection = self.manager.db.users
@@ -1525,6 +1573,7 @@ class Repository:
             emit_event("db_save_selected_repo_error", severity="error", error=str(e))
             return False
 
+    @_instrument_db("db.get_selected_repo")
     def get_selected_repo(self, user_id: int) -> Optional[str]:
         try:
             users_collection = self.manager.db.users

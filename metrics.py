@@ -211,6 +211,67 @@ circuit_success_rate_metric = (
     else None
 )
 
+# --- Stage 6: unified handler/command/db metrics ---
+codebot_handler_requests_total = (
+    Counter(
+        "codebot_handler_requests_total",
+        "Total web handler invocations",
+        ["handler", "status", "cache_hit"],
+    )
+    if Counter
+    else None
+)
+
+codebot_handler_latency_seconds = (
+    Histogram(
+        "codebot_handler_latency_seconds",
+        "Web handler latency in seconds",
+        ["handler", "status", "cache_hit"],
+    )
+    if Histogram
+    else None
+)
+
+codebot_command_requests_total = (
+    Counter(
+        "codebot_command_requests_total",
+        "Total Telegram command executions",
+        ["command", "status", "cache_hit"],
+    )
+    if Counter
+    else None
+)
+
+codebot_command_latency_seconds = (
+    Histogram(
+        "codebot_command_latency_seconds",
+        "Telegram command latency in seconds",
+        ["command", "status", "cache_hit"],
+    )
+    if Histogram
+    else None
+)
+
+codebot_db_requests_total = (
+    Counter(
+        "codebot_db_requests_total",
+        "Total database operations",
+        ["operation", "status"],
+    )
+    if Counter
+    else None
+)
+
+codebot_db_latency_seconds = (
+    Histogram(
+        "codebot_db_latency_seconds",
+        "Database operation latency in seconds",
+        ["operation", "status"],
+    )
+    if Histogram
+    else None
+)
+
 # --- Startup / cold-start metrics ---
 # Capture process boot monotonic timestamp as early as metrics import occurs.
 _BOOT_T0_MONOTONIC: float = _time.perf_counter()
@@ -330,7 +391,65 @@ def _update_ewma(duration_seconds: float) -> float:
         return float(duration_seconds)
 
 
-def record_request_outcome(status_code: int, duration_seconds: float) -> None:
+def _status_label_from_code(status_code: int | None, override: str | None = None) -> str:
+    try:
+        if override:
+            return _normalize_metric_label(str(override), "unknown_status")
+    except Exception:
+        pass
+    try:
+        if status_code is None:
+            return "unknown"
+        bucket = int(status_code) // 100
+        if bucket == 0:
+            return _normalize_metric_label(str(status_code), "unknown")
+        return f"{bucket}xx"
+    except Exception:
+        return "unknown"
+
+
+def _cache_hit_label(cache_hit: bool | str | None) -> str:
+    try:
+        if isinstance(cache_hit, str):
+            value = cache_hit.strip().lower()
+            if value in {"hit", "miss", "warm", "cold", "partial", "unknown"}:
+                return value
+            if value in {"true", "yes", "1"}:
+                return "hit"
+            if value in {"false", "no", "0"}:
+                return "miss"
+            return "unknown"
+        if cache_hit is True:
+            return "hit"
+        if cache_hit is False:
+            return "miss"
+    except Exception:
+        return "unknown"
+    return "unknown"
+
+
+def _attach_source(name: str | None, source: str | None, *, default: str) -> str:
+    base = _normalize_metric_label(name, default)
+    try:
+        src = (source or "").strip()
+        if not src:
+            return base
+        prefixed = f"{src}:{base}"
+        return _normalize_metric_label(prefixed, default)
+    except Exception:
+        return base
+
+
+def record_request_outcome(
+    status_code: int,
+    duration_seconds: float,
+    *,
+    source: str | None = None,
+    handler: str | None = None,
+    command: str | None = None,
+    cache_hit: bool | str | None = None,
+    status_label: str | None = None,
+) -> None:
     """Record a single HTTP request outcome across services.
 
     - Increments total requests
@@ -339,9 +458,16 @@ def record_request_outcome(status_code: int, duration_seconds: float) -> None:
     - Performs lightweight anomaly detection and emits internal alerts when thresholds are exceeded
     """
     try:
+        status_int = int(status_code)
+    except Exception:
+        status_int = 0
+    cache_label = _cache_hit_label(cache_hit)
+    status_bucket = _status_label_from_code(status_int, status_label)
+
+    try:
         if codebot_requests_total is not None:
             codebot_requests_total.inc()
-        if int(status_code) >= 500 and codebot_failed_requests_total is not None:
+        if status_int >= 500 and codebot_failed_requests_total is not None:
             codebot_failed_requests_total.inc()
             _ERR_TIMESTAMPS.append(_time.time())
         _update_ewma(float(duration_seconds))
@@ -373,6 +499,55 @@ def record_request_outcome(status_code: int, duration_seconds: float) -> None:
     except Exception:
         # Fail-open: observability must never crash business logic
         return
+
+    try:
+        obs_duration = max(0.0, float(duration_seconds))
+    except Exception:
+        obs_duration = 0.0
+
+    try:
+        if handler:
+            handler_name = _attach_source(handler, source, default="unknown_handler")
+            if codebot_handler_requests_total is not None:
+                try:
+                    codebot_handler_requests_total.labels(
+                        handler=handler_name,
+                        status=status_bucket,
+                        cache_hit=cache_label,
+                    ).inc()
+                except Exception:
+                    pass
+            if codebot_handler_latency_seconds is not None:
+                try:
+                    codebot_handler_latency_seconds.labels(
+                        handler=handler_name,
+                        status=status_bucket,
+                        cache_hit=cache_label,
+                    ).observe(obs_duration)
+                except Exception:
+                    pass
+        if command:
+            command_name = _attach_source(command, source, default="unknown_command")
+            if codebot_command_requests_total is not None:
+                try:
+                    codebot_command_requests_total.labels(
+                        command=command_name,
+                        status=status_bucket,
+                        cache_hit=cache_label,
+                    ).inc()
+                except Exception:
+                    pass
+            if codebot_command_latency_seconds is not None:
+                try:
+                    codebot_command_latency_seconds.labels(
+                        command=command_name,
+                        status=status_bucket,
+                        cache_hit=cache_label,
+                    ).observe(obs_duration)
+                except Exception:
+                    pass
+    except Exception:
+        pass
 
 
 def _normalize_endpoint(value: str | None) -> str:
@@ -537,6 +712,29 @@ def record_dependency_init(dependency: str, duration_seconds: float) -> None:
     try:
         if dependency_init_seconds is not None:
             dependency_init_seconds.labels(str(dependency)).observe(max(0.0, float(duration_seconds)))
+    except Exception:
+        return
+
+
+def record_db_operation(operation: str, duration_seconds: float, *, status: str | None = "ok") -> None:
+    """Record latency + count for database hot path operations."""
+    try:
+        op_label = _normalize_metric_label(operation, "unknown_operation")
+        status_label = _normalize_metric_label(status, "ok")
+        duration = max(0.0, float(duration_seconds))
+    except Exception:
+        return
+    try:
+        if codebot_db_requests_total is not None:
+            try:
+                codebot_db_requests_total.labels(operation=op_label, status=status_label).inc()
+            except Exception:
+                pass
+        if codebot_db_latency_seconds is not None:
+            try:
+                codebot_db_latency_seconds.labels(operation=op_label, status=status_label).observe(duration)
+            except Exception:
+                pass
     except Exception:
         return
 

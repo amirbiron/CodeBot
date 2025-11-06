@@ -52,7 +52,7 @@ try:
 except Exception:  # pragma: no cover
     metrics_endpoint_bytes = lambda: b""  # type: ignore
     metrics_content_type = lambda: "text/plain; charset=utf-8"  # type: ignore
-    def record_request_outcome(status_code: int, duration_seconds: float) -> None:  # type: ignore
+    def record_request_outcome(status_code: int, duration_seconds: float, **_kwargs) -> None:  # type: ignore
         return None
 from html import escape as html_escape
 
@@ -79,6 +79,7 @@ def create_app() -> web.Application:
     async def _request_id_mw(request: web.Request, handler):
         req_id = generate_request_id() or ""
         start = time.perf_counter()
+        handler_name = getattr(handler, "__name__", None) or handler.__class__.__name__
         try:
             bind_request_id(req_id)
         except Exception as e:
@@ -118,7 +119,20 @@ def create_app() -> web.Application:
         try:
             duration = max(0.0, float(time.perf_counter() - start))
             status = int(getattr(response, "status", 0) or 0)
-            record_request_outcome(status, duration)
+            route_name = None
+            try:
+                route = getattr(request.match_info, "route", None)
+                route_name = getattr(route, "name", None)
+            except Exception:
+                route_name = None
+            handler_label = route_name or handler_name or getattr(request, "path", "")
+            record_request_outcome(
+                status,
+                duration,
+                source="aiohttp",
+                handler=handler_label,
+                cache_hit=None,
+            )
         except Exception as e:
             try:
                 emit_event(
