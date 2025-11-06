@@ -15,8 +15,8 @@
 
 .card{border:1px solid #eee;border-radius:12px;padding:14px;display:flex;gap:12px;align-items:flex-start;background:#fff}
 /* Logo as a square thumbnail (64x64) with cover fit */
-.logo{width:64px;height:64px;border-radius:10px;background:#f2f2f2;display:flex;align-items:center;justify-content:center;font-size:22px;overflow:hidden}
-.logo img{width:100%;height:100%;object-fit:cover;display:block}
+.card .logo{width:64px;height:64px;border-radius:10px;background:#f2f2f2;display:flex;align-items:center;justify-content:center;font-size:22px;overflow:hidden}
+.card .logo img{width:100%;height:100%;object-fit:cover;display:block}
 .card .title{font-weight:600}
 .card .desc{color:#555;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
 .tags{display:flex;gap:6px;flex-wrap:wrap;margin:8px 0}
