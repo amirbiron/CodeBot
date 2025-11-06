@@ -1913,8 +1913,30 @@ class Repository:
                 total = 0
             skip = (page - 1) * per_page
             try:
-                cursor = coll.find(match, sort=[("approved_at", -1)]).skip(skip).limit(per_page)
-                rows = list(cursor)
+                cursor = coll.find(match, sort=[("approved_at", -1)])
+                applied_skip = False
+                applied_limit = False
+
+                if isinstance(cursor, list):
+                    rows_candidate = list(cursor)
+                else:
+                    try:
+                        cursor = cursor.skip(skip)
+                        applied_skip = True
+                    except Exception:
+                        pass
+                    try:
+                        cursor = cursor.limit(per_page)
+                        applied_limit = True
+                    except Exception:
+                        pass
+                    rows_candidate = list(cursor)
+
+                rows = rows_candidate
+                if not applied_skip:
+                    rows = rows[skip:]
+                if not applied_limit:
+                    rows = rows[:per_page]
             except Exception:
                 rows = []
             out: List[Dict[str, Any]] = []
