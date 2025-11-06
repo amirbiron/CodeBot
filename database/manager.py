@@ -480,7 +480,12 @@ class DatabaseManager:
                         IndexModel([("status", ASCENDING), ("approved_at", DESCENDING)], name="snip_status_approved_idx"),
                         IndexModel([("language", ASCENDING)], name="snip_language_idx"),
                         IndexModel([("user_id", ASCENDING)], name="snip_user_id_idx"),
-                        IndexModel([("title", TEXT), ("description", TEXT), ("code", TEXT)], name="snip_text_idx"),
+                        IndexModel(
+                            [("title", TEXT), ("description", TEXT), ("code", TEXT)],
+                            name="snip_text_idx",
+                            default_language="none",
+                            language_override="search_language",
+                        ),
                     ]
                     self.snippets_collection.create_indexes(snippets_indexes)
             except Exception:
