@@ -1,7 +1,7 @@
 /* Basic responsive grid and styles */
 .community-header{display:flex;justify-content:space-between;align-items:center;gap:16px;margin:16px 0}
 .community-header .title h1{margin:0}
-.community-header .subtitle{margin:4px 0 0;color:#666}
+.community-header .subtitle{margin:4px 0 0;color:rgba(255,255,255,0.88)}
 .community-header .btn{padding:10px 14px;border-radius:8px;text-decoration:none}
 .btn.primary{background:#2b6cb0;color:#fff}
 
@@ -13,12 +13,12 @@
 @media(max-width:900px){.community-grid{grid-template-columns:repeat(2,1fr)}}
 @media(max-width:600px){.community-grid{grid-template-columns:1fr}}
 
-.card{border:1px solid #eee;border-radius:12px;padding:14px;display:flex;gap:12px;align-items:flex-start;background:#fff}
+.card{background:rgba(255,255,255,0.08);border-radius:18px;backdrop-filter:blur(12px);box-shadow:0 4px 14px rgba(0,0,0,0.15);padding:14px;display:flex;gap:12px;align-items:flex-start;border:1px solid var(--glass-border)}
 /* Logo as a square thumbnail (64x64) with cover fit */
 .community-grid .card .logo{width:64px;height:64px;max-width:64px;max-height:64px;border-radius:10px;background:#f2f2f2;display:flex;align-items:center;justify-content:center;font-size:22px;overflow:hidden}
 .community-grid .card .logo img{width:100% !important;height:100% !important;object-fit:cover !important;object-position:center;display:block}
 .card .title{font-weight:600}
-.card .desc{color:#555;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.card .desc{color:rgba(255,255,255,0.85);display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
 .tags{display:flex;gap:6px;flex-wrap:wrap;margin:8px 0}
 .tag{background:#f0f4f8;color:#2b6cb0;border-radius:999px;padding:4px 8px;font-size:12px}
 .card .actions{display:flex;gap:8px;margin-top:8px}
