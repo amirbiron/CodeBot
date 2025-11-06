@@ -1,0 +1,34 @@
+/* Snippets library code styling */
+
+/* Support both classes to be safe */
+.code-block,
+.snippet-code {
+  white-space: pre-wrap; /* critical: wrap long code lines */
+  word-break: break-word; /* legacy support */
+  overflow-wrap: anywhere; /* modern support for long tokens */
+  overflow-x: auto; /* allow scroll if needed */
+  max-width: 100%;
+  background: rgba(0, 0, 0, 0.08);
+  padding: 12px;
+  border-radius: 10px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, "Roboto Mono", "Ubuntu Mono", Consolas, "Liberation Mono", "Courier New", monospace;
+  font-size: 0.9rem;
+  line-height: 1.4;
+}
+
+/* Ensure inner <code> wraps as well */
+.code-block code,
+.snippet-code code {
+  white-space: pre-wrap;
+  word-break: break-word;
+  overflow-wrap: anywhere;
+  direction: ltr;
+  display: block;
+}
+
+/* Keep copy button visible without breaking layout (LTR inside RTL page) */
+.code-block > .btn,
+.snippet-code > .btn {
+  float: left; /* keep at left for LTR code */
+  margin-bottom: 8px;
+}
