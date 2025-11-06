@@ -198,7 +198,31 @@ class CallbackQueryGuard:
 
     DEFAULT_WINDOW_SECONDS: float = 1.2
     _user_locks: Dict[int, asyncio.Lock] = {}
-    
+
+    @staticmethod
+    def should_block(update: Update, context: ContextTypes.DEFAULT_TYPE, window_seconds: Optional[float] = None) -> bool:
+        """בודק בחסימה לא-אסינכרונית אם העדכון הגיע שוב בתוך חלון הזמן."""
+        try:
+            win = float(window_seconds if window_seconds is not None else CallbackQueryGuard.DEFAULT_WINDOW_SECONDS)
+        except Exception:
+            win = CallbackQueryGuard.DEFAULT_WINDOW_SECONDS
+
+        try:
+            fp = CallbackQueryGuard._fingerprint(update)
+            now_ts = time.time()
+            last_fp = context.user_data.get("_last_cb_fp") if hasattr(context, "user_data") else None
+            busy_until = float(context.user_data.get("_cb_guard_until", 0.0) or 0.0) if hasattr(context, "user_data") else 0.0
+
+            if last_fp == fp and now_ts < busy_until:
+                return True
+
+            if hasattr(context, "user_data"):
+                context.user_data["_last_cb_fp"] = fp
+                context.user_data["_cb_guard_until"] = now_ts + win
+            return False
+        except Exception:
+            return False
+
     @staticmethod
     async def should_block_async(update: Update, context: ContextTypes.DEFAULT_TYPE, window_seconds: Optional[float] = None) -> bool:
         """בודק בצורה אטומית (עם נעילה) אם לחסום לחיצה כפולה של אותו משתמש.
@@ -420,6 +444,12 @@ class CacheUtils:
             return default
         
         return cls._cache[key]
+
+    @classmethod
+    def delete(cls, key: str):
+        """מחיקה מהקאש"""
+        cls._cache.pop(key, None)
+        cls._cache_times.pop(key, None)
 ```
 
 ## 14. מסנן לוגים לרגישויות (`SensitiveDataFilter.filter`)
