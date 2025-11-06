@@ -475,14 +475,43 @@ class DatabaseManager:
             # Snippets library indexes (best-effort)
             try:
                 if self.snippets_collection is not None:
+                    # חשוב: בשדה העליון "language" אנו מאחסנים את שפת הקוד (python/js וכו').
+                    # לטובת אינדקס טקסטואלי נימנע משימוש בשדה המיוחד "language" כ-language override של MongoDB
+                    # ע"י שינוי language_override לשדה אחר (שאינו קיים במסמכים) והגדרה של default_language="none".
                     snippets_indexes = [
                         IndexModel([("status", ASCENDING), ("submitted_at", DESCENDING)], name="snip_status_submitted_idx"),
                         IndexModel([("status", ASCENDING), ("approved_at", DESCENDING)], name="snip_status_approved_idx"),
                         IndexModel([("language", ASCENDING)], name="snip_language_idx"),
                         IndexModel([("user_id", ASCENDING)], name="snip_user_id_idx"),
-                        IndexModel([("title", TEXT), ("description", TEXT), ("code", TEXT)], name="snip_text_idx"),
+                        IndexModel(
+                            [("title", TEXT), ("description", TEXT), ("code", TEXT)],
+                            name="snip_text_idx",
+                            default_language="none",
+                            language_override="search_language",
+                        ),
                     ]
-                    self.snippets_collection.create_indexes(snippets_indexes)
+                    try:
+                        self.snippets_collection.create_indexes(snippets_indexes)
+                    except Exception as e:
+                        # אם קיימת התנגשות אפשרויות (IndexOptionsConflict) עם אינדקס ישן — ננסה להסיר וליצור מחדש
+                        msg = str(e)
+                        if "IndexOptionsConflict" in msg or "already exists with a different" in msg:
+                            try:
+                                existing = list(self.snippets_collection.list_indexes())
+                                for idx in existing:
+                                    name = idx.get("name", "")
+                                    # נשמיט את אינדקס הטקסט הקודם או כל אינדקס בשם הידוע
+                                    if name in {"snip_text_idx"} or name.endswith("_text"):
+                                        try:
+                                            self.snippets_collection.drop_index(name)
+                                        except Exception:
+                                            pass
+                            except Exception:
+                                pass
+                            try:
+                                self.snippets_collection.create_indexes(snippets_indexes)
+                            except Exception:
+                                pass
             except Exception:
                 pass
         except Exception as e:
