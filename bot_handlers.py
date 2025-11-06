@@ -4,6 +4,7 @@ Advanced Bot Handlers for Code Keeper Bot
 """
 
 import asyncio
+import hashlib
 import os
 import io
 import logging
@@ -734,11 +735,33 @@ class AdvancedBotHandlers:
             def _emoji(ok: bool) -> str:
                 return "🟢" if ok else "🔴"
 
+            # Sentry status (DSN/API) – לא חושפים סודות
+            sentry_dsn_set = bool(os.getenv("SENTRY_DSN"))
+            sentry_api_ready = bool(os.getenv("SENTRY_AUTH_TOKEN") and (os.getenv("SENTRY_ORG") or os.getenv("SENTRY_ORG_SLUG")))
+
+            # OTEL exporter – best-effort: קיים endpoint ידוע או מודול otel זמין בסביבה
+            otel_ready = False
+            try:
+                otel_ready = bool(
+                    os.getenv("OTEL_EXPORTER_OTLP_ENDPOINT")
+                    or os.getenv("OTEL_EXPORTER_OTLP_TRACES_ENDPOINT")
+                    or os.getenv("OTEL_EXPORTER_OTLP_METRICS_ENDPOINT")
+                )
+                if not otel_ready:
+                    import importlib
+                    _ = importlib.import_module("opentelemetry")  # type: ignore
+                    otel_ready = True
+            except Exception:
+                otel_ready = False
+
             text = (
                 f"📋 Status\n"
                 f"DB: {_emoji(db_ok)}\n"
                 f"Redis: {_emoji(redis_ok)}\n"
                 f"GitHub: {gh_status}\n"
+                f"Sentry DSN: {_emoji(bool(sentry_dsn_set))}\n"
+                f"Sentry API: {_emoji(bool(sentry_api_ready))}\n"
+                f"OTEL Exporter: {_emoji(bool(otel_ready))}\n"
             )
             await update.message.reply_text(text)
         except Exception as e:
@@ -1488,7 +1511,7 @@ class AdvancedBotHandlers:
             await update.message.reply_text(f"❌ שגיאה ב-/accuracy: {html.escape(str(e))}")
 
     async def errors_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """/errors – 10 השגיאות האחרונות. מקור ראשי: Sentry; Fallback: זיכרון מקומי."""
+        """/errors – Top signatures (5/30/120m) + Sentry links; supports '/errors examples <signature>'"""
         try:
             # הרשאות: אדמינים בלבד
             try:
@@ -1499,75 +1522,195 @@ class AdvancedBotHandlers:
                 await update.message.reply_text("❌ פקודה זמינה למנהלים בלבד")
                 return
 
-            lines: list[str] = []
-            used_fallback = False
+            args = context.args or []
 
-            # 1) Sentry-first (best-effort)
+            # Helper: build Sentry query link for a given error_signature
+            def _sentry_query_link(signature: str) -> Optional[str]:
+                try:
+                    # Best-effort derive UI base from DSN
+                    dsn = os.getenv("SENTRY_DSN") or ""
+                    host = None
+                    if dsn:
+                        try:
+                            from urllib.parse import urlparse
+                            parsed = urlparse(dsn)
+                            raw_host = parsed.hostname or ''
+                        except Exception:
+                            raw_host = ''
+                        if raw_host == 'sentry.io' or raw_host.endswith('.sentry.io'):
+                            host = 'sentry.io'
+                        elif raw_host.startswith('ingest.'):
+                            host = raw_host[len('ingest.'):]
+                        else:
+                            host = raw_host or None
+                    host = host or 'sentry.io'
+                    org = os.getenv("SENTRY_ORG") or os.getenv("SENTRY_ORG_SLUG")
+                    if not org:
+                        return None
+                    from urllib.parse import quote_plus
+                    q = quote_plus(f'error_signature:"{signature}"')
+                    return f"https://{host}/organizations/{org}/issues/?query={q}&statsPeriod=24h"
+                except Exception:
+                    return None
+
+            # Sub-command: examples for a given signature
+            if args and args[0].lower() in {"example", "examples"}:
+                signature = " ".join(args[1:]).strip()
+                if not signature:
+                    await update.message.reply_text("ℹ️ שימוש: /errors examples <error_signature>")
+                    return
+                try:
+                    from observability import get_recent_errors  # type: ignore
+                    examples = []
+                    for er in (get_recent_errors(limit=200) or []):
+                        sig = str(er.get("error_signature") or er.get("event") or "")
+                        if sig == signature:
+                            ts = str(er.get("ts") or er.get("timestamp") or "")
+                            msg = str(er.get("error") or er.get("event") or "")
+                            examples.append(f"• {ts} – {msg}")
+                            if len(examples) >= 5:
+                                break
+                    if not examples:
+                        await update.message.reply_text("(אין דוגמאות זמינות לחתימה זו)")
+                        return
+                    link = _sentry_query_link(signature)
+                    header = f"🔎 דוגמאות לשגיאות עבור החתימה: {signature}"
+                    if link:
+                        header += f"\nSentry: {link}"
+                    await update.message.reply_text("\n".join([header] + examples))
+                    return
+                except Exception:
+                    await update.message.reply_text("(כשל באיסוף דוגמאות)")
+                    return
+
+            lines: list[str] = []
+            kb_rows: list[list[InlineKeyboardButton]] = []
+
+            # 1) Sentry-first (best-effort): recent unresolved issues
             try:
                 import integrations_sentry as _sentry  # type: ignore
                 if getattr(_sentry, "is_configured", None) and _sentry.is_configured():
                     issues = await _sentry.get_recent_issues(limit=10)
                     if issues:
+                        lines.append("Sentry – issues אחרונים:")
                         for i, it in enumerate(issues, 1):
                             sid = str(it.get("shortId") or it.get("id") or "-")
                             title = str(it.get("title") or "")
-                            lines.append(f"{i}. [{sid}] {title}")
+                            perma = str(it.get("permalink") or "")
+                            suffix = f" – {perma}" if perma else ""
+                            lines.append(f"{i}. [{sid}] {title}{suffix}")
             except Exception:
-                # ignore and try fallback
+                # ignore and continue
                 pass
 
-            # 2) Fallback – recent errors buffer from observability
+            # 2) Local Top signatures from recent errors buffer, across windows
+            try:
+                from observability import get_recent_errors  # type: ignore
+                from datetime import datetime, timezone, timedelta
+
+                def _parse_ts(ts: str) -> Optional[datetime]:
+                    try:
+                        return datetime.fromisoformat(str(ts).replace('Z', '+00:00'))
+                    except Exception:
+                        return None
+
+                # Windows default or single-window from args like '30m'
+                wins: list[int]
+                if args and args[0].lower().endswith('m') and args[0][:-1].isdigit():
+                    mins = max(1, int(args[0][:-1]))
+                    wins = [mins]
+                else:
+                    wins = [5, 30, 120]
+
+                recent = get_recent_errors(limit=200) or []
+                now = datetime.now(timezone.utc)
+
+                # נשמור מועמדים לכפתורים מתוך חלון היעד (ברירת מחדל: 30m או החלון היחיד שבחר המשתמש)
+                target_window = wins[0] if len(wins) == 1 else 30
+                selected_sigs: list[str] = []
+
+                for w in wins:
+                    start = now - timedelta(minutes=int(w))
+                    grouped: dict[str, dict[str, Any]] = {}
+                    for er in recent:
+                        ts = _parse_ts(er.get("ts") or er.get("timestamp") or "")
+                        if ts is None or ts < start:
+                            continue
+                        signature = str(er.get("error_signature") or er.get("event") or "unknown")
+                        bucket = grouped.setdefault(signature, {
+                            "count": 0,
+                            "sample": "",
+                            "category": str(er.get("error_category") or ""),
+                            "policy": str(er.get("error_policy") or ""),
+                            "code": str(er.get("error_code") or "-"),
+                        })
+                        bucket["count"] += 1
+                        if not bucket["sample"]:
+                            bucket["sample"] = str(er.get("error") or er.get("event") or "")
+                        if not bucket["category"]:
+                            bucket["category"] = str(er.get("error_category") or "")
+                        if not bucket["policy"]:
+                            bucket["policy"] = str(er.get("error_policy") or "")
+                        if bucket.get("code") in {"", "-"} and er.get("error_code"):
+                            bucket["code"] = str(er.get("error_code") or "-")
+
+                    lines.append("")
+                    lines.append(f"⏱️ Top {w}m:")
+                    if not grouped:
+                        lines.append("(אין נתונים בחלון זה)")
+                        continue
+
+                    sorted_groups = sorted(grouped.items(), key=lambda item: item[1]["count"], reverse=True)
+                    for i, (sig, info) in enumerate(sorted_groups[:10], 1):
+                        category = info.get("category") or "-"
+                        label_parts = [category]
+                        if sig and sig != "unknown":
+                            label_parts.append(sig)
+                        label = "|".join(label_parts)
+                        count = int(info.get("count", 0) or 0)
+                        sample = str(info.get("sample") or "-")
+                        code = str(info.get("code") or "-")
+                        line = f"{i}. [{label}] {count}× {sample}"
+                        policy = str(info.get("policy") or "").strip()
+                        if policy and policy not in {"escalate", "default"}:
+                            line += f" — policy={policy}"
+                        if code and code != "-":
+                            line += f" (code={code})"
+                        link = _sentry_query_link(sig) if sig and sig != "unknown" else None
+                        if link:
+                            line += f" — Sentry: {link}"
+                        line += f" — דוגמאות: /errors examples {sig}"
+                        lines.append(line)
+
+                    # בחירת מועמדים לכפתורים
+                    if (w == target_window) or (not selected_sigs and w == wins[-1]):
+                        selected_sigs = [sig for sig, _info in sorted_groups[:5] if sig and sig != "unknown"]
+
+                # בניית מקלדת אינליין: לכל חתימה כפתור דוגמאות + כפתור Sentry (URL)
+                if selected_sigs:
+                    try:
+                        tokens_map = context.user_data.get('errors_sig_tokens') or {}
+                        for sig in selected_sigs:
+                            tok = hashlib.sha1(sig.encode('utf-8', 'ignore')).hexdigest()[:16]
+                            tokens_map[tok] = sig
+                            label = f"📄 דוגמאות – {sig[:18]}"
+                            row = [InlineKeyboardButton(label, callback_data=f"err_ex:{tok}")]
+                            link = _sentry_query_link(sig)
+                            if link:
+                                row.append(InlineKeyboardButton("🔎 Sentry", url=link))
+                            kb_rows.append(row)
+                        context.user_data['errors_sig_tokens'] = tokens_map
+                    except Exception:
+                        kb_rows = []
+            except Exception:
+                pass
+
             if not lines:
-                try:
-                    from observability import get_recent_errors  # type: ignore
-
-                    recent = get_recent_errors(limit=10) or []
-                    if recent:
-                        grouped: dict[str, dict[str, Any]] = {}
-                        for er in recent:
-                            signature = str(er.get("error_signature") or er.get("event") or "unknown")
-                            bucket = grouped.setdefault(signature, {
-                                "count": 0,
-                                "sample": "",
-                                "category": str(er.get("error_category") or ""),
-                                "policy": str(er.get("error_policy") or ""),
-                                "code": str(er.get("error_code") or "-"),
-                            })
-                            bucket["count"] += 1
-                            if not bucket["sample"]:
-                                bucket["sample"] = str(er.get("error") or er.get("event") or "")
-                            if not bucket["category"]:
-                                bucket["category"] = str(er.get("error_category") or "")
-                            if not bucket["policy"]:
-                                bucket["policy"] = str(er.get("error_policy") or "")
-                            if bucket.get("code") in {"", "-"} and er.get("error_code"):
-                                bucket["code"] = str(er.get("error_code") or "-")
-
-                        sorted_groups = sorted(grouped.items(), key=lambda item: item[1]["count"], reverse=True)
-                        for i, (sig, info) in enumerate(sorted_groups[:10], 1):
-                            category = info.get("category") or "-"
-                            label_parts = [category]
-                            if sig and sig != "unknown":
-                                label_parts.append(sig)
-                            label = "|".join(label_parts)
-                            count = int(info.get("count", 0) or 0)
-                            sample = str(info.get("sample") or "-")
-                            code = str(info.get("code") or "-")
-                            line = f"{i}. [{label}] {count}× {sample}"
-                            policy = str(info.get("policy") or "").strip()
-                            if policy and policy not in {"escalate", "default"}:
-                                line += f" — policy={policy}"
-                            if code and code != "-":
-                                line += f" (code={code})"
-                            lines.append(line)
-                    else:
-                        used_fallback = True
-                except Exception:
-                    used_fallback = True
-
-            if used_fallback and not lines:
                 lines.append("(אין נתוני שגיאות זמינים בסביבה זו)")
-            await update.message.reply_text("\n".join(["🧰 שגיאות אחרונות:"] + lines))
+            await update.message.reply_text(
+                "\n".join(["🧰 שגיאות אחרונות:"] + lines),
+                reply_markup=(InlineKeyboardMarkup(kb_rows) if kb_rows else None)
+            )
         except Exception as e:
             await update.message.reply_text(f"❌ שגיאה ב-/errors: {html.escape(str(e))}")
 
@@ -1621,12 +1764,16 @@ class AdvancedBotHandlers:
                 # גם בסביבת טסטים ללא אינטגרציית שיתוף חייב להיות אזכור ברור לדוח המלא.
                 summary_lines.append("דוח מלא: לא נוצר קישור אוטומטי (סביבת בדיקות)")
 
-            # קישורי Grafana (2 ראשונים)
+            # קישורי Sentry (2 ראשונים) + Grafana (2 ראשונים)
             try:
-                links = list(result.get("grafana_links") or [])
-                if links:
-                    glines = ", ".join(f"[{l.get('name')}]({l.get('url')})" for l in links[:2])
-                    summary_lines.append(f"Grafana: {glines}")
+                slinks = list(result.get("sentry_links") or [])
+                if slinks:
+                    sl = ", ".join(f"[{l.get('name')}]({l.get('url')})" for l in slinks[:2])
+                    summary_lines.append(f"Sentry: {sl}")
+                glinks = list(result.get("grafana_links") or [])
+                if glinks:
+                    gl = ", ".join(f"[{l.get('name')}]({l.get('url')})" for l in glinks[:2])
+                    summary_lines.append(f"Grafana: {gl}")
             except Exception:
                 pass
 
@@ -2568,6 +2715,66 @@ class AdvancedBotHandlers:
                 await self._send_file_download(query, user_id, file_name)
             
             # ועוד callback handlers...
+
+            # --- ChatOps: /errors inline examples ---
+            elif data.startswith("err_ex:"):
+                try:
+                    # הרשאות: אדמינים בלבד
+                    if not self._is_admin(user_id):
+                        await query.message.reply_text("❌ פקודה זמינה למנהלים בלבד")
+                        return
+                except Exception:
+                    pass
+                token = data.split(":", 1)[1]
+                try:
+                    sig = (context.user_data.get('errors_sig_tokens') or {}).get(token)
+                except Exception:
+                    sig = None
+                if not sig:
+                    await query.answer("כפתור פג תוקף", show_alert=False)
+                    return
+                # אסוף עד 5 דוגמאות מהבאפר המקומי
+                try:
+                    from observability import get_recent_errors  # type: ignore
+                    examples = []
+                    for er in (get_recent_errors(limit=200) or []):
+                        if str(er.get("error_signature") or er.get("event") or "") == sig:
+                            ts = str(er.get("ts") or er.get("timestamp") or "")
+                            msg = str(er.get("error") or er.get("event") or "")
+                            examples.append(f"• {ts} – {msg}")
+                            if len(examples) >= 5:
+                                break
+                    header = f"🔎 דוגמאות לשגיאות עבור החתימה: {sig}"
+                    # קישור Sentry (אם זמין)
+                    try:
+                        from urllib.parse import quote_plus
+                        dsn = os.getenv("SENTRY_DSN") or ""
+                        host = None
+                        if dsn:
+                            from urllib.parse import urlparse
+                            parsed = urlparse(dsn)
+                            raw_host = parsed.hostname or ''
+                            if raw_host == 'sentry.io' or raw_host.endswith('.sentry.io'):
+                                host = 'sentry.io'
+                            elif raw_host.startswith('ingest.'):
+                                host = raw_host[len('ingest.'):]
+                            else:
+                                host = raw_host or None
+                        host = host or 'sentry.io'
+                        org = os.getenv("SENTRY_ORG") or os.getenv("SENTRY_ORG_SLUG")
+                        if org:
+                            q = quote_plus(f'error_signature:"{sig}"')
+                            link = f"https://{host}/organizations/{org}/issues/?query={q}&statsPeriod=24h"
+                            header += f"\nSentry: {link}"
+                    except Exception:
+                        pass
+                    if not examples:
+                        await query.message.reply_text(header + "\n(אין דוגמאות זמינות לחתימה זו)")
+                    else:
+                        await query.message.reply_text("\n".join([header] + examples))
+                except Exception:
+                    await query.message.reply_text("(כשל באיסוף דוגמאות)")
+                    return
 
             # --- Favorites callbacks ---
             elif data == "favorites_list":
