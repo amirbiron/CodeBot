@@ -1614,10 +1614,19 @@ class AdvancedBotHandlers:
                     except Exception:
                         return None
 
-                # Windows default or single-window from args like '30m'
+                # Windows default or single-window from args like '30m' (search any token)
                 wins: list[int]
-                if args and args[0].lower().endswith('m') and args[0][:-1].isdigit():
-                    mins = max(1, int(args[0][:-1]))
+                _win_tok = None
+                try:
+                    for t in args:
+                        tl = str(t or "").lower().strip()
+                        if tl.endswith('m') and tl[:-1].isdigit():
+                            _win_tok = tl
+                            break
+                except Exception:
+                    _win_tok = None
+                if _win_tok is not None:
+                    mins = max(1, int(_win_tok[:-1]))
                     wins = [mins]
                 else:
                     wins = [5, 30, 120]
@@ -1633,6 +1642,19 @@ class AdvancedBotHandlers:
                     start = now - timedelta(minutes=int(w))
                     grouped: dict[str, dict[str, Any]] = {}
                     for er in recent:
+                        # Apply optional filters (substring match, case-insensitive)
+                        try:
+                            if svc_filter:
+                                svc = str(er.get("service") or "")
+                                if svc_filter.lower() not in svc.lower():
+                                    continue
+                            if ep_filter:
+                                ep = str(er.get("endpoint") or "")
+                                if ep_filter.lower() not in ep.lower():
+                                    continue
+                        except Exception:
+                            # On parsing errors, skip filtering for this record
+                            pass
                         ts_raw = er.get("ts") or er.get("timestamp") or ""
                         ts_parsed = _parse_ts(ts_raw)
                         error_ts: datetime = ts_parsed if ts_parsed is not None else now

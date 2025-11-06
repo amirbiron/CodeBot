@@ -71,7 +71,14 @@ def _sentry_ui_base() -> Optional[str]:
 
 
 def _sentry_links_for_request(request_id: str) -> List[Dict[str, str]]:
-    """Construct useful Sentry UI links filtered by request_id (best-effort)."""
+    """Construct Sentry UI links for triage.
+
+    Heuristic:
+    - If the input looks like a bare token (no ':'/'='/space), treat it as request_id
+      and search by request_id:"<token>".
+    - Otherwise, treat the input as a raw Sentry query (e.g., endpoint=v2/getMonitors)
+      and pass it through as-is.
+    """
     rid = str(request_id or "").strip()
     if not rid:
         return []
@@ -79,7 +86,17 @@ def _sentry_links_for_request(request_id: str) -> List[Dict[str, str]]:
     org = os.getenv("SENTRY_ORG") or os.getenv("SENTRY_ORG_SLUG")
     if not org:
         return []
-    q = quote_plus(f'request_id:"{rid}"')
+
+    try:
+        # Align with the search heuristic used in triage():
+        if (":" not in rid) and ("=" not in rid) and (" " not in rid):
+            query_expr = f'request_id:"{rid}"'
+        else:
+            query_expr = rid
+    except Exception:
+        query_expr = rid
+
+    q = quote_plus(query_expr)
     # Issues search (24h) is the most universally supported view
     issues = f"{base}/organizations/{org}/issues/?query={q}&statsPeriod=24h"
     # Discover results (if enabled) – optional but useful
