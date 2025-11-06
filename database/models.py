@@ -64,3 +64,32 @@ class LargeFile:
             self.file_size = len(self.content.encode('utf-8'))
             self.lines_count = len(self.content.split('\n'))
 
+
+@dataclass
+class Snippet:
+    """מודל עבור פריט ספריית הסניפטים הציבורית (עם תור אישור).
+
+    מייצג הצעת סניפט שמוגשת ע"י משתמש, מאושרת ע"י אדמין, ונחשפת לציבור לאחר אישור.
+    """
+    title: str
+    description: str
+    code: str
+    language: str
+    user_id: int  # מזהה המגיש (created_by)
+
+    # שדות סטטוס ואישור
+    status: str = "pending"  # pending | approved | rejected
+    submitted_at: Optional[datetime] = None
+    approved_at: Optional[datetime] = None
+    approved_by: Optional[int] = None
+    rejection_reason: Optional[str] = None
+
+    def __post_init__(self) -> None:
+        # ניקוי שדות טקסט בסיסי והגדרות זמנים
+        self.title = (self.title or "").strip()
+        self.description = (self.description or "").strip()
+        self.code = self.code or ""
+        self.language = (self.language or "").strip()
+        if self.submitted_at is None:
+            self.submitted_at = datetime.now(timezone.utc)
+

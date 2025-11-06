@@ -123,6 +123,7 @@ class DatabaseManager:
     backup_ratings_collection: Optional[CollectionLike]
     internal_shares_collection: Optional[CollectionLike]
     community_library_collection: Optional[CollectionLike]
+    snippets_collection: Optional[CollectionLike]
     _repo: Optional[Any]
 
     def __init__(self):
@@ -134,6 +135,7 @@ class DatabaseManager:
         self.backup_ratings_collection = _StubCollection()
         self.internal_shares_collection = _StubCollection()
         self.community_library_collection = _StubCollection()
+        self.snippets_collection = _StubCollection()
         self._repo = None
         self.connect()
 
@@ -195,6 +197,7 @@ class DatabaseManager:
             self.large_files_collection = NoOpCollection()
             self.backup_ratings_collection = NoOpCollection()
             self.community_library_collection = NoOpCollection()
+            self.snippets_collection = NoOpCollection()
             emit_event("db_disabled", reason="docs_or_ci_mode")
 
         # אם pymongo לא מותקן (למשל בסביבת בדיקות קלה) — עבור למצב no-op
@@ -304,6 +307,11 @@ class DatabaseManager:
                 self.community_library_collection = self.db.community_library_items
             except Exception:
                 self.community_library_collection = None
+            # Snippets library collection
+            try:
+                self.snippets_collection = self.db.snippets
+            except Exception:
+                self.snippets_collection = None
             self.client.admin.command('ping')
             self._create_indexes()
             emit_event("db_connected", severity="info")
@@ -462,6 +470,19 @@ class DatabaseManager:
                         IndexModel([("featured", DESCENDING), ("approved_at", DESCENDING)], name="featured_approved_idx"),
                     ]
                     self.community_library_collection.create_indexes(community_indexes)
+            except Exception:
+                pass
+            # Snippets library indexes (best-effort)
+            try:
+                if self.snippets_collection is not None:
+                    snippets_indexes = [
+                        IndexModel([("status", ASCENDING), ("submitted_at", DESCENDING)], name="snip_status_submitted_idx"),
+                        IndexModel([("status", ASCENDING), ("approved_at", DESCENDING)], name="snip_status_approved_idx"),
+                        IndexModel([("language", ASCENDING)], name="snip_language_idx"),
+                        IndexModel([("user_id", ASCENDING)], name="snip_user_id_idx"),
+                        IndexModel([("title", TEXT), ("description", TEXT), ("code", TEXT)], name="snip_text_idx"),
+                    ]
+                    self.snippets_collection.create_indexes(snippets_indexes)
             except Exception:
                 pass
         except Exception as e:

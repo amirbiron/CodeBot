@@ -1,0 +1,45 @@
+{% extends "base.html" %}
+
+{% block title %}ניהול סניפטים ממתינים{% endblock %}
+
+{% block content %}
+<h1 class="page-title">ניהול סניפטים ממתינים</h1>
+
+<div class="glass-card">
+  {% if not items %}
+    אין הצעות ממתינות.
+  {% else %}
+    <div class="table-responsive">
+      <table class="table">
+        <thead>
+          <tr>
+            <th>כותרת</th>
+            <th>שפה</th>
+            <th>תיאור</th>
+            <th>הוגש</th>
+            <th>פעולות</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for it in items %}
+            <tr>
+              <td>{{ it.title }}</td>
+              <td>{{ it.language }}</td>
+              <td style="max-width: 420px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">{{ it.description }}</td>
+              <td>{{ it.submitted_at }}</td>
+              <td>
+                <a class="btn btn-primary btn-sm" href="/admin/snippets/approve?id={{ it._id }}">אשר</a>
+                <form action="/admin/snippets/reject" method="get" style="display:inline-flex; gap:.25rem; align-items:center;">
+                  <input type="hidden" name="id" value="{{ it._id }}">
+                  <input type="text" name="reason" placeholder="סיבה" class="form-control" style="width: 180px;">
+                  <button class="btn btn-secondary btn-sm" type="submit">דחה</button>
+                </form>
+              </td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  {% endif %}
+</div>
+{% endblock %}

@@ -1,0 +1,21 @@
+{% extends "base.html" %}
+
+{% block title %}📃 ספריית סניפטים{% endblock %}
+
+{% block content %}
+<h1 class="page-title">📃 ספריית סניפטים</h1>
+
+<div class="glass-card">
+  <div class="form-row" style="display:flex; gap:.75rem; flex-wrap: wrap; align-items: center;">
+    <input id="q" type="text" class="form-control" placeholder="חפש לפי כותרת/תיאור" style="flex:2; min-width: 220px;">
+    <input id="language" type="text" class="form-control" placeholder="שפה (למשל: python)" style="flex:1; min-width: 180px;">
+    <button id="searchBtn" class="btn btn-primary">חיפוש</button>
+  </div>
+</div>
+
+<div id="results" class="glass-grid" style="display:grid; gap:1rem; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));"></div>
+
+<nav id="pager" style="display:flex; gap:.5rem; justify-content:center; margin-top:1rem;"></nav>
+
+<script src="/static/js/snippets.js?v={{ static_version }}"></script>
+{% endblock %}
