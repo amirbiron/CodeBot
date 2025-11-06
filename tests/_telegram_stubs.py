@@ -89,10 +89,24 @@ class CommandHandler:
         # Accept both (command, callback) and (callback) shapes
         if callback is None and callable(command):
             self.callback = command
+            self.commands = tuple()
             self.command = None
+            return
+
+        self.callback = callback or kwargs.get('callback')
+        cmds = command if command is not None else kwargs.get('command')
+        if cmds is None:
+            commands_tuple = tuple()
+        elif isinstance(cmds, str):
+            commands_tuple = (cmds,)
         else:
-            self.command = command
-            self.callback = callback or kwargs.get('callback')
+            try:
+                commands_tuple = tuple(cmds)
+            except TypeError:
+                commands_tuple = (cmds,)
+        filtered = tuple(c for c in commands_tuple if c)
+        self.commands = filtered
+        self.command = filtered[0] if filtered else None
 
 class MessageHandler:
     def __init__(self, filters, callback, *args, **kwargs):
