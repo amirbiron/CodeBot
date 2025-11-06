@@ -223,7 +223,7 @@ def _wrap_command_callback(callback, command_label: str):
         async def _wrapped(update, context, *args, __orig=callback):
             start = time.perf_counter()
             status_code = 200
-            status_label = "ok"
+            status_label: str | None = None
             try:
                 return await __orig(update, context, *args)
             except ApplicationHandlerStop:
@@ -256,7 +256,7 @@ def _wrap_command_callback(callback, command_label: str):
     def _wrapped_sync(update, context, *args, __orig=callback):
         start = time.perf_counter()
         status_code = 200
-        status_label = "ok"
+        status_label: str | None = None
         try:
             return __orig(update, context, *args)
         except ApplicationHandlerStop:
@@ -332,7 +332,7 @@ def _wrap_github_callback(callback):
         action = (raw.split(":", 1)[0] or "unknown").strip() or "unknown"
         start = time.perf_counter()
         status_code = 200
-        status_label = "ok"
+        status_label: str | None = None
         try:
             return await __orig(update, context, *args)
         except ApplicationHandlerStop:
@@ -372,7 +372,7 @@ def _wrap_handler_callback(callback, handler_label: str):
         async def _wrapped(update, context, *args, __orig=callback):
             start = time.perf_counter()
             status_code = 200
-            status_label = "ok"
+            status_label: str | None = None
             try:
                 return await __orig(update, context, *args)
             except ApplicationHandlerStop:
@@ -401,7 +401,7 @@ def _wrap_handler_callback(callback, handler_label: str):
     def _wrapped_sync(update, context, *args, __orig=callback):
         start = time.perf_counter()
         status_code = 200
-        status_label = "ok"
+        status_label: str | None = None
         try:
             return __orig(update, context, *args)
         except ApplicationHandlerStop:
