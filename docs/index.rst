@@ -89,6 +89,7 @@ Code Keeper Bot - תיעוד API
    :caption: WebApp:
 
    webapp/overview
+   webapp/onboarding
    webapp/caching
    webapp/advanced-caching
    webapp/static-checklist
@@ -105,9 +106,11 @@ Code Keeper Bot - תיעוד API
    observability/guidelines
    logging_schema
    metrics
+   resilience
    alerts
    observability/log_based_alerts
    sentry
+   runbooks/incident-checklist
    runbooks/logging-levels
    runbooks/github_backup_restore
    runbooks/slo
@@ -137,6 +140,7 @@ Code Keeper Bot - תיעוד API
 
    observability/events_catalog
    observability/error_codes
+   observability/tracing_hotspots
    observability/metrics_promql
    observability/alerts_playbook
 

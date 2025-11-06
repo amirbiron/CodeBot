@@ -1,6 +1,18 @@
 What's New
 ==========
 
+2025-11-06
+----------
+- docs: WebApp Onboarding – דף חדש עם זרימה, קישורים ו‑JS לדגל `has_seen_welcome_modal`.
+- docs: WebApp API Reference – נוספו `POST /api/welcome/ack` ו‑`POST /api/shared/save` כולל קלט/פלט ושגיאות.
+- docs: Observability – דף "Tracing Hotspots" עם תרשימי Mermaid, טבלת כיסוי ודוגמאות `@traced`.
+- docs: Log‑based Alerts – פרק "טקסונומיית שגיאות וחתימות", "תצוגה ב‑ChatOps" ו‑`classify_error()`.
+- docs: Resilience – דף חדש למדיניות Retry + Circuit Breaker עם טבלת ENV ודוגמת שימוש.
+- docs: Architecture – הופרדה אחריות למסמכים (`DocumentHandler`) + HOWTO חדש `handlers/document-flow`.
+- docs: Runbooks – צ'קליסט Incident חדש.
+
+קישורים ל‑Issues רלוונטיים: `#1198`, `#1239`.
+
 2025-11-05
 ----------
 - docs: הרחבת דף הבית – נוספו Bookmarks, Collections, Sticky Notes, Favorites, Reminders ל"סקירה כללית" ו"תכונות עיקריות", כולל הבהרה ש‑WebApp בלבד.
