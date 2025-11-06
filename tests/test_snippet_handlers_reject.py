@@ -1,5 +1,7 @@
 import types
 
+import pytest
+
 import conversation_handlers as ch
 
 
@@ -12,6 +14,7 @@ class _Msg:
         self.texts.append(t)
 
 
+@pytest.mark.asyncio
 async def test_snippet_collect_reject_reason(monkeypatch):
     called = {}
 
