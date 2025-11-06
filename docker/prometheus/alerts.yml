@@ -34,9 +34,26 @@ groups:
       # --- SLO: Latency P95 < 0.5s ---
       - alert: SLOLatencyP95Breach
         expr: |
-          histogram_quantile(0.95, sum(rate(http_request_duration_seconds_bucket[5m])) by (le)) > 0.5
-        for: 10m
+          histogram_quantile(
+            0.95,
+            sum by (le) (rate(http_request_duration_seconds_bucket{endpoint!~"(metrics|health|static.*|favicon.*)"}[5m]))
+          ) > 1.5
+        for: 15m
         labels:
           severity: warning
+          component: webapp
         annotations:
-          summary: "חריגת זמן תגובה P95 מעל 0.5s"
+          summary: "זמן תגובה גבוה ב-P95 מעל 1.5 שניות (מתמשך)"
+
+      - alert: SLOLatencyP95Critical
+        expr: |
+          histogram_quantile(
+            0.95,
+            sum by (le) (rate(http_request_duration_seconds_bucket{endpoint!~"(metrics|health|static.*|favicon.*)"}[5m]))
+          ) > 3
+        for: 30m
+        labels:
+          severity: critical
+          component: webapp
+        annotations:
+          summary: "קריטי: זמן תגובה P95 מעל 3 שניות לאורך זמן"

@@ -37,9 +37,12 @@ def _format_alert_text(alert: Dict[str, Any]) -> str:
     status = str(alert.get("status") or "firing")
     severity = str(labels.get("severity") or labels.get("level") or "info").upper()
     name = labels.get("alertname") or labels.get("name") or "Alert"
+    component = labels.get("component") or ""
     summary = annotations.get("summary") or annotations.get("description") or ""
     generator_url = alert.get("generatorURL") or ""
     parts = [f"[{status.upper()} | {severity}] {name}"]
+    if component:
+        parts.append(f"component: {component}")
     if summary:
         parts.append(str(summary))
     if generator_url:
@@ -114,15 +117,40 @@ def _post_to_telegram(text: str) -> None:
         emit_event("alert_forward_telegram_error", severity="warn")
 
 
+def _severity_rank(value: str | None) -> int:
+    try:
+        v = (value or "").strip().lower()
+        if v in {"critical", "fatal", "crit"}:
+            return 4
+        if v in {"error", "err", "errors"}:
+            return 3
+        if v in {"warning", "warn"}:
+            return 2
+        if v in {"info", "notice", "anomaly"}:
+            return 1
+        if v in {"debug", "trace"}:
+            return 0
+    except Exception:
+        return 1
+    return 1
+
+
+def _min_telegram_severity_rank() -> int:
+    # Default: send all severities unless explicitly raised via env
+    raw = os.getenv("ALERT_TELEGRAM_MIN_SEVERITY", "info")
+    return _severity_rank(raw)
+
+
 def forward_alerts(alerts: List[Dict[str, Any]]) -> None:
     """Forward a list of Alertmanager alerts to configured sinks, respecting silences (best-effort)."""
     if not isinstance(alerts, list):
         return
+    min_tg_rank = _min_telegram_severity_rank()
     for alert in alerts:
         try:
             text = _format_alert_text(alert)
             labels = alert.get("labels", {}) or {}
-            severity = labels.get("severity") or labels.get("level") or "info"
+            severity = str(labels.get("severity") or labels.get("level") or "info")
             # Emit the base receipt event consistently as anomaly to reflect detection,
             # while preserving the original label in a separate field for observability.
             mapped_severity = "anomaly"
@@ -156,6 +184,8 @@ def forward_alerts(alerts: List[Dict[str, Any]]) -> None:
                 # Do not send to sinks
                 continue
             _post_to_slack(text)
-            _post_to_telegram(text)
+            # Send to Telegram only if severity >= configured minimum
+            if _severity_rank(severity) >= min_tg_rank:
+                _post_to_telegram(text)
         except Exception:
             emit_event("alert_forward_error", severity="warn")
