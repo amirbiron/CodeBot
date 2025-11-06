@@ -88,6 +88,12 @@ def seed():
         )
         inserted += 1
     print(f'Seed processed {inserted} snippets (idempotent upsert).')
+    # סגירת חיבור ה-Mongo כדי למנוע ResourceWarning בסביבות CLI
+    try:
+        if hasattr(_db, 'close_connection'):
+            _db.close_connection()  # type: ignore[attr-defined]
+    except Exception:
+        pass
 
 
 if __name__ == '__main__':
