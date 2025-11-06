@@ -693,7 +693,7 @@ async def show_all_files(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         except Exception:
             enabled_comm = True
         if enabled_comm:
-            keyboard.append([InlineKeyboardButton("📙 ספריית קהילה (Web)", url=f"{os.getenv('WEBAPP_URL', 'https://code-keeper-webapp.onrender.com')}/community-library")])
+            keyboard.append([InlineKeyboardButton("🗃 אוסף הקהילה (Web)", url=f"{os.getenv('WEBAPP_URL', 'https://code-keeper-webapp.onrender.com')}/community-library")])
             keyboard.append([InlineKeyboardButton("➕ הוסף מוצר משלך", callback_data="community_submit")])
         reply_markup = InlineKeyboardMarkup(keyboard)
         await update.message.reply_text(
@@ -768,7 +768,7 @@ async def show_all_files_callback(update: Update, context: ContextTypes.DEFAULT_
         except Exception:
             enabled_comm = True
         if enabled_comm:
-            keyboard.append([InlineKeyboardButton("📙 ספריית קהילה (Web)", url=f"{os.getenv('WEBAPP_URL', 'https://code-keeper-webapp.onrender.com')}/community-library")])
+            keyboard.append([InlineKeyboardButton("🗃 אוסף הקהילה (Web)", url=f"{os.getenv('WEBAPP_URL', 'https://code-keeper-webapp.onrender.com')}/community-library")])
             keyboard.append([InlineKeyboardButton("➕ הוסף מוצר משלך", callback_data="community_submit")])
         reply_markup = InlineKeyboardMarkup(keyboard)
         await TelegramUtils.safe_edit_message_text(
@@ -805,7 +805,7 @@ async def community_submit_start(update: Update, context: ContextTypes.DEFAULT_T
     context.user_data['cl_item'] = {}
     await TelegramUtils.safe_edit_message_text(
         query,
-        "🧩 נתחיל בהגשה לספריית הקהילה\n\nשלח/י שם מוצר (3–120 תווים)",
+        "🧩 נתחיל בהגשה לאוסף הקהילה\n\nשלח/י שם מוצר (3–120 תווים)",
         reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("❌ ביטול", callback_data="files")]])
     )
     return CL_COLLECT_TITLE
@@ -878,7 +878,7 @@ async def community_collect_logo(update: Update, context: ContextTypes.DEFAULT_T
                 [InlineKeyboardButton("✅ אשר", callback_data=f"community_approve:{req_id or ''}")],
             ])
             text = (
-                "🆕 הגשה חדשה לספריית הקהילה\n\n"
+                "🆕 הגשה חדשה לאוסף הקהילה\n\n"
                 f"כותרת: {payload.get('title','')}\n"
                 f"URL: {payload.get('url','')}\n"
                 f"מאת: @{getattr(user,'username','') or user.id}"
@@ -921,7 +921,7 @@ async def community_inline_approve(update: Update, context: ContextTypes.DEFAULT
                     try:
                         base = _resolve_webapp_base_url() or DEFAULT_WEBAPP_URL
                         msg = (
-                            "🎉 איזה כיף! הבקשה שלך אושרה ונוספה לספריית הקהילה.\n"
+                            "🎉 איזה כיף! הבקשה שלך אושרה ונוספה לאוסף הקהילה.\n"
                             f"אפשר לצפות כאן: {base}/community-library"
                         )
                         await context.bot.send_message(chat_id=int(uid), text=msg)
@@ -980,7 +980,7 @@ async def community_approve_command(update: Update, context: ContextTypes.DEFAUL
                         try:
                             base = _resolve_webapp_base_url() or DEFAULT_WEBAPP_URL
                             msg = (
-                                "🎉 איזה כיף! הבקשה שלך אושרה ונוספה לספריית הקהילה.\n"
+                                "🎉 איזה כיף! הבקשה שלך אושרה ונוספה לאוסף הקהילה.\n"
                                 f"אפשר לצפות כאן: {base}/community-library"
                             )
                             await context.bot.send_message(chat_id=int(uid), text=msg)
