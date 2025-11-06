@@ -2,6 +2,45 @@
   const qs = (sel) => document.querySelector(sel);
   const qsa = (sel) => Array.from(document.querySelectorAll(sel));
 
+  function normalizeLanguage(lang) {
+    const m = String(lang || '').trim().toLowerCase();
+    if (!m) return '';
+    const map = {
+      js: 'javascript',
+      node: 'javascript',
+      ts: 'typescript',
+      py: 'python',
+      sh: 'bash',
+      shell: 'bash',
+      yml: 'yaml',
+      md: 'markdown',
+      golang: 'go',
+      html5: 'html',
+      css3: 'css',
+    };
+    return map[m] || m;
+  }
+
+  function applySyntaxHighlight(root) {
+    try {
+      if (!root || !window.hljs) return;
+      const blocks = root.querySelectorAll('pre code');
+      blocks.forEach(el => {
+        try {
+          if (el.classList.contains('hljs')) return;
+          const hasLang = /\blanguage-/.test(el.className || '');
+          if (hasLang && typeof window.hljs.highlightElement === 'function') {
+            window.hljs.highlightElement(el);
+          } else if (typeof window.hljs.highlightAuto === 'function') {
+            const res = window.hljs.highlightAuto(el.textContent || '');
+            el.innerHTML = res.value;
+            el.classList.add('hljs');
+          }
+        } catch (_) {}
+      });
+    } catch (_) {}
+  }
+
   async function fetchSnippets(params) {
     const url = new URL(window.location.origin + '/api/snippets');
     Object.entries(params || {}).forEach(([k, v]) => {
@@ -28,6 +67,10 @@
       try { await navigator.clipboard.writeText(code || ''); btn.textContent = 'הועתק'; setTimeout(()=>btn.textContent='העתק', 1200);} catch(e){}
     });
     const codeEl = document.createElement('code');
+    const normalized = normalizeLanguage(lang);
+    if (normalized) {
+      codeEl.className = 'language-' + normalized;
+    }
     codeEl.textContent = code || '';
     codeEl.setAttribute('dir', 'ltr');
     pre.appendChild(btn);
@@ -58,6 +101,8 @@
       card.appendChild(p);
       card.appendChild(codeBlock(it.code || '', it.language));
       root.appendChild(card);
+      // החלת הדגשת תחביר על הקוד בתוך הכרטיס
+      applySyntaxHighlight(card);
     }
   }
 

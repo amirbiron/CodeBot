@@ -4,6 +4,9 @@
 
 {% block extra_css %}
 <link rel="stylesheet" href="/static/css/snippets.css?v={{ static_version }}">
+<!-- Highlight.js theme (matches file viewer dark style) -->
+<link rel="preload" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github-dark-dimmed.min.css" as="style" onload="this.onload=null;this.rel='stylesheet'">
+<noscript><link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github-dark-dimmed.min.css"></noscript>
 {% endblock %}
 
 {% block content %}
@@ -20,6 +23,11 @@
 <div id="results" class="glass-grid" style="display:grid; gap:1rem; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));"></div>
 
 <nav id="pager" style="display:flex; gap:.5rem; justify-content:center; margin-top:1rem;"></nav>
+{% endblock %}
 
-<script src="/static/js/snippets.js?v={{ static_version }}"></script>
+{% block extra_js %}
+<!-- Highlight.js core -->
+<script defer src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+<!-- Our page script (runs after hljs is available due to defer order) -->
+<script defer src="/static/js/snippets.js?v={{ static_version }}"></script>
 {% endblock %}
