@@ -4,9 +4,9 @@
 
 {% block extra_css %}
 <link rel="stylesheet" href="/static/css/snippets.css?v={{ static_version }}">
-<!-- Highlight.js theme (matches file viewer dark style) -->
-<link rel="preload" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github-dark-dimmed.min.css" as="style" onload="this.onload=null;this.rel='stylesheet'">
-<noscript><link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github-dark-dimmed.min.css"></noscript>
+<!-- Highlight.js theme (matches file viewer dark style) - via jsDelivr (allowed by CSP) -->
+<link rel="preload" href="https://cdn.jsdelivr.net/npm/@highlightjs/cdn-assets@11.9.0/styles/github-dark-dimmed.min.css" as="style" onload="this.onload=null;this.rel='stylesheet'">
+<noscript><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@highlightjs/cdn-assets@11.9.0/styles/github-dark-dimmed.min.css"></noscript>
 {% endblock %}
 
 {% block content %}
@@ -26,10 +26,10 @@
 {% endblock %}
 
 {% block extra_js %}
-<!-- Highlight.js core -->
-<script defer src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
-<!-- Highlight.js line numbers plugin -->
-<script defer src="https://cdnjs.cloudflare.com/ajax/libs/highlightjs-line-numbers.js/2.11.0/highlightjs-line-numbers.min.js"></script>
+<!-- Highlight.js core (via jsDelivr) -->
+<script defer src="https://cdn.jsdelivr.net/npm/@highlightjs/cdn-assets@11.9.0/highlight.min.js"></script>
+<!-- Highlight.js line numbers plugin (via jsDelivr) -->
+<script defer src="https://cdn.jsdelivr.net/npm/highlightjs-line-numbers.js@2.11.0/dist/highlightjs-line-numbers.min.js"></script>
 <!-- Our page script (runs after hljs is available due to defer order) -->
 <script defer src="/static/js/snippets.js?v={{ static_version }}"></script>
 {% endblock %}
