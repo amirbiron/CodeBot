@@ -4,6 +4,7 @@ Advanced Bot Handlers for Code Keeper Bot
 """
 
 import asyncio
+import hashlib
 import os
 import io
 import logging
@@ -1583,6 +1584,7 @@ class AdvancedBotHandlers:
                     return
 
             lines: list[str] = []
+            kb_rows: list[list[InlineKeyboardButton]] = []
 
             # 1) Sentry-first (best-effort): recent unresolved issues
             try:
@@ -1622,6 +1624,10 @@ class AdvancedBotHandlers:
 
                 recent = get_recent_errors(limit=200) or []
                 now = datetime.now(timezone.utc)
+
+                # נשמור מועמדים לכפתורים מתוך חלון היעד (ברירת מחדל: 30m או החלון היחיד שבחר המשתמש)
+                target_window = wins[0] if len(wins) == 1 else 30
+                selected_sigs: list[str] = []
 
                 for w in wins:
                     start = now - timedelta(minutes=int(w))
@@ -1675,12 +1681,36 @@ class AdvancedBotHandlers:
                             line += f" — Sentry: {link}"
                         line += f" — דוגמאות: /errors examples {sig}"
                         lines.append(line)
+
+                    # בחירת מועמדים לכפתורים
+                    if (w == target_window) or (not selected_sigs and w == wins[-1]):
+                        selected_sigs = [sig for sig, _info in sorted_groups[:5] if sig and sig != "unknown"]
+
+                # בניית מקלדת אינליין: לכל חתימה כפתור דוגמאות + כפתור Sentry (URL)
+                if selected_sigs:
+                    try:
+                        tokens_map = context.user_data.get('errors_sig_tokens') or {}
+                        for sig in selected_sigs:
+                            tok = hashlib.sha1(sig.encode('utf-8', 'ignore')).hexdigest()[:16]
+                            tokens_map[tok] = sig
+                            label = f"📄 דוגמאות – {sig[:18]}"
+                            row = [InlineKeyboardButton(label, callback_data=f"err_ex:{tok}")]
+                            link = _sentry_query_link(sig)
+                            if link:
+                                row.append(InlineKeyboardButton("🔎 Sentry", url=link))
+                            kb_rows.append(row)
+                        context.user_data['errors_sig_tokens'] = tokens_map
+                    except Exception:
+                        kb_rows = []
             except Exception:
                 pass
 
             if not lines:
                 lines.append("(אין נתוני שגיאות זמינים בסביבה זו)")
-            await update.message.reply_text("\n".join(["🧰 שגיאות אחרונות:"] + lines))
+            await update.message.reply_text(
+                "\n".join(["🧰 שגיאות אחרונות:"] + lines),
+                reply_markup=(InlineKeyboardMarkup(kb_rows) if kb_rows else None)
+            )
         except Exception as e:
             await update.message.reply_text(f"❌ שגיאה ב-/errors: {html.escape(str(e))}")
 
@@ -2685,6 +2715,66 @@ class AdvancedBotHandlers:
                 await self._send_file_download(query, user_id, file_name)
             
             # ועוד callback handlers...
+
+            # --- ChatOps: /errors inline examples ---
+            elif data.startswith("err_ex:"):
+                try:
+                    # הרשאות: אדמינים בלבד
+                    if not self._is_admin(user_id):
+                        await query.message.reply_text("❌ פקודה זמינה למנהלים בלבד")
+                        return
+                except Exception:
+                    pass
+                token = data.split(":", 1)[1]
+                try:
+                    sig = (context.user_data.get('errors_sig_tokens') or {}).get(token)
+                except Exception:
+                    sig = None
+                if not sig:
+                    await query.answer("כפתור פג תוקף", show_alert=False)
+                    return
+                # אסוף עד 5 דוגמאות מהבאפר המקומי
+                try:
+                    from observability import get_recent_errors  # type: ignore
+                    examples = []
+                    for er in (get_recent_errors(limit=200) or []):
+                        if str(er.get("error_signature") or er.get("event") or "") == sig:
+                            ts = str(er.get("ts") or er.get("timestamp") or "")
+                            msg = str(er.get("error") or er.get("event") or "")
+                            examples.append(f"• {ts} – {msg}")
+                            if len(examples) >= 5:
+                                break
+                    header = f"🔎 דוגמאות לשגיאות עבור החתימה: {sig}"
+                    # קישור Sentry (אם זמין)
+                    try:
+                        from urllib.parse import quote_plus
+                        dsn = os.getenv("SENTRY_DSN") or ""
+                        host = None
+                        if dsn:
+                            from urllib.parse import urlparse
+                            parsed = urlparse(dsn)
+                            raw_host = parsed.hostname or ''
+                            if raw_host == 'sentry.io' or raw_host.endswith('.sentry.io'):
+                                host = 'sentry.io'
+                            elif raw_host.startswith('ingest.'):
+                                host = raw_host[len('ingest.'):]
+                            else:
+                                host = raw_host or None
+                        host = host or 'sentry.io'
+                        org = os.getenv("SENTRY_ORG") or os.getenv("SENTRY_ORG_SLUG")
+                        if org:
+                            q = quote_plus(f'error_signature:"{sig}"')
+                            link = f"https://{host}/organizations/{org}/issues/?query={q}&statsPeriod=24h"
+                            header += f"\nSentry: {link}"
+                    except Exception:
+                        pass
+                    if not examples:
+                        await query.message.reply_text(header + "\n(אין דוגמאות זמינות לחתימה זו)")
+                    else:
+                        await query.message.reply_text("\n".join([header] + examples))
+                except Exception:
+                    await query.message.reply_text("(כשל באיסוף דוגמאות)")
+                    return
 
             # --- Favorites callbacks ---
             elif data == "favorites_list":
