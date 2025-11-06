@@ -2019,8 +2019,8 @@ class CodeKeeperBot:
                 )
                 # Approve via inline button (admin-only wrapper inside function)
                 self.application.add_handler(CallbackQueryHandler(community_inline_approve, pattern=r'^community_approve:'))
-                # Snippet inline approve/reject
-                self.application.add_handler(CallbackQueryHandler(snippet_inline_approve, pattern=r'^snippet_(approve|reject):'))
+                # Snippet inline approve
+                self.application.add_handler(CallbackQueryHandler(snippet_inline_approve, pattern=r'^snippet_approve:'))
                 # Submission flow
                 comm_conv = ConversationHandler(
                     entry_points=[CallbackQueryHandler(community_submit_start, pattern=r'^community_submit$')],
@@ -2045,6 +2045,15 @@ class CodeKeeperBot:
                     fallbacks=[CommandHandler('cancel', lambda u, c: ConversationHandler.END)],
                 )
                 self.application.add_handler(sn_conv)
+                # Snippet reject reason flow
+                sn_reject_conv = ConversationHandler(
+                    entry_points=[CallbackQueryHandler(snippet_reject_start, pattern=r'^snippet_reject:')],
+                    states={
+                        SN_REJECT_REASON: [MessageHandler(filters.TEXT & ~filters.COMMAND, snippet_collect_reject_reason)],
+                    },
+                    fallbacks=[CommandHandler('cancel', lambda u, c: ConversationHandler.END)],
+                )
+                self.application.add_handler(sn_reject_conv)
                 # Community hub menus
                 self.application.add_handler(MessageHandler(filters.Regex("^🗃️ אוסף הקהילה$"), show_community_hub))
                 self.application.add_handler(CallbackQueryHandler(community_catalog_menu, pattern=r'^community_catalog_menu$'))

@@ -849,6 +849,7 @@ from handlers.states import (
     SN_COLLECT_DESCRIPTION,
     SN_COLLECT_CODE,
     SN_COLLECT_LANGUAGE,
+    SN_REJECT_REASON,
 )
 from services.community_library_service import submit_item as _cl_submit, ObjectId as _CLObjectId
 from chatops.permissions import get_admin_user_ids as _get_admin_user_ids
@@ -1182,17 +1183,51 @@ async def snippet_inline_approve(update: Update, context: ContextTypes.DEFAULT_T
     from chatops.permissions import is_admin as _is_admin
     if not _is_admin(int(update.effective_user.id)):
         return ConversationHandler.END
-    ok = False
-    try:
-        if action == 'snippet_approve':
+    if action == 'snippet_approve':
+        ok = False
+        try:
             from services.snippet_library_service import approve_snippet as _approve
             ok = _approve(item_id, int(update.effective_user.id))
-        elif action == 'snippet_reject':
-            from services.snippet_library_service import reject_snippet as _reject
-            ok = _reject(item_id, int(update.effective_user.id), "rejected")
+        except Exception:
+            ok = False
+        await _safe_edit_message_text(query, "עודכן." if ok else "שגיאה.")
+        return ConversationHandler.END
+    if action == 'snippet_reject':
+        # עבור לדיאלוג איסוף סיבת דחייה
+        context.user_data['sn_reject_id'] = item_id
+        await _safe_edit_message_text(query, "נא לציין סיבת דחייה לסניפט זה:" )
+        return SN_REJECT_REASON
+    return ConversationHandler.END
+
+
+async def snippet_reject_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    # התחלת זרימת דחייה מהכפתור
+    query = update.callback_query
+    await TelegramUtils.safe_answer(query)
+    data = (query.data or '')
+    try:
+        _, item_id = data.split(':', 1)
+    except ValueError:
+        return ConversationHandler.END
+    context.user_data['sn_reject_id'] = item_id
+    await _safe_edit_message_text(query, "נא לציין סיבת דחייה לסניפט זה:")
+    return SN_REJECT_REASON
+
+
+async def snippet_collect_reject_reason(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    reason = (update.message.text or '').strip()
+    item_id = str(context.user_data.get('sn_reject_id') or '')
+    if not item_id:
+        await update.message.reply_text("❌ מזהה לא תקין")
+        return ConversationHandler.END
+    ok = False
+    try:
+        from services.snippet_library_service import reject_snippet as _reject
+        ok = _reject(item_id, int(update.effective_user.id), reason or 'rejected')
     except Exception:
         ok = False
-    await _safe_edit_message_text(query, "עודכן.")
+    await update.message.reply_text("🛑 נדחה" if ok else "❌ כשל בדחייה")
+    context.user_data.pop('sn_reject_id', None)
     return ConversationHandler.END
 
 

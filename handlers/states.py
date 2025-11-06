@@ -9,4 +9,6 @@ CL_COLLECT_TITLE, CL_COLLECT_DESCRIPTION, CL_COLLECT_URL, CL_COLLECT_LOGO = rang
 
 # Snippet Library submit flow states (append after community states)
 SN_COLLECT_TITLE, SN_COLLECT_DESCRIPTION, SN_COLLECT_CODE, SN_COLLECT_LANGUAGE = range(11, 15)
+# מצב איסוף סיבת דחייה לסניפט
+SN_REJECT_REASON = 15
 
