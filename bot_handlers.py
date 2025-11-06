@@ -1633,8 +1633,18 @@ class AdvancedBotHandlers:
                     start = now - timedelta(minutes=int(w))
                     grouped: dict[str, dict[str, Any]] = {}
                     for er in recent:
-                        ts = _parse_ts(er.get("ts") or er.get("timestamp") or "")
-                        if ts is None or ts < start:
+                        ts_raw = er.get("ts") or er.get("timestamp") or ""
+                        ts = _parse_ts(ts_raw)
+                        if ts is None:
+                            ts = now
+                        try:
+                            if ts.tzinfo is None:
+                                ts = ts.replace(tzinfo=timezone.utc)
+                            else:
+                                ts = ts.astimezone(timezone.utc)
+                        except Exception:
+                            ts = now
+                        if ts < start:
                             continue
                         signature = str(er.get("error_signature") or er.get("event") or "unknown")
                         bucket = grouped.setdefault(signature, {
