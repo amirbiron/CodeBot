@@ -104,3 +104,38 @@ def _reset_cache_manager_stub_before_test() -> None:
     cm = sys.modules.get('cache_manager')
     if isinstance(cm, SimpleNamespace):
         sys.modules.pop('cache_manager', None)
+
+
+@pytest.fixture(scope="session", autouse=True)
+def _close_http_async_session_after_session() -> None:
+    """סוגר את סשן aiohttp הגלובלי בסיום הרצת הטסטים."""
+
+    yield
+
+    try:
+        from http_async import close_session  # type: ignore
+    except Exception:
+        return
+
+    import asyncio
+
+    try:
+        loop = asyncio.get_event_loop()
+    except RuntimeError:
+        loop = None
+
+    if loop is not None and not loop.is_closed():
+        try:
+            loop.run_until_complete(close_session())
+            return
+        except Exception:
+            pass
+
+    try:
+        new_loop = asyncio.new_event_loop()
+        try:
+            new_loop.run_until_complete(close_session())
+        finally:
+            new_loop.close()
+    except Exception:
+        pass
