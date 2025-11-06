@@ -229,6 +229,9 @@ async def _maybe_await(result):
         return await result
     return result
 
+async def _safe_answer(*args, **kwargs):
+    return await _maybe_await(TelegramUtils.safe_answer(*args, **kwargs))
+
 def _truncate_middle(text: str, max_len: int) -> str:
     """מקצר מחרוזת באמצע עם אליפסיס אם חורגת מאורך נתון."""
     if max_len <= 0:
@@ -365,7 +368,7 @@ async def show_community_hub(update: Update, context: ContextTypes.DEFAULT_TYPE)
 async def community_catalog_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """תפריט משנה עבור 'ממשקי משתמשים' (אוסף קהילה קיים)."""
     query = update.callback_query
-    await TelegramUtils.safe_answer(query)
+    await _safe_answer(query)
     web_url = f"{_resolve_webapp_base_url() or DEFAULT_WEBAPP_URL}/community-library"
     keyboard = [
         [InlineKeyboardButton("🌐 ממשקי משתמשים (Web)", url=web_url)],
@@ -379,7 +382,7 @@ async def community_catalog_menu(update: Update, context: ContextTypes.DEFAULT_T
 async def snippets_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """תפריט משנה עבור 'ספריית סניפטים'."""
     query = update.callback_query
-    await TelegramUtils.safe_answer(query)
+    await _safe_answer(query)
     web_url = f"{_resolve_webapp_base_url() or DEFAULT_WEBAPP_URL}/snippets"
     keyboard = [
         [InlineKeyboardButton("🌐 ספריית סניפטים (Web)", url=web_url)],
@@ -864,7 +867,7 @@ from chatops.permissions import admin_required as _admin_required
 
 async def community_submit_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     query = update.callback_query
-    await TelegramUtils.safe_answer(query)
+    await _safe_answer(query)
     context.user_data['cl_item'] = {}
     await TelegramUtils.safe_edit_message_text(
         query,
@@ -959,7 +962,7 @@ async def community_collect_logo(update: Update, context: ContextTypes.DEFAULT_T
 @_admin_required
 async def community_inline_approve(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
-    await TelegramUtils.safe_answer(query)
+    await _safe_answer(query)
     data = (query.data or '')
     item_id = data.split(':',1)[-1]
     if not item_id:
@@ -1095,7 +1098,7 @@ from services.snippet_library_service import submit_snippet as _sn_submit
 
 async def snippet_submit_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     query = update.callback_query
-    await TelegramUtils.safe_answer(query)
+    await _safe_answer(query)
     context.user_data['sn_item'] = {}
     await _maybe_await(_safe_edit_message_text(
         query,
@@ -1181,7 +1184,7 @@ async def snippet_collect_language(update: Update, context: ContextTypes.DEFAULT
 
 async def snippet_inline_approve(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     query = update.callback_query
-    await TelegramUtils.safe_answer(query)
+    await _safe_answer(query)
     data = (query.data or '')
     try:
         action, item_id = data.split(':', 1)
@@ -1210,7 +1213,7 @@ async def snippet_inline_approve(update: Update, context: ContextTypes.DEFAULT_T
 async def snippet_reject_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     # התחלת זרימת דחייה מהכפתור
     query = update.callback_query
-    await TelegramUtils.safe_answer(query)
+    await _safe_answer(query)
     data = (query.data or '')
     try:
         _, item_id = data.split(':', 1)
@@ -1632,7 +1635,7 @@ except Exception:
 async def show_recycle_bin(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     query = update.callback_query
     try:
-        await TelegramUtils.safe_answer(query)
+        await _safe_answer(query)
     except Exception:
         pass
     try:
@@ -1676,21 +1679,21 @@ async def show_recycle_bin(update: Update, context: ContextTypes.DEFAULT_TYPE) -
 async def recycle_restore(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     query = update.callback_query
     try:
-        await TelegramUtils.safe_answer(query)
+        await _safe_answer(query)
     except Exception:
         pass
     try:
         user_id = update.effective_user.id
         fid = (query.data or '').split(':', 1)[-1]
         if not fid:
-            await TelegramUtils.safe_answer(query, "בקשה לא תקפה", show_alert=True)
+            await _safe_answer(query, "בקשה לא תקפה", show_alert=True)
             return ConversationHandler.END
         from database import db
         ok = db._get_repo().restore_file_by_id(user_id, fid)
         if ok:
-            await TelegramUtils.safe_answer(query, "♻️ שוחזר", show_alert=False)
+            await _safe_answer(query, "♻️ שוחזר", show_alert=False)
         else:
-            await TelegramUtils.safe_answer(query, "❌ שגיאת שחזור", show_alert=True)
+            await _safe_answer(query, "❌ שגיאת שחזור", show_alert=True)
         return await show_recycle_bin(update, context)
     except Exception as e:
         logger.error(f"recycle_restore failed: {e}")
@@ -1700,21 +1703,21 @@ async def recycle_restore(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
 async def recycle_purge(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     query = update.callback_query
     try:
-        await TelegramUtils.safe_answer(query)
+        await _safe_answer(query)
     except Exception:
         pass
     try:
         user_id = update.effective_user.id
         fid = (query.data or '').split(':', 1)[-1]
         if not fid:
-            await TelegramUtils.safe_answer(query, "בקשה לא תקפה", show_alert=True)
+            await _safe_answer(query, "בקשה לא תקפה", show_alert=True)
             return ConversationHandler.END
         from database import db
         ok = db._get_repo().purge_file_by_id(user_id, fid)
         if ok:
-            await TelegramUtils.safe_answer(query, "🧨 נמחק לצמיתות", show_alert=False)
+            await _safe_answer(query, "🧨 נמחק לצמיתות", show_alert=False)
         else:
-            await TelegramUtils.safe_answer(query, "❌ שגיאת מחיקה סופית", show_alert=True)
+            await _safe_answer(query, "❌ שגיאת מחיקה סופית", show_alert=True)
         return await show_recycle_bin(update, context)
     except Exception as e:
         logger.error(f"recycle_purge failed: {e}")
@@ -2414,7 +2417,7 @@ async def handle_download_file(update: Update, context: ContextTypes.DEFAULT_TYP
     """הורדת קובץ"""
     query = update.callback_query
     # שימוש במענה בטוח כדי להתעלם מ-"Query is too old" כשגורם חיצוני מעכב את הטיפול
-    await TelegramUtils.safe_answer(query)
+    await _safe_answer(query)
     
     try:
         data = query.data
