@@ -3547,6 +3547,115 @@ async def setup_bot_data(application: Application) -> None:  # noqa: D401
         # Fail-open: אל תכשיל את עליית הבוט אם התזמון נכשל
         pass
 
+    # Predictive Health sampler: scrape webapp /metrics and feed predictive engine
+    try:
+        async def _predictive_sampler_job(context: ContextTypes.DEFAULT_TYPE):  # noqa: ARG001
+            try:
+                # Feature flag: allow disabling explicitly
+                if str(os.getenv("PREDICTIVE_SAMPLER_ENABLED", "true")).lower() not in {"1", "true", "yes", "on"}:
+                    return
+                base = (os.getenv("PREDICTIVE_SAMPLER_METRICS_URL")
+                        or os.getenv("WEBAPP_URL")
+                        or os.getenv("PUBLIC_BASE_URL")
+                        or "").strip()
+                if not base:
+                    return
+                # Normalize URL and build metrics path
+                url = base.rstrip("/") + "/metrics"
+                text: str | None = None
+                try:
+                    from http_async import request as async_request  # type: ignore
+                    async with async_request("GET", url, service="webapp", endpoint="/metrics") as resp:
+                        if getattr(resp, "status", 0) == 200:
+                            # aiohttp response supports .text() coroutine
+                            try:
+                                text = await resp.text()  # type: ignore[attr-defined]
+                            except Exception:
+                                try:
+                                    text = (await resp.read()).decode("utf-8", "ignore")  # type: ignore[attr-defined]
+                                except Exception:
+                                    text = None
+                except Exception:
+                    text = None
+
+                cur_lat = cur_err = thr_lat = thr_err = None
+                if text:
+                    try:
+                        for line in text.splitlines():
+                            s = line.strip()
+                            if not s or s.startswith("#"):
+                                continue
+                            # Very simple Prometheus exposition parsing: "name value"
+                            if s.startswith("adaptive_current_latency_avg_seconds "):
+                                try:
+                                    cur_lat = float(s.split()[-1])
+                                except Exception:
+                                    pass
+                            elif s.startswith("adaptive_current_error_rate_percent "):
+                                try:
+                                    cur_err = float(s.split()[-1])
+                                except Exception:
+                                    pass
+                            elif s.startswith("adaptive_latency_threshold_seconds "):
+                                try:
+                                    thr_lat = float(s.split()[-1])
+                                except Exception:
+                                    pass
+                            elif s.startswith("adaptive_error_rate_threshold_percent "):
+                                try:
+                                    thr_err = float(s.split()[-1])
+                                except Exception:
+                                    pass
+                    except Exception:
+                        cur_lat = cur_err = thr_lat = thr_err = None
+
+                # Feed predictive engine with the best available snapshot
+                try:
+                    from predictive_engine import note_observation, maybe_recompute_and_preempt  # type: ignore
+                    kwargs = {}
+                    if cur_err is not None:
+                        kwargs["error_rate_percent"] = float(cur_err)
+                    if cur_lat is not None:
+                        kwargs["latency_seconds"] = float(cur_lat)
+                    # memory is handled inside note_observation when omitted
+                    note_observation(**kwargs)  # type: ignore[arg-type]
+                    maybe_recompute_and_preempt()
+                except Exception:
+                    # Soft-fail, but report once per run
+                    try:
+                        from observability import emit_event as _emit  # type: ignore
+                        _emit("predictive_sampler_error", severity="anomaly", handled=True)
+                    except Exception:
+                        pass
+            except Exception:
+                # Fail-open
+                try:
+                    from observability import emit_event as _emit  # type: ignore
+                    _emit("predictive_sampler_exception", severity="anomaly", handled=True)
+                except Exception:
+                    pass
+
+        try:
+            interval_secs = int(os.getenv("PREDICTIVE_SAMPLER_INTERVAL_SECS", "60") or 60)
+            first_secs = int(os.getenv("PREDICTIVE_SAMPLER_FIRST_SECS", "10") or 10)
+            application.job_queue.run_repeating(
+                _predictive_sampler_job,
+                interval=max(15, interval_secs),
+                first=max(0, first_secs),
+                name="predictive_sampler",
+            )
+        except Exception:
+            # בסביבות שבהן ה-JobQueue לא זמין (למשל חלק מהטסטים), הרץ פעם אחת מידית
+            class _Ctx:
+                def __init__(self, app):
+                    self.application = app
+            try:
+                await _predictive_sampler_job(_Ctx(application))
+            except Exception:
+                pass
+    except Exception:
+        pass
+
 # --- Background job: Cache warming based on recent usage (lightweight) ---
     try:
         async def _cache_warming_job(context: ContextTypes.DEFAULT_TYPE):  # noqa: ARG001

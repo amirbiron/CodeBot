@@ -1283,11 +1283,16 @@ class AdvancedBotHandlers:
                 await update.message.reply_text("❌ פקודה זמינה למנהלים בלבד")
                 return
             try:
-                from predictive_engine import evaluate_predictions  # type: ignore
+                from predictive_engine import evaluate_predictions, note_observation  # type: ignore
             except Exception:
                 await update.message.reply_text("ℹ️ מנוע חיזוי אינו זמין בסביבה זו")
                 return
             horizon = 3 * 60 * 60  # 3h
+            # Ensure we have a fresh observation snapshot before evaluating
+            try:
+                note_observation()
+            except Exception:
+                pass
             trends = evaluate_predictions(horizon_seconds=horizon) or []
             if not trends:
                 await update.message.reply_text("🔮 אין נתונים מספיקים לחיזוי כרגע")
@@ -1336,6 +1341,7 @@ class AdvancedBotHandlers:
         try:
             # Admins only handled by decorator; parse args
             args = list(getattr(context, "args", []) or [])
+            # (no additional args parsing here)
             if len(args) < 2:
                 await update.message.reply_text("ℹ️ שימוש: /silence <name|pattern> <duration> [reason...] [severity=<level>] [--force]")
                 return
@@ -1523,6 +1529,24 @@ class AdvancedBotHandlers:
                 return
 
             args = list(getattr(context, "args", []) or [])
+            # Optional filters: service=..., endpoint=...
+            svc_filter = None
+            ep_filter = None
+            try:
+                for tok in args:
+                    t = str(tok or "").strip()
+                    if "=" not in t:
+                        continue
+                    k, v = t.split("=", 1)
+                    key = (k or "").strip().lower()
+                    val = (v or "").strip()
+                    if key == "service" and val:
+                        svc_filter = val
+                    elif key == "endpoint" and val:
+                        ep_filter = val
+            except Exception:
+                svc_filter = svc_filter or None
+                ep_filter = ep_filter or None
 
             # Helper: build Sentry query link for a given error_signature
             def _sentry_query_link(signature: str) -> Optional[str]:
@@ -1614,10 +1638,19 @@ class AdvancedBotHandlers:
                     except Exception:
                         return None
 
-                # Windows default or single-window from args like '30m'
+                # Windows default or single-window from args like '30m' (search any token)
                 wins: list[int]
-                if args and args[0].lower().endswith('m') and args[0][:-1].isdigit():
-                    mins = max(1, int(args[0][:-1]))
+                _win_tok = None
+                try:
+                    for t in args:
+                        tl = str(t or "").lower().strip()
+                        if tl.endswith('m') and tl[:-1].isdigit():
+                            _win_tok = tl
+                            break
+                except Exception:
+                    _win_tok = None
+                if _win_tok is not None:
+                    mins = max(1, int(_win_tok[:-1]))
                     wins = [mins]
                 else:
                     wins = [5, 30, 120]
@@ -1633,6 +1666,19 @@ class AdvancedBotHandlers:
                     start = now - timedelta(minutes=int(w))
                     grouped: dict[str, dict[str, Any]] = {}
                     for er in recent:
+                        # Apply optional filters (substring match, case-insensitive)
+                        try:
+                            if svc_filter:
+                                svc = str(er.get("service") or "")
+                                if svc_filter.lower() not in svc.lower():
+                                    continue
+                            if ep_filter:
+                                ep = str(er.get("endpoint") or "")
+                                if ep_filter.lower() not in ep.lower():
+                                    continue
+                        except Exception:
+                            # On parsing errors, skip filtering for this record
+                            pass
                         ts_raw = er.get("ts") or er.get("timestamp") or ""
                         ts_parsed = _parse_ts(ts_raw)
                         error_ts: datetime = ts_parsed if ts_parsed is not None else now
