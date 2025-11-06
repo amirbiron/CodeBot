@@ -24,18 +24,36 @@
 
 דוגמה מינימלית: ``config/error_signatures.yml``
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-מבנה הקובץ הוא מיפוי קטגוריה→רשימת regex, ועוד ``noise_allowlist`` (JSON גם נתמך):
+מבנה הקובץ הוא מיפוי טקסונומיה של קטגוריות → חתימות (regex), לצד ``noise_allowlist`` (JSON גם נתמך). ניתן
+להגדיר גם ``default_policy`` ברמת קטגוריה (למשל ``retry``/``notify``/``escalate``), ומדדים נלווים.
 
 .. code-block:: yaml
 
    noise_allowlist:
      - "Broken pipe|context canceled|499"
-   critical:
-     - "(Out of memory|OOMKilled)"
-   network_db:
-     - "(socket hang up|ECONNRESET|ETIMEDOUT|EAI_AGAIN)"
-   app_runtime:
-     - "(TypeError:|ReferenceError:|UnhandledPromiseRejection)"
+
+   categories:
+     critical:
+       default_policy: escalate
+       signatures:
+         - id: OOM
+           pattern: "(Out of memory|OOMKilled)"
+           severity: high
+           summary: "Out-of-memory condition"
+     network_db:
+       default_policy: retry
+       signatures:
+         - id: NET_RESET
+           pattern: "(socket hang up|ECONNRESET|ETIMEDOUT|EAI_AGAIN)"
+           severity: medium
+           summary: "Transient network issue"
+     app_runtime:
+       default_policy: notify
+       signatures:
+         - id: TYPE_ERROR
+           pattern: "(TypeError:|ReferenceError:|UnhandledPromiseRejection)"
+           severity: medium
+           summary: "Application runtime error"
 
 דוגמה מינימלית: ``config/alerts.yml``
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -161,3 +179,47 @@ Troubleshooting
 - ``monitoring/log_analyzer.py``
 - ``monitoring/error_signatures.py``
 - ``internal_alerts.py``
+
+טקסונומיית שגיאות וחתימות
+---------------------------
+מבנה הטקסונומיה מאפשר קבלת ``policy`` ברירת מחדל לכל קטגוריה (``retry``/``notify``/``escalate``), לצד ה‑``signatures``.
+בעת התאמה, הדיווח כולל: ``error_category``, ``error_signature``, ``error_policy``, ``error_summary``.
+
+תרשים זרימה מקוצר
+~~~~~~~~~~~~~~~~~~
+.. mermaid::
+
+   flowchart LR
+     A[Log Event] --> B{Match Signature?}
+     B -- No --> C[Noise Allowlist?]
+     C -- Yes --> D[Drop]
+     C -- No --> E[Generic Grouping]
+     B -- Yes --> F[Map to Category]
+     F --> G[Apply default_policy]
+     G --> H[Emit alert / Retry / Escalate]
+
+תצוגה ב‑ChatOps
+----------------
+פקודת ``/errors`` מציגה את ה‑Top Signatures עבור חלון זמן נבחר (ברירת מחדל: 30m), עם:
+
+- רשימת חתימות מובילות (שם חתימה, ספירה, קטגוריה, ``policy``)
+- כפתור 📄 "דוגמאות" – עד 5 דוגמאות מהבאפר המקומי
+- כפתור 🔎 "Sentry" – קישור לשאילתה לפי חתימה
+
+.. note::
+   צילום מסך יתווסף בהמשך ב‑``docs/_static/``.
+
+קריאת המשך – ``classify_error()``
+---------------------------------
+הפונקציה :py:func:`observability.classify_error` מאפשרת לסווג שגיאה חיצונית/פנימית לצורך קבלת ``category``/``policy``:
+
+.. code-block:: python
+
+   from observability import classify_error
+
+   match = classify_error({
+       "error": "socket hang up during query",
+       "operation": "db.query",
+   })
+   if match:
+       print(match.category, match.signature_id, match.summary, match.severity, match.policy)
