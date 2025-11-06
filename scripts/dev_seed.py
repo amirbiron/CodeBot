@@ -1,203 +1,94 @@
 #!/usr/bin/env python3
-"""
-Seed deterministic data for local development.
-- Creates a demo user and several code_snippets with various languages
-- Prints IDs to stdout so agents can plug into Postman env
-
-Safety: Only runs against MongoDB pointed by env vars; refuses to run if not localhost unless --allow-nonlocal passed.
-"""
+import re
 import os
 import sys
-import logging
-import socket
-import ipaddress
-from urllib.parse import urlparse
+from pathlib import Path
 from datetime import datetime, timezone
-from pymongo import MongoClient
 
-def _split_hosts(hosts_str: str) -> list[str]:
-    """Split a MongoDB hosts string by commas, respecting IPv6 bracket notation.
-    Example: "localhost:27017,[::1]:27017,127.0.0.1" -> ["localhost:27017", "[::1]:27017", "127.0.0.1"]
+try:
+    from database import db as _db
+except Exception:
+    _db = None  # type: ignore
+
+SNIPPETS_MD = Path(__file__).resolve().parent.parent / 'SNIPPETS.md'
+
+def parse_snippets(md_text: str):
+    # Very simple parser: find ```lang ... ``` blocks, use preceding '### ' as title when available
+    blocks = []
+    pattern = re.compile(r"^```(\w+)?\n([\s\S]*?)\n```", re.MULTILINE)
+    titles = {}
+    # Build map of line number -> title
+    lines = md_text.splitlines()
+    for i, line in enumerate(lines):
+        if line.startswith('### '):
+            titles[i] = line[4:].strip()
+    for m in pattern.finditer(md_text):
+        lang = (m.group(1) or 'text').strip()
+        code = m.group(2)
+        start_idx = md_text[:m.start()].count('\n')
+        # find nearest preceding title within 5 lines
+        title = None
+        for j in range(start_idx, max(-1, start_idx - 12), -1):
+            if j in titles:
+                title = titles[j]
+                break
+        if not title:
+            title = f"Snippet {len(blocks)+1} ({lang})"
+        desc = "Seeded from SNIPPETS.md"
+        blocks.append({
+            'title': title[:180],
+            'description': desc,
+            'code': code,
+            'language': lang[:40],
+        })
+    return blocks
+
+
+def _is_local_mongo() -> bool:
+    """Best-effort safety: אל תזרע בדפולט ב-DB שאינו לוקאלי.
+
+    מותר לעקוף עם --force או ALLOW_SEED_NON_LOCAL=1.
     """
-    parts: list[str] = []
-    buf: str = ""
-    in_brackets = False
-    for ch in hosts_str:
-        if ch == '[':
-            in_brackets = True
-        elif ch == ']':
-            in_brackets = False
-        if ch == ',' and not in_brackets:
-            if buf:
-                parts.append(buf)
-                buf = ""
-        else:
-            buf += ch
-    if buf:
-        parts.append(buf)
-    return [p.strip() for p in parts if p.strip()]
-
-
-def _host_from_token(token: str) -> str:
-    token = token.strip()
-    # IPv6 with brackets
-    if token.startswith('['):
-        end = token.find(']')
-        host = token[1:end] if end != -1 else token.strip('[]')
-        return host
-    # hostname or IPv4 (optionally with :port)
-    if ':' in token:
-        return token.split(':', 1)[0]
-    return token
-
-
-def _is_loopback_host(host: str) -> bool:
-    try:
-        # Exact localhost shortcut
-        if host == 'localhost':
-            return True
-        # Literal IP
-        try:
-            ip = ipaddress.ip_address(host)
-            return ip.is_loopback
-        except ValueError:
-            pass
-        # Resolve and ensure all addresses are loopback
-        infos = socket.getaddrinfo(host, None)
-        ips = {info[4][0] for info in infos if info and info[4]}
-        if not ips:
-            return False
-        return all(ipaddress.ip_address(ip).is_loopback for ip in ips)
-    except Exception:
-        return False
-
-
-def is_local_mongo(url: str) -> bool:
-    """Strictly allow only loopback MongoDB URIs.
-
-    Rules:
-    - mongodb:// may contain a comma-separated host list; ALL must resolve to loopback.
-    - mongodb+srv:// allowed only if the hostname resolves exclusively to loopback.
-    - Substring checks are NOT used.
-    """
+    url = os.getenv('MONGODB_URL', '')
     if not url:
-        return False
-    p = urlparse(url)
-    if p.scheme not in ("mongodb", "mongodb+srv"):
-        return False
-    # Remove credentials from netloc
-    netloc = p.netloc.split('@', 1)[-1]
-    if p.scheme == 'mongodb':
-        hosts_tokens = _split_hosts(netloc)
-        hosts = [_host_from_token(t) for t in hosts_tokens]
-        return bool(hosts) and all(_is_loopback_host(h) for h in hosts)
-    else:  # mongodb+srv
-        # SRV records can point anywhere; require the visible hostname to be loopback-only
-        host = p.hostname or ""
-        return _is_loopback_host(host)
+        # אין URL – נניח סביבת DEV (DatabaseManager עלול להיות noop)
+        return True
+    u = url.strip().lower()
+    return ('localhost' in u) or ('127.0.0.1' in u)
 
 
-logger = logging.getLogger(__name__)
+def seed():
+    if _db is None or getattr(_db, 'snippets_collection', None) is None:
+        print('DB unavailable; skipping seed')
+        return
+    # Safety guard: require local DB unless forced
+    forced = ('--force' in sys.argv) or (os.getenv('ALLOW_SEED_NON_LOCAL', '').strip() in {'1', 'true', 'yes'})
+    if not _is_local_mongo() and not forced:
+        print('Refusing to seed non-local MongoDB. Re-run with --force or ALLOW_SEED_NON_LOCAL=1')
+        return
 
-# Observability (fail-open): structured events and internal alerts
-try:  # type: ignore
-    from observability import emit_event  # type: ignore
-except Exception:  # pragma: no cover
-    def emit_event(event: str, severity: str = "info", **fields):  # type: ignore
-        return None
-try:  # type: ignore
-    from internal_alerts import emit_internal_alert  # type: ignore
-except Exception:  # pragma: no cover
-    def emit_internal_alert(name: str, severity: str = "info", summary: str = "", **details):  # type: ignore
-        return None
-
-
-def main():
-    allow_nonlocal = "--allow-nonlocal" in sys.argv
-    mongo_url = os.getenv("MONGODB_URL", "mongodb://localhost:27017/code_keeper")
-    db_name = os.getenv("DATABASE_NAME", "code_keeper_bot")
-
-    if not allow_nonlocal and not is_local_mongo(mongo_url):
-        logger.error("Refusing to seed non-local MongoDB. Pass --allow-nonlocal to override.")
-        try:
-            emit_event(
-                "dev_seed_refused_nonlocal",
-                severity="anomaly",
-                operation="dev_seed",
-                handled=True,
-                mongo_url=str(mongo_url),
-            )
-            emit_internal_alert(
-                name="dev_seed_refused_nonlocal",
-                severity="anomaly",
-                summary="Attempted to seed non-local MongoDB",
-            )
-        except Exception:
-            pass
-        sys.exit(1)
-
-    client = MongoClient(mongo_url, serverSelectionTimeoutMS=5000, tz_aware=True)
-    client.server_info()
-    db = client[db_name]
-
-    # Demo user
-    user_id = 123456
-    db.users.update_one(
-        {"user_id": user_id},
-        {"$set": {
-            "user_id": user_id,
-            "username": "demo_user",
-            "first_name": "Demo",
-            "last_name": "User",
-            "ui_prefs": {"font_scale": 1.0, "theme": "classic"},
-            "updated_at": datetime.now(timezone.utc)
-        }, "$setOnInsert": {"created_at": datetime.now(timezone.utc)}},
-        upsert=True
-    )
-
-    samples = [
-        ("hello.py", "python", "def hello():\n    return 'world'\n"),
-        ("index.html", "html", "<html><body><h1>Hello</h1></body></html>\n"),
-        ("README.md", "markdown", "# Demo\n\n- item 1\n- item 2\n"),
-        ("app.js", "javascript", "export function sum(a,b){ return a+b }\n"),
-    ]
-
-    inserted_ids = []
-    for name, lang, code in samples:
-        now = datetime.now(timezone.utc)
-        doc = {
-            "user_id": user_id,
-            "file_name": name,
-            "programming_language": lang,
-            "code": code,
-            "description": f"Seeded example for {name}",
-            "tags": ["seed", lang],
-            "created_at": now,
-            "updated_at": now,
-            "is_active": True,
-        }
-        res = db.code_snippets.insert_one(doc)
-        inserted_ids.append(str(res.inserted_id))
-
-    logger.info("Seed completed.")
-    try:
-        emit_event(
-            "dev_seed_completed",
-            severity="info",
-            operation="dev_seed",
-            user_id=int(user_id),
-            inserted_count=int(len(inserted_ids)),
+    text = SNIPPETS_MD.read_text(encoding='utf-8')
+    items = parse_snippets(text)
+    coll = _db.snippets_collection
+    inserted = 0
+    for it in items:
+        # Idempotent upsert by (title, language) with a seed flag
+        coll.update_one(
+            {'title': it['title'], 'language': it['language']},
+            {'$setOnInsert': {
+                'description': it['description'],
+                'code': it['code'],
+                'status': 'approved',
+                'submitted_at': datetime.now(timezone.utc),
+                'approved_at': datetime.now(timezone.utc),
+                'approved_by': 0,
+                'user_id': 0,
+            }},
+            upsert=True,
         )
-    except Exception:
-        pass
-    # Replace CLI prints with structured logs for observability
-    for i, _id in enumerate(inserted_ids, 1):
-        logger.info("seed_inserted_id", extra={"user_id": int(user_id), "index": int(i), "file_id": str(_id)})
+        inserted += 1
+    print(f'Seed processed {inserted} snippets (idempotent upsert).')
 
 
-if __name__ == "__main__":
-    try:
-        main()
-    except Exception:
-        logger.exception("Seed failed")
-        sys.exit(1)
+if __name__ == '__main__':
+    seed()

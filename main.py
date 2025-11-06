@@ -1996,15 +1996,34 @@ class CodeKeeperBot:
                     community_collect_url,
                     community_collect_logo,
                     community_inline_approve,
+                    # Snippet library
+                    snippet_submit_start,
+                    snippet_collect_title,
+                    snippet_collect_description,
+                    snippet_collect_code,
+                    snippet_collect_language,
+                    snippet_inline_approve,
+                    snippet_reject_start,
+                    snippet_collect_reject_reason,
+                    show_community_hub,
+                    community_catalog_menu,
+                    snippets_menu,
                 )
                 from handlers.states import (
                     CL_COLLECT_TITLE,
                     CL_COLLECT_DESCRIPTION,
                     CL_COLLECT_URL,
                     CL_COLLECT_LOGO,
+                    SN_COLLECT_TITLE,
+                    SN_COLLECT_DESCRIPTION,
+                    SN_COLLECT_CODE,
+                    SN_COLLECT_LANGUAGE,
+                    SN_REJECT_REASON,
                 )
                 # Approve via inline button (admin-only wrapper inside function)
                 self.application.add_handler(CallbackQueryHandler(community_inline_approve, pattern=r'^community_approve:'))
+                # Snippet inline approve
+                self.application.add_handler(CallbackQueryHandler(snippet_inline_approve, pattern=r'^snippet_approve:'))
                 # Submission flow
                 comm_conv = ConversationHandler(
                     entry_points=[CallbackQueryHandler(community_submit_start, pattern=r'^community_submit$')],
@@ -2017,6 +2036,31 @@ class CodeKeeperBot:
                     fallbacks=[CommandHandler('cancel', lambda u, c: ConversationHandler.END)],
                 )
                 self.application.add_handler(comm_conv)
+                # Snippet submission flow
+                sn_conv = ConversationHandler(
+                    entry_points=[CallbackQueryHandler(snippet_submit_start, pattern=r'^snippet_submit$')],
+                    states={
+                        SN_COLLECT_TITLE: [MessageHandler(filters.TEXT & ~filters.COMMAND, snippet_collect_title)],
+                        SN_COLLECT_DESCRIPTION: [MessageHandler(filters.TEXT & ~filters.COMMAND, snippet_collect_description)],
+                        SN_COLLECT_CODE: [MessageHandler(filters.TEXT & ~filters.COMMAND, snippet_collect_code)],
+                        SN_COLLECT_LANGUAGE: [MessageHandler(filters.TEXT & ~filters.COMMAND, snippet_collect_language)],
+                    },
+                    fallbacks=[CommandHandler('cancel', lambda u, c: ConversationHandler.END)],
+                )
+                self.application.add_handler(sn_conv)
+                # Snippet reject reason flow
+                sn_reject_conv = ConversationHandler(
+                    entry_points=[CallbackQueryHandler(snippet_reject_start, pattern=r'^snippet_reject:')],
+                    states={
+                        SN_REJECT_REASON: [MessageHandler(filters.TEXT & ~filters.COMMAND, snippet_collect_reject_reason)],
+                    },
+                    fallbacks=[CommandHandler('cancel', lambda u, c: ConversationHandler.END)],
+                )
+                self.application.add_handler(sn_reject_conv)
+                # Community hub menus
+                self.application.add_handler(MessageHandler(filters.Regex("^🗃️ אוסף הקהילה$"), show_community_hub))
+                self.application.add_handler(CallbackQueryHandler(community_catalog_menu, pattern=r'^community_catalog_menu$'))
+                self.application.add_handler(CallbackQueryHandler(snippets_menu, pattern=r'^snippets_menu$'))
             except Exception as _e:
                 try:
                     logger.info("Community library handlers not registered: %s", _e)
@@ -2060,10 +2104,17 @@ class CodeKeeperBot:
             enabled_comm = True
         if enabled_comm:
             try:
-                from conversation_handlers import community_queue_command, community_approve_command, community_reject_command
+                from conversation_handlers import (
+                    community_queue_command, community_approve_command, community_reject_command,
+                    snippet_queue_command, snippet_approve_command, snippet_reject_command,
+                )
                 self.application.add_handler(CommandHandler("community_queue", community_queue_command))
                 self.application.add_handler(CommandHandler("community_approve", community_approve_command))
                 self.application.add_handler(CommandHandler("community_reject", community_reject_command))
+                # Snippet admin commands
+                self.application.add_handler(CommandHandler("snippet_queue", snippet_queue_command))
+                self.application.add_handler(CommandHandler("snippet_approve", snippet_approve_command))
+                self.application.add_handler(CommandHandler("snippet_reject", snippet_reject_command))
             except Exception:
                 pass
         # הפקודה /start המקורית הופכת להיות חלק מה-conv_handler, אז היא לא כאן.

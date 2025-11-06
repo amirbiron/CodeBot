@@ -285,7 +285,8 @@ MAIN_KEYBOARD = [
     ["🗜️ יצירת ZIP", "➕ הוסף קוד חדש"],
     ["📚 הצג את כל הקבצים שלי", "🔧 GitHub"],
     ["⚡ עיבוד Batch", "📥 ייבוא ZIP מריפו"],
-    ["☁️ Google Drive", "ℹ️ הסבר על הבוט"]
+    ["☁️ Google Drive", "ℹ️ הסבר על הבוט"],
+    ["🗃️ אוסף הקהילה"]
 ]
 
 # ה-reporters יוגדרו ב-main בזמן ריצה
@@ -330,6 +331,55 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
         reporter.report_activity(user_id)
     except Exception:
         pass
+    return ConversationHandler.END
+
+
+# --- Community hub menus (bot) ---
+async def show_community_hub(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """תפריט ראשי של אוסף הקהילה: ממשקי משתמשים/ספריית סניפטים."""
+    user_id = update.effective_user.id
+    base_url = _resolve_webapp_base_url() or DEFAULT_WEBAPP_URL
+    keyboard = [
+        [InlineKeyboardButton("📳 ממשקי משתמשים", callback_data="community_catalog_menu")],
+        [InlineKeyboardButton("📃 ספריית סניפטים", callback_data="snippets_menu")],
+        [InlineKeyboardButton("↩️ חזרה", callback_data="files")],
+    ]
+    await update.message.reply_text(
+        "בחר/י קטגוריה:",
+        reply_markup=InlineKeyboardMarkup(keyboard)
+    )
+    try:
+        reporter.report_activity(user_id)
+    except Exception:
+        pass
+    return ConversationHandler.END
+
+
+async def community_catalog_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """תפריט משנה עבור 'ממשקי משתמשים' (אוסף קהילה קיים)."""
+    query = update.callback_query
+    await TelegramUtils.safe_answer(query)
+    web_url = f"{_resolve_webapp_base_url() or DEFAULT_WEBAPP_URL}/community-library"
+    keyboard = [
+        [InlineKeyboardButton("🌐 ממשקי משתמשים (Web)", url=web_url)],
+        [InlineKeyboardButton("➕ הוסף מוצר משלך", callback_data="community_submit")],
+        [InlineKeyboardButton("↩️ חזרה", callback_data="files")],
+    ]
+    await _safe_edit_message_text(query, "📳 ממשקי משתמשים", InlineKeyboardMarkup(keyboard))
+    return ConversationHandler.END
+
+
+async def snippets_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """תפריט משנה עבור 'ספריית סניפטים'."""
+    query = update.callback_query
+    await TelegramUtils.safe_answer(query)
+    web_url = f"{_resolve_webapp_base_url() or DEFAULT_WEBAPP_URL}/snippets"
+    keyboard = [
+        [InlineKeyboardButton("🌐 ספריית סניפטים (Web)", url=web_url)],
+        [InlineKeyboardButton("➕ הוסף סניפט משלך", callback_data="snippet_submit")],
+        [InlineKeyboardButton("↩️ חזרה", callback_data="files")],
+    ]
+    await _safe_edit_message_text(query, "📃 ספריית סניפטים", InlineKeyboardMarkup(keyboard))
     return ConversationHandler.END
 
 HELP_PAGES = [
@@ -795,8 +845,14 @@ from handlers.states import (
     CL_COLLECT_DESCRIPTION,
     CL_COLLECT_URL,
     CL_COLLECT_LOGO,
+    SN_COLLECT_TITLE,
+    SN_COLLECT_DESCRIPTION,
+    SN_COLLECT_CODE,
+    SN_COLLECT_LANGUAGE,
+    SN_REJECT_REASON,
 )
 from services.community_library_service import submit_item as _cl_submit, ObjectId as _CLObjectId
+from chatops.permissions import get_admin_user_ids as _get_admin_user_ids
 from chatops.permissions import admin_required as _admin_required
 
 async def community_submit_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
@@ -1024,6 +1080,207 @@ async def community_reject_command(update: Update, context: ContextTypes.DEFAULT
                     await context.bot.send_message(chat_id=int(uid), text=msg)
                 except Exception:
                     pass
+    except Exception as e:
+        await update.message.reply_text(f"❌ שגיאה: {e}")
+
+# --- Snippet Library submission flow ---
+from services.snippet_library_service import submit_snippet as _sn_submit
+
+async def snippet_submit_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    query = update.callback_query
+    await TelegramUtils.safe_answer(query)
+    context.user_data['sn_item'] = {}
+    await _safe_edit_message_text(
+        query,
+        "🧩 נתחיל בהוספת סניפט\n\nשלח/י כותרת (3–180 תווים)",
+        InlineKeyboardMarkup([[InlineKeyboardButton("❌ ביטול", callback_data="files")]])
+    )
+    return SN_COLLECT_TITLE
+
+
+async def snippet_collect_title(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    title = (update.message.text or '').strip()
+    if len(title) < 3:
+        await update.message.reply_text("❌ כותרת קצרה מדי. נסה/י שוב.")
+        return SN_COLLECT_TITLE
+    context.user_data.setdefault('sn_item', {})['title'] = title[:180]
+    await update.message.reply_text("תודה! עכשיו תיאור קצר (עד 1000 תווים)")
+    return SN_COLLECT_DESCRIPTION
+
+
+async def snippet_collect_description(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    desc = (update.message.text or '').strip()
+    context.user_data.setdefault('sn_item', {})['description'] = desc[:1000]
+    await update.message.reply_text("שלח/י עכשיו את קטע הקוד עצמו (טקסט)")
+    return SN_COLLECT_CODE
+
+
+async def snippet_collect_code(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    code = (update.message.text or '').strip()
+    if not code:
+        await update.message.reply_text("❌ נדרש קוד. נסה/י שוב.")
+        return SN_COLLECT_CODE
+    context.user_data.setdefault('sn_item', {})['code'] = code
+    await update.message.reply_text("נהדר! לבסוף, מה השפה? (למשל: python, js, bash)")
+    return SN_COLLECT_LANGUAGE
+
+
+async def snippet_collect_language(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    language = (update.message.text or '').strip() or 'text'
+    user = update.effective_user
+    item = context.user_data.get('sn_item') or {}
+    item['language'] = language[:40]
+    item['user_id'] = int(user.id)
+    item['username'] = getattr(user, 'username', None)
+    res = _sn_submit(
+        title=item.get('title') or '',
+        description=item.get('description') or '',
+        code=item.get('code') or '',
+        language=item.get('language') or 'text',
+        user_id=int(item.get('user_id') or 0),
+        username=item.get('username'),
+    )
+    if not res.get('ok'):
+        await update.message.reply_text("❌ שמירת ההצעה נכשלה. נסה/י שוב מאוחר יותר.")
+        return ConversationHandler.END
+    # הודע למנהלים
+    try:
+        admins = list(_get_admin_user_ids())
+    except Exception:
+        admins = []
+    snippet_id = str(res.get('id') or '')
+    if admins and snippet_id:
+        try:
+            kb = InlineKeyboardMarkup([
+                [InlineKeyboardButton("✅ אישור", callback_data=f"snippet_approve:{snippet_id}"),
+                 InlineKeyboardButton("❌ דחייה", callback_data=f"snippet_reject:{snippet_id}")]
+            ])
+            for admin_id in admins:
+                try:
+                    await context.bot.send_message(chat_id=int(admin_id), text=(
+                        "🆕 הצעת סניפט חדשה\n\n"
+                        f"כותרת: {item.get('title')}\n"
+                        f"שפה: {item.get('language')}\n"
+                        f"מאת: @{item.get('username') or user.id}"
+                    ), reply_markup=kb)
+                except Exception:
+                    continue
+        except Exception:
+            pass
+    await update.message.reply_text("✅ ההצעה התקבלה ותמתין לאישור מנהל. תודה!")
+    context.user_data.pop('sn_item', None)
+    return ConversationHandler.END
+
+
+async def snippet_inline_approve(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    query = update.callback_query
+    await TelegramUtils.safe_answer(query)
+    data = (query.data or '')
+    try:
+        action, item_id = data.split(':', 1)
+    except ValueError:
+        return ConversationHandler.END
+    from chatops.permissions import is_admin as _is_admin
+    if not _is_admin(int(update.effective_user.id)):
+        return ConversationHandler.END
+    if action == 'snippet_approve':
+        ok = False
+        try:
+            from services.snippet_library_service import approve_snippet as _approve
+            ok = _approve(item_id, int(update.effective_user.id))
+        except Exception:
+            ok = False
+        await _safe_edit_message_text(query, "עודכן." if ok else "שגיאה.")
+        return ConversationHandler.END
+    if action == 'snippet_reject':
+        # עבור לדיאלוג איסוף סיבת דחייה
+        context.user_data['sn_reject_id'] = item_id
+        await _safe_edit_message_text(query, "נא לציין סיבת דחייה לסניפט זה:" )
+        return SN_REJECT_REASON
+    return ConversationHandler.END
+
+
+async def snippet_reject_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    # התחלת זרימת דחייה מהכפתור
+    query = update.callback_query
+    await TelegramUtils.safe_answer(query)
+    data = (query.data or '')
+    try:
+        _, item_id = data.split(':', 1)
+    except ValueError:
+        return ConversationHandler.END
+    context.user_data['sn_reject_id'] = item_id
+    await _safe_edit_message_text(query, "נא לציין סיבת דחייה לסניפט זה:")
+    return SN_REJECT_REASON
+
+
+async def snippet_collect_reject_reason(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    reason = (update.message.text or '').strip()
+    item_id = str(context.user_data.get('sn_reject_id') or '')
+    if not item_id:
+        await update.message.reply_text("❌ מזהה לא תקין")
+        return ConversationHandler.END
+    ok = False
+    try:
+        from services.snippet_library_service import reject_snippet as _reject
+        ok = _reject(item_id, int(update.effective_user.id), reason or 'rejected')
+    except Exception:
+        ok = False
+    await update.message.reply_text("🛑 נדחה" if ok else "❌ כשל בדחייה")
+    context.user_data.pop('sn_reject_id', None)
+    return ConversationHandler.END
+
+
+@_admin_required
+async def snippet_queue_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    try:
+        from services.snippet_library_service import list_pending_snippets as _list_pending
+        items = _list_pending(limit=20, skip=0)
+        if not items:
+            await update.message.reply_text("ℹ️ אין סניפטים בהמתנה")
+            return
+        lines = ["📥 סניפטים ממתינים (ראשונים):"]
+        kb_rows = []
+        for it in items[:10]:
+            try:
+                iid = str(it.get('_id') or '')
+                title = it.get('title', '')
+                kb_rows.append([InlineKeyboardButton(f"✅ אשר: {title[:30]}", callback_data=f"snippet_approve:{iid}")])
+                lines.append(f"- {title} ({iid})")
+            except Exception:
+                continue
+        await update.message.reply_text("\n".join(lines), reply_markup=InlineKeyboardMarkup(kb_rows) if kb_rows else None)
+    except Exception as e:
+        await update.message.reply_text(f"❌ שגיאה: {e}")
+
+
+@_admin_required
+async def snippet_approve_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    args = context.args or []
+    if not args:
+        await update.message.reply_text("שימוש: /snippet_approve <id>")
+        return
+    iid = args[0]
+    try:
+        from services.snippet_library_service import approve_snippet as _approve
+        ok = _approve(iid, int(update.effective_user.id))
+        await update.message.reply_text("✅ אושר" if ok else "❌ כשל באישור")
+    except Exception as e:
+        await update.message.reply_text(f"❌ שגיאה: {e}")
+
+
+@_admin_required
+async def snippet_reject_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    args = context.args or []
+    if len(args) < 2:
+        await update.message.reply_text("שימוש: /snippet_reject <id> <reason>")
+        return
+    iid = args[0]
+    reason = " ".join(args[1:])
+    try:
+        from services.snippet_library_service import reject_snippet as _reject
+        ok = _reject(iid, int(update.effective_user.id), reason)
+        await update.message.reply_text("🛑 נדחה" if ok else "❌ כשל בדחייה")
     except Exception as e:
         await update.message.reply_text(f"❌ שגיאה: {e}")
 

@@ -1789,3 +1789,119 @@ class Repository:
             emit_event("db_get_backup_note_error", severity="error", error=str(e))
             return None
 
+    # --- Snippet library (public catalog with approvals) ---
+    def create_snippet_proposal(self, *, title: str, description: str, code: str, language: str, user_id: int) -> Optional[str]:
+        try:
+            coll = getattr(self.manager, 'snippets_collection', None)
+            if coll is None:
+                return None
+            now = datetime.now(timezone.utc)
+            doc = {
+                "title": (title or "").strip()[:180],
+                "description": (description or "").strip()[:1000],
+                "code": code or "",
+                "language": (language or "").strip()[:40],
+                "user_id": int(user_id),
+                "status": "pending",
+                "submitted_at": now,
+                "approved_at": None,
+                "approved_by": None,
+                "rejection_reason": None,
+            }
+            res = coll.insert_one(doc)
+            inserted = getattr(res, 'inserted_id', None)
+            return str(inserted) if inserted else None
+        except Exception as e:
+            emit_event("db_create_snippet_proposal_error", severity="error", error=str(e))
+            return None
+
+    def approve_snippet(self, item_id: str, admin_id: int) -> bool:
+        try:
+            coll = getattr(self.manager, 'snippets_collection', None)
+            if coll is None:
+                return True  # no-op success in tests
+            q = {"_id": ObjectId(item_id)} if item_id else {"_id": None}
+            upd = {"$set": {
+                "status": "approved",
+                "approved_at": datetime.now(timezone.utc),
+                "approved_by": int(admin_id),
+                "rejection_reason": None,
+            }}
+            res = coll.update_one(q, upd)
+            return bool(getattr(res, 'modified_count', 0) or getattr(res, 'matched_count', 0))
+        except Exception as e:
+            emit_event("db_approve_snippet_error", severity="error", error=str(e))
+            return False
+
+    def reject_snippet(self, item_id: str, admin_id: int, reason: str) -> bool:
+        try:
+            coll = getattr(self.manager, 'snippets_collection', None)
+            if coll is None:
+                return True
+            reason_s = (reason or "").strip()[:300]
+            q = {"_id": ObjectId(item_id)} if item_id else {"_id": None}
+            upd = {"$set": {
+                "status": "rejected",
+                "approved_at": None,
+                "approved_by": int(admin_id),
+                "rejection_reason": reason_s,
+            }}
+            res = coll.update_one(q, upd)
+            return bool(getattr(res, 'modified_count', 0) or getattr(res, 'matched_count', 0))
+        except Exception as e:
+            emit_event("db_reject_snippet_error", severity="error", error=str(e))
+            return False
+
+    def list_pending_snippets(self, *, limit: int = 20, skip: int = 0) -> List[Dict[str, Any]]:
+        try:
+            coll = getattr(self.manager, 'snippets_collection', None)
+            if coll is None:
+                return []
+            cursor = coll.find({"status": "pending"}, sort=[("submitted_at", 1)])
+            rows = list(cursor) if not isinstance(cursor, list) else cursor
+            return rows[skip: skip + max(0, int(limit or 0))] if limit else rows
+        except Exception:
+            return []
+
+    def list_public_snippets(self, *, q: Optional[str] = None, language: Optional[str] = None, page: int = 1, per_page: int = 30) -> Tuple[List[Dict[str, Any]], int]:
+        try:
+            coll = getattr(self.manager, 'snippets_collection', None)
+            if coll is None:
+                return [], 0
+            try:
+                page = max(1, int(page or 1))
+                per_page = max(1, min(int(per_page or 30), 60))
+            except Exception:
+                page, per_page = 1, 30
+            match: Dict[str, Any] = {"status": "approved"}
+            if language:
+                match["language"] = language
+            if q:
+                regex = {"$regex": q, "$options": "i"}
+                match["$or"] = [{"title": regex}, {"description": regex}, {"code": regex}]
+            try:
+                total = int(coll.count_documents(match))
+            except Exception:
+                total = 0
+            skip = (page - 1) * per_page
+            try:
+                cursor = coll.find(match, sort=[("approved_at", -1)]).skip(skip).limit(per_page)
+                rows = list(cursor)
+            except Exception:
+                rows = []
+            out: List[Dict[str, Any]] = []
+            for r in rows:
+                try:
+                    out.append({
+                        "title": r.get("title"),
+                        "description": r.get("description"),
+                        "code": r.get("code"),
+                        "language": r.get("language"),
+                        "approved_at": r.get("approved_at"),
+                    })
+                except Exception:
+                    continue
+            return out, total
+        except Exception as e:
+            emit_event("db_list_public_snippets_error", severity="error", error=str(e))
+            return [], 0

@@ -495,6 +495,24 @@ try:
                 logger.info("community_library_ui not registered: %s", _e)
             except Exception:
                 pass
+        # Snippet Library API/UI
+        try:
+            from webapp.snippet_library_api import snippets_bp  # type: ignore  # noqa: E402
+            app.register_blueprint(snippets_bp)
+        except Exception as _e:
+            try:
+                logger.info("snippets_api not registered: %s", _e)
+            except Exception:
+                pass
+        try:
+            # UI blueprint may be optional; register if available
+            from webapp.snippet_library_ui import snippet_library_ui  # type: ignore  # noqa: E402
+            app.register_blueprint(snippet_library_ui)
+        except Exception as _e:
+            try:
+                logger.info("snippet_library_ui not registered: %s", _e)
+            except Exception:
+                pass
 except Exception:
     pass
 
@@ -1661,6 +1679,50 @@ def is_premium(user_id: int) -> bool:
         return user_id in premium_ids
     except Exception:
         return False
+
+
+# --- Snippet library admin UI ---
+try:
+    from services import snippet_library_service as _snip_service  # type: ignore
+except Exception:
+    _snip_service = None  # type: ignore
+
+
+@app.route('/admin/snippets/pending')
+@admin_required
+def admin_snippets_pending():
+    items = []
+    try:
+        if _snip_service is not None:
+            items = _snip_service.list_pending_snippets(limit=200, skip=0)
+    except Exception:
+        items = []
+    return render_template('admin_snippets_pending.html', items=items)
+
+
+@app.route('/admin/snippets/approve')
+@admin_required
+def admin_snippet_approve():
+    item_id = request.args.get('id') or ''
+    try:
+        if _snip_service is not None and item_id:
+            _snip_service.approve_snippet(item_id, int(session.get('user_id')))
+    except Exception:
+        pass
+    return redirect(url_for('admin_snippets_pending'))
+
+
+@app.route('/admin/snippets/reject')
+@admin_required
+def admin_snippet_reject():
+    item_id = request.args.get('id') or ''
+    reason = request.args.get('reason') or ''
+    try:
+        if _snip_service is not None and item_id:
+            _snip_service.reject_snippet(item_id, int(session.get('user_id')), reason)
+    except Exception:
+        pass
+    return redirect(url_for('admin_snippets_pending'))
 
 
 # ===== Global Content Search API =====
