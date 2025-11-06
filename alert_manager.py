@@ -7,6 +7,7 @@ Adaptive alert manager for Smart Observability v4.
 - Sends critical alerts to Telegram and Grafana annotations and logs dispatches
 
 Environment variables used (optional; fail-open if missing):
+
 - ALERT_TELEGRAM_BOT_TOKEN, ALERT_TELEGRAM_CHAT_ID
 - GRAFANA_URL (e.g. https://grafana.example.com)
 - GRAFANA_API_TOKEN (Bearer token)
