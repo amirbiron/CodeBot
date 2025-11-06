@@ -8,12 +8,13 @@
   overflow-wrap: anywhere; /* modern support for long tokens */
   overflow-x: auto; /* allow scroll if needed */
   max-width: 100%;
-  background: rgba(0, 0, 0, 0.08);
-  padding: 12px;
+  background: #1e1e1e; /* align with file viewer dark */
+  padding: 12px 12px 10px;
   border-radius: 10px;
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, "Roboto Mono", "Ubuntu Mono", Consolas, "Liberation Mono", "Courier New", monospace;
   font-size: 0.9rem;
-  line-height: 1.4;
+  line-height: 1.5;
+  color: #e8eaed;
 }
 
 /* Ensure inner <code> wraps as well */
@@ -26,9 +27,44 @@
   display: block;
 }
 
+/* If highlight.js applied, keep container dark and code transparent */
+.code-block code.hljs { background: transparent !important; }
+
 /* Keep copy button visible without breaking layout (LTR inside RTL page) */
 .code-block > .btn,
 .snippet-code > .btn {
   float: left; /* keep at left for LTR code */
   margin-bottom: 8px;
+}
+
+/* Responsive: make sure long code doesn't break cards */
+.glass-card .code-block { margin-top: .5rem; }
+
+/* Line numbers styling to match file viewer */
+.hljs-ln {
+  width: 100% !important;
+  table-layout: fixed;
+  border-collapse: separate;
+  border-spacing: 0;
+}
+.hljs-ln tr { vertical-align: top; }
+.hljs-ln td {
+  padding: 0;
+}
+.hljs-ln-numbers {
+  width: 3.5rem;
+  user-select: none;
+  opacity: 0.5;
+  text-align: right;
+  padding-right: .75rem;
+  white-space: pre;
+}
+.hljs-ln-code {
+  width: auto;
+}
+.hljs-ln-code > .hljs-ln-line {
+  white-space: pre-wrap;
+  word-break: break-word;
+  overflow-wrap: anywhere;
+  display: block;
 }
