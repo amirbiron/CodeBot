@@ -1790,6 +1790,26 @@ class Repository:
             return None
 
     # --- Snippet library (public catalog with approvals) ---
+    def _normalize_snippet_identifier(self, value: Any) -> Optional[Any]:
+        if value in (None, ""):
+            return None
+        try:
+            if isinstance(value, ObjectId):
+                return value
+        except Exception:
+            pass
+        try:
+            return ObjectId(str(value))
+        except Exception:
+            coll = getattr(self.manager, "snippets_collection", None)
+            try:
+                docs = getattr(coll, "docs", None)
+                if isinstance(docs, list):
+                    return str(value)
+            except Exception:
+                pass
+            return None
+
     def create_snippet_proposal(self, *, title: str, description: str, code: str, language: str, user_id: int) -> Optional[str]:
         try:
             coll = getattr(self.manager, 'snippets_collection', None)
@@ -1820,7 +1840,11 @@ class Repository:
             coll = getattr(self.manager, 'snippets_collection', None)
             if coll is None:
                 return True  # no-op success in tests
-            q = {"_id": ObjectId(item_id)} if item_id else {"_id": None}
+            normalized_id = self._normalize_snippet_identifier(item_id)
+            if normalized_id is None:
+                emit_event("db_approve_snippet_error", severity="error", error="invalid_snippet_id", item_id=str(item_id))
+                return False
+            q = {"_id": normalized_id}
             upd = {"$set": {
                 "status": "approved",
                 "approved_at": datetime.now(timezone.utc),
@@ -1839,7 +1863,11 @@ class Repository:
             if coll is None:
                 return True
             reason_s = (reason or "").strip()[:300]
-            q = {"_id": ObjectId(item_id)} if item_id else {"_id": None}
+            normalized_id = self._normalize_snippet_identifier(item_id)
+            if normalized_id is None:
+                emit_event("db_reject_snippet_error", severity="error", error="invalid_snippet_id", item_id=str(item_id))
+                return False
+            q = {"_id": normalized_id}
             upd = {"$set": {
                 "status": "rejected",
                 "approved_at": None,
