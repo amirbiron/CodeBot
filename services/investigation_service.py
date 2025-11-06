@@ -17,6 +17,7 @@ import os
 import html
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
+from urllib.parse import quote_plus, urlparse
 
 try:  # Optional sentry integration
     import integrations_sentry as sentry_client  # type: ignore
@@ -44,6 +45,51 @@ def _grafana_links_for_request(request_id: str) -> List[Dict[str, str]]:
     ]
 
 
+def _sentry_ui_base() -> Optional[str]:
+    """Best-effort Sentry UI base URL (e.g., https://sentry.io).
+
+    Prefer deriving from SENTRY_DSN; fallback to https://sentry.io.
+    """
+    try:
+        dsn = os.getenv("SENTRY_DSN") or ""
+        if dsn:
+            try:
+                parsed = urlparse(dsn)
+                host = parsed.hostname or ""
+            except Exception:
+                host = ""
+            if host:
+                # Common DSN hosts: o123.ingest.sentry.io, ingest.sentry.io, sentry.io, self-hosted domains
+                if host.endswith(".sentry.io") or host == "sentry.io":
+                    return "https://sentry.io"
+                if host.startswith("ingest."):
+                    return f"https://{host[len('ingest.'):]}"
+                return f"https://{host}"
+    except Exception:
+        pass
+    return "https://sentry.io"
+
+
+def _sentry_links_for_request(request_id: str) -> List[Dict[str, str]]:
+    """Construct useful Sentry UI links filtered by request_id (best-effort)."""
+    rid = str(request_id or "").strip()
+    if not rid:
+        return []
+    base = _sentry_ui_base()
+    org = os.getenv("SENTRY_ORG") or os.getenv("SENTRY_ORG_SLUG")
+    if not org:
+        return []
+    q = quote_plus(f'request_id:"{rid}"')
+    # Issues search (24h) is the most universally supported view
+    issues = f"{base}/organizations/{org}/issues/?query={q}&statsPeriod=24h"
+    # Discover results (if enabled) – optional but useful
+    discover = f"{base}/organizations/{org}/discover/results/?query={q}&sort=-timestamp"
+    return [
+        {"name": "Sentry Issues (24h)", "url": issues},
+        {"name": "Sentry Discover", "url": discover},
+    ]
+
+
 def _summarize_timeline_text(timeline: List[Dict[str, Any]], limit: int = 10) -> str:
     lines: List[str] = []
     # כבד במדויק את ה-limit, כולל מקרה של 0
@@ -64,6 +110,7 @@ def render_triage_html(result: Dict[str, Any]) -> str:
     rid = html.escape(str(result.get("request_id") or result.get("query") or ""))
     timeline: List[Dict[str, Any]] = list(result.get("timeline") or [])
     links: List[Dict[str, str]] = list(result.get("grafana_links") or [])
+    sentry_links: List[Dict[str, str]] = list(result.get("sentry_links") or [])
 
     rows: List[str] = []
     for item in timeline[:20]:
@@ -75,7 +122,7 @@ def render_triage_html(result: Dict[str, Any]) -> str:
         rows.append(f"<tr><td>{ts}</td><td>{msg}</td></tr>")
 
     link_tags = []
-    for ln in links[:6]:
+    for ln in (sentry_links + links)[:6]:
         name = html.escape(str(ln.get("name") or "Link"))
         url = html.escape(str(ln.get("url") or ""))
         if url:
@@ -131,8 +178,9 @@ async def triage(query_or_request_id: str, limit: int = 20) -> Dict[str, Any]:
     except Exception:
         pass
 
-    # Grafana links (best-effort)
+    # Links (best-effort)
     grafana_links = _grafana_links_for_request(query)
+    sentry_links = _sentry_links_for_request(query)
 
     result: Dict[str, Any] = {
         "query": query,
@@ -140,6 +188,7 @@ async def triage(query_or_request_id: str, limit: int = 20) -> Dict[str, Any]:
         "timeline": timeline,
         "summary_text": _summarize_timeline_text(timeline),
         "grafana_links": grafana_links,
+        "sentry_links": sentry_links,
     }
     result["summary_html"] = render_triage_html(result)
     return result
