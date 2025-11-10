@@ -910,6 +910,39 @@ def list_public_snippets(
     if repo is None:
         return [], 0
 
+    try:
+        include_builtins = bool(getattr(repo, "include_builtin_snippets", True))
+    except Exception:
+        include_builtins = True
+
+    if not include_builtins:
+        try:
+            items, total = repo.list_public_snippets(
+                q=q,
+                language=language,
+                page=page,
+                per_page=per_page_int,
+            )
+        except TypeError:
+            try:
+                items, total = repo.list_public_snippets(q=q, language=language)
+            except Exception:
+                return [], 0
+        except Exception:
+            return [], 0
+
+        try:
+            items_list = list(items)
+        except TypeError:
+            items_list = [items] if items is not None else []
+
+        try:
+            total_int = int(total)
+        except Exception:
+            total_int = len(items_list)
+
+        return items_list, max(total_int, len(items_list))
+
     # חשב Built-ins תואמים
     builtins = _filtered_builtins(q, language)
     bt_title_keys = {str((it.get("title") or "")).strip().lower() for it in builtins}
