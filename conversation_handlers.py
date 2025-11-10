@@ -33,7 +33,7 @@ def set_activity_reporter(new_reporter):
     reporter = new_reporter or _NoopReporter()
 from utils import get_language_emoji as get_file_emoji
 from user_stats import user_stats
-from typing import List, Optional, Dict, cast
+from typing import List, Optional, Dict, Type, cast
 from html import escape as html_escape
 from utils import TelegramUtils, TextUtils
 from services import code_service
@@ -1392,11 +1392,14 @@ async def snippet_reject_start(update: Update, context: ContextTypes.DEFAULT_TYP
 
 
 async def snippet_collect_reject_reason(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    reason_text = (update.message.text or '').strip()
+    message = getattr(update, 'message', None)
+    raw_text = getattr(message, 'text', None) if message is not None else None
+    reason_text = (raw_text or '').strip()
     reason = reason_text if reason_text else None
     item_id = str(context.user_data.get('sn_reject_id') or '')
     if not item_id:
-        await _maybe_await(update.message.reply_text("❌ מזהה לא תקין"))
+        if message is not None and hasattr(message, 'reply_text'):
+            await _maybe_await(message.reply_text("❌ מזהה לא תקין"))
         return ConversationHandler.END
     ok = False
     try:
@@ -1427,8 +1430,8 @@ async def snippet_collect_reject_reason(update: Update, context: ContextTypes.DE
                 except Exception:
                     pass
     # שלח הודעת הצלחה רק במקרה של כשל – כדי למנוע כפילות מול ההודעה הידידותית שנשלחה למשתמש
-    if not ok:
-        await _maybe_await(update.message.reply_text("❌ כשל בדחייה"))
+    if not ok and message is not None and hasattr(message, 'reply_text'):
+        await _maybe_await(message.reply_text("❌ כשל בדחייה"))
     context.user_data.pop('sn_reject_id', None)
     return ConversationHandler.END
 
@@ -4015,10 +4018,18 @@ async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     )
     return ConversationHandler.END
 
-def get_save_conversation_handler(db: DatabaseManager) -> ConversationHandler:
+def get_save_conversation_handler(
+    db: DatabaseManager,
+    callback_query_handler_cls: Optional[Type[CallbackQueryHandler]] = None,
+) -> ConversationHandler:
     """יוצר ConversationHandler מתקדם וחכם"""
     logger.info("יוצר מערכת שיחה מתקדמת...")
     
+    cbq_factory = callback_query_handler_cls or CallbackQueryHandler
+
+    cancel_callback_fallback = cbq_factory(handle_callback_query, pattern=r'^cancel$')
+    generic_callback_fallback = cbq_factory(handle_callback_query)
+
     return ConversationHandler(
         entry_points=[
             CommandHandler("start", start_command),
@@ -4061,8 +4072,8 @@ def get_save_conversation_handler(db: DatabaseManager) -> ConversationHandler:
         },
         fallbacks=[
             CommandHandler("cancel", cancel),
-            CallbackQueryHandler(handle_callback_query, pattern=r'^cancel$'),
-            CallbackQueryHandler(handle_callback_query)
+            cancel_callback_fallback,
+            generic_callback_fallback
         ],
         allow_reentry=True,
         per_message=False

@@ -429,6 +429,11 @@ def _wrap_handler_callback(callback, handler_label: str):
     return _wrapped_sync
 
 
+async def _cancel_command_fallback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Handler אסינכרוני אחיד לסיום שיחה כאשר המשתמש מפעיל /cancel."""
+    return ConversationHandler.END
+
+
 def _redis_socket_available(redis_url: str, timeout: float = 0.25) -> bool:
     """
     בדיקת reachability בסיסית ל-Redis כדי להימנע מהמתנה ארוכה בזמן טסטים/CI.
@@ -1727,7 +1732,10 @@ class CodeKeeperBot:
             pass
 
         # Add conversation handler
-        conversation_handler = get_save_conversation_handler(db)
+        conversation_handler = get_save_conversation_handler(
+            db,
+            callback_query_handler_cls=CallbackQueryHandler,
+        )
         self.application.add_handler(conversation_handler)
         logger.info("ConversationHandler נוסף")
         try:
@@ -1810,6 +1818,12 @@ class CodeKeeperBot:
         # הגדר conversation handler להעלאת קבצים
         from github_menu_handler import FILE_UPLOAD, REPO_SELECT, FOLDER_SELECT
         async def _upload_cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
+            try:
+                cq = getattr(update, "callback_query", None)
+                if cq is not None:
+                    await cq.answer("העלאה בוטלה", show_alert=False)
+            except Exception:
+                pass
             return ConversationHandler.END
 
         upload_conv_handler = ConversationHandler(
@@ -1827,7 +1841,10 @@ class CodeKeeperBot:
                     MessageHandler(filters.TEXT & ~filters.COMMAND, github_handler.handle_text_input)
                 ]
             },
-            fallbacks=[CommandHandler('cancel', _upload_cancel)]
+            fallbacks=[
+                CommandHandler('cancel', _upload_cancel),
+                CallbackQueryHandler(_upload_cancel, pattern=r'^cancel$')
+            ]
         )
         
         self.application.add_handler(upload_conv_handler)
@@ -2034,16 +2051,26 @@ class CodeKeeperBot:
                 # Snippet inline approve
                 self.application.add_handler(CallbackQueryHandler(snippet_inline_approve, pattern=r'^snippet_approve:'))
                 # Submission flow
+                _logo_message_filter = filters.TEXT & ~filters.COMMAND
+                try:
+                    _photo_filter = getattr(filters, "PHOTO", None)
+                    if _photo_filter is not None:
+                        _logo_message_filter = (_photo_filter | filters.TEXT) & ~filters.COMMAND
+                except Exception:
+                    # אם חיבור הפילטרים נכשל (למשל בסביבת טסטים עם סטאבים פשוטים),
+                    # תישאר רק בדיקה על טקסט. חשוב שה-handler עדיין יירשם.
+                    _logo_message_filter = filters.TEXT & ~filters.COMMAND
+
                 comm_conv = ConversationHandler(
                     entry_points=[CallbackQueryHandler(community_submit_start, pattern=r'^community_submit$')],
                     states={
                         CL_COLLECT_TITLE: [MessageHandler(filters.TEXT & ~filters.COMMAND, community_collect_title)],
                         CL_COLLECT_DESCRIPTION: [MessageHandler(filters.TEXT & ~filters.COMMAND, community_collect_description)],
                         CL_COLLECT_URL: [MessageHandler(filters.TEXT & ~filters.COMMAND, community_collect_url)],
-                        CL_COLLECT_LOGO: [MessageHandler((filters.PHOTO | filters.TEXT) & ~filters.COMMAND, community_collect_logo)],
+                        CL_COLLECT_LOGO: [MessageHandler(_logo_message_filter, community_collect_logo)],
                     },
                     fallbacks=[
-                        CommandHandler('cancel', lambda u, c: ConversationHandler.END),
+                        CommandHandler('cancel', _cancel_command_fallback),
                         CallbackQueryHandler(submit_flows_cancel, pattern=r'^cancel$'),
                     ],
                 )
@@ -2066,7 +2093,7 @@ class CodeKeeperBot:
                         ],
                     },
                     fallbacks=[
-                        CommandHandler('cancel', lambda u, c: ConversationHandler.END),
+                        CommandHandler('cancel', _cancel_command_fallback),
                         CallbackQueryHandler(submit_flows_cancel, pattern=r'^cancel$'),
                     ],
                 )
@@ -2077,7 +2104,7 @@ class CodeKeeperBot:
                     states={
                         SN_REJECT_REASON: [MessageHandler(filters.TEXT & ~filters.COMMAND, snippet_collect_reject_reason)],
                     },
-                    fallbacks=[CommandHandler('cancel', lambda u, c: ConversationHandler.END)],
+                    fallbacks=[CommandHandler('cancel', _cancel_command_fallback)],
                 )
                 self.application.add_handler(sn_reject_conv)
                 # Community hub menus
@@ -3660,6 +3687,10 @@ async def setup_bot_data(application: Application) -> None:  # noqa: D401
     try:
         async def _predictive_sampler_job(context: ContextTypes.DEFAULT_TYPE):  # noqa: ARG001
             try:
+                if os.getenv("PYTEST_CURRENT_TEST"):
+                    allow_in_tests = str(os.getenv("PREDICTIVE_SAMPLER_RUN_IN_TESTS", "false")).lower()
+                    if allow_in_tests not in {"1", "true", "yes", "on"}:
+                        return
                 # Feature flag: allow disabling explicitly
                 if str(os.getenv("PREDICTIVE_SAMPLER_ENABLED", "true")).lower() not in {"1", "true", "yes", "on"}:
                     return
