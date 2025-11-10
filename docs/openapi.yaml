@@ -19,6 +19,25 @@ components:
       in: cookie
       name: session
   schemas:
+    SnippetListItem:
+      type: object
+      properties:
+        title: { type: string }
+        description: { type: string }
+        code: { type: string }
+        language: { type: string }
+        username: { type: string, nullable: true }
+        approved_at: { type: string, format: date-time, nullable: true }
+    SnippetsResponse:
+      type: object
+      properties:
+        ok: { type: boolean }
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/SnippetListItem' }
+        page: { type: integer }
+        per_page: { type: integer }
+        total: { type: integer }
     ErrorResponse:
       type: object
       properties:
@@ -271,6 +290,69 @@ components:
         work_state:
           type: object
 paths:
+  /api/snippets:
+    get:
+      summary: List public snippets (approved + curated)
+      description: |
+        מחזיר עמוד סניפטים לצפייה ציבורית. העמוד הראשון עשוי לכלול פריטי "curated"
+        (מובנים) בנוסף לפריטים מתוך DB; נספרים ב-`total` ללא כפילויות (כותרת).
+      parameters:
+        - in: query
+          name: q
+          schema: { type: string }
+          description: חיפוש חופשי בכותרת/תיאור/קוד
+        - in: query
+          name: language
+          schema: { type: string }
+          description: סינון לפי שפה (למשל python)
+        - in: query
+          name: page
+          schema: { type: integer, default: 1, minimum: 1 }
+        - in: query
+          name: per_page
+          schema: { type: integer, default: 30, minimum: 1, maximum: 60 }
+      responses:
+        '200':
+          description: Snippets page
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SnippetsResponse'
+              examples:
+                successExample:
+                  summary: Success with results
+                  value:
+                    ok: true
+                    items:
+                      - title: "זמן יחסי בעברית (TimeUtils.format_relative_time)"
+                        description: "פורמט זמן יחסי בעברית (לפני X דקות/אתמול)."
+                        code: "def f():\n    return 'ok'\n"
+                        language: python
+                        username: CodeBot
+                        approved_at: "2025-11-10T10:00:00Z"
+                    page: 1
+                    per_page: 30
+                    total: 42
+                emptyExample:
+                  summary: Empty page (no results)
+                  value:
+                    ok: true
+                    items: []
+                    page: 1
+                    per_page: 30
+                    total: 0
+        '500':
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                errorExample:
+                  summary: Internal error example
+                  value:
+                    ok: false
+                    error: internal_error
   /api/collections:
     get:
       summary: List user collections

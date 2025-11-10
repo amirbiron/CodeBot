@@ -1,0 +1,42 @@
+{% extends "base.html" %}
+
+{% block title %}צפייה בסניפט{% endblock %}
+
+{% block extra_css %}
+<link rel="preload" href="https://cdn.jsdelivr.net/npm/@highlightjs/cdn-assets@11.9.0/styles/github-dark-dimmed.min.css" as="style" onload="this.onload=null;this.rel='stylesheet'">
+<noscript><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@highlightjs/cdn-assets@11.9.0/styles/github-dark-dimmed.min.css"></noscript>
+{% endblock %}
+
+{% block content %}
+<h1 class="page-title">👁️ צפייה בסניפט</h1>
+
+<div class="glass-card">
+  {% if not item %}
+    <div class="alert alert-warning">הפריט לא נמצא.</div>
+  {% else %}
+    <h3 style="margin-top:0;">{{ item.title }}</h3>
+    <div class="text-muted" style="margin-bottom:.5rem;">
+      {{ item.language }}{% if item.username %} · נוסף על ידי @{{ item.username }}{% endif %}
+    </div>
+    {% if item.description %}<p>{{ item.description }}</p>{% endif %}
+    <pre class="code-block"><code class="language-{{ item.language|e }}" dir="ltr">{{ item.code }}</code></pre>
+    <div class="form-row" style="display:flex; gap:.5rem; margin-top: .75rem;">
+      <a class="btn btn-primary" href="/admin/snippets/edit?id={{ item_id }}">✏️ ערוך</a>
+      <form method="post" action="/admin/snippets/delete?id={{ item_id }}" onsubmit="return confirm('למחוק את הסניפט?');">
+        <button class="btn btn-danger" type="submit">🗑️ מחק</button>
+      </form>
+    </div>
+  {% endif %}
+</div>
+
+<a class="btn btn-secondary" href="/admin/snippets/pending">⬅️ חזרה לרשימת ממתינים</a>
+{% endblock %}
+
+{% block extra_js %}
+<script defer src="https://cdn.jsdelivr.net/npm/@highlightjs/cdn-assets@11.9.0/highlight.min.js"></script>
+<script>
+  document.addEventListener('DOMContentLoaded', function(){
+    if (window.hljs){ document.querySelectorAll('pre code').forEach(function(el){ try{ hljs.highlightElement(el); }catch(e){} }); }
+  });
+</script>
+{% endblock %}

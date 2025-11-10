@@ -1725,6 +1725,93 @@ def admin_snippet_reject():
     return redirect(url_for('admin_snippets_pending'))
 
 
+@app.route('/admin/snippets/view')
+@admin_required
+def admin_snippet_view():
+    item_id = request.args.get('id') or ''
+    doc = None
+    try:
+        if _snip_service is not None and item_id:
+            # גישה ישירה לקולקציה כדי להביא את גוף הקוד המלא
+            from database import db as _db
+            coll = getattr(_db, 'snippets_collection', None)
+            if coll is None:
+                coll = getattr(_db.db, 'snippets')
+            # שימוש בנרמול מזהה דרך ה-Repository
+            normalized_id = _db._get_repo()._normalize_snippet_identifier(item_id)
+            if normalized_id is not None and coll is not None:
+                raw = coll.find_one({'_id': normalized_id})
+                if isinstance(raw, dict):
+                    doc = {
+                        'title': raw.get('title', ''),
+                        'description': raw.get('description', ''),
+                        'language': raw.get('language', 'text'),
+                        'username': raw.get('username', ''),
+                        'code': raw.get('code', ''),
+                        'status': raw.get('status', ''),
+                        'submitted_at': raw.get('submitted_at'),
+                        'approved_at': raw.get('approved_at'),
+                    }
+    except Exception:
+        doc = None
+    return render_template('admin_snippet_view.html', item=doc, item_id=item_id)
+
+
+@app.route('/admin/snippets/delete', methods=['POST'])
+@admin_required
+def admin_snippet_delete():
+    item_id = request.args.get('id') or request.form.get('id') or ''
+    try:
+        from database import db as _db
+        coll = getattr(_db, 'snippets_collection', None)
+        if coll is None:
+            coll = getattr(_db.db, 'snippets')
+        normalized_id = _db._get_repo()._normalize_snippet_identifier(item_id)
+        if normalized_id is not None and coll is not None:
+            coll.delete_one({'_id': normalized_id})
+    except Exception:
+        pass
+    return redirect(url_for('admin_snippets_pending'))
+
+
+@app.route('/admin/snippets/edit', methods=['GET', 'POST'])
+@admin_required
+def admin_snippet_edit():
+    item_id = request.args.get('id') or request.form.get('id') or ''
+    from database import db as _db
+    coll = getattr(_db, 'snippets_collection', None)
+    if coll is None:
+        coll = getattr(_db.db, 'snippets')
+    normalized_id = _db._get_repo()._normalize_snippet_identifier(item_id) if item_id else None
+    if request.method == 'POST' and normalized_id is not None and coll is not None:
+        try:
+            upd = {
+                'title': request.form.get('title') or '',
+                'description': request.form.get('description') or '',
+                'language': request.form.get('language') or 'text',
+                'code': request.form.get('code') or '',
+            }
+            coll.update_one({'_id': normalized_id}, {'$set': upd})
+            return redirect(url_for('admin_snippet_view', id=item_id))
+        except Exception:
+            pass
+    # GET: load current
+    doc = None
+    try:
+        if normalized_id is not None and coll is not None:
+            raw = coll.find_one({'_id': normalized_id})
+            if isinstance(raw, dict):
+                doc = {
+                    'title': raw.get('title', ''),
+                    'description': raw.get('description', ''),
+                    'language': raw.get('language', 'text'),
+                    'code': raw.get('code', ''),
+                }
+    except Exception:
+        doc = None
+    return render_template('admin_snippet_edit.html', item=doc, item_id=item_id)
+
+
 # ===== Global Content Search API =====
 def _search_limiter_decorator(rule: str):
     """Wrap limiter.limit if available; return no-op otherwise."""

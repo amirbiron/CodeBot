@@ -94,21 +94,45 @@
     for (const it of items) {
       const card = document.createElement('div');
       card.className = 'glass-card';
-      const h = document.createElement('h3');
-      h.textContent = it.title || 'ללא כותרת';
-      const meta = document.createElement('div');
+
+      const details = document.createElement('details');
+      const summary = document.createElement('summary');
+      summary.style.cursor = 'pointer';
+      summary.style.userSelect = 'none';
+
+      const titleEl = document.createElement('h3');
+      titleEl.textContent = it.title || 'ללא כותרת';
+      titleEl.style.display = 'inline';
+      titleEl.style.marginRight = '.5rem';
+
+      const meta = document.createElement('span');
+      meta.className = 'text-muted';
       meta.style.opacity = '.8';
-      meta.style.marginBottom = '.5rem';
-      meta.textContent = (it.language || '').toString();
+      {
+        const lang = (it.language || '').toString();
+        const by = it.username ? (' · נוסף על ידי @' + String(it.username)) : '';
+        meta.textContent = lang + by;
+      }
+
+      summary.appendChild(titleEl);
+      summary.appendChild(meta);
+
+      const body = document.createElement('div');
+      body.style.marginTop = '.75rem';
       const p = document.createElement('p');
       p.textContent = it.description || '';
-      card.appendChild(h);
-      card.appendChild(meta);
-      card.appendChild(p);
-      card.appendChild(codeBlock(it.code || '', it.language));
+      const cb = codeBlock(it.code || '', it.language);
+      body.appendChild(p);
+      body.appendChild(cb);
+
+      details.appendChild(summary);
+      details.appendChild(body);
+      card.appendChild(details);
       root.appendChild(card);
-      // החלת הדגשת תחביר על הקוד בתוך הכרטיס
-      applySyntaxHighlight(card);
+
+      // הדגש רק בעת פתיחה (וגם אם כבר פתוח)
+      const ensureHighlight = () => applySyntaxHighlight(card);
+      details.addEventListener('toggle', () => { if (details.open) ensureHighlight(); });
     }
   }
 

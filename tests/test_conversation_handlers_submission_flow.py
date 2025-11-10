@@ -26,6 +26,11 @@ async def test_snippet_submission_flow(monkeypatch):
     upd_start = types.SimpleNamespace(callback_query=q)
     ctx = types.SimpleNamespace(user_data={})
     state = await ch.snippet_submit_start(upd_start, ctx)
+    # לאחר שינוי: מסך בחירת מצב, השיחה נסגרת והטקסט נערך
+    assert state == ch.ConversationHandler.END
+
+    # התחלה ב"קוד רגיל"
+    state = await ch.snippet_mode_regular_start(upd_start, ctx)
     assert state == ch.SN_COLLECT_TITLE
 
     # title too short
