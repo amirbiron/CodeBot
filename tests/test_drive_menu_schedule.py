@@ -111,6 +111,60 @@ async def test_scheduled_backup_callback_success_updates_prefs_and_emits(monkeyp
 
 
 @pytest.mark.asyncio
+async def test_scheduled_backup_callback_failure_prompts_reauth(monkeypatch):
+    import handlers.drive.menu as dm
+
+    # tokens exist → considered connected but service missing → prompt re-auth
+    class _DB:
+        def __init__(self):
+            self.saved = []
+            self.prefs = {"schedule": "daily"}
+        def get_drive_prefs(self, user_id):
+            return dict(self.prefs)
+        def save_drive_prefs(self, user_id, prefs):
+            self.saved.append(dict(prefs))
+            self.prefs.update(prefs)
+            return True
+        def get_drive_tokens(self, user_id):
+            return {"access_token": "t", "refresh_token": "r"}
+    db = _DB()
+    monkeypatch.setattr(dm, "db", db, raising=True)
+
+    # Drive backup fails and service is None → triggers re-auth message
+    monkeypatch.setattr(dm.gdrive, "perform_scheduled_backup", lambda uid: False, raising=True)
+    monkeypatch.setattr(dm.gdrive, "get_drive_service", lambda uid: None, raising=True)
+
+    # Prepare scheduled callback through _ensure_schedule_job
+    scheduled = {}
+    class _JQ:
+        def run_repeating(self, cb, interval, first, name=None, data=None):
+            scheduled.update({"cb": cb, "interval": interval, "first": first, "name": name, "data": data})
+            return types.SimpleNamespace(schedule_removal=lambda: None)
+    class _App:
+        def __init__(self):
+            self.job_queue = _JQ()
+    ctx = types.SimpleNamespace(application=_App(), bot_data={})
+
+    handler = dm.GoogleDriveMenuHandler()
+    await handler._ensure_schedule_job(ctx, user_id=42, sched_key="daily")
+
+    # Invoke the scheduled callback; record send_message calls
+    sent = {"calls": []}
+    class _Bot:
+        async def send_message(self, chat_id=None, text=None, reply_markup=None):
+            sent["calls"].append({"chat_id": chat_id, "text": text, "reply_markup": reply_markup})
+    cb_ctx = types.SimpleNamespace(job=types.SimpleNamespace(data={"user_id": 42}), bot=_Bot())
+    await scheduled["cb"](cb_ctx)
+
+    # Expect one prompt to re-auth with a button that has callback_data="drive_auth"
+    assert len(sent["calls"]) >= 1
+    m = sent["calls"][0]
+    assert "נדרש להתחבר מחדש" in m["text"]
+    kb = getattr(m["reply_markup"], "inline_keyboard", [])
+    # Verify presence of the drive_auth button
+    assert any(btn.callback_data == "drive_auth" for row in kb for btn in row)
+
+@pytest.mark.asyncio
 async def test_manual_all_updates_next_and_triggers_reschedule(monkeypatch):
     import handlers.drive.menu as dm
 

@@ -23,6 +23,8 @@ def _make_http_error(gds, status=429, reason='rateLimitExceeded', retry_after=No
     class _Resp:
         def __init__(self, status, headers):
             self.status = status
+            # googleapiclient.errors.HttpError accesses resp.reason in ctor
+            self.reason = "Service Unavailable" if int(status) >= 500 else "Error"
             self._h = headers or {}
         def get(self, key):
             return self._h.get(key)
@@ -80,7 +82,41 @@ def test_upload_bytes_retries_on_429_then_success(monkeypatch):
     fid = gds.upload_bytes(1, "file.zip", b"ZIPDATA", sub_path="zip")
     assert fid == "fid-429-ok"
 
+def test_retryable_and_parse_helpers(monkeypatch):
+    gds = _import_fresh()
 
+    # Build an HttpError with status/reason and Retry-After
+    err = _make_http_error(gds, status=503, reason='backendError', retry_after=2)
+
+    # _parse_http_error_status_reason returns status and reason
+    st, rs = gds._parse_http_error_status_reason(err)
+    assert st == 503
+    assert isinstance(rs, str) and ("backendError" in rs or rs == "backendError")
+
+    # _is_retryable_http_error returns True and retry_after seconds
+    should_retry, ra = gds._is_retryable_http_error(err)
+    assert should_retry is True
+    assert ra == 2.0
+
+
+def test_sleep_backoff_honors_retry_after_and_jitter(monkeypatch):
+    gds = _import_fresh()
+
+    calls = {"sleep": []}
+    monkeypatch.setattr(gds.time, "sleep", lambda s: calls["sleep"].append(s), raising=True)
+    # Fix randomness to deterministic 0.5 → factor 0.7 + 0.6*0.5 = 1.0
+    monkeypatch.setattr(gds.random, "random", lambda: 0.5, raising=True)
+
+    # Case 1: explicit Retry-After wins
+    gds._sleep_backoff(attempt=5, retry_after_s=1.25)
+    # Case 2: exponential backoff with jitter (attempt=1 → base*2 = 1.0, factor=1.0)
+    gds._sleep_backoff(attempt=1, retry_after_s=None)
+
+    assert len(calls["sleep"]) == 2
+    # First call uses Retry-After exactly
+    assert abs(calls["sleep"][0] - 1.25) < 1e-6
+    # Second call equals 1.0 (with deterministic jitter) and not clamped below 0.05
+    assert 0.99 <= calls["sleep"][1] <= 1.01
 def test_upload_file_retries_on_transport_then_success(tmp_path, monkeypatch):
     gds = _import_fresh()
 
