@@ -73,6 +73,33 @@ class GoogleDriveMenuHandler:
                     pass
                 if ok:
                     await ctx.bot.send_message(chat_id=uid, text="☁️ גיבוי אוטומטי ל‑Drive הושלם בהצלחה")
+                else:
+                    # אם נכשל — נסה לזהות אם נדרש התחברות מחדש והצג הודעה ידידותית
+                    try:
+                        tokens = db.get_drive_tokens(uid) or {}
+                    except Exception:
+                        tokens = {}
+                    need_reauth = False
+                    if tokens:
+                        try:
+                            svc = gdrive.get_drive_service(uid)
+                        except Exception:
+                            svc = None
+                        need_reauth = svc is None
+                    if need_reauth:
+                        try:
+                            kb = [[InlineKeyboardButton("🔐 התחבר ל‑Drive", callback_data="drive_auth")]]
+                            await ctx.bot.send_message(
+                                chat_id=uid,
+                                text="❌ הגיבוי האוטומטי נכשל — נדרש להתחבר מחדש ל‑Google Drive.",
+                                reply_markup=InlineKeyboardMarkup(kb)
+                            )
+                            try:
+                                emit_event("drive_scheduled_backup_auth_required", severity="warn", user_id=int(uid))
+                            except Exception:
+                                pass
+                        except Exception:
+                            pass
                 # עדכן זמן הבא בהעדפות
                 try:
                     now_dt = datetime.now(timezone.utc)
