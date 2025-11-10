@@ -889,10 +889,10 @@ def list_public_snippets(
 ) -> Tuple[List[Dict[str, Any]], int]:
     """החזרת סניפטים ציבוריים מאושרים, כולל פריטי Built‑in.
 
-    מדיניות:
-    - בעמוד 1: פריטי Built‑in מוצגים ראשונים, ולאחריהם פריטי DB כך שסך הפריטים בעמוד ≤ per_page.
-    - בעמודים ≥2: מוצגים רק פריטי DB, עם הזחה (offset) שתפצה על השורה הראשונה שנצרכה ע"י Built‑in.
-    - total: סכום פריטי DB + מספר ה‑Built‑in התואמים (גם אם אינם מוצגים בעמוד הנוכחי).
+    מדיניות מעודכנת:
+    - פריטי Built‑in מוצגים תחילה על פני כמה עמודים לפי סדרם, עד שהם מסתיימים.
+    - לאחר שנגמרים ה‑Built‑in (או אם אין כאלה), יתר העמודים מתמלאים מפריטי DB (ללא כפילות כותרת).
+    - total מייצג את סכום פריטי ה‑Built‑in (התואמים) וה‑DB גם אם אינם מוצגים בדף הנוכחי.
     """
     try:
         per_page_int = max(1, int(per_page or 30))
@@ -901,41 +901,83 @@ def list_public_snippets(
 
     # חשב Built-ins תואמים
     builtins = _filtered_builtins(q, language)
-    k = len(builtins)
+    bt_title_keys = {str((it.get("title") or "")).strip().lower() for it in builtins}
+
+    repo = None
+    try:
+        candidate = _db._get_repo()
+        if hasattr(candidate, "list_public_snippets"):
+            repo = candidate
+    except Exception:
+        repo = None
 
     # שלוף ספירת DB (total) בקריאה קלה
-    try:
-        _items_probe, db_total = _db._get_repo().list_public_snippets(q=q, language=language, page=1, per_page=1)
-    except Exception:
-        db_total = 0
+    db_total = 0
+    if repo:
+        try:
+            _, db_total = repo.list_public_snippets(q=q, language=language, page=1, per_page=1)
+        except Exception:
+            db_total = 0
 
-    # חישוב total מאוחד (Fail-open: אם יש כפילות כותרת מול DB, הספירה עדיין ≥ מספר הפריטים המוחזרים)
-    unified_total = db_total + k
+    unified_total = db_total + len(builtins)
 
-    # רכז פריטים לעמוד המבוקש
-    try:
-        if page <= 1:
-            # כמה פריטי DB נשלים אחרי ה‑Built‑ins
-            db_needed = max(0, per_page_int - k)
-            db_page1_items: List[Dict[str, Any]] = []
-            if db_needed > 0:
-                db_page1_items, _ = _db._get_repo().list_public_snippets(q=q, language=language, page=1, per_page=db_needed)
-                # הימנע מכפילות כותרת מול ה‑Built‑ins בעמוד זה בלבד
-                bt_titles = {str((it.get("title") or "")).strip().lower() for it in builtins}
-                db_page1_items = [d for d in db_page1_items if str((d.get("title") or "")).strip().lower() not in bt_titles]
-                # אם לאחר הדה‑דופ קיבלנו פחות מ‑db_needed, זה בסדר — העמוד יכיל פחות מ‑per_page
-            items = (builtins + db_page1_items)[:per_page_int]
-            return items, unified_total
+    def _normalize_title(item: Dict[str, Any]) -> str:
+        return str((item.get("title") or "")).strip().lower()
 
-        # עמודים ≥2: הצג חלון DB שמתחשב בכמה פריטים הוצגו בעמוד הראשון
-        # page 1 צרך max(0, per_page - k) פריטי DB
-        consumed_db_page1 = max(0, per_page_int - k)
-        start = consumed_db_page1 + (page - 2) * per_page_int
-        need = per_page_int
-        # שלוף את הטווח ע"י קריאה מורחבת וחתך בזיכרון
-        fetch_count = start + need
-        db_all_upto, _ = _db._get_repo().list_public_snippets(q=q, language=language, page=1, per_page=fetch_count)
-        db_window = db_all_upto[start:start + need]
-        return db_window, unified_total
-    except Exception:
-        return [], unified_total
+    def _fetch_db_slice(offset: int, limit: int) -> List[Dict[str, Any]]:
+        if not repo or limit <= 0:
+            return []
+        per_page_repo = 60
+        current_page = 1
+        remaining_skip = max(0, offset)
+        collected: List[Dict[str, Any]] = []
+        safety = 0
+
+        while len(collected) < limit:
+            try:
+                chunk, _ = repo.list_public_snippets(q=q, language=language, page=current_page, per_page=per_page_repo)
+            except Exception:
+                break
+
+            if not chunk:
+                break
+
+            filtered: List[Dict[str, Any]] = []
+            for item in chunk:
+                if _normalize_title(item) in bt_title_keys:
+                    continue
+                filtered.append(item)
+
+            if remaining_skip:
+                if remaining_skip >= len(filtered):
+                    remaining_skip -= len(filtered)
+                    filtered = []
+                else:
+                    filtered = filtered[remaining_skip:]
+                    remaining_skip = 0
+
+            if filtered:
+                collected.extend(filtered)
+
+            # אם קיבלנו פחות מ-per_page_repo, כנראה נגמרו פריטים
+            if len(chunk) < per_page_repo:
+                break
+
+            current_page += 1
+            safety += 1
+            if safety > 1000:
+                break
+
+        return collected[:limit]
+
+    builtins_count = len(builtins)
+    builtins_pages = (builtins_count + per_page_int - 1) // per_page_int if builtins_count else 0
+
+    if builtins_count and page <= builtins_pages:
+        offset = (page - 1) * per_page_int
+        return builtins[offset:offset + per_page_int], unified_total
+
+    db_page_index = page - builtins_pages
+    db_offset = max(0, (db_page_index - 1) * per_page_int)
+    db_items = _fetch_db_slice(db_offset, per_page_int)
+    return db_items, unified_total
