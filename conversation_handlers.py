@@ -1392,11 +1392,14 @@ async def snippet_reject_start(update: Update, context: ContextTypes.DEFAULT_TYP
 
 
 async def snippet_collect_reject_reason(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    reason_text = (update.message.text or '').strip()
+    message = getattr(update, 'message', None)
+    raw_text = getattr(message, 'text', None) if message is not None else None
+    reason_text = (raw_text or '').strip()
     reason = reason_text if reason_text else None
     item_id = str(context.user_data.get('sn_reject_id') or '')
     if not item_id:
-        await _maybe_await(update.message.reply_text("❌ מזהה לא תקין"))
+        if message is not None and hasattr(message, 'reply_text'):
+            await _maybe_await(message.reply_text("❌ מזהה לא תקין"))
         return ConversationHandler.END
     ok = False
     try:
@@ -1427,8 +1430,8 @@ async def snippet_collect_reject_reason(update: Update, context: ContextTypes.DE
                 except Exception:
                     pass
     # שלח הודעת הצלחה רק במקרה של כשל – כדי למנוע כפילות מול ההודעה הידידותית שנשלחה למשתמש
-    if not ok:
-        await _maybe_await(update.message.reply_text("❌ כשל בדחייה"))
+    if not ok and message is not None and hasattr(message, 'reply_text'):
+        await _maybe_await(message.reply_text("❌ כשל בדחייה"))
     context.user_data.pop('sn_reject_id', None)
     return ConversationHandler.END
 
