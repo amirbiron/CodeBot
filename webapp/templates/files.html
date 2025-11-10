@@ -169,16 +169,10 @@
             {% endif %}
             {% endif %}
             <div style="flex: 1; min-width: 200px;">
-              <div class="search-box-wrapper">
-                <i class="fas fa-search search-icon" aria-hidden="true"></i>
-                <input type="text"
-                       id="filesFilterSearchInput"
-                       name="q"
-                       value="{{ search_query }}"
-                       placeholder="🔍 חיפוש לפי שם, תיאור או תגית..."
-                       class="search-box"
-                       aria-label="חיפוש בקבצים">
-              </div>
+                <input type="text" name="q" value="{{ search_query }}"
+                       placeholder="חיפוש לפי שם, תיאור או תגית..."
+                       class="search-input"
+                       style="width: 100%; padding: 0.75rem; border-radius: 10px; border: 1px solid rgba(255,255,255,0.2); background: rgba(255,255,255,0.1); color: white; font-size: 1rem;">
             </div>
 
             <select name="lang" class="filter-select"
