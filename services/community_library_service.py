@@ -208,6 +208,7 @@ def list_public(q: Optional[str] = None, page: int = 1, per_page: int = 30, tags
     for r in rows:
         try:
             out.append({
+                "id": str(r.get("_id")) if r.get("_id") is not None else None,
                 "title": r.get("title"),
                 "description": r.get("description"),
                 "url": r.get("url"),

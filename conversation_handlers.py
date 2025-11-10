@@ -232,6 +232,28 @@ async def _maybe_await(result):
 async def _safe_answer(*args, **kwargs):
     return await _maybe_await(TelegramUtils.safe_answer(*args, **kwargs))
 
+
+async def _safe_reply_text(update, context, text: str, **kwargs):
+    """שולח הודעת טקסט למשתמש גם כאשר האובייקט message חסר reply_text."""
+    message = getattr(update, "message", None)
+    reply_fn = getattr(message, "reply_text", None)
+    if callable(reply_fn):
+        return await _maybe_await(reply_fn(text, **kwargs))
+    bot = getattr(context, "bot", None)
+    if bot is None:
+        return None
+    chat = getattr(update, "effective_chat", None)
+    chat_id = getattr(chat, "id", None)
+    if chat_id is None:
+        user = getattr(update, "effective_user", None)
+        chat_id = getattr(user, "id", None)
+    if chat_id is None:
+        return None
+    try:
+        return await _maybe_await(bot.send_message(chat_id=int(chat_id), text=text, **kwargs))
+    except TypeError:
+        return await _maybe_await(bot.send_message(chat_id=int(chat_id), text=text))
+
 def _truncate_middle(text: str, max_len: int) -> str:
     """מקצר מחרוזת באמצע עם אליפסיס אם חורגת מאורך נתון."""
     if max_len <= 0:
@@ -352,7 +374,7 @@ async def show_community_hub(update: Update, context: ContextTypes.DEFAULT_TYPE)
     keyboard = [
         [InlineKeyboardButton("📳 ממשקי משתמשים", callback_data="community_catalog_menu")],
         [InlineKeyboardButton("📃 ספריית סניפטים", callback_data="snippets_menu")],
-        [InlineKeyboardButton("↩️ חזרה", callback_data="files")],
+        [InlineKeyboardButton("↩️ חזרה", callback_data="main_menu")],
     ]
     await update.message.reply_text(
         "בחר/י קטגוריה:",
@@ -368,12 +390,12 @@ async def show_community_hub(update: Update, context: ContextTypes.DEFAULT_TYPE)
 async def community_catalog_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """תפריט משנה עבור 'ממשקי משתמשים' (אוסף קהילה קיים)."""
     query = update.callback_query
-    await _safe_answer(query)
+    await _maybe_await(_safe_answer(query))
     web_url = f"{_resolve_webapp_base_url() or DEFAULT_WEBAPP_URL}/community-library"
     keyboard = [
-        [InlineKeyboardButton("ממשקי משתמשים (web 🌐)", url=web_url)],
+        [InlineKeyboardButton("ממשקי משתמשים (🌐 web)", url=web_url)],
         [InlineKeyboardButton("➕ הוסף מוצר משלך", callback_data="community_submit")],
-        [InlineKeyboardButton("↩️ חזרה", callback_data="files")],
+        [InlineKeyboardButton("↩️ חזרה", callback_data="community_hub")],
     ]
     await _maybe_await(_safe_edit_message_text(query, "📳 ממשקי משתמשים", InlineKeyboardMarkup(keyboard)))
     return ConversationHandler.END
@@ -382,15 +404,68 @@ async def community_catalog_menu(update: Update, context: ContextTypes.DEFAULT_T
 async def snippets_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """תפריט משנה עבור 'ספריית סניפטים'."""
     query = update.callback_query
-    await _safe_answer(query)
+    await _maybe_await(_safe_answer(query))
     web_url = f"{_resolve_webapp_base_url() or DEFAULT_WEBAPP_URL}/snippets"
     keyboard = [
-        [InlineKeyboardButton("ספריית סניפטים (web 🌐)", url=web_url)],
+        [InlineKeyboardButton("ספריית סניפטים (🌐 web)", url=web_url)],
         [InlineKeyboardButton("➕ הוסף סניפט משלך", callback_data="snippet_submit")],
-        [InlineKeyboardButton("↩️ חזרה", callback_data="files")],
+        [InlineKeyboardButton("↩️ חזרה", callback_data="community_hub")],
     ]
     await _maybe_await(_safe_edit_message_text(query, "📃 ספריית סניפטים", InlineKeyboardMarkup(keyboard)))
     return ConversationHandler.END
+
+
+async def community_hub_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Callback variant of community hub (back navigation target)."""
+    query = update.callback_query
+    await _maybe_await(_safe_answer(query))
+    keyboard = [
+        [InlineKeyboardButton("📳 ממשקי משתמשים", callback_data="community_catalog_menu")],
+        [InlineKeyboardButton("📃 ספריית סניפטים", callback_data="snippets_menu")],
+        [InlineKeyboardButton("↩️ חזרה", callback_data="main_menu")],
+    ]
+    await _maybe_await(_safe_edit_message_text(query, "בחר/י קטגוריה:", InlineKeyboardMarkup(keyboard)))
+    return ConversationHandler.END
+
+
+async def main_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Return to main reply keyboard from a callback."""
+    query = update.callback_query
+    await _maybe_await(_safe_answer(query))
+    try:
+        await TelegramUtils.safe_edit_message_text(query, "🔝 חזרה לתפריט הראשי")
+    except Exception:
+        pass
+    try:
+        await query.message.reply_text("בחר/י פעולה:", reply_markup=ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True))
+    except Exception:
+        pass
+    return ConversationHandler.END
+
+
+async def submit_flows_cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Unified cancel for snippet/community submission flows triggered by '❌ ביטול'."""
+    query = update.callback_query
+    await _maybe_await(_safe_answer(query))
+    had_snippet_state = bool(context.user_data.get('sn_item') or context.user_data.get('sn_long_parts'))
+    had_comm_state = bool(context.user_data.get('cl_item'))
+    # Clear all related states
+    try:
+        context.user_data.pop('sn_item', None)
+        context.user_data.pop('sn_long_parts', None)
+        context.user_data.pop('cl_item', None)
+        context.user_data.pop('sn_reject_id', None)
+    except Exception:
+        pass
+    # Navigate back to the relevant submenu
+    try:
+        if had_snippet_state:
+            return await snippets_menu(update, context)
+        if had_comm_state:
+            return await community_catalog_menu(update, context)
+        return await community_hub_callback(update, context)
+    except Exception:
+        return ConversationHandler.END
 
 HELP_PAGES = [
     (
@@ -856,7 +931,7 @@ from chatops.permissions import admin_required as _admin_required
 
 async def community_submit_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     query = update.callback_query
-    await _safe_answer(query)
+    await _maybe_await(_safe_answer(query))
     context.user_data['cl_item'] = {}
     await TelegramUtils.safe_edit_message_text(
         query,
@@ -951,7 +1026,7 @@ async def community_collect_logo(update: Update, context: ContextTypes.DEFAULT_T
 @_admin_required
 async def community_inline_approve(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
-    await _safe_answer(query)
+    await _maybe_await(_safe_answer(query))
     data = (query.data or '')
     item_id = data.split(':',1)[-1]
     if not item_id:
@@ -1083,11 +1158,35 @@ async def community_reject_command(update: Update, context: ContextTypes.DEFAULT
         await update.message.reply_text(f"❌ שגיאה: {e}")
 
 # --- Snippet Library submission flow ---
-from services.snippet_library_service import submit_snippet as _sn_submit
+_sn_submit = None
+
+
+def _call_sn_submit(**kwargs):
+    """Submit snippet proposal with optional test override."""
+    submit_callable = _sn_submit
+    if callable(submit_callable):
+        try:
+            return submit_callable(**kwargs)
+        except Exception:
+            logger.exception("snippet_submit_override_failed", exc_info=True)
+            return {"ok": False, "error": "submit_failed"}
+    try:
+        from services import snippet_library_service as snippet_service  # type: ignore
+        submit_callable = getattr(snippet_service, "submit_snippet", None)
+    except Exception:
+        submit_callable = None
+    if callable(submit_callable):
+        try:
+            return submit_callable(**kwargs)
+        except Exception:
+            logger.exception("snippet_submit_failed", exc_info=True)
+            return {"ok": False, "error": "submit_failed"}
+    logger.warning("snippet_submit_unavailable")
+    return {"ok": False, "error": "submit_unavailable"}
 
 async def snippet_submit_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     query = update.callback_query
-    await _safe_answer(query)
+    await _maybe_await(_safe_answer(query))
     context.user_data['sn_item'] = {}
     # בחירת מצב התחלה
     keyboard = [
@@ -1126,7 +1225,7 @@ async def snippet_collect_description(update: Update, context: ContextTypes.DEFA
 
 async def snippet_mode_regular_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     query = update.callback_query
-    await _safe_answer(query)
+    await _maybe_await(_safe_answer(query))
     context.user_data['sn_item'] = {}
     await _maybe_await(_safe_edit_message_text(
         query,
@@ -1138,7 +1237,7 @@ async def snippet_mode_regular_start(update: Update, context: ContextTypes.DEFAU
 
 async def snippet_mode_long_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     query = update.callback_query
-    await _safe_answer(query)
+    await _maybe_await(_safe_answer(query))
     # אתחול איסוף ארוך (פשוט): נאסוף חלקי טקסט ל-sn_long_parts עד /done
     context.user_data['sn_item'] = {}
     context.user_data['sn_long_parts'] = []
@@ -1187,7 +1286,7 @@ async def snippet_collect_language(update: Update, context: ContextTypes.DEFAULT
     item['language'] = language[:40]
     item['user_id'] = int(user.id)
     item['username'] = getattr(user, 'username', None)
-    res = _sn_submit(
+    res = _call_sn_submit(
         title=item.get('title') or '',
         description=item.get('description') or '',
         code=item.get('code') or '',
@@ -1196,7 +1295,7 @@ async def snippet_collect_language(update: Update, context: ContextTypes.DEFAULT
         username=item.get('username'),
     )
     if not res.get('ok'):
-        await update.message.reply_text("❌ שמירת ההצעה נכשלה. נסה/י שוב מאוחר יותר.")
+        await _safe_reply_text(update, context, "❌ שמירת ההצעה נכשלה. נסה/י שוב מאוחר יותר.")
         return ConversationHandler.END
     # הודע למנהלים
     try:
@@ -1223,14 +1322,14 @@ async def snippet_collect_language(update: Update, context: ContextTypes.DEFAULT
                     continue
         except Exception:
             pass
-    await update.message.reply_text("✅ ההצעה התקבלה ותמתין לאישור מנהל. תודה!")
+    await _safe_reply_text(update, context, "✅ ההצעה התקבלה ותמתין לאישור מנהל. תודה!")
     context.user_data.pop('sn_item', None)
     return ConversationHandler.END
 
 
 async def snippet_inline_approve(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     query = update.callback_query
-    await _safe_answer(query)
+    await _maybe_await(_safe_answer(query))
     data = (query.data or '')
     try:
         action, item_id = data.split(':', 1)
@@ -1281,7 +1380,7 @@ async def snippet_inline_approve(update: Update, context: ContextTypes.DEFAULT_T
 async def snippet_reject_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     # התחלת זרימת דחייה מהכפתור
     query = update.callback_query
-    await _safe_answer(query)
+    await _maybe_await(_safe_answer(query))
     data = (query.data or '')
     try:
         _, item_id = data.split(':', 1)
@@ -1327,7 +1426,9 @@ async def snippet_collect_reject_reason(update: Update, context: ContextTypes.DE
                     await context.bot.send_message(chat_id=int(uid), text=msg_user)
                 except Exception:
                     pass
-    await _maybe_await(update.message.reply_text("🛑 נדחה" if ok else "❌ כשל בדחייה"))
+    # שלח הודעת הצלחה רק במקרה של כשל – כדי למנוע כפילות מול ההודעה הידידותית שנשלחה למשתמש
+    if not ok:
+        await _maybe_await(update.message.reply_text("❌ כשל בדחייה"))
     context.user_data.pop('sn_reject_id', None)
     return ConversationHandler.END
 
@@ -1766,7 +1867,7 @@ except Exception:
 async def show_recycle_bin(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     query = update.callback_query
     try:
-        await _safe_answer(query)
+        await _maybe_await(_safe_answer(query))
     except Exception:
         pass
     try:
@@ -1810,21 +1911,21 @@ async def show_recycle_bin(update: Update, context: ContextTypes.DEFAULT_TYPE) -
 async def recycle_restore(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     query = update.callback_query
     try:
-        await _safe_answer(query)
+        await _maybe_await(_safe_answer(query))
     except Exception:
         pass
     try:
         user_id = update.effective_user.id
         fid = (query.data or '').split(':', 1)[-1]
         if not fid:
-            await _safe_answer(query, "בקשה לא תקפה", show_alert=True)
+            await _maybe_await(_safe_answer(query, "בקשה לא תקפה", show_alert=True))
             return ConversationHandler.END
         from database import db
         ok = db._get_repo().restore_file_by_id(user_id, fid)
         if ok:
-            await _safe_answer(query, "♻️ שוחזר", show_alert=False)
+            await _maybe_await(_safe_answer(query, "♻️ שוחזר", show_alert=False))
         else:
-            await _safe_answer(query, "❌ שגיאת שחזור", show_alert=True)
+            await _maybe_await(_safe_answer(query, "❌ שגיאת שחזור", show_alert=True))
         return await show_recycle_bin(update, context)
     except Exception as e:
         logger.error(f"recycle_restore failed: {e}")
@@ -1834,21 +1935,21 @@ async def recycle_restore(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
 async def recycle_purge(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     query = update.callback_query
     try:
-        await _safe_answer(query)
+        await _maybe_await(_safe_answer(query))
     except Exception:
         pass
     try:
         user_id = update.effective_user.id
         fid = (query.data or '').split(':', 1)[-1]
         if not fid:
-            await _safe_answer(query, "בקשה לא תקפה", show_alert=True)
+            await _maybe_await(_safe_answer(query, "בקשה לא תקפה", show_alert=True))
             return ConversationHandler.END
         from database import db
         ok = db._get_repo().purge_file_by_id(user_id, fid)
         if ok:
-            await _safe_answer(query, "🧨 נמחק לצמיתות", show_alert=False)
+            await _maybe_await(_safe_answer(query, "🧨 נמחק לצמיתות", show_alert=False))
         else:
-            await _safe_answer(query, "❌ שגיאת מחיקה סופית", show_alert=True)
+            await _maybe_await(_safe_answer(query, "❌ שגיאת מחיקה סופית", show_alert=True))
         return await show_recycle_bin(update, context)
     except Exception as e:
         logger.error(f"recycle_purge failed: {e}")
@@ -2548,7 +2649,7 @@ async def handle_download_file(update: Update, context: ContextTypes.DEFAULT_TYP
     """הורדת קובץ"""
     query = update.callback_query
     # שימוש במענה בטוח כדי להתעלם מ-"Query is too old" כשגורם חיצוני מעכב את הטיפול
-    await _safe_answer(query)
+    await _maybe_await(_safe_answer(query))
     
     try:
         data = query.data

@@ -3,6 +3,7 @@
 {% block title %}📃 ספריית סניפטים{% endblock %}
 
 {% block extra_css %}
+<link rel="stylesheet" href="/static/css/community_library.css?v={{ static_version }}">
 <link rel="stylesheet" href="/static/css/snippets.css?v={{ static_version }}">
 <!-- Highlight.js theme (matches file viewer dark style) - via jsDelivr (allowed by CSP) -->
 <link rel="preload" href="https://cdn.jsdelivr.net/npm/@highlightjs/cdn-assets@11.9.0/styles/github-dark-dimmed.min.css" as="style" onload="this.onload=null;this.rel='stylesheet'">
@@ -10,17 +11,25 @@
 {% endblock %}
 
 {% block content %}
-<h1 class="page-title">📃 ספריית סניפטים</h1>
-
-<div class="glass-card">
-  <div class="form-row" style="display:flex; gap:.75rem; flex-wrap: wrap; align-items: center;">
-    <input id="q" type="text" class="form-control" placeholder="חפש לפי כותרת/תיאור" style="flex:2; min-width: 220px;">
-    <input id="language" type="text" class="form-control" placeholder="שפה (למשל: python)" style="flex:1; min-width: 180px;">
-    <button id="searchBtn" class="btn btn-primary">חיפוש</button>
+<div class="community-header">
+  <div class="title">
+    <h1>📃 ספריית סניפטים</h1>
+    <p class="subtitle">קטעי קוד קצרים עם חיפוש, סינון והדגשת תחביר</p>
+  </div>
+  <div class="actions">
+    <a class="btn primary" href="https://t.me/{{ bot_username }}">+ הוסף סניפט דרך הבוט</a>
   </div>
 </div>
+<script>window.__isAdmin = {{ 'true' if is_admin else 'false' }};</script>
 
-<div id="results" class="glass-grid" style="display:grid; gap:1rem; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));"></div>
+<div class="community-controls">
+  <input id="q" type="text" placeholder="🔍 חפש לפי כותרת או תיאור..." />
+  <input id="language" type="text" placeholder="שפה (למשל: python)" />
+  <button id="searchBtn" class="btn btn-primary">חיפוש</button>
+  
+</div>
+
+<div id="results" class="community-grid"></div>
 
 <nav id="pager" style="display:flex; gap:.5rem; justify-content:center; margin-top:1rem;"></nav>
 {% endblock %}

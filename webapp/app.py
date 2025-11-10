@@ -1587,7 +1587,7 @@ def _add_default_csp(resp):
                     # Workers used by some CM6 language/tooling integrations
                     "worker-src blob:; "
                     # Styles: local + inline + Google Fonts CSS + Font Awesome from cdnjs
-                    "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://cdnjs.cloudflare.com; "
+                    "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://cdnjs.cloudflare.com https://cdn.jsdelivr.net; "
                     # Fonts: local + Google Fonts + Font Awesome webfonts + data: (icons)
                     "font-src 'self' https://fonts.gstatic.com https://cdnjs.cloudflare.com data:; "
                     # Images: local + data/blob (thumbnails, inline previews)
@@ -1812,6 +1812,68 @@ def admin_snippet_edit():
     return render_template('admin_snippet_edit.html', item=doc, item_id=item_id)
 
 
+# --- Community library admin: minimal Edit/Delete ---
+@app.route('/admin/community/delete', methods=['POST'])
+@admin_required
+def admin_community_delete():
+    item_id = request.args.get('id') or request.form.get('id') or ''
+    try:
+        from bson import ObjectId  # type: ignore
+    except Exception:
+        ObjectId = None  # type: ignore
+    try:
+        from database import db as _db
+        coll = getattr(_db, 'community_library_collection', None)
+        if coll is None:
+            coll = getattr(_db.db, 'community_library_items')
+        if coll is not None and item_id:
+            q = {'_id': ObjectId(item_id)} if ObjectId is not None else {'_id': item_id}
+            coll.delete_one(q)
+    except Exception:
+        pass
+    return redirect(url_for('community_library_page'))
+
+
+@app.route('/admin/community/edit', methods=['GET', 'POST'])
+@admin_required
+def admin_community_edit():
+    from flask import request
+    try:
+        from bson import ObjectId  # type: ignore
+    except Exception:
+        ObjectId = None  # type: ignore
+    item_id = request.args.get('id') or request.form.get('id') or ''
+    from database import db as _db
+    coll = getattr(_db, 'community_library_collection', None)
+    if coll is None:
+        coll = getattr(_db.db, 'community_library_items')
+    if request.method == 'POST' and coll is not None and item_id:
+        try:
+            q = {'_id': ObjectId(item_id)} if ObjectId is not None else {'_id': item_id}
+            upd = {
+                'title': request.form.get('title') or '',
+                'description': request.form.get('description') or '',
+                'url': request.form.get('url') or '',
+            }
+            coll.update_one(q, {'$set': upd})
+            return redirect(url_for('community_library_page'))
+        except Exception:
+            pass
+    # GET: load current
+    doc = None
+    try:
+        if coll is not None and item_id:
+            q = {'_id': ObjectId(item_id)} if ObjectId is not None else {'_id': item_id}
+            raw = coll.find_one(q)
+            if isinstance(raw, dict):
+                doc = {
+                    'title': raw.get('title', ''),
+                    'description': raw.get('description', ''),
+                    'url': raw.get('url', ''),
+                }
+    except Exception:
+        doc = None
+    return render_template('admin_community_edit.html', item=doc, item_id=item_id)
 # ===== Global Content Search API =====
 def _search_limiter_decorator(rule: str):
     """Wrap limiter.limit if available; return no-op otherwise."""

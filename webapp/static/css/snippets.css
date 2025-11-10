@@ -40,6 +40,13 @@
 /* Responsive: make sure long code doesn't break cards */
 .glass-card .code-block { margin-top: .5rem; }
 
+/* Summary/title layout: wrap long titles and separate meta line */
+details > summary { list-style: none; }
+details > summary::-webkit-details-marker { display: none; }
+.snippet-summary { display: flex; flex-direction: column; gap: 4px; }
+.snippet-title { margin: 0; line-height: 1.3; word-break: break-word; overflow-wrap: anywhere; white-space: normal; }
+.snippet-meta { opacity: .85; font-size: .95rem; }
+
 /* Line numbers styling to match file viewer */
 .hljs-ln {
   width: 100% !important;
