@@ -11,7 +11,7 @@ If none are configured, alerts will still be emitted as structured events.
 from __future__ import annotations
 
 import os
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 # Graceful degradation for HTTP client: prefer pooled http_sync for retries/backoff,
 # fallback to plain requests when pooler is unavailable.
@@ -37,17 +37,120 @@ def _format_alert_text(alert: Dict[str, Any]) -> str:
     status = str(alert.get("status") or "firing")
     severity = str(labels.get("severity") or labels.get("level") or "info").upper()
     name = labels.get("alertname") or labels.get("name") or "Alert"
-    component = labels.get("component") or ""
+
+    # Short summary/description
     summary = annotations.get("summary") or annotations.get("description") or ""
+
+    # Useful context (allowlist of common labels)
+    def _first(keys: List[str]) -> Optional[str]:
+        for k in keys:
+            v = labels.get(k)
+            if v:
+                return str(v)
+            v = annotations.get(k)
+            if v:
+                return str(v)
+        return None
+
+    service = _first(["service", "app", "application", "job", "component"])
+    environment = _first(["env", "environment", "namespace", "cluster"])  # loose mapping
+    instance = _first(["instance", "pod", "hostname"])  # k8s or host
+    request_id = _first(["request_id", "request-id", "x-request-id", "x_request_id"])  # if present
+
     generator_url = alert.get("generatorURL") or ""
+
     parts = [f"[{status.upper()} | {severity}] {name}"]
-    if component:
-        parts.append(f"component: {component}")
+    if service:
+        parts.append(f"service: {service}")
+    if environment:
+        parts.append(f"env: {environment}")
+    if instance:
+        parts.append(f"instance: {instance}")
     if summary:
         parts.append(str(summary))
+    if request_id:
+        parts.append(f"request_id: {request_id}")
+
+    # Append source URL if exists (Alertmanager/Grafana link)
     if generator_url:
         parts.append(str(generator_url))
+
+    # Best-effort: add Sentry link (issue/events search) when configured
+    sentry_link = _build_sentry_link(
+        direct_url=_first(["sentry_permalink", "sentry_url", "sentry"]),
+        request_id=request_id,
+        error_signature=_first(["error_signature", "signature"]),
+    )
+    if sentry_link:
+        parts.append(f"Sentry: {sentry_link}")
+
     return "\n".join(parts)
+
+
+def _build_sentry_link(
+    direct_url: Optional[str] = None,
+    request_id: Optional[str] = None,
+    error_signature: Optional[str] = None,
+) -> Optional[str]:
+    """Build a Sentry UI link.
+
+    Priority:
+    1) If a direct permalink is provided – return it.
+    2) If request_id is present – build an events/issues query for that request_id.
+    3) Else, if error_signature is present – build a query by signature.
+
+    Returns None when Sentry env is not configured.
+    """
+    try:
+        # 1) Direct URL from alert annotations/labels
+        if direct_url:
+            return str(direct_url)
+
+        # Derive UI base from explicit dashboard URL or DSN + ORG
+        dashboard = os.getenv("SENTRY_DASHBOARD_URL") or os.getenv("SENTRY_PROJECT_URL")
+        if dashboard:
+            base_url = dashboard.rstrip("/")
+            # Ensure we point to org scope when given a project URL
+            # We'll still append ?query=... which both endpoints accept.
+        else:
+            dsn = os.getenv("SENTRY_DSN") or ""
+            host = None
+            if dsn:
+                try:
+                    from urllib.parse import urlparse
+                    parsed = urlparse(dsn)
+                    raw_host = parsed.hostname or ""
+                except Exception:
+                    raw_host = ""
+                # Preserve regional subdomain when present, e.g. o123.ingest.eu.sentry.io -> eu.sentry.io
+                if ".ingest." in raw_host:
+                    try:
+                        host = raw_host.split(".ingest.", 1)[1]
+                    except Exception:
+                        host = None
+                elif raw_host.startswith("ingest."):
+                    host = raw_host[len("ingest."):]
+                elif raw_host == "sentry.io" or raw_host.endswith(".sentry.io"):
+                    host = "sentry.io"
+                else:
+                    host = raw_host or None
+            host = host or "sentry.io"
+            org = os.getenv("SENTRY_ORG") or os.getenv("SENTRY_ORG_SLUG")
+            if not org:
+                return None
+            base_url = f"https://{host}/organizations/{org}/issues"
+
+        from urllib.parse import quote_plus
+
+        if request_id:
+            q = quote_plus(f'request_id:"{request_id}"')
+            return f"{base_url}/?query={q}&statsPeriod=24h"
+        if error_signature:
+            q = quote_plus(f'error_signature:"{error_signature}"')
+            return f"{base_url}/?query={q}&statsPeriod=24h"
+        return None
+    except Exception:
+        return None
 
 
 def _is_monkeypatched_pooled() -> bool:
