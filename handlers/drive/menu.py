@@ -196,9 +196,29 @@ class GoogleDriveMenuHandler:
                     planned_next = now_dt + timedelta(seconds=seconds)
             delta_secs = int((planned_next - now_dt).total_seconds())
             first_seconds = max(10, delta_secs)
-            job = context.application.job_queue.run_repeating(
-                _scheduled_backup_cb, interval=seconds, first=first_seconds, name=f"drive_{user_id}", data={"user_id": user_id}
-            )
+            try:
+                # העדפה: שימוש ב-jobstore מתמיד (אם הוגדר) וזהות Job יציבה למניעת כפילויות
+                job = context.application.job_queue.run_repeating(
+                    _scheduled_backup_cb,
+                    interval=seconds,
+                    first=first_seconds,
+                    name=f"drive_{user_id}",
+                    data={"user_id": user_id},
+                    job_kwargs={
+                        "id": f"drive_{user_id}",
+                        "replace_existing": True,
+                        "jobstore": "persistent",
+                    }
+                )
+            except TypeError:
+                # תאימות לאחור לסטאבים/סביבות שאינן מקבלות job_kwargs
+                job = context.application.job_queue.run_repeating(
+                    _scheduled_backup_cb,
+                    interval=seconds,
+                    first=first_seconds,
+                    name=f"drive_{user_id}",
+                    data={"user_id": user_id},
+                )
             jobs[user_id] = job
             # עדכן next_t על האובייקט עצמו כדי לאפשר תצוגה מדויקת ב-status
             try:
@@ -267,16 +287,8 @@ class GoogleDriveMenuHandler:
             await send("Google Drive\n\nלא מחובר. התחבר כדי לגבות לקבצי Drive.", reply_markup=InlineKeyboardMarkup(kb))
             return
 
-        # Ensure schedule job exists if a schedule is configured (after restart/deploy)
-        try:
-            prefs = db.get_drive_prefs(user_id) or {}
-            sched_key = prefs.get("schedule")
-            if sched_key:
-                jobs = context.bot_data.setdefault("drive_schedule_jobs", {})
-                if not jobs.get(user_id):
-                    await self._ensure_schedule_job(context, user_id, sched_key)
-        except Exception:
-            pass
+        # מצב תפריט: אל תיצור Job חדש אוטומטית. יצירה מתבצעת רק בפעולות מפורשות
+        # (כמו קביעת תזמון או לאחר גיבוי ידני שמעדכן next_run). כאן נסתפק בהצגה.
         # Hydrate session with persisted preferences so selections survive deploys
         try:
             self._hydrate_session_from_prefs(user_id)
@@ -749,14 +761,9 @@ class GoogleDriveMenuHandler:
             return
         if data == "drive_status":
             # מסך מצב גיבוי: סוג נבחר/אחרון, תיקייה, תזמון, מועד ריצה הבא (אם קיים)
-            # ודא שקיימת עבודה מתוזמנת אם יש תזמון בהעדפות
+            # הצגה בלבד: אל תיצור Job חדש כאן — רק קרא פרפרנסים ונתוני Job אם קיימים
             try:
                 prefs = db.get_drive_prefs(user_id) or {}
-                sched_key = prefs.get("schedule")
-                if sched_key:
-                    jobs = context.bot_data.setdefault("drive_schedule_jobs", {})
-                    if not jobs.get(user_id):
-                        await self._ensure_schedule_job(context, user_id, sched_key)
             except Exception:
                 prefs = {}
             # Hydrate session to reflect persisted selections in the header
@@ -766,11 +773,13 @@ class GoogleDriveMenuHandler:
                 pass
             # פרטי תצוגה
             header = self._compose_selection_header(user_id)
-            # חישוב מועד הבא
+            # חישוב מועד הבא + סטטוס פעילות
             next_run_text = "—"
+            active_text = "—"
             try:
                 prefs = db.get_drive_prefs(user_id) or {}
                 sched_key = prefs.get("schedule")
+                active_text = ("פעיל" if sched_key else "אין גיבוי פעיל")
                 last_full_iso = prefs.get("last_full_backup_at")
                 last_iso = prefs.get("last_backup_at")
                 nxt_iso = prefs.get("schedule_next_at")
@@ -821,6 +830,7 @@ class GoogleDriveMenuHandler:
             text = (
                 "📊 מצב גיבוי\n\n" +
                 header +
+                f"סטטוס: {active_text}\n" +
                 f"מועד גיבוי הבא: {next_run_text}\n"
             )
             kb = [[InlineKeyboardButton("🔙 חזרה", callback_data="drive_backup_now")]]
@@ -842,6 +852,14 @@ class GoogleDriveMenuHandler:
                         job.schedule_removal()
                     except Exception:
                         pass
+                try:
+                    logger.info("drive_schedule_job_cancelled user_id=%s", user_id)
+                except Exception:
+                    pass
+                try:
+                    emit_event("drive_schedule_job_cancelled", severity="info", user_id=int(user_id))
+                except Exception:
+                    pass
                 await query.edit_message_text("⛔ תזמון בוטל")
                 return
             # Persist schedule key and also persist the category to be used by scheduler
