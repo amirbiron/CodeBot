@@ -2664,6 +2664,33 @@ def format_time_hhmm(value) -> str:
         return ''
     except Exception:
         return ''
+
+# מסנן Jinja להצגת תאריך כולל (DD/MM/YYYY HH:MM)
+@app.template_filter('datetime_display')
+def jinja_datetime_display(value) -> str:
+    return format_datetime_display(value)
+
+# מסנן Jinja חכם: אם היום – מציג HH:MM, אחרת DD/MM HH:MM
+@app.template_filter('day_hhmm')
+def format_day_hhmm(value) -> str:
+    try:
+        if isinstance(value, datetime):
+            dt = value if value.tzinfo is not None else value.replace(tzinfo=timezone.utc)
+        elif isinstance(value, str) and value:
+            try:
+                dt = datetime.fromisoformat(value)
+                dt = dt if dt.tzinfo is not None else dt.replace(tzinfo=timezone.utc)
+            except Exception:
+                return ''
+        else:
+            return ''
+
+        now = datetime.now(timezone.utc)
+        if dt.date() == now.date():
+            return dt.strftime('%H:%M')
+        return dt.strftime('%d/%m %H:%M')
+    except Exception:
+        return ''
 # Routes
 
 @app.route('/')

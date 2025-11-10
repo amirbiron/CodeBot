@@ -28,7 +28,11 @@
               <td><div style="white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">{{ it.language }}</div></td>
               <td><div style="white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">{{ it.username and ('@' ~ it.username) }}</div></td>
               <td><div style="white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">{{ it.description }}</div></td>
-              <td><div style="white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">{{ it.submitted_at | hhmm }}</div></td>
+              <td>
+                <div style="white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">
+                  <span title="{{ it.submitted_at | datetime_display }}">{{ it.submitted_at | day_hhmm }}</span>
+                </div>
+              </td>
               <td>
                 <a class="btn btn-light btn-sm" href="/admin/snippets/view?id={{ it._id }}">👁️ הצג</a>
                 <a class="btn btn-primary btn-sm" href="/admin/snippets/approve?id={{ it._id }}">אשר</a>
