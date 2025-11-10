@@ -4,13 +4,7 @@
 # To make this agent available, merge this file into the default repository branch.
 # For format details, see: https://gh.io/customagents/config
 
-name:
-description:
----
-
-# My Agent
-
-name: CodeBot Agent
+name: "CodeBot Agent"
 description: >
   סוכן קבוע שמפתח פיצ'רים ל-CodeBot (בוט Telegram + WebApp), כותב בדיקות,
   פותח PRים עם תיאור מסודר ומעדכן תיעוד. עובד לפי כללי הסגנון והמדיניות של הפרויקט.
@@ -161,3 +155,4 @@ security:
   - safe_file_operations: true
   - use_env_vars: true
   - encrypt_tokens: true
+---
