@@ -890,8 +890,8 @@ def list_public_snippets(
     """החזרת סניפטים ציבוריים מאושרים, כולל פריטי Built‑in.
 
     מדיניות מעודכנת:
-    - בעמוד 1 מוצגים פריטי Built‑in תחילה (בהתאם לפילטרים). אם אין Built‑in תואמים, העמוד מתמלא מפריטי DB.
-    - מעמוד 2 והלאה מוצגים רק פריטי DB, לפי אותו per_page וללא כפילות מול built-ins.
+    - פריטי Built‑in מוצגים תחילה על פני כמה עמודים לפי סדרם, עד שהם מסתיימים.
+    - לאחר שנגמרים ה‑Built‑in (או אם אין כאלה), יתר העמודים מתמלאים מפריטי DB (ללא כפילות כותרת).
     - total מייצג את סכום פריטי ה‑Built‑in (התואמים) וה‑DB גם אם אינם מוצגים בדף הנוכחי.
     """
     try:
@@ -970,15 +970,14 @@ def list_public_snippets(
 
         return collected[:limit]
 
-    if page <= 1:
-        if builtins:
-            return builtins[:per_page_int], unified_total
-        db_page_items = _fetch_db_slice(0, per_page_int)
-        return db_page_items, unified_total
+    builtins_count = len(builtins)
+    builtins_pages = (builtins_count + per_page_int - 1) // per_page_int if builtins_count else 0
 
-    if builtins:
-        db_offset = max(0, (page - 2) * per_page_int)
-    else:
-        db_offset = max(0, (page - 1) * per_page_int)
+    if builtins_count and page <= builtins_pages:
+        offset = (page - 1) * per_page_int
+        return builtins[offset:offset + per_page_int], unified_total
+
+    db_page_index = page - builtins_pages
+    db_offset = max(0, (db_page_index - 1) * per_page_int)
     db_items = _fetch_db_slice(db_offset, per_page_int)
     return db_items, unified_total

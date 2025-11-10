@@ -80,3 +80,30 @@ def test_page2_no_builtins_but_total_counts(monkeypatch):
     assert items == db_items
     # אבל הספירה כוללת גם את ה-built-ins
     assert total >= 1
+
+
+def test_builtins_paginate_before_db(monkeypatch):
+    svc = _import_service()
+
+    builtin_fixtures = [{
+        'title': f'Builtin #{i}',
+        'description': f'B{i}',
+        'code': f'print({i})\n',
+        'language': 'python',
+        'approved_at': None,
+        'username': 'CodeBot',
+    } for i in range(40)]
+
+    class _Repo:
+        def list_public_snippets(self, **kw):
+            return [], 0
+
+    monkeypatch.setattr(svc, 'BUILTIN_SNIPPETS', builtin_fixtures, raising=False)
+    monkeypatch.setattr(svc, '_db', type('_DB', (), {'_get_repo': lambda self=None: _Repo()})(), raising=False)
+
+    items_page1, total = svc.list_public_snippets(page=1, per_page=30)
+    items_page2, _ = svc.list_public_snippets(page=2, per_page=30)
+
+    assert len(items_page1) == 30
+    assert [item['title'] for item in items_page2] == [f'Builtin #{i}' for i in range(30, 40)]
+    assert total == len(builtin_fixtures)
