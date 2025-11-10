@@ -44,9 +44,95 @@ API – JSON
      "total": 42
    }
 
+OpenAPI (תקציר)
+~~~~~~~~~~~~~~~~
+
+.. code-block:: yaml
+
+   get:
+     summary: List public snippets (approved + curated)
+     parameters:
+       - in: query
+         name: q
+         schema: { type: string }
+       - in: query
+         name: language
+         schema: { type: string }
+       - in: query
+         name: page
+         schema: { type: integer, default: 1, minimum: 1 }
+       - in: query
+         name: per_page
+         schema: { type: integer, default: 30, minimum: 1, maximum: 60 }
+     responses:
+       '200': { description: Snippets page }
+       '500': { description: Internal error }
+
+JSON Schema (Response)
+~~~~~~~~~~~~~~~~~~~~~~
+
+.. code-block:: json
+
+   {
+     "type": "object",
+     "properties": {
+       "ok": { "type": "boolean" },
+       "items": {
+         "type": "array",
+         "items": {
+           "type": "object",
+           "properties": {
+             "title": { "type": "string" },
+             "description": { "type": "string" },
+             "code": { "type": "string" },
+             "language": { "type": "string" },
+             "username": { "type": "string", "nullable": true },
+             "approved_at": { "type": "string", "format": "date-time", "nullable": true }
+           }
+         }
+       },
+       "page": { "type": "integer" },
+       "per_page": { "type": "integer" },
+       "total": { "type": "integer" }
+     }
+   }
+
 הערות:
 - בעמוד הראשון ייתכנו סניפטים "מובנים" (curated) בנוסף לפריטי DB – המערך מאוחד ללא כפילויות לפי כותרת.
 - השדה ``username`` (אם קיים) מוצג ב-UI עבור קרדיט.
+
+כללי דפדוף/ספירה
+~~~~~~~~~~~~~~~~~~
+- איחוד Curated+DB מתבצע רק ל־page=1; בעמודים הבאים יוחזר DB בלבד.
+- ``total`` כולל גם את כמות ה‑curated התואמים (גם אם אינם בעמוד המבוקש).
+- ``per_page`` נחתך ל־[1..60].
+
+שגיאות
+~~~~~~~
+- 200 עם ``ok: true`` בהצלחה.
+- 500 עם ``{"ok": false, "error": "internal_error"}`` במקרה חריג.
+
+דוגמאות cURL
+~~~~~~~~~~~~~
+
+.. code-block:: bash
+
+   # עמוד ראשון, 30 פריטים
+   curl -sS \
+     'https://example.com/api/snippets?page=1&per_page=30' \
+     -H 'Accept: application/json'
+
+.. code-block:: bash
+
+   # סינון לפי שפה וחיפוש חופשי
+   curl -sS \
+     'https://example.com/api/snippets?language=python&q=markdown' \
+     -H 'Accept: application/json'
+
+.. code-block:: bash
+
+   # ללא תוצאות – חוזר items=[] ו-total=0
+   curl -sS 'https://example.com/api/snippets?q=__no_such__' -H 'Accept: application/json'
 
 הגשות, אישור וניהול (אדמין)
 ---------------------------
