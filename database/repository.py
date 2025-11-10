@@ -1944,6 +1944,7 @@ class Repository:
             for r in rows:
                 try:
                     out.append({
+                        "id": str(r.get("_id")) if r.get("_id") is not None else None,
                         "title": r.get("title"),
                         "description": r.get("description"),
                         "code": r.get("code"),

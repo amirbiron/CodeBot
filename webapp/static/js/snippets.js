@@ -21,6 +21,15 @@
     return map[m] || m;
   }
 
+  function languageEmoji(lang){
+    const m = normalizeLanguage(lang);
+    const map = {
+      python: '🐍', javascript: '📜', typescript: '📜', tsx: '📜', jsx: '📜',
+      html: '🌐', css: '🎨', json: '📋', markdown: '📝', bash: '🐚', sh: '🐚', text: '📄', go: '🐹', java: '☕'
+    };
+    return map[m] || '📄';
+  }
+
   function applySyntaxHighlight(root) {
     try {
       if (!root || !window.hljs) return;
@@ -97,22 +106,20 @@
 
       const details = document.createElement('details');
       const summary = document.createElement('summary');
+      summary.className = 'snippet-summary';
       summary.style.cursor = 'pointer';
       summary.style.userSelect = 'none';
 
       const titleEl = document.createElement('h3');
+      titleEl.className = 'snippet-title';
       titleEl.textContent = it.title || 'ללא כותרת';
-      titleEl.style.display = 'inline';
-      titleEl.style.marginRight = '.5rem';
 
       const meta = document.createElement('span');
-      meta.className = 'text-muted';
-      meta.style.opacity = '.8';
-      {
-        const lang = (it.language || '').toString();
-        const by = it.username ? (' · נוסף על ידי @' + String(it.username)) : '';
-        meta.textContent = lang + by;
-      }
+      meta.className = 'snippet-meta';
+      const lang = (it.language || '').toString();
+      const emoji = languageEmoji(lang);
+      const by = it.username ? (' · נוסף על ידי @' + String(it.username)) : '';
+      meta.textContent = `${emoji} ${lang}${by}`;
 
       summary.appendChild(titleEl);
       summary.appendChild(meta);
@@ -124,6 +131,24 @@
       const cb = codeBlock(it.code || '', it.language);
       body.appendChild(p);
       body.appendChild(cb);
+
+      // Admin controls (Edit/Delete) when id available
+      try {
+        if (window.__isAdmin && it.id) {
+          const actions = document.createElement('div');
+          actions.style.display = 'flex';
+          actions.style.gap = '.5rem';
+          actions.style.marginTop = '.5rem';
+          const edit = document.createElement('a'); edit.className='btn btn-secondary btn-sm'; edit.textContent='✏️ ערוך'; edit.href = '/admin/snippets/edit?id=' + encodeURIComponent(it.id);
+          const del = document.createElement('button'); del.className='btn btn-secondary btn-sm'; del.textContent='🗑️ מחק';
+          del.addEventListener('click', async ()=>{
+            if (!confirm('למחוק את הסניפט?')) return;
+            try{ const r = await fetch('/admin/snippets/delete?id='+encodeURIComponent(it.id), { method: 'POST' }); if (r.ok){ card.remove(); } }catch(_){ }
+          });
+          actions.appendChild(edit); actions.appendChild(del);
+          body.appendChild(actions);
+        }
+      } catch(_) {}
 
       details.appendChild(summary);
       details.appendChild(body);

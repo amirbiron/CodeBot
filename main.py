@@ -2038,7 +2038,10 @@ class CodeKeeperBot:
                         CL_COLLECT_URL: [MessageHandler(filters.TEXT & ~filters.COMMAND, community_collect_url)],
                         CL_COLLECT_LOGO: [MessageHandler((filters.PHOTO | filters.TEXT) & ~filters.COMMAND, community_collect_logo)],
                     },
-                    fallbacks=[CommandHandler('cancel', lambda u, c: ConversationHandler.END)],
+                    fallbacks=[
+                        CommandHandler('cancel', lambda u, c: ConversationHandler.END),
+                        CallbackQueryHandler(submit_flows_cancel, pattern=r'^cancel$'),
+                    ],
                 )
                 self.application.add_handler(comm_conv)
                 # Snippet submission flow
@@ -2058,7 +2061,10 @@ class CodeKeeperBot:
                             CommandHandler('done', snippet_long_collect_done),
                         ],
                     },
-                    fallbacks=[CommandHandler('cancel', lambda u, c: ConversationHandler.END)],
+                    fallbacks=[
+                        CommandHandler('cancel', lambda u, c: ConversationHandler.END),
+                        CallbackQueryHandler(submit_flows_cancel, pattern=r'^cancel$'),
+                    ],
                 )
                 self.application.add_handler(sn_conv)
                 # Snippet reject reason flow
@@ -2074,6 +2080,11 @@ class CodeKeeperBot:
                 self.application.add_handler(MessageHandler(filters.Regex("^🗃️ אוסף הקהילה$"), show_community_hub))
                 self.application.add_handler(CallbackQueryHandler(community_catalog_menu, pattern=r'^community_catalog_menu$'))
                 self.application.add_handler(CallbackQueryHandler(snippets_menu, pattern=r'^snippets_menu$'))
+                # Back navigation helpers
+                self.application.add_handler(CallbackQueryHandler(community_hub_callback, pattern=r'^community_hub$'))
+                self.application.add_handler(CallbackQueryHandler(main_menu_callback, pattern=r'^main_menu$'))
+                # Global cancel for submission flows (works also on entry screen)
+                self.application.add_handler(CallbackQueryHandler(submit_flows_cancel, pattern=r'^cancel$'))
             except Exception as _e:
                 try:
                     logger.info("Community library handlers not registered: %s", _e)

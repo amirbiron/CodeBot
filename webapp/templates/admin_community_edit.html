@@ -1,0 +1,25 @@
+{% extends "base.html" %}
+{% block title %}עריכת פריט אוסף הקהילה{% endblock %}
+{% block content %}
+<div class="glass-card">
+  <h2>✏️ עריכת פריט</h2>
+  <form method="post" action="/admin/community/edit">
+    <input type="hidden" name="id" value="{{ item_id }}">
+    <div style="display:flex; flex-direction:column; gap:.75rem; max-width:720px;">
+      <label>כותרת
+        <input type="text" name="title" value="{{ (item.title if item) or '' }}" class="form-control" required>
+      </label>
+      <label>תיאור
+        <textarea name="description" class="form-control" rows="4">{{ (item.description if item) or '' }}</textarea>
+      </label>
+      <label>URL
+        <input type="url" name="url" value="{{ (item.url if item) or '' }}" class="form-control" required>
+      </label>
+      <div style="display:flex; gap:.5rem;">
+        <button class="btn btn-primary" type="submit">שמור</button>
+        <a class="btn btn-secondary" href="/community-library">ביטול</a>
+      </div>
+    </div>
+  </form>
+</div>
+{% endblock %}
