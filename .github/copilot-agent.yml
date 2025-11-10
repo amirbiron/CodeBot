@@ -103,8 +103,8 @@ tools:
       - mypy .
       - npm ci
       - npm run build
-      - python -m build_docs.sh
-    working_directory: /workspace
+      - ./build_docs.sh
+    working_directory: .
   - type: github
     permissions:
       pull_requests: write
