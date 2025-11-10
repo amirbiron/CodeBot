@@ -18,11 +18,21 @@
         <!-- עמודת החיפוש -->
         <div class="col-lg-8 col-md-12 mb-3 mb-lg-0">
           <div class="input-group">
-            <input type="text"
-                   id="globalSearchInput"
-                   class="form-control form-control-lg"
-                   placeholder="חפש טקסט/קוד בכל הקבצים..."
-                   autocomplete="off">
+            <div class="search-box-wrapper">
+              <i class="fas fa-search search-icon" aria-hidden="true"></i>
+              <input type="text"
+                     id="globalSearchInput"
+                     class="search-box"
+                     placeholder="🔍 חפש טקסט/קוד בכל הקבצים..."
+                     autocomplete="off"
+                     aria-label="חיפוש גלובלי">
+              <button type="button"
+                      id="clearSearchInputBtn"
+                      class="clear-search-btn"
+                      aria-label="נקה חיפוש">
+                <i class="fas fa-times"></i>
+              </button>
+            </div>
             <div class="input-group-append">
               <button class="btn btn-primary btn-lg"
                       id="searchBtn"
@@ -159,10 +169,16 @@
             {% endif %}
             {% endif %}
             <div style="flex: 1; min-width: 200px;">
-                <input type="text" name="q" value="{{ search_query }}"
-                       placeholder="חיפוש לפי שם, תיאור או תגית..."
-                       class="search-input"
-                       style="width: 100%; padding: 0.75rem; border-radius: 10px; border: 1px solid rgba(255,255,255,0.2); background: rgba(255,255,255,0.1); color: white; font-size: 1rem;">
+              <div class="search-box-wrapper">
+                <i class="fas fa-search search-icon" aria-hidden="true"></i>
+                <input type="text"
+                       id="filesFilterSearchInput"
+                       name="q"
+                       value="{{ search_query }}"
+                       placeholder="🔍 חיפוש לפי שם, תיאור או תגית..."
+                       class="search-box"
+                       aria-label="חיפוש בקבצים">
+              </div>
             </div>
 
             <select name="lang" class="filter-select"
