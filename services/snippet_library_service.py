@@ -890,7 +890,7 @@ def list_public_snippets(
     """החזרת סניפטים ציבוריים מאושרים, כולל פריטי Built‑in.
 
     מדיניות מעודכנת:
-    - בעמוד 1 מוצגים רק פריטי Built‑in (בהתאם לפילטרים), עד per_page פריטים.
+    - בעמוד 1 מוצגים פריטי Built‑in תחילה (בהתאם לפילטרים). אם אין Built‑in תואמים, העמוד מתמלא מפריטי DB.
     - מעמוד 2 והלאה מוצגים רק פריטי DB, לפי אותו per_page וללא כפילות מול built-ins.
     - total מייצג את סכום פריטי ה‑Built‑in (התואמים) וה‑DB גם אם אינם מוצגים בדף הנוכחי.
     """
@@ -921,17 +921,11 @@ def list_public_snippets(
 
     unified_total = db_total + len(builtins)
 
-    if page <= 1:
-        return builtins[:per_page_int], unified_total
-
-    if not repo:
-        return [], unified_total
-
     def _normalize_title(item: Dict[str, Any]) -> str:
         return str((item.get("title") or "")).strip().lower()
 
     def _fetch_db_slice(offset: int, limit: int) -> List[Dict[str, Any]]:
-        if limit <= 0:
+        if not repo or limit <= 0:
             return []
         per_page_repo = 60
         current_page = 1
@@ -976,6 +970,15 @@ def list_public_snippets(
 
         return collected[:limit]
 
-    db_offset = max(0, (page - 2) * per_page_int)
+    if page <= 1:
+        if builtins:
+            return builtins[:per_page_int], unified_total
+        db_page_items = _fetch_db_slice(0, per_page_int)
+        return db_page_items, unified_total
+
+    if builtins:
+        db_offset = max(0, (page - 2) * per_page_int)
+    else:
+        db_offset = max(0, (page - 1) * per_page_int)
     db_items = _fetch_db_slice(db_offset, per_page_int)
     return db_items, unified_total
