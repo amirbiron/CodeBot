@@ -887,36 +887,55 @@ def list_public_snippets(
     page: int = 1,
     per_page: int = 30,
 ) -> Tuple[List[Dict[str, Any]], int]:
-    """החזרת סניפטים ציבוריים מאושרים, כולל פריטי Built‑in (ללא כפילות).
+    """החזרת סניפטים ציבוריים מאושרים, כולל פריטי Built‑in.
 
-    לוגיקה:
-    - שלוף מה-DB לפי page/per_page
-    - חשב Built‑ins תואמים (q/language)
-    - הימנע מכפילות לפי כותרת
-    - בעמוד הראשון: קדימות ל-Built‑ins, חתוך ל-per_page
-    - total כולל את כמות ה-Built‑ins התואמים (גם אם לא הוצגו בעמוד הנוכחי)
+    מדיניות:
+    - בעמוד 1: פריטי Built‑in מוצגים ראשונים, ולאחריהם פריטי DB כך שסך הפריטים בעמוד ≤ per_page.
+    - בעמודים ≥2: מוצגים רק פריטי DB, עם הזחה (offset) שתפצה על השורה הראשונה שנצרכה ע"י Built‑in.
+    - total: סכום פריטי DB + מספר ה‑Built‑in התואמים (גם אם אינם מוצגים בעמוד הנוכחי).
     """
     try:
-        db_items, total = _db._get_repo().list_public_snippets(q=q, language=language, page=page, per_page=per_page)
+        per_page_int = max(1, int(per_page or 30))
     except Exception:
-        db_items, total = [], 0
+        per_page_int = 30
 
+    # חשב Built-ins תואמים
+    builtins = _filtered_builtins(q, language)
+    k = len(builtins)
+
+    # שלוף ספירת DB (total) בקריאה קלה
     try:
-        builtins = _filtered_builtins(q, language)
-        # סנן כפילויות מול ה-DB
-        existing_titles = {str((it.get("title") or "")).strip().lower() for it in db_items}
-        unique_builtins = [it for it in builtins if str((it.get("title") or "")).strip().lower() not in existing_titles]
-        builtin_total_count = len(unique_builtins)
-        # סדר והחזר
-        if page <= 1:
-            merged = _merge_builtins_with_db(db_items, unique_builtins)
-            # חתוך ל-per_page כדי לשמור עקביות API
-            try:
-                per_page_int = max(1, int(per_page or 30))
-            except Exception:
-                per_page_int = 30
-            return merged[:per_page_int], total + builtin_total_count
-        # בעמודים נוספים – החזר את ה-DB בלבד, אך עדכן total כדי שהפאג'ינציה תדע על Built‑ins
-        return db_items, total + builtin_total_count
+        _items_probe, db_total = _db._get_repo().list_public_snippets(q=q, language=language, page=1, per_page=1)
     except Exception:
-        return db_items, total
+        db_total = 0
+
+    # חישוב total מאוחד (Fail-open: אם יש כפילות כותרת מול DB, הספירה עדיין ≥ מספר הפריטים המוחזרים)
+    unified_total = db_total + k
+
+    # רכז פריטים לעמוד המבוקש
+    try:
+        if page <= 1:
+            # כמה פריטי DB נשלים אחרי ה‑Built‑ins
+            db_needed = max(0, per_page_int - k)
+            db_page1_items: List[Dict[str, Any]] = []
+            if db_needed > 0:
+                db_page1_items, _ = _db._get_repo().list_public_snippets(q=q, language=language, page=1, per_page=db_needed)
+                # הימנע מכפילות כותרת מול ה‑Built‑ins בעמוד זה בלבד
+                bt_titles = {str((it.get("title") or "")).strip().lower() for it in builtins}
+                db_page1_items = [d for d in db_page1_items if str((d.get("title") or "")).strip().lower() not in bt_titles]
+                # אם לאחר הדה‑דופ קיבלנו פחות מ‑db_needed, זה בסדר — העמוד יכיל פחות מ‑per_page
+            items = (builtins + db_page1_items)[:per_page_int]
+            return items, unified_total
+
+        # עמודים ≥2: הצג חלון DB שמתחשב בכמה פריטים הוצגו בעמוד הראשון
+        # page 1 צרך max(0, per_page - k) פריטי DB
+        consumed_db_page1 = max(0, per_page_int - k)
+        start = consumed_db_page1 + (page - 2) * per_page_int
+        need = per_page_int
+        # שלוף את הטווח ע"י קריאה מורחבת וחתך בזיכרון
+        fetch_count = start + need
+        db_all_upto, _ = _db._get_repo().list_public_snippets(q=q, language=language, page=1, per_page=fetch_count)
+        db_window = db_all_upto[start:start + need]
+        return db_window, unified_total
+    except Exception:
+        return [], unified_total
