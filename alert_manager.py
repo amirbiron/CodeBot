@@ -514,12 +514,86 @@ def _dispatch(sink: str, alert_id: str, fn, *args) -> None:  # type: ignore[no-u
 
 
 def _format_text(name: str, severity: str, summary: str, details: Dict[str, Any]) -> str:
-    parts = [f"[{severity}] {name}", str(summary or "").strip()]
+    parts = [f"[{severity}] {name}"]
+    if summary:
+        parts.append(str(summary).strip())
+
+    # Short allowlist of useful context
+    def _get(d: Dict[str, Any], key: str) -> Optional[str]:
+        try:
+            v = d.get(key)
+            return str(v) if v is not None and v != "" else None
+        except Exception:
+            return None
+
+    service = _get(details, "service") or _get(details, "component")
+    environment = _get(details, "env") or _get(details, "environment")
+    request_id = _get(details, "request_id") or _get(details, "request-id") or _get(details, "x-request-id")
+
+    if service:
+        parts.append(f"service: {service}")
+    if environment:
+        parts.append(f"env: {environment}")
+    if request_id:
+        parts.append(f"request_id: {request_id}")
+
+    # Append short sanitized details preview
     if details:
         safe = {k: v for k, v in details.items() if k.lower() not in {"token", "password", "secret", "authorization"}}
         if safe:
             parts.append(", ".join(f"{k}={v}" for k, v in list(safe.items())[:6]))
+
+    # Best-effort Sentry link (permalink or derived from request_id)
+    sentry_direct = _get(details, "sentry_permalink") or _get(details, "sentry_url") or _get(details, "sentry")
+    link = _build_sentry_link(direct_url=sentry_direct, request_id=request_id, error_signature=_get(details, "error_signature"))
+    if link:
+        parts.append(f"Sentry: {link}")
+
     return "\n".join([p for p in parts if p])
+
+
+def _build_sentry_link(
+    direct_url: Optional[str] = None,
+    request_id: Optional[str] = None,
+    error_signature: Optional[str] = None,
+) -> Optional[str]:
+    try:
+        if direct_url:
+            return str(direct_url)
+        dashboard = os.getenv("SENTRY_DASHBOARD_URL") or os.getenv("SENTRY_PROJECT_URL")
+        if dashboard:
+            base_url = dashboard.rstrip("/")
+        else:
+            dsn = os.getenv("SENTRY_DSN") or ""
+            host = None
+            if dsn:
+                try:
+                    from urllib.parse import urlparse
+                    parsed = urlparse(dsn)
+                    raw_host = parsed.hostname or ""
+                except Exception:
+                    raw_host = ""
+                if raw_host == "sentry.io" or raw_host.endswith(".sentry.io"):
+                    host = "sentry.io"
+                elif raw_host.startswith("ingest."):
+                    host = raw_host[len("ingest."):]
+                else:
+                    host = raw_host or None
+            host = host or "sentry.io"
+            org = os.getenv("SENTRY_ORG") or os.getenv("SENTRY_ORG_SLUG")
+            if not org:
+                return None
+            base_url = f"https://{host}/organizations/{org}/issues"
+        from urllib.parse import quote_plus
+        if request_id:
+            q = quote_plus(f'request_id:"{request_id}"')
+            return f"{base_url}/?query={q}&statsPeriod=24h"
+        if error_signature:
+            q = quote_plus(f'error_signature:"{error_signature}"')
+            return f"{base_url}/?query={q}&statsPeriod=24h"
+        return None
+    except Exception:
+        return None
 
 
 def _send_telegram(text: str) -> None:
