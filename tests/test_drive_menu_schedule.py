@@ -52,6 +52,109 @@ async def test_ensure_schedule_job_sets_next_and_emits_events(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_ensure_schedule_job_falls_back_when_persistent_unavailable(monkeypatch):
+    import handlers.drive.menu as dm
+
+    # stub events collector
+    events = []
+    monkeypatch.setattr(dm, "emit_event", lambda e, severity="info", **f: events.append((e, severity, f)), raising=True)
+
+    # db prefs
+    class _DB:
+        def __init__(self):
+            self.prefs = {"schedule": "daily"}
+        def get_drive_prefs(self, user_id):
+            return dict(self.prefs)
+        def save_drive_prefs(self, user_id, prefs):
+            self.prefs.update(prefs)
+            return True
+    monkeypatch.setattr(dm, "db", _DB(), raising=True)
+
+    # job_queue stub: first call with job_kwargs present raises TypeError, second without succeeds
+    calls = {"count": 0, "last_kwargs": None}
+    class _Scheduler:
+        # Advertise that 'persistent' exists to force first attempt with job_kwargs
+        jobstores = {"default": object(), "persistent": object()}
+    class _JQ:
+        def __init__(self):
+            self.scheduler = _Scheduler()
+        def run_repeating(self, *a, **k):
+            calls["count"] += 1
+            calls["last_kwargs"] = dict(k)
+            # If job_kwargs is present — simulate environment that does not support it
+            if "job_kwargs" in k:
+                raise TypeError("unexpected keyword 'job_kwargs'")
+            return types.SimpleNamespace(schedule_removal=lambda: None)
+    class _App:
+        def __init__(self):
+            self.job_queue = _JQ()
+
+    ctx = types.SimpleNamespace(application=_App(), bot_data={})
+
+    handler = dm.GoogleDriveMenuHandler()
+    await handler._ensure_schedule_job(ctx, user_id=99, sched_key="daily")
+
+    # Expect two calls: first with job_kwargs failed, second fallback without
+    assert calls["count"] == 2
+    # Last call should not include job_kwargs
+    assert "job_kwargs" not in (calls["last_kwargs"] or {})
+    # Fallback event emitted
+    assert any(ev[0] == "drive_schedule_job_persistent_fallback" for ev in events)
+
+
+@pytest.mark.asyncio
+async def test_drive_status_does_not_create_job(monkeypatch):
+    import handlers.drive.menu as dm
+
+    # prefs indicate active schedule
+    class _DB:
+        def get_drive_prefs(self, user_id):
+            return {"schedule": "daily"}
+    monkeypatch.setattr(dm, "db", _DB(), raising=True)
+
+    # capture any scheduling attempts (should be none)
+    class _JQ:
+        def __init__(self):
+            self.calls = 0
+        def run_repeating(self, *a, **k):
+            self.calls += 1
+            return types.SimpleNamespace(schedule_removal=lambda: None)
+    class _App:
+        def __init__(self):
+            self.job_queue = _JQ()
+    ctx = types.SimpleNamespace(user_data={}, bot_data={}, application=_App())
+
+    # Build Update/Query stubs to capture text
+    class _Msg:
+        def __init__(self):
+            self.text = None
+        async def edit_text(self, text, **kwargs):
+            self.text = text
+            return self
+    class _Query:
+        def __init__(self):
+            self.message = _Msg()
+            self.data = "drive_status"
+            self.from_user = types.SimpleNamespace(id=5)
+        async def edit_message_text(self, text, **kwargs):
+            self.message.text = text
+            return self.message
+        async def answer(self, *args, **kwargs):
+            return None
+    class _Update:
+        def __init__(self):
+            self.callback_query = _Query()
+            self.effective_user = types.SimpleNamespace(id=5)
+
+    handler = dm.GoogleDriveMenuHandler()
+    upd = _Update()
+    await handler.handle_callback(upd, ctx)
+
+    # No scheduling attempts were made
+    assert ctx.application.job_queue.calls == 0
+    # Status text should include activity indication
+    assert "סטטוס:" in (upd.callback_query.message.text or "")
+@pytest.mark.asyncio
 async def test_scheduled_backup_callback_success_updates_prefs_and_emits(monkeypatch):
     import handlers.drive.menu as dm
 
