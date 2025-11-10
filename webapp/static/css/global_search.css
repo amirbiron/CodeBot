@@ -193,6 +193,7 @@
   .search-and-filters .col-md-4{ flex:1 1 100%; width:100%; max-width:100%; min-width:0; }
   .search-and-filters .input-group{ flex-wrap:nowrap; }
   #globalSearchInput{ min-width:0; }
+  .search-and-filters .input-group .search-box-wrapper{ min-width:0; }
   .filter-container{ justify-content:center; margin-top:0.5rem; }
   .search-result-card{ width:98%; padding:1rem; margin:0.5rem auto; }
 }
