@@ -899,10 +899,6 @@ def list_public_snippets(
     except Exception:
         per_page_int = 30
 
-    # חשב Built-ins תואמים
-    builtins = _filtered_builtins(q, language)
-    bt_title_keys = {str((it.get("title") or "")).strip().lower() for it in builtins}
-
     repo = None
     try:
         candidate = _db._get_repo()
@@ -910,6 +906,13 @@ def list_public_snippets(
             repo = candidate
     except Exception:
         repo = None
+
+    if repo is None:
+        return [], 0
+
+    # חשב Built-ins תואמים
+    builtins = _filtered_builtins(q, language)
+    bt_title_keys = {str((it.get("title") or "")).strip().lower() for it in builtins}
 
     # שלוף ספירת DB (total) בקריאה קלה
     db_total = 0
