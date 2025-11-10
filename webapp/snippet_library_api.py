@@ -9,6 +9,7 @@ import datetime as _dt
 from services.snippet_library_service import list_public_snippets, submit_snippet as _svc_submit
 from config import config as _cfg
 import os as _os
+import threading as _threading
 
 try:
     # Prefer sync HTTP helper if available
@@ -70,54 +71,61 @@ def get_public_snippets():
         return jsonify({'ok': False, 'error': 'internal_error'}), 500
 
 
-def _notify_admins_new_snippet(snippet_id: str, *, title: str, language: str, username: str | None) -> None:
-    """שליחת הודעה למנהלים על הצעת סניפט חדשה דרך Telegram Bot API (best‑effort).
+def _notify_admins_new_snippet(snippet_id: str, *, title: str, language: str, username: str | None, base_url: str | None = None) -> None:
+    """שליחת הודעה למנהלים על הצעת סניפט חדשה, ברקע (fire-and-forget).
 
     מסתמך על ENV: BOT_TOKEN, ADMIN_USER_IDS (CSV). לא מעלה חריגות.
     """
-    try:
-        bot_token = _os.getenv('BOT_TOKEN', '')
-        admins_raw = _os.getenv('ADMIN_USER_IDS', '')
-        if not bot_token or not admins_raw or not snippet_id:
-            return
+    def _worker() -> None:
         try:
-            admin_ids = [int(x.strip()) for x in admins_raw.split(',') if x.strip().isdigit()]
-        except Exception:
-            admin_ids = []
-        if not admin_ids:
-            return
-        base = (getattr(_cfg, 'PUBLIC_BASE_URL', None) or getattr(_cfg, 'WEBAPP_URL', None) or (request.url_root or '').rstrip('/'))
-        view_url = f"{base}/admin/snippets/view?id={snippet_id}"
-        api = f"https://api.telegram.org/bot{bot_token}/sendMessage"
-        kb = {
-            "inline_keyboard": [
-                [
-                    {"text": "✅ אישור", "callback_data": f"snippet_approve:{snippet_id}"},
-                    {"text": "❌ דחייה", "callback_data": f"snippet_reject:{snippet_id}"},
-                ],
-                [
-                    {"text": "👁️ הצג סניפט", "url": view_url},
-                ],
-            ]
-        }
-        text = (
-            "🆕 הצעת סניפט חדשה\n\n"
-            f"כותרת: {title}\n"
-            f"שפה: {language}\n"
-            f"מאת: @{(username or '').strip()}"
-        )
-        for aid in admin_ids:
-            payload = {"chat_id": int(aid), "text": text, "reply_markup": kb}
+            bot_token = _os.getenv('BOT_TOKEN', '')
+            admins_raw = _os.getenv('ADMIN_USER_IDS', '')
+            if not bot_token or not admins_raw or not snippet_id:
+                return
             try:
-                if _http_request is not None:
-                    _http_request('POST', api, json=payload, timeout=5)
-                else:  # pragma: no cover
-                    import requests as _requests  # type: ignore
-                    _requests.post(api, json=payload, timeout=5)
+                admin_ids = [int(x.strip()) for x in admins_raw.split(',') if x.strip().isdigit()]
             except Exception:
-                continue
+                admin_ids = []
+            if not admin_ids:
+                return
+            base = (base_url or getattr(_cfg, 'PUBLIC_BASE_URL', None) or getattr(_cfg, 'WEBAPP_URL', None) or '').rstrip('/')
+            view_url = f"{base}/admin/snippets/view?id={snippet_id}" if base else f"/admin/snippets/view?id={snippet_id}"
+            api = f"https://api.telegram.org/bot{bot_token}/sendMessage"
+            kb = {
+                "inline_keyboard": [
+                    [
+                        {"text": "✅ אישור", "callback_data": f"snippet_approve:{snippet_id}"},
+                        {"text": "❌ דחייה", "callback_data": f"snippet_reject:{snippet_id}"},
+                    ],
+                    [
+                        {"text": "👁️ הצג סניפט", "url": view_url},
+                    ],
+                ]
+            }
+            text = (
+                "🆕 הצעת סניפט חדשה\n\n"
+                f"כותרת: {title}\n"
+                f"שפה: {language}\n"
+                f"מאת: @{(username or '').strip()}"
+            )
+            for aid in admin_ids:
+                payload = {"chat_id": int(aid), "text": text, "reply_markup": kb}
+                try:
+                    if _http_request is not None:
+                        _http_request('POST', api, json=payload, timeout=5)
+                    else:  # pragma: no cover
+                        import requests as _requests  # type: ignore
+                        _requests.post(api, json=payload, timeout=5)
+                except Exception:
+                    continue
+        except Exception:
+            return
+
+    try:
+        _threading.Thread(target=_worker, daemon=True).start()
     except Exception:
-        return
+        # במקרה קצה שבו יצירת חוט נכשלת — אל תעצור את הזרימה
+        pass
 
 
 @snippets_bp.route('/submit', methods=['POST'])
@@ -147,10 +155,11 @@ def submit_snippet_api():
         # אל תחזירו פרטים טכניים למשתמש
         return jsonify({"ok": False, "error": str(res.get('error') or 'submit_failed')}), 400
 
-    # הצלחה – שליחת התראה למנהלים (best‑effort)
+    # הצלחה – שליחת התראה למנהלים ברקע (best‑effort, non-blocking)
     try:
-        _notify_admins_new_snippet(str(res.get('id') or ''), title=title, language=language, username=(user.get('username') or None))
+        base = (getattr(_cfg, 'PUBLIC_BASE_URL', None) or getattr(_cfg, 'WEBAPP_URL', None) or (request.url_root or '')).rstrip('/')
     except Exception:
-        pass
+        base = ''
+    _notify_admins_new_snippet(str(res.get('id') or ''), title=title, language=language, username=(user.get('username') or None), base_url=base)
 
     return jsonify({"ok": True, "id": res.get('id')})
