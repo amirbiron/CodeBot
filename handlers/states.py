@@ -14,3 +14,6 @@ SN_REJECT_REASON = 15
 # מצב איסוף ארוך עבור סניפטים
 SN_LONG_COLLECT = 16
 
+# מצב איסוף סיבת דחייה לפריט אוסף הקהילה
+CL_REJECT_REASON = 17
+

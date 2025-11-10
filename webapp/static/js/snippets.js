@@ -178,6 +178,24 @@
     pager.appendChild(makeBtn('הבא ➡️', Math.min(totalPages, page + 1), page >= totalPages));
   }
 
+  async function loadLanguages() {
+    try {
+      const dl = document.getElementById('languagesList');
+      if (!dl) return;
+      // Avoid reloading if already populated
+      if (dl.options && dl.options.length > 0) return;
+      const res = await fetch('/api/snippets/languages', { credentials: 'same-origin' });
+      const data = await res.json().catch(() => ({}));
+      const langs = (data && Array.isArray(data.languages)) ? data.languages : [];
+      dl.innerHTML = '';
+      langs.forEach(l => {
+        const opt = document.createElement('option');
+        opt.value = l;
+        dl.appendChild(opt);
+      });
+    } catch (_) {}
+  }
+
   async function run(page) {
     const q = qs('#q').value;
     const language = qs('#language').value;
@@ -191,5 +209,9 @@
   }
 
   qs('#searchBtn').addEventListener('click', () => run(1));
-  document.addEventListener('DOMContentLoaded', () => run(1));
+  document.addEventListener('DOMContentLoaded', () => { loadLanguages(); run(1); });
+  const langInput = document.getElementById('language');
+  if (langInput) {
+    langInput.addEventListener('focus', loadLanguages, { once: true });
+  }
 })();

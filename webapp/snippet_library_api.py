@@ -71,6 +71,45 @@ def get_public_snippets():
         return jsonify({'ok': False, 'error': 'internal_error'}), 500
 
 
+@snippets_bp.route('/languages', methods=['GET'])
+@dynamic_cache(content_type='snippets_library', key_prefix='snippets_languages')
+def get_snippet_languages():
+    """החזרת רשימת שפות נתמכות בספריית הסניפטים (distinct מתוך פריטים זמינים).
+
+    כדי להימנע מעומס, נסרוק עד כ-1000 פריטים (60 לדף × עד 20 דפים) או עד שנגמרים הפריטים.
+    """
+    try:
+        languages: set[str] = set()
+        page = 1
+        per_page = 60
+        safety = 0
+        while True:
+            items, total = list_public_snippets(q=None, language=None, page=page, per_page=per_page)
+            if not items:
+                break
+            for it in items:
+                try:
+                    lang = str(it.get('language') or '').strip()
+                    if lang:
+                        languages.add(lang)
+                except Exception:
+                    continue
+            page += 1
+            safety += 1
+            if len(items) < per_page or safety > 20:
+                break
+        return jsonify({
+            'ok': True,
+            'languages': sorted(languages),
+        })
+    except Exception as e:
+        try:
+            logger.error("snippets_languages_api_error: %s", e, exc_info=True)
+        except Exception:
+            pass
+        return jsonify({'ok': False, 'languages': []}), 200
+
+
 def _notify_admins_new_snippet(snippet_id: str, *, title: str, language: str, username: str | None, base_url: str | None = None) -> None:
     """שליחת הודעה למנהלים על הצעת סניפט חדשה, ברקע (fire-and-forget).
 

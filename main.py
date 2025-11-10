@@ -2013,6 +2013,8 @@ class CodeKeeperBot:
                     community_collect_url,
                     community_collect_logo,
                     community_inline_approve,
+                    community_reject_start,
+                    community_collect_reject_reason,
                     # Snippet library
                     snippet_submit_start,
                     snippet_mode_regular_start,
@@ -2039,6 +2041,7 @@ class CodeKeeperBot:
                     CL_COLLECT_DESCRIPTION,
                     CL_COLLECT_URL,
                     CL_COLLECT_LOGO,
+                    CL_REJECT_REASON,
                     SN_COLLECT_TITLE,
                     SN_COLLECT_DESCRIPTION,
                     SN_COLLECT_CODE,
@@ -2048,6 +2051,15 @@ class CodeKeeperBot:
                 )
                 # Approve via inline button (admin-only wrapper inside function)
                 self.application.add_handler(CallbackQueryHandler(community_inline_approve, pattern=r'^community_approve:'))
+                # Community inline reject (reason collection)
+                cl_reject_conv = ConversationHandler(
+                    entry_points=[CallbackQueryHandler(community_reject_start, pattern=r'^community_reject:')],
+                    states={
+                        CL_REJECT_REASON: [MessageHandler(filters.TEXT & ~filters.COMMAND, community_collect_reject_reason)],
+                    },
+                    fallbacks=[CommandHandler('cancel', _cancel_command_fallback)],
+                )
+                self.application.add_handler(cl_reject_conv)
                 # Snippet inline approve
                 self.application.add_handler(CallbackQueryHandler(snippet_inline_approve, pattern=r'^snippet_approve:'))
                 # Submission flow
