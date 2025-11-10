@@ -2510,18 +2510,33 @@ class AdvancedBotHandlers:
         await update.message.reply_text("\n".join(msg) or "🔍 חיפוש", parse_mode=ParseMode.MARKDOWN)
 
     def _is_admin(self, user_id: int) -> bool:
-        """בודק אם המשתמש הוא אדמין לפי ENV ADMIN_USER_IDS (או מודול permissions אם קיים)."""
+        """בודק אם המשתמש הוא אדמין לפי allowlist מפורש; נופל חזרה למודול permissions ללא מצב allow-all."""
+        # שלב ראשון: allowlist מפורש מה-ENV (בעל קדימות)
+        try:
+            raw = os.getenv('ADMIN_USER_IDS', '')
+            ids = [int(x.strip()) for x in raw.split(',') if x.strip().isdigit()]
+        except Exception:
+            ids = []
+
+        if ids:
+            try:
+                return int(user_id) in ids
+            except Exception:
+                return False
+
+        # אם אין allowlist מפורש, אל תסמוך על override גורף של CHATOPS_ALLOW_ALL_IF_NO_ADMINS
+        allow_all_override = str(os.getenv("CHATOPS_ALLOW_ALL_IF_NO_ADMINS", "")).strip().lower()
+        if allow_all_override in {"1", "true", "yes", "on"}:
+            return False
+
+        #Fallback זהיר למודול permissions אם זמין (למשל עבור מקורות אחרים של הרשאות)
         try:
             if callable(_perm_is_admin):
                 return bool(_perm_is_admin(int(user_id)))
         except Exception:
-            pass
-        try:
-            raw = os.getenv('ADMIN_USER_IDS', '')
-            ids = [int(x.strip()) for x in raw.split(',') if x.strip().isdigit()]
-            return int(user_id) in ids
-        except Exception:
             return False
+
+        return False
 
     async def broadcast_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """שידור הודעה לכל המשתמשים עם הגבלת קצב, RetryAfter וסיכום תוצאות."""
