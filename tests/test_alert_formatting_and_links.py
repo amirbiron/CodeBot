@@ -138,6 +138,8 @@ def test_alert_manager_format_text_includes_context_and_sentry_link(monkeypatch)
     assert "env: staging" in text
     assert "request_id: rid-2" in text
     assert "token" not in text and "SECRET" not in text
+    # No duplication of promoted fields within details preview
+    assert "service=" not in text and "env=" not in text and "request_id=" not in text
     assert "Sentry:" in text and "organizations/orgy" in text and "request_id%3A%22rid-2%22" in text
 
 

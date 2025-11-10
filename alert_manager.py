@@ -537,11 +537,20 @@ def _format_text(name: str, severity: str, summary: str, details: Dict[str, Any]
     if request_id:
         parts.append(f"request_id: {request_id}")
 
-    # Append short sanitized details preview
+    # Append short sanitized details preview (without fields we already promoted)
     if details:
-        safe = {k: v for k, v in details.items() if k.lower() not in {"token", "password", "secret", "authorization"}}
-        if safe:
-            parts.append(", ".join(f"{k}={v}" for k, v in list(safe.items())[:6]))
+        sensitive = {"token", "password", "secret", "authorization"}
+        promoted = {"service", "component", "env", "environment", "request_id", "request-id", "x-request-id"}
+        sentry_meta = {"sentry", "sentry_url", "sentry-permalink", "sentry_permalink"}
+        def _is_allowed(k: str) -> bool:
+            lk = k.lower()
+            return lk not in sensitive and lk not in promoted and lk not in sentry_meta
+
+        safe_items = [(k, v) for k, v in details.items() if _is_allowed(str(k))]
+        if safe_items:
+            parts.append(
+                ", ".join(f"{k}={v}" for k, v in safe_items[:6])
+            )
 
     # Best-effort Sentry link (permalink or derived from request_id)
     sentry_direct = _get(details, "sentry_permalink") or _get(details, "sentry_url") or _get(details, "sentry")
