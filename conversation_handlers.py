@@ -352,7 +352,7 @@ async def show_community_hub(update: Update, context: ContextTypes.DEFAULT_TYPE)
     keyboard = [
         [InlineKeyboardButton("📳 ממשקי משתמשים", callback_data="community_catalog_menu")],
         [InlineKeyboardButton("📃 ספריית סניפטים", callback_data="snippets_menu")],
-        [InlineKeyboardButton("↩️ חזרה", callback_data="files")],
+        [InlineKeyboardButton("↩️ חזרה", callback_data="main_menu")],
     ]
     await update.message.reply_text(
         "בחר/י קטגוריה:",
@@ -371,9 +371,9 @@ async def community_catalog_menu(update: Update, context: ContextTypes.DEFAULT_T
     await _safe_answer(query)
     web_url = f"{_resolve_webapp_base_url() or DEFAULT_WEBAPP_URL}/community-library"
     keyboard = [
-        [InlineKeyboardButton("ממשקי משתמשים (web 🌐)", url=web_url)],
+        [InlineKeyboardButton("ממשקי משתמשים (🌐 web)", url=web_url)],
         [InlineKeyboardButton("➕ הוסף מוצר משלך", callback_data="community_submit")],
-        [InlineKeyboardButton("↩️ חזרה", callback_data="files")],
+        [InlineKeyboardButton("↩️ חזרה", callback_data="community_hub")],
     ]
     await _maybe_await(_safe_edit_message_text(query, "📳 ממשקי משתמשים", InlineKeyboardMarkup(keyboard)))
     return ConversationHandler.END
@@ -385,12 +385,65 @@ async def snippets_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
     await _safe_answer(query)
     web_url = f"{_resolve_webapp_base_url() or DEFAULT_WEBAPP_URL}/snippets"
     keyboard = [
-        [InlineKeyboardButton("ספריית סניפטים (web 🌐)", url=web_url)],
+        [InlineKeyboardButton("ספריית סניפטים (🌐 web)", url=web_url)],
         [InlineKeyboardButton("➕ הוסף סניפט משלך", callback_data="snippet_submit")],
-        [InlineKeyboardButton("↩️ חזרה", callback_data="files")],
+        [InlineKeyboardButton("↩️ חזרה", callback_data="community_hub")],
     ]
     await _maybe_await(_safe_edit_message_text(query, "📃 ספריית סניפטים", InlineKeyboardMarkup(keyboard)))
     return ConversationHandler.END
+
+
+async def community_hub_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Callback variant of community hub (back navigation target)."""
+    query = update.callback_query
+    await _safe_answer(query)
+    keyboard = [
+        [InlineKeyboardButton("📳 ממשקי משתמשים", callback_data="community_catalog_menu")],
+        [InlineKeyboardButton("📃 ספריית סניפטים", callback_data="snippets_menu")],
+        [InlineKeyboardButton("↩️ חזרה", callback_data="main_menu")],
+    ]
+    await _maybe_await(_safe_edit_message_text(query, "בחר/י קטגוריה:", InlineKeyboardMarkup(keyboard)))
+    return ConversationHandler.END
+
+
+async def main_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Return to main reply keyboard from a callback."""
+    query = update.callback_query
+    await _safe_answer(query)
+    try:
+        await TelegramUtils.safe_edit_message_text(query, "🔝 חזרה לתפריט הראשי")
+    except Exception:
+        pass
+    try:
+        await query.message.reply_text("בחר/י פעולה:", reply_markup=ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True))
+    except Exception:
+        pass
+    return ConversationHandler.END
+
+
+async def submit_flows_cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Unified cancel for snippet/community submission flows triggered by '❌ ביטול'."""
+    query = update.callback_query
+    await _safe_answer(query)
+    had_snippet_state = bool(context.user_data.get('sn_item') or context.user_data.get('sn_long_parts'))
+    had_comm_state = bool(context.user_data.get('cl_item'))
+    # Clear all related states
+    try:
+        context.user_data.pop('sn_item', None)
+        context.user_data.pop('sn_long_parts', None)
+        context.user_data.pop('cl_item', None)
+        context.user_data.pop('sn_reject_id', None)
+    except Exception:
+        pass
+    # Navigate back to the relevant submenu
+    try:
+        if had_snippet_state:
+            return await snippets_menu(update, context)
+        if had_comm_state:
+            return await community_catalog_menu(update, context)
+        return await community_hub_callback(update, context)
+    except Exception:
+        return ConversationHandler.END
 
 HELP_PAGES = [
     (
@@ -1327,7 +1380,9 @@ async def snippet_collect_reject_reason(update: Update, context: ContextTypes.DE
                     await context.bot.send_message(chat_id=int(uid), text=msg_user)
                 except Exception:
                     pass
-    await _maybe_await(update.message.reply_text("🛑 נדחה" if ok else "❌ כשל בדחייה"))
+    # שלח הודעת הצלחה רק במקרה של כשל – כדי למנוע כפילות מול ההודעה הידידותית שנשלחה למשתמש
+    if not ok:
+        await _maybe_await(update.message.reply_text("❌ כשל בדחייה"))
     context.user_data.pop('sn_reject_id', None)
     return ConversationHandler.END
 
