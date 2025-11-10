@@ -399,7 +399,7 @@ class AsyncUtils:
         "username": "CodeBot",
         "code": """
 class PerformanceUtils:
-    """כלים למדידת ביצועים"""
+    '''כלים למדידת ביצועים'''
     
     @staticmethod
     @contextmanager
