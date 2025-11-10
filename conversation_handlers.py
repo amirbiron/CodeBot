@@ -4051,6 +4051,7 @@ def get_save_conversation_handler(db: DatabaseManager) -> ConversationHandler:
         },
         fallbacks=[
             CommandHandler("cancel", cancel),
+            CallbackQueryHandler(submit_flows_cancel, pattern=r'^cancel$'),
             CallbackQueryHandler(handle_callback_query)
         ],
         allow_reentry=True,
