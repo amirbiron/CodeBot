@@ -2012,6 +2012,10 @@ class CodeKeeperBot:
                     show_community_hub,
                     community_catalog_menu,
                     snippets_menu,
+                    # New helpers
+                    community_hub_callback,
+                    main_menu_callback,
+                    submit_flows_cancel,
                 )
                 from handlers.states import (
                     CL_COLLECT_TITLE,
