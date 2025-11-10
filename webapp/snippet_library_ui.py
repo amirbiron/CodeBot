@@ -18,3 +18,18 @@ def snippets_page():
     except Exception:
         is_admin = False
     return render_template('snippets.html', is_admin=is_admin)
+
+
+@snippet_library_ui.route('/snippets/submit')
+def snippet_submit_page():
+    """עמוד הגשת סניפט חדש (Web).
+
+    מציג טופס עם: כותרת, תיאור קצר, שפה, וקטע קוד, וכפתור שליחה.
+    לאחר שליחה יופיע אישור למשתמש שהסניפט ממתין לאישור מנהל.
+    """
+    # זיהוי משתמש מחובר (לא חובה להצגה, אבל יועיל בצד הלקוח אם צריך)
+    try:
+        user = session.get('user_data', {}) or {}
+    except Exception:
+        user = {}
+    return render_template('snippet_submit.html', user=user)

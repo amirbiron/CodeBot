@@ -1,0 +1,120 @@
+{% extends "base.html" %}
+
+{% block title %}📃 ספריית סניפטים · הוסף סניפט{% endblock %}
+
+{% block content %}
+<div class="community-header">
+  <div class="title">
+    <h1>📃 ספריית סניפטים</h1>
+    <p class="subtitle">הוסף סניפט משלך לאוסף הקהילה</p>
+  </div>
+</div>
+
+<div class="glass-card">
+  <form id="snippetForm" class="form-grid" onsubmit="return false;">
+    <div class="form-row">
+      <label for="title">כותרת הסניפט</label>
+      <input id="title" name="title" type="text" placeholder="למשל: קריאת קובץ JSON" required maxlength="180">
+    </div>
+
+    <div class="form-row">
+      <label for="description">תיאור קצר</label>
+      <textarea id="description" name="description" rows="3" placeholder="שורה‑שתיים שמסבירות מה הסניפט עושה" required maxlength="1000"></textarea>
+    </div>
+
+    <div class="form-row">
+      <label for="language">בחירת שפה</label>
+      <select id="language" name="language" required>
+        <option value="">— בחר/י —</option>
+        <option value="python">Python</option>
+        <option value="javascript">JavaScript</option>
+        <option value="typescript">TypeScript</option>
+        <option value="bash">Bash</option>
+        <option value="go">Go</option>
+        <option value="java">Java</option>
+        <option value="csharp">C#</option>
+        <option value="sql">SQL</option>
+        <option value="html">HTML</option>
+        <option value="css">CSS</option>
+        <option value="json">JSON</option>
+        <option value="yaml">YAML</option>
+        <option value="text">Text</option>
+      </select>
+    </div>
+
+    <div class="form-row">
+      <label for="code">קטע הקוד של הסניפט</label>
+      <textarea id="code" name="code" rows="12" placeholder="# הדבק/י כאן את קטע הקוד" required style="font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', monospace;"></textarea>
+    </div>
+
+    <div class="form-actions">
+      <button id="submitBtn" class="btn btn-primary" type="submit">שלח</button>
+      <a class="btn btn-secondary" href="/snippets">↩️ חזרה לספרייה</a>
+    </div>
+  </form>
+
+  <div id="resultOk" class="alert success" style="display:none; margin-top:1rem;">
+    ✅ הסניפט התקבל וממתין לאישור מנהל
+  </div>
+  <div id="resultErr" class="alert error" style="display:none; margin-top:1rem;"></div>
+</div>
+
+<style>
+.form-grid { display: grid; gap: 1rem; }
+.form-row { display: grid; gap: .35rem; }
+.form-row > label { opacity: .85; font-weight: 600; }
+.form-row > input, .form-row > textarea, .form-row > select {
+  padding: .65rem .8rem; border-radius: 10px; border: 1px solid rgba(255,255,255,0.2);
+  background: rgba(255,255,255,0.06); color: inherit;
+}
+.alert.success { background: rgba(16, 185, 129, .15); border: 1px solid rgba(16, 185, 129, .35); padding: .75rem 1rem; border-radius: 10px; }
+.alert.error { background: rgba(239, 68, 68, .15); border: 1px solid rgba(239, 68, 68, .35); padding: .75rem 1rem; border-radius: 10px; }
+</style>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+(function(){
+  const form = document.getElementById('snippetForm');
+  const btn = document.getElementById('submitBtn');
+  const okEl = document.getElementById('resultOk');
+  const errEl = document.getElementById('resultErr');
+
+  async function submitSnippet(ev){
+    try{
+      ev && ev.preventDefault();
+      errEl.style.display = 'none'; errEl.textContent = '';
+      okEl.style.display = 'none';
+
+      const title = document.getElementById('title').value.trim();
+      const description = document.getElementById('description').value.trim();
+      const language = document.getElementById('language').value.trim();
+      const code = document.getElementById('code').value;
+      if (!title || !description || !language || !code.trim()){
+        errEl.textContent = 'נא למלא את כל השדות'; errEl.style.display = 'block'; return;
+      }
+      btn.disabled = true; btn.textContent = 'שולח…';
+      const res = await fetch('/api/snippets/submit', {
+        method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ title, description, language, code })
+      });
+      const data = await res.json().catch(()=>({ok:false,error:'invalid_response'}));
+      if (!res.ok || !data.ok){
+        const msg = (data && data.error) ? String(data.error) : 'שגיאה בשליחה';
+        throw new Error(msg);
+      }
+      // Success UI
+      okEl.style.display = 'block';
+      form.reset();
+      btn.disabled = false; btn.textContent = 'שלח';
+    }catch(e){
+      btn.disabled = false; btn.textContent = 'שלח';
+      errEl.textContent = (e && e.message) ? e.message : 'שגיאה בלתי צפויה';
+      errEl.style.display = 'block';
+    }
+  }
+
+  if (form) form.addEventListener('submit', submitSnippet);
+})();
+</script>
+{% endblock %}
