@@ -91,23 +91,6 @@ pull_request_template: |
   - Issues קשורים: #
   - Docs Preview: <!-- קישור ל-RTD Preview אם רלוונטי -->
 
-tasks:
-  - id: add-language-filter
-    description: "הוסף חיפוש לפי שפת סניפט ב-WebApp + API"
-    acceptance_criteria:
-      - יש פרמטר language ב-/api/snippets
-      - UI מציג Dropdown/Chip לבחירת שפה
-      - בדיקות API + בדיקות UI בסיסיות
-      - Docs עודכנו
-
-  - id: drive-backup-hardening
-    description: "חיזוק גיבוי Drive: retry+backoff, Respect Retry-After, telemetry"
-    acceptance_criteria:
-      - tenacity/backoff סביב upload
-      - לוגים מובנים עם request_id
-      - בדיקות יחידה לשגיאות 429/5xx
-      - דוקומנטציה קצרה ב-docs/backup.md
-
 tools:
   - type: shell
     allowed_commands:
