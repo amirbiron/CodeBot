@@ -9,25 +9,26 @@
   {% if not items %}
     אין הצעות ממתינות.
   {% else %}
-    <div class="table-responsive">
-      <table class="table">
+    <div class="table-responsive" style="overflow:auto;">
+      <table class="table" style="table-layout: fixed;">
         <thead>
           <tr>
-            <th>כותרת</th>
-            <th>שפה</th>
-            <th>תיאור</th>
-            <th>הוגש</th>
-            <th>פעולות</th>
+            <th style="width:30%">כותרת</th>
+            <th style="width:10%">שפה</th>
+            <th style="width:38%">תיאור</th>
+            <th style="width:12%">הוגש</th>
+            <th style="width:10%">פעולות</th>
           </tr>
         </thead>
         <tbody>
           {% for it in items %}
             <tr>
-              <td>{{ it.title }}</td>
-              <td>{{ it.language }}</td>
-              <td style="max-width: 420px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">{{ it.description }}</td>
-              <td>{{ it.submitted_at }}</td>
+              <td><div style="white-space:nowrap; overflow:hidden; text-overflow:ellipsis;"><a href="/admin/snippets/view?id={{ it._id }}" class="link-light">{{ it.title }}</a></div></td>
+              <td><div style="white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">{{ it.language }}</div></td>
+              <td><div style="white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">{{ it.description }}</div></td>
+              <td><div style="white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">{{ it.submitted_at }}</div></td>
               <td>
+                <a class="btn btn-light btn-sm" href="/admin/snippets/view?id={{ it._id }}">👁️ הצג</a>
                 <a class="btn btn-primary btn-sm" href="/admin/snippets/approve?id={{ it._id }}">אשר</a>
                 <form action="/admin/snippets/reject" method="get" style="display:inline-flex; gap:.25rem; align-items:center;">
                   <input type="hidden" name="id" value="{{ it._id }}">

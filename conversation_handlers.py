@@ -405,10 +405,11 @@ async def snippets_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
     """תפריט משנה עבור 'ספריית סניפטים'."""
     query = update.callback_query
     await _maybe_await(_safe_answer(query))
-    web_url = f"{_resolve_webapp_base_url() or DEFAULT_WEBAPP_URL}/snippets"
+    base = _resolve_webapp_base_url() or DEFAULT_WEBAPP_URL
+    web_url = f"{base}/snippets"
     keyboard = [
         [InlineKeyboardButton("ספריית סניפטים (🌐 web)", url=web_url)],
-        [InlineKeyboardButton("➕ הוסף סניפט משלך", callback_data="snippet_submit")],
+        [InlineKeyboardButton("➕ הוסף סניפט משלך", url=f"{base}/snippets/submit")],
         [InlineKeyboardButton("↩️ חזרה", callback_data="community_hub")],
     ]
     await _maybe_await(_safe_edit_message_text(query, "📃 ספריית סניפטים", InlineKeyboardMarkup(keyboard)))
