@@ -91,11 +91,11 @@ BUILTIN_SNIPPETS: List[Dict[str, Any]] = [
         "username": "CodeBot",
         "code": """
 class TimeUtils:
-    """כלים לעבודה עם זמן ותאריכים"""
+    '''כלים לעבודה עם זמן ותאריכים'''
     
     @staticmethod
     def format_relative_time(dt: datetime) -> str:
-        """פורמט זמן יחסי (לפני 5 דקות, אתמול וכו')"""
+        '''פורמט זמן יחסי (לפני 5 דקות, אתמול וכו')'''
         
         now = datetime.now(timezone.utc) if dt.tzinfo else datetime.now()
         diff = now - dt
@@ -136,11 +136,11 @@ class TimeUtils:
         "username": "CodeBot",
         "code": """
 class TextUtils:
-    """כלים לעבודה עם טקסט"""
+    '''כלים לעבודה עם טקסט'''
     
     @staticmethod
     def escape_markdown(text: str, version: int = 2) -> str:
-        """הגנה על תווים מיוחדים ב-Markdown"""
+        '''הגנה על תווים מיוחדים ב-Markdown'''
         
         if version == 2:
             # Markdown V2: כל התווים שיש לאסקייפ לפי Telegram MarkdownV2
@@ -159,11 +159,11 @@ class TextUtils:
         "username": "CodeBot",
         "code": """
 class TextUtils:
-    """כלים לעבודה עם טקסט"""
+    '''כלים לעבודה עם טקסט'''
     
     @staticmethod
     def clean_filename(filename: str) -> str:
-        """ניקוי שם קובץ מתווים לא חוקיים"""
+        '''ניקוי שם קובץ מתווים לא חוקיים'''
         
         # הסרת תווים לא חוקיים
         cleaned = re.sub(r'[<>:\"/\\|?*]', '_', filename)
@@ -189,11 +189,11 @@ class TextUtils:
         "username": "CodeBot",
         "code": """
 class TelegramUtils:
-    """כלים לעבודה עם Telegram"""
+    '''כלים לעבודה עם Telegram'''
     
     @staticmethod
     async def safe_answer(query, text: Optional[str] = None, show_alert: bool = False, cache_time: Optional[int] = None) -> None:
-        """מענה בטוח ל-CallbackQuery: מתעלם משגיאות 'Query is too old'/'query_id_invalid'."""
+        '''מענה בטוח ל-CallbackQuery: מתעלם משגיאות 'Query is too old'/'query_id_invalid'.'''
         try:
             kwargs: Dict[str, Any] = {}
             if text is not None:
@@ -217,11 +217,11 @@ class TelegramUtils:
         "username": "CodeBot",
         "code": """
 class TelegramUtils:
-    """כלים לעבודה עם Telegram"""
+    '''כלים לעבודה עם Telegram'''
     
     @staticmethod
     def split_long_message(text: str, max_length: int = 4096) -> List[str]:
-        """חלוקת הודעה ארוכה לחלקים"""
+        '''חלוקת הודעה ארוכה לחלקים'''
         
         if len(text) <= max_length:
             return [text]
@@ -250,15 +250,15 @@ class TelegramUtils:
         "username": "CodeBot",
         "code": """
 class TelegramUtils:
-    """כלים לעבודה עם Telegram"""
+    '''כלים לעבודה עם Telegram'''
     
     @staticmethod
     async def safe_edit_message_text(query, text: str, reply_markup=None, parse_mode: Optional[str] = None) -> None:
-        """עריכת טקסט הודעה בבטיחות: מתעלם משגיאת 'Message is not modified'.
+        '''עריכת טקסט הודעה בבטיחות: מתעלם משגיאת 'Message is not modified'.
 
         תומך גם במימושי בדיקות שבהם `edit_message_text` היא פונקציה סינכרונית
         שמחזירה `None` (לא awaitable), וגם במימושים אסינכרוניים רגילים.
-        """
+        '''
         try:
             edit_func = getattr(query, "edit_message_text", None)
             if not callable(edit_func):
@@ -288,18 +288,18 @@ class TelegramUtils:
         "username": "CodeBot",
         "code": """
 class CallbackQueryGuard:
-    """Guard גורף ללחיצות כפולות על כפתורי CallbackQuery.
+    '''Guard גורף ללחיצות כפולות על כפתורי CallbackQuery.
     
     מבוסס על טביעת אצבע של המשתמש/הודעה/הנתון (callback_data) כדי לחסום
     את אותה פעולה בחלון זמן קצר, בלי לחסום פעולות שונות.
-    """
+    '''
 
     DEFAULT_WINDOW_SECONDS: float = 1.2
     _user_locks: Dict[int, asyncio.Lock] = {}
 
     @staticmethod
     def should_block(update: Update, context: ContextTypes.DEFAULT_TYPE, window_seconds: Optional[float] = None) -> bool:
-        """בודק בחסימה לא-אסינכרונית אם העדכון הגיע שוב בתוך חלון הזמן."""
+        '''בודק בחסימה לא-אסינכרונית אם העדכון הגיע שוב בתוך חלון הזמן.'''
         try:
             win = float(window_seconds if window_seconds is not None else CallbackQueryGuard.DEFAULT_WINDOW_SECONDS)
         except Exception:
@@ -323,10 +323,10 @@ class CallbackQueryGuard:
 
     @staticmethod
     async def should_block_async(update: Update, context: ContextTypes.DEFAULT_TYPE, window_seconds: Optional[float] = None) -> bool:
-        """בודק בצורה אטומית (עם נעילה) אם לחסום לחיצה כפולה של אותו משתמש.
+        '''בודק בצורה אטומית (עם נעילה) אם לחסום לחיצה כפולה של אותו משתמש.
 
         חסימה מבוססת חלון זמן פר-משתמש, ללא תלות ב-message_id/data, כדי למנוע מרוץ.
-        """
+        '''
         try:
             try:
                 win = float(window_seconds if window_seconds is not None else CallbackQueryGuard.DEFAULT_WINDOW_SECONDS)
@@ -367,12 +367,12 @@ class CallbackQueryGuard:
         "username": "CodeBot",
         "code": """
 class AsyncUtils:
-    """כלים לעבודה אסינכרונית"""
+    '''כלים לעבודה אסינכרונית'''
     
     @staticmethod
     async def batch_process(items: List[Any], process_func: Callable, 
                            batch_size: int = 10, delay: float = 0.1) -> List[Any]:
-        """עיבוד פריטים בקבוצות"""
+        '''עיבוד פריטים בקבוצות'''
         
         results = []
         
@@ -404,7 +404,7 @@ class PerformanceUtils:
     @staticmethod
     @contextmanager
     def measure_time(operation_name: str):
-        """מדידת זמן עם context manager"""
+        '''מדידת זמן עם context manager'''
         
         start_time = time.time()
         try:
@@ -421,11 +421,11 @@ class PerformanceUtils:
         "username": "CodeBot",
         "code": """
 class ValidationUtils:
-    """כלים לוולידציה"""
+    '''כלים לוולידציה'''
     
     @staticmethod
     def is_safe_code(code: str, programming_language: str) -> Tuple[bool, List[str]]:
-        """בדיקה בסיסית של בטיחות קוד"""
+        '''בדיקה בסיסית של בטיחות קוד'''
         
         warnings = []
         
@@ -479,12 +479,12 @@ class ValidationUtils:
         "username": "CodeBot",
         "code": """
 class FileUtils:
-    """כלים לעבודה עם קבצים"""
+    '''כלים לעבודה עם קבצים'''
     
     @staticmethod
     async def create_temp_file(content: Union[str, bytes], 
                               suffix: str = "") -> str:
-        """יצירת קובץ זמני"""
+        '''יצירת קובץ זמני'''
         
         with tempfile.NamedTemporaryFile(mode='wb', suffix=suffix, delete=False) as temp_file:
             if isinstance(content, str):
@@ -501,11 +501,11 @@ class FileUtils:
         "username": "CodeBot",
         "code": """
 class ConfigUtils:
-    """כלים לקונפיגורציה"""
+    '''כלים לקונפיגורציה'''
     
     @staticmethod
     def load_json_config(file_path: str, default: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
-        """טעינת קונפיגורציה מקובץ JSON"""
+        '''טעינת קונפיגורציה מקובץ JSON'''
         
         if default is None:
             default = {}
@@ -530,20 +530,20 @@ class ConfigUtils:
         "username": "CodeBot",
         "code": """
 class CacheUtils:
-    """כלים לקאש זמני"""
+    '''כלים לקאש זמני'''
     
     _cache: Dict[str, Any] = {}
     _cache_times: Dict[str, float] = {}
     
     @classmethod
     def set(cls, key: str, value: Any, ttl: int = 300):
-        """שמירה בקאש עם TTL (שניות)"""
+        '''שמירה בקאש עם TTL (שניות)'''
         cls._cache[key] = value
         cls._cache_times[key] = time.time() + ttl
     
     @classmethod
     def get(cls, key: str, default: Any = None) -> Any:
-        """קבלה מהקאש"""
+        '''קבלה מהקאש'''
         
         if key not in cls._cache:
             return default
@@ -557,7 +557,7 @@ class CacheUtils:
 
     @classmethod
     def delete(cls, key: str):
-        """מחיקה מהקאש"""
+        '''מחיקה מהקאש'''
         cls._cache.pop(key, None)
         cls._cache_times.pop(key, None)
 """,
@@ -569,7 +569,7 @@ class CacheUtils:
         "username": "CodeBot",
         "code": """
 class SensitiveDataFilter(logging.Filter):
-    """מסנן שמטשטש טוקנים ונתונים רגישים בלוגים."""
+    '''מסנן שמטשטש טוקנים ונתונים רגישים בלוגים.'''
     def filter(self, record: logging.LogRecord) -> bool:
         try:
             msg = str(record.getMessage())
@@ -599,7 +599,7 @@ class SensitiveDataFilter(logging.Filter):
         "username": "CodeBot",
         "code": """
 def _coerce_command_args(raw_args) -> List[str]:
-    """המרת args מסוגים שונים לרשימת מחרוזות נקייה."""
+    '''המרת args מסוגים שונים לרשימת מחרוזות נקייה.'''
     normalized: List[str] = []
     if raw_args is None:
         return normalized
@@ -636,7 +636,7 @@ def _coerce_command_args(raw_args) -> List[str]:
         "username": "CodeBot",
         "code": """
 def _build_webapp_login_payload(db_manager, user_id: int, username: Optional[str]) -> Optional[Dict[str, str]]:
-    """יוצר טוקן וקישורי התחברות ל-Web App."""
+    '''יוצר טוקן וקישורי התחברות ל-Web App.'''
     base_url = _resolve_webapp_base_url() or DEFAULT_WEBAPP_URL
     secret_candidates = [
         os.getenv("WEBAPP_LOGIN_SECRET"),
@@ -676,7 +676,7 @@ def _build_webapp_login_payload(db_manager, user_id: int, username: Optional[str
         "username": "CodeBot",
         "code": """
 def _truncate_middle(text: str, max_len: int) -> str:
-    """מקצר מחרוזת באמצע עם אליפסיס אם חורגת מאורך נתון."""
+    '''מקצר מחרוזת באמצע עם אליפסיס אם חורגת מאורך נתון.'''
     if max_len <= 0:
         return ''
     if len(text) <= max_len:
@@ -701,13 +701,13 @@ def build_pagination_row(
     page_size: int,
     callback_prefix: str,
 ) -> Optional[List[InlineKeyboardButton]]:
-    r"""Return a row of pagination buttons [prev,next] or None if not needed.
+    r'''Return a row of pagination buttons [prev,next] or None if not needed.
 
     - page: current 1-based page index
     - total_items: total number of items
     - page_size: items per page
     - callback_prefix: for example ``files_page_`` → formats as ``{prefix}{page_num}``
-    """
+    '''
     if page_size <= 0:
         return None
     total_pages = (total_items + page_size - 1) // page_size if total_items > 0 else 1
