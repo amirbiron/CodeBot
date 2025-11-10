@@ -1158,7 +1158,31 @@ async def community_reject_command(update: Update, context: ContextTypes.DEFAULT
         await update.message.reply_text(f"❌ שגיאה: {e}")
 
 # --- Snippet Library submission flow ---
-from services.snippet_library_service import submit_snippet as _sn_submit
+_sn_submit = None
+
+
+def _call_sn_submit(**kwargs):
+    """Submit snippet proposal with optional test override."""
+    submit_callable = _sn_submit
+    if callable(submit_callable):
+        try:
+            return submit_callable(**kwargs)
+        except Exception:
+            logger.exception("snippet_submit_override_failed", exc_info=True)
+            return {"ok": False, "error": "submit_failed"}
+    try:
+        from services import snippet_library_service as snippet_service  # type: ignore
+        submit_callable = getattr(snippet_service, "submit_snippet", None)
+    except Exception:
+        submit_callable = None
+    if callable(submit_callable):
+        try:
+            return submit_callable(**kwargs)
+        except Exception:
+            logger.exception("snippet_submit_failed", exc_info=True)
+            return {"ok": False, "error": "submit_failed"}
+    logger.warning("snippet_submit_unavailable")
+    return {"ok": False, "error": "submit_unavailable"}
 
 async def snippet_submit_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     query = update.callback_query
@@ -1262,7 +1286,7 @@ async def snippet_collect_language(update: Update, context: ContextTypes.DEFAULT
     item['language'] = language[:40]
     item['user_id'] = int(user.id)
     item['username'] = getattr(user, 'username', None)
-    res = _sn_submit(
+    res = _call_sn_submit(
         title=item.get('title') or '',
         description=item.get('description') or '',
         code=item.get('code') or '',
