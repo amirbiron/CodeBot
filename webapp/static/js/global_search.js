@@ -27,7 +27,7 @@
     });
 
     document.addEventListener('click', function(e){
-      const inBox = e.target.closest('#globalSearchInput');
+      const inBox = e.target.closest('.search-box-wrapper');
       const inSug = e.target.closest('#searchSuggestions');
       if (!inBox && !inSug) hideSuggestions();
     });

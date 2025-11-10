@@ -166,6 +166,13 @@
   width:100%;
 }
 
+/* הופך את ה-wrapper לילד ה-flex הראשי כך שהתיבה מילאה את הרוחב */
+.search-and-filters .input-group .search-box-wrapper{
+  flex:1 1 auto;
+  min-width:200px;
+  max-width:100%;
+}
+
 #globalSearchInput{
   flex:1;
   min-width:200px;
