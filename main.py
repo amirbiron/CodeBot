@@ -1998,10 +1998,14 @@ class CodeKeeperBot:
                     community_inline_approve,
                     # Snippet library
                     snippet_submit_start,
+                    snippet_mode_regular_start,
+                    snippet_mode_long_start,
                     snippet_collect_title,
                     snippet_collect_description,
                     snippet_collect_code,
                     snippet_collect_language,
+                    snippet_long_collect_receive,
+                    snippet_long_collect_done,
                     snippet_inline_approve,
                     snippet_reject_start,
                     snippet_collect_reject_reason,
@@ -2019,6 +2023,7 @@ class CodeKeeperBot:
                     SN_COLLECT_CODE,
                     SN_COLLECT_LANGUAGE,
                     SN_REJECT_REASON,
+                    SN_LONG_COLLECT,
                 )
                 # Approve via inline button (admin-only wrapper inside function)
                 self.application.add_handler(CallbackQueryHandler(community_inline_approve, pattern=r'^community_approve:'))
@@ -2038,12 +2043,20 @@ class CodeKeeperBot:
                 self.application.add_handler(comm_conv)
                 # Snippet submission flow
                 sn_conv = ConversationHandler(
-                    entry_points=[CallbackQueryHandler(snippet_submit_start, pattern=r'^snippet_submit$')],
+                    entry_points=[
+                        CallbackQueryHandler(snippet_submit_start, pattern=r'^snippet_submit$'),
+                        CallbackQueryHandler(snippet_mode_regular_start, pattern=r'^snippet_mode_regular$'),
+                        CallbackQueryHandler(snippet_mode_long_start, pattern=r'^snippet_mode_long$'),
+                    ],
                     states={
                         SN_COLLECT_TITLE: [MessageHandler(filters.TEXT & ~filters.COMMAND, snippet_collect_title)],
                         SN_COLLECT_DESCRIPTION: [MessageHandler(filters.TEXT & ~filters.COMMAND, snippet_collect_description)],
                         SN_COLLECT_CODE: [MessageHandler(filters.TEXT & ~filters.COMMAND, snippet_collect_code)],
                         SN_COLLECT_LANGUAGE: [MessageHandler(filters.TEXT & ~filters.COMMAND, snippet_collect_language)],
+                        SN_LONG_COLLECT: [
+                            MessageHandler(filters.TEXT & ~filters.COMMAND, snippet_long_collect_receive),
+                            CommandHandler('done', snippet_long_collect_done),
+                        ],
                     },
                     fallbacks=[CommandHandler('cancel', lambda u, c: ConversationHandler.END)],
                 )
