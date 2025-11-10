@@ -33,7 +33,7 @@ def set_activity_reporter(new_reporter):
     reporter = new_reporter or _NoopReporter()
 from utils import get_language_emoji as get_file_emoji
 from user_stats import user_stats
-from typing import List, Optional, Dict, cast
+from typing import List, Optional, Dict, Type, cast
 from html import escape as html_escape
 from utils import TelegramUtils, TextUtils
 from services import code_service
@@ -4015,10 +4015,18 @@ async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     )
     return ConversationHandler.END
 
-def get_save_conversation_handler(db: DatabaseManager) -> ConversationHandler:
+def get_save_conversation_handler(
+    db: DatabaseManager,
+    callback_query_handler_cls: Optional[Type[CallbackQueryHandler]] = None,
+) -> ConversationHandler:
     """יוצר ConversationHandler מתקדם וחכם"""
     logger.info("יוצר מערכת שיחה מתקדמת...")
     
+    cbq_factory = callback_query_handler_cls or CallbackQueryHandler
+
+    cancel_callback_fallback = cbq_factory(handle_callback_query, pattern=r'^cancel$')
+    generic_callback_fallback = cbq_factory(handle_callback_query)
+
     return ConversationHandler(
         entry_points=[
             CommandHandler("start", start_command),
@@ -4061,8 +4069,8 @@ def get_save_conversation_handler(db: DatabaseManager) -> ConversationHandler:
         },
         fallbacks=[
             CommandHandler("cancel", cancel),
-            CallbackQueryHandler(handle_callback_query, pattern=r'^cancel$'),
-            CallbackQueryHandler(handle_callback_query)
+            cancel_callback_fallback,
+            generic_callback_fallback
         ],
         allow_reentry=True,
         per_message=False

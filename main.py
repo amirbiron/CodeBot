@@ -1727,7 +1727,10 @@ class CodeKeeperBot:
             pass
 
         # Add conversation handler
-        conversation_handler = get_save_conversation_handler(db)
+        conversation_handler = get_save_conversation_handler(
+            db,
+            callback_query_handler_cls=CallbackQueryHandler,
+        )
         self.application.add_handler(conversation_handler)
         logger.info("ConversationHandler נוסף")
         try:
@@ -3660,6 +3663,10 @@ async def setup_bot_data(application: Application) -> None:  # noqa: D401
     try:
         async def _predictive_sampler_job(context: ContextTypes.DEFAULT_TYPE):  # noqa: ARG001
             try:
+                if os.getenv("PYTEST_CURRENT_TEST"):
+                    allow_in_tests = str(os.getenv("PREDICTIVE_SAMPLER_RUN_IN_TESTS", "false")).lower()
+                    if allow_in_tests not in {"1", "true", "yes", "on"}:
+                        return
                 # Feature flag: allow disabling explicitly
                 if str(os.getenv("PREDICTIVE_SAMPLER_ENABLED", "true")).lower() not in {"1", "true", "yes", "on"}:
                     return
