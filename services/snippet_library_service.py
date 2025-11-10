@@ -924,7 +924,10 @@ def list_public_snippets(
                 per_page=per_page_int,
             )
         except TypeError:
-            items, total = repo.list_public_snippets(q=q, language=language)
+            try:
+                items, total = repo.list_public_snippets(q=q, language=language)
+            except Exception:
+                return [], 0
         except Exception:
             return [], 0
 
