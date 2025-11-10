@@ -99,7 +99,11 @@
       const meta = document.createElement('div');
       meta.style.opacity = '.8';
       meta.style.marginBottom = '.5rem';
-      meta.textContent = (it.language || '').toString();
+      {
+        const lang = (it.language || '').toString();
+        const by = it.username ? (' · נוסף על ידי @' + String(it.username)) : '';
+        meta.textContent = lang + by;
+      }
       const p = document.createElement('p');
       p.textContent = it.description || '';
       card.appendChild(h);
