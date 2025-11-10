@@ -261,11 +261,6 @@
   const langInput = document.getElementById('language');
   if (langInput) {
     langInput.addEventListener('focus', loadLanguages, { once: true });
-    langInput.addEventListener('click', (e) => {
-      // Open picker for easier selection, especially on mobile
-      e.preventDefault();
-      showLangPicker();
-    });
   }
   const pickBtn = document.getElementById('langPickerBtn');
   if (pickBtn) {

@@ -39,14 +39,14 @@
 
 <!-- Language picker overlay -->
 <div id="langOverlay" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,.45); z-index:1000; align-items:center; justify-content:center;">
-  <div style="background: var(--card-bg, rgba(255,255,255,0.08)); border:1px solid rgba(255,255,255,0.18); padding:1rem; border-radius:12px; width:min(520px, 92vw); max-height:70vh; overflow:auto; backdrop-filter: blur(6px);">
+  <div style="position:relative; z-index:2; background: var(--card-bg, rgba(255,255,255,0.08)); border:1px solid rgba(255,255,255,0.18); padding:1rem; border-radius:12px; width:min(520px, 92vw); max-height:70vh; overflow:auto; backdrop-filter: blur(6px);">
     <div style="display:flex; justify-content:space-between; align-items:center; gap:.5rem; margin-bottom:.5rem;">
       <strong>בחר שפה</strong>
       <button id="langOverlayClose" class="btn btn-secondary btn-sm" type="button">סגור</button>
     </div>
     <div id="langList" style="display:grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap:.5rem;"></div>
   </div>
-  <button type="button" aria-hidden="true" style="position:absolute; inset:0; background:none; border:none;" id="langOverlayBackdrop"></button>
+  <button type="button" aria-hidden="true" style="position:absolute; inset:0; background:none; border:none; z-index:1;" id="langOverlayBackdrop"></button>
   
 </div>
 {% endblock %}
