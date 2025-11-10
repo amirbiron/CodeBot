@@ -112,6 +112,25 @@ def test_forwarder_no_sentry_link_when_not_configured(monkeypatch):
     assert "Sentry:" not in text
 
 
+def test_forwarder_uses_regional_host_from_dsn(monkeypatch):
+    _clear_sentry_env(monkeypatch)
+    # Regional DSN host
+    monkeypatch.setenv("SENTRY_DSN", "https://abc@o123.ingest.eu.sentry.io/1")
+    monkeypatch.setenv("SENTRY_ORG", "acme")
+
+    import alert_forwarder as af
+    importlib.reload(af)
+
+    alert = {
+        "status": "firing",
+        "labels": {"alertname": "Regional", "severity": "error", "request_id": "rid-r"},
+        "annotations": {"summary": "boom"},
+    }
+
+    text = af._format_alert_text(alert)  # noqa: SLF001
+    assert "https://eu.sentry.io/organizations/acme/issues/?query=" in text
+
+
 def test_alert_manager_format_text_includes_context_and_sentry_link(monkeypatch):
     _clear_sentry_env(monkeypatch)
     monkeypatch.setenv("SENTRY_DSN", "https://abc@o456.ingest.sentry.io/2")
@@ -159,3 +178,21 @@ def test_alert_manager_uses_direct_sentry_permalink_when_provided(monkeypatch):
     )
 
     assert "Sentry: https://sentry.io/organizations/acme/issues/42" in text
+
+
+def test_alert_manager_uses_regional_host_from_dsn(monkeypatch):
+    _clear_sentry_env(monkeypatch)
+    monkeypatch.setenv("SENTRY_DSN", "https://abc@o987.ingest.us.sentry.io/44")
+    monkeypatch.setenv("SENTRY_ORG", "beta")
+
+    import alert_manager as am
+    importlib.reload(am)
+
+    text = am._format_text(  # noqa: SLF001
+        name="High Latency",
+        severity="CRITICAL",
+        summary="lat>thr",
+        details={"request_id": "rid-y"},
+    )
+
+    assert "https://us.sentry.io/organizations/beta/issues/?query=" in text

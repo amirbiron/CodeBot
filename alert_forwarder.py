@@ -122,10 +122,16 @@ def _build_sentry_link(
                     raw_host = parsed.hostname or ""
                 except Exception:
                     raw_host = ""
-                if raw_host == "sentry.io" or raw_host.endswith(".sentry.io"):
-                    host = "sentry.io"
+                # Preserve regional subdomain when present, e.g. o123.ingest.eu.sentry.io -> eu.sentry.io
+                if ".ingest." in raw_host:
+                    try:
+                        host = raw_host.split(".ingest.", 1)[1]
+                    except Exception:
+                        host = None
                 elif raw_host.startswith("ingest."):
                     host = raw_host[len("ingest."):]
+                elif raw_host == "sentry.io" or raw_host.endswith(".sentry.io"):
+                    host = "sentry.io"
                 else:
                     host = raw_host or None
             host = host or "sentry.io"
