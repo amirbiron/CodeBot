@@ -13,7 +13,7 @@ except Exception:  # pragma: no cover
 from database import db as _db
 
 try:  # observability (fail-open)
-from observability import emit_event  # type: ignore
+    from observability import emit_event  # type: ignore
 except Exception:  # pragma: no cover
     def emit_event(event: str, severity: str = "info", **fields):  # type: ignore
         return None
@@ -61,6 +61,7 @@ def submit_snippet(
             code=code,
             language=lang_s,
             user_id=int(user_id),
+            username=username,
         )
         if not inserted_id:
             emit_event("snippet_submit_error", severity="warn", error="persist_failed")
