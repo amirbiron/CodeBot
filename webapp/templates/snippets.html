@@ -14,17 +14,20 @@
 <div class="community-header">
   <div class="title">
     <h1>📃 ספריית סניפטים</h1>
-    <p class="subtitle">קטעי קוד קצרים עם חיפוש, סינון והדגשת תחביר</p>
+    <p class="subtitle">מאגר סניפטים מוכנים להעתקה - חפשו לפי שפה, כותרת או תיאור</p>
   </div>
   <div class="actions">
-    <a class="btn primary" href="https://t.me/{{ bot_username }}">+ הוסף סניפט דרך הבוט</a>
+    <a class="btn primary" href="/snippets/submit">+ הוסף סניפט משלך</a>
   </div>
 </div>
 <script>window.__isAdmin = {{ 'true' if is_admin else 'false' }};</script>
 
 <div class="community-controls">
   <input id="q" type="text" placeholder="🔍 חפש לפי כותרת או תיאור..." />
-  <input id="language" type="text" placeholder="שפה (למשל: python)" />
+  <div style="display:flex; gap:.5rem; align-items:center;">
+    <input id="language" type="text" placeholder="שפה (למשל: python)" list="languagesList" />
+    <button id="langPickerBtn" class="btn btn-secondary" type="button" title="בחר שפה">בחר</button>
+  </div>
   <button id="searchBtn" class="btn btn-primary">חיפוש</button>
   
 </div>
@@ -32,6 +35,20 @@
 <div id="results" class="community-grid"></div>
 
 <nav id="pager" style="display:flex; gap:.5rem; justify-content:center; margin-top:1rem;"></nav>
+<datalist id="languagesList"></datalist>
+
+<!-- Language picker overlay -->
+<div id="langOverlay" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,.45); z-index:1000; align-items:center; justify-content:center;">
+  <div style="position:relative; z-index:2; background: var(--card-bg, rgba(255,255,255,0.08)); border:1px solid rgba(255,255,255,0.18); padding:1rem; border-radius:12px; width:min(520px, 92vw); max-height:70vh; overflow:auto; backdrop-filter: blur(6px);">
+    <div style="display:flex; justify-content:space-between; align-items:center; gap:.5rem; margin-bottom:.5rem;">
+      <strong>בחר שפה</strong>
+      <button id="langOverlayClose" class="btn btn-secondary btn-sm" type="button">סגור</button>
+    </div>
+    <div id="langList" style="display:grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap:.5rem;"></div>
+  </div>
+  <button type="button" aria-hidden="true" style="position:absolute; inset:0; background:none; border:none; z-index:1;" id="langOverlayBackdrop"></button>
+  
+</div>
 {% endblock %}
 
 {% block extra_js %}

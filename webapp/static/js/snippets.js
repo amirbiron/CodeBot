@@ -178,6 +178,72 @@
     pager.appendChild(makeBtn('הבא ➡️', Math.min(totalPages, page + 1), page >= totalPages));
   }
 
+  async function loadLanguages() {
+    try {
+      const dl = document.getElementById('languagesList');
+      if (!dl) return;
+      // Avoid reloading if already populated
+      if (dl.options && dl.options.length > 0) return;
+      const res = await fetch('/api/snippets/languages', { credentials: 'same-origin' });
+      const data = await res.json().catch(() => ({}));
+      const langs = (data && Array.isArray(data.languages)) ? data.languages : [];
+      dl.innerHTML = '';
+      langs.forEach(l => {
+        const opt = document.createElement('option');
+        opt.value = l;
+        dl.appendChild(opt);
+      });
+    } catch (_) {}
+  }
+
+  // --- Language picker overlay ---
+  function openLangOverlay(langs){
+    try{
+      const overlay = document.getElementById('langOverlay');
+      const list = document.getElementById('langList');
+      if (!overlay || !list) return;
+      list.innerHTML = '';
+      (langs || []).forEach(l => {
+        const b = document.createElement('button');
+        b.type = 'button';
+        b.className = 'btn btn-secondary';
+        b.textContent = l;
+        b.addEventListener('click', () => {
+          const inp = document.getElementById('language');
+          if (inp) inp.value = l;
+          closeLangOverlay();
+          run(1);
+        });
+        list.appendChild(b);
+      });
+      overlay.style.display = 'flex';
+    }catch(_){ }
+  }
+
+  function closeLangOverlay(){
+    try{
+      const overlay = document.getElementById('langOverlay');
+      if (overlay) overlay.style.display = 'none';
+    }catch(_){ }
+  }
+
+  async function showLangPicker(){
+    try{
+      // Fetch fresh list to ensure full coverage
+      const res = await fetch('/api/snippets/languages', { credentials: 'same-origin' });
+      const data = await res.json().catch(() => ({}));
+      const langs = (data && Array.isArray(data.languages)) ? data.languages : [];
+      openLangOverlay(langs);
+    }catch(_){
+      // Fallback to datalist if API fails
+      try{
+        const dl = document.getElementById('languagesList');
+        const langs = Array.from((dl && dl.options) ? dl.options : []).map(o => o.value).filter(Boolean);
+        openLangOverlay(langs);
+      }catch(_){ }
+    }
+  }
+
   async function run(page) {
     const q = qs('#q').value;
     const language = qs('#language').value;
@@ -191,5 +257,17 @@
   }
 
   qs('#searchBtn').addEventListener('click', () => run(1));
-  document.addEventListener('DOMContentLoaded', () => run(1));
+  document.addEventListener('DOMContentLoaded', () => { loadLanguages(); run(1); });
+  const langInput = document.getElementById('language');
+  if (langInput) {
+    langInput.addEventListener('focus', loadLanguages, { once: true });
+  }
+  const pickBtn = document.getElementById('langPickerBtn');
+  if (pickBtn) {
+    pickBtn.addEventListener('click', showLangPicker);
+  }
+  const closeBtn = document.getElementById('langOverlayClose');
+  if (closeBtn) { closeBtn.addEventListener('click', closeLangOverlay); }
+  const backdrop = document.getElementById('langOverlayBackdrop');
+  if (backdrop) { backdrop.addEventListener('click', closeLangOverlay); }
 })();
