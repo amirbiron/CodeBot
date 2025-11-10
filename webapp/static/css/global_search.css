@@ -20,9 +20,9 @@
 .search-box{
   width:100%;
   padding:0.75rem 2.5rem 0.75rem 0.9rem; /* מרחב לאייקון מצד ימין (RTL) ולשוליים משמאל */
-  border-radius:12px;
-  border:1px solid var(--glass-border);
-  background: rgba(255,255,255,0.12);
+  border-radius:10px; /* יישור לעיצוב של תיבת החיפוש התחתונה */
+  border:1px solid rgba(255,255,255,0.2);
+  background: rgba(255,255,255,0.10);
   color:#fff;
   font-size:1rem;
   outline:none;
@@ -133,6 +133,18 @@
   box-sizing:border-box;
 }
 
+/* סלקטים בחיפוש הגלובלי – עיצוב זהה לסלקטים מתחת "שאר קבצים" */
+.search-and-filters select.form-control{
+  padding: 0.75rem;
+  border-radius: 10px;
+  border: 1px solid rgba(255,255,255,0.2);
+  background: rgba(255,255,255,0.1);
+  color: #fff;
+  font-size: 1rem;
+  height: auto;
+}
+.search-and-filters select.form-control option{ background: var(--primary); color:#fff; }
+
 /* ייצוב פריסת בקרי החיפוש */
 .search-and-filters .filters-row{
   display:flex;
@@ -151,6 +163,8 @@
   min-width:300px;
   max-width:100%;
 }
+/* גם עבור מבנה col-md-12 שבו משתמשים בפועל */
+.search-and-filters .col-md-12{ position: relative; }
 
 .search-and-filters .col-lg-4,
 .search-and-filters .col-md-4{

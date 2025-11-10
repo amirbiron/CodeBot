@@ -43,6 +43,58 @@
     }
   });
 
+  // איפוס חיפוש גלובלי: שדות, פילטרים ותוצאות
+  function clearSearch(){
+    try {
+      const input = document.getElementById('globalSearchInput');
+      const suggestions = document.getElementById('searchSuggestions');
+      const clearBtn = document.getElementById('clearSearchInputBtn');
+      const container = document.getElementById('searchResultsContainer');
+      const info = document.getElementById('searchInfo');
+      const results = document.getElementById('searchResults');
+      const pagination = document.getElementById('searchPagination');
+
+      if (input) { input.value = ''; input.focus(); }
+      if (suggestions) { suggestions.style.display = 'none'; suggestions.innerHTML = ''; }
+      if (clearBtn) { clearBtn.style.display = 'none'; }
+
+      // אפס סלקטים לערכי ברירת המחדל (תוכן / 20 / רלוונטיות)
+      try { const el = document.getElementById('searchType'); if (el) el.value = 'content'; } catch(_){}
+      try { const el = document.getElementById('resultsPerPage'); if (el) el.value = '20'; } catch(_){}
+      try { const el = document.getElementById('sortOrder'); if (el) el.value = 'relevance'; } catch(_){}
+
+      // נקה פילטרי שפה (UI חדש עם צ'קבוקסים + badge)
+      try {
+        const dd = document.getElementById('languageFilterDropdown');
+        if (dd) {
+          dd.querySelectorAll('input.lang-checkbox:checked').forEach(cb => { cb.checked = false; });
+        }
+        const countEl = document.getElementById('languageSelectedCount');
+        if (countEl) { countEl.style.display = 'none'; countEl.textContent = '0'; }
+      } catch(_){}
+
+      // תאימות לאחור: select#filterLanguages
+      try {
+        const sel = document.getElementById('filterLanguages');
+        if (sel) { Array.from(sel.options).forEach(o => { o.selected = false; }); }
+      } catch(_){}
+
+      // נקה תוצאות
+      if (info) info.innerHTML = '';
+      if (results) results.innerHTML = '';
+      if (pagination) pagination.innerHTML = '';
+      if (container) container.style.display = 'none';
+
+      // עדכן מצב פנימי
+      currentSearchQuery = '';
+      currentSearchPage = 1;
+    } catch (e) {
+      // לא להשתיק, אבל לא להפיל את הדף
+      try { console.warn('clearSearch failed', e); } catch(_) {}
+    }
+  }
+  window.clearSearch = clearSearch;
+
   async function performGlobalSearch(page){
     page = page || 1;
     const input = $('globalSearchInput');
