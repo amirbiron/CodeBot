@@ -3462,21 +3462,31 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
             )
             return ConversationHandler.END
         elif data == "cancel":
-            # ביטול כללי דרך כפתור
-            # ביטול טיימאאוט אם קיים
+            had_snippet_state = bool(context.user_data.get('sn_item') or context.user_data.get('sn_long_parts'))
+            had_comm_state = bool(context.user_data.get('cl_item'))
+            next_state = ConversationHandler.END
+            if had_snippet_state or had_comm_state:
+                try:
+                    next_state = await submit_flows_cancel(update, context)
+                except Exception:
+                    next_state = ConversationHandler.END
+            else:
+                await query.edit_message_text("🚫 התהליך בוטל בהצלחה!")
+                await query.message.reply_text(
+                    "🎮 בחר פעולה מתקדמת:",
+                    reply_markup=ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True)
+                )
             try:
                 job = context.user_data.get('long_collect_job')
                 if job:
                     job.schedule_removal()
             except Exception:
                 pass
-            context.user_data.clear()
-            await query.edit_message_text("🚫 התהליך בוטל בהצלחה!")
-            await query.message.reply_text(
-                "🎮 בחר פעולה מתקדמת:",
-                reply_markup=ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True)
-            )
-            return ConversationHandler.END
+            try:
+                context.user_data.clear()
+            except Exception:
+                pass
+            return next_state
         elif data == "zip_create_cancel":
             # ביטול מצב יצירת ZIP בלבד
             context.user_data.pop('upload_mode', None)
@@ -4051,7 +4061,7 @@ def get_save_conversation_handler(db: DatabaseManager) -> ConversationHandler:
         },
         fallbacks=[
             CommandHandler("cancel", cancel),
-            CallbackQueryHandler(submit_flows_cancel, pattern=r'^cancel$'),
+            CallbackQueryHandler(handle_callback_query, pattern=r'^cancel$'),
             CallbackQueryHandler(handle_callback_query)
         ],
         allow_reentry=True,
