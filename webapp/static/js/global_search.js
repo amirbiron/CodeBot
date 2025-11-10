@@ -9,6 +9,7 @@
   document.addEventListener('DOMContentLoaded', function(){
     const input = $('globalSearchInput');
     const btn = $('searchBtn');
+    const clearBtn = document.getElementById('clearSearchInputBtn');
     if (!input || !btn) return;
 
     input.addEventListener('keypress', function(e){
@@ -16,6 +17,7 @@
     });
     input.addEventListener('input', function(e){
       const q = (e.target.value || '').trim();
+      try { if (clearBtn) clearBtn.style.display = q.length ? 'inline-flex' : 'none'; } catch(_) {}
       if (suggestionsTimeout) clearTimeout(suggestionsTimeout);
       if (q.length >= 2){
         suggestionsTimeout = setTimeout(function(){ fetchSuggestions(q); }, 250);
@@ -25,10 +27,20 @@
     });
 
     document.addEventListener('click', function(e){
-      const inBox = e.target.closest('#globalSearchInput');
+      const inBox = e.target.closest('.search-box-wrapper');
       const inSug = e.target.closest('#searchSuggestions');
       if (!inBox && !inSug) hideSuggestions();
     });
+    // Initialize clear button visibility + behavior
+    try { if (clearBtn) clearBtn.style.display = (input.value && input.value.trim().length) ? 'inline-flex' : 'none'; } catch(_) {}
+    if (clearBtn) {
+      clearBtn.addEventListener('click', function(){
+        try { input.value = ''; } catch(_) {}
+        try { input.focus(); } catch(_) {}
+        try { hideSuggestions(); } catch(_) {}
+        try { clearBtn.style.display = 'none'; } catch(_) {}
+      });
+    }
   });
 
   async function performGlobalSearch(page){

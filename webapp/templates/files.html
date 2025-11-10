@@ -18,11 +18,21 @@
         <!-- עמודת החיפוש -->
         <div class="col-lg-8 col-md-12 mb-3 mb-lg-0">
           <div class="input-group">
-            <input type="text"
-                   id="globalSearchInput"
-                   class="form-control form-control-lg"
-                   placeholder="חפש טקסט/קוד בכל הקבצים..."
-                   autocomplete="off">
+            <div class="search-box-wrapper">
+              <i class="fas fa-search search-icon" aria-hidden="true"></i>
+              <input type="text"
+                     id="globalSearchInput"
+                     class="search-box"
+                     placeholder="🔍 חפש טקסט/קוד בכל הקבצים..."
+                     autocomplete="off"
+                     aria-label="חיפוש גלובלי">
+              <button type="button"
+                      id="clearSearchInputBtn"
+                      class="clear-search-btn"
+                      aria-label="נקה חיפוש">
+                <i class="fas fa-times"></i>
+              </button>
+            </div>
             <div class="input-group-append">
               <button class="btn btn-primary btn-lg"
                       id="searchBtn"

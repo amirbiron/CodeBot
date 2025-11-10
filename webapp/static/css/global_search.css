@@ -11,6 +11,57 @@
   box-shadow:0 4px 12px rgba(0,0,0,0.15);
 }
 
+/* --- תיבות חיפוש מעוצבות בסגנון "אוסף הקהילה" --- */
+.search-box-wrapper{
+  position:relative;
+  width:100%;
+}
+
+.search-box{
+  width:100%;
+  padding:0.75rem 2.5rem 0.75rem 0.9rem; /* מרחב לאייקון מצד ימין (RTL) ולשוליים משמאל */
+  border-radius:12px;
+  border:1px solid var(--glass-border);
+  background: rgba(255,255,255,0.12);
+  color:#fff;
+  font-size:1rem;
+  outline:none;
+  transition: background .2s ease, border-color .2s ease, box-shadow .2s ease;
+  box-sizing: border-box;
+}
+
+.search-box::placeholder{ color: rgba(255,255,255,0.7); }
+
+.search-box:focus{
+  background: rgba(255,255,255,0.18);
+  border-color: rgba(255,255,255,0.45);
+  box-shadow: 0 0 0 3px rgba(255,255,255,0.15);
+}
+
+.search-icon{
+  position:absolute;
+  right:12px; /* RTL: אייקון בתחילת השורה */
+  top:50%;
+  transform: translateY(-50%);
+  color: rgba(255,255,255,0.85);
+  pointer-events:none;
+}
+
+.clear-search-btn{
+  position:absolute;
+  left:10px; /* RTL: כפתור ניקוי בקצה שמאלי */
+  top:50%;
+  transform: translateY(-50%);
+  width:28px; height:28px;
+  display:none; /* מוצג רק כשיש טקסט */
+  align-items:center; justify-content:center;
+  border:none; border-radius:50%;
+  background: rgba(255,255,255,0.15);
+  color:#fff; cursor:pointer;
+  transition: background .2s ease;
+}
+.clear-search-btn:hover{ background: rgba(255,255,255,0.25); }
+
 /* כרטיס תוצאת חיפוש – רחב וממורכז ~95% מרוחב המסך */
 .search-result-card{
   /* הרחבה ל-95% מרוחב המסך עם הגבלה מקסימלית */
@@ -115,6 +166,13 @@
   width:100%;
 }
 
+/* הופך את ה-wrapper לילד ה-flex הראשי כך שהתיבה מילאה את הרוחב */
+.search-and-filters .input-group .search-box-wrapper{
+  flex:1 1 auto;
+  min-width:200px;
+  max-width:100%;
+}
+
 #globalSearchInput{
   flex:1;
   min-width:200px;
@@ -135,6 +193,7 @@
   .search-and-filters .col-md-4{ flex:1 1 100%; width:100%; max-width:100%; min-width:0; }
   .search-and-filters .input-group{ flex-wrap:nowrap; }
   #globalSearchInput{ min-width:0; }
+  .search-and-filters .input-group .search-box-wrapper{ min-width:0; }
   .filter-container{ justify-content:center; margin-top:0.5rem; }
   .search-result-card{ width:98%; padding:1rem; margin:0.5rem auto; }
 }
