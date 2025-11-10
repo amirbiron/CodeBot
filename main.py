@@ -2046,13 +2046,23 @@ class CodeKeeperBot:
                 # Snippet inline approve
                 self.application.add_handler(CallbackQueryHandler(snippet_inline_approve, pattern=r'^snippet_approve:'))
                 # Submission flow
+                _logo_message_filter = filters.TEXT & ~filters.COMMAND
+                try:
+                    _photo_filter = getattr(filters, "PHOTO", None)
+                    if _photo_filter is not None:
+                        _logo_message_filter = (_photo_filter | filters.TEXT) & ~filters.COMMAND
+                except Exception:
+                    # אם חיבור הפילטרים נכשל (למשל בסביבת טסטים עם סטאבים פשוטים),
+                    # תישאר רק בדיקה על טקסט. חשוב שה-handler עדיין יירשם.
+                    _logo_message_filter = filters.TEXT & ~filters.COMMAND
+
                 comm_conv = ConversationHandler(
                     entry_points=[CallbackQueryHandler(community_submit_start, pattern=r'^community_submit$')],
                     states={
                         CL_COLLECT_TITLE: [MessageHandler(filters.TEXT & ~filters.COMMAND, community_collect_title)],
                         CL_COLLECT_DESCRIPTION: [MessageHandler(filters.TEXT & ~filters.COMMAND, community_collect_description)],
                         CL_COLLECT_URL: [MessageHandler(filters.TEXT & ~filters.COMMAND, community_collect_url)],
-                        CL_COLLECT_LOGO: [MessageHandler((filters.PHOTO | filters.TEXT) & ~filters.COMMAND, community_collect_logo)],
+                        CL_COLLECT_LOGO: [MessageHandler(_logo_message_filter, community_collect_logo)],
                     },
                     fallbacks=[
                         CommandHandler('cancel', lambda u, c: ConversationHandler.END),
