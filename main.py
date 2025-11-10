@@ -429,6 +429,11 @@ def _wrap_handler_callback(callback, handler_label: str):
     return _wrapped_sync
 
 
+async def _cancel_command_fallback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Handler אסינכרוני אחיד לסיום שיחה כאשר המשתמש מפעיל /cancel."""
+    return ConversationHandler.END
+
+
 def _redis_socket_available(redis_url: str, timeout: float = 0.25) -> bool:
     """
     בדיקת reachability בסיסית ל-Redis כדי להימנע מהמתנה ארוכה בזמן טסטים/CI.
@@ -2065,7 +2070,7 @@ class CodeKeeperBot:
                         CL_COLLECT_LOGO: [MessageHandler(_logo_message_filter, community_collect_logo)],
                     },
                     fallbacks=[
-                        CommandHandler('cancel', lambda u, c: ConversationHandler.END),
+                        CommandHandler('cancel', _cancel_command_fallback),
                         CallbackQueryHandler(submit_flows_cancel, pattern=r'^cancel$'),
                     ],
                 )
@@ -2088,7 +2093,7 @@ class CodeKeeperBot:
                         ],
                     },
                     fallbacks=[
-                        CommandHandler('cancel', lambda u, c: ConversationHandler.END),
+                        CommandHandler('cancel', _cancel_command_fallback),
                         CallbackQueryHandler(submit_flows_cancel, pattern=r'^cancel$'),
                     ],
                 )
@@ -2099,7 +2104,7 @@ class CodeKeeperBot:
                     states={
                         SN_REJECT_REASON: [MessageHandler(filters.TEXT & ~filters.COMMAND, snippet_collect_reject_reason)],
                     },
-                    fallbacks=[CommandHandler('cancel', lambda u, c: ConversationHandler.END)],
+                    fallbacks=[CommandHandler('cancel', _cancel_command_fallback)],
                 )
                 self.application.add_handler(sn_reject_conv)
                 # Community hub menus
