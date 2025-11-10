@@ -232,6 +232,28 @@ async def _maybe_await(result):
 async def _safe_answer(*args, **kwargs):
     return await _maybe_await(TelegramUtils.safe_answer(*args, **kwargs))
 
+
+async def _safe_reply_text(update, context, text: str, **kwargs):
+    """שולח הודעת טקסט למשתמש גם כאשר האובייקט message חסר reply_text."""
+    message = getattr(update, "message", None)
+    reply_fn = getattr(message, "reply_text", None)
+    if callable(reply_fn):
+        return await _maybe_await(reply_fn(text, **kwargs))
+    bot = getattr(context, "bot", None)
+    if bot is None:
+        return None
+    chat = getattr(update, "effective_chat", None)
+    chat_id = getattr(chat, "id", None)
+    if chat_id is None:
+        user = getattr(update, "effective_user", None)
+        chat_id = getattr(user, "id", None)
+    if chat_id is None:
+        return None
+    try:
+        return await _maybe_await(bot.send_message(chat_id=int(chat_id), text=text, **kwargs))
+    except TypeError:
+        return await _maybe_await(bot.send_message(chat_id=int(chat_id), text=text))
+
 def _truncate_middle(text: str, max_len: int) -> str:
     """מקצר מחרוזת באמצע עם אליפסיס אם חורגת מאורך נתון."""
     if max_len <= 0:
@@ -1249,7 +1271,7 @@ async def snippet_collect_language(update: Update, context: ContextTypes.DEFAULT
         username=item.get('username'),
     )
     if not res.get('ok'):
-        await update.message.reply_text("❌ שמירת ההצעה נכשלה. נסה/י שוב מאוחר יותר.")
+        await _safe_reply_text(update, context, "❌ שמירת ההצעה נכשלה. נסה/י שוב מאוחר יותר.")
         return ConversationHandler.END
     # הודע למנהלים
     try:
@@ -1276,7 +1298,7 @@ async def snippet_collect_language(update: Update, context: ContextTypes.DEFAULT
                     continue
         except Exception:
             pass
-    await update.message.reply_text("✅ ההצעה התקבלה ותמתין לאישור מנהל. תודה!")
+    await _safe_reply_text(update, context, "✅ ההצעה התקבלה ותמתין לאישור מנהל. תודה!")
     context.user_data.pop('sn_item', None)
     return ConversationHandler.END
 
