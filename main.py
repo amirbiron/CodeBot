@@ -3179,6 +3179,36 @@ async def setup_bot_data(application: Application) -> None:  # noqa: D401
     # מחיקת כל הפקודות הציבוריות (אין להגדיר /share /share_help — שיתוף דרך הכפתורים)
     await application.bot.delete_my_commands()
     logger.info("✅ Public commands cleared (no /share, /share_help)")
+
+    # הגדרת JobStore מתמיד ל-APScheduler (MongoDB) אם אפשרי
+    try:
+        jq = getattr(application, "job_queue", None)
+        scheduler = getattr(jq, "scheduler", None)
+        if scheduler is not None:
+            try:
+                from database import db as _dbm  # שימוש בלקוח/DB הקיימים
+            except Exception:
+                _dbm = None  # type: ignore[assignment]
+            client = getattr(_dbm, "client", None) if _dbm is not None else None
+            db_obj = getattr(_dbm, "db", None) if _dbm is not None else None
+            db_name = getattr(db_obj, "name", None) if db_obj is not None else None
+            # אל תגדיר במצב NoOp או כשאין חיבור
+            if client is not None and db_name and db_name != "noop_db":
+                try:
+                    # הוסף JobStore בשם 'persistent' לשימוש ע"י משימות הגיבוי
+                    scheduler.add_jobstore(
+                        'mongodb',
+                        alias='persistent',
+                        client=client,
+                        database=db_name,
+                        collection=os.getenv('APSCHEDULER_COLLECTION', 'scheduler_jobs'),
+                    )
+                    logger.info("✅ APScheduler persistent jobstore registered (MongoDB)")
+                except Exception as e:  # pragma: no cover — fail‑open בסביבות טסט/ללא DB
+                    logger.warning(f"APS persistent jobstore not available: {e}")
+    except Exception:
+        # Fail-open: אין להפיל את ה-setup אם שכבת APScheduler אינה זמינה
+        pass
     
     # הגדרת פקודת stats רק למנהל (אמיר בירון)
     AMIR_ID = 6865105071  # ה-ID של אמיר בירון
