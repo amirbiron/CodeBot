@@ -33,3 +33,9 @@ def snippet_submit_page():
     except Exception:
         user = {}
     return render_template('snippet_submit.html', user=user)
+
+
+@snippet_library_ui.route('/snippets/submit/thanks')
+def snippet_submit_thanks_page():
+    """עמוד תודה לאחר שליחת סניפט (Web)."""
+    return render_template('snippet_thanks.html')
