@@ -196,6 +196,54 @@
     } catch (_) {}
   }
 
+  // --- Language picker overlay ---
+  function openLangOverlay(langs){
+    try{
+      const overlay = document.getElementById('langOverlay');
+      const list = document.getElementById('langList');
+      if (!overlay || !list) return;
+      list.innerHTML = '';
+      (langs || []).forEach(l => {
+        const b = document.createElement('button');
+        b.type = 'button';
+        b.className = 'btn btn-secondary';
+        b.textContent = l;
+        b.addEventListener('click', () => {
+          const inp = document.getElementById('language');
+          if (inp) inp.value = l;
+          closeLangOverlay();
+          run(1);
+        });
+        list.appendChild(b);
+      });
+      overlay.style.display = 'flex';
+    }catch(_){ }
+  }
+
+  function closeLangOverlay(){
+    try{
+      const overlay = document.getElementById('langOverlay');
+      if (overlay) overlay.style.display = 'none';
+    }catch(_){ }
+  }
+
+  async function showLangPicker(){
+    try{
+      // Fetch fresh list to ensure full coverage
+      const res = await fetch('/api/snippets/languages', { credentials: 'same-origin' });
+      const data = await res.json().catch(() => ({}));
+      const langs = (data && Array.isArray(data.languages)) ? data.languages : [];
+      openLangOverlay(langs);
+    }catch(_){
+      // Fallback to datalist if API fails
+      try{
+        const dl = document.getElementById('languagesList');
+        const langs = Array.from((dl && dl.options) ? dl.options : []).map(o => o.value).filter(Boolean);
+        openLangOverlay(langs);
+      }catch(_){ }
+    }
+  }
+
   async function run(page) {
     const q = qs('#q').value;
     const language = qs('#language').value;
@@ -214,4 +262,12 @@
   if (langInput) {
     langInput.addEventListener('focus', loadLanguages, { once: true });
   }
+  const pickBtn = document.getElementById('langPickerBtn');
+  if (pickBtn) {
+    pickBtn.addEventListener('click', showLangPicker);
+  }
+  const closeBtn = document.getElementById('langOverlayClose');
+  if (closeBtn) { closeBtn.addEventListener('click', closeLangOverlay); }
+  const backdrop = document.getElementById('langOverlayBackdrop');
+  if (backdrop) { backdrop.addEventListener('click', closeLangOverlay); }
 })();
