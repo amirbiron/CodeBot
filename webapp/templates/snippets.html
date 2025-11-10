@@ -14,7 +14,7 @@
 <div class="community-header">
   <div class="title">
     <h1>📃 ספריית סניפטים</h1>
-    <p class="subtitle">קטעי קוד קצרים עם חיפוש, סינון והדגשת תחביר</p>
+    <p class="subtitle">מאגר סניפטים מוכנים להעתקה - חפשו לפי שפה, כותרת או תיאור</p>
   </div>
   <div class="actions">
     <a class="btn primary" href="/snippets/submit">+ הוסף סניפט משלך</a>
@@ -24,7 +24,7 @@
 
 <div class="community-controls">
   <input id="q" type="text" placeholder="🔍 חפש לפי כותרת או תיאור..." />
-  <input id="language" type="text" placeholder="שפה (למשל: python)" />
+  <input id="language" type="text" placeholder="שפה (למשל: python)" list="languagesList" />
   <button id="searchBtn" class="btn btn-primary">חיפוש</button>
   
 </div>
@@ -32,6 +32,7 @@
 <div id="results" class="community-grid"></div>
 
 <nav id="pager" style="display:flex; gap:.5rem; justify-content:center; margin-top:1rem;"></nav>
+<datalist id="languagesList"></datalist>
 {% endblock %}
 
 {% block extra_js %}

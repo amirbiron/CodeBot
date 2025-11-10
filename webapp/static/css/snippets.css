@@ -23,6 +23,8 @@
   white-space: pre-wrap;
   word-break: break-word;
   overflow-wrap: anywhere;
+  /* ensure code starts on a new line after the copy button */
+  clear: both;
   direction: ltr;
   display: block;
 }

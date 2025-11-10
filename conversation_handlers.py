@@ -925,6 +925,7 @@ from handlers.states import (
     SN_COLLECT_LANGUAGE,
     SN_REJECT_REASON,
     SN_LONG_COLLECT,
+    CL_REJECT_REASON,
 )
 from services.community_library_service import submit_item as _cl_submit, ObjectId as _CLObjectId
 from chatops.permissions import get_admin_user_ids as _get_admin_user_ids
@@ -1006,7 +1007,8 @@ async def community_collect_logo(update: Update, context: ContextTypes.DEFAULT_T
     if admins:
         try:
             kb = InlineKeyboardMarkup([
-                [InlineKeyboardButton("✅ אשר", callback_data=f"community_approve:{req_id or ''}")],
+                [InlineKeyboardButton("✅ אשר", callback_data=f"community_approve:{req_id or ''}"),
+                 InlineKeyboardButton("❌ דחייה", callback_data=f"community_reject:{req_id or ''}")],
             ])
             text = (
                 "🆕 הגשה חדשה לאוסף הקהילה\n\n"
@@ -1061,6 +1063,67 @@ async def community_inline_approve(update: Update, context: ContextTypes.DEFAULT
         except Exception:
             pass
     await TelegramUtils.safe_edit_message_text(query, "✅ אושר" if ok else "❌ שגיאה באישור")
+    return ConversationHandler.END
+
+@_admin_required
+async def community_reject_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """התחלת זרימת דחייה דרך כפתור אינליין: בקשת סיבת דחייה ולאחר מכן קריאה לשירות."""
+    query = update.callback_query
+    await _maybe_await(_safe_answer(query))
+    data = (query.data or '')
+    try:
+        _, item_id = data.split(':', 1)
+    except ValueError:
+        return ConversationHandler.END
+    context.user_data['cl_reject_id'] = item_id
+    await _maybe_await(_safe_edit_message_text(query, "נא לציין סיבת דחייה לפריט זה:"))
+    return CL_REJECT_REASON
+
+@_admin_required
+async def community_collect_reject_reason(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    message = getattr(update, 'message', None)
+    raw_text = getattr(message, 'text', None) if message is not None else None
+    reason = (raw_text or '').strip()
+    item_id = str(context.user_data.get('cl_reject_id') or '')
+    if not item_id:
+        if message is not None and hasattr(message, 'reply_text'):
+            await _maybe_await(message.reply_text("❌ מזהה לא תקין"))
+        return ConversationHandler.END
+    ok = False
+    try:
+        from services.community_library_service import reject_item as _reject
+        ok = _reject(item_id, int(update.effective_user.id), reason)
+    except Exception:
+        ok = False
+    # הודע למגיש/ה
+    if ok:
+        try:
+            from database import db as _db
+            coll = getattr(_db, 'community_library_collection', None)
+            if coll is None:
+                coll = getattr(_db.db, 'community_library_items')
+            doc = coll.find_one({'_id': _CLObjectId(item_id)}) if coll is not None else None
+        except Exception:
+            doc = None
+        if isinstance(doc, dict):
+            uid = doc.get('user_id')
+            if uid:
+                try:
+                    msg = (
+                        "🙂 תודה על ההגשה! כרגע הבקשה לא אושרה.\n"
+                        f"סיבה: {reason or '—'}\n"
+                        "נשמח לשינויים קטנים ולהגשה מחדש."
+                    )
+                    await context.bot.send_message(chat_id=int(uid), text=msg)
+                except Exception:
+                    pass
+    else:
+        if message is not None and hasattr(message, 'reply_text'):
+            await _maybe_await(message.reply_text("❌ כשל בדחייה"))
+    try:
+        context.user_data.pop('cl_reject_id', None)
+    except Exception:
+        pass
     return ConversationHandler.END
 
 @_admin_required
@@ -2898,6 +2961,8 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
         try:
             if context.user_data.get('sn_item') and not (data and (data.startswith('snippet_') or data == 'cancel')):
                 context.user_data.pop('sn_item', None)
+            if context.user_data.get('sn_long_parts') and not (data and (data.startswith('snippet_') or data == 'cancel')):
+                context.user_data.pop('sn_long_parts', None)
             if context.user_data.get('cl_item') and not (data and (data.startswith('community_') or data == 'cancel')):
                 context.user_data.pop('cl_item', None)
         except Exception:
