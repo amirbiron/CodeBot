@@ -82,7 +82,6 @@ def test_upload_bytes_retries_on_429_then_success(monkeypatch):
     fid = gds.upload_bytes(1, "file.zip", b"ZIPDATA", sub_path="zip")
     assert fid == "fid-429-ok"
 
-
 def test_retryable_and_parse_helpers(monkeypatch):
     gds = _import_fresh()
 
@@ -118,7 +117,6 @@ def test_sleep_backoff_honors_retry_after_and_jitter(monkeypatch):
     assert abs(calls["sleep"][0] - 1.25) < 1e-6
     # Second call equals 1.0 (with deterministic jitter) and not clamped below 0.05
     assert 0.99 <= calls["sleep"][1] <= 1.01
-
 def test_upload_file_retries_on_transport_then_success(tmp_path, monkeypatch):
     gds = _import_fresh()
 
