@@ -15,7 +15,11 @@ def _import_fresh():
 
 
 def _make_http_error(gds, status=429, reason='rateLimitExceeded', retry_after=None):
-    # Build a faux HttpError-like object with resp/status/headers and content JSON
+    """Construct an HttpError-like object compatible with both real and stubbed gds.HttpError.
+
+    When googleapiclient is installed, HttpError(resp, content) is required; otherwise
+    gds.HttpError may be aliased to Exception. We handle both.
+    """
     class _Resp:
         def __init__(self, status, headers):
             self.status = status
@@ -25,11 +29,19 @@ def _make_http_error(gds, status=429, reason='rateLimitExceeded', retry_after=No
     headers = {}
     if retry_after is not None:
         headers['Retry-After'] = str(retry_after)
-    err = gds.HttpError("drive error")  # in our env HttpError is likely Exception
-    # attach attributes expected by the parser
-    err.resp = _Resp(status, headers)
+    resp = _Resp(status, headers)
     payload = {"error": {"errors": [{"reason": reason}], "message": "err"}}
-    err.content = json.dumps(payload).encode('utf-8')
+    content_bytes = json.dumps(payload).encode('utf-8')
+    # Try the real constructor signature first; fallback to simple Exception-like instantiation
+    try:
+        err = gds.HttpError(resp, content_bytes)  # type: ignore[arg-type]
+        # Ensure attributes are accessible in case implementation changes
+        setattr(err, 'resp', getattr(err, 'resp', resp))
+        setattr(err, 'content', getattr(err, 'content', content_bytes))
+    except TypeError:
+        err = gds.HttpError("drive error")  # type: ignore[call-arg]
+        err.resp = resp
+        err.content = content_bytes
     return err
 
 
