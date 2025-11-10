@@ -103,10 +103,9 @@
         const msg = (data && data.error) ? String(data.error) : 'שגיאה בשליחה';
         throw new Error(msg);
       }
-      // Success UI
-      okEl.style.display = 'block';
-      form.reset();
-      btn.disabled = false; btn.textContent = 'שלח';
+      // Success: redirect to Thank You page
+      window.location.href = '/snippets/submit/thanks';
+      return;
     }catch(e){
       btn.disabled = false; btn.textContent = 'שלח';
       errEl.textContent = (e && e.message) ? e.message : 'שגיאה בלתי צפויה';

@@ -10,12 +10,13 @@
     אין הצעות ממתינות.
   {% else %}
     <div class="table-responsive" style="overflow:auto;">
-      <table class="table" style="table-layout: fixed;">
+      <table class="table" style="table-layout: auto; width:100%;">
         <thead>
           <tr>
             <th style="width:30%">כותרת</th>
             <th style="width:10%">שפה</th>
-            <th style="width:38%">תיאור</th>
+            <th style="width:15%">הוצע ע"י</th>
+            <th style="width:33%">תיאור</th>
             <th style="width:12%">הוגש</th>
             <th style="width:10%">פעולות</th>
           </tr>
@@ -25,8 +26,9 @@
             <tr>
               <td><div style="white-space:nowrap; overflow:hidden; text-overflow:ellipsis;"><a href="/admin/snippets/view?id={{ it._id }}" class="link-light">{{ it.title }}</a></div></td>
               <td><div style="white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">{{ it.language }}</div></td>
+              <td><div style="white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">{{ it.username and ('@' ~ it.username) }}</div></td>
               <td><div style="white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">{{ it.description }}</div></td>
-              <td><div style="white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">{{ it.submitted_at }}</div></td>
+              <td><div style="white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">{{ it.submitted_at | hhmm }}</div></td>
               <td>
                 <a class="btn btn-light btn-sm" href="/admin/snippets/view?id={{ it._id }}">👁️ הצג</a>
                 <a class="btn btn-primary btn-sm" href="/admin/snippets/approve?id={{ it._id }}">אשר</a>
@@ -43,4 +45,15 @@
     </div>
   {% endif %}
 </div>
+<style>
+/* מובייל: שיפור תצוגה והפחתת גלילה לרוחב */
+@media (max-width: 700px){
+  /* הסתרת עמודת תיאור במובייל לצמצום רוחב */
+  .table thead th:nth-child(4),
+  .table tbody td:nth-child(4){
+    display: none;
+  }
+  .table td, .table th{ padding: .4rem .5rem; }
+}
+</style>
 {% endblock %}

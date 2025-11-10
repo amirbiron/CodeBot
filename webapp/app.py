@@ -2646,6 +2646,24 @@ def format_datetime_display(value) -> str:
         return ''
     except Exception:
         return ''
+
+# מסנן Jinja להצגת שעה:דקות (HH:MM) בלבד
+@app.template_filter('hhmm')
+def format_time_hhmm(value) -> str:
+    try:
+        if isinstance(value, datetime):
+            dt = value if value.tzinfo is not None else value.replace(tzinfo=timezone.utc)
+            return dt.strftime('%H:%M')
+        if isinstance(value, str) and value:
+            try:
+                dtp = datetime.fromisoformat(value)
+                dtp = dtp if dtp.tzinfo is not None else dtp.replace(tzinfo=timezone.utc)
+                return dtp.strftime('%H:%M')
+            except Exception:
+                return ''
+        return ''
+    except Exception:
+        return ''
 # Routes
 
 @app.route('/')
