@@ -11,6 +11,7 @@ import io
 import logging
 import re
 from pathlib import Path
+from bs4 import BeautifulSoup
 from typing import Optional, Tuple, List
 
 logger = logging.getLogger(__name__)
@@ -178,10 +179,11 @@ class CodeImageGenerator:
 
     # --- HTML colors extraction ------------------------------------------
     def _html_to_text_colors(self, html_str: str) -> List[Tuple[str, str]]:
-        # הסר style/script
-        s = re.sub(r'<style[^>]*>.*?</style>', '', html_str, flags=re.DOTALL | re.IGNORECASE)
-        s = re.sub(r'<script[^>]*>.*?</script>', '', s, flags=re.DOTALL | re.IGNORECASE)
-
+        # הסר style/script באופן בטוח עם BeautifulSoup
+        soup = BeautifulSoup(html_str, "html.parser")
+        for tag in soup(["style", "script"]):
+            tag.decompose()
+        s = str(soup)
         text_colors: List[Tuple[str, str]] = []
         pattern = r'<span[^>]*style=\"[^\"]*color:\s*([^;\"\s]+)[^\\\"]*\"[^>]*>(.*?)</span>'
         last = 0
