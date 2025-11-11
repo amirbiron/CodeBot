@@ -3718,6 +3718,16 @@ class AdvancedBotHandlers:
             return
 
         status = await update.message.reply_text(f"🎨 יוצר {len(files)} תמונות...\n0/{len(files)} הושלמו")
+
+        async def _try_edit_status(new_text: str) -> bool:
+            if not status or not hasattr(status, "edit_text"):
+                return False
+            try:
+                await status.edit_text(new_text)
+                return True
+            except Exception:
+                return False
+
         done = 0
         generator = CodeImageGenerator(style='monokai', theme='dark')
         for f in files:
@@ -3736,10 +3746,7 @@ class AdvancedBotHandlers:
                 await update.message.reply_photo(photo=InputFile(bio, filename=bio.name), parse_mode=ParseMode.HTML)
                 done += 1
                 if done % 5 == 0:
-                    try:
-                        await status.edit_text(f"🎨 יוצר {len(files)} תמונות...\n{done}/{len(files)} הושלמו")
-                    except Exception:
-                        pass
+                    await _try_edit_status(f"🎨 יוצר {len(files)} תמונות...\n{done}/{len(files)} הושלמו")
             except Exception as e:
                 logger.error(f"Error processing {f.get('file_name')}: {e}")
                 continue
@@ -3747,7 +3754,11 @@ class AdvancedBotHandlers:
             generator.cleanup()  # type: ignore[attr-defined]
         except Exception:
             pass
-        await status.edit_text(f"✅ הושלם! נוצרו {done}/{len(files)} תמונות.")
+        if not await _try_edit_status(f"✅ הושלם! נוצרו {done}/{len(files)} תמונות."):
+            try:
+                await update.message.reply_text(f"✅ הושלם! נוצרו {done}/{len(files)} תמונות.")
+            except Exception:
+                pass
 
 # פקודות נוספות ייוצרו בהמשך...
 
