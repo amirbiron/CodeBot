@@ -615,6 +615,9 @@
             box-shadow: 0 20px 40px rgba(0, 0, 0, 0.2);
             animation: modalSlideUp 0.3s ease;
         }
+        .community-modal .modal-content {
+            color: #1f2933;
+        }
         @keyframes modalSlideUp {
             from { opacity: 0; transform: translateY(20px); }
             to   { opacity: 1; transform: translateY(0); }
@@ -632,6 +635,14 @@
         .community-modal .modal-close:hover { color: #333; }
         .recent-files-modal .modal-body,
         .community-modal .modal-body { flex: 1; overflow-y: auto; padding: 1rem; }
+        .community-modal .modal-body .btn.btn-secondary {
+            color: #1f2933;
+            border-color: rgba(15, 23, 42, 0.15);
+        }
+        .community-modal .modal-body .btn.btn-secondary:hover {
+            background: rgba(102, 126, 234, 0.15);
+            color: #1f2933;
+        }
         .recent-file-item { display: flex; align-items: center; gap: 1rem; padding: 0.75rem; border-radius: 8px; text-decoration: none; color: #333; transition: all 0.2s ease; margin-bottom: 0.5rem; }
         .recent-file-item:hover { background: rgba(103,126,234,0.1); transform: translateX(-4px); }
         .recent-files-modal .file-icon { font-size: 1.5rem; min-width: 40px; text-align: center; }
@@ -657,12 +668,20 @@
             .quick-access-item { color: #e0e0e0; }
             .quick-access-item:hover { background: rgba(103, 126, 234, 0.2); }
             .recent-files-modal .modal-content,
-            .community-modal .modal-content { background: #2a2a3a; }
+            .community-modal .modal-content { background: #2a2a3a; color: #f5f5f5; }
             .recent-files-modal .modal-header,
             .community-modal .modal-header { border-bottom-color: #444; }
             .recent-files-modal .modal-header h3,
             .community-modal .modal-header h3,
             .recent-file-item { color: #e0e0e0; }
+            .community-modal .modal-body .btn.btn-secondary {
+                color: #f5f5f5;
+                border-color: rgba(148, 163, 184, 0.35);
+            }
+            .community-modal .modal-body .btn.btn-secondary:hover {
+                background: rgba(148, 163, 184, 0.25);
+                color: #ffffff;
+            }
             .recent-files-modal .file-meta, .recent-files-modal .no-files { color: #999; }
         }
 .welcome-modal { position: fixed; inset: 0; display: none; align-items: center; justify-content: center; z-index: 11000; }
