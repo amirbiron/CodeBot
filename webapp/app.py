@@ -1706,7 +1706,51 @@ def admin_snippet_approve():
     item_id = request.args.get('id') or ''
     try:
         if _snip_service is not None and item_id:
-            _snip_service.approve_snippet(item_id, int(session.get('user_id')))
+            ok = _snip_service.approve_snippet(item_id, int(session.get('user_id')))
+            # שליחת הודעה ידידותית למגיש הסניפט (כמו בבוט)
+            if ok:
+                try:
+                    from database import db as _db
+                    coll = getattr(_db, 'snippets_collection', None)
+                    if coll is None:
+                        coll = getattr(_db.db, 'snippets')
+                    normalized_id = _db._get_repo()._normalize_snippet_identifier(item_id)
+                    doc = coll.find_one({'_id': normalized_id}) if (normalized_id is not None and coll is not None) else None
+                except Exception:
+                    doc = None
+                try:
+                    uid = int((doc or {}).get('user_id') or 0)
+                except Exception:
+                    uid = 0
+                if uid > 0:
+                    try:
+                        # base URL להצגה למשתמש
+                        base = (PUBLIC_BASE_URL or WEBAPP_URL or request.host_url or '').rstrip('/')
+                        text = (
+                            "🎉 איזה כיף! הסניפט שלך אושר והתווסף לספריית הסניפטים.\n"
+                            f"אפשר לצפות כאן: {base}/snippets"
+                        )
+                        # שלח דרך Telegram Bot API
+                        import os as _os
+                        bot_token = _os.getenv('BOT_TOKEN', '')
+                        if bot_token:
+                            try:
+                                # העדף http_sync אם זמין כדי להימנע מתלות ב-requests בזמן ריצה
+                                try:
+                                    from http_sync import request as _http_request  # type: ignore
+                                except Exception:  # pragma: no cover
+                                    _http_request = None  # type: ignore
+                                api = f"https://api.telegram.org/bot{bot_token}/sendMessage"
+                                payload = {"chat_id": uid, "text": text}
+                                if _http_request is not None:
+                                    _http_request('POST', api, json=payload, timeout=5)
+                                else:  # pragma: no cover
+                                    import requests as _requests  # type: ignore
+                                    _requests.post(api, json=payload, timeout=5)
+                            except Exception:
+                                pass
+                    except Exception:
+                        pass
     except Exception:
         pass
     return redirect(url_for('admin_snippets_pending'))
@@ -1719,7 +1763,48 @@ def admin_snippet_reject():
     reason = request.args.get('reason') or ''
     try:
         if _snip_service is not None and item_id:
-            _snip_service.reject_snippet(item_id, int(session.get('user_id')), reason)
+            ok = _snip_service.reject_snippet(item_id, int(session.get('user_id')), reason)
+            # שליחת הודעה ידידותית למגיש הסניפט (כמו בבוט)
+            if ok:
+                try:
+                    from database import db as _db
+                    coll = getattr(_db, 'snippets_collection', None)
+                    if coll is None:
+                        coll = getattr(_db.db, 'snippets')
+                    normalized_id = _db._get_repo()._normalize_snippet_identifier(item_id)
+                    doc = coll.find_one({'_id': normalized_id}) if (normalized_id is not None and coll is not None) else None
+                except Exception:
+                    doc = None
+                try:
+                    uid = int((doc or {}).get('user_id') or 0)
+                except Exception:
+                    uid = 0
+                if uid > 0:
+                    try:
+                        text = (
+                            "🙂 תודה על ההגשה! כרגע ההצעה לא אושרה.\n"
+                            f"סיבה: {reason or '—'}\n"
+                            "נשמח לשינויים קטנים ולהגשה מחדש."
+                        )
+                        import os as _os
+                        bot_token = _os.getenv('BOT_TOKEN', '')
+                        if bot_token:
+                            try:
+                                try:
+                                    from http_sync import request as _http_request  # type: ignore
+                                except Exception:  # pragma: no cover
+                                    _http_request = None  # type: ignore
+                                api = f"https://api.telegram.org/bot{bot_token}/sendMessage"
+                                payload = {"chat_id": uid, "text": text}
+                                if _http_request is not None:
+                                    _http_request('POST', api, json=payload, timeout=5)
+                                else:  # pragma: no cover
+                                    import requests as _requests  # type: ignore
+                                    _requests.post(api, json=payload, timeout=5)
+                            except Exception:
+                                pass
+                    except Exception:
+                        pass
     except Exception:
         pass
     return redirect(url_for('admin_snippets_pending'))
@@ -1773,6 +1858,55 @@ def admin_snippet_delete():
         pass
     return redirect(url_for('admin_snippets_pending'))
 
+
+# --- Community Library: Pending management (Admin) ---
+@app.route('/admin/community/pending')
+@admin_required
+def admin_community_pending():
+    items = []
+    try:
+        from services import community_library_service as _cl_service  # type: ignore
+    except Exception:
+        _cl_service = None  # type: ignore
+    try:
+        if _cl_service is not None:
+            items = _cl_service.list_pending(limit=200, skip=0)
+    except Exception:
+        items = []
+    return render_template('admin_community_pending.html', items=items)
+
+
+@app.route('/admin/community/approve')
+@admin_required
+def admin_community_approve():
+    item_id = request.args.get('id') or ''
+    try:
+        from services import community_library_service as _cl_service  # type: ignore
+    except Exception:
+        _cl_service = None  # type: ignore
+    try:
+        if _cl_service is not None and item_id:
+            _cl_service.approve_item(item_id, int(session.get('user_id')))
+    except Exception:
+        pass
+    return redirect(url_for('admin_community_pending'))
+
+
+@app.route('/admin/community/reject')
+@admin_required
+def admin_community_reject():
+    item_id = request.args.get('id') or ''
+    reason = request.args.get('reason') or ''
+    try:
+        from services import community_library_service as _cl_service  # type: ignore
+    except Exception:
+        _cl_service = None  # type: ignore
+    try:
+        if _cl_service is not None and item_id:
+            _cl_service.reject_item(item_id, int(session.get('user_id')), reason)
+    except Exception:
+        pass
+    return redirect(url_for('admin_community_pending'))
 
 @app.route('/admin/snippets/edit', methods=['GET', 'POST'])
 @admin_required
