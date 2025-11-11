@@ -1111,8 +1111,6 @@ async def handle_view_direct_file(update, context: ContextTypes.DEFAULT_TYPE) ->
                     f"📄 **{safe_file_name_md}** ({safe_language_md}) - גרסה {version}\n"
                     f"📝 הערה: {safe_note_md}\n\n"
                 )
-                if is_large_file:
-                    header_md += "_זה קובץ גדול_\n\n"
                 code_block_body = code_preview or ""
                 closing_newline = "" if code_block_body.endswith("\n") else "\n"
                 markdown_payload = f"{header_md}```\n{code_block_body}{closing_newline}```"
