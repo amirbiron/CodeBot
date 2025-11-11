@@ -121,14 +121,20 @@ class AdvancedBotHandlers:
         self.application.add_handler(CommandHandler("share_help", self.share_help_command))
         # self.application.add_handler(CommandHandler("export", self.export_command))
         self.application.add_handler(CommandHandler("download", self.download_command))
-        # יצירת תמונות מקוד
-        try:
-            self.application.add_handler(CommandHandler("image", self.image_command))
-            self.application.add_handler(CommandHandler("preview", self.preview_command))
-            self.application.add_handler(CommandHandler("image_all", self.image_all_command))
-        except Exception:
-            # סביבת בדיקות מינימלית עשויה שלא לתמוך בכל פרמטרי הרישום
-            self.application.add_handler(CommandHandler("image", self.image_command))
+        # יצירת תמונות מקוד – רישום עמיד: כל פקודה נרשמת בנפרד
+        for _cmd, _fn in (
+            ("image", self.image_command),
+            ("preview", self.preview_command),
+            ("image_all", self.image_all_command),
+        ):
+            try:
+                self.application.add_handler(CommandHandler(_cmd, _fn))
+            except Exception as e:
+                # אל תעצור רישום פקודות אחרות; דווח והמשך
+                try:
+                    logger.error(f"Failed to register /{_cmd}: {e}")
+                except Exception:
+                    pass
         
         # פקודות ניתוח
         self.application.add_handler(CommandHandler("analyze", self.analyze_command))
