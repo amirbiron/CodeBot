@@ -943,6 +943,14 @@ async def community_submit_start(update: Update, context: ContextTypes.DEFAULT_T
     return CL_COLLECT_TITLE
 
 async def community_collect_title(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    # ביטול אוטומטי אם המשתמש לחץ כפתור אחר במקלדת הראשית
+    try:
+        txt = (update.message.text or '').strip()
+        flat_menu = {t for row in MAIN_KEYBOARD for t in row}
+        if txt in flat_menu:
+            return await cancel(update, context)
+    except Exception:
+        pass
     title = (update.message.text or '').strip()
     if len(title) < 3:
         await update.message.reply_text("❌ שם קצר מדי. נסה/י שוב.")
@@ -952,12 +960,26 @@ async def community_collect_title(update: Update, context: ContextTypes.DEFAULT_
     return CL_COLLECT_DESCRIPTION
 
 async def community_collect_description(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    try:
+        txt = (update.message.text or '').strip()
+        flat_menu = {t for row in MAIN_KEYBOARD for t in row}
+        if txt in flat_menu:
+            return await cancel(update, context)
+    except Exception:
+        pass
     desc = (update.message.text or '').strip()
     context.user_data.setdefault('cl_item', {})['description'] = desc[:600]
     await update.message.reply_text("קישור ל־URL (http/https)")
     return CL_COLLECT_URL
 
 async def community_collect_url(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    try:
+        txt = (update.message.text or '').strip()
+        flat_menu = {t for row in MAIN_KEYBOARD for t in row}
+        if txt in flat_menu:
+            return await cancel(update, context)
+    except Exception:
+        pass
     url = (update.message.text or '').strip()
     if not (url.startswith('http://') or url.startswith('https://')):
         await update.message.reply_text("❌ URL לא תקין. נא להזין קישור שמתחיל ב-http/https")
@@ -967,6 +989,15 @@ async def community_collect_url(update: Update, context: ContextTypes.DEFAULT_TY
     return CL_COLLECT_LOGO
 
 async def community_collect_logo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    try:
+        # אם נשלח טקסט של כפתור מהמקלדת הראשית – בטל
+        if getattr(update, 'message', None) and getattr(update.message, 'text', None):
+            txt = (update.message.text or '').strip()
+            flat_menu = {t for row in MAIN_KEYBOARD for t in row}
+            if txt in flat_menu:
+                return await cancel(update, context)
+    except Exception:
+        pass
     logo_file_id: Optional[str] = None
     if getattr(update.message, 'photo', None):
         try:
@@ -1267,6 +1298,13 @@ async def snippet_submit_start(update: Update, context: ContextTypes.DEFAULT_TYP
 
 
 async def snippet_collect_title(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    try:
+        txt = (update.message.text or '').strip()
+        flat_menu = {t for row in MAIN_KEYBOARD for t in row}
+        if txt in flat_menu:
+            return await cancel(update, context)
+    except Exception:
+        pass
     title = (update.message.text or '').strip()
     if len(title) < 3:
         await update.message.reply_text("❌ כותרת קצרה מדי. נסה/י שוב.")
@@ -1277,6 +1315,13 @@ async def snippet_collect_title(update: Update, context: ContextTypes.DEFAULT_TY
 
 
 async def snippet_collect_description(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    try:
+        txt = (update.message.text or '').strip()
+        flat_menu = {t for row in MAIN_KEYBOARD for t in row}
+        if txt in flat_menu:
+            return await cancel(update, context)
+    except Exception:
+        pass
     desc = (update.message.text or '').strip()
     context.user_data.setdefault('sn_item', {})['description'] = desc[:1000]
     # אם הקוד כבר נאסף (למשל במצב איסוף ארוך) דלג לשפה
@@ -1314,6 +1359,14 @@ async def snippet_mode_long_start(update: Update, context: ContextTypes.DEFAULT_
 
 
 async def snippet_long_collect_receive(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    # ביטול אוטומטי כאשר המשתמש לוחץ על כפתור אחר במקלדת הראשית במהלך איסוף ארוך
+    try:
+        txt = (update.message.text or '').strip()
+        flat_menu = {t for row in MAIN_KEYBOARD for t in row}
+        if txt in flat_menu:
+            return await cancel(update, context)
+    except Exception:
+        pass
     text = update.message.text or ''
     parts = context.user_data.get('sn_long_parts')
     if parts is None:
@@ -1334,6 +1387,13 @@ async def snippet_long_collect_done(update: Update, context: ContextTypes.DEFAUL
 
 
 async def snippet_collect_code(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    try:
+        txt = (update.message.text or '').strip()
+        flat_menu = {t for row in MAIN_KEYBOARD for t in row}
+        if txt in flat_menu:
+            return await cancel(update, context)
+    except Exception:
+        pass
     code = (update.message.text or '').strip()
     if not code:
         await update.message.reply_text("❌ נדרש קוד. נסה/י שוב.")
@@ -1344,6 +1404,13 @@ async def snippet_collect_code(update: Update, context: ContextTypes.DEFAULT_TYP
 
 
 async def snippet_collect_language(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    try:
+        txt = (update.message.text or '').strip()
+        flat_menu = {t for row in MAIN_KEYBOARD for t in row}
+        if txt in flat_menu:
+            return await cancel(update, context)
+    except Exception:
+        pass
     language = (update.message.text or '').strip() or 'text'
     user = update.effective_user
     item = context.user_data.get('sn_item') or {}
