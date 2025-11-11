@@ -179,8 +179,8 @@ class CodeImageGenerator:
     # --- HTML colors extraction ------------------------------------------
     def _html_to_text_colors(self, html_str: str) -> List[Tuple[str, str]]:
         # הסר style/script
-        s = re.sub(r'<style[^>]*>.*?</style>', '', html_str, flags=re.DOTALL)
-        s = re.sub(r'<script[^>]*>.*?</script>', '', s, flags=re.DOTALL)
+        s = re.sub(r'<style[^>]*>.*?</style>', '', html_str, flags=re.DOTALL | re.IGNORECASE)
+        s = re.sub(r'<script[^>]*>.*?</script>', '', s, flags=re.DOTALL | re.IGNORECASE)
 
         text_colors: List[Tuple[str, str]] = []
         pattern = r'<span[^>]*style=\"[^\"]*color:\s*([^;\"\s]+)[^\\\"]*\"[^>]*>(.*?)</span>'
