@@ -878,7 +878,7 @@
         </div>
     </nav>
     
-    {% if session.user_id %}
+    {% if session.user_id and (weekly_tip_enabled is not defined or weekly_tip_enabled) %}
     <div class="container" aria-hidden="false">
         <div id="weeklyTip" class="weekly-tip" aria-live="polite" role="status" tabindex="0" title="טיפ שבועי">
             <span class="weekly-tip__icon" aria-hidden="true">💡</span>

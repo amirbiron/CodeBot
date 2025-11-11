@@ -205,6 +205,23 @@ _STATIC_VERSION = _compute_static_version()
 WELCOME_GUIDE_PRIMARY_SHARE_ID = "JjvpJFTXZO0oHtoC"
 WELCOME_GUIDE_SECONDARY_SHARE_ID = "sdVOAx6hUGsH4Anr"
 
+# Weekly Tip feature flag (env/config override)
+def _to_bool(val, default: bool = True) -> bool:
+    try:
+        if isinstance(val, bool):
+            return val
+        s = str(val).strip().lower()
+        if s in ("0", "false", "no", "off", "none", ""):  # treat empty as false only if explicitly provided
+            return False
+        if s in ("1", "true", "yes", "on"):  # common truthy strings
+            return True
+        return default
+    except Exception:
+        return default
+
+_WEEKLY_TIP_ENABLED_RAW = _cfg_or_env('WEEKLY_TIP_ENABLED', default='true')
+WEEKLY_TIP_ENABLED = _to_bool(_WEEKLY_TIP_ENABLED_RAW, default=True)
+
 # Guards for first-request and DB init race conditions
 _FIRST_REQUEST_LOCK = threading.Lock()
 _FIRST_REQUEST_RECORDED = False
@@ -819,6 +836,8 @@ def inject_globals():
         'bot_username': BOT_USERNAME_CLEAN,
         'ui_font_scale': font_scale,
         'ui_theme': theme,
+        # Feature flags
+        'weekly_tip_enabled': WEEKLY_TIP_ENABLED,
         # גרסה סטטית לצירוף לסטטיקה (cache-busting)
         'static_version': _STATIC_VERSION,
         # קישור לתיעוד (לשימוש בתבניות)
