@@ -180,6 +180,10 @@ def _shutdown_http_shared_session() -> None:
     try:
         tmp_loop = asyncio.new_event_loop()
         try:
+            asyncio.set_event_loop(tmp_loop)
+        except Exception:
+            pass
+        try:
             tmp_loop.run_until_complete(close_session())
         finally:
             tmp_loop.close()
