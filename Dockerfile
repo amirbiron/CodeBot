@@ -78,6 +78,11 @@ RUN apt-get update -y && apt-get upgrade -y && apt-get install -y --no-install-r
 # שדרוג כלי פייתון בסיסיים גם בשכבת ה-production כדי למנוע CVEs ב-site-packages של המערכת
 RUN python -m pip install --upgrade --no-cache-dir 'pip>=24.1' 'setuptools>=78.1.1' 'wheel>=0.43.0'
 
+# התקנת Playwright והתקנת תלויות מערכת ל-Chromium (root)
+# הערה: החבילה עצמה קיימת גם בסביבת המשתמש (מאושרת דרך builder), כאן נשתמש בה רק לצורך install-deps
+RUN python -m pip install --no-cache-dir 'playwright==1.49.0' && \
+    python -m playwright install-deps chromium || true
+
 # יצירת משתמש לא-root
 # Alpine: create non-root user
 RUN groupadd -g 1000 botuser && \
@@ -97,6 +102,9 @@ WORKDIR /app
 
 # העתקת קבצי האפליקציה
 COPY --chown=botuser:botuser . .
+
+# הורדת דפדפן Chromium לסביבת המשתמש (botuser) בזמן build
+RUN python -m playwright install chromium || true
 
 # הגדרת timezone
 ENV TZ=UTC

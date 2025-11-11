@@ -2912,7 +2912,13 @@ class AdvancedBotHandlers:
                 theme = str(settings.get('theme') or IMAGE_CONFIG.get('default_theme') or 'dark')
                 width = int(settings.get('width') or IMAGE_CONFIG.get('default_width') or 1200)
                 gen = CodeImageGenerator(style=style, theme=theme)
-                img = gen.generate_image(code=str(doc['code']), language=str(doc.get('programming_language') or 'text'), filename=file_name, max_width=width)
+                try:
+                    img = gen.generate_image(code=str(doc['code']), language=str(doc.get('programming_language') or 'text'), filename=file_name, max_width=width)
+                finally:
+                    try:
+                        gen.cleanup()  # type: ignore[attr-defined]
+                    except Exception:
+                        pass
                 bio = io.BytesIO(img)
                 bio.name = f"{file_name}.png"
                 # צרף מקלדת עדכנית גם להודעת ה-reply החדשה
@@ -2994,7 +3000,13 @@ class AdvancedBotHandlers:
                 theme = str(settings.get('theme') or IMAGE_CONFIG.get('default_theme') or 'dark')
                 width = int(settings.get('width') or IMAGE_CONFIG.get('default_width') or 1200)
                 gen = CodeImageGenerator(style=style, theme=theme)
-                img = gen.generate_image(code=str(doc['code']), language=str(doc.get('programming_language') or 'text'), filename=file_name, max_width=width)
+                try:
+                    img = gen.generate_image(code=str(doc['code']), language=str(doc.get('programming_language') or 'text'), filename=file_name, max_width=width)
+                finally:
+                    try:
+                        gen.cleanup()  # type: ignore[attr-defined]
+                    except Exception:
+                        pass
                 # העלאה ל-Drive
                 try:
                     from services.google_drive_service import upload_bytes  # type: ignore
@@ -3584,7 +3596,13 @@ class AdvancedBotHandlers:
             width = int(settings.get('width') or IMAGE_CONFIG.get('default_width') or 1200)
 
             generator = CodeImageGenerator(style=style, theme=theme)
-            image_bytes = generator.generate_image(code=code, language=language, filename=file_name, max_width=width)
+            try:
+                image_bytes = generator.generate_image(code=code, language=language, filename=file_name, max_width=width)
+            finally:
+                try:
+                    generator.cleanup()  # type: ignore[attr-defined]
+                except Exception:
+                    pass
 
             bio = io.BytesIO(image_bytes)
             bio.name = f"{file_name}.png"
@@ -3661,7 +3679,13 @@ class AdvancedBotHandlers:
             theme = str(IMAGE_CONFIG.get('default_theme') or 'dark')
             prev_w = int(((IMAGE_CONFIG.get('preview') or {}).get('width')) or 800)
             generator = CodeImageGenerator(style=style, theme=theme)
-            image_bytes = generator.generate_image(code=code, language=language, filename=file_name, max_width=prev_w, max_height=1500)
+            try:
+                image_bytes = generator.generate_image(code=code, language=language, filename=file_name, max_width=prev_w, max_height=1500)
+            finally:
+                try:
+                    generator.cleanup()  # type: ignore[attr-defined]
+                except Exception:
+                    pass
             bio = io.BytesIO(image_bytes)
             bio.name = f"preview_{file_name}.png"
             safe_name = html.escape(file_name)
@@ -3719,6 +3743,10 @@ class AdvancedBotHandlers:
             except Exception as e:
                 logger.error(f"Error processing {f.get('file_name')}: {e}")
                 continue
+        try:
+            generator.cleanup()  # type: ignore[attr-defined]
+        except Exception:
+            pass
         await status.edit_text(f"✅ הושלם! נוצרו {done}/{len(files)} תמונות.")
 
 # פקודות נוספות ייוצרו בהמשך...
