@@ -230,10 +230,8 @@ def _reset_http_async_session_between_tests(
         from http_async import close_session  # type: ignore
     except Exception:
         close_session = None  # type: ignore
-
     is_async_test = True
     event_loop: Optional[asyncio.AbstractEventLoop] = None
-
     if request is not None:
         try:
             is_async_test = request.node.get_closest_marker("asyncio") is not None
