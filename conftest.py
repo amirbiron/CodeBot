@@ -214,3 +214,26 @@ def _close_http_async_session_after_session() -> None:
                 pass
     except Exception:
         pass
+
+
+@pytest.fixture(autouse=True)
+async def _reset_http_async_session_between_tests():
+    """מוודא שסשן aiohttp הגלובלי לא דולף בין טסטים."""
+    try:
+        from http_async import close_session  # type: ignore
+    except Exception:
+        close_session = None  # type: ignore
+
+    if close_session is not None:
+        try:
+            await close_session()
+        except Exception:
+            pass
+
+    yield
+
+    if close_session is not None:
+        try:
+            await close_session()
+        except Exception:
+            pass
