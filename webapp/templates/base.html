@@ -584,8 +584,9 @@
             to   { opacity: 1; transform: translateY(0); }
         }
 
-        /* מודאל קבצים אחרונים */
-        .recent-files-modal {
+        /* מודאלים כלליים (קבצים אחרונים + בורר קהילה) */
+        .recent-files-modal,
+        .community-modal {
             position: fixed;
             top: 0; left: 0; right: 0; bottom: 0;
             z-index: 9999;
@@ -594,13 +595,15 @@
             justify-content: center;
             padding: 1rem;
         }
-        .recent-files-modal .modal-backdrop {
+        .recent-files-modal .modal-backdrop,
+        .community-modal .modal-backdrop {
             position: absolute;
             top: 0; left: 0; right: 0; bottom: 0;
             background: rgba(0, 0, 0, 0.5);
             backdrop-filter: blur(4px);
         }
-        .recent-files-modal .modal-content {
+        .recent-files-modal .modal-content,
+        .community-modal .modal-content {
             position: relative;
             background: white;
             border-radius: 16px;
@@ -616,14 +619,19 @@
             from { opacity: 0; transform: translateY(20px); }
             to   { opacity: 1; transform: translateY(0); }
         }
-        .recent-files-modal .modal-header {
+        .recent-files-modal .modal-header,
+        .community-modal .modal-header {
             display: flex; justify-content: space-between; align-items: center;
             padding: 1.5rem; border-bottom: 1px solid #e0e0e0;
         }
-        .recent-files-modal .modal-header h3 { margin: 0; font-size: 1.25rem; color: #333; }
-        .recent-files-modal .modal-close { background: none; border: none; font-size: 1.5rem; color: #666; cursor: pointer; padding: 0.25rem; transition: color 0.2s; }
-        .recent-files-modal .modal-close:hover { color: #333; }
-        .recent-files-modal .modal-body { flex: 1; overflow-y: auto; padding: 1rem; }
+        .recent-files-modal .modal-header h3,
+        .community-modal .modal-header h3 { margin: 0; font-size: 1.25rem; color: #333; }
+        .recent-files-modal .modal-close,
+        .community-modal .modal-close { background: none; border: none; font-size: 1.5rem; color: #666; cursor: pointer; padding: 0.25rem; transition: color 0.2s; }
+        .recent-files-modal .modal-close:hover,
+        .community-modal .modal-close:hover { color: #333; }
+        .recent-files-modal .modal-body,
+        .community-modal .modal-body { flex: 1; overflow-y: auto; padding: 1rem; }
         .recent-file-item { display: flex; align-items: center; gap: 1rem; padding: 0.75rem; border-radius: 8px; text-decoration: none; color: #333; transition: all 0.2s ease; margin-bottom: 0.5rem; }
         .recent-file-item:hover { background: rgba(103,126,234,0.1); transform: translateX(-4px); }
         .recent-files-modal .file-icon { font-size: 1.5rem; min-width: 40px; text-align: center; }
@@ -648,9 +656,13 @@
             .quick-access-dropdown { background: #2a2a3a; }
             .quick-access-item { color: #e0e0e0; }
             .quick-access-item:hover { background: rgba(103, 126, 234, 0.2); }
-            .recent-files-modal .modal-content { background: #2a2a3a; }
-            .recent-files-modal .modal-header { border-bottom-color: #444; }
-            .recent-files-modal .modal-header h3, .recent-file-item { color: #e0e0e0; }
+            .recent-files-modal .modal-content,
+            .community-modal .modal-content { background: #2a2a3a; }
+            .recent-files-modal .modal-header,
+            .community-modal .modal-header { border-bottom-color: #444; }
+            .recent-files-modal .modal-header h3,
+            .community-modal .modal-header h3,
+            .recent-file-item { color: #e0e0e0; }
             .recent-files-modal .file-meta, .recent-files-modal .no-files { color: #999; }
         }
 .welcome-modal { position: fixed; inset: 0; display: none; align-items: center; justify-content: center; z-index: 11000; }
@@ -769,7 +781,7 @@
                         <li><a href="/dashboard" class="nav-link"><i class="fas fa-chart-line"></i> דשבורד</a></li>
                         <li><a href="/files" class="nav-link"><i class="fas fa-folder"></i> הקבצים שלי</a></li>
                         <li><a href="/collections" class="nav-link"><i class="fas fa-layer-group"></i> האוספים שלי</a></li>
-                        <li><a href="https://t.me/{{ bot_username }}" target="_blank" class="nav-link"><i class="fab fa-telegram"></i> לבוט</a></li>
+                        <li><a href="#" class="nav-link" onclick="openCommunityChooser(event)"><i class="fas fa-puzzle-piece"></i> אוסף הקהילה</a></li>
                     {% endif %}
                     
                     <li class="user-menu">
@@ -980,6 +992,40 @@
                 '</div>'
             );
             return modal;
+        }
+
+        // --- Community chooser modal ---
+        function openCommunityChooser(ev){
+            try { if (ev && ev.preventDefault) ev.preventDefault(); } catch(_){ }
+            // Guard: avoid stacking multiple identical modals
+            if (document.querySelector('.community-modal')) {
+                return;
+            }
+            const modal = document.createElement('div');
+            modal.className = 'community-modal';
+            modal.innerHTML = (
+                '<div class="modal-backdrop" onclick="closeCommunityChooser()"></div>'+
+                '<div class="modal-content">'+
+                '  <div class="modal-header">'+
+                '    <h3>אוספי הקהילה</h3>'+
+                '    <button class="modal-close" onclick="closeCommunityChooser()"><i class="fas fa-times"></i></button>'+
+                '  </div>'+
+                '  <div class="modal-body" style="display:flex; flex-direction:column; gap:12px;">'+
+                '    <a href="/community-library" class="btn btn-secondary btn-icon" style="width:100%; justify-content:flex-start; gap:.75rem;">'+
+                '      <span style="font-size:1.2rem;">📳</span>'+
+                '      <span>ממשקי משתמשים</span>'+
+                '    </a>'+
+                '    <a href="/snippets" class="btn btn-secondary btn-icon" style="width:100%; justify-content:flex-start; gap:.75rem;">'+
+                '      <span style="font-size:1.2rem;">📃</span>'+
+                '      <span>ספריית סניפטים</span>'+
+                '    </a>'+
+                '  </div>'+
+                '</div>'
+            );
+            document.body.appendChild(modal);
+        }
+        function closeCommunityChooser(){
+            try { const modal = document.querySelector('.community-modal'); if (modal) modal.remove(); } catch(_){ }
         }
 
         function displayRecentFiles(files, modal) {
