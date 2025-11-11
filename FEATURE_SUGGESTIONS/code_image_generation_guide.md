@@ -5,10 +5,12 @@
 2. [דרישות מוקדמות](#דרישות-מוקדמות)
 3. [ארכיטקטורה](#ארכיטקטורה)
 4. [מימוש מפורט](#מימוש-מפורט)
-5. [דוגמאות קוד](#דוגמאות-קוד)
-6. [בדיקות ו-QA](#בדיקות-ו-qa)
-7. [שיקולי ביצועים](#שיקולי-ביצועים)
-8. [אבטחה ו-Best Practices](#אבטחה-ו-best-practices)
+5. [תכונות מתקדמות](#תכונות-מתקדמות)
+6. [דוגמאות קוד](#דוגמאות-קוד)
+7. [בדיקות ו-QA](#בדיקות-ו-qa)
+8. [שיקולי ביצועים](#שיקולי-ביצועים)
+9. [אבטחה ו-Best Practices](#אבטחה-ו-best-practices)
+10. [קונפיגורציה וניטור](#קונפיגורציה-וניטור)
 
 ---
 
@@ -41,13 +43,15 @@ requirements:
 dependencies:
   - Pillow>=10.2.0  # ✅ כבר קיים בפרויקט
   - pygments>=2.0.0  # ✅ כבר קיים בפרויקט
-  - pygments-formatter-image>=0.1.0  # ⚠️ צריך להוסיף
+  - weasyprint>=60.0  # 🆕 מומלץ - HTML to Image מתקדם
+  # אלטרנטיבה: playwright>=1.40.0  # לרינדור HTML בדפדפן
 ```
 
 ### ספריות קיימות בפרויקט
 - ✅ **Pillow** - עיבוד תמונות (כבר מותקן)
 - ✅ **Pygments** - היילייטינג קוד (כבר מותקן)
-- ⚠️ **pygments-formatter-image** - ייתכן שצריך להוסיף (או להשתמש ב-PIL ישירות)
+- 🆕 **WeasyPrint** - מומלץ להוסיף - HTML to Image מתקדם ומדויק
+- 🔄 **Playwright** - אלטרנטיבה ל-WeasyPrint (דורש דפדפן headless)
 
 ### הכנות בקוד הקיים
 - ✅ `code_processor.py` - כבר מכיל לוגיקת highlighting
@@ -167,16 +171,39 @@ class CodeImageGenerator:
     LOGO_SIZE = (80, 20)  # גודל הלוגו בפינה
     LOGO_PADDING = 10  # ריווח מהפינות
     
-    # צבעים
-    COLORS = {
-        'background': '#1e1e1e',  # רקע כהה
-        'line_number_bg': '#252526',
-        'line_number_text': '#858585',
-        'text': '#d4d4d4',
-        'border': '#3e3e42',
+    # תמות זמינות
+    THEMES = {
+        'dark': {
+            'background': '#1e1e1e',
+            'text': '#d4d4d4',
+            'line_number_bg': '#252526',
+            'line_number_text': '#858585',
+            'border': '#3e3e42',
+        },
+        'light': {
+            'background': '#ffffff',
+            'text': '#333333',
+            'line_number_bg': '#f5f5f5',
+            'line_number_text': '#999999',
+            'border': '#e0e0e0',
+        },
+        'github': {
+            'background': '#0d1117',
+            'text': '#c9d1d9',
+            'line_number_bg': '#161b22',
+            'line_number_text': '#7d8590',
+            'border': '#30363d',
+        },
+        'monokai': {
+            'background': '#272822',
+            'text': '#f8f8f2',
+            'line_number_bg': '#3e3d32',
+            'line_number_text': '#75715e',
+            'border': '#49483e',
+        }
     }
     
-    def __init__(self, style: str = 'monokai'):
+    def __init__(self, style: str = 'monokai', theme: str = 'dark'):
         """אתחול מחולל התמונות"""
         if Image is None:
             raise ImportError("PIL/Pillow is required for image generation")
@@ -184,8 +211,18 @@ class CodeImageGenerator:
             raise ImportError("Pygments is required for syntax highlighting")
         
         self.style = style
+        self.theme = theme
+        self.colors = self.THEMES.get(theme, self.THEMES['dark'])
         self._font_cache = {}
         self._logo_cache = None
+        
+        # בדיקה אם WeasyPrint זמין
+        try:
+            from weasyprint import HTML, CSS
+            self._has_weasyprint = True
+        except ImportError:
+            self._has_weasyprint = False
+            logger.info("WeasyPrint not available, using PIL-based rendering")
         
     def _get_font(self, size: int, bold: bool = False) -> Optional[FreeTypeFont]:
         """קבלת פונט עם cache"""
@@ -360,6 +397,142 @@ class CodeImageGenerator:
         
         return color_map.get(color_str, (212, 212, 212))  # ברירת מחדל: אפור בהיר
     
+    def _detect_language_from_content(self, code: str, filename: Optional[str] = None) -> str:
+        """זיהוי שפה מתקדם יותר עם היוריסטיקות"""
+        # זיהוי לפי סיומת קובץ
+        if filename:
+            lang_map = {
+                '.py': 'python', '.js': 'javascript', '.ts': 'typescript',
+                '.tsx': 'tsx', '.jsx': 'jsx', '.java': 'java', '.cpp': 'cpp',
+                '.c': 'c', '.cs': 'csharp', '.php': 'php', '.rb': 'ruby',
+                '.go': 'go', '.rs': 'rust', '.swift': 'swift', '.kt': 'kotlin',
+                '.scala': 'scala', '.clj': 'clojure', '.hs': 'haskell',
+                '.ml': 'ocaml', '.r': 'r', '.sql': 'sql', '.sh': 'bash',
+                '.yaml': 'yaml', '.yml': 'yaml', '.json': 'json',
+                '.xml': 'xml', '.html': 'html', '.css': 'css', '.scss': 'scss',
+                '.md': 'markdown', '.tex': 'latex', '.vue': 'vue'
+            }
+            ext = Path(filename).suffix.lower()
+            if ext in lang_map:
+                return lang_map[ext]
+        
+        # זיהוי לפי תוכן (patterns נפוצים)
+        patterns = {
+            'python': [
+                r'def\s+\w+\s*\(', r'import\s+\w+', r'from\s+\w+\s+import',
+                r'class\s+\w+.*:', r'if\s+__name__\s*==\s*["\']__main__["\']'
+            ],
+            'javascript': [
+                r'function\s+\w+\s*\(', r'const\s+\w+\s*=', r'=>\s*{',
+                r'var\s+\w+\s*=', r'let\s+\w+\s*=', r'\.then\s*\('
+            ],
+            'java': [
+                r'public\s+class\s+\w+', r'public\s+static\s+void\s+main',
+                r'@Override', r'package\s+\w+'
+            ],
+            'cpp': [
+                r'#include\s*<', r'using\s+namespace\s+std', r'std::',
+                r'int\s+main\s*\('
+            ],
+            'c': [
+                r'#include\s*<', r'int\s+main\s*\(', r'printf\s*\('
+            ],
+            'bash': [
+                r'#!/bin/bash', r'#!/bin/sh', r'\$\{', r'if\s+\['
+            ],
+            'sql': [
+                r'SELECT\s+.*\s+FROM', r'INSERT\s+INTO', r'CREATE\s+TABLE',
+                r'UPDATE\s+\w+\s+SET'
+            ]
+        }
+        
+        for lang, pattern_list in patterns.items():
+            if any(re.search(pattern, code, re.MULTILINE | re.IGNORECASE) for pattern in pattern_list):
+                return lang
+        
+        return 'text'
+    
+    def _check_code_safety(self, code: str) -> bool:
+        """בדיקת בטיחות קוד בסיסית - זיהוי דפוסים חשודים"""
+        suspicious_patterns = [
+            r'exec\s*\(', r'eval\s*\(', r'__import__\s*\(',
+            r'os\.system\s*\(', r'subprocess\.', r'compile\s*\(',
+            r'open\s*\([^)]*["\']/',  # פתיחת קבצים עם נתיבים
+            r'rm\s+-rf', r'del\s+.*\[',  # מחיקות מסוכנות
+        ]
+        
+        for pattern in suspicious_patterns:
+            if re.search(pattern, code, re.IGNORECASE):
+                logger.warning(f"Suspicious code pattern detected: {pattern}")
+                # לא נבלוק, רק נתעד ללוגים
+        
+        return True
+    
+    def _render_html_with_weasyprint(self, html_content: str, width: int, height: int) -> Image.Image:
+        """רינדור HTML לתמונה באמצעות WeasyPrint (מדויק יותר)"""
+        try:
+            from weasyprint import HTML, CSS
+            from weasyprint.text.fonts import FontConfiguration
+            
+            # יצירת CSS מותאם
+            css_string = f"""
+            @page {{
+                size: {width}px {height}px;
+                margin: 0;
+            }}
+            body {{
+                margin: 0;
+                padding: 0;
+                background-color: {self.colors['background']};
+                color: {self.colors['text']};
+                font-family: 'DejaVu Sans Mono', 'Consolas', 'Monaco', monospace;
+                font-size: {self.FONT_SIZE}px;
+                line-height: {self.LINE_HEIGHT}px;
+            }}
+            """
+            
+            # רינדור HTML לתמונה
+            html_obj = HTML(string=html_content)
+            css_obj = CSS(string=css_string)
+            
+            # המרה ל-PIL Image
+            png_bytes = html_obj.write_png(stylesheets=[css_obj])
+            img = Image.open(io.BytesIO(png_bytes))
+            
+            return img
+            
+        except Exception as e:
+            logger.warning(f"WeasyPrint rendering failed: {e}, falling back to PIL")
+            raise
+    
+    def optimize_image_size(self, img: Image.Image) -> Image.Image:
+        """אופטימיזציה חכמה של גודל תמונה"""
+        # המרה ל-RGB אם צריך
+        if img.mode != 'RGB':
+            img = img.convert('RGB')
+        
+        # אם התמונה גדולה מדי, הקטן בצורה חכמה
+        max_size = (2000, 2000)
+        if img.size[0] > max_size[0] or img.size[1] > max_size[1]:
+            img.thumbnail(max_size, Image.Resampling.LANCZOS)
+        
+        return img
+    
+    def save_optimized_png(self, img: Image.Image) -> bytes:
+        """שמירת PNG מאופטמת עם דחיסה חכמה"""
+        img_bytes = io.BytesIO()
+        
+        # נסה דחיסה מקסימלית
+        img.save(img_bytes, format='PNG', optimize=True, compress_level=9)
+        
+        # אם הקובץ גדול מדי, המר ל-JPEG איכותי
+        if len(img_bytes.getvalue()) > 2 * 1024 * 1024:  # 2MB
+            img_bytes = io.BytesIO()
+            img.save(img_bytes, format='JPEG', quality=95, optimize=True)
+            logger.info("Image too large, converted to JPEG")
+        
+        return img_bytes.getvalue()
+    
     def generate_image(
         self,
         code: str,
@@ -383,6 +556,17 @@ class CodeImageGenerator:
         """
         if not code:
             raise ValueError("Code cannot be empty")
+        
+        # ולידציה
+        if len(code) > 100000:  # 100KB
+            raise ValueError("Code too large (max 100KB)")
+        
+        # בדיקת בטיחות
+        self._check_code_safety(code)
+        
+        # זיהוי שפה משופר
+        if not language or language == 'text':
+            language = self._detect_language_from_content(code, filename)
         
         # 1. יצירת HTML מודגש
         try:
@@ -443,76 +627,113 @@ class CodeImageGenerator:
             image_height = (num_lines * line_height) + (self.DEFAULT_PADDING * 2)
         
         # 3. יצירת תמונה
-        img = Image.new('RGB', (image_width, image_height), self.COLORS['background'])
-        draw = ImageDraw.Draw(img)
+        # נסה להשתמש ב-WeasyPrint אם זמין
+        if self._has_weasyprint and len(lines) < 500:  # WeasyPrint טוב לקוד קטן-בינוני
+            try:
+                # יצירת HTML מלא עם styling
+                full_html = f"""
+                <!DOCTYPE html>
+                <html>
+                <head>
+                    <style>
+                        body {{
+                            background-color: {self.colors['background']};
+                            color: {self.colors['text']};
+                            font-family: 'DejaVu Sans Mono', monospace;
+                            font-size: {self.FONT_SIZE}px;
+                            line-height: {self.LINE_HEIGHT}px;
+                            padding: {self.DEFAULT_PADDING}px;
+                            margin: 0;
+                        }}
+                        {highlighted_html}
+                    </style>
+                </head>
+                <body>
+                    <pre><code>{highlighted_html}</code></pre>
+                </body>
+                </html>
+                """
+                img = self._render_html_with_weasyprint(full_html, image_width, image_height)
+                # WeasyPrint יצר את התמונה, אבל עדיין צריך להוסיף לוגו
+                use_manual_rendering = False
+            except Exception as e:
+                logger.warning(f"WeasyPrint failed: {e}, using manual rendering")
+                use_manual_rendering = True
+        else:
+            use_manual_rendering = True
         
-        # 4. ציור מספרי שורות
-        line_number_font = self._get_font(self.FONT_SIZE - 1)
-        line_number_x = self.DEFAULT_PADDING
-        line_number_bg_x1 = 0
-        line_number_bg_x2 = self.DEFAULT_PADDING + self.LINE_NUMBER_WIDTH
-        
-        # רקע למספרי שורות
-        draw.rectangle(
-            [(line_number_bg_x1, 0), (line_number_bg_x2, image_height)],
-            fill=self.COLORS['line_number_bg']
-        )
-        
-        # קו הפרדה
-        draw.line(
-            [(line_number_bg_x2, 0), (line_number_bg_x2, image_height)],
-            fill=self.COLORS['border'],
-            width=1
-        )
-        
-        # 5. ציור קוד עם היילייטינג
-        code_x = line_number_bg_x2 + 20
-        code_y = self.DEFAULT_PADDING
-        
-        # פיצול HTML לשורות עם צבעים
-        html_lines = highlighted_html.split('\n')
-        
-        for line_num, (line_code, html_line) in enumerate(zip(lines, html_lines[:len(lines)]), 1):
-            y = code_y + ((line_num - 1) * line_height)
+        if use_manual_rendering:
+            # יצירת תמונה ידנית עם PIL
+            img = Image.new('RGB', (image_width, image_height), self.colors['background'])
+            draw = ImageDraw.Draw(img)
             
-            # ציור מספר שורה
-            line_num_str = str(line_num)
-            line_num_bbox = line_number_font.getbbox(line_num_str) if hasattr(line_number_font, 'getbbox') else (0, 0, len(line_num_str) * 6, line_height)
-            line_num_width = line_num_bbox[2] - line_num_bbox[0] if len(line_num_bbox) > 2 else len(line_num_str) * 6
-            line_num_x = line_number_bg_x2 - line_num_width - 10
+            # 4. ציור מספרי שורות
+            line_number_font = self._get_font(self.FONT_SIZE - 1)
+            line_number_x = self.DEFAULT_PADDING
+            line_number_bg_x1 = 0
+            line_number_bg_x2 = self.DEFAULT_PADDING + self.LINE_NUMBER_WIDTH
             
-            draw.text(
-                (line_num_x, y),
-                line_num_str,
-                fill=self.COLORS['line_number_text'],
-                font=line_number_font
+            # רקע למספרי שורות
+            draw.rectangle(
+                [(line_number_bg_x1, 0), (line_number_bg_x2, image_height)],
+                fill=self.colors['line_number_bg']
             )
             
-            # ציור קוד עם צבעים
-            # פישוט: נחלץ צבעים מ-HTML ונצייר
-            text_colors = self._html_to_text_colors(html_line)
+            # קו הפרדה
+            draw.line(
+                [(line_number_bg_x2, 0), (line_number_bg_x2, image_height)],
+                fill=self.colors['border'],
+                width=1
+            )
             
-            current_x = code_x
-            for text, color_str in text_colors:
-                if not text.strip() and text != ' ':
-                    continue
+            # 5. ציור קוד עם היילייטינג
+            code_x = line_number_bg_x2 + 20
+            code_y = self.DEFAULT_PADDING
+            
+            # פיצול HTML לשורות עם צבעים
+            html_lines = highlighted_html.split('\n')
+            
+            for line_num, (line_code, html_line) in enumerate(zip(lines, html_lines[:len(lines)]), 1):
+                y = code_y + ((line_num - 1) * line_height)
                 
-                color = self._parse_color(color_str)
+                # ציור מספר שורה
+                line_num_str = str(line_num)
+                line_num_bbox = line_number_font.getbbox(line_num_str) if hasattr(line_number_font, 'getbbox') else (0, 0, len(line_num_str) * 6, line_height)
+                line_num_width = line_num_bbox[2] - line_num_bbox[0] if len(line_num_bbox) > 2 else len(line_num_str) * 6
+                line_num_x = line_number_bg_x2 - line_num_width - 10
                 
-                # ציור טקסט
                 draw.text(
-                    (current_x, y),
-                    text,
-                    fill=color,
-                    font=font
+                    (line_num_x, y),
+                    line_num_str,
+                    fill=self.colors['line_number_text'],
+                    font=line_number_font
                 )
                 
-                # חישוב רוחב טקסט
-                bbox = font.getbbox(text) if hasattr(font, 'getbbox') else (0, 0, len(text) * 8, line_height)
-                text_width = bbox[2] - bbox[0] if len(bbox) > 2 else len(text) * 8
-                current_x += text_width
+                # ציור קוד עם צבעים
+                # פישוט: נחלץ צבעים מ-HTML ונצייר
+                text_colors = self._html_to_text_colors(html_line)
+                
+                current_x = code_x
+                for text, color_str in text_colors:
+                    if not text.strip() and text != ' ':
+                        continue
+                    
+                    color = self._parse_color(color_str)
+                    
+                    # ציור טקסט
+                    draw.text(
+                        (current_x, y),
+                        text,
+                        fill=color,
+                        font=font
+                    )
+                    
+                    # חישוב רוחב טקסט
+                    bbox = font.getbbox(text) if hasattr(font, 'getbbox') else (0, 0, len(text) * 8, line_height)
+                    text_width = bbox[2] - bbox[0] if len(bbox) > 2 else len(text) * 8
+                    current_x += text_width
         
-        # 6. הוספת לוגו בפינה
+        # 6. הוספת לוגו בפינה (גם אם WeasyPrint שימש)
         logo = self._get_logo_image()
         if logo:
             # מיקום: פינה ימנית תחתונה
@@ -525,30 +746,139 @@ class CodeImageGenerator:
             else:
                 img.paste(logo, (logo_x, logo_y))
         
-        # 7. המרה ל-bytes
-        img_bytes = io.BytesIO()
-        img.save(img_bytes, format='PNG', optimize=True)
-        img_bytes.seek(0)
+        # 7. אופטימיזציה של גודל
+        img = self.optimize_image_size(img)
         
-        return img_bytes.getvalue()
+        # 8. המרה ל-bytes עם אופטימיזציה
+        return self.save_optimized_png(img)
 ```
 
-### שלב 2: הוספת פקודה לבוט
+### שלב 2: יצירת קובץ קונפיגורציה
+
+#### קובץ: `config/image_settings.yaml`
+```yaml
+image_generation:
+  default_theme: "dark"
+  default_style: "monokai"
+  max_file_size: 1048576  # 1MB
+  max_lines: 1000
+  default_width: 1200
+  default_font_size: 14
+  supported_formats: ["png", "jpg"]
+  cache_enabled: true
+  cache_ttl: 3600  # 1 hour
+  rate_limit:
+    max_calls: 10
+    period: 60  # seconds
+  preview:
+    enabled: true
+    max_lines: 50
+    width: 800
+```
+
+### שלב 3: הוספת פקודות לבוט
 
 #### עדכון `bot_handlers.py`
 ```python
 # הוספה בתחילת הקובץ (imports)
 from services.image_generator import CodeImageGenerator
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 import tempfile
 import os
+import re
+import time
+import yaml
+from pathlib import Path
+
+# טעינת קונפיגורציה
+def load_image_config():
+    """טעינת קונפיגורציה מתמונות"""
+    config_path = Path(__file__).parent.parent / 'config' / 'image_settings.yaml'
+    if config_path.exists():
+        with open(config_path) as f:
+            return yaml.safe_load(f).get('image_generation', {})
+    return {}
+
+IMAGE_CONFIG = load_image_config()
+
+# Rate limiting
+from rate_limiter import RateLimiter
+image_rate_limiter = RateLimiter(
+    max_calls=IMAGE_CONFIG.get('rate_limit', {}).get('max_calls', 10),
+    period=IMAGE_CONFIG.get('rate_limit', {}).get('period', 60)
+)
+
+# Monitoring
+try:
+    from prometheus_client import Counter, Histogram
+    image_generation_counter = Counter(
+        'codebot_image_generations_total',
+        'Total image generations',
+        ['theme', 'language']
+    )
+    image_generation_duration = Histogram(
+        'codebot_image_generation_duration_seconds',
+        'Image generation duration'
+    )
+except ImportError:
+    image_generation_counter = None
+    image_generation_duration = None
 
 # הוספה ב-setup_advanced_handlers
 def setup_advanced_handlers(self):
     """הגדרת handlers מתקדמים"""
     # ... קוד קיים ...
     
-    # פקודת יצירת תמונה
+    # פקודות יצירת תמונה
     self.application.add_handler(CommandHandler("image", self.image_command))
+    self.application.add_handler(CommandHandler("preview", self.preview_command))
+    self.application.add_handler(CommandHandler("image_all", self.image_all_command))
+
+# פונקציית עזר לפרסינג פרמטרים
+def _parse_image_args(self, args: list) -> dict:
+    """פרסינג פרמטרים מתקדם לפקודת /image"""
+    if not args:
+        return {}
+    
+    options = {
+        'filename': args[0],
+        'theme': IMAGE_CONFIG.get('default_theme', 'dark'),
+        'style': IMAGE_CONFIG.get('default_style', 'monokai'),
+        'font_size': IMAGE_CONFIG.get('default_font_size', 14),
+        'width': IMAGE_CONFIG.get('default_width', 1200),
+        'show_logo': True,
+        'show_line_numbers': True,
+    }
+    
+    # פרסינג פרמטרים נוספים
+    for arg in args[1:]:
+        if arg.startswith('--'):
+            if '=' in arg:
+                key, value = arg[2:].split('=', 1)
+            else:
+                key = arg[2:]
+                value = True
+            
+            if key == 'theme':
+                options['theme'] = value
+            elif key == 'style':
+                options['style'] = value
+            elif key == 'font-size':
+                try:
+                    options['font_size'] = int(value)
+                except ValueError:
+                    pass
+            elif key == 'width':
+                try:
+                    options['width'] = int(value)
+                except ValueError:
+                    pass
+            elif key == 'no-logo':
+                options['show_logo'] = False
+            elif key == 'no-line-numbers':
+                options['show_line_numbers'] = False
+    
+    return options
 
 # הוספת הפונקציה image_command
 async def image_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -559,9 +889,18 @@ async def image_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE
     if not context.args:
         await update.message.reply_text(
             "🖼️ **יצירת תמונת קוד**\n\n"
-            "שימוש: `/image <file_name>`\n\n"
+            "שימוש: `/image <file_name> [options]`\n\n"
             "דוגמה:\n"
-            "`/image script.py`\n\n"
+            "`/image script.py`\n"
+            "`/image script.py --theme=github --width=1400`\n"
+            "`/image script.py --no-logo --font-size=16`\n\n"
+            "אפשרויות:\n"
+            "• `--theme=<dark|light|github|monokai>` - בחירת תמה\n"
+            "• `--style=<style_name>` - סגנון Pygments\n"
+            "• `--width=<number>` - רוחב תמונה\n"
+            "• `--font-size=<number>` - גודל פונט\n"
+            "• `--no-logo` - ללא לוגו\n"
+            "• `--no-line-numbers` - ללא מספרי שורות\n\n"
             "הפקודה תיצור תמונת PNG מהקוד עם:\n"
             "• היילייטינג צבעוני\n"
             "• מספרי שורות\n"
@@ -570,7 +909,23 @@ async def image_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE
         )
         return
     
-    file_name = " ".join(context.args)
+    # Rate limiting
+    if not image_rate_limiter.allow(user_id):
+        await update.message.reply_text(
+            "⏱️ יותר מדי בקשות. אנא נסה שוב בעוד דקה."
+        )
+        return
+    
+    # פרסינג פרמטרים
+    options = self._parse_image_args(context.args)
+    file_name = options.get('filename')
+    
+    if not file_name:
+        await update.message.reply_text(
+            "❌ אנא ציין שם קובץ.",
+            parse_mode=ParseMode.MARKDOWN
+        )
+        return
     file_data = db.get_latest_version(user_id, file_name)
     
     if not file_data:
@@ -580,27 +935,49 @@ async def image_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE
         )
         return
     
-    # שליחת הודעת "מעבד..."
+    # שליחת הודעת "מעבד..." מפורטת
+    code = file_data.get('code', '')
+    language = file_data.get('programming_language', 'text')
+    lines = code.splitlines()
+    estimated_time = min(len(lines) / 100, 3)  # עד 3 שניות
+    
     processing_msg = await update.message.reply_text(
-        "🎨 יוצר תמונה...",
-        parse_mode=ParseMode.HTML
+        f"🎨 **יוצר תמונה...**\n\n"
+        f"📄 קובץ: `{html.escape(file_name)}`\n"
+        f"🔤 שפה: {html.escape(language)}\n"
+        f"📏 {len(lines)} שורות\n"
+        f"⏱️ זמן משוער: ~{estimated_time:.1f}s",
+        parse_mode=ParseMode.MARKDOWN
     )
     
     try:
-        # יצירת תמונה
-        code = file_data.get('code', '')
-        language = file_data.get('programming_language', 'text')
-        
         if not code:
             await processing_msg.edit_text("❌ הקובץ ריק.")
             return
         
-        generator = CodeImageGenerator(style='monokai')
+        # Monitoring
+        start_time = time.time() if image_generation_duration else None
+        
+        generator = CodeImageGenerator(
+            style=options.get('style', 'monokai'),
+            theme=options.get('theme', 'dark')
+        )
+        
         image_bytes = generator.generate_image(
             code=code,
             language=language,
-            filename=file_name
+            filename=file_name,
+            max_width=options.get('width', 1200)
         )
+        
+        # עדכון מטריקות
+        if image_generation_duration:
+            image_generation_duration.observe(time.time() - start_time)
+        if image_generation_counter:
+            image_generation_counter.labels(
+                theme=options.get('theme', 'dark'),
+                language=language
+            ).inc()
         
         # שמירה לקובץ זמני
         with tempfile.NamedTemporaryFile(
@@ -612,6 +989,18 @@ async def image_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE
             tmp_path = tmp_file.name
         
         try:
+            # יצירת כפתורי inline לפעולות נוספות
+            keyboard = [
+                [
+                    InlineKeyboardButton("🔄 יצור מחדש", callback_data=f"regenerate_image_{file_name}"),
+                    InlineKeyboardButton("📝 ערוך הגדרות", callback_data=f"edit_image_settings_{file_name}")
+                ],
+                [
+                    InlineKeyboardButton("💾 שמור ב-Drive", callback_data=f"save_to_drive_{file_name}")
+                ]
+            ]
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            
             # שליחת התמונה
             with open(tmp_path, 'rb') as photo_file:
                 await update.message.reply_photo(
@@ -619,9 +1008,11 @@ async def image_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE
                     caption=(
                         f"🖼️ **תמונת קוד:** `{html.escape(file_name)}`\n"
                         f"🔤 שפה: {html.escape(language)}\n"
-                        f"📏 שורות: {len(code.splitlines())}"
+                        f"📏 שורות: {len(lines)}\n"
+                        f"🎨 תמה: {options.get('theme', 'dark')}"
                     ),
-                    parse_mode=ParseMode.MARKDOWN
+                    parse_mode=ParseMode.MARKDOWN,
+                    reply_markup=reply_markup
                 )
             
             # מחיקת הודעת "מעבד..."
@@ -651,7 +1042,150 @@ async def image_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE
         )
 ```
 
-### שלב 3: יצירת תיקיית assets (אופציונלי)
+### שלב 4: הוספת פקודת Preview
+
+```python
+async def preview_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """תצוגה מקדימה מהירה של קוד"""
+    reporter.report_activity(update.effective_user.id)
+    user_id = update.effective_user.id
+    
+    if not context.args:
+        await update.message.reply_text(
+            "👁️ **תצוגה מקדימה**\n\n"
+            "שימוש: `/preview <file_name>`\n\n"
+            "יוצר תמונה קטנה ומהירה (עד 50 שורות)",
+            parse_mode=ParseMode.MARKDOWN
+        )
+        return
+    
+    file_name = " ".join(context.args)
+    file_data = db.get_latest_version(user_id, file_name)
+    
+    if not file_data:
+        await update.message.reply_text(f"❌ קובץ `{file_name}` לא נמצא.")
+        return
+    
+    code = file_data.get('code', '')
+    language = file_data.get('programming_language', 'text')
+    
+    # הגבלת שורות לתצוגה מקדימה
+    max_preview_lines = IMAGE_CONFIG.get('preview', {}).get('max_lines', 50)
+    lines = code.splitlines()
+    if len(lines) > max_preview_lines:
+        code = '\n'.join(lines[:max_preview_lines]) + '\n...'
+    
+    try:
+        generator = CodeImageGenerator(theme='dark')
+        image_bytes = generator.generate_image(
+            code=code,
+            language=language,
+            filename=file_name,
+            max_width=IMAGE_CONFIG.get('preview', {}).get('width', 800),
+            max_height=1500
+        )
+        
+        with tempfile.NamedTemporaryFile(delete=False, suffix='.png') as tmp_file:
+            tmp_file.write(image_bytes)
+            tmp_path = tmp_file.name
+        
+        try:
+            with open(tmp_path, 'rb') as photo_file:
+                await update.message.reply_photo(
+                    photo=InputFile(photo_file, filename=f"preview_{file_name}.png"),
+                    caption=f"👁️ תצוגה מקדימה: `{html.escape(file_name)}`",
+                    parse_mode=ParseMode.MARKDOWN
+                )
+        finally:
+            if os.path.exists(tmp_path):
+                os.unlink(tmp_path)
+    
+    except Exception as e:
+        logger.error(f"Preview error: {e}")
+        await update.message.reply_text(f"❌ שגיאה: {str(e)}")
+```
+
+### שלב 5: הוספת פקודת Batch Processing
+
+```python
+async def image_all_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """יצירת תמונות לכל הקבצים של המשתמש"""
+    reporter.report_activity(update.effective_user.id)
+    user_id = update.effective_user.id
+    
+    files = db.get_user_files(user_id, limit=100)
+    
+    if not files:
+        await update.message.reply_text("❌ לא נמצאו קבצים.")
+        return
+    
+    if len(files) > 10:
+        await update.message.reply_text(
+            f"⚠️ יש לך {len(files)} קבצים. זה יכול לקחת זמן.\n"
+            "האם להמשיך? שלח /image_all_confirm לאישור."
+        )
+        # שמירת מצב ב-context
+        context.user_data['pending_batch'] = files
+        return
+    
+    await self._process_batch_images(update, context, files)
+
+async def _process_batch_images(self, update, context, files):
+    """עיבוד אצווה של תמונות"""
+    status_msg = await update.message.reply_text(
+        f"🎨 יוצר {len(files)} תמונות...\n0/{len(files)} הושלמו"
+    )
+    
+    generator = CodeImageGenerator()
+    success_count = 0
+    
+    for idx, file_data in enumerate(files, 1):
+        try:
+            file_name = file_data.get('file_name', 'unknown')
+            code = file_data.get('code', '')
+            language = file_data.get('programming_language', 'text')
+            
+            if not code:
+                continue
+            
+            image_bytes = generator.generate_image(
+                code=code,
+                language=language,
+                filename=file_name
+            )
+            
+            with tempfile.NamedTemporaryFile(delete=False, suffix='.png') as tmp_file:
+                tmp_file.write(image_bytes)
+                tmp_path = tmp_file.name
+            
+            try:
+                with open(tmp_path, 'rb') as photo_file:
+                    await update.message.reply_photo(
+                        photo=InputFile(photo_file, filename=f"{file_name}.png"),
+                        caption=f"🖼️ `{html.escape(file_name)}`",
+                        parse_mode=ParseMode.MARKDOWN
+                    )
+                success_count += 1
+            finally:
+                if os.path.exists(tmp_path):
+                    os.unlink(tmp_path)
+            
+            # עדכון סטטוס כל 5 קבצים
+            if idx % 5 == 0:
+                await status_msg.edit_text(
+                    f"🎨 יוצר {len(files)} תמונות...\n{idx}/{len(files)} הושלמו"
+                )
+        
+        except Exception as e:
+            logger.error(f"Error processing {file_name}: {e}")
+            continue
+    
+    await status_msg.edit_text(
+        f"✅ הושלם! נוצרו {success_count}/{len(files)} תמונות."
+    )
+```
+
+### שלב 6: יצירת תיקיית assets (אופציונלי)
 
 אם יש לוגו קיים, ניתן להוסיף אותו:
 ```
@@ -662,6 +1196,52 @@ async def image_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE
 ```
 
 אם אין לוגו, הקוד ייצור לוגו טקסטואלי אוטומטית.
+
+---
+
+## 🚀 תכונות מתקדמות
+
+### 1. תמיכה בתמות מרובות
+
+המערכת תומכת בתמות שונות שניתן לבחור:
+
+```python
+# שימוש בתמות שונות
+generator_dark = CodeImageGenerator(theme='dark', style='monokai')
+generator_light = CodeImageGenerator(theme='light', style='github')
+generator_github = CodeImageGenerator(theme='github', style='github-dark')
+
+# או דרך פקודה
+# /image script.py --theme=github
+```
+
+### 2. אפשרויות התאמה אישית
+
+```python
+# דוגמאות שימוש:
+# /image script.py --theme=github --width=1400 --font-size=16
+# /image script.py --no-logo --no-line-numbers
+# /image script.py --style=dracula --theme=dark
+```
+
+### 3. Preview Mode
+
+תצוגה מקדימה מהירה עם הגבלות:
+- עד 50 שורות
+- רוחב 800px
+- ללא לוגו (אופציונלי)
+
+```bash
+/preview script.py
+```
+
+### 4. Batch Processing
+
+יצירת תמונות לכל הקבצים בבת אחת:
+
+```bash
+/image_all
+```
 
 ---
 
@@ -1058,13 +1638,135 @@ async def image_command(self, update, context):
 
 ---
 
+## ⚙️ קונפיגורציה וניטור
+
+### קובץ קונפיגורציה מלא
+
+#### `config/image_settings.yaml`
+```yaml
+image_generation:
+  # הגדרות כלליות
+  default_theme: "dark"
+  default_style: "monokai"
+  max_file_size: 1048576  # 1MB
+  max_lines: 1000
+  default_width: 1200
+  default_font_size: 14
+  line_height: 24
+  padding: 40
+  
+  # פורמטים נתמכים
+  supported_formats: ["png", "jpg"]
+  
+  # Cache
+  cache_enabled: true
+  cache_ttl: 3600  # 1 hour
+  
+  # Rate limiting
+  rate_limit:
+    max_calls: 10
+    period: 60  # seconds
+  
+  # Preview mode
+  preview:
+    enabled: true
+    max_lines: 50
+    width: 800
+    show_logo: false
+  
+  # Batch processing
+  batch:
+    max_files: 20
+    confirm_threshold: 10
+  
+  # אופטימיזציה
+  optimization:
+    max_image_size: 2097152  # 2MB
+    compress_level: 9
+    jpeg_quality: 95
+    auto_convert_to_jpeg: true
+```
+
+### Monitoring ו-Analytics
+
+#### הוספת מטריקות Prometheus
+
+```python
+# ב-bot_handlers.py (כבר נוסף למעלה)
+from prometheus_client import Counter, Histogram, Gauge
+
+# Counters
+image_generation_counter = Counter(
+    'codebot_image_generations_total',
+    'Total image generations',
+    ['theme', 'language', 'status']
+)
+
+# Histograms
+image_generation_duration = Histogram(
+    'codebot_image_generation_duration_seconds',
+    'Image generation duration',
+    buckets=[0.5, 1.0, 2.0, 5.0, 10.0]
+)
+
+image_size_bytes = Histogram(
+    'codebot_image_size_bytes',
+    'Generated image size in bytes',
+    buckets=[10000, 50000, 100000, 500000, 1000000, 2000000]
+)
+
+# Gauges
+active_image_generations = Gauge(
+    'codebot_active_image_generations',
+    'Currently active image generations'
+)
+
+# שימוש במטריקות
+async def image_command(self, update, context):
+    active_image_generations.inc()
+    start_time = time.time()
+    
+    try:
+        # ... יצירת תמונה ...
+        
+        # עדכון מטריקות
+        image_generation_duration.observe(time.time() - start_time)
+        image_size_bytes.observe(len(image_bytes))
+        image_generation_counter.labels(
+            theme=options.get('theme', 'dark'),
+            language=language,
+            status='success'
+        ).inc()
+    except Exception as e:
+        image_generation_counter.labels(
+            theme=options.get('theme', 'dark'),
+            language=language,
+            status='error'
+        ).inc()
+        raise
+    finally:
+        active_image_generations.dec()
+```
+
+### דשבורד Grafana (אופציונלי)
+
+ניתן ליצור דשבורד Grafana עם:
+- מספר תמונות שנוצרו לפי תמה/שפה
+- זמן ממוצע ליצירת תמונה
+- גודל ממוצע של תמונות
+- שיעור שגיאות
+- שימוש ב-rate limiting
+
+---
+
 ## 📝 סיכום
 
 ### אבני דרך למימוש
 1. ✅ **יום 1:** יצירת `services/image_generator.py` עם פונקציונליות בסיסית
-2. ✅ **יום 2:** הוספת פקודה `/image` ל-`bot_handlers.py`
-3. ✅ **יום 3:** הוספת לוגו ומיקום מספרי שורות
-4. ✅ **יום 4:** בדיקות ואופטימיזציה
+2. ✅ **יום 2:** הוספת פקודה `/image` ל-`bot_handlers.py` עם פרמטרים
+3. ✅ **יום 3:** הוספת לוגו, תמות, וזיהוי שפות משופר
+4. ✅ **יום 4:** הוספת Preview ו-Batch processing
+5. ✅ **יום 5:** אופטימיזציה, monitoring, ובדיקות
 
 ### KPIs להצלחה
 - 📉 **זמן יצירה** - פחות מ-2 שניות לתמונה
@@ -1086,14 +1788,24 @@ async def image_command(self, update, context):
 ### ספריות מומלצות
 - [Pillow Documentation](https://pillow.readthedocs.io/)
 - [Pygments Documentation](https://pygments.org/docs/)
+- [WeasyPrint Documentation](https://weasyprint.org/) - HTML to Image
+- [Playwright Documentation](https://playwright.dev/python/) - אלטרנטיבה ל-WeasyPrint
 - [Python-telegram-bot Documentation](https://python-telegram-bot.org/)
 
 ### סגנונות Pygments זמינים
-- `monokai` - כהה ופופולרי
+- `monokai` - כהה ופופולרי ⭐ מומלץ
 - `github-dark` - סגנון GitHub כהה
 - `dracula` - סגנון Dracula
 - `one-dark` - סגנון Atom One Dark
 - `vs` - Visual Studio style
+- `friendly` - בהיר וקריא
+- `native` - סגנון ברירת מחדל
+
+### תמות זמינות
+- `dark` - כהה קלאסי
+- `light` - בהיר
+- `github` - סגנון GitHub
+- `monokai` - Monokai theme
 
 ---
 
