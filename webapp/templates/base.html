@@ -685,6 +685,37 @@
             .recent-files-modal .file-meta, .recent-files-modal .no-files { color: #999; }
         }
 
+        /* Premium announcement indicator */
+        .notif-dot {
+            position: absolute;
+            top: -4px;
+            left: -4px; /* RTL: שמאל מעל הכפתור */
+            width: 12px;
+            height: 12px;
+            border-radius: 999px;
+            background: #fbbf24; /* זהב לפרימיום */
+            border: 2px solid rgba(255,255,255,0.85);
+            box-shadow: 0 0 0 2px rgba(0,0,0,0.08);
+            pointer-events: auto;
+            cursor: pointer;
+            z-index: 1200;
+        }
+        .notif-dot--pulse::after {
+            content: '';
+            position: absolute;
+            inset: -4px;
+            border-radius: inherit;
+            border: 2px solid rgba(251, 191, 36, 0.55);
+            animation: notifPulse 1.4s ease-out infinite;
+        }
+        @keyframes notifPulse {
+            0% { transform: scale(0.8); opacity: 0.8; }
+            80% { transform: scale(1.4); opacity: 0; }
+            100% { transform: scale(1.4); opacity: 0; }
+        }
+        .mobile-menu-toggle { position: relative; }
+        .nav-link[href="/settings"] { position: relative; }
+
         /* Weekly Tip — vertical marquee with safe behavior */
         .weekly-tip {
             position: relative;
@@ -1641,6 +1672,60 @@
     });
     if (btnDisable) btnDisable.addEventListener('click', disableForWeek);
     if (btnClose) btnClose.addEventListener('click', closePopover);
+})();
+</script>
+
+<script>
+// Premium announcement indicator
+(function initPremiumAnnouncement(){
+    async function fetchMe(){
+        try {
+            const r = await fetch('/api/me');
+            if (!r.ok) return null;
+            const j = await r.json();
+            return j && j.ok ? j : null;
+        } catch (_) { return null; }
+    }
+    function lsGet(k){ try { return localStorage.getItem(k); } catch(_) { return null; } }
+    function lsSet(k,v){ try { localStorage.setItem(k,v); } catch(_) {} }
+    function isMobile(){ return window.matchMedia && window.matchMedia('(max-width: 768px)').matches; }
+    function createDot(){
+        const s = document.createElement('span');
+        s.className = 'notif-dot notif-dot--pulse';
+        s.setAttribute('role','button');
+        s.setAttribute('tabindex','0');
+        s.setAttribute('aria-label','התראה חדשה: הפכת לפרימיום');
+        s.title = 'התראה: הפכת לפרימיום';
+        return s;
+    }
+    function attachDot(anchorEl, onActivate){
+        if (!anchorEl) return;
+        const dot = createDot();
+        const handler = (ev) => { ev.preventDefault(); onActivate(); };
+        dot.addEventListener('click', handler);
+        dot.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onActivate(); }});
+        anchorEl.appendChild(dot);
+        return dot;
+    }
+
+    function goToPremium(){
+        try { window.location.href = '/settings#account-status'; } catch(_) {}
+    }
+
+    (async function(){
+        const me = await fetchMe();
+        if (!me || !me.roles || !me.roles.is_premium || !me.user || !me.user.user_id) return;
+        const uid = String(me.user.user_id);
+        const K = 'premium_announce_seen_' + uid;
+        if (lsGet(K) === '1') return; // already seen
+        const onActivate = () => { lsSet(K,'1'); goToPremium(); };
+        if (isMobile()) {
+            const mobileBtn = document.querySelector('.mobile-menu-toggle');
+            if (mobileBtn) { attachDot(mobileBtn, onActivate); return; }
+        }
+        const settingsLink = document.querySelector('.nav-link[href="/settings"]');
+        if (settingsLink) { attachDot(settingsLink, onActivate); }
+    })();
 })();
 </script>
 
