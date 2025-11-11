@@ -34,7 +34,7 @@
                 {{ user.first_name }} {{ user.last_name or '' }}
             </p>
         </div>
-        <div>
+        <div id="account-status">
             <label style="opacity: 0.7; font-size: 0.9rem;">סטטוס</label>
             <p style="font-size: 1.2rem; margin: 0.5rem 0;">
                 {% if is_admin %}
@@ -52,6 +52,12 @@
         </div>
     </div>
 </div>
+
+    {% if is_premium %}
+    <div class="alert alert-info" role="note" style="margin-top: 1rem;">
+        בקשות מיוחדות? <a href="https://t.me/moominAmir" target="_blank" rel="noopener">@moominAmir</a>
+    </div>
+    {% endif %}
 
 <div class="glass-card">
     <h2 class="section-title">
