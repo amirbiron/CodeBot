@@ -837,6 +837,23 @@ def _filtered_builtins(q: Optional[str], language: Optional[str]) -> List[Dict[s
         return BUILTIN_SNIPPETS[:]
 
 
+def _prepare_builtins(builtins: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """העתקה רכה של built-ins עם הוספת approved_at קבוע כדי לשמור על אחידות."""
+    try:
+        now = datetime.now(timezone.utc)
+    except Exception:
+        now = datetime.utcnow()
+    prepared: List[Dict[str, Any]] = []
+    for original in builtins:
+        try:
+            item = dict(original)
+        except Exception:
+            item = {"title": original}
+        item.setdefault("approved_at", now)
+        prepared.append(item)
+    return prepared
+
+
 def _merge_builtins_with_db(db_items: List[Dict[str, Any]], builtins: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     """מניעת כפילות ע"י השוואת כותרות (case-insensitive). בונה רשימה עם builtins תחילה."""
     try:
@@ -917,13 +934,18 @@ def list_public_snippets(
     except Exception:
         include_builtins = True
 
+    try:
+        page_int = max(1, int(page or 1))
+    except Exception:
+        page_int = 1
+
     if not include_builtins:
         # מצב ישן: רק DB
         try:
             items, total = repo.list_public_snippets(
                 q=q,
                 language=language,
-                page=page,
+                page=page_int,
                 per_page=per_page_int,
             )
         except TypeError:
@@ -941,89 +963,82 @@ def list_public_snippets(
         return items_list, max(total_int, len(items_list))
 
     # חשב Built-ins תואמים (לשימוש בהשלמה ומעבר לדפי ה‑DB)
-    builtins = _filtered_builtins(q, language)
+    builtins_raw = _filtered_builtins(q, language)
+
+    supports_pagination = True
+    try:
+        db_result = repo.list_public_snippets(q=q, language=language, page=page_int, per_page=per_page_int)
+    except TypeError:
+        supports_pagination = False
+        try:
+            db_result = repo.list_public_snippets(q=q, language=language)
+        except Exception:
+            db_result = ([], 0)
+    except Exception:
+        db_result = ([], 0)
+
+    def _split_result(result: Any) -> Tuple[Any, Any]:
+        if isinstance(result, tuple) and len(result) >= 2:
+            return result[0], result[1]
+        return result, None
+
+    def _ensure_list(items_obj: Any) -> List[Dict[str, Any]]:
+        if isinstance(items_obj, list):
+            return items_obj
+        try:
+            return list(items_obj)
+        except Exception:
+            return []
+
+    db_items_obj, db_total_obj = _split_result(db_result)
+    db_items_page_list = _ensure_list(db_items_obj)
+    try:
+        db_total_int = int(db_total_obj)
+    except Exception:
+        db_total_int = len(db_items_page_list)
+
+    if db_total_int <= 0:
+        prepared_builtins = _prepare_builtins(builtins_raw)
+        start = (page_int - 1) * per_page_int
+        end = start + per_page_int
+        slice_items = prepared_builtins[start:end]
+        return slice_items, len(prepared_builtins)
+
     def _normalize_title(item: Dict[str, Any]) -> str:
         return str((item.get("title") or "")).strip().lower()
-    bt_title_keys = { _normalize_title(it) for it in builtins }
 
-    # שלוף עמוד DB נוכחי + סך הכל DB
-    try:
-        db_items_page, db_total = repo.list_public_snippets(q=q, language=language, page=page, per_page=per_page_int)
-    except Exception:
-        db_items_page, db_total = [], 0
-    try:
-        db_items_page_list = list(db_items_page) if not isinstance(db_items_page, list) else db_items_page
-    except Exception:
-        db_items_page_list = []
+    db_pages = (db_total_int + per_page_int - 1) // per_page_int if db_total_int > 0 else 0
+    db_titles_set = {_normalize_title(it) for it in db_items_page_list}
 
-    # סך כל עמודי ה‑DB
-    db_pages = (int(db_total) + per_page_int - 1) // per_page_int if int(db_total or 0) > 0 else 0
-
-    # הסר כפילויות מה‑Built‑in מול כותרות DB כדי לא להציג אותו פריט פעמיים
-    # חשוב: נגדיר את קבוצת הכותרות מכל דפי ה‑DB, לא רק מהדף הנוכחי — כדי למנוע
-    # הופעת Built‑in בעמודים מאוחרים כאשר יש כפילות מול עמודים מוקדמים.
-    db_titles_set = set()
-    try:
-        if db_pages > 0:
-            # כלול גם את הדף שכבר שלפנו
-            db_titles_set.update({ _normalize_title(it) for it in db_items_page_list })
-            # אסוף כותרות משאר דפי ה‑DB (בגבול סביר)
-            per_repo = min(60, per_page_int)
-            safety = 0
-            for p in range(1, db_pages + 1):
-                if p == page:
-                    continue
-                try:
-                    chunk, _ = repo.list_public_snippets(q=q, language=language, page=p, per_page=per_repo)
-                except Exception:
+    if supports_pagination and db_pages > 0:
+        per_repo = min(60, per_page_int)
+        safety = 0
+        for p in range(1, db_pages + 1):
+            if p == page_int:
+                continue
+            try:
+                chunk_result = repo.list_public_snippets(q=q, language=language, page=p, per_page=per_repo)
+            except Exception:
+                break
+            chunk_items, _ = _split_result(chunk_result)
+            chunk_list = _ensure_list(chunk_items)
+            if not chunk_list:
+                if p > page_int:
                     break
-                try:
-                    chunk_list = list(chunk) if not isinstance(chunk, list) else chunk
-                except Exception:
-                    chunk_list = []
-                if not chunk_list:
-                    # אין טעם להמשיך אם נגמרו פריטים
-                    break
-                db_titles_set.update({ _normalize_title(it) for it in chunk_list })
-                safety += 1
-                if safety > 200:  # מגן — עד ~200 דפים לכל היותר
-                    break
-    except Exception:
-        # במקרה של כשל — המשך בדדופ מקומי לדף הנוכחי בלבד
-        db_titles_set.update({ _normalize_title(it) for it in db_items_page_list })
-    filtered_builtins = [it for it in builtins if _normalize_title(it) not in db_titles_set]
+                continue
+            db_titles_set.update({_normalize_title(it) for it in chunk_list})
+            safety += 1
+            if safety > 200:
+                break
+    filtered_builtins_raw = [it for it in builtins_raw if _normalize_title(it) not in db_titles_set]
+    prepared_builtins = _prepare_builtins(filtered_builtins_raw)
+    unified_total = db_total_int + len(prepared_builtins)
 
-    # איחוד totals
-    unified_total = int(db_total or 0) + len(builtins)
-
-    # אם עדיין יש דפי DB להצגה – הצג תחילה את ה‑DB, והשלם ב‑Built‑ins אם חסר
-    if page <= max(1, db_pages):
+    if page_int == 1:
         items: List[Dict[str, Any]] = list(db_items_page_list)
         missing = max(0, per_page_int - len(items))
         if missing > 0:
-            # חישוב היסט של built-ins ביחס לעמוד הנוכחי של DB (כל עוד יש DB, עדיף DB מלא)
-            # אם זהו עמוד DB האחרון ויש פחות מ‑per_page – נמלא בבילט‑אין מתחילת הרשימה
-            items.extend(filtered_builtins[:missing])
+            items.extend(prepared_builtins[:missing])
         return items, max(unified_total, len(items))
 
-    # אחרת: עברנו את עמודי ה‑DB, מחשבים היסט ב‑Built‑ins
-    # כמה Built‑ins נצרכו כדי להשלים את דף ה‑DB האחרון (אם היה חסר)?
-    consumed_by_db_pages = 0
-    try:
-        if db_pages > 0:
-            if page == db_pages:
-                last_count = len(db_items_page_list)
-            else:
-                # שלוף את דף ה‑DB האחרון כדי לדעת כמה פריטים היו בו
-                last_items, _ = repo.list_public_snippets(q=q, language=language, page=db_pages, per_page=per_page_int)
-                try:
-                    last_items_list = list(last_items) if not isinstance(last_items, list) else last_items
-                except Exception:
-                    last_items_list = []
-                last_count = len(last_items_list)
-            consumed_by_db_pages = max(0, per_page_int - last_count)
-    except Exception:
-        consumed_by_db_pages = 0
-
-    builtins_offset = max(0, consumed_by_db_pages + ((page - db_pages - 1) * per_page_int))
-    return filtered_builtins[builtins_offset: builtins_offset + per_page_int], unified_total
+    return db_items_page_list, max(unified_total, len(db_items_page_list))
