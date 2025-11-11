@@ -4,6 +4,7 @@ import sys
 import math
 from typing import Dict, List, Optional
 import pytest
+import pytest_asyncio
 
 # Ensure project root is on sys.path so `import utils` works in tests
 PROJECT_ROOT = os.path.dirname(__file__)
@@ -216,7 +217,8 @@ def _close_http_async_session_after_session() -> None:
         pass
 
 
-@pytest.fixture(autouse=True)
+# Pytest-asyncio 0.23+ דורש להצהיר מפורשות על פיקסצ'רים אסינכרוניים דרך pytest_asyncio.fixture
+@pytest_asyncio.fixture(autouse=True)
 async def _reset_http_async_session_between_tests():
     """מוודא שסשן aiohttp הגלובלי לא דולף בין טסטים."""
     try:
