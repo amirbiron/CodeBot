@@ -769,7 +769,7 @@
                         <li><a href="/dashboard" class="nav-link"><i class="fas fa-chart-line"></i> דשבורד</a></li>
                         <li><a href="/files" class="nav-link"><i class="fas fa-folder"></i> הקבצים שלי</a></li>
                         <li><a href="/collections" class="nav-link"><i class="fas fa-layer-group"></i> האוספים שלי</a></li>
-                        <li><a href="https://t.me/{{ bot_username }}" target="_blank" class="nav-link"><i class="fab fa-telegram"></i> לבוט</a></li>
+                        <li><a href="#" class="nav-link" onclick="openCommunityChooser(event)"><i class="fas fa-puzzle-piece"></i> אוסף הקהילה</a></li>
                     {% endif %}
                     
                     <li class="user-menu">
@@ -980,6 +980,36 @@
                 '</div>'
             );
             return modal;
+        }
+
+        // --- Community chooser modal ---
+        function openCommunityChooser(ev){
+            try { if (ev && ev.preventDefault) ev.preventDefault(); } catch(_){ }
+            const modal = document.createElement('div');
+            modal.className = 'recent-files-modal community-modal';
+            modal.innerHTML = (
+                '<div class="modal-backdrop" onclick="closeCommunityChooser()"></div>'+
+                '<div class="modal-content">'+
+                '  <div class="modal-header">'+
+                '    <h3>אוספי הקהילה</h3>'+
+                '    <button class="modal-close" onclick="closeCommunityChooser()"><i class="fas fa-times"></i></button>'+
+                '  </div>'+
+                '  <div class="modal-body" style="display:flex; flex-direction:column; gap:12px;">'+
+                '    <a href="/community-library" class="btn btn-secondary btn-icon" style="width:100%; justify-content:flex-start; gap:.75rem;">'+
+                '      <span style="font-size:1.2rem;">📳</span>'+
+                '      <span>ממשקי משתמשים</span>'+
+                '    </a>'+
+                '    <a href="/snippets" class="btn btn-secondary btn-icon" style="width:100%; justify-content:flex-start; gap:.75rem;">'+
+                '      <span style="font-size:1.2rem;">📃</span>'+
+                '      <span>ספריית סניפטים</span>'+
+                '    </a>'+
+                '  </div>'+
+                '</div>'
+            );
+            document.body.appendChild(modal);
+        }
+        function closeCommunityChooser(){
+            try { const modal = document.querySelector('.community-modal'); if (modal) modal.remove(); } catch(_){ }
         }
 
         function displayRecentFiles(files, modal) {
