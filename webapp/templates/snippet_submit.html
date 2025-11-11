@@ -42,7 +42,7 @@
       </select>
     </div>
 
-    <div class="form-row">
+    <div id="snippetEditorContainer" class="form-row">
       <label for="code">קטע הקוד של הסניפט</label>
       <textarea id="code" name="code" rows="12" placeholder="# הדבק/י כאן את קטע הקוד" required style="font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', monospace;"></textarea>
     </div>
@@ -79,6 +79,34 @@
   const btn = document.getElementById('submitBtn');
   const okEl = document.getElementById('resultOk');
   const errEl = document.getElementById('resultErr');
+
+  // Initialize CodeMirror editor
+  document.addEventListener('DOMContentLoaded', async function() {
+    try {
+      const container = document.getElementById('snippetEditorContainer');
+      const languageSelect = document.getElementById('language');
+      if (container && window.editorManager && typeof window.editorManager.initEditor === 'function') {
+        console.debug('[snippet_submit] Initializing editor with language: text');
+        await window.editorManager.initEditor(container, {
+          language: 'text',
+          value: '',
+          theme: 'dark'
+        });
+
+        // Update editor language when select changes
+        if (languageSelect && window.editorManager && typeof window.editorManager.updateLanguage === 'function') {
+          languageSelect.addEventListener('change', async (e) => {
+            console.debug('[snippet_submit] Language changed to:', e.target.value);
+            try { await window.editorManager.updateLanguage(e.target.value); } catch (err) { console.warn('Failed to update language:', err); }
+          });
+        }
+      } else {
+        console.warn('[snippet_submit] EditorManager not available, using plain textarea');
+      }
+    } catch (err) {
+      console.error('[snippet_submit] Failed to initialize editor:', err);
+    }
+  });
 
   async function submitSnippet(ev){
     try{
