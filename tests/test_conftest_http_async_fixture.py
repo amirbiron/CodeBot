@@ -1,7 +1,10 @@
+import asyncio
 import sys
 import types
+from contextlib import suppress
 from importlib import util
 from pathlib import Path
+from typing import Optional
 
 import pytest
 
@@ -18,6 +21,30 @@ def _get_fixture_impl():
     return impl if impl is not None else _fixture_def
 
 
+class _FakeRequest:
+    def __init__(self, *, async_marker: bool):
+        self._loop: Optional[asyncio.AbstractEventLoop] = None
+        self._async_marker = async_marker
+        self.node = types.SimpleNamespace(
+            get_closest_marker=lambda name: object() if (async_marker and name == "asyncio") else None
+        )
+
+    def getfixturevalue(self, name: str):
+        if name != "event_loop":
+            raise KeyError(name)
+        if self._loop is None:
+            self._loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(self._loop)
+        return self._loop
+
+    def close(self) -> None:
+        if self._loop is not None:
+            with suppress(Exception):
+                asyncio.set_event_loop(None)
+            self._loop.close()
+            self._loop = None
+
+
 @pytest.mark.asyncio
 async def test_http_async_fixture_closes_session_pre_and_post(monkeypatch):
     call_log: list[str] = []
@@ -30,15 +57,20 @@ async def test_http_async_fixture_closes_session_pre_and_post(monkeypatch):
     monkeypatch.setitem(sys.modules, "http_async", fake_http_async)
 
     impl = _get_fixture_impl()
-    agen = impl()
+    request = _FakeRequest(async_marker=True)
+    try:
+        gen = impl(request=request)
+        assert gen is not None
 
-    await agen.asend(None)
-    assert call_log == ["close"]
+        next(gen)
+        assert call_log == ["close"]
 
-    with pytest.raises(StopAsyncIteration):
-        await agen.asend(None)
+        with pytest.raises(StopIteration):
+            next(gen)
 
-    assert call_log == ["close", "close"]
+        assert call_log == ["close", "close"]
+    finally:
+        request.close()
 
 
 @pytest.mark.asyncio
@@ -46,9 +78,13 @@ async def test_http_async_fixture_handles_missing_module(monkeypatch):
     monkeypatch.delitem(sys.modules, "http_async", raising=False)
 
     impl = _get_fixture_impl()
-    agen = impl()
+    request = _FakeRequest(async_marker=True)
+    try:
+        gen = impl(request=request)
 
-    await agen.asend(None)
+        next(gen)
 
-    with pytest.raises(StopAsyncIteration):
-        await agen.asend(None)
+        with pytest.raises(StopIteration):
+            next(gen)
+    finally:
+        request.close()
