@@ -547,6 +547,12 @@
         const hiddenSelect = document.getElementById('filterLanguages');
         if (!btn || !dd) return;
 
+        // נזיז את החלונית לגוף המסמך בעת פתיחה כדי שלא תיחתך בתוך הכרטיס
+        let ddPortaled = false;
+        const ddOriginalParent = dd.parentElement;
+        let onScrollReposition = null;
+        let onResizeReposition = null;
+
         function updateCountBadge(){
             const n = dd.querySelectorAll('input.lang-checkbox:checked').length;
             if (n > 0) { countEl.textContent = String(n); countEl.style.display = 'inline-block'; }
@@ -557,29 +563,92 @@
             const selected = Array.from(dd.querySelectorAll('input.lang-checkbox:checked')).map(el => el.value);
             Array.from(hiddenSelect.options).forEach(o => { o.selected = selected.includes(o.value); });
         }
+        function positionDropdown(){
+            try {
+                // מדידה: נראה לרגע כדי למדוד מידות
+                const prevDisplay = dd.style.display;
+                const prevVisibility = dd.style.visibility;
+                dd.style.visibility = 'hidden';
+                dd.style.display = 'block';
+                // מיצוב כצף קבוע יחסית לחלון
+                dd.style.position = 'fixed';
+                dd.style.zIndex = '11000';
+                dd.style.left = 'auto';
+                dd.style.right = 'auto';
+                dd.style.top = 'auto';
+                dd.style.bottom = 'auto';
+
+                const btnRect = btn.getBoundingClientRect();
+                const ddRect = dd.getBoundingClientRect();
+                const viewportW = window.innerWidth || document.documentElement.clientWidth || 0;
+                const viewportH = window.innerHeight || document.documentElement.clientHeight || 0;
+
+                const gap = 6; // מרווח מתחת/מעל לכפתור
+                const desiredWidth = Math.max(220, Math.min(320, Math.max(btnRect.width, ddRect.width)));
+                dd.style.minWidth = desiredWidth + 'px';
+                dd.style.maxWidth = Math.min(viewportW - 16, 480) + 'px';
+
+                // RTL: עיגון לצד ימין של הכפתור, בלי לצאת מהמסך
+                let right = Math.max(8, viewportW - btnRect.right);
+                // אם זה יגרום לבריחה, נערוך התאמה קלה
+                right = Math.min(right, Math.max(8, viewportW - (btnRect.left + desiredWidth)));
+
+                // מיקום אנכי: העדפה לפתיחה כלפי מטה, אך נהפוך למעלה אם אין מקום
+                const spaceBelow = viewportH - btnRect.bottom;
+                const spaceAbove = btnRect.top;
+                const ddHeight = ddRect.height || 260;
+                let openUp = (spaceBelow < ddHeight) && (spaceAbove > ddHeight);
+
+                if (openUp) {
+                    dd.style.bottom = (viewportH - btnRect.top + gap) + 'px';
+                    dd.style.top = 'auto';
+                } else {
+                    dd.style.top = (btnRect.bottom + gap) + 'px';
+                    dd.style.bottom = 'auto';
+                }
+                dd.style.right = right + 'px';
+                dd.style.left = 'auto';
+
+                // השב ניראות קודמת
+                dd.style.visibility = prevVisibility || '';
+                dd.style.display = prevDisplay || 'block';
+            } catch(_) {}
+        }
+        function attachGlobalHandlers(){
+            if (!onScrollReposition){
+                onScrollReposition = () => { if (dd.style.display !== 'none') positionDropdown(); };
+                window.addEventListener('scroll', onScrollReposition, { passive: true });
+            }
+            if (!onResizeReposition){
+                onResizeReposition = () => { if (dd.style.display !== 'none') positionDropdown(); };
+                window.addEventListener('resize', onResizeReposition);
+            }
+        }
+        function detachGlobalHandlers(){
+            if (onScrollReposition){ window.removeEventListener('scroll', onScrollReposition); onScrollReposition = null; }
+            if (onResizeReposition){ window.removeEventListener('resize', onResizeReposition); onResizeReposition = null; }
+        }
         function toggle(open){
-            const show = (typeof open === 'boolean') ? open : (dd.style.display === 'none');
-            dd.style.display = show ? 'block' : 'none';
-            btn.setAttribute('aria-expanded', show ? 'true' : 'false');
+            const show = (typeof open === 'boolean') ? open : (dd.style.display === 'none' || dd.style.display === '');
             if (show) {
                 try {
-                    // ודא שמעל כל שכבות הכפתורים
-                    dd.style.zIndex = '5000';
-                    // ברירת מחדל: נפתח למטה
-                    dd.style.top = 'calc(100% + 6px)';
-                    dd.style.bottom = 'auto';
-                    // בדיקת מקום במסך – היפוך פתיחה כלפי מעלה אם אין מקום למטה
-                    const btnRect = btn.getBoundingClientRect();
-                    const ddRect = dd.getBoundingClientRect();
-                    const spaceBelow = (window.innerHeight - btnRect.bottom);
-                    const spaceAbove = btnRect.top;
-                    const expectedHeight = ddRect.height || 240; // הערכה בטוחה
-                    if (spaceBelow < expectedHeight && spaceAbove > expectedHeight) {
-                        dd.style.top = 'auto';
-                        dd.style.bottom = 'calc(100% + 6px)';
+                    if (!ddPortaled) {
+                        document.body.appendChild(dd);
+                        ddPortaled = true;
+                        dd.setAttribute('data-portaled', '1');
                     }
+                    dd.style.display = 'block';
+                    dd.style.visibility = 'hidden'; // נסתיר עד למיקום סופי
+                    positionDropdown();
+                    dd.style.visibility = 'visible';
+                    attachGlobalHandlers();
                 } catch(_) {}
+            } else {
+                dd.style.display = 'none';
+                detachGlobalHandlers();
+                // אין חובה להחזיר להורה המקורי; נשאיר ב-body וננהל במיקום קבוע
             }
+            btn.setAttribute('aria-expanded', show ? 'true' : 'false');
         }
 
         btn.addEventListener('click', (e) => { e.stopPropagation(); toggle(); });
