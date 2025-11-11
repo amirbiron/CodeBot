@@ -645,6 +645,11 @@ class BackupManager:
                     search_dirs.append(d)
 
             seen_paths: Set[str] = set()
+            # דה-דופ אזהרות עבור קבצי ZIP לא תקינים כדי למנוע הצפת לוגים
+            try:
+                _invalid_warned: Set[str] = getattr(self, "_warned_invalid_zips")  # type: ignore[assignment]
+            except Exception:
+                _invalid_warned = set()
 
             # קבצים בדיסק — מציגים רק קבצים ששייכים למשתמש
             for _dir in search_dirs:
@@ -656,6 +661,26 @@ class BackupManager:
                     if resolved_path in seen_paths:
                         continue
                     seen_paths.add(resolved_path)
+                    # דלג על קבצים ריקים או קבצים שאינם ZIP, עם לוג עדין פעם אחת לכל נתיב
+                    try:
+                        st = backup_file.stat()
+                        if int(getattr(st, 'st_size', 0) or 0) == 0:
+                            continue
+                    except Exception:
+                        pass
+                    try:
+                        if not zipfile.is_zipfile(str(backup_file)):
+                            if resolved_path not in _invalid_warned:
+                                logger.info(f"דלג על קובץ גיבוי שאינו ZIP: {resolved_path}")
+                                _invalid_warned.add(resolved_path)
+                                try:
+                                    setattr(self, "_warned_invalid_zips", _invalid_warned)
+                                except Exception:
+                                    pass
+                            continue
+                    except Exception:
+                        # אם הבדיקה נכשלה, נמשיך לקרוא כרגיל ונתפוס בחריגה למטה
+                        pass
                     try:
                         # ערכי ברירת מחדל
                         metadata: Optional[Dict[str, Any]] = None
@@ -785,7 +810,14 @@ class BackupManager:
                         backups.append(backup_info)
 
                     except Exception as e:
-                        logger.warning(f"שגיאה בקריאת גיבוי {backup_file}: {e}")
+                        # הורדת רמת הלוג למניעת הצפה; דה-דופ לפי נתיב
+                        try:
+                            if resolved_path not in _invalid_warned:
+                                logger.info(f"דלג על גיבוי לא תקין {backup_file}: {e}")
+                                _invalid_warned.add(resolved_path)
+                                setattr(self, "_warned_invalid_zips", _invalid_warned)
+                        except Exception:
+                            logger.info(f"דלג על גיבוי לא תקין {backup_file}: {e}")
                         continue
 
             # קבצים ב-GridFS (Mongo) – נטען רק של המשתמש

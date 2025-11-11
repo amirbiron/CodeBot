@@ -228,14 +228,30 @@ def _ensure_valid_credentials(user_id: int) -> Optional[Credentials]:
     return creds
 
 
+_SERVICE_CACHE: Dict[int, Tuple[Any, float]] = {}
+
+
 def get_drive_service(user_id: int):
     if build is None:
         return None
     creds = _ensure_valid_credentials(user_id)
     if not creds:
         return None
+    # נסה להשתמש בשירות קיים עד 5 דקות כדי למנוע יצירה חוזרת ושקעים פתוחים
+    now_ts = time.time()
     try:
-        return build("drive", "v3", credentials=creds, cache_discovery=False)
+        cached = _SERVICE_CACHE.get(user_id)
+        if cached and (now_ts - float(cached[1])) < 300:
+            return cached[0]
+    except Exception:
+        pass
+    try:
+        svc = build("drive", "v3", credentials=creds, cache_discovery=False)
+        try:
+            _SERVICE_CACHE[user_id] = (svc, now_ts)
+        except Exception:
+            pass
+        return svc
     except Exception:
         return None
 
