@@ -80,7 +80,6 @@ def pytest_collection_modifyitems(config: pytest.Config, items: List[pytest.Item
         if item.get_closest_marker("asyncio"):
             item.add_marker(pytest.mark.usefixtures("_reset_http_async_session_between_tests"))
 
-
 def pytest_runtest_makereport(item: pytest.Item, call: pytest.CallInfo) -> None:  # type: ignore[override]
     if call.when == "call" and "performance" in item.keywords:
         # call.duration is not guaranteed; compute from start/stop
@@ -223,23 +222,33 @@ def _close_http_async_session_after_session() -> None:
 
 
 @pytest_asyncio.fixture
-async def _reset_http_async_session_between_tests() -> None:
+async def _reset_http_async_session_between_tests(
+    request: Optional[pytest.FixtureRequest] = None,
+) -> None:
     """סוגר את הסשן הגלובלי של http_async לפני ואחרי כל טסט אסינכרוני."""
     try:
         from http_async import close_session  # type: ignore
     except Exception:
         close_session = None  # type: ignore
-
-    if close_session is not None:
+    is_async_test = True
+    if request is not None:
         try:
-            await close_session()
+            is_async_test = request.node.get_closest_marker("asyncio") is not None
         except Exception:
-            pass
+            is_async_test = True
+
+    if not is_async_test or close_session is None:
+        yield
+        return
+
+    try:
+        await close_session()
+    except Exception:
+        pass
 
     yield
 
-    if close_session is not None:
-        try:
-            await close_session()
-        except Exception:
-            pass
+    try:
+        await close_session()
+    except Exception:
+        pass
