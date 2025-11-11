@@ -899,10 +899,10 @@
     
     {% if session.user_id and (weekly_tip_enabled is not defined or weekly_tip_enabled) %}
     <div class="container" aria-hidden="false">
-        <div id="weeklyTip" class="weekly-tip" aria-live="polite" role="status" tabindex="0" title="טיפ שבועי">
+        <div id="weeklyTip" class="weekly-tip" role="button" aria-label="טיפ שבועי" aria-haspopup="menu" aria-expanded="false" aria-controls="weeklyTipPopover" tabindex="0" title="טיפ שבועי">
             <span class="weekly-tip__icon" aria-hidden="true">💡</span>
             <div class="weekly-tip__scroller">
-                <div class="weekly-tip__inner" id="weeklyTipInner">
+                <div class="weekly-tip__inner" id="weeklyTipInner" aria-live="polite">
                     <!-- content filled by JS -->
                 </div>
             </div>
@@ -1579,6 +1579,7 @@
         try {
             pop.setAttribute('data-open', 'true');
             pop.setAttribute('aria-hidden', 'false');
+            try { container.setAttribute('aria-expanded', 'true'); } catch(_) {}
             container.classList.add('is-paused');
             // Close on outside click / ESC
             const closer = (ev) => {
@@ -1586,6 +1587,7 @@
             };
             setTimeout(() => document.addEventListener('click', closer), 0);
             document.addEventListener('keydown', onEscOnce);
+            try { (btnDisable || btnClose || container).focus(); } catch(_) {}
         } catch(_) {}
     }
     function onEscOnce(e){ if (e.key === 'Escape') { closePopover(); document.removeEventListener('keydown', onEscOnce); } }
@@ -1593,7 +1595,9 @@
         try {
             pop.removeAttribute('data-open');
             pop.setAttribute('aria-hidden', 'true');
+            try { container.setAttribute('aria-expanded', 'false'); } catch(_) {}
             container.classList.remove('is-paused');
+            try { container.focus(); } catch(_) {}
         } catch(_) {}
     }
 
@@ -1628,6 +1632,13 @@
     container.addEventListener('pointerdown', (e) => { if (e.button === 2) return; startHold(); });
     ['pointerup','pointerleave','pointercancel','pointermove'].forEach(ev => container.addEventListener(ev, cancelHold));
     container.addEventListener('contextmenu', (e) => { e.preventDefault(); openPopover(); });
+    container.addEventListener('keydown', (e) => {
+        const k = e.key;
+        if (k === 'Enter' || k === ' ') {
+            e.preventDefault();
+            openPopover();
+        }
+    });
     if (btnDisable) btnDisable.addEventListener('click', disableForWeek);
     if (btnClose) btnClose.addEventListener('click', closePopover);
 })();
