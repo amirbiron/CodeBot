@@ -17,7 +17,7 @@ from typing import Optional, Tuple, List
 logger = logging.getLogger(__name__)
 
 try:  # Pillow (נדרש)
-    from PIL import Image, ImageDraw, ImageFont
+    from PIL import Image, ImageDraw, ImageFont, ImageFilter
     from PIL.ImageFont import FreeTypeFont  # type: ignore
 except Exception:  # pragma: no cover
     Image = None  # type: ignore[assignment]
@@ -179,7 +179,10 @@ class CodeImageGenerator:
 
     # --- HTML colors extraction ------------------------------------------
     def _html_to_text_colors(self, html_str: str) -> List[Tuple[str, str]]:
-        # הסר style/script באופן בטוח עם BeautifulSoup
+        """Extract (text,color) segments from a single highlighted HTML line, preserving whitespace.
+        We intentionally do not strip() so that leading spaces/tabs remain intact.
+        """
+        # Remove style/script safely
         soup = BeautifulSoup(html_str, "html.parser")
         for tag in soup(["style", "script"]):
             tag.decompose()
@@ -189,23 +192,23 @@ class CodeImageGenerator:
         last = 0
         for m in re.finditer(pattern, s, flags=re.DOTALL):
             before = s[last:m.start()]
-            if before.strip():
+            if before:
                 clean = re.sub(r'<[^>]+>', '', before)
-                if clean:
+                if clean != "":
                     text_colors.append((clean, self.colors['text']))
             color = m.group(1).strip()
             inner = re.sub(r'<[^>]+>', '', m.group(2))
-            if inner:
+            if inner != "":
                 text_colors.append((inner, color))
             last = m.end()
         tail = s[last:]
-        if tail.strip():
+        if tail:
             clean = re.sub(r'<[^>]+>', '', tail)
-            if clean:
+            if clean != "":
                 text_colors.append((clean, self.colors['text']))
         if not text_colors:
             clean_all = re.sub(r'<[^>]+>', '', s)
-            if clean_all.strip():
+            if clean_all != "":
                 text_colors.append((clean_all, self.colors['text']))
         return text_colors
 
@@ -276,14 +279,10 @@ class CodeImageGenerator:
         return img
 
     def save_optimized_png(self, img: Image.Image) -> bytes:
+        """Always return PNG for crisp code images; keep optimization, avoid JPEG."""
         buf = io.BytesIO()
         img.save(buf, format='PNG', optimize=True, compress_level=9)
-        data = buf.getvalue()
-        if len(data) > 2 * 1024 * 1024:  # 2MB – פשרה: המרה ל-JPEG איכותי
-            buf = io.BytesIO()
-            img.save(buf, format='JPEG', quality=95, optimize=True)
-            data = buf.getvalue()
-        return data
+        return buf.getvalue()
 
     # --- Public API -------------------------------------------------------
     def generate_image(
@@ -354,59 +353,107 @@ class CodeImageGenerator:
             num_lines = len(lines)
             image_height = int(num_lines * line_height + self.DEFAULT_PADDING * 2)
 
-        # Manual rendering via PIL (ברירת מחדל)
-        img = Image.new('RGB', (image_width, image_height), self.colors['background'])
-        draw = ImageDraw.Draw(img)
+        # Manual rendering via PIL (ברירת מחדל) עם DPR=2 לשיפור חדות
+        scale = 2
+        s = scale
+        # מידות בסקייל גבוה
+        w2 = int(image_width * s)
+        h2 = int(image_height * s)
+        pad2 = int(self.DEFAULT_PADDING * s)
+        lnw2 = int(self.LINE_NUMBER_WIDTH * s)
+        line_h2 = int(line_height * s)
 
-        # Line numbers background + divider
-        ln_bg_x2 = self.DEFAULT_PADDING + self.LINE_NUMBER_WIDTH
-        draw.rectangle([(0, 0), (ln_bg_x2, image_height)], fill=self.colors['line_number_bg'])
-        draw.line([(ln_bg_x2, 0), (ln_bg_x2, image_height)], fill=self.colors['border'], width=1)
+        img2 = Image.new('RGB', (w2, h2), self.colors['background'])
+        draw = ImageDraw.Draw(img2)
 
-        code_x = ln_bg_x2 + 20
-        code_y = self.DEFAULT_PADDING
+        # כרטיס מעוגל (Rounded card) עם פס כותרת וכפתורים
+        radius = int(16 * s)
+        card_rect = [(0, 0), (w2 - 1, h2 - 1)]
+        panel_fill = self.colors.get('background')
+        try:
+            panel_fill = self.colors.get('line_number_bg', self.colors['background'])
+        except Exception:
+            panel_fill = self.colors.get('background')
+        try:
+            draw.rounded_rectangle(card_rect, radius=radius, fill=panel_fill, outline=self.colors['border'], width=max(1, s))
+        except Exception:
+            draw.rectangle(card_rect, outline=self.colors['border'], width=max(1, s), fill=panel_fill)
+
+        # Title bar
+        title_h = int(28 * s)
+        tb_rect = [(0, 0), (w2 - 1, title_h)]
+        tb_fill = self.colors.get('line_number_bg', self.colors['background'])
+        draw.rectangle(tb_rect, fill=tb_fill)
+        # Traffic lights
+        cx = int(16 * s)
+        cy = int(title_h / 2)
+        r = int(5 * s)
+        for idx, col in enumerate([(255, 95, 86), (255, 189, 46), (39, 201, 63)]):
+            x = cx + idx * int(14 * s)
+            draw.ellipse([(x - r, cy - r), (x + r, cy + r)], fill=col)
+
+        # אזור מספרי שורות וקוד
+        ln_bg_x2 = pad2 + lnw2
+        code_x = ln_bg_x2 + int(20 * s)
+        code_y = title_h + pad2  # מרווח תחת הכותרת
+        # רקע מספרי שורות
+        draw.rectangle([(0, title_h), (ln_bg_x2, h2)], fill=self.colors['line_number_bg'])
+        draw.line([(ln_bg_x2, title_h), (ln_bg_x2, h2)], fill=self.colors['border'], width=max(1, s))
+
+        # פונטים בסקייל
+        font = self._get_font(int(self.FONT_SIZE * s))
+        ln_font = self._get_font(max(1, int((self.FONT_SIZE - 1) * s)))
 
         html_lines = highlighted_html.split('\n')
-        ln_font = self._get_font(self.FONT_SIZE - 1)
-
         for i, (plain_line, html_line) in enumerate(zip(lines, html_lines[:len(lines)]), start=1):
-            y = code_y + (i - 1) * line_height
+            y = code_y + (i - 1) * line_h2
             # line number
             num_str = str(i)
             try:
                 bbox = ln_font.getbbox(num_str)  # type: ignore[attr-defined]
                 num_w = max(0, bbox[2] - bbox[0])
             except Exception:
-                num_w = len(num_str) * 6
-            num_x = ln_bg_x2 - num_w - 10
+                num_w = len(num_str) * int(6 * s)
+            num_x = ln_bg_x2 - num_w - int(10 * s)
             draw.text((num_x, y), num_str, fill=self.colors['line_number_text'], font=ln_font)
 
-            # code segments according to spans
+            # code segments according to spans – שמור טאבים ורווחים
             x = code_x
             segments = self._html_to_text_colors(html_line)
             if not segments:
                 segments = [(plain_line, self.colors['text'])]
             for text, color_str in segments:
-                if not text:
+                if text is None:
+                    continue
+                # Tabs to spaces for stable width
+                text = text.replace('\t', '    ')
+                if text == "":
                     continue
                 color = self._parse_color(color_str)
                 draw.text((x, y), text, fill=color, font=font)
                 try:
                     bbox = font.getbbox(text)  # type: ignore[attr-defined]
-                    w = max(0, bbox[2] - bbox[0])
+                    wseg = max(0, bbox[2] - bbox[0])
                 except Exception:
-                    w = len(text) * 8
-                x += w
+                    wseg = len(text) * int(8 * s)
+                x += wseg
 
-        # Logo (optional)
+        # לוגו (אופציונלי)
         logo = self._get_logo_image()
         if logo is not None:
-            lx = max(0, image_width - self.LOGO_SIZE[0] - self.LOGO_PADDING)
-            ly = max(0, image_height - self.LOGO_SIZE[1] - self.LOGO_PADDING)
-            if logo.mode == 'RGBA':
-                img.paste(logo, (lx, ly), logo)
+            lx = max(0, w2 - int(self.LOGO_SIZE[0] * s / 1) - int(self.LOGO_PADDING * s))
+            ly = max(0, h2 - int(self.LOGO_SIZE[1] * s / 1) - int(self.LOGO_PADDING * s))
+            # קנה מידה של הלוגו אם צריך
+            try:
+                l2 = logo.resize((int(self.LOGO_SIZE[0] * s), int(self.LOGO_SIZE[1] * s)), Image.Resampling.LANCZOS)
+            except Exception:
+                l2 = logo
+            if l2.mode == 'RGBA':
+                img2.paste(l2, (lx, ly), l2)
             else:
-                img.paste(logo, (lx, ly))
+                img2.paste(l2, (lx, ly))
 
+        # Downscale בחיתוך איכותי לשמירה על חדות
+        img = img2.resize((int(image_width), int(image_height)), Image.Resampling.LANCZOS)
         img = self.optimize_image_size(img)
         return self.save_optimized_png(img)
