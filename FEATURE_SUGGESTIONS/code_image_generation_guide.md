@@ -145,13 +145,14 @@ except Exception:
 try:
     from pygments import highlight
     from pygments.formatters import HtmlFormatter
-    from pygments.lexers import get_lexer_by_name, guess_lexer
+    from pygments.lexers import get_lexer_by_name, get_lexer_for_filename, guess_lexer
     from pygments.styles import get_style_by_name
     from pygments.util import ClassNotFound
 except Exception:
     highlight = None
     HtmlFormatter = None
     get_lexer_by_name = None
+    get_lexer_for_filename = None
     guess_lexer = None
     get_style_by_name = None
     ClassNotFound = Exception
@@ -339,7 +340,7 @@ class CodeImageGenerator:
                 # ניקוי HTML
                 clean_before = re.sub(r'<[^>]+>', '', before)
                 if clean_before:
-                    text_colors.append((clean_before, self.COLORS['text']))
+                    text_colors.append((clean_before, self.colors['text']))
             
             # הטקסט בתוך התג
             color = match.group(1).strip()
@@ -356,13 +357,13 @@ class CodeImageGenerator:
         if after.strip():
             clean_after = re.sub(r'<[^>]+>', '', after)
             if clean_after:
-                text_colors.append((clean_after, self.COLORS['text']))
+                text_colors.append((clean_after, self.colors['text']))
         
         # אם לא מצאנו כלום, נחזיר את כל הטקסט
         if not text_colors:
             clean_html = re.sub(r'<[^>]+>', '', html)
             if clean_html.strip():
-                text_colors.append((clean_html, self.COLORS['text']))
+                text_colors.append((clean_html, self.colors['text']))
         
         return text_colors
     
