@@ -398,6 +398,6 @@ async def test_file_view_direct_no_note_markdown_block(monkeypatch):
     ctx = types.SimpleNamespace(user_data={})
     upd = types.SimpleNamespace(callback_query=Q(), effective_user=types.SimpleNamespace(id=123))
     await fv.handle_view_direct_file(upd, ctx)
-    assert captured.get('parse_mode') == 'HTML'
+    assert captured.get('parse_mode') == 'Markdown'
     assert '📝 הערה: —' in captured.get('text', '')
 
