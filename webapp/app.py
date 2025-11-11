@@ -786,7 +786,8 @@ def inject_globals():
                 pass
     except Exception:
         pass
-    if theme not in {'classic','ocean','forest','high-contrast'}:
+    if theme not in {'classic','ocean','forest','high-contrast',
+                     'midnight-blue','true-black','tokyo-night','warm-light'}:
         theme = 'classic'
 
     show_welcome_modal = False
@@ -5909,7 +5910,7 @@ def api_ui_prefs():
 
     קלט JSON נתמך:
     - font_scale: float בין 0.85 ל-1.6 (אופציונלי)
-    - theme: אחד מ-{"classic","ocean","forest","high-contrast"} (אופציונלי)
+    - theme: אחד מ-{"classic","ocean","forest","high-contrast","midnight-blue","true-black","tokyo-night","warm-light"} (אופציונלי)
     - editor: "simple" | "codemirror" (אופציונלי)
     - work_state: אובייקט עם מצב עבודה נוכחי (last_url, scroll_y, timestamp)
     """
@@ -5943,7 +5944,8 @@ def api_ui_prefs():
         # עדכון ערכת צבעים במידת הצורך
         if 'theme' in payload:
             theme = (payload.get('theme') or '').strip().lower()
-            if theme in {'classic', 'ocean', 'forest', 'high-contrast'}:
+            if theme in {'classic', 'ocean', 'forest', 'high-contrast',
+                         'midnight-blue', 'true-black', 'tokyo-night', 'warm-light'}:
                 update_fields['ui_prefs.theme'] = theme
                 resp_payload['theme'] = theme
                 theme_cookie_value = theme
