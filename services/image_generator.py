@@ -363,8 +363,16 @@ class CodeImageGenerator:
         lnw2 = int(self.LINE_NUMBER_WIDTH * s)
         line_h2 = int(line_height * s)
 
-        # בסיס RGBA כדי לאפשר הצללה רכה
-        img2 = Image.new('RGBA', (w2, h2), self.colors['background'] + (255,) if isinstance(self.colors['background'], tuple) else (0, 0, 0, 255))
+        # בסיס RGBA כדי לאפשר הצללה רכה – ודא שהרקע לפי התמה ולא שחור
+        bg_val = self.colors.get('background')
+        try:
+            if isinstance(bg_val, tuple):
+                bg_rgb = tuple(bg_val[:3])
+            else:
+                bg_rgb = self._parse_color(str(bg_val))
+        except Exception:
+            bg_rgb = (30, 30, 30)
+        img2 = Image.new('RGBA', (w2, h2), (bg_rgb[0], bg_rgb[1], bg_rgb[2], 255))
         draw = ImageDraw.Draw(img2)
 
         # פרמטרי כרטיס ושוליים
