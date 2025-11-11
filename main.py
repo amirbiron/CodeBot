@@ -170,23 +170,59 @@ def _shutdown_http_shared_session() -> None:
     except RuntimeError:
         loop = None
     if loop is not None and not loop.is_closed():
-        if not loop.is_running():
+        try:
+            running = bool(loop.is_running())
+        except Exception:
+            running = False
+        if not running:
             try:
-                loop.run_until_complete(close_session())
-                return
+                coro = close_session()
             except Exception:
-                pass
+                coro = None
+            if coro is not None:
+                try:
+                    loop.run_until_complete(coro)
+                except Exception:
+                    try:
+                        coro.close()  # type: ignore[attr-defined]
+                    except Exception:
+                        pass
+                else:
+                    return
         # אם הלולאה פעילה אי אפשר להמתין לה כאן – נשתמש בלולאה זמנית
     try:
         tmp_loop = asyncio.new_event_loop()
+        original_loop: asyncio.AbstractEventLoop | None = None
         try:
-            asyncio.set_event_loop(tmp_loop)
-        except Exception:
-            pass
-        try:
-            tmp_loop.run_until_complete(close_session())
+            try:
+                original_loop = asyncio.get_event_loop()
+            except RuntimeError:
+                original_loop = None
+            try:
+                asyncio.set_event_loop(tmp_loop)
+            except Exception:
+                pass
+            try:
+                coro = close_session()
+            except Exception:
+                coro = None
+            if coro is not None:
+                try:
+                    tmp_loop.run_until_complete(coro)
+                except Exception:
+                    try:
+                        coro.close()  # type: ignore[attr-defined]
+                    except Exception:
+                        pass
         finally:
             tmp_loop.close()
+            try:
+                if original_loop is None or (original_loop.is_closed() if original_loop else True):
+                    asyncio.set_event_loop(None)
+                else:
+                    asyncio.set_event_loop(original_loop)
+            except Exception:
+                pass
     except Exception:
         # אל תהרוס כיבוי
         pass

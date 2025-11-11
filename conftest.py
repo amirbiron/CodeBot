@@ -160,16 +160,57 @@ def _close_http_async_session_after_session() -> None:
 
     if loop is not None and not loop.is_closed():
         try:
-            loop.run_until_complete(close_session())
-            return
+            running = bool(loop.is_running())
         except Exception:
-            pass
+            running = False
+        if not running:
+            try:
+                coro = close_session()
+            except Exception:
+                coro = None
+            if coro is not None:
+                try:
+                    loop.run_until_complete(coro)
+                except Exception:
+                    try:
+                        coro.close()  # type: ignore[attr-defined]
+                    except Exception:
+                        pass
+                else:
+                    return
 
     try:
         new_loop = asyncio.new_event_loop()
+        original_loop = None
         try:
-            new_loop.run_until_complete(close_session())
+            try:
+                original_loop = asyncio.get_event_loop()
+            except RuntimeError:
+                original_loop = None
+            try:
+                asyncio.set_event_loop(new_loop)
+            except Exception:
+                pass
+            try:
+                coro = close_session()
+            except Exception:
+                coro = None
+            if coro is not None:
+                try:
+                    new_loop.run_until_complete(coro)
+                except Exception:
+                    try:
+                        coro.close()  # type: ignore[attr-defined]
+                    except Exception:
+                        pass
         finally:
             new_loop.close()
+            try:
+                if original_loop is None or (original_loop.is_closed() if original_loop else True):
+                    asyncio.set_event_loop(None)
+                else:
+                    asyncio.set_event_loop(original_loop)
+            except Exception:
+                pass
     except Exception:
         pass
