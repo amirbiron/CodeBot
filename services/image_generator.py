@@ -17,7 +17,7 @@ from typing import Optional, Tuple, List
 logger = logging.getLogger(__name__)
 
 try:  # Pillow (נדרש)
-    from PIL import Image, ImageDraw, ImageFont
+    from PIL import Image, ImageDraw, ImageFont, ImageFilter
     from PIL.ImageFont import FreeTypeFont  # type: ignore
 except Exception:  # pragma: no cover
     Image = None  # type: ignore[assignment]
@@ -59,6 +59,10 @@ class CodeImageGenerator:
     LINE_NUMBER_WIDTH = 60
     LOGO_SIZE = (80, 20)
     LOGO_PADDING = 10
+    # Layout constants (px at 1x DPR)
+    CARD_MARGIN = 18
+    TITLE_BAR_HEIGHT = 28
+    CODE_GUTTER_SPACING = 20
 
     THEMES = {
         'dark': {
@@ -179,7 +183,10 @@ class CodeImageGenerator:
 
     # --- HTML colors extraction ------------------------------------------
     def _html_to_text_colors(self, html_str: str) -> List[Tuple[str, str]]:
-        # הסר style/script באופן בטוח עם BeautifulSoup
+        """Extract (text,color) segments from a single highlighted HTML line, preserving whitespace.
+        We intentionally do not strip() so that leading spaces/tabs remain intact.
+        """
+        # Remove style/script safely
         soup = BeautifulSoup(html_str, "html.parser")
         for tag in soup(["style", "script"]):
             tag.decompose()
@@ -189,23 +196,23 @@ class CodeImageGenerator:
         last = 0
         for m in re.finditer(pattern, s, flags=re.DOTALL):
             before = s[last:m.start()]
-            if before.strip():
+            if before:
                 clean = re.sub(r'<[^>]+>', '', before)
-                if clean:
+                if clean != "":
                     text_colors.append((clean, self.colors['text']))
             color = m.group(1).strip()
             inner = re.sub(r'<[^>]+>', '', m.group(2))
-            if inner:
+            if inner != "":
                 text_colors.append((inner, color))
             last = m.end()
         tail = s[last:]
-        if tail.strip():
+        if tail:
             clean = re.sub(r'<[^>]+>', '', tail)
-            if clean:
+            if clean != "":
                 text_colors.append((clean, self.colors['text']))
         if not text_colors:
             clean_all = re.sub(r'<[^>]+>', '', s)
-            if clean_all.strip():
+            if clean_all != "":
                 text_colors.append((clean_all, self.colors['text']))
         return text_colors
 
@@ -276,14 +283,10 @@ class CodeImageGenerator:
         return img
 
     def save_optimized_png(self, img: Image.Image) -> bytes:
+        """Always return PNG for crisp code images; keep optimization, avoid JPEG."""
         buf = io.BytesIO()
         img.save(buf, format='PNG', optimize=True, compress_level=9)
-        data = buf.getvalue()
-        if len(data) > 2 * 1024 * 1024:  # 2MB – פשרה: המרה ל-JPEG איכותי
-            buf = io.BytesIO()
-            img.save(buf, format='JPEG', quality=95, optimize=True)
-            data = buf.getvalue()
-        return data
+        return buf.getvalue()
 
     # --- Public API -------------------------------------------------------
     def generate_image(
@@ -344,69 +347,187 @@ class CodeImageGenerator:
                 w = len(ln) * 8
             max_line_width = max(max_line_width, w)
 
-        content_width = self.LINE_NUMBER_WIDTH + 20 + max_line_width + self.DEFAULT_PADDING
+        # Total width must include: card margins (both sides), left padding, line numbers, gutter, code, right padding
+        content_width = (
+            self.CARD_MARGIN * 2
+            + self.DEFAULT_PADDING
+            + self.LINE_NUMBER_WIDTH
+            + self.CODE_GUTTER_SPACING
+            + max_line_width
+            + self.DEFAULT_PADDING
+        )
         image_width = min(int(content_width), int(max_width or self.DEFAULT_WIDTH))
 
-        image_height = int(num_lines * line_height + self.DEFAULT_PADDING * 2)
+        # Height includes card margins, title bar, top/bottom padding and lines
+        base_overhead = self.CARD_MARGIN * 2 + self.TITLE_BAR_HEIGHT + self.DEFAULT_PADDING * 2
+        image_height = int(num_lines * line_height + base_overhead)
         if max_height and image_height > max_height:
-            max_lines = max(1, (int(max_height) - self.DEFAULT_PADDING * 2) // line_height)
+            avail = max(0, int(max_height) - base_overhead)
+            max_lines = max(1, avail // line_height)
             lines = lines[:max_lines]
             num_lines = len(lines)
-            image_height = int(num_lines * line_height + self.DEFAULT_PADDING * 2)
+            image_height = int(num_lines * line_height + base_overhead)
 
-        # Manual rendering via PIL (ברירת מחדל)
-        img = Image.new('RGB', (image_width, image_height), self.colors['background'])
-        draw = ImageDraw.Draw(img)
+        # Manual rendering via PIL (ברירת מחדל) עם DPR=2 לשיפור חדות
+        scale = 2
+        s = scale
+        # מידות בסקייל גבוה
+        w2 = int(image_width * s)
+        h2 = int(image_height * s)
+        pad2 = int(self.DEFAULT_PADDING * s)
+        lnw2 = int(self.LINE_NUMBER_WIDTH * s)
+        line_h2 = int(line_height * s)
 
-        # Line numbers background + divider
-        ln_bg_x2 = self.DEFAULT_PADDING + self.LINE_NUMBER_WIDTH
-        draw.rectangle([(0, 0), (ln_bg_x2, image_height)], fill=self.colors['line_number_bg'])
-        draw.line([(ln_bg_x2, 0), (ln_bg_x2, image_height)], fill=self.colors['border'], width=1)
+        # בסיס RGBA כדי לאפשר הצללה רכה – ודא שהרקע לפי התמה ולא שחור
+        bg_val = self.colors.get('background')
+        try:
+            if isinstance(bg_val, tuple):
+                bg_rgb = tuple(bg_val[:3])
+            else:
+                bg_rgb = self._parse_color(str(bg_val))
+        except Exception:
+            bg_rgb = (30, 30, 30)
+        img2 = Image.new('RGBA', (w2, h2), (bg_rgb[0], bg_rgb[1], bg_rgb[2], 255))
+        draw = ImageDraw.Draw(img2)
 
-        code_x = ln_bg_x2 + 20
-        code_y = self.DEFAULT_PADDING
+        # פרמטרי כרטיס ושוליים
+        radius = int(16 * s)
+        card_margin = int(18 * s)
+        card_x1, card_y1 = card_margin, card_margin
+        card_x2, card_y2 = w2 - 1 - card_margin, h2 - 1 - card_margin
+        card_rect = [(card_x1, card_y1), (card_x2, card_y2)]
+
+        # Drop shadow: מסכה מטושטשת עם היסט קל
+        sh_dx, sh_dy = int(6 * s), int(8 * s)
+        sh_blur = max(2, int(16 * s))
+        mask = Image.new('L', (w2, h2), 0)
+        mdraw = ImageDraw.Draw(mask)
+        try:
+            mdraw.rounded_rectangle(
+                [(card_x1 + sh_dx, card_y1 + sh_dy), (card_x2 + sh_dx, card_y2 + sh_dy)],
+                radius=radius,
+                fill=180,
+            )
+        except Exception:
+            mdraw.rectangle([(card_x1 + sh_dx, card_y1 + sh_dy), (card_x2 + sh_dx, card_y2 + sh_dy)], fill=180)
+        mask = mask.filter(ImageFilter.GaussianBlur(sh_blur))
+        shadow = Image.new('RGBA', (w2, h2), (0, 0, 0, 160))
+        img2.paste(shadow, (0, 0), mask)
+
+        # כרטיס מעוגל (Rounded card)
+        panel_fill = self.colors.get('line_number_bg', self.colors['background'])
+        card_layer = Image.new('RGBA', (w2, h2), (0, 0, 0, 0))
+        cl_draw = ImageDraw.Draw(card_layer)
+        try:
+            cl_draw.rounded_rectangle(card_rect, radius=radius, fill=panel_fill, outline=self.colors['border'], width=max(1, s))
+        except Exception:
+            cl_draw.rectangle(card_rect, outline=self.colors['border'], width=max(1, s), fill=panel_fill)
+
+        # Gradient עדין בתוך הכרטיס (מלמעלה לבהיר קצת)
+        try:
+            grad_h = max(1, card_y2 - card_y1 + 1)
+            grad = Image.new('RGBA', (card_x2 - card_x1 + 1, grad_h), (0, 0, 0, 0))
+            # הכנה לצבעי גרדיאנט
+            def _hex_to_rgb(h):
+                h = h.lstrip('#')
+                return tuple(int(h[i:i+2], 16) for i in (0, 2, 4))
+            def _to_rgb(c):
+                return c if isinstance(c, tuple) else _hex_to_rgb(str(c))
+            base_rgb = _to_rgb(panel_fill)
+            top_rgb = tuple(min(255, int(v * 1.06)) for v in base_rgb)
+            bottom_rgb = base_rgb
+            for y in range(grad_h):
+                t = y / max(1, grad_h - 1)
+                col = tuple(int(top_rgb[i] * (1 - t) + bottom_rgb[i] * t) for i in range(3)) + (255,)
+                ImageDraw.Draw(grad).line([(0, y), (grad.width, y)], fill=col)
+            # המסכה לעיגול פינות
+            clip = Image.new('L', (w2, h2), 0)
+            clip_draw = ImageDraw.Draw(clip)
+            try:
+                clip_draw.rounded_rectangle(card_rect, radius=radius, fill=255)
+            except Exception:
+                clip_draw.rectangle(card_rect, fill=255)
+            img2.alpha_composite(card_layer)
+            img2.paste(grad, (card_x1, card_y1), clip)
+        except Exception:
+            # אם יש כשל בגרדיאנט, לפחות החבר את שכבת הכרטיס
+            img2.alpha_composite(card_layer)
+
+        # Title bar
+        title_h = int(28 * s)
+        tb_rect = [(card_x1, card_y1), (card_x2, card_y1 + title_h)]
+        tb_fill = self.colors.get('line_number_bg', self.colors['background'])
+        draw.rectangle(tb_rect, fill=tb_fill)
+        # Traffic lights
+        cx = card_x1 + int(16 * s)
+        cy = card_y1 + int(title_h / 2)
+        r = int(5 * s)
+        for idx, col in enumerate([(255, 95, 86), (255, 189, 46), (39, 201, 63)]):
+            x = cx + idx * int(14 * s)
+            draw.ellipse([(x - r, cy - r), (x + r, cy + r)], fill=col)
+
+        # אזור מספרי שורות וקוד בתוך הכרטיס
+        ln_bg_x2 = card_x1 + pad2 + lnw2
+        code_x = ln_bg_x2 + int(self.CODE_GUTTER_SPACING * s)
+        code_y = card_y1 + title_h + pad2
+        # רקע מספרי שורות + קו מפריד
+        draw.rectangle([(card_x1, card_y1 + title_h), (ln_bg_x2, card_y2)], fill=self.colors['line_number_bg'])
+        draw.line([(ln_bg_x2, card_y1 + title_h), (ln_bg_x2, card_y2)], fill=self.colors['border'], width=max(1, s))
+
+        # פונטים בסקייל
+        font = self._get_font(int(self.FONT_SIZE * s))
+        ln_font = self._get_font(max(1, int((self.FONT_SIZE - 1) * s)))
 
         html_lines = highlighted_html.split('\n')
-        ln_font = self._get_font(self.FONT_SIZE - 1)
-
         for i, (plain_line, html_line) in enumerate(zip(lines, html_lines[:len(lines)]), start=1):
-            y = code_y + (i - 1) * line_height
+            y = code_y + (i - 1) * line_h2
             # line number
             num_str = str(i)
             try:
                 bbox = ln_font.getbbox(num_str)  # type: ignore[attr-defined]
                 num_w = max(0, bbox[2] - bbox[0])
             except Exception:
-                num_w = len(num_str) * 6
-            num_x = ln_bg_x2 - num_w - 10
+                num_w = len(num_str) * int(6 * s)
+            num_x = ln_bg_x2 - num_w - int(10 * s)
             draw.text((num_x, y), num_str, fill=self.colors['line_number_text'], font=ln_font)
 
-            # code segments according to spans
+            # code segments according to spans – שמור טאבים ורווחים
             x = code_x
             segments = self._html_to_text_colors(html_line)
             if not segments:
                 segments = [(plain_line, self.colors['text'])]
             for text, color_str in segments:
-                if not text:
+                if text is None:
+                    continue
+                text = text.replace('\t', '    ')
+                if text == "":
                     continue
                 color = self._parse_color(color_str)
                 draw.text((x, y), text, fill=color, font=font)
                 try:
                     bbox = font.getbbox(text)  # type: ignore[attr-defined]
-                    w = max(0, bbox[2] - bbox[0])
+                    wseg = max(0, bbox[2] - bbox[0])
                 except Exception:
-                    w = len(text) * 8
-                x += w
+                    wseg = len(text) * int(8 * s)
+                x += wseg
 
-        # Logo (optional)
+        # לוגו (אופציונלי) – בתוך הכרטיס
         logo = self._get_logo_image()
         if logo is not None:
-            lx = max(0, image_width - self.LOGO_SIZE[0] - self.LOGO_PADDING)
-            ly = max(0, image_height - self.LOGO_SIZE[1] - self.LOGO_PADDING)
-            if logo.mode == 'RGBA':
-                img.paste(logo, (lx, ly), logo)
+            try:
+                l2 = logo.resize((int(self.LOGO_SIZE[0] * s), int(self.LOGO_SIZE[1] * s)), Image.Resampling.LANCZOS)
+            except Exception:
+                l2 = logo
+            lx = max(card_x1 + pad2, card_x2 - l2.width - int(self.LOGO_PADDING * s))
+            ly = max(card_y1 + pad2, card_y2 - l2.height - int(self.LOGO_PADDING * s))
+            if l2.mode == 'RGBA':
+                img2.paste(l2, (lx, ly), l2)
             else:
-                img.paste(logo, (lx, ly))
+                img2.paste(l2, (lx, ly))
 
+        # Downscale בחיתוך איכותי לשמירה על חדות
+        # המרה חזרה ל-RGB לפני downscale
+        img_rgb = img2.convert('RGB')
+        img = img_rgb.resize((int(image_width), int(image_height)), Image.Resampling.LANCZOS)
         img = self.optimize_image_size(img)
         return self.save_optimized_png(img)

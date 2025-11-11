@@ -277,6 +277,60 @@ class AdvancedBotHandlers:
         except Exception:
             pass
 
+    # --- Image callbacks tokenization helpers (to stay under Telegram's 64B limit) ---
+    def _get_or_create_image_token(self, context: ContextTypes.DEFAULT_TYPE, file_name: str) -> str:
+        """Return a short stable token for a file name, storing mapping in user_data.
+        We avoid leaking long names into callback_data which has a 64 bytes limit.
+        """
+        try:
+            tokens = context.user_data.setdefault('img_name_by_tok', {})
+            reverse = context.user_data.setdefault('img_tok_by_name', {})
+            tok = reverse.get(file_name)
+            if tok:
+                return tok
+            # Generate 8-hex token; prefix with 'tok:' when used in callback
+            tok = secrets.token_hex(4)
+            # Ensure uniqueness
+            while tok in tokens:
+                tok = secrets.token_hex(4)
+            tokens[tok] = file_name
+            reverse[file_name] = tok
+            return tok
+        except Exception:
+            # Fallback – if something goes wrong, return sanitized short name tail
+            return (file_name or 'file')[-40:]
+
+    def _resolve_image_target(self, context: ContextTypes.DEFAULT_TYPE, suffix: str) -> str:
+        """Resolve a callback suffix back to the original file name.
+        Supports either a raw file name or a token prefixed with 'tok:'.
+        """
+        try:
+            if suffix.startswith('tok:'):
+                token = suffix.split(':', 1)[1]
+            else:
+                token = suffix
+            # Try token lookup first
+            name = (context.user_data.get('img_name_by_tok') or {}).get(token)
+            if name:
+                return str(name)
+            # Not a known token – assume it's a direct file name
+            return suffix
+        except Exception:
+            return suffix
+
+    def _make_safe_suffix(self, context: ContextTypes.DEFAULT_TYPE, action_prefix: str, file_name: str) -> str:
+        """Return a safe suffix for callback_data for given action.
+        If the combined callback would exceed 64 bytes, return a 'tok:<token>' suffix.
+        """
+        try:
+            cb = f"{action_prefix}{file_name}"
+            if len(cb.encode('utf-8')) <= 64:
+                return file_name
+            tok = self._get_or_create_image_token(context, file_name)
+            return f"tok:{tok}"
+        except Exception:
+            return file_name
+
     async def show_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """הצגת קטע קוד עם הדגשת תחביר"""
         reporter.report_activity(update.effective_user.id)
@@ -2839,7 +2893,8 @@ class AdvancedBotHandlers:
             
             # --- Image generation callbacks ---
             elif data.startswith("regenerate_image_"):
-                file_name = data.replace("regenerate_image_", "")
+                _suffix = data.replace("regenerate_image_", "")
+                file_name = self._resolve_image_target(context, _suffix)
                 # Rate limit for expensive regeneration
                 try:
                     allowed = await image_rate_limiter.check_rate_limit(user_id)
@@ -2860,43 +2915,68 @@ class AdvancedBotHandlers:
                 img = gen.generate_image(code=str(doc['code']), language=str(doc.get('programming_language') or 'text'), filename=file_name, max_width=width)
                 bio = io.BytesIO(img)
                 bio.name = f"{file_name}.png"
-                await query.message.reply_photo(photo=InputFile(bio, filename=bio.name), caption=f"🔄 נוצר מחדש: <code>{html.escape(file_name)}</code>", parse_mode=ParseMode.HTML)
+                # צרף מקלדת עדכנית גם להודעת ה-reply החדשה
+                regen_suffix = self._make_safe_suffix(context, "regenerate_image_", file_name)
+                edit_suffix = self._make_safe_suffix(context, "edit_image_settings_", file_name)
+                save_suffix = self._make_safe_suffix(context, "save_to_drive_", file_name)
+                kb = InlineKeyboardMarkup([
+                    [InlineKeyboardButton("🔄 יצור מחדש", callback_data=f"regenerate_image_{regen_suffix}"),
+                     InlineKeyboardButton("📝 ערוך הגדרות", callback_data=f"edit_image_settings_{edit_suffix}")],
+                    [InlineKeyboardButton("💾 שמור ב-Drive", callback_data=f"save_to_drive_{save_suffix}")]
+                ])
+                await query.message.reply_photo(
+                    photo=InputFile(bio, filename=bio.name),
+                    caption=f"🔄 נוצר מחדש: <code>{html.escape(file_name)}</code>",
+                    parse_mode=ParseMode.HTML,
+                    reply_markup=kb,
+                )
 
             elif data.startswith("edit_image_settings_"):
-                file_name = data.replace("edit_image_settings_", "")
-                # בנה מקלדת לבחירת תמה ורוחב
+                _suffix = data.replace("edit_image_settings_", "")
+                file_name = self._resolve_image_target(context, _suffix)
+                # בנה מקלדת לבחירת תמה ורוחב – ודא ש-callbacks קצרים
+                theme_suffix = self._make_safe_suffix(context, "img_set_theme:", file_name)
+                width_suffix = self._make_safe_suffix(context, "img_set_width:", file_name)
+                # הוסף הפרדה ':' רק כאשר משתמשים ב-suffix (יתמוך גם ב-tok:<...>)
+                def _mk_theme_cb(val: str) -> str:
+                    return f"img_set_theme:{val}:{theme_suffix}"
+                def _mk_width_cb(val: int) -> str:
+                    return f"img_set_width:{val}:{width_suffix}"
                 kb = InlineKeyboardMarkup([
-                    [InlineKeyboardButton("🎨 Dark", callback_data=f"img_set_theme:dark:{file_name}"),
-                     InlineKeyboardButton("🌤️ Light", callback_data=f"img_set_theme:light:{file_name}")],
-                    [InlineKeyboardButton("🐙 GitHub", callback_data=f"img_set_theme:github:{file_name}"),
-                     InlineKeyboardButton("🎯 Monokai", callback_data=f"img_set_theme:monokai:{file_name}")],
-                    [InlineKeyboardButton("⬅️ 800px", callback_data=f"img_set_width:800:{file_name}"),
-                     InlineKeyboardButton("➡️ 1400px", callback_data=f"img_set_width:1400:{file_name}")],
+                    [InlineKeyboardButton("🎨 Dark", callback_data=_mk_theme_cb("dark")),
+                     InlineKeyboardButton("🌤️ Light", callback_data=_mk_theme_cb("light"))],
+                    [InlineKeyboardButton("🐙 GitHub", callback_data=_mk_theme_cb("github")),
+                     InlineKeyboardButton("🎯 Monokai", callback_data=_mk_theme_cb("monokai"))],
+                    [InlineKeyboardButton("⬅️ 800px", callback_data=_mk_width_cb(800)),
+                     InlineKeyboardButton("➡️ 1400px", callback_data=_mk_width_cb(1400))],
                     [InlineKeyboardButton("✅ סגור", callback_data="cancel_share")]
                 ])
                 await query.edit_message_text("🛠️ עריכת הגדרות תמונה – בחר תמה/רוחב ואז לחץ 'יצור מחדש'", reply_markup=kb)
 
             elif data.startswith("img_set_theme:"):
                 try:
-                    _, theme, file_name = data.split(":", 2)
+                    _, theme, suffix = data.split(":", 2)
                 except ValueError:
                     await query.answer("⚠️ נתונים שגויים", show_alert=False)
                     return
+                file_name = self._resolve_image_target(context, suffix)
                 self._set_image_setting(context, file_name, 'theme', theme)
                 await query.answer("🎨 עודכן!", show_alert=False)
 
             elif data.startswith("img_set_width:"):
                 try:
-                    _, width_s, file_name = data.split(":", 2)
+                    _, width_s, suffix = data.split(":", 2)
                     width = int(width_s)
                 except Exception:
                     await query.answer("⚠️ רוחב לא תקין", show_alert=False)
                     return
+                file_name = self._resolve_image_target(context, suffix)
                 self._set_image_setting(context, file_name, 'width', width)
                 await query.answer("📏 עודכן!", show_alert=False)
 
             elif data.startswith("save_to_drive_"):
-                file_name = data.replace("save_to_drive_", "")
+                _suffix = data.replace("save_to_drive_", "")
+                file_name = self._resolve_image_target(context, _suffix)
                 # Rate limit for potentially heavy generation+upload
                 try:
                     allowed = await image_rate_limiter.check_rate_limit(user_id)
@@ -3510,11 +3590,14 @@ class AdvancedBotHandlers:
             bio.name = f"{file_name}.png"
             safe_name = html.escape(file_name)
             safe_lang = html.escape(language)
-            # כפתורים מתקדמים
+            # כפתורים מתקדמים – ודא עמידה במגבלת 64 בתים של טלגרם
+            regen_suffix = self._make_safe_suffix(context, "regenerate_image_", file_name)
+            edit_suffix = self._make_safe_suffix(context, "edit_image_settings_", file_name)
+            save_suffix = self._make_safe_suffix(context, "save_to_drive_", file_name)
             kb = InlineKeyboardMarkup([
-                [InlineKeyboardButton("🔄 יצור מחדש", callback_data=f"regenerate_image_{file_name}"),
-                 InlineKeyboardButton("📝 ערוך הגדרות", callback_data=f"edit_image_settings_{file_name}")],
-                [InlineKeyboardButton("💾 שמור ב-Drive", callback_data=f"save_to_drive_{file_name}")]
+                [InlineKeyboardButton("🔄 יצור מחדש", callback_data=f"regenerate_image_{regen_suffix}"),
+                 InlineKeyboardButton("📝 ערוך הגדרות", callback_data=f"edit_image_settings_{edit_suffix}")],
+                [InlineKeyboardButton("💾 שמור ב-Drive", callback_data=f"save_to_drive_{save_suffix}")]
             ])
             await update.message.reply_photo(
                 photo=InputFile(bio, filename=f"{file_name}.png"),
