@@ -10,9 +10,11 @@ Code Image Generator Service
 
 from __future__ import annotations
 
+import asyncio
 import io
 import logging
 import re
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from bs4 import BeautifulSoup
 from typing import Optional, Tuple, List
@@ -110,13 +112,12 @@ class CodeImageGenerator:
         self._font_cache: dict[str, FreeTypeFont] = {}
         self._logo_cache: Optional[Image.Image] = None
 
-        # Playwright (מועדף) – יאותחל lazy רק אם קיים
+        # Playwright (מועדף) – שימוש ב-Async API כדי להימנע מקונפליקט עם event loop
         try:  # pragma: no cover - תלות אופציונלית
-            from playwright.sync_api import sync_playwright  # noqa: F401
+            from playwright.async_api import async_playwright  # noqa: F401
             self._has_playwright = True
         except Exception:
             self._has_playwright = False
-        self._pw = None  # type: ignore[assignment]
 
         # WeasyPrint (fallback) – אופציונלי
         try:  # pragma: no cover - תלות אופציונלית
@@ -368,39 +369,51 @@ class CodeImageGenerator:
                 logger.warning("Suspicious code pattern detected: %s", p)
 
     # --- Playwright / WeasyPrint renderers --------------------------------
-    def _init_playwright(self):
-        # lazy start
-        if self._pw is None:  # type: ignore[truthy-bool]
-            from playwright.sync_api import sync_playwright  # type: ignore
-            self._pw = sync_playwright().start()
-        return self._pw
-
     def cleanup(self) -> None:
-        """סגירת Playwright אם הותחל."""
-        try:
-            if self._pw is not None:
-                self._pw.stop()  # type: ignore[attr-defined]
-                self._pw = None
-        except Exception as e:  # pragma: no cover
-            logger.warning("Error closing Playwright: %s", e)
+        """תאימות לאחור – אין צורך בפעולה לאחר מעבר ל-Async Playwright."""
+        return
 
     def _render_html_with_playwright(self, html_content: str, width: int, height: int) -> Image.Image:
-        playwright = self._init_playwright()
-        browser = None
+        if not self._has_playwright:
+            raise RuntimeError("Playwright async API is not available")
+
+        from playwright.async_api import async_playwright  # type: ignore
+
+        async def _render_async() -> bytes:
+            async with async_playwright() as playwright:
+                browser = await playwright.chromium.launch(headless=True)
+                page = None
+                try:
+                    page = await browser.new_page(
+                        viewport={'width': width, 'height': height},
+                        device_scale_factor=2,
+                    )
+                    await page.set_content(html_content, wait_until='load')
+                    await page.wait_for_timeout(300)
+                    return await page.screenshot(type='png', full_page=True)
+                finally:
+                    if page is not None:
+                        try:
+                            await page.close()
+                        except Exception:
+                            pass
+                    try:
+                        await browser.close()
+                    except Exception:
+                        pass
+
         try:
-            browser = playwright.chromium.launch(headless=True)
-            page = browser.new_page(viewport={'width': width, 'height': height}, device_scale_factor=2)
-            page.set_content(html_content, wait_until='load')
-            page.wait_for_timeout(300)
-            png = page.screenshot(type='png', full_page=True)
-            img = Image.open(io.BytesIO(png))
-            return img
-        finally:
-            try:
-                if browser:
-                    browser.close()
-            except Exception:
-                pass
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            loop = None
+
+        if loop and loop.is_running():
+            with ThreadPoolExecutor(max_workers=1, thread_name_prefix="code-image-playwright") as executor:
+                png_bytes = executor.submit(lambda: asyncio.run(_render_async())).result()
+        else:
+            png_bytes = asyncio.run(_render_async())
+
+        return Image.open(io.BytesIO(png_bytes))
 
     def _render_html_with_weasyprint(self, html_content: str, width: int, height: int) -> Image.Image:
         from weasyprint import HTML, CSS  # type: ignore
