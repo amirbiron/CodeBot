@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html dir="rtl" lang="he">
+<html dir="rtl" lang="he"{% if weekly_tip_enabled is defined %} data-weekly-tip="{{ 'on' if weekly_tip_enabled else 'off' }}"{% endif %}>
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
@@ -706,6 +706,10 @@
         /* Respect reduced motion */
         @media (prefers-reduced-motion: reduce) {
             .weekly-tip__inner { animation: none !important; }
+        }
+        /* Hide tip on tablet range where the navbar is dense */
+        @media (min-width: 640px) and (max-width: 1024px) {
+            .weekly-tip { display: none !important; }
         }
         @media (max-width: 480px) {
             .weekly-tip__scroller { height: 56px; }
@@ -1480,6 +1484,12 @@
     const btnDisable = document.getElementById('weeklyTipDisableBtn');
     const btnClose = document.getElementById('weeklyTipCloseBtn');
     if (!container || !inner || !pop) return;
+
+    // Kill switches: global or per-user
+    const htmlAttr = (document.documentElement.getAttribute('data-weekly-tip') || '').toLowerCase();
+    const globalFlag = (typeof window.__weeklyTipEnabled === 'boolean') ? window.__weeklyTipEnabled : true;
+    const localKill = (function(){ try { return localStorage.getItem('weeklyTipFeatureOff') === '1'; } catch(_) { return false; } })();
+    if (!globalFlag || htmlAttr === 'off' || htmlAttr === '0' || localKill) { try { container.style.display = 'none'; } catch(_) {} return; }
 
     const STORAGE_DISABLE = 'weeklyTipDisabledUntil';
     const STORAGE_RECENT = 'weeklyTipRecentIds';
