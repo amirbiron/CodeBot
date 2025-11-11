@@ -991,10 +991,66 @@ def list_public_snippets(
             return []
 
     db_items_obj, db_total_obj = _split_result(db_result)
-    db_items_page_list = _ensure_list(db_items_obj)
+    db_items_list = _ensure_list(db_items_obj)
+
     try:
         db_total_int = int(db_total_obj)
     except Exception:
+        db_total_int = None
+
+    db_counts: Dict[int, int] = {}
+    db_titles_set = set()
+
+    def _normalize_title(item: Dict[str, Any]) -> str:
+        return str((item.get("title") or "")).strip().lower()
+
+    if not supports_pagination:
+        db_full_list = db_items_list
+        if db_total_int is None or db_total_int < len(db_full_list):
+            db_total_int = len(db_full_list)
+        start_idx = max(0, (page_int - 1) * per_page_int)
+        end_idx = start_idx + per_page_int
+        db_items_page_list = db_full_list[start_idx:end_idx]
+        db_pages = (db_total_int + per_page_int - 1) // per_page_int if (db_total_int or 0) > 0 else 0
+        if db_pages > 0:
+            for p in range(1, db_pages + 1):
+                p_start = (p - 1) * per_page_int
+                p_end = p_start + per_page_int
+                slice_items = db_full_list[p_start:p_end]
+                if not slice_items and p_start >= len(db_full_list):
+                    break
+                db_counts[p] = len(slice_items)
+        db_titles_set.update(_normalize_title(it) for it in db_full_list)
+    else:
+        db_items_page_list = db_items_list
+        if db_total_int is None:
+            db_total_int = len(db_items_page_list)
+        db_pages = (db_total_int + per_page_int - 1) // per_page_int if db_total_int > 0 else 0
+        db_counts[page_int] = len(db_items_page_list)
+        db_titles_set.update(_normalize_title(it) for it in db_items_page_list)
+        if db_pages > 0:
+            per_repo = per_page_int
+            safety = 0
+            for p in range(1, db_pages + 1):
+                if p == page_int:
+                    continue
+                try:
+                    chunk_result = repo.list_public_snippets(q=q, language=language, page=p, per_page=per_repo)
+                except Exception:
+                    break
+                chunk_items_obj, _ = _split_result(chunk_result)
+                chunk_list = _ensure_list(chunk_items_obj)
+                if not chunk_list:
+                    if p > page_int:
+                        break
+                    continue
+                db_counts[p] = len(chunk_list)
+                db_titles_set.update(_normalize_title(it) for it in chunk_list)
+                safety += 1
+                if safety > 200:
+                    break
+
+    if db_total_int is None:
         db_total_int = len(db_items_page_list)
 
     if db_total_int <= 0:
@@ -1004,41 +1060,43 @@ def list_public_snippets(
         slice_items = prepared_builtins[start:end]
         return slice_items, len(prepared_builtins)
 
-    def _normalize_title(item: Dict[str, Any]) -> str:
-        return str((item.get("title") or "")).strip().lower()
-
-    db_pages = (db_total_int + per_page_int - 1) // per_page_int if db_total_int > 0 else 0
-    db_titles_set = {_normalize_title(it) for it in db_items_page_list}
-
-    if supports_pagination and db_pages > 0:
-        per_repo = min(60, per_page_int)
-        safety = 0
-        for p in range(1, db_pages + 1):
-            if p == page_int:
-                continue
-            try:
-                chunk_result = repo.list_public_snippets(q=q, language=language, page=p, per_page=per_repo)
-            except Exception:
-                break
-            chunk_items, _ = _split_result(chunk_result)
-            chunk_list = _ensure_list(chunk_items)
-            if not chunk_list:
-                if p > page_int:
-                    break
-                continue
-            db_titles_set.update({_normalize_title(it) for it in chunk_list})
-            safety += 1
-            if safety > 200:
-                break
     filtered_builtins_raw = [it for it in builtins_raw if _normalize_title(it) not in db_titles_set]
     prepared_builtins = _prepare_builtins(filtered_builtins_raw)
     unified_total = db_total_int + len(prepared_builtins)
 
-    if page_int == 1:
-        items: List[Dict[str, Any]] = list(db_items_page_list)
-        missing = max(0, per_page_int - len(items))
-        if missing > 0:
-            items.extend(prepared_builtins[:missing])
-        return items, max(unified_total, len(items))
+    missing_by_page: Dict[int, int] = {}
+    if db_pages > 0:
+        for p in range(1, db_pages + 1):
+            if p in db_counts:
+                count_val = db_counts[p]
+            elif p == db_pages:
+                count_val = max(0, db_total_int - per_page_int * (db_pages - 1))
+                if count_val == 0 and db_total_int > 0:
+                    count_val = per_page_int
+            else:
+                count_val = per_page_int
+            try:
+                count_int = int(count_val)
+            except Exception:
+                count_int = per_page_int
+            count_int = max(0, min(per_page_int, count_int))
+            missing_by_page[p] = max(0, per_page_int - count_int)
 
-    return db_items_page_list, max(unified_total, len(db_items_page_list))
+    builtins_consumed_before_page = sum(missing_by_page.get(p, 0) for p in range(1, page_int))
+    builtins_consumed_total = sum(missing_by_page.values())
+
+    if page_int <= db_pages and db_pages > 0:
+        items: List[Dict[str, Any]] = list(db_items_page_list)
+        missing_current = missing_by_page.get(page_int, 0)
+        if missing_current > 0:
+            start_idx = builtins_consumed_before_page
+            end_idx = start_idx + missing_current
+            items.extend(prepared_builtins[start_idx:end_idx])
+        return items, unified_total
+
+    if db_items_page_list:
+        return list(db_items_page_list), unified_total
+
+    builtins_start = builtins_consumed_total + max(0, page_int - db_pages - 1) * per_page_int
+    builtins_end = builtins_start + per_page_int
+    return prepared_builtins[builtins_start:builtins_end], unified_total
