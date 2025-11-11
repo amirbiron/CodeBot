@@ -89,6 +89,7 @@ Code Keeper Bot - תיעוד API
    :caption: WebApp:
 
    webapp/overview
+   webapp/user-interfaces
    webapp/snippet-library
    webapp/onboarding
    webapp/caching

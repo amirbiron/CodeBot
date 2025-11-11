@@ -1,6 +1,12 @@
 What's New
 ==========
 
+2025-11-11
+----------
+- docs: עמוד חדש "web 🌐 ממשקי משתמשים" עם זרימות בוט, שדות חובה, חיווי מצב וממשק אדמין.
+- docs: עדכון "webapp/snippet-library" לגרסה המשודרגת – איחוד Curated+DB, הגבלות דפדוף, Deferred Highlight, ושיפורי אדמין.
+- docs: מדריך קצר לסוכני AI להפעלה דרך הבוט וה‑WebApp בשני הפיצ'רים.
+
 2025-11-06
 ----------
 - docs: WebApp Onboarding – דף חדש עם זרימה, קישורים ו‑JS לדגל `has_seen_welcome_modal`.
