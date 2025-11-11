@@ -686,12 +686,12 @@
             touch-action: manipulation;
         }
         .weekly-tip__icon { font-size: 1.05rem; opacity: 0.95; }
-        .weekly-tip__scroller { flex: 1; overflow: hidden; height: 42px; }
+        .weekly-tip__scroller { flex: 1; overflow: hidden; height: 52px; }
         .weekly-tip__inner {
             will-change: transform;
             animation: weeklyTipMarquee var(--weekly-tip-duration, 12s) linear infinite;
         }
-        .weekly-tip__content { white-space: normal; line-height: 1.25; opacity: 0.95; }
+        .weekly-tip__content { white-space: normal; line-height: 1.28; opacity: 0.95; font-size: 0.95rem; }
         .weekly-tip__content a { color: #fff; text-decoration: underline; }
         .weekly-tip__content a:hover { opacity: 0.9; }
         .weekly-tip:hover .weekly-tip__inner,
@@ -706,6 +706,10 @@
         /* Respect reduced motion */
         @media (prefers-reduced-motion: reduce) {
             .weekly-tip__inner { animation: none !important; }
+        }
+        @media (max-width: 480px) {
+            .weekly-tip__scroller { height: 56px; }
+            .weekly-tip__content { font-size: 0.9rem; }
         }
         /* Popover */
         .weekly-tip__popover {
@@ -1481,7 +1485,7 @@
     const STORAGE_RECENT = 'weeklyTipRecentIds';
     const ONE_WEEK_MS = 7 * 24 * 60 * 60 * 1000;
     const HOLD_MS = 600;
-    const SPEED_PX_PER_S = 28; // pleasant speed
+    const SPEED_PX_PER_S = 20; // slower for readability
 
     function now(){ return Date.now(); }
     function isDisabled(){ try { return now() < Number(localStorage.getItem(STORAGE_DISABLE) || 0); } catch(_) { return false; } }
@@ -1533,7 +1537,7 @@
             const oneHeight = a.getBoundingClientRect().height;
             const boxHeight = scroller.getBoundingClientRect().height;
             const distance = Math.max(1, Math.round(oneHeight));
-            const duration = Math.max(8, Math.min(20, Math.round((distance + boxHeight) / SPEED_PX_PER_S)));
+            const duration = Math.max(12, Math.min(30, Math.round((distance + boxHeight) / SPEED_PX_PER_S)));
             inner.style.setProperty('--weekly-tip-distance', distance + 'px');
             inner.style.setProperty('--weekly-tip-duration', duration + 's');
         } catch(_) {}
@@ -1582,10 +1586,9 @@
     show();
 
     const FALLBACK_TIPS = [
-        { id: 'tip-keys-help', text: 'לחיצה על ? פותחת רשימת קיצורי מקלדת.', link: '/docs/shortcuts' },
-        { id: 'tip-tag-filter', text: 'אפשר לסנן חיפוש לפי תגיות: tag:perf, tag:db.' },
-        { id: 'tip-quick-menu', text: 'לחיצה על 🚀 פותחת קיצורי דרך מהירים.' },
-        { id: 'tip-recent-files', text: 'בדוק קבצים אחרונים דרך 🕓 בתפריט המהיר.' }
+        { id: 'tip-theme', text: 'אפשר לבחור ערכות נושא לטעמך דרך הגדרות ה-WebApp! כפתור ההגדרות נמצא תמיד למעלה בראש העמוד' },
+        { id: 'tip-premium', text: 'משתמשים פעילים במיוחד עשויים לקבל תג של משתמש פרימיום, עם אפשרות לבקשות מיוחדות!' },
+        { id: 'tip-trash', text: 'אם נמחק לך קוד בטעות - הוא לא נעלם! ניתן לגשת אליו במשך 30 יום דרך סל מיחזור שממוקם בממשק הבוט' }
     ];
     const tips = (window.__weeklyTips && Array.isArray(window.__weeklyTips) && window.__weeklyTips.length) ? window.__weeklyTips : FALLBACK_TIPS;
     const chosen = pickTip(tips);
