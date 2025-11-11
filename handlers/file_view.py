@@ -1059,21 +1059,19 @@ async def handle_view_direct_file(update, context: ContextTypes.DEFAULT_TYPE) ->
         reply_markup = InlineKeyboardMarkup(keyboard)
         note = file_data.get('description') or ''
         note_line_html = f"\n📝 הערה: {html_escape(note)}\n\n" if note else "\n📝 הערה: —\n\n"
-        large_note_md = "\nזה קובץ גדול\n\n" if is_large_file else ""
         large_note_html = "\n<i>זה קובץ גדול</i>\n\n" if is_large_file else ""
-        if note:
-            try:
-                note_line_md = f"\n📝 הערה: {TextUtils.escape_markdown(note, version=1)}\n\n"
-            except Exception:
-                fallback = str(note).replace('`', '\\`').replace('*', '\\*').replace('_', '\\_')
-                note_line_md = f"\n📝 הערה: {fallback}\n\n"
-        else:
-            note_line_md = "\n📝 הערה: —\n\n"
-        # Markdown מוצג ב-HTML רק עבור קבצי Markdown; לשאר נשתמש ב-Markdown עם בלוק קוד
+        header_html = (
+            f"📄 <b>{html_escape(file_name)}</b> ({html_escape(language)}) - גרסה {version}"
+            f"{note_line_html}{large_note_html}"
+        )
+        if not header_html.endswith("\n"):
+            header_html += "\n"
+        # Markdown מוצג ב-HTML רק עבור קבצי Markdown כדי לשמר עיצוב; לשאר נעבור ל-HTML אחיד
         if (language or '').lower() == 'markdown':
             safe_code = html_escape(code_preview)
             header_html = (
-                f"📄 <b>{html_escape(file_name)}</b> ({html_escape(language)}) - גרסה {version}{note_line_html}"
+                f"📄 <b>{html_escape(file_name)}</b> ({html_escape(language)}) - גרסה {version}"
+                f"{note_line_html}"
             )
             await _edit_message_text_unified(
                 query,
@@ -1082,18 +1080,31 @@ async def handle_view_direct_file(update, context: ContextTypes.DEFAULT_TYPE) ->
                 parse_mode='HTML',
             )
         else:
-            # בריחת שם קובץ ל-Markdown ומניעת שבירת בלוק קוד ע"י backticks
-            try:
-                safe_file_name = TextUtils.escape_markdown(file_name, version=1)
-            except Exception:
-                safe_file_name = str(file_name).replace('`', '\\`')
-            safe_code_md = str(code_preview).replace('```', '\\`\\`\\`')
+            html_wrapper_overhead = len("<pre><code>") + len("</code></pre>")
+            fudge = 10
+            available_for_code = 4096 - len(header_html) - html_wrapper_overhead - fudge
+            if available_for_code < 100:
+                available_for_code = 100
+            preview_raw_limit = min(max_length, len(code))
+            safe_code = html_escape(code[:preview_raw_limit])
+            if len(safe_code) > available_for_code and preview_raw_limit > 0:
+                try:
+                    factor = max(1.0, len(safe_code) / max(1, preview_raw_limit))
+                    preview_raw_limit = max(0, int(available_for_code / factor))
+                except Exception:
+                    preview_raw_limit = max(0, preview_raw_limit - (len(safe_code) - available_for_code))
+                safe_code = html_escape(code[:preview_raw_limit])
+                while len(safe_code) > available_for_code and preview_raw_limit > 0:
+                    step = max(50, len(safe_code) - available_for_code)
+                    preview_raw_limit = max(0, preview_raw_limit - step)
+                    safe_code = html_escape(code[:preview_raw_limit])
+            code_preview = code[:preview_raw_limit]
+            safe_code = html_escape(code_preview)
             await _edit_message_text_unified(
                 query,
-                f"📄 *{safe_file_name}* ({language}) - גרסה {version}{note_line_md}{large_note_md}"
-                f"```{language}\n{safe_code_md}\n```",
+                f"{header_html}<pre><code>{safe_code}</code></pre>",
                 reply_markup=reply_markup,
-                parse_mode='Markdown',
+                parse_mode='HTML',
             )
     except Exception as e:
         logger.error(f"Error in handle_view_direct_file: {e}")
