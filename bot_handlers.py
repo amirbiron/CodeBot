@@ -27,6 +27,11 @@ from rate_limiter import RateLimiter
 from config import config
 from database import CodeSnippet, db
 from conversation_handlers import MAIN_KEYBOARD
+from pathlib import Path
+try:
+    import yaml  # type: ignore
+except Exception:  # pragma: no cover
+    yaml = None  # type: ignore
 # Reporter מוזרק בזמן ריצה כדי למנוע יצירה בזמן import
 class _NoopReporter:
     def report_activity(self, user_id):
@@ -40,6 +45,19 @@ def set_activity_reporter(new_reporter):
     
 # Rate limiter לפיצ'ר יצירת תמונות (10 פעולות בדקה למשתמש)
 image_rate_limiter = RateLimiter(max_per_minute=10)
+
+# טעינת קונפיגורציית תמונות (אופציונלי)
+def _load_image_config() -> dict:
+    try:
+        cfg_path = Path(__file__).parent / 'config' / 'image_settings.yaml'
+        if yaml is None or not cfg_path.exists():
+            return {}
+        data = yaml.safe_load(cfg_path.read_text(encoding='utf-8')) or {}
+        return dict(data.get('image_generation') or {})
+    except Exception:
+        return {}
+
+IMAGE_CONFIG = _load_image_config()
 import json
 try:
     import aiohttp  # for GitHub rate limit check
@@ -237,6 +255,22 @@ class AdvancedBotHandlers:
             # אל תבלע חריגות שקטות – דווח ללוג כדי לא לשבור את כפתורי השיתוף
             logger.error(f"Failed to register share CallbackQueryHandler: {e}")
     
+    def _get_image_settings(self, context: ContextTypes.DEFAULT_TYPE, file_name: str) -> Dict[str, Any]:
+        try:
+            settings_map = context.user_data.setdefault('img_settings', {})
+            return dict(settings_map.get(file_name) or {})
+        except Exception:
+            return {}
+
+    def _set_image_setting(self, context: ContextTypes.DEFAULT_TYPE, file_name: str, key: str, value: Any) -> None:
+        try:
+            settings_map = context.user_data.setdefault('img_settings', {})
+            entry = dict(settings_map.get(file_name) or {})
+            entry[key] = value
+            settings_map[file_name] = entry
+        except Exception:
+            pass
+
     async def show_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """הצגת קטע קוד עם הדגשת תחביר"""
         reporter.report_activity(update.effective_user.id)
@@ -2797,6 +2831,79 @@ class AdvancedBotHandlers:
                 file_name = data.replace("download_", "")
                 await self._send_file_download(query, user_id, file_name)
             
+            # --- Image generation callbacks ---
+            elif data.startswith("regenerate_image_"):
+                file_name = data.replace("regenerate_image_", "")
+                doc = db.get_latest_version(user_id, file_name)
+                if not doc or not doc.get('code'):
+                    await query.edit_message_text(f"❌ קובץ `{html.escape(file_name)}` לא נמצא או ריק.", parse_mode=ParseMode.MARKDOWN)
+                    return
+                settings = self._get_image_settings(context, file_name)
+                style = str(settings.get('style') or IMAGE_CONFIG.get('default_style') or 'monokai')
+                theme = str(settings.get('theme') or IMAGE_CONFIG.get('default_theme') or 'dark')
+                width = int(settings.get('width') or IMAGE_CONFIG.get('default_width') or 1200)
+                gen = CodeImageGenerator(style=style, theme=theme)
+                img = gen.generate_image(code=str(doc['code']), language=str(doc.get('programming_language') or 'text'), filename=file_name, max_width=width)
+                bio = io.BytesIO(img)
+                bio.name = f"{file_name}.png"
+                await query.message.reply_photo(photo=InputFile(bio, filename=bio.name), caption=f"🔄 נוצר מחדש: <code>{html.escape(file_name)}</code>", parse_mode=ParseMode.HTML)
+
+            elif data.startswith("edit_image_settings_"):
+                file_name = data.replace("edit_image_settings_", "")
+                # בנה מקלדת לבחירת תמה ורוחב
+                kb = InlineKeyboardMarkup([
+                    [InlineKeyboardButton("🎨 Dark", callback_data=f"img_set_theme:dark:{file_name}"),
+                     InlineKeyboardButton("🌤️ Light", callback_data=f"img_set_theme:light:{file_name}")],
+                    [InlineKeyboardButton("🐙 GitHub", callback_data=f"img_set_theme:github:{file_name}"),
+                     InlineKeyboardButton("🎯 Monokai", callback_data=f"img_set_theme:monokai:{file_name}")],
+                    [InlineKeyboardButton("⬅️ 800px", callback_data=f"img_set_width:800:{file_name}"),
+                     InlineKeyboardButton("➡️ 1400px", callback_data=f"img_set_width:1400:{file_name}")],
+                    [InlineKeyboardButton("✅ סגור", callback_data="cancel_share")]
+                ])
+                await query.edit_message_text("🛠️ עריכת הגדרות תמונה – בחר תמה/רוחב ואז לחץ 'יצור מחדש'", reply_markup=kb)
+
+            elif data.startswith("img_set_theme:"):
+                try:
+                    _, theme, file_name = data.split(":", 2)
+                except ValueError:
+                    await query.answer("⚠️ נתונים שגויים", show_alert=False)
+                    return
+                self._set_image_setting(context, file_name, 'theme', theme)
+                await query.answer("🎨 עודכן!", show_alert=False)
+
+            elif data.startswith("img_set_width:"):
+                try:
+                    _, width_s, file_name = data.split(":", 2)
+                    width = int(width_s)
+                except Exception:
+                    await query.answer("⚠️ רוחב לא תקין", show_alert=False)
+                    return
+                self._set_image_setting(context, file_name, 'width', width)
+                await query.answer("📏 עודכן!", show_alert=False)
+
+            elif data.startswith("save_to_drive_"):
+                file_name = data.replace("save_to_drive_", "")
+                doc = db.get_latest_version(user_id, file_name)
+                if not doc or not doc.get('code'):
+                    await query.edit_message_text(f"❌ קובץ `{html.escape(file_name)}` לא נמצא או ריק.", parse_mode=ParseMode.MARKDOWN)
+                    return
+                settings = self._get_image_settings(context, file_name)
+                style = str(settings.get('style') or IMAGE_CONFIG.get('default_style') or 'monokai')
+                theme = str(settings.get('theme') or IMAGE_CONFIG.get('default_theme') or 'dark')
+                width = int(settings.get('width') or IMAGE_CONFIG.get('default_width') or 1200)
+                gen = CodeImageGenerator(style=style, theme=theme)
+                img = gen.generate_image(code=str(doc['code']), language=str(doc.get('programming_language') or 'text'), filename=file_name, max_width=width)
+                # העלאה ל-Drive
+                try:
+                    from services.google_drive_service import upload_bytes  # type: ignore
+                    fid = upload_bytes(user_id, filename=f"{file_name}.png", data=img, sub_path="code_images")
+                except Exception:
+                    fid = None
+                if fid:
+                    await query.edit_message_text(f"✅ נשמר ל-Drive (id: <code>{html.escape(str(fid))}</code>)", parse_mode=ParseMode.HTML)
+                else:
+                    await query.edit_message_text("⚠️ שמירה ל-Drive לא הצליחה (בדוק הרשאות/חיבור)")
+
             # ועוד callback handlers...
 
             # --- ChatOps: /errors inline examples ---
@@ -3368,20 +3475,33 @@ class AdvancedBotHandlers:
             return
 
         try:
-            generator = CodeImageGenerator(style='monokai', theme='dark')
-            image_bytes = generator.generate_image(code=code, language=language, filename=file_name)
+            # העדפות מתצורה/הקשר
+            settings = self._get_image_settings(context, file_name)
+            style = str(settings.get('style') or IMAGE_CONFIG.get('default_style') or 'monokai')
+            theme = str(settings.get('theme') or IMAGE_CONFIG.get('default_theme') or 'dark')
+            width = int(settings.get('width') or IMAGE_CONFIG.get('default_width') or 1200)
+
+            generator = CodeImageGenerator(style=style, theme=theme)
+            image_bytes = generator.generate_image(code=code, language=language, filename=file_name, max_width=width)
 
             bio = io.BytesIO(image_bytes)
             bio.name = f"{file_name}.png"
             safe_name = html.escape(file_name)
             safe_lang = html.escape(language)
+            # כפתורים מתקדמים
+            kb = InlineKeyboardMarkup([
+                [InlineKeyboardButton("🔄 יצור מחדש", callback_data=f"regenerate_image_{file_name}"),
+                 InlineKeyboardButton("📝 ערוך הגדרות", callback_data=f"edit_image_settings_{file_name}")],
+                [InlineKeyboardButton("💾 שמור ב-Drive", callback_data=f"save_to_drive_{file_name}")]
+            ])
             await update.message.reply_photo(
                 photo=InputFile(bio, filename=f"{file_name}.png"),
                 caption=(
                     f"🖼️ <b>תמונת קוד:</b> <code>{safe_name}</code>\n"
-                    f"🔤 שפה: {safe_lang}"
+                    f"🔤 שפה: {safe_lang} | 🎨 תמה: {html.escape(theme)} | 🧩 סגנון: {html.escape(style)}"
                 ),
                 parse_mode=ParseMode.HTML,
+                reply_markup=kb,
             )
         except ImportError as e:
             await update.message.reply_text(
@@ -3427,12 +3547,16 @@ class AdvancedBotHandlers:
         code = str(file_data.get('code') or '')
         language = str(file_data.get('programming_language') or 'text')
         lines = code.splitlines()
-        if len(lines) > 50:
-            code = "\n".join(lines[:50]) + "\n..."
+        max_preview_lines = int(((IMAGE_CONFIG.get('preview') or {}).get('max_lines')) or 50)
+        if len(lines) > max_preview_lines:
+            code = "\n".join(lines[:max_preview_lines]) + "\n..."
 
         try:
-            generator = CodeImageGenerator(style='monokai', theme='dark')
-            image_bytes = generator.generate_image(code=code, language=language, filename=file_name, max_width=800, max_height=1500)
+            style = str(IMAGE_CONFIG.get('default_style') or 'monokai')
+            theme = str(IMAGE_CONFIG.get('default_theme') or 'dark')
+            prev_w = int(((IMAGE_CONFIG.get('preview') or {}).get('width')) or 800)
+            generator = CodeImageGenerator(style=style, theme=theme)
+            image_bytes = generator.generate_image(code=code, language=language, filename=file_name, max_width=prev_w, max_height=1500)
             bio = io.BytesIO(image_bytes)
             bio.name = f"preview_{file_name}.png"
             safe_name = html.escape(file_name)
