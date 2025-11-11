@@ -78,7 +78,7 @@ def pytest_collection_modifyitems(config: pytest.Config, items: List[pytest.Item
     # הפיקסצ'ר שמנקה את http_async רלוונטי רק לטסטים אסינכרוניים
     for item in items:
         if item.get_closest_marker("asyncio"):
-            item.add_marker(pytest.mark.usefixtures("_reset_http_async_session_for_async_tests"))
+            item.add_marker(pytest.mark.usefixtures("_reset_http_async_session_between_tests"))
 
 
 def pytest_runtest_makereport(item: pytest.Item, call: pytest.CallInfo) -> None:  # type: ignore[override]
@@ -223,7 +223,7 @@ def _close_http_async_session_after_session() -> None:
 
 
 @pytest_asyncio.fixture
-async def _reset_http_async_session_for_async_tests() -> None:
+async def _reset_http_async_session_between_tests() -> None:
     """סוגר את הסשן הגלובלי של http_async לפני ואחרי כל טסט אסינכרוני."""
     try:
         from http_async import close_session  # type: ignore
