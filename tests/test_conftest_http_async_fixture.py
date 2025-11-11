@@ -49,13 +49,8 @@ class _FakeRequest:
 async def test_http_async_fixture_closes_session_pre_and_post(monkeypatch):
     call_log: list[str] = []
 
-    def _close_session():
-        call_log.append("close_call")
-
-        async def _inner():
-            call_log.append("close_await")
-
-        return _inner()
+    async def _close_session():
+        call_log.append("close")
 
     fake_http_async = types.ModuleType("http_async")
     fake_http_async.close_session = _close_session  # type: ignore[attr-defined]
@@ -64,16 +59,16 @@ async def test_http_async_fixture_closes_session_pre_and_post(monkeypatch):
     impl = _get_fixture_impl()
     request = _FakeRequest(async_marker=True)
     try:
-        gen = impl(request=request)
-        assert gen is not None
+        agen = impl(request=request)
+        assert agen is not None
 
-        next(gen)
-        assert call_log == ["close_call", "close_await"]
+        await agen.asend(None)
+        assert call_log == ["close"]
 
-        with pytest.raises(StopIteration):
-            next(gen)
+        with pytest.raises(StopAsyncIteration):
+            await agen.asend(None)
 
-        assert call_log == ["close_call", "close_await", "close_call", "close_await"]
+        assert call_log == ["close", "close"]
     finally:
         request.close()
 
@@ -85,11 +80,11 @@ async def test_http_async_fixture_handles_missing_module(monkeypatch):
     impl = _get_fixture_impl()
     request = _FakeRequest(async_marker=True)
     try:
-        gen = impl(request=request)
+        agen = impl(request=request)
 
-        next(gen)
+        await agen.asend(None)
 
-        with pytest.raises(StopIteration):
-            next(gen)
+        with pytest.raises(StopAsyncIteration):
+            await agen.asend(None)
     finally:
         request.close()

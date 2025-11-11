@@ -2,9 +2,9 @@ import asyncio
 import os
 import sys
 import math
-from contextlib import suppress
-from typing import Dict, Iterator, List, Optional
+from typing import AsyncIterator, Dict, List, Optional
 import pytest
+import pytest_asyncio
 
 # Ensure project root is on sys.path so `import utils` works in tests
 PROJECT_ROOT = os.path.dirname(__file__)
@@ -221,62 +221,35 @@ def _close_http_async_session_after_session() -> None:
         pass
 
 
-@pytest.fixture(autouse=True)
-def _reset_http_async_session_between_tests(
+@pytest_asyncio.fixture
+async def _reset_http_async_session_between_tests(
     request: Optional[pytest.FixtureRequest] = None,
-) -> Iterator[None]:
+) -> AsyncIterator[None]:
     """סוגר את הסשן הגלובלי של http_async לפני ואחרי כל טסט אסינכרוני."""
     try:
         from http_async import close_session  # type: ignore
     except Exception:
         close_session = None  # type: ignore
+
     is_async_test = True
-    event_loop: Optional[asyncio.AbstractEventLoop] = None
     if request is not None:
         try:
             is_async_test = request.node.get_closest_marker("asyncio") is not None
         except Exception:
             is_async_test = True
 
-        if is_async_test:
-            with suppress(Exception):
-                event_loop = request.getfixturevalue("event_loop")  # type: ignore[assignment]
-
     if not is_async_test or close_session is None:
         yield
         return
 
-    def _run_close(loop_hint: Optional[asyncio.AbstractEventLoop]) -> None:
-        if close_session is None:
-            return
-        try:
-            coro = close_session()
-        except Exception:
-            return
-        if coro is None:
-            return
+    try:
+        await close_session()
+    except Exception:
+        pass
 
-        loop: Optional[asyncio.AbstractEventLoop] = loop_hint
-        if loop is not None:
-            if loop.is_closed() or loop.is_running():
-                loop = None
-
-        if loop is None:
-            temp_loop = asyncio.new_event_loop()
-            try:
-                temp_loop.run_until_complete(coro)
-            except Exception:
-                with suppress(Exception):
-                    coro.close()  # type: ignore[attr-defined]
-            finally:
-                temp_loop.close()
-        else:
-            try:
-                loop.run_until_complete(coro)
-            except Exception:
-                with suppress(Exception):
-                    coro.close()  # type: ignore[attr-defined]
-
-    _run_close(event_loop)
     yield
-    _run_close(event_loop)
+
+    try:
+        await close_session()
+    except Exception:
+        pass
