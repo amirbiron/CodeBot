@@ -16,12 +16,25 @@
 
 ## 📌 סקירה כללית
 
+### ⚠️ חשוב: איכות התמונות
+
+**הפתרון המומלץ**: שימוש ב-**Playwright** לרינדור HTML אמיתי בדפדפן. זה נותן תוצאות מקצועיות מושלמות כמו [Carbon.now.sh](https://carbon.now.sh) או [Ray.so](https://ray.so).
+
+**למה לא ציור ידני עם PIL?**
+- ציור ידני עם PIL נותן תוצאות לא מקצועיות - כמו צילום מסך של עורך
+- אין תמיכה מלאה ב-syntax highlighting מורכב
+- פונטים נראים לא חדים
+- צבעים לא מדויקים
+
+**הפתרון**: רינדור HTML מושלם עם Playwright → screenshot של דפדפן אמיתי → תמונות מקצועיות!
+
 ### מטרת הפרויקט
 הוספת פקודה `/image <filename>` שמייצרת תמונת PNG מהקוד עם:
-- ✅ היילייטינג צבעוני (syntax highlighting)
+- ✅ היילייטינג צבעוני מקצועי (syntax highlighting מושלם)
 - ✅ רקע נקי ומקצועי
-- ✅ מספרי שורות
+- ✅ מספרי שורות מעוצבים
 - ✅ לוגו קטן של `@my_code_keeper_bot` בפינה
+- ✅ איכות גבוהה (Retina-ready)
 - ✅ אפשרות להוריד/לשלוח ישירות
 
 ### יעדים עיקריים
@@ -43,15 +56,15 @@ requirements:
 dependencies:
   - Pillow>=10.2.0  # ✅ כבר קיים בפרויקט
   - pygments>=2.0.0  # ✅ כבר קיים בפרויקט
-  - weasyprint>=60.0  # 🆕 מומלץ - HTML to Image מתקדם
-  # אלטרנטיבה: playwright>=1.40.0  # לרינדור HTML בדפדפן
+  - playwright>=1.40.0  # ⭐ מומלץ מאוד - רינדור HTML מושלם בדפדפן אמיתי
+  # אלטרנטיבה: weasyprint>=60.0  # פחות איכותי מ-Playwright
 ```
 
 ### ספריות קיימות בפרויקט
 - ✅ **Pillow** - עיבוד תמונות (כבר מותקן)
 - ✅ **Pygments** - היילייטינג קוד (כבר מותקן)
-- 🆕 **WeasyPrint** - מומלץ להוסיף - HTML to Image מתקדם ומדויק
-- 🔄 **Playwright** - אלטרנטיבה ל-WeasyPrint (דורש דפדפן headless)
+- ⭐ **Playwright** - **מומלץ מאוד** - רינדור HTML מושלם בדפדפן אמיתי (תוצאות מקצועיות כמו Carbon.now.sh)
+- 🔄 **WeasyPrint** - אלטרנטיבה (פחות איכותי, אבל קל יותר להתקנה)
 
 ### הכנות בקוד הקיים
 - ✅ `code_processor.py` - כבר מכיל לוגיקת highlighting
@@ -217,13 +230,23 @@ class CodeImageGenerator:
         self._font_cache = {}
         self._logo_cache = None
         
-        # בדיקה אם WeasyPrint זמין
+        # בדיקה אם Playwright זמין (העדיפות הראשונה)
         try:
-            from weasyprint import HTML, CSS
-            self._has_weasyprint = True
+            from playwright.sync_api import sync_playwright
+            self._has_playwright = True
+            self._playwright = None  # יאותחל בפעם הראשונה
         except ImportError:
-            self._has_weasyprint = False
-            logger.info("WeasyPrint not available, using PIL-based rendering")
+            self._has_playwright = False
+            logger.info("Playwright not available, trying WeasyPrint...")
+        
+        # בדיקה אם WeasyPrint זמין (fallback)
+        if not self._has_playwright:
+            try:
+                from weasyprint import HTML, CSS
+                self._has_weasyprint = True
+            except ImportError:
+                self._has_weasyprint = False
+                logger.warning("Neither Playwright nor WeasyPrint available, using PIL-based rendering (lower quality)")
         
     def _get_font(self, size: int, bold: bool = False) -> Optional[FreeTypeFont]:
         """קבלת פונט עם cache"""
@@ -398,6 +421,184 @@ class CodeImageGenerator:
         
         return color_map.get(color_str, (212, 212, 212))  # ברירת מחדל: אפור בהיר
     
+    def _create_professional_html(self, highlighted_html: str, lines: list, width: int, height: int) -> str:
+        """
+        יצירת HTML מקצועי עם styling מושלם - כמו Carbon.now.sh
+        זה נותן תוצאות יפות ומקצועיות
+        """
+        # חישוב מספרי שורות
+        line_numbers_html = '\n'.join(
+            f'<span class="line-number">{i}</span>' 
+            for i in range(1, len(lines) + 1)
+        )
+        
+        # יצירת HTML מלא עם styling מקצועי
+        html = f"""<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <style>
+        * {{
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }}
+        
+        body {{
+            font-family: 'SF Mono', 'Monaco', 'Inconsolata', 'Fira Code', 'Droid Sans Mono', 'Source Code Pro', 'Consolas', 'Courier New', monospace;
+            background-color: {self.colors['background']};
+            color: {self.colors['text']};
+            font-size: {self.FONT_SIZE}px;
+            line-height: {self.LINE_HEIGHT}px;
+            padding: {self.DEFAULT_PADDING}px;
+            margin: 0;
+            width: {width}px;
+            min-height: {height}px;
+            overflow: hidden;
+        }}
+        
+        .code-container {{
+            display: flex;
+            width: 100%;
+            background-color: {self.colors['background']};
+            border-radius: 8px;
+            overflow: hidden;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        }}
+        
+        .line-numbers {{
+            background-color: {self.colors['line_number_bg']};
+            color: {self.colors['line_number_text']};
+            padding: {self.DEFAULT_PADDING}px 10px;
+            padding-right: 20px;
+            text-align: right;
+            user-select: none;
+            border-right: 1px solid {self.colors['border']};
+            min-width: {self.LINE_NUMBER_WIDTH}px;
+            font-size: {self.FONT_SIZE - 1}px;
+        }}
+        
+        .line-number {{
+            display: block;
+            line-height: {self.LINE_HEIGHT}px;
+            opacity: 0.6;
+        }}
+        
+        .code-content {{
+            flex: 1;
+            padding: {self.DEFAULT_PADDING}px;
+            padding-left: 20px;
+            overflow-x: auto;
+        }}
+        
+        .code-content pre {{
+            margin: 0;
+            padding: 0;
+            background: transparent;
+            border: none;
+            font-family: inherit;
+            font-size: inherit;
+            line-height: inherit;
+            white-space: pre;
+            overflow: visible;
+        }}
+        
+        .code-content code {{
+            font-family: inherit;
+            font-size: inherit;
+            line-height: inherit;
+        }}
+        
+        /* Syntax highlighting styles - Pygments compatible */
+        .code-content .hll {{ background-color: #ffffcc; }}
+        .code-content .c {{ color: #75715e; font-style: italic; }} /* Comment */
+        .code-content .err {{ color: #960050; background-color: #1e0010; }} /* Error */
+        .code-content .k {{ color: #66d9ef; }} /* Keyword */
+        .code-content .l {{ color: #ae81ff; }} /* Literal */
+        .code-content .n {{ color: #f8f8f2; }} /* Name */
+        .code-content .o {{ color: #f92672; }} /* Operator */
+        .code-content .p {{ color: #f8f8f2; }} /* Punctuation */
+        .code-content .cm {{ color: #75715e; font-style: italic; }} /* Comment.Multiline */
+        .code-content .cp {{ color: #75715e; font-weight: bold; }} /* Comment.Preproc */
+        .code-content .c1 {{ color: #75715e; font-style: italic; }} /* Comment.Single */
+        .code-content .cs {{ color: #75715e; font-weight: bold; font-style: italic; }} /* Comment.Special */
+        .code-content .ge {{ font-style: italic; }} /* Generic.Emph */
+        .code-content .gs {{ font-weight: bold; }} /* Generic.Strong */
+        .code-content .kc {{ color: #66d9ef; }} /* Keyword.Constant */
+        .code-content .kd {{ color: #66d9ef; }} /* Keyword.Declaration */
+        .code-content .kn {{ color: #f92672; }} /* Keyword.Namespace */
+        .code-content .kp {{ color: #66d9ef; }} /* Keyword.Pseudo */
+        .code-content .kr {{ color: #66d9ef; }} /* Keyword.Reserved */
+        .code-content .kt {{ color: #66d9ef; }} /* Keyword.Type */
+        .code-content .ld {{ color: #e6db74; }} /* Literal.Date */
+        .code-content .m {{ color: #ae81ff; }} /* Literal.Number */
+        .code-content .s {{ color: #e6db74; }} /* Literal.String */
+        .code-content .na {{ color: #a6e22e; }} /* Name.Attribute */
+        .code-content .nb {{ color: #f8f8f2; }} /* Name.Builtin */
+        .code-content .nc {{ color: #a6e22e; }} /* Name.Class */
+        .code-content .no {{ color: #66d9ef; }} /* Name.Constant */
+        .code-content .nd {{ color: #a6e22e; }} /* Name.Decorator */
+        .code-content .ni {{ color: #f8f8f2; }} /* Name.Entity */
+        .code-content .ne {{ color: #a6e22e; }} /* Name.Exception */
+        .code-content .nf {{ color: #a6e22e; }} /* Name.Function */
+        .code-content .nl {{ color: #f8f8f2; }} /* Name.Label */
+        .code-content .nn {{ color: #f8f8f2; }} /* Name.Namespace */
+        .code-content .nx {{ color: #a6e22e; }} /* Name.Other */
+        .code-content .py {{ color: #f8f8f2; }} /* Name.Property */
+        .code-content .nt {{ color: #f92672; }} /* Name.Tag */
+        .code-content .nv {{ color: #f8f8f2; }} /* Name.Variable */
+        .code-content .ow {{ color: #f92672; }} /* Operator.Word */
+        .code-content .w {{ color: #f8f8f2; }} /* Text.Whitespace */
+        .code-content .mf {{ color: #ae81ff; }} /* Literal.Number.Float */
+        .code-content .mh {{ color: #ae81ff; }} /* Literal.Number.Hex */
+        .code-content .mi {{ color: #ae81ff; }} /* Literal.Number.Integer */
+        .code-content .mo {{ color: #ae81ff; }} /* Literal.Number.Oct */
+        .code-content .sb {{ color: #e6db74; }} /* Literal.String.Backtick */
+        .code-content .sc {{ color: #e6db74; }} /* Literal.String.Char */
+        .code-content .sd {{ color: #e6db74; }} /* Literal.String.Doc */
+        .code-content .s2 {{ color: #e6db74; }} /* Literal.String.Double */
+        .code-content .se {{ color: #ae81ff; }} /* Literal.String.Escape */
+        .code-content .sh {{ color: #e6db74; }} /* Literal.String.Heredoc */
+        .code-content .si {{ color: #e6db74; }} /* Literal.String.Interpol */
+        .code-content .sx {{ color: #e6db74; }} /* Literal.String.Other */
+        .code-content .sr {{ color: #e6db74; }} /* Literal.String.Regex */
+        .code-content .s1 {{ color: #e6db74; }} /* Literal.String.Single */
+        .code-content .ss {{ color: #e6db74; }} /* Literal.String.Symbol */
+        .code-content .bp {{ color: #f8f8f2; }} /* Name.Builtin.Pseudo */
+        .code-content .vc {{ color: #f8f8f2; }} /* Name.Variable.Class */
+        .code-content .vg {{ color: #f8f8f2; }} /* Name.Variable.Global */
+        .code-content .vi {{ color: #f8f8f2; }} /* Name.Variable.Instance */
+        .code-content .il {{ color: #ae81ff; }} /* Literal.Number.Integer.Long */
+        
+        /* Logo watermark */
+        .logo-watermark {{
+            position: absolute;
+            bottom: {self.LOGO_PADDING}px;
+            right: {self.LOGO_PADDING}px;
+            font-size: 10px;
+            color: rgba(255, 255, 255, 0.5);
+            background: rgba(0, 0, 0, 0.3);
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-weight: bold;
+        }}
+    </style>
+</head>
+<body>
+    <div class="code-container">
+        <div class="line-numbers">
+            {line_numbers_html}
+        </div>
+        <div class="code-content">
+            <pre><code>{highlighted_html}</code></pre>
+        </div>
+    </div>
+    <div class="logo-watermark">@my_code_keeper_bot</div>
+</body>
+</html>"""
+        return html
+    
     def _detect_language_from_content(self, code: str, filename: Optional[str] = None) -> str:
         """זיהוי שפה מתקדם יותר עם היוריסטיקות"""
         # זיהוי לפי סיומת קובץ
@@ -469,11 +670,71 @@ class CodeImageGenerator:
         
         return True
     
+    def _init_playwright(self):
+        """אתחול Playwright (lazy initialization)"""
+        if self._playwright is None:
+            from playwright.sync_api import sync_playwright
+            self._playwright = sync_playwright().start()
+        return self._playwright
+    
+    def cleanup(self):
+        """ניקוי משאבים - סגירת Playwright"""
+        if self._playwright is not None:
+            try:
+                self._playwright.stop()
+                self._playwright = None
+            except Exception as e:
+                logger.warning(f"Error closing Playwright: {e}")
+    
+    def _render_html_with_playwright(self, html_content: str, width: int, height: int) -> Image.Image:
+        """
+        רינדור HTML לתמונה באמצעות Playwright - תוצאות מקצועיות מושלמות!
+        זה נותן תוצאות כמו Carbon.now.sh - תמונות יפות ומקצועיות
+        """
+        try:
+            playwright = self._init_playwright()
+            browser = playwright.chromium.launch(headless=True)
+            
+            # יצירת דף חדש
+            page = browser.new_page(
+                viewport={'width': width, 'height': height},
+                device_scale_factor=2  # Retina quality
+            )
+            
+            # טעינת HTML
+            page.set_content(html_content, wait_until='networkidle')
+            
+            # המתנה קצרה לוודא שהכל נטען
+            page.wait_for_timeout(500)
+            
+            # צילום מסך
+            screenshot_bytes = page.screenshot(
+                type='png',
+                full_page=True,
+                clip={'x': 0, 'y': 0, 'width': width, 'height': height}
+            )
+            
+            # המרה ל-PIL Image
+            img = Image.open(io.BytesIO(screenshot_bytes))
+            
+            # סגירת דפדפן
+            browser.close()
+            
+            return img
+            
+        except Exception as e:
+            logger.error(f"Playwright rendering failed: {e}")
+            # ניקוי במקרה של שגיאה
+            try:
+                browser.close()
+            except:
+                pass
+            raise
+    
     def _render_html_with_weasyprint(self, html_content: str, width: int, height: int) -> Image.Image:
-        """רינדור HTML לתמונה באמצעות WeasyPrint (מדויק יותר)"""
+        """רינדור HTML לתמונה באמצעות WeasyPrint (fallback)"""
         try:
             from weasyprint import HTML, CSS
-            from weasyprint.text.fonts import FontConfiguration
             
             # יצירת CSS מותאם
             css_string = f"""
@@ -627,44 +888,39 @@ class CodeImageGenerator:
             num_lines = len(lines)
             image_height = (num_lines * line_height) + (self.DEFAULT_PADDING * 2)
         
-        # 3. יצירת תמונה
-        # נסה להשתמש ב-WeasyPrint אם זמין
-        if self._has_weasyprint and len(lines) < 500:  # WeasyPrint טוב לקוד קטן-בינוני
+        # 3. יצירת HTML מלא עם styling מקצועי
+        # יצירת HTML מושלם עם syntax highlighting מלא
+        full_html = self._create_professional_html(highlighted_html, lines, image_width, image_height)
+        
+        # 4. רינדור HTML לתמונה - עדיפות ל-Playwright (תוצאות מושלמות!)
+        use_manual_rendering = True
+        if self._has_playwright:
             try:
-                # יצירת HTML מלא עם styling
-                full_html = f"""
-                <!DOCTYPE html>
-                <html>
-                <head>
-                    <style>
-                        body {{
-                            background-color: {self.colors['background']};
-                            color: {self.colors['text']};
-                            font-family: 'DejaVu Sans Mono', monospace;
-                            font-size: {self.FONT_SIZE}px;
-                            line-height: {self.LINE_HEIGHT}px;
-                            padding: {self.DEFAULT_PADDING}px;
-                            margin: 0;
-                        }}
-                        {highlighted_html}
-                    </style>
-                </head>
-                <body>
-                    <pre><code>{highlighted_html}</code></pre>
-                </body>
-                </html>
-                """
+                img = self._render_html_with_playwright(full_html, image_width, image_height)
+                use_manual_rendering = False
+                logger.info("Successfully rendered with Playwright - professional quality!")
+            except Exception as e:
+                logger.warning(f"Playwright failed: {e}, trying WeasyPrint...")
+                if self._has_weasyprint:
+                    try:
+                        img = self._render_html_with_weasyprint(full_html, image_width, image_height)
+                        use_manual_rendering = False
+                        logger.info("Rendered with WeasyPrint (good quality)")
+                    except Exception as e2:
+                        logger.warning(f"WeasyPrint also failed: {e2}, using manual rendering")
+        elif self._has_weasyprint and len(lines) < 500:
+            try:
                 img = self._render_html_with_weasyprint(full_html, image_width, image_height)
-                # WeasyPrint יצר את התמונה, אבל עדיין צריך להוסיף לוגו
                 use_manual_rendering = False
             except Exception as e:
                 logger.warning(f"WeasyPrint failed: {e}, using manual rendering")
-                use_manual_rendering = True
-        else:
-            use_manual_rendering = True
+        
+        # 5. אם כל השיטות נכשלו, נשתמש בציור ידני (איכות נמוכה יותר)
         
         if use_manual_rendering:
-            # יצירת תמונה ידנית עם PIL
+            # ⚠️ Fallback: יצירת תמונה ידנית עם PIL (איכות נמוכה יותר)
+            # זה לא מומלץ - עדיף להתקין Playwright לתוצאות מקצועיות!
+            logger.warning("Using manual PIL rendering - lower quality. Install Playwright for professional results!")
             img = Image.new('RGB', (image_width, image_height), self.colors['background'])
             draw = ImageDraw.Draw(img)
             
@@ -964,12 +1220,16 @@ async def image_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE
             theme=options.get('theme', 'dark')
         )
         
-        image_bytes = generator.generate_image(
-            code=code,
-            language=language,
-            filename=file_name,
-            max_width=options.get('width', 1200)
-        )
+        try:
+            image_bytes = generator.generate_image(
+                code=code,
+                language=language,
+                filename=file_name,
+                max_width=options.get('width', 1200)
+            )
+        finally:
+            # ניקוי משאבים (חשוב ל-Playwright)
+            generator.cleanup()
         
         # עדכון מטריקות
         if image_generation_duration:
@@ -1789,9 +2049,23 @@ async def image_command(self, update, context):
 ### ספריות מומלצות
 - [Pillow Documentation](https://pillow.readthedocs.io/)
 - [Pygments Documentation](https://pygments.org/docs/)
-- [WeasyPrint Documentation](https://weasyprint.org/) - HTML to Image
-- [Playwright Documentation](https://playwright.dev/python/) - אלטרנטיבה ל-WeasyPrint
+- ⭐ **[Playwright Documentation](https://playwright.dev/python/)** - **מומלץ מאוד!** רינדור HTML מושלם בדפדפן אמיתי (תוצאות מקצועיות)
+- [WeasyPrint Documentation](https://weasyprint.org/) - אלטרנטיבה (פחות איכותי)
 - [Python-telegram-bot Documentation](https://python-telegram-bot.org/)
+
+### התקנת Playwright (מומלץ מאוד!)
+```bash
+# התקנת Playwright
+pip install playwright
+
+# התקנת דפדפנים (חובה!)
+playwright install chromium
+
+# או רק Chromium (קל יותר)
+playwright install --with-deps chromium
+```
+
+**⚠️ חשוב**: Playwright דורש התקנת דפדפן Chromium. זה נותן תוצאות מושלמות כמו Carbon.now.sh!
 
 ### סגנונות Pygments זמינים
 - `monokai` - כהה ופופולרי ⭐ מומלץ
