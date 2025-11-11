@@ -1706,22 +1706,36 @@ def admin_snippet_approve():
     item_id = request.args.get('id') or ''
     try:
         if _snip_service is not None and item_id:
+            # שלוף user_id לפני שינוי הסטטוס כדי למנוע החטאות לאחר עדכון
+            pre_uid = 0
+            doc = None
+            try:
+                from database import db as _db
+                coll = getattr(_db, 'snippets_collection', None)
+                if coll is None:
+                    coll = getattr(_db.db, 'snippets')
+                normalized_id = _db._get_repo()._normalize_snippet_identifier(item_id)
+                doc = coll.find_one({'_id': normalized_id}) if (normalized_id is not None and coll is not None) else None
+                pre_uid = int((doc or {}).get('user_id') or 0)
+            except Exception:
+                pre_uid = 0
+
             ok = _snip_service.approve_snippet(item_id, int(session.get('user_id')))
             # שליחת הודעה ידידותית למגיש הסניפט (כמו בבוט)
             if ok:
-                try:
-                    from database import db as _db
-                    coll = getattr(_db, 'snippets_collection', None)
-                    if coll is None:
-                        coll = getattr(_db.db, 'snippets')
-                    normalized_id = _db._get_repo()._normalize_snippet_identifier(item_id)
-                    doc = coll.find_one({'_id': normalized_id}) if (normalized_id is not None and coll is not None) else None
-                except Exception:
-                    doc = None
-                try:
-                    uid = int((doc or {}).get('user_id') or 0)
-                except Exception:
-                    uid = 0
+                uid = pre_uid
+                if uid <= 0:
+                    # fallback: נסה לאחר עדכון אם לא הצלחנו קודם
+                    try:
+                        from database import db as _db
+                        coll = getattr(_db, 'snippets_collection', None)
+                        if coll is None:
+                            coll = getattr(_db.db, 'snippets')
+                        normalized_id = _db._get_repo()._normalize_snippet_identifier(item_id)
+                        post_doc = coll.find_one({'_id': normalized_id}) if (normalized_id is not None and coll is not None) else None
+                        uid = int((post_doc or {}).get('user_id') or 0)
+                    except Exception:
+                        uid = 0
                 if uid > 0:
                     try:
                         # base URL להצגה למשתמש
@@ -1735,7 +1749,6 @@ def admin_snippet_approve():
                         bot_token = _os.getenv('BOT_TOKEN', '')
                         if bot_token:
                             try:
-                                # העדף http_sync אם זמין כדי להימנע מתלות ב-requests בזמן ריצה
                                 try:
                                     from http_sync import request as _http_request  # type: ignore
                                 except Exception:  # pragma: no cover
@@ -1763,22 +1776,34 @@ def admin_snippet_reject():
     reason = request.args.get('reason') or ''
     try:
         if _snip_service is not None and item_id:
+            # שלוף user_id לפני שינוי הסטטוס כדי להבטיח שיודיעו למגיש הנכון
+            pre_uid = 0
+            try:
+                from database import db as _db
+                coll = getattr(_db, 'snippets_collection', None)
+                if coll is None:
+                    coll = getattr(_db.db, 'snippets')
+                normalized_id = _db._get_repo()._normalize_snippet_identifier(item_id)
+                pre_doc = coll.find_one({'_id': normalized_id}) if (normalized_id is not None and coll is not None) else None
+                pre_uid = int((pre_doc or {}).get('user_id') or 0)
+            except Exception:
+                pre_uid = 0
+
             ok = _snip_service.reject_snippet(item_id, int(session.get('user_id')), reason)
             # שליחת הודעה ידידותית למגיש הסניפט (כמו בבוט)
             if ok:
-                try:
-                    from database import db as _db
-                    coll = getattr(_db, 'snippets_collection', None)
-                    if coll is None:
-                        coll = getattr(_db.db, 'snippets')
-                    normalized_id = _db._get_repo()._normalize_snippet_identifier(item_id)
-                    doc = coll.find_one({'_id': normalized_id}) if (normalized_id is not None and coll is not None) else None
-                except Exception:
-                    doc = None
-                try:
-                    uid = int((doc or {}).get('user_id') or 0)
-                except Exception:
-                    uid = 0
+                uid = pre_uid
+                if uid <= 0:
+                    try:
+                        from database import db as _db
+                        coll = getattr(_db, 'snippets_collection', None)
+                        if coll is None:
+                            coll = getattr(_db.db, 'snippets')
+                        normalized_id = _db._get_repo()._normalize_snippet_identifier(item_id)
+                        post_doc = coll.find_one({'_id': normalized_id}) if (normalized_id is not None and coll is not None) else None
+                        uid = int((post_doc or {}).get('user_id') or 0)
+                    except Exception:
+                        uid = 0
                 if uid > 0:
                     try:
                         text = (
