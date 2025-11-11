@@ -80,6 +80,8 @@
                 {% endif %}
               {% endfor %}
             </select>
+            <!-- שבירת שורה יזומה: העבר את תיבת 'שפה' לשורה הבאה -->
+            <div class="w-100 d-none d-lg-block"></div>
             <div class="language-filter" style="position:relative;">
               <button type="button" id="languageFilterBtn" class="btn btn-secondary btn-icon" aria-expanded="false" aria-haspopup="true" title="סינון לפי שפה">
                 <i class="fas fa-language"></i>
@@ -610,7 +612,7 @@
         } catch(_) {}
     })();
 
-    // שחזור פרמטרים אחרונים של חיפוש/פילטרים בעמוד הקבצים
+    // שחזור חלקי של פרמטרים (ללא ניווט אוטומטי) בעמוד הקבצים
     (function restoreFilesFilters(){
         const KEY = 'files_last_filters';
         function load(){ try { return JSON.parse(localStorage.getItem(KEY) || '{}'); } catch(_) { return {}; } }
@@ -629,23 +631,8 @@
             } catch(_) {}
         }
 
-        // בעת טעינה – אם אין פרמטרים ב-URL, אבל יש state אחרון – ננווט עם אותם פרמטרים
-        try {
-            const hasParams = !!(window.location.search && window.location.search.length > 1);
-            const st = load();
-            if (!hasParams && st && (st.q || st.lang || st.category || st.sort)) {
-                const p = new URLSearchParams();
-                if (st.q) p.set('q', st.q);
-                if (st.lang) p.set('lang', st.lang);
-                if (st.category) p.set('category', st.category);
-                if (st.sort) p.set('sort', st.sort);
-                const url = '/files' + (p.toString() ? ('?' + p.toString()) : '');
-                if (url !== window.location.pathname + window.location.search + window.location.hash) {
-                    window.location.replace(url);
-                    return;
-                }
-            }
-        } catch(_) {}
+        // ביטול ניווט אוטומטי: העמוד ייפתח נקי גם אם נשמרו פרמטרים קודמים
+        // נשמור רק בעת אינטראקציה, ללא שינוי מיידי של ה-URL בעת טעינה
 
         // בעת אינטראקציה: שמור state
         window.addEventListener('DOMContentLoaded', () => {
