@@ -4,7 +4,6 @@ import sys
 import math
 from typing import Dict, List, Optional
 import pytest
-import pytest_asyncio
 
 # Ensure project root is on sys.path so `import utils` works in tests
 PROJECT_ROOT = os.path.dirname(__file__)
@@ -217,25 +216,31 @@ def _close_http_async_session_after_session() -> None:
         pass
 
 
-# Pytest-asyncio 0.23+ דורש להצהיר מפורשות על פיקסצ'רים אסינכרוניים דרך pytest_asyncio.fixture
-@pytest_asyncio.fixture(autouse=True)
-async def _reset_http_async_session_between_tests():
+@pytest.fixture(autouse=True)
+def _reset_http_async_session_between_tests() -> None:
     """מוודא שסשן aiohttp הגלובלי לא דולף בין טסטים."""
     try:
         from http_async import close_session  # type: ignore
     except Exception:
         close_session = None  # type: ignore
 
-    if close_session is not None:
+    if close_session is None:
+        yield
+        return
+
+    async def _close() -> None:
         try:
-            await close_session()
+            await close_session()  # type: ignore[misc]
         except Exception:
             pass
 
+    def _run_close() -> None:
+        loop = asyncio.new_event_loop()
+        try:
+            loop.run_until_complete(_close())
+        finally:
+            loop.close()
+
+    _run_close()
     yield
-
-    if close_session is not None:
-        try:
-            await close_session()
-        except Exception:
-            pass
+    _run_close()
