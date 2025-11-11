@@ -837,6 +837,7 @@ def inject_globals():
         'ui_font_scale': font_scale,
         'ui_theme': theme,
         # Feature flags
+        'announcement_enabled': WEEKLY_TIP_ENABLED,
         'weekly_tip_enabled': WEEKLY_TIP_ENABLED,
         # גרסה סטטית לצירוף לסטטיקה (cache-busting)
         'static_version': _STATIC_VERSION,
