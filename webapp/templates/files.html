@@ -129,19 +129,19 @@
 
 <!-- כפתורי קטגוריות -->
 <div class="categories-section" style="display: flex; gap: 1rem; margin-bottom: 2rem; flex-wrap: wrap;">
-    <a href="/files#results" class="btn {% if not category_filter %}btn-primary{% else %}btn-secondary{% endif %} btn-icon">
+    <a href="/files" class="btn {% if not category_filter %}btn-primary{% else %}btn-secondary{% endif %} btn-icon">
         <i class="fas fa-th"></i>
         כל הקבצים
     </a>
-    <a href="/files?category=recent#results" class="btn {% if category_filter == 'recent' %}btn-primary{% else %}btn-secondary{% endif %} btn-icon">
+    <a href="/files?category=recent" class="btn {% if category_filter == 'recent' %}btn-primary{% else %}btn-secondary{% endif %} btn-icon">
         <i class="fas fa-history"></i>
         נפתחו לאחרונה
     </a>
-    <a href="/files?category=repo#results" class="btn {% if category_filter == 'repo' %}btn-primary{% else %}btn-secondary{% endif %} btn-icon">
+    <a href="/files?category=repo" class="btn {% if category_filter == 'repo' %}btn-primary{% else %}btn-secondary{% endif %} btn-icon">
         <i class="fab fa-github"></i>
         לפי ריפו
     </a>
-    <a href="/files?category=favorites#results" class="btn {% if category_filter == 'favorites' %}btn-primary{% else %}btn-secondary{% endif %} btn-icon">
+    <a href="/files?category=favorites" class="btn {% if category_filter == 'favorites' %}btn-primary{% else %}btn-secondary{% endif %} btn-icon">
         <i class="fas fa-star"></i>
         מועדפים
     </a>
@@ -149,11 +149,11 @@
           <i class="fas fa-desktop"></i>
           שולחן עבודה
       </a>
-    <a href="/files?category=large#results" class="btn {% if category_filter == 'large' %}btn-primary{% else %}btn-secondary{% endif %} btn-icon">
+    <a href="/files?category=large" class="btn {% if category_filter == 'large' %}btn-primary{% else %}btn-secondary{% endif %} btn-icon">
         <i class="fas fa-weight-hanging"></i>
         קבצים גדולים
     </a>
-    <a href="/files?category=other#results" class="btn {% if category_filter == 'other' %}btn-primary{% else %}btn-secondary{% endif %} btn-icon">
+    <a href="/files?category=other" class="btn {% if category_filter == 'other' %}btn-primary{% else %}btn-secondary{% endif %} btn-icon">
         <i class="fas fa-folder"></i>
         שאר קבצים
     </a>
@@ -248,8 +248,7 @@
     </div>
 </div>
 
-<!-- Anchor for auto-scroll to results -->
-<div id="results"></div>
+<!-- (auto-scroll anchor removed per UX request) -->
 
 {% if repos %}
 <div class="glass-card">
@@ -560,6 +559,25 @@
             const show = (typeof open === 'boolean') ? open : (dd.style.display === 'none');
             dd.style.display = show ? 'block' : 'none';
             btn.setAttribute('aria-expanded', show ? 'true' : 'false');
+            if (show) {
+                try {
+                    // ודא שמעל כל שכבות הכפתורים
+                    dd.style.zIndex = '5000';
+                    // ברירת מחדל: נפתח למטה
+                    dd.style.top = 'calc(100% + 6px)';
+                    dd.style.bottom = 'auto';
+                    // בדיקת מקום במסך – היפוך פתיחה כלפי מעלה אם אין מקום למטה
+                    const btnRect = btn.getBoundingClientRect();
+                    const ddRect = dd.getBoundingClientRect();
+                    const spaceBelow = (window.innerHeight - btnRect.bottom);
+                    const spaceAbove = btnRect.top;
+                    const expectedHeight = ddRect.height || 240; // הערכה בטוחה
+                    if (spaceBelow < expectedHeight && spaceAbove > expectedHeight) {
+                        dd.style.top = 'auto';
+                        dd.style.bottom = 'calc(100% + 6px)';
+                    }
+                } catch(_) {}
+            }
         }
 
         btn.addEventListener('click', (e) => { e.stopPropagation(); toggle(); });
@@ -621,7 +639,7 @@
                 if (st.lang) p.set('lang', st.lang);
                 if (st.category) p.set('category', st.category);
                 if (st.sort) p.set('sort', st.sort);
-                const url = '/files' + (p.toString() ? ('?' + p.toString()) : '') + '#results';
+                const url = '/files' + (p.toString() ? ('?' + p.toString()) : '');
                 if (url !== window.location.pathname + window.location.search + window.location.hash) {
                     window.location.replace(url);
                     return;

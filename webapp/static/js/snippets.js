@@ -49,6 +49,36 @@
           try {
             if (window.hljs && typeof window.hljs.lineNumbersBlock === 'function') {
               window.hljs.lineNumbersBlock(el, { singleLine: true });
+            } else {
+              // Fallback: עטיפה ידנית לשורות בטבלה בסגנון hljs-ln
+              const html = el.innerHTML;
+              const lines = String(html).split(/\n/);
+              const table = document.createElement('table');
+              table.className = 'hljs-ln';
+              const tbody = document.createElement('tbody');
+              table.appendChild(tbody);
+              for (let i = 0; i < lines.length; i++) {
+                const tr = document.createElement('tr');
+                const tdNum = document.createElement('td');
+                tdNum.className = 'hljs-ln-numbers';
+                tdNum.textContent = String(i + 1);
+                const tdCode = document.createElement('td');
+                tdCode.className = 'hljs-ln-code';
+                const span = document.createElement('span');
+                span.className = 'hljs-ln-line';
+                // שמירה על סימון התחביר שכבר הוזרק (innerHTML)
+                span.innerHTML = lines[i] === '' ? ' ' : lines[i];
+                tdCode.appendChild(span);
+                tr.appendChild(tdNum);
+                tr.appendChild(tdCode);
+                tbody.appendChild(tr);
+              }
+              const pre = el.parentElement;
+              if (pre && pre.tagName.toLowerCase() === 'pre') {
+                // הסר את אלמנט ה-code והכנס טבלת שורות במקומו
+                pre.removeChild(el);
+                pre.appendChild(table);
+              }
             }
           } catch(_) {}
         } catch (_) {}

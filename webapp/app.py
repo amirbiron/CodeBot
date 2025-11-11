@@ -1911,7 +1911,64 @@ def admin_community_approve():
         _cl_service = None  # type: ignore
     try:
         if _cl_service is not None and item_id:
+            # שליפת מזהה משתמש קודם לאישור (לצורך הודעה)
+            pre_uid = 0
+            try:
+                from database import db as _db
+                coll = getattr(_db, 'community_library_collection', None)
+                if coll is None:
+                    coll = getattr(_db.db, 'community_library_items')
+                try:
+                    from services.community_library_service import ObjectId as _CLObjectId  # type: ignore
+                except Exception:
+                    _CLObjectId = None  # type: ignore
+                q = {'_id': (_CLObjectId(item_id) if _CLObjectId is not None else item_id)}
+                doc = coll.find_one(q) if coll is not None else None
+                pre_uid = int((doc or {}).get('user_id') or 0)
+            except Exception:
+                pre_uid = 0
+
             _cl_service.approve_item(item_id, int(session.get('user_id')))
+
+            # שליחת הודעת Telegram ידידותית למגיש/ה (best-effort)
+            try:
+                uid = pre_uid
+                if uid <= 0:
+                    from database import db as _db
+                    coll = getattr(_db, 'community_library_collection', None)
+                    if coll is None:
+                        coll = getattr(_db.db, 'community_library_items')
+                    try:
+                        from services.community_library_service import ObjectId as _CLObjectId  # type: ignore
+                    except Exception:
+                        _CLObjectId = None  # type: ignore
+                    q = {'_id': (_CLObjectId(item_id) if _CLObjectId is not None else item_id)}
+                    post_doc = coll.find_one(q) if coll is not None else None
+                    uid = int((post_doc or {}).get('user_id') or 0)
+                if uid > 0:
+                    base = (PUBLIC_BASE_URL or WEBAPP_URL or request.host_url or '').rstrip('/')
+                    text = (
+                        "🎉 איזה כיף! הבקשה שלך אושרה ונוספה לאוסף הקהילה.\n"
+                        f"אפשר לצפות כאן: {base}/community-library"
+                    )
+                    bot_token = os.getenv('BOT_TOKEN', '')
+                    if bot_token:
+                        try:
+                            try:
+                                from http_sync import request as _http_request  # type: ignore
+                            except Exception:  # pragma: no cover
+                                _http_request = None  # type: ignore
+                            api = f"https://api.telegram.org/bot{bot_token}/sendMessage"
+                            payload = {"chat_id": uid, "text": text}
+                            if _http_request is not None:
+                                _http_request('POST', api, json=payload, timeout=5)
+                            else:  # pragma: no cover
+                                import requests as _requests  # type: ignore
+                                _requests.post(api, json=payload, timeout=5)
+                        except Exception:
+                            pass
+            except Exception:
+                pass
     except Exception:
         pass
     return redirect(url_for('admin_community_pending'))
@@ -1928,7 +1985,63 @@ def admin_community_reject():
         _cl_service = None  # type: ignore
     try:
         if _cl_service is not None and item_id:
+            pre_uid = 0
+            try:
+                from database import db as _db
+                coll = getattr(_db, 'community_library_collection', None)
+                if coll is None:
+                    coll = getattr(_db.db, 'community_library_items')
+                try:
+                    from services.community_library_service import ObjectId as _CLObjectId  # type: ignore
+                except Exception:
+                    _CLObjectId = None  # type: ignore
+                q = {'_id': (_CLObjectId(item_id) if _CLObjectId is not None else item_id)}
+                doc = coll.find_one(q) if coll is not None else None
+                pre_uid = int((doc or {}).get('user_id') or 0)
+            except Exception:
+                pre_uid = 0
+
             _cl_service.reject_item(item_id, int(session.get('user_id')), reason)
+
+            # הודעת דחייה בטלגרם (best‑effort)
+            try:
+                uid = pre_uid
+                if uid <= 0:
+                    from database import db as _db
+                    coll = getattr(_db, 'community_library_collection', None)
+                    if coll is None:
+                        coll = getattr(_db.db, 'community_library_items')
+                    try:
+                        from services.community_library_service import ObjectId as _CLObjectId  # type: ignore
+                    except Exception:
+                        _CLObjectId = None  # type: ignore
+                    q = {'_id': (_CLObjectId(item_id) if _CLObjectId is not None else item_id)}
+                    post_doc = coll.find_one(q) if coll is not None else None
+                    uid = int((post_doc or {}).get('user_id') or 0)
+                if uid > 0:
+                    text = (
+                        "🙂 תודה על ההגשה! כרגע הבקשה לא אושרה.\n"
+                        f"סיבה: {reason or '—'}\n"
+                        "נשמח לשינויים קטנים ולהגשה מחדש."
+                    )
+                    bot_token = os.getenv('BOT_TOKEN', '')
+                    if bot_token:
+                        try:
+                            try:
+                                from http_sync import request as _http_request  # type: ignore
+                            except Exception:  # pragma: no cover
+                                _http_request = None  # type: ignore
+                            api = f"https://api.telegram.org/bot{bot_token}/sendMessage"
+                            payload = {"chat_id": uid, "text": text}
+                            if _http_request is not None:
+                                _http_request('POST', api, json=payload, timeout=5)
+                            else:  # pragma: no cover
+                                import requests as _requests  # type: ignore
+                                _requests.post(api, json=payload, timeout=5)
+                        except Exception:
+                            pass
+            except Exception:
+                pass
     except Exception:
         pass
     return redirect(url_for('admin_community_pending'))
