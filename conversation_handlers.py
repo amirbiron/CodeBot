@@ -3038,12 +3038,18 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
         if data.startswith("file_") and not data.startswith("files"):
             return await handle_file_menu(update, context)
         elif data.startswith("view_"):
+            # אל תיירט כפתורים של GitHub Menu ('view_more'/'view_back') — תן למטפל GitHub לטפל
+            if data in {"view_more", "view_back"}:
+                return ConversationHandler.END
             if data.startswith("view_direct_"):
                 return await handle_view_direct_file(update, context)
             elif data.startswith("view_version_"):
                 return await handle_view_version(update, context)
-            else:
+            elif re.match(r"^view_\d+$", str(data) or ""):
                 return await handle_view_file(update, context)
+            else:
+                # פורמט שאינו נתמך כאן — אפשר למטפלים אחרים לנסות
+                return ConversationHandler.END
         elif data.startswith("edit_code_"):
             if data.startswith("edit_code_direct_"):
                 return await handle_edit_code_direct(update, context)
