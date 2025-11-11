@@ -59,6 +59,10 @@ class CodeImageGenerator:
     LINE_NUMBER_WIDTH = 60
     LOGO_SIZE = (80, 20)
     LOGO_PADDING = 10
+    # Layout constants (px at 1x DPR)
+    CARD_MARGIN = 18
+    TITLE_BAR_HEIGHT = 28
+    CODE_GUTTER_SPACING = 20
 
     THEMES = {
         'dark': {
@@ -343,15 +347,26 @@ class CodeImageGenerator:
                 w = len(ln) * 8
             max_line_width = max(max_line_width, w)
 
-        content_width = self.LINE_NUMBER_WIDTH + 20 + max_line_width + self.DEFAULT_PADDING
+        # Total width must include: card margins (both sides), left padding, line numbers, gutter, code, right padding
+        content_width = (
+            self.CARD_MARGIN * 2
+            + self.DEFAULT_PADDING
+            + self.LINE_NUMBER_WIDTH
+            + self.CODE_GUTTER_SPACING
+            + max_line_width
+            + self.DEFAULT_PADDING
+        )
         image_width = min(int(content_width), int(max_width or self.DEFAULT_WIDTH))
 
-        image_height = int(num_lines * line_height + self.DEFAULT_PADDING * 2)
+        # Height includes card margins, title bar, top/bottom padding and lines
+        base_overhead = self.CARD_MARGIN * 2 + self.TITLE_BAR_HEIGHT + self.DEFAULT_PADDING * 2
+        image_height = int(num_lines * line_height + base_overhead)
         if max_height and image_height > max_height:
-            max_lines = max(1, (int(max_height) - self.DEFAULT_PADDING * 2) // line_height)
+            avail = max(0, int(max_height) - base_overhead)
+            max_lines = max(1, avail // line_height)
             lines = lines[:max_lines]
             num_lines = len(lines)
-            image_height = int(num_lines * line_height + self.DEFAULT_PADDING * 2)
+            image_height = int(num_lines * line_height + base_overhead)
 
         # Manual rendering via PIL (ברירת מחדל) עם DPR=2 לשיפור חדות
         scale = 2
@@ -453,7 +468,7 @@ class CodeImageGenerator:
 
         # אזור מספרי שורות וקוד בתוך הכרטיס
         ln_bg_x2 = card_x1 + pad2 + lnw2
-        code_x = ln_bg_x2 + int(20 * s)
+        code_x = ln_bg_x2 + int(self.CODE_GUTTER_SPACING * s)
         code_y = card_y1 + title_h + pad2
         # רקע מספרי שורות + קו מפריד
         draw.rectangle([(card_x1, card_y1 + title_h), (ln_bg_x2, card_y2)], fill=self.colors['line_number_bg'])
