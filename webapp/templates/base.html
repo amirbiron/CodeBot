@@ -938,7 +938,7 @@
     
     {% if session.user_id and (_announcement_enabled is none or _announcement_enabled) %}
     <div class="container" aria-hidden="false">
-        <div id="announcementBanner" class="announcement-banner" role="button" aria-label="הכרזת מערכת" tabindex="0" title="הכרזה">
+        <div id="announcementBanner" class="announcement-banner" role="status" aria-label="הכרזת מערכת" tabindex="-1" title="הכרזה" style="display:none;" aria-hidden="true">
             <span class="announcement-banner__icon" aria-hidden="true">📣</span>
             <div class="announcement-banner__scroller">
                 <div class="announcement-banner__inner" id="announcementBannerInner" aria-live="polite">
@@ -1534,81 +1534,78 @@
 (function initAnnouncementBanner(){
     const container = document.getElementById('announcementBanner');
     const inner = document.getElementById('announcementBannerInner');
-    if (!container || !inner) return;
+    if (!container || !inner) { return; }
+
+    function hide(){
+        try {
+            container.style.display = 'none';
+            container.setAttribute('aria-hidden', 'true');
+            container.setAttribute('tabindex', '-1');
+        } catch (_) {}
+    }
+    function show(){
+        try {
+            container.style.display = '';
+            container.setAttribute('aria-hidden', 'false');
+        } catch (_) {}
+    }
 
     const htmlAttr = (document.documentElement.getAttribute('data-announcement') || '').toLowerCase();
     const globalFlag = (typeof window.__announcementEnabled === 'boolean')
         ? window.__announcementEnabled
         : (typeof window.__weeklyTipEnabled === 'boolean' ? window.__weeklyTipEnabled : true);
-    const localKill = (function(){
+    const localKill = (() => {
         try {
             return localStorage.getItem('announcementBannerOff') === '1'
                 || localStorage.getItem('weeklyTipFeatureOff') === '1';
-        } catch(_) {
+        } catch (_) {
             return false;
         }
     })();
     if (!globalFlag || htmlAttr === 'off' || htmlAttr === '0' || localKill) {
-        try { container.style.display = 'none'; } catch(_) {}
+        hide();
         return;
     }
 
-    const STORAGE_RECENT = 'announcementBannerRecentIds';
+    const announcementsRaw = Array.isArray(window.__announcements) ? window.__announcements : [];
+    const announcements = announcementsRaw.filter((item) => {
+        try {
+            return item && typeof item === 'object' && String(item.text || '').trim().length > 0;
+        } catch (_) {
+            return false;
+        }
+    });
+    if (!announcements.length) {
+        hide();
+        return;
+    }
+    const activeAnnouncement = announcements[0];
     const SPEED_PX_PER_S = 20;
 
-    function loadRecent(){
-        try { return JSON.parse(localStorage.getItem(STORAGE_RECENT) || '[]'); }
-        catch(_) { return []; }
+    function escapeHtml(value){
+        const div = document.createElement('div');
+        div.textContent = String(value || '');
+        return div.innerHTML;
     }
-    function saveRecent(ids){
-        try { localStorage.setItem(STORAGE_RECENT, JSON.stringify(ids || [])); }
-        catch(_) {}
-    }
-
-    function getISOWeek(d){
-        const date = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
-        const dayNum = (date.getUTCDay() + 6) % 7;
-        date.setUTCDate(date.getUTCDate() - dayNum + 3);
-        const firstThursday = new Date(Date.UTC(date.getUTCFullYear(), 0, 4));
-        return 1 + Math.round((date - firstThursday) / 604800000);
-    }
-    function pickAnnouncement(items){
-        if (!Array.isArray(items) || items.length === 0) return null;
-        const week = getISOWeek(new Date());
-        let idx = (week - 1) % items.length;
-        const recent = new Set(loadRecent().slice(-Math.min(items.length - 1, 12)));
-        let guard = 0;
-        while (recent.has(items[idx].id) && guard < items.length){
-            idx = (idx + 1) % items.length;
-            guard++;
-        }
-        const chosen = items[idx];
-        const updated = loadRecent().concat([chosen.id]).slice(-20);
-        saveRecent(updated);
-        return chosen;
+    function escapeAttr(value){
+        return String(value || '').replace(/"/g, '&quot;');
     }
 
-    function escapeHtml(s){
-        const d = document.createElement('div');
-        d.textContent = String(s || '');
-        return d.innerHTML;
-    }
-    function escapeAttr(s){ return String(s || '').replace(/"/g, '&quot;'); }
-
-    function renderContent(item){
-        const mk = (entry) => {
+    function renderContent(entry){
+        const build = (item) => {
             const wrap = document.createElement('div');
             wrap.className = 'announcement-banner__content';
-            if (entry.link) {
-                wrap.innerHTML = `${escapeHtml(entry.text)} <a href="${escapeAttr(entry.link)}" target="_blank" rel="noopener">עוד ›</a>`;
+            const text = String(item.text || '').trim();
+            if (item.link) {
+                wrap.innerHTML = `${escapeHtml(text)} <a href="${escapeAttr(item.link)}" target="_blank" rel="noopener">עוד ›</a>`;
             } else {
-                wrap.textContent = entry.text || '';
+                wrap.textContent = text;
             }
             return wrap;
         };
         inner.innerHTML = '';
-        const first = mk(item);
-        const second = mk(item);
+        const first = build(entry);
+        const second = build(entry);
         inner.appendChild(first);
         inner.appendChild(second);
         try {
@@ -1619,25 +1616,24 @@
             const duration = Math.max(12, Math.min(30, Math.round((distance + boxHeight) / SPEED_PX_PER_S)));
             inner.style.setProperty('--announcement-distance', distance + 'px');
             inner.style.setProperty('--announcement-duration', duration + 's');
-        } catch(_) {}
+        } catch (_) {}
     }
 
-    function hide(){ try { container.style.display = 'none'; } catch(_) {} }
-    function show(){ try { container.style.display = ''; } catch(_) {} }
-
-    const FALLBACK_ANNOUNCEMENTS = [
-        { id: 'announce-theme', text: 'אפשר לבחור ערכות נושא לטעמך דרך הגדרות ה-WebApp! כפתור ההגדרות נמצא תמיד למעלה בראש העמוד' },
-        { id: 'announce-premium', text: 'משתמשים פעילים במיוחד עשויים לקבל תג של משתמש פרימיום ואפשרות לבקשות מיוחדות' },
-        { id: 'announce-trash', text: 'אם נמחק לך קוד בטעות - הוא לא נעלם! ניתן לגשת אליו במשך 30 יום דרך סל המחזור שממוקם בממשק הבוט' }
-    ];
-    const announcements = (window.__announcements && Array.isArray(window.__announcements) && window.__announcements.length)
-        ? window.__announcements
-        : (window.__weeklyTips && Array.isArray(window.__weeklyTips) && window.__weeklyTips.length)
-            ? window.__weeklyTips
-            : FALLBACK_ANNOUNCEMENTS;
-    const chosen = pickAnnouncement(announcements);
-    if (!chosen) { hide(); return; }
-    renderContent(chosen);
+    renderContent(activeAnnouncement);
+    const announcementText = String(activeAnnouncement.text || '').trim();
+    if (announcementText) {
+        container.setAttribute('title', announcementText);
+        container.setAttribute('aria-label', announcementText);
+    }
+    if (activeAnnouncement && activeAnnouncement.link) {
+        container.setAttribute('role', 'link');
+        container.setAttribute('tabindex', '0');
+        try { container.style.cursor = 'pointer'; } catch (_) {}
+    } else {
+        container.setAttribute('role', 'status');
+        container.setAttribute('tabindex', '-1');
+        try { container.style.cursor = 'default'; } catch (_) {}
+    }
     show();
 
     const pause = () => { container.classList.add('is-paused'); };
@@ -1648,26 +1644,28 @@
     container.addEventListener('focusout', resume);
 
     const openLink = () => {
-        if (!chosen || !chosen.link) return;
+        if (!activeAnnouncement || !activeAnnouncement.link) { return; }
+        const target = String(activeAnnouncement.link);
         try {
-            if (chosen.link.startsWith('/')) {
-                window.location.href = chosen.link;
+            if (target.startsWith('/')) {
+                window.location.href = target;
             } else {
-                window.open(chosen.link, '_blank', 'noopener');
+                window.open(target, '_blank', 'noopener');
             }
-        } catch(_) {
-            window.location.href = chosen.link;
+        } catch (_) {
+            window.location.href = target;
         }
     };
-    container.addEventListener('click', (e) => {
-        if (!chosen || !chosen.link) return;
-        e.preventDefault();
+
+    container.addEventListener('click', (event) => {
+        if (!activeAnnouncement || !activeAnnouncement.link) { return; }
+        event.preventDefault();
         openLink();
     });
-    container.addEventListener('keydown', (e) => {
-        const k = e.key;
-        if ((k === 'Enter' || k === ' ') && chosen && chosen.link) {
-            e.preventDefault();
+    container.addEventListener('keydown', (event) => {
+        const key = event.key;
+        if ((key === 'Enter' || key === ' ') && activeAnnouncement && activeAnnouncement.link) {
+            event.preventDefault();
             openLink();
         }
     });
