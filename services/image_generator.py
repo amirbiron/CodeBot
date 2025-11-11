@@ -363,42 +363,93 @@ class CodeImageGenerator:
         lnw2 = int(self.LINE_NUMBER_WIDTH * s)
         line_h2 = int(line_height * s)
 
-        img2 = Image.new('RGB', (w2, h2), self.colors['background'])
+        # בסיס RGBA כדי לאפשר הצללה רכה
+        img2 = Image.new('RGBA', (w2, h2), self.colors['background'] + (255,) if isinstance(self.colors['background'], tuple) else (0, 0, 0, 255))
         draw = ImageDraw.Draw(img2)
 
-        # כרטיס מעוגל (Rounded card) עם פס כותרת וכפתורים
+        # פרמטרי כרטיס ושוליים
         radius = int(16 * s)
-        card_rect = [(0, 0), (w2 - 1, h2 - 1)]
-        panel_fill = self.colors.get('background')
+        card_margin = int(18 * s)
+        card_x1, card_y1 = card_margin, card_margin
+        card_x2, card_y2 = w2 - 1 - card_margin, h2 - 1 - card_margin
+        card_rect = [(card_x1, card_y1), (card_x2, card_y2)]
+
+        # Drop shadow: מסכה מטושטשת עם היסט קל
+        sh_dx, sh_dy = int(6 * s), int(8 * s)
+        sh_blur = max(2, int(16 * s))
+        mask = Image.new('L', (w2, h2), 0)
+        mdraw = ImageDraw.Draw(mask)
         try:
-            panel_fill = self.colors.get('line_number_bg', self.colors['background'])
+            mdraw.rounded_rectangle(
+                [(card_x1 + sh_dx, card_y1 + sh_dy), (card_x2 + sh_dx, card_y2 + sh_dy)],
+                radius=radius,
+                fill=180,
+            )
         except Exception:
-            panel_fill = self.colors.get('background')
+            mdraw.rectangle([(card_x1 + sh_dx, card_y1 + sh_dy), (card_x2 + sh_dx, card_y2 + sh_dy)], fill=180)
+        mask = mask.filter(ImageFilter.GaussianBlur(sh_blur))
+        shadow = Image.new('RGBA', (w2, h2), (0, 0, 0, 160))
+        img2.paste(shadow, (0, 0), mask)
+
+        # כרטיס מעוגל (Rounded card)
+        panel_fill = self.colors.get('line_number_bg', self.colors['background'])
+        card_layer = Image.new('RGBA', (w2, h2), (0, 0, 0, 0))
+        cl_draw = ImageDraw.Draw(card_layer)
         try:
-            draw.rounded_rectangle(card_rect, radius=radius, fill=panel_fill, outline=self.colors['border'], width=max(1, s))
+            cl_draw.rounded_rectangle(card_rect, radius=radius, fill=panel_fill, outline=self.colors['border'], width=max(1, s))
         except Exception:
-            draw.rectangle(card_rect, outline=self.colors['border'], width=max(1, s), fill=panel_fill)
+            cl_draw.rectangle(card_rect, outline=self.colors['border'], width=max(1, s), fill=panel_fill)
+
+        # Gradient עדין בתוך הכרטיס (מלמעלה לבהיר קצת)
+        try:
+            grad_h = max(1, card_y2 - card_y1 + 1)
+            grad = Image.new('RGBA', (card_x2 - card_x1 + 1, grad_h), (0, 0, 0, 0))
+            # הכנה לצבעי גרדיאנט
+            def _hex_to_rgb(h):
+                h = h.lstrip('#')
+                return tuple(int(h[i:i+2], 16) for i in (0, 2, 4))
+            def _to_rgb(c):
+                return c if isinstance(c, tuple) else _hex_to_rgb(str(c))
+            base_rgb = _to_rgb(panel_fill)
+            top_rgb = tuple(min(255, int(v * 1.06)) for v in base_rgb)
+            bottom_rgb = base_rgb
+            for y in range(grad_h):
+                t = y / max(1, grad_h - 1)
+                col = tuple(int(top_rgb[i] * (1 - t) + bottom_rgb[i] * t) for i in range(3)) + (255,)
+                ImageDraw.Draw(grad).line([(0, y), (grad.width, y)], fill=col)
+            # המסכה לעיגול פינות
+            clip = Image.new('L', (w2, h2), 0)
+            clip_draw = ImageDraw.Draw(clip)
+            try:
+                clip_draw.rounded_rectangle(card_rect, radius=radius, fill=255)
+            except Exception:
+                clip_draw.rectangle(card_rect, fill=255)
+            img2.alpha_composite(card_layer)
+            img2.paste(grad, (card_x1, card_y1), clip)
+        except Exception:
+            # אם יש כשל בגרדיאנט, לפחות החבר את שכבת הכרטיס
+            img2.alpha_composite(card_layer)
 
         # Title bar
         title_h = int(28 * s)
-        tb_rect = [(0, 0), (w2 - 1, title_h)]
+        tb_rect = [(card_x1, card_y1), (card_x2, card_y1 + title_h)]
         tb_fill = self.colors.get('line_number_bg', self.colors['background'])
         draw.rectangle(tb_rect, fill=tb_fill)
         # Traffic lights
-        cx = int(16 * s)
-        cy = int(title_h / 2)
+        cx = card_x1 + int(16 * s)
+        cy = card_y1 + int(title_h / 2)
         r = int(5 * s)
         for idx, col in enumerate([(255, 95, 86), (255, 189, 46), (39, 201, 63)]):
             x = cx + idx * int(14 * s)
             draw.ellipse([(x - r, cy - r), (x + r, cy + r)], fill=col)
 
-        # אזור מספרי שורות וקוד
-        ln_bg_x2 = pad2 + lnw2
+        # אזור מספרי שורות וקוד בתוך הכרטיס
+        ln_bg_x2 = card_x1 + pad2 + lnw2
         code_x = ln_bg_x2 + int(20 * s)
-        code_y = title_h + pad2  # מרווח תחת הכותרת
-        # רקע מספרי שורות
-        draw.rectangle([(0, title_h), (ln_bg_x2, h2)], fill=self.colors['line_number_bg'])
-        draw.line([(ln_bg_x2, title_h), (ln_bg_x2, h2)], fill=self.colors['border'], width=max(1, s))
+        code_y = card_y1 + title_h + pad2
+        # רקע מספרי שורות + קו מפריד
+        draw.rectangle([(card_x1, card_y1 + title_h), (ln_bg_x2, card_y2)], fill=self.colors['line_number_bg'])
+        draw.line([(ln_bg_x2, card_y1 + title_h), (ln_bg_x2, card_y2)], fill=self.colors['border'], width=max(1, s))
 
         # פונטים בסקייל
         font = self._get_font(int(self.FONT_SIZE * s))
@@ -425,7 +476,6 @@ class CodeImageGenerator:
             for text, color_str in segments:
                 if text is None:
                     continue
-                # Tabs to spaces for stable width
                 text = text.replace('\t', '    ')
                 if text == "":
                     continue
@@ -438,22 +488,23 @@ class CodeImageGenerator:
                     wseg = len(text) * int(8 * s)
                 x += wseg
 
-        # לוגו (אופציונלי)
+        # לוגו (אופציונלי) – בתוך הכרטיס
         logo = self._get_logo_image()
         if logo is not None:
-            lx = max(0, w2 - int(self.LOGO_SIZE[0] * s / 1) - int(self.LOGO_PADDING * s))
-            ly = max(0, h2 - int(self.LOGO_SIZE[1] * s / 1) - int(self.LOGO_PADDING * s))
-            # קנה מידה של הלוגו אם צריך
             try:
                 l2 = logo.resize((int(self.LOGO_SIZE[0] * s), int(self.LOGO_SIZE[1] * s)), Image.Resampling.LANCZOS)
             except Exception:
                 l2 = logo
+            lx = max(card_x1 + pad2, card_x2 - l2.width - int(self.LOGO_PADDING * s))
+            ly = max(card_y1 + pad2, card_y2 - l2.height - int(self.LOGO_PADDING * s))
             if l2.mode == 'RGBA':
                 img2.paste(l2, (lx, ly), l2)
             else:
                 img2.paste(l2, (lx, ly))
 
         # Downscale בחיתוך איכותי לשמירה על חדות
-        img = img2.resize((int(image_width), int(image_height)), Image.Resampling.LANCZOS)
+        # המרה חזרה ל-RGB לפני downscale
+        img_rgb = img2.convert('RGB')
+        img = img_rgb.resize((int(image_width), int(image_height)), Image.Resampling.LANCZOS)
         img = self.optimize_image_size(img)
         return self.save_optimized_png(img)
