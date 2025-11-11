@@ -6,8 +6,27 @@ from collections import Counter
 import pytest
 
 
+def _skip_if_png_unsupported():
+    from PIL import Image
+
+    png_available = 'PNG' in getattr(Image, 'SAVE', {})
+    try:
+        from PIL import features  # type: ignore
+    except Exception:
+        features = None  # type: ignore[assignment]
+    if features is not None:
+        try:
+            png_available = png_available and bool(features.check('png'))  # type: ignore[attr-defined]
+        except Exception:
+            pass
+    if not png_available:
+        pytest.skip("Pillow הותקנה ללא תמיכה ב-PNG, מדלגים על טסטי Playwright")
+
+
 def _install_fake_async_playwright(monkeypatch, size=(320, 180), color=(12, 34, 56)):
     from PIL import Image
+
+    _skip_if_png_unsupported()
 
     capture = {}
     counts = Counter()
@@ -82,6 +101,8 @@ def _install_fake_async_playwright(monkeypatch, size=(320, 180), color=(12, 34, 
 
 
 def test_playwright_respects_max_height(monkeypatch):
+    _skip_if_png_unsupported()
+
     mod = __import__('services.image_generator', fromlist=['CodeImageGenerator'])
     G = getattr(mod, 'CodeImageGenerator')
     gen = G(style='monokai', theme='dark')
