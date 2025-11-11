@@ -116,6 +116,7 @@ def _ensure_legacy_event_loop_for_sync_tests(request: pytest.FixtureRequest) -> 
     נחזיר לולאה זמנית רק עבור טסטים שלא מסומנים כ-@pytest.mark.asyncio.
     """
     if request.node.get_closest_marker("asyncio"):
+        yield
         return
 
     created_loop: Optional[asyncio.AbstractEventLoop] = None
