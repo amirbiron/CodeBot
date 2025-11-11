@@ -4,6 +4,7 @@ import sys
 import math
 from typing import Dict, List, Optional
 import pytest
+import pytest_asyncio
 
 # Ensure project root is on sys.path so `import utils` works in tests
 PROJECT_ROOT = os.path.dirname(__file__)
@@ -73,6 +74,11 @@ def pytest_collection_modifyitems(config: pytest.Config, items: List[pytest.Item
         for item in items:
             if "performance" in item.keywords and "heavy" in item.keywords:
                 item.add_marker(skip_heavy)
+
+    # הפיקסצ'ר שמנקה את http_async רלוונטי רק לטסטים אסינכרוניים
+    for item in items:
+        if item.get_closest_marker("asyncio"):
+            item.add_marker(pytest.mark.usefixtures("_reset_http_async_session_between_tests"))
 
 
 def pytest_runtest_makereport(item: pytest.Item, call: pytest.CallInfo) -> None:  # type: ignore[override]
@@ -216,9 +222,9 @@ def _close_http_async_session_after_session() -> None:
         pass
 
 
-@pytest.fixture(autouse=True)
-async def _reset_http_async_session_between_tests():
-    """מוודא שסשן aiohttp הגלובלי לא דולף בין טסטים."""
+@pytest_asyncio.fixture
+async def _reset_http_async_session_between_tests() -> None:
+    """סוגר את הסשן הגלובלי של http_async לפני ואחרי כל טסט אסינכרוני."""
     try:
         from http_async import close_session  # type: ignore
     except Exception:
