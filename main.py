@@ -164,20 +164,25 @@ def _shutdown_http_shared_session() -> None:
         from http_async import close_session  # type: ignore
     except Exception:
         return
+    loop: asyncio.AbstractEventLoop | None = None
     try:
         loop = asyncio.get_event_loop()
-        if not loop.is_closed():
-            loop.run_until_complete(close_session())
     except RuntimeError:
-        # אין event loop פעיל
+        loop = None
+    if loop is not None and not loop.is_closed():
+        if not loop.is_running():
+            try:
+                loop.run_until_complete(close_session())
+                return
+            except Exception:
+                pass
+        # אם הלולאה פעילה אי אפשר להמתין לה כאן – נשתמש בלולאה זמנית
+    try:
+        tmp_loop = asyncio.new_event_loop()
         try:
-            # חשוב להשתמש באותו מודול asyncio של המודול (ניתן ל-monkeypatch בטסטים)
-            _loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(_loop)
-            _loop.run_until_complete(close_session())
-            _loop.close()
-        except Exception:
-            pass
+            tmp_loop.run_until_complete(close_session())
+        finally:
+            tmp_loop.close()
     except Exception:
         # אל תהרוס כיבוי
         pass
