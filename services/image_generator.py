@@ -1,8 +1,11 @@
 """
-שירות ליצירת תמונות קוד עם היילייטינג (PIL + Pygments)
+שירות ליצירת תמונות קוד עם היילייטינג (Playwright → WeasyPrint → PIL)
 Code Image Generator Service
 
-המודול אינו תלוי בתלויות כבדות. WeasyPrint אופציונלי בלבד.
+מסלול מועדף:
+1) Playwright (אם מותקן) – רינדור HTML בדפדפן headless באיכות גבוהה (DPR=2)
+2) WeasyPrint (אם מותקן) – רינדור HTML איכותי
+3) PIL fallback – ציור ידני (קיים כיום), עם סקייל x2 לשיפור חדות
 """
 
 from __future__ import annotations
@@ -107,7 +110,15 @@ class CodeImageGenerator:
         self._font_cache: dict[str, FreeTypeFont] = {}
         self._logo_cache: Optional[Image.Image] = None
 
-        # אופציונלי – אם מותקן, נוכל להשתמש במסלול HTML→תמונה מדויק יותר
+        # Playwright (מועדף) – יאותחל lazy רק אם קיים
+        try:  # pragma: no cover - תלות אופציונלית
+            from playwright.sync_api import sync_playwright  # noqa: F401
+            self._has_playwright = True
+        except Exception:
+            self._has_playwright = False
+        self._pw = None  # type: ignore[assignment]
+
+        # WeasyPrint (fallback) – אופציונלי
         try:  # pragma: no cover - תלות אופציונלית
             import weasyprint  # noqa: F401
             self._has_weasyprint = True
@@ -240,6 +251,89 @@ class CodeImageGenerator:
         }
         return common.get(c, (212, 212, 212))
 
+    # --- HTML template for high-quality renderers -------------------------
+    def _create_professional_html(self, highlighted_html: str, lines: List[str], width: int, height: int) -> str:
+        """
+        יוצר HTML עם עיצוב "Carbon-style" מקצועי. משתמש ב-inline styles של Pygments
+        (noclasses=True), ולכן אין תלות בקלאסים חיצוניים של CSS להדגשת התחביר.
+        """
+        line_numbers_html = "\n".join(f'<span class="line-number">{i}</span>' for i in range(1, len(lines) + 1))
+        # כיתוב watermark טקסטואלי – אם אחר כך נוסיף לוגו אמיתי ב-PIL, נמנע כפילות
+        html_doc = f"""<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <style>
+    * {{ box-sizing: border-box; }}
+    html, body {{ margin:0; padding:0; }}
+    body {{
+      font-family: 'SF Mono','Monaco','Inconsolata','Fira Code','Source Code Pro','Consolas','Courier New',monospace;
+      background-color: {self.colors['background']};
+      color: {self.colors['text']};
+      font-size: {self.FONT_SIZE}px;
+      line-height: {self.LINE_HEIGHT}px;
+      padding: {self.DEFAULT_PADDING}px;
+      width: {width}px;
+      min-height: {height}px;
+      overflow: hidden;
+    }}
+    .wrap {{
+      position: relative;
+      width: 100%;
+      background: {self.colors['line_number_bg']};
+      border: 1px solid {self.colors['border']};
+      border-radius: 10px;
+      box-shadow: 0 10px 30px rgba(0,0,0,0.25);
+      overflow: hidden;
+    }}
+    .title {{
+      height: 28px;
+      background: {self.colors['line_number_bg']};
+      border-bottom: 1px solid {self.colors['border']};
+      display: flex; align-items:center; gap:8px; padding-inline-start: 16px;
+    }}
+    .tl {{ width:12px; height:12px; border-radius:50%; display:inline-block; }}
+    .tl.red {{ background:#ff5f56; }}
+    .tl.yellow {{ background:#ffbd2e; }}
+    .tl.green {{ background:#27c93f; }}
+    .content {{ display:flex; }}
+    .nums {{
+      background: {self.colors['line_number_bg']};
+      color: {self.colors['line_number_text']};
+      padding: {self.DEFAULT_PADDING}px 10px {self.DEFAULT_PADDING}px 16px;
+      min-width: {self.LINE_NUMBER_WIDTH}px;
+      border-inline-end: 1px solid {self.colors['border']};
+      user-select: none;
+      text-align: end;
+      font-size: {self.FONT_SIZE - 1}px;
+    }}
+    .line-number {{ display:block; line-height: {self.LINE_HEIGHT}px; opacity:0.7; }}
+    .code {{ flex:1; padding: {self.DEFAULT_PADDING}px 16px; overflow: hidden; }}
+    pre {{ margin:0; white-space: pre; font-family: inherit; }}
+    code {{ font-family: inherit; }}
+
+    .wm {{
+      position: absolute; bottom: {self.LOGO_PADDING}px; right: {self.LOGO_PADDING}px;
+      font-size: 11px; color: rgba(255,255,255,0.6);
+      background: rgba(0,0,0,0.25);
+      padding: 4px 8px; border-radius: 4px; font-weight: 700;
+    }}
+  </style>
+  </head>
+<body>
+  <div class="wrap">
+    <div class="title"><span class="tl red"></span><span class="tl yellow"></span><span class="tl green"></span></div>
+    <div class="content">
+      <div class="nums">{line_numbers_html}</div>
+      <div class="code"><pre><code>{highlighted_html}</code></pre></div>
+    </div>
+    <div class="wm">@my_code_keeper_bot</div>
+  </div>
+</body>
+</html>"""
+        return html_doc
+
     # --- Language detection & safety -------------------------------------
     def _detect_language_from_content(self, code: str, filename: Optional[str] = None) -> str:
         if filename:
@@ -272,6 +366,50 @@ class CodeImageGenerator:
         for p in suspicious:
             if re.search(p, code, flags=re.IGNORECASE):
                 logger.warning("Suspicious code pattern detected: %s", p)
+
+    # --- Playwright / WeasyPrint renderers --------------------------------
+    def _init_playwright(self):
+        # lazy start
+        if self._pw is None:  # type: ignore[truthy-bool]
+            from playwright.sync_api import sync_playwright  # type: ignore
+            self._pw = sync_playwright().start()
+        return self._pw
+
+    def cleanup(self) -> None:
+        """סגירת Playwright אם הותחל."""
+        try:
+            if self._pw is not None:
+                self._pw.stop()  # type: ignore[attr-defined]
+                self._pw = None
+        except Exception as e:  # pragma: no cover
+            logger.warning("Error closing Playwright: %s", e)
+
+    def _render_html_with_playwright(self, html_content: str, width: int, height: int) -> Image.Image:
+        playwright = self._init_playwright()
+        browser = None
+        try:
+            browser = playwright.chromium.launch(headless=True)
+            page = browser.new_page(viewport={'width': width, 'height': height}, device_scale_factor=2)
+            page.set_content(html_content, wait_until='load')
+            page.wait_for_timeout(300)
+            png = page.screenshot(type='png', full_page=True)
+            img = Image.open(io.BytesIO(png))
+            return img
+        finally:
+            try:
+                if browser:
+                    browser.close()
+            except Exception:
+                pass
+
+    def _render_html_with_weasyprint(self, html_content: str, width: int, height: int) -> Image.Image:
+        from weasyprint import HTML, CSS  # type: ignore
+        css = CSS(string=f"""
+            @page {{ size: {width}px {height}px; margin: 0; }}
+            body {{ margin:0; padding:0; background: {self.colors['background']}; color: {self.colors['text']}; }}
+        """)
+        png_bytes = HTML(string=html_content).write_png(stylesheets=[css])
+        return Image.open(io.BytesIO(png_bytes))
 
     # --- Render helpers ---------------------------------------------------
     def optimize_image_size(self, img: Image.Image) -> Image.Image:
@@ -368,7 +506,28 @@ class CodeImageGenerator:
             num_lines = len(lines)
             image_height = int(num_lines * line_height + base_overhead)
 
-        # Manual rendering via PIL (ברירת מחדל) עם DPR=2 לשיפור חדות
+        # נסה תחילה HTML מקצועי עם Playwright/WeasyPrint, ואז fallback לציור ידני
+        full_html = self._create_professional_html(highlighted_html, lines, image_width, image_height)
+
+        # 1) Playwright (מועדף)
+        if self._has_playwright:
+            try:
+                img = self._render_html_with_playwright(full_html, image_width, image_height)
+                img = self.optimize_image_size(img)
+                return self.save_optimized_png(img)
+            except Exception as e:
+                logger.warning("Playwright render failed, falling back. %s", e)
+
+        # 2) WeasyPrint (fallback)
+        if self._has_weasyprint:
+            try:
+                img = self._render_html_with_weasyprint(full_html, image_width, image_height)
+                img = self.optimize_image_size(img)
+                return self.save_optimized_png(img)
+            except Exception as e:
+                logger.warning("WeasyPrint render failed, falling back to PIL. %s", e)
+
+        # 3) Manual rendering via PIL (ברירת מחדל) עם DPR=2 לשיפור חדות
         scale = 2
         s = scale
         # מידות בסקייל גבוה
