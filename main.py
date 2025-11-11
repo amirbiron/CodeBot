@@ -2035,6 +2035,7 @@ class CodeKeeperBot:
                     community_hub_callback,
                     main_menu_callback,
                     submit_flows_cancel,
+                    cancel,
                 )
                 from handlers.states import (
                     CL_COLLECT_TITLE,
@@ -2073,6 +2074,14 @@ class CodeKeeperBot:
                     # תישאר רק בדיקה על טקסט. חשוב שה-handler עדיין יירשם.
                     _logo_message_filter = filters.TEXT & ~filters.COMMAND
 
+                # דפוס טקסטים של התפריט הראשי לביטול אוטומטי במהלך תהליכי הגשה
+                try:
+                    import re as _re
+                    _flat_main_menu = [t for row in MAIN_KEYBOARD for t in row]
+                    _main_menu_regex = r'^(' + "|".join(_re.escape(t) for t in _flat_main_menu) + r')$'
+                except Exception:
+                    _main_menu_regex = r'^(?:)$'  # fallback: לא תופס כלום במקרה של כשל
+
                 comm_conv = ConversationHandler(
                     entry_points=[CallbackQueryHandler(community_submit_start, pattern=r'^community_submit$')],
                     states={
@@ -2084,6 +2093,8 @@ class CodeKeeperBot:
                     fallbacks=[
                         CommandHandler('cancel', _cancel_command_fallback),
                         CallbackQueryHandler(submit_flows_cancel, pattern=r'^cancel$'),
+                        # ביטול אוטומטי כאשר המשתמש לוחץ על כפתור אחר בתפריט הראשי
+                        MessageHandler(filters.Regex(_main_menu_regex), cancel),
                     ],
                 )
                 self.application.add_handler(comm_conv)
@@ -2107,6 +2118,8 @@ class CodeKeeperBot:
                     fallbacks=[
                         CommandHandler('cancel', _cancel_command_fallback),
                         CallbackQueryHandler(submit_flows_cancel, pattern=r'^cancel$'),
+                        # ביטול אוטומטי כאשר המשתמש לוחץ על כפתור אחר בתפריט הראשי
+                        MessageHandler(filters.Regex(_main_menu_regex), cancel),
                     ],
                 )
                 self.application.add_handler(sn_conv)

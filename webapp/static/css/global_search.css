@@ -142,6 +142,10 @@
   color: #fff;
   font-size: 1rem;
   height: auto;
+  /* מניעת גלישה של הסלקט מחוץ לכרטיס */
+  width: min(180px, 100%);
+  max-width: 100%;
+  box-sizing: border-box;
 }
 .search-and-filters select.form-control option{ background: var(--primary); color:#fff; }
 
@@ -153,6 +157,8 @@
   flex-wrap:wrap;
   gap:1rem;
   width:100%;
+  /* בלימה של גלילה אופקית במקרי קצה */
+  overflow-x: hidden;
 }
 
 /* עיגון הסוגסטיות לאיזור תיבת החיפוש */
@@ -169,8 +175,9 @@
 .search-and-filters .col-lg-4,
 .search-and-filters .col-md-4{
   flex:1 1 30%;
-  min-width:250px;
+  min-width:220px; /* מאפשר שבירה מוקדמת מעט יותר כדי למנוע חריגה */
   max-width:100%;
+  min-inline-size: 0; /* מאפשר להתכווץ בתוך flex */
 }
 
 .search-and-filters .input-group{
@@ -204,6 +211,7 @@
   display: flex;
   gap: 0.75rem; /* רווח גדול יותר בין "תוכן" / "מספר תוצאות" / "רלוונטיות" */
   row-gap: 1rem; /* רווח אנכי בין שורות כשהפריטים נשברים לשורה נוספת (כולל "שפה") */
+  min-width: 0; /* מאפשר לילדים להתכווץ ולא לפרוץ גבולות */
 }
 
 /* עזור לבקרים לא "לברוח" שמאלה במסכים צרים */
@@ -217,6 +225,8 @@
   #globalSearchInput{ min-width:0; }
   .search-and-filters .input-group .search-box-wrapper{ min-width:0; }
   .filter-container{ justify-content:center; margin-top:0.5rem; }
+  /* תפריט שפות: להתאים לרוחב הזמין במסכים קטנים */
+  .lang-dropdown{ max-width: calc(100vw - 2rem) !important; }
   .search-result-card{ width:98%; padding:1rem; margin:0.5rem auto; }
 }
 
