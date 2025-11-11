@@ -221,7 +221,7 @@ def _close_http_async_session_after_session() -> None:
         pass
 
 
-@pytest_asyncio.fixture(autouse=True)
+@pytest_asyncio.fixture
 async def _reset_http_async_session_between_tests(
     request: Optional[pytest.FixtureRequest] = None,
 ) -> None:
