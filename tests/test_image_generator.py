@@ -9,6 +9,7 @@ def test_basic_generation_png_signature():
     assert isinstance(out, (bytes, bytearray))
     assert len(out) > 0
     assert bytes(out).startswith(b"\x89PNG")
+    gen.cleanup()
 
 
 def test_empty_code_raises():
@@ -17,6 +18,7 @@ def test_empty_code_raises():
     gen = G()
     with pytest.raises(ValueError):
         gen.generate_image("")
+    gen.cleanup()
 
 
 def test_multiline_and_width_limit():
@@ -27,3 +29,4 @@ def test_multiline_and_width_limit():
     out = gen.generate_image(code, language='python', max_width=800)
     assert isinstance(out, (bytes, bytearray))
     assert len(out) > 10
+    gen.cleanup()

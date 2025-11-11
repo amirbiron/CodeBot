@@ -207,9 +207,9 @@ async def test_file_view_direct_markdown_note_fallback(monkeypatch):
     monkeypatch.setattr(fv, 'TextUtils', types.SimpleNamespace(escape_markdown=raise_escape))
 
     await fv.handle_view_direct_file(upd, ctx)
-    assert captured.get('parse_mode') == 'Markdown'
-    # Fallback should escape asterisk
-    assert 'md\\*special' in captured.get('text', '')
+    # המעבר ל-HTML מבטל תלות ב-Markdown, ולכן נוודא שהפלט משתמש ב-HTML תקין
+    assert captured.get('parse_mode') == 'HTML'
+    assert 'md*special' in captured.get('text', '')
 
 
 @pytest.mark.asyncio
@@ -398,6 +398,6 @@ async def test_file_view_direct_no_note_markdown_block(monkeypatch):
     ctx = types.SimpleNamespace(user_data={})
     upd = types.SimpleNamespace(callback_query=Q(), effective_user=types.SimpleNamespace(id=123))
     await fv.handle_view_direct_file(upd, ctx)
-    assert captured.get('parse_mode') == 'Markdown'
+    assert captured.get('parse_mode') == 'HTML'
     assert '📝 הערה: —' in captured.get('text', '')
 

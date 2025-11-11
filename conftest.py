@@ -1,4 +1,5 @@
 import asyncio
+import inspect
 import os
 import sys
 import math
@@ -77,7 +78,17 @@ def pytest_collection_modifyitems(config: pytest.Config, items: List[pytest.Item
 
     # הפיקסצ'ר שמנקה את http_async רלוונטי רק לטסטים אסינכרוניים
     for item in items:
-        if item.get_closest_marker("asyncio"):
+        try:
+            has_asyncio_marker = item.get_closest_marker("asyncio") is not None
+        except Exception:
+            has_asyncio_marker = False
+        is_coroutine_test = False
+        try:
+            obj = getattr(item, "obj", None)
+            is_coroutine_test = bool(obj and inspect.iscoroutinefunction(obj))
+        except Exception:
+            is_coroutine_test = False
+        if has_asyncio_marker or is_coroutine_test:
             item.add_marker(pytest.mark.usefixtures("_reset_http_async_session_between_tests"))
 
 def pytest_runtest_makereport(item: pytest.Item, call: pytest.CallInfo) -> None:  # type: ignore[override]
@@ -110,6 +121,37 @@ def _reset_cache_manager_stub_before_test() -> None:
     cm = sys.modules.get('cache_manager')
     if isinstance(cm, SimpleNamespace):
         sys.modules.pop('cache_manager', None)
+
+
+@pytest.fixture(autouse=True)
+def _ensure_http_async_session_closed_for_sync_tests() -> None:
+    """סוגר את סשן http_async גם בטסטים סינכרוניים שמשתמשים ב-asyncio.run."""
+    try:
+        from http_async import close_session  # type: ignore
+    except Exception:
+        yield
+        return
+
+    yield
+
+    try:
+        # אם יש לולאה רצה כרגע - כנראה שזה טסט אסינכרוני והפיקסצ'ר הייעודי יטפל
+        asyncio.get_running_loop()
+        return
+    except RuntimeError:
+        pass
+
+    try:
+        asyncio.run(close_session())
+    except RuntimeError:
+        # במקרה שקיים לולאה ברקע אך אינה רצה, נקים לולאה זמנית
+        loop = asyncio.new_event_loop()
+        try:
+            loop.run_until_complete(close_session())
+        finally:
+            loop.close()
+    except Exception:
+        pass
 
 
 @pytest.fixture(autouse=True)
@@ -234,9 +276,22 @@ async def _reset_http_async_session_between_tests(
     is_async_test = True
     if request is not None:
         try:
-            is_async_test = request.node.get_closest_marker("asyncio") is not None
+            marker = request.node.get_closest_marker("asyncio")
         except Exception:
+            marker = None
+        if marker is not None:
             is_async_test = True
+        else:
+            func = getattr(request.node, "function", None)
+            is_async_test = bool(func and inspect.iscoroutinefunction(func))
+        # אם לא הצלחנו לקבוע – נניח שזה טסט אסינכרוני כדי להישאר בצד הבטוח
+        if request is not None and marker is None and not is_async_test:
+            try:
+                call_obj = getattr(request.node, "obj", None)
+                if call_obj and inspect.iscoroutinefunction(call_obj):
+                    is_async_test = True
+            except Exception:
+                is_async_test = True
 
     if not is_async_test or close_session is None:
         yield
