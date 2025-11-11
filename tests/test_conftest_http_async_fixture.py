@@ -49,8 +49,13 @@ class _FakeRequest:
 async def test_http_async_fixture_closes_session_pre_and_post(monkeypatch):
     call_log: list[str] = []
 
-    async def _close_session():
-        call_log.append("close")
+    def _close_session():
+        call_log.append("close_call")
+
+        async def _inner():
+            call_log.append("close_await")
+
+        return _inner()
 
     fake_http_async = types.ModuleType("http_async")
     fake_http_async.close_session = _close_session  # type: ignore[attr-defined]
@@ -63,12 +68,12 @@ async def test_http_async_fixture_closes_session_pre_and_post(monkeypatch):
         assert gen is not None
 
         next(gen)
-        assert call_log == ["close"]
+        assert call_log == ["close_call", "close_await"]
 
         with pytest.raises(StopIteration):
             next(gen)
 
-        assert call_log == ["close", "close"]
+        assert call_log == ["close_call", "close_await", "close_call", "close_await"]
     finally:
         request.close()
 
