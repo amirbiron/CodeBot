@@ -146,10 +146,29 @@ def _ensure_http_async_session_closed_for_sync_tests() -> None:
     except RuntimeError:
         # במקרה שקיים לולאה ברקע אך אינה רצה, נקים לולאה זמנית
         loop = asyncio.new_event_loop()
+        original_loop: Optional[asyncio.AbstractEventLoop] = None
         try:
-            loop.run_until_complete(close_session())
+            try:
+                original_loop = asyncio.get_event_loop()
+            except RuntimeError:
+                original_loop = None
+            try:
+                asyncio.set_event_loop(loop)
+            except Exception:
+                pass
+            try:
+                loop.run_until_complete(close_session())
+            except Exception:
+                raise
         finally:
             loop.close()
+            try:
+                if original_loop is None or (original_loop.is_closed() if original_loop else True):
+                    asyncio.set_event_loop(None)
+                else:
+                    asyncio.set_event_loop(original_loop)
+            except Exception:
+                pass
     except Exception:
         pass
 
