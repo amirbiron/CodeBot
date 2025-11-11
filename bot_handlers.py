@@ -2915,7 +2915,21 @@ class AdvancedBotHandlers:
                 img = gen.generate_image(code=str(doc['code']), language=str(doc.get('programming_language') or 'text'), filename=file_name, max_width=width)
                 bio = io.BytesIO(img)
                 bio.name = f"{file_name}.png"
-                await query.message.reply_photo(photo=InputFile(bio, filename=bio.name), caption=f"🔄 נוצר מחדש: <code>{html.escape(file_name)}</code>", parse_mode=ParseMode.HTML)
+                # צרף מקלדת עדכנית גם להודעת ה-reply החדשה
+                regen_suffix = self._make_safe_suffix(context, "regenerate_image_", file_name)
+                edit_suffix = self._make_safe_suffix(context, "edit_image_settings_", file_name)
+                save_suffix = self._make_safe_suffix(context, "save_to_drive_", file_name)
+                kb = InlineKeyboardMarkup([
+                    [InlineKeyboardButton("🔄 יצור מחדש", callback_data=f"regenerate_image_{regen_suffix}"),
+                     InlineKeyboardButton("📝 ערוך הגדרות", callback_data=f"edit_image_settings_{edit_suffix}")],
+                    [InlineKeyboardButton("💾 שמור ב-Drive", callback_data=f"save_to_drive_{save_suffix}")]
+                ])
+                await query.message.reply_photo(
+                    photo=InputFile(bio, filename=bio.name),
+                    caption=f"🔄 נוצר מחדש: <code>{html.escape(file_name)}</code>",
+                    parse_mode=ParseMode.HTML,
+                    reply_markup=kb,
+                )
 
             elif data.startswith("edit_image_settings_"):
                 _suffix = data.replace("edit_image_settings_", "")
