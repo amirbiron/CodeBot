@@ -1,3 +1,4 @@
+import asyncio
 import os
 import sys
 import math
@@ -104,6 +105,38 @@ def _reset_cache_manager_stub_before_test() -> None:
     cm = sys.modules.get('cache_manager')
     if isinstance(cm, SimpleNamespace):
         sys.modules.pop('cache_manager', None)
+
+
+@pytest.fixture(autouse=True)
+def _ensure_legacy_event_loop_for_sync_tests(request: pytest.FixtureRequest) -> None:
+    """משחזר את ההתנהגות הישנה של pytest-asyncio עבור טסטים סינכרוניים.
+
+    בגרסאות החדשות (asyncio_mode=auto) כבר לא נוצר לולאה כברירת מחדל,
+    אבל יש לנו עדיין טסטים סינכרוניים שקוראים ל-asyncio.get_event_loop().
+    נחזיר לולאה זמנית רק עבור טסטים שלא מסומנים כ-@pytest.mark.asyncio.
+    """
+    if request.node.get_closest_marker("asyncio"):
+        return
+
+    created_loop: Optional[asyncio.AbstractEventLoop] = None
+    try:
+        loop = asyncio.get_event_loop()
+    except RuntimeError:
+        loop = None
+
+    if loop is None or loop.is_closed():
+        created_loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(created_loop)
+
+    try:
+        yield
+    finally:
+        if created_loop is not None:
+            asyncio.set_event_loop(None)
+            try:
+                created_loop.close()
+            finally:
+                pass
 
 
 @pytest.fixture(scope="session", autouse=True)
