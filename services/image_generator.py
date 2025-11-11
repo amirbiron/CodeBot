@@ -499,14 +499,30 @@ class CodeImageGenerator:
         # Height includes card margins, title bar, top/bottom padding and lines
         base_overhead = self.CARD_MARGIN * 2 + self.TITLE_BAR_HEIGHT + self.DEFAULT_PADDING * 2
         image_height = int(num_lines * line_height + base_overhead)
+        truncated_by_height = False
         if max_height and image_height > max_height:
             avail = max(0, int(max_height) - base_overhead)
             max_lines = max(1, avail // line_height)
-            lines = lines[:max_lines]
-            num_lines = len(lines)
-            image_height = int(num_lines * line_height + base_overhead)
+            if len(lines) > max_lines:
+                lines = lines[:max_lines]
+                num_lines = len(lines)
+                image_height = int(num_lines * line_height + base_overhead)
+                truncated_by_height = True
 
         # נסה תחילה HTML מקצועי עם Playwright/WeasyPrint, ואז fallback לציור ידני
+        # אם קיצרנו לפי גובה, נבצע Highlight מחדש על הקוד המקוצר כדי למנוע חוסר תאום מול מספרי השורות
+        if truncated_by_height:
+            try:
+                truncated_code = "\n".join(lines)
+                highlighted_html = highlight(truncated_code, lexer, formatter)  # type: ignore[misc]
+            except Exception:
+                # במקרה כשל, ננסה לפחות לחתוך לפי שורות HTML קיימות
+                try:
+                    hh_lines = highlighted_html.split('\n')
+                    highlighted_html = "\n".join(hh_lines[:num_lines])
+                except Exception:
+                    pass
+
         full_html = self._create_professional_html(highlighted_html, lines, image_width, image_height)
 
         # 1) Playwright (מועדף)
