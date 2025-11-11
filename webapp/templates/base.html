@@ -716,6 +716,31 @@
         .mobile-menu-toggle { position: relative; }
         .nav-link[href="/settings"] { position: relative; }
 
+        .notif-popover {
+            position: absolute;
+            top: 18px;
+            left: 12px; /* RTL: שמאל של הכפתור */
+            background: #ffffff;
+            color: #1f2933;
+            border-radius: 12px;
+            box-shadow: 0 10px 24px rgba(0,0,0,0.18);
+            padding: 10px 12px;
+            z-index: 1300;
+            font-size: 0.95rem;
+            line-height: 1.35;
+            min-width: 180px;
+            max-width: 260px;
+            display: none;
+        }
+        .notif-popover[data-open="true"] { display: block; }
+        .notif-popover__title { font-weight: 700; margin-bottom: 6px; }
+        .notif-popover__actions { display: flex; gap: .5rem; justify-content: flex-end; margin-top: .5rem; }
+        .notif-popover .btn { padding: 0.4rem 0.75rem; font-size: 0.9rem; }
+
+        @media (prefers-color-scheme: dark) {
+            .notif-popover { background: #2a2a3a; color: #f5f5f5; box-shadow: 0 10px 24px rgba(0,0,0,0.35); }
+        }
+
         /* Weekly Tip — vertical marquee with safe behavior */
         .weekly-tip {
             position: relative;
@@ -1698,10 +1723,58 @@
         s.title = 'התראה: הפכת לפרימיום';
         return s;
     }
+    function ensurePopover(anchorEl){
+        let pop = anchorEl.querySelector('.notif-popover');
+        if (!pop) {
+            pop = document.createElement('div');
+            pop.className = 'notif-popover';
+            pop.setAttribute('role','dialog');
+            pop.setAttribute('aria-modal','false');
+            pop.setAttribute('aria-hidden','true');
+            pop.innerHTML = (
+                '<div class="notif-popover__title">💎 הפכת לפרימיום!</div>'+
+                '<div class="notif-popover__body">תודה על הפעילות! קיבלת תג פרימיום עם אפשרות לבקשות מיוחדות.</div>'+
+                '<div class="notif-popover__actions">'+
+                '  <button type="button" class="btn btn-primary" data-action="go">לפרטים</button>'+
+                '  <button type="button" class="btn btn-secondary" data-action="close">סגור</button>'+
+                '</div>'
+            );
+            anchorEl.appendChild(pop);
+        }
+        return pop;
+    }
+    function openPopover(anchorEl, onGo){
+        const pop = ensurePopover(anchorEl);
+        pop.setAttribute('data-open','true');
+        pop.setAttribute('aria-hidden','false');
+        const goBtn = pop.querySelector('[data-action="go"]');
+        const closeBtn = pop.querySelector('[data-action="close"]');
+        const cleanup = () => {
+            document.removeEventListener('click', outsideCloser, true);
+            document.removeEventListener('keydown', escCloser, true);
+        };
+        const outsideCloser = (e) => {
+            if (!anchorEl.contains(e.target)) { closePopover(anchorEl); cleanup(); }
+        };
+        const escCloser = (e) => { if (e.key === 'Escape') { closePopover(anchorEl); cleanup(); } };
+        document.addEventListener('click', outsideCloser, true);
+        document.addEventListener('keydown', escCloser, true);
+        if (goBtn) goBtn.onclick = () => { cleanup(); onGo(); };
+        if (closeBtn) closeBtn.onclick = () => { cleanup(); closePopover(anchorEl); };
+        try { (goBtn || closeBtn).focus(); } catch(_) {}
+        return pop;
+    }
+    function closePopover(anchorEl){
+        const pop = anchorEl.querySelector('.notif-popover');
+        if (!pop) return;
+        pop.removeAttribute('data-open');
+        pop.setAttribute('aria-hidden','true');
+    }
+
     function attachDot(anchorEl, onActivate){
         if (!anchorEl) return;
         const dot = createDot();
-        const handler = (ev) => { ev.preventDefault(); onActivate(); };
+        const handler = (ev) => { ev.preventDefault(); onActivate(anchorEl, dot); };
         dot.addEventListener('click', handler);
         dot.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onActivate(); }});
         anchorEl.appendChild(dot);
@@ -1718,7 +1791,13 @@
         const uid = String(me.user.user_id);
         const K = 'premium_announce_seen_' + uid;
         if (lsGet(K) === '1') return; // already seen
-        const onActivate = () => { lsSet(K,'1'); goToPremium(); };
+        const onActivate = (anchorEl, dotEl) => {
+            lsSet(K,'1');
+            try { dotEl && dotEl.remove(); } catch(_) {}
+            openPopover(anchorEl, () => goToPremium());
+            // Auto navigate after short delay for convenience
+            setTimeout(() => { goToPremium(); }, 1600);
+        };
         if (isMobile()) {
             const mobileBtn = document.querySelector('.mobile-menu-toggle');
             if (mobileBtn) { attachDot(mobileBtn, onActivate); return; }
