@@ -59,14 +59,14 @@ async def test_http_async_fixture_closes_session_pre_and_post(monkeypatch):
     impl = _get_fixture_impl()
     request = _FakeRequest(async_marker=True)
     try:
-        gen = impl(request=request)
-        assert gen is not None
+        agen = impl(request=request)
+        assert agen is not None
 
-        next(gen)
+        await agen.asend(None)
         assert call_log == ["close"]
 
-        with pytest.raises(StopIteration):
-            next(gen)
+        with pytest.raises(StopAsyncIteration):
+            await agen.asend(None)
 
         assert call_log == ["close", "close"]
     finally:
@@ -80,11 +80,11 @@ async def test_http_async_fixture_handles_missing_module(monkeypatch):
     impl = _get_fixture_impl()
     request = _FakeRequest(async_marker=True)
     try:
-        gen = impl(request=request)
+        agen = impl(request=request)
 
-        next(gen)
+        await agen.asend(None)
 
-        with pytest.raises(StopIteration):
-            next(gen)
+        with pytest.raises(StopAsyncIteration):
+            await agen.asend(None)
     finally:
         request.close()
