@@ -2840,6 +2840,14 @@ class AdvancedBotHandlers:
             # --- Image generation callbacks ---
             elif data.startswith("regenerate_image_"):
                 file_name = data.replace("regenerate_image_", "")
+                # Rate limit for expensive regeneration
+                try:
+                    allowed = await image_rate_limiter.check_rate_limit(user_id)
+                except Exception:
+                    allowed = True
+                if not allowed:
+                    await query.answer("⏱️ יותר מדי בקשות. אנא נסה שוב בעוד דקה.", show_alert=True)
+                    return
                 doc = db.get_latest_version(user_id, file_name)
                 if not doc or not doc.get('code'):
                     await query.edit_message_text(f"❌ קובץ `{html.escape(file_name)}` לא נמצא או ריק.", parse_mode=ParseMode.MARKDOWN)
@@ -2889,6 +2897,14 @@ class AdvancedBotHandlers:
 
             elif data.startswith("save_to_drive_"):
                 file_name = data.replace("save_to_drive_", "")
+                # Rate limit for potentially heavy generation+upload
+                try:
+                    allowed = await image_rate_limiter.check_rate_limit(user_id)
+                except Exception:
+                    allowed = True
+                if not allowed:
+                    await query.answer("⏱️ יותר מדי בקשות. אנא נסה שוב בעוד דקה.", show_alert=True)
+                    return
                 doc = db.get_latest_version(user_id, file_name)
                 if not doc or not doc.get('code'):
                     await query.edit_message_text(f"❌ קובץ `{html.escape(file_name)}` לא נמצא או ריק.", parse_mode=ParseMode.MARKDOWN)
