@@ -451,10 +451,17 @@ input.md-task-checkbox {
   --toc-header-gradient: linear-gradient(135deg, var(--primary) 0%, var(--secondary) 100%);
   --toc-text-light: #2d3748;
   --toc-text-dark: #e0e0e0;
-  --toc-hover-light: rgba(102, 126, 234, 0.1);
-  --toc-hover-dark: rgba(102, 126, 234, 0.2);
-  --toc-active-light: rgba(102, 126, 234, 0.15);
-  --toc-active-dark: rgba(102, 126, 234, 0.25);
+  --toc-hover-light: color-mix(in srgb, var(--primary) 10%, transparent);
+  --toc-hover-dark: color-mix(in srgb, var(--primary) 20%, transparent);
+  --toc-active-light: color-mix(in srgb, var(--primary) 15%, transparent);
+  --toc-active-dark: color-mix(in srgb, var(--primary) 25%, transparent);
+  /* theme-derived accent transparencies */
+  --accent-05: color-mix(in srgb, var(--primary) 5%, transparent);
+  --accent-10: color-mix(in srgb, var(--primary) 10%, transparent);
+  --accent-20: color-mix(in srgb, var(--primary) 20%, transparent);
+  --accent-30: color-mix(in srgb, var(--primary) 30%, transparent);
+  --accent-35: color-mix(in srgb, var(--primary) 35%, transparent);
+  --accent-40: color-mix(in srgb, var(--primary) 40%, transparent);
 }
 
 .md-toc {
@@ -571,14 +578,14 @@ input.md-task-checkbox {
 /* תיבת חיפוש */
 .md-toc-search-container {
   padding: 0.75rem;
-  background: rgba(102, 126, 234, 0.05);
-  border-bottom: 1px solid rgba(102, 126, 234, 0.2);
+  background: var(--accent-05);
+  border-bottom: 1px solid var(--accent-20);
 }
 
 .md-toc-search-input {
   width: 100%;
   padding: 0.5rem;
-  border: 1px solid rgba(102, 126, 234, 0.3);
+  border: 1px solid var(--accent-30);
   border-radius: 8px;
   background: white;
   font-size: 0.9rem;
@@ -588,7 +595,7 @@ input.md-task-checkbox {
 .md-toc-search-input:focus {
   outline: none;
   border-color: var(--primary);
-  box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+  box-shadow: 0 0 0 3px var(--accent-10);
 }
 
 @media (prefers-color-scheme: dark) {
@@ -681,7 +688,7 @@ input.md-task-checkbox {
 
 .md-toc-item.active {
   background: var(--toc-active-light);
-  color: #667eea;
+  color: var(--primary);
   font-weight: 600;
 }
 
@@ -746,7 +753,7 @@ input.md-task-checkbox {
   color: white;
   border: none;
   cursor: pointer;
-  box-shadow: 0 4px 12px rgba(102, 126, 234, 0.35);
+  box-shadow: 0 4px 12px var(--accent-35);
   transition: transform 0.15s ease, box-shadow 0.2s ease;
   z-index: 1000;
   touch-action: none; /* מאפשר גרירה חלקה במובייל */
@@ -754,7 +761,7 @@ input.md-task-checkbox {
 
 .md-toc-mini-btn:hover {
   transform: scale(1.1);
-  box-shadow: 0 6px 20px rgba(102, 126, 234, 0.4);
+  box-shadow: 0 6px 20px var(--accent-40);
 }
 
 /* Virtual Scrolling - פריט placeholder */
