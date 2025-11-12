@@ -388,18 +388,22 @@
         modal.querySelectorAll('.sr-btn').forEach(btn => {
           btn.addEventListener('click', async () => {
             const preset = btn.getAttribute('data-preset');
-            await this._postReminder(id, { preset, tz });
-            close();
-            alert('✅ התזכורת נשמרה');
+            const ok = await this._postReminder(id, { preset, tz });
+            if (ok) {
+              close();
+              alert('✅ התזכורת נשמרה');
+            }
           });
         });
         modal.querySelector('.sr-save').addEventListener('click', async () => {
           const input = modal.querySelector('.sr-dt');
           const at = input && input.value ? String(input.value) : '';
           if (!at) { alert('בחר תאריך ושעה'); return; }
-          await this._postReminder(id, { at, tz });
-          close();
-          alert('✅ התזכורת נשמרה');
+          const ok = await this._postReminder(id, { at, tz });
+          if (ok) {
+            close();
+            alert('✅ התזכורת נשמרה');
+          }
         });
         document.body.appendChild(modal);
       } catch(err){ console.warn('open reminder modal failed', err); }
@@ -412,8 +416,11 @@
         const j = await r.json().catch(()=>null);
         if (!r.ok || !j || j.ok === false) {
           alert((j && j.error) ? String(j.error) : 'שגיאה בשמירת התזכורת');
+          return false;
         }
+        return true;
       } catch(err){ console.warn('post reminder failed', err); }
+      return false;
     }
 
       _notePayloadFromEl(el){

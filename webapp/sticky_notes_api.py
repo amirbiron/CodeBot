@@ -500,7 +500,9 @@ def set_note_reminder(note_id: str):
             return jsonify({'ok': False, 'error': 'Invalid time'}), 400
         if dt_utc <= datetime.now(timezone.utc):
             return jsonify({'ok': False, 'error': 'Time must be in the future'}), 400
-        doc = {
+        now_utc = datetime.now(timezone.utc)
+        # Fields to set on every update
+        set_fields = {
             'user_id': user_id,
             'note_id': str(note_id),
             'file_id': str(note.get('file_id', '')),
@@ -508,14 +510,16 @@ def set_note_reminder(note_id: str):
             'remind_at': dt_utc,
             'snooze_until': None,
             'ack_at': None,
-            'created_at': datetime.now(timezone.utc),
-            'updated_at': datetime.now(timezone.utc),
+            'updated_at': now_utc,
         }
         # Upsert: keep only one active reminder per note for simplicity
         try:
             db.note_reminders.update_one(
                 {'user_id': user_id, 'note_id': str(note_id)},
-                {'$set': doc},
+                {
+                    '$set': set_fields,
+                    '$setOnInsert': {'created_at': now_utc},
+                },
                 upsert=True,
             )
         except Exception:
