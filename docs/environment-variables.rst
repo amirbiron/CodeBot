@@ -121,6 +121,12 @@
      - "" (ריק)
      - ``https://share.example.com``
      - WebApp
+   * - ``WEEKLY_TIP_ENABLED``
+     - מתג כללי להצגת רכיב ההכרזות (on/off)
+     - לא
+     - ``true``
+     - ``true``
+     - WebApp
    * - ``PUBLIC_SHARE_TTL_DAYS``
      - תוקף ברירת מחדל לקישורי שיתוף (ימים)
      - לא
