@@ -1530,6 +1530,54 @@
 </script>
 
 <script>
+// Sticky note reminders indicator (persistent UI badge)
+(function initStickyRemindersIndicator(){
+  function isMobile(){ return window.matchMedia && window.matchMedia('(max-width: 768px)').matches; }
+  function ensureDot(anchor){
+    if (!anchor) return null;
+    let dot = anchor.querySelector('.notif-dot[data-kind="reminder"]');
+    if (dot) return dot;
+    dot = document.createElement('span');
+    dot.className = 'notif-dot notif-dot--pulse';
+    dot.setAttribute('data-kind','reminder');
+    dot.setAttribute('role','button');
+    dot.setAttribute('tabindex','0');
+    dot.setAttribute('aria-label','תזכורת ממתינה לפתקים');
+    anchor.style.position = 'relative';
+    anchor.appendChild(dot);
+    return dot;
+  }
+  function removeDot(){
+    document.querySelectorAll('.notif-dot[data-kind="reminder"]').forEach(el => { try { el.remove(); } catch(_) {} });
+  }
+  async function poll(){
+    try {
+      const r = await fetch('/api/sticky-notes/reminders/summary', { cache: 'no-store' });
+      if (!r.ok) { removeDot(); return; }
+      const j = await r.json();
+      if (!j || j.ok === false || !j.has_due) { removeDot(); return; }
+      const next = j.next || {};
+      const go = () => {
+        try {
+          if (next && next.file_id) { window.location.href = '/file/' + encodeURIComponent(String(next.file_id)); }
+        } catch(_) {}
+        // best-effort ack to hide badge
+        try { fetch('/api/sticky-notes/reminders/ack', { method: 'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ note_id: String(next && next.note_id || '') }) }); } catch(_) {}
+      };
+      const target = isMobile() ? document.querySelector('.mobile-menu-toggle') : document.querySelector('.nav-link[href="/settings"]');
+      const dot = ensureDot(target);
+      if (!dot) return;
+      dot.onclick = (ev) => { ev.preventDefault(); go(); };
+      dot.onkeydown = (ev) => { if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); go(); } };
+    } catch(_) { removeDot(); }
+  }
+  try { setInterval(poll, 60000); } catch(_) {}
+  try { document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') poll(); }); } catch(_) {}
+  poll();
+})();
+</script>
+
+<script>
 // Announcement banner initialization — marquee without popover
 (function initAnnouncementBanner(){
     const container = document.getElementById('announcementBanner');
