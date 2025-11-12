@@ -2207,11 +2207,16 @@ def admin_snippets_import():
             parts = path.strip("/").split("/")
             if len(parts) >= 5:
                 owner, repo, _blob, branch = parts[:4]
-                tail = "/".join(parts[4:])
-                # Only allow alphanumeric and dash/underscore in owner/repo/branch/tail
-                safe_re = r"^[A-Za-z0-9_\-]+$"
-                if (re.match(safe_re, owner) and re.match(safe_re, repo) and re.match(safe_re, branch)
-                    and all(re.match(safe_re, p) for p in tail.split('/'))):
+                rest_segments = parts[4:]
+                # Allow dots in names (file extensions), forbid empty/"."/".." segments
+                safe_re = r"^[A-Za-z0-9._\-]+$"
+                if (
+                    _re.match(safe_re, owner)
+                    and _re.match(safe_re, repo)
+                    and _re.match(safe_re, branch)
+                    and all((_re.match(safe_re, p) and p not in ("", ".", "..")) for p in rest_segments)
+                ):
+                    tail = "/".join(rest_segments)
                     return f"https://raw.githubusercontent.com/{owner}/{repo}/{branch}/{tail}"
                 else:
                     return ""
@@ -2219,8 +2224,8 @@ def admin_snippets_import():
             parts = path.strip("/").split("/")
             if len(parts) >= 2:
                 user, gist_id = parts[:2]
-                safe_re = r"^[A-Za-z0-9_\-]+$"
-                if re.match(safe_re, user) and re.match(safe_re, gist_id):
+                safe_re = r"^[A-Za-z0-9._\-]+$"
+                if _re.match(safe_re, user) and _re.match(safe_re, gist_id):
                     return f"https://gist.githubusercontent.com/{user}/{gist_id}/raw"
                 else:
                     return ""
