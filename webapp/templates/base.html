@@ -714,6 +714,34 @@
             80% { transform: scale(1.4); opacity: 0; }
             100% { transform: scale(1.4); opacity: 0; }
         }
+        /* בועת תזכורות משודרגת עם מונה */
+        .notif-bubble {
+            position: absolute;
+            top: -8px;
+            left: -8px; /* RTL: שמאל מעל הכפתור */
+            min-width: 22px;
+            height: 22px;
+            padding: 0 6px;
+            border-radius: 999px;
+            background: #fb923c; /* כתום בולט יותר */
+            color: #1f2937;
+            border: 2px solid rgba(255,255,255,0.9);
+            box-shadow: 0 2px 6px rgba(0,0,0,0.15);
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: 800;
+            font-size: 12px;
+            line-height: 1;
+            z-index: 1200;
+        }
+        .notif-bubble[data-count="1"] { min-width: 18px; height: 18px; font-size: 11px; }
+        .notif-bubble--pulse::after {
+            content: '';
+            position: absolute; inset: -4px; border-radius: inherit;
+            border: 2px solid rgba(251, 146, 60, 0.45);
+            animation: notifPulse 1.4s ease-out infinite;
+        }
         .mobile-menu-toggle { position: relative; }
         .nav-link[href="/settings"] { position: relative; }
 
@@ -1533,22 +1561,75 @@
 // Sticky note reminders indicator (persistent UI badge)
 (function initStickyRemindersIndicator(){
   function isMobile(){ return window.matchMedia && window.matchMedia('(max-width: 768px)').matches; }
-  function ensureDot(anchor){
+  function ensureBubble(anchor){
     if (!anchor) return null;
-    let dot = anchor.querySelector('.notif-dot[data-kind="reminder"]');
-    if (dot) return dot;
-    dot = document.createElement('span');
-    dot.className = 'notif-dot notif-dot--pulse';
-    dot.setAttribute('data-kind','reminder');
-    dot.setAttribute('role','button');
-    dot.setAttribute('tabindex','0');
-    dot.setAttribute('aria-label','תזכורת ממתינה לפתקים');
+    let b = anchor.querySelector('.notif-bubble[data-kind="reminder"]');
+    if (b) return b;
+    b = document.createElement('span');
+    b.className = 'notif-bubble notif-bubble--pulse';
+    b.setAttribute('data-kind','reminder');
+    b.setAttribute('role','button');
+    b.setAttribute('tabindex','0');
+    b.setAttribute('aria-label','תזכורות ממתינות לפתקים');
     anchor.style.position = 'relative';
-    anchor.appendChild(dot);
-    return dot;
+    anchor.appendChild(b);
+    return b;
   }
   function removeDot(){
-    document.querySelectorAll('.notif-dot[data-kind="reminder"]').forEach(el => { try { el.remove(); } catch(_) {} });
+    document.querySelectorAll('.notif-bubble[data-kind="reminder"]').forEach(el => { try { el.remove(); } catch(_) {} });
+  }
+  function closePopover(anchor){
+    const pop = anchor && anchor.querySelector('.notif-popover[data-kind="reminder"]');
+    if (pop) { try { pop.removeAttribute('data-open'); pop.setAttribute('aria-hidden','true'); pop.style.display='none'; } catch(_) {} }
+  }
+  function openPopover(anchor, data){
+    if (!anchor) return;
+    let pop = anchor.querySelector('.notif-popover[data-kind="reminder"]');
+    if (!pop) {
+      pop = document.createElement('div');
+      pop.className = 'notif-popover';
+      pop.setAttribute('data-kind','reminder');
+      pop.setAttribute('role','dialog');
+      pop.setAttribute('aria-modal','false');
+      pop.style.display = 'block';
+      anchor.appendChild(pop);
+    }
+    const count = Number(data && data.count) || 0;
+    const items = Array.isArray(data && data.items) ? data.items : [];
+    const title = `🔔 יש לך ${count} פתקים שממתינים:`;
+    const listHtml = items.map(it => {
+      const prev = (it.preview || '').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+      return `<li style="list-style:none; margin:4px 0;"><a href="#" data-note-id="${String(it.note_id || '')}" data-file-id="${String(it.file_id || '')}" class="reminder-link" style="text-decoration:none; color:inherit;">• ${prev || 'פתק ללא כותרת'}...</a></li>`;
+    }).join('');
+    pop.innerHTML = `
+      <div class="notif-popover__title">${title}</div>
+      <div class="notif-popover__body">
+        <ul style="padding:0; margin:0; max-width: 30ch;">${listHtml}</ul>
+        <div class="notif-popover__actions">
+          <button type="button" class="btn btn-secondary" data-action="snooze-ui">דחה לאחר"כ</button>
+          <button type="button" class="btn btn-primary" data-action="close-ui">סגור</button>
+        </div>
+      </div>
+    `;
+    pop.setAttribute('data-open','true');
+    pop.setAttribute('aria-hidden','false');
+
+    // Bind actions
+    pop.querySelectorAll('a.reminder-link').forEach(a => {
+      a.addEventListener('click', async (ev) => {
+        ev.preventDefault();
+        const noteId = a.getAttribute('data-note-id') || '';
+        const fileId = a.getAttribute('data-file-id') || '';
+        // best-effort ack
+        try { fetch('/api/sticky-notes/reminders/ack', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ note_id: noteId }) }).catch(()=>{}); } catch(_) {}
+        // navigate to rendered markdown with deep-link to note
+        if (fileId) { window.location.href = '/md/' + encodeURIComponent(fileId) + '?note=' + encodeURIComponent(noteId); }
+      });
+    });
+    const closeBtn = pop.querySelector('[data-action="close-ui"]');
+    const snoozeBtn = pop.querySelector('[data-action="snooze-ui"]');
+    if (closeBtn) closeBtn.addEventListener('click', () => { closePopover(anchor); removeDot(); });
+    if (snoozeBtn) snoozeBtn.addEventListener('click', () => { closePopover(anchor); /* משאיר את הבועה גלויה */ });
   }
   async function poll(){
     try {
@@ -1556,19 +1637,21 @@
       if (!r.ok) { removeDot(); return; }
       const j = await r.json();
       if (!j || j.ok === false || !j.has_due) { removeDot(); return; }
-      const next = j.next || {};
-      const go = () => {
-        try {
-          if (next && next.file_id) { window.location.href = '/file/' + encodeURIComponent(String(next.file_id)); }
-        } catch(_) {}
-        // best-effort ack to hide badge
-        try { fetch('/api/sticky-notes/reminders/ack', { method: 'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ note_id: String(next && next.note_id || '') }) }); } catch(_) {}
-      };
       const target = isMobile() ? document.querySelector('.mobile-menu-toggle') : document.querySelector('.nav-link[href="/settings"]');
-      const dot = ensureDot(target);
-      if (!dot) return;
-      dot.onclick = (ev) => { ev.preventDefault(); go(); };
-      dot.onkeydown = (ev) => { if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); go(); } };
+      const bubble = ensureBubble(target);
+      if (!bubble) return;
+      // Update counter
+      try { bubble.setAttribute('data-count', String(j.count_due || 0)); } catch(_) {}
+      bubble.textContent = String(j.count_due || 1);
+      bubble.onclick = async (ev) => {
+        ev.preventDefault();
+        try {
+          const lr = await fetch('/api/sticky-notes/reminders/list?limit=20', { cache: 'no-store' });
+          const lj = await lr.json().catch(()=>null);
+          openPopover(target, (lj && lj.ok) ? lj : { items: [], count: 0 });
+        } catch(_) { /* ignore */ }
+      };
+      bubble.onkeydown = (ev) => { if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); bubble.click(); } };
     } catch(_) { removeDot(); }
   }
   try { setInterval(poll, 60000); } catch(_) {}

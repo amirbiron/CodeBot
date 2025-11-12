@@ -130,6 +130,8 @@
         }
         this._setupLifecycleGuards();
         this._setupDomObservers();
+        // אם התבצע ניווט עמוק לפתק מסוים – גלול אליו כעת
+        this._maybeScrollToNoteFromUrl();
       } catch(e){ console.error('StickyNotes init failed', e); }
     }
 
@@ -1254,6 +1256,70 @@
           if (!isAnchored) continue;
           this._updateAnchoredNotePosition(entry.el, d);
         }
+      } catch(_) {}
+    }
+
+    _parseNoteIdFromUrl(){
+      try {
+        const u = new URL(window.location.href);
+        const q = (u.searchParams.get('note') || u.searchParams.get('note_id') || '').trim();
+        if (q) return q;
+        // hash formats: #note=ID or #note:ID
+        const h = (u.hash || '').replace(/^#/, '');
+        if (!h) return '';
+        const m = h.match(/^note[:=](.+)$/i);
+        return m ? decodeURIComponent(m[1]) : '';
+      } catch(_) { return ''; }
+    }
+
+    _maybeScrollToNoteFromUrl(){
+      const id = this._parseNoteIdFromUrl();
+      if (!id) return;
+      // נסה מייד, ואם טרם נטען – נסה שוב לאחר דיליי קצר
+      const attempt = (triesLeft) => {
+        try {
+          const entry = this.notes.get(id);
+          if (entry && entry.data) {
+            this.scrollToNote(id);
+            return;
+          }
+        } catch(_) {}
+        if (triesLeft > 0) {
+          setTimeout(() => attempt(triesLeft - 1), 200);
+        }
+      };
+      attempt(8);
+    }
+
+    scrollToNote(noteId){
+      try {
+        const entry = this.notes.get(String(noteId));
+        if (!entry || !entry.el || !entry.data) return;
+        const data = entry.data;
+        // אם יש עוגן – גלול לעוגן, אחרת ל-top של הפתק עצמו
+        let top = null;
+        if (data.anchor_id && data.anchor_id !== PIN_SENTINEL) {
+          top = this._getYForAnchor(String(data.anchor_id));
+        }
+        if (top == null && Number.isInteger(data.line_start) && data.line_start > 0) {
+          top = this._getYForLine(Number(data.line_start));
+        }
+        if (top == null) {
+          // ודא שמיקום הפתק מעודכן ואז גלול לפתק
+          this._updateAnchoredNotePosition(entry.el, data);
+          const scroll = getScrollOffsets();
+          top = Math.max(0, Math.round(entry.el.getBoundingClientRect().top + scroll.y) - 100);
+        } else {
+          top = Math.max(0, Number(top) - 100);
+        }
+        try { window.scrollTo({ top, behavior: 'smooth' }); } catch(_) { window.scrollTo(0, top); }
+        // הדגשה קצרה להפניית תשומת לב
+        try {
+          entry.el.style.transition = 'box-shadow .2s ease';
+          const old = entry.el.style.boxShadow;
+          entry.el.style.boxShadow = '0 0 0 3px rgba(236, 72, 153, .6)';
+          setTimeout(() => { entry.el.style.boxShadow = old || ''; }, 1200);
+        } catch(_) {}
       } catch(_) {}
     }
 
