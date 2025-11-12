@@ -54,7 +54,7 @@ class _StubColl:
         return R()
 
     def find(self, query):
-        # Support simple comparisons for remind_at
+        # Support simple comparisons for remind_at and return a cursor-like object
         def _match(doc):
             for k, v in query.items():
                 if isinstance(v, dict) and '$in' in v:
@@ -67,7 +67,20 @@ class _StubColl:
                     if doc.get(k) != v:
                         return False
             return True
-        return [d for d in self._docs if _match(d)]
+        filtered = [d for d in self._docs if _match(d)]
+
+        class _Cursor:
+            def __init__(self, items):
+                self._items = list(items)
+            def sort(self, *args, **kwargs):
+                # Keep order as-is for tests; production sorts in DB
+                return self
+            def __iter__(self):
+                return iter(self._items)
+            def __len__(self):
+                return len(self._items)
+
+        return _Cursor(filtered)
 
     def sort(self, *args, **kwargs):
         return self

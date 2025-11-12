@@ -342,6 +342,12 @@
 
     _openReminderModal(el){
       try {
+        // Prevent duplicate stacked modals
+        const existing = document.querySelector('.sticky-reminder-modal');
+        if (existing) {
+          try { existing.focus && existing.focus(); } catch(_) {}
+          return;
+        }
         const id = el && el.dataset ? el.dataset.noteId : '';
         if (!id) return;
         const modal = document.createElement('div');
