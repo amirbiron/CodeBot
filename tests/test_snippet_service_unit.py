@@ -1,4 +1,5 @@
 import types
+from typing import Dict, Optional
 import pytest
 
 import services.snippet_library_service as svc
@@ -13,6 +14,7 @@ class _Repo:
         self.rejected = []
         self.pending = [{'_id': '1', 'title': 't1', 'status': 'pending'}]
         self.public = ([{'title': 't', 'description': 'd', 'code': 'c', 'language': 'py'}], 1)
+        self._duplicate: Optional[Dict[str, str]] = None
 
     def create_snippet_proposal(self, **kw):
         self.created = kw
@@ -31,6 +33,9 @@ class _Repo:
 
     def list_public_snippets(self, **kw):
         return self.public
+
+    def find_snippet_duplicate(self, **_kw):
+        return self._duplicate
 
 
 class _DB:
@@ -70,3 +75,37 @@ def test_list_helpers(monkeypatch):
     assert isinstance(pend, list) and pend
     items, total = svc.list_public_snippets(q=None, language=None)
     assert total == 1 and items
+
+
+def test_submit_snippet_duplicate_title(monkeypatch):
+    repo = _Repo()
+    repo._duplicate = {"matched": "title", "title": "קיים", "status": "approved"}
+    monkeypatch.setattr(svc, '_db', _DB(repo), raising=False)
+    out = svc.submit_snippet(title='קיים', description='desc', code='print(1)', language='python', user_id=10)
+    assert out['ok'] is False
+    assert "כבר קיים סניפט" in out['error']
+
+
+def test_submit_snippet_duplicate_code(monkeypatch):
+    repo = _Repo()
+    repo._duplicate = {"matched": "code", "title": "Example", "status": "pending"}
+    monkeypatch.setattr(svc, '_db', _DB(repo), raising=False)
+    out = svc.submit_snippet(title='חדש', description='desc', code='print(1)', language='python', user_id=10)
+    assert out['ok'] is False
+    assert "כבר נמצא בספריית הסניפטים" in out['error']
+
+
+def test_submit_snippet_builtin_duplicate(monkeypatch):
+    repo = _Repo()
+    repo._duplicate = None
+    monkeypatch.setattr(svc, '_db', _DB(repo), raising=False)
+    builtin = svc.BUILTIN_SNIPPETS[0]
+    out = svc.submit_snippet(
+        title=builtin['title'],
+        description='desc',
+        code=builtin['code'],
+        language=builtin['language'],
+        user_id=77,
+    )
+    assert out['ok'] is False
+    assert "קיימת בספריית הסניפטים" in out['error'] or "קיים כבר סניפט עם קוד זהה" in out['error']

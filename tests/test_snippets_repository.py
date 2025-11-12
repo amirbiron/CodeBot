@@ -135,3 +135,26 @@ def test_repository_snippet_crud_basic():
     # rejected item should not be public
     items2, total2 = repo.list_public_snippets(page=1, per_page=10)
     assert total2 == 1
+
+
+def test_find_snippet_duplicate_matches_title_and_code():
+    repo = Repository(_ManagerStub())
+    repo.create_snippet_proposal(
+        title='My Snip',
+        description='desc',
+        code='print(1)\n',
+        language='python',
+        user_id=1,
+    )
+    # Title match (same language)
+    dup_title = repo.find_snippet_duplicate(title='my snip', code='print(2)', language='Python')
+    assert dup_title is not None
+    assert dup_title.get('matched') == 'title'
+    # Code match even with different title, whitespace-insensitive
+    dup_code = repo.find_snippet_duplicate(title='Another', code='print(1)', language='python')
+    assert dup_code is not None
+    assert dup_code.get('matched') == 'code'
+    # Change status to rejected -> no duplicate
+    repo.manager.snippets_collection.docs[0]['status'] = 'rejected'
+    no_dup = repo.find_snippet_duplicate(title='my snip', code='print(1)', language='python')
+    assert no_dup is None
