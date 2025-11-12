@@ -1,5 +1,5 @@
 (function(){
-  try { console.log('[EditorManager] Script loaded at:', new Date().toISOString(), 'url:', (typeof import !== 'undefined' && import.meta && import.meta.url) ? import.meta.url : (document.currentScript && document.currentScript.src)); } catch(_) {}
+  try { console.log('[EditorManager] Script loaded at:', new Date().toISOString(), 'url:', (typeof import.meta !== 'undefined' && import.meta && import.meta.url) ? import.meta.url : (document.currentScript && document.currentScript.src)); } catch(_) {}
   class EditorManager {
     constructor() {
       this.currentEditor = this.loadPreference();
