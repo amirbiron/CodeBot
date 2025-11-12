@@ -441,19 +441,20 @@ def _parse_when_to_utc(payload: Dict[str, Any], user_tz: str) -> Optional[dateti
 
 def _ensure_user_owns_note(db, user_id: int, note_id: str) -> Optional[Dict[str, Any]]:
     raw_id = str(note_id or "").strip()
+    if not raw_id:
+        return None
     candidates: List[Any] = []
-    if raw_id:
-        candidates.append(raw_id)
     try:
         from bson import ObjectId  # type: ignore
     except Exception:
         ObjectId = None  # type: ignore
     if ObjectId and raw_id:
         try:
-            candidates.insert(0, ObjectId(raw_id))
+            candidates.append(ObjectId(raw_id))
         except Exception:
             pass
-    for candidate in candidates or [note_id]:
+    candidates.append(raw_id)
+    for candidate in candidates:
         try:
             note = db.sticky_notes.find_one({'_id': candidate, 'user_id': int(user_id)})
         except Exception:
