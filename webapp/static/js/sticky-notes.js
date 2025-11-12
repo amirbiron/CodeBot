@@ -277,8 +277,9 @@
       const isPinnedInitial = note.anchor_id === PIN_SENTINEL;
       const pinBtn = createEl('button', 'sticky-note-btn sticky-note-pin', { title: 'הצמד/בטל נעיצה', 'aria-pressed': isPinnedInitial ? 'true' : 'false' }); pinBtn.textContent = '📌';
       const minimizeBtn = createEl('button', 'sticky-note-btn', { title: 'מזער' }); minimizeBtn.textContent = '—';
+      const remindBtn = createEl('button', 'sticky-note-btn', { title: 'קבע תזכורת' }); remindBtn.textContent = '🔔';
       const deleteBtn = createEl('button', 'sticky-note-btn', { title: 'מחיקה' }); deleteBtn.textContent = '×';
-      actions.appendChild(pinBtn); actions.appendChild(minimizeBtn); actions.appendChild(deleteBtn);
+      actions.appendChild(pinBtn); actions.appendChild(remindBtn); actions.appendChild(minimizeBtn); actions.appendChild(deleteBtn);
       header.appendChild(drag); header.appendChild(actions);
       pinBtn.addEventListener('click', (ev) => {
         try { ev.stopPropagation(); ev.preventDefault(); } catch(_) {}
@@ -325,6 +326,10 @@
         if (!confirm('למחוק את הפתק?')) return;
         await this._deleteNoteEl(el);
       });
+      remindBtn.addEventListener('click', (ev) => {
+        try { ev.stopPropagation(); ev.preventDefault(); } catch(_) {}
+        this._openReminderModal(el);
+      });
 
       if (focus) try { textarea.focus(); } catch(_) {}
       if (note.updated_at) { try { el.dataset.updatedAt = String(note.updated_at); } catch(_) {} }
@@ -333,6 +338,76 @@
       this._reflowWithinViewport(el);
       this._updateAnchoredNotePosition(el, note);
       return el;
+    }
+
+    _openReminderModal(el){
+      try {
+        const id = el && el.dataset ? el.dataset.noteId : '';
+        if (!id) return;
+        const modal = document.createElement('div');
+        modal.className = 'sticky-reminder-modal';
+        modal.innerHTML = (
+          '<div class="sticky-reminder-backdrop"></div>'+
+          '<div class="sticky-reminder-card">'+
+          '  <div class="sticky-reminder-header">'+
+          '    <div class="sticky-reminder-title">⏰ תזכורת לפתק</div>'+
+          '    <button class="sticky-reminder-close" title="סגור">×</button>'+
+          '  </div>'+
+          '  <div class="sticky-reminder-body">'+
+          '    <div class="sticky-reminder-section">'+
+          '      <div class="sticky-reminder-subtitle">תזמון מהיר</div>'+
+          '      <div class="sticky-reminder-grid">'+
+          '        <button data-preset="1h" class="sr-btn">עוד שעה</button>'+
+          '        <button data-preset="3h" class="sr-btn">עוד 3 שעות</button>'+
+          '        <button data-preset="today-21" class="sr-btn">היום ב-21:00</button>'+
+          '        <button data-preset="tomorrow-09" class="sr-btn">מחר ב-9:00</button>'+
+          '        <button data-preset="24h" class="sr-btn">עוד 24 שעות</button>'+
+          '        <button data-preset="1w" class="sr-btn">עוד שבוע</button>'+
+          '      </div>'+
+          '    </div>'+
+          '    <div class="sticky-reminder-section">'+
+          '      <div class="sticky-reminder-subtitle">בחירה מלוח שנה</div>'+
+          '      <div class="sticky-reminder-row">'+
+          '        <input type="datetime-local" class="sr-dt" />'+
+          '        <button class="sr-save">שמירה</button>'+
+          '      </div>'+
+          '    </div>'+
+          '  </div>'+
+          '</div>'
+        );
+        const close = () => { try { modal.remove(); } catch(_) {} };
+        modal.querySelector('.sticky-reminder-backdrop').addEventListener('click', close);
+        modal.querySelector('.sticky-reminder-close').addEventListener('click', close);
+        const tz = (Intl && Intl.DateTimeFormat && Intl.DateTimeFormat().resolvedOptions ? (Intl.DateTimeFormat().resolvedOptions().timeZone || 'Asia/Jerusalem') : 'Asia/Jerusalem');
+        modal.querySelectorAll('.sr-btn').forEach(btn => {
+          btn.addEventListener('click', async () => {
+            const preset = btn.getAttribute('data-preset');
+            await this._postReminder(id, { preset, tz });
+            close();
+            alert('✅ התזכורת נשמרה');
+          });
+        });
+        modal.querySelector('.sr-save').addEventListener('click', async () => {
+          const input = modal.querySelector('.sr-dt');
+          const at = input && input.value ? String(input.value) : '';
+          if (!at) { alert('בחר תאריך ושעה'); return; }
+          await this._postReminder(id, { at, tz });
+          close();
+          alert('✅ התזכורת נשמרה');
+        });
+        document.body.appendChild(modal);
+      } catch(err){ console.warn('open reminder modal failed', err); }
+    }
+
+    async _postReminder(noteId, payload){
+      try {
+        const url = `/api/sticky-notes/note/${encodeURIComponent(noteId)}/reminder`;
+        const r = await fetch(url, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload || {}) });
+        const j = await r.json().catch(()=>null);
+        if (!r.ok || !j || j.ok === false) {
+          alert((j && j.error) ? String(j.error) : 'שגיאה בשמירת התזכורת');
+        }
+      } catch(err){ console.warn('post reminder failed', err); }
     }
 
       _notePayloadFromEl(el){
@@ -1201,4 +1276,28 @@
 
   // Expose
   window.StickyNotesManager = StickyNotesManager;
+
+  // Minimal styles for reminder modal (scoped)
+  try {
+    const style = document.createElement('style');
+    style.textContent = (
+      '.sticky-reminder-modal{position:fixed;inset:0;z-index:99999;display:flex;align-items:center;justify-content:center;}'+
+      '.sticky-reminder-backdrop{position:absolute;inset:0;background:rgba(0,0,0,.5);backdrop-filter:blur(2px);}'+
+      '.sticky-reminder-card{position:relative;background:#fff;color:#1f2933;border-radius:14px;box-shadow:0 12px 32px rgba(0,0,0,.25);width:min(420px,92vw);padding:12px;}'+
+      '.sticky-reminder-header{display:flex;align-items:center;justify-content:space-between;padding:6px 8px 8px;}'+
+      '.sticky-reminder-title{font-weight:700;font-size:1.05rem;}'+
+      '.sticky-reminder-close{border:none;background:transparent;font-size:20px;cursor:pointer;color:#555;}'+
+      '.sticky-reminder-body{display:flex;flex-direction:column;gap:12px;padding:6px 8px 10px;}'+
+      '.sticky-reminder-section{display:block;}'+
+      '.sticky-reminder-subtitle{font-weight:600;margin-bottom:6px;}'+
+      '.sticky-reminder-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:6px;}'+
+      '.sr-btn{padding:.5rem .75rem;border-radius:10px;border:1px solid rgba(0,0,0,.12);background:#f7fafc;color:#1f2933;cursor:pointer;}'+
+      '.sr-btn:hover{background:#edf2f7;}'+
+      '.sticky-reminder-row{display:flex;gap:8px;align-items:center;}'+
+      '.sr-dt{flex:1;min-width:0;padding:.5rem .6rem;border:1px solid #ddd;border-radius:8px;}'+
+      '.sr-save{padding:.5rem .75rem;border-radius:10px;border:1px solid rgba(0,0,0,.12);background:#667eea;color:#fff;cursor:pointer;}'
+    );
+    document.head.appendChild(style);
+  } catch(_) {}
+
 })();

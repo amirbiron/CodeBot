@@ -75,6 +75,33 @@ def _ensure_indexes() -> None:
                 coll.create_index([("updated_at", -1)], name="updated_desc")
             except Exception:
                 pass
+        # Ensure note reminders collection indexes (best-effort)
+        try:
+            nr = db.note_reminders
+            try:
+                from pymongo import ASCENDING, DESCENDING, IndexModel  # type: ignore
+                nr.create_indexes([
+                    IndexModel([("user_id", ASCENDING), ("note_id", ASCENDING)], name="user_note_idx"),
+                    IndexModel([("user_id", ASCENDING), ("status", ASCENDING), ("remind_at", ASCENDING)], name="user_status_time_idx"),
+                    IndexModel([("remind_at", ASCENDING)], name="remind_at_idx"),
+                ])
+            except Exception:
+                try:
+                    nr.create_index([("user_id", 1), ("note_id", 1)], name="user_note_idx")
+                except Exception:
+                    pass
+                try:
+                    nr.create_index([("user_id", 1), ("status", 1), ("remind_at", 1)], name="user_status_time_idx")
+                except Exception:
+                    pass
+                try:
+                    nr.create_index([("remind_at", 1)], name="remind_at_idx")
+                except Exception:
+                    pass
+        except Exception:
+            # Never fail request because of index creation
+            pass
+
         _INDEX_READY = True
     except Exception:
         # Do not fail requests due to index creation errors
@@ -329,6 +356,281 @@ def list_notes(file_id: str):
         except Exception:
             pass
         return jsonify({'ok': False, 'error': 'Failed to list notes'}), 500
+
+
+# --- Sticky note reminders API ---
+
+def _parse_when_to_utc(payload: Dict[str, Any], user_tz: str) -> Optional[datetime]:
+    """Parse reminder time from payload into aware UTC datetime.
+
+    Supports:
+    - preset values:  "1h", "3h", "24h", "1w", "today-21", "tomorrow-09"
+    - explicit: payload["at"] as ISO-like string ("YYYY-MM-DDTHH:MM") with optional seconds
+    - free text: payload["time_text"] using reminders.utils.parse_time
+    """
+    try:
+        from zoneinfo import ZoneInfo  # type: ignore
+    except Exception:  # pragma: no cover
+        ZoneInfo = None  # type: ignore
+
+    now_local = None
+    try:
+        tz = ZoneInfo(user_tz) if (user_tz and ZoneInfo) else None
+    except Exception:
+        tz = None
+    try:
+        now_local = datetime.now(tz or timezone.utc)
+    except Exception:
+        now_local = datetime.now(timezone.utc)
+
+    preset = str((payload or {}).get('preset') or '').strip().lower()
+    if preset:
+        if preset in {'1h', '1hr'}:
+            return (now_local + timedelta(hours=1)).astimezone(timezone.utc)
+        if preset in {'3h', '3hr'}:
+            return (now_local + timedelta(hours=3)).astimezone(timezone.utc)
+        if preset in {'24h', '1d'}:
+            return (now_local + timedelta(hours=24)).astimezone(timezone.utc)
+        if preset in {'1w', '7d'}:
+            return (now_local + timedelta(days=7)).astimezone(timezone.utc)
+        if preset == 'today-21':
+            base = now_local.replace(hour=21, minute=0, second=0, microsecond=0)
+            if base <= now_local:
+                # if passed, schedule for tomorrow 21:00
+                base = base + timedelta(days=1)
+            return base.astimezone(timezone.utc)
+        if preset == 'tomorrow-09':
+            base = (now_local + timedelta(days=1)).replace(hour=9, minute=0, second=0, microsecond=0)
+            return base.astimezone(timezone.utc)
+
+    at = (payload or {}).get('at')
+    if at:
+        try:
+            # Expecting local naive string like "YYYY-MM-DDTHH:MM" (datetime-local)
+            # If seconds provided, they'll be ignored by slicing
+            s = str(at).strip()
+            # Normalize seconds if present
+            if len(s) >= 16:
+                from datetime import datetime as _dt
+                local_naive = _dt.strptime(s[:16], '%Y-%m-%dT%H:%M')
+                if tz:
+                    aware = local_naive.replace(tzinfo=tz)
+                else:
+                    aware = local_naive.replace(tzinfo=timezone.utc)
+                return aware.astimezone(timezone.utc)
+        except Exception:
+            pass
+
+    # Free text
+    time_text = (payload or {}).get('time_text')
+    if time_text:
+        try:
+            try:
+                from reminders.utils import parse_time as _parse
+            except Exception:
+                _parse = None  # type: ignore
+            if _parse:
+                dt = _parse(str(time_text), user_tz or 'UTC')
+                if dt:
+                    return dt.astimezone(timezone.utc)
+        except Exception:
+            pass
+
+    return None
+
+
+def _ensure_user_owns_note(db, user_id: int, note_id: str) -> Optional[Dict[str, Any]]:
+    try:
+        from bson import ObjectId  # type: ignore
+    except Exception:
+        ObjectId = None  # type: ignore
+    try:
+        oid = ObjectId(note_id) if ObjectId else note_id
+    except Exception:
+        oid = note_id
+    try:
+        note = db.sticky_notes.find_one({'_id': oid, 'user_id': int(user_id)})
+    except Exception:
+        note = None
+    return note if isinstance(note, dict) else None
+
+
+@sticky_notes_bp.route('/note/<note_id>/reminder', methods=['GET'])
+@require_auth
+@notes_rate_limit('note_reminder_get', 180)
+@traced('sticky_notes.reminder_get')
+def get_note_reminder(note_id: str):
+    try:
+        _ensure_indexes()
+        user_id = int(session['user_id'])
+        db = get_db()
+        note = _ensure_user_owns_note(db, user_id, note_id)
+        if not note:
+            return jsonify({'ok': False, 'error': 'Note not found'}), 404
+        r = db.note_reminders.find_one({'user_id': user_id, 'note_id': str(note_id), 'status': {'$in': ['pending', 'snoozed']}})
+        if not r:
+            return jsonify({'ok': True, 'reminder': None})
+        out = {
+            'id': str(r.get('_id')),
+            'status': r.get('status', 'pending'),
+            'remind_at': (r.get('remind_at').isoformat() if isinstance(r.get('remind_at'), datetime) else None),
+            'snooze_until': (r.get('snooze_until').isoformat() if isinstance(r.get('snooze_until'), datetime) else None),
+        }
+        return jsonify({'ok': True, 'reminder': out})
+    except Exception:
+        return jsonify({'ok': False, 'error': 'Failed'}), 500
+
+
+@sticky_notes_bp.route('/note/<note_id>/reminder', methods=['POST'])
+@require_auth
+@notes_rate_limit('note_reminder_set', 60)
+@traced('sticky_notes.reminder_set')
+def set_note_reminder(note_id: str):
+    try:
+        _ensure_indexes()
+        user_id = int(session['user_id'])
+        db = get_db()
+        note = _ensure_user_owns_note(db, user_id, note_id)
+        if not note:
+            return jsonify({'ok': False, 'error': 'Note not found'}), 404
+        payload = request.get_json(silent=True) or {}
+        client_tz = str(payload.get('tz') or 'Asia/Jerusalem')
+        dt_utc = _parse_when_to_utc(payload, client_tz)
+        if not dt_utc:
+            return jsonify({'ok': False, 'error': 'Invalid time'}), 400
+        if dt_utc <= datetime.now(timezone.utc):
+            return jsonify({'ok': False, 'error': 'Time must be in the future'}), 400
+        doc = {
+            'user_id': user_id,
+            'note_id': str(note_id),
+            'file_id': str(note.get('file_id', '')),
+            'status': 'pending',
+            'remind_at': dt_utc,
+            'snooze_until': None,
+            'ack_at': None,
+            'created_at': datetime.now(timezone.utc),
+            'updated_at': datetime.now(timezone.utc),
+        }
+        # Upsert: keep only one active reminder per note for simplicity
+        try:
+            db.note_reminders.update_one(
+                {'user_id': user_id, 'note_id': str(note_id)},
+                {'$set': doc},
+                upsert=True,
+            )
+        except Exception:
+            return jsonify({'ok': False, 'error': 'Failed to save'}), 500
+        try:
+            emit_event('note_reminder_set', severity='info', user_id=user_id, note_id=str(note_id))
+        except Exception:
+            pass
+        return jsonify({'ok': True, 'remind_at': doc['remind_at'].isoformat()})
+    except Exception:
+        return jsonify({'ok': False, 'error': 'Failed'}), 500
+
+
+@sticky_notes_bp.route('/note/<note_id>/reminder', methods=['DELETE'])
+@require_auth
+@notes_rate_limit('note_reminder_delete', 60)
+@traced('sticky_notes.reminder_delete')
+def delete_note_reminder(note_id: str):
+    try:
+        user_id = int(session['user_id'])
+        db = get_db()
+        note = _ensure_user_owns_note(db, user_id, note_id)
+        if not note:
+            return jsonify({'ok': False, 'error': 'Note not found'}), 404
+        db.note_reminders.delete_one({'user_id': user_id, 'note_id': str(note_id)})
+        return jsonify({'ok': True})
+    except Exception:
+        return jsonify({'ok': False, 'error': 'Failed'}), 500
+
+
+@sticky_notes_bp.route('/note/<note_id>/snooze', methods=['POST'])
+@require_auth
+@notes_rate_limit('note_reminder_snooze', 120)
+@traced('sticky_notes.reminder_snooze')
+def snooze_note_reminder(note_id: str):
+    try:
+        user_id = int(session['user_id'])
+        db = get_db()
+        payload = request.get_json(silent=True) or {}
+        minutes = int(payload.get('minutes') or 60)
+        if minutes < 1 or minutes > 24 * 60:
+            return jsonify({'ok': False, 'error': 'Invalid minutes'}), 400
+        new_time = datetime.now(timezone.utc) + timedelta(minutes=minutes)
+        r = db.note_reminders.update_one(
+            {'user_id': user_id, 'note_id': str(note_id), 'status': {'$in': ['pending', 'snoozed']}},
+            {'$set': {'status': 'snoozed', 'snooze_until': new_time, 'remind_at': new_time, 'updated_at': datetime.now(timezone.utc), 'ack_at': None}},
+        )
+        if getattr(r, 'matched_count', 0) <= 0:
+            return jsonify({'ok': False, 'error': 'Reminder not found'}), 404
+        return jsonify({'ok': True, 'remind_at': new_time.isoformat()})
+    except Exception:
+        return jsonify({'ok': False, 'error': 'Failed'}), 500
+
+
+@sticky_notes_bp.route('/reminders/summary', methods=['GET'])
+@require_auth
+@notes_rate_limit('note_reminders_summary', 300)
+@traced('sticky_notes.reminders_summary')
+def reminders_summary():
+    """Return minimal summary for persistent UI badge.
+
+    Response:
+      { ok, has_due: bool, count_due: int, next: { note_id, file_id, remind_at } | null }
+    """
+    try:
+        _ensure_indexes()
+        user_id = int(session['user_id'])
+        db = get_db()
+        now = datetime.now(timezone.utc)
+        try:
+            cursor = db.note_reminders.find({
+                'user_id': user_id,
+                'status': {'$in': ['pending', 'snoozed']},
+                'remind_at': {'$lte': now},
+                'ack_at': None,
+            }).sort('remind_at', 1)
+        except Exception:
+            cursor = []
+        items = list(cursor) if cursor is not None else []
+        has_due = len(items) > 0
+        nxt = None
+        if has_due:
+            first = items[0]
+            nxt = {
+                'note_id': str(first.get('note_id', '')),
+                'file_id': str(first.get('file_id', '')),
+                'remind_at': first.get('remind_at').isoformat() if isinstance(first.get('remind_at'), datetime) else None,
+            }
+        return jsonify({'ok': True, 'has_due': has_due, 'count_due': len(items), 'next': nxt})
+    except Exception:
+        return jsonify({'ok': False, 'error': 'Failed'}), 500
+
+
+@sticky_notes_bp.route('/reminders/ack', methods=['POST'])
+@require_auth
+@notes_rate_limit('note_reminders_ack', 300)
+@traced('sticky_notes.reminders_ack')
+def reminders_ack():
+    """Mark current due reminder as acknowledged (user opened it)."""
+    try:
+        user_id = int(session['user_id'])
+        db = get_db()
+        payload = request.get_json(silent=True) or {}
+        note_id = str(payload.get('note_id') or '').strip()
+        if not note_id:
+            return jsonify({'ok': False, 'error': 'note_id required'}), 400
+        r = db.note_reminders.update_one(
+            {'user_id': user_id, 'note_id': note_id, 'ack_at': None},
+            {'$set': {'ack_at': datetime.now(timezone.utc), 'updated_at': datetime.now(timezone.utc)}}
+        )
+        if getattr(r, 'matched_count', 0) <= 0:
+            return jsonify({'ok': False, 'error': 'Not found'}), 404
+        return jsonify({'ok': True})
+    except Exception:
+        return jsonify({'ok': False, 'error': 'Failed'}), 500
 
 
 @sticky_notes_bp.route('/<file_id>', methods=['POST'])
