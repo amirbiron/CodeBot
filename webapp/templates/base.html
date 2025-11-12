@@ -1,6 +1,8 @@
 <!DOCTYPE html>
 {% set _announcement_enabled = announcement_enabled if announcement_enabled is defined else (weekly_tip_enabled if weekly_tip_enabled is defined else none) %}
-<html dir="rtl" lang="he"{% if _announcement_enabled is not none %} data-announcement="{{ 'on' if _announcement_enabled else 'off' }}" data-weekly-tip="{{ 'on' if _announcement_enabled else 'off' }}"{% endif %}>
+{% set _current_path = request.path if request is defined else '' %}
+{% set _announcement_allowed_path = _current_path in ['/login', '/files'] %}
+<html dir="rtl" lang="he"{% if _announcement_enabled is not none %} data-announcement="{{ 'on' if (_announcement_enabled and _announcement_allowed_path) else 'off' }}" data-weekly-tip="{{ 'on' if (_announcement_enabled and _announcement_allowed_path) else 'off' }}"{% endif %}>
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
@@ -972,7 +974,7 @@
         </div>
     </nav>
     
-    {% if session.user_id and (_announcement_enabled is none or _announcement_enabled) %}
+{% if (_announcement_enabled is none or _announcement_enabled) and _announcement_allowed_path %}
     <div class="container" aria-hidden="false">
         <div id="announcementBanner" class="announcement-banner" role="status" aria-label="הכרזת מערכת" tabindex="-1" title="הכרזה" style="display:none;" aria-hidden="true">
             <span class="announcement-banner__icon" aria-hidden="true">📣</span>

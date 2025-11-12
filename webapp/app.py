@@ -2512,7 +2512,6 @@ def _announcement_doc_to_json(doc: Dict[str, Any]) -> Dict[str, Any]:
 
 
 @app.route('/api/v1/announcements/active', methods=['GET'])
-@login_required
 def api_active_announcement():
     try:
         _db = get_db()
