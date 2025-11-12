@@ -897,6 +897,11 @@ def get_db():
         ensure_code_snippets_indexes()
     except Exception:
         pass
+    # אינדקסים לבאנרי הכרזות (Announcements)
+    try:
+        ensure_announcements_indexes()
+    except Exception:
+        pass
     return db
 
 
@@ -940,6 +945,35 @@ def ensure_recent_opens_indexes() -> None:
         _recent_opens_indexes_ready = True
     except Exception:
         # אין להפיל את השרת במקרה של בעיית DB בתחילת חיים
+        pass
+
+
+# --- Ensure indexes for announcements once per process ---
+_announcements_indexes_ready = False
+
+def ensure_announcements_indexes() -> None:
+    """יוצר אינדקסים לאוסף announcements פעם אחת בתהליך.
+
+    אינדקסים:
+    - (is_active, updated_at)
+    - created_at desc
+    """
+    global _announcements_indexes_ready
+    if _announcements_indexes_ready:
+        return
+    try:
+        _db = db if db is not None else None
+        if _db is None:
+            return
+        coll = _db.announcements
+        try:
+            from pymongo import ASCENDING, DESCENDING
+            coll.create_index([('is_active', ASCENDING), ('updated_at', DESCENDING)], name='active_updated_idx', background=True)
+            coll.create_index([('created_at', DESCENDING)], name='created_desc_idx', background=True)
+        except Exception:
+            pass
+        _announcements_indexes_ready = True
+    except Exception:
         pass
 
 
@@ -2451,6 +2485,183 @@ def admin_community_edit():
     except Exception:
         doc = None
     return render_template('admin_community_edit.html', item=doc, item_id=item_id)
+
+
+# --- Announcements: Admin UI + Public API ---
+def _normalize_announcement_link(raw: str) -> str:
+    try:
+        v = (raw or "").strip()
+        if not v:
+            return ""
+        # קישור פנימי מותר: מתחיל ב-
+        if v.startswith('/'):
+            return v
+        # קישור חיצוני: https בלבד
+        if v.lower().startswith('https://'):
+            return v
+        return ""
+    except Exception:
+        return ""
+
+def _announcement_doc_to_json(doc: Dict[str, Any]) -> Dict[str, Any]:
+    return {
+        'id': str(doc.get('_id')),
+        'text': str(doc.get('text') or ''),
+        'link': (doc.get('link') or None) if str(doc.get('link') or '').strip() else None,
+    }
+
+
+@app.route('/api/v1/announcements/active', methods=['GET'])
+@login_required
+def api_active_announcement():
+    try:
+        _db = get_db()
+    except Exception:
+        return jsonify(None)
+    try:
+        doc = _db.announcements.find_one({'is_active': True}, sort=[('updated_at', DESCENDING)])
+        if not doc:
+            return jsonify(None)
+        return jsonify(_announcement_doc_to_json(doc))
+    except Exception:
+        return jsonify(None)
+
+
+@app.route('/admin/announcements', methods=['GET'])
+@admin_required
+def admin_announcements_index():
+    items: list[dict] = []
+    try:
+        _db = get_db()
+        cur = _db.announcements.find({}, sort=[('created_at', DESCENDING)])
+        for d in cur:
+            try:
+                items.append({
+                    '_id': str(d.get('_id')),
+                    'text': str(d.get('text') or ''),
+                    'link': str(d.get('link') or ''),
+                    'is_active': bool(d.get('is_active', False)),
+                    'created_at': d.get('created_at'),
+                    'updated_at': d.get('updated_at'),
+                })
+            except Exception:
+                pass
+    except Exception:
+        items = []
+    return render_template('admin_announcements.html', items=items)
+
+
+@app.route('/admin/announcements/new', methods=['GET', 'POST'])
+@admin_required
+def admin_announcements_new():
+    if request.method == 'GET':
+        return render_template('admin_announcements.html', create_mode=True, items=None)
+    # POST: create
+    text = (request.form.get('text') or '').strip()
+    link = _normalize_announcement_link(request.form.get('link') or '')
+    is_active = str(request.form.get('is_active') or '').lower() in {'on', '1', 'true', 'yes'}
+    if not text:
+        return render_template('admin_announcements.html', create_mode=True, error='חובה להזין טקסט להכרזה', form={'text': text, 'link': link, 'is_active': is_active})
+    try:
+        _db = get_db()
+    except Exception:
+        return render_template('admin_announcements.html', create_mode=True, error='שגיאת מסד נתונים')
+    now = datetime.now(timezone.utc)
+    try:
+        if is_active:
+            try:
+                _db.announcements.update_many({'is_active': True}, {'$set': {'is_active': False, 'updated_at': now}})
+            except Exception:
+                pass
+        doc = {
+            'text': text[:280],
+            'link': link,
+            'is_active': bool(is_active),
+            'created_at': now,
+            'updated_at': now,
+        }
+        _db.announcements.insert_one(doc)
+    except Exception:
+        return render_template('admin_announcements.html', create_mode=True, error='שמירת ההכרזה נכשלה')
+    return redirect(url_for('admin_announcements_index'))
+
+
+@app.route('/admin/announcements/edit', methods=['GET', 'POST'])
+@admin_required
+def admin_announcements_edit():
+    try:
+        _db = get_db()
+    except Exception:
+        return redirect(url_for('admin_announcements_index'))
+    item_id = (request.args.get('id') or request.form.get('id') or '').strip()
+    from bson import ObjectId  # type: ignore
+    if request.method == 'POST':
+        text = (request.form.get('text') or '').strip()
+        link = _normalize_announcement_link(request.form.get('link') or '')
+        is_active = str(request.form.get('is_active') or '').lower() in {'on', '1', 'true', 'yes'}
+        if not text:
+            return render_template('admin_announcements.html', edit_mode=True, error='חובה להזין טקסט', item_id=item_id)
+        now = datetime.now(timezone.utc)
+        try:
+            if is_active:
+                try:
+                    _db.announcements.update_many({'is_active': True, '_id': {'$ne': ObjectId(item_id)}}, {'$set': {'is_active': False, 'updated_at': now}})
+                except Exception:
+                    pass
+            _db.announcements.update_one({'_id': ObjectId(item_id)}, {'$set': {'text': text[:280], 'link': link, 'is_active': bool(is_active), 'updated_at': now}})
+        except Exception:
+            return render_template('admin_announcements.html', edit_mode=True, error='עדכון נכשל', item_id=item_id)
+        return redirect(url_for('admin_announcements_index'))
+    # GET: load existing
+    try:
+        doc = _db.announcements.find_one({'_id': ObjectId(item_id)})
+        if not isinstance(doc, dict):
+            return redirect(url_for('admin_announcements_index'))
+        item = {
+            '_id': str(doc.get('_id')),
+            'text': str(doc.get('text') or ''),
+            'link': str(doc.get('link') or ''),
+            'is_active': bool(doc.get('is_active', False)),
+        }
+        return render_template('admin_announcements.html', edit_mode=True, item=item)
+    except Exception:
+        return redirect(url_for('admin_announcements_index'))
+
+
+@app.route('/admin/announcements/delete', methods=['POST'])
+@admin_required
+def admin_announcements_delete():
+    try:
+        _db = get_db()
+    except Exception:
+        return redirect(url_for('admin_announcements_index'))
+    item_id = (request.args.get('id') or request.form.get('id') or '').strip()
+    try:
+        from bson import ObjectId  # type: ignore
+        _db.announcements.delete_one({'_id': ObjectId(item_id)})
+    except Exception:
+        pass
+    return redirect(url_for('admin_announcements_index'))
+
+
+@app.route('/admin/announcements/activate')
+@admin_required
+def admin_announcements_activate():
+    try:
+        _db = get_db()
+    except Exception:
+        return redirect(url_for('admin_announcements_index'))
+    item_id = (request.args.get('id') or '').strip()
+    if not item_id:
+        return redirect(url_for('admin_announcements_index'))
+    now = datetime.now(timezone.utc)
+    try:
+        from bson import ObjectId  # type: ignore
+        _db.announcements.update_many({'is_active': True}, {'$set': {'is_active': False, 'updated_at': now}})
+        _db.announcements.update_one({'_id': ObjectId(item_id)}, {'$set': {'is_active': True, 'updated_at': now}})
+    except Exception:
+        pass
+    return redirect(url_for('admin_announcements_index'))
 # ===== Global Content Search API =====
 def _search_limiter_decorator(rule: str):
     """Wrap limiter.limit if available; return no-op otherwise."""

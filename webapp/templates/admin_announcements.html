@@ -1,0 +1,115 @@
+{% extends "base.html" %}
+
+{% block title %}ניהול הכרזות{% endblock %}
+
+{% block content %}
+<h1 class="page-title">ניהול הכרזות הגלובליות</h1>
+
+{% if error %}
+  <div class="alert alert-error">{{ error }}</div>
+{% endif %}
+
+<div class="glass-card" style="margin-bottom:1.5rem;">
+  {% if edit_mode %}
+    <h2 class="section-title">עריכת הכרזה</h2>
+    <form method="post" action="/admin/announcements/edit">
+      <input type="hidden" name="id" value="{{ item._id }}" />
+      <div style="display:flex; flex-direction:column; gap:.75rem;">
+        <label>
+          <div>תוכן ההכרזה</div>
+          <textarea name="text" rows="3" class="form-control" required style="width:100%;">{{ item.text }}</textarea>
+        </label>
+        <label>
+          <div>קישור (אופציונלי, פנימי / או https://)</div>
+          <input type="text" name="link" value="{{ item.link }}" class="form-control" placeholder="/changelog#search-updates" />
+        </label>
+        <label style="display:flex; align-items:center; gap:.5rem;">
+          <input type="checkbox" name="is_active" {% if item.is_active %}checked{% endif %} /> הפעל כהכרזה פעילה
+        </label>
+        <div style="display:flex; gap:.5rem; justify-content:flex-end; margin-top:.5rem;">
+          <a class="btn btn-secondary" href="/admin/announcements">ביטול</a>
+          <button class="btn btn-primary" type="submit">שמירה</button>
+        </div>
+      </div>
+    </form>
+  {% else %}
+    <h2 class="section-title">הכרזה חדשה</h2>
+    <form method="post" action="/admin/announcements/new">
+      <div style="display:flex; flex-direction:column; gap:.75rem;">
+        <label>
+          <div>תוכן ההכרזה</div>
+          <textarea name="text" rows="3" class="form-control" required style="width:100%;" placeholder="השקנו יכולת חיפוש חדשה! ..."></textarea>
+        </label>
+        <label>
+          <div>קישור (אופציונלי, פנימי / או https://)</div>
+          <input type="text" name="link" class="form-control" placeholder="/changelog#search-updates" />
+        </label>
+        <label style="display:flex; align-items:center; gap:.5rem;">
+          <input type="checkbox" name="is_active" /> הפעל מיד (יכבה הכרזה פעילה אחרת)
+        </label>
+        <div style="display:flex; gap:.5rem; justify-content:flex-end; margin-top:.5rem;">
+          <button class="btn btn-primary" type="submit">צור</button>
+        </div>
+      </div>
+    </form>
+  {% endif %}
+</div>
+
+<div class="glass-card">
+  <h2 class="section-title">כל ההכרזות</h2>
+  {% if not items %}
+    <div>אין הכרזות קיימות.</div>
+  {% else %}
+    <div class="table-responsive" style="overflow:auto;">
+      <table class="table" style="table-layout:auto; width:100%;">
+        <thead>
+          <tr>
+            <th style="width:44%">תוכן</th>
+            <th style="width:26%">קישור</th>
+            <th style="width:10%">סטטוס</th>
+            <th style="width:20%">פעולות</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for it in items %}
+            <tr>
+              <td><div style="white-space:nowrap; overflow:hidden; text-overflow:ellipsis;" title="{{ it.text }}">{{ it.text }}</div></td>
+              <td>
+                {% if it.link %}
+                  <a href="{{ it.link }}" target="_blank" class="link-light">{{ it.link }}</a>
+                {% else %}
+                  —
+                {% endif %}
+              </td>
+              <td>
+                {% if it.is_active %}
+                  <span class="badge" style="background: rgba(72,187,120,0.25); border-color: rgba(72,187,120,0.5);">פעיל</span>
+                {% else %}
+                  <span class="badge">כבוי</span>
+                {% endif %}
+              </td>
+              <td>
+                <a class="btn btn-light btn-sm" href="/admin/announcements/edit?id={{ it._id }}">ערוך</a>
+                {% if not it.is_active %}
+                  <a class="btn btn-primary btn-sm" href="/admin/announcements/activate?id={{ it._id }}">הפעל</a>
+                {% endif %}
+                <form action="/admin/announcements/delete?id={{ it._id }}" method="post" style="display:inline-block; margin-inline-start:.25rem;" onsubmit="return confirm('למחוק את ההכרזה?');">
+                  <button class="btn btn-secondary btn-sm" type="submit">מחק</button>
+                </form>
+              </td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  {% endif %}
+</div>
+
+<style>
+@media (max-width: 700px){
+  .table thead th:nth-child(2),
+  .table tbody td:nth-child(2){ display: none; }
+  .table td, .table th{ padding: .4rem .5rem; }
+}
+</style>
+{% endblock %}
