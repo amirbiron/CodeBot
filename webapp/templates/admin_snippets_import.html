@@ -1,0 +1,63 @@
+{% extends "base.html" %}
+
+{% block title %}ייבוא סניפטים ממסמך{% endblock %}
+
+{% block content %}
+<h1 class="page-title">📥 ייבוא סניפטים ממסמך</h1>
+
+<div class="glass-card">
+  <p>הדביקו כאן את כל המסמך (Markdown) או הזינו כתובת URL של GitHub/Gist/Raw. המערכת תזהה כותרות (##/###), שורת <strong>"למה זה שימושי:"</strong> וקוד מגודר ב-```...``` ותיצור סניפטים בהתאם.</p>
+
+  {% if error %}
+    <div class="alert alert-warning">{{ error }}</div>
+  {% endif %}
+
+  <form method="post" action="/admin/snippets/import">
+    <div class="form-group">
+      <label>קישור למסמך (אופציונלי)</label>
+      <input class="form-control" type="url" name="source_url" value="{{ source_url or '' }}" placeholder="https://...">
+      <small class="form-text text-muted">אם יוזן קישור ולא יוזן תוכן, נטען את המסמך מהכתובת (תמיכה אוטומטית ב-GitHub/Gist raw).</small>
+    </div>
+
+    <div class="form-group">
+      <label>תוכן מלא להדבקה (Markdown)</label>
+      <textarea class="form-control" name="content" rows="18" dir="ltr" placeholder="# כותרת\n**למה זה שימושי:** ...\n\n```python\nprint('hello')\n```">{{ content or '' }}</textarea>
+    </div>
+
+    <div class="form-row" style="display:flex; gap: .75rem; align-items:center; flex-wrap: wrap;">
+      <label style="display:flex; align-items:center; gap:.35rem;">
+        <input type="checkbox" name="auto_approve" {% if auto_approve is not defined or auto_approve %}checked{% endif %}>
+        אשר אוטומטית לאחר יצירה
+      </label>
+      <label style="display:flex; align-items:center; gap:.35rem;">
+        <input type="checkbox" name="dry_run" {% if dry_run %}checked{% endif %}>
+        הרצת בדיקה (ללא כתיבה ל-DB)
+      </label>
+      <button class="btn btn-primary" type="submit">🚀 הרץ ייבוא</button>
+      <a class="btn btn-secondary" href="/snippets">חזרה לספריית הסניפטים</a>
+    </div>
+  </form>
+</div>
+
+{% if result %}
+  <div class="glass-card" style="margin-top:1rem;">
+    <h3>סיכום</h3>
+    <ul>
+      <li>נמצאו במסמך: <strong>{{ result.parsed }}</strong></li>
+      <li>נוצרו: <strong>{{ result.created }}</strong></li>
+      <li>אושרו: <strong>{{ result.approved }}</strong></li>
+      <li>דולגו (כפולים לפי כותרת): <strong>{{ result.skipped }}</strong></li>
+      <li>אישור אוטומטי: <strong>{{ 'כן' if result.auto_approve else 'לא' }}</strong></li>
+      <li>מצב בדיקה: <strong>{{ 'כן' if result.dry_run else 'לא' }}</strong></li>
+    </ul>
+    <details>
+      <summary style="cursor:pointer;">הצג כותרות שזוהו</summary>
+      <ol>
+        {% for t in result.titles %}
+          <li>{{ t }}</li>
+        {% endfor %}
+      </ol>
+    </details>
+  </div>
+{% endif %}
+{% endblock %}

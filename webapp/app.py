@@ -2104,6 +2104,219 @@ def admin_snippet_edit():
     return render_template('admin_snippet_edit.html', item=doc, item_id=item_id)
 
 
+# --- Admin: Import multiple snippets from Markdown (UI) ---
+@app.route('/admin/snippets/import', methods=['GET', 'POST'])
+@admin_required
+def admin_snippets_import():
+    """Admin UI to import multiple snippets from a pasted Markdown document or a URL (incl. GitHub/Gist).
+
+    On POST:
+      - If source_url provided and content empty: fetch content from URL (best-effort, supports GitHub/Gist raw).
+      - Parse markdown into (title, description, code, language) tuples.
+      - If dry_run: render preview with counts without persisting.
+      - Else: persist each snippet via repository and auto-approve by default.
+    """
+    from flask import request
+    import re as _re
+    import dataclasses as _dc
+    import textwrap as _textwrap
+    from typing import List as _List, Optional as _Optional, Tuple as _Tuple
+
+    # Lazy imports to avoid top-level deps
+    try:
+        from urllib.parse import urlparse as _urlparse
+        from urllib.request import Request as _Request, urlopen as _urlopen
+    except Exception:  # pragma: no cover
+        _urlparse = None  # type: ignore
+        _Request = None  # type: ignore
+        _urlopen = None  # type: ignore
+
+    @_dc.dataclass
+    class _ParsedSnippet:
+        title: str
+        description: str
+        code: str
+        language: str
+
+    _HEADER_RE = _re.compile(r"^\s{0,3}#{2,4}\s+(.+?)\s*$")
+    _WHY_RE = _re.compile(r"^\s*\*\*למה זה שימושי:\*\*\s*(.+?)\s*$")
+    _FENCE_START_RE = _re.compile(r"^```([a-zA-Z0-9_+-]*)\s*$")
+    _FENCE_END_RE = _re.compile(r"^```\s*$")
+
+    def _guess_language(value: str, fallback: str = "text") -> str:
+        value = (value or "").strip().lower()
+        if not value:
+            return fallback
+        mapping = {
+            "py": "python",
+            "js": "javascript",
+            "ts": "typescript",
+            "sh": "bash",
+            "shell": "bash",
+            "yml": "yaml",
+            "md": "markdown",
+            "golang": "go",
+            "html5": "html",
+            "css3": "css",
+        }
+        return mapping.get(value, value)
+
+    def _maybe_to_raw_url(url: str) -> str:
+        try:
+            parsed = _urlparse(url) if _urlparse else None
+        except Exception:
+            parsed = None
+        if not parsed:
+            return url
+        host = (parsed.netloc or "").lower()
+        path = parsed.path or ""
+        if host == "github.com" and "/blob/" in path:
+            parts = path.strip("/").split("/")
+            if len(parts) >= 5:
+                owner, repo, _blob, branch = parts[:4]
+                tail = "/".join(parts[4:])
+                return f"https://raw.githubusercontent.com/{owner}/{repo}/{branch}/{tail}"
+        if host == "gist.github.com":
+            parts = path.strip("/").split("/")
+            if len(parts) >= 2:
+                user, gist_id = parts[:2]
+                return f"https://gist.githubusercontent.com/{user}/{gist_id}/raw"
+        return url
+
+    def _fetch_url(url: str, timeout: int = 20) -> str:
+        if _Request is None or _urlopen is None:
+            raise RuntimeError("URL fetching is unavailable on this server")
+        req = _Request(url, headers={"User-Agent": "CodeBot/WebApp-Importer"})
+        with _urlopen(req, timeout=timeout) as resp:  # type: ignore[arg-type]
+            data = resp.read()
+            return data.decode("utf-8", errors="replace")
+
+    def _parse_markdown(md: str) -> _List[_ParsedSnippet]:
+        lines = (md or "").splitlines()
+        results: _List[_ParsedSnippet] = []
+        current_title: _Optional[str] = None
+        current_description: _Optional[str] = None
+        i = 0
+        while i < len(lines):
+            line = lines[i]
+            m_header = _HEADER_RE.match(line)
+            if m_header:
+                raw_title = m_header.group(1).strip()
+                raw_title = _re.sub(r"^[✅\-\s]+", "", raw_title)
+                current_title = raw_title
+                current_description = None
+                i += 1
+                continue
+            m_why = _WHY_RE.match(line)
+            if m_why:
+                current_description = m_why.group(1).strip()
+                i += 1
+                continue
+            m_fence = _FENCE_START_RE.match(line)
+            if m_fence:
+                lang = _guess_language(m_fence.group(1) or "text")
+                code_lines: _List[str] = []
+                i += 1
+                while i < len(lines):
+                    if _FENCE_END_RE.match(lines[i]):
+                        break
+                    code_lines.append(lines[i])
+                    i += 1
+                if i < len(lines) and _FENCE_END_RE.match(lines[i]):
+                    i += 1
+                title = (current_title or "סניפט ללא כותרת").strip()
+                description = (current_description or "מתוך מסמך מיובא").strip()
+                description = description.replace("\n", " ").strip()
+                if len(description) > 160:
+                    description = description[:157].rstrip() + "..."
+                code_text = "\n".join(code_lines).rstrip("\n")
+                if len(code_text) > 150_000:
+                    code_text = code_text[:150_000] + "\n# ... trimmed ..."
+                results.append(_ParsedSnippet(title=title, description=description, code=code_text, language=lang))
+                continue
+            i += 1
+        return results
+
+    def _persist(snippets: _List[_ParsedSnippet], *, auto_approve: bool, dry_run: bool) -> _Tuple[int, int, int]:
+        from database import db as _db
+        def _exists_title_ci(title: str) -> bool:
+            try:
+                coll = getattr(_db, 'snippets_collection', None)
+                if coll is None:
+                    return False
+                q = {"title": {"$regex": f"^{_re.escape(title)}$", "$options": "i"}}
+                doc = coll.find_one(q)
+                return bool(doc)
+            except Exception:
+                return False
+        created = approved = skipped = 0
+        for snip in snippets:
+            if _exists_title_ci(snip.title):
+                skipped += 1
+                continue
+            if dry_run:
+                created += 1
+                if auto_approve:
+                    approved += 1
+                continue
+            try:
+                res = _db._get_repo().create_snippet_proposal(
+                    title=snip.title,
+                    description=snip.description,
+                    code=snip.code,
+                    language=snip.language,
+                    user_id=int(session.get('user_id') or 0),
+                    username=(session.get('user_data') or {}).get('username') if isinstance(session.get('user_data'), dict) else None,
+                )
+                if res:
+                    created += 1
+                    if auto_approve:
+                        ok = _db._get_repo().approve_snippet(res, int(session.get('user_id') or 0))
+                        if ok:
+                            approved += 1
+                else:
+                    skipped += 1
+            except Exception:
+                skipped += 1
+        return created, approved, skipped
+
+    if request.method == 'GET':
+        return render_template('admin_snippets_import.html', result=None)
+
+    # POST
+    source_url = (request.form.get('source_url') or '').strip()
+    content = request.form.get('content') or ''
+    auto_approve = (request.form.get('auto_approve') or 'on') == 'on'
+    dry_run = (request.form.get('dry_run') or '') == 'on'
+
+    text = content
+    if not text and source_url:
+        try:
+            text = _fetch_url(_maybe_to_raw_url(source_url))
+        except Exception as e:
+            err = f"שגיאה בטעינת ה‑URL: {e}"
+            return render_template('admin_snippets_import.html', error=err, result=None, source_url=source_url, content=content, auto_approve=auto_approve, dry_run=dry_run)
+
+    if not text.strip():
+        return render_template('admin_snippets_import.html', error="לא התקבל תוכן או URL", result=None, source_url=source_url, content=content, auto_approve=auto_approve, dry_run=dry_run)
+
+    snippets = _parse_markdown(text)
+    if not snippets:
+        return render_template('admin_snippets_import.html', error="לא נמצאו סניפטים במסמך", result=None, source_url=source_url, content=content, auto_approve=auto_approve, dry_run=dry_run)
+
+    created, approved, skipped = _persist(snippets, auto_approve=auto_approve, dry_run=dry_run)
+    summary = {
+        'parsed': len(snippets),
+        'created': created,
+        'approved': approved,
+        'skipped': skipped,
+        'auto_approve': auto_approve,
+        'dry_run': dry_run,
+        'titles': [s.title for s in snippets],
+    }
+    return render_template('admin_snippets_import.html', result=summary, error=None, source_url=source_url, content=content, auto_approve=auto_approve, dry_run=dry_run)
+
+
 # --- Community library admin: minimal Edit/Delete ---
 @app.route('/admin/community/delete', methods=['POST'])
 @admin_required
