@@ -627,16 +627,19 @@ def reminders_summary():
 @notes_rate_limit('note_reminders_list', 300)
 @traced('sticky_notes.reminders_list')
 def reminders_list():
-    """Return a list of due sticky-note reminders for the current user.
+    """Return a list of due sticky‑note reminders for the current user.
 
-    Response JSON:
-      {
-        ok: true,
-        items: [
-          { note_id, file_id, preview, anchor_id, anchor_text }
-        ],
-        count: <int>
-      }
+    Response:
+
+    .. code-block:: json
+
+        {
+          "ok": true,
+          "items": [
+            { "note_id": "...", "file_id": "...", "preview": "...", "anchor_id": "h2-intro", "anchor_text": "Intro" }
+          ],
+          "count": 1
+        }
     """
     try:
         _ensure_indexes()
