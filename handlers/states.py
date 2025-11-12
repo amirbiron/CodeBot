@@ -11,4 +11,9 @@ CL_COLLECT_TITLE, CL_COLLECT_DESCRIPTION, CL_COLLECT_URL, CL_COLLECT_LOGO = rang
 SN_COLLECT_TITLE, SN_COLLECT_DESCRIPTION, SN_COLLECT_CODE, SN_COLLECT_LANGUAGE = range(11, 15)
 # מצב איסוף סיבת דחייה לסניפט
 SN_REJECT_REASON = 15
+# מצב איסוף ארוך עבור סניפטים
+SN_LONG_COLLECT = 16
+
+# מצב איסוף סיבת דחייה לפריט אוסף הקהילה
+CL_REJECT_REASON = 17
 

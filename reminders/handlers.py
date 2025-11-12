@@ -202,11 +202,16 @@ class ReminderHandlers:
         if update.callback_query:
             await update.callback_query.answer()
             if update.callback_query.data == "desc_add":
-                await update.callback_query.edit_message_text("📝 הקלד תיאור לתזכורת (או /skip)")
+                await update.callback_query.edit_message_text("📝 הקלד תיאור לתזכורת (או שלח `דלג`)")
                 return REMINDER_DESCRIPTION
         else:
             text = (update.message.text or "").strip()
-            if text and text != "/skip":
+            # תמיכה ב"דלג" כמילה חלופית ל-/skip
+            try:
+                normalized = text.strip().lower()
+            except Exception:
+                normalized = text
+            if text and normalized not in {"/skip", "דלג"}:
                 if len(text) > ReminderConfig.max_description_length or not self.validator.validate_text(text):
                     await update.message.reply_text("❌ תיאור לא תקין. נסה שוב או /skip:")
                     return REMINDER_DESCRIPTION
@@ -299,8 +304,8 @@ class ReminderHandlers:
                 else:
                     await update.message.reply_text("❌ שגיאה בעדכון הכותרת")
             elif field == "description":
-                # Support clearing via /skip or /clear
-                if text in {"/skip", "/clear"}:
+                # Support clearing via /skip or /clear or Hebrew 'דלג'
+                if text in {"/skip", "/clear", "דלג"}:
                     text = ""
                 if len(text) > ReminderConfig.max_description_length or not self.validator.validate_text(text):
                     await update.message.reply_text("❌ תיאור לא תקין. נסה שוב:")
@@ -434,7 +439,7 @@ class ReminderHandlers:
             if self.db.delete_reminder(user_id, rid):
                 for job in context.job_queue.get_jobs_by_name(f"reminder_{rid}"):
                     job.schedule_removal()
-                await query.edit_message_text("🗑️ התזכורת נמחקה")
+                await query.edit_message_text("✅ התזכורת נמחקה")
             else:
                 await query.answer("❌ שגיאה במחיקה", show_alert=True)
         elif data.startswith("rem_edit_"):

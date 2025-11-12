@@ -5,9 +5,10 @@
 .community-header .btn{padding:10px 14px;border-radius:8px;text-decoration:none}
 .btn.primary{background:#2b6cb0;color:#fff}
 
-.community-controls{display:flex;gap:8px;align-items:center;margin:12px 0}
-.community-controls input{flex:1;padding:10px;border:1px solid #ddd;border-radius:8px}
+.community-controls{display:flex;gap:8px;align-items:center;margin:12px 0;flex-wrap:wrap}
+.community-controls input{flex:1 1 220px;min-width:0;padding:10px;border:1px solid #ddd;border-radius:8px}
 .community-controls select{padding:10px;border:1px solid #ddd;border-radius:8px}
+.community-controls button{flex:0 0 auto}
 
 .community-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:16px}
 @media(max-width:900px){.community-grid{grid-template-columns:repeat(2,1fr)}}
@@ -21,7 +22,7 @@
 .card .desc{color:rgba(255,255,255,0.85);display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
 .tags{display:flex;gap:6px;flex-wrap:wrap;margin:8px 0}
 .tag{background:#f0f4f8;color:#2b6cb0;border-radius:999px;padding:4px 8px;font-size:12px}
-.card .actions{display:flex;gap:8px;margin-top:8px}
+.card .actions{display:flex;gap:8px;margin-top:8px;flex-wrap:wrap}
 /* Align buttons style with 'My Collections' */
 .community-grid .card .actions .btn{padding:.3rem .6rem;border:1px solid #e5e7eb;border-radius:6px;background:#f8fafc;color:#374151;text-decoration:none;cursor:pointer;transition:background .2s,border-color .2s,transform .2s}
 .community-grid .card .actions .btn:hover{background:#eef2ff;border-color:#c7d2fe;transform:translateY(-1px)}

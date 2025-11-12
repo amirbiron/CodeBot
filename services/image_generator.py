@@ -1,0 +1,721 @@
+"""
+שירות ליצירת תמונות קוד עם היילייטינג (Playwright → WeasyPrint → PIL)
+Code Image Generator Service
+
+מסלול מועדף:
+1) Playwright (אם מותקן) – רינדור HTML בדפדפן headless באיכות גבוהה (DPR=2)
+2) WeasyPrint (אם מותקן) – רינדור HTML איכותי
+3) PIL fallback – ציור ידני (קיים כיום), עם סקייל x2 לשיפור חדות
+"""
+
+from __future__ import annotations
+
+import asyncio
+import io
+import logging
+import re
+from concurrent.futures import ThreadPoolExecutor
+from pathlib import Path
+from bs4 import BeautifulSoup
+from typing import Optional, Tuple, List
+
+logger = logging.getLogger(__name__)
+
+try:  # Pillow (נדרש)
+    from PIL import Image, ImageDraw, ImageFont, ImageFilter
+    from PIL.ImageFont import FreeTypeFont  # type: ignore
+except Exception:  # pragma: no cover
+    Image = None  # type: ignore[assignment]
+    ImageDraw = None  # type: ignore[assignment]
+    ImageFont = None  # type: ignore[assignment]
+    FreeTypeFont = None  # type: ignore[assignment]
+
+try:  # Pygments (נדרש)
+    from pygments import highlight
+    from pygments.formatters import HtmlFormatter
+    from pygments.lexers import (
+        get_lexer_by_name,
+        get_lexer_for_filename,
+        guess_lexer,
+    )
+    from pygments.styles import get_style_by_name
+    from pygments.util import ClassNotFound
+except Exception:  # pragma: no cover
+    highlight = None  # type: ignore[assignment]
+    HtmlFormatter = None  # type: ignore[assignment]
+    get_lexer_by_name = None  # type: ignore[assignment]
+    get_lexer_for_filename = None  # type: ignore[assignment]
+    guess_lexer = None  # type: ignore[assignment]
+    get_style_by_name = None  # type: ignore[assignment]
+    ClassNotFound = Exception  # type: ignore[assignment]
+
+
+class CodeImageGenerator:
+    """מחולל תמונות לקוד עם הדגשת תחביר.
+
+    מבוסס על PIL לציור טקסט ואזורי מספרי שורות, ועל Pygments ליצירת HTML מודגש
+    שממנו מחולצים צבעים בסיסיים.
+    """
+
+    DEFAULT_WIDTH = 1200
+    DEFAULT_PADDING = 40
+    LINE_HEIGHT = 24
+    FONT_SIZE = 14
+    LINE_NUMBER_WIDTH = 60
+    LOGO_SIZE = (80, 20)
+    LOGO_PADDING = 10
+    # Layout constants (px at 1x DPR)
+    CARD_MARGIN = 18
+    TITLE_BAR_HEIGHT = 28
+    CODE_GUTTER_SPACING = 20
+
+    THEMES = {
+        'dark': {
+            'background': '#1e1e1e',
+            'text': '#d4d4d4',
+            'line_number_bg': '#252526',
+            'line_number_text': '#858585',
+            'border': '#3e3e42',
+        },
+        'light': {
+            'background': '#ffffff',
+            'text': '#333333',
+            'line_number_bg': '#f5f5f5',
+            'line_number_text': '#999999',
+            'border': '#e0e0e0',
+        },
+        'github': {
+            'background': '#0d1117',
+            'text': '#c9d1d9',
+            'line_number_bg': '#161b22',
+            'line_number_text': '#7d8590',
+            'border': '#30363d',
+        },
+        'monokai': {
+            'background': '#272822',
+            'text': '#f8f8f2',
+            'line_number_bg': '#3e3d32',
+            'line_number_text': '#75715e',
+            'border': '#49483e',
+        },
+    }
+
+    def __init__(self, style: str = 'monokai', theme: str = 'dark') -> None:
+        if Image is None:
+            raise ImportError("Pillow is required for image generation")
+        if highlight is None:
+            raise ImportError("Pygments is required for syntax highlighting")
+
+        self.style = style
+        self.theme = theme
+        self.colors = self.THEMES.get(theme, self.THEMES['dark'])
+        self._font_cache: dict[str, FreeTypeFont] = {}
+        self._logo_cache: Optional[Image.Image] = None
+
+        # Playwright (מועדף) – שימוש ב-Async API כדי להימנע מקונפליקט עם event loop
+        try:  # pragma: no cover - תלות אופציונלית
+            from playwright.async_api import async_playwright  # noqa: F401
+            self._has_playwright = True
+        except Exception:
+            self._has_playwright = False
+
+        # WeasyPrint (fallback) – אופציונלי
+        try:  # pragma: no cover - תלות אופציונלית
+            import weasyprint  # noqa: F401
+            self._has_weasyprint = True
+        except Exception:
+            self._has_weasyprint = False
+
+    # --- Fonts & Logo -----------------------------------------------------
+    def _get_font(self, size: int, bold: bool = False) -> FreeTypeFont:
+        cache_key = f"{size}_{int(bold)}"
+        if cache_key in self._font_cache:
+            return self._font_cache[cache_key]
+
+        # מסלולי פונט מונוספייס נפוצים
+        font_paths = [
+            '/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf',
+            '/usr/share/fonts/truetype/liberation/LiberationMono-Regular.ttf',
+            'C:/Windows/Fonts/consola.ttf',
+            '/System/Library/Fonts/Menlo.ttc',
+        ]
+        font: Optional[FreeTypeFont] = None
+        for p in font_paths:
+            try:
+                path = Path(p)
+                if path.exists():
+                    font = ImageFont.truetype(str(path), size)
+                    if bold:
+                        bold_path = str(path).replace('Regular', 'Bold').replace('.ttf', '-Bold.ttf')
+                        if Path(bold_path).exists():
+                            font = ImageFont.truetype(bold_path, size)
+                    break
+            except Exception:
+                continue
+        if font is None:
+            font = ImageFont.load_default()
+        self._font_cache[cache_key] = font  # type: ignore[assignment]
+        return font  # type: ignore[return-value]
+
+    def _get_logo_image(self) -> Optional[Image.Image]:
+        if self._logo_cache is not None:
+            return self._logo_cache
+        # נסה לטעון לוגו מקובץ
+        try:
+            candidates = [
+                Path(__file__).parent.parent / 'assets' / 'logo.png',
+                Path(__file__).parent.parent / 'assets' / 'logo_small.png',
+            ]
+            for path in candidates:
+                if path.exists():
+                    logo = Image.open(str(path))
+                    logo = logo.resize(self.LOGO_SIZE, Image.Resampling.LANCZOS)
+                    self._logo_cache = logo
+                    return logo
+        except Exception:
+            pass
+        # Fallback: לוגו טקסטואלי קטן
+        try:
+            logo = Image.new('RGBA', self.LOGO_SIZE, (0, 0, 0, 0))
+            draw = ImageDraw.Draw(logo)
+            font = self._get_font(10, bold=True)
+            text = "@my_code_keeper_bot"
+            bbox = draw.textbbox((0, 0), text, font=font)
+            tw = max(0, bbox[2] - bbox[0])
+            th = max(0, bbox[3] - bbox[1])
+            x = max(0, (self.LOGO_SIZE[0] - tw) // 2)
+            y = max(0, (self.LOGO_SIZE[1] - th) // 2)
+            draw.rectangle([(0, 0), self.LOGO_SIZE], fill=(30, 30, 30, 200))
+            draw.text((x, y), text, fill=(255, 255, 255, 255), font=font)
+            self._logo_cache = logo
+            return logo
+        except Exception as e:  # pragma: no cover
+            logger.warning(f"Failed to create logo: {e}")
+            return None
+
+    # --- HTML colors extraction ------------------------------------------
+    def _html_to_text_colors(self, html_str: str) -> List[Tuple[str, str]]:
+        """Extract (text,color) segments from a single highlighted HTML line, preserving whitespace.
+        We intentionally do not strip() so that leading spaces/tabs remain intact.
+        """
+        # Remove style/script safely
+        soup = BeautifulSoup(html_str, "html.parser")
+        for tag in soup(["style", "script"]):
+            tag.decompose()
+        s = str(soup)
+        text_colors: List[Tuple[str, str]] = []
+        pattern = r'<span[^>]*style=\"[^\"]*color:\s*([^;\"\s]+)[^\\\"]*\"[^>]*>(.*?)</span>'
+        last = 0
+        for m in re.finditer(pattern, s, flags=re.DOTALL):
+            before = s[last:m.start()]
+            if before:
+                clean = re.sub(r'<[^>]+>', '', before)
+                if clean != "":
+                    text_colors.append((clean, self.colors['text']))
+            color = m.group(1).strip()
+            inner = re.sub(r'<[^>]+>', '', m.group(2))
+            if inner != "":
+                text_colors.append((inner, color))
+            last = m.end()
+        tail = s[last:]
+        if tail:
+            clean = re.sub(r'<[^>]+>', '', tail)
+            if clean != "":
+                text_colors.append((clean, self.colors['text']))
+        if not text_colors:
+            clean_all = re.sub(r'<[^>]+>', '', s)
+            if clean_all != "":
+                text_colors.append((clean_all, self.colors['text']))
+        return text_colors
+
+    @staticmethod
+    def _parse_color(color_str: str) -> Tuple[int, int, int]:
+        c = color_str.strip().lower()
+        if c.startswith('#'):
+            h = c[1:]
+            if len(h) == 6:
+                return tuple(int(h[i:i+2], 16) for i in (0, 2, 4))  # type: ignore[return-value]
+            if len(h) == 3:
+                return tuple(int(ch * 2, 16) for ch in h)  # type: ignore[return-value]
+        m = re.match(r'rgb\((\d+),\s*(\d+),\s*(\d+)\)', c)
+        if m:
+            return tuple(int(x) for x in m.groups())  # type: ignore[return-value]
+        common = {
+            'white': (255, 255, 255),
+            'black': (0, 0, 0),
+            'red': (255, 0, 0),
+            'green': (0, 255, 0),
+            'blue': (0, 0, 255),
+            'yellow': (255, 255, 0),
+            'cyan': (0, 255, 255),
+            'magenta': (255, 0, 255),
+        }
+        return common.get(c, (212, 212, 212))
+
+    # --- HTML template for high-quality renderers -------------------------
+    def _create_professional_html(self, highlighted_html: str, lines: List[str], width: int, height: int) -> str:
+        """
+        יוצר HTML עם עיצוב "Carbon-style" מקצועי. משתמש ב-inline styles של Pygments
+        (noclasses=True), ולכן אין תלות בקלאסים חיצוניים של CSS להדגשת התחביר.
+        """
+        line_numbers_html = "\n".join(f'<span class="line-number">{i}</span>' for i in range(1, len(lines) + 1))
+        # כיתוב watermark טקסטואלי – אם אחר כך נוסיף לוגו אמיתי ב-PIL, נמנע כפילות
+        html_doc = f"""<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <style>
+    * {{ box-sizing: border-box; }}
+    html, body {{ margin:0; padding:0; }}
+    body {{
+      font-family: 'SF Mono','Monaco','Inconsolata','Fira Code','Source Code Pro','Consolas','Courier New',monospace;
+      background-color: {self.colors['background']};
+      color: {self.colors['text']};
+      font-size: {self.FONT_SIZE}px;
+      line-height: {self.LINE_HEIGHT}px;
+      padding: {self.DEFAULT_PADDING}px;
+      width: {width}px;
+      min-height: {height}px;
+      overflow: hidden;
+    }}
+    .wrap {{
+      position: relative;
+      width: 100%;
+      background: {self.colors['line_number_bg']};
+      border: 1px solid {self.colors['border']};
+      border-radius: 10px;
+      box-shadow: 0 10px 30px rgba(0,0,0,0.25);
+      overflow: hidden;
+    }}
+    .title {{
+      height: 28px;
+      background: {self.colors['line_number_bg']};
+      border-bottom: 1px solid {self.colors['border']};
+      display: flex; align-items:center; gap:8px; padding-inline-start: 16px;
+    }}
+    .tl {{ width:12px; height:12px; border-radius:50%; display:inline-block; }}
+    .tl.red {{ background:#ff5f56; }}
+    .tl.yellow {{ background:#ffbd2e; }}
+    .tl.green {{ background:#27c93f; }}
+    .content {{ display:flex; }}
+    .nums {{
+      background: {self.colors['line_number_bg']};
+      color: {self.colors['line_number_text']};
+      padding: {self.DEFAULT_PADDING}px 10px {self.DEFAULT_PADDING}px 16px;
+      min-width: {self.LINE_NUMBER_WIDTH}px;
+      border-inline-end: 1px solid {self.colors['border']};
+      user-select: none;
+      text-align: end;
+      font-size: {self.FONT_SIZE - 1}px;
+    }}
+    .line-number {{ display:block; line-height: {self.LINE_HEIGHT}px; opacity:0.7; }}
+    .code {{ flex:1; padding: {self.DEFAULT_PADDING}px 16px; overflow: hidden; }}
+    pre {{ margin:0; white-space: pre; font-family: inherit; }}
+    code {{ font-family: inherit; }}
+
+    .wm {{
+      position: absolute; bottom: {self.LOGO_PADDING}px; right: {self.LOGO_PADDING}px;
+      font-size: 11px; color: rgba(255,255,255,0.6);
+      background: rgba(0,0,0,0.25);
+      padding: 4px 8px; border-radius: 4px; font-weight: 700;
+    }}
+  </style>
+  </head>
+<body>
+  <div class="wrap">
+    <div class="title"><span class="tl red"></span><span class="tl yellow"></span><span class="tl green"></span></div>
+    <div class="content">
+      <div class="nums">{line_numbers_html}</div>
+      <div class="code"><pre><code>{highlighted_html}</code></pre></div>
+    </div>
+    <div class="wm">@my_code_keeper_bot</div>
+  </div>
+</body>
+</html>"""
+        return html_doc
+
+    # --- Language detection & safety -------------------------------------
+    def _detect_language_from_content(self, code: str, filename: Optional[str] = None) -> str:
+        if filename:
+            lang_map = {
+                '.py': 'python', '.js': 'javascript', '.ts': 'typescript', '.tsx': 'tsx', '.jsx': 'jsx',
+                '.java': 'java', '.cpp': 'cpp', '.c': 'c', '.cs': 'csharp', '.php': 'php', '.rb': 'ruby',
+                '.go': 'go', '.rs': 'rust', '.swift': 'swift', '.kt': 'kotlin', '.scala': 'scala',
+                '.clj': 'clojure', '.hs': 'haskell', '.ml': 'ocaml', '.r': 'r', '.sql': 'sql', '.sh': 'bash',
+                '.yaml': 'yaml', '.yml': 'yaml', '.json': 'json', '.xml': 'xml', '.html': 'html', '.css': 'css',
+                '.scss': 'scss', '.md': 'markdown', '.tex': 'latex', '.vue': 'vue',
+            }
+            ext = Path(filename).suffix.lower()
+            if ext in lang_map:
+                return lang_map[ext]
+        patterns = {
+            'python': [r'def\s+\w+\s*\(', r'import\s+\w+', r'from\s+\w+\s+import', r'class\s+\w+.*:', r'__main__'],
+            'javascript': [r'function\s+\w+\s*\(', r'const\s+\w+\s*=', r'=>\s*{', r'var\s+\w+\s*=', r'let\s+\w+\s*='],
+            'java': [r'public\s+class\s+\w+', r'public\s+static\s+void\s+main', r'@Override', r'package\s+\w+'],
+            'cpp': [r'#include\s*<', r'std::', r'int\s+main\s*\('],
+            'bash': [r'#!/bin/(ba)?sh', r'\$\{', r' if \['],
+            'sql': [r'SELECT\s+.*\s+FROM', r'INSERT\s+INTO', r'CREATE\s+TABLE'],
+        }
+        for lang, pats in patterns.items():
+            if any(re.search(p, code, flags=re.IGNORECASE | re.MULTILINE) for p in pats):
+                return lang
+        return 'text'
+
+    def _check_code_safety(self, code: str) -> None:
+        suspicious = [r'exec\s*\(', r'eval\s*\(', r'__import__\s*\(', r'os\.system\s*\(', r'subprocess\.', r'compile\s*\(']
+        for p in suspicious:
+            if re.search(p, code, flags=re.IGNORECASE):
+                logger.warning("Suspicious code pattern detected: %s", p)
+
+    # --- Playwright / WeasyPrint renderers --------------------------------
+    def cleanup(self) -> None:
+        """תאימות לאחור – אין צורך בפעולה לאחר מעבר ל-Async Playwright."""
+        return
+
+    def _render_html_with_playwright(self, html_content: str, width: int, height: int) -> Image.Image:
+        if not self._has_playwright:
+            raise RuntimeError("Playwright async API is not available")
+
+        from playwright.async_api import async_playwright  # type: ignore
+
+        async def _render_async() -> bytes:
+            async with async_playwright() as playwright:
+                browser = await playwright.chromium.launch(headless=True)
+                page = None
+                try:
+                    page = await browser.new_page(
+                        viewport={'width': width, 'height': height},
+                        device_scale_factor=2,
+                    )
+                    await page.set_content(html_content, wait_until='load')
+                    await page.wait_for_timeout(300)
+                    return await page.screenshot(type='png', full_page=True)
+                finally:
+                    if page is not None:
+                        try:
+                            await page.close()
+                        except Exception:
+                            pass
+                    try:
+                        await browser.close()
+                    except Exception:
+                        pass
+
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            loop = None
+
+        if loop and loop.is_running():
+            with ThreadPoolExecutor(max_workers=1, thread_name_prefix="code-image-playwright") as executor:
+                png_bytes = executor.submit(lambda: asyncio.run(_render_async())).result()
+        else:
+            png_bytes = asyncio.run(_render_async())
+
+        return Image.open(io.BytesIO(png_bytes))
+
+    def _render_html_with_weasyprint(self, html_content: str, width: int, height: int) -> Image.Image:
+        from weasyprint import HTML, CSS  # type: ignore
+        css = CSS(string=f"""
+            @page {{ size: {width}px {height}px; margin: 0; }}
+            body {{ margin:0; padding:0; background: {self.colors['background']}; color: {self.colors['text']}; }}
+        """)
+        png_bytes = HTML(string=html_content).write_png(stylesheets=[css])
+        return Image.open(io.BytesIO(png_bytes))
+
+    # --- Render helpers ---------------------------------------------------
+    def optimize_image_size(self, img: Image.Image) -> Image.Image:
+        if img.mode != 'RGB':
+            img = img.convert('RGB')
+        max_size = (2000, 2000)
+        if img.width > max_size[0] or img.height > max_size[1]:
+            img.thumbnail(max_size, Image.Resampling.LANCZOS)
+        return img
+
+    def save_optimized_png(self, img: Image.Image) -> bytes:
+        """Always return PNG for crisp code images; keep optimization, avoid JPEG."""
+        buf = io.BytesIO()
+        img.save(buf, format='PNG', optimize=True, compress_level=9)
+        return buf.getvalue()
+
+    # --- Public API -------------------------------------------------------
+    def generate_image(
+        self,
+        code: str,
+        language: str = 'text',
+        filename: Optional[str] = None,
+        max_width: int = DEFAULT_WIDTH,
+        max_height: Optional[int] = None,
+    ) -> bytes:
+        if not isinstance(code, str):
+            raise TypeError("Code must be a string")
+        if not code:
+            raise ValueError("Code cannot be empty")
+        if len(code) > 100_000:
+            raise ValueError("Code too large (max 100KB)")
+        if language and not isinstance(language, str):
+            raise TypeError("Language must be a string")
+
+        self._check_code_safety(code)
+
+        # Detect language if needed
+        if not language or language == 'text':
+            language = self._detect_language_from_content(code, filename)
+
+        # Prepare lexer/formatter
+        try:
+            if filename:
+                try:
+                    lexer = get_lexer_for_filename(filename)  # type: ignore[misc]
+                except ClassNotFound:
+                    lexer = get_lexer_by_name(language, stripall=True)  # type: ignore[misc]
+            else:
+                lexer = get_lexer_by_name(language, stripall=True)  # type: ignore[misc]
+        except Exception:
+            lexer = get_lexer_by_name('text', stripall=True)  # type: ignore[misc]
+
+        try:
+            style = get_style_by_name(self.style)  # type: ignore[misc]
+        except Exception:
+            style = get_style_by_name('default')  # type: ignore[misc]
+
+        formatter = HtmlFormatter(style=style, noclasses=True, nowrap=True)  # type: ignore[call-arg]
+        highlighted_html = highlight(code, lexer, formatter)  # type: ignore[misc]
+
+        # Layout calculations
+        lines = code.split('\n')
+        num_lines = len(lines)
+        font = self._get_font(self.FONT_SIZE)
+        line_height = self.LINE_HEIGHT
+
+        max_line_width = 0
+        for ln in lines:
+            try:
+                bbox = font.getbbox(ln)  # type: ignore[attr-defined]
+                w = max(0, bbox[2] - bbox[0])
+            except Exception:
+                w = len(ln) * 8
+            max_line_width = max(max_line_width, w)
+
+        # Total width must include: card margins (both sides), left padding, line numbers, gutter, code, right padding
+        content_width = (
+            self.CARD_MARGIN * 2
+            + self.DEFAULT_PADDING
+            + self.LINE_NUMBER_WIDTH
+            + self.CODE_GUTTER_SPACING
+            + max_line_width
+            + self.DEFAULT_PADDING
+        )
+        image_width = min(int(content_width), int(max_width or self.DEFAULT_WIDTH))
+
+        # Height includes card margins, title bar, top/bottom padding and lines
+        base_overhead = self.CARD_MARGIN * 2 + self.TITLE_BAR_HEIGHT + self.DEFAULT_PADDING * 2
+        image_height = int(num_lines * line_height + base_overhead)
+        truncated_by_height = False
+        if max_height and image_height > max_height:
+            avail = max(0, int(max_height) - base_overhead)
+            max_lines = max(1, avail // line_height)
+            if len(lines) > max_lines:
+                lines = lines[:max_lines]
+                num_lines = len(lines)
+                image_height = int(num_lines * line_height + base_overhead)
+                truncated_by_height = True
+
+        # נסה תחילה HTML מקצועי עם Playwright/WeasyPrint, ואז fallback לציור ידני
+        # אם קיצרנו לפי גובה, נבצע Highlight מחדש על הקוד המקוצר כדי למנוע חוסר תאום מול מספרי השורות
+        if truncated_by_height:
+            try:
+                truncated_code = "\n".join(lines)
+                highlighted_html = highlight(truncated_code, lexer, formatter)  # type: ignore[misc]
+            except Exception:
+                # במקרה כשל, ננסה לפחות לחתוך לפי שורות HTML קיימות
+                try:
+                    hh_lines = highlighted_html.split('\n')
+                    highlighted_html = "\n".join(hh_lines[:num_lines])
+                except Exception:
+                    pass
+
+        full_html = self._create_professional_html(highlighted_html, lines, image_width, image_height)
+
+        # 1) Playwright (מועדף)
+        if self._has_playwright:
+            try:
+                img = self._render_html_with_playwright(full_html, image_width, image_height)
+                img = self.optimize_image_size(img)
+                return self.save_optimized_png(img)
+            except Exception as e:
+                logger.warning("Playwright render failed, falling back. %s", e)
+
+        # 2) WeasyPrint (fallback)
+        if self._has_weasyprint:
+            try:
+                img = self._render_html_with_weasyprint(full_html, image_width, image_height)
+                img = self.optimize_image_size(img)
+                return self.save_optimized_png(img)
+            except Exception as e:
+                logger.warning("WeasyPrint render failed, falling back to PIL. %s", e)
+
+        # 3) Manual rendering via PIL (ברירת מחדל) עם DPR=2 לשיפור חדות
+        scale = 2
+        s = scale
+        # מידות בסקייל גבוה
+        w2 = int(image_width * s)
+        h2 = int(image_height * s)
+        pad2 = int(self.DEFAULT_PADDING * s)
+        lnw2 = int(self.LINE_NUMBER_WIDTH * s)
+        line_h2 = int(line_height * s)
+
+        # בסיס RGBA כדי לאפשר הצללה רכה – ודא שהרקע לפי התמה ולא שחור
+        bg_val = self.colors.get('background')
+        try:
+            if isinstance(bg_val, tuple):
+                bg_rgb = tuple(bg_val[:3])
+            else:
+                bg_rgb = self._parse_color(str(bg_val))
+        except Exception:
+            bg_rgb = (30, 30, 30)
+        img2 = Image.new('RGBA', (w2, h2), (bg_rgb[0], bg_rgb[1], bg_rgb[2], 255))
+        draw = ImageDraw.Draw(img2)
+
+        # פרמטרי כרטיס ושוליים
+        radius = int(16 * s)
+        card_margin = int(18 * s)
+        card_x1, card_y1 = card_margin, card_margin
+        card_x2, card_y2 = w2 - 1 - card_margin, h2 - 1 - card_margin
+        card_rect = [(card_x1, card_y1), (card_x2, card_y2)]
+
+        # Drop shadow: מסכה מטושטשת עם היסט קל
+        sh_dx, sh_dy = int(6 * s), int(8 * s)
+        sh_blur = max(2, int(16 * s))
+        mask = Image.new('L', (w2, h2), 0)
+        mdraw = ImageDraw.Draw(mask)
+        try:
+            mdraw.rounded_rectangle(
+                [(card_x1 + sh_dx, card_y1 + sh_dy), (card_x2 + sh_dx, card_y2 + sh_dy)],
+                radius=radius,
+                fill=180,
+            )
+        except Exception:
+            mdraw.rectangle([(card_x1 + sh_dx, card_y1 + sh_dy), (card_x2 + sh_dx, card_y2 + sh_dy)], fill=180)
+        mask = mask.filter(ImageFilter.GaussianBlur(sh_blur))
+        shadow = Image.new('RGBA', (w2, h2), (0, 0, 0, 160))
+        img2.paste(shadow, (0, 0), mask)
+
+        # כרטיס מעוגל (Rounded card)
+        panel_fill = self.colors.get('line_number_bg', self.colors['background'])
+        card_layer = Image.new('RGBA', (w2, h2), (0, 0, 0, 0))
+        cl_draw = ImageDraw.Draw(card_layer)
+        try:
+            cl_draw.rounded_rectangle(card_rect, radius=radius, fill=panel_fill, outline=self.colors['border'], width=max(1, s))
+        except Exception:
+            cl_draw.rectangle(card_rect, outline=self.colors['border'], width=max(1, s), fill=panel_fill)
+
+        # Gradient עדין בתוך הכרטיס (מלמעלה לבהיר קצת)
+        try:
+            grad_h = max(1, card_y2 - card_y1 + 1)
+            grad = Image.new('RGBA', (card_x2 - card_x1 + 1, grad_h), (0, 0, 0, 0))
+            # הכנה לצבעי גרדיאנט
+            def _hex_to_rgb(h):
+                h = h.lstrip('#')
+                return tuple(int(h[i:i+2], 16) for i in (0, 2, 4))
+            def _to_rgb(c):
+                return c if isinstance(c, tuple) else _hex_to_rgb(str(c))
+            base_rgb = _to_rgb(panel_fill)
+            top_rgb = tuple(min(255, int(v * 1.06)) for v in base_rgb)
+            bottom_rgb = base_rgb
+            for y in range(grad_h):
+                t = y / max(1, grad_h - 1)
+                col = tuple(int(top_rgb[i] * (1 - t) + bottom_rgb[i] * t) for i in range(3)) + (255,)
+                ImageDraw.Draw(grad).line([(0, y), (grad.width, y)], fill=col)
+            # המסכה לעיגול פינות
+            clip = Image.new('L', (w2, h2), 0)
+            clip_draw = ImageDraw.Draw(clip)
+            try:
+                clip_draw.rounded_rectangle(card_rect, radius=radius, fill=255)
+            except Exception:
+                clip_draw.rectangle(card_rect, fill=255)
+            img2.alpha_composite(card_layer)
+            img2.paste(grad, (card_x1, card_y1), clip)
+        except Exception:
+            # אם יש כשל בגרדיאנט, לפחות החבר את שכבת הכרטיס
+            img2.alpha_composite(card_layer)
+
+        # Title bar
+        title_h = int(28 * s)
+        tb_rect = [(card_x1, card_y1), (card_x2, card_y1 + title_h)]
+        tb_fill = self.colors.get('line_number_bg', self.colors['background'])
+        draw.rectangle(tb_rect, fill=tb_fill)
+        # Traffic lights
+        cx = card_x1 + int(16 * s)
+        cy = card_y1 + int(title_h / 2)
+        r = int(5 * s)
+        for idx, col in enumerate([(255, 95, 86), (255, 189, 46), (39, 201, 63)]):
+            x = cx + idx * int(14 * s)
+            draw.ellipse([(x - r, cy - r), (x + r, cy + r)], fill=col)
+
+        # אזור מספרי שורות וקוד בתוך הכרטיס
+        ln_bg_x2 = card_x1 + pad2 + lnw2
+        code_x = ln_bg_x2 + int(self.CODE_GUTTER_SPACING * s)
+        code_y = card_y1 + title_h + pad2
+        # רקע מספרי שורות + קו מפריד
+        draw.rectangle([(card_x1, card_y1 + title_h), (ln_bg_x2, card_y2)], fill=self.colors['line_number_bg'])
+        draw.line([(ln_bg_x2, card_y1 + title_h), (ln_bg_x2, card_y2)], fill=self.colors['border'], width=max(1, s))
+
+        # פונטים בסקייל
+        font = self._get_font(int(self.FONT_SIZE * s))
+        ln_font = self._get_font(max(1, int((self.FONT_SIZE - 1) * s)))
+
+        html_lines = highlighted_html.split('\n')
+        for i, (plain_line, html_line) in enumerate(zip(lines, html_lines[:len(lines)]), start=1):
+            y = code_y + (i - 1) * line_h2
+            # line number
+            num_str = str(i)
+            try:
+                bbox = ln_font.getbbox(num_str)  # type: ignore[attr-defined]
+                num_w = max(0, bbox[2] - bbox[0])
+            except Exception:
+                num_w = len(num_str) * int(6 * s)
+            num_x = ln_bg_x2 - num_w - int(10 * s)
+            draw.text((num_x, y), num_str, fill=self.colors['line_number_text'], font=ln_font)
+
+            # code segments according to spans – שמור טאבים ורווחים
+            x = code_x
+            segments = self._html_to_text_colors(html_line)
+            if not segments:
+                segments = [(plain_line, self.colors['text'])]
+            for text, color_str in segments:
+                if text is None:
+                    continue
+                text = text.replace('\t', '    ')
+                if text == "":
+                    continue
+                color = self._parse_color(color_str)
+                draw.text((x, y), text, fill=color, font=font)
+                try:
+                    bbox = font.getbbox(text)  # type: ignore[attr-defined]
+                    wseg = max(0, bbox[2] - bbox[0])
+                except Exception:
+                    wseg = len(text) * int(8 * s)
+                x += wseg
+
+        # לוגו (אופציונלי) – בתוך הכרטיס
+        logo = self._get_logo_image()
+        if logo is not None:
+            try:
+                l2 = logo.resize((int(self.LOGO_SIZE[0] * s), int(self.LOGO_SIZE[1] * s)), Image.Resampling.LANCZOS)
+            except Exception:
+                l2 = logo
+            lx = max(card_x1 + pad2, card_x2 - l2.width - int(self.LOGO_PADDING * s))
+            ly = max(card_y1 + pad2, card_y2 - l2.height - int(self.LOGO_PADDING * s))
+            if l2.mode == 'RGBA':
+                img2.paste(l2, (lx, ly), l2)
+            else:
+                img2.paste(l2, (lx, ly))
+
+        # Downscale בחיתוך איכותי לשמירה על חדות
+        # המרה חזרה ל-RGB לפני downscale
+        img_rgb = img2.convert('RGB')
+        img = img_rgb.resize((int(image_width), int(image_height)), Image.Resampling.LANCZOS)
+        img = self.optimize_image_size(img)
+        return self.save_optimized_png(img)

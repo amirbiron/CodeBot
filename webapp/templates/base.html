@@ -1,5 +1,6 @@
 <!DOCTYPE html>
-<html dir="rtl" lang="he">
+{% set _announcement_enabled = announcement_enabled if announcement_enabled is defined else (weekly_tip_enabled if weekly_tip_enabled is defined else none) %}
+<html dir="rtl" lang="he"{% if _announcement_enabled is not none %} data-announcement="{{ 'on' if _announcement_enabled else 'off' }}" data-weekly-tip="{{ 'on' if _announcement_enabled else 'off' }}"{% endif %}>
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
@@ -584,8 +585,9 @@
             to   { opacity: 1; transform: translateY(0); }
         }
 
-        /* מודאל קבצים אחרונים */
-        .recent-files-modal {
+        /* מודאלים כלליים (קבצים אחרונים + בורר קהילה) */
+        .recent-files-modal,
+        .community-modal {
             position: fixed;
             top: 0; left: 0; right: 0; bottom: 0;
             z-index: 9999;
@@ -594,13 +596,15 @@
             justify-content: center;
             padding: 1rem;
         }
-        .recent-files-modal .modal-backdrop {
+        .recent-files-modal .modal-backdrop,
+        .community-modal .modal-backdrop {
             position: absolute;
             top: 0; left: 0; right: 0; bottom: 0;
             background: rgba(0, 0, 0, 0.5);
             backdrop-filter: blur(4px);
         }
-        .recent-files-modal .modal-content {
+        .recent-files-modal .modal-content,
+        .community-modal .modal-content {
             position: relative;
             background: white;
             border-radius: 16px;
@@ -612,18 +616,34 @@
             box-shadow: 0 20px 40px rgba(0, 0, 0, 0.2);
             animation: modalSlideUp 0.3s ease;
         }
+        .community-modal .modal-content {
+            color: #1f2933;
+        }
         @keyframes modalSlideUp {
             from { opacity: 0; transform: translateY(20px); }
             to   { opacity: 1; transform: translateY(0); }
         }
-        .recent-files-modal .modal-header {
+        .recent-files-modal .modal-header,
+        .community-modal .modal-header {
             display: flex; justify-content: space-between; align-items: center;
             padding: 1.5rem; border-bottom: 1px solid #e0e0e0;
         }
-        .recent-files-modal .modal-header h3 { margin: 0; font-size: 1.25rem; color: #333; }
-        .recent-files-modal .modal-close { background: none; border: none; font-size: 1.5rem; color: #666; cursor: pointer; padding: 0.25rem; transition: color 0.2s; }
-        .recent-files-modal .modal-close:hover { color: #333; }
-        .recent-files-modal .modal-body { flex: 1; overflow-y: auto; padding: 1rem; }
+        .recent-files-modal .modal-header h3,
+        .community-modal .modal-header h3 { margin: 0; font-size: 1.25rem; color: #333; }
+        .recent-files-modal .modal-close,
+        .community-modal .modal-close { background: none; border: none; font-size: 1.5rem; color: #666; cursor: pointer; padding: 0.25rem; transition: color 0.2s; }
+        .recent-files-modal .modal-close:hover,
+        .community-modal .modal-close:hover { color: #333; }
+        .recent-files-modal .modal-body,
+        .community-modal .modal-body { flex: 1; overflow-y: auto; padding: 1rem; }
+        .community-modal .modal-body .btn.btn-secondary {
+            color: #1f2933;
+            border-color: rgba(15, 23, 42, 0.15);
+        }
+        .community-modal .modal-body .btn.btn-secondary:hover {
+            background: rgba(102, 126, 234, 0.15);
+            color: #1f2933;
+        }
         .recent-file-item { display: flex; align-items: center; gap: 1rem; padding: 0.75rem; border-radius: 8px; text-decoration: none; color: #333; transition: all 0.2s ease; margin-bottom: 0.5rem; }
         .recent-file-item:hover { background: rgba(103,126,234,0.1); transform: translateX(-4px); }
         .recent-files-modal .file-icon { font-size: 1.5rem; min-width: 40px; text-align: center; }
@@ -648,10 +668,164 @@
             .quick-access-dropdown { background: #2a2a3a; }
             .quick-access-item { color: #e0e0e0; }
             .quick-access-item:hover { background: rgba(103, 126, 234, 0.2); }
-            .recent-files-modal .modal-content { background: #2a2a3a; }
-            .recent-files-modal .modal-header { border-bottom-color: #444; }
-            .recent-files-modal .modal-header h3, .recent-file-item { color: #e0e0e0; }
+            .recent-files-modal .modal-content,
+            .community-modal .modal-content { background: #2a2a3a; color: #f5f5f5; }
+            .recent-files-modal .modal-header,
+            .community-modal .modal-header { border-bottom-color: #444; }
+            .recent-files-modal .modal-header h3,
+            .community-modal .modal-header h3,
+            .recent-file-item { color: #e0e0e0; }
+            .community-modal .modal-body .btn.btn-secondary {
+                color: #f5f5f5;
+                border-color: rgba(148, 163, 184, 0.35);
+            }
+            .community-modal .modal-body .btn.btn-secondary:hover {
+                background: rgba(148, 163, 184, 0.25);
+                color: #ffffff;
+            }
             .recent-files-modal .file-meta, .recent-files-modal .no-files { color: #999; }
+        }
+
+        /* Premium announcement indicator */
+        .notif-dot {
+            position: absolute;
+            top: -4px;
+            left: -4px; /* RTL: שמאל מעל הכפתור */
+            width: 12px;
+            height: 12px;
+            border-radius: 999px;
+            background: #fbbf24; /* זהב לפרימיום */
+            border: 2px solid rgba(255,255,255,0.85);
+            box-shadow: 0 0 0 2px rgba(0,0,0,0.08);
+            pointer-events: auto;
+            cursor: pointer;
+            z-index: 1200;
+        }
+        .notif-dot--pulse::after {
+            content: '';
+            position: absolute;
+            inset: -4px;
+            border-radius: inherit;
+            border: 2px solid rgba(251, 191, 36, 0.55);
+            animation: notifPulse 1.4s ease-out infinite;
+        }
+        @keyframes notifPulse {
+            0% { transform: scale(0.8); opacity: 0.8; }
+            80% { transform: scale(1.4); opacity: 0; }
+            100% { transform: scale(1.4); opacity: 0; }
+        }
+        /* בועת תזכורות משודרגת עם מונה */
+        .notif-bubble {
+            position: absolute;
+            top: -8px;
+            left: -8px; /* RTL: שמאל מעל הכפתור */
+            min-width: 22px;
+            height: 22px;
+            padding: 0 6px;
+            border-radius: 999px;
+            background: #fb923c; /* כתום בולט יותר */
+            color: #1f2937;
+            border: 2px solid rgba(255,255,255,0.9);
+            box-shadow: 0 2px 6px rgba(0,0,0,0.15);
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: 800;
+            font-size: 12px;
+            line-height: 1;
+            z-index: 1200;
+        }
+        .notif-bubble[data-count="1"] { min-width: 18px; height: 18px; font-size: 11px; }
+        .notif-bubble--pulse::after {
+            content: '';
+            position: absolute; inset: -4px; border-radius: inherit;
+            border: 2px solid rgba(251, 146, 60, 0.45);
+            animation: notifPulse 1.4s ease-out infinite;
+        }
+        .mobile-menu-toggle { position: relative; }
+        .nav-link[href="/settings"] { position: relative; }
+
+        .notif-popover {
+            position: absolute;
+            top: 18px;
+            left: 12px; /* RTL: שמאל של הכפתור */
+            background: #ffffff;
+            color: #1f2933;
+            border-radius: 12px;
+            box-shadow: 0 10px 24px rgba(0,0,0,0.18);
+            padding: 10px 12px;
+            z-index: 1300;
+            font-size: 0.95rem;
+            line-height: 1.35;
+            min-width: 180px;
+            max-width: 260px;
+            display: none;
+        }
+        .notif-popover[data-open="true"] { display: block; }
+        .notif-popover__title { font-weight: 700; margin-bottom: 6px; }
+        .notif-popover__actions { display: flex; gap: .5rem; justify-content: flex-end; margin-top: .5rem; }
+        .notif-popover .btn { padding: 0.4rem 0.75rem; font-size: 0.9rem; }
+
+        /* כאשר רונדר דרך פורטל (מחוץ ל-navbar) נמנע חיתוך ע"י הורה */
+        .notif-popover--portal {
+            position: fixed;
+            inset: auto; /* מאפשר ל-inline styles של JS להגדיר top/left/right */
+            z-index: 12000; /* מעל ה-navbar והכרטיסים */
+            max-width: min(92vw, 320px);
+        }
+
+        @media (prefers-color-scheme: dark) {
+            .notif-popover { background: #2a2a3a; color: #f5f5f5; box-shadow: 0 10px 24px rgba(0,0,0,0.35); }
+        }
+
+        /* Announcement banner — vertical marquee */
+        .announcement-banner {
+            position: relative;
+            background: var(--glass);
+            border: 1px solid var(--glass-border);
+            border-radius: 12px;
+            margin-top: 8px;
+            padding: 6px 10px;
+            color: #fff;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            overflow: hidden;
+            min-height: 40px;
+            user-select: none;
+            -webkit-user-select: none;
+            -webkit-touch-callout: none;
+            touch-action: manipulation;
+        }
+        .announcement-banner__icon { font-size: 1.05rem; opacity: 0.95; }
+        .announcement-banner__scroller { flex: 1; overflow: hidden; height: 52px; }
+        .announcement-banner__inner {
+            will-change: transform;
+            animation: announcementMarquee var(--announcement-duration, 12s) linear infinite;
+        }
+        .announcement-banner__content { white-space: normal; line-height: 1.28; opacity: 0.95; font-size: 0.95rem; }
+        .announcement-banner__content a { color: #fff; text-decoration: underline; }
+        .announcement-banner__content a:hover { opacity: 0.9; }
+        .announcement-banner:hover .announcement-banner__inner,
+        .announcement-banner:focus-within .announcement-banner__inner,
+        .announcement-banner.is-paused .announcement-banner__inner { animation-play-state: paused; }
+        @keyframes announcementMarquee {
+            from { transform: translateY(0); }
+            to { transform: translateY(calc(-1 * var(--announcement-distance, 100%))); }
+        }
+        /* Hide the banner when nav menu is open (avoid overlap) */
+        body.nav-open .announcement-banner { display: none; }
+        /* Respect reduced motion */
+        @media (prefers-reduced-motion: reduce) {
+            .announcement-banner__inner { animation: none !important; }
+        }
+        /* Hide banner on tablet range where the navbar is dense */
+        @media (min-width: 640px) and (max-width: 1024px) {
+            .announcement-banner { display: none !important; }
+        }
+        @media (max-width: 480px) {
+            .announcement-banner__scroller { height: 56px; }
+            .announcement-banner__content { font-size: 0.9rem; }
         }
 .welcome-modal { position: fixed; inset: 0; display: none; align-items: center; justify-content: center; z-index: 11000; }
 .welcome-modal.active { display: flex; }
@@ -769,7 +943,7 @@
                         <li><a href="/dashboard" class="nav-link"><i class="fas fa-chart-line"></i> דשבורד</a></li>
                         <li><a href="/files" class="nav-link"><i class="fas fa-folder"></i> הקבצים שלי</a></li>
                         <li><a href="/collections" class="nav-link"><i class="fas fa-layer-group"></i> האוספים שלי</a></li>
-                        <li><a href="https://t.me/{{ bot_username }}" target="_blank" class="nav-link"><i class="fab fa-telegram"></i> לבוט</a></li>
+                        <li><a href="#" class="nav-link" onclick="openCommunityChooser(event)"><i class="fas fa-puzzle-piece"></i> אוסף הקהילה</a></li>
                     {% endif %}
                     
                     <li class="user-menu">
@@ -798,6 +972,19 @@
         </div>
     </nav>
     
+    {% if session.user_id and (_announcement_enabled is none or _announcement_enabled) %}
+    <div class="container" aria-hidden="false">
+        <div id="announcementBanner" class="announcement-banner" role="status" aria-label="הכרזת מערכת" tabindex="-1" title="הכרזה" style="display:none;" aria-hidden="true">
+            <span class="announcement-banner__icon" aria-hidden="true">📣</span>
+            <div class="announcement-banner__scroller">
+                <div class="announcement-banner__inner" id="announcementBannerInner" aria-live="polite">
+                    <!-- content filled by JS -->
+                </div>
+            </div>
+        </div>
+    </div>
+    {% endif %}
+
     <main class="main-content">
         <div class="container">
             {% block content %}{% endblock %}
@@ -980,6 +1167,40 @@
                 '</div>'
             );
             return modal;
+        }
+
+        // --- Community chooser modal ---
+        function openCommunityChooser(ev){
+            try { if (ev && ev.preventDefault) ev.preventDefault(); } catch(_){ }
+            // Guard: avoid stacking multiple identical modals
+            if (document.querySelector('.community-modal')) {
+                return;
+            }
+            const modal = document.createElement('div');
+            modal.className = 'community-modal';
+            modal.innerHTML = (
+                '<div class="modal-backdrop" onclick="closeCommunityChooser()"></div>'+
+                '<div class="modal-content">'+
+                '  <div class="modal-header">'+
+                '    <h3>אוספי הקהילה</h3>'+
+                '    <button class="modal-close" onclick="closeCommunityChooser()"><i class="fas fa-times"></i></button>'+
+                '  </div>'+
+                '  <div class="modal-body" style="display:flex; flex-direction:column; gap:12px;">'+
+                '    <a href="/community-library" class="btn btn-secondary btn-icon" style="width:100%; justify-content:flex-start; gap:.75rem;">'+
+                '      <span style="font-size:1.2rem;">📳</span>'+
+                '      <span>ממשקי משתמשים</span>'+
+                '    </a>'+
+                '    <a href="/snippets" class="btn btn-secondary btn-icon" style="width:100%; justify-content:flex-start; gap:.75rem;">'+
+                '      <span style="font-size:1.2rem;">📃</span>'+
+                '      <span>ספריית סניפטים</span>'+
+                '    </a>'+
+                '  </div>'+
+                '</div>'
+            );
+            document.body.appendChild(modal);
+        }
+        function closeCommunityChooser(){
+            try { const modal = document.querySelector('.community-modal'); if (modal) modal.remove(); } catch(_){ }
         }
 
         function displayRecentFiles(files, modal) {
@@ -1342,6 +1563,436 @@
             dismiss(href);
         });
     })();
+</script>
+
+<script>
+// Sticky note reminders indicator (persistent UI badge)
+(function initStickyRemindersIndicator(){
+  function isMobile(){ return window.matchMedia && window.matchMedia('(max-width: 768px)').matches; }
+  // ניהול פופ־אפ פעיל והאזנות גלובליות
+  let activeReminderPopover = null;
+  let removeReminderPopoverListeners = null;
+  function ensureBubble(anchor){
+    if (!anchor) return null;
+    let b = anchor.querySelector('.notif-bubble[data-kind="reminder"]');
+    if (b) return b;
+    b = document.createElement('span');
+    b.className = 'notif-bubble notif-bubble--pulse';
+    b.setAttribute('data-kind','reminder');
+    b.setAttribute('role','button');
+    b.setAttribute('tabindex','0');
+    b.setAttribute('aria-label','תזכורות ממתינות לפתקים');
+    anchor.style.position = 'relative';
+    anchor.appendChild(b);
+    return b;
+  }
+  function removeDot(){
+    document.querySelectorAll('.notif-bubble[data-kind="reminder"]').forEach(el => { try { el.remove(); } catch(_) {} });
+  }
+  function closePopover(){
+    try {
+      if (removeReminderPopoverListeners) { removeReminderPopoverListeners(); }
+    } catch(_) {}
+    removeReminderPopoverListeners = null;
+    const pop = activeReminderPopover || document.querySelector('.notif-popover[data-kind="reminder"]');
+    if (pop) {
+      try { pop.removeAttribute('data-open'); pop.setAttribute('aria-hidden','true'); pop.remove(); } catch(_) {}
+    }
+    activeReminderPopover = null;
+  }
+  function openPopover(anchor, data){
+    if (!anchor) return;
+    // סגור מופע קודם אם קיים
+    closePopover();
+    const pop = document.createElement('div');
+    pop.className = 'notif-popover notif-popover--portal';
+    pop.setAttribute('data-kind','reminder');
+    pop.setAttribute('role','dialog');
+    pop.setAttribute('aria-modal','false');
+    pop.style.display = 'block';
+    document.body.appendChild(pop);
+    const count = Number(data && data.count) || 0;
+    const items = Array.isArray(data && data.items) ? data.items : [];
+    const title = `🔔 יש לך ${count} פתקים שממתינים:`;
+    const listHtml = items.map(it => {
+      const prev = (it.preview || '').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+      return `<li style="list-style:none; margin:4px 0;"><a href="#" data-note-id="${String(it.note_id || '')}" data-file-id="${String(it.file_id || '')}" class="reminder-link" style="text-decoration:none; color:inherit;">• ${prev || 'פתק ללא כותרת'}...</a></li>`;
+    }).join('');
+    pop.innerHTML = `
+      <div class="notif-popover__title">${title}</div>
+      <div class="notif-popover__body">
+        <ul style="padding:0; margin:0; max-width: 30ch;">${listHtml}</ul>
+        <div class="notif-popover__actions">
+          <button type="button" class="btn btn-secondary" data-action="snooze-ui">דחה לאחר"כ</button>
+          <button type="button" class="btn btn-primary" data-action="close-ui">סגור</button>
+        </div>
+      </div>
+    `;
+    pop.setAttribute('data-open','true');
+    pop.setAttribute('aria-hidden','false');
+    activeReminderPopover = pop;
+
+    // חישוב מיקום יחסי לאייקון הפעמון (RTL/Responsive)
+    const place = () => {
+      try {
+        const rect = anchor.getBoundingClientRect();
+        const vw = window.innerWidth || document.documentElement.clientWidth || 0;
+        const vh = window.innerHeight || document.documentElement.clientHeight || 0;
+        const gap = 8;
+        // יישור אופקי לפי כיוון המסמך
+        const rtl = (document.documentElement.getAttribute('dir') || '').toLowerCase() === 'rtl'
+          || (getComputedStyle(document.documentElement).direction || '').toLowerCase() === 'rtl';
+        pop.style.right = 'auto';
+        pop.style.left = 'auto';
+        let top = Math.round(rect.bottom + gap);
+        // הגבלת תחתית המסך – אם אין מקום למטה, נפתח מעל העוגן
+        pop.style.top = top + 'px';
+        // יש למדוד אחרי הצבה
+        const pr = pop.getBoundingClientRect();
+        const popW = Math.round(pr.width || 240);
+        const popH = Math.round(pr.height || 140);
+        if (rtl) {
+          const rightPx = Math.max(8, Math.round(vw - rect.right));
+          pop.style.right = rightPx + 'px';
+        } else {
+          let left = Math.round(rect.left);
+          left = Math.max(8, Math.min(left, vw - popW - 8));
+          pop.style.left = left + 'px';
+        }
+        const willOverflowBottom = (top + popH) > (vh - 8);
+        if (willOverflowBottom) {
+          const above = Math.max(8, Math.round(rect.top - gap - popH));
+          pop.style.top = above + 'px';
+        }
+      } catch(_) {}
+    };
+    place();
+
+    // האזנות: קליק מחוץ/ESC/Resize/Scroll
+    const outsideCloser = (e) => {
+      try {
+        if (!activeReminderPopover) return;
+        const target = e.target;
+        const isInsidePop = activeReminderPopover.contains(target);
+        const isAnchorOrBubble = anchor.contains(target) || (target && (target.closest && target.closest('.notif-bubble[data-kind="reminder"]')));
+        if (!isInsidePop && !isAnchorOrBubble) { closePopover(); }
+      } catch(_) {}
+    };
+    const escCloser = (e) => { if (e.key === 'Escape') { closePopover(); } };
+    const reposer = () => { if (activeReminderPopover) place(); };
+    document.addEventListener('click', outsideCloser, true);
+    document.addEventListener('keydown', escCloser, true);
+    window.addEventListener('resize', reposer);
+    window.addEventListener('scroll', reposer, true);
+    removeReminderPopoverListeners = () => {
+      document.removeEventListener('click', outsideCloser, true);
+      document.removeEventListener('keydown', escCloser, true);
+      window.removeEventListener('resize', reposer);
+      window.removeEventListener('scroll', reposer, true);
+    };
+
+    // Bind actions
+    pop.querySelectorAll('a.reminder-link').forEach(a => {
+      a.addEventListener('click', async (ev) => {
+        ev.preventDefault();
+        const noteId = a.getAttribute('data-note-id') || '';
+        const fileId = a.getAttribute('data-file-id') || '';
+        // best-effort ack
+        try { fetch('/api/sticky-notes/reminders/ack', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ note_id: noteId }) }).catch(()=>{}); } catch(_) {}
+        // navigate to rendered markdown with deep-link to note
+        if (fileId) { window.location.href = '/md/' + encodeURIComponent(fileId) + '?note=' + encodeURIComponent(noteId); }
+      });
+    });
+    const closeBtn = pop.querySelector('[data-action="close-ui"]');
+    const snoozeBtn = pop.querySelector('[data-action="snooze-ui"]');
+    if (closeBtn) closeBtn.addEventListener('click', () => { closePopover(); removeDot(); });
+    if (snoozeBtn) snoozeBtn.addEventListener('click', () => { closePopover(); /* משאיר את הבועה גלויה */ });
+  }
+  async function poll(){
+    try {
+      const r = await fetch('/api/sticky-notes/reminders/summary', { cache: 'no-store' });
+      if (!r.ok) { removeDot(); return; }
+      const j = await r.json();
+      if (!j || j.ok === false || !j.has_due) { removeDot(); return; }
+      const target = isMobile() ? document.querySelector('.mobile-menu-toggle') : document.querySelector('.nav-link[href="/settings"]');
+      const bubble = ensureBubble(target);
+      if (!bubble) return;
+      // Update counter
+      try { bubble.setAttribute('data-count', String(j.count_due || 0)); } catch(_) {}
+      bubble.textContent = String(j.count_due || 1);
+      bubble.onclick = async (ev) => {
+        ev.preventDefault();
+        try {
+          const lr = await fetch('/api/sticky-notes/reminders/list?limit=20', { cache: 'no-store' });
+          const lj = await lr.json().catch(()=>null);
+          openPopover(target, (lj && lj.ok) ? lj : { items: [], count: 0 });
+        } catch(_) { /* ignore */ }
+      };
+      bubble.onkeydown = (ev) => { if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); bubble.click(); } };
+    } catch(_) { removeDot(); }
+  }
+  try { setInterval(poll, 60000); } catch(_) {}
+  try { document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') poll(); }); } catch(_) {}
+  poll();
+})();
+</script>
+
+<script>
+// Announcement banner initialization — with dynamic fetch fallback
+(function initAnnouncementBanner(){
+    const container = document.getElementById('announcementBanner');
+    const inner = document.getElementById('announcementBannerInner');
+    if (!container || !inner) { return; }
+
+    function hide(){
+        try {
+            container.style.display = 'none';
+            container.setAttribute('aria-hidden', 'true');
+            container.setAttribute('tabindex', '-1');
+        } catch (_) {}
+    }
+    function show(){
+        try {
+            container.style.display = '';
+            container.setAttribute('aria-hidden', 'false');
+        } catch (_) {}
+    }
+
+    function escapeHtml(value){
+        const div = document.createElement('div');
+        div.textContent = String(value || '');
+        return div.innerHTML;
+    }
+    function escapeAttr(value){
+        return String(value || '').replace(/"/g, '&quot;');
+    }
+
+    function renderContent(entry){
+        const build = (item) => {
+            const wrap = document.createElement('div');
+            wrap.className = 'announcement-banner__content';
+            const text = String(item.text || '').trim();
+            if (item.link) {
+                wrap.innerHTML = `${escapeHtml(text)} <a href="${escapeAttr(item.link)}" target="_blank" rel="noopener">עוד ›</a>`;
+            } else {
+                wrap.textContent = text;
+            }
+            return wrap;
+        };
+        inner.innerHTML = '';
+        const first = build(entry);
+        const second = build(entry);
+        inner.appendChild(first);
+        inner.appendChild(second);
+        try {
+            const scroller = container.querySelector('.announcement-banner__scroller');
+            const oneHeight = first.getBoundingClientRect().height;
+            const boxHeight = scroller.getBoundingClientRect().height;
+            const distance = Math.max(1, Math.round(oneHeight));
+            const duration = Math.max(12, Math.min(30, Math.round((distance + boxHeight) / 20)));
+            inner.style.setProperty('--announcement-distance', distance + 'px');
+            inner.style.setProperty('--announcement-duration', duration + 's');
+        } catch (_) {}
+    }
+
+    async function run(){
+        try {
+            // Try to fetch active announcement if none injected
+            let list = Array.isArray(window.__announcements) ? window.__announcements : [];
+            if (!list.length) {
+                try {
+                    const resp = await fetch('/api/v1/announcements/active', { cache: 'no-store' });
+                    if (resp && resp.ok) {
+                        const a = await resp.json();
+                        if (a) {
+                            window.__announcementEnabled = true;
+                            window.__announcements = [{ id: a.id, text: a.text, link: a.link || null }];
+                            list = window.__announcements;
+                        }
+                    }
+                } catch (_) { /* ignore */ }
+            }
+
+            const htmlAttr = (document.documentElement.getAttribute('data-announcement') || '').toLowerCase();
+            const globalFlag = (typeof window.__announcementEnabled === 'boolean')
+                ? window.__announcementEnabled
+                : (typeof window.__weeklyTipEnabled === 'boolean' ? window.__weeklyTipEnabled : true);
+            const localKill = (() => {
+                try {
+                    return localStorage.getItem('announcementBannerOff') === '1'
+                        || localStorage.getItem('weeklyTipFeatureOff') === '1';
+                } catch (_) { return false; }
+            })();
+            if (!globalFlag || htmlAttr === 'off' || htmlAttr === '0' || localKill) {
+                hide();
+                return;
+            }
+
+            const announcements = (Array.isArray(list) ? list : []).filter((item) => {
+                try { return item && typeof item === 'object' && String(item.text || '').trim().length > 0; } catch (_) { return false; }
+            });
+            if (!announcements.length) { hide(); return; }
+
+            const activeAnnouncement = announcements[0];
+            renderContent(activeAnnouncement);
+            const announcementText = String(activeAnnouncement.text || '').trim();
+            if (announcementText) {
+                container.setAttribute('title', announcementText);
+                container.setAttribute('aria-label', announcementText);
+            }
+            if (activeAnnouncement && activeAnnouncement.link) {
+                container.setAttribute('role', 'link');
+                container.setAttribute('tabindex', '0');
+                try { container.style.cursor = 'pointer'; } catch (_) {}
+            } else {
+                container.setAttribute('role', 'status');
+                container.setAttribute('tabindex', '-1');
+                try { container.style.cursor = 'default'; } catch (_) {}
+            }
+            show();
+
+            const pause = () => { container.classList.add('is-paused'); };
+            const resume = () => { container.classList.remove('is-paused'); };
+            container.addEventListener('mouseenter', pause);
+            container.addEventListener('mouseleave', resume);
+            container.addEventListener('focusin', pause);
+            container.addEventListener('focusout', resume);
+
+            const openLink = () => {
+                if (!activeAnnouncement || !activeAnnouncement.link) { return; }
+                const target = String(activeAnnouncement.link);
+                try {
+                    if (target.startsWith('/')) {
+                        window.location.href = target;
+                    } else {
+                        window.open(target, '_blank', 'noopener');
+                    }
+                } catch (_) { window.location.href = target; }
+            };
+            container.addEventListener('click', (event) => {
+                if (!activeAnnouncement || !activeAnnouncement.link) { return; }
+                event.preventDefault();
+                openLink();
+            });
+            container.addEventListener('keydown', (event) => {
+                const key = event.key;
+                if ((key === 'Enter' || key === ' ') && activeAnnouncement && activeAnnouncement.link) {
+                    event.preventDefault();
+                    openLink();
+                }
+            });
+        } catch (_) { hide(); }
+    }
+    try { run(); } catch (_) { hide(); }
+})();
+</script>
+
+<script>
+// Premium announcement indicator
+(function initPremiumAnnouncement(){
+    async function fetchMe(){
+        try {
+            const r = await fetch('/api/me');
+            if (!r.ok) return null;
+            const j = await r.json();
+            return j && j.ok ? j : null;
+        } catch (_) { return null; }
+    }
+    function lsGet(k){ try { return localStorage.getItem(k); } catch(_) { return null; } }
+    function lsSet(k,v){ try { localStorage.setItem(k,v); } catch(_) {} }
+    function isMobile(){ return window.matchMedia && window.matchMedia('(max-width: 768px)').matches; }
+    function createDot(){
+        const s = document.createElement('span');
+        s.className = 'notif-dot notif-dot--pulse';
+        s.setAttribute('role','button');
+        s.setAttribute('tabindex','0');
+        s.setAttribute('aria-label','התראה חדשה: הפכת לפרימיום');
+        s.title = 'התראה: הפכת לפרימיום';
+        return s;
+    }
+    function ensurePopover(anchorEl){
+        let pop = anchorEl.querySelector('.notif-popover');
+        if (!pop) {
+            pop = document.createElement('div');
+            pop.className = 'notif-popover';
+            pop.setAttribute('role','dialog');
+            pop.setAttribute('aria-modal','false');
+            pop.setAttribute('aria-hidden','true');
+            pop.innerHTML = (
+                '<div class="notif-popover__title">💎 הפכת לפרימיום!</div>'+
+                '<div class="notif-popover__body">תודה על הפעילות! קיבלת תג פרימיום עם אפשרות לבקשות מיוחדות.</div>'+
+                '<div class="notif-popover__actions">'+
+                '  <button type="button" class="btn btn-primary" data-action="go">לפרטים</button>'+
+                '  <button type="button" class="btn btn-secondary" data-action="close">סגור</button>'+
+                '</div>'
+            );
+            anchorEl.appendChild(pop);
+        }
+        return pop;
+    }
+    function openPopover(anchorEl, onGo){
+        const pop = ensurePopover(anchorEl);
+        pop.setAttribute('data-open','true');
+        pop.setAttribute('aria-hidden','false');
+        const goBtn = pop.querySelector('[data-action="go"]');
+        const closeBtn = pop.querySelector('[data-action="close"]');
+        const cleanup = () => {
+            document.removeEventListener('click', outsideCloser, true);
+            document.removeEventListener('keydown', escCloser, true);
+        };
+        const outsideCloser = (e) => {
+            if (!anchorEl.contains(e.target)) { closePopover(anchorEl); cleanup(); }
+        };
+        const escCloser = (e) => { if (e.key === 'Escape') { closePopover(anchorEl); cleanup(); } };
+        document.addEventListener('click', outsideCloser, true);
+        document.addEventListener('keydown', escCloser, true);
+        if (goBtn) goBtn.onclick = () => { cleanup(); onGo(); };
+        if (closeBtn) closeBtn.onclick = () => { cleanup(); closePopover(anchorEl); };
+        try { (goBtn || closeBtn).focus(); } catch(_) {}
+        return pop;
+    }
+    function closePopover(anchorEl){
+        const pop = anchorEl.querySelector('.notif-popover');
+        if (!pop) return;
+        pop.removeAttribute('data-open');
+        pop.setAttribute('aria-hidden','true');
+    }
+
+    function attachDot(anchorEl, onActivate){
+        if (!anchorEl) return;
+        const dot = createDot();
+        const handler = (ev) => { ev.preventDefault(); onActivate(anchorEl, dot); };
+        dot.addEventListener('click', handler);
+        dot.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onActivate(); }});
+        anchorEl.appendChild(dot);
+        return dot;
+    }
+
+    function goToPremium(){
+        try { window.location.href = '/settings#account-status'; } catch(_) {}
+    }
+
+    (async function(){
+        const me = await fetchMe();
+        if (!me || !me.roles || !me.roles.is_premium || !me.user || !me.user.user_id) return;
+        const uid = String(me.user.user_id);
+        const K = 'premium_announce_seen_' + uid;
+        if (lsGet(K) === '1') return; // already seen
+        const onActivate = (anchorEl, dotEl) => {
+            lsSet(K,'1');
+            try { dotEl && dotEl.remove(); } catch(_) {}
+            openPopover(anchorEl, () => goToPremium());
+            // Auto navigate after short delay for convenience
+            setTimeout(() => { goToPremium(); }, 1600);
+        };
+        if (isMobile()) {
+            const mobileBtn = document.querySelector('.mobile-menu-toggle');
+            if (mobileBtn) { attachDot(mobileBtn, onActivate); return; }
+        }
+        const settingsLink = document.querySelector('.nav-link[href="/settings"]');
+        if (settingsLink) { attachDot(settingsLink, onActivate); }
+    })();
+})();
 </script>
 
     {% block extra_js %}{% endblock %}

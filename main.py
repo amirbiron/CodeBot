@@ -164,20 +164,65 @@ def _shutdown_http_shared_session() -> None:
         from http_async import close_session  # type: ignore
     except Exception:
         return
+    loop: asyncio.AbstractEventLoop | None = None
     try:
         loop = asyncio.get_event_loop()
-        if not loop.is_closed():
-            loop.run_until_complete(close_session())
     except RuntimeError:
-        # אין event loop פעיל
+        loop = None
+    if loop is not None and not loop.is_closed():
         try:
-            # חשוב להשתמש באותו מודול asyncio של המודול (ניתן ל-monkeypatch בטסטים)
-            _loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(_loop)
-            _loop.run_until_complete(close_session())
-            _loop.close()
+            running = bool(loop.is_running())
         except Exception:
-            pass
+            running = False
+        if not running:
+            try:
+                coro = close_session()
+            except Exception:
+                coro = None
+            if coro is not None:
+                try:
+                    loop.run_until_complete(coro)
+                except Exception:
+                    try:
+                        coro.close()  # type: ignore[attr-defined]
+                    except Exception:
+                        pass
+                else:
+                    return
+        # אם הלולאה פעילה אי אפשר להמתין לה כאן – נשתמש בלולאה זמנית
+    try:
+        tmp_loop = asyncio.new_event_loop()
+        original_loop: asyncio.AbstractEventLoop | None = None
+        try:
+            try:
+                original_loop = asyncio.get_event_loop()
+            except RuntimeError:
+                original_loop = None
+            try:
+                asyncio.set_event_loop(tmp_loop)
+            except Exception:
+                pass
+            try:
+                coro = close_session()
+            except Exception:
+                coro = None
+            if coro is not None:
+                try:
+                    tmp_loop.run_until_complete(coro)
+                except Exception:
+                    try:
+                        coro.close()  # type: ignore[attr-defined]
+                    except Exception:
+                        pass
+        finally:
+            tmp_loop.close()
+            try:
+                if original_loop is None or (original_loop.is_closed() if original_loop else True):
+                    asyncio.set_event_loop(None)
+                else:
+                    asyncio.set_event_loop(original_loop)
+            except Exception:
+                pass
     except Exception:
         # אל תהרוס כיבוי
         pass
@@ -427,6 +472,11 @@ def _wrap_handler_callback(callback, handler_label: str):
 
     _wrapped_sync._metrics_wrapped = True  # type:ignore[attr-defined]
     return _wrapped_sync
+
+
+async def _cancel_command_fallback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Handler אסינכרוני אחיד לסיום שיחה כאשר המשתמש מפעיל /cancel."""
+    return ConversationHandler.END
 
 
 def _redis_socket_available(redis_url: str, timeout: float = 0.25) -> bool:
@@ -1727,7 +1777,10 @@ class CodeKeeperBot:
             pass
 
         # Add conversation handler
-        conversation_handler = get_save_conversation_handler(db)
+        conversation_handler = get_save_conversation_handler(
+            db,
+            callback_query_handler_cls=CallbackQueryHandler,
+        )
         self.application.add_handler(conversation_handler)
         logger.info("ConversationHandler נוסף")
         try:
@@ -1810,6 +1863,12 @@ class CodeKeeperBot:
         # הגדר conversation handler להעלאת קבצים
         from github_menu_handler import FILE_UPLOAD, REPO_SELECT, FOLDER_SELECT
         async def _upload_cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
+            try:
+                cq = getattr(update, "callback_query", None)
+                if cq is not None:
+                    await cq.answer("העלאה בוטלה", show_alert=False)
+            except Exception:
+                pass
             return ConversationHandler.END
 
         upload_conv_handler = ConversationHandler(
@@ -1827,7 +1886,10 @@ class CodeKeeperBot:
                     MessageHandler(filters.TEXT & ~filters.COMMAND, github_handler.handle_text_input)
                 ]
             },
-            fallbacks=[CommandHandler('cancel', _upload_cancel)]
+            fallbacks=[
+                CommandHandler('cancel', _upload_cancel),
+                CallbackQueryHandler(_upload_cancel, pattern=r'^cancel$')
+            ]
         )
         
         self.application.add_handler(upload_conv_handler)
@@ -1996,56 +2058,114 @@ class CodeKeeperBot:
                     community_collect_url,
                     community_collect_logo,
                     community_inline_approve,
+                    community_reject_start,
+                    community_collect_reject_reason,
                     # Snippet library
                     snippet_submit_start,
+                    snippet_mode_regular_start,
+                    snippet_mode_long_start,
                     snippet_collect_title,
                     snippet_collect_description,
                     snippet_collect_code,
                     snippet_collect_language,
+                    snippet_long_collect_receive,
+                    snippet_long_collect_done,
                     snippet_inline_approve,
                     snippet_reject_start,
                     snippet_collect_reject_reason,
                     show_community_hub,
                     community_catalog_menu,
                     snippets_menu,
+                    # New helpers
+                    community_hub_callback,
+                    main_menu_callback,
+                    submit_flows_cancel,
+                    cancel,
                 )
                 from handlers.states import (
                     CL_COLLECT_TITLE,
                     CL_COLLECT_DESCRIPTION,
                     CL_COLLECT_URL,
                     CL_COLLECT_LOGO,
+                    CL_REJECT_REASON,
                     SN_COLLECT_TITLE,
                     SN_COLLECT_DESCRIPTION,
                     SN_COLLECT_CODE,
                     SN_COLLECT_LANGUAGE,
                     SN_REJECT_REASON,
+                    SN_LONG_COLLECT,
                 )
                 # Approve via inline button (admin-only wrapper inside function)
                 self.application.add_handler(CallbackQueryHandler(community_inline_approve, pattern=r'^community_approve:'))
+                # Community inline reject (reason collection)
+                cl_reject_conv = ConversationHandler(
+                    entry_points=[CallbackQueryHandler(community_reject_start, pattern=r'^community_reject:')],
+                    states={
+                        CL_REJECT_REASON: [MessageHandler(filters.TEXT & ~filters.COMMAND, community_collect_reject_reason)],
+                    },
+                    fallbacks=[CommandHandler('cancel', _cancel_command_fallback)],
+                )
+                self.application.add_handler(cl_reject_conv)
                 # Snippet inline approve
                 self.application.add_handler(CallbackQueryHandler(snippet_inline_approve, pattern=r'^snippet_approve:'))
                 # Submission flow
+                _logo_message_filter = filters.TEXT & ~filters.COMMAND
+                try:
+                    _photo_filter = getattr(filters, "PHOTO", None)
+                    if _photo_filter is not None:
+                        _logo_message_filter = (_photo_filter | filters.TEXT) & ~filters.COMMAND
+                except Exception:
+                    # אם חיבור הפילטרים נכשל (למשל בסביבת טסטים עם סטאבים פשוטים),
+                    # תישאר רק בדיקה על טקסט. חשוב שה-handler עדיין יירשם.
+                    _logo_message_filter = filters.TEXT & ~filters.COMMAND
+
+                # דפוס טקסטים של התפריט הראשי לביטול אוטומטי במהלך תהליכי הגשה
+                try:
+                    import re as _re
+                    _flat_main_menu = [t for row in MAIN_KEYBOARD for t in row]
+                    _main_menu_regex = r'^(' + "|".join(_re.escape(t) for t in _flat_main_menu) + r')$'
+                except Exception:
+                    _main_menu_regex = r'^(?:)$'  # fallback: לא תופס כלום במקרה של כשל
+
                 comm_conv = ConversationHandler(
                     entry_points=[CallbackQueryHandler(community_submit_start, pattern=r'^community_submit$')],
                     states={
                         CL_COLLECT_TITLE: [MessageHandler(filters.TEXT & ~filters.COMMAND, community_collect_title)],
                         CL_COLLECT_DESCRIPTION: [MessageHandler(filters.TEXT & ~filters.COMMAND, community_collect_description)],
                         CL_COLLECT_URL: [MessageHandler(filters.TEXT & ~filters.COMMAND, community_collect_url)],
-                        CL_COLLECT_LOGO: [MessageHandler((filters.PHOTO | filters.TEXT) & ~filters.COMMAND, community_collect_logo)],
+                        CL_COLLECT_LOGO: [MessageHandler(_logo_message_filter, community_collect_logo)],
                     },
-                    fallbacks=[CommandHandler('cancel', lambda u, c: ConversationHandler.END)],
+                    fallbacks=[
+                        CommandHandler('cancel', _cancel_command_fallback),
+                        CallbackQueryHandler(submit_flows_cancel, pattern=r'^cancel$'),
+                        # ביטול אוטומטי כאשר המשתמש לוחץ על כפתור אחר בתפריט הראשי
+                        MessageHandler(filters.Regex(_main_menu_regex), cancel),
+                    ],
                 )
                 self.application.add_handler(comm_conv)
                 # Snippet submission flow
                 sn_conv = ConversationHandler(
-                    entry_points=[CallbackQueryHandler(snippet_submit_start, pattern=r'^snippet_submit$')],
+                    entry_points=[
+                        CallbackQueryHandler(snippet_submit_start, pattern=r'^snippet_submit$'),
+                        CallbackQueryHandler(snippet_mode_regular_start, pattern=r'^snippet_mode_regular$'),
+                        CallbackQueryHandler(snippet_mode_long_start, pattern=r'^snippet_mode_long$'),
+                    ],
                     states={
                         SN_COLLECT_TITLE: [MessageHandler(filters.TEXT & ~filters.COMMAND, snippet_collect_title)],
                         SN_COLLECT_DESCRIPTION: [MessageHandler(filters.TEXT & ~filters.COMMAND, snippet_collect_description)],
                         SN_COLLECT_CODE: [MessageHandler(filters.TEXT & ~filters.COMMAND, snippet_collect_code)],
                         SN_COLLECT_LANGUAGE: [MessageHandler(filters.TEXT & ~filters.COMMAND, snippet_collect_language)],
+                        SN_LONG_COLLECT: [
+                            MessageHandler(filters.TEXT & ~filters.COMMAND, snippet_long_collect_receive),
+                            CommandHandler('done', snippet_long_collect_done),
+                        ],
                     },
-                    fallbacks=[CommandHandler('cancel', lambda u, c: ConversationHandler.END)],
+                    fallbacks=[
+                        CommandHandler('cancel', _cancel_command_fallback),
+                        CallbackQueryHandler(submit_flows_cancel, pattern=r'^cancel$'),
+                        # ביטול אוטומטי כאשר המשתמש לוחץ על כפתור אחר בתפריט הראשי
+                        MessageHandler(filters.Regex(_main_menu_regex), cancel),
+                    ],
                 )
                 self.application.add_handler(sn_conv)
                 # Snippet reject reason flow
@@ -2054,13 +2174,18 @@ class CodeKeeperBot:
                     states={
                         SN_REJECT_REASON: [MessageHandler(filters.TEXT & ~filters.COMMAND, snippet_collect_reject_reason)],
                     },
-                    fallbacks=[CommandHandler('cancel', lambda u, c: ConversationHandler.END)],
+                    fallbacks=[CommandHandler('cancel', _cancel_command_fallback)],
                 )
                 self.application.add_handler(sn_reject_conv)
                 # Community hub menus
                 self.application.add_handler(MessageHandler(filters.Regex("^🗃️ אוסף הקהילה$"), show_community_hub))
                 self.application.add_handler(CallbackQueryHandler(community_catalog_menu, pattern=r'^community_catalog_menu$'))
                 self.application.add_handler(CallbackQueryHandler(snippets_menu, pattern=r'^snippets_menu$'))
+                # Back navigation helpers
+                self.application.add_handler(CallbackQueryHandler(community_hub_callback, pattern=r'^community_hub$'))
+                self.application.add_handler(CallbackQueryHandler(main_menu_callback, pattern=r'^main_menu$'))
+                # Global cancel for submission flows (works also on entry screen)
+                self.application.add_handler(CallbackQueryHandler(submit_flows_cancel, pattern=r'^cancel$'))
             except Exception as _e:
                 try:
                     logger.info("Community library handlers not registered: %s", _e)
@@ -3166,6 +3291,36 @@ async def setup_bot_data(application: Application) -> None:  # noqa: D401
     # מחיקת כל הפקודות הציבוריות (אין להגדיר /share /share_help — שיתוף דרך הכפתורים)
     await application.bot.delete_my_commands()
     logger.info("✅ Public commands cleared (no /share, /share_help)")
+
+    # הגדרת JobStore מתמיד ל-APScheduler (MongoDB) אם אפשרי
+    try:
+        jq = getattr(application, "job_queue", None)
+        scheduler = getattr(jq, "scheduler", None)
+        if scheduler is not None:
+            try:
+                from database import db as _dbm  # שימוש בלקוח/DB הקיימים
+            except Exception:
+                _dbm = None  # type: ignore[assignment]
+            client = getattr(_dbm, "client", None) if _dbm is not None else None
+            db_obj = getattr(_dbm, "db", None) if _dbm is not None else None
+            db_name = getattr(db_obj, "name", None) if db_obj is not None else None
+            # אל תגדיר במצב NoOp או כשאין חיבור
+            if client is not None and db_name and db_name != "noop_db":
+                try:
+                    # הוסף JobStore בשם 'persistent' לשימוש ע"י משימות הגיבוי
+                    scheduler.add_jobstore(
+                        'mongodb',
+                        alias='persistent',
+                        client=client,
+                        database=db_name,
+                        collection=os.getenv('APSCHEDULER_COLLECTION', 'scheduler_jobs'),
+                    )
+                    logger.info("✅ APScheduler persistent jobstore registered (MongoDB)")
+                except Exception as e:  # pragma: no cover — fail‑open בסביבות טסט/ללא DB
+                    logger.warning(f"APS persistent jobstore not available: {e}")
+    except Exception:
+        # Fail-open: אין להפיל את ה-setup אם שכבת APScheduler אינה זמינה
+        pass
     
     # הגדרת פקודת stats רק למנהל (אמיר בירון)
     AMIR_ID = 6865105071  # ה-ID של אמיר בירון
@@ -3602,6 +3757,10 @@ async def setup_bot_data(application: Application) -> None:  # noqa: D401
     try:
         async def _predictive_sampler_job(context: ContextTypes.DEFAULT_TYPE):  # noqa: ARG001
             try:
+                if os.getenv("PYTEST_CURRENT_TEST"):
+                    allow_in_tests = str(os.getenv("PREDICTIVE_SAMPLER_RUN_IN_TESTS", "false")).lower()
+                    if allow_in_tests not in {"1", "true", "yes", "on"}:
+                        return
                 # Feature flag: allow disabling explicitly
                 if str(os.getenv("PREDICTIVE_SAMPLER_ENABLED", "true")).lower() not in {"1", "true", "yes", "on"}:
                     return

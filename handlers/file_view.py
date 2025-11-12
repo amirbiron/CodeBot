@@ -352,12 +352,6 @@ async def handle_view_file(update, context: ContextTypes.DEFAULT_TYPE) -> int:
         # הוסף את כפתור המועדפים לפני כפתור החזרה
         keyboard.insert(-1, [InlineKeyboardButton(fav_text, callback_data=fav_cb)])
         # הוספת כפתור "הצג עוד" אם יש עוד תוכן
-        if len(code) > max_length:
-            next_chunk = code[max_length:max_length + max_length]
-            next_lines = next_chunk.count('\n') or (1 if next_chunk else 0)
-            show_more_label = f"הצג עוד {next_lines} שורות ⤵️"
-            keyboard.insert(-1, [InlineKeyboardButton(show_more_label, callback_data=f"fv_more:idx:{file_index}:{max_length}")])
-        reply_markup = InlineKeyboardMarkup(keyboard)
         note = file_data.get('description') or ''
         note_line = f"\n📝 הערה: {html_escape(note)}\n" if note else "\n📝 הערה: —\n"
         # אחידות: תמיד HTML עם <pre><code>, אך נכבד מגבלת 4096 לאחר escape
@@ -383,6 +377,12 @@ async def handle_view_file(update, context: ContextTypes.DEFAULT_TYPE) -> int:
                 preview_raw_limit = max(0, preview_raw_limit - step)
                 safe_code = html_escape(code[:preview_raw_limit])
         code_preview = code[:preview_raw_limit]
+        if preview_raw_limit < len(code):
+            next_chunk = code[preview_raw_limit:preview_raw_limit + max_length]
+            next_lines = next_chunk.count('\n') or (1 if next_chunk else 0)
+            show_more_label = f"הצג עוד {next_lines} שורות ⤵️"
+            keyboard.insert(-1, [InlineKeyboardButton(show_more_label, callback_data=f"fv_more:idx:{file_index}:{preview_raw_limit}")])
+        reply_markup = InlineKeyboardMarkup(keyboard)
         await TelegramUtils.safe_edit_message_text(
             query,
             f"{header_html}<pre><code>{safe_code}</code></pre>",
@@ -1049,52 +1049,83 @@ async def handle_view_direct_file(update, context: ContextTypes.DEFAULT_TYPE) ->
             fav_cb = f"fav_toggle_tok:{short_tok}"
         # הוסף את כפתור המועדפים לפני כפתור החזרה
         keyboard.insert(-1, [InlineKeyboardButton(fav_text, callback_data=fav_cb)])
-        # הוספת כפתור "הצג עוד" אם יש עוד תוכן (פעם אחת בלבד)
-        if len(code) > max_length:
-            next_chunk = code[max_length:max_length + max_length]
-            next_lines = next_chunk.count('\n') or (1 if next_chunk else 0)
-            show_more_label = f"הצג עוד {next_lines} שורות ⤵️"
-            # הוסף לפני כפתור החזרה (השורה האחרונה)
-            keyboard.insert(-1, [InlineKeyboardButton(show_more_label, callback_data=f"fv_more:direct:{file_name}:{max_length}")])
-        reply_markup = InlineKeyboardMarkup(keyboard)
         note = file_data.get('description') or ''
         note_line_html = f"\n📝 הערה: {html_escape(note)}\n\n" if note else "\n📝 הערה: —\n\n"
-        large_note_md = "\nזה קובץ גדול\n\n" if is_large_file else ""
         large_note_html = "\n<i>זה קובץ גדול</i>\n\n" if is_large_file else ""
-        if note:
+        header_html = (
+            f"📄 <b>{html_escape(file_name)}</b> ({html_escape(language)}) - גרסה {version}"
+            f"{note_line_html}{large_note_html}"
+        )
+        if not header_html.endswith("\n"):
+            header_html += "\n"
+        html_wrapper_overhead = len("<pre><code>") + len("</code></pre>")
+        fudge = 10
+        available_for_code = 4096 - len(header_html) - html_wrapper_overhead - fudge
+        if available_for_code < 100:
+            available_for_code = 100
+        preview_raw_limit = min(max_length, len(code))
+        safe_code = html_escape(code[:preview_raw_limit])
+        if len(safe_code) > available_for_code and preview_raw_limit > 0:
             try:
-                note_line_md = f"\n📝 הערה: {TextUtils.escape_markdown(note, version=1)}\n\n"
+                factor = max(1.0, len(safe_code) / max(1, preview_raw_limit))
+                preview_raw_limit = max(0, int(available_for_code / factor))
             except Exception:
-                fallback = str(note).replace('`', '\\`').replace('*', '\\*').replace('_', '\\_')
-                note_line_md = f"\n📝 הערה: {fallback}\n\n"
-        else:
-            note_line_md = "\n📝 הערה: —\n\n"
-        # Markdown מוצג ב-HTML רק עבור קבצי Markdown; לשאר נשתמש ב-Markdown עם בלוק קוד
-        if (language or '').lower() == 'markdown':
-            safe_code = html_escape(code_preview)
-            header_html = (
-                f"📄 <b>{html_escape(file_name)}</b> ({html_escape(language)}) - גרסה {version}{note_line_html}"
-            )
-            await _edit_message_text_unified(
-                query,
-                f"{header_html}{large_note_html}<pre><code>{safe_code}</code></pre>",
-                reply_markup=reply_markup,
-                parse_mode='HTML',
-            )
-        else:
-            # בריחת שם קובץ ל-Markdown ומניעת שבירת בלוק קוד ע"י backticks
+                preview_raw_limit = max(0, preview_raw_limit - (len(safe_code) - available_for_code))
+            safe_code = html_escape(code[:preview_raw_limit])
+            while len(safe_code) > available_for_code and preview_raw_limit > 0:
+                step = max(50, len(safe_code) - available_for_code)
+                preview_raw_limit = max(0, preview_raw_limit - step)
+                safe_code = html_escape(code[:preview_raw_limit])
+        code_preview = code[:preview_raw_limit]
+        safe_code = html_escape(code_preview)
+        if preview_raw_limit < len(code):
+            next_chunk = code[preview_raw_limit:preview_raw_limit + max_length]
+            next_lines = next_chunk.count('\n') or (1 if next_chunk else 0)
+            show_more_label = f"הצג עוד {next_lines} שורות ⤵️"
+            keyboard.insert(-1, [InlineKeyboardButton(show_more_label, callback_data=f"fv_more:direct:{file_name}:{preview_raw_limit}")])
+        reply_markup = InlineKeyboardMarkup(keyboard)
+
+        html_payload = f"{header_html}<pre><code>{safe_code}</code></pre>"
+        message_text = html_payload
+        parse_mode = 'HTML'
+
+        try:
+            file_name_lower = str(file_name).lower()
+        except Exception:
+            file_name_lower = ""
+        language_lower = str(language).lower()
+        is_markdown_language = language_lower == 'markdown' or file_name_lower.endswith('.md') or file_name_lower.endswith('.markdown')
+
+        prefer_markdown = (
+            not is_markdown_language
+            and not is_large_file
+            and "```" not in code_preview
+        )
+
+        if prefer_markdown:
             try:
-                safe_file_name = TextUtils.escape_markdown(file_name, version=1)
-            except Exception:
-                safe_file_name = str(file_name).replace('`', '\\`')
-            safe_code_md = str(code_preview).replace('```', '\\`\\`\\`')
-            await _edit_message_text_unified(
-                query,
-                f"📄 *{safe_file_name}* ({language}) - גרסה {version}{note_line_md}{large_note_md}"
-                f"```{language}\n{safe_code_md}\n```",
-                reply_markup=reply_markup,
-                parse_mode='Markdown',
-            )
+                safe_file_name_md = TextUtils.escape_markdown(str(file_name), version=1)
+                safe_language_md = TextUtils.escape_markdown(str(language), version=1)
+                safe_note_md = TextUtils.escape_markdown(str(note), version=1) if note else '—'
+                header_md = (
+                    f"📄 **{safe_file_name_md}** ({safe_language_md}) - גרסה {version}\n"
+                    f"📝 הערה: {safe_note_md}\n\n"
+                )
+                code_block_body = code_preview or ""
+                closing_newline = "" if code_block_body.endswith("\n") else "\n"
+                markdown_payload = f"{header_md}```\n{code_block_body}{closing_newline}```"
+                if len(markdown_payload) <= 4096:
+                    message_text = markdown_payload
+                    parse_mode = 'Markdown'
+            except Exception as markdown_err:
+                logger.debug("Markdown render fallback to HTML: %s", markdown_err)
+
+        await _edit_message_text_unified(
+            query,
+            message_text,
+            reply_markup=reply_markup,
+            parse_mode=parse_mode,
+        )
     except Exception as e:
         logger.error(f"Error in handle_view_direct_file: {e}")
         await _edit_message_text_unified(query, "❌ שגיאה בהצגת הקוד המתקדם")

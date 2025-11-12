@@ -18,13 +18,23 @@
         <!-- עמודת החיפוש -->
         <div class="col-lg-8 col-md-12 mb-3 mb-lg-0">
           <div class="input-group">
-            <input type="text"
-                   id="globalSearchInput"
-                   class="form-control form-control-lg"
-                   placeholder="חפש טקסט/קוד בכל הקבצים..."
-                   autocomplete="off">
+            <div class="search-box-wrapper">
+              <i class="fas fa-search search-icon" aria-hidden="true"></i>
+              <input type="text"
+                     id="globalSearchInput"
+                     class="search-box"
+                     placeholder="🔍 חפש טקסט/קוד בכל הקבצים..."
+                     autocomplete="off"
+                     aria-label="חיפוש גלובלי">
+              <button type="button"
+                      id="clearSearchInputBtn"
+                      class="clear-search-btn"
+                      aria-label="נקה חיפוש">
+                <i class="fas fa-times"></i>
+              </button>
+            </div>
             <div class="input-group-append">
-              <button class="btn btn-primary btn-lg"
+              <button class="btn btn-primary btn-icon"
                       id="searchBtn"
                       onclick="performGlobalSearch()"
                       type="button">
@@ -41,7 +51,7 @@
         <!-- עמודת הפילטרים -->
         <div class="col-lg-4 col-md-12">
           <div class="filter-container d-flex gap-2 flex-wrap justify-content-lg-end justify-content-center">
-            <select id="searchType" class="form-control form-control-sm" style="width: auto;">
+            <select id="searchType" class="form-control form-control-sm">
               <option value="content" selected>תוכן</option>
               <option value="text">טקסט</option>
               <option value="regex">Regex</option>
@@ -49,13 +59,13 @@
               <option value="function">פונקציות</option>
             </select>
 
-            <select id="resultsPerPage" class="form-control form-control-sm" style="width: auto;">
+            <select id="resultsPerPage" class="form-control form-control-sm">
               <option value="10">10</option>
               <option value="20" selected>20</option>
               <option value="50">50</option>
             </select>
 
-            <select id="sortOrder" class="form-control form-control-sm" style="width: auto;">
+            <select id="sortOrder" class="form-control form-control-sm">
               <option value="relevance" selected>רלוונטיות</option>
               <option value="date_desc">תאריך ↓</option>
               <option value="date_asc">תאריך ↑</option>
@@ -70,13 +80,15 @@
                 {% endif %}
               {% endfor %}
             </select>
+            <!-- שבירת שורה יזומה: העבר את תיבת 'שפה' לשורה הבאה -->
+            <div class="w-100 d-none d-lg-block"></div>
             <div class="language-filter" style="position:relative;">
-              <button type="button" id="languageFilterBtn" class="btn btn-secondary btn-icon btn-sm" aria-expanded="false" aria-haspopup="true" title="סינון לפי שפה">
+              <button type="button" id="languageFilterBtn" class="btn btn-secondary btn-icon" aria-expanded="false" aria-haspopup="true" title="סינון לפי שפה">
                 <i class="fas fa-language"></i>
                 <span class="btn-text">שפות</span>
                 <span id="languageSelectedCount" class="badge" style="margin-right:.5rem; display:none;">0</span>
               </button>
-              <div id="languageFilterDropdown" class="lang-dropdown" style="display:none; position:absolute; top: calc(100% + 6px); right: 0; min-width: 220px; background: #fff; color:#333; border:1px solid rgba(0,0,0,0.1); border-radius: 10px; box-shadow: 0 8px 24px rgba(0, 0, 0, 0.15); z-index: 1100; padding: .5rem;">
+              <div id="languageFilterDropdown" class="lang-dropdown" style="display:none; position:absolute; top: calc(100% + 6px); right: 0; left: auto; min-width: 220px; max-width: calc(100vw - 3rem); background: #fff; color:#333; border:1px solid rgba(0,0,0,0.1); border-radius: 10px; box-shadow: 0 8px 24px rgba(0, 0, 0, 0.15); z-index: 1100; padding: .5rem;">
                 <div style="max-height: 220px; overflow-y:auto; padding: .25rem .25rem .5rem;">
                   {% for lang in languages %}
                   {% if lang %}
@@ -119,19 +131,19 @@
 
 <!-- כפתורי קטגוריות -->
 <div class="categories-section" style="display: flex; gap: 1rem; margin-bottom: 2rem; flex-wrap: wrap;">
-    <a href="/files#results" class="btn {% if not category_filter %}btn-primary{% else %}btn-secondary{% endif %} btn-icon">
+    <a href="/files" class="btn {% if not category_filter %}btn-primary{% else %}btn-secondary{% endif %} btn-icon">
         <i class="fas fa-th"></i>
         כל הקבצים
     </a>
-    <a href="/files?category=recent#results" class="btn {% if category_filter == 'recent' %}btn-primary{% else %}btn-secondary{% endif %} btn-icon">
+    <a href="/files?category=recent" class="btn {% if category_filter == 'recent' %}btn-primary{% else %}btn-secondary{% endif %} btn-icon">
         <i class="fas fa-history"></i>
         נפתחו לאחרונה
     </a>
-    <a href="/files?category=repo#results" class="btn {% if category_filter == 'repo' %}btn-primary{% else %}btn-secondary{% endif %} btn-icon">
+    <a href="/files?category=repo" class="btn {% if category_filter == 'repo' %}btn-primary{% else %}btn-secondary{% endif %} btn-icon">
         <i class="fab fa-github"></i>
         לפי ריפו
     </a>
-    <a href="/files?category=favorites#results" class="btn {% if category_filter == 'favorites' %}btn-primary{% else %}btn-secondary{% endif %} btn-icon">
+    <a href="/files?category=favorites" class="btn {% if category_filter == 'favorites' %}btn-primary{% else %}btn-secondary{% endif %} btn-icon">
         <i class="fas fa-star"></i>
         מועדפים
     </a>
@@ -139,11 +151,11 @@
           <i class="fas fa-desktop"></i>
           שולחן עבודה
       </a>
-    <a href="/files?category=large#results" class="btn {% if category_filter == 'large' %}btn-primary{% else %}btn-secondary{% endif %} btn-icon">
+    <a href="/files?category=large" class="btn {% if category_filter == 'large' %}btn-primary{% else %}btn-secondary{% endif %} btn-icon">
         <i class="fas fa-weight-hanging"></i>
         קבצים גדולים
     </a>
-    <a href="/files?category=other#results" class="btn {% if category_filter == 'other' %}btn-primary{% else %}btn-secondary{% endif %} btn-icon">
+    <a href="/files?category=other" class="btn {% if category_filter == 'other' %}btn-primary{% else %}btn-secondary{% endif %} btn-icon">
         <i class="fas fa-folder"></i>
         שאר קבצים
     </a>
@@ -238,8 +250,7 @@
     </div>
 </div>
 
-<!-- Anchor for auto-scroll to results -->
-<div id="results"></div>
+<!-- (auto-scroll anchor removed per UX request) -->
 
 {% if repos %}
 <div class="glass-card">
@@ -536,6 +547,12 @@
         const hiddenSelect = document.getElementById('filterLanguages');
         if (!btn || !dd) return;
 
+        // נזיז את החלונית לגוף המסמך בעת פתיחה כדי שלא תיחתך בתוך הכרטיס
+        let ddPortaled = false;
+        const ddOriginalParent = dd.parentElement;
+        let onScrollReposition = null;
+        let onResizeReposition = null;
+
         function updateCountBadge(){
             const n = dd.querySelectorAll('input.lang-checkbox:checked').length;
             if (n > 0) { countEl.textContent = String(n); countEl.style.display = 'inline-block'; }
@@ -546,9 +563,91 @@
             const selected = Array.from(dd.querySelectorAll('input.lang-checkbox:checked')).map(el => el.value);
             Array.from(hiddenSelect.options).forEach(o => { o.selected = selected.includes(o.value); });
         }
+        function positionDropdown(){
+            try {
+                // מדידה: נראה לרגע כדי למדוד מידות
+                const prevDisplay = dd.style.display;
+                const prevVisibility = dd.style.visibility;
+                dd.style.visibility = 'hidden';
+                dd.style.display = 'block';
+                // מיצוב כצף קבוע יחסית לחלון
+                dd.style.position = 'fixed';
+                dd.style.zIndex = '11000';
+                dd.style.left = 'auto';
+                dd.style.right = 'auto';
+                dd.style.top = 'auto';
+                dd.style.bottom = 'auto';
+
+                const btnRect = btn.getBoundingClientRect();
+                const ddRect = dd.getBoundingClientRect();
+                const viewportW = window.innerWidth || document.documentElement.clientWidth || 0;
+                const viewportH = window.innerHeight || document.documentElement.clientHeight || 0;
+
+                const gap = 6; // מרווח מתחת/מעל לכפתור
+                const desiredWidth = Math.max(220, Math.min(320, Math.max(btnRect.width, ddRect.width)));
+                dd.style.minWidth = desiredWidth + 'px';
+                dd.style.maxWidth = Math.min(viewportW - 16, 480) + 'px';
+
+                // RTL: עיגון לצד ימין של הכפתור, בלי לצאת מהמסך
+                let right = Math.max(8, viewportW - btnRect.right);
+                // אם זה יגרום לבריחה, נערוך התאמה קלה
+                right = Math.min(right, Math.max(8, viewportW - (btnRect.left + desiredWidth)));
+
+                // מיקום אנכי: העדפה לפתיחה כלפי מטה, אך נהפוך למעלה אם אין מקום
+                const spaceBelow = viewportH - btnRect.bottom;
+                const spaceAbove = btnRect.top;
+                const ddHeight = ddRect.height || 260;
+                let openUp = (spaceBelow < ddHeight) && (spaceAbove > ddHeight);
+
+                if (openUp) {
+                    dd.style.bottom = (viewportH - btnRect.top + gap) + 'px';
+                    dd.style.top = 'auto';
+                } else {
+                    dd.style.top = (btnRect.bottom + gap) + 'px';
+                    dd.style.bottom = 'auto';
+                }
+                dd.style.right = right + 'px';
+                dd.style.left = 'auto';
+
+                // השב ניראות קודמת
+                dd.style.visibility = prevVisibility || '';
+                dd.style.display = prevDisplay || 'block';
+            } catch(_) {}
+        }
+        function attachGlobalHandlers(){
+            if (!onScrollReposition){
+                onScrollReposition = () => { if (dd.style.display !== 'none') positionDropdown(); };
+                window.addEventListener('scroll', onScrollReposition, { passive: true });
+            }
+            if (!onResizeReposition){
+                onResizeReposition = () => { if (dd.style.display !== 'none') positionDropdown(); };
+                window.addEventListener('resize', onResizeReposition);
+            }
+        }
+        function detachGlobalHandlers(){
+            if (onScrollReposition){ window.removeEventListener('scroll', onScrollReposition); onScrollReposition = null; }
+            if (onResizeReposition){ window.removeEventListener('resize', onResizeReposition); onResizeReposition = null; }
+        }
         function toggle(open){
-            const show = (typeof open === 'boolean') ? open : (dd.style.display === 'none');
-            dd.style.display = show ? 'block' : 'none';
+            const show = (typeof open === 'boolean') ? open : (dd.style.display === 'none' || dd.style.display === '');
+            if (show) {
+                try {
+                    if (!ddPortaled) {
+                        document.body.appendChild(dd);
+                        ddPortaled = true;
+                        dd.setAttribute('data-portaled', '1');
+                    }
+                    dd.style.display = 'block';
+                    dd.style.visibility = 'hidden'; // נסתיר עד למיקום סופי
+                    positionDropdown();
+                    dd.style.visibility = 'visible';
+                    attachGlobalHandlers();
+                } catch(_) {}
+            } else {
+                dd.style.display = 'none';
+                detachGlobalHandlers();
+                // אין חובה להחזיר להורה המקורי; נשאיר ב-body וננהל במיקום קבוע
+            }
             btn.setAttribute('aria-expanded', show ? 'true' : 'false');
         }
 
@@ -582,7 +681,7 @@
         } catch(_) {}
     })();
 
-    // שחזור פרמטרים אחרונים של חיפוש/פילטרים בעמוד הקבצים
+    // שחזור חלקי של פרמטרים (ללא ניווט אוטומטי) בעמוד הקבצים
     (function restoreFilesFilters(){
         const KEY = 'files_last_filters';
         function load(){ try { return JSON.parse(localStorage.getItem(KEY) || '{}'); } catch(_) { return {}; } }
@@ -601,23 +700,8 @@
             } catch(_) {}
         }
 
-        // בעת טעינה – אם אין פרמטרים ב-URL, אבל יש state אחרון – ננווט עם אותם פרמטרים
-        try {
-            const hasParams = !!(window.location.search && window.location.search.length > 1);
-            const st = load();
-            if (!hasParams && st && (st.q || st.lang || st.category || st.sort)) {
-                const p = new URLSearchParams();
-                if (st.q) p.set('q', st.q);
-                if (st.lang) p.set('lang', st.lang);
-                if (st.category) p.set('category', st.category);
-                if (st.sort) p.set('sort', st.sort);
-                const url = '/files' + (p.toString() ? ('?' + p.toString()) : '') + '#results';
-                if (url !== window.location.pathname + window.location.search + window.location.hash) {
-                    window.location.replace(url);
-                    return;
-                }
-            }
-        } catch(_) {}
+        // ביטול ניווט אוטומטי: העמוד ייפתח נקי גם אם נשמרו פרמטרים קודמים
+        // נשמור רק בעת אינטראקציה, ללא שינוי מיידי של ה-URL בעת טעינה
 
         // בעת אינטראקציה: שמור state
         window.addEventListener('DOMContentLoaded', () => {

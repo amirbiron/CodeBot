@@ -30,6 +30,7 @@ from database import db
 import hashlib
 from file_manager import backup_manager
 import logging
+import random
 
 
 DEVICE_CODE_URL = "https://oauth2.googleapis.com/device/code"
@@ -191,24 +192,43 @@ def _ensure_valid_credentials(user_id: int) -> Optional[Credentials]:
     except Exception:
         return None
     if creds.expired and creds.refresh_token:
-        try:
-            if Request is None:
-                return None
-            creds.refresh(Request())  # type: ignore[misc]
-            # Persist updated access token and expiry
-            updated = {
-                "access_token": creds.token,
-                "refresh_token": creds.refresh_token,
-                "token_type": "Bearer",
-                "scope": " ".join(creds.scopes or []),
-                "expires_in": int((creds.expiry - _now_utc()).total_seconds()) if creds.expiry else 3600,
-                "expiry": creds.expiry.isoformat() if creds.expiry else (_now_utc() + timedelta(hours=1)).isoformat(),
-            }
-            save_tokens(user_id, updated)
-        except Exception:
-            logging.getLogger(__name__).exception("Drive token refresh failed")
+        if Request is None:
+            return None
+        # Retry a few times on transient refresh failures
+        attempts = 0
+        while attempts < 3:
+            try:
+                creds.refresh(Request())  # type: ignore[misc]
+                # Persist updated access token and expiry
+                updated = {
+                    "access_token": creds.token,
+                    "refresh_token": creds.refresh_token,
+                    "token_type": "Bearer",
+                    "scope": " ".join(creds.scopes or []),
+                    "expires_in": int((creds.expiry - _now_utc()).total_seconds()) if creds.expiry else 3600,
+                    "expiry": creds.expiry.isoformat() if creds.expiry else (_now_utc() + timedelta(hours=1)).isoformat(),
+                }
+                save_tokens(user_id, updated)
+                break
+            except Exception as e:
+                attempts += 1
+                # invalid_grant and similar permanent errors — stop early
+                text = str(e).lower()
+                if "invalid_grant" in text or "access_denied" in text:
+                    logging.getLogger(__name__).warning("Drive token refresh invalid_grant; user re-auth required")
+                    return None
+                # transient — short jittered backoff
+                try:
+                    time.sleep(0.3 * attempts)
+                except Exception:
+                    pass
+        else:
+            logging.getLogger(__name__).exception("Drive token refresh failed after retries")
             return None
     return creds
+
+
+_SERVICE_CACHE: Dict[int, Tuple[Any, float]] = {}
 
 
 def get_drive_service(user_id: int):
@@ -217,8 +237,21 @@ def get_drive_service(user_id: int):
     creds = _ensure_valid_credentials(user_id)
     if not creds:
         return None
+    # נסה להשתמש בשירות קיים עד 5 דקות כדי למנוע יצירה חוזרת ושקעים פתוחים
+    now_ts = time.time()
     try:
-        return build("drive", "v3", credentials=creds, cache_discovery=False)
+        cached = _SERVICE_CACHE.get(user_id)
+        if cached and (now_ts - float(cached[1])) < 300:
+            return cached[0]
+    except Exception:
+        pass
+    try:
+        svc = build("drive", "v3", credentials=creds, cache_discovery=False)
+        try:
+            _SERVICE_CACHE[user_id] = (svc, now_ts)
+        except Exception:
+            pass
+        return svc
     except Exception:
         return None
 
@@ -433,6 +466,81 @@ def compute_friendly_name(user_id: int, category: str, entity_name: str, rating:
     if h:
         return f"{base}_{h}_{date_str}.zip"
     return f"{base}_{date_str}.zip"
+
+# ===== Upload retry helpers =====
+def _parse_http_error_status_reason(err: Exception) -> Tuple[Optional[int], Optional[str]]:
+    try:
+        status = getattr(getattr(err, 'resp', None), 'status', None)
+    except Exception:
+        status = None
+    reason: Optional[str] = None
+    try:
+        content = getattr(err, 'content', None)
+        if isinstance(content, (bytes, bytearray)) and content:
+            # content is usually JSON
+            try:
+                payload = json.loads(content.decode('utf-8', errors='ignore'))
+                # Typical Drive error shape
+                reason = (
+                    (payload.get('error', {}) or {}).get('errors', [{}])[0].get('reason')
+                    or (payload.get('error', {}) or {}).get('status')
+                    or (payload.get('error', {}) or {}).get('message')
+                )
+            except Exception:
+                reason = None
+    except Exception:
+        reason = None
+    return (int(status) if status else None, reason if isinstance(reason, str) else None)
+
+
+def _is_retryable_http_error(err: Exception) -> Tuple[bool, Optional[float]]:
+    """Return (should_retry, retry_after_seconds)."""
+    status, reason = _parse_http_error_status_reason(err)
+    # Respect Retry-After header if present
+    retry_after_s: Optional[float] = None
+    try:
+        hdrs = getattr(err, 'resp', None)
+        if hdrs is not None:
+            ra = getattr(hdrs, 'get', None)
+            if callable(ra):
+                val = ra('retry-after') or ra('Retry-After')
+                if val:
+                    retry_after_s = float(val)
+    except Exception:
+        retry_after_s = None
+
+    # HTTP status based
+    if status in {429, 500, 502, 503, 504}:
+        return True, retry_after_s
+
+    # Reason based (Drive specific)
+    retry_reasons = {
+        'rateLimitExceeded',
+        'userRateLimitExceeded',
+        'backendError',
+        'internalError',
+        'downloadQuotaExceeded',
+    }
+    if reason and any(r in str(reason) for r in retry_reasons):
+        return True, retry_after_s
+    return False, None
+
+
+def _sleep_backoff(attempt: int, retry_after_s: Optional[float] = None) -> None:
+    # Jittered exponential backoff; cap at ~10s to avoid long blocking
+    if isinstance(retry_after_s, (int, float)) and retry_after_s > 0:
+        delay = float(retry_after_s)
+    else:
+        base = 0.5
+        cap = 10.0
+        delay = min(cap, base * (2 ** attempt))
+        delay = delay * (0.7 + 0.6 * random.random())  # jitter ~±30%
+    try:
+        time.sleep(max(0.05, delay))
+    except Exception:
+        pass
+
+
 def upload_bytes(user_id: int, filename: str, data: bytes, folder_id: Optional[str] = None, sub_path: Optional[str] = None) -> Optional[str]:
     service = get_drive_service(user_id)
     if not service:
@@ -462,11 +570,29 @@ def upload_bytes(user_id: int, filename: str, data: bytes, folder_id: Optional[s
     try:
         request = service.files().create(body=body, media_body=media, fields="id")
         response = None
+        consecutive_failures = 0
+        max_failures = 6
         # Drive SDK: call next_chunk() until the upload completes
         while response is None:
-            _status, response = request.next_chunk()
+            try:
+                _status, response = request.next_chunk()
+                consecutive_failures = 0  # reset on progress
+            except HttpError as e:  # retryable Drive errors
+                should_retry, retry_after = _is_retryable_http_error(e)
+                if should_retry and consecutive_failures < max_failures:
+                    _sleep_backoff(consecutive_failures, retry_after)
+                    consecutive_failures += 1
+                    continue
+                return None
+            except Exception:
+                # Network/transport hiccups — retry a couple of times
+                if consecutive_failures < 3:
+                    _sleep_backoff(consecutive_failures)
+                    consecutive_failures += 1
+                    continue
+                return None
         return response.get("id") if isinstance(response, dict) else None
-    except HttpError:
+    except Exception:
         return None
 
 
@@ -505,10 +631,27 @@ def upload_file(
             body["parents"] = [folder_id]
         request = service.files().create(body=body, media_body=media, fields="id")
         response = None
+        consecutive_failures = 0
+        max_failures = 6
         while response is None:
-            _status, response = request.next_chunk()
+            try:
+                _status, response = request.next_chunk()
+                consecutive_failures = 0
+            except HttpError as e:
+                should_retry, retry_after = _is_retryable_http_error(e)
+                if should_retry and consecutive_failures < max_failures:
+                    _sleep_backoff(consecutive_failures, retry_after)
+                    consecutive_failures += 1
+                    continue
+                return None
+            except Exception:
+                if consecutive_failures < 3:
+                    _sleep_backoff(consecutive_failures)
+                    consecutive_failures += 1
+                    continue
+                return None
         return response.get("id") if isinstance(response, dict) else None
-    except HttpError:
+    except Exception:
         return None
 
 

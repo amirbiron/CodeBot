@@ -1,8 +1,11 @@
+import asyncio
+import inspect
 import os
 import sys
 import math
-from typing import Dict, List, Optional
+from typing import AsyncIterator, Dict, List, Optional
 import pytest
+import pytest_asyncio
 
 # Ensure project root is on sys.path so `import utils` works in tests
 PROJECT_ROOT = os.path.dirname(__file__)
@@ -73,6 +76,20 @@ def pytest_collection_modifyitems(config: pytest.Config, items: List[pytest.Item
             if "performance" in item.keywords and "heavy" in item.keywords:
                 item.add_marker(skip_heavy)
 
+    # הפיקסצ'ר שמנקה את http_async רלוונטי רק לטסטים אסינכרוניים
+    for item in items:
+        try:
+            has_asyncio_marker = item.get_closest_marker("asyncio") is not None
+        except Exception:
+            has_asyncio_marker = False
+        is_coroutine_test = False
+        try:
+            obj = getattr(item, "obj", None)
+            is_coroutine_test = bool(obj and inspect.iscoroutinefunction(obj))
+        except Exception:
+            is_coroutine_test = False
+        if has_asyncio_marker or is_coroutine_test:
+            item.add_marker(pytest.mark.usefixtures("_reset_http_async_session_between_tests"))
 
 def pytest_runtest_makereport(item: pytest.Item, call: pytest.CallInfo) -> None:  # type: ignore[override]
     if call.when == "call" and "performance" in item.keywords:
@@ -106,6 +123,89 @@ def _reset_cache_manager_stub_before_test() -> None:
         sys.modules.pop('cache_manager', None)
 
 
+@pytest.fixture(autouse=True)
+def _ensure_http_async_session_closed_for_sync_tests() -> None:
+    """סוגר את סשן http_async גם בטסטים סינכרוניים שמשתמשים ב-asyncio.run."""
+    try:
+        from http_async import close_session  # type: ignore
+    except Exception:
+        yield
+        return
+
+    yield
+
+    try:
+        # אם יש לולאה רצה כרגע - כנראה שזה טסט אסינכרוני והפיקסצ'ר הייעודי יטפל
+        asyncio.get_running_loop()
+        return
+    except RuntimeError:
+        pass
+
+    try:
+        asyncio.run(close_session())
+    except RuntimeError:
+        # במקרה שקיים לולאה ברקע אך אינה רצה, נקים לולאה זמנית
+        loop = asyncio.new_event_loop()
+        original_loop: Optional[asyncio.AbstractEventLoop] = None
+        try:
+            try:
+                original_loop = asyncio.get_event_loop()
+            except RuntimeError:
+                original_loop = None
+            try:
+                asyncio.set_event_loop(loop)
+            except Exception:
+                pass
+            try:
+                loop.run_until_complete(close_session())
+            except Exception:
+                raise
+        finally:
+            loop.close()
+            try:
+                if original_loop is None or (original_loop.is_closed() if original_loop else True):
+                    asyncio.set_event_loop(None)
+                else:
+                    asyncio.set_event_loop(original_loop)
+            except Exception:
+                pass
+    except Exception:
+        pass
+
+
+@pytest.fixture(autouse=True)
+def _ensure_legacy_event_loop_for_sync_tests(request: pytest.FixtureRequest) -> None:
+    """משחזר את ההתנהגות הישנה של pytest-asyncio עבור טסטים סינכרוניים.
+
+    בגרסאות החדשות (asyncio_mode=auto) כבר לא נוצר לולאה כברירת מחדל,
+    אבל יש לנו עדיין טסטים סינכרוניים שקוראים ל-asyncio.get_event_loop().
+    נחזיר לולאה זמנית רק עבור טסטים שלא מסומנים כ-@pytest.mark.asyncio.
+    """
+    if request.node.get_closest_marker("asyncio"):
+        yield
+        return
+
+    created_loop: Optional[asyncio.AbstractEventLoop] = None
+    try:
+        loop = asyncio.get_event_loop()
+    except RuntimeError:
+        loop = None
+
+    if loop is None or loop.is_closed():
+        created_loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(created_loop)
+
+    try:
+        yield
+    finally:
+        if created_loop is not None:
+            asyncio.set_event_loop(None)
+            try:
+                created_loop.close()
+            finally:
+                pass
+
+
 @pytest.fixture(scope="session", autouse=True)
 def _close_http_async_session_after_session() -> None:
     """סוגר את סשן aiohttp הגלובלי בסיום הרצת הטסטים."""
@@ -126,16 +226,104 @@ def _close_http_async_session_after_session() -> None:
 
     if loop is not None and not loop.is_closed():
         try:
-            loop.run_until_complete(close_session())
-            return
+            running = bool(loop.is_running())
         except Exception:
-            pass
+            running = False
+        if not running:
+            try:
+                coro = close_session()
+            except Exception:
+                coro = None
+            if coro is not None:
+                try:
+                    loop.run_until_complete(coro)
+                except Exception:
+                    try:
+                        coro.close()  # type: ignore[attr-defined]
+                    except Exception:
+                        pass
+                else:
+                    return
 
     try:
         new_loop = asyncio.new_event_loop()
+        original_loop = None
         try:
-            new_loop.run_until_complete(close_session())
+            try:
+                original_loop = asyncio.get_event_loop()
+            except RuntimeError:
+                original_loop = None
+            try:
+                asyncio.set_event_loop(new_loop)
+            except Exception:
+                pass
+            try:
+                coro = close_session()
+            except Exception:
+                coro = None
+            if coro is not None:
+                try:
+                    new_loop.run_until_complete(coro)
+                except Exception:
+                    try:
+                        coro.close()  # type: ignore[attr-defined]
+                    except Exception:
+                        pass
         finally:
             new_loop.close()
+            try:
+                if original_loop is None or (original_loop.is_closed() if original_loop else True):
+                    asyncio.set_event_loop(None)
+                else:
+                    asyncio.set_event_loop(original_loop)
+            except Exception:
+                pass
+    except Exception:
+        pass
+
+
+@pytest_asyncio.fixture
+async def _reset_http_async_session_between_tests(
+    request: Optional[pytest.FixtureRequest] = None,
+) -> AsyncIterator[None]:
+    """סוגר את הסשן הגלובלי של http_async לפני ואחרי כל טסט אסינכרוני."""
+    try:
+        from http_async import close_session  # type: ignore
+    except Exception:
+        close_session = None  # type: ignore
+
+    is_async_test = True
+    if request is not None:
+        try:
+            marker = request.node.get_closest_marker("asyncio")
+        except Exception:
+            marker = None
+        if marker is not None:
+            is_async_test = True
+        else:
+            func = getattr(request.node, "function", None)
+            is_async_test = bool(func and inspect.iscoroutinefunction(func))
+        # אם לא הצלחנו לקבוע – נניח שזה טסט אסינכרוני כדי להישאר בצד הבטוח
+        if request is not None and marker is None and not is_async_test:
+            try:
+                call_obj = getattr(request.node, "obj", None)
+                if call_obj and inspect.iscoroutinefunction(call_obj):
+                    is_async_test = True
+            except Exception:
+                is_async_test = True
+
+    if not is_async_test or close_session is None:
+        yield
+        return
+
+    try:
+        await close_session()
+    except Exception:
+        pass
+
+    yield
+
+    try:
+        await close_session()
     except Exception:
         pass

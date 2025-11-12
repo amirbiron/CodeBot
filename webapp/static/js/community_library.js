@@ -32,6 +32,19 @@
     shareBtn.onclick = ()=>{try{navigator.clipboard.writeText(item.url)}catch(e){}};
     actions.appendChild(openBtn); actions.appendChild(shareBtn);
 
+    // Admin controls (Edit/Delete)
+    try{
+      if (window.__isAdmin && item.id){
+        const edit = document.createElement('a'); edit.className='btn'; edit.textContent='✏️ ערוך'; edit.href = '/admin/community/edit?id=' + encodeURIComponent(item.id);
+        const del = document.createElement('button'); del.className='btn'; del.textContent='🗑️ מחק';
+        del.onclick = async ()=>{
+          if (!confirm('למחוק את הפריט?')) return;
+          try{ const r = await fetch('/admin/community/delete?id='+encodeURIComponent(item.id), { method:'POST' }); if (r.ok){ el.remove(); } }catch(_){ }
+        };
+        actions.appendChild(edit); actions.appendChild(del);
+      }
+    } catch(_){}
+
     body.appendChild(title);
     body.appendChild(desc);
     body.appendChild(tags);

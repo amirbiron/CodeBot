@@ -61,6 +61,7 @@ def submit_snippet(
             code=code,
             language=lang_s,
             user_id=int(user_id),
+            username=username,
         )
         if not inserted_id:
             emit_event("snippet_submit_error", severity="warn", error="persist_failed")
@@ -70,6 +71,801 @@ def submit_snippet(
     except Exception as e:
         emit_event("snippet_submit_error", severity="warn", error=str(e))
         return {"ok": False, "error": "persist_failed"}
+
+
+def _normalize_language_tag(language: Optional[str]) -> str:
+    try:
+        return (language or "").strip().lower()
+    except Exception:
+        return ""
+
+
+# --- Built-in snippets (curated examples) ---
+# הערה: פריטים אלה נחשבים "מאושרים" כברירת מחדל ומסופקים In-App כך שיופיעו גם ללא זריעת DB.
+# אם פריט זה יתווסף למסד בפועל – הלוגיקה בהמשך תמנע כפילות לפי כותרת.
+BUILTIN_SNIPPETS: List[Dict[str, Any]] = [
+    {
+        "title": "זמן יחסי בעברית (TimeUtils.format_relative_time)",
+        "description": "פורמט זמן יחסי בעברית (לפני X דקות/אתמול).",
+        "language": "python",
+        "username": "CodeBot",
+        "code": """
+class TimeUtils:
+    '''כלים לעבודה עם זמן ותאריכים'''
+    
+    @staticmethod
+    def format_relative_time(dt: datetime) -> str:
+        '''פורמט זמן יחסי (לפני 5 דקות, אתמול וכו')'''
+        
+        now = datetime.now(timezone.utc) if dt.tzinfo else datetime.now()
+        diff = now - dt
+        
+        if diff.days > 365:
+            years = diff.days // 365
+            return f"לפני {years} שנ{'ה' if years == 1 else 'ים'}"
+        
+        elif diff.days > 30:
+            months = diff.days // 30
+            return f"לפני {months} חוד{'ש' if months == 1 else 'שים'}"
+        
+        elif diff.days > 7:
+            weeks = diff.days // 7
+            return f"לפני {weeks} שבוע{'ות' if weeks > 1 else ''}"
+        
+        elif diff.days > 0:
+            if diff.days == 1:
+                return "אתמול"
+            return f"לפני {diff.days} ימים"
+        
+        elif diff.seconds > 3600:
+            hours = diff.seconds // 3600
+            return f"לפני {hours} שע{'ה' if hours == 1 else 'ות'}"
+        
+        elif diff.seconds > 60:
+            minutes = diff.seconds // 60
+            return f"לפני {minutes} דק{'ה' if minutes == 1 else 'ות'}"
+        
+        else:
+            return "עכשיו"
+""",
+    },
+    {
+        "title": "אסקייפ ל-Markdown בטלגרם (TextUtils.escape_markdown)",
+        "description": "הגנה על תווים מיוחדים ב-Markdown V1/V2.",
+        "language": "python",
+        "username": "CodeBot",
+        "code": """
+class TextUtils:
+    '''כלים לעבודה עם טקסט'''
+    
+    @staticmethod
+    def escape_markdown(text: str, version: int = 2) -> str:
+        '''הגנה על תווים מיוחדים ב-Markdown'''
+        
+        if version == 2:
+            # Markdown V2: כל התווים שיש לאסקייפ לפי Telegram MarkdownV2
+            special_chars = set("_*[]()~`>#+-=|{}.!\\")
+            return "".join(("\\" + ch) if ch in special_chars else ch for ch in text)
+        else:
+            # Markdown V1: נשתמש בקבוצה מצומצמת אך גם נסמן סוגריים כדי להימנע מתקלות כלליות
+            special_chars = set("_*`[()\\")
+            return "".join(("\\" + ch) if ch in special_chars else ch for ch in text)
+""",
+    },
+    {
+        "title": "ניקוי שמות קבצים (TextUtils.clean_filename)",
+        "description": "ניקוי שם קובץ מתווים לא חוקיים, רווחים ונקודות מיותרות והגבלת אורך.",
+        "language": "python",
+        "username": "CodeBot",
+        "code": """
+class TextUtils:
+    '''כלים לעבודה עם טקסט'''
+    
+    @staticmethod
+    def clean_filename(filename: str) -> str:
+        '''ניקוי שם קובץ מתווים לא חוקיים'''
+        
+        # הסרת תווים לא חוקיים
+        cleaned = re.sub(r'[<>:\"/\\|?*]', '_', filename)
+        
+        # הסרת רווחים מיותרים
+        cleaned = re.sub(r'{bs}s+', '_', cleaned)
+        
+        # הסרת נקודות מיותרות
+        cleaned = re.sub(r'{bs}.+', '.', cleaned)
+        
+        # הגבלת אורך
+        if len(cleaned) > 100:
+            name, ext = os.path.splitext(cleaned)
+            cleaned = name[:100-len(ext)] + ext
+        
+        return cleaned.strip('._')
+""".format(bs="\\"),
+    },
+    {
+        "title": "מענה בטוח ל-CallbackQuery (TelegramUtils.safe_answer)",
+        "description": "answer בטוח עם התעלמות משגיאות ידועות.",
+        "language": "python",
+        "username": "CodeBot",
+        "code": """
+class TelegramUtils:
+    '''כלים לעבודה עם Telegram'''
+    
+    @staticmethod
+    async def safe_answer(query, text: Optional[str] = None, show_alert: bool = False, cache_time: Optional[int] = None) -> None:
+        '''מענה בטוח ל-CallbackQuery: מתעלם משגיאות 'Query is too old'/'query_id_invalid'.'''
+        try:
+            kwargs: Dict[str, Any] = {}
+            if text is not None:
+                kwargs["text"] = text
+            if show_alert:
+                kwargs["show_alert"] = True
+            if cache_time is not None:
+                kwargs["cache_time"] = int(cache_time)
+            await query.answer(**kwargs)
+        except Exception as e:
+            msg = str(e).lower()
+            if "query is too old" in msg or "query_id_invalid" in msg or "message to edit not found" in msg:
+                return
+            raise
+""",
+    },
+    {
+        "title": "פיצול הודעות ארוכות (TelegramUtils.split_long_message)",
+        "description": "חלוקה לחלקים תחת מגבלת 4096 של טלגרם.",
+        "language": "python",
+        "username": "CodeBot",
+        "code": """
+class TelegramUtils:
+    '''כלים לעבודה עם Telegram'''
+    
+    @staticmethod
+    def split_long_message(text: str, max_length: int = 4096) -> List[str]:
+        '''חלוקת הודעה ארוכה לחלקים'''
+        
+        if len(text) <= max_length:
+            return [text]
+        
+        parts = []
+        current_part = ""
+        
+        for line in text.split('\n'):
+            if len(current_part) + len(line) + 1 <= max_length:
+                current_part += line + '\n'
+            else:
+                if current_part:
+                    parts.append(current_part.rstrip())
+                current_part = line + '\n'
+        
+        if current_part:
+            parts.append(current_part.rstrip())
+        
+        return parts
+""",
+    },
+    {
+        "title": "עריכת הודעה בטוחה (TelegramUtils.safe_edit_message_text)",
+        "description": "תומך בסינכרוני/אסינכרוני, מתעלם מ-'message is not modified'.",
+        "language": "python",
+        "username": "CodeBot",
+        "code": """
+class TelegramUtils:
+    '''כלים לעבודה עם Telegram'''
+    
+    @staticmethod
+    async def safe_edit_message_text(query, text: str, reply_markup=None, parse_mode: Optional[str] = None) -> None:
+        '''עריכת טקסט הודעה בבטיחות: מתעלם משגיאת 'Message is not modified'.
+
+        תומך גם במימושי בדיקות שבהם `edit_message_text` היא פונקציה סינכרונית
+        שמחזירה `None` (לא awaitable), וגם במימושים אסינכרוניים רגילים.
+        '''
+        try:
+            edit_func = getattr(query, "edit_message_text", None)
+            if not callable(edit_func):
+                return
+
+            kwargs = {"text": text, "reply_markup": reply_markup}
+            if parse_mode is not None:
+                kwargs["parse_mode"] = parse_mode
+
+            result = edit_func(**kwargs)
+
+            # אם חזר coroutine – צריך להמתין; אחרת זו פונקציה סינכרונית ואין מה להמתין
+            if asyncio.iscoroutine(result):
+                await result
+        except Exception as e:
+            msg = str(e).lower()
+            # התעלמות רק במקרה "not modified" (עמיד לשינויים קלים בטקסט)
+            if "not modified" in msg or "message is not modified" in msg:
+                return
+            raise
+""",
+    },
+    {
+        "title": "מניעת לחיצה כפולה (CallbackQueryGuard.should_block_async)",
+        "description": "Guard חלון זמן פר-משתמש נגד לחיצות כפולות.",
+        "language": "python",
+        "username": "CodeBot",
+        "code": """
+class CallbackQueryGuard:
+    '''Guard גורף ללחיצות כפולות על כפתורי CallbackQuery.
+    
+    מבוסס על טביעת אצבע של המשתמש/הודעה/הנתון (callback_data) כדי לחסום
+    את אותה פעולה בחלון זמן קצר, בלי לחסום פעולות שונות.
+    '''
+
+    DEFAULT_WINDOW_SECONDS: float = 1.2
+    _user_locks: Dict[int, asyncio.Lock] = {}
+
+    @staticmethod
+    def should_block(update: Update, context: ContextTypes.DEFAULT_TYPE, window_seconds: Optional[float] = None) -> bool:
+        '''בודק בחסימה לא-אסינכרונית אם העדכון הגיע שוב בתוך חלון הזמן.'''
+        try:
+            win = float(window_seconds if window_seconds is not None else CallbackQueryGuard.DEFAULT_WINDOW_SECONDS)
+        except Exception:
+            win = CallbackQueryGuard.DEFAULT_WINDOW_SECONDS
+
+        try:
+            fp = CallbackQueryGuard._fingerprint(update)
+            now_ts = time.time()
+            last_fp = context.user_data.get("_last_cb_fp") if hasattr(context, "user_data") else None
+            busy_until = float(context.user_data.get("_cb_guard_until", 0.0) or 0.0) if hasattr(context, "user_data") else 0.0
+
+            if last_fp == fp and now_ts < busy_until:
+                return True
+
+            if hasattr(context, "user_data"):
+                context.user_data["_last_cb_fp"] = fp
+                context.user_data["_cb_guard_until"] = now_ts + win
+            return False
+        except Exception:
+            return False
+
+    @staticmethod
+    async def should_block_async(update: Update, context: ContextTypes.DEFAULT_TYPE, window_seconds: Optional[float] = None) -> bool:
+        '''בודק בצורה אטומית (עם נעילה) אם לחסום לחיצה כפולה של אותו משתמש.
+
+        חסימה מבוססת חלון זמן פר-משתמש, ללא תלות ב-message_id/data, כדי למנוע מרוץ.
+        '''
+        try:
+            try:
+                win = float(window_seconds if window_seconds is not None else CallbackQueryGuard.DEFAULT_WINDOW_SECONDS)
+            except Exception:
+                win = CallbackQueryGuard.DEFAULT_WINDOW_SECONDS
+
+            user_id = int(getattr(getattr(update, 'effective_user', None), 'id', 0) or 0)
+
+            # אם אין זיהוי משתמש, fallback להתנהגות הישנה ללא חסימה
+            if user_id <= 0:
+                return CallbackQueryGuard.should_block(update, context, window_seconds=win)
+
+            # קבל/צור נעילה למשתמש
+            lock = CallbackQueryGuard._user_locks.get(user_id)
+            if lock is None:
+                lock = asyncio.Lock()
+                CallbackQueryGuard._user_locks[user_id] = lock
+
+            async with lock:
+                now_ts = time.time()
+                # השתמש באותו שדה זמן גלובלי שהיה בשימוש, אך ללא טביעת אצבע
+                busy_until = float(context.user_data.get("_cb_guard_until", 0.0) or 0.0) if hasattr(context, "user_data") else 0.0
+                if now_ts < busy_until:
+                    return True
+                # סמנו חלון זמן חסימה חדש
+                if hasattr(context, "user_data"):
+                    context.user_data["_cb_guard_until"] = now_ts + win
+                return False
+        except Exception:
+            # אל תחסום אם guard נכשל
+            return False
+""",
+    },
+    {
+        "title": "עיבוד פריטים בקבוצות (AsyncUtils.batch_process)",
+        "description": "הרצת פעולות אסינכרוניות בקבוצות קטנות עם השהיה.",
+        "language": "python",
+        "username": "CodeBot",
+        "code": """
+class AsyncUtils:
+    '''כלים לעבודה אסינכרונית'''
+    
+    @staticmethod
+    async def batch_process(items: List[Any], process_func: Callable, 
+                           batch_size: int = 10, delay: float = 0.1) -> List[Any]:
+        '''עיבוד פריטים בקבוצות'''
+        
+        results = []
+        
+        for i in range(0, len(items), batch_size):
+            batch = items[i:i + batch_size]
+            
+            # עיבוד הקבוצה
+            batch_tasks = [process_func(item) for item in batch]
+            batch_results = await asyncio.gather(*batch_tasks, return_exceptions=True)
+            
+            results.extend(batch_results)
+            
+            # המתנה בין קבוצות
+            if delay > 0 and i + batch_size < len(items):
+                await asyncio.sleep(delay)
+        
+        return results
+""",
+    },
+    {
+        "title": "מדידת זמן עם context manager (PerformanceUtils.measure_time)",
+        "description": "מדידה ולוג משך פעולה.",
+        "language": "python",
+        "username": "CodeBot",
+        "code": """
+class PerformanceUtils:
+    '''כלים למדידת ביצועים'''
+    
+    @staticmethod
+    @contextmanager
+    def measure_time(operation_name: str):
+        '''מדידת זמן עם context manager'''
+        
+        start_time = time.time()
+        try:
+            yield
+        finally:
+            execution_time = time.time() - start_time
+            logger.info(f"{operation_name}: {execution_time:.3f}s")
+""",
+    },
+    {
+        "title": "בדיקת קוד מסוכן (ValidationUtils.is_safe_code)",
+        "description": "ולידציה בסיסית לדפוסים מסוכנים בשפות נפוצות.",
+        "language": "python",
+        "username": "CodeBot",
+        "code": """
+class ValidationUtils:
+    '''כלים לוולידציה'''
+    
+    @staticmethod
+    def is_safe_code(code: str, programming_language: str) -> Tuple[bool, List[str]]:
+        '''בדיקה בסיסית של בטיחות קוד'''
+        
+        warnings = []
+        
+        # דפוסים מסוכנים
+        dangerous_patterns = {
+            'python': [
+                r'exec\\s*\\(',
+                r'eval\\s*\\(',
+                r'__import__\\s*\\(',
+                r'open\\s*\\([^)]*["\\']w',  # כתיבה לקובץ
+                r'subprocess\\.',
+                r'os\\.system\\s*\\(',
+                r'os\\.popen\\s*\\(',
+            ],
+            'javascript': [
+                r'eval\\s*\\(',
+                r'Function\\s*\\(',
+                r'document\\.write\\s*\\(',
+                r'innerHTML\\s*=',
+                r'outerHTML\\s*=',
+            ],
+            'bash': [
+                r'rm\\s+-rf',
+                r'rm\\s+/',
+                r'dd\\s+if=',
+                r'mkfs\\.',
+                r'fdisk\\s+',
+            ]
+        }
+        
+        if programming_language in dangerous_patterns:
+            for pattern in dangerous_patterns[programming_language]:
+                if re.search(pattern, code, re.IGNORECASE):
+                    warnings.append(f"דפוס מסוכן אפשרי: {pattern}")
+        
+        # בדיקות כלליות
+        if 'password' in code.lower() or 'secret' in code.lower():
+            warnings.append("הקוד מכיל מילות סיסמה או סוד")
+        
+        if re.search(r'https?://\\S+', code):
+            warnings.append("הקוד מכיל URLים")
+        
+        is_safe = len(warnings) == 0
+        return is_safe, warnings
+""",
+    },
+    {
+        "title": "יצירת קובץ זמני (FileUtils.create_temp_file)",
+        "description": "יצירת קובץ זמני עם תוכן מחרוזת/בייטים.",
+        "language": "python",
+        "username": "CodeBot",
+        "code": """
+class FileUtils:
+    '''כלים לעבודה עם קבצים'''
+    
+    @staticmethod
+    async def create_temp_file(content: Union[str, bytes], 
+                              suffix: str = "") -> str:
+        '''יצירת קובץ זמני'''
+        
+        with tempfile.NamedTemporaryFile(mode='wb', suffix=suffix, delete=False) as temp_file:
+            if isinstance(content, str):
+                content = content.encode('utf-8')
+            
+            temp_file.write(content)
+            return temp_file.name
+""",
+    },
+    {
+        "title": "טעינת קובץ JSON עם ברירת מחדל (ConfigUtils.load_json_config)",
+        "description": "טעינת קונפיגורציה מקובץ JSON עם טיפול שגיאות.",
+        "language": "python",
+        "username": "CodeBot",
+        "code": """
+class ConfigUtils:
+    '''כלים לקונפיגורציה'''
+    
+    @staticmethod
+    def load_json_config(file_path: str, default: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        '''טעינת קונפיגורציה מקובץ JSON'''
+        
+        if default is None:
+            default = {}
+        
+        try:
+            if os.path.exists(file_path):
+                with open(file_path, 'r', encoding='utf-8') as f:
+                    return json.load(f)
+            else:
+                logger.warning(f"קובץ קונפיגורציה לא נמצא: {file_path}")
+                return default
+        
+        except Exception as e:
+            logger.error(f"שגיאה בטעינת קונפיגורציה: {e}")
+            return default
+""",
+    },
+    {
+        "title": "קאש זיכרון עם TTL (CacheUtils)",
+        "description": "set/get/delete עם תפוגה אוטומטית.",
+        "language": "python",
+        "username": "CodeBot",
+        "code": """
+class CacheUtils:
+    '''כלים לקאש זמני'''
+    
+    _cache: Dict[str, Any] = {}
+    _cache_times: Dict[str, float] = {}
+    
+    @classmethod
+    def set(cls, key: str, value: Any, ttl: int = 300):
+        '''שמירה בקאש עם TTL (שניות)'''
+        cls._cache[key] = value
+        cls._cache_times[key] = time.time() + ttl
+    
+    @classmethod
+    def get(cls, key: str, default: Any = None) -> Any:
+        '''קבלה מהקאש'''
+        
+        if key not in cls._cache:
+            return default
+        
+        # בדיקת תפוגה
+        if time.time() > cls._cache_times.get(key, 0):
+            cls.delete(key)
+            return default
+        
+        return cls._cache[key]
+
+    @classmethod
+    def delete(cls, key: str):
+        '''מחיקה מהקאש'''
+        cls._cache.pop(key, None)
+        cls._cache_times.pop(key, None)
+""",
+    },
+    {
+        "title": "מסנן לוגים לרגישויות (SensitiveDataFilter.filter)",
+        "description": "טשטוש טוקנים/סודות בלוגים לפני כתיבה.",
+        "language": "python",
+        "username": "CodeBot",
+        "code": """
+class SensitiveDataFilter(logging.Filter):
+    '''מסנן שמטשטש טוקנים ונתונים רגישים בלוגים.'''
+    def filter(self, record: logging.LogRecord) -> bool:
+        try:
+            msg = str(record.getMessage())
+            # זיהוי בסיסי של טוקנים: ghp_..., github_pat_..., Bearer ...
+            patterns = [
+                (r"ghp_[A-Za-z0-9]{{20,}}", "ghp_***REDACTED***"),
+                (r"github_pat_[A-Za-z0-9_]{{20,}}", "github_pat_***REDACTED***"),
+                (r"Bearer{bs}s+[A-Za-z0-9._=:/+-]{{10,}}", "Bearer ***REDACTED***"),
+            ]
+            redacted = msg
+            import re as _re
+            for pat, repl in patterns:
+                redacted = _re.sub(pat, repl, redacted)
+            # עדכן רק את message הפורמטי
+            record.msg = redacted
+            # חשוב: נקה ארגומנטים כדי למנוע ניסיון פורמט חוזר (%s) שיוביל ל-TypeError
+            record.args = ()
+        except Exception:
+            pass
+        return True
+""".format(bs="\\"),
+    },
+    {
+        "title": "נירמול ארגומנטים לפקודות (_coerce_command_args)",
+        "description": "המרת args שונים לרשימת מחרוזות נקייה.",
+        "language": "python",
+        "username": "CodeBot",
+        "code": """
+def _coerce_command_args(raw_args) -> List[str]:
+    '''המרת args מסוגים שונים לרשימת מחרוזות נקייה.'''
+    normalized: List[str] = []
+    if raw_args is None:
+        return normalized
+    try:
+        if isinstance(raw_args, (list, tuple, set)):
+            iterable = list(raw_args)
+        elif isinstance(raw_args, str):
+            iterable = [raw_args]
+        else:
+            try:
+                iterable = list(raw_args)
+            except TypeError:
+                iterable = [raw_args]
+    except Exception:
+        iterable = []
+    for arg in iterable:
+        if arg is None:
+            continue
+        if isinstance(arg, bytes):
+            try:
+                normalized.append(arg.decode("utf-8"))
+                continue
+            except Exception:
+                normalized.append(arg.decode("utf-8", "ignore"))
+                continue
+        normalized.append(str(arg))
+    return normalized
+""",
+    },
+    {
+        "title": "טוקן התחברות ל-WebApp (_build_webapp_login_payload)",
+        "description": "יצירת טוקן חד-פעמי ושמירתו במסד, עם פקיעה.",
+        "language": "python",
+        "username": "CodeBot",
+        "code": """
+def _build_webapp_login_payload(db_manager, user_id: int, username: Optional[str]) -> Optional[Dict[str, str]]:
+    '''יוצר טוקן וקישורי התחברות ל-Web App.'''
+    base_url = _resolve_webapp_base_url() or DEFAULT_WEBAPP_URL
+    secret_candidates = [
+        os.getenv("WEBAPP_LOGIN_SECRET"),
+        getattr(config, "WEBAPP_LOGIN_SECRET", None),
+        os.getenv("SECRET_KEY"),
+        getattr(config, "SECRET_KEY", None),
+        "dev-secret-key",
+    ]
+    secret = next((s for s in secret_candidates if s), "dev-secret-key")
+    try:
+        token_data = f"{user_id}:{int(time.time())}:{secret}"
+        auth_token = hashlib.sha256(token_data.encode("utf-8")).hexdigest()[:32]
+    except Exception:
+        logger.exception("יצירת טוקן webapp נכשלה", exc_info=True)
+        return None
+    now_utc = datetime.now(timezone.utc)
+    token_doc = {
+        "token": auth_token,
+        "user_id": user_id,
+        "username": username,
+        "created_at": now_utc,
+        "expires_at": now_utc + timedelta(minutes=5),
+    }
+    _persist_webapp_login_token(db_manager, token_doc)
+    login_url = f"{base_url}/auth/token?token={auth_token}&user_id={user_id}"
+    return {
+        "auth_token": auth_token,
+        "login_url": login_url,
+        "webapp_url": base_url,
+    }
+""",
+    },
+    {
+        "title": "קיצור טקסט באמצע (_truncate_middle)",
+        "description": "קיצור מחרוזת עם אליפסיס תוך שמירת התחלה וסוף.",
+        "language": "python",
+        "username": "CodeBot",
+        "code": """
+def _truncate_middle(text: str, max_len: int) -> str:
+    '''מקצר מחרוזת באמצע עם אליפסיס אם חורגת מאורך נתון.'''
+    if max_len <= 0:
+        return ''
+    if len(text) <= max_len:
+        return text
+    if max_len <= 1:
+        return text[:max_len]
+    keep = max_len - 1
+    front = keep // 2
+    back = keep - front
+    return text[:front] + '…' + text[-back:]
+""",
+    },
+    {
+        "title": "שורת עימוד לכפתורי אינליין (build_pagination_row)",
+        "description": "יצירת כפתורי [הקודם/הבא] לעימוד אינליין.",
+        "language": "python",
+        "username": "CodeBot",
+        "code": """
+def build_pagination_row(
+    page: int,
+    total_items: int,
+    page_size: int,
+    callback_prefix: str,
+) -> Optional[List[InlineKeyboardButton]]:
+    r'''Return a row of pagination buttons [prev,next] or None if not needed.
+
+    - page: current 1-based page index
+    - total_items: total number of items
+    - page_size: items per page
+    - callback_prefix: for example ``files_page_`` → formats as ``{prefix}{page_num}``
+    '''
+    if page_size <= 0:
+        return None
+    total_pages = (total_items + page_size - 1) // page_size if total_items > 0 else 1
+    if total_pages <= 1:
+        return None
+    row: List[InlineKeyboardButton] = []
+    if page > 1:
+        row.append(InlineKeyboardButton("⬅️ הקודם", callback_data=f"{callback_prefix}{page-1}"))
+    if page < total_pages:
+        row.append(InlineKeyboardButton("➡️ הבא", callback_data=f"{callback_prefix}{page+1}"))
+    return row or None
+""",
+    },
+    {
+        "title": "מעקב ביצועים עם Prometheus (track_performance)",
+        "description": "Context manager שמזין Histogram בצורה עמידה לטעויות לייבלים.",
+        "language": "python",
+        "username": "CodeBot",
+        "code": """
+@contextmanager
+def track_performance(operation: str, labels: Optional[Dict[str, str]] = None):
+    start = time.time()
+    try:
+        yield
+    finally:
+        if operation_latency_seconds is not None:
+            try:
+                # בחר רק לייבלים שמוגדרים במטריקה ואל תאפשר דריסה של 'operation'
+                allowed = set(getattr(operation_latency_seconds, "_labelnames", []) or [])
+                target = {"operation": operation}
+                if labels:
+                    for k, v in labels.items():
+                        if k in allowed and k != "operation":
+                            target[k] = v
+                # ספק ערכי ברירת מחדל לכל לייבל חסר (למשל repo="") כדי לשמור תאימות לאחור
+                for name in allowed:
+                    if name not in target:
+                        if name == "operation":
+                            # כבר סופק לעיל
+                            continue
+                        # ברירת מחדל: מיתר סמנטיקה, מונע ValueError על חוסר בלייבל
+                        target[name] = ""
+                operation_latency_seconds.labels(**target).observe(time.time() - start)
+            except Exception:
+                # avoid breaking app on label mistakes
+                pass
+""",
+    },
+    {
+        "title": "הצעת השלמות לחיפוש גלובלי (fetchSuggestions)",
+        "description": "בקשה אסינכרונית בצד לקוח עם ניתוב 401 ל־Login.",
+        "language": "javascript",
+        "username": "CodeBot",
+        "code": """
+async function fetchSuggestions(q){
+  try{
+    const res = await fetch('/api/search/suggestions?q=' + encodeURIComponent(q), {
+      headers: { 'Accept': 'application/json' },
+      credentials: 'same-origin'
+    });
+
+    if (res.status === 401 || res.redirected) {
+      window.location.href = '/login?next=' + encodeURIComponent(location.pathname + location.search + location.hash);
+      return;
+    }
+
+    const contentType = res.headers.get('content-type') || '';
+    if (!contentType.includes('application/json')) { hideSuggestions(); return; }
+
+    const data = await res.json();
+    if (data && data.suggestions && data.suggestions.length){
+      showSuggestions(data.suggestions);
+    } else hideSuggestions();
+  } catch (e){ hideSuggestions(); }
+}
+""",
+    },
+    {
+        "title": "הדגשת טווחים בתוצאות חיפוש (highlightSnippet)",
+        "description": "הדגשת טווחים עם <mark> מבלי לשבור HTML.",
+        "language": "javascript",
+        "username": "CodeBot",
+        "code": """
+function highlightSnippet(text, ranges){
+  text = String(text || '');
+  if (!ranges || !ranges.length) return escapeHtml(text);
+  const items = ranges.slice().sort((a,b)=> (a[0]-b[0]));
+  let out = '', last = 0;
+  for (const [s,e] of items){
+    if (s < last) continue;
+    out += escapeHtml(text.slice(last, s));
+    out += '<mark class="bg-warning">' + escapeHtml(text.slice(s, e)) + '</mark>';
+    last = e;
+  }
+  out += escapeHtml(text.slice(last));
+  return out;
+}
+""",
+    },
+]
+
+
+def _builtin_matches_filters(item: Dict[str, Any], q: Optional[str], language: Optional[str]) -> bool:
+    try:
+        lang_ok = True
+        if language:
+            lang_ok = _normalize_language_tag(item.get("language")) == _normalize_language_tag(language)
+        if not lang_ok:
+            return False
+        if not q:
+            return True
+        needle = str(q or "").strip().lower()
+        haystacks = [
+            str(item.get("title") or "").lower(),
+            str(item.get("description") or "").lower(),
+            str(item.get("code") or "").lower(),
+        ]
+        return any(needle in h for h in haystacks)
+    except Exception:
+        return True
+
+
+def _filtered_builtins(q: Optional[str], language: Optional[str]) -> List[Dict[str, Any]]:
+    try:
+        return [it for it in BUILTIN_SNIPPETS if _builtin_matches_filters(it, q, language)]
+    except Exception:
+        return BUILTIN_SNIPPETS[:]
+
+
+def _prepare_builtins(builtins: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """העתקה רכה של built-ins עם הוספת approved_at קבוע כדי לשמור על אחידות."""
+    try:
+        now = datetime.now(timezone.utc)
+    except Exception:
+        now = datetime.utcnow()
+    prepared: List[Dict[str, Any]] = []
+    for original in builtins:
+        try:
+            item = dict(original)
+        except Exception:
+            item = {"title": original}
+        item.setdefault("approved_at", now)
+        prepared.append(item)
+    return prepared
+
+
+def _merge_builtins_with_db(db_items: List[Dict[str, Any]], builtins: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """מניעת כפילות ע"י השוואת כותרות (case-insensitive). בונה רשימה עם builtins תחילה."""
+    try:
+        existing_titles = {str((it.get("title") or "")).strip().lower() for it in db_items}
+        unique_builtins = [it for it in builtins if str((it.get("title") or "")).strip().lower() not in existing_titles]
+        # שדה approved_at לצורך אחידות
+        now = datetime.now(timezone.utc)
+        for it in unique_builtins:
+            it.setdefault("approved_at", now)
+        return unique_builtins + db_items
+    except Exception:
+        return builtins + db_items
 
 
 def approve_snippet(item_id: str, admin_id: int) -> bool:
@@ -108,7 +904,199 @@ def list_public_snippets(
     page: int = 1,
     per_page: int = 30,
 ) -> Tuple[List[Dict[str, Any]], int]:
+    """החזרת סניפטים ציבוריים מאושרים, כולל פריטי Built‑in.
+
+    מדיניות מעודכנת (בהתאם לבקשה):
+    - סניפטי המשתמשים מה‑DB מסודרים לפי חדש → ישן ומופיעים תחילה.
+    - פריטי Built‑in של @CodeBot מוצגים רק לאחר שנגמרים פריטי ה‑DB,
+      ובמידת הצורך משמשים למילוי דפים שאינם מלאים.
+    - נמנע כפילויות לפי כותרת (case-insensitive).
+    - total הוא סכום פריטי ה‑DB + ה‑Built‑in התואמים.
+    """
     try:
-        return _db._get_repo().list_public_snippets(q=q, language=language, page=page, per_page=per_page)
+        per_page_int = max(1, int(per_page or 30))
     except Exception:
+        per_page_int = 30
+
+    repo = None
+    try:
+        candidate = _db._get_repo()
+        if hasattr(candidate, "list_public_snippets"):
+            repo = candidate
+    except Exception:
+        repo = None
+
+    if repo is None:
         return [], 0
+
+    try:
+        include_builtins = bool(getattr(repo, "include_builtin_snippets", True))
+    except Exception:
+        include_builtins = True
+
+    try:
+        page_int = max(1, int(page or 1))
+    except Exception:
+        page_int = 1
+
+    if not include_builtins:
+        # מצב ישן: רק DB
+        try:
+            items, total = repo.list_public_snippets(
+                q=q,
+                language=language,
+                page=page_int,
+                per_page=per_page_int,
+            )
+        except TypeError:
+            try:
+                items, total = repo.list_public_snippets(q=q, language=language)
+            except Exception:
+                return [], 0
+        except Exception:
+            return [], 0
+        items_list = list(items) if not isinstance(items, list) else items
+        try:
+            total_int = int(total)
+        except Exception:
+            total_int = len(items_list)
+        return items_list, max(total_int, len(items_list))
+
+    # חשב Built-ins תואמים (לשימוש בהשלמה ומעבר לדפי ה‑DB)
+    builtins_raw = _filtered_builtins(q, language)
+
+    supports_pagination = True
+    try:
+        db_result = repo.list_public_snippets(q=q, language=language, page=page_int, per_page=per_page_int)
+    except TypeError:
+        supports_pagination = False
+        try:
+            db_result = repo.list_public_snippets(q=q, language=language)
+        except Exception:
+            db_result = ([], 0)
+    except Exception:
+        db_result = ([], 0)
+
+    def _split_result(result: Any) -> Tuple[Any, Any]:
+        if isinstance(result, tuple) and len(result) >= 2:
+            return result[0], result[1]
+        return result, None
+
+    def _ensure_list(items_obj: Any) -> List[Dict[str, Any]]:
+        if isinstance(items_obj, list):
+            return items_obj
+        try:
+            return list(items_obj)
+        except Exception:
+            return []
+
+    db_items_obj, db_total_obj = _split_result(db_result)
+    db_items_list = _ensure_list(db_items_obj)
+
+    try:
+        db_total_int = int(db_total_obj)
+    except Exception:
+        db_total_int = None
+
+    db_counts: Dict[int, int] = {}
+    db_titles_set = set()
+
+    def _normalize_title(item: Dict[str, Any]) -> str:
+        return str((item.get("title") or "")).strip().lower()
+
+    if not supports_pagination:
+        db_full_list = db_items_list
+        if db_total_int is None or db_total_int < len(db_full_list):
+            db_total_int = len(db_full_list)
+        start_idx = max(0, (page_int - 1) * per_page_int)
+        end_idx = start_idx + per_page_int
+        db_items_page_list = db_full_list[start_idx:end_idx]
+        db_pages = (db_total_int + per_page_int - 1) // per_page_int if (db_total_int or 0) > 0 else 0
+        if db_pages > 0:
+            for p in range(1, db_pages + 1):
+                p_start = (p - 1) * per_page_int
+                p_end = p_start + per_page_int
+                slice_items = db_full_list[p_start:p_end]
+                if not slice_items and p_start >= len(db_full_list):
+                    break
+                db_counts[p] = len(slice_items)
+        db_titles_set.update(_normalize_title(it) for it in db_full_list)
+    else:
+        db_items_page_list = db_items_list
+        if db_total_int is None:
+            db_total_int = len(db_items_page_list)
+        db_pages = (db_total_int + per_page_int - 1) // per_page_int if db_total_int > 0 else 0
+        db_counts[page_int] = len(db_items_page_list)
+        db_titles_set.update(_normalize_title(it) for it in db_items_page_list)
+        if db_pages > 0:
+            per_repo = per_page_int
+            safety = 0
+            for p in range(1, db_pages + 1):
+                if p == page_int:
+                    continue
+                try:
+                    chunk_result = repo.list_public_snippets(q=q, language=language, page=p, per_page=per_repo)
+                except Exception:
+                    break
+                chunk_items_obj, _ = _split_result(chunk_result)
+                chunk_list = _ensure_list(chunk_items_obj)
+                if not chunk_list:
+                    if p > page_int:
+                        break
+                    continue
+                db_counts[p] = len(chunk_list)
+                db_titles_set.update(_normalize_title(it) for it in chunk_list)
+                safety += 1
+                if safety > 200:
+                    break
+
+    if db_total_int is None:
+        db_total_int = len(db_items_page_list)
+
+    if db_total_int <= 0:
+        prepared_builtins = _prepare_builtins(builtins_raw)
+        start = (page_int - 1) * per_page_int
+        end = start + per_page_int
+        slice_items = prepared_builtins[start:end]
+        return slice_items, len(prepared_builtins)
+
+    filtered_builtins_raw = [it for it in builtins_raw if _normalize_title(it) not in db_titles_set]
+    prepared_builtins = _prepare_builtins(filtered_builtins_raw)
+    unified_total = db_total_int + len(prepared_builtins)
+
+    missing_by_page: Dict[int, int] = {}
+    if db_pages > 0:
+        for p in range(1, db_pages + 1):
+            if p in db_counts:
+                count_val = db_counts[p]
+            elif p == db_pages:
+                count_val = max(0, db_total_int - per_page_int * (db_pages - 1))
+                if count_val == 0 and db_total_int > 0:
+                    count_val = per_page_int
+            else:
+                count_val = per_page_int
+            try:
+                count_int = int(count_val)
+            except Exception:
+                count_int = per_page_int
+            count_int = max(0, min(per_page_int, count_int))
+            missing_by_page[p] = max(0, per_page_int - count_int)
+
+    builtins_consumed_before_page = sum(missing_by_page.get(p, 0) for p in range(1, page_int))
+    builtins_consumed_total = sum(missing_by_page.values())
+
+    if page_int <= db_pages and db_pages > 0:
+        items: List[Dict[str, Any]] = list(db_items_page_list)
+        missing_current = missing_by_page.get(page_int, 0)
+        if missing_current > 0:
+            start_idx = builtins_consumed_before_page
+            end_idx = start_idx + missing_current
+            items.extend(prepared_builtins[start_idx:end_idx])
+        return items, unified_total
+
+    if db_items_page_list:
+        return list(db_items_page_list), unified_total
+
+    builtins_start = builtins_consumed_total + max(0, page_int - db_pages - 1) * per_page_int
+    builtins_end = builtins_start + per_page_int
+    return prepared_builtins[builtins_start:builtins_end], unified_total

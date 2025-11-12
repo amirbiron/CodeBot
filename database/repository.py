@@ -1810,7 +1810,7 @@ class Repository:
                 pass
             return None
 
-    def create_snippet_proposal(self, *, title: str, description: str, code: str, language: str, user_id: int) -> Optional[str]:
+    def create_snippet_proposal(self, *, title: str, description: str, code: str, language: str, user_id: int, username: Optional[str] = None) -> Optional[str]:
         try:
             coll = getattr(self.manager, 'snippets_collection', None)
             if coll is None:
@@ -1822,6 +1822,7 @@ class Repository:
                 "code": code or "",
                 "language": (language or "").strip()[:40],
                 "user_id": int(user_id),
+                "username": (username or "")[:64],
                 "status": "pending",
                 "submitted_at": now,
                 "approved_at": None,
@@ -1943,10 +1944,12 @@ class Repository:
             for r in rows:
                 try:
                     out.append({
+                        "id": str(r.get("_id")) if r.get("_id") is not None else None,
                         "title": r.get("title"),
                         "description": r.get("description"),
                         "code": r.get("code"),
                         "language": r.get("language"),
+                        "username": r.get("username"),
                         "approved_at": r.get("approved_at"),
                     })
                 except Exception:

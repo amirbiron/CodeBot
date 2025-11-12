@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg width="760" height="360" viewBox="0 0 760 360" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <filter id="shadow" x="-50%" y="-50%" width="200%" height="200%">
+      <feDropShadow dx="0" dy="10" stdDeviation="16" flood-opacity="0.25"/>
+    </filter>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#667eea"/>
+      <stop offset="100%" stop-color="#764ba2"/>
+    </linearGradient>
+  </defs>
+  <!-- Background -->
+  <rect x="0" y="0" width="760" height="360" fill="url(#bg)"/>
+
+  <!-- Popover card -->
+  <g transform="translate(150,60)" filter="url(#shadow)">
+    <rect width="460" height="240" rx="16" fill="#ffffff"/>
+    <text x="24" y="44" font-family="Heebo, Arial, sans-serif" font-size="20" font-weight="700" fill="#1f2937">🔔 יש לך 3 פתקים שממתינים:</text>
+    <!-- List items -->
+    <text x="36" y="92" font-family="Heebo, Arial, sans-serif" font-size="16" fill="#111827">• "לבדוק את הלוגים של גוגל דרייב…"</text>
+    <text x="36" y="122" font-family="Heebo, Arial, sans-serif" font-size="16" fill="#111827">• "לסדר תיקיות במועדפים…"</text>
+    <text x="36" y="152" font-family="Heebo, Arial, sans-serif" font-size="16" fill="#111827">• "רעיונות לשדרוג פיצ'ר התראות…"</text>
+    <!-- Buttons -->
+    <g transform="translate(230,188)">
+      <rect width="90" height="32" rx="8" fill="#eef2ff" stroke="#c7d2fe"/>
+      <text x="45" y="22" text-anchor="middle" font-family="Heebo, Arial, sans-serif" font-size="14" fill="#1f2937">דחה לאחר"כ</text>
+    </g>
+    <g transform="translate(330,188)">
+      <rect width="90" height="32" rx="8" fill="#667eea"/>
+      <text x="45" y="22" text-anchor="middle" font-family="Heebo, Arial, sans-serif" font-size="14" fill="#ffffff">סגור</text>
+    </g>
+  </g>
+</svg>

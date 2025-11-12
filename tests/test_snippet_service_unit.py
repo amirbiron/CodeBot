@@ -5,6 +5,8 @@ import services.snippet_library_service as svc
 
 
 class _Repo:
+    include_builtin_snippets = False
+
     def __init__(self):
         self.created = None
         self.approved = []

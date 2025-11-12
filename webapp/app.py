@@ -205,6 +205,23 @@ _STATIC_VERSION = _compute_static_version()
 WELCOME_GUIDE_PRIMARY_SHARE_ID = "JjvpJFTXZO0oHtoC"
 WELCOME_GUIDE_SECONDARY_SHARE_ID = "sdVOAx6hUGsH4Anr"
 
+# Weekly Tip feature flag (env/config override)
+def _to_bool(val, default: bool = True) -> bool:
+    try:
+        if isinstance(val, bool):
+            return val
+        s = str(val).strip().lower()
+        if s in ("0", "false", "no", "off", "none", ""):  # treat empty as false only if explicitly provided
+            return False
+        if s in ("1", "true", "yes", "on"):  # common truthy strings
+            return True
+        return default
+    except Exception:
+        return default
+
+_WEEKLY_TIP_ENABLED_RAW = _cfg_or_env('WEEKLY_TIP_ENABLED', default='true')
+WEEKLY_TIP_ENABLED = _to_bool(_WEEKLY_TIP_ENABLED_RAW, default=True)
+
 # Guards for first-request and DB init race conditions
 _FIRST_REQUEST_LOCK = threading.Lock()
 _FIRST_REQUEST_RECORDED = False
@@ -819,6 +836,9 @@ def inject_globals():
         'bot_username': BOT_USERNAME_CLEAN,
         'ui_font_scale': font_scale,
         'ui_theme': theme,
+        # Feature flags
+        'announcement_enabled': WEEKLY_TIP_ENABLED,
+        'weekly_tip_enabled': WEEKLY_TIP_ENABLED,
         # גרסה סטטית לצירוף לסטטיקה (cache-busting)
         'static_version': _STATIC_VERSION,
         # קישור לתיעוד (לשימוש בתבניות)
@@ -877,6 +897,11 @@ def get_db():
         ensure_code_snippets_indexes()
     except Exception:
         pass
+    # אינדקסים לבאנרי הכרזות (Announcements)
+    try:
+        ensure_announcements_indexes()
+    except Exception:
+        pass
     return db
 
 
@@ -920,6 +945,35 @@ def ensure_recent_opens_indexes() -> None:
         _recent_opens_indexes_ready = True
     except Exception:
         # אין להפיל את השרת במקרה של בעיית DB בתחילת חיים
+        pass
+
+
+# --- Ensure indexes for announcements once per process ---
+_announcements_indexes_ready = False
+
+def ensure_announcements_indexes() -> None:
+    """יוצר אינדקסים לאוסף announcements פעם אחת בתהליך.
+
+    אינדקסים:
+    - (is_active, updated_at)
+    - created_at desc
+    """
+    global _announcements_indexes_ready
+    if _announcements_indexes_ready:
+        return
+    try:
+        _db = db if db is not None else None
+        if _db is None:
+            return
+        coll = _db.announcements
+        try:
+            from pymongo import ASCENDING, DESCENDING
+            coll.create_index([('is_active', ASCENDING), ('updated_at', DESCENDING)], name='active_updated_idx', background=True)
+            coll.create_index([('created_at', DESCENDING)], name='created_desc_idx', background=True)
+        except Exception:
+            pass
+        _announcements_indexes_ready = True
+    except Exception:
         pass
 
 
@@ -1587,7 +1641,7 @@ def _add_default_csp(resp):
                     # Workers used by some CM6 language/tooling integrations
                     "worker-src blob:; "
                     # Styles: local + inline + Google Fonts CSS + Font Awesome from cdnjs
-                    "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://cdnjs.cloudflare.com; "
+                    "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://cdnjs.cloudflare.com https://cdn.jsdelivr.net; "
                     # Fonts: local + Google Fonts + Font Awesome webfonts + data: (icons)
                     "font-src 'self' https://fonts.gstatic.com https://cdnjs.cloudflare.com data:; "
                     # Images: local + data/blob (thumbnails, inline previews)
@@ -1706,7 +1760,64 @@ def admin_snippet_approve():
     item_id = request.args.get('id') or ''
     try:
         if _snip_service is not None and item_id:
-            _snip_service.approve_snippet(item_id, int(session.get('user_id')))
+            # שלוף user_id לפני שינוי הסטטוס כדי למנוע החטאות לאחר עדכון
+            pre_uid = 0
+            doc = None
+            try:
+                from database import db as _db
+                coll = getattr(_db, 'snippets_collection', None)
+                if coll is None:
+                    coll = getattr(_db.db, 'snippets')
+                normalized_id = _db._get_repo()._normalize_snippet_identifier(item_id)
+                doc = coll.find_one({'_id': normalized_id}) if (normalized_id is not None and coll is not None) else None
+                pre_uid = int((doc or {}).get('user_id') or 0)
+            except Exception:
+                pre_uid = 0
+
+            ok = _snip_service.approve_snippet(item_id, int(session.get('user_id')))
+            # שליחת הודעה ידידותית למגיש הסניפט (כמו בבוט)
+            if ok:
+                uid = pre_uid
+                if uid <= 0:
+                    # fallback: נסה לאחר עדכון אם לא הצלחנו קודם
+                    try:
+                        from database import db as _db
+                        coll = getattr(_db, 'snippets_collection', None)
+                        if coll is None:
+                            coll = getattr(_db.db, 'snippets')
+                        normalized_id = _db._get_repo()._normalize_snippet_identifier(item_id)
+                        post_doc = coll.find_one({'_id': normalized_id}) if (normalized_id is not None and coll is not None) else None
+                        uid = int((post_doc or {}).get('user_id') or 0)
+                    except Exception:
+                        uid = 0
+                if uid > 0:
+                    try:
+                        # base URL להצגה למשתמש
+                        base = (PUBLIC_BASE_URL or WEBAPP_URL or request.host_url or '').rstrip('/')
+                        text = (
+                            "🎉 איזה כיף! הסניפט שלך אושר והתווסף לספריית הסניפטים.\n"
+                            f"אפשר לצפות כאן: {base}/snippets"
+                        )
+                        # שלח דרך Telegram Bot API
+                        import os as _os
+                        bot_token = _os.getenv('BOT_TOKEN', '')
+                        if bot_token:
+                            try:
+                                try:
+                                    from http_sync import request as _http_request  # type: ignore
+                                except Exception:  # pragma: no cover
+                                    _http_request = None  # type: ignore
+                                api = f"https://api.telegram.org/bot{bot_token}/sendMessage"
+                                payload = {"chat_id": uid, "text": text}
+                                if _http_request is not None:
+                                    _http_request('POST', api, json=payload, timeout=5)
+                                else:  # pragma: no cover
+                                    import requests as _requests  # type: ignore
+                                    _requests.post(api, json=payload, timeout=5)
+                            except Exception:
+                                pass
+                    except Exception:
+                        pass
     except Exception:
         pass
     return redirect(url_for('admin_snippets_pending'))
@@ -1719,12 +1830,838 @@ def admin_snippet_reject():
     reason = request.args.get('reason') or ''
     try:
         if _snip_service is not None and item_id:
-            _snip_service.reject_snippet(item_id, int(session.get('user_id')), reason)
+            # שלוף user_id לפני שינוי הסטטוס כדי להבטיח שיודיעו למגיש הנכון
+            pre_uid = 0
+            try:
+                from database import db as _db
+                coll = getattr(_db, 'snippets_collection', None)
+                if coll is None:
+                    coll = getattr(_db.db, 'snippets')
+                normalized_id = _db._get_repo()._normalize_snippet_identifier(item_id)
+                pre_doc = coll.find_one({'_id': normalized_id}) if (normalized_id is not None and coll is not None) else None
+                pre_uid = int((pre_doc or {}).get('user_id') or 0)
+            except Exception:
+                pre_uid = 0
+
+            ok = _snip_service.reject_snippet(item_id, int(session.get('user_id')), reason)
+            # שליחת הודעה ידידותית למגיש הסניפט (כמו בבוט)
+            if ok:
+                uid = pre_uid
+                if uid <= 0:
+                    try:
+                        from database import db as _db
+                        coll = getattr(_db, 'snippets_collection', None)
+                        if coll is None:
+                            coll = getattr(_db.db, 'snippets')
+                        normalized_id = _db._get_repo()._normalize_snippet_identifier(item_id)
+                        post_doc = coll.find_one({'_id': normalized_id}) if (normalized_id is not None and coll is not None) else None
+                        uid = int((post_doc or {}).get('user_id') or 0)
+                    except Exception:
+                        uid = 0
+                if uid > 0:
+                    try:
+                        text = (
+                            "🙂 תודה על ההגשה! כרגע ההצעה לא אושרה.\n"
+                            f"סיבה: {reason or '—'}\n"
+                            "נשמח לשינויים קטנים ולהגשה מחדש."
+                        )
+                        import os as _os
+                        bot_token = _os.getenv('BOT_TOKEN', '')
+                        if bot_token:
+                            try:
+                                try:
+                                    from http_sync import request as _http_request  # type: ignore
+                                except Exception:  # pragma: no cover
+                                    _http_request = None  # type: ignore
+                                api = f"https://api.telegram.org/bot{bot_token}/sendMessage"
+                                payload = {"chat_id": uid, "text": text}
+                                if _http_request is not None:
+                                    _http_request('POST', api, json=payload, timeout=5)
+                                else:  # pragma: no cover
+                                    import requests as _requests  # type: ignore
+                                    _requests.post(api, json=payload, timeout=5)
+                            except Exception:
+                                pass
+                    except Exception:
+                        pass
     except Exception:
         pass
     return redirect(url_for('admin_snippets_pending'))
 
 
+@app.route('/admin/snippets/view')
+@admin_required
+def admin_snippet_view():
+    item_id = request.args.get('id') or ''
+    doc = None
+    try:
+        if _snip_service is not None and item_id:
+            # גישה ישירה לקולקציה כדי להביא את גוף הקוד המלא
+            from database import db as _db
+            coll = getattr(_db, 'snippets_collection', None)
+            if coll is None:
+                coll = getattr(_db.db, 'snippets')
+            # שימוש בנרמול מזהה דרך ה-Repository
+            normalized_id = _db._get_repo()._normalize_snippet_identifier(item_id)
+            if normalized_id is not None and coll is not None:
+                raw = coll.find_one({'_id': normalized_id})
+                if isinstance(raw, dict):
+                    doc = {
+                        'title': raw.get('title', ''),
+                        'description': raw.get('description', ''),
+                        'language': raw.get('language', 'text'),
+                        'username': raw.get('username', ''),
+                        'code': raw.get('code', ''),
+                        'status': raw.get('status', ''),
+                        'submitted_at': raw.get('submitted_at'),
+                        'approved_at': raw.get('approved_at'),
+                    }
+    except Exception:
+        doc = None
+    return render_template('admin_snippet_view.html', item=doc, item_id=item_id)
+
+
+@app.route('/admin/snippets/delete', methods=['POST'])
+@admin_required
+def admin_snippet_delete():
+    item_id = request.args.get('id') or request.form.get('id') or ''
+    try:
+        from database import db as _db
+        coll = getattr(_db, 'snippets_collection', None)
+        if coll is None:
+            coll = getattr(_db.db, 'snippets')
+        normalized_id = _db._get_repo()._normalize_snippet_identifier(item_id)
+        if normalized_id is not None and coll is not None:
+            coll.delete_one({'_id': normalized_id})
+    except Exception:
+        pass
+    return redirect(url_for('admin_snippets_pending'))
+
+
+# --- Community Library: Pending management (Admin) ---
+@app.route('/admin/community/pending')
+@admin_required
+def admin_community_pending():
+    items = []
+    try:
+        from services import community_library_service as _cl_service  # type: ignore
+    except Exception:
+        _cl_service = None  # type: ignore
+    try:
+        if _cl_service is not None:
+            items = _cl_service.list_pending(limit=200, skip=0)
+    except Exception:
+        items = []
+    return render_template('admin_community_pending.html', items=items)
+
+
+@app.route('/admin/community/approve')
+@admin_required
+def admin_community_approve():
+    item_id = request.args.get('id') or ''
+    try:
+        from services import community_library_service as _cl_service  # type: ignore
+    except Exception:
+        _cl_service = None  # type: ignore
+    try:
+        if _cl_service is not None and item_id:
+            # שליפת מזהה משתמש קודם לאישור (לצורך הודעה)
+            pre_uid = 0
+            try:
+                from database import db as _db
+                coll = getattr(_db, 'community_library_collection', None)
+                if coll is None:
+                    coll = getattr(_db.db, 'community_library_items')
+                try:
+                    from services.community_library_service import ObjectId as _CLObjectId  # type: ignore
+                except Exception:
+                    _CLObjectId = None  # type: ignore
+                q = {'_id': (_CLObjectId(item_id) if _CLObjectId is not None else item_id)}
+                doc = coll.find_one(q) if coll is not None else None
+                pre_uid = int((doc or {}).get('user_id') or 0)
+            except Exception:
+                pre_uid = 0
+
+            _cl_service.approve_item(item_id, int(session.get('user_id')))
+
+            # שליחת הודעת Telegram ידידותית למגיש/ה (best-effort)
+            try:
+                uid = pre_uid
+                if uid <= 0:
+                    from database import db as _db
+                    coll = getattr(_db, 'community_library_collection', None)
+                    if coll is None:
+                        coll = getattr(_db.db, 'community_library_items')
+                    try:
+                        from services.community_library_service import ObjectId as _CLObjectId  # type: ignore
+                    except Exception:
+                        _CLObjectId = None  # type: ignore
+                    q = {'_id': (_CLObjectId(item_id) if _CLObjectId is not None else item_id)}
+                    post_doc = coll.find_one(q) if coll is not None else None
+                    uid = int((post_doc or {}).get('user_id') or 0)
+                if uid > 0:
+                    base = (PUBLIC_BASE_URL or WEBAPP_URL or request.host_url or '').rstrip('/')
+                    text = (
+                        "🎉 איזה כיף! הבקשה שלך אושרה ונוספה לאוסף הקהילה.\n"
+                        f"אפשר לצפות כאן: {base}/community-library"
+                    )
+                    bot_token = os.getenv('BOT_TOKEN', '')
+                    if bot_token:
+                        try:
+                            try:
+                                from http_sync import request as _http_request  # type: ignore
+                            except Exception:  # pragma: no cover
+                                _http_request = None  # type: ignore
+                            api = f"https://api.telegram.org/bot{bot_token}/sendMessage"
+                            payload = {"chat_id": uid, "text": text}
+                            if _http_request is not None:
+                                _http_request('POST', api, json=payload, timeout=5)
+                            else:  # pragma: no cover
+                                import requests as _requests  # type: ignore
+                                _requests.post(api, json=payload, timeout=5)
+                        except Exception:
+                            pass
+            except Exception:
+                pass
+    except Exception:
+        pass
+    return redirect(url_for('admin_community_pending'))
+
+
+@app.route('/admin/community/reject')
+@admin_required
+def admin_community_reject():
+    item_id = request.args.get('id') or ''
+    reason = request.args.get('reason') or ''
+    try:
+        from services import community_library_service as _cl_service  # type: ignore
+    except Exception:
+        _cl_service = None  # type: ignore
+    try:
+        if _cl_service is not None and item_id:
+            pre_uid = 0
+            try:
+                from database import db as _db
+                coll = getattr(_db, 'community_library_collection', None)
+                if coll is None:
+                    coll = getattr(_db.db, 'community_library_items')
+                try:
+                    from services.community_library_service import ObjectId as _CLObjectId  # type: ignore
+                except Exception:
+                    _CLObjectId = None  # type: ignore
+                q = {'_id': (_CLObjectId(item_id) if _CLObjectId is not None else item_id)}
+                doc = coll.find_one(q) if coll is not None else None
+                pre_uid = int((doc or {}).get('user_id') or 0)
+            except Exception:
+                pre_uid = 0
+
+            _cl_service.reject_item(item_id, int(session.get('user_id')), reason)
+
+            # הודעת דחייה בטלגרם (best‑effort)
+            try:
+                uid = pre_uid
+                if uid <= 0:
+                    from database import db as _db
+                    coll = getattr(_db, 'community_library_collection', None)
+                    if coll is None:
+                        coll = getattr(_db.db, 'community_library_items')
+                    try:
+                        from services.community_library_service import ObjectId as _CLObjectId  # type: ignore
+                    except Exception:
+                        _CLObjectId = None  # type: ignore
+                    q = {'_id': (_CLObjectId(item_id) if _CLObjectId is not None else item_id)}
+                    post_doc = coll.find_one(q) if coll is not None else None
+                    uid = int((post_doc or {}).get('user_id') or 0)
+                if uid > 0:
+                    text = (
+                        "🙂 תודה על ההגשה! כרגע הבקשה לא אושרה.\n"
+                        f"סיבה: {reason or '—'}\n"
+                        "נשמח לשינויים קטנים ולהגשה מחדש."
+                    )
+                    bot_token = os.getenv('BOT_TOKEN', '')
+                    if bot_token:
+                        try:
+                            try:
+                                from http_sync import request as _http_request  # type: ignore
+                            except Exception:  # pragma: no cover
+                                _http_request = None  # type: ignore
+                            api = f"https://api.telegram.org/bot{bot_token}/sendMessage"
+                            payload = {"chat_id": uid, "text": text}
+                            if _http_request is not None:
+                                _http_request('POST', api, json=payload, timeout=5)
+                            else:  # pragma: no cover
+                                import requests as _requests  # type: ignore
+                                _requests.post(api, json=payload, timeout=5)
+                        except Exception:
+                            pass
+            except Exception:
+                pass
+    except Exception:
+        pass
+    return redirect(url_for('admin_community_pending'))
+
+@app.route('/admin/snippets/edit', methods=['GET', 'POST'])
+@admin_required
+def admin_snippet_edit():
+    item_id = request.args.get('id') or request.form.get('id') or ''
+    from database import db as _db
+    coll = getattr(_db, 'snippets_collection', None)
+    if coll is None:
+        coll = getattr(_db.db, 'snippets')
+    normalized_id = _db._get_repo()._normalize_snippet_identifier(item_id) if item_id else None
+    if request.method == 'POST' and normalized_id is not None and coll is not None:
+        try:
+            upd = {
+                'title': request.form.get('title') or '',
+                'description': request.form.get('description') or '',
+                'language': request.form.get('language') or 'text',
+                'code': request.form.get('code') or '',
+            }
+            coll.update_one({'_id': normalized_id}, {'$set': upd})
+            return redirect(url_for('admin_snippet_view', id=item_id))
+        except Exception:
+            pass
+    # GET: load current
+    doc = None
+    try:
+        if normalized_id is not None and coll is not None:
+            raw = coll.find_one({'_id': normalized_id})
+            if isinstance(raw, dict):
+                doc = {
+                    'title': raw.get('title', ''),
+                    'description': raw.get('description', ''),
+                    'language': raw.get('language', 'text'),
+                    'code': raw.get('code', ''),
+                }
+    except Exception:
+        doc = None
+    return render_template('admin_snippet_edit.html', item=doc, item_id=item_id)
+
+
+# --- Admin: Import multiple snippets from Markdown (UI) ---
+@app.route('/admin/snippets/import', methods=['GET', 'POST'])
+@admin_required
+def admin_snippets_import():
+    """Admin UI to import multiple snippets from a pasted Markdown document or a URL (incl. GitHub/Gist).
+
+    On POST:
+      - If source_url provided and content empty: fetch content from URL (best-effort, supports GitHub/Gist raw).
+      - Parse markdown into (title, description, code, language) tuples.
+      - If dry_run: render preview with counts without persisting.
+      - Else: persist each snippet via repository and auto-approve by default.
+    """
+    from flask import request
+    import re as _re
+    import dataclasses as _dc
+    import textwrap as _textwrap
+    from typing import List as _List, Optional as _Optional, Tuple as _Tuple
+
+    # Lazy imports to avoid top-level deps
+    try:
+        from urllib.parse import urlparse as _urlparse
+        from urllib.request import Request as _Request, urlopen as _urlopen
+    except Exception:  # pragma: no cover
+        _urlparse = None  # type: ignore
+        _Request = None  # type: ignore
+        _urlopen = None  # type: ignore
+
+    @_dc.dataclass
+    class _ParsedSnippet:
+        title: str
+        description: str
+        code: str
+        language: str
+
+    _FENCE_START_RE = _re.compile(r"^```([a-zA-Z0-9_+-]*)\s*$")
+    _FENCE_END_RE = _re.compile(r"^```\s*$")
+
+    def _strip_leading_decorations(text: str) -> str:
+        t = text or ""
+        while t and (t[0] in ('✅', '•', '*', '-', '–', '—', ' ', '\t')):
+            t = t[1:].lstrip(' \t')
+        return t
+
+    def _match_header(line: str) -> _Optional[str]:
+        """Match markdown header ##..#### without heavy regex to avoid ReDoS."""
+        if not line:
+            return None
+        # Up to 3 leading spaces
+        s = line
+        lead = 0
+        while lead < len(s) and lead < 3 and s[lead] == ' ':
+            lead += 1
+        s = s[lead:]
+        # Count '#'
+        i = 0
+        while i < len(s) and s[i] == '#':
+            i += 1
+        if 2 <= i <= 4 and i < len(s) and s[i].isspace():
+            title = s[i:].strip()
+            return _strip_leading_decorations(title)
+        return None
+
+    def _extract_why(line: str) -> _Optional[str]:
+        if not line:
+            return None
+        s = line.lstrip()
+        prefix = "**למה זה שימושי:**"
+        if s.startswith(prefix):
+            return s[len(prefix):].strip()
+        return None
+
+    def _guess_language(value: str, fallback: str = "text") -> str:
+        value = (value or "").strip().lower()
+        if not value:
+            return fallback
+        mapping = {
+            "py": "python",
+            "js": "javascript",
+            "ts": "typescript",
+            "sh": "bash",
+            "shell": "bash",
+            "yml": "yaml",
+            "md": "markdown",
+            "golang": "go",
+            "html5": "html",
+            "css3": "css",
+        }
+        return mapping.get(value, value)
+
+    def _maybe_to_raw_url(url: str) -> str:
+        """Accept only GitHub file/blobs and Gist URLs and strictly parse."""
+        try:
+            parsed = _urlparse(url) if _urlparse else None
+        except Exception:
+            return ""
+        if not parsed or not (parsed.scheme and parsed.netloc and parsed.path):
+            return ""
+        host = parsed.netloc.lower()
+        path = parsed.path or ""
+        if host == "github.com" and "/blob/" in path:
+            parts = path.strip("/").split("/")
+            if len(parts) >= 5:
+                owner, repo, _blob, branch = parts[:4]
+                rest_segments = parts[4:]
+                # Allow dots in names (file extensions), forbid empty/"."/".." segments
+                safe_re = r"^[A-Za-z0-9._\-]+$"
+                if (
+                    _re.match(safe_re, owner)
+                    and _re.match(safe_re, repo)
+                    and _re.match(safe_re, branch)
+                    and all((_re.match(safe_re, p) and p not in ("", ".", "..")) for p in rest_segments)
+                ):
+                    tail = "/".join(rest_segments)
+                    return f"https://raw.githubusercontent.com/{owner}/{repo}/{branch}/{tail}"
+                else:
+                    return ""
+        if host == "gist.github.com":
+            parts = path.strip("/").split("/")
+            if len(parts) >= 2:
+                user, gist_id = parts[:2]
+                safe_re = r"^[A-Za-z0-9._\-]+$"
+                if _re.match(safe_re, user) and _re.match(safe_re, gist_id):
+                    return f"https://gist.githubusercontent.com/{user}/{gist_id}/raw"
+                else:
+                    return ""
+        return ""
+
+    def _is_allowed_url(url: str) -> bool:
+        """Allow only hardcoded raw GitHub/Gist hosts with HTTPS."""
+        try:
+            parsed = _urlparse(url) if _urlparse else None
+        except Exception:
+            return False
+        if not parsed or not (parsed.scheme and parsed.netloc):
+            return False
+        scheme = parsed.scheme.lower()
+        host = parsed.netloc.lower()
+        if scheme != "https":
+            return False
+        # Disallow any URL containing '@', port other than 443, or fragments/queries
+        if "@" in host or (":" in host and not host.endswith(":443")):
+            return False
+        if parsed.query or parsed.fragment:
+            return False
+        return host in {"raw.githubusercontent.com", "gist.githubusercontent.com"}
+
+    def _fetch_url(url: str, timeout: int = 20) -> str:
+        if _Request is None or _urlopen is None:
+            raise RuntimeError("URL fetching is unavailable on this server")
+        req = _Request(url, headers={"User-Agent": "CodeBot/WebApp-Importer"})
+        with _urlopen(req, timeout=timeout) as resp:  # type: ignore[arg-type]
+            data = resp.read()
+            return data.decode("utf-8", errors="replace")
+
+    def _parse_markdown(md: str) -> _List[_ParsedSnippet]:
+        lines = (md or "").splitlines()
+        results: _List[_ParsedSnippet] = []
+        current_title: _Optional[str] = None
+        current_description: _Optional[str] = None
+        i = 0
+        while i < len(lines):
+            line = lines[i]
+            # Header lines (##..#### Title)
+            hdr = _match_header(line)
+            if hdr is not None:
+                current_title = hdr
+                current_description = None
+                i += 1
+                continue
+            # Why line ("**למה זה שימושי:** ...")
+            why = _extract_why(line)
+            if why is not None:
+                current_description = why
+                i += 1
+                continue
+            m_fence = _FENCE_START_RE.match(line)
+            if m_fence:
+                lang = _guess_language(m_fence.group(1) or "text")
+                code_lines: _List[str] = []
+                i += 1
+                while i < len(lines):
+                    if _FENCE_END_RE.match(lines[i]):
+                        break
+                    code_lines.append(lines[i])
+                    i += 1
+                if i < len(lines) and _FENCE_END_RE.match(lines[i]):
+                    i += 1
+                title = (current_title or "סניפט ללא כותרת").strip()
+                description = (current_description or "מתוך מסמך מיובא").strip()
+                description = description.replace("\n", " ").strip()
+                if len(description) > 160:
+                    description = description[:157].rstrip() + "..."
+                code_text = "\n".join(code_lines).rstrip("\n")
+                if len(code_text) > 150_000:
+                    code_text = code_text[:150_000] + "\n# ... trimmed ..."
+                results.append(_ParsedSnippet(title=title, description=description, code=code_text, language=lang))
+                continue
+            i += 1
+        return results
+
+    def _persist(snippets: _List[_ParsedSnippet], *, auto_approve: bool, dry_run: bool) -> _Tuple[int, int, int]:
+        from database import db as _db
+        def _exists_title_ci(title: str) -> bool:
+            try:
+                coll = getattr(_db, 'snippets_collection', None)
+                if coll is None:
+                    return False
+                q = {"title": {"$regex": f"^{_re.escape(title)}$", "$options": "i"}}
+                doc = coll.find_one(q)
+                return bool(doc)
+            except Exception:
+                return False
+        created = approved = skipped = 0
+        for snip in snippets:
+            if _exists_title_ci(snip.title):
+                skipped += 1
+                continue
+            if dry_run:
+                created += 1
+                if auto_approve:
+                    approved += 1
+                continue
+            try:
+                res = _db._get_repo().create_snippet_proposal(
+                    title=snip.title,
+                    description=snip.description,
+                    code=snip.code,
+                    language=snip.language,
+                    user_id=int(session.get('user_id') or 0),
+                    username=(session.get('user_data') or {}).get('username') if isinstance(session.get('user_data'), dict) else None,
+                )
+                if res:
+                    created += 1
+                    if auto_approve:
+                        ok = _db._get_repo().approve_snippet(res, int(session.get('user_id') or 0))
+                        if ok:
+                            approved += 1
+                else:
+                    skipped += 1
+            except Exception:
+                skipped += 1
+        return created, approved, skipped
+
+    if request.method == 'GET':
+        return render_template('admin_snippets_import.html', result=None)
+
+    # POST
+    source_url = (request.form.get('source_url') or '').strip()
+    content = request.form.get('content') or ''
+    # HTML checkbox: when unchecked the key is absent -> should be False
+    auto_approve = str(request.form.get('auto_approve') or '').lower() in {'on', '1', 'true', 'yes'}
+    dry_run = (request.form.get('dry_run') or '') == 'on'
+
+    text = content
+    if not text and source_url:
+        maybe_raw_url = _maybe_to_raw_url(source_url)
+        if not maybe_raw_url or not _is_allowed_url(maybe_raw_url):
+            err = "ניתן לייבא רק מ‑GitHub/Gist באמצעות מזהה חוקי (לא URL שרירותי)"
+            return render_template('admin_snippets_import.html', error=err, result=None, source_url=source_url, content=content, auto_approve=auto_approve, dry_run=dry_run)
+        try:
+            text = _fetch_url(maybe_raw_url)
+        except Exception as e:
+            err = f"שגיאה בטעינת ה‑URL: {e}"
+            return render_template('admin_snippets_import.html', error=err, result=None, source_url=source_url, content=content, auto_approve=auto_approve, dry_run=dry_run)
+
+    if not text.strip():
+        return render_template('admin_snippets_import.html', error="לא התקבל תוכן או URL", result=None, source_url=source_url, content=content, auto_approve=auto_approve, dry_run=dry_run)
+
+    snippets = _parse_markdown(text)
+    if not snippets:
+        return render_template('admin_snippets_import.html', error="לא נמצאו סניפטים במסמך", result=None, source_url=source_url, content=content, auto_approve=auto_approve, dry_run=dry_run)
+
+    created, approved, skipped = _persist(snippets, auto_approve=auto_approve, dry_run=dry_run)
+    summary = {
+        'parsed': len(snippets),
+        'created': created,
+        'approved': approved,
+        'skipped': skipped,
+        'auto_approve': auto_approve,
+        'dry_run': dry_run,
+        'titles': [s.title for s in snippets],
+    }
+    return render_template('admin_snippets_import.html', result=summary, error=None, source_url=source_url, content=content, auto_approve=auto_approve, dry_run=dry_run)
+
+
+# --- Community library admin: minimal Edit/Delete ---
+@app.route('/admin/community/delete', methods=['POST'])
+@admin_required
+def admin_community_delete():
+    item_id = request.args.get('id') or request.form.get('id') or ''
+    try:
+        from bson import ObjectId  # type: ignore
+    except Exception:
+        ObjectId = None  # type: ignore
+    try:
+        from database import db as _db
+        coll = getattr(_db, 'community_library_collection', None)
+        if coll is None:
+            coll = getattr(_db.db, 'community_library_items')
+        if coll is not None and item_id:
+            q = {'_id': ObjectId(item_id)} if ObjectId is not None else {'_id': item_id}
+            coll.delete_one(q)
+    except Exception:
+        pass
+    return redirect(url_for('community_library_page'))
+
+
+@app.route('/admin/community/edit', methods=['GET', 'POST'])
+@admin_required
+def admin_community_edit():
+    from flask import request
+    try:
+        from bson import ObjectId  # type: ignore
+    except Exception:
+        ObjectId = None  # type: ignore
+    item_id = request.args.get('id') or request.form.get('id') or ''
+    from database import db as _db
+    coll = getattr(_db, 'community_library_collection', None)
+    if coll is None:
+        coll = getattr(_db.db, 'community_library_items')
+    if request.method == 'POST' and coll is not None and item_id:
+        try:
+            q = {'_id': ObjectId(item_id)} if ObjectId is not None else {'_id': item_id}
+            upd = {
+                'title': request.form.get('title') or '',
+                'description': request.form.get('description') or '',
+                'url': request.form.get('url') or '',
+            }
+            coll.update_one(q, {'$set': upd})
+            return redirect(url_for('community_library_page'))
+        except Exception:
+            pass
+    # GET: load current
+    doc = None
+    try:
+        if coll is not None and item_id:
+            q = {'_id': ObjectId(item_id)} if ObjectId is not None else {'_id': item_id}
+            raw = coll.find_one(q)
+            if isinstance(raw, dict):
+                doc = {
+                    'title': raw.get('title', ''),
+                    'description': raw.get('description', ''),
+                    'url': raw.get('url', ''),
+                }
+    except Exception:
+        doc = None
+    return render_template('admin_community_edit.html', item=doc, item_id=item_id)
+
+
+# --- Announcements: Admin UI + Public API ---
+def _normalize_announcement_link(raw: str) -> str:
+    try:
+        v = (raw or "").strip()
+        if not v:
+            return ""
+        # קישור פנימי מותר: מתחיל ב-
+        if v.startswith('/'):
+            return v
+        # קישור חיצוני: https בלבד
+        if v.lower().startswith('https://'):
+            return v
+        return ""
+    except Exception:
+        return ""
+
+def _announcement_doc_to_json(doc: Dict[str, Any]) -> Dict[str, Any]:
+    return {
+        'id': str(doc.get('_id')),
+        'text': str(doc.get('text') or ''),
+        'link': (doc.get('link') or None) if str(doc.get('link') or '').strip() else None,
+    }
+
+
+@app.route('/api/v1/announcements/active', methods=['GET'])
+@login_required
+def api_active_announcement():
+    try:
+        _db = get_db()
+    except Exception:
+        return jsonify(None)
+    try:
+        doc = _db.announcements.find_one({'is_active': True}, sort=[('updated_at', DESCENDING)])
+        if not doc:
+            return jsonify(None)
+        return jsonify(_announcement_doc_to_json(doc))
+    except Exception:
+        return jsonify(None)
+
+
+@app.route('/admin/announcements', methods=['GET'])
+@admin_required
+def admin_announcements_index():
+    items: list[dict] = []
+    try:
+        _db = get_db()
+        cur = _db.announcements.find({}, sort=[('created_at', DESCENDING)])
+        for d in cur:
+            try:
+                items.append({
+                    '_id': str(d.get('_id')),
+                    'text': str(d.get('text') or ''),
+                    'link': str(d.get('link') or ''),
+                    'is_active': bool(d.get('is_active', False)),
+                    'created_at': d.get('created_at'),
+                    'updated_at': d.get('updated_at'),
+                })
+            except Exception:
+                pass
+    except Exception:
+        items = []
+    return render_template('admin_announcements.html', items=items)
+
+
+@app.route('/admin/announcements/new', methods=['GET', 'POST'])
+@admin_required
+def admin_announcements_new():
+    if request.method == 'GET':
+        return render_template('admin_announcements.html', create_mode=True, items=None)
+    # POST: create
+    text = (request.form.get('text') or '').strip()
+    link = _normalize_announcement_link(request.form.get('link') or '')
+    is_active = str(request.form.get('is_active') or '').lower() in {'on', '1', 'true', 'yes'}
+    if not text:
+        return render_template('admin_announcements.html', create_mode=True, error='חובה להזין טקסט להכרזה', form={'text': text, 'link': link, 'is_active': is_active})
+    try:
+        _db = get_db()
+    except Exception:
+        return render_template('admin_announcements.html', create_mode=True, error='שגיאת מסד נתונים')
+    now = datetime.now(timezone.utc)
+    try:
+        if is_active:
+            try:
+                _db.announcements.update_many({'is_active': True}, {'$set': {'is_active': False, 'updated_at': now}})
+            except Exception:
+                pass
+        doc = {
+            'text': text[:280],
+            'link': link,
+            'is_active': bool(is_active),
+            'created_at': now,
+            'updated_at': now,
+        }
+        _db.announcements.insert_one(doc)
+    except Exception:
+        return render_template('admin_announcements.html', create_mode=True, error='שמירת ההכרזה נכשלה')
+    return redirect(url_for('admin_announcements_index'))
+
+
+@app.route('/admin/announcements/edit', methods=['GET', 'POST'])
+@admin_required
+def admin_announcements_edit():
+    try:
+        _db = get_db()
+    except Exception:
+        return redirect(url_for('admin_announcements_index'))
+    item_id = (request.args.get('id') or request.form.get('id') or '').strip()
+    from bson import ObjectId  # type: ignore
+    if request.method == 'POST':
+        text = (request.form.get('text') or '').strip()
+        link = _normalize_announcement_link(request.form.get('link') or '')
+        is_active = str(request.form.get('is_active') or '').lower() in {'on', '1', 'true', 'yes'}
+        if not text:
+            return render_template('admin_announcements.html', edit_mode=True, error='חובה להזין טקסט', item_id=item_id)
+        now = datetime.now(timezone.utc)
+        try:
+            if is_active:
+                try:
+                    _db.announcements.update_many({'is_active': True, '_id': {'$ne': ObjectId(item_id)}}, {'$set': {'is_active': False, 'updated_at': now}})
+                except Exception:
+                    pass
+            _db.announcements.update_one({'_id': ObjectId(item_id)}, {'$set': {'text': text[:280], 'link': link, 'is_active': bool(is_active), 'updated_at': now}})
+        except Exception:
+            return render_template('admin_announcements.html', edit_mode=True, error='עדכון נכשל', item_id=item_id)
+        return redirect(url_for('admin_announcements_index'))
+    # GET: load existing
+    try:
+        doc = _db.announcements.find_one({'_id': ObjectId(item_id)})
+        if not isinstance(doc, dict):
+            return redirect(url_for('admin_announcements_index'))
+        item = {
+            '_id': str(doc.get('_id')),
+            'text': str(doc.get('text') or ''),
+            'link': str(doc.get('link') or ''),
+            'is_active': bool(doc.get('is_active', False)),
+        }
+        return render_template('admin_announcements.html', edit_mode=True, item=item)
+    except Exception:
+        return redirect(url_for('admin_announcements_index'))
+
+
+@app.route('/admin/announcements/delete', methods=['POST'])
+@admin_required
+def admin_announcements_delete():
+    try:
+        _db = get_db()
+    except Exception:
+        return redirect(url_for('admin_announcements_index'))
+    item_id = (request.args.get('id') or request.form.get('id') or '').strip()
+    try:
+        from bson import ObjectId  # type: ignore
+        _db.announcements.delete_one({'_id': ObjectId(item_id)})
+    except Exception:
+        pass
+    return redirect(url_for('admin_announcements_index'))
+
+
+@app.route('/admin/announcements/activate')
+@admin_required
+def admin_announcements_activate():
+    try:
+        _db = get_db()
+    except Exception:
+        return redirect(url_for('admin_announcements_index'))
+    item_id = (request.args.get('id') or '').strip()
+    if not item_id:
+        return redirect(url_for('admin_announcements_index'))
+    now = datetime.now(timezone.utc)
+    try:
+        from bson import ObjectId  # type: ignore
+        _db.announcements.update_many({'is_active': True}, {'$set': {'is_active': False, 'updated_at': now}})
+        _db.announcements.update_one({'_id': ObjectId(item_id)}, {'$set': {'is_active': True, 'updated_at': now}})
+    except Exception:
+        pass
+    return redirect(url_for('admin_announcements_index'))
 # ===== Global Content Search API =====
 def _search_limiter_decorator(rule: str):
     """Wrap limiter.limit if available; return no-op otherwise."""
@@ -2495,6 +3432,51 @@ def format_datetime_display(value) -> str:
             except Exception:
                 return ''
         return ''
+    except Exception:
+        return ''
+
+# מסנן Jinja להצגת שעה:דקות (HH:MM) בלבד
+@app.template_filter('hhmm')
+def format_time_hhmm(value) -> str:
+    try:
+        if isinstance(value, datetime):
+            dt = value if value.tzinfo is not None else value.replace(tzinfo=timezone.utc)
+            return dt.strftime('%H:%M')
+        if isinstance(value, str) and value:
+            try:
+                dtp = datetime.fromisoformat(value)
+                dtp = dtp if dtp.tzinfo is not None else dtp.replace(tzinfo=timezone.utc)
+                return dtp.strftime('%H:%M')
+            except Exception:
+                return ''
+        return ''
+    except Exception:
+        return ''
+
+# מסנן Jinja להצגת תאריך כולל (DD/MM/YYYY HH:MM)
+@app.template_filter('datetime_display')
+def jinja_datetime_display(value) -> str:
+    return format_datetime_display(value)
+
+# מסנן Jinja חכם: אם היום – מציג HH:MM, אחרת DD/MM HH:MM
+@app.template_filter('day_hhmm')
+def format_day_hhmm(value) -> str:
+    try:
+        if isinstance(value, datetime):
+            dt = value if value.tzinfo is not None else value.replace(tzinfo=timezone.utc)
+        elif isinstance(value, str) and value:
+            try:
+                dt = datetime.fromisoformat(value)
+                dt = dt if dt.tzinfo is not None else dt.replace(tzinfo=timezone.utc)
+            except Exception:
+                return ''
+        else:
+            return ''
+
+        now = datetime.now(timezone.utc)
+        if dt.date() == now.date():
+            return dt.strftime('%H:%M')
+        return dt.strftime('%d/%m %H:%M')
     except Exception:
         return ''
 # Routes

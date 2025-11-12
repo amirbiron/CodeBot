@@ -59,12 +59,26 @@ ENV PYTHONDONTWRITEBYTECODE=1
 ENV PATH="/home/botuser/.local/bin:$PATH"
 ENV PYTHONPATH="/app:$PYTHONPATH"
 ENV PYTHONFAULTHANDLER=1
-# התקנת תלויות runtime
+# התקנת תלויות runtime (כולל ספריות Playwright/Chromium דרושות בזמן ריצה)
 RUN apt-get update -y && apt-get upgrade -y && apt-get install -y --no-install-recommends \
+    libasound2 \
+    libatk-bridge2.0-0 \
+    libatk1.0-0 \
+    libatspi2.0-0 \
     libcairo2 \
+    libdbus-1-3 \
+    libdrm2 \
+    libgbm1 \
+    libgdk-pixbuf-2.0-0 \
+    libnspr4 \
+    libnss3 \
     libpango-1.0-0 \
     libpangoft2-1.0-0 \
-    libgdk-pixbuf-2.0-0 \
+    libxcomposite1 \
+    libxdamage1 \
+    libxfixes3 \
+    libxkbcommon0 \
+    libxrandr2 \
     fontconfig \
     fonts-dejavu \
     tzdata \
@@ -77,6 +91,11 @@ RUN apt-get update -y && apt-get upgrade -y && apt-get install -y --no-install-r
 
 # שדרוג כלי פייתון בסיסיים גם בשכבת ה-production כדי למנוע CVEs ב-site-packages של המערכת
 RUN python -m pip install --upgrade --no-cache-dir 'pip>=24.1' 'setuptools>=78.1.1' 'wheel>=0.43.0'
+
+# התקנת Playwright והתקנת תלויות מערכת ל-Chromium (root)
+# הערה: החבילה עצמה קיימת גם בסביבת המשתמש (מאושרת דרך builder), כאן נשתמש בה רק לצורך install-deps
+RUN python -m pip install --no-cache-dir 'playwright==1.49.0' && \
+    (python -m playwright install-deps chromium || true)
 
 # יצירת משתמש לא-root
 # Alpine: create non-root user
@@ -97,6 +116,9 @@ WORKDIR /app
 
 # העתקת קבצי האפליקציה
 COPY --chown=botuser:botuser . .
+
+# הורדת דפדפן Chromium לסביבת המשתמש (botuser) בזמן build
+RUN python -m playwright install chromium || true
 
 # הגדרת timezone
 ENV TZ=UTC

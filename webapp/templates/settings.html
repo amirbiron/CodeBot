@@ -34,7 +34,7 @@
                 {{ user.first_name }} {{ user.last_name or '' }}
             </p>
         </div>
-        <div>
+        <div id="account-status">
             <label style="opacity: 0.7; font-size: 0.9rem;">סטטוס</label>
             <p style="font-size: 1.2rem; margin: 0.5rem 0;">
                 {% if is_admin %}
@@ -51,6 +51,14 @@
             </p>
         </div>
     </div>
+    {% if is_premium %}
+    <div style="margin-top: 1.5rem; padding: 1rem; background: rgba(255,255,255,0.08); border-radius: 12px; display: flex; align-items: center; gap: 0.75rem;">
+        <span aria-hidden="true" style="font-size: 1.4rem;">💎</span>
+        <div style="font-size: 1rem;">
+            יש לך בקשות מיוחדות? מוזמן לבקש מ <a href="https://t.me/moominAmir" target="_blank" rel="noopener" style="color: #fff; text-decoration: underline;">@moominAmir</a>
+        </div>
+    </div>
+    {% endif %}
 </div>
 
 <div class="glass-card">
@@ -101,6 +109,21 @@
         כלי אדמין
     </h2>
     <div style="display: grid; gap: 1rem;">
+        <div style="padding: 1rem; background: rgba(255,255,255,0.05); border-radius: 10px;">
+            <h4>📃 ניהול ספריית סניפטים</h4>
+            <div style="display:flex; gap:.5rem; flex-wrap: wrap;">
+                <a class="btn btn-primary" href="/admin/snippets/pending">📥 הצעות ממתינות</a>
+                <a class="btn btn-secondary" href="/snippets">📚 מעבר לספרייה</a>
+                <a class="btn btn-secondary" href="/snippets/submit">➕ הוסף סניפט חדש</a>
+            </div>
+        </div>
+        <div style="padding: 1rem; background: rgba(255,255,255,0.05); border-radius: 10px;">
+            <h4>🧩 ממשקי משתמשים – אוסף הקהילה</h4>
+            <div style="display:flex; gap:.5rem; flex-wrap: wrap;">
+                <a class="btn btn-primary" href="/admin/community/pending">📥 אוספים ממתינים</a>
+                <a class="btn btn-secondary" href="/community-library">🏛️ לעמוד האוסף</a>
+            </div>
+        </div>
         <div style="padding: 1rem; background: rgba(255,255,255,0.05); border-radius: 10px;">
             <h4><i class="fas fa-database"></i> סטטיסטיקות מערכת</h4>
             <p style="opacity: 0.8;">בקרוב: צפייה בנתונים כלליים של המערכת</p>
@@ -232,7 +255,7 @@
 
 .glass-card h4 {
     margin: 0 0 0.5rem 0;
-    color: var(--primary);
+    color: #fff; /* כותרות לבנות במקום כחול עבור הגדרות אדמין */
 }
 
 /* Toggle switch */

@@ -47,16 +47,11 @@ ImportError בזמן טסטים (telegram / ConversationHandler / filters)
    await http_async.close_session()
    session = http_async.get_session()
 
-- טיפ לטסטים: איפוס סשן אוטומטי לכל טסט::
-
-   import pytest
-   import http_async
-
-   @pytest.fixture(autouse=True)
-   async def reset_http_session():
-       await http_async.close_session()
-       yield
-       await http_async.close_session()
+- בפרויקט קיימים שני פיקסצ'רים אוטומטיים ב-``conftest.py`` שמבצעים את הסגירה הזו עבורך:
+  - ``_reset_http_async_session_between_tests`` – מריץ ``await close_session()`` לפני ואחרי כל טסט אסינכרוני.
+  - ``_ensure_http_async_session_closed_for_sync_tests`` – עוטף טסטים סינכרוניים שמריצים ``asyncio.run`` ודואג לקרוא ל-``close_session()`` גם שם (כולל יצירת event loop זמני לפי הצורך).
+  ודא שהפיקסצ'רים נשארים פעילים (אל תעקוף אותם עם ``usefixtures`` ידני).
+- טסטים שמייצרים ``CodeImageGenerator`` לשימוש ב-Playwright/WeasyPrint חייבים לקרוא ``gen.cleanup()`` בסוף כדי לעצור את ה-Runner הפנימי; אחרת תראה את אותה שגיאה של ``Runner.run()``.
 
 ``Timezone naive/aware גורם להשוואות שגויות``
   - ודא ש‑``created_at`` ו‑``updated_at`` הם timezone-aware ב‑UTC

@@ -1,4 +1,5 @@
 (function(){
+  try { console.log('[EditorManager] Script loaded at:', new Date().toISOString(), 'url:', (typeof import.meta !== 'undefined' && import.meta && import.meta.url) ? import.meta.url : (document.currentScript && document.currentScript.src)); } catch(_) {}
   class EditorManager {
     constructor() {
       this.currentEditor = this.loadPreference();
@@ -9,6 +10,7 @@
       this.loadingPromise = null;
       // נשמור CDN אחיד לכל המודולים כדי למנוע חוסר תאימות בין מחלקות
       this._cdnUrl = null;
+      try { console.log('[EditorManager] Initialized with preferred editor:', this.currentEditor); } catch(_) {}
     }
 
     loadPreference() {
@@ -42,12 +44,15 @@
 
     async initEditor(container, options = {}) {
       const { language = 'text', value = '', theme = 'dark' } = options;
+      try { console.log('[EditorManager] initEditor called with:', { language, theme, valueLength: (typeof value === 'string' ? value.length : 0) }); } catch(_) {}
       this.textarea = container.querySelector('textarea[name="code"]');
-      if (!this.textarea) return;
+      if (!this.textarea) { try { console.warn('[EditorManager] Textarea not found in container'); } catch(_) {} return; }
+      try { console.log('[EditorManager] Textarea found:', this.textarea); } catch(_) {}
 
       let fallback = false;
       if (this.currentEditor === 'codemirror') {
         try {
+          console.log('[EditorManager] Initializing CodeMirror editor...');
           await this.initCodeMirror(container, { language, value, theme });
         } catch (e) {
           // אם Codemirror נכשל – ניפול חזרה לפשוט ונשמור העדפה
@@ -103,6 +108,8 @@
         try {
           this.isLoading = true;
           this.showLoading(container);
+          try { console.log('[EditorManager] initCodeMirror called'); } catch(_) {}
+          try { console.log('[EditorManager] Loading indicator shown'); } catch(_) {}
           // הסתרת textarea
           this.textarea.style.display = 'none';
 
@@ -112,6 +119,7 @@
           this.textarea.parentNode.insertBefore(cmWrapper, this.textarea.nextSibling);
 
           if (!window.CodeMirror6) {
+            try { console.log('[EditorManager] window.CodeMirror6 not found, loading modules...'); } catch(_) {}
             // מגן נגד תקיעת טעינה שקטה של מודולים חיצוניים
             // מוגדל ל~30s כדי לאפשר כשל/ניסיון בכל CDN (8s * 3) + שוליים
             await this.withTimeout(this.loadCodeMirror(), 30000, 'codemirror_core_load');
@@ -147,6 +155,7 @@
           });
 
           this.cmInstance = new EditorView({ state, parent: cmWrapper });
+          try { console.log('[EditorManager] CodeMirror editor instance created'); } catch(_) {}
         } catch (e) {
           console.error('CodeMirror init failed', e);
           this.currentEditor = 'simple';
@@ -208,7 +217,7 @@
 
     getSelectedLanguage() {
       try {
-        const sel = document.getElementById('languageSelect');
+        const sel = document.getElementById('languageSelect') || document.getElementById('language');
         const val = sel && sel.value;
         if (typeof val === 'string' && val.trim()) return val;
       } catch(_) {}
@@ -236,13 +245,40 @@
     async loadCodeMirror() {
       // נסה קודם טעינה מקומית (bundle) כדי לעבוד גם ללא CDN
       try {
-        const localUrl = new URL('./codemirror.local.js', import.meta.url).href;
-        const localModule = await this.withTimeout(import(localUrl), 8000, 'codemirror_local_import');
+        const localUrl = (() => {
+          try {
+            const base = new URL('.', import.meta.url);
+            return new URL('codemirror.local.js', base).href;
+          } catch (_) {
+            try {
+              const script = document.querySelector('script[type="module"][src*="editor-manager.js"]');
+              if (script && script.src) {
+                const src = String(script.src || '').split('?')[0];
+                return src.replace(/editor-manager\.js$/, 'codemirror.local.js');
+              }
+            } catch(_) {}
+            try {
+              const anyStatic = document.querySelector('link[href*="/static/"]');
+              if (anyStatic) {
+                const href = new URL(anyStatic.href, window.location.href);
+                const idx = href.pathname.indexOf('/static/');
+                if (idx >= 0) {
+                  const basePath = href.pathname.slice(0, idx + 1);
+                  return `${window.location.origin}${basePath}static/js/codemirror.local.js`;
+                }
+              }
+            } catch(_) {}
+            return '/static/js/codemirror.local.js';
+          }
+        })();
+        try { console.log('[EditorManager] Attempting to load local CodeMirror bundle from:', localUrl); } catch(_) {}
+        const localModule = await this.withTimeout(import(localUrl), 12000, 'codemirror_local_import');
         const localApi = (localModule && (localModule.default || localModule.CodeMirror6)) || null;
 
         if (localApi && localApi.EditorView && localApi.EditorState) {
           window.CodeMirror6 = localApi;
           this._cdnUrl = null;
+          try { console.log('[EditorManager] Local CodeMirror bundle loaded successfully'); } catch(_) {}
           return;
         }
 
@@ -262,6 +298,7 @@
 
         if (window.CodeMirror6 && window.CodeMirror6.EditorView && window.CodeMirror6.EditorState) {
           this._cdnUrl = null;
+          try { console.log('[EditorManager] Local CodeMirror bundle attached on window'); } catch(_) {}
           return;
         }
 
@@ -318,6 +355,7 @@
         }
       }
       if (!chosen) throw lastErr || new Error('codemirror_core_import_failed');
+      try { console.log('[EditorManager] CDN selected:', chosen.name); } catch(_) {}
 
       // שמירת ה-CDN הנבחר לשימוש בהמשך (שפות/נושא)
       this._cdnUrl = chosen.url;
@@ -348,6 +386,7 @@
         ]) : []
       ];
 
+      try { console.log('[EditorManager] CodeMirror core modules loaded'); } catch(_) {}
       window.CodeMirror6 = {
         EditorState: stateMod.EditorState,
         EditorView: viewMod.EditorView,
@@ -370,30 +409,66 @@
         }
       } catch(_) {}
       const gen = this._cdnUrl || ((pkg) => `https://cdn.jsdelivr.net/npm/${pkg}@6?module`);
-      const pkgMap = {
-        python: '@codemirror/lang-python',
-        javascript: '@codemirror/lang-javascript',
-        html: '@codemirror/lang-html',
-        css: '@codemirror/lang-css',
-        sql: '@codemirror/lang-sql',
-        json: '@codemirror/lang-json',
-        markdown: '@codemirror/lang-markdown',
-        xml: '@codemirror/lang-xml'
-      };
-      const pkg = pkgMap[lang];
-      if (!pkg) return [];
+      const key = String(lang || '').toLowerCase();
       try {
-        const mod = await import(gen(pkg));
-        switch (lang) {
-          case 'python': return mod.python();
-          case 'javascript': return mod.javascript();
-          case 'html': return mod.html();
-          case 'css': return mod.css();
-          case 'sql': return mod.sql();
-          case 'json': return mod.json();
-          case 'markdown': return mod.markdown();
-          case 'xml': return mod.xml();
-          default: return [];
+        switch (key) {
+          case 'text':
+          case 'plain':
+            return [];
+          case 'python': {
+            const m = await import(gen('@codemirror/lang-python')); return m.python();
+          }
+          case 'javascript': {
+            const m = await import(gen('@codemirror/lang-javascript')); return m.javascript();
+          }
+          case 'typescript': {
+            const m = await import(gen('@codemirror/lang-javascript')); return m.javascript({ typescript: true });
+          }
+          case 'html': {
+            const m = await import(gen('@codemirror/lang-html')); return m.html();
+          }
+          case 'css': {
+            const m = await import(gen('@codemirror/lang-css')); return m.css();
+          }
+          case 'sql': {
+            const m = await import(gen('@codemirror/lang-sql')); return m.sql();
+          }
+          case 'json': {
+            const m = await import(gen('@codemirror/lang-json')); return m.json();
+          }
+          case 'markdown': {
+            const m = await import(gen('@codemirror/lang-markdown')); return m.markdown();
+          }
+          case 'xml': {
+            const m = await import(gen('@codemirror/lang-xml')); return m.xml();
+          }
+          case 'bash':
+          case 'shell': {
+            const m = await import(gen('@codemirror/lang-shell')); return m.shell();
+          }
+          case 'go': {
+            const m = await import(gen('@codemirror/lang-go')); return m.go();
+          }
+          case 'java': {
+            const m = await import(gen('@codemirror/lang-java')); return m.java();
+          }
+          case 'yaml': {
+            const m = await import(gen('@codemirror/lang-yaml')); return m.yaml();
+          }
+          case 'csharp': {
+            try {
+              const langMod = await import(gen('@codemirror/language'));
+              const legacy = await import(gen('@codemirror/legacy-modes/mode/clike'));
+              if (langMod && legacy && legacy.csharp && langMod.StreamLanguage && typeof langMod.StreamLanguage.define === 'function') {
+                return langMod.StreamLanguage.define(legacy.csharp);
+              }
+            } catch (err) {
+              console.warn('C# language load failed, continuing without language support', err);
+            }
+            return [];
+          }
+          default:
+            return [];
         }
       } catch(err) {
         console.warn('Language load failed, continuing without language support', err);

@@ -33,7 +33,7 @@ def set_activity_reporter(new_reporter):
     reporter = new_reporter or _NoopReporter()
 from utils import get_language_emoji as get_file_emoji
 from user_stats import user_stats
-from typing import List, Optional, Dict, cast
+from typing import List, Optional, Dict, Type, cast
 from html import escape as html_escape
 from utils import TelegramUtils, TextUtils
 from services import code_service
@@ -232,6 +232,28 @@ async def _maybe_await(result):
 async def _safe_answer(*args, **kwargs):
     return await _maybe_await(TelegramUtils.safe_answer(*args, **kwargs))
 
+
+async def _safe_reply_text(update, context, text: str, **kwargs):
+    """שולח הודעת טקסט למשתמש גם כאשר האובייקט message חסר reply_text."""
+    message = getattr(update, "message", None)
+    reply_fn = getattr(message, "reply_text", None)
+    if callable(reply_fn):
+        return await _maybe_await(reply_fn(text, **kwargs))
+    bot = getattr(context, "bot", None)
+    if bot is None:
+        return None
+    chat = getattr(update, "effective_chat", None)
+    chat_id = getattr(chat, "id", None)
+    if chat_id is None:
+        user = getattr(update, "effective_user", None)
+        chat_id = getattr(user, "id", None)
+    if chat_id is None:
+        return None
+    try:
+        return await _maybe_await(bot.send_message(chat_id=int(chat_id), text=text, **kwargs))
+    except TypeError:
+        return await _maybe_await(bot.send_message(chat_id=int(chat_id), text=text))
+
 def _truncate_middle(text: str, max_len: int) -> str:
     """מקצר מחרוזת באמצע עם אליפסיס אם חורגת מאורך נתון."""
     if max_len <= 0:
@@ -352,7 +374,7 @@ async def show_community_hub(update: Update, context: ContextTypes.DEFAULT_TYPE)
     keyboard = [
         [InlineKeyboardButton("📳 ממשקי משתמשים", callback_data="community_catalog_menu")],
         [InlineKeyboardButton("📃 ספריית סניפטים", callback_data="snippets_menu")],
-        [InlineKeyboardButton("↩️ חזרה", callback_data="files")],
+        [InlineKeyboardButton("↩️ חזרה", callback_data="main_menu")],
     ]
     await update.message.reply_text(
         "בחר/י קטגוריה:",
@@ -368,12 +390,12 @@ async def show_community_hub(update: Update, context: ContextTypes.DEFAULT_TYPE)
 async def community_catalog_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """תפריט משנה עבור 'ממשקי משתמשים' (אוסף קהילה קיים)."""
     query = update.callback_query
-    await _safe_answer(query)
+    await _maybe_await(_safe_answer(query))
     web_url = f"{_resolve_webapp_base_url() or DEFAULT_WEBAPP_URL}/community-library"
     keyboard = [
-        [InlineKeyboardButton("🌐 ממשקי משתמשים (Web)", url=web_url)],
+        [InlineKeyboardButton("ממשקי משתמשים (🌐 web)", url=web_url)],
         [InlineKeyboardButton("➕ הוסף מוצר משלך", callback_data="community_submit")],
-        [InlineKeyboardButton("↩️ חזרה", callback_data="files")],
+        [InlineKeyboardButton("↩️ חזרה", callback_data="community_hub")],
     ]
     await _maybe_await(_safe_edit_message_text(query, "📳 ממשקי משתמשים", InlineKeyboardMarkup(keyboard)))
     return ConversationHandler.END
@@ -382,15 +404,69 @@ async def community_catalog_menu(update: Update, context: ContextTypes.DEFAULT_T
 async def snippets_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """תפריט משנה עבור 'ספריית סניפטים'."""
     query = update.callback_query
-    await _safe_answer(query)
-    web_url = f"{_resolve_webapp_base_url() or DEFAULT_WEBAPP_URL}/snippets"
+    await _maybe_await(_safe_answer(query))
+    base = _resolve_webapp_base_url() or DEFAULT_WEBAPP_URL
+    web_url = f"{base}/snippets"
     keyboard = [
-        [InlineKeyboardButton("🌐 ספריית סניפטים (Web)", url=web_url)],
-        [InlineKeyboardButton("➕ הוסף סניפט משלך", callback_data="snippet_submit")],
-        [InlineKeyboardButton("↩️ חזרה", callback_data="files")],
+        [InlineKeyboardButton("ספריית סניפטים (🌐 web)", url=web_url)],
+        [InlineKeyboardButton("➕ הוסף סניפט משלך", url=f"{base}/snippets/submit")],
+        [InlineKeyboardButton("↩️ חזרה", callback_data="community_hub")],
     ]
     await _maybe_await(_safe_edit_message_text(query, "📃 ספריית סניפטים", InlineKeyboardMarkup(keyboard)))
     return ConversationHandler.END
+
+
+async def community_hub_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Callback variant of community hub (back navigation target)."""
+    query = update.callback_query
+    await _maybe_await(_safe_answer(query))
+    keyboard = [
+        [InlineKeyboardButton("📳 ממשקי משתמשים", callback_data="community_catalog_menu")],
+        [InlineKeyboardButton("📃 ספריית סניפטים", callback_data="snippets_menu")],
+        [InlineKeyboardButton("↩️ חזרה", callback_data="main_menu")],
+    ]
+    await _maybe_await(_safe_edit_message_text(query, "בחר/י קטגוריה:", InlineKeyboardMarkup(keyboard)))
+    return ConversationHandler.END
+
+
+async def main_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Return to main reply keyboard from a callback."""
+    query = update.callback_query
+    await _maybe_await(_safe_answer(query))
+    try:
+        await TelegramUtils.safe_edit_message_text(query, "🔝 חזרה לתפריט הראשי")
+    except Exception:
+        pass
+    try:
+        await query.message.reply_text("בחר/י פעולה:", reply_markup=ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True))
+    except Exception:
+        pass
+    return ConversationHandler.END
+
+
+async def submit_flows_cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Unified cancel for snippet/community submission flows triggered by '❌ ביטול'."""
+    query = update.callback_query
+    await _maybe_await(_safe_answer(query))
+    had_snippet_state = bool(context.user_data.get('sn_item') or context.user_data.get('sn_long_parts'))
+    had_comm_state = bool(context.user_data.get('cl_item'))
+    # Clear all related states
+    try:
+        context.user_data.pop('sn_item', None)
+        context.user_data.pop('sn_long_parts', None)
+        context.user_data.pop('cl_item', None)
+        context.user_data.pop('sn_reject_id', None)
+    except Exception:
+        pass
+    # Navigate back to the relevant submenu
+    try:
+        if had_snippet_state:
+            return await snippets_menu(update, context)
+        if had_comm_state:
+            return await community_catalog_menu(update, context)
+        return await community_hub_callback(update, context)
+    except Exception:
+        return ConversationHandler.END
 
 HELP_PAGES = [
     (
@@ -748,13 +824,7 @@ async def show_all_files(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             [InlineKeyboardButton("🗑️ סל מיחזור", callback_data="recycle_bin")],
         ]
         # Community library shortcuts – only if feature is enabled
-        try:
-            enabled_comm = bool(getattr(config, 'COMMUNITY_LIBRARY_ENABLED', True))
-        except Exception:
-            enabled_comm = True
-        if enabled_comm:
-            keyboard.append([InlineKeyboardButton("🗃 אוסף הקהילה (Web)", url=f"{os.getenv('WEBAPP_URL', 'https://code-keeper-webapp.onrender.com')}/community-library")])
-            keyboard.append([InlineKeyboardButton("➕ הוסף מוצר משלך", callback_data="community_submit")])
+        # הוסר קיצור לאוסף הקהילה מתפריט זה — נמצא בתפריט הראשי
         reply_markup = InlineKeyboardMarkup(keyboard)
         await update.message.reply_text(
             "בחר/י דרך להצגת הקבצים:",
@@ -823,13 +893,7 @@ async def show_all_files_callback(update: Update, context: ContextTypes.DEFAULT_
             [InlineKeyboardButton("⭐ מועדפים", callback_data="show_favorites")],
             [InlineKeyboardButton("🗑️ סל מיחזור", callback_data="recycle_bin")],
         ]
-        try:
-            enabled_comm = bool(getattr(config, 'COMMUNITY_LIBRARY_ENABLED', True))
-        except Exception:
-            enabled_comm = True
-        if enabled_comm:
-            keyboard.append([InlineKeyboardButton("🗃 אוסף הקהילה (Web)", url=f"{os.getenv('WEBAPP_URL', 'https://code-keeper-webapp.onrender.com')}/community-library")])
-            keyboard.append([InlineKeyboardButton("➕ הוסף מוצר משלך", callback_data="community_submit")])
+        # הוסר קיצור לאוסף הקהילה מתפריט זה — נמצא בתפריט הראשי
         reply_markup = InlineKeyboardMarkup(keyboard)
         await TelegramUtils.safe_edit_message_text(
             query,
@@ -860,6 +924,8 @@ from handlers.states import (
     SN_COLLECT_CODE,
     SN_COLLECT_LANGUAGE,
     SN_REJECT_REASON,
+    SN_LONG_COLLECT,
+    CL_REJECT_REASON,
 )
 from services.community_library_service import submit_item as _cl_submit, ObjectId as _CLObjectId
 from chatops.permissions import get_admin_user_ids as _get_admin_user_ids
@@ -867,16 +933,24 @@ from chatops.permissions import admin_required as _admin_required
 
 async def community_submit_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     query = update.callback_query
-    await _safe_answer(query)
+    await _maybe_await(_safe_answer(query))
     context.user_data['cl_item'] = {}
     await TelegramUtils.safe_edit_message_text(
         query,
         "🧩 נתחיל בהגשה לאוסף הקהילה\n\nשלח/י שם מוצר (3–120 תווים)",
-        reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("❌ ביטול", callback_data="files")]])
+        reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("❌ ביטול", callback_data="cancel")]])
     )
     return CL_COLLECT_TITLE
 
 async def community_collect_title(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    # ביטול אוטומטי אם המשתמש לחץ כפתור אחר במקלדת הראשית
+    try:
+        txt = (update.message.text or '').strip()
+        flat_menu = {t for row in MAIN_KEYBOARD for t in row}
+        if txt in flat_menu:
+            return await cancel(update, context)
+    except Exception:
+        pass
     title = (update.message.text or '').strip()
     if len(title) < 3:
         await update.message.reply_text("❌ שם קצר מדי. נסה/י שוב.")
@@ -886,12 +960,26 @@ async def community_collect_title(update: Update, context: ContextTypes.DEFAULT_
     return CL_COLLECT_DESCRIPTION
 
 async def community_collect_description(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    try:
+        txt = (update.message.text or '').strip()
+        flat_menu = {t for row in MAIN_KEYBOARD for t in row}
+        if txt in flat_menu:
+            return await cancel(update, context)
+    except Exception:
+        pass
     desc = (update.message.text or '').strip()
     context.user_data.setdefault('cl_item', {})['description'] = desc[:600]
     await update.message.reply_text("קישור ל־URL (http/https)")
     return CL_COLLECT_URL
 
 async def community_collect_url(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    try:
+        txt = (update.message.text or '').strip()
+        flat_menu = {t for row in MAIN_KEYBOARD for t in row}
+        if txt in flat_menu:
+            return await cancel(update, context)
+    except Exception:
+        pass
     url = (update.message.text or '').strip()
     if not (url.startswith('http://') or url.startswith('https://')):
         await update.message.reply_text("❌ URL לא תקין. נא להזין קישור שמתחיל ב-http/https")
@@ -901,6 +989,15 @@ async def community_collect_url(update: Update, context: ContextTypes.DEFAULT_TY
     return CL_COLLECT_LOGO
 
 async def community_collect_logo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    try:
+        # אם נשלח טקסט של כפתור מהמקלדת הראשית – בטל
+        if getattr(update, 'message', None) and getattr(update.message, 'text', None):
+            txt = (update.message.text or '').strip()
+            flat_menu = {t for row in MAIN_KEYBOARD for t in row}
+            if txt in flat_menu:
+                return await cancel(update, context)
+    except Exception:
+        pass
     logo_file_id: Optional[str] = None
     if getattr(update.message, 'photo', None):
         try:
@@ -941,7 +1038,8 @@ async def community_collect_logo(update: Update, context: ContextTypes.DEFAULT_T
     if admins:
         try:
             kb = InlineKeyboardMarkup([
-                [InlineKeyboardButton("✅ אשר", callback_data=f"community_approve:{req_id or ''}")],
+                [InlineKeyboardButton("✅ אשר", callback_data=f"community_approve:{req_id or ''}"),
+                 InlineKeyboardButton("❌ דחייה", callback_data=f"community_reject:{req_id or ''}")],
             ])
             text = (
                 "🆕 הגשה חדשה לאוסף הקהילה\n\n"
@@ -962,7 +1060,7 @@ async def community_collect_logo(update: Update, context: ContextTypes.DEFAULT_T
 @_admin_required
 async def community_inline_approve(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
-    await _safe_answer(query)
+    await _maybe_await(_safe_answer(query))
     data = (query.data or '')
     item_id = data.split(':',1)[-1]
     if not item_id:
@@ -996,6 +1094,67 @@ async def community_inline_approve(update: Update, context: ContextTypes.DEFAULT
         except Exception:
             pass
     await TelegramUtils.safe_edit_message_text(query, "✅ אושר" if ok else "❌ שגיאה באישור")
+    return ConversationHandler.END
+
+@_admin_required
+async def community_reject_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """התחלת זרימת דחייה דרך כפתור אינליין: בקשת סיבת דחייה ולאחר מכן קריאה לשירות."""
+    query = update.callback_query
+    await _maybe_await(_safe_answer(query))
+    data = (query.data or '')
+    try:
+        _, item_id = data.split(':', 1)
+    except ValueError:
+        return ConversationHandler.END
+    context.user_data['cl_reject_id'] = item_id
+    await _maybe_await(_safe_edit_message_text(query, "נא לציין סיבת דחייה לפריט זה:"))
+    return CL_REJECT_REASON
+
+@_admin_required
+async def community_collect_reject_reason(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    message = getattr(update, 'message', None)
+    raw_text = getattr(message, 'text', None) if message is not None else None
+    reason = (raw_text or '').strip()
+    item_id = str(context.user_data.get('cl_reject_id') or '')
+    if not item_id:
+        if message is not None and hasattr(message, 'reply_text'):
+            await _maybe_await(message.reply_text("❌ מזהה לא תקין"))
+        return ConversationHandler.END
+    ok = False
+    try:
+        from services.community_library_service import reject_item as _reject
+        ok = _reject(item_id, int(update.effective_user.id), reason)
+    except Exception:
+        ok = False
+    # הודע למגיש/ה
+    if ok:
+        try:
+            from database import db as _db
+            coll = getattr(_db, 'community_library_collection', None)
+            if coll is None:
+                coll = getattr(_db.db, 'community_library_items')
+            doc = coll.find_one({'_id': _CLObjectId(item_id)}) if coll is not None else None
+        except Exception:
+            doc = None
+        if isinstance(doc, dict):
+            uid = doc.get('user_id')
+            if uid:
+                try:
+                    msg = (
+                        "🙂 תודה על ההגשה! כרגע הבקשה לא אושרה.\n"
+                        f"סיבה: {reason or '—'}\n"
+                        "נשמח לשינויים קטנים ולהגשה מחדש."
+                    )
+                    await context.bot.send_message(chat_id=int(uid), text=msg)
+                except Exception:
+                    pass
+    else:
+        if message is not None and hasattr(message, 'reply_text'):
+            await _maybe_await(message.reply_text("❌ כשל בדחייה"))
+    try:
+        context.user_data.pop('cl_reject_id', None)
+    except Exception:
+        pass
     return ConversationHandler.END
 
 @_admin_required
@@ -1094,21 +1253,58 @@ async def community_reject_command(update: Update, context: ContextTypes.DEFAULT
         await update.message.reply_text(f"❌ שגיאה: {e}")
 
 # --- Snippet Library submission flow ---
-from services.snippet_library_service import submit_snippet as _sn_submit
+_sn_submit = None
+
+
+def _call_sn_submit(**kwargs):
+    """Submit snippet proposal with optional test override."""
+    submit_callable = _sn_submit
+    if callable(submit_callable):
+        try:
+            return submit_callable(**kwargs)
+        except Exception:
+            logger.exception("snippet_submit_override_failed", exc_info=True)
+            return {"ok": False, "error": "submit_failed"}
+    try:
+        from services import snippet_library_service as snippet_service  # type: ignore
+        submit_callable = getattr(snippet_service, "submit_snippet", None)
+    except Exception:
+        submit_callable = None
+    if callable(submit_callable):
+        try:
+            return submit_callable(**kwargs)
+        except Exception:
+            logger.exception("snippet_submit_failed", exc_info=True)
+            return {"ok": False, "error": "submit_failed"}
+    logger.warning("snippet_submit_unavailable")
+    return {"ok": False, "error": "submit_unavailable"}
 
 async def snippet_submit_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     query = update.callback_query
-    await _safe_answer(query)
+    await _maybe_await(_safe_answer(query))
     context.user_data['sn_item'] = {}
+    # בחירת מצב התחלה
+    keyboard = [
+        [InlineKeyboardButton("🧩 קוד רגיל", callback_data="snippet_mode_regular")],
+        [InlineKeyboardButton("✍️ קוד ארוך", callback_data="snippet_mode_long")],
+        [InlineKeyboardButton("❌ ביטול", callback_data="cancel")],
+    ]
     await _maybe_await(_safe_edit_message_text(
         query,
-        "🧩 נתחיל בהוספת סניפט\n\nשלח/י כותרת (3–180 תווים)",
-        InlineKeyboardMarkup([[InlineKeyboardButton("❌ ביטול", callback_data="files")]])
+        "איך תרצה/י להגיש את הסניפט?",
+        InlineKeyboardMarkup(keyboard)
     ))
-    return SN_COLLECT_TITLE
+    return ConversationHandler.END
 
 
 async def snippet_collect_title(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    try:
+        txt = (update.message.text or '').strip()
+        flat_menu = {t for row in MAIN_KEYBOARD for t in row}
+        if txt in flat_menu:
+            return await cancel(update, context)
+    except Exception:
+        pass
     title = (update.message.text or '').strip()
     if len(title) < 3:
         await update.message.reply_text("❌ כותרת קצרה מדי. נסה/י שוב.")
@@ -1119,13 +1315,85 @@ async def snippet_collect_title(update: Update, context: ContextTypes.DEFAULT_TY
 
 
 async def snippet_collect_description(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    try:
+        txt = (update.message.text or '').strip()
+        flat_menu = {t for row in MAIN_KEYBOARD for t in row}
+        if txt in flat_menu:
+            return await cancel(update, context)
+    except Exception:
+        pass
     desc = (update.message.text or '').strip()
     context.user_data.setdefault('sn_item', {})['description'] = desc[:1000]
+    # אם הקוד כבר נאסף (למשל במצב איסוף ארוך) דלג לשפה
+    if context.user_data.get('sn_item', {}).get('code'):
+        await update.message.reply_text("נהדר! לבסוף, מה השפה? (למשל: python, js, bash)")
+        return SN_COLLECT_LANGUAGE
     await update.message.reply_text("שלח/י עכשיו את קטע הקוד עצמו (טקסט)")
     return SN_COLLECT_CODE
 
 
+async def snippet_mode_regular_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    query = update.callback_query
+    await _maybe_await(_safe_answer(query))
+    context.user_data['sn_item'] = {}
+    await _maybe_await(_safe_edit_message_text(
+        query,
+        "🧩 נתחיל בהוספת סניפט\n\nשלח/י כותרת (3–180 תווים)",
+        InlineKeyboardMarkup([[InlineKeyboardButton("❌ ביטול", callback_data="cancel")]])
+    ))
+    return SN_COLLECT_TITLE
+
+
+async def snippet_mode_long_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    query = update.callback_query
+    await _maybe_await(_safe_answer(query))
+    # אתחול איסוף ארוך (פשוט): נאסוף חלקי טקסט ל-sn_long_parts עד /done
+    context.user_data['sn_item'] = {}
+    context.user_data['sn_long_parts'] = []
+    await _maybe_await(_safe_edit_message_text(
+        query,
+        "נכנסתי למצב איסוף קוד ✍️\nשלח/י את חלקי הקוד בהודעות נפרדות.\nכשסיימת/ה, שלח/י /done.\nאפשר תמיד /cancel לביטול.",
+        None
+    ))
+    return SN_LONG_COLLECT
+
+
+async def snippet_long_collect_receive(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    # ביטול אוטומטי כאשר המשתמש לוחץ על כפתור אחר במקלדת הראשית במהלך איסוף ארוך
+    try:
+        txt = (update.message.text or '').strip()
+        flat_menu = {t for row in MAIN_KEYBOARD for t in row}
+        if txt in flat_menu:
+            return await cancel(update, context)
+    except Exception:
+        pass
+    text = update.message.text or ''
+    parts = context.user_data.get('sn_long_parts')
+    if parts is None:
+        parts = []
+        context.user_data['sn_long_parts'] = parts
+    parts.append(text)
+    await update.message.reply_text(f"נשמר ✔️ (סה״כ {len(parts)} חלקים)")
+    return SN_LONG_COLLECT
+
+
+async def snippet_long_collect_done(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    parts = context.user_data.get('sn_long_parts') or []
+    code_text = "\n".join(parts)
+    context.user_data.setdefault('sn_item', {})['code'] = code_text
+    context.user_data.pop('sn_long_parts', None)
+    await update.message.reply_text("📛 שלח/י כותרת לסניפט (3–180 תווים)")
+    return SN_COLLECT_TITLE
+
+
 async def snippet_collect_code(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    try:
+        txt = (update.message.text or '').strip()
+        flat_menu = {t for row in MAIN_KEYBOARD for t in row}
+        if txt in flat_menu:
+            return await cancel(update, context)
+    except Exception:
+        pass
     code = (update.message.text or '').strip()
     if not code:
         await update.message.reply_text("❌ נדרש קוד. נסה/י שוב.")
@@ -1136,13 +1404,20 @@ async def snippet_collect_code(update: Update, context: ContextTypes.DEFAULT_TYP
 
 
 async def snippet_collect_language(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    try:
+        txt = (update.message.text or '').strip()
+        flat_menu = {t for row in MAIN_KEYBOARD for t in row}
+        if txt in flat_menu:
+            return await cancel(update, context)
+    except Exception:
+        pass
     language = (update.message.text or '').strip() or 'text'
     user = update.effective_user
     item = context.user_data.get('sn_item') or {}
     item['language'] = language[:40]
     item['user_id'] = int(user.id)
     item['username'] = getattr(user, 'username', None)
-    res = _sn_submit(
+    res = _call_sn_submit(
         title=item.get('title') or '',
         description=item.get('description') or '',
         code=item.get('code') or '',
@@ -1151,7 +1426,7 @@ async def snippet_collect_language(update: Update, context: ContextTypes.DEFAULT
         username=item.get('username'),
     )
     if not res.get('ok'):
-        await update.message.reply_text("❌ שמירת ההצעה נכשלה. נסה/י שוב מאוחר יותר.")
+        await _safe_reply_text(update, context, "❌ שמירת ההצעה נכשלה. נסה/י שוב מאוחר יותר.")
         return ConversationHandler.END
     # הודע למנהלים
     try:
@@ -1163,7 +1438,8 @@ async def snippet_collect_language(update: Update, context: ContextTypes.DEFAULT
         try:
             kb = InlineKeyboardMarkup([
                 [InlineKeyboardButton("✅ אישור", callback_data=f"snippet_approve:{snippet_id}"),
-                 InlineKeyboardButton("❌ דחייה", callback_data=f"snippet_reject:{snippet_id}")]
+                 InlineKeyboardButton("❌ דחייה", callback_data=f"snippet_reject:{snippet_id}")],
+                [InlineKeyboardButton("👁️ הצג סניפט", url=f"{_resolve_webapp_base_url() or DEFAULT_WEBAPP_URL}/admin/snippets/view?id={snippet_id}")]
             ])
             for admin_id in admins:
                 try:
@@ -1177,14 +1453,14 @@ async def snippet_collect_language(update: Update, context: ContextTypes.DEFAULT
                     continue
         except Exception:
             pass
-    await update.message.reply_text("✅ ההצעה התקבלה ותמתין לאישור מנהל. תודה!")
+    await _safe_reply_text(update, context, "✅ ההצעה התקבלה ותמתין לאישור מנהל. תודה!")
     context.user_data.pop('sn_item', None)
     return ConversationHandler.END
 
 
 async def snippet_inline_approve(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     query = update.callback_query
-    await _safe_answer(query)
+    await _maybe_await(_safe_answer(query))
     data = (query.data or '')
     try:
         action, item_id = data.split(':', 1)
@@ -1200,7 +1476,29 @@ async def snippet_inline_approve(update: Update, context: ContextTypes.DEFAULT_T
             ok = _approve(item_id, int(update.effective_user.id))
         except Exception:
             ok = False
-        await _maybe_await(_safe_edit_message_text(query, "עודכן." if ok else "שגיאה."))
+        # הודעה למשתמש שהגיש (ידידותית)
+        if ok:
+            try:
+                from database import db as _db
+                coll = getattr(_db, 'snippets_collection', None)
+                if coll is None:
+                    coll = getattr(_db.db, 'snippets')
+                doc = coll.find_one({'_id': _db._get_repo()._normalize_snippet_identifier(item_id)}) if coll is not None else None
+                if isinstance(doc, dict):
+                    uid = doc.get('user_id')
+                    if uid:
+                        try:
+                            base = _resolve_webapp_base_url() or DEFAULT_WEBAPP_URL
+                            msg = (
+                                "🎉 איזה כיף! הסניפט שלך אושר והתווסף לספריית הסניפטים.\n"
+                                f"אפשר לצפות כאן: {base}/snippets"
+                            )
+                            await context.bot.send_message(chat_id=int(uid), text=msg)
+                        except Exception:
+                            pass
+            except Exception:
+                pass
+        await _maybe_await(_safe_edit_message_text(query, "✅ אושר" if ok else "שגיאה."))
         return ConversationHandler.END
     if action == 'snippet_reject':
         # עבור לדיאלוג איסוף סיבת דחייה
@@ -1213,7 +1511,7 @@ async def snippet_inline_approve(update: Update, context: ContextTypes.DEFAULT_T
 async def snippet_reject_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     # התחלת זרימת דחייה מהכפתור
     query = update.callback_query
-    await _safe_answer(query)
+    await _maybe_await(_safe_answer(query))
     data = (query.data or '')
     try:
         _, item_id = data.split(':', 1)
@@ -1225,11 +1523,14 @@ async def snippet_reject_start(update: Update, context: ContextTypes.DEFAULT_TYP
 
 
 async def snippet_collect_reject_reason(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    reason_text = (update.message.text or '').strip()
+    message = getattr(update, 'message', None)
+    raw_text = getattr(message, 'text', None) if message is not None else None
+    reason_text = (raw_text or '').strip()
     reason = reason_text if reason_text else None
     item_id = str(context.user_data.get('sn_reject_id') or '')
     if not item_id:
-        await _maybe_await(update.message.reply_text("❌ מזהה לא תקין"))
+        if message is not None and hasattr(message, 'reply_text'):
+            await _maybe_await(message.reply_text("❌ מזהה לא תקין"))
         return ConversationHandler.END
     ok = False
     try:
@@ -1237,7 +1538,31 @@ async def snippet_collect_reject_reason(update: Update, context: ContextTypes.DE
         ok = _reject(item_id, int(update.effective_user.id), reason)
     except Exception:
         ok = False
-    await _maybe_await(update.message.reply_text("🛑 נדחה" if ok else "❌ כשל בדחייה"))
+    # ידידותי למשתמש
+    if ok:
+        try:
+            from database import db as _db
+            coll = getattr(_db, 'snippets_collection', None)
+            if coll is None:
+                coll = getattr(_db.db, 'snippets')
+            doc = coll.find_one({'_id': _db._get_repo()._normalize_snippet_identifier(item_id)}) if coll is not None else None
+        except Exception:
+            doc = None
+        if isinstance(doc, dict):
+            uid = doc.get('user_id')
+            if uid:
+                try:
+                    msg_user = (
+                        "🙂 תודה על ההגשה! כרגע ההצעה לא אושרה.\n"
+                        f"סיבה: {reason or '—'}\n"
+                        "נשמח לשינויים קטנים ולהגשה מחדש."
+                    )
+                    await context.bot.send_message(chat_id=int(uid), text=msg_user)
+                except Exception:
+                    pass
+    # שלח הודעת הצלחה רק במקרה של כשל – כדי למנוע כפילות מול ההודעה הידידותית שנשלחה למשתמש
+    if not ok and message is not None and hasattr(message, 'reply_text'):
+        await _maybe_await(message.reply_text("❌ כשל בדחייה"))
     context.user_data.pop('sn_reject_id', None)
     return ConversationHandler.END
 
@@ -1276,6 +1601,24 @@ async def snippet_approve_command(update: Update, context: ContextTypes.DEFAULT_
         from services.snippet_library_service import approve_snippet as _approve
         ok = _approve(iid, int(update.effective_user.id))
         await update.message.reply_text("✅ אושר" if ok else "❌ כשל באישור")
+        if ok:
+            # הודע למשתמש
+            try:
+                from database import db as _db
+                coll = getattr(_db, 'snippets_collection', None)
+                if coll is None:
+                    coll = getattr(_db.db, 'snippets')
+                doc = coll.find_one({'_id': _db._get_repo()._normalize_snippet_identifier(iid)}) if coll is not None else None
+                if isinstance(doc, dict):
+                    uid = doc.get('user_id')
+                    if uid:
+                        base = _resolve_webapp_base_url() or DEFAULT_WEBAPP_URL
+                        await context.bot.send_message(chat_id=int(uid), text=(
+                            "🎉 איזה כיף! הסניפט שלך אושר והתווסף לספריית הסניפטים.\n"
+                            f"אפשר לצפות כאן: {base}/snippets"
+                        ))
+            except Exception:
+                pass
     except Exception as e:
         await update.message.reply_text(f"❌ שגיאה: {e}")
 
@@ -1292,6 +1635,28 @@ async def snippet_reject_command(update: Update, context: ContextTypes.DEFAULT_T
         from services.snippet_library_service import reject_snippet as _reject
         ok = _reject(iid, int(update.effective_user.id), reason)
         await update.message.reply_text("🛑 נדחה" if ok else "❌ כשל בדחייה")
+        if ok:
+            # הודע למשתמש
+            try:
+                from database import db as _db
+                coll = getattr(_db, 'snippets_collection', None)
+                if coll is None:
+                    coll = getattr(_db.db, 'snippets')
+                doc = coll.find_one({'_id': _db._get_repo()._normalize_snippet_identifier(iid)}) if coll is not None else None
+            except Exception:
+                doc = None
+            if isinstance(doc, dict):
+                uid = doc.get('user_id')
+                if uid:
+                    try:
+                        msg_user = (
+                            "🙂 תודה על ההגשה! כרגע ההצעה לא אושרה.\n"
+                            f"סיבה: {reason or '—'}\n"
+                            "נשמח לשינויים קטנים ולהגשה מחדש."
+                        )
+                        await context.bot.send_message(chat_id=int(uid), text=msg_user)
+                    except Exception:
+                        pass
     except Exception as e:
         await update.message.reply_text(f"❌ שגיאה: {e}")
 
@@ -1636,7 +2001,7 @@ except Exception:
 async def show_recycle_bin(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     query = update.callback_query
     try:
-        await _safe_answer(query)
+        await _maybe_await(_safe_answer(query))
     except Exception:
         pass
     try:
@@ -1680,21 +2045,21 @@ async def show_recycle_bin(update: Update, context: ContextTypes.DEFAULT_TYPE) -
 async def recycle_restore(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     query = update.callback_query
     try:
-        await _safe_answer(query)
+        await _maybe_await(_safe_answer(query))
     except Exception:
         pass
     try:
         user_id = update.effective_user.id
         fid = (query.data or '').split(':', 1)[-1]
         if not fid:
-            await _safe_answer(query, "בקשה לא תקפה", show_alert=True)
+            await _maybe_await(_safe_answer(query, "בקשה לא תקפה", show_alert=True))
             return ConversationHandler.END
         from database import db
         ok = db._get_repo().restore_file_by_id(user_id, fid)
         if ok:
-            await _safe_answer(query, "♻️ שוחזר", show_alert=False)
+            await _maybe_await(_safe_answer(query, "♻️ שוחזר", show_alert=False))
         else:
-            await _safe_answer(query, "❌ שגיאת שחזור", show_alert=True)
+            await _maybe_await(_safe_answer(query, "❌ שגיאת שחזור", show_alert=True))
         return await show_recycle_bin(update, context)
     except Exception as e:
         logger.error(f"recycle_restore failed: {e}")
@@ -1704,21 +2069,21 @@ async def recycle_restore(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
 async def recycle_purge(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     query = update.callback_query
     try:
-        await _safe_answer(query)
+        await _maybe_await(_safe_answer(query))
     except Exception:
         pass
     try:
         user_id = update.effective_user.id
         fid = (query.data or '').split(':', 1)[-1]
         if not fid:
-            await _safe_answer(query, "בקשה לא תקפה", show_alert=True)
+            await _maybe_await(_safe_answer(query, "בקשה לא תקפה", show_alert=True))
             return ConversationHandler.END
         from database import db
         ok = db._get_repo().purge_file_by_id(user_id, fid)
         if ok:
-            await _safe_answer(query, "🧨 נמחק לצמיתות", show_alert=False)
+            await _maybe_await(_safe_answer(query, "🧨 נמחק לצמיתות", show_alert=False))
         else:
-            await _safe_answer(query, "❌ שגיאת מחיקה סופית", show_alert=True)
+            await _maybe_await(_safe_answer(query, "❌ שגיאת מחיקה סופית", show_alert=True))
         return await show_recycle_bin(update, context)
     except Exception as e:
         logger.error(f"recycle_purge failed: {e}")
@@ -2418,7 +2783,7 @@ async def handle_download_file(update: Update, context: ContextTypes.DEFAULT_TYP
     """הורדת קובץ"""
     query = update.callback_query
     # שימוש במענה בטוח כדי להתעלם מ-"Query is too old" כשגורם חיצוני מעכב את הטיפול
-    await _safe_answer(query)
+    await _maybe_await(_safe_answer(query))
     
     try:
         data = query.data
@@ -2659,16 +3024,32 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
 
     try:
         data = query.data
+        # ביטול אוטומטי של זרימות איסוף/הוספה אם נלחץ כפתור אחר
+        try:
+            if context.user_data.get('sn_item') and not (data and (data.startswith('snippet_') or data == 'cancel')):
+                context.user_data.pop('sn_item', None)
+            if context.user_data.get('sn_long_parts') and not (data and (data.startswith('snippet_') or data == 'cancel')):
+                context.user_data.pop('sn_long_parts', None)
+            if context.user_data.get('cl_item') and not (data and (data.startswith('community_') or data == 'cancel')):
+                context.user_data.pop('cl_item', None)
+        except Exception:
+            pass
         
         if data.startswith("file_") and not data.startswith("files"):
             return await handle_file_menu(update, context)
         elif data.startswith("view_"):
+            # אל תיירט כפתורים של GitHub Menu ('view_more'/'view_back') — תן למטפל GitHub לטפל
+            if data in {"view_more", "view_back"}:
+                return ConversationHandler.END
             if data.startswith("view_direct_"):
                 return await handle_view_direct_file(update, context)
             elif data.startswith("view_version_"):
                 return await handle_view_version(update, context)
-            else:
+            elif re.match(r"^view_\d+$", str(data) or ""):
                 return await handle_view_file(update, context)
+            else:
+                # פורמט שאינו נתמך כאן — אפשר למטפלים אחרים לנסות
+                return ConversationHandler.END
         elif data.startswith("edit_code_"):
             if data.startswith("edit_code_direct_"):
                 return await handle_edit_code_direct(update, context)
@@ -3223,21 +3604,31 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
             )
             return ConversationHandler.END
         elif data == "cancel":
-            # ביטול כללי דרך כפתור
-            # ביטול טיימאאוט אם קיים
+            had_snippet_state = bool(context.user_data.get('sn_item') or context.user_data.get('sn_long_parts'))
+            had_comm_state = bool(context.user_data.get('cl_item'))
+            next_state = ConversationHandler.END
+            if had_snippet_state or had_comm_state:
+                try:
+                    next_state = await submit_flows_cancel(update, context)
+                except Exception:
+                    next_state = ConversationHandler.END
+            else:
+                await query.edit_message_text("🚫 התהליך בוטל בהצלחה!")
+                await query.message.reply_text(
+                    "🎮 בחר פעולה מתקדמת:",
+                    reply_markup=ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True)
+                )
             try:
                 job = context.user_data.get('long_collect_job')
                 if job:
                     job.schedule_removal()
             except Exception:
                 pass
-            context.user_data.clear()
-            await query.edit_message_text("🚫 התהליך בוטל בהצלחה!")
-            await query.message.reply_text(
-                "🎮 בחר פעולה מתקדמת:",
-                reply_markup=ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True)
-            )
-            return ConversationHandler.END
+            try:
+                context.user_data.clear()
+            except Exception:
+                pass
+            return next_state
         elif data == "zip_create_cancel":
             # ביטול מצב יצירת ZIP בלבד
             context.user_data.pop('upload_mode', None)
@@ -3766,10 +4157,18 @@ async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     )
     return ConversationHandler.END
 
-def get_save_conversation_handler(db: DatabaseManager) -> ConversationHandler:
+def get_save_conversation_handler(
+    db: DatabaseManager,
+    callback_query_handler_cls: Optional[Type[CallbackQueryHandler]] = None,
+) -> ConversationHandler:
     """יוצר ConversationHandler מתקדם וחכם"""
     logger.info("יוצר מערכת שיחה מתקדמת...")
     
+    cbq_factory = callback_query_handler_cls or CallbackQueryHandler
+
+    cancel_callback_fallback = cbq_factory(handle_callback_query, pattern=r'^cancel$')
+    generic_callback_fallback = cbq_factory(handle_callback_query)
+
     return ConversationHandler(
         entry_points=[
             CommandHandler("start", start_command),
@@ -3812,7 +4211,8 @@ def get_save_conversation_handler(db: DatabaseManager) -> ConversationHandler:
         },
         fallbacks=[
             CommandHandler("cancel", cancel),
-            CallbackQueryHandler(handle_callback_query)
+            cancel_callback_fallback,
+            generic_callback_fallback
         ],
         allow_reentry=True,
         per_message=False

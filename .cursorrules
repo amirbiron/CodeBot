@@ -84,6 +84,7 @@ rg -n "(shutil.rmtree|os.remove|Path.unlink|rm -rf|rimraf)" -S
 - קרא והסתמך על התיעוד: [CodeBot – Project Docs](https://amirbiron.github.io/CodeBot/)
 - קובץ זה הוא מדיניות מחייבת לצוות; יש להפנות אליו ב-PRs ובתיעוד
 - **בסיום משימה:** הצע למשתמש האם להוסיף עמודים חדשים לאתר התיעוד
+- ⚠️ **לפני כל תיקון טסטים פתח את [CodeBot Docs](https://amirbiron.github.io/CodeBot/) וקרא את הנחיות הטסטים הרלוונטיות (async, aiohttp, cleanup וכו') לפני ביצוע שינוי**
 
 ---
 

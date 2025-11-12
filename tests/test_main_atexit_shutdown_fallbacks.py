@@ -6,7 +6,7 @@ def test_atexit_runtimeerror_creates_new_loop_and_runs(monkeypatch):
     import main
 
     # Fake http_async.close_session
-    calls = {"run": 0, "set_loop": 0, "new_loop": 0}
+    calls = {"run": 0, "set_loop": [], "new_loop": 0}
 
     async def _close_session():
         # nothing, just awaitable
@@ -31,7 +31,7 @@ def test_atexit_runtimeerror_creates_new_loop_and_runs(monkeypatch):
         return _Loop()
 
     def _set_event_loop(loop):
-        calls["set_loop"] += 1
+        calls["set_loop"].append(loop)
 
     fake_asyncio = types.SimpleNamespace(
         get_event_loop=_get_event_loop,
@@ -43,8 +43,11 @@ def test_atexit_runtimeerror_creates_new_loop_and_runs(monkeypatch):
     main._shutdown_http_shared_session()
 
     assert calls["new_loop"] == 1
-    assert calls["set_loop"] == 1
     assert calls["run"] == 1
+    assert len(calls["set_loop"]) == 2
+    # First call sets the temp loop, second call restores to None (no original loop)
+    assert calls["set_loop"][0] is not None
+    assert calls["set_loop"][1] is None
 
 
 def test_atexit_loop_exists_but_closed_does_nothing(monkeypatch):

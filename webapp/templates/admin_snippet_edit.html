@@ -1,0 +1,37 @@
+{% extends "base.html" %}
+
+{% block title %}עריכת סניפט{% endblock %}
+
+{% block content %}
+<h1 class="page-title">✏️ עריכת סניפט</h1>
+
+<div class="glass-card">
+  {% if not item %}
+    <div class="alert alert-warning">הפריט לא נמצא.</div>
+  {% else %}
+    <form method="post" action="/admin/snippets/edit">
+      <input type="hidden" name="id" value="{{ item_id }}">
+      <div class="form-group">
+        <label>כותרת</label>
+        <input class="form-control" type="text" name="title" value="{{ item.title }}">
+      </div>
+      <div class="form-group">
+        <label>שפה</label>
+        <input class="form-control" type="text" name="language" value="{{ item.language }}">
+      </div>
+      <div class="form-group">
+        <label>תיאור</label>
+        <textarea class="form-control" name="description" rows="3">{{ item.description }}</textarea>
+      </div>
+      <div class="form-group">
+        <label>קוד</label>
+        <textarea class="form-control" name="code" rows="16" dir="ltr">{{ item.code }}</textarea>
+      </div>
+      <div class="form-row" style="display:flex; gap:.5rem;">
+        <button class="btn btn-primary" type="submit">💾 שמור</button>
+        <a class="btn btn-secondary" href="/admin/snippets/view?id={{ item_id }}">ביטול</a>
+      </div>
+    </form>
+  {% endif %}
+</div>
+{% endblock %}
