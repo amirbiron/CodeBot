@@ -766,6 +766,14 @@
         .notif-popover__actions { display: flex; gap: .5rem; justify-content: flex-end; margin-top: .5rem; }
         .notif-popover .btn { padding: 0.4rem 0.75rem; font-size: 0.9rem; }
 
+        /* כאשר רונדר דרך פורטל (מחוץ ל-navbar) נמנע חיתוך ע"י הורה */
+        .notif-popover--portal {
+            position: fixed;
+            inset: auto; /* מאפשר ל-inline styles של JS להגדיר top/left/right */
+            z-index: 12000; /* מעל ה-navbar והכרטיסים */
+            max-width: min(92vw, 320px);
+        }
+
         @media (prefers-color-scheme: dark) {
             .notif-popover { background: #2a2a3a; color: #f5f5f5; box-shadow: 0 10px 24px rgba(0,0,0,0.35); }
         }
@@ -1561,6 +1569,9 @@
 // Sticky note reminders indicator (persistent UI badge)
 (function initStickyRemindersIndicator(){
   function isMobile(){ return window.matchMedia && window.matchMedia('(max-width: 768px)').matches; }
+  // ניהול פופ־אפ פעיל והאזנות גלובליות
+  let activeReminderPopover = null;
+  let removeReminderPopoverListeners = null;
   function ensureBubble(anchor){
     if (!anchor) return null;
     let b = anchor.querySelector('.notif-bubble[data-kind="reminder"]');
@@ -1578,22 +1589,28 @@
   function removeDot(){
     document.querySelectorAll('.notif-bubble[data-kind="reminder"]').forEach(el => { try { el.remove(); } catch(_) {} });
   }
-  function closePopover(anchor){
-    const pop = anchor && anchor.querySelector('.notif-popover[data-kind="reminder"]');
-    if (pop) { try { pop.removeAttribute('data-open'); pop.setAttribute('aria-hidden','true'); pop.style.display='none'; } catch(_) {} }
+  function closePopover(){
+    try {
+      if (removeReminderPopoverListeners) { removeReminderPopoverListeners(); }
+    } catch(_) {}
+    removeReminderPopoverListeners = null;
+    const pop = activeReminderPopover || document.querySelector('.notif-popover[data-kind="reminder"]');
+    if (pop) {
+      try { pop.removeAttribute('data-open'); pop.setAttribute('aria-hidden','true'); pop.remove(); } catch(_) {}
+    }
+    activeReminderPopover = null;
   }
   function openPopover(anchor, data){
     if (!anchor) return;
-    let pop = anchor.querySelector('.notif-popover[data-kind="reminder"]');
-    if (!pop) {
-      pop = document.createElement('div');
-      pop.className = 'notif-popover';
-      pop.setAttribute('data-kind','reminder');
-      pop.setAttribute('role','dialog');
-      pop.setAttribute('aria-modal','false');
-      pop.style.display = 'block';
-      anchor.appendChild(pop);
-    }
+    // סגור מופע קודם אם קיים
+    closePopover();
+    const pop = document.createElement('div');
+    pop.className = 'notif-popover notif-popover--portal';
+    pop.setAttribute('data-kind','reminder');
+    pop.setAttribute('role','dialog');
+    pop.setAttribute('aria-modal','false');
+    pop.style.display = 'block';
+    document.body.appendChild(pop);
     const count = Number(data && data.count) || 0;
     const items = Array.isArray(data && data.items) ? data.items : [];
     const title = `🔔 יש לך ${count} פתקים שממתינים:`;
@@ -1613,6 +1630,66 @@
     `;
     pop.setAttribute('data-open','true');
     pop.setAttribute('aria-hidden','false');
+    activeReminderPopover = pop;
+
+    // חישוב מיקום יחסי לאייקון הפעמון (RTL/Responsive)
+    const place = () => {
+      try {
+        const rect = anchor.getBoundingClientRect();
+        const vw = window.innerWidth || document.documentElement.clientWidth || 0;
+        const vh = window.innerHeight || document.documentElement.clientHeight || 0;
+        const gap = 8;
+        // יישור אופקי לפי כיוון המסמך
+        const rtl = (document.documentElement.getAttribute('dir') || '').toLowerCase() === 'rtl'
+          || (getComputedStyle(document.documentElement).direction || '').toLowerCase() === 'rtl';
+        pop.style.right = 'auto';
+        pop.style.left = 'auto';
+        let top = Math.round(rect.bottom + gap);
+        // הגבלת תחתית המסך – אם אין מקום למטה, נפתח מעל העוגן
+        pop.style.top = top + 'px';
+        // יש למדוד אחרי הצבה
+        const pr = pop.getBoundingClientRect();
+        const popW = Math.round(pr.width || 240);
+        const popH = Math.round(pr.height || 140);
+        if (rtl) {
+          const rightPx = Math.max(8, Math.round(vw - rect.right));
+          pop.style.right = rightPx + 'px';
+        } else {
+          let left = Math.round(rect.left);
+          left = Math.max(8, Math.min(left, vw - popW - 8));
+          pop.style.left = left + 'px';
+        }
+        const willOverflowBottom = (top + popH) > (vh - 8);
+        if (willOverflowBottom) {
+          const above = Math.max(8, Math.round(rect.top - gap - popH));
+          pop.style.top = above + 'px';
+        }
+      } catch(_) {}
+    };
+    place();
+
+    // האזנות: קליק מחוץ/ESC/Resize/Scroll
+    const outsideCloser = (e) => {
+      try {
+        if (!activeReminderPopover) return;
+        const target = e.target;
+        const isInsidePop = activeReminderPopover.contains(target);
+        const isAnchorOrBubble = anchor.contains(target) || (target && (target.closest && target.closest('.notif-bubble[data-kind="reminder"]')));
+        if (!isInsidePop && !isAnchorOrBubble) { closePopover(); }
+      } catch(_) {}
+    };
+    const escCloser = (e) => { if (e.key === 'Escape') { closePopover(); } };
+    const reposer = () => { if (activeReminderPopover) place(); };
+    document.addEventListener('click', outsideCloser, true);
+    document.addEventListener('keydown', escCloser, true);
+    window.addEventListener('resize', reposer);
+    window.addEventListener('scroll', reposer, true);
+    removeReminderPopoverListeners = () => {
+      document.removeEventListener('click', outsideCloser, true);
+      document.removeEventListener('keydown', escCloser, true);
+      window.removeEventListener('resize', reposer);
+      window.removeEventListener('scroll', reposer, true);
+    };
 
     // Bind actions
     pop.querySelectorAll('a.reminder-link').forEach(a => {
@@ -1628,8 +1705,8 @@
     });
     const closeBtn = pop.querySelector('[data-action="close-ui"]');
     const snoozeBtn = pop.querySelector('[data-action="snooze-ui"]');
-    if (closeBtn) closeBtn.addEventListener('click', () => { closePopover(anchor); removeDot(); });
-    if (snoozeBtn) snoozeBtn.addEventListener('click', () => { closePopover(anchor); /* משאיר את הבועה גלויה */ });
+    if (closeBtn) closeBtn.addEventListener('click', () => { closePopover(); removeDot(); });
+    if (snoozeBtn) snoozeBtn.addEventListener('click', () => { closePopover(); /* משאיר את הבועה גלויה */ });
   }
   async function poll(){
     try {
