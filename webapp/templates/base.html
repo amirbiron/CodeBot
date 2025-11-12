@@ -768,9 +768,9 @@
 
         /* כאשר רונדר דרך פורטל (מחוץ ל-navbar) נמנע חיתוך ע"י הורה */
         .notif-popover--portal {
-            position: fixed !important;
-            inset: auto !important;
-            z-index: 12000 !important; /* מעל ה-navbar והכרטיסים */
+            position: fixed;
+            inset: auto; /* מאפשר ל-inline styles של JS להגדיר top/left/right */
+            z-index: 12000; /* מעל ה-navbar והכרטיסים */
             max-width: min(92vw, 320px);
         }
 
