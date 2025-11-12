@@ -798,10 +798,10 @@
             touch-action: manipulation;
         }
         .announcement-banner__icon { font-size: 1.05rem; opacity: 0.95; }
-        .announcement-banner__scroller { flex: 1; overflow: hidden; height: 52px; }
+        .announcement-banner__scroller { flex: 1; overflow: visible; height: auto; }
         .announcement-banner__inner {
-            will-change: transform;
-            animation: announcementMarquee var(--announcement-duration, 12s) linear infinite;
+            will-change: auto;
+            animation: none !important;
         }
         .announcement-banner__content { white-space: normal; line-height: 1.28; opacity: 0.95; font-size: 0.95rem; }
         .announcement-banner__content a { color: #fff; text-decoration: underline; }
@@ -1779,29 +1779,15 @@
             }
             return wrap;
         };
-        // ניקוי תוכן קיים
+        // ניקוי תוכן קיים והצגת פריט יחיד ללא אנימציה/מרקיזה
         inner.innerHTML = '';
         const first = build(entry);
         inner.appendChild(first);
+        try { inner.style.animation = 'none'; } catch(_) {}
         try {
-            const scroller = container.querySelector('.announcement-banner__scroller');
-            const oneHeight = Math.max(0, Math.round(first.getBoundingClientRect().height || 0));
-            const boxHeight = Math.max(0, Math.round(scroller.getBoundingClientRect().height || 0));
-            // אם הטקסט גבוה מהקופסה – נפעיל גלילה אנכית עדינה עם שכפול יחיד למרקיזה
-            if (oneHeight > boxHeight) {
-                const second = build(entry);
-                inner.appendChild(second);
-                // הפעלת האנימציה עם מרחק וזמן מחושבים
-                const distance = Math.max(1, oneHeight);
-                const duration = Math.max(12, Math.min(30, Math.round((oneHeight + boxHeight) / 20)));
-                inner.style.setProperty('--announcement-distance', distance + 'px');
-                inner.style.setProperty('--announcement-duration', duration + 's');
-                try { inner.style.animation = ''; } catch(_) {}
-            } else {
-                // טקסט קצר – אין גלילה ואין שכפול כדי למנוע כפילות
-                inner.style.setProperty('--announcement-distance', Math.max(1, oneHeight) + 'px');
-                try { inner.style.animation = 'none'; } catch(_) {}
-            }
+            // הבאנר כעת גמיש גובה; אין צורך במרחק/זמן
+            const oneHeight = Math.max(1, Math.round(first.getBoundingClientRect().height || 1));
+            inner.style.setProperty('--announcement-distance', oneHeight + 'px');
         } catch (_) { /* ignore measurements errors */ }
     }
 
