@@ -528,7 +528,7 @@ def set_note_reminder(note_id: str):
             emit_event('note_reminder_set', severity='info', user_id=user_id, note_id=str(note_id))
         except Exception:
             pass
-        return jsonify({'ok': True, 'remind_at': cast(datetime, doc['remind_at']).isoformat()})
+        return jsonify({'ok': True, 'remind_at': dt_utc.isoformat()})
     except Exception:
         return jsonify({'ok': False, 'error': 'Failed'}), 500
 
