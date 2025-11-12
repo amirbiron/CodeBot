@@ -23,6 +23,19 @@
           <div>קישור (אופציונלי, פנימי / או https://)</div>
           <input type="text" name="link" value="{{ item.link }}" class="form-control" placeholder="/changelog#search-updates" />
         </label>
+        <label>
+          <div>הצג רק בנתיבים (אופציונלי)</div>
+          <input type="text" name="paths" value="{{ item.paths }}" class="form-control" placeholder="/login, /files, /files*" />
+          <div style="opacity:.75; font-size:.9rem; margin-top:.25rem;">הפרד בפסיקים. ניתן להשתמש ב-* לסיומת (למשל /files*).</div>
+        </label>
+        <label>
+          <div>סביבה</div>
+          <select name="env" class="form-control">
+            <option value="all" {% if item.env == 'all' %}selected{% endif %}>כל הסביבות</option>
+            <option value="prod" {% if item.env == 'prod' %}selected{% endif %}>Production/Staging</option>
+            <option value="dev" {% if item.env == 'dev' %}selected{% endif %}>Development</option>
+          </select>
+        </label>
         <label style="display:flex; align-items:center; gap:.5rem;">
           <input type="checkbox" name="is_active" {% if item.is_active %}checked{% endif %} /> הפעל כהכרזה פעילה
         </label>
@@ -44,6 +57,19 @@
           <div>קישור (אופציונלי, פנימי / או https://)</div>
           <input type="text" name="link" class="form-control" placeholder="/changelog#search-updates" />
         </label>
+        <label>
+          <div>הצג רק בנתיבים (אופציונלי)</div>
+          <input type="text" name="paths" class="form-control" placeholder="/login, /files, /files*" />
+          <div style="opacity:.75; font-size:.9rem; margin-top:.25rem;">ברירת מחדל: יוצג רק ב-/login ו-/files.</div>
+        </label>
+        <label>
+          <div>סביבה</div>
+          <select name="env" class="form-control">
+            <option value="all" selected>כל הסביבות</option>
+            <option value="prod">Production/Staging</option>
+            <option value="dev">Development</option>
+          </select>
+        </label>
         <label style="display:flex; align-items:center; gap:.5rem;">
           <input type="checkbox" name="is_active" /> הפעל מיד (יכבה הכרזה פעילה אחרת)
         </label>
@@ -64,8 +90,10 @@
       <table class="table" style="table-layout:auto; width:100%;">
         <thead>
           <tr>
-            <th style="width:44%">תוכן</th>
-            <th style="width:26%">קישור</th>
+            <th style="width:36%">תוכן</th>
+            <th style="width:18%">קישור</th>
+            <th style="width:18%">נתיבים</th>
+            <th style="width:8%">סביבה</th>
             <th style="width:10%">סטטוס</th>
             <th style="width:20%">פעולות</th>
           </tr>
@@ -80,6 +108,18 @@
                 {% else %}
                   —
                 {% endif %}
+              </td>
+              <td>
+                {% set p = it.paths %}
+                {% if p and p|length > 0 %}
+                  <div style="white-space:nowrap; overflow:hidden; text-overflow:ellipsis;" title="{{ p|join(', ') }}">{{ p|join(', ') }}</div>
+                {% else %}
+                  <span title="ברירת מחדל: /login, /files">(ברירת מחדל)</span>
+                {% endif %}
+              </td>
+              <td>
+                {% set e = (it.env or 'all') %}
+                {% if e == 'dev' %}Dev{% elif e == 'prod' %}Prod{% else %}All{% endif %}
               </td>
               <td>
                 {% if it.is_active %}

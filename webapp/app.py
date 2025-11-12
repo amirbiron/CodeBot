@@ -2511,6 +2511,86 @@ def _announcement_doc_to_json(doc: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
+def _normalize_announcement_paths(raw: str) -> list[str]:
+    """מקבל מחרוזת עם פסיקים/שורות ומחזיר רשימת נתיבים תקינים שיתאימו ע"פ כללים פשוטים.
+
+    כללים:
+    - חייב להתחיל ב-'/'
+    - רווחים ייגזרו
+    - תו '*' מותר בסוף התבנית (prefix match), למשל: '/files*'
+    - תווים אחרים יישמרו כפי שהם (ללא Regex)
+    """
+    try:
+        parts = []
+        for token in str(raw or '').replace('\n', ',').replace('\r', ',').split(','):
+            s = (token or '').strip()
+            if not s:
+                continue
+            if not s.startswith('/'):
+                continue
+            parts.append(s)
+        # הסר כפילויות תוך שמירה על סדר
+        seen = set()
+        uniq = []
+        for p in parts:
+            if p in seen:
+                continue
+            seen.add(p)
+            uniq.append(p)
+        return uniq
+    except Exception:
+        return []
+
+
+def _runtime_env_segment() -> str:
+    """ממפה ENV לקטגוריה לוגית: 'prod' או 'dev'."""
+    try:
+        name = (os.getenv('ENVIRONMENT') or os.getenv('ENV') or 'production').strip().lower()
+        if name in {'dev', 'development', 'local'}:
+            return 'dev'
+        return 'prod'
+    except Exception:
+        return 'prod'
+
+
+def _path_matches(pattern: str, current_path: str) -> bool:
+    try:
+        pat = str(pattern or '').strip()
+        path = str(current_path or '/').strip()
+        if not pat.startswith('/'):
+            return False
+        if pat.endswith('*'):
+            prefix = pat[:-1]
+            return path.startswith(prefix)
+        return path == pat
+    except Exception:
+        return False
+
+
+def _announcement_matches_context(doc: Dict[str, Any], current_path: str) -> bool:
+    """בודק התאמת הכרזה לנתיב ולסביבה. ברירת מחדל: רק /login ו-/files."""
+    try:
+        # התאמת סביבה
+        env_rule = str(doc.get('env') or 'all').strip().lower()
+        env_seg = _runtime_env_segment()
+        if env_rule not in {'all', 'prod', 'dev'}:
+            env_rule = 'all'
+        if env_rule != 'all' and env_rule != env_seg:
+            return False
+
+        # התאמת נתיב
+        paths: list[str] = list(doc.get('paths') or [])
+        # אם אין כלל paths — ברירת מחדל רק לעמודים הראשיים
+        default_paths = ['/login', '/files']
+        rules = paths if len(paths) > 0 else default_paths
+        for pat in rules:
+            if _path_matches(str(pat), current_path):
+                return True
+        return False
+    except Exception:
+        return False
+
+
 @app.route('/api/v1/announcements/active', methods=['GET'])
 def api_active_announcement():
     try:
@@ -2518,8 +2598,11 @@ def api_active_announcement():
     except Exception:
         return jsonify(None)
     try:
+        current_path = (request.args.get('path') or request.path or '/').strip()
         doc = _db.announcements.find_one({'is_active': True}, sort=[('updated_at', DESCENDING)])
         if not doc:
+            return jsonify(None)
+        if not _announcement_matches_context(doc, current_path):
             return jsonify(None)
         return jsonify(_announcement_doc_to_json(doc))
     except Exception:
@@ -2540,6 +2623,8 @@ def admin_announcements_index():
                     'text': str(d.get('text') or ''),
                     'link': str(d.get('link') or ''),
                     'is_active': bool(d.get('is_active', False)),
+                    'paths': list(d.get('paths') or []),
+                    'env': str(d.get('env') or 'all'),
                     'created_at': d.get('created_at'),
                     'updated_at': d.get('updated_at'),
                 })
@@ -2558,6 +2643,10 @@ def admin_announcements_new():
     # POST: create
     text = (request.form.get('text') or '').strip()
     link = _normalize_announcement_link(request.form.get('link') or '')
+    paths_raw = request.form.get('paths') or ''
+    paths = _normalize_announcement_paths(paths_raw)
+    env_rule = (request.form.get('env') or 'all').strip().lower()
+    env_rule = env_rule if env_rule in {'all', 'prod', 'dev'} else 'all'
     is_active = str(request.form.get('is_active') or '').lower() in {'on', '1', 'true', 'yes'}
     if not text:
         return render_template('admin_announcements.html', create_mode=True, error='חובה להזין טקסט להכרזה', form={'text': text, 'link': link, 'is_active': is_active})
@@ -2578,6 +2667,8 @@ def admin_announcements_new():
             'is_active': bool(is_active),
             'created_at': now,
             'updated_at': now,
+            'paths': paths,
+            'env': env_rule,
         }
         _db.announcements.insert_one(doc)
     except Exception:
@@ -2597,6 +2688,10 @@ def admin_announcements_edit():
     if request.method == 'POST':
         text = (request.form.get('text') or '').strip()
         link = _normalize_announcement_link(request.form.get('link') or '')
+        paths_raw = request.form.get('paths') or ''
+        paths = _normalize_announcement_paths(paths_raw)
+        env_rule = (request.form.get('env') or 'all').strip().lower()
+        env_rule = env_rule if env_rule in {'all', 'prod', 'dev'} else 'all'
         is_active = str(request.form.get('is_active') or '').lower() in {'on', '1', 'true', 'yes'}
         if not text:
             return render_template('admin_announcements.html', edit_mode=True, error='חובה להזין טקסט', item_id=item_id)
@@ -2607,7 +2702,17 @@ def admin_announcements_edit():
                     _db.announcements.update_many({'is_active': True, '_id': {'$ne': ObjectId(item_id)}}, {'$set': {'is_active': False, 'updated_at': now}})
                 except Exception:
                     pass
-            _db.announcements.update_one({'_id': ObjectId(item_id)}, {'$set': {'text': text[:280], 'link': link, 'is_active': bool(is_active), 'updated_at': now}})
+            _db.announcements.update_one(
+                {'_id': ObjectId(item_id)},
+                {'$set': {
+                    'text': text[:280],
+                    'link': link,
+                    'is_active': bool(is_active),
+                    'updated_at': now,
+                    'paths': paths,
+                    'env': env_rule,
+                }}
+            )
         except Exception:
             return render_template('admin_announcements.html', edit_mode=True, error='עדכון נכשל', item_id=item_id)
         return redirect(url_for('admin_announcements_index'))
@@ -2621,6 +2726,8 @@ def admin_announcements_edit():
             'text': str(doc.get('text') or ''),
             'link': str(doc.get('link') or ''),
             'is_active': bool(doc.get('is_active', False)),
+            'paths': ', '.join([str(p) for p in (doc.get('paths') or [])]) if isinstance(doc.get('paths'), (list, tuple)) else '',
+            'env': str(doc.get('env') or 'all'),
         }
         return render_template('admin_announcements.html', edit_mode=True, item=item)
     except Exception:
