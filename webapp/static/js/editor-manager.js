@@ -1,4 +1,5 @@
 (function(){
+  try { console.log('[EditorManager] Script loaded at:', new Date().toISOString(), 'url:', (typeof import !== 'undefined' && import.meta && import.meta.url) ? import.meta.url : (document.currentScript && document.currentScript.src)); } catch(_) {}
   class EditorManager {
     constructor() {
       this.currentEditor = this.loadPreference();
@@ -9,6 +10,7 @@
       this.loadingPromise = null;
       // נשמור CDN אחיד לכל המודולים כדי למנוע חוסר תאימות בין מחלקות
       this._cdnUrl = null;
+      try { console.log('[EditorManager] Initialized with preferred editor:', this.currentEditor); } catch(_) {}
     }
 
     loadPreference() {
@@ -42,12 +44,15 @@
 
     async initEditor(container, options = {}) {
       const { language = 'text', value = '', theme = 'dark' } = options;
+      try { console.log('[EditorManager] initEditor called with:', { language, theme, valueLength: (typeof value === 'string' ? value.length : 0) }); } catch(_) {}
       this.textarea = container.querySelector('textarea[name="code"]');
-      if (!this.textarea) return;
+      if (!this.textarea) { try { console.warn('[EditorManager] Textarea not found in container'); } catch(_) {} return; }
+      try { console.log('[EditorManager] Textarea found:', this.textarea); } catch(_) {}
 
       let fallback = false;
       if (this.currentEditor === 'codemirror') {
         try {
+          console.log('[EditorManager] Initializing CodeMirror editor...');
           await this.initCodeMirror(container, { language, value, theme });
         } catch (e) {
           // אם Codemirror נכשל – ניפול חזרה לפשוט ונשמור העדפה
@@ -103,6 +108,8 @@
         try {
           this.isLoading = true;
           this.showLoading(container);
+          try { console.log('[EditorManager] initCodeMirror called'); } catch(_) {}
+          try { console.log('[EditorManager] Loading indicator shown'); } catch(_) {}
           // הסתרת textarea
           this.textarea.style.display = 'none';
 
@@ -112,6 +119,7 @@
           this.textarea.parentNode.insertBefore(cmWrapper, this.textarea.nextSibling);
 
           if (!window.CodeMirror6) {
+            try { console.log('[EditorManager] window.CodeMirror6 not found, loading modules...'); } catch(_) {}
             // מגן נגד תקיעת טעינה שקטה של מודולים חיצוניים
             // מוגדל ל~30s כדי לאפשר כשל/ניסיון בכל CDN (8s * 3) + שוליים
             await this.withTimeout(this.loadCodeMirror(), 30000, 'codemirror_core_load');
@@ -147,6 +155,7 @@
           });
 
           this.cmInstance = new EditorView({ state, parent: cmWrapper });
+          try { console.log('[EditorManager] CodeMirror editor instance created'); } catch(_) {}
         } catch (e) {
           console.error('CodeMirror init failed', e);
           this.currentEditor = 'simple';
@@ -236,13 +245,16 @@
     async loadCodeMirror() {
       // נסה קודם טעינה מקומית (bundle) כדי לעבוד גם ללא CDN
       try {
-        const localUrl = new URL('./codemirror.local.js', import.meta.url).href;
-        const localModule = await this.withTimeout(import(localUrl), 8000, 'codemirror_local_import');
+        const baseUrl = (window.location && window.location.origin) ? window.location.origin : '';
+        const localUrl = `${baseUrl}/static/js/codemirror.local.js`;
+        try { console.log('[EditorManager] Attempting to load local CodeMirror bundle from:', localUrl); } catch(_) {}
+        const localModule = await this.withTimeout(import(localUrl), 12000, 'codemirror_local_import');
         const localApi = (localModule && (localModule.default || localModule.CodeMirror6)) || null;
 
         if (localApi && localApi.EditorView && localApi.EditorState) {
           window.CodeMirror6 = localApi;
           this._cdnUrl = null;
+          try { console.log('[EditorManager] Local CodeMirror bundle loaded successfully'); } catch(_) {}
           return;
         }
 
@@ -262,6 +274,7 @@
 
         if (window.CodeMirror6 && window.CodeMirror6.EditorView && window.CodeMirror6.EditorState) {
           this._cdnUrl = null;
+          try { console.log('[EditorManager] Local CodeMirror bundle attached on window'); } catch(_) {}
           return;
         }
 
@@ -318,6 +331,7 @@
         }
       }
       if (!chosen) throw lastErr || new Error('codemirror_core_import_failed');
+      try { console.log('[EditorManager] CDN selected:', chosen.name); } catch(_) {}
 
       // שמירת ה-CDN הנבחר לשימוש בהמשך (שפות/נושא)
       this._cdnUrl = chosen.url;
@@ -348,6 +362,7 @@
         ]) : []
       ];
 
+      try { console.log('[EditorManager] CodeMirror core modules loaded'); } catch(_) {}
       window.CodeMirror6 = {
         EditorState: stateMod.EditorState,
         EditorView: viewMod.EditorView,
