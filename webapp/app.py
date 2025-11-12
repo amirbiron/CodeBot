@@ -2353,7 +2353,8 @@ def admin_snippets_import():
     # POST
     source_url = (request.form.get('source_url') or '').strip()
     content = request.form.get('content') or ''
-    auto_approve = (request.form.get('auto_approve') or 'on') == 'on'
+    # HTML checkbox: when unchecked the key is absent -> should be False
+    auto_approve = str(request.form.get('auto_approve') or '').lower() in {'on', '1', 'true', 'yes'}
     dry_run = (request.form.get('dry_run') or '') == 'on'
 
     text = content
