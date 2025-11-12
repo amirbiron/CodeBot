@@ -798,10 +798,10 @@
             touch-action: manipulation;
         }
         .announcement-banner__icon { font-size: 1.05rem; opacity: 0.95; }
-        .announcement-banner__scroller { flex: 1; overflow: hidden; height: 52px; }
+        .announcement-banner__scroller { flex: 1; overflow: visible; height: auto; }
         .announcement-banner__inner {
-            will-change: transform;
-            animation: announcementMarquee var(--announcement-duration, 12s) linear infinite;
+            will-change: auto;
+            animation: none !important;
         }
         .announcement-banner__content { white-space: normal; line-height: 1.28; opacity: 0.95; font-size: 0.95rem; }
         .announcement-banner__content a { color: #fff; text-decoration: underline; }
@@ -972,7 +972,7 @@
         </div>
     </nav>
     
-    {% if session.user_id and (_announcement_enabled is none or _announcement_enabled) %}
+{% if (_announcement_enabled is none or _announcement_enabled) %}
     <div class="container" aria-hidden="false">
         <div id="announcementBanner" class="announcement-banner" role="status" aria-label="הכרזת מערכת" tabindex="-1" title="הכרזה" style="display:none;" aria-hidden="true">
             <span class="announcement-banner__icon" aria-hidden="true">📣</span>
@@ -1779,23 +1779,15 @@
             }
             return wrap;
         };
+        // ניקוי תוכן קיים והצגת פריט יחיד ללא אנימציה/מרקיזה
         inner.innerHTML = '';
         const first = build(entry);
-        const second = build(entry);
         inner.appendChild(first);
-        inner.appendChild(second);
+        try { inner.style.animation = 'none'; } catch(_) {}
         try {
-            const scroller = container.querySelector('.announcement-banner__scroller');
-            const oneHeight = first.getBoundingClientRect().height;
-            const boxHeight = scroller.getBoundingClientRect().height;
-            // דוחף את העותק השני מתחת לאזור הגלוי, כך שבהתחלה נראית רק פעם אחת
-            const gap = Math.max(0, Math.round(boxHeight - oneHeight));
-            second.style.marginTop = gap + 'px';
-            // מחשוב מרחק וזמן לגלילה חלקה של הודעות ארוכות
-            const distance = Math.max(1, Math.round(oneHeight));
-            const duration = Math.max(12, Math.min(30, Math.round((distance + boxHeight) / 20)));
-            inner.style.setProperty('--announcement-distance', distance + 'px');
-            inner.style.setProperty('--announcement-duration', duration + 's');
+            // הבאנר כעת גמיש גובה; אין צורך במרחק/זמן
+            const oneHeight = Math.max(1, Math.round(first.getBoundingClientRect().height || 1));
+            inner.style.setProperty('--announcement-distance', oneHeight + 'px');
         } catch (_) { /* ignore measurements errors */ }
     }
 
@@ -1805,7 +1797,8 @@
             let list = Array.isArray(window.__announcements) ? window.__announcements : [];
             if (!list.length) {
                 try {
-                    const resp = await fetch('/api/v1/announcements/active', { cache: 'no-store' });
+                    const currentPath = (window.location && window.location.pathname) ? window.location.pathname : '/';
+                    const resp = await fetch('/api/v1/announcements/active?path=' + encodeURIComponent(currentPath), { cache: 'no-store' });
                     if (resp && resp.ok) {
                         const a = await resp.json();
                         if (a) {
