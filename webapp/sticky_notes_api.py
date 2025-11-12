@@ -622,6 +622,124 @@ def reminders_summary():
         return jsonify({'ok': False, 'error': 'Failed'}), 500
 
 
+@sticky_notes_bp.route('/reminders/list', methods=['GET'])
+@require_auth
+@notes_rate_limit('note_reminders_list', 300)
+@traced('sticky_notes.reminders_list')
+def reminders_list():
+    """Return a list of due sticky‑note reminders for the current user.
+
+    Response:
+
+    .. code-block:: json
+
+        {
+          "ok": true,
+          "items": [
+            { "note_id": "...", "file_id": "...", "preview": "...", "anchor_id": "h2-intro", "anchor_text": "Intro" }
+          ],
+          "count": 1
+        }
+    """
+    try:
+        _ensure_indexes()
+        user_id = int(session['user_id'])
+        db = get_db()
+        now = datetime.now(timezone.utc)
+        # Pagination bounds
+        try:
+            limit_param = int(request.args.get('limit', 20))
+        except Exception:
+            limit_param = 20
+        limit_param = max(1, min(50, limit_param))
+
+        try:
+            cursor = (
+                db.note_reminders
+                .find({
+                    'user_id': user_id,
+                    'status': {'$in': ['pending', 'snoozed']},
+                    'remind_at': {'$lte': now},
+                    'ack_at': None,
+                })
+                .sort('remind_at', 1)
+                .limit(limit_param)
+            )
+        except Exception:
+            cursor = []
+
+        reminders = list(cursor) if cursor is not None else []
+        items = []
+
+        def _first_n_words(text: str, n: int = 6) -> str:
+            try:
+                s = _sanitize_text(text or '', 5000)
+                words = [w for w in s.strip().split() if w]
+                if not words:
+                    return ''
+                head = words[:max(1, n)]
+                out = ' '.join(head)
+                if len(words) > n:
+                    out += '…'
+                return out
+            except Exception:
+                return ''
+
+        for r in reminders:
+            try:
+                note_id = str(r.get('note_id') or '')
+                file_id = str(r.get('file_id') or '')
+                preview = ''
+                anchor_id = ''
+                anchor_text = ''
+
+                note_doc = None
+                # Try ObjectId first for performance/accuracy
+                try:
+                    oid = ObjectId(note_id)
+                except Exception:
+                    oid = None
+                if oid is not None:
+                    try:
+                        note_doc = db.sticky_notes.find_one({'_id': oid, 'user_id': user_id})
+                    except Exception:
+                        note_doc = None
+                if note_doc is None and note_id:
+                    try:
+                        note_doc = db.sticky_notes.find_one({'_id': note_id, 'user_id': user_id})
+                    except Exception:
+                        note_doc = None
+
+                if isinstance(note_doc, dict):
+                    preview_source = _coerce_content_from_doc(note_doc.get('content', '')) or (note_doc.get('anchor_text') or '')
+                    preview = _first_n_words(preview_source, 6)
+                    anchor_id = str(note_doc.get('anchor_id') or '')
+                    anchor_text = str(note_doc.get('anchor_text') or '')
+                    # Prefer file_id from note if missing on reminder (defensive)
+                    if not file_id:
+                        try:
+                            file_id = str(note_doc.get('file_id') or '')
+                        except Exception:
+                            pass
+                else:
+                    preview = ''
+
+                items.append({
+                    'note_id': note_id,
+                    'file_id': file_id,
+                    'preview': preview,
+                    'anchor_id': anchor_id,
+                    'anchor_text': anchor_text,
+                })
+            except Exception:
+                # Skip malformed entries rather than failing the entire list
+                continue
+
+        return jsonify({'ok': True, 'items': items, 'count': len(items)})
+    except Exception:
+        return jsonify({'ok': False, 'error': 'Failed'}), 500
+
+
 @sticky_notes_bp.route('/reminders/ack', methods=['POST'])
 @require_auth
 @notes_rate_limit('note_reminders_ack', 300)
