@@ -1485,6 +1485,9 @@
     </script>
     <script src="{{ url_for('static', filename='js/global_search.js') }}?v={{ static_version }}" defer></script>
     <script type="module" src="{{ url_for('static', filename='js/editor-manager.js') }}?v={{ static_version }}" defer></script>
+    <!-- Legacy fallback for browsers without module support (e.g., old mobile WebViews) -->
+    <script nomodule src="{{ url_for('static', filename='js/codemirror.local.js') }}?v={{ static_version }}"></script>
+    <script nomodule src="{{ url_for('static', filename='js/editor-manager.legacy.js') }}?v={{ static_version }}"></script>
     <script src="{{ url_for('static', filename='js/collections.js') }}?v={{ static_version }}" defer></script>
 <script>
     (function welcomeModalInit(){
