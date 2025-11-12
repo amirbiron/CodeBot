@@ -18,6 +18,9 @@
   </div>
   <div class="actions">
     <a class="btn primary" href="/snippets/submit">+ הוסף סניפט משלך</a>
+    {% if is_admin %}
+      <a class="btn secondary" href="/admin/snippets/import" title="ייבוא מסמך Markdown">📥 ייבוא מסמך</a>
+    {% endif %}
   </div>
 </div>
 <script>window.__isAdmin = {{ 'true' if is_admin else 'false' }};</script>
