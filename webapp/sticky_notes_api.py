@@ -440,19 +440,28 @@ def _parse_when_to_utc(payload: Dict[str, Any], user_tz: str) -> Optional[dateti
 
 
 def _ensure_user_owns_note(db, user_id: int, note_id: str) -> Optional[Dict[str, Any]]:
+    raw_id = str(note_id or "").strip()
+    if not raw_id:
+        return None
+    candidates: List[Any] = []
     try:
         from bson import ObjectId  # type: ignore
     except Exception:
         ObjectId = None  # type: ignore
-    try:
-        oid = ObjectId(note_id) if ObjectId else note_id
-    except Exception:
-        oid = note_id
-    try:
-        note = db.sticky_notes.find_one({'_id': oid, 'user_id': int(user_id)})
-    except Exception:
-        note = None
-    return note if isinstance(note, dict) else None
+    if ObjectId and raw_id:
+        try:
+            candidates.append(ObjectId(raw_id))
+        except Exception:
+            pass
+    candidates.append(raw_id)
+    for candidate in candidates:
+        try:
+            note = db.sticky_notes.find_one({'_id': candidate, 'user_id': int(user_id)})
+        except Exception:
+            note = None
+        if isinstance(note, dict):
+            return note
+    return None
 
 
 @sticky_notes_bp.route('/note/<note_id>/reminder', methods=['GET'])
