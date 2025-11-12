@@ -1,5 +1,6 @@
 <!DOCTYPE html>
-<html dir="rtl" lang="he"{% if weekly_tip_enabled is defined %} data-weekly-tip="{{ 'on' if weekly_tip_enabled else 'off' }}"{% endif %}>
+{% set _announcement_enabled = announcement_enabled if announcement_enabled is defined else (weekly_tip_enabled if weekly_tip_enabled is defined else none) %}
+<html dir="rtl" lang="he"{% if _announcement_enabled is not none %} data-announcement="{{ 'on' if _announcement_enabled else 'off' }}" data-weekly-tip="{{ 'on' if _announcement_enabled else 'off' }}"{% endif %}>
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
@@ -741,8 +742,8 @@
             .notif-popover { background: #2a2a3a; color: #f5f5f5; box-shadow: 0 10px 24px rgba(0,0,0,0.35); }
         }
 
-        /* Weekly Tip — vertical marquee with safe behavior */
-        .weekly-tip {
+        /* Announcement banner — vertical marquee */
+        .announcement-banner {
             position: relative;
             background: var(--glass);
             border: 1px solid var(--glass-border);
@@ -760,54 +761,36 @@
             -webkit-touch-callout: none;
             touch-action: manipulation;
         }
-        .weekly-tip__icon { font-size: 1.05rem; opacity: 0.95; }
-        .weekly-tip__scroller { flex: 1; overflow: hidden; height: 52px; }
-        .weekly-tip__inner {
+        .announcement-banner__icon { font-size: 1.05rem; opacity: 0.95; }
+        .announcement-banner__scroller { flex: 1; overflow: hidden; height: 52px; }
+        .announcement-banner__inner {
             will-change: transform;
-            animation: weeklyTipMarquee var(--weekly-tip-duration, 12s) linear infinite;
+            animation: announcementMarquee var(--announcement-duration, 12s) linear infinite;
         }
-        .weekly-tip__content { white-space: normal; line-height: 1.28; opacity: 0.95; font-size: 0.95rem; }
-        .weekly-tip__content a { color: #fff; text-decoration: underline; }
-        .weekly-tip__content a:hover { opacity: 0.9; }
-        .weekly-tip:hover .weekly-tip__inner,
-        .weekly-tip:focus-within .weekly-tip__inner,
-        .weekly-tip.is-paused .weekly-tip__inner { animation-play-state: paused; }
-        @keyframes weeklyTipMarquee {
+        .announcement-banner__content { white-space: normal; line-height: 1.28; opacity: 0.95; font-size: 0.95rem; }
+        .announcement-banner__content a { color: #fff; text-decoration: underline; }
+        .announcement-banner__content a:hover { opacity: 0.9; }
+        .announcement-banner:hover .announcement-banner__inner,
+        .announcement-banner:focus-within .announcement-banner__inner,
+        .announcement-banner.is-paused .announcement-banner__inner { animation-play-state: paused; }
+        @keyframes announcementMarquee {
             from { transform: translateY(0); }
-            to { transform: translateY(calc(-1 * var(--weekly-tip-distance, 100%))); }
+            to { transform: translateY(calc(-1 * var(--announcement-distance, 100%))); }
         }
-        /* Hide the tip when nav menu is open (avoid overlap) */
-        body.nav-open .weekly-tip { display: none; }
+        /* Hide the banner when nav menu is open (avoid overlap) */
+        body.nav-open .announcement-banner { display: none; }
         /* Respect reduced motion */
         @media (prefers-reduced-motion: reduce) {
-            .weekly-tip__inner { animation: none !important; }
+            .announcement-banner__inner { animation: none !important; }
         }
-        /* Hide tip on tablet range where the navbar is dense */
+        /* Hide banner on tablet range where the navbar is dense */
         @media (min-width: 640px) and (max-width: 1024px) {
-            .weekly-tip { display: none !important; }
+            .announcement-banner { display: none !important; }
         }
         @media (max-width: 480px) {
-            .weekly-tip__scroller { height: 56px; }
-            .weekly-tip__content { font-size: 0.9rem; }
+            .announcement-banner__scroller { height: 56px; }
+            .announcement-banner__content { font-size: 0.9rem; }
         }
-        /* Popover */
-        .weekly-tip__popover {
-            position: absolute;
-            top: 100%;
-            left: 8px;
-            transform: translateY(8px);
-            background: white;
-            color: #333;
-            border-radius: 10px;
-            box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18);
-            padding: 8px;
-            display: none;
-            z-index: 1200;
-            min-width: 180px;
-        }
-        .weekly-tip__popover[data-open="true"] { display: block; }
-        .weekly-tip__popover .btn { padding: 0.5rem 0.75rem; font-size: 0.95rem; width: 100%; }
-        .weekly-tip__popover .btn + .btn { margin-top: 6px; }
 .welcome-modal { position: fixed; inset: 0; display: none; align-items: center; justify-content: center; z-index: 11000; }
 .welcome-modal.active { display: flex; }
 .welcome-modal__backdrop { position: absolute; inset: 0; background: rgba(0, 0, 0, 0.55); backdrop-filter: blur(6px); }
@@ -953,18 +936,14 @@
         </div>
     </nav>
     
-    {% if session.user_id and (weekly_tip_enabled is not defined or weekly_tip_enabled) %}
+    {% if session.user_id and (_announcement_enabled is none or _announcement_enabled) %}
     <div class="container" aria-hidden="false">
-        <div id="weeklyTip" class="weekly-tip" role="button" aria-label="טיפ שבועי" aria-haspopup="menu" aria-expanded="false" aria-controls="weeklyTipPopover" tabindex="0" title="טיפ שבועי">
-            <span class="weekly-tip__icon" aria-hidden="true">💡</span>
-            <div class="weekly-tip__scroller">
-                <div class="weekly-tip__inner" id="weeklyTipInner" aria-live="polite">
+        <div id="announcementBanner" class="announcement-banner" role="status" aria-label="הכרזת מערכת" tabindex="-1" title="הכרזה" style="display:none;" aria-hidden="true">
+            <span class="announcement-banner__icon" aria-hidden="true">📣</span>
+            <div class="announcement-banner__scroller">
+                <div class="announcement-banner__inner" id="announcementBannerInner" aria-live="polite">
                     <!-- content filled by JS -->
                 </div>
-            </div>
-            <div id="weeklyTipPopover" class="weekly-tip__popover" role="menu" aria-hidden="true">
-                <button type="button" id="weeklyTipDisableBtn" class="btn btn-secondary btn-icon"><i class="fas fa-bell-slash"></i> כבה לשבוע</button>
-                <button type="button" id="weeklyTipCloseBtn" class="btn btn-secondary btn-icon"><i class="fas fa-times"></i> סגור</button>
             </div>
         </div>
     </div>
@@ -1551,152 +1530,145 @@
 </script>
 
 <script>
-// Weekly Tip initialization — vertical marquee + long-press popover
-(function initWeeklyTip(){
-    const container = document.getElementById('weeklyTip');
-    const inner = document.getElementById('weeklyTipInner');
-    const pop = document.getElementById('weeklyTipPopover');
-    const btnDisable = document.getElementById('weeklyTipDisableBtn');
-    const btnClose = document.getElementById('weeklyTipCloseBtn');
-    if (!container || !inner || !pop) return;
+// Announcement banner initialization — marquee without popover
+(function initAnnouncementBanner(){
+    const container = document.getElementById('announcementBanner');
+    const inner = document.getElementById('announcementBannerInner');
+    if (!container || !inner) { return; }
 
-    // Kill switches: global or per-user
-    const htmlAttr = (document.documentElement.getAttribute('data-weekly-tip') || '').toLowerCase();
-    const globalFlag = (typeof window.__weeklyTipEnabled === 'boolean') ? window.__weeklyTipEnabled : true;
-    const localKill = (function(){ try { return localStorage.getItem('weeklyTipFeatureOff') === '1'; } catch(_) { return false; } })();
-    if (!globalFlag || htmlAttr === 'off' || htmlAttr === '0' || localKill) { try { container.style.display = 'none'; } catch(_) {} return; }
-
-    const STORAGE_DISABLE = 'weeklyTipDisabledUntil';
-    const STORAGE_RECENT = 'weeklyTipRecentIds';
-    const ONE_WEEK_MS = 7 * 24 * 60 * 60 * 1000;
-    const HOLD_MS = 600;
-    const SPEED_PX_PER_S = 20; // slower for readability
-
-    function now(){ return Date.now(); }
-    function isDisabled(){ try { return now() < Number(localStorage.getItem(STORAGE_DISABLE) || 0); } catch(_) { return false; } }
-    function disableForWeek(){ try { localStorage.setItem(STORAGE_DISABLE, String(now() + ONE_WEEK_MS)); } catch(_) {} hide(); closePopover(); }
-    function loadRecent(){ try { return JSON.parse(localStorage.getItem(STORAGE_RECENT) || '[]'); } catch(_) { return []; } }
-    function saveRecent(ids){ try { localStorage.setItem(STORAGE_RECENT, JSON.stringify(ids || [])); } catch(_) {} }
-
-    function getISOWeek(d){
-        const date = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
-        const dayNum = (date.getUTCDay() + 6) % 7;
-        date.setUTCDate(date.getUTCDate() - dayNum + 3);
-        const firstThursday = new Date(Date.UTC(date.getUTCFullYear(), 0, 4));
-        return 1 + Math.round((date - firstThursday) / 604800000);
+    function hide(){
+        try {
+            container.style.display = 'none';
+            container.setAttribute('aria-hidden', 'true');
+            container.setAttribute('tabindex', '-1');
+        } catch (_) {}
     }
-    function pickTip(tips){
-        if (!Array.isArray(tips) || tips.length === 0) return null;
-        // Global same tip per week; avoid recent repeats when possible
-        const week = getISOWeek(new Date());
-        let idx = (week - 1) % tips.length;
-        const recent = new Set(loadRecent().slice(-Math.min(tips.length - 1, 12)));
-        let guard = 0;
-        while (recent.has(tips[idx].id) && guard < tips.length){ idx = (idx + 1) % tips.length; guard++; }
-        const chosen = tips[idx];
-        // Update recent
-        const updated = loadRecent().concat([chosen.id]).slice(-20);
-        saveRecent(updated);
-        return tips[idx];
+    function show(){
+        try {
+            container.style.display = '';
+            container.setAttribute('aria-hidden', 'false');
+        } catch (_) {}
     }
 
-    function renderContent(tip){
-        const mk = (t) => {
+    const htmlAttr = (document.documentElement.getAttribute('data-announcement') || '').toLowerCase();
+    const globalFlag = (typeof window.__announcementEnabled === 'boolean')
+        ? window.__announcementEnabled
+        : (typeof window.__weeklyTipEnabled === 'boolean' ? window.__weeklyTipEnabled : true);
+    const localKill = (() => {
+        try {
+            return localStorage.getItem('announcementBannerOff') === '1'
+                || localStorage.getItem('weeklyTipFeatureOff') === '1';
+        } catch (_) {
+            return false;
+        }
+    })();
+    if (!globalFlag || htmlAttr === 'off' || htmlAttr === '0' || localKill) {
+        hide();
+        return;
+    }
+
+    const announcementsRaw = Array.isArray(window.__announcements) ? window.__announcements : [];
+    const announcements = announcementsRaw.filter((item) => {
+        try {
+            return item && typeof item === 'object' && String(item.text || '').trim().length > 0;
+        } catch (_) {
+            return false;
+        }
+    });
+    if (!announcements.length) {
+        hide();
+        return;
+    }
+    const activeAnnouncement = announcements[0];
+    const SPEED_PX_PER_S = 20;
+
+    function escapeHtml(value){
+        const div = document.createElement('div');
+        div.textContent = String(value || '');
+        return div.innerHTML;
+    }
+    function escapeAttr(value){
+        return String(value || '').replace(/"/g, '&quot;');
+    }
+
+    function renderContent(entry){
+        const build = (item) => {
             const wrap = document.createElement('div');
-            wrap.className = 'weekly-tip__content';
-            if (t.link) {
-                wrap.innerHTML = `${escapeHtml(t.text)} <a href="${escapeAttr(t.link)}" target="_blank" rel="noopener">עוד ›</a>`;
+            wrap.className = 'announcement-banner__content';
+            const text = String(item.text || '').trim();
+            if (item.link) {
+                wrap.innerHTML = `${escapeHtml(text)} <a href="${escapeAttr(item.link)}" target="_blank" rel="noopener">עוד ›</a>`;
             } else {
-                wrap.textContent = t.text || '';
+                wrap.textContent = text;
             }
             return wrap;
         };
         inner.innerHTML = '';
-        const a = mk(tip);
-        const b = mk(tip); // duplicate for seamless loop
-        inner.appendChild(a);
-        inner.appendChild(b);
-        // Compute distance and duration
+        const first = build(entry);
+        const second = build(entry);
+        inner.appendChild(first);
+        inner.appendChild(second);
         try {
-            const scroller = container.querySelector('.weekly-tip__scroller');
-            const oneHeight = a.getBoundingClientRect().height;
+            const scroller = container.querySelector('.announcement-banner__scroller');
+            const oneHeight = first.getBoundingClientRect().height;
             const boxHeight = scroller.getBoundingClientRect().height;
             const distance = Math.max(1, Math.round(oneHeight));
             const duration = Math.max(12, Math.min(30, Math.round((distance + boxHeight) / SPEED_PX_PER_S)));
-            inner.style.setProperty('--weekly-tip-distance', distance + 'px');
-            inner.style.setProperty('--weekly-tip-duration', duration + 's');
-        } catch(_) {}
+            inner.style.setProperty('--announcement-distance', distance + 'px');
+            inner.style.setProperty('--announcement-duration', duration + 's');
+        } catch (_) {}
     }
 
-    function hide(){ try { container.style.display = 'none'; } catch(_) {} }
-    function show(){ try { container.style.display = ''; } catch(_) {} }
-
-    function openPopover(){
-        try {
-            pop.setAttribute('data-open', 'true');
-            pop.setAttribute('aria-hidden', 'false');
-            try { container.setAttribute('aria-expanded', 'true'); } catch(_) {}
-            container.classList.add('is-paused');
-            // Close on outside click / ESC
-            const closer = (ev) => {
-                if (!container.contains(ev.target)) { closePopover(); document.removeEventListener('click', closer); }
-            };
-            setTimeout(() => document.addEventListener('click', closer), 0);
-            document.addEventListener('keydown', onEscOnce);
-            try { (btnDisable || btnClose || container).focus(); } catch(_) {}
-        } catch(_) {}
+    renderContent(activeAnnouncement);
+    const announcementText = String(activeAnnouncement.text || '').trim();
+    if (announcementText) {
+        container.setAttribute('title', announcementText);
+        container.setAttribute('aria-label', announcementText);
     }
-    function onEscOnce(e){ if (e.key === 'Escape') { closePopover(); document.removeEventListener('keydown', onEscOnce); } }
-    function closePopover(){
-        try {
-            pop.removeAttribute('data-open');
-            pop.setAttribute('aria-hidden', 'true');
-            try { container.setAttribute('aria-expanded', 'false'); } catch(_) {}
-            container.classList.remove('is-paused');
-            try { container.focus(); } catch(_) {}
-        } catch(_) {}
+    if (activeAnnouncement && activeAnnouncement.link) {
+        container.setAttribute('role', 'link');
+        container.setAttribute('tabindex', '0');
+        try { container.style.cursor = 'pointer'; } catch (_) {}
+    } else {
+        container.setAttribute('role', 'status');
+        container.setAttribute('tabindex', '-1');
+        try { container.style.cursor = 'default'; } catch (_) {}
     }
-
-    function escapeHtml(s){ const d=document.createElement('div'); d.textContent=String(s||''); return d.innerHTML; }
-    function escapeAttr(s){ return String(s||'').replace(/"/g,'&quot;'); }
-
-    // Long-press handling
-    let holdTimer = null;
-    function startHold(){ clearTimeout(holdTimer); holdTimer = setTimeout(openPopover, HOLD_MS); }
-    function cancelHold(){ clearTimeout(holdTimer); holdTimer = null; }
-
-    // External state: auto-hide on nav open
-    const obs = new MutationObserver(() => {
-        if (document.body.classList.contains('nav-open')) { closePopover(); }
-    });
-    try { obs.observe(document.body, { attributes: true, attributeFilter: ['class'] }); } catch(_) {}
-
-    if (isDisabled()) { hide(); return; }
     show();
 
-    const FALLBACK_TIPS = [
-        { id: 'tip-theme', text: 'אפשר לבחור ערכות נושא לטעמך דרך הגדרות ה-WebApp! כפתור ההגדרות נמצא תמיד למעלה בראש העמוד' },
-        { id: 'tip-premium', text: 'משתמשים פעילים במיוחד עשויים לקבל תג של משתמש פרימיום, עם אפשרות לבקשות מיוחדות!' },
-        { id: 'tip-trash', text: 'אם נמחק לך קוד בטעות - הוא לא נעלם! ניתן לגשת אליו במשך 30 יום דרך סל מיחזור שממוקם בממשק הבוט' }
-    ];
-    const tips = (window.__weeklyTips && Array.isArray(window.__weeklyTips) && window.__weeklyTips.length) ? window.__weeklyTips : FALLBACK_TIPS;
-    const chosen = pickTip(tips);
-    if (!chosen) { hide(); return; }
-    renderContent(chosen);
+    const pause = () => { container.classList.add('is-paused'); };
+    const resume = () => { container.classList.remove('is-paused'); };
+    container.addEventListener('mouseenter', pause);
+    container.addEventListener('mouseleave', resume);
+    container.addEventListener('focusin', pause);
+    container.addEventListener('focusout', resume);
 
-    // Events
-    container.addEventListener('pointerdown', (e) => { if (e.button === 2) return; startHold(); });
-    ['pointerup','pointerleave','pointercancel','pointermove'].forEach(ev => container.addEventListener(ev, cancelHold));
-    container.addEventListener('contextmenu', (e) => { e.preventDefault(); openPopover(); });
-    container.addEventListener('keydown', (e) => {
-        const k = e.key;
-        if (k === 'Enter' || k === ' ') {
-            e.preventDefault();
-            openPopover();
+    const openLink = () => {
+        if (!activeAnnouncement || !activeAnnouncement.link) { return; }
+        const target = String(activeAnnouncement.link);
+        try {
+            if (target.startsWith('/')) {
+                window.location.href = target;
+            } else {
+                window.open(target, '_blank', 'noopener');
+            }
+        } catch (_) {
+            window.location.href = target;
+        }
+    };
+
+    container.addEventListener('click', (event) => {
+        if (!activeAnnouncement || !activeAnnouncement.link) { return; }
+        event.preventDefault();
+        openLink();
+    });
+    container.addEventListener('keydown', (event) => {
+        const key = event.key;
+        if ((key === 'Enter' || key === ' ') && activeAnnouncement && activeAnnouncement.link) {
+            event.preventDefault();
+            openLink();
         }
     });
-    if (btnDisable) btnDisable.addEventListener('click', disableForWeek);
-    if (btnClose) btnClose.addEventListener('click', closePopover);
 })();
 </script>
 
