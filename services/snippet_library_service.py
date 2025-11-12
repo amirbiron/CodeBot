@@ -169,10 +169,10 @@ class TextUtils:
         cleaned = re.sub(r'[<>:\"/\\|?*]', '_', filename)
         
         # הסרת רווחים מיותרים
-        cleaned = re.sub(r'\s+', '_', cleaned)
+        cleaned = re.sub(r'{bs}s+', '_', cleaned)
         
         # הסרת נקודות מיותרות
-        cleaned = re.sub(r'\.+', '.', cleaned)
+        cleaned = re.sub(r'{bs}.+', '.', cleaned)
         
         # הגבלת אורך
         if len(cleaned) > 100:
@@ -180,7 +180,7 @@ class TextUtils:
             cleaned = name[:100-len(ext)] + ext
         
         return cleaned.strip('._')
-""",
+""".format(bs="\\"),
     },
     {
         "title": "מענה בטוח ל-CallbackQuery (TelegramUtils.safe_answer)",
@@ -577,7 +577,7 @@ class SensitiveDataFilter(logging.Filter):
             patterns = [
                 (r"ghp_[A-Za-z0-9]{20,}", "ghp_***REDACTED***"),
                 (r"github_pat_[A-Za-z0-9_]{20,}", "github_pat_***REDACTED***"),
-                (r"Bearer\s+[A-Za-z0-9\-_.=:/+]{10,}", "Bearer ***REDACTED***"),
+                (r"Bearer{bs}s+[A-Za-z0-9._=:/+-]{{10,}}", "Bearer ***REDACTED***"),
             ]
             redacted = msg
             import re as _re
@@ -590,7 +590,7 @@ class SensitiveDataFilter(logging.Filter):
         except Exception:
             pass
         return True
-""",
+""".format(bs="\\"),
     },
     {
         "title": "נירמול ארגומנטים לפקודות (_coerce_command_args)",
