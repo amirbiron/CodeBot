@@ -1781,18 +1781,9 @@
         };
         inner.innerHTML = '';
         const first = build(entry);
-        const second = build(entry);
         inner.appendChild(first);
-        inner.appendChild(second);
-        try {
-            const scroller = container.querySelector('.announcement-banner__scroller');
-            const oneHeight = first.getBoundingClientRect().height;
-            const boxHeight = scroller.getBoundingClientRect().height;
-            const distance = Math.max(1, Math.round(oneHeight));
-            const duration = Math.max(12, Math.min(30, Math.round((distance + boxHeight) / 20)));
-            inner.style.setProperty('--announcement-distance', distance + 'px');
-            inner.style.setProperty('--announcement-duration', duration + 's');
-        } catch (_) {}
+        // עצירת האנימציה כדי למנוע כפילות ו"מרקיזה" מיותרת
+        try { container.classList.add('is-paused'); } catch (_) {}
     }
 
     async function run(){
