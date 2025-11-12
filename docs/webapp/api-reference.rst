@@ -73,6 +73,36 @@ Endpoints
      - ✅
      - -
      - HTML (rendered)
+   * - ``/api/sticky-notes/reminders/summary``
+     - GET
+     - סיכום מינימלי לבועה הקבועה (האם יש פתקים ממתינים + מונה)
+     - ✅
+     - -
+     - ``{"ok": true, "has_due": true, "count_due": 3, "next": {"note_id": "...", "file_id": "...", "remind_at": "..."}}``
+   * - ``/api/sticky-notes/reminders/list``
+     - GET
+     - רשימת פתקים ממתינים עם תצוגה מקדימה (6 מילים) וקישור לעוגן
+     - ✅
+     - Query: ``?limit=20``
+     - ``{"ok": true, "count": 3, "items": [{"note_id": "...", "file_id": "...", "preview": "...", "anchor_id": "h2-intro"}]}``
+   * - ``/api/sticky-notes/reminders/ack``
+     - POST
+     - סימון תזכורת כ־acknowledged (המשתמש פתח)
+     - ✅
+     - ``{"note_id": "..."}``
+     - ``{"ok": true}``
+   * - ``/api/sticky-notes/note/<note_id>/reminder``
+     - POST
+     - קביעת תזכורת לפתק (קיצורי זמן/תאריך שעה)
+     - ✅
+     - ``{"preset": "1h"|"3h"|"24h"|"1w"|"today-21"|"tomorrow-09", "tz": "Asia/Jerusalem"}`` או ``{"at": "2025-11-15T09:00", "tz": "Asia/Jerusalem"}``
+     - ``{"ok": true, "remind_at": "2025-11-15T07:00:00+00:00"}``
+   * - ``/api/sticky-notes/note/<note_id>/snooze``
+     - POST
+     - דחיית תזכורת ב‑X דקות
+     - ✅
+     - ``{"minutes": 60}``
+     - ``{"ok": true, "remind_at": "..."}``
    * - ``/api/welcome/ack``
      - POST
      - סימון הדגל ``has_seen_welcome_modal`` והסתרת מודאל ה־Welcome לצמיתות
