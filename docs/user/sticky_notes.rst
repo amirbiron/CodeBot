@@ -76,6 +76,30 @@ API קצר (למפתחים)
 .. note::
    קיצורי הפקודות בסגנון ``/remind`` (למשל ``/remind 1``, ``/remind 21:00``) עדיין **לא נתמכים** בגרסה זו, והם יתווספו בהמשך. בינתיים השתמשו בחלון התזכורת (🔔) לקביעת זמן.
 
+איורים
+~~~~~~
+
+.. figure:: /_static/sticky-notes-badge.svg
+   :alt: בועת התראה עם מונה מעל הגדרות/תפריט
+   :width: 520px
+   :align: center
+
+   בועה משודרגת עם מונה (דסקטופ)
+
+.. figure:: /_static/sticky-notes-popup.svg
+   :alt: חלון Pop-up לתזכורות עם רשימת פתקים וכפתורי פעולה
+   :width: 540px
+   :align: center
+
+   Pop‑up בלחיצה על הבועה: רשימת פתקים וכפתורי "סגור"/"דחה לאחר"כ"
+
+.. figure:: /_static/sticky-notes-anchor.svg
+   :alt: ניווט לעוגן פתק בתצוגת Markdown
+   :width: 540px
+   :align: center
+
+   ניווט לעוגן בתצוגת ה‑Markdown המרונדרת (‏/md/<file_id>)
+
 Troubleshooting קצר
 -------------------
 - פתק "זז" לאחר עריכות גדולות בקוד: העדיפו להצמיד לעוגן יציב במקום לשורה גולמית.
