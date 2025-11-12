@@ -1788,11 +1788,15 @@
             const scroller = container.querySelector('.announcement-banner__scroller');
             const oneHeight = first.getBoundingClientRect().height;
             const boxHeight = scroller.getBoundingClientRect().height;
+            // דוחף את העותק השני מתחת לאזור הגלוי, כך שבהתחלה נראית רק פעם אחת
+            const gap = Math.max(0, Math.round(boxHeight - oneHeight));
+            second.style.marginTop = gap + 'px';
+            // מחשוב מרחק וזמן לגלילה חלקה של הודעות ארוכות
             const distance = Math.max(1, Math.round(oneHeight));
             const duration = Math.max(12, Math.min(30, Math.round((distance + boxHeight) / 20)));
             inner.style.setProperty('--announcement-distance', distance + 'px');
             inner.style.setProperty('--announcement-duration', duration + 's');
-        } catch (_) {}
+        } catch (_) { /* ignore measurements errors */ }
     }
 
     async function run(){
