@@ -42,7 +42,7 @@
       </select>
     </div>
 
-    <div class="form-row">
+    <div id="snippetEditorContainer" class="form-row">
       <label for="code">קטע הקוד של הסניפט</label>
       <textarea id="code" name="code" rows="12" placeholder="# הדבק/י כאן את קטע הקוד" required style="font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', monospace;"></textarea>
     </div>
@@ -115,5 +115,27 @@
 
   if (form) form.addEventListener('submit', submitSnippet);
 })();
+</script>
+<script>
+document.addEventListener('DOMContentLoaded', async function() {
+  try {
+    const container = document.getElementById('snippetEditorContainer');
+    if (container && window.editorManager) {
+      console.log('[snippet_submit] Initializing editor with language: text');
+      await window.editorManager.initEditor(container, {
+        language: 'text',
+        value: '',
+        theme: 'dark'
+      });
+
+      const languageSelect = document.getElementById('language');
+      if (languageSelect) {
+        languageSelect.addEventListener('change', async (e) => {
+          try { await window.editorManager.updateLanguage(e.target.value); } catch(_) {}
+        });
+      }
+    }
+  } catch (_) {}
+});
 </script>
 {% endblock %}
