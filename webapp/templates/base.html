@@ -1738,7 +1738,7 @@
 </script>
 
 <script>
-// Announcement banner initialization — marquee without popover
+// Announcement banner initialization — with dynamic fetch fallback
 (function initAnnouncementBanner(){
     const container = document.getElementById('announcementBanner');
     const inner = document.getElementById('announcementBannerInner');
@@ -1757,38 +1757,6 @@
             container.setAttribute('aria-hidden', 'false');
         } catch (_) {}
     }
-
-    const htmlAttr = (document.documentElement.getAttribute('data-announcement') || '').toLowerCase();
-    const globalFlag = (typeof window.__announcementEnabled === 'boolean')
-        ? window.__announcementEnabled
-        : (typeof window.__weeklyTipEnabled === 'boolean' ? window.__weeklyTipEnabled : true);
-    const localKill = (() => {
-        try {
-            return localStorage.getItem('announcementBannerOff') === '1'
-                || localStorage.getItem('weeklyTipFeatureOff') === '1';
-        } catch (_) {
-            return false;
-        }
-    })();
-    if (!globalFlag || htmlAttr === 'off' || htmlAttr === '0' || localKill) {
-        hide();
-        return;
-    }
-
-    const announcementsRaw = Array.isArray(window.__announcements) ? window.__announcements : [];
-    const announcements = announcementsRaw.filter((item) => {
-        try {
-            return item && typeof item === 'object' && String(item.text || '').trim().length > 0;
-        } catch (_) {
-            return false;
-        }
-    });
-    if (!announcements.length) {
-        hide();
-        return;
-    }
-    const activeAnnouncement = announcements[0];
-    const SPEED_PX_PER_S = 20;
 
     function escapeHtml(value){
         const div = document.createElement('div');
@@ -1821,62 +1789,101 @@
             const oneHeight = first.getBoundingClientRect().height;
             const boxHeight = scroller.getBoundingClientRect().height;
             const distance = Math.max(1, Math.round(oneHeight));
-            const duration = Math.max(12, Math.min(30, Math.round((distance + boxHeight) / SPEED_PX_PER_S)));
+            const duration = Math.max(12, Math.min(30, Math.round((distance + boxHeight) / 20)));
             inner.style.setProperty('--announcement-distance', distance + 'px');
             inner.style.setProperty('--announcement-duration', duration + 's');
         } catch (_) {}
     }
 
-    renderContent(activeAnnouncement);
-    const announcementText = String(activeAnnouncement.text || '').trim();
-    if (announcementText) {
-        container.setAttribute('title', announcementText);
-        container.setAttribute('aria-label', announcementText);
-    }
-    if (activeAnnouncement && activeAnnouncement.link) {
-        container.setAttribute('role', 'link');
-        container.setAttribute('tabindex', '0');
-        try { container.style.cursor = 'pointer'; } catch (_) {}
-    } else {
-        container.setAttribute('role', 'status');
-        container.setAttribute('tabindex', '-1');
-        try { container.style.cursor = 'default'; } catch (_) {}
-    }
-    show();
-
-    const pause = () => { container.classList.add('is-paused'); };
-    const resume = () => { container.classList.remove('is-paused'); };
-    container.addEventListener('mouseenter', pause);
-    container.addEventListener('mouseleave', resume);
-    container.addEventListener('focusin', pause);
-    container.addEventListener('focusout', resume);
-
-    const openLink = () => {
-        if (!activeAnnouncement || !activeAnnouncement.link) { return; }
-        const target = String(activeAnnouncement.link);
+    async function run(){
         try {
-            if (target.startsWith('/')) {
-                window.location.href = target;
-            } else {
-                window.open(target, '_blank', 'noopener');
+            // Try to fetch active announcement if none injected
+            let list = Array.isArray(window.__announcements) ? window.__announcements : [];
+            if (!list.length) {
+                try {
+                    const resp = await fetch('/api/v1/announcements/active', { cache: 'no-store' });
+                    if (resp && resp.ok) {
+                        const a = await resp.json();
+                        if (a) {
+                            window.__announcementEnabled = true;
+                            window.__announcements = [{ id: a.id, text: a.text, link: a.link || null }];
+                            list = window.__announcements;
+                        }
+                    }
+                } catch (_) { /* ignore */ }
             }
-        } catch (_) {
-            window.location.href = target;
-        }
-    };
 
-    container.addEventListener('click', (event) => {
-        if (!activeAnnouncement || !activeAnnouncement.link) { return; }
-        event.preventDefault();
-        openLink();
-    });
-    container.addEventListener('keydown', (event) => {
-        const key = event.key;
-        if ((key === 'Enter' || key === ' ') && activeAnnouncement && activeAnnouncement.link) {
-            event.preventDefault();
-            openLink();
-        }
-    });
+            const htmlAttr = (document.documentElement.getAttribute('data-announcement') || '').toLowerCase();
+            const globalFlag = (typeof window.__announcementEnabled === 'boolean')
+                ? window.__announcementEnabled
+                : (typeof window.__weeklyTipEnabled === 'boolean' ? window.__weeklyTipEnabled : true);
+            const localKill = (() => {
+                try {
+                    return localStorage.getItem('announcementBannerOff') === '1'
+                        || localStorage.getItem('weeklyTipFeatureOff') === '1';
+                } catch (_) { return false; }
+            })();
+            if (!globalFlag || htmlAttr === 'off' || htmlAttr === '0' || localKill) {
+                hide();
+                return;
+            }
+
+            const announcements = (Array.isArray(list) ? list : []).filter((item) => {
+                try { return item && typeof item === 'object' && String(item.text || '').trim().length > 0; } catch (_) { return false; }
+            });
+            if (!announcements.length) { hide(); return; }
+
+            const activeAnnouncement = announcements[0];
+            renderContent(activeAnnouncement);
+            const announcementText = String(activeAnnouncement.text || '').trim();
+            if (announcementText) {
+                container.setAttribute('title', announcementText);
+                container.setAttribute('aria-label', announcementText);
+            }
+            if (activeAnnouncement && activeAnnouncement.link) {
+                container.setAttribute('role', 'link');
+                container.setAttribute('tabindex', '0');
+                try { container.style.cursor = 'pointer'; } catch (_) {}
+            } else {
+                container.setAttribute('role', 'status');
+                container.setAttribute('tabindex', '-1');
+                try { container.style.cursor = 'default'; } catch (_) {}
+            }
+            show();
+
+            const pause = () => { container.classList.add('is-paused'); };
+            const resume = () => { container.classList.remove('is-paused'); };
+            container.addEventListener('mouseenter', pause);
+            container.addEventListener('mouseleave', resume);
+            container.addEventListener('focusin', pause);
+            container.addEventListener('focusout', resume);
+
+            const openLink = () => {
+                if (!activeAnnouncement || !activeAnnouncement.link) { return; }
+                const target = String(activeAnnouncement.link);
+                try {
+                    if (target.startsWith('/')) {
+                        window.location.href = target;
+                    } else {
+                        window.open(target, '_blank', 'noopener');
+                    }
+                } catch (_) { window.location.href = target; }
+            };
+            container.addEventListener('click', (event) => {
+                if (!activeAnnouncement || !activeAnnouncement.link) { return; }
+                event.preventDefault();
+                openLink();
+            });
+            container.addEventListener('keydown', (event) => {
+                const key = event.key;
+                if ((key === 'Enter' || key === ' ') && activeAnnouncement && activeAnnouncement.link) {
+                    event.preventDefault();
+                    openLink();
+                }
+            });
+        } catch (_) { hide(); }
+    }
+    try { run(); } catch (_) { hide(); }
 })();
 </script>
 

@@ -85,6 +85,12 @@ Endpoints
      - ✅
      - Query: ``?limit=20``
      - ``{"ok": true, "count": 3, "items": [{"note_id": "...", "file_id": "...", "preview": "...", "anchor_id": "h2-intro"}]}``
+   * - ``/api/v1/announcements/active``
+     - GET
+     - ההכרזה הפעילה היחידה להצגה בבאנר (או ``null`` אם אין)
+     - ✅
+     - -
+     - ``{"id": "...", "text": "...", "link": "/path"}`` או ``null``
    * - ``/api/sticky-notes/reminders/ack``
      - POST
      - סימון תזכורת כ־acknowledged (המשתמש פתח)
