@@ -571,6 +571,51 @@
 
 כל שינוי בפתק (תוכן, מיקום, גודל, צבע) נשמר אוטומטית לשרת.
 
+### תזכורות לפתקים (חדש)
+
+- אייקון 🔔 בכל פתק פותח חלון תזמון.
+- תזמון מהיר: "עוד שעה", "עוד 3 שעות", "היום ב‑21:00", "מחר ב‑9:00", "עוד 24 שעות", "עוד שבוע".
+- בחירה מלוח שנה: שדה `datetime-local` + כפתור "שמירה".
+- באדג' קבוע ב‑UI כשיש תזכורות ממתינות:
+  - בנייד: ליד כפתור התפריט.
+  - בדסקטופ/טאבלט: ליד "הגדרות".
+
+#### נקודות קצה (API)
+
+- קביעת תזכורת לפתק:
+
+  POST `/api/sticky-notes/note/<note_id>/reminder`
+
+  גוף לדוגמה – תזמון מהיר:
+
+  ```json
+  { "preset": "1h", "tz": "Asia/Jerusalem" }
+  ```
+
+  או בחירת תאריך/שעה:
+
+  ```json
+  { "at": "2025-12-31T21:00", "tz": "Asia/Jerusalem" }
+  ```
+
+- קבלת תזכורת לפתק: GET `/api/sticky-notes/note/<note_id>/reminder`
+
+- מחיקת תזכורת לפתק: DELETE `/api/sticky-notes/note/<note_id>/reminder`
+
+- דחייה (Snooze):
+
+  POST `/api/sticky-notes/note/<note_id>/snooze`
+
+  ```json
+  { "minutes": 60 }
+  ```
+
+- סיכום לתצוגת באדג': GET `/api/sticky-notes/reminders/summary`
+
+  מחזיר `has_due` ו‑`next` (פתק הבא לפתיחה).
+
+> הערה: התראות Web Push מלאות יגיעו באיטרציה נפרדת (Service Worker + VAPID).
+
 ---
 
 ## אוספים (My Collections) 📂
