@@ -575,8 +575,8 @@ class SensitiveDataFilter(logging.Filter):
             msg = str(record.getMessage())
             # זיהוי בסיסי של טוקנים: ghp_..., github_pat_..., Bearer ...
             patterns = [
-                (r"ghp_[A-Za-z0-9]{20,}", "ghp_***REDACTED***"),
-                (r"github_pat_[A-Za-z0-9_]{20,}", "github_pat_***REDACTED***"),
+                (r"ghp_[A-Za-z0-9]{{20,}}", "ghp_***REDACTED***"),
+                (r"github_pat_[A-Za-z0-9_]{{20,}}", "github_pat_***REDACTED***"),
                 (r"Bearer{bs}s+[A-Za-z0-9._=:/+-]{{10,}}", "Bearer ***REDACTED***"),
             ]
             redacted = msg
