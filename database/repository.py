@@ -1810,6 +1810,25 @@ class Repository:
                 pass
             return None
 
+    def _normalize_snippet_title(self, value: Any) -> str:
+        try:
+            return str(value or "").strip().lower()
+        except Exception:
+            return ""
+
+    def _normalize_snippet_language(self, value: Any) -> str:
+        try:
+            return str(value or "").strip().lower()
+        except Exception:
+            return ""
+
+    def _compute_snippet_code_hash(self, value: Any) -> str:
+        try:
+            normalized = normalize_code(str(value or ""))
+        except Exception:
+            normalized = ""
+        return _hash_identifier(normalized) if normalized else ""
+
     def create_snippet_proposal(self, *, title: str, description: str, code: str, language: str, user_id: int, username: Optional[str] = None) -> Optional[str]:
         try:
             coll = getattr(self.manager, 'snippets_collection', None)
@@ -1828,12 +1847,70 @@ class Repository:
                 "approved_at": None,
                 "approved_by": None,
                 "rejection_reason": None,
+                "title_normalized": self._normalize_snippet_title(title),
+                "language_normalized": self._normalize_snippet_language(language),
+                "code_normalized_hash": self._compute_snippet_code_hash(code),
             }
             res = coll.insert_one(doc)
             inserted = getattr(res, 'inserted_id', None)
             return str(inserted) if inserted else None
         except Exception as e:
             emit_event("db_create_snippet_proposal_error", severity="error", error=str(e))
+            return None
+
+    def find_snippet_duplicate(self, *, title: str, code: str, language: str) -> Optional[Dict[str, Any]]:
+        try:
+            coll = getattr(self.manager, 'snippets_collection', None)
+            if coll is None:
+                return None
+
+            target_title = self._normalize_snippet_title(title)
+            target_language = self._normalize_snippet_language(language)
+            target_code_hash = self._compute_snippet_code_hash(code)
+
+            try:
+                rows_iter = coll.find()
+                rows = list(rows_iter) if not isinstance(rows_iter, list) else rows_iter
+            except Exception:
+                rows = []
+
+            for row in rows:
+                try:
+                    status = str(row.get("status") or "").strip().lower()
+                except Exception:
+                    status = ""
+                if status not in ("pending", "approved"):
+                    continue
+
+                row_language = self._normalize_snippet_language(row.get("language_normalized") or row.get("language"))
+                row_title = self._normalize_snippet_title(row.get("title_normalized") or row.get("title"))
+                row_id = row.get("_id")
+
+                if target_language and row_language and target_language == row_language and target_title and row_title and target_title == row_title:
+                    return {
+                        "matched": "title",
+                        "id": str(row_id) if row_id is not None else None,
+                        "status": status,
+                        "title": row.get("title"),
+                    }
+
+                if not target_code_hash:
+                    continue
+
+                row_hash = row.get("code_normalized_hash")
+                if not row_hash:
+                    row_hash = self._compute_snippet_code_hash(row.get("code"))
+
+                if row_hash and row_hash == target_code_hash and (not target_language or not row_language or target_language == row_language):
+                    return {
+                        "matched": "code",
+                        "id": str(row_id) if row_id is not None else None,
+                        "status": status,
+                        "title": row.get("title"),
+                    }
+            return None
+        except Exception as e:
+            emit_event("db_find_snippet_duplicate_error", severity="warn", error=str(e))
             return None
 
     def approve_snippet(self, item_id: str, admin_id: int) -> bool:

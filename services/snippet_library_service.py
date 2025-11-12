@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Tuple
 from datetime import datetime, timezone
+import hashlib
 
 try:
     from bson import ObjectId  # type: ignore
@@ -11,6 +12,7 @@ except Exception:  # pragma: no cover
         pass
 
 from database import db as _db
+from utils import normalize_code
 
 try:  # observability (fail-open)
     from observability import emit_event  # type: ignore
@@ -27,6 +29,25 @@ def _sanitize_text(s: Any, max_len: int) -> str:
     if len(t) > max_len:
         t = t[:max_len]
     return t
+
+
+def _normalize_for_duplicates(value: Any) -> str:
+    try:
+        return str(value or "").strip().lower()
+    except Exception:
+        return ""
+
+
+def _code_signature(code: Any) -> str:
+    try:
+        normalized = normalize_code(str(code or ""))
+    except Exception:
+        normalized = str(code or "")
+    try:
+        digest = hashlib.sha256(normalized.encode("utf-8", "ignore")).hexdigest()
+    except Exception:
+        return ""
+    return digest[:16] if digest else ""
 
 
 def submit_snippet(
@@ -54,8 +75,66 @@ def submit_snippet(
     if not lang_s:
         return {"ok": False, "error": "נדרשת שפה"}
 
+    repo = None
     try:
-        inserted_id = _db._get_repo().create_snippet_proposal(
+        repo = _db._get_repo()
+    except Exception:
+        repo = None
+
+    duplicate_reason: Optional[str] = None
+    duplicate_meta: Dict[str, Any] = {}
+
+    if repo is not None:
+        finder = getattr(repo, "find_snippet_duplicate", None)
+        if callable(finder):
+            try:
+                dup = finder(title=title_s, code=code, language=lang_s)
+            except Exception:
+                dup = None
+            if dup:
+                duplicate_meta = dup
+                matched = str(dup.get("matched") or "")
+                if matched == "title":
+                    duplicate_reason = "כבר קיים סניפט באותה שפה עם כותרת זהה"
+                else:
+                    duplicate_reason = "נראה שהקוד הזה כבר נמצא בספריית הסניפטים"
+
+    if duplicate_reason is None:
+        target_title = _normalize_for_duplicates(title_s)
+        target_lang = _normalize_for_duplicates(lang_s)
+        target_code_sig = _code_signature(code)
+        for builtin in BUILTIN_SNIPPETS:
+            b_lang = _normalize_for_duplicates(builtin.get("language"))
+            if target_lang and b_lang and target_lang != b_lang:
+                continue
+            b_title = _normalize_for_duplicates(builtin.get("title"))
+            if target_title and b_title and target_title == b_title:
+                duplicate_reason = "הכותרת כבר קיימת בספריית הסניפטים"
+                duplicate_meta = {"matched": "builtin_title", "title": builtin.get("title")}
+                break
+            if target_code_sig:
+                b_code_sig = _code_signature(builtin.get("code"))
+                if b_code_sig and b_code_sig == target_code_sig:
+                    duplicate_reason = "קיים כבר סניפט עם קוד זהה בספריה"
+                    duplicate_meta = {"matched": "builtin_code", "title": builtin.get("title")}
+                    break
+
+    if duplicate_reason:
+        try:
+            emit_event(
+                "snippet_submit_duplicate",
+                severity="info",
+                user_id=int(user_id),
+                username=username,
+                matched=str(duplicate_meta.get("matched") or ""),
+                existing_title=str(duplicate_meta.get("title") or ""),
+            )
+        except Exception:
+            pass
+        return {"ok": False, "error": duplicate_reason}
+
+    try:
+        inserted_id = (repo or _db._get_repo()).create_snippet_proposal(
             title=title_s,
             description=desc_s,
             code=code,
