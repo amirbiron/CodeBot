@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from flask import Blueprint, jsonify, request, session
 from functools import wraps
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple, cast
 from datetime import datetime, timezone, timedelta
 import time
 import html
@@ -524,7 +524,7 @@ def set_note_reminder(note_id: str):
             emit_event('note_reminder_set', severity='info', user_id=user_id, note_id=str(note_id))
         except Exception:
             pass
-        return jsonify({'ok': True, 'remind_at': doc['remind_at'].isoformat()})
+        return jsonify({'ok': True, 'remind_at': cast(datetime, doc['remind_at']).isoformat()})
     except Exception:
         return jsonify({'ok': False, 'error': 'Failed'}), 500
 
