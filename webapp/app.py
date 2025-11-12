@@ -2138,10 +2138,42 @@ def admin_snippets_import():
         code: str
         language: str
 
-    _HEADER_RE = _re.compile(r"^\s{0,3}#{2,4}\s+(.+?)\s*$")
-    _WHY_RE = _re.compile(r"^\s*\*\*למה זה שימושי:\*\*\s*(.+?)\s*$")
     _FENCE_START_RE = _re.compile(r"^```([a-zA-Z0-9_+-]*)\s*$")
     _FENCE_END_RE = _re.compile(r"^```\s*$")
+
+    def _strip_leading_decorations(text: str) -> str:
+        t = text or ""
+        while t and (t[0] in ('✅', '•', '*', '-', '–', '—', ' ', '\t')):
+            t = t[1:].lstrip(' \t')
+        return t
+
+    def _match_header(line: str) -> _Optional[str]:
+        """Match markdown header ##..#### without heavy regex to avoid ReDoS."""
+        if not line:
+            return None
+        # Up to 3 leading spaces
+        s = line
+        lead = 0
+        while lead < len(s) and lead < 3 and s[lead] == ' ':
+            lead += 1
+        s = s[lead:]
+        # Count '#'
+        i = 0
+        while i < len(s) and s[i] == '#':
+            i += 1
+        if 2 <= i <= 4 and i < len(s) and s[i].isspace():
+            title = s[i:].strip()
+            return _strip_leading_decorations(title)
+        return None
+
+    def _extract_why(line: str) -> _Optional[str]:
+        if not line:
+            return None
+        s = line.lstrip()
+        prefix = "**למה זה שימושי:**"
+        if s.startswith(prefix):
+            return s[len(prefix):].strip()
+        return None
 
     def _guess_language(value: str, fallback: str = "text") -> str:
         value = (value or "").strip().lower()
@@ -2183,6 +2215,19 @@ def admin_snippets_import():
                 return f"https://gist.githubusercontent.com/{user}/{gist_id}/raw"
         return url
 
+    def _is_allowed_url(url: str) -> bool:
+        """Whitelist only HTTPS GitHub/Gist raw hosts to mitigate SSRF."""
+        try:
+            parsed = _urlparse(url) if _urlparse else None
+        except Exception:
+            return False
+        if not parsed:
+            return False
+        if (parsed.scheme or '').lower() != 'https':
+            return False
+        host = (parsed.netloc or '').lower()
+        return host in {"raw.githubusercontent.com", "gist.githubusercontent.com"}
+
     def _fetch_url(url: str, timeout: int = 20) -> str:
         if _Request is None or _urlopen is None:
             raise RuntimeError("URL fetching is unavailable on this server")
@@ -2199,17 +2244,17 @@ def admin_snippets_import():
         i = 0
         while i < len(lines):
             line = lines[i]
-            m_header = _HEADER_RE.match(line)
-            if m_header:
-                raw_title = m_header.group(1).strip()
-                raw_title = _re.sub(r"^[✅\-\s]+", "", raw_title)
-                current_title = raw_title
+            # Header lines (##..#### Title)
+            hdr = _match_header(line)
+            if hdr is not None:
+                current_title = hdr
                 current_description = None
                 i += 1
                 continue
-            m_why = _WHY_RE.match(line)
-            if m_why:
-                current_description = m_why.group(1).strip()
+            # Why line ("**למה זה שימושי:** ...")
+            why = _extract_why(line)
+            if why is not None:
+                current_description = why
                 i += 1
                 continue
             m_fence = _FENCE_START_RE.match(line)
@@ -2291,8 +2336,12 @@ def admin_snippets_import():
 
     text = content
     if not text and source_url:
+        maybe_raw_url = _maybe_to_raw_url(source_url)
+        if not _is_allowed_url(maybe_raw_url):
+            err = "ניתן לייבא רק מ-GitHub/Gist (raw, HTTPS)"
+            return render_template('admin_snippets_import.html', error=err, result=None, source_url=source_url, content=content, auto_approve=auto_approve, dry_run=dry_run)
         try:
-            text = _fetch_url(_maybe_to_raw_url(source_url))
+            text = _fetch_url(maybe_raw_url)
         except Exception as e:
             err = f"שגיאה בטעינת ה‑URL: {e}"
             return render_template('admin_snippets_import.html', error=err, result=None, source_url=source_url, content=content, auto_approve=auto_approve, dry_run=dry_run)
