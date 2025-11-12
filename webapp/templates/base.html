@@ -1779,19 +1779,29 @@
             }
             return wrap;
         };
-        // מנקה ומציג פריט אחד בלבד כדי למנוע כפילות
+        // ניקוי תוכן קיים
         inner.innerHTML = '';
         const first = build(entry);
         inner.appendChild(first);
-        // מנטרל אנימציה כדי לא ליצור אפקט גלילה כפול
-        try { inner.style.animation = 'none'; } catch (_) {}
         try {
-            // התאמת גובה/מרחק ללא שכפול
             const scroller = container.querySelector('.announcement-banner__scroller');
-            const oneHeight = first.getBoundingClientRect().height;
-            const boxHeight = scroller.getBoundingClientRect().height;
-            const distance = Math.max(1, Math.round(Math.min(oneHeight, boxHeight)));
-            inner.style.setProperty('--announcement-distance', distance + 'px');
+            const oneHeight = Math.max(0, Math.round(first.getBoundingClientRect().height || 0));
+            const boxHeight = Math.max(0, Math.round(scroller.getBoundingClientRect().height || 0));
+            // אם הטקסט גבוה מהקופסה – נפעיל גלילה אנכית עדינה עם שכפול יחיד למרקיזה
+            if (oneHeight > boxHeight) {
+                const second = build(entry);
+                inner.appendChild(second);
+                // הפעלת האנימציה עם מרחק וזמן מחושבים
+                const distance = Math.max(1, oneHeight);
+                const duration = Math.max(12, Math.min(30, Math.round((oneHeight + boxHeight) / 20)));
+                inner.style.setProperty('--announcement-distance', distance + 'px');
+                inner.style.setProperty('--announcement-duration', duration + 's');
+                try { inner.style.animation = ''; } catch(_) {}
+            } else {
+                // טקסט קצר – אין גלילה ואין שכפול כדי למנוע כפילות
+                inner.style.setProperty('--announcement-distance', Math.max(1, oneHeight) + 'px');
+                try { inner.style.animation = 'none'; } catch(_) {}
+            }
         } catch (_) { /* ignore measurements errors */ }
     }
 
