@@ -2194,38 +2194,55 @@ def admin_snippets_import():
         return mapping.get(value, value)
 
     def _maybe_to_raw_url(url: str) -> str:
+        """Accept only GitHub file/blobs and Gist URLs and strictly parse."""
         try:
             parsed = _urlparse(url) if _urlparse else None
         except Exception:
-            parsed = None
-        if not parsed:
-            return url
-        host = (parsed.netloc or "").lower()
+            return ""
+        if not parsed or not (parsed.scheme and parsed.netloc and parsed.path):
+            return ""
+        host = parsed.netloc.lower()
         path = parsed.path or ""
         if host == "github.com" and "/blob/" in path:
             parts = path.strip("/").split("/")
             if len(parts) >= 5:
                 owner, repo, _blob, branch = parts[:4]
                 tail = "/".join(parts[4:])
-                return f"https://raw.githubusercontent.com/{owner}/{repo}/{branch}/{tail}"
+                # Only allow alphanumeric and dash/underscore in owner/repo/branch/tail
+                safe_re = r"^[A-Za-z0-9_\-]+$"
+                if (re.match(safe_re, owner) and re.match(safe_re, repo) and re.match(safe_re, branch)
+                    and all(re.match(safe_re, p) for p in tail.split('/'))):
+                    return f"https://raw.githubusercontent.com/{owner}/{repo}/{branch}/{tail}"
+                else:
+                    return ""
         if host == "gist.github.com":
             parts = path.strip("/").split("/")
             if len(parts) >= 2:
                 user, gist_id = parts[:2]
-                return f"https://gist.githubusercontent.com/{user}/{gist_id}/raw"
-        return url
+                safe_re = r"^[A-Za-z0-9_\-]+$"
+                if re.match(safe_re, user) and re.match(safe_re, gist_id):
+                    return f"https://gist.githubusercontent.com/{user}/{gist_id}/raw"
+                else:
+                    return ""
+        return ""
 
     def _is_allowed_url(url: str) -> bool:
-        """Whitelist only HTTPS GitHub/Gist raw hosts to mitigate SSRF."""
+        """Allow only hardcoded raw GitHub/Gist hosts with HTTPS."""
         try:
             parsed = _urlparse(url) if _urlparse else None
         except Exception:
             return False
-        if not parsed:
+        if not parsed or not (parsed.scheme and parsed.netloc):
             return False
-        if (parsed.scheme or '').lower() != 'https':
+        scheme = parsed.scheme.lower()
+        host = parsed.netloc.lower()
+        if scheme != "https":
             return False
-        host = (parsed.netloc or '').lower()
+        # Disallow any URL containing '@', port other than 443, or fragments/queries
+        if "@" in host or (":" in host and not host.endswith(":443")):
+            return False
+        if parsed.query or parsed.fragment:
+            return False
         return host in {"raw.githubusercontent.com", "gist.githubusercontent.com"}
 
     def _fetch_url(url: str, timeout: int = 20) -> str:
@@ -2337,8 +2354,8 @@ def admin_snippets_import():
     text = content
     if not text and source_url:
         maybe_raw_url = _maybe_to_raw_url(source_url)
-        if not _is_allowed_url(maybe_raw_url):
-            err = "ניתן לייבא רק מ-GitHub/Gist (raw, HTTPS)"
+        if not maybe_raw_url or not _is_allowed_url(maybe_raw_url):
+            err = "ניתן לייבא רק מ‑GitHub/Gist באמצעות מזהה חוקי (לא URL שרירותי)"
             return render_template('admin_snippets_import.html', error=err, result=None, source_url=source_url, content=content, auto_approve=auto_approve, dry_run=dry_run)
         try:
             text = _fetch_url(maybe_raw_url)
