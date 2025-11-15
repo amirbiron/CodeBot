@@ -469,11 +469,23 @@ input:checked + .slider:before { transform: translateX(24px); }
       const r = await fetch('/api/push/test', { method:'POST', credentials:'include' });
       const j = await r.json().catch(()=>({}));
       if (r.ok && j && j.ok) {
-        if (j.sent > 0) setPushStatus('נשלחה התראת בדיקה');
-        else setPushStatus('לא נשלחה התראה (בדוק מפתח VAPID/מנויים)');
+        if (j.sent > 0) { setPushStatus('נשלחה התראת בדיקה'); return; }
+        const codes = j.codes || {};
+        const known = Object.keys(codes).map(k => Number(k));
+        if (known.includes(404) || known.includes(410)) {
+          setPushStatus('המנוי פג (404/410) — כבה/הפעל התראות ואז נסה שוב');
+        } else if (known.includes(401) || known.includes(403)) {
+          setPushStatus('אי־התאמת מפתחות (401/403) — ודא זוג VAPID תואם ורענן מנוי');
+        } else if (known.length) {
+          setPushStatus('כשל שליחה (קודים: ' + known.join(', ') + ')');
+        } else {
+          setPushStatus('לא נשלחה התראה (בדוק מפתח VAPID/מנויים)');
+        }
       } else {
-        if (j && j.error === 'no_subscriptions') setPushStatus('אין מנוי פוש לשלח אליו');
+        if (j && j.error === 'no_subscriptions') setPushStatus('אין מנוי פוש לשלח אליו — הפעל התראות');
         else if (j && j.error === 'missing_vapid_private_key') setPushStatus('חסר VAPID_PRIVATE_KEY בשרת');
+        else if (j && j.error === 'pywebpush_not_available') setPushStatus('שרת: pywebpush לא מותקן/זמין');
+        else if (j && j.error === 'internal_error') setPushStatus('שגיאה פנימית בשרת');
         else setPushStatus('בדיקת פוש נכשלה');
       }
     } catch(e){ setPushStatus('בדיקת פוש נכשלה'); }
