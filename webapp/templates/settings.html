@@ -478,6 +478,10 @@ input:checked + .slider:before { transform: translateX(24px); }
           setPushStatus('אי־התאמת מפתחות (401/403) — ודא זוג VAPID תואם ורענן מנוי');
         } else if (known.length) {
           setPushStatus('כשל שליחה (קודים: ' + known.join(', ') + ')');
+        } else if (Array.isArray(j.errors) && j.errors.length) {
+          const first = j.errors.find(e => !e.status || e.status === 0) || j.errors[0];
+          const msg = (first && first.error) ? String(first.error) : 'שגיאה לא ידועה';
+          setPushStatus('כשל שליחה (0): ' + msg);
         } else {
           setPushStatus('לא נשלחה התראה (בדוק מפתח VAPID/מנויים)');
         }
