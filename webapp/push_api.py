@@ -166,6 +166,29 @@ def _vapid_private_to_pem(vapid_private_key: str) -> str | None:
             return pem.decode(errors="ignore")
     except Exception:
         return None
+
+
+def _vapid_key_candidates(vapid_private_key: str) -> list[str]:
+    """Return candidate key encodings to try with pywebpush.
+
+    Prefer PEM (EC PRIVATE KEY) when derivable; fall back to raw base64url.
+    """
+    out: list[str] = []
+    try:
+        pem = _vapid_private_to_pem(vapid_private_key)
+        if pem:
+            out.append(pem)
+    except Exception:
+        pass
+    out.append(vapid_private_key)
+    # de-dup while preserving order
+    seen = set()
+    uniq: list[str] = []
+    for k in out:
+        if k not in seen:
+            seen.add(k)
+            uniq.append(k)
+    return uniq
 @push_bp.route("/diagnose", methods=["GET"])
 def diagnose_connectivity():
     """Quick connectivity diagnostics to common Web Push endpoints.
@@ -501,38 +524,25 @@ def _send_for_user(user_id: int | str, reminders: list[dict]) -> None:
                 if ce not in ("aesgcm", "aes128gcm"):
                     ce = "aes128gcm"
                 delivered = False
-                try:
-                    webpush(
-                        subscription_info=info,
-                        data=json.dumps(payload, ensure_ascii=False),
-                        vapid_private_key=vapid_private,
-                        vapid_claims={"sub": (f"mailto:{vapid_email}" if vapid_email and not vapid_email.startswith("mailto:") else vapid_email) or "mailto:support@example.com"},
-                        content_encoding=ce,
-                    )
-                    delivered = True
-                except Exception as inner_ex:
-                    # Fallback: convert VAPID private key to PEM if curve error occurs
-                    msg = ""
+                last_err: Exception | None = None
+                for key_variant in _vapid_key_candidates(vapid_private):
                     try:
-                        msg = str(inner_ex)
-                    except Exception:
-                        msg = ""
-                    if "EllipticCurve" in msg or "curve" in msg.lower():
-                        pem = _vapid_private_to_pem(vapid_private)
-                        if pem:
-                            webpush(
-                                subscription_info=info,
-                                data=json.dumps(payload, ensure_ascii=False),
-                                vapid_private_key=pem,
-                                vapid_claims={"sub": (f"mailto:{vapid_email}" if vapid_email and not vapid_email.startswith("mailto:") else vapid_email) or "mailto:support@example.com"},
-                                content_encoding=ce,
-                            )
-                            delivered = True
-                        else:
-                            raise
-                    else:
-                        # Non-curve error: let outer handler process (telemetry, 404/410 cleanup)
-                        raise
+                        webpush(
+                            subscription_info=info,
+                            data=json.dumps(payload, ensure_ascii=False),
+                            vapid_private_key=key_variant,
+                            vapid_claims={"sub": (f"mailto:{vapid_email}" if vapid_email and not vapid_email.startswith("mailto:") else vapid_email) or "mailto:support@example.com"},
+                            content_encoding=ce,
+                        )
+                        delivered = True
+                        last_err = None
+                        break
+                    except Exception as inner_ex:
+                        last_err = inner_ex
+                        continue
+                if not delivered and last_err is not None:
+                    # Let outer handler process telemetry/cleanup
+                    raise last_err
                 if delivered:
                     success_any = True
             except Exception as ex:
@@ -680,36 +690,24 @@ def test_push():
                 if ce not in ("aesgcm", "aes128gcm"):
                     ce = "aes128gcm"
                 delivered = False
-                try:
-                    webpush(
-                        subscription_info=info,
-                        data=json.dumps(payload, ensure_ascii=False),
-                        vapid_private_key=vapid_private,
-                        vapid_claims={"sub": (f"mailto:{vapid_email}" if vapid_email and not vapid_email.startswith("mailto:") else vapid_email) or "mailto:support@example.com"},
-                        content_encoding=ce,
-                    )
-                    delivered = True
-                except Exception as inner_ex:
-                    msg = ""
+                last_err: Exception | None = None
+                for key_variant in _vapid_key_candidates(vapid_private):
                     try:
-                        msg = str(inner_ex)
-                    except Exception:
-                        msg = ""
-                    if "EllipticCurve" in msg or "curve" in msg.lower():
-                        pem = _vapid_private_to_pem(vapid_private)
-                        if pem:
-                            webpush(
-                                subscription_info=info,
-                                data=json.dumps(payload, ensure_ascii=False),
-                                vapid_private_key=pem,
-                                vapid_claims={"sub": (f"mailto:{vapid_email}" if vapid_email and not vapid_email.startswith("mailto:") else vapid_email) or "mailto:support@example.com"},
-                                content_encoding=ce,
-                            )
-                            delivered = True
-                        else:
-                            raise
-                    else:
-                        raise
+                        webpush(
+                            subscription_info=info,
+                            data=json.dumps(payload, ensure_ascii=False),
+                            vapid_private_key=key_variant,
+                            vapid_claims={"sub": (f"mailto:{vapid_email}" if vapid_email and not vapid_email.startswith("mailto:") else vapid_email) or "mailto:support@example.com"},
+                            content_encoding=ce,
+                        )
+                        delivered = True
+                        last_err = None
+                        break
+                    except Exception as inner_ex:
+                        last_err = inner_ex
+                        continue
+                if not delivered and last_err is not None:
+                    raise last_err
                 if delivered:
                     sent += 1
             except Exception as ex:
