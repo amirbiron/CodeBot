@@ -119,10 +119,10 @@ def subscribe():
             "updated_at": now_utc,
         }
         db = get_db()
-        # Upsert per (user, endpoint)
+        # Upsert per (user, endpoint), normalizing user_id across int/str using variants
         db.push_subscriptions.update_one(
-            {"user_id": user_id, "endpoint": endpoint},
-            {"$set": set_fields, "$setOnInsert": {"created_at": now_utc}},
+            {"user_id": {"$in": _user_id_variants(user_id)}, "endpoint": endpoint},
+            {"$set": set_fields, "$setOnInsert": {"created_at": now_utc, "user_id": user_id}},
             upsert=True,
         )
         try:
@@ -232,14 +232,14 @@ def _send_due_once(max_users: int = 100, max_per_user: int = 10) -> None:
         due = []
     if not due:
         return
-    # Group by user
-    by_user: Dict[int, list] = {}
+    # Group by user (support string/int user_id transparently)
+    by_user: Dict[str, list] = {}
     for r in due:
-        try:
-            uid = int(r.get("user_id"))
-            by_user.setdefault(uid, []).append(r)
-        except Exception:
+        uid = r.get("user_id")
+        if uid is None:
             continue
+        key = str(uid)
+        by_user.setdefault(key, []).append(r)
     for uid, items in list(by_user.items())[:max_users]:
         _send_for_user(uid, items[:max_per_user])
 
@@ -556,13 +556,11 @@ def test_push():
             code_counts[c] = code_counts.get(c, 0) + 1
         return jsonify({"ok": True, "sent": sent, "errors": errors, "codes": code_counts}), 200
     except Exception as ex:
-        # Include safe diagnostics: class name and short message (helps ops)
+        # Log full exception server-side; do not leak details to client
         try:
-            detail = getattr(ex, "__class__", type(ex)).__name__
+            import logging
+
+            logging.exception("Unhandled exception in push_api.test_push")
         except Exception:
-            detail = "Exception"
-        try:
-            msg = str(ex)
-        except Exception:
-            msg = ""
-        return jsonify({"ok": False, "error": "internal_error", "detail": detail, "message": msg[:200]}), 500
+            pass
+        return jsonify({"ok": False, "error": "internal_error"}), 500
