@@ -333,11 +333,17 @@ def _send_for_user(user_id: int, reminders: list[dict]) -> None:
                     # Already known dead this run – skip extra attempts
                     continue
                 info = sub.get("subscription") or {"endpoint": ep, "keys": sub.get("keys")}
+                content_enc = (
+                    sub.get("content_encoding")
+                    or sub.get("contentEncoding")
+                    or (info.get("contentEncoding") if isinstance(info, dict) else None)
+                )
                 webpush(
                     subscription_info=info,
                     data=json.dumps(payload, ensure_ascii=False),
                     vapid_private_key=vapid_private,
                     vapid_claims={"sub": (f"mailto:{vapid_email}" if vapid_email and not vapid_email.startswith("mailto:") else vapid_email) or "mailto:support@example.com"},
+                    content_encoding=content_enc,
                 )
                 success_any = True
             except Exception as ex:
@@ -473,11 +479,17 @@ def test_push():
             ep = str(sub.get("endpoint") or "")
             info = sub.get("subscription") or {"endpoint": ep, "keys": sub.get("keys")}
             try:
+                content_enc = (
+                    sub.get("content_encoding")
+                    or sub.get("contentEncoding")
+                    or (info.get("contentEncoding") if isinstance(info, dict) else None)
+                )
                 webpush(
                     subscription_info=info,
                     data=json.dumps(payload, ensure_ascii=False),
                     vapid_private_key=vapid_private,
                     vapid_claims={"sub": (f"mailto:{vapid_email}" if vapid_email and not vapid_email.startswith("mailto:") else vapid_email) or "mailto:support@example.com"},
+                    content_encoding=content_enc,
                 )
                 sent += 1
             except Exception as ex:
@@ -489,7 +501,12 @@ def test_push():
                         status = getattr(getattr(ex, "response", None), "status_code", 0) or 0
                 except Exception:
                     pass
-                errors.append({"endpoint": ep, "status": int(status or 0)})
+                err_str = ""
+                try:
+                    err_str = str(ex)
+                except Exception:
+                    err_str = ""
+                errors.append({"endpoint": ep, "status": int(status or 0), "error": err_str})
         try:
             from observability import emit_event  # type: ignore
 
