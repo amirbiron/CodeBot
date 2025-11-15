@@ -5,6 +5,7 @@ from functools import wraps
 from typing import Any, Dict, Optional
 from datetime import datetime, timezone, timedelta
 import os
+import hashlib
 
 
 def get_db():
@@ -120,6 +121,83 @@ def _coerce_vapid_pair() -> tuple[str, str]:
     except Exception:
         pass
     return pub, prv
+
+
+def _remote_delivery_cfg() -> dict[str, object]:
+    """Read remote delivery configuration from environment.
+
+    Returns dict with keys: enabled (bool), url (str), token (str), timeout (float).
+    """
+    try:
+        enabled = (os.getenv("PUSH_REMOTE_DELIVERY_ENABLED", "false").strip().lower() in {"1", "true", "yes", "on"})
+        url = (os.getenv("PUSH_DELIVERY_URL") or "").strip()
+        token = (os.getenv("PUSH_DELIVERY_TOKEN") or "").strip()
+        timeout_s = float(os.getenv("PUSH_DELIVERY_TIMEOUT_SECONDS", "3") or "3")
+        if enabled and (not url or not token):
+            # Missing essentials disables remote path safely
+            enabled = False
+        return {"enabled": enabled, "url": url, "token": token, "timeout": timeout_s}
+    except Exception:
+        return {"enabled": False, "url": "", "token": "", "timeout": 3.0}
+
+
+def _hash_endpoint(ep: str) -> str:
+    try:
+        return hashlib.sha256((ep or "").encode("utf-8")).hexdigest()[:12]
+    except Exception:
+        return ""
+
+
+def _post_to_worker(
+    subscription: dict,
+    payload: dict,
+    *,
+    content_encoding: str = "aes128gcm",
+    idempotency_key: str = "",
+) -> tuple[bool, int, str]:
+    """POST to external push worker. Returns (ok, status, error)."""
+    try:
+        import requests  # type: ignore
+        import json as _json
+    except Exception:
+        return False, 0, "requests_not_available"
+    cfg = _remote_delivery_cfg()
+    if not bool(cfg.get("enabled")):
+        return False, 0, "remote_disabled"
+    url = str(cfg.get("url") or "").rstrip("/") + "/send"
+    timeout_s = float(cfg.get("timeout") or 3.0)
+    token = str(cfg.get("token") or "")
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "Content-Type": "application/json",
+    }
+    if idempotency_key:
+        headers["X-Idempotency-Key"] = idempotency_key
+    body = {"subscription": subscription, "payload": payload, "options": {"contentEncoding": content_encoding}}
+    try:
+        r = requests.post(url, data=_json.dumps(body, ensure_ascii=False), headers=headers, timeout=timeout_s)
+        # Worker returns 200 with ok:true/false for known cases; 5xx on internal errors
+        status = int(getattr(r, "status_code", 0) or 0)
+        try:
+            j = r.json() if hasattr(r, "json") else {}
+        except Exception:
+            j = {}
+        if status >= 500 or status == 0:
+            return False, status or 0, "worker_5xx"
+        if isinstance(j, dict) and j.get("ok") is True:
+            return True, 200, ""
+        if isinstance(j, dict) and j.get("ok") is False:
+            code = int(j.get("status") or 0)
+            return False, code or status or 200, str(j.get("error") or "worker_error")
+        # Fallback: treat non-JSON 2xx as failure
+        return False, status or 200, "invalid_worker_response"
+    except Exception as e:
+        # Timeout / TLS / network
+        try:
+            _ = str(e)
+        except Exception:
+            _ = ""
+        return False, 0, "worker_timeout"
 
 
 @push_bp.route("/public-key", methods=["GET"])
@@ -447,23 +525,26 @@ def _send_for_user(user_id: int | str, reminders: list[dict]) -> None:
         except Exception:
             pass
         return
-    # Load keys/env once
-    _, vapid_private = _coerce_vapid_pair()
-    vapid_email = (os.getenv("VAPID_SUB_EMAIL") or os.getenv("SUPPORT_EMAIL") or "").strip()
-    if not vapid_private or not subs:
-        # Telemetry: missing private key prevents send
-        try:
-            from observability import emit_event  # type: ignore
+    # Decide delivery path
+    remote_cfg = _remote_delivery_cfg()
+    use_remote = bool(remote_cfg.get("enabled"))
+    if not use_remote:
+        # Local pywebpush path requires private key
+        _, vapid_private = _coerce_vapid_pair()
+        vapid_email = (os.getenv("VAPID_SUB_EMAIL") or os.getenv("SUPPORT_EMAIL") or "").strip()
+        if not vapid_private or not subs:
+            try:
+                from observability import emit_event  # type: ignore
 
-            emit_event("push_send_missing_vapid_private", severity="warning", user_id=int(user_id))
+                emit_event("push_send_missing_vapid_private", severity="warning", user_id=int(user_id))
+            except Exception:
+                pass
+            return
+        try:
+            from pywebpush import webpush, WebPushException  # type: ignore
+            import json
         except Exception:
-            pass
-        return
-    try:
-        from pywebpush import webpush, WebPushException  # type: ignore
-        import json
-    except Exception:
-        return
+            return
 
     # Track endpoints that should be removed after processing all reminders
     endpoints_to_delete: set[str] = set()
@@ -506,23 +587,45 @@ def _send_for_user(user_id: int | str, reminders: list[dict]) -> None:
             pass
 
         for sub in subs:
+            ep = str(sub.get("endpoint") or "")
+            if ep and ep in endpoints_to_delete:
+                continue
+            info = sub.get("subscription") or {"endpoint": ep, "keys": sub.get("keys")}
+            content_enc = (
+                sub.get("content_encoding")
+                or sub.get("contentEncoding")
+                or (info.get("contentEncoding") if isinstance(info, dict) else None)
+            )
             try:
-                ep = str(sub.get("endpoint") or "")
-                if ep and ep in endpoints_to_delete:
-                    # Already known dead this run – skip extra attempts
-                    continue
-                info = sub.get("subscription") or {"endpoint": ep, "keys": sub.get("keys")}
-                content_enc = (
-                    sub.get("content_encoding")
-                    or sub.get("contentEncoding")
-                    or (info.get("contentEncoding") if isinstance(info, dict) else None)
-                )
-                try:
-                    ce = str(content_enc).strip().lower() if content_enc is not None else ""
-                except Exception:
-                    ce = ""
-                if ce not in ("aesgcm", "aes128gcm"):
-                    ce = "aes128gcm"
+                ce = str(content_enc).strip().lower() if content_enc is not None else ""
+            except Exception:
+                ce = ""
+            if ce not in ("aesgcm", "aes128gcm"):
+                ce = "aes128gcm"
+
+            if use_remote:
+                ok, status_code, _err = _post_to_worker(info if isinstance(info, dict) else {}, payload, content_encoding=ce, idempotency_key=str(r.get("_id") or ""))
+                if ok:
+                    success_any = True
+                else:
+                    if status_code in (404, 410) and ep:
+                        endpoints_to_delete.add(ep)
+                    try:
+                        from observability import emit_event  # type: ignore
+
+                        emit_event(
+                            "push_send_error",
+                            severity="warning",
+                            user_id=str(user_id),
+                            endpoint=str(ep or ""),
+                            status_code=int(status_code or 0),
+                        )
+                    except Exception:
+                        pass
+                continue
+
+            # Local pywebpush path
+            try:
                 delivered = False
                 last_err: Exception | None = None
                 for key_variant in _vapid_key_candidates(vapid_private):
@@ -541,7 +644,6 @@ def _send_for_user(user_id: int | str, reminders: list[dict]) -> None:
                         last_err = inner_ex
                         continue
                 if not delivered and last_err is not None:
-                    # Let outer handler process telemetry/cleanup
                     raise last_err
                 if delivered:
                     success_any = True
@@ -554,7 +656,6 @@ def _send_for_user(user_id: int | str, reminders: list[dict]) -> None:
                         if status in (404, 410):
                             if ep:
                                 endpoints_to_delete.add(ep)
-                        # Telemetry: send error with status code
                         try:
                             from observability import emit_event  # type: ignore
 
@@ -653,16 +754,18 @@ def test_push():
         if not subs:
             return jsonify({"ok": False, "error": "no_subscriptions"}), 400
 
-        _, vapid_private = _coerce_vapid_pair()
-        vapid_email = (os.getenv("VAPID_SUB_EMAIL") or os.getenv("SUPPORT_EMAIL") or "").strip()
-        if not vapid_private:
-            return jsonify({"ok": False, "error": "missing_vapid_private_key"}), 500
-
-        try:
-            from pywebpush import webpush, WebPushException  # type: ignore
-            import json
-        except Exception:
-            return jsonify({"ok": False, "error": "pywebpush_not_available"}), 500
+        remote_cfg = _remote_delivery_cfg()
+        use_remote = bool(remote_cfg.get("enabled"))
+        if not use_remote:
+            _, vapid_private = _coerce_vapid_pair()
+            vapid_email = (os.getenv("VAPID_SUB_EMAIL") or os.getenv("SUPPORT_EMAIL") or "").strip()
+            if not vapid_private:
+                return jsonify({"ok": False, "error": "missing_vapid_private_key"}), 500
+            try:
+                from pywebpush import webpush, WebPushException  # type: ignore
+                import json
+            except Exception:
+                return jsonify({"ok": False, "error": "pywebpush_not_available"}), 500
 
         payload = {
             "title": "🔔 בדיקת פוש",
@@ -677,18 +780,28 @@ def test_push():
         for sub in subs:
             ep = str(sub.get("endpoint") or "")
             info = sub.get("subscription") or {"endpoint": ep, "keys": sub.get("keys")}
+            content_enc = (
+                sub.get("content_encoding")
+                or sub.get("contentEncoding")
+                or (info.get("contentEncoding") if isinstance(info, dict) else None)
+            )
             try:
-                content_enc = (
-                    sub.get("content_encoding")
-                    or sub.get("contentEncoding")
-                    or (info.get("contentEncoding") if isinstance(info, dict) else None)
-                )
-                try:
-                    ce = str(content_enc).strip().lower() if content_enc is not None else ""
-                except Exception:
-                    ce = ""
-                if ce not in ("aesgcm", "aes128gcm"):
-                    ce = "aes128gcm"
+                ce = str(content_enc).strip().lower() if content_enc is not None else ""
+            except Exception:
+                ce = ""
+            if ce not in ("aesgcm", "aes128gcm"):
+                ce = "aes128gcm"
+
+            if use_remote:
+                ok, status_code, err = _post_to_worker(info if isinstance(info, dict) else {}, payload, content_encoding=ce)
+                if ok:
+                    sent += 1
+                else:
+                    errors.append({"endpoint": ep, "status": int(status_code or 0), "error": str(err or "")})
+                continue
+
+            # Local pywebpush path
+            try:
                 delivered = False
                 last_err: Exception | None = None
                 for key_variant in _vapid_key_candidates(vapid_private):

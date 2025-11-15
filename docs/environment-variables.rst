@@ -217,6 +217,54 @@
      - ``true``
      - ``false``
      - WebApp
+   * - ``PUSH_REMOTE_DELIVERY_ENABLED``
+     - שליחה דרך Worker חיצוני (במקום pywebpush)
+     - לא
+     - ``false``
+     - ``true``
+     - WebApp
+   * - ``PUSH_DELIVERY_URL``
+     - כתובת בסיס ל‑Worker (ללא ``/send``)
+     - לא
+     - "" (ריק)
+     - ``https://code-keeper-push-worker.onrender.com``
+     - WebApp
+   * - ``PUSH_DELIVERY_TOKEN``
+     - טוקן Bearer לאימות שרת→Worker
+     - לא
+     - "" (ריק)
+     - ``s3cr3t-token``
+     - WebApp/Worker
+   * - ``PUSH_DELIVERY_TIMEOUT_SECONDS``
+     - Timeout לבקשת ``/send`` ל‑Worker (שניות)
+     - לא
+     - ``3``
+     - ``2``
+     - WebApp
+   * - ``PUSH_WORKER_PORT``
+     - פורט פנימי ל‑Sidecar Worker (localhost בלבד)
+     - לא
+     - ``18080``
+     - ``18080``
+     - WebApp/Worker
+   * - ``WORKER_VAPID_PUBLIC_KEY``
+     - מפתח ציבורי ל‑VAPID עבור ה‑Worker (Sidecar)
+     - לא
+     - "" (ריק)
+     - ``BExxx...``
+     - Worker
+   * - ``WORKER_VAPID_PRIVATE_KEY``
+     - מפתח פרטי ל‑VAPID עבור ה‑Worker (Sidecar)
+     - לא
+     - "" (ריק)
+     - ``xxxxxxxx``
+     - Worker
+   * - ``WORKER_VAPID_SUB_EMAIL``
+     - Subject (דוא"ל) לתביעות VAPID עבור ה‑Worker
+     - לא
+     - ``support@example.com``
+     - ``alerts@example.com``
+     - Worker
    * - ``PERSISTENT_LOGIN_DAYS``
      - תוקף התחברות מתמשכת (ימים)
      - לא
