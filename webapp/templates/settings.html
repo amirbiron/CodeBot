@@ -102,6 +102,30 @@
     </div>
 </div>
 
+<div class="glass-card">
+    <h2 class="section-title">
+        <i class="fas fa-bell"></i>
+        התראות דפדפן (Web Push)
+    </h2>
+    <div class="glass-card" style="background: rgba(255,255,255,0.05);">
+        <div style="display:flex; align-items:center; justify-content: space-between; gap: 1rem; flex-wrap: wrap;">
+            <div style="display:flex; align-items:center; gap: 1rem; min-width: 260px;">
+                <i class="fas fa-bell" style="font-size: 1.5rem;"></i>
+                <div>
+                    <div style="font-weight:600;">התראות לפתקי Sticky Notes</div>
+                    <div style="opacity:.8; font-size:.95rem;">קבל התראות כשהתזכורת מגיעה. ב‑iOS נדרש להתקין כ‑PWA.</div>
+                </div>
+            </div>
+            <div style="display:flex; gap:.5rem; flex-wrap: wrap;">
+                <button id="pushEnableBtn" class="btn btn-primary">אפשר התראות</button>
+                <button id="pushDisableBtn" class="btn btn-secondary">כבה התראות</button>
+            </div>
+        </div>
+        <div id="pushStatus" style="opacity:.8; margin-top:.75rem; font-size:.95rem;">מצב לא ידוע</div>
+    </div>
+    <p style="opacity:.7; margin-top:.5rem; font-size:.9rem;">מפתח ציבורי של VAPID נטען מ‑/api/push/public-key. מפתחות נשמרים רק בדפדפן שלך.</p>
+</div>
+
 {% if is_admin %}
 <div class="glass-card" style="border: 2px solid rgba(251, 191, 36, 0.3);">
     <h2 class="section-title">
@@ -359,6 +383,81 @@ input:checked + .slider:before { transform: translateX(24px); }
   if (bmShow) bmShow.addEventListener('click', ()=> setBm(true));
   if (bmHide) bmHide.addEventListener('click', ()=> setBm(false));
   refreshBmState();
+
+  // --- Web Push (Service Worker + PushManager) ---
+  const pushStatus = document.getElementById('pushStatus');
+  const pushEnableBtn = document.getElementById('pushEnableBtn');
+  const pushDisableBtn = document.getElementById('pushDisableBtn');
+
+  function setPushStatus(text){ if (pushStatus) pushStatus.textContent = text; }
+
+  function urlBase64ToUint8Array(base64String) {
+    const padding = '='.repeat((4 - base64String.length % 4) % 4);
+    const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
+    const rawData = window.atob(base64);
+    const outputArray = new Uint8Array(rawData.length);
+    for (let i = 0; i < rawData.length; ++i) { outputArray[i] = rawData.charCodeAt(i); }
+    return outputArray;
+  }
+
+  async function registerSw(){
+    if (!('serviceWorker' in navigator)) throw new Error('ServiceWorker לא נתמך');
+    const reg = await navigator.serviceWorker.register('/sw.js');
+    try { await navigator.serviceWorker.ready; } catch(_) {}
+    return reg;
+  }
+
+  async function getVapid(){
+    const r = await fetch('/api/push/public-key', { cache:'no-store' });
+    const j = await r.json().catch(()=>({}));
+    if (!j || j.ok === false || !j.vapidPublicKey) throw new Error('מפתח VAPID לא זמין');
+    return j.vapidPublicKey;
+  }
+
+  async function enablePush(){
+    try {
+      if (!('Notification' in window)) throw new Error('התראות לא נתמכות בדפדפן');
+      const perm = await Notification.requestPermission();
+      if (perm !== 'granted') { setPushStatus('הרשאת התראות נדחתה'); return; }
+      setPushStatus('נרשם Service Worker...');
+      const reg = await registerSw();
+      const key = await getVapid();
+      const sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: urlBase64ToUint8Array(key) });
+      const resp = await fetch('/api/push/subscribe', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(sub) });
+      const j = await resp.json().catch(()=>({}));
+      if (!resp.ok || !j || j.ok === false) throw new Error('שמירת מנוי נכשלה');
+      setPushStatus('התראות הופעלו בהצלחה');
+    } catch(e){ setPushStatus('שגיאה בהפעלת התראות'); console.warn('enablePush failed', e); }
+  }
+
+  async function disablePush(){
+    try {
+      const reg = (await navigator.serviceWorker.getRegistration()) || (await registerSw());
+      const sub = await reg.pushManager.getSubscription();
+      if (sub) {
+        try {
+          const ep = (sub && typeof sub.endpoint === 'string') ? sub.endpoint : '';
+          if (ep) { await fetch('/api/push/subscribe?endpoint='+encodeURIComponent(ep), { method:'DELETE' }); }
+        } catch(_) {}
+        try { await sub.unsubscribe(); } catch(_) {}
+      }
+      setPushStatus('התראות כובו');
+    } catch(e){ setPushStatus('שגיאה בכיבוי התראות'); console.warn('disablePush failed', e); }
+  }
+
+  function refreshPushUi(){
+    try {
+      if (!('Notification' in window)) { setPushStatus('הדפדפן לא תומך בהתראות'); return; }
+      const st = Notification.permission;
+      if (st === 'granted') setPushStatus('התראות מאופעלות בדפדפן זה');
+      else if (st === 'denied') setPushStatus('המשתמש חסם התראות – יש לאפשר ידנית');
+      else setPushStatus('נדרש להפעיל התראות');
+    } catch(_) { setPushStatus('מצב לא ידוע'); }
+  }
+
+  if (pushEnableBtn) pushEnableBtn.addEventListener('click', enablePush);
+  if (pushDisableBtn) pushDisableBtn.addEventListener('click', disablePush);
+  refreshPushUi();
 })();
 </script>
 {% endblock %}

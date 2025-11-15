@@ -193,6 +193,30 @@
      - ``120`` (מינימום 30)
      - ``300``
      - WebApp
+   * - ``VAPID_PUBLIC_KEY``
+     - מפתח ציבורי ל‑Web Push (VAPID)
+     - לא
+     - "" (ריק)
+     - ``BExxx...``
+     - WebApp
+   * - ``VAPID_PRIVATE_KEY``
+     - מפתח פרטי ל‑Web Push (VAPID)
+     - לא
+     - "" (ריק)
+     - ``xxxxxxxx``
+     - WebApp
+   * - ``VAPID_SUB_EMAIL``
+     - Subject (דוא"ל) לתביעות VAPID
+     - לא
+     - "" (ריק)
+     - ``support@example.com``
+     - WebApp
+   * - ``PUSH_NOTIFICATIONS_ENABLED``
+     - הפעלת שליחת Web Push (רקע)
+     - לא
+     - ``true``
+     - ``false``
+     - WebApp
    * - ``PERSISTENT_LOGIN_DAYS``
      - תוקף התחברות מתמשכת (ימים)
      - לא
