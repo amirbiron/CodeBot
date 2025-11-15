@@ -123,7 +123,7 @@
         </div>
         <div id="pushStatus" style="opacity:.8; margin-top:.75rem; font-size:.95rem;">מצב לא ידוע</div>
     </div>
-    <p style="opacity:.7; margin-top:.5rem; font-size:.9rem;">מפתח ציבורי של VAPID נטען מ‑/api/push/public-key. מפתחות נשמרים רק בדפדפן שלך.</p>
+    
 </div>
 
 {% if is_admin %}
@@ -445,11 +445,17 @@ input:checked + .slider:before { transform: translateX(24px); }
     } catch(e){ setPushStatus('שגיאה בכיבוי התראות'); console.warn('disablePush failed', e); }
   }
 
-  function refreshPushUi(){
+  async function refreshPushUi(){
     try {
       if (!('Notification' in window)) { setPushStatus('הדפדפן לא תומך בהתראות'); return; }
       const st = Notification.permission;
-      if (st === 'granted') setPushStatus('התראות מאופעלות בדפדפן זה');
+      let hasSub = false;
+      try {
+        const reg = (await navigator.serviceWorker.getRegistration()) || (await registerSw());
+        const sub = reg && reg.pushManager ? await reg.pushManager.getSubscription() : null;
+        hasSub = !!sub;
+      } catch(_) {}
+      if (st === 'granted' && hasSub) setPushStatus('התראות מופעלות בדפדפן זה');
       else if (st === 'denied') setPushStatus('המשתמש חסם התראות – יש לאפשר ידנית');
       else setPushStatus('נדרש להפעיל התראות');
     } catch(_) { setPushStatus('מצב לא ידוע'); }
