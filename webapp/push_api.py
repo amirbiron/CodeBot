@@ -500,6 +500,7 @@ def _send_for_user(user_id: int | str, reminders: list[dict]) -> None:
                     ce = ""
                 if ce not in ("aesgcm", "aes128gcm"):
                     ce = "aes128gcm"
+                delivered = False
                 try:
                     webpush(
                         subscription_info=info,
@@ -508,6 +509,7 @@ def _send_for_user(user_id: int | str, reminders: list[dict]) -> None:
                         vapid_claims={"sub": (f"mailto:{vapid_email}" if vapid_email and not vapid_email.startswith("mailto:") else vapid_email) or "mailto:support@example.com"},
                         content_encoding=ce,
                     )
+                    delivered = True
                 except Exception as inner_ex:
                     # Fallback: convert VAPID private key to PEM if curve error occurs
                     msg = ""
@@ -525,9 +527,14 @@ def _send_for_user(user_id: int | str, reminders: list[dict]) -> None:
                                 vapid_claims={"sub": (f"mailto:{vapid_email}" if vapid_email and not vapid_email.startswith("mailto:") else vapid_email) or "mailto:support@example.com"},
                                 content_encoding=ce,
                             )
+                            delivered = True
                         else:
                             raise
-                success_any = True
+                    else:
+                        # Non-curve error: let outer handler process (telemetry, 404/410 cleanup)
+                        raise
+                if delivered:
+                    success_any = True
             except Exception as ex:
                 try:
                     from pywebpush import WebPushException  # type: ignore
@@ -672,6 +679,7 @@ def test_push():
                     ce = ""
                 if ce not in ("aesgcm", "aes128gcm"):
                     ce = "aes128gcm"
+                delivered = False
                 try:
                     webpush(
                         subscription_info=info,
@@ -680,6 +688,7 @@ def test_push():
                         vapid_claims={"sub": (f"mailto:{vapid_email}" if vapid_email and not vapid_email.startswith("mailto:") else vapid_email) or "mailto:support@example.com"},
                         content_encoding=ce,
                     )
+                    delivered = True
                 except Exception as inner_ex:
                     msg = ""
                     try:
@@ -696,9 +705,13 @@ def test_push():
                                 vapid_claims={"sub": (f"mailto:{vapid_email}" if vapid_email and not vapid_email.startswith("mailto:") else vapid_email) or "mailto:support@example.com"},
                                 content_encoding=ce,
                             )
+                            delivered = True
                         else:
                             raise
-                sent += 1
+                    else:
+                        raise
+                if delivered:
+                    sent += 1
             except Exception as ex:
                 status = 0
                 try:
