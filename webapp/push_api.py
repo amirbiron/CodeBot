@@ -87,9 +87,44 @@ def require_auth(f):
     return _inner
 
 
+def _coerce_vapid_pair() -> tuple[str, str]:
+    """Return (public, private) VAPID keys from ENV.
+
+    Supports either raw base64url strings or a JSON blob pasted into the env
+    by mistake (e.g. output of `web-push generate-vapid-keys`).
+    """
+    pub = (os.getenv("VAPID_PUBLIC_KEY") or "").strip()
+    prv = (os.getenv("VAPID_PRIVATE_KEY") or "").strip()
+    try:
+        import json as _json  # defer import
+        blob = None
+        if pub.startswith("{") and '"publicKey"' in pub:
+            blob = pub
+        elif prv.startswith("{") and '"privateKey"' in prv:
+            blob = prv
+        if blob:
+            data = _json.loads(blob)
+            pub = str(data.get("publicKey", pub) or pub).strip()
+            prv = str(data.get("privateKey", prv) or prv).strip()
+    except Exception:
+        pass
+    # strip wrapping quotes if any
+    try:
+        if pub.startswith('"') and pub.endswith('"') and len(pub) > 2:
+            pub = pub[1:-1]
+    except Exception:
+        pass
+    try:
+        if prv.startswith('"') and prv.endswith('"') and len(prv) > 2:
+            prv = prv[1:-1]
+    except Exception:
+        pass
+    return pub, prv
+
+
 @push_bp.route("/public-key", methods=["GET"])
 def get_public_key():
-    key = (os.getenv("VAPID_PUBLIC_KEY") or "").strip()
+    key, _ = _coerce_vapid_pair()
     if not key:
         # Return ok with empty key to allow client to show CTA but fail gracefully
         return jsonify({"ok": True, "vapidPublicKey": ""}), 200
@@ -355,7 +390,7 @@ def _send_for_user(user_id: int | str, reminders: list[dict]) -> None:
             pass
         return
     # Load keys/env once
-    vapid_private = (os.getenv("VAPID_PRIVATE_KEY") or "").strip()
+    _, vapid_private = _coerce_vapid_pair()
     vapid_email = (os.getenv("VAPID_SUB_EMAIL") or os.getenv("SUPPORT_EMAIL") or "").strip()
     if not vapid_private or not subs:
         # Telemetry: missing private key prevents send
@@ -546,7 +581,7 @@ def test_push():
         if not subs:
             return jsonify({"ok": False, "error": "no_subscriptions"}), 400
 
-        vapid_private = (os.getenv("VAPID_PRIVATE_KEY") or "").strip()
+        _, vapid_private = _coerce_vapid_pair()
         vapid_email = (os.getenv("VAPID_SUB_EMAIL") or os.getenv("SUPPORT_EMAIL") or "").strip()
         if not vapid_private:
             return jsonify({"ok": False, "error": "missing_vapid_private_key"}), 500
