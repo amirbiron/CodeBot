@@ -6366,12 +6366,19 @@ def settings():
     except Exception:
         has_persistent = False
 
+    # דגל פוש – הסתרת UI כשמכובה
+    try:
+        push_enabled = (os.getenv('PUSH_NOTIFICATIONS_ENABLED', 'true').strip().lower() in {'1','true','yes','on'})
+    except Exception:
+        push_enabled = True
+
     return render_template('settings.html',
                          user=session['user_data'],
                          is_admin=user_is_admin,
                          is_premium=user_is_premium,
                          persistent_login_enabled=has_persistent,
-                         persistent_days=PERSISTENT_LOGIN_DAYS)
+                         persistent_days=PERSISTENT_LOGIN_DAYS,
+                         push_enabled=push_enabled)
 
 @app.route('/health')
 @_limiter_exempt()
