@@ -1652,7 +1652,7 @@ def _add_default_csp(resp):
                     # Scripts: allow our origin, inline (for small in-page helpers), blob workers, and ESM from CDNs
                     "script-src 'self' 'unsafe-inline' blob: https://cdn.jsdelivr.net https://unpkg.com https://esm.sh https://telegram.org; "
                     # Workers used by some CM6 language/tooling integrations
-                    "worker-src blob:; "
+                    "worker-src 'self' blob:; "
                     # Styles: local + inline + Google Fonts CSS + Font Awesome from cdnjs
                     "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://cdnjs.cloudflare.com https://cdn.jsdelivr.net; "
                     # Fonts: local + Google Fonts + Font Awesome webfonts + data: (icons)
