@@ -9,6 +9,11 @@ services:
     env: docker
     plan: starter
     dockerfilePath: push_worker/Dockerfile
+    # מומלץ: חבר קבוצה של משתני סביבה (Environment Group) כדי לטעון סודות אוטומטית בכל דפלוי
+    # צור פעם אחת ברנדר קבוצה בשם: code-keeper-push-worker-secrets
+    # עם המפתחות: PUSH_DELIVERY_TOKEN, WORKER_VAPID_PUBLIC_KEY, WORKER_VAPID_PRIVATE_KEY, WORKER_VAPID_SUB_EMAIL
+    envVarGroups:
+      - name: code-keeper-push-worker-secrets
     envVars:
       - key: PORT
         value: 8080
