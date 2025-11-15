@@ -3,7 +3,7 @@ from __future__ import annotations
 from flask import Blueprint, jsonify, request, session
 from functools import wraps
 from typing import Any, Dict, Optional
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 import os
 
 
@@ -79,20 +79,20 @@ def subscribe():
         if not endpoint or not isinstance(keys, dict):
             return jsonify({"ok": False, "error": "Invalid subscription"}), 400
 
-        doc = {
+        now_utc = datetime.now(timezone.utc)
+        set_fields = {
             "user_id": user_id,
             "endpoint": endpoint,
             "keys": {"p256dh": keys.get("p256dh", ""), "auth": keys.get("auth", "")},
             "subscription": payload,  # store full object for sending
             "content_encoding": (payload.get("contentEncoding") or payload.get("content_encoding") or ""),
-            "created_at": datetime.now(timezone.utc),
-            "updated_at": datetime.now(timezone.utc),
+            "updated_at": now_utc,
         }
         db = get_db()
         # Upsert per (user, endpoint)
         db.push_subscriptions.update_one(
             {"user_id": user_id, "endpoint": endpoint},
-            {"$set": doc, "$setOnInsert": {"created_at": doc["created_at"]}},
+            {"$set": set_fields, "$setOnInsert": {"created_at": now_utc}},
             upsert=True,
         )
         try:
@@ -214,6 +214,48 @@ def _send_due_once(max_users: int = 100, max_per_user: int = 10) -> None:
         _send_for_user(uid, items[:max_per_user])
 
 
+def _claim_reminder(db, reminder_doc: dict, ttl_seconds: int | None = None) -> bool:
+    """Try to claim a reminder for sending to avoid duplicate pushes across workers.
+
+    Returns True if this process owns the claim; False otherwise.
+    """
+    try:
+        now = datetime.now(timezone.utc)
+        ttl = max(10, int(os.getenv("PUSH_CLAIM_TTL_SECONDS", str(ttl_seconds or 60))))
+        until = now + timedelta(seconds=ttl)
+        try:
+            import threading
+
+            ident = threading.get_ident()
+        except Exception:
+            ident = 0
+        owner = f"{os.getenv('HOSTNAME','')}-{os.getpid()}-{ident}"
+        r_id = reminder_doc.get("_id")
+        if not r_id:
+            return False
+        filt = {
+            "_id": r_id,
+            "ack_at": None,
+            "status": {"$in": ["pending", "snoozed"]},
+            # not currently claimed or claim expired
+            "$or": [
+                {"push_claimed_until": {"$exists": False}},
+                {"push_claimed_until": {"$lte": now}},
+            ],
+        }
+        upd = {
+            "$set": {
+                "push_claimed_by": owner,
+                "push_claimed_at": now,
+                "push_claimed_until": until,
+            }
+        }
+        res = db.note_reminders.update_one(filt, upd)
+        return bool(getattr(res, "matched_count", 0))
+    except Exception:
+        return False
+
+
 def _send_for_user(user_id: int, reminders: list[dict]) -> None:
     db = get_db()
     subs = list(db.push_subscriptions.find({"user_id": int(user_id)}))
@@ -230,7 +272,17 @@ def _send_for_user(user_id: int, reminders: list[dict]) -> None:
     except Exception:
         return
 
+    # Track endpoints that should be removed after processing all reminders
+    endpoints_to_delete: set[str] = set()
+
     for r in reminders:
+        # Try to claim this reminder to avoid duplicate push across workers
+        try:
+            if not _claim_reminder(db, r):
+                continue
+        except Exception:
+            # If claiming fails unexpectedly, fall back to best-effort send
+            pass
         payload = {
             "title": "🔔 יש פתק ממתין",
             "body": _coerce_preview(db, r),
@@ -246,10 +298,13 @@ def _send_for_user(user_id: int, reminders: list[dict]) -> None:
             ],
         }
         success_any = False
-        to_delete_endpoints: list[str] = []
         for sub in subs:
             try:
-                info = sub.get("subscription") or {"endpoint": sub.get("endpoint"), "keys": sub.get("keys")}
+                ep = str(sub.get("endpoint") or "")
+                if ep and ep in endpoints_to_delete:
+                    # Already known dead this run – skip extra attempts
+                    continue
+                info = sub.get("subscription") or {"endpoint": ep, "keys": sub.get("keys")}
                 webpush(
                     subscription_info=info,
                     data=json.dumps(payload, ensure_ascii=False),
@@ -264,9 +319,8 @@ def _send_for_user(user_id: int, reminders: list[dict]) -> None:
                     if isinstance(ex, WebPushException):
                         status = getattr(getattr(ex, "response", None), "status_code", 0)
                         if status in (404, 410):
-                            ep = str(sub.get("endpoint") or "")
                             if ep:
-                                to_delete_endpoints.append(ep)
+                                endpoints_to_delete.add(ep)
                 except Exception:
                     pass
                 continue
@@ -278,11 +332,13 @@ def _send_for_user(user_id: int, reminders: list[dict]) -> None:
                 )
             except Exception:
                 pass
-        if to_delete_endpoints:
-            try:
-                db.push_subscriptions.delete_many({"user_id": int(user_id), "endpoint": {"$in": to_delete_endpoints}})
-            except Exception:
-                pass
+
+    # After processing all reminders for this user, remove dead endpoints once
+    if endpoints_to_delete:
+        try:
+            db.push_subscriptions.delete_many({"user_id": int(user_id), "endpoint": {"$in": list(endpoints_to_delete)}})
+        except Exception:
+            pass
 
 
 def _coerce_preview(db, reminder_doc: dict) -> str:
