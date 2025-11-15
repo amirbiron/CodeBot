@@ -231,17 +231,19 @@ Redis Unavailability
 
    def safe_regex_search(pattern: str, text: str):
        try:
-           # בדיקת ReDoS
-           if not _validate_regex_pattern(pattern):
-               raise ValueError("Pattern too complex (ReDoS risk)")
-           
-           return re.search(pattern, text)
+           # רק בדיקת תקינות תחבירית
+           compiled = re.compile(pattern)
+           return compiled.search(text)
        except re.error as e:
            logger.warning(f"Invalid regex pattern: {pattern}, error: {e}")
            raise ValueError(f"תבנית regex לא תקינה: {str(e)}")
        except Exception as e:
            logger.error(f"Unexpected regex error: {e}")
            raise
+
+**הערה - ReDoS:**
+כרגע הקוד **לא כולל** הגנת ReDoS. רק בדיקת תקינות תחבירית מתבצעת.
+מומלץ להוסיף הגנת ReDoS בעתיד (הגבלת אורך, nesting depth, quantifiers מסוכנים).
 
 שגיאות File I/O
 ----------------

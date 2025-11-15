@@ -160,37 +160,34 @@
        filters=filters
    )
 
-הגנת ReDoS
------------
+טיפול בשגיאות Regex
+--------------------
 
-חיפוש Regex מוגן מפני ReDoS (Regular Expression Denial of Service):
+חיפוש Regex מטפל בשגיאות תחביר:
 
 .. code-block:: python
 
-   def _validate_regex_pattern(pattern: str) -> bool:
-       # בדיקת אורך
-       if len(pattern) > 1000:
-           return False
+   def _regex_search(self, pattern: str, user_id: int) -> List[SearchResult]:
+       try:
+           compiled_pattern = re.compile(pattern, re.IGNORECASE | re.MULTILINE)
+       except re.error as e:
+           logger.error(f"דפוס regex לא תקין: {e}")
+           return []
        
-       # בדיקת nesting depth
-       depth = 0
-       max_depth = 0
-       for char in pattern:
-           if char == '(':
-               depth += 1
-               max_depth = max(max_depth, depth)
-           elif char == ')':
-               depth -= 1
-       
-       if max_depth > 10:
-           return False
-       
-       # בדיקת quantifiers מסוכנים
-       dangerous = r'(\+|\*|\?)\{.*\}'
-       if re.search(dangerous, pattern):
-           return False
-       
-       return True
+       # ביצוע חיפוש...
+
+**הערה חשובה - ReDoS Protection:**
+כרגע הקוד **לא כולל** הגנת ReDoS (Regular Expression Denial of Service). 
+המערכת רק בודקת תקינות תחבירית של התבנית דרך ``re.compile()``.
+
+**נקודת שיפור עתידית:**
+מומלץ להוסיף בדיקות ReDoS כמו:
+- הגבלת אורך תבנית (למשל 1000 תווים)
+- הגבלת nesting depth (למשל 10 רמות)
+- זיהוי quantifiers מסוכנים (למשל ``.*+``, ``.{100,}``)
+
+**המלצה:**
+למשתמשים - הימנעו מתבניות regex מורכבות מאוד שעלולות לגרום ל-ReDoS.
 
 מיון תוצאות
 ------------
