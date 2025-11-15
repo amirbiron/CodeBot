@@ -35,19 +35,23 @@ self.addEventListener('notificationclick', (event) => {
 
   if (event.action === 'open_note' && d.file_id && d.note_id) {
     const urlToOpen = `/file/${encodeURIComponent(d.file_id)}#note=${encodeURIComponent(d.note_id)}`;
-    event.waitUntil(
-      clients.matchAll({ type: 'window', includeUncontrolled: true }).then((windowClients) => {
-        let matchingClient = null;
-        try {
-          matchingClient = windowClients.find((client) => client && client.url && client.url.includes(`/file/${encodeURIComponent(d.file_id)}`));
-        } catch(_) {}
-        if (matchingClient && matchingClient.navigate) {
-          return matchingClient.navigate(urlToOpen).then((client) => client && client.focus && client.focus());
-        } else {
-          return clients.openWindow(urlToOpen);
-        }
-      })
-    );
+    const ack = fetch('/api/sticky-notes/reminders/ack', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ note_id: String(d.note_id) })
+    }).catch(() => {});
+    const nav = clients.matchAll({ type: 'window', includeUncontrolled: true }).then((windowClients) => {
+      let matchingClient = null;
+      try {
+        matchingClient = windowClients.find((client) => client && client.url && client.url.includes(`/file/${encodeURIComponent(d.file_id)}`));
+      } catch(_) {}
+      if (matchingClient && matchingClient.navigate) {
+        return matchingClient.navigate(urlToOpen).then((client) => client && client.focus && client.focus());
+      } else {
+        return clients.openWindow(urlToOpen);
+      }
+    });
+    event.waitUntil(Promise.all([ack, nav]));
   } else if (event.action && event.action.startsWith('snooze_') && d.note_id) {
     const minutes = Number(event.action.split('_')[1] || 10);
     event.waitUntil(
