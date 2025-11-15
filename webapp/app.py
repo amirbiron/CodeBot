@@ -428,6 +428,19 @@ except Exception:
     # אל תפיל את היישום אם ה-Blueprint אינו זמין (למשל בסביבת דוקס/CI)
     pass
 
+# Web Push API (public key + subscribe/unsubscribe)
+try:
+    from webapp.push_api import push_bp, start_sender_if_enabled  # noqa: E402
+    app.register_blueprint(push_bp)
+    # הפעלת שולח פושים ברקע (רק אם מאופשר בקונפיג)
+    try:
+        start_sender_if_enabled()
+    except Exception:
+        pass
+except Exception:
+    # סביבת דוקס/CI ללא תלויות לא צריכה להיכשל על ייבוא זה
+    pass
+
 # זיהוי הרצה תחת pytest בזמן import (גם בזמן איסוף טסטים)
 _IS_PYTEST = bool(os.getenv("PYTEST_CURRENT_TEST")) or ("pytest" in sys.modules) or os.getenv("PYTEST") == "1" or os.getenv("PYTEST_RUNNING") == "1"
 
@@ -1656,6 +1669,26 @@ def _add_default_csp(resp):
         pass
     return resp
 
+
+# --- Service Worker: served at root scope (/sw.js) ---
+@app.route('/sw.js')
+def service_worker_js():
+    try:
+        from pathlib import Path
+        p = (Path(__file__).parent / 'static' / 'sw.js')
+        if not p.is_file():
+            return Response('/* no service worker */', mimetype='application/javascript')
+        content = p.read_text(encoding='utf-8')
+        resp = Response(content)
+        try:
+            resp.headers['Content-Type'] = 'application/javascript; charset=utf-8'
+            # Disable caching to allow quick SW updates during development; CDNs may still cache per policy
+            resp.headers['Cache-Control'] = 'no-cache'
+        except Exception:
+            pass
+        return resp
+    except Exception:
+        return Response('// sw error', mimetype='application/javascript')
 
 # === Alertmanager Webhook endpoint (optional integration) ===
 # מאפשר להפנות התראות מ-Alertmanager ישירות לבוט/טלגרם דרך alert_forwarder
