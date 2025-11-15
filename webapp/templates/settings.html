@@ -102,6 +102,7 @@
     </div>
 </div>
 
+{% if push_enabled %}
 <div class="glass-card">
     <h2 class="section-title">
         <i class="fas fa-bell"></i>
@@ -124,8 +125,18 @@
         </div>
         <div id="pushStatus" style="opacity:.8; margin-top:.75rem; font-size:.95rem;">מצב לא ידוע</div>
     </div>
-    
 </div>
+{% else %}
+<div class="glass-card">
+    <h2 class="section-title">
+        <i class="fas fa-bell-slash"></i>
+        התראות דפדפן (Web Push)
+    </h2>
+    <div class="glass-card" style="background: rgba(255,255,255,0.05);">
+        <div style="opacity:.8; font-size:.95rem;">התראות פוש כבויות במערכת.</div>
+    </div>
+</div>
+{% endif %}
 
 {% if is_admin %}
 <div class="glass-card" style="border: 2px solid rgba(251, 191, 36, 0.3);">
@@ -386,6 +397,11 @@ input:checked + .slider:before { transform: translateX(24px); }
   refreshBmState();
 
   // --- Web Push (Service Worker + PushManager) ---
+  const __PUSH_ENABLED__ = {{ 'true' if push_enabled else 'false' }};
+  if (!__PUSH_ENABLED__) {
+    // When push is disabled server-side, skip all push JS logic
+    return;
+  }
   const pushStatus = document.getElementById('pushStatus');
   const pushEnableBtn = document.getElementById('pushEnableBtn');
   const pushDisableBtn = document.getElementById('pushDisableBtn');
