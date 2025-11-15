@@ -131,6 +131,40 @@ def get_public_key():
     return jsonify({"ok": True, "vapidPublicKey": key}), 200
 
 
+def _b64url_decode(s: str) -> bytes:
+    try:
+        import base64 as _b64
+        s = (s or "").strip()
+        pad = "=" * (-len(s) % 4)
+        return _b64.urlsafe_b64decode(s + pad)
+    except Exception:
+        return b""
+
+
+def _vapid_private_to_pem(vapid_private_key: str) -> str | None:
+    """Convert base64url raw P-256 private key (32B) to PEM/PKCS8 for compatibility.
+
+    Some environments/libraries expect a PEM encoded key. This provides a fallback
+    path when raw base64url raises curve-related errors.
+    """
+    try:
+        raw = _b64url_decode(vapid_private_key)
+        if not raw or len(raw) != 32:
+            return None
+        from cryptography.hazmat.primitives.asymmetric import ec  # type: ignore
+        from cryptography.hazmat.primitives.serialization import Encoding, NoEncryption, PrivateFormat  # type: ignore
+
+        num = int.from_bytes(raw, "big")
+        key = ec.derive_private_key(num, ec.SECP256R1())
+        pem = key.private_bytes(Encoding.PEM, PrivateFormat.PKCS8, NoEncryption())
+        try:
+            return pem.decode("utf-8")
+        except Exception:
+            return pem.decode(errors="ignore")
+    except Exception:
+        return None
+
+
 @push_bp.route("/diagnose", methods=["GET"])
 def diagnose_connectivity():
     """Quick connectivity diagnostics to common Web Push endpoints.
@@ -465,13 +499,33 @@ def _send_for_user(user_id: int | str, reminders: list[dict]) -> None:
                     ce = ""
                 if ce not in ("aesgcm", "aes128gcm"):
                     ce = "aes128gcm"
-                webpush(
-                    subscription_info=info,
-                    data=json.dumps(payload, ensure_ascii=False),
-                    vapid_private_key=vapid_private,
-                    vapid_claims={"sub": (f"mailto:{vapid_email}" if vapid_email and not vapid_email.startswith("mailto:") else vapid_email) or "mailto:support@example.com"},
-                    content_encoding=ce,
-                )
+                try:
+                    webpush(
+                        subscription_info=info,
+                        data=json.dumps(payload, ensure_ascii=False),
+                        vapid_private_key=vapid_private,
+                        vapid_claims={"sub": (f"mailto:{vapid_email}" if vapid_email and not vapid_email.startswith("mailto:") else vapid_email) or "mailto:support@example.com"},
+                        content_encoding=ce,
+                    )
+                except Exception as inner_ex:
+                    # Fallback: convert VAPID private key to PEM if curve error occurs
+                    msg = ""
+                    try:
+                        msg = str(inner_ex)
+                    except Exception:
+                        msg = ""
+                    if "EllipticCurve" in msg or "curve" in msg.lower():
+                        pem = _vapid_private_to_pem(vapid_private)
+                        if pem:
+                            webpush(
+                                subscription_info=info,
+                                data=json.dumps(payload, ensure_ascii=False),
+                                vapid_private_key=pem,
+                                vapid_claims={"sub": (f"mailto:{vapid_email}" if vapid_email and not vapid_email.startswith("mailto:") else vapid_email) or "mailto:support@example.com"},
+                                content_encoding=ce,
+                            )
+                        else:
+                            raise
                 success_any = True
             except Exception as ex:
                 try:
@@ -617,13 +671,32 @@ def test_push():
                     ce = ""
                 if ce not in ("aesgcm", "aes128gcm"):
                     ce = "aes128gcm"
-                webpush(
-                    subscription_info=info,
-                    data=json.dumps(payload, ensure_ascii=False),
-                    vapid_private_key=vapid_private,
-                    vapid_claims={"sub": (f"mailto:{vapid_email}" if vapid_email and not vapid_email.startswith("mailto:") else vapid_email) or "mailto:support@example.com"},
-                    content_encoding=ce,
-                )
+                try:
+                    webpush(
+                        subscription_info=info,
+                        data=json.dumps(payload, ensure_ascii=False),
+                        vapid_private_key=vapid_private,
+                        vapid_claims={"sub": (f"mailto:{vapid_email}" if vapid_email and not vapid_email.startswith("mailto:") else vapid_email) or "mailto:support@example.com"},
+                        content_encoding=ce,
+                    )
+                except Exception as inner_ex:
+                    msg = ""
+                    try:
+                        msg = str(inner_ex)
+                    except Exception:
+                        msg = ""
+                    if "EllipticCurve" in msg or "curve" in msg.lower():
+                        pem = _vapid_private_to_pem(vapid_private)
+                        if pem:
+                            webpush(
+                                subscription_info=info,
+                                data=json.dumps(payload, ensure_ascii=False),
+                                vapid_private_key=pem,
+                                vapid_claims={"sub": (f"mailto:{vapid_email}" if vapid_email and not vapid_email.startswith("mailto:") else vapid_email) or "mailto:support@example.com"},
+                                content_encoding=ce,
+                            )
+                        else:
+                            raise
                 sent += 1
             except Exception as ex:
                 status = 0
