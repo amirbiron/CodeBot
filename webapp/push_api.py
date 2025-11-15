@@ -96,6 +96,54 @@ def get_public_key():
     return jsonify({"ok": True, "vapidPublicKey": key}), 200
 
 
+@push_bp.route("/diagnose", methods=["GET"])
+def diagnose_connectivity():
+    """Quick connectivity diagnostics to common Web Push endpoints.
+
+    Returns HTTP status codes or error strings to help identify egress/TLS issues
+    (for example on hosting platforms that block outbound traffic or miss CAs).
+    """
+    try:
+        import requests  # type: ignore
+    except Exception:
+        return jsonify({
+            "ok": False,
+            "error": "requests_not_available"
+        }), 500
+
+    targets = [
+        {"name": "google_fcm_root", "url": "https://fcm.googleapis.com"},
+        {"name": "google_fcm_send", "url": "https://fcm.googleapis.com/fcm/send"},
+        {"name": "mozilla_updates_root", "url": "https://updates.push.services.mozilla.com"},
+        {"name": "mozilla_wpush_v2", "url": "https://updates.push.services.mozilla.com/wpush/v2"},
+    ]
+    results: list[dict[str, object]] = []
+    for t in targets:
+        name = str(t.get("name"))
+        url = str(t.get("url"))
+        rec: dict[str, object] = {"name": name, "url": url, "ok": False, "status": 0, "error": ""}
+        try:
+            # HEAD may be rejected by some providers; try GET with no redirects
+            r = None
+            try:
+                r = requests.head(url, timeout=5, allow_redirects=False)
+            except Exception:
+                r = None
+            if r is None:
+                r = requests.get(url, timeout=7, allow_redirects=False)
+            rec["status"] = int(getattr(r, "status_code", 0) or 0)
+            # Consider any HTTP response as connectivity OK (even 404/405)
+            rec["ok"] = bool(getattr(r, "status_code", 0))
+        except Exception as e:
+            try:
+                rec["error"] = str(e)
+            except Exception:
+                rec["error"] = "unknown_error"
+        results.append(rec)
+    any_ok = any(bool(x.get("ok")) for x in results)
+    return jsonify({"ok": any_ok, "results": results}), 200 if any_ok else 502
+
+
 @push_bp.route("/subscribe", methods=["POST"])
 @require_auth
 def subscribe():

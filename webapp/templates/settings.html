@@ -472,12 +472,14 @@ input:checked + .slider:before { transform: translateX(24px); }
         if (j.sent > 0) { setPushStatus('נשלחה התראת בדיקה'); return; }
         const codes = j.codes || {};
         const known = Object.keys(codes).map(k => Number(k));
-        if (known.includes(404) || known.includes(410)) {
+        // Treat only non-zero codes as meaningful; code 0 is a transport/TLS error
+        const nonZero = known.filter(k => k !== 0);
+        if (nonZero.includes(404) || nonZero.includes(410)) {
           setPushStatus('המנוי פג (404/410) — כבה/הפעל התראות ואז נסה שוב');
-        } else if (known.includes(401) || known.includes(403)) {
+        } else if (nonZero.includes(401) || nonZero.includes(403)) {
           setPushStatus('אי־התאמת מפתחות (401/403) — ודא זוג VAPID תואם ורענן מנוי');
-        } else if (known.length) {
-          setPushStatus('כשל שליחה (קודים: ' + known.join(', ') + ')');
+        } else if (nonZero.length) {
+          setPushStatus('כשל שליחה (קודים: ' + nonZero.join(', ') + ')');
         } else if (Array.isArray(j.errors) && j.errors.length) {
           const first = j.errors.find(e => !e.status || e.status === 0) || j.errors[0];
           const msg = (first && first.error) ? String(first.error) : 'שגיאה לא ידועה';
