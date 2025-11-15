@@ -158,14 +158,22 @@ def subscribe():
             return jsonify({"ok": False, "error": "Invalid subscription"}), 400
 
         now_utc = datetime.now(timezone.utc)
+        # Optional content encoding hint ("aesgcm" / "aes128gcm"). Many browsers won't send it.
+        _raw_enc = (payload.get("contentEncoding") or payload.get("content_encoding") or "")
+        try:
+            _raw_enc = str(_raw_enc).strip().lower()
+        except Exception:
+            _raw_enc = ""
+
         set_fields = {
             "user_id": user_id,
             "endpoint": endpoint,
             "keys": {"p256dh": keys.get("p256dh", ""), "auth": keys.get("auth", "")},
             "subscription": payload,  # store full object for sending
-            "content_encoding": (payload.get("contentEncoding") or payload.get("content_encoding") or ""),
             "updated_at": now_utc,
         }
+        if _raw_enc in ("aesgcm", "aes128gcm"):
+            set_fields["content_encoding"] = _raw_enc
         db = get_db()
         # Upsert per (user, endpoint), normalizing user_id across int/str using variants
         db.push_subscriptions.update_one(
@@ -416,12 +424,18 @@ def _send_for_user(user_id: int | str, reminders: list[dict]) -> None:
                     or sub.get("contentEncoding")
                     or (info.get("contentEncoding") if isinstance(info, dict) else None)
                 )
+                try:
+                    ce = str(content_enc).strip().lower() if content_enc is not None else ""
+                except Exception:
+                    ce = ""
+                if ce not in ("aesgcm", "aes128gcm"):
+                    ce = "aes128gcm"
                 webpush(
                     subscription_info=info,
                     data=json.dumps(payload, ensure_ascii=False),
                     vapid_private_key=vapid_private,
                     vapid_claims={"sub": (f"mailto:{vapid_email}" if vapid_email and not vapid_email.startswith("mailto:") else vapid_email) or "mailto:support@example.com"},
-                    content_encoding=content_enc,
+                    content_encoding=ce,
                 )
                 success_any = True
             except Exception as ex:
@@ -562,12 +576,18 @@ def test_push():
                     or sub.get("contentEncoding")
                     or (info.get("contentEncoding") if isinstance(info, dict) else None)
                 )
+                try:
+                    ce = str(content_enc).strip().lower() if content_enc is not None else ""
+                except Exception:
+                    ce = ""
+                if ce not in ("aesgcm", "aes128gcm"):
+                    ce = "aes128gcm"
                 webpush(
                     subscription_info=info,
                     data=json.dumps(payload, ensure_ascii=False),
                     vapid_private_key=vapid_private,
                     vapid_claims={"sub": (f"mailto:{vapid_email}" if vapid_email and not vapid_email.startswith("mailto:") else vapid_email) or "mailto:support@example.com"},
-                    content_encoding=content_enc,
+                    content_encoding=ce,
                 )
                 sent += 1
             except Exception as ex:
