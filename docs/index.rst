@@ -47,6 +47,7 @@ Code Keeper Bot - תיעוד API
    database/indexing
    database/cursor-pagination
    database-schema
+   database/detailed-schema
 
 .. toctree::
    :maxdepth: 2
@@ -72,6 +73,24 @@ Code Keeper Bot - תיעוד API
    user/share_code
    user/github_browse
    user/download_repo
+
+.. toctree::
+   :maxdepth: 2
+   :caption: זרימות עבודה:
+
+   workflows/index
+
+.. toctree::
+   :maxdepth: 2
+   :caption: מנועי המערכת:
+
+   engines/overview
+
+.. toctree::
+   :maxdepth: 2
+   :caption: Edge Cases וטיפול בשגיאות:
+
+   edge-cases
 
 .. note::
    חלק מהפיצ'רים (Bookmarks, Collections, Sticky Notes) זמינים ב‑WebApp בלבד (לא בבוט).
