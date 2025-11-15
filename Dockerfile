@@ -120,7 +120,7 @@ WORKDIR /app
 COPY --chown=botuser:botuser . .
 
 # התקנת תלויות ה-Worker (Node)
-RUN npm --prefix push_worker install --omit=dev && npm cache clean --force || true
+RUN npm --prefix push_worker install --omit=dev && npm cache clean --force
 
 # הורדת דפדפן Chromium לסביבת המשתמש (botuser) בזמן build
 RUN python -m playwright install chromium || true

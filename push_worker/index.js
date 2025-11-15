@@ -37,7 +37,15 @@ function bearerOk(req) {
     const parts = h.split(/\s+/);
     if (parts.length !== 2) return false;
     const [scheme, token] = parts;
-    return /^Bearer$/i.test(scheme) && token === PUSH_DELIVERY_TOKEN;
+    if (!/^Bearer$/i.test(scheme)) return false;
+    // Constant-time comparison via hash to avoid length mismatch exceptions
+    const ah = crypto.createHash("sha256").update(String(token || ""), "utf8").digest();
+    const bh = crypto.createHash("sha256").update(String(PUSH_DELIVERY_TOKEN || ""), "utf8").digest();
+    try {
+      return crypto.timingSafeEqual(ah, bh);
+    } catch (_) {
+      return false;
+    }
   } catch (_) {
     return false;
   }
@@ -103,6 +111,6 @@ app.post("/send", async (req, res) => {
   }
 });
 
-app.listen(PORT, () => {
+app.listen(PORT, "127.0.0.1", () => {
   console.log(`push-delivery-worker listening on :${PORT}`);
 });

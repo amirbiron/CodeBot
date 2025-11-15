@@ -47,9 +47,18 @@ class _StubColl:
     def delete_many(self, filt):
         return type('R', (), { 'deleted_count': 0 })()
     def find(self, filt):
+        want = filt.get('user_id')
+        values = None
+        if isinstance(want, dict) and '$in' in want:
+            try:
+                values = set(want.get('$in') or [])
+            except Exception:
+                values = None
         class _Cursor:
             def __iter__(self_inner):
-                return iter([d for d in self._docs if d.get('user_id') == filt.get('user_id')])
+                if values is not None:
+                    return iter([d for d in self._docs if d.get('user_id') in values])
+                return iter([d for d in self._docs if d.get('user_id') == want])
         return _Cursor()
 
 
@@ -84,6 +93,8 @@ class TestPushRemote(unittest.TestCase):
         os.environ['PUSH_DELIVERY_URL'] = 'https://worker.example'
         os.environ['PUSH_DELIVERY_TOKEN'] = 'ABC'
         os.environ['VAPID_PUBLIC_KEY'] = 'BExxxxTestKey'
+        # Save original get_db before monkeypatch
+        self._orig_get_db = push_mod.get_db
         self.app = _make_app(self.db)
         self.client = self.app.test_client()
         # login
@@ -98,6 +109,8 @@ class TestPushRemote(unittest.TestCase):
             sys.modules.pop('requests', None)
         else:
             sys.modules['requests'] = self._orig_requests
+        # Restore original get_db to avoid leaking stub
+        push_mod.get_db = self._orig_get_db
 
     def _run_with_scenario(self, scenario):
         sys.modules['requests'] = _StubRequestsModule(scenario)

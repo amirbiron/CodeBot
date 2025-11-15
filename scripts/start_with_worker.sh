@@ -22,6 +22,18 @@ if is_true "$PUSH_REMOTE_DELIVERY_ENABLED"; then
   if [ -z "${PUSH_DELIVERY_URL:-}" ]; then
     export PUSH_DELIVERY_URL="http://127.0.0.1:${PUSH_WORKER_PORT}"
   fi
+
+  # Wait for worker readiness to avoid startup race
+  echo "Waiting for push worker readiness..."
+  i=0
+  until curl -fsS "http://127.0.0.1:${PUSH_WORKER_PORT}/healthz" >/dev/null 2>&1; do
+    i=$((i+1))
+    if [ "$i" -ge 30 ]; then
+      echo "Worker not ready after ~6s; continuing anyway" >&2
+      break
+    fi
+    sleep 0.2
+  done
 fi
 
 # Run Flask app (uses $PORT provided by platform)
