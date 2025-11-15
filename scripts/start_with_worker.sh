@@ -30,6 +30,11 @@ if is_true "$PUSH_REMOTE_DELIVERY_ENABLED"; then
     export PUSH_DELIVERY_URL="http://127.0.0.1:${PUSH_WORKER_PORT}"
   fi
 
+  # Do not leak worker secrets to the Python process environment
+  unset WORKER_VAPID_PUBLIC_KEY || true
+  unset WORKER_VAPID_PRIVATE_KEY || true
+  unset WORKER_VAPID_SUB_EMAIL || true
+
   # Wait for worker readiness to avoid startup race
   echo "Waiting for push worker readiness..."
   i=0
