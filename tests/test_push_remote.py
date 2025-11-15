@@ -126,12 +126,16 @@ class TestPushRemote(unittest.TestCase):
     def test_404(self):
         j = self._run_with_scenario('404')
         self.assertTrue(j['ok'])
-        self.assertEqual(j['codes'].get(404), 1)
+        # JSON object keys מוכרחים להיות מחרוזות, לכן ננרמל ל-int
+        codes = {int(k): v for k, v in (j.get('codes') or {}).items() if str(k).isdigit()}
+        self.assertEqual(codes.get(404), 1)
 
     def test_401(self):
         j = self._run_with_scenario('401')
         self.assertTrue(j['ok'])
-        self.assertEqual(j['codes'].get(401), 1)
+        # JSON object keys מוכרחים להיות מחרוזות, לכן ננרמל ל-int
+        codes = {int(k): v for k, v in (j.get('codes') or {}).items() if str(k).isdigit()}
+        self.assertEqual(codes.get(401), 1)
 
     def test_timeout(self):
         j = self._run_with_scenario('timeout')
