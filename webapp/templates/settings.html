@@ -123,7 +123,7 @@
         </div>
         <div id="pushStatus" style="opacity:.8; margin-top:.75rem; font-size:.95rem;">מצב לא ידוע</div>
     </div>
-    <p style="opacity:.7; margin-top:.5rem; font-size:.9rem;">מפתח ציבורי של VAPID נטען מ‑/api/push/public-key. מפתחות נשמרים רק בדפדפן שלך.</p>
+    
 </div>
 
 {% if is_admin %}
@@ -417,13 +417,28 @@ input:checked + .slider:before { transform: translateX(24px); }
   async function enablePush(){
     try {
       if (!('Notification' in window)) throw new Error('התראות לא נתמכות בדפדפן');
+      if (!('serviceWorker' in navigator)) throw new Error('ServiceWorker לא נתמך');
+      if (!('PushManager' in window)) throw new Error('PushManager לא נתמך');
+
+      const reg = await registerSw();
+      // אם כבר קיים מנוי – הצג הודעת "כבר מופעלות" וסנכרן לשרת בעדינות
+      try {
+        const existing = reg && reg.pushManager ? await reg.pushManager.getSubscription() : null;
+        if (existing) {
+          try {
+            await fetch('/api/push/subscribe', { method:'POST', headers:{'Content-Type':'application/json'}, credentials:'include', body: JSON.stringify(existing) });
+          } catch(_) {}
+          setPushStatus('ההתראות כבר מופעלות');
+          return;
+        }
+      } catch(_) {}
+
       const perm = await Notification.requestPermission();
       if (perm !== 'granted') { setPushStatus('הרשאת התראות נדחתה'); return; }
       setPushStatus('נרשם Service Worker...');
-      const reg = await registerSw();
       const key = await getVapid();
       const sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: urlBase64ToUint8Array(key) });
-      const resp = await fetch('/api/push/subscribe', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(sub) });
+      const resp = await fetch('/api/push/subscribe', { method:'POST', headers:{'Content-Type':'application/json'}, credentials:'include', body: JSON.stringify(sub) });
       const j = await resp.json().catch(()=>({}));
       if (!resp.ok || !j || j.ok === false) throw new Error('שמירת מנוי נכשלה');
       setPushStatus('התראות הופעלו בהצלחה');
@@ -432,24 +447,32 @@ input:checked + .slider:before { transform: translateX(24px); }
 
   async function disablePush(){
     try {
+      if (!('serviceWorker' in navigator)) { setPushStatus('הדפדפן לא תומך בהתראות'); return; }
       const reg = (await navigator.serviceWorker.getRegistration()) || (await registerSw());
-      const sub = await reg.pushManager.getSubscription();
-      if (sub) {
-        try {
-          const ep = (sub && typeof sub.endpoint === 'string') ? sub.endpoint : '';
-          if (ep) { await fetch('/api/push/subscribe?endpoint='+encodeURIComponent(ep), { method:'DELETE' }); }
-        } catch(_) {}
-        try { await sub.unsubscribe(); } catch(_) {}
-      }
+      const sub = (reg && reg.pushManager) ? await reg.pushManager.getSubscription() : null;
+      if (!sub) { setPushStatus('ההתראות כבר כבויות'); return; }
+      try {
+        const ep = (sub && typeof sub.endpoint === 'string') ? sub.endpoint : '';
+        if (ep) {
+          await fetch('/api/push/subscribe', { method:'DELETE', headers:{'Content-Type':'application/json'}, credentials:'include', body: JSON.stringify({ endpoint: ep }) });
+        }
+      } catch(_) {}
+      try { await sub.unsubscribe(); } catch(_) {}
       setPushStatus('התראות כובו');
     } catch(e){ setPushStatus('שגיאה בכיבוי התראות'); console.warn('disablePush failed', e); }
   }
 
-  function refreshPushUi(){
+  async function refreshPushUi(){
     try {
       if (!('Notification' in window)) { setPushStatus('הדפדפן לא תומך בהתראות'); return; }
       const st = Notification.permission;
-      if (st === 'granted') setPushStatus('התראות מאופעלות בדפדפן זה');
+      let hasSub = false;
+      try {
+        const reg = (await navigator.serviceWorker.getRegistration()) || (await registerSw());
+        const sub = reg && reg.pushManager ? await reg.pushManager.getSubscription() : null;
+        hasSub = !!sub;
+      } catch(_) {}
+      if (st === 'granted' && hasSub) setPushStatus('התראות מופעלות בדפדפן זה');
       else if (st === 'denied') setPushStatus('המשתמש חסם התראות – יש לאפשר ידנית');
       else setPushStatus('נדרש להפעיל התראות');
     } catch(_) { setPushStatus('מצב לא ידוע'); }
