@@ -47,6 +47,36 @@ def _ensure_indexes() -> None:
         pass
 
 
+def _session_user_id():
+    """Return current session user id as int when possible, else string."""
+    try:
+        uid = session.get("user_id")
+        try:
+            return int(uid)  # type: ignore[arg-type]
+        except Exception:
+            return str(uid or "")
+    except Exception:
+        return ""
+
+
+def _user_id_variants(uid):
+    """Return list of possible representations for DB queries (int/str)."""
+    variants: set = set()
+    try:
+        variants.add(uid)
+    except Exception:
+        pass
+    try:
+        variants.add(int(uid))
+    except Exception:
+        pass
+    try:
+        variants.add(str(uid))
+    except Exception:
+        pass
+    return list(variants)
+
+
 def require_auth(f):
     @wraps(f)
     def _inner(*args, **kwargs):
@@ -71,7 +101,7 @@ def get_public_key():
 def subscribe():
     try:
         _ensure_indexes()
-        user_id = int(session["user_id"])  # type: ignore
+        user_id = _session_user_id()
         payload = request.get_json(silent=True) or {}
         # Normalize minimal fields we care about
         endpoint = str((payload or {}).get("endpoint") or "").strip()
@@ -98,7 +128,7 @@ def subscribe():
         try:
             from observability import emit_event  # type: ignore
 
-            emit_event("push_subscribed", severity="info", user_id=int(user_id))
+            emit_event("push_subscribed", severity="info", user_id=str(user_id))
         except Exception:
             pass
         return jsonify({"ok": True}), 201
@@ -110,17 +140,17 @@ def subscribe():
 @require_auth
 def unsubscribe():
     try:
-        user_id = int(session["user_id"])  # type: ignore
+        user_id = _session_user_id()
         payload = request.get_json(silent=True) or {}
         endpoint = str((payload or {}).get("endpoint") or request.args.get("endpoint") or "").strip()
         if not endpoint:
             return jsonify({"ok": False, "error": "endpoint required"}), 400
         db = get_db()
-        db.push_subscriptions.delete_many({"user_id": user_id, "endpoint": endpoint})
+        db.push_subscriptions.delete_many({"user_id": {"$in": _user_id_variants(user_id)}, "endpoint": endpoint})
         try:
             from observability import emit_event  # type: ignore
 
-            emit_event("push_unsubscribed", severity="info", user_id=int(user_id))
+            emit_event("push_unsubscribed", severity="info", user_id=str(user_id))
         except Exception:
             pass
         return jsonify({"ok": True}), 200
@@ -256,15 +286,15 @@ def _claim_reminder(db, reminder_doc: dict, ttl_seconds: int | None = None) -> b
         return False
 
 
-def _send_for_user(user_id: int, reminders: list[dict]) -> None:
+def _send_for_user(user_id: int | str, reminders: list[dict]) -> None:
     db = get_db()
-    subs = list(db.push_subscriptions.find({"user_id": int(user_id)}))
+    subs = list(db.push_subscriptions.find({"user_id": {"$in": _user_id_variants(user_id)}}))
     if not subs:
         # Telemetry: no subscriptions for user
         try:
             from observability import emit_event  # type: ignore
 
-            emit_event("push_send_no_subscriptions", severity="info", user_id=int(user_id))
+            emit_event("push_send_no_subscriptions", severity="info", user_id=str(user_id))
         except Exception:
             pass
         return
@@ -319,7 +349,7 @@ def _send_for_user(user_id: int, reminders: list[dict]) -> None:
             emit_event(
                 "push_send_attempt",
                 severity="info",
-                user_id=int(user_id),
+                user_id=str(user_id),
                 reminder_id=str(r.get("_id") or ""),
                 subs=len(subs),
             )
@@ -362,7 +392,7 @@ def _send_for_user(user_id: int, reminders: list[dict]) -> None:
                             emit_event(
                                 "push_send_error",
                                 severity="warning",
-                                user_id=int(user_id),
+                                user_id=str(user_id),
                                 endpoint=str(ep or ""),
                                 status_code=int(status or 0),
                             )
@@ -383,7 +413,7 @@ def _send_for_user(user_id: int, reminders: list[dict]) -> None:
     # After processing all reminders for this user, remove dead endpoints once
     if endpoints_to_delete:
         try:
-            db.push_subscriptions.delete_many({"user_id": int(user_id), "endpoint": {"$in": list(endpoints_to_delete)}})
+            db.push_subscriptions.delete_many({"user_id": {"$in": _user_id_variants(user_id)}, "endpoint": {"$in": list(endpoints_to_delete)}})
             # Telemetry: cleaned dead endpoints
             try:
                 from observability import emit_event  # type: ignore
@@ -391,7 +421,7 @@ def _send_for_user(user_id: int, reminders: list[dict]) -> None:
                 emit_event(
                     "push_deleted_dead_endpoints",
                     severity="info",
-                    user_id=int(user_id),
+                    user_id=str(user_id),
                     deleted_count=int(len(endpoints_to_delete)),
                 )
             except Exception:
@@ -448,9 +478,9 @@ def test_push():
     Returns JSON with send results to help debugging in environments.
     """
     try:
-        user_id = int(session["user_id"])  # type: ignore
+        user_id = _session_user_id()
         db = get_db()
-        subs = list(db.push_subscriptions.find({"user_id": int(user_id)}))
+        subs = list(db.push_subscriptions.find({"user_id": {"$in": _user_id_variants(user_id)}}))
         if not subs:
             return jsonify({"ok": False, "error": "no_subscriptions"}), 400
 
@@ -513,7 +543,7 @@ def test_push():
             emit_event(
                 "push_test_result",
                 severity=("info" if sent else "warning"),
-                user_id=int(user_id),
+                user_id=str(user_id),
                 sent=int(sent),
                 errors=len(errors),
             )
@@ -525,5 +555,14 @@ def test_push():
             c = int(e.get("status") or 0)
             code_counts[c] = code_counts.get(c, 0) + 1
         return jsonify({"ok": True, "sent": sent, "errors": errors, "codes": code_counts}), 200
-    except Exception:
-        return jsonify({"ok": False, "error": "internal_error"}), 500
+    except Exception as ex:
+        # Include safe diagnostics: class name and short message (helps ops)
+        try:
+            detail = getattr(ex, "__class__", type(ex)).__name__
+        except Exception:
+            detail = "Exception"
+        try:
+            msg = str(ex)
+        except Exception:
+            msg = ""
+        return jsonify({"ok": False, "error": "internal_error", "detail": detail, "message": msg[:200]}), 500
