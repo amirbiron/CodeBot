@@ -86,7 +86,9 @@ RUN apt-get update -y && apt-get upgrade -y && apt-get install -y --no-install-r
     libxml2 \
     sqlite3 \
     zlib1g \
-    libjpeg62-turbo && \
+    libjpeg62-turbo \
+    nodejs \
+    npm && \
     rm -rf /var/lib/apt/lists/*
 
 # שדרוג כלי פייתון בסיסיים גם בשכבת ה-production כדי למנוע CVEs ב-site-packages של המערכת
@@ -117,6 +119,9 @@ WORKDIR /app
 # העתקת קבצי האפליקציה
 COPY --chown=botuser:botuser . .
 
+# התקנת תלויות ה-Worker (Node)
+RUN npm --prefix push_worker install --omit=dev && npm cache clean --force || true
+
 # הורדת דפדפן Chromium לסביבת המשתמש (botuser) בזמן build
 RUN python -m playwright install chromium || true
 
@@ -139,8 +144,9 @@ except Exception as e: \
     print(f'Health check failed: {e}'); \
     sys.exit(1);"
 
-# פקודת הפעלה - Render compatible
-CMD ["sh", "-c", "python main.py"]
+# פקודת הפעלה - מריץ Worker (אם דגל מופעל) ואת ה-WebApp
+RUN chmod +x scripts/start_with_worker.sh
+CMD ["sh", "-c", "scripts/start_with_worker.sh"]
 
 ######################################
 # שלב dev נפרד הוסר; משתמשים באותו בסיס בטוח

@@ -241,6 +241,30 @@
      - ``3``
      - ``2``
      - WebApp
+   * - ``PUSH_WORKER_PORT``
+     - פורט פנימי ל‑Sidecar Worker (localhost בלבד)
+     - לא
+     - ``18080``
+     - ``18080``
+     - WebApp/Worker
+   * - ``WORKER_VAPID_PUBLIC_KEY``
+     - מפתח ציבורי ל‑VAPID עבור ה‑Worker (Sidecar)
+     - לא
+     - "" (ריק)
+     - ``BExxx...``
+     - Worker
+   * - ``WORKER_VAPID_PRIVATE_KEY``
+     - מפתח פרטי ל‑VAPID עבור ה‑Worker (Sidecar)
+     - לא
+     - "" (ריק)
+     - ``xxxxxxxx``
+     - Worker
+   * - ``WORKER_VAPID_SUB_EMAIL``
+     - Subject (דוא"ל) לתביעות VAPID עבור ה‑Worker
+     - לא
+     - ``support@example.com``
+     - ``alerts@example.com``
+     - Worker
    * - ``PERSISTENT_LOGIN_DAYS``
      - תוקף התחברות מתמשכת (ימים)
      - לא

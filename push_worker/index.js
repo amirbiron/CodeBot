@@ -6,9 +6,10 @@ const webPush = require("web-push");
 
 const PORT = process.env.PORT ? Number(process.env.PORT) : 8080;
 const PUSH_DELIVERY_TOKEN = (process.env.PUSH_DELIVERY_TOKEN || "").trim();
-const VAPID_PUBLIC_KEY = (process.env.VAPID_PUBLIC_KEY || "").trim();
-const VAPID_PRIVATE_KEY = (process.env.VAPID_PRIVATE_KEY || "").trim();
-const VAPID_SUB_EMAIL = (process.env.VAPID_SUB_EMAIL || "support@example.com").trim();
+// Prefer worker-specific env so שהמפתח הפרטי לא ייחשף ל-Flask
+const VAPID_PUBLIC_KEY = (process.env.WORKER_VAPID_PUBLIC_KEY || process.env.VAPID_PUBLIC_KEY || "").trim();
+const VAPID_PRIVATE_KEY = (process.env.WORKER_VAPID_PRIVATE_KEY || process.env.VAPID_PRIVATE_KEY || "").trim();
+const VAPID_SUB_EMAIL = (process.env.WORKER_VAPID_SUB_EMAIL || process.env.VAPID_SUB_EMAIL || "support@example.com").trim();
 
 if (VAPID_PUBLIC_KEY && VAPID_PRIVATE_KEY) {
   try {

@@ -47,6 +47,19 @@
    - `401/403` יופיעו ככשל התאמת מפתחות/הרשאות.
    - Retries: אין ניסיון חוזר על `4xx`; על `5xx/timeout` בלבד.
 
+### חלופה: Sidecar (ללא שירות Render נוסף)
+ניתן להריץ את ה‑Worker בתוך אותו קונטיינר של ה‑WebApp. זה חוסך עלות שירות נוסף.
+
+1. ה‑Dockerfile מריץ סקריפט שמרים את ה‑Worker על `127.0.0.1:<PUSH_WORKER_PORT>` ואת ה‑Flask על `$PORT` של הפלטפורמה.
+2. קנפוג נדרש:
+   - `PUSH_REMOTE_DELIVERY_ENABLED=true`
+   - `PUSH_DELIVERY_URL=http://127.0.0.1:18080` (או עדכנו את `PUSH_WORKER_PORT`)
+   - `PUSH_DELIVERY_TOKEN=<טוקן משותף לשרת→Worker>`
+   - ״סודות״ ל‑Worker בלבד: `WORKER_VAPID_PUBLIC_KEY`, `WORKER_VAPID_PRIVATE_KEY`, `WORKER_VAPID_SUB_EMAIL`
+3. הערות אבטחה:
+   - מפתח ה‑VAPID הפרטי אינו נדרש ע"י Flask, ולכן מוזן רק לסביבת ה‑Worker (דרך משתנים עם קידומת `WORKER_`).
+   - ה‑Worker מאזין ל‑localhost בלבד, אינו נגיש חיצונית.
+
 ## נקודות קצה (Server)
 - `GET /api/push/public-key` – מחזיר `{ ok, vapidPublicKey }`.
 - `POST /api/push/subscribe` – שומר את המנוי לדחיפה (per user).
