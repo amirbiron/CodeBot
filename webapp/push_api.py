@@ -142,10 +142,9 @@ def _b64url_decode(s: str) -> bytes:
 
 
 def _vapid_private_to_pem(vapid_private_key: str) -> str | None:
-    """Convert base64url raw P-256 private key (32B) to PEM/PKCS8 for compatibility.
+    """Convert base64url raw P-256 private key (32B) to PEM for compatibility.
 
-    Some environments/libraries expect a PEM encoded key. This provides a fallback
-    path when raw base64url raises curve-related errors.
+    Prefer TraditionalOpenSSL (EC PRIVATE KEY) and fall back to PKCS8 if needed.
     """
     try:
         raw = _b64url_decode(vapid_private_key)
@@ -156,15 +155,17 @@ def _vapid_private_to_pem(vapid_private_key: str) -> str | None:
 
         num = int.from_bytes(raw, "big")
         key = ec.derive_private_key(num, ec.SECP256R1())
-        pem = key.private_bytes(Encoding.PEM, PrivateFormat.PKCS8, NoEncryption())
+        # Prefer TraditionalOpenSSL (EC PRIVATE KEY) as some libs expect this format
+        try:
+            pem = key.private_bytes(Encoding.PEM, PrivateFormat.TraditionalOpenSSL, NoEncryption())
+        except Exception:
+            pem = key.private_bytes(Encoding.PEM, PrivateFormat.PKCS8, NoEncryption())
         try:
             return pem.decode("utf-8")
         except Exception:
             return pem.decode(errors="ignore")
     except Exception:
         return None
-
-
 @push_bp.route("/diagnose", methods=["GET"])
 def diagnose_connectivity():
     """Quick connectivity diagnostics to common Web Push endpoints.
@@ -499,6 +500,7 @@ def _send_for_user(user_id: int | str, reminders: list[dict]) -> None:
                     ce = ""
                 if ce not in ("aesgcm", "aes128gcm"):
                     ce = "aes128gcm"
+                delivered = False
                 try:
                     webpush(
                         subscription_info=info,
@@ -507,6 +509,7 @@ def _send_for_user(user_id: int | str, reminders: list[dict]) -> None:
                         vapid_claims={"sub": (f"mailto:{vapid_email}" if vapid_email and not vapid_email.startswith("mailto:") else vapid_email) or "mailto:support@example.com"},
                         content_encoding=ce,
                     )
+                    delivered = True
                 except Exception as inner_ex:
                     # Fallback: convert VAPID private key to PEM if curve error occurs
                     msg = ""
@@ -524,9 +527,14 @@ def _send_for_user(user_id: int | str, reminders: list[dict]) -> None:
                                 vapid_claims={"sub": (f"mailto:{vapid_email}" if vapid_email and not vapid_email.startswith("mailto:") else vapid_email) or "mailto:support@example.com"},
                                 content_encoding=ce,
                             )
+                            delivered = True
                         else:
                             raise
-                success_any = True
+                    else:
+                        # Non-curve error: let outer handler process (telemetry, 404/410 cleanup)
+                        raise
+                if delivered:
+                    success_any = True
             except Exception as ex:
                 try:
                     from pywebpush import WebPushException  # type: ignore
@@ -671,6 +679,7 @@ def test_push():
                     ce = ""
                 if ce not in ("aesgcm", "aes128gcm"):
                     ce = "aes128gcm"
+                delivered = False
                 try:
                     webpush(
                         subscription_info=info,
@@ -679,6 +688,7 @@ def test_push():
                         vapid_claims={"sub": (f"mailto:{vapid_email}" if vapid_email and not vapid_email.startswith("mailto:") else vapid_email) or "mailto:support@example.com"},
                         content_encoding=ce,
                     )
+                    delivered = True
                 except Exception as inner_ex:
                     msg = ""
                     try:
@@ -695,9 +705,13 @@ def test_push():
                                 vapid_claims={"sub": (f"mailto:{vapid_email}" if vapid_email and not vapid_email.startswith("mailto:") else vapid_email) or "mailto:support@example.com"},
                                 content_encoding=ce,
                             )
+                            delivered = True
                         else:
                             raise
-                sent += 1
+                    else:
+                        raise
+                if delivered:
+                    sent += 1
             except Exception as ex:
                 status = 0
                 try:
