@@ -1,0 +1,25 @@
+# ===================================
+# Push Delivery Worker (Render Blueprint)
+# שירות Node קטן לשליחת Web Push באמצעות web-push
+# ===================================
+
+services:
+  - type: web
+    name: code-keeper-push-worker
+    env: docker
+    plan: starter
+    dockerfilePath: push_worker/Dockerfile
+    envVars:
+      - key: PORT
+        value: 8080
+      # הזינו את הסודות האמיתיים ב-Render UI (לא בקובץ):
+      - key: PUSH_DELIVERY_TOKEN
+        sync: false
+      - key: VAPID_PUBLIC_KEY
+        sync: false
+      - key: VAPID_PRIVATE_KEY
+        sync: false
+      - key: VAPID_SUB_EMAIL
+        value: support@example.com
+    autoDeploy: true
+    healthCheckPath: /healthz

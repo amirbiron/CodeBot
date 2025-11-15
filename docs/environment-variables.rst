@@ -217,6 +217,30 @@
      - ``true``
      - ``false``
      - WebApp
+   * - ``PUSH_REMOTE_DELIVERY_ENABLED``
+     - שליחה דרך Worker חיצוני (במקום pywebpush)
+     - לא
+     - ``false``
+     - ``true``
+     - WebApp
+   * - ``PUSH_DELIVERY_URL``
+     - כתובת בסיס ל‑Worker (ללא ``/send``)
+     - לא
+     - "" (ריק)
+     - ``https://code-keeper-push-worker.onrender.com``
+     - WebApp
+   * - ``PUSH_DELIVERY_TOKEN``
+     - טוקן Bearer לאימות שרת→Worker
+     - לא
+     - "" (ריק)
+     - ``s3cr3t-token``
+     - WebApp/Worker
+   * - ``PUSH_DELIVERY_TIMEOUT_SECONDS``
+     - Timeout לבקשת ``/send`` ל‑Worker (שניות)
+     - לא
+     - ``3``
+     - ``2``
+     - WebApp
    * - ``PERSISTENT_LOGIN_DAYS``
      - תוקף התחברות מתמשכת (ימים)
      - לא
