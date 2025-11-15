@@ -119,6 +119,7 @@
             <div style="display:flex; gap:.5rem; flex-wrap: wrap;">
                 <button id="pushEnableBtn" class="btn btn-primary">אפשר התראות</button>
                 <button id="pushDisableBtn" class="btn btn-secondary">כבה התראות</button>
+                <button id="pushTestBtn" class="btn btn-tertiary">שלח פוש בדיקה</button>
             </div>
         </div>
         <div id="pushStatus" style="opacity:.8; margin-top:.75rem; font-size:.95rem;">מצב לא ידוע</div>
@@ -388,6 +389,7 @@ input:checked + .slider:before { transform: translateX(24px); }
   const pushStatus = document.getElementById('pushStatus');
   const pushEnableBtn = document.getElementById('pushEnableBtn');
   const pushDisableBtn = document.getElementById('pushDisableBtn');
+  const pushTestBtn = document.getElementById('pushTestBtn');
 
   function setPushStatus(text){ if (pushStatus) pushStatus.textContent = text; }
 
@@ -462,6 +464,21 @@ input:checked + .slider:before { transform: translateX(24px); }
     } catch(e){ setPushStatus('שגיאה בכיבוי התראות'); console.warn('disablePush failed', e); }
   }
 
+  async function testPush(){
+    try {
+      const r = await fetch('/api/push/test', { method:'POST', credentials:'include' });
+      const j = await r.json().catch(()=>({}));
+      if (r.ok && j && j.ok) {
+        if (j.sent > 0) setPushStatus('נשלחה התראת בדיקה');
+        else setPushStatus('לא נשלחה התראה (בדוק מפתח VAPID/מנויים)');
+      } else {
+        if (j && j.error === 'no_subscriptions') setPushStatus('אין מנוי פוש לשלח אליו');
+        else if (j && j.error === 'missing_vapid_private_key') setPushStatus('חסר VAPID_PRIVATE_KEY בשרת');
+        else setPushStatus('בדיקת פוש נכשלה');
+      }
+    } catch(e){ setPushStatus('בדיקת פוש נכשלה'); }
+  }
+
   async function refreshPushUi(){
     try {
       if (!('Notification' in window)) { setPushStatus('הדפדפן לא תומך בהתראות'); return; }
@@ -480,6 +497,7 @@ input:checked + .slider:before { transform: translateX(24px); }
 
   if (pushEnableBtn) pushEnableBtn.addEventListener('click', enablePush);
   if (pushDisableBtn) pushDisableBtn.addEventListener('click', disablePush);
+  if (pushTestBtn) pushTestBtn.addEventListener('click', testPush);
   refreshPushUi();
 })();
 </script>

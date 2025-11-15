@@ -260,11 +260,25 @@ def _send_for_user(user_id: int, reminders: list[dict]) -> None:
     db = get_db()
     subs = list(db.push_subscriptions.find({"user_id": int(user_id)}))
     if not subs:
+        # Telemetry: no subscriptions for user
+        try:
+            from observability import emit_event  # type: ignore
+
+            emit_event("push_send_no_subscriptions", severity="info", user_id=int(user_id))
+        except Exception:
+            pass
         return
     # Load keys/env once
     vapid_private = (os.getenv("VAPID_PRIVATE_KEY") or "").strip()
     vapid_email = (os.getenv("VAPID_SUB_EMAIL") or os.getenv("SUPPORT_EMAIL") or "").strip()
     if not vapid_private or not subs:
+        # Telemetry: missing private key prevents send
+        try:
+            from observability import emit_event  # type: ignore
+
+            emit_event("push_send_missing_vapid_private", severity="warning", user_id=int(user_id))
+        except Exception:
+            pass
         return
     try:
         from pywebpush import webpush, WebPushException  # type: ignore
@@ -298,6 +312,20 @@ def _send_for_user(user_id: int, reminders: list[dict]) -> None:
             ],
         }
         success_any = False
+        # Telemetry: attempt send for this reminder batch
+        try:
+            from observability import emit_event  # type: ignore
+
+            emit_event(
+                "push_send_attempt",
+                severity="info",
+                user_id=int(user_id),
+                reminder_id=str(r.get("_id") or ""),
+                subs=len(subs),
+            )
+        except Exception:
+            pass
+
         for sub in subs:
             try:
                 ep = str(sub.get("endpoint") or "")
@@ -321,6 +349,19 @@ def _send_for_user(user_id: int, reminders: list[dict]) -> None:
                         if status in (404, 410):
                             if ep:
                                 endpoints_to_delete.add(ep)
+                        # Telemetry: send error with status code
+                        try:
+                            from observability import emit_event  # type: ignore
+
+                            emit_event(
+                                "push_send_error",
+                                severity="warning",
+                                user_id=int(user_id),
+                                endpoint=str(ep or ""),
+                                status_code=int(status or 0),
+                            )
+                        except Exception:
+                            pass
                 except Exception:
                     pass
                 continue
@@ -337,6 +378,18 @@ def _send_for_user(user_id: int, reminders: list[dict]) -> None:
     if endpoints_to_delete:
         try:
             db.push_subscriptions.delete_many({"user_id": int(user_id), "endpoint": {"$in": list(endpoints_to_delete)}})
+            # Telemetry: cleaned dead endpoints
+            try:
+                from observability import emit_event  # type: ignore
+
+                emit_event(
+                    "push_deleted_dead_endpoints",
+                    severity="info",
+                    user_id=int(user_id),
+                    deleted_count=int(len(endpoints_to_delete)),
+                )
+            except Exception:
+                pass
         except Exception:
             pass
 
@@ -379,3 +432,76 @@ def _coerce_preview(db, reminder_doc: dict) -> str:
         return out
     except Exception:
         return ""
+
+
+@push_bp.route("/test", methods=["POST"])
+@require_auth
+def test_push():
+    """Send a quick test push to current user's subscriptions.
+
+    Returns JSON with send results to help debugging in environments.
+    """
+    try:
+        user_id = int(session["user_id"])  # type: ignore
+        db = get_db()
+        subs = list(db.push_subscriptions.find({"user_id": int(user_id)}))
+        if not subs:
+            return jsonify({"ok": False, "error": "no_subscriptions"}), 400
+
+        vapid_private = (os.getenv("VAPID_PRIVATE_KEY") or "").strip()
+        vapid_email = (os.getenv("VAPID_SUB_EMAIL") or os.getenv("SUPPORT_EMAIL") or "").strip()
+        if not vapid_private:
+            return jsonify({"ok": False, "error": "missing_vapid_private_key"}), 500
+
+        try:
+            from pywebpush import webpush, WebPushException  # type: ignore
+            import json
+        except Exception:
+            return jsonify({"ok": False, "error": "pywebpush_not_available"}), 500
+
+        payload = {
+            "title": "🔔 בדיקת פוש",
+            "body": "זוהי הודעת בדיקה",
+            "data": {},
+            "actions": [
+                {"action": "open_note", "title": "פתח"},
+            ],
+        }
+        sent = 0
+        errors: list[dict[str, Any]] = []
+        for sub in subs:
+            ep = str(sub.get("endpoint") or "")
+            info = sub.get("subscription") or {"endpoint": ep, "keys": sub.get("keys")}
+            try:
+                webpush(
+                    subscription_info=info,
+                    data=json.dumps(payload, ensure_ascii=False),
+                    vapid_private_key=vapid_private,
+                    vapid_claims={"sub": (f"mailto:{vapid_email}" if vapid_email and not vapid_email.startswith("mailto:") else vapid_email) or "mailto:support@example.com"},
+                )
+                sent += 1
+            except Exception as ex:
+                status = 0
+                try:
+                    from pywebpush import WebPushException  # type: ignore
+
+                    if isinstance(ex, WebPushException):
+                        status = getattr(getattr(ex, "response", None), "status_code", 0) or 0
+                except Exception:
+                    pass
+                errors.append({"endpoint": ep, "status": int(status or 0)})
+        try:
+            from observability import emit_event  # type: ignore
+
+            emit_event(
+                "push_test_result",
+                severity=("info" if sent else "warning"),
+                user_id=int(user_id),
+                sent=int(sent),
+                errors=len(errors),
+            )
+        except Exception:
+            pass
+        return jsonify({"ok": True, "sent": sent, "errors": errors}), 200
+    except Exception:
+        return jsonify({"ok": False, "error": "internal_error"}), 500
