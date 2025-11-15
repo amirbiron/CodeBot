@@ -502,6 +502,11 @@ def test_push():
             )
         except Exception:
             pass
-        return jsonify({"ok": True, "sent": sent, "errors": errors}), 200
+        # Aggregate error codes for easier client display
+        code_counts: dict[int, int] = {}
+        for e in errors:
+            c = int(e.get("status") or 0)
+            code_counts[c] = code_counts.get(c, 0) + 1
+        return jsonify({"ok": True, "sent": sent, "errors": errors, "codes": code_counts}), 200
     except Exception:
         return jsonify({"ok": False, "error": "internal_error"}), 500
