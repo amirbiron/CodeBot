@@ -819,10 +819,7 @@
         @media (prefers-reduced-motion: reduce) {
             .announcement-banner__inner { animation: none !important; }
         }
-        /* Hide banner on tablet range where the navbar is dense */
-        @media (min-width: 640px) and (max-width: 1024px) {
-            .announcement-banner { display: none !important; }
-        }
+        /* Always show banner across breakpoints (was hidden on 640–1024px) */
         @media (max-width: 480px) {
             .announcement-banner__scroller { height: 56px; }
             .announcement-banner__content { font-size: 0.9rem; }
