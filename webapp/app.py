@@ -2638,18 +2638,52 @@ def _announcement_matches_context(doc: Dict[str, Any], current_path: str) -> boo
 
 @app.route('/api/v1/announcements/active', methods=['GET'])
 def api_active_announcement():
+    # אנדפוינט מחזיר את ההכרזה הפעילה או null; עם debug=1 לאדמין מוחזר הסבר מפורט
     try:
         _db = get_db()
     except Exception:
         return jsonify(None)
     try:
         current_path = (request.args.get('path') or request.path or '/').strip()
+        debug_flag = str((request.args.get('debug') or '').strip().lower()) in {'1', 'true', 'yes'}
+        try:
+            uid = int(session.get('user_id') or 0)
+        except Exception:
+            uid = 0
+        admin_view = bool(uid and is_admin(uid) and debug_flag)
+
         doc = _db.announcements.find_one({'is_active': True}, sort=[('updated_at', DESCENDING)])
         if not doc:
+            if admin_view:
+                return jsonify({'ok': True, 'active': None, 'reason': 'no_active_doc', 'current_path': current_path}), 200
             return jsonify(None)
-        if not _announcement_matches_context(doc, current_path):
+
+        matches = _announcement_matches_context(doc, current_path)
+        if not matches:
+            if admin_view:
+                return jsonify({
+                    'ok': True,
+                    'active': None,
+                    'reason': 'context_mismatch',
+                    'env_rule': str(doc.get('env') or 'all'),
+                    'env_seg': _runtime_env_segment(),
+                    'paths': list(doc.get('paths') or []),
+                    'current_path': current_path,
+                }), 200
             return jsonify(None)
-        return jsonify(_announcement_doc_to_json(doc))
+
+        payload = _announcement_doc_to_json(doc)
+        if admin_view:
+            payload_dbg = {
+                'ok': True,
+                'active': payload,
+                'env_rule': str(doc.get('env') or 'all'),
+                'env_seg': _runtime_env_segment(),
+                'paths': list(doc.get('paths') or []),
+                'current_path': current_path,
+            }
+            return jsonify(payload_dbg), 200
+        return jsonify(payload)
     except Exception:
         return jsonify(None)
 
