@@ -118,6 +118,7 @@ Code Keeper Bot - תיעוד API
    webapp/api-reference
    webapp/bulk-actions
    webapp/editor
+   webapp/markdown-folding
 
 .. toctree::
    :maxdepth: 2
