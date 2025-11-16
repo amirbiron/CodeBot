@@ -63,14 +63,6 @@
   border-top: 1px solid var(--md-fold-border);
   padding: 0.8rem 1rem;
   border-radius: 0 0 10px 10px;
-  overflow: hidden;
-  max-height: 0; /* מצב סגור ברירת מחדל */
-  opacity: 0;
-  transition: max-height 240ms ease, opacity 180ms ease;
-}
-#md-content details.md-section-collapse[open] > .md-section-content { opacity: 1; }
-@media (prefers-reduced-motion: reduce) {
-  #md-content details.md-section-collapse > .md-section-content { transition: none !important; }
 }
 
 /* התאמת צבעי אלמנטים פנימיים לרקע החום */
@@ -2170,74 +2162,8 @@ try { if (typeof window !== 'undefined') { window.attachColorSwatches = attachCo
       if (!h2.id) h2.id = id;
       const saved = Object.prototype.hasOwnProperty.call(state, id) ? !!state[id] : null;
       details.open = (saved === null) ? (idx === 0) : saved;
-      // אתחול מצב גובה/שקיפות לתוכן עבור אנימציה נעימה
-      (function initSectionContentAnimation(){
-        const contentEl = content;
-        if (!contentEl) return;
-        const prev = contentEl.style.transition;
-        // מניעת אנימציה בעת האתחול הראשוני
-        contentEl.style.transition = 'none';
-        if (details.open) {
-          contentEl.style.maxHeight = 'none';
-          contentEl.style.opacity = '1';
-        } else {
-          contentEl.style.maxHeight = '0px';
-          contentEl.style.opacity = '0';
-        }
-        // כפיית reflow ואז החזרת transition לפרופיל CSS
-        void contentEl.offsetHeight;
-        requestAnimationFrame(() => { contentEl.style.transition = prev; });
-      })();
-
-      // עדכן מצב ושפעל אנימציה בכל שינוי
+      // שמירת מצב בלבד (ללא אנימציה)
       details.addEventListener('toggle', () => {
-        const contentEl = details.querySelector('.md-section-content');
-        const prefersReduced = !!(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
-        const animateOpen = () => {
-          if (!contentEl) return;
-          if (prefersReduced) {
-            contentEl.style.maxHeight = 'none';
-            contentEl.style.opacity = '1';
-            return;
-          }
-          // פתיחה: קבע מצב התחלתי, כפיית reflow ואז יעד
-          contentEl.style.maxHeight = '0px';
-          contentEl.style.opacity = '0';
-          // כפיית reflow כדי שהדפדפן יישם את המצב ההתחלתי
-          void contentEl.offsetHeight;
-          requestAnimationFrame(() => {
-            contentEl.style.maxHeight = contentEl.scrollHeight + 'px';
-            contentEl.style.opacity = '1';
-          });
-          const onEnd = (ev) => {
-            if (ev && ev.propertyName !== 'max-height') return;
-            contentEl.style.maxHeight = 'none';
-            try { contentEl.removeEventListener('transitionend', onEnd); } catch(_) {}
-          };
-          try { contentEl.addEventListener('transitionend', onEnd); } catch(_) {}
-        };
-        const animateClose = () => {
-          if (!contentEl) return;
-          if (prefersReduced) {
-            contentEl.style.maxHeight = '0px';
-            contentEl.style.opacity = '0';
-            return;
-          }
-          // סגירה: אם max-height='none' הצב לגובה נוכחי, כפיית reflow ואז 0
-          const cs = getComputedStyle(contentEl);
-          if (cs.maxHeight === 'none') {
-            contentEl.style.maxHeight = contentEl.scrollHeight + 'px';
-          }
-          void contentEl.offsetHeight; // reflow
-          requestAnimationFrame(() => {
-            contentEl.style.maxHeight = '0px';
-            contentEl.style.opacity = '0';
-          });
-        };
-
-        if (details.open) animateOpen(); else animateClose();
-
-        // שמור סטייט
         const s = loadState();
         s[id] = details.open ? 1 : 0;
         saveState(s);
