@@ -2654,36 +2654,43 @@ def api_active_announcement():
 
         doc = _db.announcements.find_one({'is_active': True}, sort=[('updated_at', DESCENDING)])
         if not doc:
+            resp = jsonify(None)
             if admin_view:
-                return jsonify({'ok': True, 'active': None, 'reason': 'no_active_doc', 'current_path': current_path}), 200
-            return jsonify(None)
+                try:
+                    resp.headers['X-Announcement-Reason'] = 'no_active_doc'
+                    resp.headers['X-Announcement-Path'] = str(current_path)
+                    resp.headers['X-Announcement-Env-Seg'] = _runtime_env_segment()
+                except Exception:
+                    pass
+            return resp, 200
 
         matches = _announcement_matches_context(doc, current_path)
         if not matches:
+            resp = jsonify(None)
             if admin_view:
-                return jsonify({
-                    'ok': True,
-                    'active': None,
-                    'reason': 'context_mismatch',
-                    'env_rule': str(doc.get('env') or 'all'),
-                    'env_seg': _runtime_env_segment(),
-                    'paths': list(doc.get('paths') or []),
-                    'current_path': current_path,
-                }), 200
-            return jsonify(None)
+                try:
+                    resp.headers['X-Announcement-Reason'] = 'context_mismatch'
+                    resp.headers['X-Announcement-Env-Rule'] = str(doc.get('env') or 'all')
+                    resp.headers['X-Announcement-Env-Seg'] = _runtime_env_segment()
+                    resp.headers['X-Announcement-Paths'] = ','.join(list(doc.get('paths') or []))
+                    resp.headers['X-Announcement-Path'] = str(current_path)
+                except Exception:
+                    pass
+            return resp, 200
 
         payload = _announcement_doc_to_json(doc)
+        resp = jsonify(payload)
         if admin_view:
-            payload_dbg = {
-                'ok': True,
-                'active': payload,
-                'env_rule': str(doc.get('env') or 'all'),
-                'env_seg': _runtime_env_segment(),
-                'paths': list(doc.get('paths') or []),
-                'current_path': current_path,
-            }
-            return jsonify(payload_dbg), 200
-        return jsonify(payload)
+            try:
+                resp.headers['X-Announcement-Reason'] = 'ok'
+                resp.headers['X-Announcement-Env-Rule'] = str(doc.get('env') or 'all')
+                resp.headers['X-Announcement-Env-Seg'] = _runtime_env_segment()
+                resp.headers['X-Announcement-Paths'] = ','.join(list(doc.get('paths') or []))
+                resp.headers['X-Announcement-Path'] = str(current_path)
+                resp.headers['X-Announcement-Id'] = payload.get('id', '')
+            except Exception:
+                pass
+        return resp, 200
     except Exception:
         return jsonify(None)
 

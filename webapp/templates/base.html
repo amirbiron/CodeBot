@@ -1797,9 +1797,10 @@
                     const resp = await fetch('/api/v1/announcements/active?path=' + encodeURIComponent(currentPath), { cache: 'no-store' });
                     if (resp && resp.ok) {
                         const a = await resp.json();
-                        if (a) {
+                        const obj = (a && typeof a === 'object' && 'active' in a) ? a.active : a;
+                        if (obj) {
                             window.__announcementEnabled = true;
-                            window.__announcements = [{ id: a.id, text: a.text, link: a.link || null }];
+                            window.__announcements = [{ id: obj.id, text: obj.text, link: obj.link || null }];
                             list = window.__announcements;
                             fetchedFromApi = true;
                         }
