@@ -845,6 +845,18 @@ def inject_globals():
         primary_guide_url = f"/share/{WELCOME_GUIDE_PRIMARY_SHARE_ID}?view=md"
         secondary_guide_url = f"/share/{WELCOME_GUIDE_SECONDARY_SHARE_ID}?view=md"
 
+    # Bust static cache optionally per-request (for debugging/force-refresh)
+    try:
+        no_cache_param = (request.args.get('no_cache') or request.args.get('nc') or '').strip().lower()
+        force_bust = no_cache_param in ('1', 'true', 'yes')
+    except Exception:
+        force_bust = False
+
+    try:
+        static_ver = _STATIC_VERSION + ('.' + str(int(_time.time())) if force_bust else '')
+    except Exception:
+        static_ver = _STATIC_VERSION
+
     return {
         'bot_username': BOT_USERNAME_CLEAN,
         'ui_font_scale': font_scale,
@@ -853,7 +865,7 @@ def inject_globals():
         'announcement_enabled': WEEKLY_TIP_ENABLED,
         'weekly_tip_enabled': WEEKLY_TIP_ENABLED,
         # גרסה סטטית לצירוף לסטטיקה (cache-busting)
-        'static_version': _STATIC_VERSION,
+        'static_version': static_ver,
         # קישור לתיעוד (לשימוש בתבניות)
         'documentation_url': DOCUMENTATION_URL,
         # External uptime config for templates (non-sensitive only)
@@ -5439,6 +5451,16 @@ def md_preview(file_id):
         can_save_shared=False,
         is_admin=user_is_admin,
     )
+    # אפשרות לעקיפת קאש לדף הזה לפי פרמטר no_cache/nc
+    try:
+        no_cache_param = (request.args.get('no_cache') or request.args.get('nc') or '').strip().lower()
+        if no_cache_param in ('1', 'true', 'yes'):
+            resp = Response(html, mimetype='text/html; charset=utf-8')
+            resp.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate'
+            resp.headers['Pragma'] = 'no-cache'
+            return resp
+    except Exception:
+        pass
     if should_cache and md_cache_key:
         try:
             cache.set_dynamic(
