@@ -16,14 +16,6 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Initial deploy (create Worker if first run)
-        uses: cloudflare/wrangler-action@v3
-        with:
-          workingDirectory: worker
-          command: deploy
-          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-
       - name: Setup Node (for wrangler CLI)
         uses: actions/setup-node@v4
         with:
@@ -31,6 +23,25 @@ jobs:
 
       - name: Install wrangler
         run: npm i -g wrangler@latest
+
+      - name: Auth check (whoami)
+        working-directory: worker
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          set -euo pipefail
+          wrangler --version
+          wrangler whoami
+
+      - name: Initial deploy (create Worker if first run)
+        working-directory: worker
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          set -euo pipefail
+          wrangler deploy
 
       - name: Seed Cloudflare secrets (idempotent)
         working-directory: worker
@@ -43,21 +54,16 @@ jobs:
           PUSH_DELIVERY_TOKEN: ${{ secrets.PUSH_DELIVERY_TOKEN }}
         run: |
           set -euo pipefail
-          # Authenticate via env (no interactive login)
-          export CF_API_TOKEN="$CLOUDFLARE_API_TOKEN"
-          export CLOUDFLARE_API_TOKEN="$CLOUDFLARE_API_TOKEN"
-          export CF_ACCOUNT_ID="$CLOUDFLARE_ACCOUNT_ID"
-          export CLOUDFLARE_ACCOUNT_ID="$CLOUDFLARE_ACCOUNT_ID"
-
           printf "%s" "$WORKER_VAPID_PUBLIC_KEY"  | wrangler secret put WORKER_VAPID_PUBLIC_KEY
           printf "%s" "$WORKER_VAPID_PRIVATE_KEY" | wrangler secret put WORKER_VAPID_PRIVATE_KEY
           printf "%s" "$WORKER_VAPID_SUB_EMAIL"   | wrangler secret put WORKER_VAPID_SUB_EMAIL
           printf "%s" "$PUSH_DELIVERY_TOKEN"      | wrangler secret put PUSH_DELIVERY_TOKEN
 
       - name: Final deploy (apply secrets)
-        uses: cloudflare/wrangler-action@v3
-        with:
-          workingDirectory: worker
-          command: deploy
-          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        working-directory: worker
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          set -euo pipefail
+          wrangler deploy
