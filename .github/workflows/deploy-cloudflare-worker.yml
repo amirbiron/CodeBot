@@ -41,10 +41,10 @@ jobs:
           export CF_ACCOUNT_ID="$CLOUDFLARE_ACCOUNT_ID"
           export CLOUDFLARE_ACCOUNT_ID="$CLOUDFLARE_ACCOUNT_ID"
 
-          printf "%s" "$WORKER_VAPID_PUBLIC_KEY"  | wrangler secret put WORKER_VAPID_PUBLIC_KEY --yes
-          printf "%s" "$WORKER_VAPID_PRIVATE_KEY" | wrangler secret put WORKER_VAPID_PRIVATE_KEY --yes
-          printf "%s" "$WORKER_VAPID_SUB_EMAIL"   | wrangler secret put WORKER_VAPID_SUB_EMAIL --yes
-          printf "%s" "$PUSH_DELIVERY_TOKEN"      | wrangler secret put PUSH_DELIVERY_TOKEN --yes
+          printf "%s" "$WORKER_VAPID_PUBLIC_KEY"  | wrangler secret put WORKER_VAPID_PUBLIC_KEY
+          printf "%s" "$WORKER_VAPID_PRIVATE_KEY" | wrangler secret put WORKER_VAPID_PRIVATE_KEY
+          printf "%s" "$WORKER_VAPID_SUB_EMAIL"   | wrangler secret put WORKER_VAPID_SUB_EMAIL
+          printf "%s" "$PUSH_DELIVERY_TOKEN"      | wrangler secret put PUSH_DELIVERY_TOKEN
 
       - name: Deploy with Wrangler Action
         uses: cloudflare/wrangler-action@v3
