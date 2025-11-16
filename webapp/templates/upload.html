@@ -13,7 +13,7 @@
   <div class="alert alert-success">{{ success }}</div>
   {% endif %}
 
-  <form method="post" enctype="multipart/form-data" style="display: grid; gap: 1rem;">
+  <form id="uploadForm" method="post" enctype="multipart/form-data" style="display: grid; gap: 1rem;">
     <div>
       <label>שם קובץ</label>
       <input type="text" name="file_name" placeholder="example.py" value="{{ file_name_value or '' }}" style="width: 100%; padding: .75rem; border-radius: 10px; border: 1px solid rgba(255,255,255,0.2); background: rgba(255,255,255,0.1); color: white;">
@@ -21,7 +21,7 @@
     <div>
       <label>שפה</label>
       <select id="languageSelect" name="language" style="width: 100%; padding: .75rem; border-radius: 10px; border: 1px solid rgba(255,255,255,0.2); background: rgba(255,255,255,0.1); color: white;">
-        <option value="text" {% if (language_value or 'text') == 'text' %}selected{% endif %}>— זהה לפי סיומת —</option>
+        <option value="text" {% if (language_value or 'text') == 'text' %}selected{% endif %}>זהה לפי סיומת</option>
         {% for lang in languages %}
         <option value="{{ lang }}" {% if lang == language_value %}selected{% endif %}>{{ lang }}</option>
         {% endfor %}
@@ -57,6 +57,8 @@
     try {
       const container = document.getElementById('editorContainer');
       const languageSelect = document.getElementById('languageSelect');
+      const form = document.getElementById('uploadForm');
+      const fileNameInput = document.querySelector('input[name="file_name"]');
       if (container && window.editorManager && typeof window.editorManager.initEditor === 'function') {
         await window.editorManager.initEditor(container, {
           language: (languageSelect && languageSelect.value) || 'text',
@@ -67,6 +69,45 @@
       if (languageSelect && window.editorManager && typeof window.editorManager.updateLanguage === 'function') {
         languageSelect.addEventListener('change', async (e) => {
           try { await window.editorManager.updateLanguage(e.target.value); } catch (_) {}
+        });
+      }
+
+      // אישור דריסה אם שם הקובץ כבר קיים
+      if (form && fileNameInput) {
+        form.addEventListener('submit', async (e) => {
+          try {
+            // מנגנון מניעה מלולאת שליחה חוזרת
+            if (form.dataset.skipConfirm === '1') {
+              return;
+            }
+
+            const name = (fileNameInput.value || '').trim();
+            if (!name) {
+              return; // השרת יוודא שם ריק
+            }
+
+            e.preventDefault();
+            const url = `/api/files/resolve?name=${encodeURIComponent(name)}`;
+            const res = await fetch(url, { credentials: 'same-origin' });
+            let exists = false;
+            if (res && res.ok) {
+              const data = await res.json().catch(() => ({}));
+              exists = !!(data && data.ok);
+            }
+            if (exists) {
+              const confirmed = window.confirm(`קובץ זה יחליף את קובץ ${name} — האם אתה בטוח?`);
+              if (!confirmed) {
+                return; // ביטול השמירה
+              }
+            }
+            // המשך שליחה רגילה
+            form.dataset.skipConfirm = '1';
+            form.submit();
+          } catch (_) {
+            // במקרה של כשל בבדיקה – נמשיך לשליחה רגילה והשרת יטפל
+            try { form.dataset.skipConfirm = '1'; } catch (_) {}
+            try { form.submit(); } catch (_) {}
+          }
         });
       }
     } catch (_) {}
