@@ -15,6 +15,9 @@
   font-size: 0.9rem;
   line-height: 1.5;
   color: #e8eaed;
+  direction: ltr; /* force code area to stay LTR even בתוך דף RTL */
+  text-align: left;
+  unicode-bidi: isolate;
 }
 
 /* Ensure inner <code> wraps as well */
@@ -55,6 +58,7 @@ details > summary::-webkit-details-marker { display: none; }
   table-layout: fixed;
   border-collapse: separate;
   border-spacing: 0;
+  direction: ltr; /* keep line numbers בצד שמאל */
 }
 .hljs-ln tr { vertical-align: top; }
 .hljs-ln td {
