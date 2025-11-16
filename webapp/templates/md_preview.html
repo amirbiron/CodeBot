@@ -2097,26 +2097,37 @@ try { if (typeof window !== 'undefined') { window.attachColorSwatches = attachCo
       details.className = 'markdown-details md-section-collapse';
       const summary = document.createElement('summary');
       summary.className = 'markdown-summary';
+      // שמור הורה ונקודת הוצאה להחדרה חזרה במקום המקורי
+      const parent = h2.parentNode;
+      const insertBeforeNode = h2.nextSibling; // על מה שנמצא מיד אחרי ה-H2
+      // אסוף את כל האחים עד הכותרת H2/H1 הבאה (לפני שמזיזים DOM)
+      const toMove = [];
+      {
+        let cursor = insertBeforeNode;
+        while (cursor) {
+          const next = cursor.nextSibling;
+          if (cursor.nodeType === 1) { // ELEMENT_NODE
+            const tag = String(cursor.tagName || '').toLowerCase();
+            if (tag === 'h2' || tag === 'h1') break;
+          }
+          toMove.push(cursor);
+          cursor = next;
+        }
+      }
       // העבר את הכותרת עצמה לתוך הסיכום
       summary.appendChild(h2);
       const content = document.createElement('div');
       content.className = 'details-content md-section-content';
-      // אסוף את כל האחים עד הכותרת H2/H1 הבאה
-      let cursor = summary.nextSibling;
-      while (cursor) {
-        const next = cursor.nextSibling;
-        if (cursor.nodeType === 1) { // ELEMENT_NODE
-          const tag = String(cursor.tagName || '').toLowerCase();
-          if (tag === 'h2' || tag === 'h1') break;
-        }
-        content.appendChild(cursor);
-        cursor = next;
-      }
       details.appendChild(summary);
       details.appendChild(content);
-      // הזרק למיקום המקורי
-      const parent = (summary.parentNode /* was container */) || container;
-      container.insertBefore(details, content); // details כבר מכיל summary+h2; content אחרי
+      // הזרק למיקום המקורי (לפני האיבר שאחריו עמד ה-H2 קודם)
+      if (parent) {
+        parent.insertBefore(details, insertBeforeNode);
+      } else {
+        container.appendChild(details);
+      }
+      // העבר את האחים שאספנו לתוך ה-content של המקטע
+      toMove.forEach(node => { try { content.appendChild(node); } catch(_) {} });
       // קבע פתיחה: לפי סטייט שמור, אחרת ברירת מחדל — הראשון פתוח, אחרים סגורים
       const id = h2.id || ('h2_' + (idx+1));
       if (!h2.id) h2.id = id;
