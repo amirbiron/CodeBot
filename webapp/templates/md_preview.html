@@ -36,6 +36,35 @@
   color: #111111;
 }
 
+/* קיפול H3 (admin) – צבע רקע נעים לעיניים בהתאם לצבע הכללי */
+#md-content { --md-fold-bg: #f6f6f6; --md-fold-border: rgba(0,0,0,0.06); }
+#md-content.bg-light { --md-fold-bg: #fbf2e6; --md-fold-border: rgba(0,0,0,0.08); }
+#md-content.bg-medium { --md-fold-bg: #f2e2c8; --md-fold-border: rgba(0,0,0,0.09); }
+#md-content.bg-dark { --md-fold-bg: #e8d2b4; --md-fold-border: rgba(0,0,0,0.10); }
+
+#md-content details.md-section-collapse {
+  background: transparent;
+  border: 1px solid var(--md-fold-border);
+  border-radius: 10px;
+  margin: 0.5rem 0 0.75rem;
+}
+#md-content details.md-section-collapse > summary.markdown-summary {
+  cursor: pointer;
+  list-style: none;
+  padding: 0.55rem 0.8rem;
+  font-weight: 600;
+}
+#md-content details.md-section-collapse > summary.markdown-summary::-webkit-details-marker { display: none; }
+#md-content details.md-section-collapse[open] > summary.markdown-summary {
+  border-bottom: 1px solid var(--md-fold-border);
+}
+#md-content details.md-section-collapse > .md-section-content {
+  background: var(--md-fold-bg);
+  border-top: 1px solid var(--md-fold-border);
+  padding: 0.8rem 1rem;
+  border-radius: 0 0 10px 10px;
+}
+
 /* התאמת צבעי אלמנטים פנימיים לרקע החום */
 #md-content.bg-light code:not(pre code),
 #md-content.bg-medium code:not(pre code),
