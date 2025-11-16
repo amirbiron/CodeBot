@@ -16,6 +16,14 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Initial deploy (create Worker if first run)
+        uses: cloudflare/wrangler-action@v3
+        with:
+          workingDirectory: worker
+          command: deploy
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+
       - name: Setup Node (for wrangler CLI)
         uses: actions/setup-node@v4
         with:
@@ -46,7 +54,7 @@ jobs:
           printf "%s" "$WORKER_VAPID_SUB_EMAIL"   | wrangler secret put WORKER_VAPID_SUB_EMAIL
           printf "%s" "$PUSH_DELIVERY_TOKEN"      | wrangler secret put PUSH_DELIVERY_TOKEN
 
-      - name: Deploy with Wrangler Action
+      - name: Final deploy (apply secrets)
         uses: cloudflare/wrangler-action@v3
         with:
           workingDirectory: worker
