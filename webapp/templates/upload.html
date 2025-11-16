@@ -16,28 +16,28 @@
   <form method="post" enctype="multipart/form-data" style="display: grid; gap: 1rem;">
     <div>
       <label>שם קובץ</label>
-      <input type="text" name="file_name" placeholder="example.py" style="width: 100%; padding: .75rem; border-radius: 10px; border: 1px solid rgba(255,255,255,0.2); background: rgba(255,255,255,0.1); color: white;">
+      <input type="text" name="file_name" placeholder="example.py" value="{{ file_name_value or '' }}" style="width: 100%; padding: .75rem; border-radius: 10px; border: 1px solid rgba(255,255,255,0.2); background: rgba(255,255,255,0.1); color: white;">
     </div>
     <div>
       <label>שפה</label>
       <select id="languageSelect" name="language" style="width: 100%; padding: .75rem; border-radius: 10px; border: 1px solid rgba(255,255,255,0.2); background: rgba(255,255,255,0.1); color: white;">
-        <option value="text">— זהה לפי סיומת —</option>
+        <option value="text" {% if (language_value or 'text') == 'text' %}selected{% endif %}>— זהה לפי סיומת —</option>
         {% for lang in languages %}
-        <option value="{{ lang }}">{{ lang }}</option>
+        <option value="{{ lang }}" {% if lang == language_value %}selected{% endif %}>{{ lang }}</option>
         {% endfor %}
       </select>
     </div>
     <div>
       <label>תיאור</label>
-      <input type="text" name="description" placeholder="תיאור קצר" style="width: 100%; padding: .75rem; border-radius: 10px; border: 1px solid rgba(255,255,255,0.2); background: rgba(255,255,255,0.1); color: white;">
+      <input type="text" name="description" placeholder="תיאור קצר" value="{{ description_value or '' }}" style="width: 100%; padding: .75rem; border-radius: 10px; border: 1px solid rgba(255,255,255,0.2); background: rgba(255,255,255,0.1); color: white;">
     </div>
     <div>
       <label>תגיות</label>
-      <input type="text" name="tags" placeholder="#utils, #repo:owner/name" style="width: 100%; padding: .75rem; border-radius: 10px; border: 1px solid rgba(255,255,255,0.2); background: rgba(255,255,255,0.1); color: white;">
+      <input type="text" name="tags" placeholder="#utils, #repo:owner/name" value="{{ tags_value or '' }}" style="width: 100%; padding: .75rem; border-radius: 10px; border: 1px solid rgba(255,255,255,0.2); background: rgba(255,255,255,0.1); color: white;">
     </div>
     <div id="editorContainer">
       <label>קוד</label>
-      <textarea name="code" rows="14" placeholder="# הדבק כאן את הקוד" style="width: 100%; padding: .75rem; border-radius: 10px; border: 1px solid rgba(255,255,255,0.2); background: rgba(255,255,255,0.1); color: white; font-family: 'Fira Code', 'Consolas', monospace;"></textarea>
+      <textarea name="code" rows="14" placeholder="# הדבק כאן את הקוד" style="width: 100%; padding: .75rem; border-radius: 10px; border: 1px solid rgba(255,255,255,0.2); background: rgba(255,255,255,0.1); color: white; font-family: 'Fira Code', 'Consolas', monospace;">{{ code_value or '' }}</textarea>
     </div>
     <div>
       <label>או העלה קובץ</label>
@@ -60,7 +60,7 @@
       if (container && window.editorManager && typeof window.editorManager.initEditor === 'function') {
         await window.editorManager.initEditor(container, {
           language: (languageSelect && languageSelect.value) || 'text',
-          value: '',
+          value: {{ code_value | tojson }},
           theme: 'dark'
         });
       }

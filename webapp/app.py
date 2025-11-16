@@ -5685,6 +5685,12 @@ def upload_file_web():
     user_id = session['user_id']
     error = None
     success = None
+    # החזקת ערכי טופס לשחזור במקרה של שגיאה ולרינדור ראשוני
+    file_name_value = ''
+    language_value = 'text'
+    description_value = ''
+    tags_value = ''
+    code_value = ''
     if request.method == 'POST':
         try:
             file_name = (request.form.get('file_name') or '').strip()
@@ -5693,6 +5699,13 @@ def upload_file_web():
             description = (request.form.get('description') or '').strip()
             raw_tags = (request.form.get('tags') or '').strip()
             tags = [t.strip() for t in re.split(r'[,#\n]+', raw_tags) if t.strip()] if raw_tags else []
+
+            # שמור את הערכים שהוזנו לצורך שחזור בטופס
+            file_name_value = file_name
+            language_value = language or 'text'
+            description_value = description
+            tags_value = raw_tags
+            code_value = code
 
             # אם הועלה קובץ — נקרא ממנו ונשתמש בשמו אם אין שם קובץ בשדה
             try:
@@ -5717,6 +5730,7 @@ def upload_file_web():
 
             # נרמול התוכן (בין אם הגיע מהטופס או מקובץ שהועלה)
             code = normalize_code(code)
+            code_value = code  # עדכן גם את ערך השחזור לאחר נרמול
 
             if not file_name:
                 error = 'יש להזין שם קובץ'
@@ -5905,7 +5919,20 @@ def upload_file_web():
     # שליפת שפות קיימות להצעה
     languages = db.code_snippets.distinct('programming_language', {'user_id': user_id}) if db is not None else []
     languages = sorted([l for l in languages if l]) if languages else []
-    return render_template('upload.html', bot_username=BOT_USERNAME_CLEAN, user=session['user_data'], languages=languages, error=error, success=success)
+    return render_template(
+        'upload.html',
+        bot_username=BOT_USERNAME_CLEAN,
+        user=session['user_data'],
+        languages=languages,
+        error=error,
+        success=success,
+        # ערכי טופס לשחזור
+        file_name_value=file_name_value,
+        language_value=language_value,
+        description_value=description_value,
+        tags_value=tags_value,
+        code_value=code_value,
+    )
 
 @app.route('/api/favorite/toggle/<file_id>', methods=['POST'])
 @login_required
