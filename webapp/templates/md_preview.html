@@ -2174,6 +2174,9 @@ try { if (typeof window !== 'undefined') { window.attachColorSwatches = attachCo
       (function initSectionContentAnimation(){
         const contentEl = content;
         if (!contentEl) return;
+        const prev = contentEl.style.transition;
+        // מניעת אנימציה בעת האתחול הראשוני
+        contentEl.style.transition = 'none';
         if (details.open) {
           contentEl.style.maxHeight = 'none';
           contentEl.style.opacity = '1';
@@ -2181,6 +2184,9 @@ try { if (typeof window !== 'undefined') { window.attachColorSwatches = attachCo
           contentEl.style.maxHeight = '0px';
           contentEl.style.opacity = '0';
         }
+        // כפיית reflow ואז החזרת transition לפרופיל CSS
+        void contentEl.offsetHeight;
+        requestAnimationFrame(() => { contentEl.style.transition = prev; });
       })();
 
       // עדכן מצב ושפעל אנימציה בכל שינוי
@@ -2194,9 +2200,11 @@ try { if (typeof window !== 'undefined') { window.attachColorSwatches = attachCo
             contentEl.style.opacity = '1';
             return;
           }
-          // פתיחה: 0 -> scrollHeight, ואז 'none' לשינוי דינמי
+          // פתיחה: קבע מצב התחלתי, כפיית reflow ואז יעד
           contentEl.style.maxHeight = '0px';
           contentEl.style.opacity = '0';
+          // כפיית reflow כדי שהדפדפן יישם את המצב ההתחלתי
+          void contentEl.offsetHeight;
           requestAnimationFrame(() => {
             contentEl.style.maxHeight = contentEl.scrollHeight + 'px';
             contentEl.style.opacity = '1';
@@ -2215,11 +2223,12 @@ try { if (typeof window !== 'undefined') { window.attachColorSwatches = attachCo
             contentEl.style.opacity = '0';
             return;
           }
-          // סגירה: אם בגובה 'none', הצב גובה נוכחי, ואז ל-0
+          // סגירה: אם max-height='none' הצב לגובה נוכחי, כפיית reflow ואז 0
           const cs = getComputedStyle(contentEl);
           if (cs.maxHeight === 'none') {
             contentEl.style.maxHeight = contentEl.scrollHeight + 'px';
           }
+          void contentEl.offsetHeight; // reflow
           requestAnimationFrame(() => {
             contentEl.style.maxHeight = '0px';
             contentEl.style.opacity = '0';
