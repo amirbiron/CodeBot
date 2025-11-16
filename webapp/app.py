@@ -2638,18 +2638,52 @@ def _announcement_matches_context(doc: Dict[str, Any], current_path: str) -> boo
 
 @app.route('/api/v1/announcements/active', methods=['GET'])
 def api_active_announcement():
+    # אנדפוינט מחזיר את ההכרזה הפעילה או null; עם debug=1 לאדמין מוחזר הסבר מפורט
     try:
         _db = get_db()
     except Exception:
         return jsonify(None)
     try:
         current_path = (request.args.get('path') or request.path or '/').strip()
+        debug_flag = str((request.args.get('debug') or '').strip().lower()) in {'1', 'true', 'yes'}
+        try:
+            uid = int(session.get('user_id') or 0)
+        except Exception:
+            uid = 0
+        admin_view = bool(uid and is_admin(uid) and debug_flag)
+
         doc = _db.announcements.find_one({'is_active': True}, sort=[('updated_at', DESCENDING)])
         if not doc:
+            if admin_view:
+                return jsonify({'ok': True, 'active': None, 'reason': 'no_active_doc', 'current_path': current_path}), 200
             return jsonify(None)
-        if not _announcement_matches_context(doc, current_path):
+
+        matches = _announcement_matches_context(doc, current_path)
+        if not matches:
+            if admin_view:
+                return jsonify({
+                    'ok': True,
+                    'active': None,
+                    'reason': 'context_mismatch',
+                    'env_rule': str(doc.get('env') or 'all'),
+                    'env_seg': _runtime_env_segment(),
+                    'paths': list(doc.get('paths') or []),
+                    'current_path': current_path,
+                }), 200
             return jsonify(None)
-        return jsonify(_announcement_doc_to_json(doc))
+
+        payload = _announcement_doc_to_json(doc)
+        if admin_view:
+            payload_dbg = {
+                'ok': True,
+                'active': payload,
+                'env_rule': str(doc.get('env') or 'all'),
+                'env_seg': _runtime_env_segment(),
+                'paths': list(doc.get('paths') or []),
+                'current_path': current_path,
+            }
+            return jsonify(payload_dbg), 200
+        return jsonify(payload)
     except Exception:
         return jsonify(None)
 
@@ -5685,6 +5719,12 @@ def upload_file_web():
     user_id = session['user_id']
     error = None
     success = None
+    # החזקת ערכי טופס לשחזור במקרה של שגיאה ולרינדור ראשוני
+    file_name_value = ''
+    language_value = 'text'
+    description_value = ''
+    tags_value = ''
+    code_value = ''
     if request.method == 'POST':
         try:
             file_name = (request.form.get('file_name') or '').strip()
@@ -5694,16 +5734,38 @@ def upload_file_web():
             raw_tags = (request.form.get('tags') or '').strip()
             tags = [t.strip() for t in re.split(r'[,#\n]+', raw_tags) if t.strip()] if raw_tags else []
 
+            # שמור את הערכים שהוזנו לצורך שחזור בטופס
+            file_name_value = file_name
+            language_value = language or 'text'
+            description_value = description
+            tags_value = raw_tags
+            code_value = code
+
             # אם הועלה קובץ — נקרא ממנו ונשתמש בשמו אם אין שם קובץ בשדה
             try:
                 uploaded = request.files.get('code_file')
             except Exception:
                 uploaded = None
+            had_upload_too_large = False
             if uploaded and hasattr(uploaded, 'filename') and uploaded.filename:
                 # הגבלת גודל בסיסית (עד ~2MB)
                 data = uploaded.read()
-                if data and len(data) > 2 * 1024 * 1024:
+                max_bytes = 2 * 1024 * 1024
+                if data and len(data) > max_bytes:
+                    # שמור תצוגה מקוצרת כדי לא לאבד לגמרי את התוכן, אבל הצג שגיאה
+                    had_upload_too_large = True
                     error = 'קובץ גדול מדי (עד 2MB)'
+                    preview = data[: min(len(data), 256 * 1024)]  # תצוגה עד 256KB
+                    try:
+                        code_preview = preview.decode('utf-8', errors='replace')
+                    except Exception:
+                        try:
+                            code_preview = preview.decode('latin-1', errors='replace')
+                        except Exception:
+                            code_preview = ''
+                    code_value = code_preview
+                    if not file_name:
+                        file_name = uploaded.filename or ''
                 else:
                     try:
                         code = data.decode('utf-8')
@@ -5717,10 +5779,12 @@ def upload_file_web():
 
             # נרמול התוכן (בין אם הגיע מהטופס או מקובץ שהועלה)
             code = normalize_code(code)
+            if not had_upload_too_large:
+                code_value = code  # עדכן גם את ערך השחזור לאחר נרמול, אלא אם קובץ היה גדול מדי
 
             if not file_name:
                 error = 'יש להזין שם קובץ'
-            elif not code:
+            elif not code and not error:
                 error = 'יש להזין תוכן קוד'
             else:
                 # זיהוי שפה בסיסי אם לא סופק
@@ -5905,7 +5969,20 @@ def upload_file_web():
     # שליפת שפות קיימות להצעה
     languages = db.code_snippets.distinct('programming_language', {'user_id': user_id}) if db is not None else []
     languages = sorted([l for l in languages if l]) if languages else []
-    return render_template('upload.html', bot_username=BOT_USERNAME_CLEAN, user=session['user_data'], languages=languages, error=error, success=success)
+    return render_template(
+        'upload.html',
+        bot_username=BOT_USERNAME_CLEAN,
+        user=session['user_data'],
+        languages=languages,
+        error=error,
+        success=success,
+        # ערכי טופס לשחזור
+        file_name_value=file_name_value,
+        language_value=language_value,
+        description_value=description_value,
+        tags_value=tags_value,
+        code_value=code_value,
+    )
 
 @app.route('/api/favorite/toggle/<file_id>', methods=['POST'])
 @login_required
