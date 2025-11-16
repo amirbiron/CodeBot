@@ -105,6 +105,8 @@
             form.submit();
           } catch (_) {
             // במקרה של כשל בבדיקה – נמשיך לשליחה רגילה והשרת יטפל
+            try { form.dataset.skipConfirm = '1'; } catch (_) {}
+            try { form.submit(); } catch (_) {}
           }
         });
       }
