@@ -1807,19 +1807,6 @@
                 } catch (_) { /* ignore */ }
             }
 
-            // Gating flags apply רק להודעות "טיפ שבועי"; הכרזות אדמין פעילות עוקפות אותן
-            const htmlAttr = (document.documentElement.getAttribute('data-announcement') || '').toLowerCase();
-            const globalFlag = (typeof window.__announcementEnabled === 'boolean')
-                ? window.__announcementEnabled
-                : (typeof window.__weeklyTipEnabled === 'boolean' ? window.__weeklyTipEnabled : true);
-            const localKill = (() => {
-                try {
-                    return localStorage.getItem('announcementBannerOff') === '1'
-                        || localStorage.getItem('weeklyTipFeatureOff') === '1';
-                } catch (_) { return false; }
-            })();
-            const gatingBlocked = (!globalFlag || htmlAttr === 'off' || htmlAttr === '0' || localKill);
-
             const announcements = (Array.isArray(list) ? list : []).filter((item) => {
                 try { return item && typeof item === 'object' && String(item.text || '').trim().length > 0; } catch (_) { return false; }
             });
@@ -1838,8 +1825,21 @@
                 }
             } catch(_) {}
 
-            // אם נחסם ע"י gating אך קיימת הכרזה פעילה מה-API – עקוף את החסימה והצג בכל זאת
-            if (gatingBlocked && fetchedFromApi) {
+            // Gating flags apply רק לטיפ שבועי; כאן יש הכרזה פעילה, אז בברירת מחדל מתעלמים מדגלים
+            const htmlAttr = (document.documentElement.getAttribute('data-announcement') || '').toLowerCase();
+            const globalFlag = (typeof window.__announcementEnabled === 'boolean')
+                ? window.__announcementEnabled
+                : (typeof window.__weeklyTipEnabled === 'boolean' ? window.__weeklyTipEnabled : true);
+            const localKill = (() => {
+                try {
+                    return localStorage.getItem('announcementBannerOff') === '1'
+                        || localStorage.getItem('weeklyTipFeatureOff') === '1';
+                } catch (_) { return false; }
+            })();
+            const gatingBlocked = (!globalFlag || htmlAttr === 'off' || htmlAttr === '0' || localKill);
+
+            // אם נחסם ע"י gating אך קיימת הכרזה פעילה — עקוף את החסימה והצג בכל זאת
+            if (gatingBlocked && (fetchedFromApi || announcements.length > 0)) {
                 // ממשיכים להצגה בלי hide()
             } else if (gatingBlocked) {
                 hide();

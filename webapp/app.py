@@ -5746,11 +5746,26 @@ def upload_file_web():
                 uploaded = request.files.get('code_file')
             except Exception:
                 uploaded = None
+            had_upload_too_large = False
             if uploaded and hasattr(uploaded, 'filename') and uploaded.filename:
                 # הגבלת גודל בסיסית (עד ~2MB)
                 data = uploaded.read()
-                if data and len(data) > 2 * 1024 * 1024:
+                max_bytes = 2 * 1024 * 1024
+                if data and len(data) > max_bytes:
+                    # שמור תצוגה מקוצרת כדי לא לאבד לגמרי את התוכן, אבל הצג שגיאה
+                    had_upload_too_large = True
                     error = 'קובץ גדול מדי (עד 2MB)'
+                    preview = data[: min(len(data), 256 * 1024)]  # תצוגה עד 256KB
+                    try:
+                        code_preview = preview.decode('utf-8', errors='replace')
+                    except Exception:
+                        try:
+                            code_preview = preview.decode('latin-1', errors='replace')
+                        except Exception:
+                            code_preview = ''
+                    code_value = code_preview
+                    if not file_name:
+                        file_name = uploaded.filename or ''
                 else:
                     try:
                         code = data.decode('utf-8')
@@ -5764,11 +5779,12 @@ def upload_file_web():
 
             # נרמול התוכן (בין אם הגיע מהטופס או מקובץ שהועלה)
             code = normalize_code(code)
-            code_value = code  # עדכן גם את ערך השחזור לאחר נרמול
+            if not had_upload_too_large:
+                code_value = code  # עדכן גם את ערך השחזור לאחר נרמול, אלא אם קובץ היה גדול מדי
 
             if not file_name:
                 error = 'יש להזין שם קובץ'
-            elif not code:
+            elif not code and not error:
                 error = 'יש להזין תוכן קוד'
             else:
                 # זיהוי שפה בסיסי אם לא סופק
