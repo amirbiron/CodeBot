@@ -2086,7 +2086,7 @@ try { if (typeof window !== 'undefined') { window.attachColorSwatches = attachCo
     if (!container) return;
     // הימנע מקיפול כפול
     if (container.querySelector('details.md-section-collapse')) return;
-    const headers = Array.from(container.querySelectorAll('h2'));
+    const headers = Array.from(container.querySelectorAll('h3'));
     if (headers.length === 0) return;
     const state = loadState();
     headers.forEach((h2, idx) => {
@@ -2099,7 +2099,7 @@ try { if (typeof window !== 'undefined') { window.attachColorSwatches = attachCo
       summary.className = 'markdown-summary';
       // שמור הורה ונקודת הוצאה להחדרה חזרה במקום המקורי
       const parent = h2.parentNode;
-      const insertBeforeNode = h2.nextSibling; // על מה שנמצא מיד אחרי ה-H2
+      const insertBeforeNode = h2.nextSibling; // על מה שנמצא מיד אחרי ה-H3
       // אסוף את כל האחים עד הכותרת H2/H1 הבאה (לפני שמזיזים DOM)
       const toMove = [];
       {
@@ -2108,7 +2108,7 @@ try { if (typeof window !== 'undefined') { window.attachColorSwatches = attachCo
           const next = cursor.nextSibling;
           if (cursor.nodeType === 1) { // ELEMENT_NODE
             const tag = String(cursor.tagName || '').toLowerCase();
-            if (tag === 'h2' || tag === 'h1') break;
+            if (tag === 'h3' || tag === 'h2' || tag === 'h1') break;
           }
           toMove.push(cursor);
           cursor = next;
@@ -2129,7 +2129,7 @@ try { if (typeof window !== 'undefined') { window.attachColorSwatches = attachCo
       // העבר את האחים שאספנו לתוך ה-content של המקטע
       toMove.forEach(node => { try { content.appendChild(node); } catch(_) {} });
       // קבע פתיחה: לפי סטייט שמור, אחרת ברירת מחדל — הראשון פתוח, אחרים סגורים
-      const id = h2.id || ('h2_' + (idx+1));
+      const id = h2.id || ('h3_' + (idx+1));
       if (!h2.id) h2.id = id;
       const saved = Object.prototype.hasOwnProperty.call(state, id) ? !!state[id] : null;
       details.open = (saved === null) ? (idx === 0) : saved;
@@ -2149,7 +2149,7 @@ try { if (typeof window !== 'undefined') { window.attachColorSwatches = attachCo
     sections.forEach(details => {
       try {
         const summary = details.querySelector('summary');
-        const header = summary ? summary.querySelector('h2') : null;
+        const header = summary ? summary.querySelector('h3') : null;
         const content = details.querySelector('.md-section-content') || details.querySelector('.details-content');
         if (header) {
           details.parentNode.insertBefore(header, details);
