@@ -74,6 +74,7 @@ details > summary::-webkit-details-marker { display: none; }
 }
 .hljs-ln-code {
   width: auto;
+  padding-left: 0.85rem; /* keep breathing room between numbers and code */
 }
 .hljs-ln-code > .hljs-ln-line {
   white-space: pre-wrap;
