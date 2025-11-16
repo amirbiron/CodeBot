@@ -845,6 +845,18 @@ def inject_globals():
         primary_guide_url = f"/share/{WELCOME_GUIDE_PRIMARY_SHARE_ID}?view=md"
         secondary_guide_url = f"/share/{WELCOME_GUIDE_SECONDARY_SHARE_ID}?view=md"
 
+    # Bust static cache optionally per-request (for debugging/force-refresh)
+    try:
+        no_cache_param = (request.args.get('no_cache') or request.args.get('nc') or '').strip().lower()
+        force_bust = no_cache_param in ('1', 'true', 'yes')
+    except Exception:
+        force_bust = False
+
+    try:
+        static_ver = _STATIC_VERSION + ('.' + str(int(_time.time())) if force_bust else '')
+    except Exception:
+        static_ver = _STATIC_VERSION
+
     return {
         'bot_username': BOT_USERNAME_CLEAN,
         'ui_font_scale': font_scale,
@@ -853,7 +865,7 @@ def inject_globals():
         'announcement_enabled': WEEKLY_TIP_ENABLED,
         'weekly_tip_enabled': WEEKLY_TIP_ENABLED,
         # גרסה סטטית לצירוף לסטטיקה (cache-busting)
-        'static_version': _STATIC_VERSION,
+        'static_version': static_ver,
         # קישור לתיעוד (לשימוש בתבניות)
         'documentation_url': DOCUMENTATION_URL,
         # External uptime config for templates (non-sensitive only)
@@ -5372,12 +5384,19 @@ def md_preview(file_id):
         language = 'markdown'
     code = file.get('code') or ''
 
+    # כיבוי קאש יזום לפי פרמטר no_cache/nc
+    try:
+        _no_cache_param = (request.args.get('no_cache') or request.args.get('nc') or '').strip().lower()
+        force_no_cache = _no_cache_param in ('1', 'true', 'yes')
+    except Exception:
+        force_no_cache = False
+
     # --- HTTP cache validators (ETag / Last-Modified) ---
     etag = _compute_file_etag(file)
     last_modified_dt = _safe_dt_from_doc(file.get('updated_at') or file.get('created_at'))
     last_modified_str = http_date(last_modified_dt)
     inm = request.headers.get('If-None-Match')
-    if inm and inm == etag:
+    if not force_no_cache and inm and inm == etag:
         resp = Response(status=304)
         resp.headers['ETag'] = etag
         resp.headers['Last-Modified'] = last_modified_str
@@ -5388,7 +5407,7 @@ def md_preview(file_id):
             ims_dt = parse_date(ims)
         except Exception:
             ims_dt = None
-        if ims_dt is not None and last_modified_dt.replace(microsecond=0) <= ims_dt:
+        if not force_no_cache and ims_dt is not None and last_modified_dt.replace(microsecond=0) <= ims_dt:
             resp = Response(status=304)
             resp.headers['ETag'] = etag
             resp.headers['Last-Modified'] = last_modified_str
@@ -5397,7 +5416,7 @@ def md_preview(file_id):
     # --- Cache: תוצר ה-HTML של תצוגת Markdown (תבנית) ---
     should_cache = getattr(cache, 'is_enabled', False)
     md_cache_key = None
-    if should_cache:
+    if should_cache and not force_no_cache:
         try:
             # בתצוגה זו התוכן מגיע כתוכן גולמי ומעובד בצד לקוח; ה-HTML תלוי רק בפרמטרים הללו
             _params = {
@@ -5427,6 +5446,9 @@ def md_preview(file_id):
         'language': 'markdown',
     }
     # העבר את התוכן ללקוח בתור JSON כדי למנוע בעיות escaping
+    # בדיקת הרשאת אדמין כדי לאפשר פיצ'רים ייעודיים בצד לקוח (ללא שינוי תוכן)
+    user_is_admin = is_admin(user_id)
+
     html = render_template(
         'md_preview.html',
         user=session.get('user_data', {}),
@@ -5434,8 +5456,18 @@ def md_preview(file_id):
         md_code=code,
         bot_username=BOT_USERNAME_CLEAN,
         can_save_shared=False,
+        is_admin=user_is_admin,
     )
-    if should_cache and md_cache_key:
+    # אפשרות לעקיפת קאש לדף הזה לפי פרמטר no_cache/nc — לאחר הרנדר אך לפני אחסון בקאש
+    if force_no_cache:
+        resp = Response(html, mimetype='text/html; charset=utf-8')
+        resp.headers['ETag'] = etag
+        resp.headers['Last-Modified'] = last_modified_str
+        resp.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate'
+        resp.headers['Pragma'] = 'no-cache'
+        return resp
+
+    if should_cache and md_cache_key and not force_no_cache:
         try:
             cache.set_dynamic(
                 md_cache_key,

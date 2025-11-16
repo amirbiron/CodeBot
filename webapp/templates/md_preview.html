@@ -36,6 +36,35 @@
   color: #111111;
 }
 
+/* קיפול H3 (admin) – צבע רקע נעים לעיניים בהתאם לצבע הכללי */
+#md-content { --md-fold-bg: #f6f6f6; --md-fold-border: rgba(0,0,0,0.06); }
+#md-content.bg-light { --md-fold-bg: #fbf2e6; --md-fold-border: rgba(0,0,0,0.08); }
+#md-content.bg-medium { --md-fold-bg: #f2e2c8; --md-fold-border: rgba(0,0,0,0.09); }
+#md-content.bg-dark { --md-fold-bg: #e8d2b4; --md-fold-border: rgba(0,0,0,0.10); }
+
+#md-content details.md-section-collapse {
+  background: transparent;
+  border: 1px solid var(--md-fold-border);
+  border-radius: 10px;
+  margin: 0.5rem 0 0.75rem;
+}
+#md-content details.md-section-collapse > summary.markdown-summary {
+  cursor: pointer;
+  list-style: none;
+  padding: 0.55rem 0.8rem;
+  font-weight: 600;
+}
+#md-content details.md-section-collapse > summary.markdown-summary::-webkit-details-marker { display: none; }
+#md-content details.md-section-collapse[open] > summary.markdown-summary {
+  border-bottom: 1px solid var(--md-fold-border);
+}
+#md-content details.md-section-collapse > .md-section-content {
+  background: var(--md-fold-bg);
+  border-top: 1px solid var(--md-fold-border);
+  padding: 0.8rem 1rem;
+  border-radius: 0 0 10px 10px;
+}
+
 /* התאמת צבעי אלמנטים פנימיים לרקע החום */
 #md-content.bg-light code:not(pre code),
 #md-content.bg-medium code:not(pre code),
@@ -895,6 +924,12 @@ input.md-task-checkbox {
           </div>
         </div>
       </div>
+      {% if (is_admin|default(false)) and not (is_public|default(false)) %}
+      <button id="mdCollapseBtn" class="btn btn-secondary btn-icon" title="מצב מצומצם (קיפול ##)">
+        <i class="fas fa-compress-alt"></i>
+        מצב מצומצם
+      </button>
+      {% endif %}
       <button id="mdFullscreenBtn" class="btn btn-secondary btn-icon" title="מסך מלא">
         <i class="fas fa-expand"></i>
         מסך מלא
@@ -2049,6 +2084,146 @@ try { if (typeof window !== 'undefined') { window.attachColorSwatches = attachCo
     console.error('Markdown preview failed', e);
     const container = document.getElementById('md-content');
     container.innerHTML = '<div class="alert alert-error">שגיאה ברינדור Markdown</div>';
+  }
+})();
+
+// === מצב מצומצם (קיפול כותרות ##) — אדמין בלבד ===
+(function initAdminH2Folding(){
+  'use strict';
+  const isAdmin = Boolean({{ (is_admin|default(false))|tojson }});
+  const isPublic = Boolean({{ (is_public|default(false))|tojson }});
+  if (!isAdmin || isPublic) return;
+
+  const FILE_KEY = String({{ file.id|tojson }} || '');
+  const ENABLE_KEY = 'mdCollapseEnabled:' + FILE_KEY;
+  const STATE_KEY = 'mdCollapseState:' + FILE_KEY;
+
+  function lsGet(key, fallback){
+    try { const v = localStorage.getItem(key); return v == null ? fallback : v; } catch(_) { return fallback; }
+  }
+  function lsSet(key, val){ try { localStorage.setItem(key, val); } catch(_) {} }
+  function loadEnabled(){ return lsGet(ENABLE_KEY, '0') === '1'; }
+  function saveEnabled(on){ lsSet(ENABLE_KEY, on ? '1' : '0'); }
+
+  function loadState(){
+    try { return JSON.parse(localStorage.getItem(STATE_KEY) || '{}') || {}; } catch(_) { return {}; }
+  }
+  function saveState(state){ try { localStorage.setItem(STATE_KEY, JSON.stringify(state || {})); } catch(_) {} }
+
+  function applyFolding(){
+    const container = document.getElementById('md-content');
+    if (!container) return;
+    // הימנע מקיפול כפול
+    if (container.querySelector('details.md-section-collapse')) return;
+    const headers = Array.from(container.querySelectorAll('h3'));
+    if (headers.length === 0) return;
+    const state = loadState();
+    headers.forEach((h2, idx) => {
+      // דלג אם כבר טופל
+      if (h2.hasAttribute('data-collapsed-bound')) return;
+      h2.setAttribute('data-collapsed-bound','1');
+      const details = document.createElement('details');
+      details.className = 'markdown-details md-section-collapse';
+      const summary = document.createElement('summary');
+      summary.className = 'markdown-summary';
+      // שמור הורה ונקודת הוצאה להחדרה חזרה במקום המקורי
+      const parent = h2.parentNode;
+      const insertBeforeNode = h2.nextSibling; // על מה שנמצא מיד אחרי ה-H3
+      // אסוף את כל האחים עד הכותרת H2/H1 הבאה (לפני שמזיזים DOM)
+      const toMove = [];
+      {
+        let cursor = insertBeforeNode;
+        while (cursor) {
+          const next = cursor.nextSibling;
+          if (cursor.nodeType === 1) { // ELEMENT_NODE
+            const tag = String(cursor.tagName || '').toLowerCase();
+            if (tag === 'h3' || tag === 'h2' || tag === 'h1') break;
+          }
+          toMove.push(cursor);
+          cursor = next;
+        }
+      }
+      // העבר את הכותרת עצמה לתוך הסיכום
+      summary.appendChild(h2);
+      const content = document.createElement('div');
+      content.className = 'details-content md-section-content';
+      details.appendChild(summary);
+      details.appendChild(content);
+      // הזרק למיקום המקורי (לפני האיבר שאחריו עמד ה-H2 קודם)
+      if (parent) {
+        parent.insertBefore(details, insertBeforeNode);
+      } else {
+        container.appendChild(details);
+      }
+      // העבר את האחים שאספנו לתוך ה-content של המקטע
+      toMove.forEach(node => { try { content.appendChild(node); } catch(_) {} });
+      // קבע פתיחה: לפי סטייט שמור, אחרת ברירת מחדל — הראשון פתוח, אחרים סגורים
+      const id = h2.id || ('h3_' + (idx+1));
+      if (!h2.id) h2.id = id;
+      const saved = Object.prototype.hasOwnProperty.call(state, id) ? !!state[id] : null;
+      details.open = (saved === null) ? (idx === 0) : saved;
+      // עדכן מצב בכל שינוי
+      details.addEventListener('toggle', () => {
+        const s = loadState();
+        s[id] = details.open ? 1 : 0;
+        saveState(s);
+      });
+    });
+  }
+
+  function removeFolding(){
+    const container = document.getElementById('md-content');
+    if (!container) return;
+    const sections = Array.from(container.querySelectorAll('details.md-section-collapse'));
+    sections.forEach(details => {
+      try {
+        const summary = details.querySelector('summary');
+        const header = summary ? summary.querySelector('h3') : null;
+        const content = details.querySelector('.md-section-content') || details.querySelector('.details-content');
+        if (header) {
+          details.parentNode.insertBefore(header, details);
+          try { header.removeAttribute('data-collapsed-bound'); } catch(_) {}
+        }
+        if (content) {
+          while (content.firstChild) {
+            details.parentNode.insertBefore(content.firstChild, details);
+          }
+        }
+        details.remove();
+      } catch(_) {}
+    });
+  }
+
+  function updateButtonVisual(btn, on){
+    try {
+      btn.setAttribute('aria-pressed', on ? 'true' : 'false');
+      btn.innerHTML = on
+        ? '<i class="fas fa-compress-alt"></i> בטל מצב מצומצם'
+        : '<i class="fas fa-compress-alt"></i> מצב מצומצם';
+    } catch(_) {}
+  }
+
+  function bind(){
+    const btn = document.getElementById('mdCollapseBtn');
+    if (!btn) return;
+    let enabled = loadEnabled();
+    updateButtonVisual(btn, enabled);
+    const run = () => { enabled ? applyFolding() : removeFolding(); };
+    // הפעלה ראשונית אחרי רינדור ה-Markdown
+    document.addEventListener('md:rendered', () => { run(); });
+    btn.addEventListener('click', (e) => {
+      e.preventDefault();
+      enabled = !enabled;
+      saveEnabled(enabled);
+      updateButtonVisual(btn, enabled);
+      run();
+    });
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', bind);
+  } else {
+    bind();
   }
 })();
 
