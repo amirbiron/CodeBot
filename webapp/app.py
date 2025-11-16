@@ -5427,6 +5427,9 @@ def md_preview(file_id):
         'language': 'markdown',
     }
     # העבר את התוכן ללקוח בתור JSON כדי למנוע בעיות escaping
+    # בדיקת הרשאת אדמין כדי לאפשר פיצ'רים ייעודיים בצד לקוח (ללא שינוי תוכן)
+    user_is_admin = is_admin(user_id)
+
     html = render_template(
         'md_preview.html',
         user=session.get('user_data', {}),
@@ -5434,6 +5437,7 @@ def md_preview(file_id):
         md_code=code,
         bot_username=BOT_USERNAME_CLEAN,
         can_save_shared=False,
+        is_admin=user_is_admin,
     )
     if should_cache and md_cache_key:
         try:
