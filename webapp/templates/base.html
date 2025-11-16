@@ -972,7 +972,6 @@
         </div>
     </nav>
     
-{% if (_announcement_enabled is none or _announcement_enabled) %}
     <div class="container" aria-hidden="false">
         <div id="announcementBanner" class="announcement-banner" role="status" aria-label="הכרזת מערכת" tabindex="-1" title="הכרזה" style="display:none;" aria-hidden="true">
             <span class="announcement-banner__icon" aria-hidden="true">📣</span>
@@ -983,7 +982,6 @@
             </div>
         </div>
     </div>
-    {% endif %}
 
     <main class="main-content">
         <div class="container">
@@ -1795,6 +1793,7 @@
         try {
             // Try to fetch active announcement if none injected
             let list = Array.isArray(window.__announcements) ? window.__announcements : [];
+            let fetchedFromApi = false;
             if (!list.length) {
                 try {
                     const currentPath = (window.location && window.location.pathname) ? window.location.pathname : '/';
@@ -1805,11 +1804,13 @@
                             window.__announcementEnabled = true;
                             window.__announcements = [{ id: a.id, text: a.text, link: a.link || null }];
                             list = window.__announcements;
+                            fetchedFromApi = true;
                         }
                     }
                 } catch (_) { /* ignore */ }
             }
 
+            // Gating flags apply רק להודעות "טיפ שבועי"; הכרזות אדמין פעילות עוקפות אותן
             const htmlAttr = (document.documentElement.getAttribute('data-announcement') || '').toLowerCase();
             const globalFlag = (typeof window.__announcementEnabled === 'boolean')
                 ? window.__announcementEnabled
@@ -1820,15 +1821,33 @@
                         || localStorage.getItem('weeklyTipFeatureOff') === '1';
                 } catch (_) { return false; }
             })();
-            if (!globalFlag || htmlAttr === 'off' || htmlAttr === '0' || localKill) {
-                hide();
-                return;
-            }
+            const gatingBlocked = (!globalFlag || htmlAttr === 'off' || htmlAttr === '0' || localKill);
 
             const announcements = (Array.isArray(list) ? list : []).filter((item) => {
                 try { return item && typeof item === 'object' && String(item.text || '').trim().length > 0; } catch (_) { return false; }
             });
-            if (!announcements.length) { hide(); return; }
+            if (!announcements.length) {
+                hide();
+                return;
+            }
+
+            // אם זו הכרזת אדמין חדשה – אפס כיבוי מקומי כדי שתוצג שוב
+            try {
+                const activeId = String(announcements[0]?.id || '');
+                const lastId = localStorage.getItem('announcementLastId') || '';
+                if (activeId && activeId !== lastId) {
+                    try { localStorage.removeItem('announcementBannerOff'); } catch(_) {}
+                    try { localStorage.setItem('announcementLastId', activeId); } catch(_) {}
+                }
+            } catch(_) {}
+
+            // אם נחסם ע"י gating אך קיימת הכרזה פעילה מה-API – עקוף את החסימה והצג בכל זאת
+            if (gatingBlocked && fetchedFromApi) {
+                // ממשיכים להצגה בלי hide()
+            } else if (gatingBlocked) {
+                hide();
+                return;
+            }
 
             const activeAnnouncement = announcements[0];
             renderContent(activeAnnouncement);
