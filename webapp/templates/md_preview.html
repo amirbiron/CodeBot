@@ -63,6 +63,14 @@
   border-top: 1px solid var(--md-fold-border);
   padding: 0.8rem 1rem;
   border-radius: 0 0 10px 10px;
+  overflow: hidden;
+  max-height: 0; /* מצב סגור ברירת מחדל */
+  opacity: 0;
+  transition: max-height 240ms ease, opacity 180ms ease;
+}
+#md-content details.md-section-collapse[open] > .md-section-content { opacity: 1; }
+@media (prefers-reduced-motion: reduce) {
+  #md-content details.md-section-collapse > .md-section-content { transition: none !important; }
 }
 
 /* התאמת צבעי אלמנטים פנימיים לרקע החום */
