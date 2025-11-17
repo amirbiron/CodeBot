@@ -28,7 +28,8 @@ class ParsedSnippet:
 
 
 HEADER_RE = re.compile(r"^\s{0,3}#{2,4}\s+(.+?)\s*$")
-WHY_RE = re.compile(r"^\s*\*\*למה זה שימושי:\*\*\s*(.+?)\s*$")
+WHY_RE = re.compile(r"^\s*\*\*(?P<label>[^:]+):\*\*\s*(?P<text>.+?)\s*$")
+WHY_LABELS = {"למה זה שימושי", "מטרה"}
 FENCE_START_RE = re.compile(r"^```([a-zA-Z0-9_+-]*)\s*$")
 FENCE_END_RE = re.compile(r"^```\s*$")
 
@@ -130,9 +131,11 @@ def parse_markdown(markdown_text: str) -> List[ParsedSnippet]:
         # Why useful line
         m_why = WHY_RE.match(line)
         if m_why:
-            current_description = m_why.group(1).strip()
-            i += 1
-            continue
+            label = (m_why.group("label") or "").strip()
+            if label in WHY_LABELS:
+                current_description = (m_why.group("text") or "").strip()
+                i += 1
+                continue
 
         # Code fence start
         m_fence = FENCE_START_RE.match(line)
