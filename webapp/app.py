@@ -931,29 +931,12 @@ def get_pygments_style(theme_name: str) -> str:
     """
     theme = (theme_name or '').strip().lower()
     preferred = 'github'
-    dark_candidates = ('github-dark', 'monokai', 'native')
-    light_candidates = ('github', 'friendly', 'colorful')
-
     if theme in ('dark', 'dim'):
-        # רשימת עדיפויות עבור מצב כהה – נבחר את הראשונה הזמינה
-        for candidate in (*dark_candidates, 'default'):
-            if candidate == 'default' or _style_exists(candidate):
-                return candidate
-        return 'default'
+        preferred = 'github-dark'
+    elif theme == 'high-contrast':
+        preferred = 'monokai'
 
-    if theme == 'classic':
-        # ב-Classic נרצה טקסט בהיר על רקע כהה (כמו שהיה עד כה)
-        for candidate in ('github-dark', 'monokai', 'native', 'github', 'friendly', 'default'):
-            if candidate == 'default' or _style_exists(candidate):
-                return candidate
-
-    if theme == 'high-contrast':
-        # מונוקאי היא כהה וקונטרסטית יחסית
-        if _style_exists('monokai'):
-            return 'monokai'
-
-    # מצב קלאסי/בהיר – העדף ערכות בהירות
-    for candidate in (*light_candidates, 'default'):
+    for candidate in (preferred, 'monokai', 'friendly', 'default'):
         if candidate == 'default' or _style_exists(candidate):
             return candidate
 
@@ -4827,16 +4810,36 @@ def view_file(file_id):
             lexer = get_lexer_by_name('text')
     
     _theme = get_current_theme()
+    style_name = get_pygments_style(_theme)
     formatter = HtmlFormatter(
-        style=get_pygments_style(_theme),
+        style=style_name,
         linenos=True,
         cssclass='source',
         lineanchors='line',
         anchorlinenos=True
     )
-    
-    highlighted_code = highlight(code, lexer, formatter)
-    css = formatter.get_style_defs('.source')
+    try:
+        highlighted_code = highlight(code, lexer, formatter)
+        css = formatter.get_style_defs('.source')
+        # אם מסיבה כלשהי אין טקסט נראה, נבצע נפילה ל-noclasses
+        try:
+            import re as _re
+            text_only = _re.sub(r'<[^>]+>', '', highlighted_code or '').strip()
+            if not text_only:
+                raise ValueError('empty highlighted rendering')
+        except Exception:
+            # השתמש ב-noclasses: צבעים inline ללא צורך ב-CSS חיצוני
+            raise
+    except Exception:
+        formatter = HtmlFormatter(
+            noclasses=True,
+            linenos=True,
+            cssclass='source',
+            lineanchors='line',
+            anchorlinenos=True
+        )
+        highlighted_code = highlight(code, lexer, formatter)
+        css = ''
     
     file_data = {
         'id': str(file['_id']),
@@ -4938,14 +4941,32 @@ def file_preview(file_id):
             lexer = get_lexer_by_name('text')
 
     _theme = get_current_theme()
+    style_name = get_pygments_style(_theme)
     formatter = HtmlFormatter(
-        style=get_pygments_style(_theme),
+        style=style_name,
         linenos=False,
         cssclass='preview-highlight',
         nowrap=False,
     )
-    highlighted_html = highlight(preview_code, lexer, formatter)
-    css = formatter.get_style_defs('.preview-highlight')
+    try:
+        highlighted_html = highlight(preview_code, lexer, formatter)
+        css = formatter.get_style_defs('.preview-highlight')
+        try:
+            import re as _re
+            text_only = _re.sub(r'<[^>]+>', '', highlighted_html or '').strip()
+            if not text_only:
+                raise ValueError('empty highlighted preview')
+        except Exception:
+            raise
+    except Exception:
+        formatter = HtmlFormatter(
+            noclasses=True,
+            linenos=False,
+            cssclass='preview-highlight',
+            nowrap=False,
+        )
+        highlighted_html = highlight(preview_code, lexer, formatter)
+        css = ''
 
     return jsonify({
         'ok': True,
