@@ -924,7 +924,11 @@ def _style_exists(style: str) -> bool:
 
 @lru_cache(maxsize=32)
 def get_pygments_style(theme_name: str) -> str:
-    """מיפוי ערכת נושא ל־Pygments style עם נפילה חכמה ל-default."""
+    """מיפוי ערכת נושא ל־Pygments style עם נפילה חכמה ל-default.
+
+    הערה: במצב כהה נעדיף ערכות כהות זמינות כדי למנוע טקסט כהה על רקע כהה
+    במקרה שבו ערכות כמו github-dark אינן מותקנות בסביבת הריצה.
+    """
     theme = (theme_name or '').strip().lower()
     preferred = 'github'
     if theme in ('dark', 'dim'):
@@ -4806,16 +4810,32 @@ def view_file(file_id):
             lexer = get_lexer_by_name('text')
     
     _theme = get_current_theme()
+    style_name = get_pygments_style(_theme)
     formatter = HtmlFormatter(
-        style=get_pygments_style(_theme),
+        style=style_name,
         linenos=True,
         cssclass='source',
         lineanchors='line',
         anchorlinenos=True
     )
-    
-    highlighted_code = highlight(code, lexer, formatter)
-    css = formatter.get_style_defs('.source')
+    try:
+        highlighted_code = highlight(code, lexer, formatter)
+        css = formatter.get_style_defs('.source')
+        # אם מסיבה כלשהי אין טקסט נראה – נרים חריגה כדי להפעיל נפילת noclasses
+        import re as _re
+        text_only = _re.sub(r'<[^>]+>', '', highlighted_code or '').strip()
+        if not text_only:
+            raise ValueError('empty highlighted rendering')
+    except Exception:
+        formatter = HtmlFormatter(
+            noclasses=True,
+            linenos=True,
+            cssclass='source',
+            lineanchors='line',
+            anchorlinenos=True
+        )
+        highlighted_code = highlight(code, lexer, formatter)
+        css = ''
     
     file_data = {
         'id': str(file['_id']),
@@ -4917,14 +4937,29 @@ def file_preview(file_id):
             lexer = get_lexer_by_name('text')
 
     _theme = get_current_theme()
+    style_name = get_pygments_style(_theme)
     formatter = HtmlFormatter(
-        style=get_pygments_style(_theme),
+        style=style_name,
         linenos=False,
         cssclass='preview-highlight',
         nowrap=False,
     )
-    highlighted_html = highlight(preview_code, lexer, formatter)
-    css = formatter.get_style_defs('.preview-highlight')
+    try:
+        highlighted_html = highlight(preview_code, lexer, formatter)
+        css = formatter.get_style_defs('.preview-highlight')
+        import re as _re
+        text_only = _re.sub(r'<[^>]+>', '', highlighted_html or '').strip()
+        if not text_only:
+            raise ValueError('empty highlighted preview')
+    except Exception:
+        formatter = HtmlFormatter(
+            noclasses=True,
+            linenos=False,
+            cssclass='preview-highlight',
+            nowrap=False,
+        )
+        highlighted_html = highlight(preview_code, lexer, formatter)
+        css = ''
 
     return jsonify({
         'ok': True,
