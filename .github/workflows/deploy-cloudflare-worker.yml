@@ -58,12 +58,17 @@ jobs:
           WORKER_VAPID_PRIVATE_KEY: ${{ secrets.WORKER_VAPID_PRIVATE_KEY }}
           WORKER_VAPID_SUB_EMAIL: ${{ secrets.WORKER_VAPID_SUB_EMAIL }}
           PUSH_DELIVERY_TOKEN: ${{ secrets.PUSH_DELIVERY_TOKEN }}
+          FORWARD_URL: ${{ secrets.CF_FORWARD_URL }}
+          FORWARD_TOKEN: ${{ secrets.CF_FORWARD_TOKEN }}
         run: |
           set -euo pipefail
           printf "%s" "$WORKER_VAPID_PUBLIC_KEY"  | wrangler secret put WORKER_VAPID_PUBLIC_KEY
           printf "%s" "$WORKER_VAPID_PRIVATE_KEY" | wrangler secret put WORKER_VAPID_PRIVATE_KEY
           printf "%s" "$WORKER_VAPID_SUB_EMAIL"   | wrangler secret put WORKER_VAPID_SUB_EMAIL
           printf "%s" "$PUSH_DELIVERY_TOKEN"      | wrangler secret put PUSH_DELIVERY_TOKEN
+          # אופציונלי: פרוקסי ל-Node Worker אמיתי
+          if [ -n "${FORWARD_URL:-}" ]; then printf "%s" "$FORWARD_URL" | wrangler secret put FORWARD_URL; fi
+          if [ -n "${FORWARD_TOKEN:-}" ]; then printf "%s" "$FORWARD_TOKEN" | wrangler secret put FORWARD_TOKEN; fi
 
       - name: Final deploy (apply secrets)
         working-directory: worker
