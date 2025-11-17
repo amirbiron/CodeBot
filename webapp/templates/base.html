@@ -15,6 +15,21 @@
     <link rel="preconnect" href="https://esm.sh" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Heebo:wght@300;400;500;600;700&display=swap" rel="stylesheet">
 
+    <script>
+        // קביעה מוקדמת של data-theme כדי למנוע הבהוב לפני טעינת ה-CSS
+        (function() {
+            try {
+                var saved = localStorage.getItem('dark_mode_preference');
+                var html = document.documentElement;
+                if (saved === 'dark' || saved === 'dim') {
+                    html.setAttribute('data-theme', saved);
+                } else if (saved === 'auto' && window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) {
+                    html.setAttribute('data-theme', 'dark');
+                }
+            } catch (_) { /* ignore */ }
+        })();
+    </script>
+
     <!-- Icons -->
     <link rel="stylesheet"
           href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css"
@@ -56,6 +71,60 @@
             --secondary: #22543d;
         }
 
+        /* Theme palettes - Dark & Dim */
+        :root[data-theme="dark"] {
+            /* צבעי רקע - כהה ונוח לעיניים */
+            --bg-primary: #1a1a1a;
+            --bg-secondary: #252525;
+            --bg-tertiary: #2d2d2d;
+
+            /* צבעי טקסט - ניגודיות מאוזנת */
+            --text-primary: #e0e0e0;
+            --text-secondary: #b0b0b0;
+            --text-muted: #808080;
+
+            /* צבעי אקסנט - מותאמים למצב חשוך */
+            --primary: #7c8aff;
+            --primary-dark: #6b7aff;
+            --secondary: #9d7aff;
+
+            /* צבעי מערכת */
+            --success: #4ade80;
+            --danger: #f87171;
+            --warning: #fbbf24;
+            --info: #60a5fa;
+
+            /* Glass morphism - מותאם למצב חשוך */
+            --glass: rgba(255, 255, 255, 0.05);
+            --glass-border: rgba(255, 255, 255, 0.1);
+            --glass-hover: rgba(255, 255, 255, 0.08);
+
+            /* צבעי רקע לכרטיסים */
+            --card-bg: rgba(30, 30, 30, 0.8);
+            --card-border: rgba(255, 255, 255, 0.1);
+
+            /* צבעי קוד */
+            --code-bg: #1e1e1e;
+            --code-text: #d4d4d4;
+            --code-border: rgba(255, 255, 255, 0.1);
+        }
+
+        /* מצב Dim - ביניים */
+        :root[data-theme="dim"] {
+            --bg-primary: #2a2a2a;
+            --bg-secondary: #333333;
+            --bg-tertiary: #3a3a3a;
+            --text-primary: #d0d0d0;
+            --text-secondary: #a0a0a0;
+            --text-muted: #707070;
+            --primary: #7c8aff;
+            --secondary: #9d7aff;
+            --glass: rgba(255, 255, 255, 0.08);
+            --glass-border: rgba(255, 255, 255, 0.15);
+            --card-bg: rgba(40, 40, 40, 0.8);
+            --code-bg: #2a2a2a;
+        }
+
         * {
             margin: 0;
             padding: 0;
@@ -74,6 +143,13 @@
             font-size: calc(16px * var(--ui-font-scale, 1));
         }
 
+        /* עדכון body למצב חשוך/מעומעם */
+        :root[data-theme="dark"] body,
+        :root[data-theme="dim"] body {
+            background: linear-gradient(135deg, var(--bg-primary) 0%, var(--bg-secondary) 100%);
+            color: var(--text-primary);
+        }
+
         body::before {
             content: '';
             position: fixed;
@@ -89,6 +165,12 @@
             overflow: hidden;
             pointer-events: none;
             z-index: 0;
+        }
+
+        /* עדכון רקע הגל למצב חשוך/מעומעם */
+        :root[data-theme="dark"] body::before,
+        :root[data-theme="dim"] body::before {
+            background: url('data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1440 320"><path fill="%23000000" fill-opacity="0.1" d="M0,96L48,112C96,128,192,160,288,160C384,160,480,128,576,122.7C672,117,768,139,864,138.7C960,139,1056,117,1152,101.3C1248,85,1344,75,1392,69.3L1440,64L1440,320L1392,320C1344,320,1248,320,1152,320C1056,320,960,320,864,320C768,320,672,320,576,320C480,320,384,320,288,320C192,320,96,320,48,320L0,320Z"/></svg>') no-repeat bottom center;
         }
 
         /* מונע חריגת תוכן לרוחב שיוצרת גלילה אופקית */
@@ -868,6 +950,7 @@
     <link rel="stylesheet" href="{{ url_for('static', filename='css/markdown-enhanced.css') }}?v={{ static_version }}">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/global_search.css') }}?v={{ static_version }}">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/high-contrast.css') }}?v={{ static_version }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/dark-mode.css') }}?v={{ static_version }}">
 </head>
 <body>
     <script>
@@ -884,8 +967,11 @@
                     var scale = m.getAttribute('data-scale') || '1';
                     document.documentElement.style.setProperty('--ui-font-scale', String(scale));
                 }
-                // theme attribute on <html>
-                document.documentElement.setAttribute('data-theme', '{{ ui_theme }}');
+                // theme attribute on <html>: אל תדרוס אם נקבע מוקדם (no-flicker)
+                var htmlEl = document.documentElement;
+                if (!htmlEl.getAttribute('data-theme')) {
+                    htmlEl.setAttribute('data-theme', '{{ ui_theme }}');
+                }
 
                 // העדפת עורך מהשרת (אם קיימת) — כדי לאפשר ברירת מחדל Codemirror
                 // נשמר במשתנה גלובלי שה-JS של העורך יוכל לקרוא
@@ -1515,6 +1601,7 @@
         })();
     </script>
     <script src="{{ url_for('static', filename='js/global_search.js') }}?v={{ static_version }}" defer></script>
+    <script src="{{ url_for('static', filename='js/dark-mode.js') }}?v={{ static_version }}" defer></script>
     <script type="module" src="{{ url_for('static', filename='js/editor-manager.js') }}?v={{ static_version }}" defer></script>
     <script src="{{ url_for('static', filename='js/collections.js') }}?v={{ static_version }}" defer></script>
 <script>

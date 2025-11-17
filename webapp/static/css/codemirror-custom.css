@@ -20,3 +20,38 @@
 .cm-editor.cm-focused { outline: 2px solid rgba(100,100,255,0.5); }
 .cm-selectionBackground { background-color: rgba(100,100,255,0.3) !important; }
 @media (max-width: 768px){ .cm-editor { max-height: 50vh; font-size: 14px; } .editor-switcher { flex-direction: column; gap:.5rem; } }
+
+/* Dark Mode CodeMirror */
+[data-theme="dark"] .codemirror-container,
+[data-theme="dim"] .codemirror-container {
+  background: var(--code-bg);
+  border-color: var(--code-border);
+}
+
+[data-theme="dark"] .cm-editor,
+[data-theme="dim"] .cm-editor {
+  background: var(--code-bg);
+  color: var(--code-text);
+}
+
+[data-theme="dark"] .cm-gutters,
+[data-theme="dim"] .cm-gutters {
+  background: var(--bg-tertiary);
+  border-right-color: var(--code-border);
+  color: var(--text-muted);
+}
+
+[data-theme="dark"] .cm-activeLineGutter,
+[data-theme="dim"] .cm-activeLineGutter {
+  background: var(--glass-hover);
+}
+
+[data-theme="dark"] .cm-activeLine,
+[data-theme="dim"] .cm-activeLine {
+  background: var(--glass);
+}
+
+[data-theme="dark"] .cm-selectionBackground,
+[data-theme="dim"] .cm-selectionBackground {
+  background-color: rgba(124, 138, 255, 0.3) !important;
+}

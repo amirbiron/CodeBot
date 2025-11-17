@@ -1,0 +1,309 @@
+/* Dark Mode Styles - Comprehensive Theme Support */
+
+/* ============================================
+   Base Elements
+   ============================================ */
+
+[data-theme="dark"] .navbar,
+[data-theme="dim"] .navbar {
+    background: var(--glass);
+    backdrop-filter: blur(20px);
+    border-bottom: 1px solid var(--glass-border);
+}
+
+[data-theme="dark"] .glass-card,
+[data-theme="dim"] .glass-card {
+    background: var(--card-bg);
+    border: 1px solid var(--card-border);
+    color: var(--text-primary);
+}
+
+[data-theme="dark"] .glass-card:hover,
+[data-theme="dim"] .glass-card:hover {
+    background: var(--glass-hover);
+}
+
+/* ============================================
+   Typography
+   ============================================ */
+
+[data-theme="dark"] h1,
+[data-theme="dark"] h2,
+[data-theme="dark"] h3,
+[data-theme="dark"] h4,
+[data-theme="dark"] h5,
+[data-theme="dark"] h6,
+[data-theme="dim"] h1,
+[data-theme="dim"] h2,
+[data-theme="dim"] h3,
+[data-theme="dim"] h4,
+[data-theme="dim"] h5,
+[data-theme="dim"] h6 {
+    color: var(--text-primary);
+}
+
+[data-theme="dark"] p,
+[data-theme="dim"] p {
+    color: var(--text-secondary);
+}
+
+/* ============================================
+   Buttons
+   ============================================ */
+
+[data-theme="dark"] .btn-primary,
+[data-theme="dim"] .btn-primary {
+    background: var(--primary);
+    color: white;
+    border: 1px solid var(--primary-dark);
+}
+
+[data-theme="dark"] .btn-primary:hover,
+[data-theme="dim"] .btn-primary:hover {
+    background: var(--primary-dark);
+    transform: translateY(-2px);
+    box-shadow: 0 6px 20px rgba(124, 138, 255, 0.4);
+}
+
+[data-theme="dark"] .btn-secondary,
+[data-theme="dim"] .btn-secondary {
+    background: var(--glass);
+    color: var(--text-primary);
+    border: 1px solid var(--glass-border);
+}
+
+[data-theme="dark"] .btn-secondary:hover,
+[data-theme="dim"] .btn-secondary:hover {
+    background: var(--glass-hover);
+    border-color: var(--primary);
+}
+
+/* ============================================
+   Inputs & Forms
+   ============================================ */
+
+[data-theme="dark"] input,
+[data-theme="dark"] textarea,
+[data-theme="dark"] select,
+[data-theme="dim"] input,
+[data-theme="dim"] textarea,
+[data-theme="dim"] select {
+    background: var(--bg-tertiary);
+    color: var(--text-primary);
+    border: 1px solid var(--glass-border);
+}
+
+[data-theme="dark"] input:focus,
+[data-theme="dark"] textarea:focus,
+[data-theme="dark"] select:focus,
+[data-theme="dim"] input:focus,
+[data-theme="dim"] textarea:focus,
+[data-theme="dim"] select:focus {
+    outline: 2px solid var(--primary);
+    border-color: var(--primary);
+}
+
+[data-theme="dark"] input::placeholder,
+[data-theme="dark"] textarea::placeholder,
+[data-theme="dim"] input::placeholder,
+[data-theme="dim"] textarea::placeholder {
+    color: var(--text-muted);
+}
+
+/* ============================================
+   Code Blocks
+   ============================================ */
+
+[data-theme="dark"] .source,
+[data-theme="dim"] .source {
+    background: var(--code-bg) !important;
+    color: var(--code-text) !important;
+    border: 1px solid var(--code-border);
+}
+
+[data-theme="dark"] .highlighttable td.linenos,
+[data-theme="dim"] .highlighttable td.linenos {
+    background: var(--bg-tertiary);
+    color: var(--text-muted);
+    border-right: 1px solid var(--code-border);
+}
+
+/* ============================================
+   Alerts
+   ============================================ */
+
+[data-theme="dark"] .alert-success,
+[data-theme="dim"] .alert-success {
+    background: rgba(74, 222, 128, 0.15);
+    border: 1px solid rgba(74, 222, 128, 0.3);
+    color: var(--success);
+}
+
+[data-theme="dark"] .alert-error,
+[data-theme="dim"] .alert-error {
+    background: rgba(248, 113, 113, 0.15);
+    border: 1px solid rgba(248, 113, 113, 0.3);
+    color: var(--danger);
+}
+
+[data-theme="dark"] .alert-info,
+[data-theme="dim"] .alert-info {
+    background: rgba(96, 165, 250, 0.15);
+    border: 1px solid rgba(96, 165, 250, 0.3);
+    color: var(--info);
+}
+
+/* ============================================
+   Badges
+   ============================================ */
+
+[data-theme="dark"] .badge,
+[data-theme="dim"] .badge {
+    background: var(--glass);
+    border: 1px solid var(--glass-border);
+    color: var(--text-primary);
+}
+
+/* ============================================
+   Links
+   ============================================ */
+
+[data-theme="dark"] a,
+[data-theme="dim"] a {
+    color: var(--primary);
+}
+
+[data-theme="dark"] a:hover,
+[data-theme="dim"] a:hover {
+    color: var(--primary-dark);
+    opacity: 0.9;
+}
+
+/* ============================================
+   Quick Access Menu
+   ============================================ */
+
+[data-theme="dark"] .quick-access-dropdown,
+[data-theme="dim"] .quick-access-dropdown {
+    background: var(--card-bg);
+    border: 1px solid var(--card-border);
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+}
+
+[data-theme="dark"] .quick-access-item,
+[data-theme="dim"] .quick-access-item {
+    color: var(--text-primary);
+    border-color: var(--glass-border);
+}
+
+[data-theme="dark"] .quick-access-item:hover,
+[data-theme="dim"] .quick-access-item:hover {
+    background: var(--glass-hover);
+    color: var(--primary);
+}
+
+/* ============================================
+   Modals
+   ============================================ */
+
+[data-theme="dark"] .recent-files-modal .modal-content,
+[data-theme="dark"] .community-modal .modal-content,
+[data-theme="dim"] .recent-files-modal .modal-content,
+[data-theme="dim"] .community-modal .modal-content {
+    background: var(--card-bg);
+    color: var(--text-primary);
+    border: 1px solid var(--card-border);
+}
+
+[data-theme="dark"] .recent-files-modal .modal-header,
+[data-theme="dark"] .community-modal .modal-header,
+[data-theme="dim"] .recent-files-modal .modal-header,
+[data-theme="dim"] .community-modal .modal-header {
+    border-bottom-color: var(--glass-border);
+}
+
+/* ============================================
+   File Cards
+   ============================================ */
+
+[data-theme="dark"] .file-card,
+[data-theme="dim"] .file-card {
+    background: var(--card-bg);
+    border: 1px solid var(--card-border);
+}
+
+[data-theme="dark"] .file-card:hover,
+[data-theme="dim"] .file-card:hover {
+    background: var(--glass-hover);
+    transform: translateY(-2px);
+}
+
+/* ============================================
+   Search & Filters
+   ============================================ */
+
+[data-theme="dark"] .search-input,
+[data-theme="dark"] .filter-select,
+[data-theme="dim"] .search-input,
+[data-theme="dim"] .filter-select {
+    background: var(--bg-tertiary);
+    color: var(--text-primary);
+    border-color: var(--glass-border);
+}
+
+/* ============================================
+   Transitions - מעבר חלק
+   ============================================ */
+
+[data-theme="dark"] *,
+[data-theme="dim"] *,
+[data-theme="dark"] *::before,
+[data-theme="dim"] *::before,
+[data-theme="dark"] *::after,
+[data-theme="dim"] *::after {
+    transition: background-color 0.3s ease,
+                color 0.3s ease,
+                border-color 0.3s ease,
+                box-shadow 0.3s ease;
+}
+
+/* ============================================
+   Scrollbar
+   ============================================ */
+
+[data-theme="dark"] ::-webkit-scrollbar-track,
+[data-theme="dim"] ::-webkit-scrollbar-track {
+    background: var(--bg-primary);
+}
+
+[data-theme="dark"] ::-webkit-scrollbar-thumb,
+[data-theme="dim"] ::-webkit-scrollbar-thumb {
+    background: var(--glass-border);
+    border-radius: 5px;
+}
+
+[data-theme="dark"] ::-webkit-scrollbar-thumb:hover,
+[data-theme="dim"] ::-webkit-scrollbar-thumb:hover {
+    background: var(--text-muted);
+}
+
+/* ============================================
+   Selection
+   ============================================ */
+
+[data-theme="dark"] ::selection,
+[data-theme="dim"] ::selection {
+    background: rgba(124, 138, 255, 0.3);
+    color: var(--text-primary);
+}
+
+/* ============================================
+   Mobile Adjustments
+   ============================================ */
+
+@media (max-width: 768px) {
+    [data-theme="dark"] .glass-card,
+    [data-theme="dim"] .glass-card {
+        padding: 1rem;
+    }
+}

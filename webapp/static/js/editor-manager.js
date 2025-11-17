@@ -132,7 +132,10 @@
           const { EditorState, EditorView, basicSetup, Compartment, languageCompartment, themeCompartment } = window.CodeMirror6;
 
           const langSupport = await this.withTimeout(this.getLanguageSupport(language), 12000, 'codemirror_lang_load');
-          const themeExt = await this.withTimeout(this.getTheme(theme), 12000, 'codemirror_theme_load');
+          // זיהוי theme אפקטיבי מה-HTML (dark/dim => oneDark)
+          const htmlTheme = (typeof document !== 'undefined' && document.documentElement) ? document.documentElement.getAttribute('data-theme') : '';
+          const effectiveTheme = (htmlTheme === 'dark' || htmlTheme === 'dim') ? 'dark' : theme;
+          const themeExt = await this.withTimeout(this.getTheme(effectiveTheme), 12000, 'codemirror_theme_load');
 
           const debouncedSync = this.debounce((val) => {
             this.textarea.value = val;

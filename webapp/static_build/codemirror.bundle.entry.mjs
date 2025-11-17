@@ -65,7 +65,16 @@ function getLanguageSupport(name) {
 }
 
 function getTheme(name) {
-  if (String(name || '').toLowerCase() === 'dark') return oneDark || [];
+  const themeName = String(name || '').toLowerCase();
+  if (themeName === 'dark' || themeName === 'dim') {
+    return oneDark || [];
+  }
+  if (typeof document !== 'undefined') {
+    const htmlTheme = document.documentElement.getAttribute('data-theme');
+    if (htmlTheme === 'dark' || htmlTheme === 'dim') {
+      return oneDark || [];
+    }
+  }
   return [];
 }
 
