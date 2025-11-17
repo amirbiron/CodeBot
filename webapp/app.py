@@ -941,6 +941,12 @@ def get_pygments_style(theme_name: str) -> str:
                 return candidate
         return 'default'
 
+    if theme == 'classic':
+        # ב-Classic נרצה טקסט בהיר על רקע כהה (כמו שהיה עד כה)
+        for candidate in ('github-dark', 'monokai', 'native', 'github', 'friendly', 'default'):
+            if candidate == 'default' or _style_exists(candidate):
+                return candidate
+
     if theme == 'high-contrast':
         # מונוקאי היא כהה וקונטרסטית יחסית
         if _style_exists('monokai'):
