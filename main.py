@@ -1148,6 +1148,11 @@ class CodeKeeperBot:
                         # Fallback שקט: אין polling אמיתי; מאפשר start ללא קריסה
                         return None
                 self.application = _MiniApp()
+        # משתני עזר עבור שער תחזוקה (TTL יופעל בסוף setup_handlers)
+        self._maintenance_gate_pending = False
+        self._maintenance_warmup_secs = None
+        self._maintenance_clear_handlers_cb = None
+
         # התקנת מתאם קורלציה לפני רישום שאר ה-handlers
         try:
             self._install_correlation_layer()
@@ -1221,6 +1226,7 @@ class CodeKeeperBot:
         )
 
         self.setup_handlers()
+        self._activate_maintenance_warmup_if_pending()
         self.advanced_handlers = AdvancedBotHandlers(self.application)
         # רישום קטגוריית "⭐ מועדפים" לתפריט "📚 הקבצים"
         try:
@@ -1516,6 +1522,35 @@ class CodeKeeperBot:
 
         setattr(app, "process_update", _process_update_with_span)
     
+    def _activate_maintenance_warmup_if_pending(self) -> None:
+        """מתזמן את חלון ה-warmup רק אחרי שכל ה-handlers הוגדרו."""
+        if not getattr(self, "_maintenance_gate_pending", False):
+            return
+
+        try:
+            warmup_secs = int(
+                self._maintenance_warmup_secs
+                if self._maintenance_warmup_secs is not None
+                else getattr(config, "MAINTENANCE_AUTO_WARMUP_SECS", 30)
+            )
+        except Exception:
+            warmup_secs = 30
+        warmup_secs = max(1, warmup_secs)
+
+        try:
+            self._maintenance_active_until_ts = time.time() + warmup_secs
+        except Exception:
+            self._maintenance_active_until_ts = time.time() + 30
+
+        cb = getattr(self, "_maintenance_clear_handlers_cb", None)
+        if cb is not None:
+            try:
+                self.application.job_queue.run_once(cb, when=warmup_secs, name="maintenance_clear_handlers")
+            except Exception:
+                pass
+
+        self._maintenance_gate_pending = False
+    
     def setup_handlers(self):
         """הגדרת כל ה-handlers של הבוט בסדר הנכון"""
 
@@ -1553,11 +1588,15 @@ class CodeKeeperBot:
 
         if maintenance_flag:
             # הגדרת חלון זמן פנימי שבו הודעת תחזוקה פעילה, כך שגם אם מחיקת ה-handlers לא תתבצע
-            # ההודעה תיכבה אוטומטית לאחר ה-warmup.
+            # ההודעה תיכבה אוטומטית לאחר ה-warmup. החישוב בפועל נדחה לסוף setup_handlers כדי
+            # למנוע קיצור מלאכותי של החלון בזמן רישום ה-handlers.
             try:
-                self._maintenance_active_until_ts = time.time() + max(1, int(getattr(config, 'MAINTENANCE_AUTO_WARMUP_SECS', 30)))
+                warmup_secs = max(1, int(getattr(config, 'MAINTENANCE_AUTO_WARMUP_SECS', 30)))
             except Exception:
-                self._maintenance_active_until_ts = time.time() + 30
+                warmup_secs = 30
+            self._maintenance_warmup_secs = warmup_secs
+            self._maintenance_active_until_ts = None
+            self._maintenance_gate_pending = True
 
             async def maintenance_reply(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 # אם חלון ה-warmup הסתיים, אל תשלח הודעת תחזוקה
@@ -1625,26 +1664,22 @@ class CodeKeeperBot:
             logger.warning("MAINTENANCE_MODE is ON — all updates will receive maintenance message")
             # אל תחסום לגמרי: לאחר warmup אוטומטי, הסר תחזוקה (ללא Redeploy)
             # Schedule removing maintenance handlers via JobQueue instead of create_task
-            try:
-                warmup_secs = max(1, int(config.MAINTENANCE_AUTO_WARMUP_SECS))
-                async def _clear_handlers_cb(context: ContextTypes.DEFAULT_TYPE):
+            async def _clear_handlers_cb(context: ContextTypes.DEFAULT_TYPE):
+                try:
+                    app = self.application
+                    if getattr(self, "_maintenance_message_handler", None) is not None:
+                        app.remove_handler(self._maintenance_message_handler, group=-100)
+                    if getattr(self, "_maintenance_callback_handler", None) is not None:
+                        app.remove_handler(self._maintenance_callback_handler, group=-100)
+                    # נטרל מיידית את החלון הפעיל כדי למנוע שליחת הודעות תחזוקה מיותרות
                     try:
-                        app = self.application
-                        if getattr(self, "_maintenance_message_handler", None) is not None:
-                            app.remove_handler(self._maintenance_message_handler, group=-100)
-                        if getattr(self, "_maintenance_callback_handler", None) is not None:
-                            app.remove_handler(self._maintenance_callback_handler, group=-100)
-                        # נטרל מיידית את החלון הפעיל כדי למנוע שליחת הודעות תחזוקה מיותרות
-                        try:
-                            self._maintenance_active_until_ts = 0
-                        except Exception:
-                            pass
-                        logger.warning("MAINTENANCE_MODE auto-warmup window elapsed; resuming normal operation")
+                        self._maintenance_active_until_ts = 0
                     except Exception:
                         pass
-                self.application.job_queue.run_once(_clear_handlers_cb, when=warmup_secs, name="maintenance_clear_handlers")
-            except Exception:
-                pass
+                    logger.warning("MAINTENANCE_MODE auto-warmup window elapsed; resuming normal operation")
+                except Exception:
+                    pass
+            self._maintenance_clear_handlers_cb = _clear_handlers_cb
             # ממשיכים לרשום את שאר ה-handlers כדי שיקלטו אוטומטית אחרי ה-warmup
 
         # ספור את ה-handlers
