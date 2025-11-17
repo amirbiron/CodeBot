@@ -36,15 +36,51 @@ export default {
     // אנונימיזציה של endpoint ללוגים בלבד
     const endpointHash = await hashEndpoint(subscription?.endpoint || "");
 
-    // TODO: מימוש שליחה אמיתית (web-push) יתווסף בהמשך.
-    // כרגע מחזיר הצלחה כדי לאפשר אינטגרציה ראשונית.
-    // שים לב: אין לוג של subscription.keys.
-    console.log(JSON.stringify({
-      event: "push_send_stub",
-      provider: "cloudflare_worker",
-      endpoint_hash: endpointHash,
-    }));
+    // אם הוגדר יעד פרוקסי (Node Worker אמיתי) – נבצע שליחה דרך fetch
+    const base = (env.FORWARD_URL || "").trim().replace(/\/$/, "");
+    if (base) {
+      const forwardUrl = `${base}/send`;
+      const controller = new AbortController();
+      const timeoutMs = Number(env.FORWARD_TIMEOUT_MS || 3000);
+      const t = setTimeout(() => controller.abort("timeout"), Math.max(500, timeoutMs));
+      try {
+        const authHeader = env.FORWARD_TOKEN
+          ? `Bearer ${env.FORWARD_TOKEN}`
+          : (env.PUSH_DELIVERY_TOKEN ? `Bearer ${env.PUSH_DELIVERY_TOKEN}` : "");
+        const resp = await fetch(forwardUrl, {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+            ...(authHeader ? { authorization: authHeader } : {}),
+            // שמירת Idempotency אם נשלח מהשרת
+            "X-Idempotency-Key": request.headers.get("X-Idempotency-Key") || "",
+          },
+          body: JSON.stringify({ subscription, payload, options }),
+          signal: controller.signal,
+        });
+        clearTimeout(t);
 
+        const status = resp.status;
+        // Worker ה-Node מחזיר 200 עם ok:true/false למצבים ידועים; 5xx לשגיאות פנימיות
+        if (status >= 500) {
+          console.error("proxy_worker_5xx", { endpoint_hash: endpointHash, status });
+          return json({ ok: false, error: "worker_5xx", status }, 502);
+        }
+        let bodyJson = {};
+        try { bodyJson = await resp.json(); } catch (_) { bodyJson = {}; }
+        if (typeof bodyJson === "object" && bodyJson && ("ok" in bodyJson)) {
+          // החזר ישיר לשימור הסכמה
+          return json(bodyJson, 200);
+        }
+        return json({ ok: false, error: "invalid_worker_response", status }, 200);
+      } catch (e) {
+        console.error("proxy_worker_error", { endpoint_hash: endpointHash, msg: String(e && e.message || e) });
+        return json({ ok: false, error: "worker_timeout", status: 0 }, 200);
+      }
+    }
+
+    // Fallback: מצב Stub (ללא שליחה אמיתית)
+    console.log(JSON.stringify({ event: "push_send_stub", provider: "cloudflare_worker", endpoint_hash: endpointHash }));
     return json({ ok: true });
   },
 };
