@@ -271,9 +271,13 @@
       addPageButton(totalPages);
     }
 
-    pager.appendChild(makeBtn('⬅️ קודם', currentPage - 1, currentPage <= 1, 'לעמוד הקודם'));
+    if (currentPage > 1) {
+      pager.appendChild(makeBtn('⬅️ קודם', currentPage - 1, false, 'לעמוד הקודם'));
+    }
     pager.appendChild(numbersWrapper);
-    pager.appendChild(makeBtn('הבא ➡️', currentPage + 1, currentPage >= totalPages, 'לעמוד הבא'));
+    if (currentPage < totalPages) {
+      pager.appendChild(makeBtn('הבא ➡️', currentPage + 1, false, 'לעמוד הבא'));
+    }
     pager.appendChild(info);
   }
 
