@@ -881,7 +881,44 @@ def inject_globals():
         'welcome_secondary_guide_url': secondary_guide_url,
     }
 
- 
+    
+# --- Theme helpers (single source of truth) ---
+ALLOWED_UI_THEMES = {'classic', 'ocean', 'forest', 'high-contrast', 'dark', 'dim'}
+
+def get_current_theme() -> str:
+    """קובע את ערכת הנושא הנוכחית לפי cookie ו/או העדפות משתמש (DB).
+    נופל חזרה ל-classic אם הערך לא חוקי.
+    """
+    t = 'classic'
+    try:
+        cookie_theme = (request.cookies.get('ui_theme') or '').strip().lower()
+        if cookie_theme:
+            t = cookie_theme
+        uid = session.get('user_id')
+        if uid:
+            try:
+                dbref = get_db()
+                udoc = dbref.users.find_one({'user_id': uid}) or {}
+                pref = ((udoc.get('ui_prefs') or {}).get('theme') or '').strip().lower()
+                if pref:
+                    t = pref
+            except Exception:
+                pass
+    except Exception:
+        pass
+    if t not in ALLOWED_UI_THEMES:
+        t = 'classic'
+    return t
+
+def get_pygments_style(theme_name: str) -> str:
+    """מיפוי ערכת נושא ל־Pygments style.
+    dark/dim ⇒ github-dark, high-contrast ⇒ monokai, אחרת ⇒ github
+    """
+    if theme_name in ('dark', 'dim'):
+        return 'github-dark'
+    if theme_name == 'high-contrast':
+        return 'monokai'
+    return 'github'
 
 
 def get_db():
@@ -4750,40 +4787,6 @@ def view_file(file_id):
         except ClassNotFound:
             lexer = get_lexer_by_name('text')
     
-    def get_current_theme() -> str:
-        """החזרת ערכת הנושא הנוכחית על בסיס cookie ו/או העדפות משתמש."""
-        t = 'classic'
-        try:
-            cookie_theme = (request.cookies.get('ui_theme') or '').strip().lower()
-            if cookie_theme:
-                t = cookie_theme
-            try:
-                uid = session.get('user_id')
-                if uid:
-                    try:
-                        dbref = get_db()
-                        udoc = dbref.users.find_one({'user_id': uid}) or {}
-                        pref = ((udoc.get('ui_prefs') or {}).get('theme') or '').strip().lower()
-                        if pref:
-                            t = pref
-                    except Exception:
-                        pass
-            except Exception:
-                pass
-        except Exception:
-            pass
-        if t not in {'classic','ocean','forest','high-contrast','dark','dim'}:
-            t = 'classic'
-        return t
-
-    def get_pygments_style(theme_name: str) -> str:
-        """החזר Pygments style בהתאם ל-theme (כולל דרישות high-contrast)."""
-        if theme_name in ('dark', 'dim'):
-            return 'github-dark'
-        if theme_name == 'high-contrast':
-            return 'monokai'
-        return 'github'
-
     _theme = get_current_theme()
     formatter = HtmlFormatter(
         style=get_pygments_style(_theme),
@@ -4894,38 +4897,6 @@ def file_preview(file_id):
             lexer = guess_lexer(preview_code)
         except ClassNotFound:
             lexer = get_lexer_by_name('text')
-
-    def get_current_theme() -> str:
-        t = 'classic'
-        try:
-            cookie_theme = (request.cookies.get('ui_theme') or '').strip().lower()
-            if cookie_theme:
-                t = cookie_theme
-            try:
-                uid = session.get('user_id')
-                if uid:
-                    try:
-                        dbref = get_db()
-                        udoc = dbref.users.find_one({'user_id': uid}) or {}
-                        pref = ((udoc.get('ui_prefs') or {}).get('theme') or '').strip().lower()
-                        if pref:
-                            t = pref
-                    except Exception:
-                        pass
-            except Exception:
-                pass
-        except Exception:
-            pass
-        if t not in {'classic','ocean','forest','high-contrast','dark','dim'}:
-            t = 'classic'
-        return t
-
-    def get_pygments_style(theme_name: str) -> str:
-        if theme_name in ('dark', 'dim'):
-            return 'github-dark'
-        if theme_name == 'high-contrast':
-            return 'monokai'
-        return 'github'
 
     _theme = get_current_theme()
     formatter = HtmlFormatter(
@@ -7113,25 +7084,6 @@ def public_share(share_id):
         except Exception:
             from pygments.lexers import TextLexer
             lexer = TextLexer()
-    def get_current_theme() -> str:
-        t = 'classic'
-        try:
-            cookie_theme = (request.cookies.get('ui_theme') or '').strip().lower()
-            if cookie_theme:
-                t = cookie_theme
-        except Exception:
-            pass
-        if t not in {'classic','ocean','forest','high-contrast','dark','dim'}:
-            t = 'classic'
-        return t
-
-    def get_pygments_style(theme_name: str) -> str:
-        if theme_name in ('dark', 'dim'):
-            return 'github-dark'
-        if theme_name == 'high-contrast':
-            return 'monokai'
-        return 'github'
-
     _theme = get_current_theme()
     formatter = HtmlFormatter(style=get_pygments_style(_theme), linenos=True, cssclass='source', lineanchors='line', anchorlinenos=True)
     highlighted_code = highlight(code, lexer, formatter)

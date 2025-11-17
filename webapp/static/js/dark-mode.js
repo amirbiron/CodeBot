@@ -25,7 +25,7 @@
         } catch (e) {
             console.warn('Failed to load dark mode preference:', e);
         }
-        return 'auto';
+        return null;
     }
 
     function savePreference(mode) {
@@ -46,13 +46,25 @@
         }
     }
 
+    let __systemMediaQuery = null;
+    let __systemListenerAttached = false;
     function updateTheme() {
         const preference = loadPreference();
+        if (!preference) {
+            // אין העדפה שמורה — נכבד את ערך השרת/HTML
+            return;
+        }
         if (preference === 'auto') {
             applyTheme('auto');
             if (window.matchMedia) {
-                const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
-                try { mediaQuery.addEventListener('change', () => applyTheme('auto')); } catch(_) {}
+                if (!__systemMediaQuery) {
+                    __systemMediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
+                }
+                if (!__systemListenerAttached && __systemMediaQuery) {
+                    const handler = () => applyTheme('auto');
+                    try { __systemMediaQuery.addEventListener('change', handler); } catch(_) {}
+                    __systemListenerAttached = true;
+                }
             }
         } else {
             applyTheme(preference);
@@ -70,7 +82,7 @@
             default: next = 'auto'; break;
         }
         savePreference(next);
-        updateTheme();
+        if (loadPreference()) { updateTheme(); }
         updateToggleButton(next);
         syncToServer(next);
     }
@@ -106,11 +118,11 @@
     }
 
     function init() {
-        updateTheme();
+        if (loadPreference()) { updateTheme(); }
         const toggleBtn = document.getElementById('darkModeToggle');
         if (toggleBtn) {
             toggleBtn.addEventListener('click', toggleDarkMode);
-            const current = loadPreference();
+            const current = loadPreference() || (document.documentElement.getAttribute('data-theme') || 'classic');
             updateToggleButton(current);
         }
         const themeSelect = document.getElementById('themeSelect');
