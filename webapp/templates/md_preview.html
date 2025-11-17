@@ -20,6 +20,26 @@
   transition: background-color 0.3s ease, color 0.3s ease;
 }
 
+/* Dark/Dim theme support */
+[data-theme="dark"] #md-content,
+[data-theme="dim"] #md-content {
+  background: var(--bg-primary);
+  color: var(--text-primary);
+}
+
+[data-theme="dark"] #md-content code:not(pre code),
+[data-theme="dim"] #md-content code:not(pre code) {
+  background: var(--bg-tertiary);
+  color: var(--code-text);
+  border: 1px solid var(--code-border);
+}
+
+[data-theme="dark"] #md-content pre,
+[data-theme="dim"] #md-content pre {
+  background: var(--code-bg);
+  border: 1px solid var(--code-border);
+}
+
 /* צבעי רקע חומים לתצוגת מארקדאון — גוונים בהירים ונעימים */
 #md-content.bg-light {
   background: #f7eadb; /* מעט בהיר יותר */
