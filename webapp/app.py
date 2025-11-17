@@ -4821,15 +4821,11 @@ def view_file(file_id):
     try:
         highlighted_code = highlight(code, lexer, formatter)
         css = formatter.get_style_defs('.source')
-        # אם מסיבה כלשהי אין טקסט נראה, נבצע נפילה ל-noclasses
-        try:
-            import re as _re
-            text_only = _re.sub(r'<[^>]+>', '', highlighted_code or '').strip()
-            if not text_only:
-                raise ValueError('empty highlighted rendering')
-        except Exception:
-            # השתמש ב-noclasses: צבעים inline ללא צורך ב-CSS חיצוני
-            raise
+        # אם מסיבה כלשהי אין טקסט נראה – נרים חריגה כדי להפעיל נפילת noclasses
+        import re as _re
+        text_only = _re.sub(r'<[^>]+>', '', highlighted_code or '').strip()
+        if not text_only:
+            raise ValueError('empty highlighted rendering')
     except Exception:
         formatter = HtmlFormatter(
             noclasses=True,
@@ -4951,13 +4947,10 @@ def file_preview(file_id):
     try:
         highlighted_html = highlight(preview_code, lexer, formatter)
         css = formatter.get_style_defs('.preview-highlight')
-        try:
-            import re as _re
-            text_only = _re.sub(r'<[^>]+>', '', highlighted_html or '').strip()
-            if not text_only:
-                raise ValueError('empty highlighted preview')
-        except Exception:
-            raise
+        import re as _re
+        text_only = _re.sub(r'<[^>]+>', '', highlighted_html or '').strip()
+        if not text_only:
+            raise ValueError('empty highlighted preview')
     except Exception:
         formatter = HtmlFormatter(
             noclasses=True,
