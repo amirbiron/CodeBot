@@ -2,6 +2,8 @@ name: Deploy Cloudflare Worker
 
 on:
   push:
+    branches:
+      - main
     paths:
       - "worker/**"
       - ".github/workflows/deploy-cloudflare-worker.yml"
@@ -9,6 +11,10 @@ on:
 
 jobs:
   deploy:
+    # הימנע מריצות כפולות; שמור רק את האחרונה
+    concurrency:
+      group: cloudflare-worker-${{ github.ref }}
+      cancel-in-progress: true
     runs-on: ubuntu-latest
     permissions:
       contents: read
