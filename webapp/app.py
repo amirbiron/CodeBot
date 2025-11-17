@@ -924,15 +924,30 @@ def _style_exists(style: str) -> bool:
 
 @lru_cache(maxsize=32)
 def get_pygments_style(theme_name: str) -> str:
-    """מיפוי ערכת נושא ל־Pygments style עם נפילה חכמה ל-default."""
+    """מיפוי ערכת נושא ל־Pygments style עם נפילה חכמה ל-default.
+
+    הערה: במצב כהה נעדיף ערכות כהות זמינות כדי למנוע טקסט כהה על רקע כהה
+    במקרה שבו ערכות כמו github-dark אינן מותקנות בסביבת הריצה.
+    """
     theme = (theme_name or '').strip().lower()
     preferred = 'github'
-    if theme in ('dark', 'dim'):
-        preferred = 'github-dark'
-    elif theme == 'high-contrast':
-        preferred = 'monokai'
+    dark_candidates = ('github-dark', 'monokai', 'native')
+    light_candidates = ('github', 'friendly', 'colorful')
 
-    for candidate in (preferred, 'monokai', 'friendly', 'default'):
+    if theme in ('dark', 'dim'):
+        # רשימת עדיפויות עבור מצב כהה – נבחר את הראשונה הזמינה
+        for candidate in (*dark_candidates, 'default'):
+            if candidate == 'default' or _style_exists(candidate):
+                return candidate
+        return 'default'
+
+    if theme == 'high-contrast':
+        # מונוקאי היא כהה וקונטרסטית יחסית
+        if _style_exists('monokai'):
+            return 'monokai'
+
+    # מצב קלאסי/בהיר – העדף ערכות בהירות
+    for candidate in (*light_candidates, 'default'):
         if candidate == 'default' or _style_exists(candidate):
             return candidate
 
