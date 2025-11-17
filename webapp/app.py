@@ -11,7 +11,7 @@ import hmac
 import json
 import time
 from datetime import datetime, timezone
-from functools import wraps
+from functools import wraps, lru_cache
 from typing import Optional, Dict, Any, List
 
 from flask import Flask, render_template, jsonify, request, session, redirect, url_for, send_file, abort, Response, g
@@ -27,6 +27,7 @@ from pygments import highlight
 from pygments.lexers import get_lexer_by_name, guess_lexer
 from pygments.util import ClassNotFound
 from pygments.formatters import HtmlFormatter
+from pygments.styles import get_style_by_name
 from bson import ObjectId
 from bson.errors import InvalidId
 from datetime import timedelta
@@ -910,15 +911,32 @@ def get_current_theme() -> str:
         t = 'classic'
     return t
 
+@lru_cache(maxsize=32)
+def _style_exists(style: str) -> bool:
+    """בודק אם style של Pygments זמין בהתקנה הנוכחית."""
+    if not style:
+        return False
+    try:
+        get_style_by_name(style)
+        return True
+    except ClassNotFound:
+        return False
+
+@lru_cache(maxsize=32)
 def get_pygments_style(theme_name: str) -> str:
-    """מיפוי ערכת נושא ל־Pygments style.
-    dark/dim ⇒ github-dark, high-contrast ⇒ monokai, אחרת ⇒ github
-    """
-    if theme_name in ('dark', 'dim'):
-        return 'github-dark'
-    if theme_name == 'high-contrast':
-        return 'monokai'
-    return 'github'
+    """מיפוי ערכת נושא ל־Pygments style עם נפילה חכמה ל-default."""
+    theme = (theme_name or '').strip().lower()
+    preferred = 'github'
+    if theme in ('dark', 'dim'):
+        preferred = 'github-dark'
+    elif theme == 'high-contrast':
+        preferred = 'monokai'
+
+    for candidate in (preferred, 'monokai', 'friendly', 'default'):
+        if candidate == 'default' or _style_exists(candidate):
+            return candidate
+
+    return 'default'
 
 
 def get_db():
