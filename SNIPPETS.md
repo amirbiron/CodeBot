@@ -1611,7 +1611,7 @@ class TestBookmarks(unittest.TestCase):
 - ✅ **Testing**: fixtures, parametrization, async, mocking
 
 כל סניפט כולל:
-- **הסבר למה זה שימושי**
+- **הסבר למה זה שימושי / מטרה**
 - **מיקום מדויק בקוד** (file:lines)
 - **קוד עובד** שניתן להעתיק ישירות
 - **הערות ודוגמאות שימוש**

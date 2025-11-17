@@ -193,19 +193,88 @@
 
   function renderPager(page, perPage, total, onGo) {
     const pager = qs('#pager');
+    if (!pager) return;
     pager.innerHTML = '';
-    const totalPages = total > 0 ? Math.ceil(total / perPage) : 1;
-    if (totalPages <= 1) return;
-    const makeBtn = (label, target, disabled) => {
+    const safePerPage = Number(perPage) > 0 ? Number(perPage) : 30;
+    const safeTotal = Number(total) >= 0 ? Number(total) : 0;
+    const totalPages = safeTotal > 0 ? Math.ceil(safeTotal / safePerPage) : 1;
+    const currentPage = Math.min(totalPages, Math.max(1, Number(page) || 1));
+    if (totalPages <= 1) {
+      return;
+    }
+
+    const makeBtn = (label, target, disabled, ariaLabel) => {
       const b = document.createElement('button');
+      b.type = 'button';
       b.className = 'btn btn-secondary';
       b.textContent = label;
-      if (disabled) b.disabled = true;
-      b.addEventListener('click', () => onGo(target));
+      if (ariaLabel) {
+        b.setAttribute('aria-label', ariaLabel);
+      }
+      if (disabled) {
+        b.disabled = true;
+        return b;
+      }
+      const safeTarget = Math.min(totalPages, Math.max(1, target));
+      b.addEventListener('click', () => onGo(safeTarget));
       return b;
     };
-    pager.appendChild(makeBtn('⬅️ קודם', Math.max(1, page - 1), page <= 1));
-    pager.appendChild(makeBtn('הבא ➡️', Math.min(totalPages, page + 1), page >= totalPages));
+
+    const info = document.createElement('span');
+    info.className = 'pager-info';
+    info.textContent = `עמוד ${currentPage} מתוך ${totalPages}`;
+    info.setAttribute('aria-live', 'polite');
+
+    const numbersWrapper = document.createElement('div');
+    numbersWrapper.className = 'pager-numbers';
+
+    const addPageButton = (num) => {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'btn btn-secondary pager-number';
+      btn.textContent = String(num);
+      if (num === currentPage) {
+        btn.classList.add('is-active');
+        btn.setAttribute('aria-current', 'page');
+      } else {
+        btn.addEventListener('click', () => onGo(num));
+      }
+      numbersWrapper.appendChild(btn);
+    };
+
+    const addEllipsis = () => {
+      const span = document.createElement('span');
+      span.className = 'pager-ellipsis';
+      span.textContent = '…';
+      numbersWrapper.appendChild(span);
+    };
+
+    const windowSize = 2;
+    let start = Math.max(1, currentPage - windowSize);
+    let end = Math.min(totalPages, currentPage + windowSize);
+
+    if (start > 1) {
+      addPageButton(1);
+      if (start > 2) {
+        addEllipsis();
+      }
+    }
+
+    for (let p = start; p <= end; p++) {
+      addPageButton(p);
+    }
+
+    if (end < totalPages) {
+      if (end < totalPages - 1) {
+        addEllipsis();
+      }
+      addPageButton(totalPages);
+    }
+
+    pager.appendChild(makeBtn('⬅️ קודם', currentPage - 1, currentPage <= 1, 'לעמוד הקודם'));
+    pager.appendChild(numbersWrapper);
+    pager.appendChild(makeBtn('הבא ➡️', currentPage + 1, currentPage >= totalPages, 'לעמוד הבא'));
+    pager.appendChild(info);
   }
 
   async function loadLanguages() {

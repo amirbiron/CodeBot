@@ -5,8 +5,8 @@
 {% block content %}
 <h1 class="page-title">📥 ייבוא סניפטים ממסמך</h1>
 
-<div class="glass-card">
-  <p>הדביקו כאן את כל המסמך (Markdown) או הזינו כתובת URL של GitHub/Gist/Raw. המערכת תזהה כותרות (##/###), שורת <strong>"למה זה שימושי:"</strong> וקוד מגודר ב-```...``` ותיצור סניפטים בהתאם.</p>
+  <div class="glass-card">
+    <p>הדביקו כאן את כל המסמך (Markdown) או הזינו כתובת URL של GitHub/Gist/Raw. המערכת תזהה כותרות (##/###), שורת <strong>"למה זה שימושי:"</strong> או <strong>"מטרה:"</strong> וקוד מגודר ב-```...``` ותיצור סניפטים בהתאם.</p>
 
   {% if error %}
     <div class="alert alert-warning">{{ error }}</div>
@@ -19,9 +19,9 @@
       <small class="form-text text-muted">אם יוזן קישור ולא יוזן תוכן, נטען את המסמך מהכתובת (תמיכה אוטומטית ב-GitHub/Gist raw).</small>
     </div>
 
-    <div class="form-group">
-      <label>תוכן מלא להדבקה (Markdown)</label>
-      <textarea class="form-control" name="content" rows="18" dir="ltr" placeholder="# כותרת\n**למה זה שימושי:** ...\n\n```python\nprint('hello')\n```">{{ content or '' }}</textarea>
+      <div class="form-group">
+        <label>תוכן מלא להדבקה (Markdown)</label>
+        <textarea class="form-control" name="content" rows="18" dir="ltr" placeholder="# כותרת\n**מטרה:** ...\n\n```python\nprint('hello')\n```">{{ content or '' }}</textarea>
     </div>
 
     <div class="form-row" style="display:flex; gap: .75rem; align-items:center; flex-wrap: wrap;">

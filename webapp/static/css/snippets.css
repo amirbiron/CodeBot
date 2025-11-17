@@ -82,3 +82,40 @@ details > summary::-webkit-details-marker { display: none; }
   overflow-wrap: anywhere;
   display: block;
 }
+
+/* Pager */
+#pager,
+.pager-nav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: .5rem;
+  justify-content: center;
+  align-items: center;
+  margin-top: 1rem;
+  text-align: center;
+}
+
+#pager .pager-info {
+  font-weight: 600;
+  min-width: fit-content;
+}
+
+#pager .pager-numbers {
+  display: flex;
+  flex-wrap: wrap;
+  gap: .35rem;
+  align-items: center;
+}
+
+#pager .pager-number.is-active {
+  background: var(--primary, #2563eb);
+  border-color: var(--primary, #2563eb);
+  color: #fff;
+  cursor: default;
+  pointer-events: none;
+}
+
+#pager .pager-ellipsis {
+  opacity: 0.65;
+  font-weight: 600;
+}
