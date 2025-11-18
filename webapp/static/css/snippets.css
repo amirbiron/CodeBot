@@ -10,6 +10,7 @@
   max-width: 100%;
   background: #1e1e1e; /* align with file viewer dark */
   padding: 12px 12px 10px;
+  padding-inline-start: 0; /* מפנה את כל הרוחב לטבלת המספור */
   border-radius: 10px;
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, "Roboto Mono", "Ubuntu Mono", Consolas, "Liberation Mono", "Courier New", monospace;
   font-size: 0.9rem;
@@ -32,6 +33,11 @@
   display: block;
 }
 
+.code-block > code:not(.hljs),
+.snippet-code > code:not(.hljs) {
+  padding-inline-start: 12px; /* שומר ריווח גם אם ה-highlight נכשל */
+}
+
 /* If highlight.js applied, keep container dark and code transparent */
 .code-block code.hljs { background: transparent !important; }
 
@@ -40,6 +46,7 @@
 .snippet-code > .btn {
   float: left; /* keep at left for LTR code */
   margin-bottom: 8px;
+  margin-left: 10px; /* מרחיק מהמסגרת אחרי שהסרנו padding */
 }
 
 /* Responsive: make sure long code doesn't break cards */
@@ -55,7 +62,7 @@ details > summary::-webkit-details-marker { display: none; }
 /* Line numbers styling to match file viewer */
 .hljs-ln {
   width: 100% !important;
-  table-layout: fixed;
+  table-layout: auto;
   border-collapse: separate;
   border-spacing: 0;
   direction: ltr; /* keep line numbers בצד שמאל */
@@ -65,16 +72,18 @@ details > summary::-webkit-details-marker { display: none; }
   padding: 0;
 }
 .hljs-ln-numbers {
-  width: 3.5rem;
+  width: auto;
+  min-width: 3rem;
   user-select: none;
   opacity: 0.5;
-  text-align: right;
-  padding-right: .75rem;
+  text-align: left;
+  font-variant-numeric: tabular-nums;
+  padding: 0 1rem 0 0.4rem;
   white-space: pre;
 }
 .hljs-ln-code {
   width: auto;
-  padding-left: 0.85rem; /* keep breathing room between numbers and code */
+  padding-inline-start: 0.65rem; /* מרחיב את הקוד שמאלה אך משאיר ריווח נעים */
 }
 .hljs-ln-code > .hljs-ln-line {
   white-space: pre-wrap;
