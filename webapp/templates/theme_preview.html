@@ -1,0 +1,357 @@
+<!DOCTYPE html>
+<html dir="rtl" lang="he">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>תצוגה מקדימה - ערכות נושא מוצעות</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            padding: 2rem;
+            min-height: 100vh;
+        }
+        
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+        }
+        
+        h1 {
+            color: white;
+            text-align: center;
+            margin-bottom: 3rem;
+            font-size: 2.5rem;
+        }
+        
+        .themes-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(350px, 1fr));
+            gap: 2rem;
+            margin-bottom: 3rem;
+        }
+        
+        .theme-card {
+            background: rgba(255, 255, 255, 0.95);
+            border-radius: 20px;
+            padding: 1.5rem;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+            transition: transform 0.3s;
+        }
+        
+        .theme-card:hover {
+            transform: translateY(-5px);
+        }
+        
+        .theme-name {
+            font-size: 1.5rem;
+            font-weight: bold;
+            margin-bottom: 1rem;
+            color: #333;
+        }
+        
+        .theme-description {
+            color: #666;
+            margin-bottom: 1.5rem;
+            font-size: 0.95rem;
+        }
+        
+        .color-palette {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 0.5rem;
+            margin-bottom: 1rem;
+        }
+        
+        .color-swatch {
+            aspect-ratio: 1;
+            border-radius: 8px;
+            border: 2px solid rgba(0,0,0,0.1);
+            position: relative;
+            cursor: pointer;
+        }
+        
+        .color-swatch:hover::after {
+            content: attr(data-color);
+            position: absolute;
+            bottom: -25px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: #333;
+            color: white;
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 0.75rem;
+            white-space: nowrap;
+            z-index: 10;
+        }
+        
+        .preview-box {
+            background: var(--preview-bg);
+            color: var(--preview-text);
+            padding: 1rem;
+            border-radius: 10px;
+            margin-top: 1rem;
+            border: 1px solid var(--preview-border);
+        }
+        
+        .preview-box h3 {
+            color: var(--preview-accent);
+            margin-bottom: 0.5rem;
+        }
+        
+        .preview-box code {
+            background: var(--preview-code-bg);
+            color: var(--preview-code-text);
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-family: 'Courier New', monospace;
+        }
+        
+        .links {
+            margin-top: 1rem;
+            display: flex;
+            gap: 0.5rem;
+            flex-wrap: wrap;
+        }
+        
+        .link {
+            display: inline-block;
+            padding: 0.5rem 1rem;
+            background: #667eea;
+            color: white;
+            text-decoration: none;
+            border-radius: 6px;
+            font-size: 0.9rem;
+            transition: background 0.3s;
+        }
+        
+        .link:hover {
+            background: #5568d3;
+        }
+        
+        .footer {
+            text-align: center;
+            color: white;
+            margin-top: 3rem;
+            padding: 2rem;
+            background: rgba(255,255,255,0.1);
+            border-radius: 15px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🎨 תצוגה מקדימה - ערכות נושא מוצעות</h1>
+        
+        <div class="themes-grid">
+            <!-- Nord Theme -->
+            <div class="theme-card">
+                <div class="theme-name">❄️ Nord</div>
+                <div class="theme-description">פלטת צבעים קרה ונוחה לעיניים, מושלמת לעבודה ממושכת. כחול-אפור עם ניגודיות מעולה.</div>
+                <div class="color-palette">
+                    <div class="color-swatch" style="background: #2E3440;" data-color="#2E3440"></div>
+                    <div class="color-swatch" style="background: #3B4252;" data-color="#3B4252"></div>
+                    <div class="color-swatch" style="background: #434C5E;" data-color="#434C5E"></div>
+                    <div class="color-swatch" style="background: #4C566A;" data-color="#4C566A"></div>
+                    <div class="color-swatch" style="background: #5E81AC;" data-color="#5E81AC"></div>
+                    <div class="color-swatch" style="background: #81A1C1;" data-color="#81A1C1"></div>
+                    <div class="color-swatch" style="background: #88C0D0;" data-color="#88C0D0"></div>
+                    <div class="color-swatch" style="background: #8FBCBB;" data-color="#8FBCBB"></div>
+                </div>
+                <div class="preview-box" style="--preview-bg: #2E3440; --preview-text: #ECEFF4; --preview-accent: #88C0D0; --preview-border: #4C566A; --preview-code-bg: #3B4252; --preview-code-text: #A3BE8C;">
+                    <h3>דוגמה</h3>
+                    <p>טקסט רגיל עם <code>קוד מודגש</code></p>
+                </div>
+                <div class="links">
+                    <a href="https://www.nordtheme.com/" target="_blank" class="link">🌐 אתר רשמי</a>
+                    <a href="https://www.nordtheme.com/docs/colors-and-palettes" target="_blank" class="link">🎨 פלטת צבעים</a>
+                </div>
+            </div>
+            
+            <!-- Dracula Theme -->
+            <div class="theme-card">
+                <div class="theme-name">🧛 Dracula</div>
+                <div class="theme-description">ערכת נושא פופולרית מאוד בקרב מפתחים. סגול/ורוד עם ניגודיות מעולה וצבעוניות נעימה.</div>
+                <div class="color-palette">
+                    <div class="color-swatch" style="background: #282A36;" data-color="#282A36"></div>
+                    <div class="color-swatch" style="background: #44475A;" data-color="#44475A"></div>
+                    <div class="color-swatch" style="background: #6272A4;" data-color="#6272A4"></div>
+                    <div class="color-swatch" style="background: #8BE9FD;" data-color="#8BE9FD"></div>
+                    <div class="color-swatch" style="background: #50FA7B;" data-color="#50FA7B"></div>
+                    <div class="color-swatch" style="background: #FFB86C;" data-color="#FFB86C"></div>
+                    <div class="color-swatch" style="background: #FF79C6;" data-color="#FF79C6"></div>
+                    <div class="color-swatch" style="background: #BD93F9;" data-color="#BD93F9"></div>
+                </div>
+                <div class="preview-box" style="--preview-bg: #282A36; --preview-text: #F8F8F2; --preview-accent: #BD93F9; --preview-border: #44475A; --preview-code-bg: #44475A; --preview-code-text: #50FA7B;">
+                    <h3>דוגמה</h3>
+                    <p>טקסט רגיל עם <code>קוד מודגש</code></p>
+                </div>
+                <div class="links">
+                    <a href="https://draculatheme.com/" target="_blank" class="link">🌐 אתר רשמי</a>
+                    <a href="https://draculatheme.com/color-palette" target="_blank" class="link">🎨 פלטת צבעים</a>
+                </div>
+            </div>
+            
+            <!-- One Dark Theme -->
+            <div class="theme-card">
+                <div class="theme-name">🌙 One Dark</div>
+                <div class="theme-description">ערכת הנושא הפופולרית של Atom Editor. כחול-אפור עם אקסנטים צבעוניים, מוכר ונוח.</div>
+                <div class="color-palette">
+                    <div class="color-swatch" style="background: #282C34;" data-color="#282C34"></div>
+                    <div class="color-swatch" style="background: #353B45;" data-color="#353B45"></div>
+                    <div class="color-swatch" style="background: #3E4451;" data-color="#3E4451"></div>
+                    <div class="color-swatch" style="background: #545862;" data-color="#545862"></div>
+                    <div class="color-swatch" style="background: #61AFEF;" data-color="#61AFEF"></div>
+                    <div class="color-swatch" style="background: #98C379;" data-color="#98C379"></div>
+                    <div class="color-swatch" style="background: #E5C07B;" data-color="#E5C07B"></div>
+                    <div class="color-swatch" style="background: #C678DD;" data-color="#C678DD"></div>
+                </div>
+                <div class="preview-box" style="--preview-bg: #282C34; --preview-text: #ABB2BF; --preview-accent: #61AFEF; --preview-border: #3E4451; --preview-code-bg: #353B45; --preview-code-text: #98C379;">
+                    <h3>דוגמה</h3>
+                    <p>טקסט רגיל עם <code>קוד מודגש</code></p>
+                </div>
+                <div class="links">
+                    <a href="https://github.com/atom/atom/tree/master/packages/one-dark-syntax" target="_blank" class="link">🌐 GitHub</a>
+                    <a href="https://github.com/joshdick/onedark.vim" target="_blank" class="link">📖 תיעוד</a>
+                </div>
+            </div>
+            
+            <!-- Tokyo Night Theme -->
+            <div class="theme-card">
+                <div class="theme-name">🌃 Tokyo Night</div>
+                <div class="theme-description">ערכת נושא מודרנית וצבעונית. כחול-סגול עם אקסנטים צבעוניים, זמין בגרסאות Night/Storm/Day.</div>
+                <div class="color-palette">
+                    <div class="color-swatch" style="background: #1A1B26;" data-color="#1A1B26"></div>
+                    <div class="color-swatch" style="background: #24283B;" data-color="#24283B"></div>
+                    <div class="color-swatch" style="background: #2F3549;" data-color="#2F3549"></div>
+                    <div class="color-swatch" style="background: #565F89;" data-color="#565F89"></div>
+                    <div class="color-swatch" style="background: #7AA2F7;" data-color="#7AA2F7"></div>
+                    <div class="color-swatch" style="background: #9ECE6A;" data-color="#9ECE6A"></div>
+                    <div class="color-swatch" style="background: #E0AF68;" data-color="#E0AF68"></div>
+                    <div class="color-swatch" style="background: #BB9AF7;" data-color="#BB9AF7"></div>
+                </div>
+                <div class="preview-box" style="--preview-bg: #1A1B26; --preview-text: #C0CAF5; --preview-accent: #7AA2F7; --preview-border: #2F3549; --preview-code-bg: #24283B; --preview-code-text: #9ECE6A;">
+                    <h3>דוגמה</h3>
+                    <p>טקסט רגיל עם <code>קוד מודגש</code></p>
+                </div>
+                <div class="links">
+                    <a href="https://github.com/enkia/tokyo-night-vscode-theme" target="_blank" class="link">🌐 GitHub</a>
+                    <a href="https://github.com/enkia/tokyo-night-vscode-theme#color-palette" target="_blank" class="link">🎨 פלטת צבעים</a>
+                </div>
+            </div>
+            
+            <!-- Catppuccin Theme -->
+            <div class="theme-card">
+                <div class="theme-name">🐱 Catppuccin</div>
+                <div class="theme-description">ערכת נושא מתוקה ונוחה לעיניים. פלטה רכה עם 4 גרסאות: Mocha, Latte, Frappe, Macchiato.</div>
+                <div class="color-palette">
+                    <div class="color-swatch" style="background: #1E1E2E;" data-color="#1E1E2E"></div>
+                    <div class="color-swatch" style="background: #313244;" data-color="#313244"></div>
+                    <div class="color-swatch" style="background: #45475A;" data-color="#45475A"></div>
+                    <div class="color-swatch" style="background: #585B70;" data-color="#585B70"></div>
+                    <div class="color-swatch" style="background: #89B4FA;" data-color="#89B4FA"></div>
+                    <div class="color-swatch" style="background: #A6E3A1;" data-color="#A6E3A1"></div>
+                    <div class="color-swatch" style="background: #F9E2AF;" data-color="#F9E2AF"></div>
+                    <div class="color-swatch" style="background: #F5C2E7;" data-color="#F5C2E7"></div>
+                </div>
+                <div class="preview-box" style="--preview-bg: #1E1E2E; --preview-text: #CDD6F4; --preview-accent: #89B4FA; --preview-border: #313244; --preview-code-bg: #313244; --preview-code-text: #A6E3A1;">
+                    <h3>דוגמה</h3>
+                    <p>טקסט רגיל עם <code>קוד מודגש</code></p>
+                </div>
+                <div class="links">
+                    <a href="https://catppuccin.com/" target="_blank" class="link">🌐 אתר רשמי</a>
+                    <a href="https://catppuccin.com/palette" target="_blank" class="link">🎨 פלטת צבעים</a>
+                </div>
+            </div>
+            
+            <!-- Rose Pine Theme -->
+            <div class="theme-card">
+                <div class="theme-name">🌹 Rose Pine</div>
+                <div class="theme-description">ערכת נושא אלגנטית ומינימליסטית. גווני ורוד/סגול עדינים, זמין בגרסאות Main/Moon/Dawn.</div>
+                <div class="color-palette">
+                    <div class="color-swatch" style="background: #191724;" data-color="#191724"></div>
+                    <div class="color-swatch" style="background: #1F1D2E;" data-color="#1F1D2E"></div>
+                    <div class="color-swatch" style="background: #26233A;" data-color="#26233A"></div>
+                    <div class="color-swatch" style="background: #6E6A86;" data-color="#6E6A86"></div>
+                    <div class="color-swatch" style="background: #9CCFD8;" data-color="#9CCFD8"></div>
+                    <div class="color-swatch" style="background: #C4A7E7;" data-color="#C4A7E7"></div>
+                    <div class="color-swatch" style="background: #EBBCBA;" data-color="#EBBCBA"></div>
+                    <div class="color-swatch" style="background: #F6C177;" data-color="#F6C177"></div>
+                </div>
+                <div class="preview-box" style="--preview-bg: #191724; --preview-text: #E0DEF4; --preview-accent: #C4A7E7; --preview-border: #26233A; --preview-code-bg: #1F1D2E; --preview-code-text: #9CCFD8;">
+                    <h3>דוגמה</h3>
+                    <p>טקסט רגיל עם <code>קוד מודגש</code></p>
+                </div>
+                <div class="links">
+                    <a href="https://rosepinetheme.com/" target="_blank" class="link">🌐 אתר רשמי</a>
+                    <a href="https://rosepinetheme.com/palette" target="_blank" class="link">🎨 פלטת צבעים</a>
+                </div>
+            </div>
+            
+            <!-- Gruvbox Theme -->
+            <div class="theme-card">
+                <div class="theme-name">🎨 Gruvbox</div>
+                <div class="theme-description">ערכת נושא קלאסית ופופולרית. פלטה חמה (חום/כתום/צהוב) נוחה לעיניים, זמינה בגרסאות Light/Dark.</div>
+                <div class="color-palette">
+                    <div class="color-swatch" style="background: #282828;" data-color="#282828"></div>
+                    <div class="color-swatch" style="background: #3C3836;" data-color="#3C3836"></div>
+                    <div class="color-swatch" style="background: #504945;" data-color="#504945"></div>
+                    <div class="color-swatch" style="background: #665C54;" data-color="#665C54"></div>
+                    <div class="color-swatch" style="background: #83A598;" data-color="#83A598"></div>
+                    <div class="color-swatch" style="background: #B8BB26;" data-color="#B8BB26"></div>
+                    <div class="color-swatch" style="background: #FE8019;" data-color="#FE8019"></div>
+                    <div class="color-swatch" style="background: #D3869B;" data-color="#D3869B"></div>
+                </div>
+                <div class="preview-box" style="--preview-bg: #282828; --preview-text: #EBDBB2; --preview-accent: #FE8019; --preview-border: #504945; --preview-code-bg: #3C3836; --preview-code-text: #B8BB26;">
+                    <h3>דוגמה</h3>
+                    <p>טקסט רגיל עם <code>קוד מודגש</code></p>
+                </div>
+                <div class="links">
+                    <a href="https://github.com/morhetz/gruvbox" target="_blank" class="link">🌐 GitHub</a>
+                    <a href="https://github.com/morhetz/gruvbox#palette" target="_blank" class="link">🎨 פלטת צבעים</a>
+                </div>
+            </div>
+            
+            <!-- GitHub Dark Theme -->
+            <div class="theme-card">
+                <div class="theme-name">🐙 GitHub Dark</div>
+                <div class="theme-description">ערכת הנושא הרשמית של GitHub Dark Mode. מוכרת ונוחה, ניגודיות מעולה וצבעוניות מאוזנת.</div>
+                <div class="color-palette">
+                    <div class="color-swatch" style="background: #0D1117;" data-color="#0D1117"></div>
+                    <div class="color-swatch" style="background: #161B22;" data-color="#161B22"></div>
+                    <div class="color-swatch" style="background: #21262D;" data-color="#21262D"></div>
+                    <div class="color-swatch" style="background: #30363D;" data-color="#30363D"></div>
+                    <div class="color-swatch" style="background: #58A6FF;" data-color="#58A6FF"></div>
+                    <div class="color-swatch" style="background: #3FB950;" data-color="#3FB950"></div>
+                    <div class="color-swatch" style="background: #D29922;" data-color="#D29922"></div>
+                    <div class="color-swatch" style="background: #DB61A2;" data-color="#DB61A2"></div>
+                </div>
+                <div class="preview-box" style="--preview-bg: #0D1117; --preview-text: #C9D1D9; --preview-accent: #58A6FF; --preview-border: #21262D; --preview-code-bg: #161B22; --preview-code-text: #3FB950;">
+                    <h3>דוגמה</h3>
+                    <p>טקסט רגיל עם <code>קוד מודגש</code></p>
+                </div>
+                <div class="links">
+                    <a href="https://github.com/primer/github-vscode-theme" target="_blank" class="link">🌐 GitHub</a>
+                    <a href="https://primer.style/design/foundations/color" target="_blank" class="link">🎨 פלטת צבעים</a>
+                </div>
+            </div>
+        </div>
+        
+        <div class="footer">
+            <h2>💡 איך להשתמש?</h2>
+            <p style="margin-top: 1rem; font-size: 1.1rem;">
+                עבר על כל ערכת נושא, בדוק את הפלטות והדוגמאות.<br>
+                לחץ על הקישורים כדי לראות עוד פרטים באתרים הרשמיים.<br>
+                <strong>אחרי שתחליט איזה ערכות להוסיף, פשוט תגיד לי ואני אוסיף אותן לווב אפ! 🚀</strong>
+            </p>
+        </div>
+    </div>
+</body>
+</html>
