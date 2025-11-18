@@ -3,7 +3,9 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>תצוגה מקדימה - ערכות נושא מוצעות</title>
+    <title>תצוגה מקדימה - ערכות נושא לממשק</title>
+    <link href="https://fonts.googleapis.com/css2?family=Heebo:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <style>
         * {
             margin: 0;
@@ -11,11 +13,83 @@
             box-sizing: border-box;
         }
         
+        :root {
+            --primary: #667eea;
+            --primary-dark: #5a67d8;
+            --secondary: #764ba2;
+            --success: #48bb78;
+            --danger: #f56565;
+            --warning: #ed8936;
+            --info: #4299e1;
+            --glass: rgba(255, 255, 255, 0.1);
+            --glass-border: rgba(255, 255, 255, 0.2);
+        }
+
+        /* Theme palettes */
+        :root[data-theme="classic"] {
+            --primary: #667eea;
+            --secondary: #764ba2;
+        }
+        :root[data-theme="ocean"] {
+            --primary: #3182ce;
+            --secondary: #2c5282;
+        }
+        :root[data-theme="forest"] {
+            --primary: #2f855a;
+            --secondary: #22543d;
+        }
+
+        /* Theme palettes - Dark & Dim */
+        :root[data-theme="dark"] {
+            --bg-primary: #1a1a1a;
+            --bg-secondary: #252525;
+            --bg-tertiary: #2d2d2d;
+            --text-primary: #e0e0e0;
+            --text-secondary: #b0b0b0;
+            --text-muted: #808080;
+            --primary: #7c8aff;
+            --primary-dark: #6b7aff;
+            --secondary: #9d7aff;
+            --success: #4ade80;
+            --danger: #f87171;
+            --warning: #fbbf24;
+            --info: #60a5fa;
+            --glass: rgba(255, 255, 255, 0.05);
+            --glass-border: rgba(255, 255, 255, 0.1);
+            --card-bg: rgba(30, 30, 30, 0.8);
+        }
+
+        :root[data-theme="dim"] {
+            --bg-primary: #2a2a2a;
+            --bg-secondary: #333333;
+            --bg-tertiary: #3a3a3a;
+            --text-primary: #d0d0d0;
+            --text-secondary: #a0a0a0;
+            --text-muted: #707070;
+            --primary: #7c8aff;
+            --secondary: #9d7aff;
+            --glass: rgba(255, 255, 255, 0.08);
+            --glass-border: rgba(255, 255, 255, 0.15);
+            --card-bg: rgba(40, 40, 40, 0.8);
+        }
+
+        :root[data-theme="high-contrast"] {
+            --primary: #0066cc;
+            --secondary: #004499;
+            --bg-primary: #000000;
+            --bg-secondary: #1a1a1a;
+            --text-primary: #ffffff;
+            --text-secondary: #cccccc;
+            --glass: rgba(255, 255, 255, 0.15);
+            --glass-border: rgba(255, 255, 255, 0.3);
+        }
+        
         body {
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            font-family: 'Heebo', sans-serif;
             background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
             padding: 2rem;
             min-height: 100vh;
+            color: white;
         }
         
         .container {
@@ -26,53 +100,234 @@
         h1 {
             color: white;
             text-align: center;
-            margin-bottom: 3rem;
+            margin-bottom: 1rem;
             font-size: 2.5rem;
+        }
+
+        :root[data-theme="dark"] h1,
+        :root[data-theme="dim"] h1,
+        :root[data-theme="high-contrast"] h1 {
+            color: var(--text-primary);
+        }
+
+        .subtitle {
+            text-align: center;
+            color: rgba(255, 255, 255, 0.9);
+            margin-bottom: 3rem;
+            font-size: 1.1rem;
+        }
+
+        :root[data-theme="dark"] .subtitle,
+        :root[data-theme="dim"] .subtitle,
+        :root[data-theme="high-contrast"] .subtitle {
+            color: var(--text-secondary);
         }
         
         .themes-grid {
             display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(350px, 1fr));
+            grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));
             gap: 2rem;
             margin-bottom: 3rem;
         }
         
         .theme-card {
-            background: rgba(255, 255, 255, 0.95);
+            background: var(--glass);
+            backdrop-filter: blur(20px);
             border-radius: 20px;
-            padding: 1.5rem;
+            padding: 2rem;
+            border: 1px solid var(--glass-border);
             box-shadow: 0 10px 30px rgba(0,0,0,0.2);
             transition: transform 0.3s;
+            position: relative;
+        }
+
+        /* כל כרטיס עם ערכת הנושא שלו - הגדרת CSS variables */
+        /* Nord Light Theme */
+        .theme-card[data-theme="nord"] {
+            --card-primary: #5E81AC;
+            --card-secondary: #81A1C1;
+            --card-bg-primary: #ECEFF4;
+            --card-bg-secondary: #E5E9F0;
+            --card-text-primary: #2E3440;
+            --card-text-secondary: #3B4252;
+            --card-text-muted: #4C566A;
+            --card-glass: rgba(94, 129, 172, 0.15);
+            --card-glass-border: rgba(94, 129, 172, 0.3);
+            --card-card-bg: rgba(236, 239, 244, 0.9);
+            background: linear-gradient(135deg, #ECEFF4 0%, #E5E9F0 100%);
+            border-color: var(--card-glass-border);
+        }
+
+        /* Dracula Light Theme */
+        .theme-card[data-theme="dracula"] {
+            --card-primary: #BD93F9;
+            --card-secondary: #FF79C6;
+            --card-bg-primary: #F8F8F2;
+            --card-bg-secondary: #F0F0EB;
+            --card-text-primary: #282A36;
+            --card-text-secondary: #44475A;
+            --card-text-muted: #6272A4;
+            --card-glass: rgba(189, 147, 249, 0.2);
+            --card-glass-border: rgba(189, 147, 249, 0.35);
+            --card-card-bg: rgba(248, 248, 242, 0.9);
+            background: linear-gradient(135deg, #F8F8F2 0%, #F0F0EB 100%);
+            border-color: var(--card-glass-border);
+        }
+
+        /* One Light Theme */
+        .theme-card[data-theme="onedark"] {
+            --card-primary: #61AFEF;
+            --card-secondary: #C678DD;
+            --card-bg-primary: #FAFAFA;
+            --card-bg-secondary: #F0F0F0;
+            --card-text-primary: #383A42;
+            --card-text-secondary: #4A4A4A;
+            --card-text-muted: #6A6A6A;
+            --card-glass: rgba(97, 175, 239, 0.2);
+            --card-glass-border: rgba(97, 175, 239, 0.3);
+            --card-card-bg: rgba(250, 250, 250, 0.9);
+            background: linear-gradient(135deg, #FAFAFA 0%, #F0F0F0 100%);
+            border-color: var(--card-glass-border);
+        }
+
+        /* Catppuccin Latte Theme */
+        .theme-card[data-theme="catppuccin"] {
+            --card-primary: #1E66F5;
+            --card-secondary: #EA76CB;
+            --card-bg-primary: #EFF1F5;
+            --card-bg-secondary: #E6E9EF;
+            --card-text-primary: #4C4F69;
+            --card-text-secondary: #5C5F77;
+            --card-text-muted: #6C6F85;
+            --card-glass: rgba(30, 102, 245, 0.15);
+            --card-glass-border: rgba(30, 102, 245, 0.3);
+            --card-card-bg: rgba(239, 241, 245, 0.9);
+            background: linear-gradient(135deg, #EFF1F5 0%, #E6E9EF 100%);
+            border-color: var(--card-glass-border);
+        }
+
+        /* Rose Pine Dawn Theme */
+        .theme-card[data-theme="rosepine"] {
+            --card-primary: #907AA9;
+            --card-secondary: #D7827E;
+            --card-bg-primary: #FAF4ED;
+            --card-bg-secondary: #F2E9E1;
+            --card-text-primary: #575279;
+            --card-text-secondary: #6E6A86;
+            --card-text-muted: #797593;
+            --card-glass: rgba(144, 122, 169, 0.2);
+            --card-glass-border: rgba(144, 122, 169, 0.3);
+            --card-card-bg: rgba(250, 244, 237, 0.9);
+            background: linear-gradient(135deg, #FAF4ED 0%, #F2E9E1 100%);
+            border-color: var(--card-glass-border);
+        }
+
+        /* Gruvbox Light Theme */
+        .theme-card[data-theme="gruvbox"] {
+            --card-primary: #D65D0E;
+            --card-secondary: #98971A;
+            --card-bg-primary: #FBF1C7;
+            --card-bg-secondary: #EBDBB2;
+            --card-text-primary: #3C3836;
+            --card-text-secondary: #504945;
+            --card-text-muted: #665C54;
+            --card-glass: rgba(214, 93, 14, 0.2);
+            --card-glass-border: rgba(214, 93, 14, 0.3);
+            --card-card-bg: rgba(251, 241, 199, 0.9);
+            background: linear-gradient(135deg, #FBF1C7 0%, #EBDBB2 100%);
+            border-color: var(--card-glass-border);
+        }
+
+        /* Tokyo Night Day Theme */
+        .theme-card[data-theme="tokyonight"] {
+            --card-primary: #2E7DE9;
+            --card-secondary: #9854F1;
+            --card-bg-primary: #E1E2E7;
+            --card-bg-secondary: #D5D6DB;
+            --card-text-primary: #343B58;
+            --card-text-secondary: #565F89;
+            --card-text-muted: #6A7388;
+            --card-glass: rgba(46, 125, 233, 0.2);
+            --card-glass-border: rgba(46, 125, 233, 0.3);
+            --card-card-bg: rgba(225, 226, 231, 0.9);
+            background: linear-gradient(135deg, #E1E2E7 0%, #D5D6DB 100%);
+            border-color: var(--card-glass-border);
+        }
+
+        /* GitHub Light Theme */
+        .theme-card[data-theme="github-light"] {
+            --card-primary: #0969DA;
+            --card-secondary: #1A7F37;
+            --card-bg-primary: #FFFFFF;
+            --card-bg-secondary: #F6F8FA;
+            --card-text-primary: #24292F;
+            --card-text-secondary: #57606A;
+            --card-text-muted: #656D76;
+            --card-glass: rgba(9, 105, 218, 0.15);
+            --card-glass-border: rgba(9, 105, 218, 0.25);
+            --card-card-bg: rgba(255, 255, 255, 0.9);
+            background: linear-gradient(135deg, #FFFFFF 0%, #F6F8FA 100%);
+            border-color: var(--card-glass-border);
         }
         
         .theme-card:hover {
             transform: translateY(-5px);
         }
         
+        .theme-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 1.5rem;
+        }
+
         .theme-name {
-            font-size: 1.5rem;
+            font-size: 1.8rem;
             font-weight: bold;
-            margin-bottom: 1rem;
-            color: #333;
+            color: white;
+        }
+
+        /* כל הערכות בהירות, אז הטקסט כהה */
+        .theme-card[data-theme="nord"] .theme-name,
+        .theme-card[data-theme="dracula"] .theme-name,
+        .theme-card[data-theme="onedark"] .theme-name,
+        .theme-card[data-theme="catppuccin"] .theme-name,
+        .theme-card[data-theme="rosepine"] .theme-name,
+        .theme-card[data-theme="gruvbox"] .theme-name,
+        .theme-card[data-theme="tokyonight"] .theme-name,
+        .theme-card[data-theme="github-light"] .theme-name {
+            color: var(--card-text-primary);
         }
         
         .theme-description {
-            color: #666;
+            color: rgba(255, 255, 255, 0.8);
             margin-bottom: 1.5rem;
             font-size: 0.95rem;
+            line-height: 1.6;
+        }
+
+        .theme-card[data-theme="nord"] .theme-description,
+        .theme-card[data-theme="dracula"] .theme-description,
+        .theme-card[data-theme="onedark"] .theme-description,
+        .theme-card[data-theme="catppuccin"] .theme-description,
+        .theme-card[data-theme="rosepine"] .theme-description,
+        .theme-card[data-theme="gruvbox"] .theme-description,
+        .theme-card[data-theme="tokyonight"] .theme-description,
+        .theme-card[data-theme="github-light"] .theme-description {
+            color: var(--card-text-secondary);
         }
         
         .color-palette {
             display: grid;
             grid-template-columns: repeat(4, 1fr);
             gap: 0.5rem;
-            margin-bottom: 1rem;
+            margin-bottom: 1.5rem;
         }
         
         .color-swatch {
             aspect-ratio: 1;
             border-radius: 8px;
-            border: 2px solid rgba(0,0,0,0.1);
+            border: 2px solid rgba(255, 255, 255, 0.2);
             position: relative;
             cursor: pointer;
         }
@@ -92,266 +347,462 @@
             z-index: 10;
         }
         
-        .preview-box {
-            background: var(--preview-bg);
-            color: var(--preview-text);
-            padding: 1rem;
+        .preview-section {
+            margin-top: 1.5rem;
+        }
+
+        .preview-title {
+            font-size: 1.1rem;
+            font-weight: 600;
+            margin-bottom: 1rem;
+            color: white;
+        }
+
+        .theme-card[data-theme="nord"] .preview-title,
+        .theme-card[data-theme="dracula"] .preview-title,
+        .theme-card[data-theme="onedark"] .preview-title,
+        .theme-card[data-theme="catppuccin"] .preview-title,
+        .theme-card[data-theme="rosepine"] .preview-title,
+        .theme-card[data-theme="gruvbox"] .preview-title,
+        .theme-card[data-theme="tokyonight"] .preview-title,
+        .theme-card[data-theme="github-light"] .preview-title {
+            color: var(--card-text-primary);
+        }
+
+        .preview-buttons {
+            display: flex;
+            gap: 0.75rem;
+            flex-wrap: wrap;
+            margin-bottom: 1rem;
+        }
+
+        .btn {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            padding: 0.75rem 1.5rem;
             border-radius: 10px;
-            margin-top: 1rem;
-            border: 1px solid var(--preview-border);
+            font-weight: 600;
+            text-decoration: none;
+            transition: all 0.3s;
+            border: none;
+            cursor: pointer;
+            font-size: 0.9rem;
+            white-space: nowrap;
         }
         
-        .preview-box h3 {
-            color: var(--preview-accent);
+        .btn-primary {
+            background: white;
+            color: var(--card-primary, var(--primary));
+        }
+        
+        .btn-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 20px rgba(0,0,0,0.2);
+        }
+
+        /* כפתורים לפי ערכת נושא - בערכות בהירות הכפתור הראשי הוא צבעוני */
+        .theme-card[data-theme="nord"] .btn-primary,
+        .theme-card[data-theme="dracula"] .btn-primary,
+        .theme-card[data-theme="onedark"] .btn-primary,
+        .theme-card[data-theme="catppuccin"] .btn-primary,
+        .theme-card[data-theme="rosepine"] .btn-primary,
+        .theme-card[data-theme="gruvbox"] .btn-primary,
+        .theme-card[data-theme="tokyonight"] .btn-primary,
+        .theme-card[data-theme="github-light"] .btn-primary {
+            background: var(--card-primary);
+            color: white;
+        }
+        
+        .btn-secondary {
+            background: var(--card-glass, var(--glass));
+            color: white;
+            border: 1px solid var(--card-glass-border, var(--glass-border));
+        }
+
+        .btn-secondary:hover {
+            background: rgba(255, 255, 255, 0.2);
+        }
+
+        .theme-card[data-theme="nord"] .btn-secondary,
+        .theme-card[data-theme="dracula"] .btn-secondary,
+        .theme-card[data-theme="onedark"] .btn-secondary,
+        .theme-card[data-theme="catppuccin"] .btn-secondary,
+        .theme-card[data-theme="rosepine"] .btn-secondary,
+        .theme-card[data-theme="gruvbox"] .btn-secondary,
+        .theme-card[data-theme="tokyonight"] .btn-secondary,
+        .theme-card[data-theme="github-light"] .btn-secondary {
+            background: var(--card-glass);
+            border-color: var(--card-glass-border);
+            color: var(--card-text-primary);
+        }
+
+        .preview-card {
+            background: var(--card-glass, var(--glass));
+            backdrop-filter: blur(20px);
+            border-radius: 15px;
+            border: 1px solid var(--card-glass-border, var(--glass-border));
+            padding: 1.25rem;
+            margin-bottom: 1rem;
+        }
+
+        .theme-card[data-theme="nord"] .preview-card,
+        .theme-card[data-theme="dracula"] .preview-card,
+        .theme-card[data-theme="onedark"] .preview-card,
+        .theme-card[data-theme="catppuccin"] .preview-card,
+        .theme-card[data-theme="rosepine"] .preview-card,
+        .theme-card[data-theme="gruvbox"] .preview-card,
+        .theme-card[data-theme="tokyonight"] .preview-card,
+        .theme-card[data-theme="github-light"] .preview-card {
+            background: var(--card-card-bg, var(--card-glass));
+        }
+
+        .preview-card h4 {
+            font-size: 1.1rem;
+            margin-bottom: 0.5rem;
+            color: white;
+        }
+
+        /* בערכות בהירות הטקסט כהה */
+        .theme-card[data-theme="nord"] .preview-card h4,
+        .theme-card[data-theme="dracula"] .preview-card h4,
+        .theme-card[data-theme="onedark"] .preview-card h4,
+        .theme-card[data-theme="catppuccin"] .preview-card h4,
+        .theme-card[data-theme="rosepine"] .preview-card h4,
+        .theme-card[data-theme="gruvbox"] .preview-card h4,
+        .theme-card[data-theme="tokyonight"] .preview-card h4,
+        .theme-card[data-theme="github-light"] .preview-card h4 {
+            color: var(--card-text-primary);
+        }
+
+        .preview-card p {
+            color: rgba(255, 255, 255, 0.8);
+            font-size: 0.9rem;
+            line-height: 1.5;
+        }
+
+        /* בערכות בהירות הטקסט כהה */
+        .theme-card[data-theme="nord"] .preview-card p,
+        .theme-card[data-theme="dracula"] .preview-card p,
+        .theme-card[data-theme="onedark"] .preview-card p,
+        .theme-card[data-theme="catppuccin"] .preview-card p,
+        .theme-card[data-theme="rosepine"] .preview-card p,
+        .theme-card[data-theme="gruvbox"] .preview-card p,
+        .theme-card[data-theme="tokyonight"] .preview-card p,
+        .theme-card[data-theme="github-light"] .preview-card p {
+            color: var(--card-text-secondary);
+        }
+
+        .preview-input {
+            width: 100%;
+            padding: 0.75rem;
+            border-radius: 8px;
+            border: 1px solid var(--card-glass-border, var(--glass-border));
+            background: rgba(255, 255, 255, 0.1);
+            color: white;
+            font-size: 0.9rem;
             margin-bottom: 0.5rem;
         }
-        
-        .preview-box code {
-            background: var(--preview-code-bg);
-            color: var(--preview-code-text);
-            padding: 2px 6px;
-            border-radius: 4px;
-            font-family: 'Courier New', monospace;
+
+        /* בערכות בהירות השדות בהירים יותר */
+        .theme-card[data-theme="nord"] .preview-input,
+        .theme-card[data-theme="dracula"] .preview-input,
+        .theme-card[data-theme="onedark"] .preview-input,
+        .theme-card[data-theme="catppuccin"] .preview-input,
+        .theme-card[data-theme="rosepine"] .preview-input,
+        .theme-card[data-theme="gruvbox"] .preview-input,
+        .theme-card[data-theme="tokyonight"] .preview-input,
+        .theme-card[data-theme="github-light"] .preview-input {
+            background: rgba(255, 255, 255, 0.7);
+            border-color: var(--card-glass-border);
+            color: var(--card-text-primary);
         }
-        
-        .links {
-            margin-top: 1rem;
-            display: flex;
-            gap: 0.5rem;
-            flex-wrap: wrap;
+
+        .preview-input::placeholder {
+            color: rgba(255, 255, 255, 0.5);
         }
-        
-        .link {
-            display: inline-block;
-            padding: 0.5rem 1rem;
-            background: #667eea;
-            color: white;
-            text-decoration: none;
-            border-radius: 6px;
-            font-size: 0.9rem;
-            transition: background 0.3s;
+
+        .theme-card[data-theme="nord"] .preview-input::placeholder,
+        .theme-card[data-theme="dracula"] .preview-input::placeholder,
+        .theme-card[data-theme="onedark"] .preview-input::placeholder,
+        .theme-card[data-theme="catppuccin"] .preview-input::placeholder,
+        .theme-card[data-theme="rosepine"] .preview-input::placeholder,
+        .theme-card[data-theme="gruvbox"] .preview-input::placeholder,
+        .theme-card[data-theme="tokyonight"] .preview-input::placeholder,
+        .theme-card[data-theme="github-light"] .preview-input::placeholder {
+            color: var(--card-text-muted);
         }
-        
-        .link:hover {
-            background: #5568d3;
-        }
-        
+
         .footer {
             text-align: center;
             color: white;
             margin-top: 3rem;
             padding: 2rem;
-            background: rgba(255,255,255,0.1);
+            background: rgba(255, 255, 255, 0.1);
+            backdrop-filter: blur(20px);
             border-radius: 15px;
+            border: 1px solid rgba(255, 255, 255, 0.2);
+        }
+
+        .footer h2 {
+            margin-bottom: 1rem;
+        }
+
+        .footer p {
+            line-height: 1.8;
+            font-size: 1.05rem;
+        }
+
+        @media (max-width: 768px) {
+            .themes-grid {
+                grid-template-columns: 1fr;
+            }
         }
     </style>
 </head>
 <body>
     <div class="container">
-        <h1>🎨 תצוגה מקדימה - ערכות נושא מוצעות</h1>
+        <h1>🎨 תצוגה מקדימה - ערכות נושא חדשות לממשק</h1>
+        <p class="subtitle">ערכות נושא מוצעות בהשראת ערכות פופולריות, מותאמות לממשק ה-UI</p>
         
         <div class="themes-grid">
-            <!-- Nord Theme -->
-            <div class="theme-card">
-                <div class="theme-name">❄️ Nord</div>
-                <div class="theme-description">פלטת צבעים קרה ונוחה לעיניים, מושלמת לעבודה ממושכת. כחול-אפור עם ניגודיות מעולה.</div>
+            <!-- Nord Light Theme -->
+            <div class="theme-card" data-theme="nord">
+                <div class="theme-header">
+                    <div class="theme-name">❄️ Nord Light</div>
+                </div>
+                <div class="theme-description">
+                    ערכת נושא בהירה וקרה בהשראת Nord. כחול-אפור בהיר ונוח לעיניים, מושלמת לעבודה ממושכת.
+                </div>
                 <div class="color-palette">
-                    <div class="color-swatch" style="background: #2E3440;" data-color="#2E3440"></div>
-                    <div class="color-swatch" style="background: #3B4252;" data-color="#3B4252"></div>
-                    <div class="color-swatch" style="background: #434C5E;" data-color="#434C5E"></div>
-                    <div class="color-swatch" style="background: #4C566A;" data-color="#4C566A"></div>
                     <div class="color-swatch" style="background: #5E81AC;" data-color="#5E81AC"></div>
                     <div class="color-swatch" style="background: #81A1C1;" data-color="#81A1C1"></div>
                     <div class="color-swatch" style="background: #88C0D0;" data-color="#88C0D0"></div>
-                    <div class="color-swatch" style="background: #8FBCBB;" data-color="#8FBCBB"></div>
+                    <div class="color-swatch" style="background: #ECEFF4;" data-color="#ECEFF4"></div>
                 </div>
-                <div class="preview-box" style="--preview-bg: #2E3440; --preview-text: #ECEFF4; --preview-accent: #88C0D0; --preview-border: #4C566A; --preview-code-bg: #3B4252; --preview-code-text: #A3BE8C;">
-                    <h3>דוגמה</h3>
-                    <p>טקסט רגיל עם <code>קוד מודגש</code></p>
-                </div>
-                <div class="links">
-                    <a href="https://www.nordtheme.com/" target="_blank" class="link">🌐 אתר רשמי</a>
-                    <a href="https://www.nordtheme.com/docs/colors-and-palettes" target="_blank" class="link">🎨 פלטת צבעים</a>
+                <div class="preview-section">
+                    <div class="preview-title">דוגמת ממשק</div>
+                    <div class="preview-buttons">
+                        <button class="btn btn-primary">כפתור ראשי</button>
+                        <button class="btn btn-secondary">כפתור משני</button>
+                    </div>
+                    <div class="preview-card">
+                        <h4>כרטיס דוגמה</h4>
+                        <p>ערכת Nord Light מציעה פלטת צבעים קרה ובהירה, מושלמת לסביבת עבודה נקייה ומסודרת.</p>
+                    </div>
+                    <input type="text" class="preview-input" placeholder="שדה טקסט לדוגמה...">
                 </div>
             </div>
             
-            <!-- Dracula Theme -->
-            <div class="theme-card">
-                <div class="theme-name">🧛 Dracula</div>
-                <div class="theme-description">ערכת נושא פופולרית מאוד בקרב מפתחים. סגול/ורוד עם ניגודיות מעולה וצבעוניות נעימה.</div>
+            <!-- Dracula Light Theme -->
+            <div class="theme-card" data-theme="dracula">
+                <div class="theme-header">
+                    <div class="theme-name">🧛 Dracula Light</div>
+                </div>
+                <div class="theme-description">
+                    גרסה בהירה של Dracula. סגול/ורוד עדין על רקע בהיר, אלגנטי וצבעוני.
+                </div>
                 <div class="color-palette">
-                    <div class="color-swatch" style="background: #282A36;" data-color="#282A36"></div>
-                    <div class="color-swatch" style="background: #44475A;" data-color="#44475A"></div>
-                    <div class="color-swatch" style="background: #6272A4;" data-color="#6272A4"></div>
-                    <div class="color-swatch" style="background: #8BE9FD;" data-color="#8BE9FD"></div>
-                    <div class="color-swatch" style="background: #50FA7B;" data-color="#50FA7B"></div>
-                    <div class="color-swatch" style="background: #FFB86C;" data-color="#FFB86C"></div>
-                    <div class="color-swatch" style="background: #FF79C6;" data-color="#FF79C6"></div>
                     <div class="color-swatch" style="background: #BD93F9;" data-color="#BD93F9"></div>
+                    <div class="color-swatch" style="background: #FF79C6;" data-color="#FF79C6"></div>
+                    <div class="color-swatch" style="background: #8BE9FD;" data-color="#8BE9FD"></div>
+                    <div class="color-swatch" style="background: #F8F8F2;" data-color="#F8F8F2"></div>
                 </div>
-                <div class="preview-box" style="--preview-bg: #282A36; --preview-text: #F8F8F2; --preview-accent: #BD93F9; --preview-border: #44475A; --preview-code-bg: #44475A; --preview-code-text: #50FA7B;">
-                    <h3>דוגמה</h3>
-                    <p>טקסט רגיל עם <code>קוד מודגש</code></p>
-                </div>
-                <div class="links">
-                    <a href="https://draculatheme.com/" target="_blank" class="link">🌐 אתר רשמי</a>
-                    <a href="https://draculatheme.com/color-palette" target="_blank" class="link">🎨 פלטת צבעים</a>
+                <div class="preview-section">
+                    <div class="preview-title">דוגמת ממשק</div>
+                    <div class="preview-buttons">
+                        <button class="btn btn-primary">כפתור ראשי</button>
+                        <button class="btn btn-secondary">כפתור משני</button>
+                    </div>
+                    <div class="preview-card">
+                        <h4>כרטיס דוגמה</h4>
+                        <p>Dracula Light מביא את הצבעוניות של Dracula לגרסה בהירה ונוחה לעיניים.</p>
+                    </div>
+                    <input type="text" class="preview-input" placeholder="שדה טקסט לדוגמה...">
                 </div>
             </div>
             
-            <!-- One Dark Theme -->
-            <div class="theme-card">
-                <div class="theme-name">🌙 One Dark</div>
-                <div class="theme-description">ערכת הנושא הפופולרית של Atom Editor. כחול-אפור עם אקסנטים צבעוניים, מוכר ונוח.</div>
+            <!-- One Light Theme -->
+            <div class="theme-card" data-theme="onedark">
+                <div class="theme-header">
+                    <div class="theme-name">🌙 One Light</div>
+                </div>
+                <div class="theme-description">
+                    גרסה בהירה של One Dark. כחול-אפור עם אקסנטים צבעוניים, מוכר ונוח.
+                </div>
                 <div class="color-palette">
-                    <div class="color-swatch" style="background: #282C34;" data-color="#282C34"></div>
-                    <div class="color-swatch" style="background: #353B45;" data-color="#353B45"></div>
-                    <div class="color-swatch" style="background: #3E4451;" data-color="#3E4451"></div>
-                    <div class="color-swatch" style="background: #545862;" data-color="#545862"></div>
                     <div class="color-swatch" style="background: #61AFEF;" data-color="#61AFEF"></div>
-                    <div class="color-swatch" style="background: #98C379;" data-color="#98C379"></div>
-                    <div class="color-swatch" style="background: #E5C07B;" data-color="#E5C07B"></div>
                     <div class="color-swatch" style="background: #C678DD;" data-color="#C678DD"></div>
+                    <div class="color-swatch" style="background: #98C379;" data-color="#98C379"></div>
+                    <div class="color-swatch" style="background: #FAFAFA;" data-color="#FAFAFA"></div>
                 </div>
-                <div class="preview-box" style="--preview-bg: #282C34; --preview-text: #ABB2BF; --preview-accent: #61AFEF; --preview-border: #3E4451; --preview-code-bg: #353B45; --preview-code-text: #98C379;">
-                    <h3>דוגמה</h3>
-                    <p>טקסט רגיל עם <code>קוד מודגש</code></p>
-                </div>
-                <div class="links">
-                    <a href="https://github.com/atom/atom/tree/master/packages/one-dark-syntax" target="_blank" class="link">🌐 GitHub</a>
-                    <a href="https://github.com/joshdick/onedark.vim" target="_blank" class="link">📖 תיעוד</a>
-                </div>
-            </div>
-            
-            <!-- Tokyo Night Theme -->
-            <div class="theme-card">
-                <div class="theme-name">🌃 Tokyo Night</div>
-                <div class="theme-description">ערכת נושא מודרנית וצבעונית. כחול-סגול עם אקסנטים צבעוניים, זמין בגרסאות Night/Storm/Day.</div>
-                <div class="color-palette">
-                    <div class="color-swatch" style="background: #1A1B26;" data-color="#1A1B26"></div>
-                    <div class="color-swatch" style="background: #24283B;" data-color="#24283B"></div>
-                    <div class="color-swatch" style="background: #2F3549;" data-color="#2F3549"></div>
-                    <div class="color-swatch" style="background: #565F89;" data-color="#565F89"></div>
-                    <div class="color-swatch" style="background: #7AA2F7;" data-color="#7AA2F7"></div>
-                    <div class="color-swatch" style="background: #9ECE6A;" data-color="#9ECE6A"></div>
-                    <div class="color-swatch" style="background: #E0AF68;" data-color="#E0AF68"></div>
-                    <div class="color-swatch" style="background: #BB9AF7;" data-color="#BB9AF7"></div>
-                </div>
-                <div class="preview-box" style="--preview-bg: #1A1B26; --preview-text: #C0CAF5; --preview-accent: #7AA2F7; --preview-border: #2F3549; --preview-code-bg: #24283B; --preview-code-text: #9ECE6A;">
-                    <h3>דוגמה</h3>
-                    <p>טקסט רגיל עם <code>קוד מודגש</code></p>
-                </div>
-                <div class="links">
-                    <a href="https://github.com/enkia/tokyo-night-vscode-theme" target="_blank" class="link">🌐 GitHub</a>
-                    <a href="https://github.com/enkia/tokyo-night-vscode-theme#color-palette" target="_blank" class="link">🎨 פלטת צבעים</a>
+                <div class="preview-section">
+                    <div class="preview-title">דוגמת ממשק</div>
+                    <div class="preview-buttons">
+                        <button class="btn btn-primary">כפתור ראשי</button>
+                        <button class="btn btn-secondary">כפתור משני</button>
+                    </div>
+                    <div class="preview-card">
+                        <h4>כרטיס דוגמה</h4>
+                        <p>One Light מציע את הנוחות של One Dark בגרסה בהירה, מושלם לאוהבי הערכה המקורית.</p>
+                    </div>
+                    <input type="text" class="preview-input" placeholder="שדה טקסט לדוגמה...">
                 </div>
             </div>
             
-            <!-- Catppuccin Theme -->
-            <div class="theme-card">
-                <div class="theme-name">🐱 Catppuccin</div>
-                <div class="theme-description">ערכת נושא מתוקה ונוחה לעיניים. פלטה רכה עם 4 גרסאות: Mocha, Latte, Frappe, Macchiato.</div>
+            <!-- Catppuccin Latte Theme -->
+            <div class="theme-card" data-theme="catppuccin">
+                <div class="theme-header">
+                    <div class="theme-name">🐱 Catppuccin Latte</div>
+                </div>
+                <div class="theme-description">
+                    ערכת נושא מתוקה ונוחה לעיניים. פלטה רכה בהירה, מושלמת לעבודה ממושכת.
+                </div>
                 <div class="color-palette">
-                    <div class="color-swatch" style="background: #1E1E2E;" data-color="#1E1E2E"></div>
-                    <div class="color-swatch" style="background: #313244;" data-color="#313244"></div>
-                    <div class="color-swatch" style="background: #45475A;" data-color="#45475A"></div>
-                    <div class="color-swatch" style="background: #585B70;" data-color="#585B70"></div>
-                    <div class="color-swatch" style="background: #89B4FA;" data-color="#89B4FA"></div>
-                    <div class="color-swatch" style="background: #A6E3A1;" data-color="#A6E3A1"></div>
-                    <div class="color-swatch" style="background: #F9E2AF;" data-color="#F9E2AF"></div>
-                    <div class="color-swatch" style="background: #F5C2E7;" data-color="#F5C2E7"></div>
+                    <div class="color-swatch" style="background: #1E66F5;" data-color="#1E66F5"></div>
+                    <div class="color-swatch" style="background: #EA76CB;" data-color="#EA76CB"></div>
+                    <div class="color-swatch" style="background: #40A02B;" data-color="#40A02B"></div>
+                    <div class="color-swatch" style="background: #EFF1F5;" data-color="#EFF1F5"></div>
                 </div>
-                <div class="preview-box" style="--preview-bg: #1E1E2E; --preview-text: #CDD6F4; --preview-accent: #89B4FA; --preview-border: #313244; --preview-code-bg: #313244; --preview-code-text: #A6E3A1;">
-                    <h3>דוגמה</h3>
-                    <p>טקסט רגיל עם <code>קוד מודגש</code></p>
-                </div>
-                <div class="links">
-                    <a href="https://catppuccin.com/" target="_blank" class="link">🌐 אתר רשמי</a>
-                    <a href="https://catppuccin.com/palette" target="_blank" class="link">🎨 פלטת צבעים</a>
+                <div class="preview-section">
+                    <div class="preview-title">דוגמת ממשק</div>
+                    <div class="preview-buttons">
+                        <button class="btn btn-primary">כפתור ראשי</button>
+                        <button class="btn btn-secondary">כפתור משני</button>
+                    </div>
+                    <div class="preview-card">
+                        <h4>כרטיס דוגמה</h4>
+                        <p>Catppuccin Latte מציע פלטת צבעים רכה ומתוקה, נוחה מאוד לעיניים.</p>
+                    </div>
+                    <input type="text" class="preview-input" placeholder="שדה טקסט לדוגמה...">
                 </div>
             </div>
             
-            <!-- Rose Pine Theme -->
-            <div class="theme-card">
-                <div class="theme-name">🌹 Rose Pine</div>
-                <div class="theme-description">ערכת נושא אלגנטית ומינימליסטית. גווני ורוד/סגול עדינים, זמין בגרסאות Main/Moon/Dawn.</div>
+            <!-- Rose Pine Dawn Theme -->
+            <div class="theme-card" data-theme="rosepine">
+                <div class="theme-header">
+                    <div class="theme-name">🌹 Rose Pine Dawn</div>
+                </div>
+                <div class="theme-description">
+                    ערכת נושא אלגנטית ומינימליסטית. גווני ורוד/סגול עדינים על רקע בהיר, מעודן ויפה.
+                </div>
                 <div class="color-palette">
-                    <div class="color-swatch" style="background: #191724;" data-color="#191724"></div>
-                    <div class="color-swatch" style="background: #1F1D2E;" data-color="#1F1D2E"></div>
-                    <div class="color-swatch" style="background: #26233A;" data-color="#26233A"></div>
-                    <div class="color-swatch" style="background: #6E6A86;" data-color="#6E6A86"></div>
-                    <div class="color-swatch" style="background: #9CCFD8;" data-color="#9CCFD8"></div>
-                    <div class="color-swatch" style="background: #C4A7E7;" data-color="#C4A7E7"></div>
-                    <div class="color-swatch" style="background: #EBBCBA;" data-color="#EBBCBA"></div>
-                    <div class="color-swatch" style="background: #F6C177;" data-color="#F6C177"></div>
+                    <div class="color-swatch" style="background: #907AA9;" data-color="#907AA9"></div>
+                    <div class="color-swatch" style="background: #D7827E;" data-color="#D7827E"></div>
+                    <div class="color-swatch" style="background: #56949F;" data-color="#56949F"></div>
+                    <div class="color-swatch" style="background: #FAF4ED;" data-color="#FAF4ED"></div>
                 </div>
-                <div class="preview-box" style="--preview-bg: #191724; --preview-text: #E0DEF4; --preview-accent: #C4A7E7; --preview-border: #26233A; --preview-code-bg: #1F1D2E; --preview-code-text: #9CCFD8;">
-                    <h3>דוגמה</h3>
-                    <p>טקסט רגיל עם <code>קוד מודגש</code></p>
-                </div>
-                <div class="links">
-                    <a href="https://rosepinetheme.com/" target="_blank" class="link">🌐 אתר רשמי</a>
-                    <a href="https://rosepinetheme.com/palette" target="_blank" class="link">🎨 פלטת צבעים</a>
+                <div class="preview-section">
+                    <div class="preview-title">דוגמת ממשק</div>
+                    <div class="preview-buttons">
+                        <button class="btn btn-primary">כפתור ראשי</button>
+                        <button class="btn btn-secondary">כפתור משני</button>
+                    </div>
+                    <div class="preview-card">
+                        <h4>כרטיס דוגמה</h4>
+                        <p>Rose Pine Dawn מציע אלגנטיות ומינימליזם עם גוונים עדינים ונעימים.</p>
+                    </div>
+                    <input type="text" class="preview-input" placeholder="שדה טקסט לדוגמה...">
                 </div>
             </div>
             
-            <!-- Gruvbox Theme -->
-            <div class="theme-card">
-                <div class="theme-name">🎨 Gruvbox</div>
-                <div class="theme-description">ערכת נושא קלאסית ופופולרית. פלטה חמה (חום/כתום/צהוב) נוחה לעיניים, זמינה בגרסאות Light/Dark.</div>
+            <!-- Gruvbox Light Theme -->
+            <div class="theme-card" data-theme="gruvbox">
+                <div class="theme-header">
+                    <div class="theme-name">🎨 Gruvbox Light</div>
+                </div>
+                <div class="theme-description">
+                    ערכת נושא קלאסית ופופולרית. פלטה חמה (חום/כתום/צהוב) על רקע בהיר, נוחה לעיניים.
+                </div>
                 <div class="color-palette">
-                    <div class="color-swatch" style="background: #282828;" data-color="#282828"></div>
-                    <div class="color-swatch" style="background: #3C3836;" data-color="#3C3836"></div>
-                    <div class="color-swatch" style="background: #504945;" data-color="#504945"></div>
-                    <div class="color-swatch" style="background: #665C54;" data-color="#665C54"></div>
-                    <div class="color-swatch" style="background: #83A598;" data-color="#83A598"></div>
-                    <div class="color-swatch" style="background: #B8BB26;" data-color="#B8BB26"></div>
-                    <div class="color-swatch" style="background: #FE8019;" data-color="#FE8019"></div>
-                    <div class="color-swatch" style="background: #D3869B;" data-color="#D3869B"></div>
+                    <div class="color-swatch" style="background: #D65D0E;" data-color="#D65D0E"></div>
+                    <div class="color-swatch" style="background: #98971A;" data-color="#98971A"></div>
+                    <div class="color-swatch" style="background: #B57614;" data-color="#B57614"></div>
+                    <div class="color-swatch" style="background: #FBF1C7;" data-color="#FBF1C7"></div>
                 </div>
-                <div class="preview-box" style="--preview-bg: #282828; --preview-text: #EBDBB2; --preview-accent: #FE8019; --preview-border: #504945; --preview-code-bg: #3C3836; --preview-code-text: #B8BB26;">
-                    <h3>דוגמה</h3>
-                    <p>טקסט רגיל עם <code>קוד מודגש</code></p>
-                </div>
-                <div class="links">
-                    <a href="https://github.com/morhetz/gruvbox" target="_blank" class="link">🌐 GitHub</a>
-                    <a href="https://github.com/morhetz/gruvbox#palette" target="_blank" class="link">🎨 פלטת צבעים</a>
+                <div class="preview-section">
+                    <div class="preview-title">דוגמת ממשק</div>
+                    <div class="preview-buttons">
+                        <button class="btn btn-primary">כפתור ראשי</button>
+                        <button class="btn btn-secondary">כפתור משני</button>
+                    </div>
+                    <div class="preview-card">
+                        <h4>כרטיס דוגמה</h4>
+                        <p>Gruvbox Light מציע פלטת צבעים חמה ונוחה, מושלמת לאוהבי הצבעים החמים.</p>
+                    </div>
+                    <input type="text" class="preview-input" placeholder="שדה טקסט לדוגמה...">
                 </div>
             </div>
             
-            <!-- GitHub Dark Theme -->
-            <div class="theme-card">
-                <div class="theme-name">🐙 GitHub Dark</div>
-                <div class="theme-description">ערכת הנושא הרשמית של GitHub Dark Mode. מוכרת ונוחה, ניגודיות מעולה וצבעוניות מאוזנת.</div>
+            <!-- Tokyo Night Day Theme -->
+            <div class="theme-card" data-theme="tokyonight">
+                <div class="theme-header">
+                    <div class="theme-name">🌃 Tokyo Night Day</div>
+                </div>
+                <div class="theme-description">
+                    ערכת נושא מודרנית וצבעונית. כחול-סגול בהיר עם אקסנטים צבעוניים, מודרני ונעים.
+                </div>
                 <div class="color-palette">
-                    <div class="color-swatch" style="background: #0D1117;" data-color="#0D1117"></div>
-                    <div class="color-swatch" style="background: #161B22;" data-color="#161B22"></div>
-                    <div class="color-swatch" style="background: #21262D;" data-color="#21262D"></div>
-                    <div class="color-swatch" style="background: #30363D;" data-color="#30363D"></div>
-                    <div class="color-swatch" style="background: #58A6FF;" data-color="#58A6FF"></div>
-                    <div class="color-swatch" style="background: #3FB950;" data-color="#3FB950"></div>
-                    <div class="color-swatch" style="background: #D29922;" data-color="#D29922"></div>
-                    <div class="color-swatch" style="background: #DB61A2;" data-color="#DB61A2"></div>
+                    <div class="color-swatch" style="background: #2E7DE9;" data-color="#2E7DE9"></div>
+                    <div class="color-swatch" style="background: #9854F1;" data-color="#9854F1"></div>
+                    <div class="color-swatch" style="background: #0DB9D7;" data-color="#0DB9D7"></div>
+                    <div class="color-swatch" style="background: #E1E2E7;" data-color="#E1E2E7"></div>
                 </div>
-                <div class="preview-box" style="--preview-bg: #0D1117; --preview-text: #C9D1D9; --preview-accent: #58A6FF; --preview-border: #21262D; --preview-code-bg: #161B22; --preview-code-text: #3FB950;">
-                    <h3>דוגמה</h3>
-                    <p>טקסט רגיל עם <code>קוד מודגש</code></p>
+                <div class="preview-section">
+                    <div class="preview-title">דוגמת ממשק</div>
+                    <div class="preview-buttons">
+                        <button class="btn btn-primary">כפתור ראשי</button>
+                        <button class="btn btn-secondary">כפתור משני</button>
+                    </div>
+                    <div class="preview-card">
+                        <h4>כרטיס דוגמה</h4>
+                        <p>Tokyo Night Day מציע צבעוניות מודרנית על רקע בהיר, מושלם לממשק מודרני.</p>
+                    </div>
+                    <input type="text" class="preview-input" placeholder="שדה טקסט לדוגמה...">
                 </div>
-                <div class="links">
-                    <a href="https://github.com/primer/github-vscode-theme" target="_blank" class="link">🌐 GitHub</a>
-                    <a href="https://primer.style/design/foundations/color" target="_blank" class="link">🎨 פלטת צבעים</a>
+            </div>
+            
+            <!-- GitHub Light Theme -->
+            <div class="theme-card" data-theme="github-light">
+                <div class="theme-header">
+                    <div class="theme-name">🐙 GitHub Light</div>
+                </div>
+                <div class="theme-description">
+                    ערכת הנושא הרשמית של GitHub Light Mode. מוכרת ונוחה, ניגודיות מעולה וצבעוניות מאוזנת.
+                </div>
+                <div class="color-palette">
+                    <div class="color-swatch" style="background: #0969DA;" data-color="#0969DA"></div>
+                    <div class="color-swatch" style="background: #1A7F37;" data-color="#1A7F37"></div>
+                    <div class="color-swatch" style="background: #8250DF;" data-color="#8250DF"></div>
+                    <div class="color-swatch" style="background: #FFFFFF;" data-color="#FFFFFF"></div>
+                </div>
+                <div class="preview-section">
+                    <div class="preview-title">דוגמת ממשק</div>
+                    <div class="preview-buttons">
+                        <button class="btn btn-primary">כפתור ראשי</button>
+                        <button class="btn btn-secondary">כפתור משני</button>
+                    </div>
+                    <div class="preview-card">
+                        <h4>כרטיס דוגמה</h4>
+                        <p>GitHub Light מציע את העיצוב המוכר של GitHub בגרסה בהירה, מושלם למפתחים.</p>
+                    </div>
+                    <input type="text" class="preview-input" placeholder="שדה טקסט לדוגמה...">
                 </div>
             </div>
         </div>
         
         <div class="footer">
             <h2>💡 איך להשתמש?</h2>
-            <p style="margin-top: 1rem; font-size: 1.1rem;">
-                עבר על כל ערכת נושא, בדוק את הפלטות והדוגמאות.<br>
-                לחץ על הקישורים כדי לראות עוד פרטים באתרים הרשמיים.<br>
-                <strong>אחרי שתחליט איזה ערכות להוסיף, פשוט תגיד לי ואני אוסיף אותן לווב אפ! 🚀</strong>
+            <p style="margin-top: 1rem;">
+                כל כרטיס מציג ערכת נושא בהירה וצבעונית בהשראת ערכות פופולריות.<br>
+                כל ערכת נושא משנה את צבעי הרקע, הכפתורים, הכרטיסים והטפסים בממשק.<br>
+                <strong>לאחר שתחליט איזו ערכת נושא אתה מעדיף, תוכל לבחור אותה בהגדרות האפליקציה! 🚀</strong>
             </p>
         </div>
     </div>
+
+    <script>
+        // אין צורך בכפתורי בחירה - כל כרטיס מציג את הערכה שלו
+    </script>
 </body>
 </html>
