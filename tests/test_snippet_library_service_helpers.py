@@ -191,3 +191,88 @@ def test_list_public_snippets_chunk_probe_dedup(monkeypatch):
     assert "DB#1" not in titles  # deduped by chunk probe
     assert "UniqueBuiltin" in titles
     assert total >= 3
+
+
+def test_list_public_snippets_non_paginated_all_pages_dedup(monkeypatch):
+    svc = _svc()
+
+    class _Repo:
+        include_builtin_snippets = True
+
+        def list_public_snippets(self, *, q=None, language=None):
+            # Return three items; per_page=2 → page2 contains "Dup" only
+            return ([{"title": "Page1"}, {"title": "Other"}, {"title": "Dup"}], 3)
+
+    monkeypatch.setattr(
+        svc,
+        "_db",
+        SimpleNamespace(_get_repo=lambda: _Repo(), snippets_collection=None, db=None),
+        raising=False,
+    )
+    monkeypatch.setattr(
+        svc,
+        "BUILTIN_SNIPPETS",
+        [{"title": "Dup"}, {"title": "Extra"}],
+        raising=False,
+    )
+
+    items, _ = svc.list_public_snippets(page=2, per_page=2)
+    titles = [it["title"] for it in items]
+    assert titles.count("Dup") == 1
+    assert "Extra" in titles
+
+
+def test_builtin_index_advances_after_partial_page(monkeypatch):
+    svc = _svc()
+
+    class _Repo:
+        include_builtin_snippets = True
+
+        def list_public_snippets(self, **kw):
+            page = kw.get("page", 1)
+            per_page = kw.get("per_page", 30)
+            if page == 1:
+                return ([{"title": f"DB1#{i}"} for i in range(20)], 40)
+            if page == 2:
+                return ([{"title": f"DB2#{i}"} for i in range(20, 40)], 40)
+            return ([], 40)
+
+    monkeypatch.setattr(
+        svc,
+        "_db",
+        SimpleNamespace(_get_repo=lambda: _Repo(), snippets_collection=None, db=None),
+        raising=False,
+    )
+    monkeypatch.setattr(
+        svc,
+        "BUILTIN_SNIPPETS",
+        [{"title": f"Builtin #{i}"} for i in range(20)],
+        raising=False,
+    )
+
+    items_page1, _ = svc.list_public_snippets(page=1, per_page=30)
+    page1_builtins = [t for t in (it["title"] for it in items_page1) if t.startswith("Builtin")]
+    assert page1_builtins == [f"Builtin #{i}" for i in range(10)]
+
+    items_page2, _ = svc.list_public_snippets(page=2, per_page=30)
+    page2_builtins = [t for t in (it["title"] for it in items_page2) if t.startswith("Builtin")]
+    assert page2_builtins == [f"Builtin #{i}" for i in range(10, 20)]
+
+
+def test_collect_existing_titles_exception_triggers_fallback(monkeypatch):
+    svc = _svc()
+
+    class _FailingCursor:
+        def __iter__(self):
+            raise RuntimeError("boom")
+
+    class _Coll:
+        def find(self, *_args, **_kwargs):
+            return _FailingCursor()
+
+    db_stub = SimpleNamespace(snippets_collection=_Coll(), db=None)
+    monkeypatch.setattr(svc, "_db", db_stub, raising=False)
+
+    found, has_lookup = svc._collect_existing_builtin_titles({"foo": "Foo"}, q=None, language=None)
+    assert has_lookup is False
+    assert found == set()

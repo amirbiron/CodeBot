@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple, Set
 from datetime import datetime, timezone
 
 try:
@@ -123,7 +123,7 @@ def _collect_existing_builtin_titles(
             if len(existing) >= target_size:
                 break
     except Exception:
-        return existing, True
+        return existing, False
     return existing, True
 
 
@@ -1104,6 +1104,9 @@ def list_public_snippets(
     except Exception:
         db_total_int = None
 
+    page_counts: Dict[int, int] = {}
+    all_db_titles_set: Set[str] = set()
+
     if not supports_pagination:
         db_full_list = db_items_list
         if db_total_int is None or db_total_int < len(db_full_list):
@@ -1111,14 +1114,32 @@ def list_public_snippets(
         start_idx = max(0, (page_int - 1) * per_page_int)
         end_idx = start_idx + per_page_int
         db_items_page_list = db_full_list[start_idx:end_idx]
+        db_pages = (db_total_int + per_page_int - 1) // per_page_int if (db_total_int or 0) > 0 else 0
+        if db_pages > 0:
+            for p in range(1, db_pages + 1):
+                p_start = (p - 1) * per_page_int
+                p_end = p_start + per_page_int
+                slice_items = db_full_list[p_start:p_end]
+                if not slice_items and p_start >= len(db_full_list):
+                    break
+                page_counts[p] = len(slice_items)
+        all_db_titles_set.update(
+            _normalize_title_value(it.get("title")) if isinstance(it, dict) else _normalize_title_value(it)
+            for it in db_full_list
+        )
     else:
         db_items_page_list = db_items_list
         if db_total_int is None:
             db_total_int = len(db_items_page_list)
+        page_counts[page_int] = len(db_items_page_list)
+        all_db_titles_set.update(
+            _normalize_title_value(it.get("title")) if isinstance(it, dict) else _normalize_title_value(it)
+            for it in db_items_page_list
+        )
+        db_pages = (db_total_int + per_page_int - 1) // per_page_int if db_total_int > 0 else 0
 
     if db_total_int is None:
         db_total_int = len(db_items_page_list)
-
     if db_total_int <= 0:
         prepared_builtins = _prepare_builtins(builtins_raw)
         start = (page_int - 1) * per_page_int
@@ -1126,15 +1147,10 @@ def list_public_snippets(
         slice_items = prepared_builtins[start:end]
         return slice_items, len(prepared_builtins)
 
-    db_pages = (db_total_int + per_page_int - 1) // per_page_int if db_total_int > 0 else 0
-
     existing_titles_in_db, has_direct_lookup = _collect_existing_builtin_titles(
         builtin_title_map, q=q, language=language
     )
-    existing_titles_in_db.update(
-        _normalize_title_value(it.get("title")) if isinstance(it, dict) else _normalize_title_value(it)
-        for it in db_items_page_list
-    )
+    existing_titles_in_db.update(title for title in all_db_titles_set if title)
     if (not has_direct_lookup) and supports_pagination and builtin_title_map and db_pages > 0:
         pages_cap = min(5, db_pages)
         for p in range(1, pages_cap + 1):
@@ -1147,13 +1163,40 @@ def list_public_snippets(
             chunk_items_obj, _ = _split_result(chunk_result)
             chunk_list = _ensure_list(chunk_items_obj)
             if not chunk_list:
+                page_counts.setdefault(p, 0)
                 continue
-            existing_titles_in_db.update(
+            normalized_chunk = [
                 _normalize_title_value(it.get("title")) if isinstance(it, dict) else _normalize_title_value(it)
                 for it in chunk_list
-            )
+            ]
+            existing_titles_in_db.update(title for title in normalized_chunk if title)
+            all_db_titles_set.update(title for title in normalized_chunk if title)
+            page_counts.setdefault(p, len(chunk_list))
             if len(existing_titles_in_db) >= len(builtin_title_map):
                 break
+
+    if supports_pagination and page_int > 1:
+        fetch_budget = min(page_int - 1, 8)
+        for p in range(1, page_int):
+            if fetch_budget <= 0:
+                break
+            if p in page_counts:
+                continue
+            try:
+                chunk_result = repo.list_public_snippets(q=q, language=language, page=p, per_page=per_page_int)
+            except Exception:
+                break
+            chunk_items_obj, _ = _split_result(chunk_result)
+            chunk_list = _ensure_list(chunk_items_obj)
+            page_counts[p] = len(chunk_list)
+            if chunk_list:
+                normalized_chunk = [
+                    _normalize_title_value(it.get("title")) if isinstance(it, dict) else _normalize_title_value(it)
+                    for it in chunk_list
+                ]
+                existing_titles_in_db.update(title for title in normalized_chunk if title)
+                all_db_titles_set.update(title for title in normalized_chunk if title)
+            fetch_budget -= 1
     filtered_builtins_raw = []
     for it in builtins_raw:
         title_value = it.get("title") if isinstance(it, dict) else it
@@ -1167,8 +1210,20 @@ def list_public_snippets(
 
     unified_total = db_total_int + len(prepared_builtins)
 
-    missing_current = max(0, per_page_int - len(db_items_page_list))
-    builtins_before_page = max(0, (page_int - 1) * per_page_int - db_total_int)
+    if page_int not in page_counts:
+        page_counts[page_int] = len(db_items_page_list)
+
+    def _missing_before_page(target_page: int) -> int:
+        missing = 0
+        for p in range(1, target_page):
+            count = page_counts.get(p)
+            if count is None:
+                continue
+            missing += max(0, per_page_int - count)
+        return missing
+
+    missing_current = max(0, per_page_int - page_counts.get(page_int, len(db_items_page_list)))
+    builtins_before_page = _missing_before_page(page_int)
     builtins_consumed_during_db_pages = max(0, db_pages * per_page_int - db_total_int)
 
     if db_pages > 0 and page_int <= db_pages:
