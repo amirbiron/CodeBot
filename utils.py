@@ -1458,6 +1458,8 @@ def normalize_code(text: str,
         # Trim trailing whitespace for each line
         if trim_trailing_whitespace:
             out = "\n".join(line.rstrip(" \t") for line in out.split("\n"))
+            # Drop trailing newline characters introduced by the line-based trimming
+            out = out.rstrip("\n")
 
         return out
     except Exception:

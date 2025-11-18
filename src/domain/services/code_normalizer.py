@@ -9,6 +9,7 @@ Pure Python only. Mirrors default behavior of utils.normalize_code with defaults
 - remove zero-width and directional marks
 - remove control/format characters except \t, \n, \r
 - trim trailing whitespace per line
+- drop trailing newline characters introduced by per-line trimming
 - handle literal escapes like "\\u200B" by stripping hidden characters
 
 Note: intentionally does NOT force a trailing newline to preserve legacy behavior.
@@ -108,6 +109,9 @@ class CodeNormalizer:
 
         # 6) Trim trailing whitespace for each line
         out = "\n".join(line.rstrip(" \t") for line in out.split("\n"))
+
+        # 7) Drop trailing newline characters so we don't force a newline at EOF
+        out = out.rstrip("\n")
 
         return out
 
