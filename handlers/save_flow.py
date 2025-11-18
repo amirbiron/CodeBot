@@ -161,12 +161,17 @@ async def _send_save_success(update, context, filename, detected_language, note,
         parse_mode='Markdown',
     )
     try:
+        import time as _time
+        now_epoch = int(_time.time())
         context.user_data['last_save_success'] = {
             'file_name': filename,
             'language': detected_language,
             'note': note,
             'file_id': fid,
+            'saved_at_epoch': now_epoch,
         }
+        # שמור גם מפתח ישיר לנוחות בדיקות/שימוש עתידי
+        context.user_data['last_save_success_ts'] = now_epoch
     except Exception:
         pass
 
@@ -206,7 +211,12 @@ async def _save_via_layered_flow(update, context, filename, user_id, code, note)
     except Exception:
         fid = ''
     detected_language = getattr(saved, "language", None) or getattr(saved, "detected_language", None) or ""
-    if not detected_language:
+    # חיזוק: אם קיבלנו 'text' או שלא נקבעה שפה, ננסה זיהוי מהשירות הוותיק (סיומת גוברת כמו .md)
+    try:
+        ext_lower = str(filename or '').lower()
+    except Exception:
+        ext_lower = ''
+    if not detected_language or detected_language == 'text' or (ext_lower.endswith(('.md', '.markdown', '.mdown', '.mkd', '.mkdn')) and detected_language != 'markdown'):
         try:
             detected_language = code_service.detect_language(code, filename)
         except Exception:
@@ -582,6 +592,30 @@ async def get_note(update, context: ContextTypes.DEFAULT_TYPE) -> int:
 async def save_file_final(update, context, filename, user_id):
     context.user_data['filename_to_save'] = filename
     code = context.user_data.get('code_to_save')
+    # מחסום נגד "גרסת רפאים": אם אין תוכן לשמירה ובוצעה זה עתה שמירה מוצלחת לאותו שם קובץ – דלג
+    try:
+        import time as _time
+        last = context.user_data.get('last_save_success') or {}
+        last_name = str(last.get('file_name') or '')
+        last_ts = int(context.user_data.get('last_save_success_ts') or last.get('saved_at_epoch') or 0)
+        code_empty = not code or not str(code).strip()
+        if code_empty and last_name == str(filename) and (_time.time() - last_ts) <= 15:
+            try:
+                emit_event(
+                    "save_flow_skip_empty_duplicate",
+                    severity="info",
+                    operation="save_flow.guard",
+                    user_id=int(user_id),
+                    file_name=str(filename),
+                )
+            except Exception:
+                pass
+            # אל תנקה את last_save_success כדי לשמר עקבות; כן ננקה סטייט של ה-save flow
+            _cleanup_save_flow_state(context)
+            return ConversationHandler.END
+    except Exception:
+        # במקרה של כשל בבדיקה – נמשיך כרגיל
+        pass
     # הבטחת נרמול לפני שמירה (אידמפוטנטי)
     try:
         code = normalize_code(code)
