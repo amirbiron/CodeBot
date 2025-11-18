@@ -813,3 +813,10 @@ class DatabaseManager:
     def get_drive_prefs(self, user_id: int) -> Optional[Dict[str, Any]]:
         return self._get_repo().get_drive_prefs(user_id)
 
+    # Image generation preferences (Telegram /image)
+    def save_image_prefs(self, user_id: int, prefs: Dict[str, Any]) -> bool:
+        return self._get_repo().save_image_prefs(user_id, prefs)
+
+    def get_image_prefs(self, user_id: int) -> Optional[Dict[str, Any]]:
+        return self._get_repo().get_image_prefs(user_id)
+

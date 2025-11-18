@@ -1700,6 +1700,39 @@ class Repository:
             emit_event("db_get_drive_prefs_error", severity="error", error=str(e))
             return None
 
+    # --- Image generation preferences ---
+    @traced("db.save_image_prefs")
+    @_instrument_db("db.save_image_prefs")
+    def save_image_prefs(self, user_id: int, prefs: Dict[str, Any]) -> bool:
+        try:
+            users_collection = self.manager.db.users
+            # merge with existing prefs
+            existing = users_collection.find_one({"user_id": user_id}) or {}
+            merged = dict(existing.get("image_prefs") or {})
+            merged.update(prefs or {})
+            res = users_collection.update_one(
+                {"user_id": user_id},
+                {"$set": {"image_prefs": merged, "updated_at": datetime.now(timezone.utc)}},
+                upsert=True,
+            )
+            return bool(res.acknowledged)
+        except Exception as e:
+            emit_event("db_save_image_prefs_error", severity="error", error=str(e))
+            return False
+
+    @traced("db.get_image_prefs")
+    @_instrument_db("db.get_image_prefs")
+    def get_image_prefs(self, user_id: int) -> Optional[Dict[str, Any]]:
+        try:
+            users_collection = self.manager.db.users
+            user = users_collection.find_one({"user_id": user_id})
+            if not user:
+                return None
+            return user.get("image_prefs")
+        except Exception as e:
+            emit_event("db_get_image_prefs_error", severity="error", error=str(e))
+            return None
+
     # --- Backup ratings ---
     def save_backup_rating(self, user_id: int, backup_id: str, rating: str) -> bool:
         try:
