@@ -2993,28 +2993,23 @@ class AdvancedBotHandlers:
                 await query.edit_message_text("❌ מחיקה בוטלה.")
             
             elif data == "cancel_share":
-                # סגירת ה-ui בבטיחות: עדיף למחוק הודעה, ואם לא אפשרי – ננקה את המקלדת
+                # סגירת ה-UI בבטיחות: אם יש message – מחיקה; אחרת ננקה מקלדת (Inline)
                 try:
                     await query.answer()
                 except Exception:
                     pass
                 try:
-                    # מחיקת ההודעה אם מותרת
-                    if getattr(query, 'message', None):
+                    if getattr(query, "message", None):
                         await query.message.delete()
                     else:
-                        # גרסאות ישנות: נסה דרך הבוט
-                        await query.get_bot().delete_message(chat_id=query.message.chat_id, message_id=query.message.message_id)  # type: ignore[attr-defined]
-                except Exception:
-                    # אם לא ניתן למחוק – ננסה לנקות את ה-reply markup
-                    try:
+                        # בהודעות inline אין message – ננקה reply markup
                         await TelegramUtils.safe_edit_message_reply_markup(query, reply_markup=None)
+                except Exception:
+                    # אם לא ניתן למחוק/לנקות – נשתמש ב-fallback לעריכת טקסט/כיתוב
+                    try:
+                        await self._edit_message_with_media_fallback(query, "❌ נסגר")
                     except Exception:
-                        # כשל נוסף: נשתמש ב-fallback לעריכת טקסט/כיתוב
-                        try:
-                            await self._edit_message_with_media_fallback(query, "❌ נסגר")
-                        except Exception:
-                            pass
+                        pass
                 finally:
                     # ניקוי הקשר מרובה אם נשמר
                     try:
