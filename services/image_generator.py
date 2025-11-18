@@ -433,6 +433,25 @@ class CodeImageGenerator:
         """תאימות לאחור – אין צורך בפעולה לאחר מעבר ל-Async Playwright."""
         return
 
+    def configure(
+        self,
+        *,
+        style: Optional[str] = None,
+        theme: Optional[str] = None,
+        font_family: Optional[str] = None,
+    ) -> None:
+        """עדכון דינמי של ההעדפות בלי יצירת מופע חדש."""
+        if style is not None and style != self.style:
+            self.style = style
+        if theme is not None and theme != self.theme:
+            self.theme = theme
+            self.colors = self.THEMES.get(theme, self.THEMES['dark'])
+        if font_family is not None:
+            normalized = (font_family or '').strip().lower() or None
+            if normalized != self.font_family:
+                self.font_family = normalized
+                self._font_cache.clear()
+
     def _render_html_with_playwright(self, html_content: str, width: int, height: int) -> Image.Image:
         if not self._has_playwright:
             raise RuntimeError("Playwright async API is not available")

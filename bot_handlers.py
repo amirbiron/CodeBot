@@ -4080,51 +4080,61 @@ class AdvancedBotHandlers:
 
         done = 0
         remaining_char_budget = max_total_chars
-        for f in files:
-            try:
-                fname = f.get('file_name') or f.get('file_name'.encode(), 'unknown')
-                data = db.get_latest_version(user_id, fname)
-                if not data or not data.get('code'):
-                    continue
-                # קיטוע קבצים ארוכים לשמירה על זיכרון
-                code = str(data.get('code') or '')
-                if not code:
-                    continue
-                lines = code.splitlines()
-                if len(lines) > max_lines_per_file:
-                    code = "\n".join(lines[:max_lines_per_file]) + "\n..."
-                remaining_char_budget -= len(code)
-                if remaining_char_budget < 0:
-                    # חרגנו מתקציב – עצור ברכות
-                    break
-                # העדפות לכל קובץ לפי המשתמש
-                settings = self._get_effective_image_settings(user_id, context, fname)
-                style = str(settings.get('style') or IMAGE_CONFIG.get('default_style') or 'monokai')
-                theme = str(settings.get('theme') or IMAGE_CONFIG.get('default_theme') or 'dark')
-                width = int(settings.get('width') or IMAGE_CONFIG.get('default_width') or 1200)
-                font_family = str(settings.get('font') or 'dejavu')
-                generator = CodeImageGenerator(style=style, theme=theme, font_family=font_family)
+        generator: Optional[CodeImageGenerator] = None
+        try:
+            for f in files:
                 try:
+                    fname = f.get('file_name') or f.get('file_name'.encode(), 'unknown')
+                    data = db.get_latest_version(user_id, fname)
+                    if not data or not data.get('code'):
+                        continue
+                    # קיטוע קבצים ארוכים לשמירה על זיכרון
+                    code = str(data.get('code') or '')
+                    if not code:
+                        continue
+                    lines = code.splitlines()
+                    if len(lines) > max_lines_per_file:
+                        code = "\n".join(lines[:max_lines_per_file]) + "\n..."
+                    remaining_char_budget -= len(code)
+                    if remaining_char_budget < 0:
+                        # חרגנו מתקציב – עצור ברכות
+                        break
+                    # העדפות לכל קובץ לפי המשתמש
+                    settings = self._get_effective_image_settings(user_id, context, fname)
+                    style = str(settings.get('style') or IMAGE_CONFIG.get('default_style') or 'monokai')
+                    theme = str(settings.get('theme') or IMAGE_CONFIG.get('default_theme') or 'dark')
+                    width = int(settings.get('width') or IMAGE_CONFIG.get('default_width') or 1200)
+                    font_family = str(settings.get('font') or 'dejavu')
+                    if generator is None:
+                        generator = CodeImageGenerator(style=style, theme=theme, font_family=font_family)
+                    else:
+                        configure = getattr(generator, "configure", None)
+                        if callable(configure):
+                            try:
+                                configure(style=style, theme=theme, font_family=font_family)
+                            except Exception as cfg_err:
+                                logger.warning("Failed to reconfigure CodeImageGenerator: %s", cfg_err)
                     img_bytes = generator.generate_image(
                         code=code,
-                    language=str(data.get('programming_language') or 'text'),
+                        language=str(data.get('programming_language') or 'text'),
                         filename=fname,
                         max_width=width,
                     )
-                finally:
-                    try:
-                        generator.cleanup()  # type: ignore[attr-defined]
-                    except Exception:
-                        pass
-                bio = io.BytesIO(img_bytes)
-                bio.name = f"{fname}.png"
-                await update.message.reply_photo(photo=InputFile(bio, filename=bio.name), parse_mode=ParseMode.HTML)
-                done += 1
-                if done % 5 == 0:
-                    await _try_edit_status(f"🎨 יוצר {len(files)} תמונות...\n{done}/{len(files)} הושלמו")
-            except Exception as e:
-                logger.error(f"Error processing {f.get('file_name')}: {e}")
-                continue
+                    bio = io.BytesIO(img_bytes)
+                    bio.name = f"{fname}.png"
+                    await update.message.reply_photo(photo=InputFile(bio, filename=bio.name), parse_mode=ParseMode.HTML)
+                    done += 1
+                    if done % 5 == 0:
+                        await _try_edit_status(f"🎨 יוצר {len(files)} תמונות...\n{done}/{len(files)} הושלמו")
+                except Exception as e:
+                    logger.error(f"Error processing {f.get('file_name')}: {e}")
+                    continue
+        finally:
+            if generator is not None:
+                try:
+                    generator.cleanup()  # type: ignore[attr-defined]
+                except Exception:
+                    pass
         msg = f"✅ הושלם! נוצרו {done}/{len(files)} תמונות."
         if remaining_char_budget < 0:
             msg += "\n(הופסק מוקדם עקב תוכן ארוך – לשמירה על זיכרון)"
