@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Tuple
 from datetime import datetime, timezone
@@ -27,6 +28,103 @@ def _sanitize_text(s: Any, max_len: int) -> str:
     if len(t) > max_len:
         t = t[:max_len]
     return t
+
+
+def _normalize_title_value(title: Any) -> str:
+    try:
+        return str((title or "")).strip().lower()
+    except Exception:
+        return ""
+
+
+def _get_snippets_collection():
+    try:
+        coll = getattr(_db, "snippets_collection", None)
+        if coll is not None:
+            return coll
+        db_obj = getattr(_db, "db", None)
+        if db_obj is None:
+            return None
+        return getattr(db_obj, "snippets", None)
+    except Exception:
+        return None
+
+
+def _build_builtin_title_map(builtins: List[Dict[str, Any]]) -> Dict[str, str]:
+    title_map: Dict[str, str] = {}
+    for item in builtins:
+        if isinstance(item, dict):
+            raw_title = str(item.get("title") or "").strip()
+        else:
+            raw_title = str(item or "").strip()
+        norm_title = raw_title.lower()
+        if not norm_title or norm_title in title_map:
+            continue
+        title_map[norm_title] = raw_title
+    return title_map
+
+
+def _collect_existing_builtin_titles(
+    title_map: Dict[str, str],
+    *,
+    q: Optional[str],
+    language: Optional[str],
+) -> Tuple[set[str], bool]:
+    if not title_map:
+        return set(), False
+
+    coll = _get_snippets_collection()
+    if coll is None:
+        return set(), False
+
+    title_filters: List[Dict[str, Any]] = []
+    for raw_title in title_map.values():
+        try:
+            pattern = f"^{re.escape(raw_title)}$"
+        except Exception:
+            pattern = f"^{raw_title}$"
+        title_filters.append({"title": {"$regex": pattern, "$options": "i"}})
+
+    match_filters: List[Dict[str, Any]] = [{"status": "approved"}]
+    if language:
+        match_filters.append({"language": language})
+    if q:
+        regex = {"$regex": q, "$options": "i"}
+        match_filters.append({
+            "$or": [
+                {"title": regex},
+                {"description": regex},
+                {"code": regex},
+            ]
+        })
+    match_filters.append({"$or": title_filters})
+
+    if len(match_filters) == 1:
+        query: Dict[str, Any] = match_filters[0]
+    else:
+        query = {"$and": match_filters}
+
+    try:
+        cursor = coll.find(query, {"title": 1})
+    except Exception:
+        return set(), False
+
+    existing: set[str] = set()
+    target_size = len(title_map)
+    try:
+        for doc in cursor:
+            try:
+                raw_title = doc.get("title")  # type: ignore[attr-defined]
+            except AttributeError:
+                raw_title = getattr(doc, "title", None)
+            norm = _normalize_title_value(raw_title)
+            if norm:
+                existing.add(norm)
+            if len(existing) >= target_size:
+                break
+    except Exception:
+        return existing, True
+    return existing, True
 
 
 def submit_snippet(
@@ -857,8 +955,15 @@ def _prepare_builtins(builtins: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
 def _merge_builtins_with_db(db_items: List[Dict[str, Any]], builtins: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     """מניעת כפילות ע"י השוואת כותרות (case-insensitive). בונה רשימה עם builtins תחילה."""
     try:
-        existing_titles = {str((it.get("title") or "")).strip().lower() for it in db_items}
-        unique_builtins = [it for it in builtins if str((it.get("title") or "")).strip().lower() not in existing_titles]
+        existing_titles = {
+            _normalize_title_value(it.get("title") if isinstance(it, dict) else it) for it in db_items
+        }
+        unique_builtins = []
+        for it in builtins:
+            title_value = it.get("title") if isinstance(it, dict) else it
+            if _normalize_title_value(title_value) in existing_titles:
+                continue
+            unique_builtins.append(it)
         # שדה approved_at לצורך אחידות
         now = datetime.now(timezone.utc)
         for it in unique_builtins:
@@ -964,6 +1069,7 @@ def list_public_snippets(
 
     # חשב Built-ins תואמים (לשימוש בהשלמה ומעבר לדפי ה‑DB)
     builtins_raw = _filtered_builtins(q, language)
+    builtin_title_map = _build_builtin_title_map(builtins_raw)
 
     supports_pagination = True
     try:
@@ -998,12 +1104,6 @@ def list_public_snippets(
     except Exception:
         db_total_int = None
 
-    db_counts: Dict[int, int] = {}
-    db_titles_set = set()
-
-    def _normalize_title(item: Dict[str, Any]) -> str:
-        return str((item.get("title") or "")).strip().lower()
-
     if not supports_pagination:
         db_full_list = db_items_list
         if db_total_int is None or db_total_int < len(db_full_list):
@@ -1011,44 +1111,10 @@ def list_public_snippets(
         start_idx = max(0, (page_int - 1) * per_page_int)
         end_idx = start_idx + per_page_int
         db_items_page_list = db_full_list[start_idx:end_idx]
-        db_pages = (db_total_int + per_page_int - 1) // per_page_int if (db_total_int or 0) > 0 else 0
-        if db_pages > 0:
-            for p in range(1, db_pages + 1):
-                p_start = (p - 1) * per_page_int
-                p_end = p_start + per_page_int
-                slice_items = db_full_list[p_start:p_end]
-                if not slice_items and p_start >= len(db_full_list):
-                    break
-                db_counts[p] = len(slice_items)
-        db_titles_set.update(_normalize_title(it) for it in db_full_list)
     else:
         db_items_page_list = db_items_list
         if db_total_int is None:
             db_total_int = len(db_items_page_list)
-        db_pages = (db_total_int + per_page_int - 1) // per_page_int if db_total_int > 0 else 0
-        db_counts[page_int] = len(db_items_page_list)
-        db_titles_set.update(_normalize_title(it) for it in db_items_page_list)
-        if db_pages > 0:
-            per_repo = per_page_int
-            safety = 0
-            for p in range(1, db_pages + 1):
-                if p == page_int:
-                    continue
-                try:
-                    chunk_result = repo.list_public_snippets(q=q, language=language, page=p, per_page=per_repo)
-                except Exception:
-                    break
-                chunk_items_obj, _ = _split_result(chunk_result)
-                chunk_list = _ensure_list(chunk_items_obj)
-                if not chunk_list:
-                    if p > page_int:
-                        break
-                    continue
-                db_counts[p] = len(chunk_list)
-                db_titles_set.update(_normalize_title(it) for it in chunk_list)
-                safety += 1
-                if safety > 200:
-                    break
 
     if db_total_int is None:
         db_total_int = len(db_items_page_list)
@@ -1060,43 +1126,63 @@ def list_public_snippets(
         slice_items = prepared_builtins[start:end]
         return slice_items, len(prepared_builtins)
 
-    filtered_builtins_raw = [it for it in builtins_raw if _normalize_title(it) not in db_titles_set]
+    db_pages = (db_total_int + per_page_int - 1) // per_page_int if db_total_int > 0 else 0
+
+    existing_titles_in_db, has_direct_lookup = _collect_existing_builtin_titles(
+        builtin_title_map, q=q, language=language
+    )
+    existing_titles_in_db.update(
+        _normalize_title_value(it.get("title")) if isinstance(it, dict) else _normalize_title_value(it)
+        for it in db_items_page_list
+    )
+    if (not has_direct_lookup) and supports_pagination and builtin_title_map and db_pages > 0:
+        pages_cap = min(5, db_pages)
+        for p in range(1, pages_cap + 1):
+            if p == page_int:
+                continue
+            try:
+                chunk_result = repo.list_public_snippets(q=q, language=language, page=p, per_page=per_page_int)
+            except Exception:
+                break
+            chunk_items_obj, _ = _split_result(chunk_result)
+            chunk_list = _ensure_list(chunk_items_obj)
+            if not chunk_list:
+                continue
+            existing_titles_in_db.update(
+                _normalize_title_value(it.get("title")) if isinstance(it, dict) else _normalize_title_value(it)
+                for it in chunk_list
+            )
+            if len(existing_titles_in_db) >= len(builtin_title_map):
+                break
+    filtered_builtins_raw = []
+    for it in builtins_raw:
+        title_value = it.get("title") if isinstance(it, dict) else it
+        if _normalize_title_value(title_value) in existing_titles_in_db:
+            continue
+        filtered_builtins_raw.append(it)
     prepared_builtins = _prepare_builtins(filtered_builtins_raw)
+
+    if not prepared_builtins:
+        return list(db_items_page_list), db_total_int
+
     unified_total = db_total_int + len(prepared_builtins)
 
-    missing_by_page: Dict[int, int] = {}
-    if db_pages > 0:
-        for p in range(1, db_pages + 1):
-            if p in db_counts:
-                count_val = db_counts[p]
-            elif p == db_pages:
-                count_val = max(0, db_total_int - per_page_int * (db_pages - 1))
-                if count_val == 0 and db_total_int > 0:
-                    count_val = per_page_int
-            else:
-                count_val = per_page_int
-            try:
-                count_int = int(count_val)
-            except Exception:
-                count_int = per_page_int
-            count_int = max(0, min(per_page_int, count_int))
-            missing_by_page[p] = max(0, per_page_int - count_int)
+    missing_current = max(0, per_page_int - len(db_items_page_list))
+    builtins_before_page = max(0, (page_int - 1) * per_page_int - db_total_int)
+    builtins_consumed_during_db_pages = max(0, db_pages * per_page_int - db_total_int)
 
-    builtins_consumed_before_page = sum(missing_by_page.get(p, 0) for p in range(1, page_int))
-    builtins_consumed_total = sum(missing_by_page.values())
-
-    if page_int <= db_pages and db_pages > 0:
+    if db_pages > 0 and page_int <= db_pages:
         items: List[Dict[str, Any]] = list(db_items_page_list)
-        missing_current = missing_by_page.get(page_int, 0)
         if missing_current > 0:
-            start_idx = builtins_consumed_before_page
-            end_idx = start_idx + missing_current
-            items.extend(prepared_builtins[start_idx:end_idx])
+            start_idx = min(len(prepared_builtins), builtins_before_page)
+            end_idx = min(len(prepared_builtins), start_idx + missing_current)
+            if start_idx < end_idx:
+                items.extend(prepared_builtins[start_idx:end_idx])
         return items, unified_total
 
     if db_items_page_list:
         return list(db_items_page_list), unified_total
 
-    builtins_start = builtins_consumed_total + max(0, page_int - db_pages - 1) * per_page_int
+    builtins_start = builtins_consumed_during_db_pages + max(0, page_int - db_pages - 1) * per_page_int
     builtins_end = builtins_start + per_page_int
     return prepared_builtins[builtins_start:builtins_end], unified_total
