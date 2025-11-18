@@ -21,7 +21,7 @@ goals:
 context:
   - README.md
   - FEATURES_SUMMARY.md
-  - BOT_USER_GUIDE.md
+  - GUIDES/BOT_USER_GUIDE.md
   - webapp/USER_GUIDE.md
   - .cursorrules
   - docs/**

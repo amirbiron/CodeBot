@@ -361,12 +361,15 @@ class AdvancedBotHandlers:
             # אם אין שינוי ממשי – אין צורך לפעול
             if "message is not modified" in desc:
                 return
+            # תמיכת fallback גם בשגיאה הנפוצה: "There is no text in the message to edit"
             needs_fallback = any(
                 key in desc
                 for key in (
                     "message can't be edited",
                     "message to edit not found",
                     "message to edit has no text",
+                    "there is no text in the message to edit",
+                    "no text in the message to edit",
                     "can't edit message",
                 )
             )
