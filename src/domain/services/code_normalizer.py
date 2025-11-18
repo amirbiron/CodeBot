@@ -9,7 +9,7 @@ Pure Python only. Mirrors default behavior of utils.normalize_code with defaults
 - remove zero-width and directional marks
 - remove control/format characters except \t, \n, \r
 - trim trailing whitespace per line
-- handle literal escapes like "\u200B" by stripping hidden characters
+- handle literal escapes like "\\u200B" by stripping hidden characters
 
 Note: intentionally does NOT force a trailing newline to preserve legacy behavior.
 """
@@ -115,7 +115,7 @@ class CodeNormalizer:
         """Remove literal unicode escape sequences for hidden/format characters.
 
         - Removes escapes in KNOWN sets or with Unicode category Cf
-        - Handles both \uXXXX and \UXXXXXXXX forms
+        - Handles both \\uXXXX and \\UXXXXXXXX forms
         """
         def _strip_if_hidden_u4(m: "re.Match[str]") -> str:
             hexcode = m.group(1).upper()
