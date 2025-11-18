@@ -98,9 +98,30 @@ class CodeImageGenerator:
             'line_number_text': '#75715e',
             'border': '#49483e',
         },
+        'gruvbox': {
+            'background': '#282828',  # Gruvbox Dark
+            'text': '#ebdbb2',
+            'line_number_bg': '#3c3836',
+            'line_number_text': '#bdae93',
+            'border': '#504945',
+        },
+        'one_dark': {
+            'background': '#282c34',
+            'text': '#abb2bf',
+            'line_number_bg': '#21252b',
+            'line_number_text': '#5c6370',
+            'border': '#3b4048',
+        },
+        'dracula': {
+            'background': '#282a36',
+            'text': '#f8f8f2',
+            'line_number_bg': '#1e1f29',
+            'line_number_text': '#6272a4',
+            'border': '#44475a',
+        },
     }
 
-    def __init__(self, style: str = 'monokai', theme: str = 'dark') -> None:
+    def __init__(self, style: str = 'monokai', theme: str = 'dark', *, font_family: Optional[str] = None) -> None:
         if Image is None:
             raise ImportError("Pillow is required for image generation")
         if highlight is None:
@@ -109,6 +130,7 @@ class CodeImageGenerator:
         self.style = style
         self.theme = theme
         self.colors = self.THEMES.get(theme, self.THEMES['dark'])
+        self.font_family = (font_family or '').strip().lower() or None
         self._font_cache: dict[str, FreeTypeFont] = {}
         self._logo_cache: Optional[Image.Image] = None
 
@@ -132,13 +154,33 @@ class CodeImageGenerator:
         if cache_key in self._font_cache:
             return self._font_cache[cache_key]
 
-        # מסלולי פונט מונוספייס נפוצים
-        font_paths = [
+        # מסלולי פונט מונוספייס נפוצים + העדפה לפי בחירת המשתמש (אם צוינה)
+        preferred_map = {
+            'dejavu': [
+                '/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf',
+            ],
+            'jetbrains': [
+                '/usr/share/fonts/truetype/jetbrains-mono/JetBrainsMono-Regular.ttf',
+                '/usr/share/fonts/truetype/jetbrainsmono/JetBrainsMono-Regular.ttf',
+                '/usr/share/fonts/truetype/ttf-jetbrains-mono/JetBrainsMono-Regular.ttf',
+                '/usr/share/fonts/opentype/jetbrains-mono/JetBrainsMono-Regular.otf',
+            ],
+            'cascadia': [
+                '/usr/share/fonts/truetype/cascadia/CascadiaCode.ttf',
+                '/usr/share/fonts/truetype/cascadia/CascadiaCode-Regular.ttf',
+                '/usr/share/fonts/truetype/cascadiamono/CascadiaMono.ttf',
+            ],
+        }
+        default_paths = [
             '/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf',
             '/usr/share/fonts/truetype/liberation/LiberationMono-Regular.ttf',
             'C:/Windows/Fonts/consola.ttf',
             '/System/Library/Fonts/Menlo.ttc',
         ]
+        font_paths = []
+        if self.font_family and self.font_family in preferred_map:
+            font_paths.extend(preferred_map[self.font_family])
+        font_paths.extend(default_paths)
         font: Optional[FreeTypeFont] = None
         for p in font_paths:
             try:
@@ -146,6 +188,7 @@ class CodeImageGenerator:
                 if path.exists():
                     font = ImageFont.truetype(str(path), size)
                     if bold:
+                        # נסה להסיק מסלול "Bold" קרוב
                         bold_path = str(path).replace('Regular', 'Bold').replace('.ttf', '-Bold.ttf')
                         if Path(bold_path).exists():
                             font = ImageFont.truetype(bold_path, size)

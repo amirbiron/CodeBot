@@ -3199,8 +3199,19 @@ def setup_handlers(application: Application, db_manager):  # noqa: D401
         
         reply_markup = ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True)
         await update.message.reply_text(
-            "👋 שלום! הבוט מוכן לשימוש.\n\n"
-            "🔧 לכל תקלה בבוט נא לשלוח הודעה ל-@moominAmir", 
+            "🤖 שלום וברוך הבא לבוט שומר הקוד המתקדם!\n\n"
+            "🔹 שמור ונהל קטעי קוד בחכמה\n"
+            "🔹 עריכה מתקדמת עם גרסאות\n"
+            "🔹 חיפוש והצגה חכמה\n"
+            "🔹 הורדה וניהול מלא\n"
+            "🔹 העלאת קבצים ל-GitHub\n\n"
+            "✨ חדש בבוט:\n"
+            "• 🌐 מיני-WebApp - כפתור בפינה השמאלית למטה\n"
+            "  הכי נוח לצפייה והעתקה של קוד ארוך (עד עשרות אלפי שורות)\n\n"
+            "• 🗃 אוסף הקהילה - גלו כלים, ובוטים שבנו משתמשים אחרים\n"
+            "  ואתם מוזמנים לשתף את הפרויקטים שלכם ולהצטרף לאוסף\n\n"
+            "• לכל הפקודות - שלחו /help\n\n"
+            "🔧 תקלה בבוט? כתבו ל-@moominAmir",
             reply_markup=reply_markup
         )
 
@@ -3208,10 +3219,53 @@ def setup_handlers(application: Application, db_manager):  # noqa: D401
         if reporter is not None:
             reporter.report_activity(update.effective_user.id)
         await log_user_activity(update, context)  # הוספת רישום משתמש לסטטיסטיקות
-        await update.message.reply_text(
-            "ℹ️ השתמש ב/start כדי להתחיל.\n\n"
-            "🔧 לכל תקלה בבוט נא לשלוח הודעה ל-@moominAmir"
+        text = (
+            "<b>📚 עזרה – פקודות זמינות</b>\n\n"
+            "<b>מומלץ</b>\n"
+            "• <b>/remind</b> – יצירת תזכורות חכמות (כולל /reminders לרשימה)\n"
+            "• <b>/image</b> – יצירת תמונת קוד מעוצבת (עם תמה/פונט/רוחב)\n\n"
+            "<b>קבצים</b>\n"
+            "• /show &lt;שם־קובץ&gt; – הצג קובץ מודגש\n"
+            "• /edit &lt;שם־קובץ&gt; – עריכת קובץ\n"
+            "• /delete &lt;שם־קובץ&gt; – מחיקה\n"
+            "• /download &lt;שם־קובץ&gt; – הורדה\n\n"
+            "<b>מועדפים וגרסאות</b>\n"
+            "• /fav &lt;שם־קובץ&gt; – הוסף/הסר ממועדפים\n"
+            "• /favorites – רשימת מועדפים\n"
+            "• /versions &lt;שם־קובץ&gt; – גרסאות קובץ\n\n"
+            "<b>שיתוף</b>\n"
+            "• /share &lt;קבצים...&gt; – אשף שיתוף (Gist/Pastebin/פנימי)\n"
+            "• /share_help – עזרה מפורטת על שיתוף\n\n"
+            "<b>תמונות קוד</b>\n"
+            "• /image &lt;שם־קובץ&gt; – יצירת תמונה\n"
+            "• /preview &lt;שם־קובץ&gt; – תצוגה מקדימה\n"
+            "• /image_all – יצירת תמונות לקבצים האחרונים (מוגבל)\n\n"
+            "<b>תזכורות</b>\n"
+            "• /remind &lt;טקסט/זמן&gt; – יצירת תזכורת\n"
+            "• /reminders – רשימת תזכורות וניהול\n\n"
+            "<b>חיפוש וניתוח</b>\n"
+            "• /search &lt;טקסט&gt; – חיפוש בקוד\n"
+            "• /analyze &lt;שם־קובץ&gt; – ניתוח\n"
+            "• /validate &lt;שם־קובץ&gt; – בדיקות\n\n"
+            "<b>ארגון ומידע</b>\n"
+            "• /tags – תגיות\n"
+            "• /recent – אחרונים\n"
+            "• /info – מידע על החשבון/קבצים\n"
+            "• /broadcast – שידור (מוגבל)\n\n"
+            "<b>ChatOps/מנהל (מוגבל הרשאות)</b>\n"
+            "• /status, /health, /observe, /triage\n"
+            "• /system_info, /metrics, /uptime, /alerts, /incidents\n"
+            "• /predict, /accuracy, /errors, /rate_limit\n"
+            "• /enable_backoff, /disable_backoff, /silence, /unsilence, /silences\n\n"
+            "לבעיות/הצעות: @moominAmir"
         )
+        try:
+            await update.message.reply_text(text, parse_mode=ParseMode.HTML, disable_web_page_preview=True)
+        except Exception:
+            await update.message.reply_text(
+                text.replace("<b>", "").replace("</b>", "").replace("&lt;", "<").replace("&gt;", ">"),
+                disable_web_page_preview=True,
+            )
 
     application.add_handler(CommandHandler("start", start_command))
     application.add_handler(CommandHandler("help", help_command))
