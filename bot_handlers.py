@@ -22,6 +22,7 @@ from telegram.ext import CallbackQueryHandler, CommandHandler, ContextTypes
 from telegram.ext import ApplicationHandlerStop
 
 from services import code_service as code_processor
+from utils import TelegramUtils  # עריכות בטוחות להודעות/מקלדות
 from services.image_generator import CodeImageGenerator
 from rate_limiter import RateLimiter
 from config import config
@@ -339,6 +340,63 @@ class AdvancedBotHandlers:
             return f"tok:{tok}"
         except Exception:
             return file_name
+
+    def _build_image_settings_keyboard(self, context: ContextTypes.DEFAULT_TYPE, file_name: str) -> InlineKeyboardMarkup:
+        """בנה מקלדת הגדרות תמונה (תמה/רוחב) תוך סימון הבחירה הנוכחית."""
+        settings = self._get_image_settings(context, file_name)
+        current_theme = str(settings.get('theme') or IMAGE_CONFIG.get('default_theme') or 'dark')
+        try:
+            current_width = int(settings.get('width') or IMAGE_CONFIG.get('default_width') or 1200)
+        except Exception:
+            current_width = 1200
+
+        # suffixes בטוחים עבור callback_data קצרים
+        theme_suffix = self._make_safe_suffix(context, "img_set_theme:", file_name)
+        width_suffix = self._make_safe_suffix(context, "img_set_width:", file_name)
+
+        def _mk_theme_cb(val: str) -> str:
+            return f"img_set_theme:{val}:{theme_suffix}"
+
+        def _mk_width_cb(val: int) -> str:
+            return f"img_set_width:{val}:{width_suffix}"
+
+        def _lbl(selected: bool, selected_label: str, default_label: str) -> str:
+            return (f"✅ {selected_label}" if selected else default_label)
+
+        kb = InlineKeyboardMarkup([
+            [
+                InlineKeyboardButton(
+                    _lbl(current_theme == 'dark', 'Dark', '🎨 Dark'),
+                    callback_data=_mk_theme_cb('dark')
+                ),
+                InlineKeyboardButton(
+                    _lbl(current_theme == 'light', 'Light', '🌤️ Light'),
+                    callback_data=_mk_theme_cb('light')
+                ),
+            ],
+            [
+                InlineKeyboardButton(
+                    _lbl(current_theme == 'github', 'GitHub', '🐙 GitHub'),
+                    callback_data=_mk_theme_cb('github')
+                ),
+                InlineKeyboardButton(
+                    _lbl(current_theme == 'monokai', 'Monokai', '🎯 Monokai'),
+                    callback_data=_mk_theme_cb('monokai')
+                ),
+            ],
+            [
+                InlineKeyboardButton(
+                    _lbl(current_width == 800, '800px', '⬅️ 800px'),
+                    callback_data=_mk_width_cb(800)
+                ),
+                InlineKeyboardButton(
+                    _lbl(current_width == 1400, '1400px', '➡️ 1400px'),
+                    callback_data=_mk_width_cb(1400)
+                ),
+            ],
+            [InlineKeyboardButton("✅ סגור", callback_data="cancel_share")],
+        ])
+        return kb
     
     async def _edit_message_with_media_fallback(
         self,
@@ -2935,15 +2993,31 @@ class AdvancedBotHandlers:
                 await query.edit_message_text("❌ מחיקה בוטלה.")
             
             elif data == "cancel_share":
-                # ביטול תיבת השיתוף (יחיד/מרובה)
-                await query.edit_message_text("❌ השיתוף בוטל.")
+                # סגירת ה-UI בבטיחות: אם יש message – מחיקה; אחרת ננקה מקלדת (Inline)
                 try:
-                    # ניקוי הקשר מרובה אם נשמר
-                    ms = context.user_data.get('multi_share')
-                    if isinstance(ms, dict) and not ms:
-                        context.user_data.pop('multi_share', None)
+                    await query.answer()
                 except Exception:
                     pass
+                try:
+                    if getattr(query, "message", None):
+                        await query.message.delete()
+                    else:
+                        # בהודעות inline אין message – ננקה reply markup
+                        await TelegramUtils.safe_edit_message_reply_markup(query, reply_markup=None)
+                except Exception:
+                    # אם לא ניתן למחוק/לנקות – נשתמש ב-fallback לעריכת טקסט/כיתוב
+                    try:
+                        await self._edit_message_with_media_fallback(query, "❌ נסגר")
+                    except Exception:
+                        pass
+                finally:
+                    # ניקוי הקשר מרובה אם נשמר
+                    try:
+                        ms = context.user_data.get('multi_share')
+                        if isinstance(ms, dict) and not ms:
+                            context.user_data.pop('multi_share', None)
+                    except Exception:
+                        pass
             
             elif data.startswith("highlight_"):
                 file_name = data.replace("highlight_", "")
@@ -3028,23 +3102,8 @@ class AdvancedBotHandlers:
             elif data.startswith("edit_image_settings_"):
                 _suffix = data.replace("edit_image_settings_", "")
                 file_name = self._resolve_image_target(context, _suffix)
-                # בנה מקלדת לבחירת תמה ורוחב – ודא ש-callbacks קצרים
-                theme_suffix = self._make_safe_suffix(context, "img_set_theme:", file_name)
-                width_suffix = self._make_safe_suffix(context, "img_set_width:", file_name)
-                # הוסף הפרדה ':' רק כאשר משתמשים ב-suffix (יתמוך גם ב-tok:<...>)
-                def _mk_theme_cb(val: str) -> str:
-                    return f"img_set_theme:{val}:{theme_suffix}"
-                def _mk_width_cb(val: int) -> str:
-                    return f"img_set_width:{val}:{width_suffix}"
-                kb = InlineKeyboardMarkup([
-                    [InlineKeyboardButton("🎨 Dark", callback_data=_mk_theme_cb("dark")),
-                     InlineKeyboardButton("🌤️ Light", callback_data=_mk_theme_cb("light"))],
-                    [InlineKeyboardButton("🐙 GitHub", callback_data=_mk_theme_cb("github")),
-                     InlineKeyboardButton("🎯 Monokai", callback_data=_mk_theme_cb("monokai"))],
-                    [InlineKeyboardButton("⬅️ 800px", callback_data=_mk_width_cb(800)),
-                     InlineKeyboardButton("➡️ 1400px", callback_data=_mk_width_cb(1400))],
-                    [InlineKeyboardButton("✅ סגור", callback_data="cancel_share")]
-                ])
+                # מקלדת עם סימון הבחירה הנוכחית
+                kb = self._build_image_settings_keyboard(context, file_name)
                 await self._edit_message_with_media_fallback(
                     query,
                     "🛠️ עריכת הגדרות תמונה – בחר תמה/רוחב ואז לחץ 'יצור מחדש'",
@@ -3059,7 +3118,17 @@ class AdvancedBotHandlers:
                     return
                 file_name = self._resolve_image_target(context, suffix)
                 self._set_image_setting(context, file_name, 'theme', theme)
-                await query.answer("🎨 עודכן!", show_alert=False)
+                # עדכן את המקלדת כך שהתמה הנבחרת תוצג כ✅
+                try:
+                    await query.answer("🎨 עודכן!", show_alert=False)
+                except Exception:
+                    pass
+                try:
+                    kb = self._build_image_settings_keyboard(context, file_name)
+                    await TelegramUtils.safe_edit_message_reply_markup(query, reply_markup=kb)
+                except Exception:
+                    # אין צורך להכשיל את הזרימה אם עריכת המקלדת נכשלה
+                    pass
 
             elif data.startswith("img_set_width:"):
                 try:
@@ -3070,7 +3139,15 @@ class AdvancedBotHandlers:
                     return
                 file_name = self._resolve_image_target(context, suffix)
                 self._set_image_setting(context, file_name, 'width', width)
-                await query.answer("📏 עודכן!", show_alert=False)
+                try:
+                    await query.answer("📏 עודכן!", show_alert=False)
+                except Exception:
+                    pass
+                try:
+                    kb = self._build_image_settings_keyboard(context, file_name)
+                    await TelegramUtils.safe_edit_message_reply_markup(query, reply_markup=kb)
+                except Exception:
+                    pass
 
             elif data.startswith("save_to_drive_"):
                 _suffix = data.replace("save_to_drive_", "")
