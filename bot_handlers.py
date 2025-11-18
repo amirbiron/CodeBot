@@ -260,6 +260,15 @@ class AdvancedBotHandlers:
         except Exception as e:
             # אל תבלע חריגות שקטות – דווח ללוג כדי לא לשבור את כפתורי השיתוף
             logger.error(f"Failed to register share CallbackQueryHandler: {e}")
+        # Handler מוקדם לכפתורי /image (יצור מחדש/עריכת הגדרות/Drive)
+        image_pattern = r'^(regenerate_image_|edit_image_settings_|img_set_theme:|img_set_width:|save_to_drive_)'
+        image_handler = CallbackQueryHandler(self.handle_callback_query, pattern=image_pattern)
+        try:
+            self.application.add_handler(image_handler, group=-5)
+        except TypeError:
+            self.application.add_handler(image_handler)
+        except Exception as e:
+            logger.error(f"Failed to register image CallbackQueryHandler: {e}")
     
     def _get_image_settings(self, context: ContextTypes.DEFAULT_TYPE, file_name: str) -> Dict[str, Any]:
         try:
