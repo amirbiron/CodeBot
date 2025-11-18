@@ -817,7 +817,7 @@ def inject_globals():
                 pass
     except Exception:
         pass
-    if theme not in {'classic','ocean','forest','high-contrast','dark','dim'}:
+    if theme not in {'classic','ocean','forest','high-contrast','dark','dim','rose-pine-dawn'}:
         theme = 'classic'
 
     show_welcome_modal = False
@@ -884,7 +884,7 @@ def inject_globals():
 
     
 # --- Theme helpers (single source of truth) ---
-ALLOWED_UI_THEMES = {'classic', 'ocean', 'forest', 'high-contrast', 'dark', 'dim'}
+ALLOWED_UI_THEMES = {'classic', 'ocean', 'forest', 'high-contrast', 'dark', 'dim', 'rose-pine-dawn'}
 
 def get_current_theme() -> str:
     """קובע את ערכת הנושא הנוכחית לפי cookie ו/או העדפות משתמש (DB).
@@ -6818,7 +6818,7 @@ def api_ui_prefs():
         # עדכון ערכת צבעים במידת הצורך
         if 'theme' in payload:
             theme = (payload.get('theme') or '').strip().lower()
-            if theme in {'classic', 'ocean', 'forest', 'high-contrast', 'dark', 'dim'}:
+            if theme in {'classic', 'ocean', 'forest', 'high-contrast', 'dark', 'dim', 'rose-pine-dawn'}:
                 update_fields['ui_prefs.theme'] = theme
                 resp_payload['theme'] = theme
                 theme_cookie_value = theme
