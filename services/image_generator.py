@@ -324,7 +324,6 @@ class CodeImageGenerator:
       font-family: inherit;
       direction: ltr;
       text-align: left;
-      unicode-bidi: bidi-override;
     }}
     code {{
       font-family: inherit;
