@@ -261,7 +261,7 @@ class CodeImageGenerator:
         line_numbers_html = "\n".join(f'<span class="line-number">{i}</span>' for i in range(1, len(lines) + 1))
         # כיתוב watermark טקסטואלי – אם אחר כך נוסיף לוגו אמיתי ב-PIL, נמנע כפילות
         html_doc = f"""<!DOCTYPE html>
-<html lang="he" dir="rtl">
+<html lang="he" dir="ltr">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
@@ -278,12 +278,13 @@ class CodeImageGenerator:
       width: {width}px;
       min-height: {height}px;
       overflow: hidden;
+      direction: ltr;
+      text-align: left;
     }}
     .wrap {{
       position: relative;
       width: 100%;
       background: {self.colors['line_number_bg']};
-      border: 1px solid {self.colors['border']};
       border-radius: 10px;
       box-shadow: 0 10px 30px rgba(0,0,0,0.25);
       overflow: hidden;
@@ -298,7 +299,7 @@ class CodeImageGenerator:
     .tl.red {{ background:#ff5f56; }}
     .tl.yellow {{ background:#ffbd2e; }}
     .tl.green {{ background:#27c93f; }}
-    .content {{ display:flex; }}
+    .content {{ display:flex; direction:ltr; }}
     .nums {{
       background: {self.colors['line_number_bg']};
       color: {self.colors['line_number_text']};
@@ -310,9 +311,25 @@ class CodeImageGenerator:
       font-size: {self.FONT_SIZE - 1}px;
     }}
     .line-number {{ display:block; line-height: {self.LINE_HEIGHT}px; opacity:0.7; }}
-    .code {{ flex:1; padding: {self.DEFAULT_PADDING}px 16px; overflow: hidden; }}
-    pre {{ margin:0; white-space: pre; font-family: inherit; }}
-    code {{ font-family: inherit; }}
+    .code {{
+      flex:1;
+      padding: {self.DEFAULT_PADDING}px 16px;
+      overflow: hidden;
+      direction: ltr;
+      text-align: left;
+    }}
+    pre {{
+      margin:0;
+      white-space: pre;
+      font-family: inherit;
+      direction: ltr;
+      text-align: left;
+    }}
+    code {{
+      font-family: inherit;
+      direction: ltr;
+      text-align: left;
+    }}
 
     .wm {{
       position: absolute; bottom: {self.LOGO_PADDING}px; right: {self.LOGO_PADDING}px;
@@ -607,9 +624,9 @@ class CodeImageGenerator:
         card_layer = Image.new('RGBA', (w2, h2), (0, 0, 0, 0))
         cl_draw = ImageDraw.Draw(card_layer)
         try:
-            cl_draw.rounded_rectangle(card_rect, radius=radius, fill=panel_fill, outline=self.colors['border'], width=max(1, s))
+            cl_draw.rounded_rectangle(card_rect, radius=radius, fill=panel_fill)
         except Exception:
-            cl_draw.rectangle(card_rect, outline=self.colors['border'], width=max(1, s), fill=panel_fill)
+            cl_draw.rectangle(card_rect, fill=panel_fill)
 
         # Gradient עדין בתוך הכרטיס (מלמעלה לבהיר קצת)
         try:
