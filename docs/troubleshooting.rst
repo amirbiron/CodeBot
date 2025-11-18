@@ -51,8 +51,9 @@ ImportError בזמן טסטים (telegram / ConversationHandler / filters)
   - ``_reset_http_async_session_between_tests`` – מריץ ``await close_session()`` לפני ואחרי כל טסט אסינכרוני.
   - ``_ensure_http_async_session_closed_for_sync_tests`` – עוטף טסטים סינכרוניים שמריצים ``asyncio.run`` ודואג לקרוא ל-``close_session()`` גם שם (כולל יצירת event loop זמני לפי הצורך).
   ודא שהפיקסצ'רים נשארים פעילים (אל תעקוף אותם עם ``usefixtures`` ידני).
- - טסטים שמייצרים ``CodeImageGenerator`` לשימוש ב-Playwright/WeasyPrint חייבים לקרוא ``gen.cleanup()`` בסוף כדי לעצור את ה-Runner הפנימי; אחרת תראה את אותה שגיאה של ``Runner.run()``.
- - עבור מסלולי bulk כמו ``/image_all`` עדיף למחזר מופע יחיד של ``CodeImageGenerator`` לאורך כל הלולאה ולהתאים לו Style/Theme/Font עם ``configure`` (או יצירה מחדש אם המתודה לא קיימת). כך מקבלים קריאה אחת בלבד ל-``cleanup`` בסוף ומונעים הצטברות אובייקטים כבדים/תהליכי Playwright זומבים.
+
+- טסטים שמייצרים ``CodeImageGenerator`` לשימוש ב-Playwright/WeasyPrint חייבים לקרוא ``gen.cleanup()`` בסוף כדי לעצור את ה-Runner הפנימי; אחרת תראה את אותה שגיאה של ``Runner.run()``.
+- עבור מסלולי bulk כמו ``/image_all`` עדיף למחזר מופע יחיד של ``CodeImageGenerator`` לאורך כל הלולאה ולהתאים לו Style/Theme/Font עם ``configure`` (או יצירה מחדש אם המתודה לא קיימת). כך מקבלים קריאה אחת בלבד ל-``cleanup`` בסוף ומונעים הצטברות אובייקטים כבדים/תהליכי Playwright זומבים.
 
 ``Timezone naive/aware גורם להשוואות שגויות``
   - ודא ש‑``created_at`` ו‑``updated_at`` הם timezone-aware ב‑UTC
