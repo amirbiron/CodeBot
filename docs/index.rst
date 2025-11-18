@@ -101,6 +101,7 @@ Code Keeper Bot - תיעוד API
    :caption: איכות וקונבנציות:
 
    quality/type-safety
+   quality/code-normalization
 
 
 .. toctree::
