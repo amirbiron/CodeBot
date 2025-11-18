@@ -330,6 +330,78 @@ class AdvancedBotHandlers:
             return f"tok:{tok}"
         except Exception:
             return file_name
+    
+    async def _edit_message_with_media_fallback(
+        self,
+        query,
+        text: str,
+        *,
+        parse_mode: Optional[str] = None,
+        reply_markup: Optional[InlineKeyboardMarkup] = None,
+    ) -> None:
+        """Edit הודעה, עם fallback להודעות מדיה (caption) או reply חדש במידת הצורך."""
+        try:
+            await query.edit_message_text(
+                text=text,
+                parse_mode=parse_mode,
+                reply_markup=reply_markup,
+            )
+            return
+        except telegram.error.BadRequest as exc:
+            desc = str(exc).lower()
+            # אם אין שינוי ממשי – אין צורך לפעול
+            if "message is not modified" in desc:
+                return
+            needs_fallback = any(
+                key in desc
+                for key in (
+                    "message can't be edited",
+                    "message to edit not found",
+                    "message to edit has no text",
+                    "can't edit message",
+                )
+            )
+            if not needs_fallback:
+                raise
+        except Exception:
+            # חריגות אחרות יטופלו ע"י fallback מתחת
+            pass
+
+        # ניסיון לערוך caption (במיוחד עבור הודעות תמונה)
+        try:
+            await query.edit_message_caption(
+                caption=text,
+                parse_mode=parse_mode,
+                reply_markup=reply_markup,
+            )
+            return
+        except telegram.error.BadRequest as exc:
+            desc = str(exc).lower()
+            if "message is not modified" in desc:
+                return
+            needs_reply = any(
+                key in desc
+                for key in (
+                    "message can't be edited",
+                    "message to edit not found",
+                    "can't edit message",
+                )
+            )
+            if not needs_reply:
+                raise
+        except Exception:
+            pass
+
+        # שליחת הודעה חדשה כהודעת fallback סופית
+        try:
+            await query.message.reply_text(
+                text,
+                parse_mode=parse_mode,
+                reply_markup=reply_markup,
+            )
+        except Exception:
+            # בשלב זה אין עוד מה לעשות – נבלע חריגה כדי לא לשבור את הזרימה
+            logger.warning("Fallback reply_text כשל עבור לחצן תמונה", exc_info=True)
 
     async def show_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """הצגת קטע קוד עם הדגשת תחביר"""
@@ -2905,7 +2977,11 @@ class AdvancedBotHandlers:
                     return
                 doc = db.get_latest_version(user_id, file_name)
                 if not doc or not doc.get('code'):
-                    await query.edit_message_text(f"❌ קובץ `{html.escape(file_name)}` לא נמצא או ריק.", parse_mode=ParseMode.MARKDOWN)
+                    await self._edit_message_with_media_fallback(
+                        query,
+                        f"❌ קובץ `{html.escape(file_name)}` לא נמצא או ריק.",
+                        parse_mode=ParseMode.MARKDOWN,
+                    )
                     return
                 settings = self._get_image_settings(context, file_name)
                 style = str(settings.get('style') or IMAGE_CONFIG.get('default_style') or 'monokai')
@@ -2957,7 +3033,11 @@ class AdvancedBotHandlers:
                      InlineKeyboardButton("➡️ 1400px", callback_data=_mk_width_cb(1400))],
                     [InlineKeyboardButton("✅ סגור", callback_data="cancel_share")]
                 ])
-                await query.edit_message_text("🛠️ עריכת הגדרות תמונה – בחר תמה/רוחב ואז לחץ 'יצור מחדש'", reply_markup=kb)
+                await self._edit_message_with_media_fallback(
+                    query,
+                    "🛠️ עריכת הגדרות תמונה – בחר תמה/רוחב ואז לחץ 'יצור מחדש'",
+                    reply_markup=kb,
+                )
 
             elif data.startswith("img_set_theme:"):
                 try:
@@ -2993,7 +3073,11 @@ class AdvancedBotHandlers:
                     return
                 doc = db.get_latest_version(user_id, file_name)
                 if not doc or not doc.get('code'):
-                    await query.edit_message_text(f"❌ קובץ `{html.escape(file_name)}` לא נמצא או ריק.", parse_mode=ParseMode.MARKDOWN)
+                    await self._edit_message_with_media_fallback(
+                        query,
+                        f"❌ קובץ `{html.escape(file_name)}` לא נמצא או ריק.",
+                        parse_mode=ParseMode.MARKDOWN,
+                    )
                     return
                 settings = self._get_image_settings(context, file_name)
                 style = str(settings.get('style') or IMAGE_CONFIG.get('default_style') or 'monokai')
@@ -3014,9 +3098,16 @@ class AdvancedBotHandlers:
                 except Exception:
                     fid = None
                 if fid:
-                    await query.edit_message_text(f"✅ נשמר ל-Drive (id: <code>{html.escape(str(fid))}</code>)", parse_mode=ParseMode.HTML)
+                    await self._edit_message_with_media_fallback(
+                        query,
+                        f"✅ נשמר ל-Drive (id: <code>{html.escape(str(fid))}</code>)",
+                        parse_mode=ParseMode.HTML,
+                    )
                 else:
-                    await query.edit_message_text("⚠️ שמירה ל-Drive לא הצליחה (בדוק הרשאות/חיבור)")
+                    await self._edit_message_with_media_fallback(
+                        query,
+                        "⚠️ שמירה ל-Drive לא הצליחה (בדוק הרשאות/חיבור)",
+                    )
 
             # ועוד callback handlers...
 

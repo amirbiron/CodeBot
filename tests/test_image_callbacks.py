@@ -1,5 +1,6 @@
 import pytest
 from types import SimpleNamespace
+import telegram.error
 
 
 class _Msg:
@@ -20,6 +21,8 @@ class _Query:
         self._capture['answer'] = (a, k)
     async def edit_message_text(self, *a, **k):
         self._capture['edit'] = (a, k)
+    async def edit_message_caption(self, *a, **k):
+        self._capture['caption'] = (a, k)
 
 
 @pytest.mark.asyncio
@@ -105,3 +108,28 @@ async def test_save_to_drive_success(monkeypatch):
     assert 'edit' in captured
     args, kwargs = captured['edit']
     assert 'fid123' in (args[0] if args else '') or 'fid123' in (kwargs.get('text', '') if kwargs else '')
+
+
+@pytest.mark.asyncio
+async def test_edit_settings_caption_fallback(monkeypatch):
+    mod = __import__('bot_handlers')
+    H = getattr(mod, 'AdvancedBotHandlers')
+
+    class _App:
+        def add_handler(self, *a, **k):
+            pass
+
+    captured = {}
+    h = H(_App())
+    ctx = SimpleNamespace(user_data={})
+
+    class _QueryFail(_Query):
+        async def edit_message_text(self, *a, **k):
+            raise telegram.error.BadRequest("Message can't be edited")
+
+    upd = SimpleNamespace(
+        effective_user=SimpleNamespace(id=1),
+        callback_query=_QueryFail('edit_image_settings_test.py', captured),
+    )
+    await h.handle_callback_query(upd, ctx)
+    assert 'caption' in captured or 'reply_text' in captured
