@@ -120,8 +120,6 @@ class AdvancedBotHandlers:
         # פקודות שיתוף
         self.application.add_handler(CommandHandler("share", self.share_command))
         self.application.add_handler(CommandHandler("share_help", self.share_help_command))
-        # עזרה כללית
-        self.application.add_handler(CommandHandler("help", self.help_command))
         # self.application.add_handler(CommandHandler("export", self.export_command))
         self.application.add_handler(CommandHandler("download", self.download_command))
         # יצירת תמונות מקוד – רישום עמיד: כל פקודה נרשמת בנפרד
