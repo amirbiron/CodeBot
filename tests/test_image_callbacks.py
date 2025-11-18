@@ -1,6 +1,27 @@
+import sys
+import types
+
 import pytest
 from types import SimpleNamespace
 import telegram.error
+
+import services
+
+_bootstrap_image_module = types.ModuleType("services.image_generator")
+
+
+class _BootstrapCodeImageGenerator:
+    def __init__(self, *a, **k):
+        pass
+    def generate_image(self, *a, **k):
+        return b"bootstrap"
+    def cleanup(self):
+        pass
+
+
+_bootstrap_image_module.CodeImageGenerator = _BootstrapCodeImageGenerator
+sys.modules["services.image_generator"] = _bootstrap_image_module
+setattr(services, "image_generator", _bootstrap_image_module)
 
 
 class _Msg:
@@ -133,3 +154,51 @@ async def test_edit_settings_caption_fallback(monkeypatch):
     )
     await h.handle_callback_query(upd, ctx)
     assert 'caption' in captured or 'reply_text' in captured
+
+
+@pytest.mark.asyncio
+async def test_edit_settings_reply_text_fallback():
+    mod = __import__('bot_handlers')
+    H = getattr(mod, 'AdvancedBotHandlers')
+
+    class _App:
+        def add_handler(self, *a, **k):
+            pass
+
+    captured = {}
+    h = H(_App())
+
+    class _QueryAllFail(_Query):
+        async def edit_message_text(self, *a, **k):
+            raise telegram.error.BadRequest("message can't be edited")
+        async def edit_message_caption(self, *a, **k):
+            raise telegram.error.BadRequest("message can't be edited")
+
+    q = _QueryAllFail('dummy', captured)
+    await h._edit_message_with_media_fallback(q, "text")
+    assert 'reply_text' in captured
+
+
+@pytest.mark.asyncio
+async def test_media_fallback_noop_on_not_modified():
+    mod = __import__('bot_handlers')
+    H = getattr(mod, 'AdvancedBotHandlers')
+
+    class _App:
+        def add_handler(self, *a, **k):
+            pass
+
+    captured = {}
+    h = H(_App())
+
+    class _QueryNotModified(_Query):
+        async def edit_message_text(self, *a, **k):
+            raise telegram.error.BadRequest("Message is not modified")
+        async def edit_message_caption(self, *a, **k):
+            captured['caption_called'] = True
+            await super().edit_message_caption(*a, **k)
+
+    q = _QueryNotModified('dummy', captured)
+    await h._edit_message_with_media_fallback(q, "text")
+    assert 'caption_called' not in captured
+    assert 'reply_text' not in captured
