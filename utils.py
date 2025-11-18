@@ -23,6 +23,13 @@ from functools import wraps
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 
+# Try to use the new domain CodeNormalizer when available (backwards compatible)
+try:  # pragma: no cover - optional import during gradual refactor
+    from src.domain.services.code_normalizer import CodeNormalizer as _DomainCodeNormalizer  # type: ignore
+    _DOMAIN_NORMALIZER = _DomainCodeNormalizer()
+except Exception:  # pragma: no cover - keep legacy path if domain not present
+    _DOMAIN_NORMALIZER = None  # type: ignore
+
 # Optional telegram import with safe fallback for web-only environments
 try:
     import telegram
@@ -1302,6 +1309,27 @@ def normalize_code(text: str,
             return text if text is not None else ""
 
         out = text
+
+        # Fast path: delegate to domain normalizer when all defaults are used
+        # This preserves behavior and enables gradual migration to domain layer
+        try:
+            if (
+                _DOMAIN_NORMALIZER is not None
+                and strip_bom is True
+                and normalize_newlines is True
+                and replace_nbsp is True
+                and replace_all_space_separators is True
+                and remove_zero_width is True
+                and remove_directional_marks is True
+                and trim_trailing_whitespace is True
+                and remove_other_format_chars is True
+                and remove_escaped_format_escapes is True
+                and remove_variation_selectors is False
+            ):
+                return _DOMAIN_NORMALIZER.normalize(out)
+        except Exception:
+            # Fallback to legacy logic below on any error
+            pass
 
         # Handle sequences like "\u200B" that represent hidden/format chars literally
         # We do NOT decode arbitrary escapes; only strip escapes that would decode to Cf/hidden sets
