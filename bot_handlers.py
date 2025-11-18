@@ -3906,7 +3906,7 @@ class AdvancedBotHandlers:
             regen_suffix = self._make_safe_suffix(context, "regenerate_image_", file_name)
             edit_suffix = self._make_safe_suffix(context, "edit_image_settings_", file_name)
             save_suffix = self._make_safe_suffix(context, "save_to_drive_", file_name)
-                kb = InlineKeyboardMarkup([
+            kb = InlineKeyboardMarkup([
                     [InlineKeyboardButton("🔄 צור מחדש", callback_data=f"regenerate_image_{regen_suffix}"),
                      InlineKeyboardButton("📝 ערוך הגדרות", callback_data=f"edit_image_settings_{edit_suffix}")],
                     [InlineKeyboardButton("💾 שמור ב-Drive", callback_data=f"save_to_drive_{save_suffix}")]
