@@ -1736,7 +1736,7 @@ lang:python name:test tag:api
 
 ### האם יש API לגישה לבוט?
 כן, יש WebApp נפרד עם ממשק גרפי מלא.
-ראה [WebApp User Guide](webapp/README.md).
+ראה [WebApp User Guide](../webapp/README.md).
 
 ---
 
@@ -1760,7 +1760,7 @@ lang:python name:test tag:api
 - [🌐 אתר התיעוד](https://amirbiron.github.io/CodeBot/)
 - [📖 מדריך ChatOps](CHATOPS_GUIDE.md)
 - [🔄 מדריך גיבויים](BACKUP_RESTORE.md)
-- [🐙 מדריך GitHub](README_FEATURES.md)
+- [🐙 מדריך GitHub](../README_FEATURES.md)
 - [💻 קוד מקור](https://github.com/amirbiron/CodeBot)
 
 ---
