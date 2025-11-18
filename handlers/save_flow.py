@@ -1,6 +1,7 @@
 import re
 import os
 import logging
+import inspect
 from io import BytesIO
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup
 from telegram.ext import ContextTypes, ConversationHandler
@@ -28,6 +29,191 @@ except Exception:  # pragma: no cover
 # הגדרות מצב איסוף
 LONG_COLLECT_MAX_BYTES = 300 * 1024  # 300KB
 LONG_COLLECT_TIMEOUT_SECONDS = 15 * 60  # 15 דקות
+_SAVE_FLOW_STATE_KEYS = [
+    'filename_to_save',
+    'code_to_save',
+    'note_to_save',
+    'pending_filename',
+    'long_collect_parts',
+    'long_collect_active',
+    'long_collect_locked',
+    'long_collect_job',
+]
+
+
+def _should_use_new_save_flow() -> bool:
+    """קריאה בטוחה לדגל המסלול החדש."""
+    try:
+        return str(os.getenv("USE_NEW_SAVE_FLOW", "")).lower() in {"1", "true", "yes"}
+    except Exception:
+        return False
+
+
+def _safe_construct(target, *preferred_args):
+    """ניסיון אתחול גמיש עבור מחלקות שמוחלפות במוקים פשוטים בטסטים."""
+    if target is None:
+        return None
+    if not callable(target):
+        return target
+    try:
+        return target(*preferred_args)
+    except TypeError:
+        try:
+            return target()
+        except Exception:
+            return None
+    except Exception:
+        return None
+
+
+def _build_layered_snippet_service():
+    """יוצר מופע שירות למסלול החדש, תוך סובלנות למוקים חלקיים."""
+    try:
+        from src.application.services.snippet_service import SnippetService  # type: ignore
+        from src.domain.services.code_normalizer import CodeNormalizer  # type: ignore
+        from src.infrastructure.database.mongodb.repositories.snippet_repository import (  # type: ignore
+            SnippetRepository as NewSnippetRepository,
+        )
+        from database import db  # type: ignore
+    except Exception:
+        return None
+
+    repo = _safe_construct(NewSnippetRepository, db)
+    normalizer = _safe_construct(CodeNormalizer)
+    if SnippetService is None:
+        return None
+
+    constructors = []
+    if repo is not None or normalizer is not None:
+        constructors.append(lambda: SnippetService(snippet_repository=repo, code_normalizer=normalizer))
+        constructors.append(lambda: SnippetService(repo, normalizer))
+    constructors.append(lambda: SnippetService())
+
+    for builder in constructors:
+        try:
+            return builder()
+        except TypeError:
+            continue
+        except Exception:
+            return None
+    return None
+
+
+async def _call_service_method(service, method_name, *args, **kwargs):
+    """קריאה בטוחה לפעולה אסינכרונית/סינכרונית של השירות."""
+    if not service:
+        return None
+    method = getattr(service, method_name, None)
+    if not callable(method):
+        return None
+    try:
+        result = method(*args, **kwargs)
+        if inspect.isawaitable(result):
+            return await result
+        return result
+    except Exception:
+        return None
+
+
+def _cleanup_save_flow_state(context: ContextTypes.DEFAULT_TYPE) -> None:
+    for k in _SAVE_FLOW_STATE_KEYS:
+        try:
+            context.user_data.pop(k, None)
+        except Exception:
+            continue
+
+
+async def _send_save_success(update, context, filename, detected_language, note, fid):
+    note = note or ''
+    note_btn_text = "📝 ערוך הערה" if note else "📝 הוסף הערה"
+    keyboard = [
+        [
+            InlineKeyboardButton("👁️ הצג קוד", callback_data=f"view_direct_id:{fid}" if fid else f"view_direct_{filename}"),
+            InlineKeyboardButton("✏️ ערוך", callback_data=f"edit_code_direct_{filename}"),
+        ],
+        [
+            InlineKeyboardButton("📝 שנה שם", callback_data=f"edit_name_direct_{filename}"),
+            InlineKeyboardButton(note_btn_text, callback_data=f"edit_note_direct_{filename}"),
+        ],
+        [
+            InlineKeyboardButton("📚 היסטוריה", callback_data=f"versions_file_{filename}"),
+            InlineKeyboardButton("📥 הורד", callback_data=f"download_direct_{filename}"),
+        ],
+        [
+            InlineKeyboardButton("🗑️ מחק", callback_data=f"delete_direct_{filename}"),
+        ],
+        [
+            InlineKeyboardButton("🔗 שתף קוד", callback_data=f"share_menu_id:{fid}") if fid else InlineKeyboardButton("🔗 שתף קוד", callback_data="share_menu_id:"),
+        ],
+        [
+            InlineKeyboardButton("🔙 לרשימה", callback_data="files"),
+        ],
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    note_display = TextUtils.escape_markdown(note, version=1) if note else '—'
+    await update.message.reply_text(
+        f"🎉 *קובץ נשמר בהצלחה!*\n\n"
+        f"📄 **שם:** `{filename}`\n"
+        f"🧠 **שפה זוהתה:** {detected_language}\n"
+        f"📝 **הערה:** {note_display}\n\n"
+        f"🎮 בחר פעולה מהכפתורים החכמים:",
+        reply_markup=reply_markup,
+        parse_mode='Markdown',
+    )
+    try:
+        context.user_data['last_save_success'] = {
+            'file_name': filename,
+            'language': detected_language,
+            'note': note,
+            'file_id': fid,
+        }
+    except Exception:
+        pass
+
+
+async def _save_via_layered_flow(update, context, filename, user_id, code, note):
+    service = _build_layered_snippet_service()
+    if not service:
+        return False
+    try:
+        from src.application.dto.create_snippet_dto import CreateSnippetDTO  # type: ignore
+    except Exception:
+        return False
+    dto_kwargs = {
+        'user_id': user_id,
+        'filename': filename,
+        'code': code,
+    }
+    if note:
+        dto_kwargs['note'] = note
+    dto = None
+    try:
+        dto = CreateSnippetDTO(**dto_kwargs)
+    except TypeError:
+        try:
+            dto = CreateSnippetDTO(user_id, filename, code, note or None)  # type: ignore[arg-type]
+        except Exception:
+            return False
+    except Exception:
+        return False
+    saved = await _call_service_method(service, "create_snippet", dto)
+    if not saved:
+        return False
+    try:
+        from database import db  # type: ignore
+        saved_doc = db.get_latest_version(user_id, filename) or {}
+        fid = str(saved_doc.get('_id') or '')
+    except Exception:
+        fid = ''
+    detected_language = getattr(saved, "language", None) or getattr(saved, "detected_language", None) or ""
+    if not detected_language:
+        try:
+            detected_language = code_service.detect_language(code, filename)
+        except Exception:
+            detected_language = "text"
+    await _send_save_success(update, context, filename, detected_language, note or '', fid)
+    _cleanup_save_flow_state(context)
+    return True
 
 
 def _get_total_bytes(parts: list[str]) -> int:
@@ -344,26 +530,13 @@ async def get_filename(update, context: ContextTypes.DEFAULT_TYPE) -> int:
         return GET_FILENAME
     # בדיקת קיום קובץ קודם: נסה מסלול חדש אם מופעל בדגל סביבה, אחרת DB ישיר
     existing_file = None
-    try:
-        use_new = str(os.getenv("USE_NEW_SAVE_FLOW", "")).lower() in {"1", "true", "yes"}
-    except Exception:
-        use_new = False
+    use_new = _should_use_new_save_flow()
     if use_new:
-        try:
-            from src.application.services.snippet_service import SnippetService  # type: ignore
-            from src.domain.services.code_normalizer import CodeNormalizer  # type: ignore
-            from src.infrastructure.database.mongodb.repositories.snippet_repository import (
-                SnippetRepository as NewSnippetRepository,  # type: ignore
-            )
-            from database import db
-
-            service = SnippetService(
-                snippet_repository=NewSnippetRepository(db),
-                code_normalizer=CodeNormalizer(),
-            )
-            existing_entity = await service.get_snippet(user_id, filename)
-            existing_file = bool(existing_entity)
-        except Exception:
+        service = _build_layered_snippet_service()
+        existing_entity = await _call_service_method(service, "get_snippet", user_id, filename)
+        if existing_entity is not None:
+            existing_file = existing_entity
+        if existing_file is None:
             try:
                 from database import db  # fallback
                 existing_doc = db.get_latest_version(user_id, filename)
@@ -414,110 +587,20 @@ async def save_file_final(update, context, filename, user_id):
         code = normalize_code(code)
     except Exception:
         pass
+    note = (context.user_data.get('note_to_save') or '').strip()
     # נסה מסלול חדש (ארכיטקטורה שכבתית) כאשר מופעל בדגל סביבה
-    try:
-        use_new = str(os.getenv("USE_NEW_SAVE_FLOW", "")).lower() in {"1", "true", "yes"}
-    except Exception:
-        use_new = False
+    use_new = _should_use_new_save_flow()
     if use_new:
         try:
-            from src.application.services.snippet_service import SnippetService  # type: ignore
-            from src.application.dto.create_snippet_dto import CreateSnippetDTO  # type: ignore
-            from src.domain.services.code_normalizer import CodeNormalizer  # type: ignore
-            from src.infrastructure.database.mongodb.repositories.snippet_repository import (
-                SnippetRepository as NewSnippetRepository,  # type: ignore
-            )
-            from database import db  # reuse existing DB manager
-
-            service = SnippetService(
-                snippet_repository=NewSnippetRepository(db),
-                code_normalizer=CodeNormalizer(),
-            )
-            note = (context.user_data.get('note_to_save') or '').strip()
-            dto = CreateSnippetDTO(
-                user_id=user_id,
-                filename=filename,
-                code=code,
-                note=note or None,
-            )
-            saved = await service.create_snippet(dto)
-
-            # נסה לקבל _id כדי לאפשר כפתורי שיתוף לפי מזהה
-            try:
-                saved_doc = db.get_latest_version(user_id, filename) or {}
-                fid = str(saved_doc.get('_id') or '')
-            except Exception:
-                fid = ''
-
-            detected_language = saved.language
-            note_btn_text = "📝 ערוך הערה" if (note or '') else "📝 הוסף הערה"
-            keyboard = [
-                [
-                    InlineKeyboardButton("👁️ הצג קוד", callback_data=f"view_direct_id:{fid}" if fid else f"view_direct_{filename}"),
-                    InlineKeyboardButton("✏️ ערוך", callback_data=f"edit_code_direct_{filename}"),
-                ],
-                [
-                    InlineKeyboardButton("📝 שנה שם", callback_data=f"edit_name_direct_{filename}"),
-                    InlineKeyboardButton(note_btn_text, callback_data=f"edit_note_direct_{filename}"),
-                ],
-                [
-                    InlineKeyboardButton("📚 היסטוריה", callback_data=f"versions_file_{filename}"),
-                    InlineKeyboardButton("📥 הורד", callback_data=f"download_direct_{filename}"),
-                ],
-                [
-                    InlineKeyboardButton("🗑️ מחק", callback_data=f"delete_direct_{filename}"),
-                ],
-                [
-                    InlineKeyboardButton("🔗 שתף קוד", callback_data=f"share_menu_id:{fid}") if fid else InlineKeyboardButton("🔗 שתף קוד", callback_data=f"share_menu_id:"),
-                ],
-                [
-                    InlineKeyboardButton("🔙 לרשימה", callback_data="files"),
-                ],
-            ]
-            reply_markup = InlineKeyboardMarkup(keyboard)
-            note_display = TextUtils.escape_markdown(note, version=1) if note else '—'
-            await update.message.reply_text(
-                f"🎉 *קובץ נשמר בהצלחה!*\n\n"
-                f"📄 **שם:** `{filename}`\n"
-                f"🧠 **שפה זוהתה:** {detected_language}\n"
-                f"📝 **הערה:** {note_display}\n\n"
-                f"🎮 בחר פעולה מהכפתורים החכמים:",
-                reply_markup=reply_markup,
-                parse_mode='Markdown',
-            )
-            # שמירת הקשר למסך ההצלחה
-            try:
-                context.user_data['last_save_success'] = {
-                    'file_name': filename,
-                    'language': detected_language,
-                    'note': note or '',
-                    'file_id': fid,
-                }
-            except Exception:
-                pass
-            # ניקוי מפתחות הזרימה וחזרה
-            for k in [
-                'filename_to_save',
-                'code_to_save',
-                'note_to_save',
-                'pending_filename',
-                'long_collect_parts',
-                'long_collect_active',
-                'long_collect_locked',
-                'long_collect_job',
-            ]:
-                try:
-                    context.user_data.pop(k, None)
-                except Exception:
-                    pass
-            return ConversationHandler.END
+            layered_saved = await _save_via_layered_flow(update, context, filename, user_id, code, note)
+            if layered_saved:
+                return ConversationHandler.END
         except Exception:
             # אם המסלול החדש נכשל, ניפול חזרה למסלול הישן בהמשך
             pass
     try:
         detected_language = code_service.detect_language(code, filename)
         from database import db, CodeSnippet
-        note = (context.user_data.get('note_to_save') or '').strip()
         snippet = CodeSnippet(
             user_id=user_id,
             file_name=filename,
@@ -527,58 +610,14 @@ async def save_file_final(update, context, filename, user_id):
         )
         success = db.save_code_snippet(snippet)
         if success:
-            # שליפת ה-_id כדי לאפשר תפריט שיתוף לפי מזהה מסד
             try:
                 saved_doc = db.get_latest_version(user_id, filename) or {}
                 fid = str(saved_doc.get('_id') or '')
             except Exception:
                 fid = ''
-
-            note_btn_text = "📝 ערוך הערה" if note else "📝 הוסף הערה"
-            keyboard = [
-                [
-                    InlineKeyboardButton("👁️ הצג קוד", callback_data=f"view_direct_id:{fid}" if fid else f"view_direct_{filename}"),
-                    InlineKeyboardButton("✏️ ערוך", callback_data=f"edit_code_direct_{filename}"),
-                ],
-                [
-                    InlineKeyboardButton("📝 שנה שם", callback_data=f"edit_name_direct_{filename}"),
-                    InlineKeyboardButton(note_btn_text, callback_data=f"edit_note_direct_{filename}"),
-                ],
-                [
-                    InlineKeyboardButton("📚 היסטוריה", callback_data=f"versions_file_{filename}"),
-                    InlineKeyboardButton("📥 הורד", callback_data=f"download_direct_{filename}"),
-                ],
-                [
-                    InlineKeyboardButton("🗑️ מחק", callback_data=f"delete_direct_{filename}"),
-                ],
-                [
-                    InlineKeyboardButton("🔗 שתף קוד", callback_data=f"share_menu_id:{fid}") if fid else InlineKeyboardButton("🔗 שתף קוד", callback_data=f"share_menu_id:")
-                ],
-                [
-                    InlineKeyboardButton("🔙 לרשימה", callback_data="files"),
-                ],
-            ]
-            reply_markup = InlineKeyboardMarkup(keyboard)
-            note_display = TextUtils.escape_markdown(note, version=1) if note else '—'
-            await update.message.reply_text(
-                f"🎉 *קובץ נשמר בהצלחה!*\n\n"
-                f"📄 **שם:** `{filename}`\n"
-                f"🧠 **שפה זוהתה:** {detected_language}\n"
-                f"📝 **הערה:** {note_display}\n\n"
-                f"🎮 בחר פעולה מהכפתורים החכמים:",
-                reply_markup=reply_markup,
-                parse_mode='Markdown',
-            )
-            # שמור הקשר לחזרה למסך ההצלחה לאחר צפייה בקוד
-            try:
-                context.user_data['last_save_success'] = {
-                    'file_name': filename,
-                    'language': detected_language,
-                    'note': note or '',
-                    'file_id': fid,
-                }
-            except Exception:
-                pass
+            await _send_save_success(update, context, filename, detected_language, note or '', fid)
+            _cleanup_save_flow_state(context)
+            return ConversationHandler.END
         else:
             await update.message.reply_text(
                 "💥 אופס! קרתה שגיאה טכנית.\n"
@@ -609,20 +648,6 @@ async def save_file_final(update, context, filename, user_id):
             "⚡ ננסה שוב בקרוב!",
             reply_markup=ReplyKeyboardMarkup([[]], resize_keyboard=True),
         )
-    # נקה רק מפתחות רלוונטיים לזרימת שמירה, כדי לשמר הקשר לחזרה למסך ההצלחה
-    for k in [
-        'filename_to_save',
-        'code_to_save',
-        'note_to_save',
-        'pending_filename',
-        'long_collect_parts',
-        'long_collect_active',
-        'long_collect_locked',
-        'long_collect_job',
-    ]:
-        try:
-            context.user_data.pop(k, None)
-        except Exception:
-            pass
+    _cleanup_save_flow_state(context)
     return ConversationHandler.END
 
