@@ -131,6 +131,50 @@ def _hash_identifier(value: Any) -> str:
         return ""
 
 
+def _merged_dict(base: Any, incoming: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+    merged: Dict[str, Any] = {}
+    try:
+        if isinstance(base, dict):
+            merged.update(base)
+    except Exception:
+        pass
+    if incoming:
+        try:
+            merged.update(dict(incoming))
+        except Exception:
+            merged.update({k: incoming[k] for k in incoming})
+    return merged
+
+
+def _sync_in_memory_user_field(collection: Any, field_name: str, merged: Dict[str, Any], existing_field: Any = None) -> None:
+    def _apply(target: Any) -> bool:
+        if isinstance(target, dict):
+            target.clear()
+            target.update(merged)
+            return True
+        return False
+
+    try:
+        if _apply(existing_field):
+            return
+    except Exception:
+        pass
+
+    candidate_attrs = ("_doc", "doc", "data", "_data", "state")
+    for attr in candidate_attrs:
+        try:
+            container = getattr(collection, attr, None)
+        except Exception:
+            continue
+        if not isinstance(container, dict):
+            continue
+        slot = container.get(field_name)
+        if _apply(slot):
+            return
+        container[field_name] = dict(merged)
+        return
+
+
 class Repository:
     """CRUD נקי עבור אוספים במאגר הנתונים."""
 
@@ -1708,14 +1752,18 @@ class Repository:
             users_collection = self.manager.db.users
             # merge with existing prefs
             existing = users_collection.find_one({"user_id": user_id}) or {}
-            merged = dict(existing.get("image_prefs") or {})
-            merged.update(prefs or {})
+            existing_field = existing.get("image_prefs")
+            merged = _merged_dict(existing_field, prefs or {})
             res = users_collection.update_one(
                 {"user_id": user_id},
                 {"$set": {"image_prefs": merged, "updated_at": datetime.now(timezone.utc)}},
                 upsert=True,
             )
-            return bool(res.acknowledged)
+            try:
+                _sync_in_memory_user_field(users_collection, "image_prefs", merged, existing_field)
+            except Exception:
+                pass
+            return bool(getattr(res, "acknowledged", False))
         except Exception as e:
             emit_event("db_save_image_prefs_error", severity="error", error=str(e))
             return False
@@ -1728,7 +1776,10 @@ class Repository:
             user = users_collection.find_one({"user_id": user_id})
             if not user:
                 return None
-            return user.get("image_prefs")
+            prefs = user.get("image_prefs")
+            if isinstance(prefs, dict):
+                return dict(prefs)
+            return {}
         except Exception as e:
             emit_event("db_get_image_prefs_error", severity="error", error=str(e))
             return None
