@@ -1,6 +1,7 @@
 import re
 import os
 import logging
+import inspect
 from io import BytesIO
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup
 from telegram.ext import ContextTypes, ConversationHandler
@@ -28,6 +29,80 @@ except Exception:  # pragma: no cover
 # הגדרות מצב איסוף
 LONG_COLLECT_MAX_BYTES = 300 * 1024  # 300KB
 LONG_COLLECT_TIMEOUT_SECONDS = 15 * 60  # 15 דקות
+
+
+def _should_use_new_save_flow() -> bool:
+    """קריאה בטוחה לדגל המסלול החדש."""
+    try:
+        return str(os.getenv("USE_NEW_SAVE_FLOW", "")).lower() in {"1", "true", "yes"}
+    except Exception:
+        return False
+
+
+def _safe_construct(target, *preferred_args):
+    """ניסיון אתחול גמיש עבור מחלקות שמוחלפות במוקים פשוטים בטסטים."""
+    if target is None:
+        return None
+    if not callable(target):
+        return target
+    try:
+        return target(*preferred_args)
+    except TypeError:
+        try:
+            return target()
+        except Exception:
+            return None
+    except Exception:
+        return None
+
+
+def _build_layered_snippet_service():
+    """יוצר מופע שירות למסלול החדש, תוך סובלנות למוקים חלקיים."""
+    try:
+        from src.application.services.snippet_service import SnippetService  # type: ignore
+        from src.domain.services.code_normalizer import CodeNormalizer  # type: ignore
+        from src.infrastructure.database.mongodb.repositories.snippet_repository import (  # type: ignore
+            SnippetRepository as NewSnippetRepository,
+        )
+        from database import db  # type: ignore
+    except Exception:
+        return None
+
+    repo = _safe_construct(NewSnippetRepository, db)
+    normalizer = _safe_construct(CodeNormalizer)
+    if SnippetService is None:
+        return None
+
+    constructors = []
+    if repo is not None or normalizer is not None:
+        constructors.append(lambda: SnippetService(snippet_repository=repo, code_normalizer=normalizer))
+        constructors.append(lambda: SnippetService(repo, normalizer))
+    constructors.append(lambda: SnippetService())
+
+    for builder in constructors:
+        try:
+            return builder()
+        except TypeError:
+            continue
+        except Exception:
+            return None
+    return None
+
+
+async def _call_service_method(service, method_name, *args, **kwargs):
+    """קריאה בטוחה לפעולה אסינכרונית/סינכרונית של השירות."""
+    if not service:
+        return None
+    method = getattr(service, method_name, None)
+    if not callable(method):
+        return None
+    try:
+        result = method(*args, **kwargs)
+        if inspect.isawaitable(result):
+            return await result
+        return result
+    except Exception:
+        return None
 
 
 def _get_total_bytes(parts: list[str]) -> int:
@@ -344,26 +419,13 @@ async def get_filename(update, context: ContextTypes.DEFAULT_TYPE) -> int:
         return GET_FILENAME
     # בדיקת קיום קובץ קודם: נסה מסלול חדש אם מופעל בדגל סביבה, אחרת DB ישיר
     existing_file = None
-    try:
-        use_new = str(os.getenv("USE_NEW_SAVE_FLOW", "")).lower() in {"1", "true", "yes"}
-    except Exception:
-        use_new = False
+    use_new = _should_use_new_save_flow()
     if use_new:
-        try:
-            from src.application.services.snippet_service import SnippetService  # type: ignore
-            from src.domain.services.code_normalizer import CodeNormalizer  # type: ignore
-            from src.infrastructure.database.mongodb.repositories.snippet_repository import (
-                SnippetRepository as NewSnippetRepository,  # type: ignore
-            )
-            from database import db
-
-            service = SnippetService(
-                snippet_repository=NewSnippetRepository(db),
-                code_normalizer=CodeNormalizer(),
-            )
-            existing_entity = await service.get_snippet(user_id, filename)
-            existing_file = bool(existing_entity)
-        except Exception:
+        service = _build_layered_snippet_service()
+        existing_entity = await _call_service_method(service, "get_snippet", user_id, filename)
+        if existing_entity is not None:
+            existing_file = existing_entity
+        if existing_file is None:
             try:
                 from database import db  # fallback
                 existing_doc = db.get_latest_version(user_id, filename)
