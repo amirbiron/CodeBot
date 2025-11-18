@@ -431,7 +431,7 @@ class AdvancedBotHandlers:
                     callback_data=f"img_set_font:cascadia:{font_suffix}"
                 ),
             ],
-            [InlineKeyboardButton("💾 שמור", callback_data=f"img_settings_done:{done_suffix}")],
+            [InlineKeyboardButton("שמור", callback_data=f"img_settings_done:{done_suffix}")],
         ])
         return kb
 
@@ -3969,10 +3969,13 @@ class AdvancedBotHandlers:
             code = "\n".join(lines[:max_preview_lines]) + "\n..."
 
         try:
-            style = str(IMAGE_CONFIG.get('default_style') or 'monokai')
-            theme = str(IMAGE_CONFIG.get('default_theme') or 'dark')
-            prev_w = int(((IMAGE_CONFIG.get('preview') or {}).get('width')) or 800)
-            generator = CodeImageGenerator(style=style, theme=theme)
+            # העדפות אפקטיביות: פר-משתמש (DB) + ברירת מחדל מקובץ קונפיג
+            settings = self._get_effective_image_settings(user_id, context, file_name)
+            style = str(settings.get('style') or IMAGE_CONFIG.get('default_style') or 'monokai')
+            theme = str(settings.get('theme') or IMAGE_CONFIG.get('default_theme') or 'dark')
+            prev_w = int((settings.get('width') or (IMAGE_CONFIG.get('preview') or {}).get('width') or 800))
+            font_family = str(settings.get('font') or 'dejavu')
+            generator = CodeImageGenerator(style=style, theme=theme, font_family=font_family)
             try:
                 image_bytes = generator.generate_image(code=code, language=language, filename=file_name, max_width=prev_w, max_height=1500)
             finally:
@@ -4023,18 +4026,31 @@ class AdvancedBotHandlers:
                 return False
 
         done = 0
-        generator = CodeImageGenerator(style='monokai', theme='dark')
         for f in files:
             try:
                 fname = f.get('file_name') or f.get('file_name'.encode(), 'unknown')
                 data = db.get_latest_version(user_id, fname)
                 if not data or not data.get('code'):
                     continue
-                img_bytes = generator.generate_image(
+                # העדפות לכל קובץ לפי המשתמש
+                settings = self._get_effective_image_settings(user_id, context, fname)
+                style = str(settings.get('style') or IMAGE_CONFIG.get('default_style') or 'monokai')
+                theme = str(settings.get('theme') or IMAGE_CONFIG.get('default_theme') or 'dark')
+                width = int(settings.get('width') or IMAGE_CONFIG.get('default_width') or 1200)
+                font_family = str(settings.get('font') or 'dejavu')
+                generator = CodeImageGenerator(style=style, theme=theme, font_family=font_family)
+                try:
+                    img_bytes = generator.generate_image(
                     code=str(data['code']),
                     language=str(data.get('programming_language') or 'text'),
-                    filename=fname,
-                )
+                        filename=fname,
+                        max_width=width,
+                    )
+                finally:
+                    try:
+                        generator.cleanup()  # type: ignore[attr-defined]
+                    except Exception:
+                        pass
                 bio = io.BytesIO(img_bytes)
                 bio.name = f"{fname}.png"
                 await update.message.reply_photo(photo=InputFile(bio, filename=bio.name), parse_mode=ParseMode.HTML)
@@ -4044,10 +4060,6 @@ class AdvancedBotHandlers:
             except Exception as e:
                 logger.error(f"Error processing {f.get('file_name')}: {e}")
                 continue
-        try:
-            generator.cleanup()  # type: ignore[attr-defined]
-        except Exception:
-            pass
         if not await _try_edit_status(f"✅ הושלם! נוצרו {done}/{len(files)} תמונות."):
             try:
                 await update.message.reply_text(f"✅ הושלם! נוצרו {done}/{len(files)} תמונות.")
