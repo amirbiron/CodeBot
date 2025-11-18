@@ -255,7 +255,7 @@
         }
 
         /* GitHub Light Theme */
-        .theme-card[data-theme="github-dark"] {
+        .theme-card[data-theme="github-light"] {
             --card-primary: #0969DA;
             --card-secondary: #1A7F37;
             --card-bg-primary: #FFFFFF;
@@ -295,7 +295,7 @@
         .theme-card[data-theme="rosepine"] .theme-name,
         .theme-card[data-theme="gruvbox"] .theme-name,
         .theme-card[data-theme="tokyonight"] .theme-name,
-        .theme-card[data-theme="github-dark"] .theme-name {
+        .theme-card[data-theme="github-light"] .theme-name {
             color: var(--card-text-primary);
         }
         
@@ -313,7 +313,7 @@
         .theme-card[data-theme="rosepine"] .theme-description,
         .theme-card[data-theme="gruvbox"] .theme-description,
         .theme-card[data-theme="tokyonight"] .theme-description,
-        .theme-card[data-theme="github-dark"] .theme-description {
+        .theme-card[data-theme="github-light"] .theme-description {
             color: var(--card-text-secondary);
         }
         
@@ -365,7 +365,7 @@
         .theme-card[data-theme="rosepine"] .preview-title,
         .theme-card[data-theme="gruvbox"] .preview-title,
         .theme-card[data-theme="tokyonight"] .preview-title,
-        .theme-card[data-theme="github-dark"] .preview-title {
+        .theme-card[data-theme="github-light"] .preview-title {
             color: var(--card-text-primary);
         }
 
@@ -409,7 +409,7 @@
         .theme-card[data-theme="rosepine"] .btn-primary,
         .theme-card[data-theme="gruvbox"] .btn-primary,
         .theme-card[data-theme="tokyonight"] .btn-primary,
-        .theme-card[data-theme="github-dark"] .btn-primary {
+        .theme-card[data-theme="github-light"] .btn-primary {
             background: var(--card-primary);
             color: white;
         }
@@ -431,7 +431,7 @@
         .theme-card[data-theme="rosepine"] .btn-secondary,
         .theme-card[data-theme="gruvbox"] .btn-secondary,
         .theme-card[data-theme="tokyonight"] .btn-secondary,
-        .theme-card[data-theme="github-dark"] .btn-secondary {
+        .theme-card[data-theme="github-light"] .btn-secondary {
             background: var(--card-glass);
             border-color: var(--card-glass-border);
             color: var(--card-text-primary);
@@ -453,7 +453,7 @@
         .theme-card[data-theme="rosepine"] .preview-card,
         .theme-card[data-theme="gruvbox"] .preview-card,
         .theme-card[data-theme="tokyonight"] .preview-card,
-        .theme-card[data-theme="github-dark"] .preview-card {
+        .theme-card[data-theme="github-light"] .preview-card {
             background: var(--card-card-bg, var(--card-glass));
         }
 
@@ -471,7 +471,7 @@
         .theme-card[data-theme="rosepine"] .preview-card h4,
         .theme-card[data-theme="gruvbox"] .preview-card h4,
         .theme-card[data-theme="tokyonight"] .preview-card h4,
-        .theme-card[data-theme="github-dark"] .preview-card h4 {
+        .theme-card[data-theme="github-light"] .preview-card h4 {
             color: var(--card-text-primary);
         }
 
@@ -489,7 +489,7 @@
         .theme-card[data-theme="rosepine"] .preview-card p,
         .theme-card[data-theme="gruvbox"] .preview-card p,
         .theme-card[data-theme="tokyonight"] .preview-card p,
-        .theme-card[data-theme="github-dark"] .preview-card p {
+        .theme-card[data-theme="github-light"] .preview-card p {
             color: var(--card-text-secondary);
         }
 
@@ -512,7 +512,7 @@
         .theme-card[data-theme="rosepine"] .preview-input,
         .theme-card[data-theme="gruvbox"] .preview-input,
         .theme-card[data-theme="tokyonight"] .preview-input,
-        .theme-card[data-theme="github-dark"] .preview-input {
+        .theme-card[data-theme="github-light"] .preview-input {
             background: rgba(255, 255, 255, 0.7);
             border-color: var(--card-glass-border);
             color: var(--card-text-primary);
@@ -529,35 +529,8 @@
         .theme-card[data-theme="rosepine"] .preview-input::placeholder,
         .theme-card[data-theme="gruvbox"] .preview-input::placeholder,
         .theme-card[data-theme="tokyonight"] .preview-input::placeholder,
-        .theme-card[data-theme="github-dark"] .preview-input::placeholder {
+        .theme-card[data-theme="github-light"] .preview-input::placeholder {
             color: var(--card-text-muted);
-        }
-
-        .theme-selector {
-            display: flex;
-            gap: 0.5rem;
-            flex-wrap: wrap;
-        }
-
-        .theme-btn {
-            padding: 0.5rem 1rem;
-            background: var(--glass);
-            color: white;
-            border: 1px solid var(--glass-border);
-            border-radius: 8px;
-            cursor: pointer;
-            font-size: 0.85rem;
-            transition: all 0.3s;
-        }
-
-        .theme-btn:hover {
-            background: rgba(255, 255, 255, 0.2);
-        }
-
-        .theme-btn.active {
-            background: white;
-            color: var(--primary);
-            border-color: white;
         }
 
         .footer {
@@ -790,7 +763,7 @@
             </div>
             
             <!-- GitHub Light Theme -->
-            <div class="theme-card" data-theme="github-dark">
+            <div class="theme-card" data-theme="github-light">
                 <div class="theme-header">
                     <div class="theme-name">🐙 GitHub Light</div>
                 </div>
