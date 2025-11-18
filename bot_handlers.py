@@ -120,6 +120,8 @@ class AdvancedBotHandlers:
         # פקודות שיתוף
         self.application.add_handler(CommandHandler("share", self.share_command))
         self.application.add_handler(CommandHandler("share_help", self.share_help_command))
+        # עזרה כללית
+        self.application.add_handler(CommandHandler("help", self.help_command))
         # self.application.add_handler(CommandHandler("export", self.export_command))
         self.application.add_handler(CommandHandler("download", self.download_command))
         # יצירת תמונות מקוד – רישום עמיד: כל פקודה נרשמת בנפרד
@@ -2613,6 +2615,53 @@ class AdvancedBotHandlers:
                 "(קישור פנימי אינו זמין בסביבה זו)\n\n"
             )
         await update.message.reply_text(help_text, parse_mode=ParseMode.MARKDOWN)
+
+    async def help_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """הצגת עזרה מרוכזת עם הפקודות הזמינות בבוט."""
+        reporter.report_activity(update.effective_user.id)
+        # חלוקה לפי נושאים; שמות פקודות תואמים לרישום בפועל
+        text = (
+            "<b>📚 עזרה – פקודות זמינות</b>\n\n"
+            "<b>קבצים</b>\n"
+            "• /show &lt;שם־קובץ&gt; – הצג קובץ מודגש\n"
+            "• /edit &lt;שם־קובץ&gt; – עריכת קובץ\n"
+            "• /delete &lt;שם־קובץ&gt; – מחיקה\n"
+            "• /download &lt;שם־קובץ&gt; – הורדה\n\n"
+            "<b>מועדפים וגרסאות</b>\n"
+            "• /fav &lt;שם־קובץ&gt; – הוסף/הסר ממועדפים\n"
+            "• /favorites – רשימת מועדפים\n"
+            "• /versions &lt;שם־קובץ&gt; – גרסאות קובץ\n\n"
+            "<b>שיתוף</b>\n"
+            "• /share &lt;קבצים...&gt; – אשף שיתוף (Gist/Pastebin/פנימי)\n"
+            "• /share_help – עזרה מפורטת על שיתוף\n\n"
+            "<b>תמונות קוד</b>\n"
+            "• /image &lt;שם־קובץ&gt; – יצירת תמונה\n"
+            "• /preview &lt;שם־קובץ&gt; – תצוגה מקדימה\n"
+            "• /image_all – יצירת תמונות לקבצים האחרונים (מוגבל)\n\n"
+            "<b>חיפוש וניתוח</b>\n"
+            "• /search &lt;טקסט&gt; – חיפוש בקוד\n"
+            "• /analyze &lt;שם־קובץ&gt; – ניתוח\n"
+            "• /validate &lt;שם־קובץ&gt; – בדיקת תוקף/בדיקות\n\n"
+            "<b>ארגון ומידע</b>\n"
+            "• /tags – תגיות\n"
+            "• /recent – אחרונים\n"
+            "• /info – מידע על החשבון/קבצים\n"
+            "• /broadcast – שידור (מוגבל)\n\n"
+            "<b>ChatOps/מנהל (מוגבל הרשאות)</b>\n"
+            "• /status, /health, /observe, /triage\n"
+            "• /system_info, /metrics, /uptime, /alerts, /incidents\n"
+            "• /predict, /accuracy, /errors, /rate_limit\n"
+            "• /enable_backoff, /disable_backoff, /silence, /unsilence, /silences\n\n"
+            "טיפ: בפלואו /image אפשר לבחור תמה/רוחב/פונט ולשמור כברירת‑מחדל."
+        )
+        try:
+            await update.message.reply_text(text, parse_mode=ParseMode.HTML, disable_web_page_preview=True)
+        except Exception:
+            # Fallback ללא HTML
+            await update.message.reply_text(
+                text.replace("<b>", "").replace("</b>", "").replace("&lt;", "<").replace("&gt;", ">"),
+                disable_web_page_preview=True,
+            )
     
     async def download_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """הורדת קובץ"""
