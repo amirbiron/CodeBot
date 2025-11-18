@@ -10,3 +10,7 @@ image_generation:
     enabled: true
     max_lines: 50
     width: 800
+  image_all:
+    max_lines: 150         # חיתוך שורות לכל קובץ ב-image_all כדי למנוע OOM
+    max_images: 20         # מספר קבצים מקסימלי (תואם התנהגות קיימת)
+    max_total_chars: 300000  # תקציב תווים כולל לכל הריצה

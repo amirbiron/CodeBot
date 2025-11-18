@@ -261,8 +261,8 @@ class AdvancedBotHandlers:
         except Exception as e:
             # אל תבלע חריגות שקטות – דווח ללוג כדי לא לשבור את כפתורי השיתוף
             logger.error(f"Failed to register share CallbackQueryHandler: {e}")
-        # Handler מוקדם לכפתורי /image (יצור מחדש/עריכת הגדרות/Drive)
-        image_pattern = r'^(regenerate_image_|edit_image_settings_|img_set_theme:|img_set_width:|save_to_drive_)'
+        # Handler מוקדם לכפתורי /image (צור מחדש/עריכת הגדרות/Drive/פונטים/שמירה)
+        image_pattern = r'^(regenerate_image_|edit_image_settings_|img_set_theme:|img_set_width:|img_set_font:|img_settings_done:|save_to_drive_)'
         image_handler = CallbackQueryHandler(self.handle_callback_query, pattern=image_pattern)
         try:
             self.application.add_handler(image_handler, group=-5)
@@ -341,18 +341,25 @@ class AdvancedBotHandlers:
         except Exception:
             return file_name
 
-    def _build_image_settings_keyboard(self, context: ContextTypes.DEFAULT_TYPE, file_name: str) -> InlineKeyboardMarkup:
-        """בנה מקלדת הגדרות תמונה (תמה/רוחב) תוך סימון הבחירה הנוכחית."""
-        settings = self._get_image_settings(context, file_name)
+    def _build_image_settings_keyboard(self, user_id: int, context: ContextTypes.DEFAULT_TYPE, file_name: str) -> InlineKeyboardMarkup:
+        """בנה מקלדת הגדרות תמונה (תמה/רוחב/פונט) תוך סימון הבחירה הנוכחית.
+
+        עדכון: כוללת תמות נוספות (Gruvbox, One Dark, Dracula) ושורת בחירת פונט.
+        """
+        # העדפות אפקטיביות: פר-משתמש (DB) עם דריסה פר-קובץ (context)
+        settings = self._get_effective_image_settings(user_id, context, file_name)
         current_theme = str(settings.get('theme') or IMAGE_CONFIG.get('default_theme') or 'dark')
         try:
             current_width = int(settings.get('width') or IMAGE_CONFIG.get('default_width') or 1200)
         except Exception:
             current_width = 1200
+        current_font = str(settings.get('font') or 'dejavu')
 
         # suffixes בטוחים עבור callback_data קצרים
         theme_suffix = self._make_safe_suffix(context, "img_set_theme:", file_name)
         width_suffix = self._make_safe_suffix(context, "img_set_width:", file_name)
+        font_suffix = self._make_safe_suffix(context, "img_set_font:", file_name)
+        done_suffix = self._make_safe_suffix(context, "img_settings_done:", file_name)
 
         def _mk_theme_cb(val: str) -> str:
             return f"img_set_theme:{val}:{theme_suffix}"
@@ -386,6 +393,22 @@ class AdvancedBotHandlers:
             ],
             [
                 InlineKeyboardButton(
+                    _lbl(current_theme == 'gruvbox', 'Gruvbox', '🟤 Gruvbox'),
+                    callback_data=_mk_theme_cb('gruvbox')
+                ),
+                InlineKeyboardButton(
+                    _lbl(current_theme == 'one_dark', 'One Dark', '🌑 One Dark'),
+                    callback_data=_mk_theme_cb('one_dark')
+                ),
+            ],
+            [
+                InlineKeyboardButton(
+                    _lbl(current_theme == 'dracula', 'Dracula', '🧛 Dracula'),
+                    callback_data=_mk_theme_cb('dracula')
+                ),
+            ],
+            [
+                InlineKeyboardButton(
                     _lbl(current_width == 800, '800px', '⬅️ 800px'),
                     callback_data=_mk_width_cb(800)
                 ),
@@ -394,9 +417,39 @@ class AdvancedBotHandlers:
                     callback_data=_mk_width_cb(1400)
                 ),
             ],
-            [InlineKeyboardButton("✅ סגור", callback_data="cancel_share")],
+            [
+                InlineKeyboardButton(
+                    _lbl(current_font == 'dejavu', 'DejaVu', '📝 DejaVu Sans Mono'),
+                    callback_data=f"img_set_font:dejavu:{font_suffix}"
+                ),
+                InlineKeyboardButton(
+                    _lbl(current_font == 'jetbrains', 'JetBrains', '🚀 JetBrains Mono'),
+                    callback_data=f"img_set_font:jetbrains:{font_suffix}"
+                ),
+                InlineKeyboardButton(
+                    _lbl(current_font == 'cascadia', 'Cascadia', '💻 Cascadia Code'),
+                    callback_data=f"img_set_font:cascadia:{font_suffix}"
+                ),
+            ],
+            [InlineKeyboardButton("שמור", callback_data=f"img_settings_done:{done_suffix}")],
         ])
         return kb
+
+    def _get_effective_image_settings(self, user_id: int, context: ContextTypes.DEFAULT_TYPE, file_name: str) -> Dict[str, Any]:
+        """מאחד העדפות פר-משתמש (DB) עם העדפות פר-קובץ (context)."""
+        try:
+            # בסיס: העדפות משתמש גלובליות
+            base = db.get_image_prefs(user_id) or {}
+        except Exception:
+            base = {}
+        # דריסה פר-קובץ בזיכרון
+        try:
+            overrides = self._get_image_settings(context, file_name)
+        except Exception:
+            overrides = {}
+        merged = dict(base)
+        merged.update(overrides)
+        return merged
     
     async def _edit_message_with_media_fallback(
         self,
@@ -2560,6 +2613,53 @@ class AdvancedBotHandlers:
                 "(קישור פנימי אינו זמין בסביבה זו)\n\n"
             )
         await update.message.reply_text(help_text, parse_mode=ParseMode.MARKDOWN)
+
+    async def help_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """הצגת עזרה מרוכזת עם הפקודות הזמינות בבוט."""
+        reporter.report_activity(update.effective_user.id)
+        # חלוקה לפי נושאים; שמות פקודות תואמים לרישום בפועל
+        text = (
+            "<b>📚 עזרה – פקודות זמינות</b>\n\n"
+            "<b>קבצים</b>\n"
+            "• /show &lt;שם־קובץ&gt; – הצג קובץ מודגש\n"
+            "• /edit &lt;שם־קובץ&gt; – עריכת קובץ\n"
+            "• /delete &lt;שם־קובץ&gt; – מחיקה\n"
+            "• /download &lt;שם־קובץ&gt; – הורדה\n\n"
+            "<b>מועדפים וגרסאות</b>\n"
+            "• /fav &lt;שם־קובץ&gt; – הוסף/הסר ממועדפים\n"
+            "• /favorites – רשימת מועדפים\n"
+            "• /versions &lt;שם־קובץ&gt; – גרסאות קובץ\n\n"
+            "<b>שיתוף</b>\n"
+            "• /share &lt;קבצים...&gt; – אשף שיתוף (Gist/Pastebin/פנימי)\n"
+            "• /share_help – עזרה מפורטת על שיתוף\n\n"
+            "<b>תמונות קוד</b>\n"
+            "• /image &lt;שם־קובץ&gt; – יצירת תמונה\n"
+            "• /preview &lt;שם־קובץ&gt; – תצוגה מקדימה\n"
+            "• /image_all – יצירת תמונות לקבצים האחרונים (מוגבל)\n\n"
+            "<b>חיפוש וניתוח</b>\n"
+            "• /search &lt;טקסט&gt; – חיפוש בקוד\n"
+            "• /analyze &lt;שם־קובץ&gt; – ניתוח\n"
+            "• /validate &lt;שם־קובץ&gt; – בדיקת תוקף/בדיקות\n\n"
+            "<b>ארגון ומידע</b>\n"
+            "• /tags – תגיות\n"
+            "• /recent – אחרונים\n"
+            "• /info – מידע על החשבון/קבצים\n"
+            "• /broadcast – שידור (מוגבל)\n\n"
+            "<b>ChatOps/מנהל (מוגבל הרשאות)</b>\n"
+            "• /status, /health, /observe, /triage\n"
+            "• /system_info, /metrics, /uptime, /alerts, /incidents\n"
+            "• /predict, /accuracy, /errors, /rate_limit\n"
+            "• /enable_backoff, /disable_backoff, /silence, /unsilence, /silences\n\n"
+            "טיפ: בפלואו /image אפשר לבחור תמה/רוחב/פונט ולשמור כברירת‑מחדל."
+        )
+        try:
+            await update.message.reply_text(text, parse_mode=ParseMode.HTML, disable_web_page_preview=True)
+        except Exception:
+            # Fallback ללא HTML
+            await update.message.reply_text(
+                text.replace("<b>", "").replace("</b>", "").replace("&lt;", "<").replace("&gt;", ">"),
+                disable_web_page_preview=True,
+            )
     
     async def download_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """הורדת קובץ"""
@@ -3069,11 +3169,12 @@ class AdvancedBotHandlers:
                         parse_mode=ParseMode.MARKDOWN,
                     )
                     return
-                settings = self._get_image_settings(context, file_name)
+                settings = self._get_effective_image_settings(user_id, context, file_name)
                 style = str(settings.get('style') or IMAGE_CONFIG.get('default_style') or 'monokai')
                 theme = str(settings.get('theme') or IMAGE_CONFIG.get('default_theme') or 'dark')
                 width = int(settings.get('width') or IMAGE_CONFIG.get('default_width') or 1200)
-                gen = CodeImageGenerator(style=style, theme=theme)
+                font_family = str(settings.get('font') or 'dejavu')
+                gen = CodeImageGenerator(style=style, theme=theme, font_family=font_family)
                 try:
                     img = gen.generate_image(code=str(doc['code']), language=str(doc.get('programming_language') or 'text'), filename=file_name, max_width=width)
                 finally:
@@ -3103,10 +3204,10 @@ class AdvancedBotHandlers:
                 _suffix = data.replace("edit_image_settings_", "")
                 file_name = self._resolve_image_target(context, _suffix)
                 # מקלדת עם סימון הבחירה הנוכחית
-                kb = self._build_image_settings_keyboard(context, file_name)
+                kb = self._build_image_settings_keyboard(user_id, context, file_name)
                 await self._edit_message_with_media_fallback(
                     query,
-                    "🛠️ עריכת הגדרות תמונה – בחר תמה/רוחב ואז לחץ 'יצור מחדש'",
+                    "🛠️ עריכת הגדרות תמונה – בחר תמה/רוחב/פונט ואז לחץ 'צור מחדש'",
                     reply_markup=kb,
                 )
 
@@ -3124,7 +3225,7 @@ class AdvancedBotHandlers:
                 except Exception:
                     pass
                 try:
-                    kb = self._build_image_settings_keyboard(context, file_name)
+                    kb = self._build_image_settings_keyboard(user_id, context, file_name)
                     await TelegramUtils.safe_edit_message_reply_markup(query, reply_markup=kb)
                 except Exception:
                     # אין צורך להכשיל את הזרימה אם עריכת המקלדת נכשלה
@@ -3144,8 +3245,66 @@ class AdvancedBotHandlers:
                 except Exception:
                     pass
                 try:
-                    kb = self._build_image_settings_keyboard(context, file_name)
+                    kb = self._build_image_settings_keyboard(user_id, context, file_name)
                     await TelegramUtils.safe_edit_message_reply_markup(query, reply_markup=kb)
+                except Exception:
+                    pass
+
+            elif data.startswith("img_set_font:"):
+                try:
+                    _, font_key, suffix = data.split(":", 2)
+                except ValueError:
+                    await query.answer("⚠️ נתונים שגויים", show_alert=False)
+                    return
+                if font_key not in {"dejavu", "jetbrains", "cascadia"}:
+                    await query.answer("⚠️ פונט לא נתמך", show_alert=False)
+                    return
+                file_name = self._resolve_image_target(context, suffix)
+                self._set_image_setting(context, file_name, 'font', font_key)
+                try:
+                    await query.answer("🔤 עודכן!", show_alert=False)
+                except Exception:
+                    pass
+                try:
+                    kb = self._build_image_settings_keyboard(user_id, context, file_name)
+                    await TelegramUtils.safe_edit_message_reply_markup(query, reply_markup=kb)
+                except Exception:
+                    pass
+
+            elif data.startswith("img_settings_done:"):
+                _suffix = data.replace("img_settings_done:", "")
+                file_name = self._resolve_image_target(context, _suffix)
+                # שלב שמירה: פרסיסטנס של העדפות גלובליות למשתמש
+                try:
+                    eff = self._get_image_settings(context, file_name)
+                    payload = {k: eff[k] for k in ("theme", "width", "font") if k in eff}
+                    if payload:
+                        try:
+                            db.save_image_prefs(user_id, payload)  # type: ignore[attr-defined]
+                        except Exception:
+                            # אם אין method זמין (במצב ללא DB), דלג בשקט
+                            pass
+                except Exception:
+                    pass
+                # החזרת המקלדת לבסיס
+                regen_suffix = self._make_safe_suffix(context, "regenerate_image_", file_name)
+                edit_suffix = self._make_safe_suffix(context, "edit_image_settings_", file_name)
+                save_suffix = self._make_safe_suffix(context, "save_to_drive_", file_name)
+                kb = InlineKeyboardMarkup([
+                    [InlineKeyboardButton("🔄 צור מחדש", callback_data=f"regenerate_image_{regen_suffix}"),
+                     InlineKeyboardButton("📝 ערוך הגדרות", callback_data=f"edit_image_settings_{edit_suffix}")],
+                    [InlineKeyboardButton("💾 שמור ב-Drive", callback_data=f"save_to_drive_{save_suffix}")]
+                ])
+                try:
+                    await TelegramUtils.safe_edit_message_reply_markup(query, reply_markup=kb)
+                except Exception:
+                    # כנראה אין אפשרות לערוך רק את המקלדת – ננסה fallback כללי
+                    try:
+                        await self._edit_message_with_media_fallback(query, "✅ נשמרו ההעדפות", reply_markup=kb)
+                    except Exception:
+                        pass
+                try:
+                    await query.answer("✅ נשמר", show_alert=False)
                 except Exception:
                     pass
 
@@ -3168,11 +3327,12 @@ class AdvancedBotHandlers:
                         parse_mode=ParseMode.MARKDOWN,
                     )
                     return
-                settings = self._get_image_settings(context, file_name)
+                settings = self._get_effective_image_settings(user_id, context, file_name)
                 style = str(settings.get('style') or IMAGE_CONFIG.get('default_style') or 'monokai')
                 theme = str(settings.get('theme') or IMAGE_CONFIG.get('default_theme') or 'dark')
                 width = int(settings.get('width') or IMAGE_CONFIG.get('default_width') or 1200)
-                gen = CodeImageGenerator(style=style, theme=theme)
+                font_family = str(settings.get('font') or 'dejavu')
+                gen = CodeImageGenerator(style=style, theme=theme, font_family=font_family)
                 try:
                     img = gen.generate_image(code=str(doc['code']), language=str(doc.get('programming_language') or 'text'), filename=file_name, max_width=width)
                 finally:
@@ -3769,13 +3929,14 @@ class AdvancedBotHandlers:
             return
 
         try:
-            # העדפות מתצורה/הקשר
-            settings = self._get_image_settings(context, file_name)
+            # העדפות אפקטיביות: פר-משתמש (DB) עם דריסה פר-קובץ (context)
+            settings = self._get_effective_image_settings(user_id, context, file_name)
             style = str(settings.get('style') or IMAGE_CONFIG.get('default_style') or 'monokai')
             theme = str(settings.get('theme') or IMAGE_CONFIG.get('default_theme') or 'dark')
             width = int(settings.get('width') or IMAGE_CONFIG.get('default_width') or 1200)
+            font_family = str(settings.get('font') or 'dejavu')
 
-            generator = CodeImageGenerator(style=style, theme=theme)
+            generator = CodeImageGenerator(style=style, theme=theme, font_family=font_family)
             try:
                 image_bytes = generator.generate_image(code=code, language=language, filename=file_name, max_width=width)
             finally:
@@ -3793,10 +3954,10 @@ class AdvancedBotHandlers:
             edit_suffix = self._make_safe_suffix(context, "edit_image_settings_", file_name)
             save_suffix = self._make_safe_suffix(context, "save_to_drive_", file_name)
             kb = InlineKeyboardMarkup([
-                [InlineKeyboardButton("🔄 יצור מחדש", callback_data=f"regenerate_image_{regen_suffix}"),
-                 InlineKeyboardButton("📝 ערוך הגדרות", callback_data=f"edit_image_settings_{edit_suffix}")],
-                [InlineKeyboardButton("💾 שמור ב-Drive", callback_data=f"save_to_drive_{save_suffix}")]
-            ])
+                    [InlineKeyboardButton("🔄 צור מחדש", callback_data=f"regenerate_image_{regen_suffix}"),
+                     InlineKeyboardButton("📝 ערוך הגדרות", callback_data=f"edit_image_settings_{edit_suffix}")],
+                    [InlineKeyboardButton("💾 שמור ב-Drive", callback_data=f"save_to_drive_{save_suffix}")]
+                ])
             await update.message.reply_photo(
                 photo=InputFile(bio, filename=f"{file_name}.png"),
                 caption=(
@@ -3855,10 +4016,13 @@ class AdvancedBotHandlers:
             code = "\n".join(lines[:max_preview_lines]) + "\n..."
 
         try:
-            style = str(IMAGE_CONFIG.get('default_style') or 'monokai')
-            theme = str(IMAGE_CONFIG.get('default_theme') or 'dark')
-            prev_w = int(((IMAGE_CONFIG.get('preview') or {}).get('width')) or 800)
-            generator = CodeImageGenerator(style=style, theme=theme)
+            # העדפות אפקטיביות: פר-משתמש (DB) + ברירת מחדל מקובץ קונפיג
+            settings = self._get_effective_image_settings(user_id, context, file_name)
+            style = str(settings.get('style') or IMAGE_CONFIG.get('default_style') or 'monokai')
+            theme = str(settings.get('theme') or IMAGE_CONFIG.get('default_theme') or 'dark')
+            prev_w = int((settings.get('width') or (IMAGE_CONFIG.get('preview') or {}).get('width') or 800))
+            font_family = str(settings.get('font') or 'dejavu')
+            generator = CodeImageGenerator(style=style, theme=theme, font_family=font_family)
             try:
                 image_bytes = generator.generate_image(code=code, language=language, filename=file_name, max_width=prev_w, max_height=1500)
             finally:
@@ -3892,7 +4056,13 @@ class AdvancedBotHandlers:
             await update.message.reply_text("⏱️ יותר מדי בקשות. אנא נסה שוב בעוד דקה.")
             return
 
-        files = db.get_user_files(user_id, limit=20)
+        # גבולות בטיחות מהקונפיג
+        _img_all_cfg = (IMAGE_CONFIG.get('image_all') or {})
+        max_images = int((_img_all_cfg.get('max_images') or 20))
+        max_total_chars = int((_img_all_cfg.get('max_total_chars') or 300000))
+        max_lines_per_file = int((_img_all_cfg.get('max_lines') or 200))
+
+        files = db.get_user_files(user_id, limit=max_images)
         if not files:
             await update.message.reply_text("❌ לא נמצאו קבצים.")
             return
@@ -3909,18 +4079,43 @@ class AdvancedBotHandlers:
                 return False
 
         done = 0
-        generator = CodeImageGenerator(style='monokai', theme='dark')
+        remaining_char_budget = max_total_chars
         for f in files:
             try:
                 fname = f.get('file_name') or f.get('file_name'.encode(), 'unknown')
                 data = db.get_latest_version(user_id, fname)
                 if not data or not data.get('code'):
                     continue
-                img_bytes = generator.generate_image(
-                    code=str(data['code']),
+                # קיטוע קבצים ארוכים לשמירה על זיכרון
+                code = str(data.get('code') or '')
+                if not code:
+                    continue
+                lines = code.splitlines()
+                if len(lines) > max_lines_per_file:
+                    code = "\n".join(lines[:max_lines_per_file]) + "\n..."
+                remaining_char_budget -= len(code)
+                if remaining_char_budget < 0:
+                    # חרגנו מתקציב – עצור ברכות
+                    break
+                # העדפות לכל קובץ לפי המשתמש
+                settings = self._get_effective_image_settings(user_id, context, fname)
+                style = str(settings.get('style') or IMAGE_CONFIG.get('default_style') or 'monokai')
+                theme = str(settings.get('theme') or IMAGE_CONFIG.get('default_theme') or 'dark')
+                width = int(settings.get('width') or IMAGE_CONFIG.get('default_width') or 1200)
+                font_family = str(settings.get('font') or 'dejavu')
+                generator = CodeImageGenerator(style=style, theme=theme, font_family=font_family)
+                try:
+                    img_bytes = generator.generate_image(
+                        code=code,
                     language=str(data.get('programming_language') or 'text'),
-                    filename=fname,
-                )
+                        filename=fname,
+                        max_width=width,
+                    )
+                finally:
+                    try:
+                        generator.cleanup()  # type: ignore[attr-defined]
+                    except Exception:
+                        pass
                 bio = io.BytesIO(img_bytes)
                 bio.name = f"{fname}.png"
                 await update.message.reply_photo(photo=InputFile(bio, filename=bio.name), parse_mode=ParseMode.HTML)
@@ -3930,13 +4125,12 @@ class AdvancedBotHandlers:
             except Exception as e:
                 logger.error(f"Error processing {f.get('file_name')}: {e}")
                 continue
-        try:
-            generator.cleanup()  # type: ignore[attr-defined]
-        except Exception:
-            pass
-        if not await _try_edit_status(f"✅ הושלם! נוצרו {done}/{len(files)} תמונות."):
+        msg = f"✅ הושלם! נוצרו {done}/{len(files)} תמונות."
+        if remaining_char_budget < 0:
+            msg += "\n(הופסק מוקדם עקב תוכן ארוך – לשמירה על זיכרון)"
+        if not await _try_edit_status(msg):
             try:
-                await update.message.reply_text(f"✅ הושלם! נוצרו {done}/{len(files)} תמונות.")
+                await update.message.reply_text(msg)
             except Exception:
                 pass
 
