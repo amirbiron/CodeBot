@@ -106,7 +106,7 @@ class CommandHandler:
                 commands_tuple = (cmds,)
         filtered = tuple(c for c in commands_tuple if c)
         self.commands = filtered
-        self.command = filtered[0] if filtered else None
+        self.command = list(filtered) if filtered else None
 
 class MessageHandler:
     def __init__(self, filters, callback, *args, **kwargs):
