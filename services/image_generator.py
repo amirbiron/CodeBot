@@ -301,6 +301,27 @@ class CodeImageGenerator:
         יוצר HTML עם עיצוב "Carbon-style" מקצועי. משתמש ב-inline styles של Pygments
         (noclasses=True), ולכן אין תלות בקלאסים חיצוניים של CSS להדגשת התחביר.
         """
+        # Build a font stack that respects the user's chosen monospace font
+        # and falls back to fonts that include Hebrew glyphs (e.g., DejaVu).
+        selected_css_font = None
+        try:
+            if self.font_family:
+                key = str(self.font_family).strip().lower()
+                name_map = {
+                    'jetbrains': "'JetBrains Mono'",
+                    'dejavu': "'DejaVu Sans Mono'",
+                    'cascadia': "'Cascadia Code'",
+                }
+                selected_css_font = name_map.get(key)
+        except Exception:
+            selected_css_font = None
+
+        # Prefer DejaVu early in the fallback chain for better RTL/Hebrew coverage
+        fallback_stack = (
+            "'DejaVu Sans Mono','Liberation Mono','Noto Sans Mono',"
+            "'SF Mono','Monaco','Inconsolata','Fira Code','Source Code Pro','Consolas','Courier New',monospace"
+        )
+        font_stack = f"{selected_css_font}, {fallback_stack}" if selected_css_font else fallback_stack
         line_numbers_html = "\n".join(f'<span class="line-number">{i}</span>' for i in range(1, len(lines) + 1))
         # כיתוב watermark טקסטואלי – אם אחר כך נוסיף לוגו אמיתי ב-PIL, נמנע כפילות
         html_doc = f"""<!DOCTYPE html>
@@ -312,7 +333,7 @@ class CodeImageGenerator:
     * {{ box-sizing: border-box; }}
     html, body {{ margin:0; padding:0; }}
     body {{
-      font-family: 'SF Mono','Monaco','Inconsolata','Fira Code','Source Code Pro','Consolas','Courier New',monospace;
+      font-family: {font_stack};
       background-color: {self.colors['background']};
       color: {self.colors['text']};
       font-size: {self.FONT_SIZE}px;

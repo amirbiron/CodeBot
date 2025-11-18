@@ -81,6 +81,8 @@ RUN apt-get update -y && apt-get upgrade -y && apt-get install -y --no-install-r
     libxrandr2 \
     fontconfig \
     fonts-dejavu \
+    fonts-jetbrains-mono \
+    fonts-cascadia-code \
     tzdata \
     curl \
     libxml2 \
@@ -89,6 +91,7 @@ RUN apt-get update -y && apt-get upgrade -y && apt-get install -y --no-install-r
     libjpeg62-turbo \
     nodejs \
     npm && \
+    fc-cache -f -v && \
     rm -rf /var/lib/apt/lists/*
 
 # שדרוג כלי פייתון בסיסיים גם בשכבת ה-production כדי למנוע CVEs ב-site-packages של המערכת
