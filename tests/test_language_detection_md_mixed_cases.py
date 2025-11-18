@@ -1,9 +1,10 @@
+# -*- coding: utf-8 -*-
 import importlib
 
 
 def _python_block_code() -> str:
     return '''"""
-Mongo Distributed Lock – מניעת telegram.error.Conflict
+Mongo Distributed Lock - prevent telegram.error.Conflict
 
 רעיון:
 - קולקציה אחת bot_locks
@@ -44,10 +45,10 @@ async def acquire_lock():
         )
 
         if doc["owner"] == INSTANCE_ID:
-            print(f"✅ lock by {INSTANCE_ID} until {exp}")
+            print(f"lock by {INSTANCE_ID} until {exp}")
             return
 
-        print(f"🔒 held by {doc['owner']} – retry in {RETRY}s")
+        print(f"held by {doc['owner']} - retry in {RETRY}s")
         await asyncio.sleep(RETRY)
 
 async def heartbeat():
@@ -66,10 +67,10 @@ async def heartbeat():
         )
 
         if not doc:
-            print("⚠️ lost lock – exit")
+            print("lost lock - exit")
             os._exit(0)
 
-        print(f"💓 heartbeat → {exp}")
+        print(f"heartbeat -> {exp}")
 
 async def main():
     await acquire_lock()
