@@ -4009,7 +4009,13 @@ class AdvancedBotHandlers:
             await update.message.reply_text("⏱️ יותר מדי בקשות. אנא נסה שוב בעוד דקה.")
             return
 
-        files = db.get_user_files(user_id, limit=20)
+        # גבולות בטיחות מהקונפיג
+        _img_all_cfg = (IMAGE_CONFIG.get('image_all') or {})
+        max_images = int((_img_all_cfg.get('max_images') or 20))
+        max_total_chars = int((_img_all_cfg.get('max_total_chars') or 300000))
+        max_lines_per_file = int((_img_all_cfg.get('max_lines') or 200))
+
+        files = db.get_user_files(user_id, limit=max_images)
         if not files:
             await update.message.reply_text("❌ לא נמצאו קבצים.")
             return
@@ -4026,12 +4032,24 @@ class AdvancedBotHandlers:
                 return False
 
         done = 0
+        remaining_char_budget = max_total_chars
         for f in files:
             try:
                 fname = f.get('file_name') or f.get('file_name'.encode(), 'unknown')
                 data = db.get_latest_version(user_id, fname)
                 if not data or not data.get('code'):
                     continue
+                # קיטוע קבצים ארוכים לשמירה על זיכרון
+                code = str(data.get('code') or '')
+                if not code:
+                    continue
+                lines = code.splitlines()
+                if len(lines) > max_lines_per_file:
+                    code = "\n".join(lines[:max_lines_per_file]) + "\n..."
+                remaining_char_budget -= len(code)
+                if remaining_char_budget < 0:
+                    # חרגנו מתקציב – עצור ברכות
+                    break
                 # העדפות לכל קובץ לפי המשתמש
                 settings = self._get_effective_image_settings(user_id, context, fname)
                 style = str(settings.get('style') or IMAGE_CONFIG.get('default_style') or 'monokai')
@@ -4041,7 +4059,7 @@ class AdvancedBotHandlers:
                 generator = CodeImageGenerator(style=style, theme=theme, font_family=font_family)
                 try:
                     img_bytes = generator.generate_image(
-                    code=str(data['code']),
+                        code=code,
                     language=str(data.get('programming_language') or 'text'),
                         filename=fname,
                         max_width=width,
@@ -4060,9 +4078,12 @@ class AdvancedBotHandlers:
             except Exception as e:
                 logger.error(f"Error processing {f.get('file_name')}: {e}")
                 continue
-        if not await _try_edit_status(f"✅ הושלם! נוצרו {done}/{len(files)} תמונות."):
+        msg = f"✅ הושלם! נוצרו {done}/{len(files)} תמונות."
+        if remaining_char_budget < 0:
+            msg += "\n(הופסק מוקדם עקב תוכן ארוך – לשמירה על זיכרון)"
+        if not await _try_edit_status(msg):
             try:
-                await update.message.reply_text(f"✅ הושלם! נוצרו {done}/{len(files)} תמונות.")
+                await update.message.reply_text(msg)
             except Exception:
                 pass
 
