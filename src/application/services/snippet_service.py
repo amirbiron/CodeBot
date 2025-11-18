@@ -44,6 +44,9 @@ class SnippetService:
     def _detect_language(self, code: str, filename: str) -> str:
         # Minimal heuristic for now; can be replaced with domain LanguageDetector later
         fname = filename.lower()
+        # Markdown and variants first (סיומת גוברת)
+        if fname.endswith(('.md', '.markdown', '.mdown', '.mkd', '.mkdn')):
+            return 'markdown'
         if fname.endswith('.py'):
             return 'python'
         if fname.endswith(('.js', '.jsx')):

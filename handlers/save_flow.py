@@ -211,7 +211,12 @@ async def _save_via_layered_flow(update, context, filename, user_id, code, note)
     except Exception:
         fid = ''
     detected_language = getattr(saved, "language", None) or getattr(saved, "detected_language", None) or ""
-    if not detected_language:
+    # חיזוק: אם קיבלנו 'text' או שלא נקבעה שפה, ננסה זיהוי מהשירות הוותיק (סיומת גוברת כמו .md)
+    try:
+        ext_lower = str(filename or '').lower()
+    except Exception:
+        ext_lower = ''
+    if not detected_language or detected_language == 'text' or (ext_lower.endswith(('.md', '.markdown', '.mdown', '.mkd', '.mkdn')) and detected_language != 'markdown'):
         try:
             detected_language = code_service.detect_language(code, filename)
         except Exception:
