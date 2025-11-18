@@ -2,7 +2,7 @@ import importlib
 
 
 def _python_block_code() -> str:
-    return """"""
+    return '''"""
 Mongo Distributed Lock – מניעת telegram.error.Conflict
 
 רעיון:
@@ -82,7 +82,7 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
-"""
+'''
 
 
 def test_cp_detects_markdown_for_md_with_markdown_content():
