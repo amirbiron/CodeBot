@@ -6544,6 +6544,11 @@ def api_stats():
     except Exception:
         return jsonify(stats)
 
+@app.route('/theme-preview')
+def theme_preview():
+    """תצוגה מקדימה של ערכות נושא מוצעות"""
+    return render_template('theme_preview.html', static_version=_STATIC_VERSION)
+
 @app.route('/settings')
 @login_required
 def settings():
