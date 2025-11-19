@@ -26,6 +26,21 @@ def test_code_analyzer_basic(sample_code):
     assert len(analyzer.functions) == 4
 
 
+def test_code_analyzer_detects_async_functions():
+    async_code = """
+async def fetch_data():
+    return await some_io()
+
+def helper_sync():
+    return 1
+"""
+
+    analyzer = CodeAnalyzer(async_code, "async_file.py")
+    assert analyzer.analyze() is True
+    names = {func.name for func in analyzer.functions}
+    assert names == {"fetch_data", "helper_sync"}
+
+
 def test_split_functions(sample_code):
     engine = RefactoringEngine()
     result = engine.propose_refactoring(
@@ -64,6 +79,32 @@ def data_load():
     assert res.proposal is not None
     # יווצרו לפחות 2 קבצים חדשים + __init__.py
     assert len(res.proposal.new_files) >= 2
+
+
+def test_split_functions_handles_async_functions():
+    code = """
+import asyncio
+
+async def fetch_user():
+    await asyncio.sleep(0)
+    return {"id": 1}
+
+async def fetch_orders(user_id):
+    await asyncio.sleep(0)
+    return []
+
+def summarize(user, orders):
+    return len(orders)
+"""
+
+    engine = RefactoringEngine()
+    res = engine.propose_refactoring(code=code, filename="async_module.py", refactor_type=RefactorType.SPLIT_FUNCTIONS)
+    assert res.success is True
+    assert res.proposal is not None
+    combined = "\n".join(res.proposal.new_files.values())
+    assert "async def fetch_user" in combined
+    assert "async def fetch_orders" in combined
+    assert "def summarize" in combined
 
 
 def test_invalid_syntax_returns_error():
