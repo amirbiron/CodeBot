@@ -8,6 +8,7 @@ import logging
 from datetime import datetime, timezone
 from typing import Optional
 from pathlib import Path
+import unicodedata
 
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.constants import ParseMode
@@ -85,9 +86,20 @@ class RefactorHandlers:
             )
             return
 
-        # Normalize filename input (trim spaces/quotes/backticks)
+        # Normalize filename input: trim, strip quotes/backticks/smart-quotes and remove zero-width/dir marks
         raw = " ".join(context.args)
-        filename = raw.strip().strip("`\"'")
+        def _normalize_filename_input(s: str) -> str:
+            s = s.strip()
+            # Remove surrounding common quotes (ASCII + smart quotes)
+            quotes = ['`', '"', "'", '“', '”', '‘', '’']
+            if len(s) >= 2 and s[0] in quotes and s[-1] in quotes:
+                s = s[1:-1]
+            # Remove zero-width and formatting marks (category Cf)
+            s = ''.join(ch for ch in s if unicodedata.category(ch) != 'Cf')
+            # Replace non-breaking space with regular space and trim again
+            s = s.replace('\u00A0', ' ').strip()
+            return s
+        filename = _normalize_filename_input(raw)
 
         # טעינת קובץ מה-DB
         try:
