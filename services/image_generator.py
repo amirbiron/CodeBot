@@ -317,10 +317,8 @@ class CodeImageGenerator:
             selected_css_font = None
 
         # Prefer DejaVu early in the fallback chain for better RTL/Hebrew coverage
-        fallback_stack = (
-            "'DejaVu Sans Mono','Liberation Mono','Noto Sans Mono',"
-            "'SF Mono','Monaco','Inconsolata','Fira Code','Source Code Pro','Consolas','Courier New',monospace"
-        )
+        # Keep as an explicit comma-separated CSS string (not a Python tuple)
+        fallback_stack = "'DejaVu Sans Mono','Liberation Mono','Noto Sans Mono','SF Mono','Monaco','Inconsolata','Fira Code','Source Code Pro','Consolas','Courier New',monospace"
         font_stack = f"{selected_css_font}, {fallback_stack}" if selected_css_font else fallback_stack
         line_numbers_html = "\n".join(f'<span class="line-number">{i}</span>' for i in range(1, len(lines) + 1))
         # כיתוב watermark טקסטואלי – אם אחר כך נוסיף לוגו אמיתי ב-PIL, נמנע כפילות

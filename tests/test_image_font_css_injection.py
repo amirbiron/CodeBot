@@ -30,3 +30,5 @@ async def test_selected_font_family_is_injected_into_html(monkeypatch):
     # Ensure selected font and Hebrew-friendly fallback appear
     assert "JetBrains Mono" in html
     assert "DejaVu Sans Mono" in html
+    # Ensure we did not inject a Python tuple like ("...") into CSS
+    assert "font-family:(" not in html.replace(" ", "")
