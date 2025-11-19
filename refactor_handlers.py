@@ -109,6 +109,9 @@ class RefactorHandlers:
                 snippet = db.get_code_by_name(user_id, filename)
             else:
                 snippet = db.get_file(user_id, filename)
+            # תמיכה בקבצים גדולים (נשמרים באוסף נפרד)
+            if not snippet and hasattr(db, 'get_large_file'):
+                snippet = db.get_large_file(user_id, filename)
         except Exception:
             snippet = None
 
@@ -118,6 +121,13 @@ class RefactorHandlers:
                 files = db.get_user_files(user_id, limit=200)  # type: ignore[attr-defined]
             except Exception:
                 files = []
+            # צירוף קבצים גדולים לרשימה להשוואה בשם
+            try:
+                if hasattr(db, 'get_user_large_files'):
+                    large_files, _ = db.get_user_large_files(user_id, page=1, per_page=200)  # type: ignore[attr-defined]
+                    files = list(files or []) + list(large_files or [])
+            except Exception:
+                pass
             def _norm_for_match(s: str) -> str:
                 try:
                     s = s or ""
@@ -161,7 +171,8 @@ class RefactorHandlers:
             )
             return
 
-        code = snippet.get('code') or ''
+        # תמיכה גם במסמכי LargeFile שבהם התוכן תחת המפתח 'content'
+        code = snippet.get('code') or snippet.get('content') or ''
         await self._show_refactor_type_menu(update, filename, code)
 
     async def _show_refactor_type_menu(self, update: Update, filename: str, code: str):
