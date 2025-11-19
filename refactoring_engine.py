@@ -75,6 +75,9 @@ class RefactorResult:
     validation_passed: bool = False
 
 
+FunctionNode = ast.FunctionDef | ast.AsyncFunctionDef
+
+
 class CodeAnalyzer:
     """מנתח קוד Python"""
 
@@ -116,7 +119,7 @@ class CodeAnalyzer:
 
     def _extract_functions(self) -> None:
         for node in ast.walk(self.tree):
-            if isinstance(node, ast.FunctionDef) and self._is_top_level(node):
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and self._is_top_level_function(node):
                 func_info = self._parse_function(node)
                 self.functions.append(func_info)
 
@@ -133,7 +136,7 @@ class CodeAnalyzer:
                     if isinstance(target, ast.Name):
                         self.global_vars.append(target.id)
 
-    def _parse_function(self, node: ast.FunctionDef) -> FunctionInfo:
+    def _parse_function(self, node: FunctionNode) -> FunctionInfo:
         args = [arg.arg for arg in node.args.args]
         returns = ast.unparse(node.returns) if node.returns else None
         decorators = [ast.unparse(dec) for dec in node.decorator_list]
@@ -199,7 +202,7 @@ class CodeAnalyzer:
                 complexity += len(child.values) - 1
         return complexity
 
-    def _is_top_level(self, node: ast.FunctionDef) -> bool:
+    def _is_top_level_function(self, node: FunctionNode) -> bool:
         for parent in ast.walk(self.tree):
             if isinstance(parent, ast.ClassDef):
                 if node in parent.body:
@@ -489,7 +492,8 @@ class RefactoringEngine:
         method_lines = func.code.splitlines()
         def_line_idx = 0
         for i, line in enumerate(method_lines):
-            if line.strip().startswith('def '):
+            stripped = line.strip()
+            if stripped.startswith('def ') or stripped.startswith('async def '):
                 def_line_idx = i
                 break
         def_line = method_lines[def_line_idx]
@@ -682,10 +686,11 @@ class RefactoringEngine:
                 rebuilt.extend(filtered)
                 rebuilt.append("")
                 # הוסף יתרת התוכן אחרי בלוק ה-imports המקורי
-                # מצא היכן מתחילות הפונקציות (השורה הראשונה שמתחילה ב-def/class)
+                # מצא היכן מתחילות הפונקציות (השורה הראשונה שמתחילה ב-def/class/async def)
                 start_idx = None
-                for i, line in enumerate(lines[header_end+1:], start=header_end+1):
-                    if line.strip().startswith('def ') or line.strip().startswith('class '):
+                for i, line in enumerate(lines[header_end + 1 :], start=header_end + 1):
+                    stripped = line.strip()
+                    if stripped.startswith(("def ", "class ", "async def ")):
                         start_idx = i
                         break
                 if start_idx is not None:
