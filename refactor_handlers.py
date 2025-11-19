@@ -118,11 +118,24 @@ class RefactorHandlers:
                 files = db.get_user_files(user_id, limit=200)  # type: ignore[attr-defined]
             except Exception:
                 files = []
+            def _norm_for_match(s: str) -> str:
+                try:
+                    s = s or ""
+                    # strip quotes/backticks/smart quotes if wrapped
+                    q = ['`', '"', "'", '“', '”', '‘', '’']
+                    if len(s) >= 2 and s[0] in q and s[-1] in q:
+                        s = s[1:-1]
+                    # remove zero-width and formatting marks
+                    s = ''.join(ch for ch in s if unicodedata.category(ch) != 'Cf')
+                    s = s.replace('\u00A0', ' ').strip()
+                    return s.lower()
+                except Exception:
+                    return (s or '').strip().lower()
             try:
-                target_lower = filename.lower()
-                base_lower = Path(filename).name.lower()
+                target_lower = _norm_for_match(filename)
+                base_lower = _norm_for_match(Path(filename).name)
             except Exception:
-                target_lower = filename.lower()
+                target_lower = _norm_for_match(filename)
                 base_lower = target_lower
             best: Optional[dict] = None
             for f in files or []:
@@ -130,8 +143,9 @@ class RefactorHandlers:
                     name = str(f.get('file_name') or '')
                     if not name:
                         continue
-                    nl = name.lower()
-                    if nl == target_lower or Path(name).name.lower() == base_lower:
+                    nl = _norm_for_match(name)
+                    nbase = _norm_for_match(Path(name).name)
+                    if nl == target_lower or nbase == base_lower:
                         best = f
                         break
                 except Exception:
