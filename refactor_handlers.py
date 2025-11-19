@@ -7,6 +7,8 @@ from __future__ import annotations
 import logging
 from datetime import datetime, timezone
 from typing import Optional
+from pathlib import Path
+import unicodedata
 
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.constants import ParseMode
@@ -84,7 +86,20 @@ class RefactorHandlers:
             )
             return
 
-        filename = " ".join(context.args)
+        # Normalize filename input: trim, strip quotes/backticks/smart-quotes and remove zero-width/dir marks
+        raw = " ".join(context.args)
+        def _normalize_filename_input(s: str) -> str:
+            s = s.strip()
+            # Remove surrounding common quotes (ASCII + smart quotes)
+            quotes = ['`', '"', "'", '“', '”', '‘', '’']
+            if len(s) >= 2 and s[0] in quotes and s[-1] in quotes:
+                s = s[1:-1]
+            # Remove zero-width and formatting marks (category Cf)
+            s = ''.join(ch for ch in s if unicodedata.category(ch) != 'Cf')
+            # Replace non-breaking space with regular space and trim again
+            s = s.replace('\u00A0', ' ').strip()
+            return s
+        filename = _normalize_filename_input(raw)
 
         # טעינת קובץ מה-DB
         try:
@@ -94,8 +109,59 @@ class RefactorHandlers:
                 snippet = db.get_code_by_name(user_id, filename)
             else:
                 snippet = db.get_file(user_id, filename)
+            # תמיכה בקבצים גדולים (נשמרים באוסף נפרד)
+            if not snippet and hasattr(db, 'get_large_file'):
+                snippet = db.get_large_file(user_id, filename)
         except Exception:
             snippet = None
+
+        # Fallback: השוואה בלתי-תלויה-רישיות + התאמת basename (עוזר במקרי נתיב מלא)
+        if not snippet:
+            try:
+                files = db.get_user_files(user_id, limit=200)  # type: ignore[attr-defined]
+            except Exception:
+                files = []
+            # צירוף קבצים גדולים לרשימה להשוואה בשם
+            try:
+                if hasattr(db, 'get_user_large_files'):
+                    large_files, _ = db.get_user_large_files(user_id, page=1, per_page=200)  # type: ignore[attr-defined]
+                    files = list(files or []) + list(large_files or [])
+            except Exception:
+                pass
+            def _norm_for_match(s: str) -> str:
+                try:
+                    s = s or ""
+                    # strip quotes/backticks/smart quotes if wrapped
+                    q = ['`', '"', "'", '“', '”', '‘', '’']
+                    if len(s) >= 2 and s[0] in q and s[-1] in q:
+                        s = s[1:-1]
+                    # remove zero-width and formatting marks
+                    s = ''.join(ch for ch in s if unicodedata.category(ch) != 'Cf')
+                    s = s.replace('\u00A0', ' ').strip()
+                    return s.lower()
+                except Exception:
+                    return (s or '').strip().lower()
+            try:
+                target_lower = _norm_for_match(filename)
+                base_lower = _norm_for_match(Path(filename).name)
+            except Exception:
+                target_lower = _norm_for_match(filename)
+                base_lower = target_lower
+            best: Optional[dict] = None
+            for f in files or []:
+                try:
+                    name = str(f.get('file_name') or '')
+                    if not name:
+                        continue
+                    nl = _norm_for_match(name)
+                    nbase = _norm_for_match(Path(name).name)
+                    if nl == target_lower or nbase == base_lower:
+                        best = f
+                        break
+                except Exception:
+                    continue
+            if best is not None:
+                snippet = best
 
         if not snippet:
             await update.message.reply_text(
@@ -105,7 +171,8 @@ class RefactorHandlers:
             )
             return
 
-        code = snippet.get('code') or ''
+        # תמיכה גם במסמכי LargeFile שבהם התוכן תחת המפתח 'content'
+        code = snippet.get('code') or snippet.get('content') or ''
         await self._show_refactor_type_menu(update, filename, code)
 
     async def _show_refactor_type_menu(self, update: Update, filename: str, code: str):
