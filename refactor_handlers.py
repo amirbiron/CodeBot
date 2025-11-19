@@ -7,6 +7,7 @@ from __future__ import annotations
 import logging
 from datetime import datetime, timezone
 from typing import Optional
+from pathlib import Path
 
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.constants import ParseMode
@@ -84,7 +85,9 @@ class RefactorHandlers:
             )
             return
 
-        filename = " ".join(context.args)
+        # Normalize filename input (trim spaces/quotes/backticks)
+        raw = " ".join(context.args)
+        filename = raw.strip().strip("`\"'")
 
         # טעינת קובץ מה-DB
         try:
@@ -96,6 +99,33 @@ class RefactorHandlers:
                 snippet = db.get_file(user_id, filename)
         except Exception:
             snippet = None
+
+        # Fallback: השוואה בלתי-תלויה-רישיות + התאמת basename (עוזר במקרי נתיב מלא)
+        if not snippet:
+            try:
+                files = db.get_user_files(user_id, limit=200)  # type: ignore[attr-defined]
+            except Exception:
+                files = []
+            try:
+                target_lower = filename.lower()
+                base_lower = Path(filename).name.lower()
+            except Exception:
+                target_lower = filename.lower()
+                base_lower = target_lower
+            best: Optional[dict] = None
+            for f in files or []:
+                try:
+                    name = str(f.get('file_name') or '')
+                    if not name:
+                        continue
+                    nl = name.lower()
+                    if nl == target_lower or Path(name).name.lower() == base_lower:
+                        best = f
+                        break
+                except Exception:
+                    continue
+            if best is not None:
+                snippet = best
 
         if not snippet:
             await update.message.reply_text(
