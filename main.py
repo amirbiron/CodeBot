@@ -1102,6 +1102,17 @@ HELP_SECTIONS: list[HelpSection] = [
     },
 ]
 
+SUPPORT_FOOTER = "לבעיות או הצעות: @moominAmir"
+
+HELP_SECTION_COMMANDS = {
+    cmd.lower()
+    for section in HELP_SECTIONS
+    for entry in section["entries"]
+    for cmd in entry["commands"]
+}
+
+HELP_EXCLUDED_COMMANDS: set[str] = {"start", "help", "cancel", "done"}
+
 STATIC_HELP_MESSAGE = (
     "<b>📚 עזרה – פקודות ללא כפתורים</b>\n\n"
     "🧠 <b>תזכורות</b>\n"
@@ -1112,7 +1123,7 @@ STATIC_HELP_MESSAGE = (
     "• <code>/preview</code> &lt;קובץ&gt; – תצוגה מקדימה\n\n"
     "⚙️ <b>מנהל (מוגבל)</b>\n"
     "• <code>/status</code> <code>/errors</code> <code>/metrics</code> <code>/uptime</code>\n\n"
-    "לבעיות או הצעות: @moominAmir"
+    f"{SUPPORT_FOOTER}"
 )
 
 
@@ -1199,12 +1210,14 @@ def _get_registered_commands(application) -> set[str]:
 
 def _build_help_message(registered_commands: set[str]) -> str:
     """Compose the help text for commands without dedicated buttons."""
+    available_commands = {cmd.lower() for cmd in registered_commands if isinstance(cmd, str)}
     lines: list[str] = ["<b>📚 עזרה – פקודות ללא כפתורים</b>", ""]
+    has_sections = False
 
     for section in HELP_SECTIONS:
         section_lines: list[str] = []
         for entry in section["entries"]:
-            commands = [cmd for cmd in entry["commands"] if cmd in registered_commands]
+            commands = [cmd for cmd in entry["commands"] if cmd in available_commands]
             if not commands:
                 continue
             suffix = entry.get("suffix", "")
@@ -1214,19 +1227,32 @@ def _build_help_message(registered_commands: set[str]) -> str:
             else:
                 section_lines.append(f"• {cmd_text}")
         if section_lines:
+            has_sections = True
             lines.append(section["title"])
             lines.extend(section_lines)
             lines.append("")
 
-    if len(lines) <= 2:
+    additional_commands = sorted(
+        cmd
+        for cmd in available_commands
+        if cmd not in HELP_SECTION_COMMANDS and cmd not in HELP_EXCLUDED_COMMANDS
+    )
+
+    if additional_commands:
+        lines.append("🛠️ <b>פקודות נוספות</b>")
+        lines.extend(f"• <code>/{cmd}</code>" for cmd in additional_commands)
+        lines.append("")
+
+    if not has_sections and not additional_commands:
         return STATIC_HELP_MESSAGE
 
-    lines.append("לבעיות או הצעות: @moominAmir")
+    while lines and not lines[-1].strip():
+        lines.pop()
 
-    while len(lines) > 1 and not lines[-2].strip():
-        lines.pop(-2)
+    lines.append("")
+    lines.append(SUPPORT_FOOTER)
 
-    return "\n".join(lines).strip()
+    return "\n".join(lines)
 
 
 class CodeKeeperBot:
@@ -3335,12 +3361,12 @@ def setup_handlers(application: Application, db_manager):  # noqa: D401
             "🔹 חיפוש והצגה חכמה\n"
             "🔹 הורדה וניהול מלא\n"
             "🔹 העלאת קבצים ל-GitHub\n\n"
-            "✨ חדש בבוט:\n"
+            "✨ חדש בבוט: \n"
             "• 🌐 מיני-WebApp - כפתור בפינה השמאלית למטה\n"
             "  הכי נוח לצפייה והעתקה של קוד ארוך (עד עשרות אלפי שורות)\n\n"
             "• 🗃 אוסף הקהילה - גלו כלים, ובוטים שבנו משתמשים אחרים\n"
             "  ואתם מוזמנים לשתף את הפרויקטים שלכם ולהצטרף לאוסף\n\n"
-            "• לכל הפקודות - שלחו /help\n\n"
+            "• לרשימת פקודות ללא כפתורים - שלחו /help\n\n"
             "🔧 תקלה בבוט? כתבו ל-@moominAmir",
             reply_markup=reply_markup
         )

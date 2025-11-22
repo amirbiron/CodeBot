@@ -42,6 +42,20 @@ def test_build_help_message_filters_sections():
     assert "/batch_analyze" not in text
 
 
+def test_build_help_message_additional_commands_section():
+    text = mod._build_help_message({"save", "search", "remind"})
+
+    assert "🛠️ <b>פקודות נוספות</b>" in text
+    assert "<code>/save</code>" in text
+    assert "<code>/search</code>" in text
+
+
+def test_help_message_contains_spacing_before_footer():
+    text = mod._build_help_message({"image"})
+
+    assert "\n\nלבעיות או הצעות: @moominAmir" in text
+
+
 @pytest.mark.asyncio
 async def test_codekeeperbot_help_command_uses_registered_commands(monkeypatch):
     bot = object.__new__(mod.CodeKeeperBot)
