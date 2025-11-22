@@ -3418,8 +3418,12 @@ def setup_handlers(application: Application, db_manager):  # noqa: D401
         if reporter is not None:
             reporter.report_activity(update.effective_user.id)
         await log_user_activity(update, context)  # הוספת רישום משתמש לסטטיסטיקות
-        app_obj = getattr(context, "application", None) or application
-        text = _build_help_message(_get_registered_commands(app_obj))
+        ctx_app = getattr(context, "application", None)
+        if ctx_app and _get_registered_commands(ctx_app):
+            commands = _get_registered_commands(ctx_app)
+        else:
+            commands = _get_registered_commands(application)
+        text = _build_help_message(commands)
         try:
             await update.message.reply_text(text, parse_mode=ParseMode.HTML, disable_web_page_preview=True)
         except Exception:
