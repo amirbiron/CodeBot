@@ -32,11 +32,12 @@ def test_collect_commands_accepts_command_attr(monkeypatch):
     assert {"image", "img2"} <= names
 
 
-def test_build_help_message_highlights_and_filters():
+def test_build_help_message_filters_sections():
     text = mod._build_help_message({"image", "remind"})
 
-    assert "<b><code>/image</code></b>" in text
-    assert "<b><code>/remind</code></b>" in text
+    assert "📚 עזרה – פקודות ללא כפתורים" in text
+    assert "<code>/image</code>" in text
+    assert "<code>/remind</code>" in text
     assert "/cache_stats" not in text
     assert "/batch_analyze" not in text
 
@@ -80,7 +81,7 @@ async def test_codekeeperbot_help_command_uses_registered_commands(monkeypatch):
     await mod.CodeKeeperBot.help_command(bot, update, context)
 
     text = replies["text"]
-    assert "<b><code>/image</code></b>" in text
+    assert "<code>/image</code>" in text
     assert "/cache_stats" not in text
     assert replies["kwargs"]["parse_mode"]
     assert replies["kwargs"]["disable_web_page_preview"] is True
