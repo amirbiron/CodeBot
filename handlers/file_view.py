@@ -22,7 +22,7 @@ from html import escape as html_escape
 from urllib.parse import quote_plus
 
 from config import config
-from utils import TelegramUtils, TextUtils
+from utils import TelegramUtils, TextUtils, ValidationUtils
 
 
 async def _edit_message_text_unified(query, text: str, *, reply_markup=None, parse_mode=None):
@@ -642,7 +642,8 @@ async def receive_new_name(update, context: ContextTypes.DEFAULT_TYPE) -> int:
     if not file_data:
         await update.message.reply_text("❌ שגיאה בנתוני הקובץ")
         return ConversationHandler.END
-    if not re.match(r'^[\w\.\-\_]+\.[a-zA-Z0-9]+$', new_name):
+    # אפשר גם שמות ללא סיומת (Dockerfile/Makefile) ודוטפיילז (.gitignore)
+    if not ValidationUtils.is_valid_filename(new_name):
         await update.message.reply_text(
             "🤔 השם נראה קצת מוזר...\n"
             "💡 נסה שם כמו: `script.py` או `index.html`\n"

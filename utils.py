@@ -889,6 +889,14 @@ class ValidationUtils:
         if any(char in filename for char in invalid_chars):
             return False
         
+        # שמות בעייתיים ומקרי קצה
+        base = filename.strip()
+        if base in {".", ".."}:
+            return False
+        # הימנע משמות שרק נקודות/קווים תחתונים לאחר ניקוי
+        if not base.strip("._-"):
+            return False
+        
         # שמות שמורים ב-Windows
         reserved_names = [
             'CON', 'PRN', 'AUX', 'NUL',
