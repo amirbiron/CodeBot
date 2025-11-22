@@ -1145,12 +1145,22 @@ def _collect_commands_from_handler(handler, seen_ids: set[int]) -> set[str]:
         return commands
 
     if isinstance(handler, ConversationHandler):
-        for nested in getattr(handler, "entry_points", []) or []:
+        kwargs: dict[str, Any] = getattr(handler, "kwargs", {}) if isinstance(getattr(handler, "kwargs", {}), dict) else {}
+        entry_points = getattr(handler, "entry_points", None)
+        if entry_points is None:
+            entry_points = kwargs.get("entry_points")
+        for nested in entry_points or []:
             commands |= _collect_commands_from_handler(nested, seen_ids)
-        for nested_list in (getattr(handler, "states", {}) or {}).values():
+        states = getattr(handler, "states", None)
+        if states is None:
+            states = kwargs.get("states")
+        for nested_list in (states or {}).values():
             for nested in nested_list or []:
                 commands |= _collect_commands_from_handler(nested, seen_ids)
-        for nested in getattr(handler, "fallbacks", []) or []:
+        fallbacks = getattr(handler, "fallbacks", None)
+        if fallbacks is None:
+            fallbacks = kwargs.get("fallbacks")
+        for nested in fallbacks or []:
             commands |= _collect_commands_from_handler(nested, seen_ids)
         return commands
 
