@@ -367,7 +367,27 @@ class RefactoringEngine:
         if len(refined) < 2 and len(functions) >= 4:
             fallback = self._group_by_prefix(functions)
             sorted_groups = sorted(fallback.items(), key=lambda kv: -len(kv[1]))
-            refined = dict(sorted_groups[:2]) if len(sorted_groups) >= 2 else {"module": functions}
+            if len(sorted_groups) >= 2:
+                # קח שתי קבוצות מובילות ואז מיזוג של יתר הקבוצות — לא זורקים פונקציות!
+                refined = {
+                    sorted_groups[0][0]: list(sorted_groups[0][1]),
+                    sorted_groups[1][0]: list(sorted_groups[1][1]),
+                }
+                for name, funcs in sorted_groups[2:]:
+                    # בחר יעד מיזוג לפי affinity אל אחת הקבוצות הקיימות
+                    best_target = None
+                    best_score = -1.0
+                    for target_name, target_funcs in refined.items():
+                        score = self._group_affinity(funcs, target_funcs)
+                        if score > best_score:
+                            best_score = score
+                            best_target = target_name
+                    if best_target is None:
+                        # גיבוי: מזג לקבוצה הקטנה יותר כדי לאזן
+                        best_target = min(refined.keys(), key=lambda k: len(refined[k]))
+                    refined[best_target].extend(funcs)
+            else:
+                refined = {"module": functions}
 
         # ייצוב שמות קבוצות
         stable: Dict[str, List[FunctionInfo]] = {}
@@ -565,6 +585,36 @@ class RefactoringEngine:
                 del items[smallest_idx]
         return dict(items)
 
+    def _merge_singletons_for_oop(self, groups: Dict[str, List[FunctionInfo]]) -> Dict[str, List[FunctionInfo]]:
+        """
+        ממזג קבוצות קטנות (פחות מ-min_functions_per_group) אל קבוצה דומה,
+        כדי שלא יאבדו פונקציות כאשר מחלקות נוצרות רק עבור קבוצות עם 2+ פונקציות.
+        """
+        if len(groups) < 2:
+            return groups
+        # עבודה על העתק כדי לשנות בבטחה
+        names = list(groups.keys())
+        for name in names:
+            funcs = groups.get(name, [])
+            if len(funcs) >= self.min_functions_per_group:
+                continue
+            # מצא יעד מיזוג
+            best_name = None
+            best_score = -1.0
+            for target_name, target_funcs in groups.items():
+                if target_name == name:
+                    continue
+                score = self._group_affinity(funcs, target_funcs)
+                if score > best_score:
+                    best_score = score
+                    best_name = target_name
+            if best_name is None:
+                # גיבוי: בחר את הקבוצה הגדולה ביותר
+                best_name = max((k for k in groups.keys() if k != name), key=lambda k: len(groups[k]))
+            groups[best_name].extend(funcs)
+            if name in groups:
+                del groups[name]
+        return groups
     def _build_file_content(self, functions: List[FunctionInfo], imports: Optional[List[str]] = None) -> str:
         """בונה תוכן קובץ חדש עבור קבוצת פונקציות עם רשימת imports נתונה."""
         content_parts: List[str] = []
@@ -636,6 +686,9 @@ class RefactoringEngine:
             domain_groups = {k: v for k, v in domain_groups.items() if len(v) >= self.min_functions_per_group}
             if len(domain_groups) >= 2:
                 groups = self._limit_group_count(domain_groups)
+        # מניעת איבוד פונקציות: מיזוג קבוצות קטנות (singleton) לפני בניית המחלקות
+        if any(len(v) < self.min_functions_per_group for v in groups.values()) and len(groups) >= 2:
+            groups = self._merge_singletons_for_oop(groups)
         new_files: Dict[str, str] = {}
         changes: List[str] = []
         for group_name, functions in groups.items():
