@@ -432,9 +432,16 @@ class RefactoringEngine:
                 for idx, func in enumerate(functions)
             }
 
-        # 1) קיבוץ לפי סעיף (אם קיים), אחרת דומיין כגיבוי
+        # 1) קיבוץ לפי סעיף (אם קיים). אם יש פונקציות ללא סעיף — נשמר אותן ע"י קיבוץ דומייני והוספה.
         section_groups = self._group_by_section(functions)
-        if not section_groups:
+        if section_groups:
+            leftovers = [f for f in functions if not f.section]
+            if leftovers:
+                domain_for_leftovers = self._group_by_domain(leftovers)
+                for k, v in domain_for_leftovers.items():
+                    section_groups.setdefault(k, []).extend(v)
+        else:
+            # אין כותרות כלל — קיבוץ דומייני מלא
             section_groups = self._group_by_domain(functions)
 
         # 2) קיבוץ נוסף לפי prefix בתוך כל דומיין, לשמירת קרבה סמנטית

@@ -75,3 +75,24 @@ def calculate_dummy(x):
     assert importer is not None
     assert "from .mega_classes import User" in importer
 
+
+def test_unsectioned_helpers_preserved_alongside_sections():
+    code = """
+def slugify(text):
+    return text.lower().replace(" ", "-")
+
+#############################
+# 6) ANALYTICS / REPORTS
+#############################
+
+def generate_report_json(stats):
+    import json
+    return json.dumps({"s": stats})
+"""
+    eng = RefactoringEngine()
+    res = eng.propose_refactoring(code=code, filename="mix.py", refactor_type=RefactorType.SPLIT_FUNCTIONS)
+    assert res.success and res.proposal
+    combined = "\n".join(res.proposal.new_files.values())
+    assert "def slugify" in combined  # לא נעלם
+    assert "def generate_report_json" in combined
+
