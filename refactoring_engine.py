@@ -235,6 +235,11 @@ class RefactoringEngine:
 
     def __init__(self) -> None:
         self.analyzer: Optional[CodeAnalyzer] = None
+        # תצורה: שליטה במספר קבוצות/מודולים כדי למנוע Oversplitting
+        self.preferred_min_groups: int = 3
+        self.preferred_max_groups: int = 5
+        self.min_functions_per_group: int = 2
+        self.absolute_max_groups: int = 8
 
     def propose_refactoring(
         self, code: str, filename: str, refactor_type: RefactorType
@@ -323,19 +328,60 @@ class RefactoringEngine:
         )
 
     def _group_related_functions(self) -> Dict[str, List[FunctionInfo]]:
-        prefix_groups: Dict[str, List[FunctionInfo]] = {}
-        for func in self.analyzer.functions:
-            parts = re.split(r'[_]|(?=[A-Z])', func.name)
-            if parts:
-                prefix = parts[0].lower()
-                prefix_groups.setdefault(prefix, []).append(func)
-        # אם יש לפחות שתי קבוצות שונות לפי prefix — נרצה לפצל גם אם חלקן בודדות
-        if len(prefix_groups) >= 2:
-            return prefix_groups
-        dependency_groups = self._group_by_dependencies()
-        if len(dependency_groups) >= 2:
-            return dependency_groups
-        return self._split_by_size()
+        """
+        קיבוץ פונקציות לפי קוהזיה לוגית: דומיין (IO/Compute/Helpers),
+        Prefix ותלויות — תוך שמירה על טווח קבוצות מועדף והימנעות מפיצול יתר.
+        """
+        if not self.analyzer:
+            return {}
+        functions = list(self.analyzer.functions)
+        if len(functions) <= 2:
+            return {"module": functions}
+
+        # 1) קיבוץ דומייני בסיסי
+        domain_groups = self._group_by_domain(functions)
+
+        # 2) קיבוץ נוסף לפי prefix בתוך כל דומיין, לשמירת קרבה סמנטית
+        refined: Dict[str, List[FunctionInfo]] = {}
+        for domain, funcs in domain_groups.items():
+            sub = self._group_by_prefix(funcs)
+            large_sub = {f"{domain}_{k}": v for k, v in sub.items() if len(v) >= self.min_functions_per_group}
+            if large_sub:
+                refined.update(large_sub)
+                leftovers = [f for k, v in sub.items() if len(v) < self.min_functions_per_group for f in v]
+                if leftovers:
+                    refined.setdefault(domain, []).extend(leftovers)
+            else:
+                refined[domain] = funcs
+
+        # 3) מיזוג לפי תלות (affinity) כדי לאחד קבוצות קרובות
+        refined = self._merge_by_dependency_affinity(refined)
+
+        # 4) מיזוג קבוצות קטנות מדי
+        refined = self._merge_small_groups(refined)
+
+        # 5) הגבלת מספר קבוצות לטווח המועדף/מקסימלי
+        refined = self._limit_group_count(refined)
+
+        # הבטחת מינימום שתי קבוצות כשיש מספיק פונקציות
+        if len(refined) < 2 and len(functions) >= 4:
+            fallback = self._group_by_prefix(functions)
+            sorted_groups = sorted(fallback.items(), key=lambda kv: -len(kv[1]))
+            refined = dict(sorted_groups[:2]) if len(sorted_groups) >= 2 else {"module": functions}
+
+        # ייצוב שמות קבוצות
+        stable: Dict[str, List[FunctionInfo]] = {}
+        seen: Set[str] = set()
+        for name, funcs in refined.items():
+            base = re.sub(r"[^a-z0-9_]", "_", name.lower())
+            if base in seen:
+                idx = 2
+                while f"{base}{idx}" in seen:
+                    idx += 1
+                base = f"{base}{idx}"
+            seen.add(base)
+            stable[base] = funcs
+        return stable
 
     def _group_by_dependencies(self) -> Dict[str, List[FunctionInfo]]:
         groups: Dict[str, List[FunctionInfo]] = {}
@@ -368,6 +414,156 @@ class RefactoringEngine:
             group_name = f"module{i // max_funcs_per_file + 1}"
             groups[group_name] = self.analyzer.functions[i : i + max_funcs_per_file]
         return groups
+
+    # ==== קיבוץ משופר: דומיין/Prefix/תלות ====
+
+    def _tokenize_name(self, name: str) -> List[str]:
+        parts = re.split(r'[_]|(?=[A-Z])', name)
+        return [p.lower() for p in parts if p]
+
+    def _classify_function_domain(self, func: FunctionInfo) -> str:
+        """סיווג פונקציה ל-domain בסיסי: io / compute / helpers / other."""
+        tokens = self._tokenize_name(func.name)
+        calls = {c.lower() for c in func.calls}
+        io_keywords = {"load", "save", "fetch", "read", "write", "open", "close", "connect", "request",
+                       "download", "upload", "send", "receive", "persist", "store", "serialize", "deserialize"}
+        helper_keywords = {"helper", "util", "utils", "format", "convert", "parse", "normalize", "validate", "cleanup"}
+        if any(tok in io_keywords for tok in tokens):
+            return "io"
+        if any(tok in helper_keywords for tok in tokens):
+            return "helpers"
+        io_calls = {"open", "requests", "httpx", "urllib", "json", "yaml", "pickle", "asyncio", "sqlite3", "psycopg2"}
+        if calls & io_calls:
+            return "io"
+        return "compute"
+
+    def _group_by_domain(self, functions: List[FunctionInfo]) -> Dict[str, List[FunctionInfo]]:
+        groups: Dict[str, List[FunctionInfo]] = {"io": [], "compute": [], "helpers": []}
+        for f in functions:
+            domain = self._classify_function_domain(f)
+            groups.setdefault(domain, []).append(f)
+        return {k: v for k, v in groups.items() if v}
+
+    def _group_by_prefix(self, functions: List[FunctionInfo]) -> Dict[str, List[FunctionInfo]]:
+        groups: Dict[str, List[FunctionInfo]] = {}
+        for func in functions:
+            tokens = self._tokenize_name(func.name)
+            prefix = tokens[0] if tokens else "module"
+            groups.setdefault(prefix, []).append(func)
+        return groups
+
+    def _name_similarity(self, a: str, b: str) -> float:
+        ta = set(self._tokenize_name(a))
+        tb = set(self._tokenize_name(b))
+        if not ta or not tb:
+            return 0.0
+        inter = len(ta & tb)
+        union = len(ta | tb)
+        return inter / union if union else 0.0
+
+    def _group_affinity(self, g1: List[FunctionInfo], g2: List[FunctionInfo]) -> float:
+        if not g1 or not g2:
+            return 0.0
+        name_score = 0.0
+        dep_score = 0.0
+        pairs = 0
+        for f1 in g1:
+            for f2 in g2:
+                pairs += 1
+                name_score += self._name_similarity(f1.name, f2.name)
+                if (f1.name in f2.calls) or (f2.name in f1.calls) or (f1.name in f2.called_by) or (f2.name in f1.called_by):
+                    dep_score += 1.0
+        if pairs == 0:
+            return 0.0
+        return 0.6 * (name_score / pairs) + 0.4 * (dep_score / pairs)
+
+    def _merge_by_dependency_affinity(self, groups: Dict[str, List[FunctionInfo]]) -> Dict[str, List[FunctionInfo]]:
+        items = list(groups.items())
+        if len(items) <= 1:
+            return groups
+        changed = True
+        while changed:
+            changed = False
+            smallest = min(items, key=lambda kv: len(kv[1]))
+            if len(smallest[1]) >= self.min_functions_per_group or len(items) <= self.preferred_min_groups:
+                break
+            best_idx = None
+            best_score = -1.0
+            for i, (name, funcs) in enumerate(items):
+                if name == smallest[0]:
+                    continue
+                score = self._group_affinity(smallest[1], funcs)
+                if score > best_score:
+                    best_score = score
+                    best_idx = i
+            if best_idx is not None and best_score >= 0.1:
+                target_name, target_funcs = items[best_idx]
+                target_funcs.extend(smallest[1])
+                items = [(n, fs) for (n, fs) in items if n != smallest[0]]
+                changed = True
+        return dict(items)
+
+    def _merge_small_groups(self, groups: Dict[str, List[FunctionInfo]]) -> Dict[str, List[FunctionInfo]]:
+        items = list(groups.items())
+        # אם יש רק 2 קבוצות — נשאיר אותן כדי למנוע התמזגות למודול יחיד
+        if len(items) <= 2:
+            return groups
+        large: List[Tuple[str, List[FunctionInfo]]] = [(n, fs) for n, fs in items if len(fs) >= self.min_functions_per_group]
+        small: List[Tuple[str, List[FunctionInfo]]] = [(n, fs) for n, fs in items if len(fs) < self.min_functions_per_group]
+        if not small:
+            return groups
+        if not large:
+            return groups
+        for sname, sfuncs in small:
+            best_name = None
+            best_score = -1.0
+            for lname, lfuncs in large:
+                score = self._group_affinity(sfuncs, lfuncs)
+                if score > best_score:
+                    best_score = score
+                    best_name = lname
+            if best_name is None:
+                best_name = large[0][0]
+            for i, (lname, lfuncs) in enumerate(large):
+                if lname == best_name:
+                    lfuncs.extend(sfuncs)
+                    large[i] = (lname, lfuncs)
+                    break
+        return dict(large)
+
+    def _limit_group_count(self, groups: Dict[str, List[FunctionInfo]]) -> Dict[str, List[FunctionInfo]]:
+        items = list(groups.items())
+        while len(items) > self.absolute_max_groups:
+            best_pair = None
+            best_score = -1.0
+            for i in range(len(items)):
+                for j in range(i + 1, len(items)):
+                    score = self._group_affinity(items[i][1], items[j][1])
+                    if score > best_score:
+                        best_score = score
+                        best_pair = (i, j)
+            if best_pair is None:
+                break
+            i, j = best_pair
+            items[i] = (items[i][0], items[i][1] + items[j][1])
+            del items[j]
+        if len(items) > self.preferred_max_groups:
+            while len(items) > self.preferred_max_groups:
+                smallest_idx = min(range(len(items)), key=lambda k: len(items[k][1]))
+                best_idx = None
+                best_score = -1.0
+                for i in range(len(items)):
+                    if i == smallest_idx:
+                        continue
+                    score = self._group_affinity(items[smallest_idx][1], items[i][1])
+                    if score > best_score:
+                        best_score = score
+                        best_idx = i
+                if best_idx is None:
+                    break
+                items[best_idx] = (items[best_idx][0], items[best_idx][1] + items[smallest_idx][1])
+                del items[smallest_idx]
+        return dict(items)
 
     def _build_file_content(self, functions: List[FunctionInfo], imports: Optional[List[str]] = None) -> str:
         """בונה תוכן קובץ חדש עבור קבוצת פונקציות עם רשימת imports נתונה."""
@@ -434,6 +630,12 @@ class RefactoringEngine:
         if len(self.analyzer.functions) < 3:
             raise ValueError("אין מספיק פונקציות להמרה למחלקה")
         groups = self._group_related_functions()
+        # מניעת God Class: אם יש רק קבוצה אחת והרבה פונקציות – נסה לפצל לפי דומיין
+        if len(groups) == 1 and len(self.analyzer.functions) >= 6:
+            domain_groups = self._group_by_domain(self.analyzer.functions)
+            domain_groups = {k: v for k, v in domain_groups.items() if len(v) >= self.min_functions_per_group}
+            if len(domain_groups) >= 2:
+                groups = self._limit_group_count(domain_groups)
         new_files: Dict[str, str] = {}
         changes: List[str] = []
         for group_name, functions in groups.items():
