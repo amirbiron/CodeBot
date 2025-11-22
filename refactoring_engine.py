@@ -335,8 +335,13 @@ class RefactoringEngine:
         if not self.analyzer:
             return {}
         functions = list(self.analyzer.functions)
-        if len(functions) <= 2:
+        if len(functions) <= 1:
             return {"module": functions}
+        if len(functions) == 2:
+            return {
+                f"group_{idx+1}_{func.name}": [func]
+                for idx, func in enumerate(functions)
+            }
 
         # 1) קיבוץ דומייני בסיסי
         domain_groups = self._group_by_domain(functions)
