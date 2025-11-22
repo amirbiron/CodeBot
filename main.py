@@ -1215,9 +1215,20 @@ def _collect_commands_from_handler(handler, seen_ids: set[int]) -> set[str]:
 
     if isinstance(handler, CommandHandler):
         for cmd in getattr(handler, "commands", []) or []:
-            name = getattr(cmd, "name", cmd)
-            if isinstance(name, str):
-                commands.add(name.lower())
+            names: list[str] = []
+            if isinstance(cmd, str):
+                names = [cmd]
+            else:
+                candidate = getattr(cmd, "command", None)
+                if candidate is None:
+                    candidate = getattr(cmd, "name", None)
+                if isinstance(candidate, str):
+                    names = [candidate]
+                elif isinstance(candidate, (list, tuple, set)):
+                    names = [str(item) for item in candidate if isinstance(item, str)]
+            for name in names:
+                if name:
+                    commands.add(name.lower())
         return commands
 
     if isinstance(handler, ConversationHandler):

@@ -23,6 +23,15 @@ def test_get_registered_commands_collects_from_conversation():
     assert {"image", "remind", "cancel"}.issubset(commands)
 
 
+def test_collect_commands_accepts_command_attr(monkeypatch):
+    handler = CommandHandler("unused", _noop)
+    handler.commands = [types.SimpleNamespace(command=["IMAGE", "ImG2"])]
+
+    names = mod._collect_commands_from_handler(handler, set())
+
+    assert {"image", "img2"} <= names
+
+
 def test_build_help_message_highlights_and_filters():
     text = mod._build_help_message({"image", "remind"})
 
