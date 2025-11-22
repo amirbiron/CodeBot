@@ -12,7 +12,7 @@ import functools
 import inspect
 import logging
 import asyncio
-from typing import Any
+from typing import Any, NotRequired, TypedDict
 from datetime import datetime
 
 import signal
@@ -1064,6 +1064,170 @@ def manage_mongo_lock():
 # Global reference to the current bot instance
 # משמש כדי לאפשר ל-main() לעשות reuse של אינסטנס קיים (לצרכי טסטים/אתחול)
 CURRENT_BOT: CodeKeeperBot | None = None  # יוגדר בתוך CodeKeeperBot.__init__
+
+
+class HelpEntry(TypedDict):
+    """תיאור של שורת עזרה."""
+    commands: tuple[str, ...]
+    description: str | None
+    suffix: NotRequired[str]
+
+
+class HelpSection(TypedDict):
+    """קבוצת פקודות ללא כפתורים."""
+    title: str
+    entries: list[HelpEntry]
+
+
+HELP_SECTIONS: list[HelpSection] = [
+    {
+        "title": "🧠 <b>תזכורות</b>",
+        "entries": [
+            {"commands": ("remind",), "description": "יצירת תזכורת חכמה"},
+            {"commands": ("reminders",), "description": "רשימת תזכורות וניהול"},
+        ],
+    },
+    {
+        "title": "🎨 <b>תמונות קוד</b>",
+        "entries": [
+            {"commands": ("image",), "description": "ייצור תמונה מעוצבת", "suffix": " &lt;קובץ&gt;"},
+            {"commands": ("preview",), "description": "תצוגה מקדימה של קובץ", "suffix": " &lt;קובץ&gt;"},
+        ],
+    },
+    {
+        "title": "⚙️ <b>מנהל (מוגבל)</b>",
+        "entries": [
+            {"commands": ("status", "errors", "metrics", "uptime"), "description": None},
+        ],
+    },
+]
+
+STATIC_HELP_MESSAGE = (
+    "<b>📚 עזרה – פקודות ללא כפתורים</b>\n\n"
+    "🧠 <b>תזכורות</b>\n"
+    "• <code>/remind</code> – יצירת תזכורת חכמה\n"
+    "• <code>/reminders</code> – רשימת תזכורות וניהול\n\n"
+    "🎨 <b>תמונות קוד</b>\n"
+    "• <code>/image</code> &lt;קובץ&gt; – ייצור תמונה מעוצבת\n"
+    "• <code>/preview</code> &lt;קובץ&gt; – תצוגה מקדימה\n\n"
+    "⚙️ <b>מנהל (מוגבל)</b>\n"
+    "• <code>/status</code> <code>/errors</code> <code>/metrics</code> <code>/uptime</code>\n\n"
+    "לבעיות או הצעות: @moominAmir"
+)
+
+
+def _collect_commands_from_handler(handler, seen_ids: set[int]) -> set[str]:
+    """Extract command names (lowercase) from a handler or nested handlers."""
+    commands: set[str] = set()
+    if handler is None:
+        return commands
+    handler_id = id(handler)
+    if handler_id in seen_ids:
+        return commands
+    seen_ids.add(handler_id)
+
+    if isinstance(handler, CommandHandler):
+        for cmd in getattr(handler, "commands", []) or []:
+            names: list[str] = []
+            if isinstance(cmd, str):
+                names = [cmd]
+            else:
+                candidate = getattr(cmd, "command", None)
+                if candidate is None:
+                    candidate = getattr(cmd, "name", None)
+                if isinstance(candidate, str):
+                    names = [candidate]
+                elif isinstance(candidate, (list, tuple, set)):
+                    names = [str(item) for item in candidate if isinstance(item, str)]
+            for name in names:
+                if name:
+                    commands.add(name.lower())
+        return commands
+
+    if isinstance(handler, ConversationHandler):
+        kwargs: dict[str, Any] = getattr(handler, "kwargs", {}) if isinstance(getattr(handler, "kwargs", {}), dict) else {}
+        entry_points = getattr(handler, "entry_points", None)
+        if entry_points is None:
+            entry_points = kwargs.get("entry_points")
+        for nested in entry_points or []:
+            commands |= _collect_commands_from_handler(nested, seen_ids)
+        states = getattr(handler, "states", None)
+        if states is None:
+            states = kwargs.get("states")
+        for nested_list in (states or {}).values():
+            for nested in nested_list or []:
+                commands |= _collect_commands_from_handler(nested, seen_ids)
+        fallbacks = getattr(handler, "fallbacks", None)
+        if fallbacks is None:
+            fallbacks = kwargs.get("fallbacks")
+        for nested in fallbacks or []:
+            commands |= _collect_commands_from_handler(nested, seen_ids)
+        return commands
+
+    # Composite handler (tuple/list) – iterate children if קיימים
+    if isinstance(handler, (list, tuple, set)):
+        for nested in handler:
+            commands |= _collect_commands_from_handler(nested, seen_ids)
+
+    return commands
+
+
+def _get_registered_commands(application) -> set[str]:
+    """Return the set of command names registered on the given application."""
+    if application is None:
+        return set()
+
+    handlers_container = getattr(application, "handlers", None)
+    if handlers_container is None:
+        return set()
+
+    command_names: set[str] = set()
+
+    if isinstance(handlers_container, dict):
+        iterable = handlers_container.values()
+    else:
+        iterable = handlers_container
+
+    for entry in iterable:
+        handler = entry
+        if isinstance(entry, tuple) and entry:
+            handler = entry[0]
+        command_names |= _collect_commands_from_handler(handler, set())
+
+    return command_names
+
+
+def _build_help_message(registered_commands: set[str]) -> str:
+    """Compose the help text for commands without dedicated buttons."""
+    lines: list[str] = ["<b>📚 עזרה – פקודות ללא כפתורים</b>", ""]
+
+    for section in HELP_SECTIONS:
+        section_lines: list[str] = []
+        for entry in section["entries"]:
+            commands = [cmd for cmd in entry["commands"] if cmd in registered_commands]
+            if not commands:
+                continue
+            suffix = entry.get("suffix", "")
+            cmd_text = " ".join(f"<code>/{cmd}</code>" for cmd in commands) + suffix
+            if entry["description"]:
+                section_lines.append(f"• {cmd_text} – {entry['description']}")
+            else:
+                section_lines.append(f"• {cmd_text}")
+        if section_lines:
+            lines.append(section["title"])
+            lines.extend(section_lines)
+            lines.append("")
+
+    if len(lines) <= 2:
+        return STATIC_HELP_MESSAGE
+
+    lines.append("לבעיות או הצעות: @moominAmir")
+
+    while len(lines) > 1 and not lines[-2].strip():
+        lines.pop(-2)
+
+    return "\n".join(lines).strip()
+
 
 class CodeKeeperBot:
     """
@@ -2378,48 +2542,14 @@ class CodeKeeperBot:
         if reporter is not None:
             reporter.report_activity(update.effective_user.id)
         await log_user_activity(update, context)
-        response = """
-📚 <b>רשימת הפקודות המלאה:</b>
-
-<b>שמירה וניהול:</b>
-• <code>/save &lt;filename&gt;</code> - התחלת שמירה של קובץ חדש.
-• <code>/list</code> - הצגת כל הקבצים שלך.
-• <code>/show &lt;filename&gt;</code> - הצגת קובץ עם הדגשת תחביר וכפתורי פעולה.
-• <code>/edit &lt;filename&gt;</code> - עריכת קוד של קובץ קיים.
-• <code>/delete &lt;filename&gt;</code> - מחיקת קובץ.
-• <code>/rename &lt;old&gt; &lt;new&gt;</code> - שינוי שם קובץ.
-• <code>/download &lt;filename&gt;</code> - הורדת קובץ כמסמך.
-• <code>/github</code> - תפריט העלאה ל-GitHub.
-    
-<b>חיפוש וסינון:</b>
-• <code>/recent</code> - הצגת קבצים שעודכנו לאחרונה.
-• <code>/stats</code> - סטטיסטיקות אישיות.
-• <code>/tags &lt;filename&gt; &lt;tag1&gt;,&lt;tag2&gt;</code> - הוספת תגיות לקובץ.
-• <code>/search &lt;query&gt;</code> - חיפוש טקסטואלי בקוד שלך.
-    
-<b>פיצ'רים חדשים:</b>
-• <code>/autocomplete &lt;חלק_משם&gt;</code> - אוטו-השלמה לשמות קבצים.
-• <code>/preview &lt;filename&gt;</code> - תצוגה מקדימה של קוד (15 שורות ראשונות).
-• <code>/info &lt;filename&gt;</code> - מידע מהיר על קובץ ללא פתיחה.
-• <code>/large &lt;filename&gt;</code> - הצגת קובץ גדול עם ניווט בחלקים.
-
-<b>עיבוד Batch (מרובה קבצים):</b>
-• <code>/batch_analyze all</code> - ניתוח כל הקבצים בו-זמנית.
-• <code>/batch_analyze python</code> - ניתוח קבצי שפה ספציפית.
-• <code>/batch_validate all</code> - בדיקת תקינות מרובה קבצים.
-• <code>/job_status</code> - בדיקת סטטוס עבודות ברקע.
-
-<b>ביצועים ותחזוקה:</b>
-• <code>/cache_stats</code> - סטטיסטיקות ביצועי cache.
-• <code>/clear_cache</code> - ניקוי cache אישי לשיפור ביצועים.
-
-<b>מידע כללי:</b>
-• <code>/recent</code> - הצגת קבצים שעודכנו לאחרונה.
-• <code>/help</code> - הצגת הודעה זו.
-
-🔧 <b>לכל תקלה בבוט נא לשלוח הודעה ל-@moominAmir</b>
-"""
-        await update.message.reply_text(response, parse_mode=ParseMode.HTML)
+        ctx_app = getattr(context, "application", None)
+        ctx_commands = _get_registered_commands(ctx_app) if ctx_app else set()
+        if ctx_commands:
+            commands = ctx_commands
+        else:
+            commands = _get_registered_commands(self.application)
+        response = _build_help_message(commands)
+        await update.message.reply_text(response, parse_mode=ParseMode.HTML, disable_web_page_preview=True)
     
     async def save_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """פקודת שמירת קוד"""
@@ -3219,53 +3349,25 @@ def setup_handlers(application: Application, db_manager):  # noqa: D401
         if reporter is not None:
             reporter.report_activity(update.effective_user.id)
         await log_user_activity(update, context)  # הוספת רישום משתמש לסטטיסטיקות
-        text = (
-            "<b>📚 עזרה – פקודות זמינות</b>\n\n"
-            "<b>מומלץ</b>\n"
-            "• <b>/remind</b> – יצירת תזכורות חכמות (כולל /reminders לרשימה)\n"
-            "• <b>/image</b> – יצירת תמונת קוד מעוצבת (עם תמה/פונט/רוחב)\n\n"
-            "<b>קבצים</b>\n"
-            "• /show &lt;שם־קובץ&gt; – הצג קובץ מודגש\n"
-            "• /edit &lt;שם־קובץ&gt; – עריכת קובץ\n"
-            "• /delete &lt;שם־קובץ&gt; – מחיקה\n"
-            "• /download &lt;שם־קובץ&gt; – הורדה\n\n"
-            "<b>מועדפים וגרסאות</b>\n"
-            "• /fav &lt;שם־קובץ&gt; – הוסף/הסר ממועדפים\n"
-            "• /favorites – רשימת מועדפים\n"
-            "• /versions &lt;שם־קובץ&gt; – גרסאות קובץ\n\n"
-            "<b>שיתוף</b>\n"
-            "• /share &lt;קבצים...&gt; – אשף שיתוף (Gist/Pastebin/פנימי)\n"
-            "• /share_help – עזרה מפורטת על שיתוף\n\n"
-            "<b>תמונות קוד</b>\n"
-            "• /image &lt;שם־קובץ&gt; – יצירת תמונה\n"
-            "• /preview &lt;שם־קובץ&gt; – תצוגה מקדימה\n"
-            "• /image_all – יצירת תמונות לקבצים האחרונים (מוגבל)\n\n"
-            "<b>תזכורות</b>\n"
-            "• /remind &lt;טקסט/זמן&gt; – יצירת תזכורת\n"
-            "• /reminders – רשימת תזכורות וניהול\n\n"
-            "<b>חיפוש וניתוח</b>\n"
-            "• /search &lt;טקסט&gt; – חיפוש בקוד\n"
-            "• /analyze &lt;שם־קובץ&gt; – ניתוח\n"
-            "• /validate &lt;שם־קובץ&gt; – בדיקות\n\n"
-            "<b>ארגון ומידע</b>\n"
-            "• /tags – תגיות\n"
-            "• /recent – אחרונים\n"
-            "• /info – מידע על החשבון/קבצים\n"
-            "• /broadcast – שידור (מוגבל)\n\n"
-            "<b>ChatOps/מנהל (מוגבל הרשאות)</b>\n"
-            "• /status, /health, /observe, /triage\n"
-            "• /system_info, /metrics, /uptime, /alerts, /incidents\n"
-            "• /predict, /accuracy, /errors, /rate_limit\n"
-            "• /enable_backoff, /disable_backoff, /silence, /unsilence, /silences\n\n"
-            "לבעיות/הצעות: @moominAmir"
-        )
+        ctx_app = getattr(context, "application", None)
+        ctx_commands = _get_registered_commands(ctx_app) if ctx_app else set()
+        if ctx_commands:
+            commands = ctx_commands
+        else:
+            commands = _get_registered_commands(application)
+        text = _build_help_message(commands)
         try:
             await update.message.reply_text(text, parse_mode=ParseMode.HTML, disable_web_page_preview=True)
         except Exception:
-            await update.message.reply_text(
-                text.replace("<b>", "").replace("</b>", "").replace("&lt;", "<").replace("&gt;", ">"),
-                disable_web_page_preview=True,
+            plain_text = (
+                text.replace("<b>", "")
+                .replace("</b>", "")
+                .replace("<code>", "")
+                .replace("</code>", "")
+                .replace("&lt;", "<")
+                .replace("&gt;", ">")
             )
+            await update.message.reply_text(plain_text, disable_web_page_preview=True)
 
     application.add_handler(CommandHandler("start", start_command))
     application.add_handler(CommandHandler("help", help_command))

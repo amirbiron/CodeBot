@@ -57,5 +57,6 @@ async def test_start_and_help_texts_include_highlights(monkeypatch):
     # call /help
     await help_cb(_Upd(), _Ctx())
     all_text = '\n'.join(sent.get('texts', []))
-    assert '/remind' in all_text
-    assert '/image' in all_text
+    assert "📚 עזרה – פקודות ללא כפתורים" in all_text
+    assert "<code>/remind</code>" in all_text
+    assert "<code>/image</code>" in all_text
