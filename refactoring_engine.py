@@ -761,8 +761,9 @@ class RefactoringEngine:
             title_parts.append(f"מחלקות: {class_names}")
         if func_names:
             title_parts.append(f"פונקציות: {func_names}")
-        title = " | ".join(title_parts) if title_parts else "מודול דומיין"
-        content_parts.append(f'"""\n{title}\n"""\n')
+        title = " | ".join(title_parts) if title_parts else "דומיין"
+        # תאימות לאחור: שמור את הסמן "מודול עבור" שנטען בטסטים
+        content_parts.append(f'"""\nמודול עבור: {title}\n"""\n')
         imports_list = list(imports or self.analyzer.imports)
         content_parts.extend(imports_list)
         content_parts.append("\n")
@@ -1109,17 +1110,18 @@ class RefactoringEngine:
         return out
 
     def _extract_defined_functions_in_code(self, code: str) -> Set[str]:
-        """שמות פונקציות טופ-לבל המוגדרות בקוד נתון."""
+        """שמות פונקציות טופ-לבל המוגדרות בקוד נתון.
+        תיקון: אל תכלול מתודות של מחלקות כדי למנוע דיכוי import נדרש.
+        """
         defined: Set[str] = set()
         try:
             tree = ast.parse(code)
         except Exception:
             return defined
-        for node in ast.walk(tree):
+        # פונקציות טופ-לבל הן כאלה שמופיעות ישירות ב-tree.body
+        for node in getattr(tree, "body", []):
             if isinstance(node, ast.FunctionDef):
-                # פונקציות טופ-לבל בלבד
-                if not any(isinstance(parent, ast.ClassDef) and node in parent.body for parent in ast.walk(tree)):
-                    defined.add(node.name)
+                defined.add(node.name)
         return defined
 
     def _inject_function_imports(self, new_files: Dict[str, str], func_to_module: Dict[str, str]) -> Dict[str, str]:
