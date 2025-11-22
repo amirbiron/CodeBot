@@ -36,7 +36,7 @@ def calculate_engagement(visits, likes):
     assert containing_vat != containing_eng
 
 
-def test_classes_file_created_and_import_injected():
+def test_classes_collocated_with_functions_no_generic_classes_file():
     code = """
 #############################
 # 1) USER MANAGEMENT
@@ -64,16 +64,18 @@ def calculate_dummy(x):
     res = eng.propose_refactoring(code=code, filename="mega.py", refactor_type=RefactorType.SPLIT_FUNCTIONS)
     assert res.success and res.proposal
     files = res.proposal.new_files
-    # קובץ מחלקות קיים
-    assert "mega_classes.py" in files
-    # המודול שמכיל load_users_fake_db מייבא את User
-    importer = None
+    # אין קובץ מחלקות גנרי
+    assert "mega_classes.py" not in files
+    # המחלקה User והפונקציה load_users_fake_db צריכות להיות באותו קובץ (Collocation)
+    same_file_contains_both = False
     for fn, content in files.items():
-        if "def load_users_fake_db" in content:
-            importer = content
+        if "class User" in content and "def load_users_fake_db" in content:
+            same_file_contains_both = True
             break
-    assert importer is not None
-    assert "from .mega_classes import User" in importer
+    assert same_file_contains_both
+    # ואין ייבוא מהקובץ הגנרי
+    combined = "\n".join(files.values())
+    assert "from .mega_classes import User" not in combined
 
 
 def test_unsectioned_helpers_preserved_alongside_sections():
