@@ -115,11 +115,11 @@ class SnippetService:
 
         def looks_like_markdown(text: str) -> bool:
             # Basic markdown markers
-            if re.search(r"(^|\\n)\\s{0,3}#[^#]", text):
+            if re.search(r"(^|\n)\s{0,3}#[^#]", text):
                 return True
-            if re.search(r"(^|\\n)\\s{0,2}[-*+]\\s+\\S", text):
+            if re.search(r"(^|\n)\s{0,2}[-*+]\s+\S", text):
                 return True
-            if re.search(r"\\[.+?\\]\\(.+?\\)", text):
+            if re.search(r"\[.+?\]\(.+?\)", text):
                 return True
             if "```" in text:
                 return True
@@ -127,19 +127,19 @@ class SnippetService:
 
         def strong_python_signal(text: str) -> bool:
             # Strong indicators of Python source
-            if re.search(r"^#!.*\\bpython(\\d+(?:\\.\\d+)*)?\\b", text, flags=re.IGNORECASE | re.MULTILINE):
+            if re.search(r"^#!.*\bpython(\d+(?:\.\d+)*)?\b", text, flags=re.IGNORECASE | re.MULTILINE):
                 return True
             signals = 0
-            if re.search(r"^\\s*def\\s+\\w+\\s*\\(", text, flags=re.MULTILINE):
+            if re.search(r"^\s*def\s+\w+\s*\(", text, flags=re.MULTILINE):
                 signals += 1
-            if re.search(r"^\\s*class\\s+\\w+\\s*\\(?", text, flags=re.MULTILINE):
+            if re.search(r"^\s*class\s+\w+\s*\(?", text, flags=re.MULTILINE):
                 signals += 1
-            if re.search(r"^\\s*import\\s+\\w+", text, flags=re.MULTILINE):
+            if re.search(r"^\s*import\s+\w+", text, flags=re.MULTILINE):
                 signals += 1
             if "__name__" in text and "__main__" in text:
                 signals += 1
             # Colon-based blocks and indentation patterns
-            if re.search(r":\\s*(#.*)?$\\n\\s{4,}\\S", text, flags=re.MULTILINE):
+            if re.search(r":\s*(#.*)?\n\s{4,}\S", text, flags=re.MULTILINE):
                 signals += 1
             return signals >= 2
 
