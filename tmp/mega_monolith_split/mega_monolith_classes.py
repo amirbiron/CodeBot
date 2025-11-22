@@ -2,6 +2,7 @@
 מחלקות שהופקו מהמונולית
 """
 
+from .mega_monolith_analytics import calculate_vat
 import os
 import json
 

@@ -2,6 +2,9 @@
 מודול עבור: application_boot, load_users_fake_db, demo_inventory
 """
 
+from .mega_monolith_analytics import aggregate_user_stats, generate_report_json
+from .mega_monolith_debug import debug_dump_state
+from .mega_monolith_workflows import full_purchase_flow, upload_file_flow
 from .mega_monolith_classes import EmailService, ExternalStatsClient, FileStore, FileValidator, Inventory, NotificationManager, PaymentGateway, Product, SubscriptionManager, User
 
 def application_boot():

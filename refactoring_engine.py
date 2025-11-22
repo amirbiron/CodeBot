@@ -388,6 +388,14 @@ class RefactoringEngine:
             changes.append(f"📦 {classes_filename}: מחלקות שהופקו מהמונולית")
             new_files = self._inject_class_imports(new_files, classes_filename)
 
+        # הזרקת יבוא לפונקציות בין-מודוליות (Cross-module function imports)
+        func_to_module: Dict[str, str] = {}
+        for group_name, functions in groups.items():
+            module_stem = f"{base_name}_{group_name}"
+            for f in functions:
+                func_to_module[f.name] = module_stem
+        new_files = self._inject_function_imports(new_files, func_to_module)
+
         # ניקוי פוסט-פיצול: הסרת imports מיותרים ברמת קובץ
         new_files = self.post_refactor_cleanup(new_files)
         description = (
@@ -1069,6 +1077,64 @@ class RefactoringEngine:
             already = any(ln.strip().startswith(f"from .{classes_stem} import") for ln in lines)
             if not already:
                 lines = lines[:insert_idx] + [import_line, ""] + lines[insert_idx:]
+            out[fn] = "\n".join(lines) + "\n"
+        return out
+
+    def _extract_defined_functions_in_code(self, code: str) -> Set[str]:
+        """שמות פונקציות טופ-לבל המוגדרות בקוד נתון."""
+        defined: Set[str] = set()
+        try:
+            tree = ast.parse(code)
+        except Exception:
+            return defined
+        for node in ast.walk(tree):
+            if isinstance(node, ast.FunctionDef):
+                # פונקציות טופ-לבל בלבד
+                if not any(isinstance(parent, ast.ClassDef) and node in parent.body for parent in ast.walk(tree)):
+                    defined.add(node.name)
+        return defined
+
+    def _inject_function_imports(self, new_files: Dict[str, str], func_to_module: Dict[str, str]) -> Dict[str, str]:
+        """
+        מזריק import יחסי לפונקציות שמוגדרות במודולים אחרים אך נמצאות בשימוש.
+        """
+        out: Dict[str, str] = {}
+        for fn, content in new_files.items():
+            if fn in ("__init__.py",) or fn.endswith("_shared.py"):
+                out[fn] = content
+                continue
+            current_stem = Path(fn).stem
+            used = self._extract_used_names(content)
+            defined_here = self._extract_defined_functions_in_code(content)
+            # פונקציות נדרשות: נמצאות בשימוש, ידוע היכן מוגדרות, לא מוגדרות כאן, ומוגדרות במודול אחר
+            needed = [name for name in used if name in func_to_module and name not in defined_here and func_to_module[name] != current_stem]
+            if not needed:
+                out[fn] = content
+                continue
+            # קיבוץ לפי מודול יעד
+            per_module: Dict[str, List[str]] = {}
+            for name in needed:
+                per_module.setdefault(func_to_module[name], []).append(name)
+            lines = content.splitlines()
+            # מצא את סוף הדוקסטרינג
+            insert_idx = 0
+            quote_count = 0
+            for i, line in enumerate(lines):
+                if line.strip().startswith('"""'):
+                    quote_count += 1
+                    if quote_count == 2:
+                        insert_idx = i + 2
+                        break
+            # בנה שורות import ללא כפילויות קיימות
+            new_imports: List[str] = []
+            for module_stem, names in per_module.items():
+                names_sorted = sorted(set(names))
+                imp = f"from .{module_stem} import {', '.join(names_sorted)}"
+                exists = any(ln.strip().startswith(f"from .{module_stem} import") for ln in lines)
+                if not exists:
+                    new_imports.append(imp)
+            if new_imports:
+                lines = lines[:insert_idx] + new_imports + [""] + lines[insert_idx:]
             out[fn] = "\n".join(lines) + "\n"
         return out
     def post_refactor_cleanup(self, files: Dict[str, str]) -> Dict[str, str]:
