@@ -12,7 +12,7 @@ import functools
 import inspect
 import logging
 import asyncio
-from typing import Any, TypedDict
+from typing import Any, NotRequired, TypedDict
 from datetime import datetime
 
 import signal
@@ -1066,11 +1066,11 @@ def manage_mongo_lock():
 CURRENT_BOT: CodeKeeperBot | None = None  # יוגדר בתוך CodeKeeperBot.__init__
 
 
-class HelpEntry(TypedDict, total=False):
+class HelpEntry(TypedDict):
     """Structure for a help entry."""
     commands: tuple[str, ...]
     description: str
-    highlight: bool
+    highlight: NotRequired[bool]
 
 
 class HelpSection(TypedDict):
