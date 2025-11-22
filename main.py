@@ -1202,6 +1202,47 @@ HELP_SECTIONS: list[HelpSection] = [
     },
 ]
 
+STATIC_HELP_MESSAGE = (
+    "<b>📚 עזרה – פקודות זמינות</b>\n\n"
+    "<b>מומלץ</b>\n"
+    "• <b>/remind</b> – יצירת תזכורות חכמות (כולל /reminders לרשימה)\n"
+    "• <b>/image</b> – יצירת תמונת קוד מעוצבת (עם תמה/פונט/רוחב)\n\n"
+    "<b>קבצים</b>\n"
+    "• /show &lt;שם־קובץ&gt; – הצג קובץ מודגש\n"
+    "• /edit &lt;שם־קובץ&gt; – עריכת קובץ\n"
+    "• /delete &lt;שם־קובץ&gt; – מחיקה\n"
+    "• /download &lt;שם־קובץ&gt; – הורדה\n\n"
+    "<b>מועדפים וגרסאות</b>\n"
+    "• /fav &lt;שם־קובץ&gt; – הוסף/הסר ממועדפים\n"
+    "• /favorites – רשימת מועדפים\n"
+    "• /versions &lt;שם־קובץ&gt; – גרסאות קובץ\n\n"
+    "<b>שיתוף</b>\n"
+    "• /share &lt;קבצים...&gt; – אשף שיתוף (Gist/Pastebin/פנימי)\n"
+    "• /share_help – עזרה מפורטת על שיתוף\n\n"
+    "<b>תמונות קוד</b>\n"
+    "• /image &lt;שם־קובץ&gt; – יצירת תמונה\n"
+    "• /preview &lt;שם־קובץ&gt; – תצוגה מקדימה\n"
+    "• /image_all – יצירת תמונות לקבצים האחרונים (מוגבל)\n\n"
+    "<b>תזכורות</b>\n"
+    "• /remind &lt;טקסט/זמן&gt; – יצירת תזכורת\n"
+    "• /reminders – רשימת תזכורות וניהול\n\n"
+    "<b>חיפוש וניתוח</b>\n"
+    "• /search &lt;טקסט&gt; – חיפוש בקוד\n"
+    "• /analyze &lt;שם־קובץ&gt; – ניתוח\n"
+    "• /validate &lt;שם־קובץ&gt; – בדיקות\n\n"
+    "<b>ארגון ומידע</b>\n"
+    "• /tags – תגיות\n"
+    "• /recent – אחרונים\n"
+    "• /info – מידע על החשבון/קבצים\n"
+    "• /broadcast – שידור (מוגבל)\n\n"
+    "<b>ChatOps/מנהל (מוגבל הרשאות)</b>\n"
+    "• /status, /health, /observe, /triage\n"
+    "• /system_info, /metrics, /uptime, /alerts, /incidents\n"
+    "• /predict, /accuracy, /errors, /rate_limit\n"
+    "• /enable_backoff, /disable_backoff, /silence, /unsilence, /silences\n\n"
+    "לבעיות/הצעות: @moominAmir"
+)
+
 
 def _collect_commands_from_handler(handler, seen_ids: set[int]) -> set[str]:
     """Extract command names (lowercase) from a handler or nested handlers."""
@@ -3419,11 +3460,15 @@ def setup_handlers(application: Application, db_manager):  # noqa: D401
             reporter.report_activity(update.effective_user.id)
         await log_user_activity(update, context)  # הוספת רישום משתמש לסטטיסטיקות
         ctx_app = getattr(context, "application", None)
-        if ctx_app and _get_registered_commands(ctx_app):
-            commands = _get_registered_commands(ctx_app)
+        ctx_commands = _get_registered_commands(ctx_app) if ctx_app else set()
+        if ctx_commands:
+            commands = ctx_commands
         else:
             commands = _get_registered_commands(application)
-        text = _build_help_message(commands)
+        if len(commands) <= 2:
+            text = STATIC_HELP_MESSAGE
+        else:
+            text = _build_help_message(commands)
         try:
             await update.message.reply_text(text, parse_mode=ParseMode.HTML, disable_web_page_preview=True)
         except Exception:
