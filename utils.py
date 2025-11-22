@@ -17,6 +17,7 @@ import sys
 import tempfile
 import time
 import zipfile
+from html import escape as html_escape
 from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 from functools import wraps
@@ -492,25 +493,86 @@ class TelegramUtils:
         תומך גם במימושי בדיקות שבהם `edit_message_text` היא פונקציה סינכרונית
         שמחזירה `None` (לא awaitable), וגם במימושים אסינכרוניים רגילים.
         """
-        try:
-            edit_func = getattr(query, "edit_message_text", None)
-            if not callable(edit_func):
-                return
+        edit_func = getattr(query, "edit_message_text", None)
+        if not callable(edit_func):
+            return
 
-            kwargs = {"text": text, "reply_markup": reply_markup}
-            if parse_mode is not None:
-                kwargs["parse_mode"] = parse_mode
-
+        async def _attempt(edit_text: str, mode) -> None:
+            kwargs = {"text": edit_text, "reply_markup": reply_markup}
+            if mode is not None:
+                kwargs["parse_mode"] = mode
             result = edit_func(**kwargs)
-
-            # אם חזר coroutine – צריך להמתין; אחרת זו פונקציה סינכרונית ואין מה להמתין
             if asyncio.iscoroutine(result):
                 await result
+
+        # ניסיון ראשון: כפי שנשלח במקור
+        try:
+            await _attempt(text, parse_mode)
+            return
         except Exception as e:
             msg = str(e).lower()
-            # התעלמות רק במקרה "not modified" (עמיד לשינויים קלים בטקסט)
+            # התעלמות רק במקרה "not modified"
             if "not modified" in msg or "message is not modified" in msg:
                 return
+            # עבור שגיאות פרסינג של טלגרם ננסה נפילות חכמות
+            parse_err = (
+                "can't parse entities" in msg
+                or "parse entities" in msg
+                or "entity" in msg and "offset" in msg  # הודעות נוסח שונות
+            )
+            if not parse_err:
+                raise
+
+        # נפילה 1: אם זה Markdown – נסה לאסקייפ
+        try:
+            mode_str = str(parse_mode or "").lower()
+            is_md_v2 = "markdown_v2" in mode_str
+            is_md = "markdown" in mode_str
+            if is_md or is_md_v2:
+                version = 2 if is_md_v2 else 1
+                safe_text = TextUtils.escape_markdown(str(text), version=version)
+                await _attempt(safe_text, parse_mode)
+                return
+        except Exception:
+            # אם האסקייפ נכשל – נתקדם לנפילה הבאה
+            pass
+
+        # נפילה 2: עבור HTML – בריחה מלאה של הטקסט
+        try:
+            html_text = html_escape(str(text))
+            # העדף אובייקט ParseMode.HTML אם זמין, אחרת המחרוזת 'HTML'
+            mode_html = getattr(ParseMode, "HTML", "HTML")
+            await _attempt(html_text, mode_html)
+            return
+        except Exception as e2:
+            msg2 = str(e2).lower()
+            if "not modified" in msg2 or "message is not modified" in msg2:
+                return
+            # המשך לנפילה אחרונה
+            pass
+
+        # נפילה 3: טקסט נקי ללא parse_mode (הסר תווי Markdown בעייתיים)
+        try:
+            cleaned = str(text)
+            replacements = {
+                "**": "",
+                "__": "",
+                "```": "",
+                "`": "",
+                "[": "(",
+                "]": ")",
+                "_": "-",
+                "*": "•",
+            }
+            for old, new in replacements.items():
+                cleaned = cleaned.replace(old, new)
+            await _attempt(cleaned, None)
+            return
+        except Exception as e3:
+            msg3 = str(e3).lower()
+            if "not modified" in msg3 or "message is not modified" in msg3:
+                return
+            # אם גם זה נכשל – זרוק את השגיאה האחרונה לדיווח
             raise
 
     @staticmethod
