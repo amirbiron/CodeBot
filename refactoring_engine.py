@@ -39,6 +39,8 @@ class FunctionInfo:
     called_by: Set[str] = field(default_factory=set)
     code: str = ""
     complexity: int = 0
+    # שיוך לפי סעיף (Section) אם זוהה מהקובץ המונוליתי
+    section: Optional[str] = None
 
 
 @dataclass
@@ -52,6 +54,10 @@ class ClassInfo:
     base_classes: List[str]
     decorators: List[str]
     docstring: Optional[str]
+    # קוד המקור של המחלקה
+    code: str = ""
+    # שיוך לפי סעיף (Section) אם זוהה
+    section: Optional[str] = None
 
 
 @dataclass
@@ -89,11 +95,14 @@ class CodeAnalyzer:
         self.classes: List[ClassInfo] = []
         self.imports: List[str] = []
         self.global_vars: List[str] = []
+        # מיפוי שורה -> slug של סעיף, לפי כותרות בקובץ
+        self._sections_by_line: Dict[int, str] = {}
 
     def analyze(self) -> bool:
         """ניתוח הקוד"""
         try:
             self.tree = ast.parse(self.code)
+            self._extract_sections()
             self._extract_imports()
             self._extract_functions()
             self._extract_classes()
@@ -121,12 +130,15 @@ class CodeAnalyzer:
         for node in ast.walk(self.tree):
             if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and self._is_top_level_function(node):
                 func_info = self._parse_function(node)
+                # שיוך לסעיף לפי מיקום השורה בקוד
+                func_info.section = self._get_section_for_line(func_info.start_line)
                 self.functions.append(func_info)
 
     def _extract_classes(self) -> None:
         for node in ast.walk(self.tree):
             if isinstance(node, ast.ClassDef):
                 class_info = self._parse_class(node)
+                class_info.section = self._get_section_for_line(class_info.start_line)
                 self.classes.append(class_info)
 
     def _extract_globals(self) -> None:
@@ -172,6 +184,8 @@ class CodeAnalyzer:
         base_classes = [ast.unparse(base) for base in node.bases]
         decorators = [ast.unparse(dec) for dec in node.decorator_list]
         docstring = ast.get_docstring(node)
+        code_lines = self.code.splitlines()[node.lineno - 1 : node.end_lineno]
+        code = "\n".join(code_lines)
         return ClassInfo(
             name=node.name,
             start_line=node.lineno,
@@ -181,6 +195,7 @@ class CodeAnalyzer:
             base_classes=base_classes,
             decorators=decorators,
             docstring=docstring,
+            code=code,
         )
 
     def _extract_function_calls(self, node: ast.AST) -> Set[str]:
@@ -208,6 +223,70 @@ class CodeAnalyzer:
                 if node in parent.body:
                     return False
         return True
+
+    # --- זיהוי כותרות/סעיפים בקובץ (למשל "# 1) USER MANAGEMENT") ---
+    def _extract_sections(self) -> None:
+        """
+        מאתר כותרות סעיפים בקובץ כדי לשמר קוהזיה סמנטית בפיצול.
+        תומך בתבניות כגון:
+        "# 1) USER MANAGEMENT"
+        "# 2) PAYMENTS + SUBSCRIPTIONS"
+        וכן וריאציות עם ריבוי תווי '#'.
+        """
+        self._sections_by_line = {}
+        lines = self.code.splitlines()
+        last_section: Optional[str] = None
+        for idx, raw in enumerate(lines, start=1):
+            line = raw.strip()
+            # דלג על מפרידי "#####"
+            if not line.startswith("#"):
+                continue
+            # הסר תווי '#'
+            text = line.lstrip("#").strip()
+            if not text:
+                continue
+            # נתמוך בתבנית "N) " בתחילת הקו אך לא נדרוש זאת
+            m = re.match(r"^(\d+\)\s*)?(.+)$", text)
+            if not m:
+                continue
+            title = m.group(2).strip()
+            slug = self._section_to_slug(title)
+            if slug:
+                last_section = slug
+                self._sections_by_line[idx] = slug
+
+    def _section_to_slug(self, title: str) -> Optional[str]:
+        t = title.lower()
+        mapping = [
+            (("user management", "users"), "users"),
+            (("payments", "subscriptions", "billing", "finance"), "finance"),
+            (("file system", "files", "storage"), "files"),
+            (("inventory", "products"), "inventory"),
+            (("network", "api clients", "api"), "api_clients"),
+            (("analytics", "reports", "report"), "analytics"),
+            (("notifications", "email"), "notifications"),
+            (("permissions", "auth"), "permissions"),
+            (("workflow", "pipelines"), "workflows"),
+            (("debug", "temp", "mixed"), "debug"),
+            (("random utilities", "utilities", "utils"), "utils"),
+            (("application boot", "main"), "main"),
+        ]
+        for keys, slug in mapping:
+            if any(k in t for k in keys):
+                return slug
+        return None
+
+    def _get_section_for_line(self, line_no: int) -> Optional[str]:
+        if not self._sections_by_line:
+            return None
+        keys = sorted(self._sections_by_line.keys())
+        prev = None
+        for k in keys:
+            if k <= line_no:
+                prev = k
+            else:
+                break
+        return self._sections_by_line.get(prev) if prev is not None else None
 
     def _calculate_dependencies(self) -> None:
         func_names = {f.name for f in self.functions}
@@ -302,6 +381,21 @@ class RefactoringEngine:
         if shared_filename in new_files and shared_filename not in original_keys:
             changes.append(f"📦 {shared_filename}: ייבוא משותף מרוכז")
 
+        # יצירת קובץ מחלקות מרכזי והזרקת יבוא למחלקות הנדרשות בכל מודול
+        classes_filename, classes_content = self._build_classes_file(base_name)
+        if self.analyzer.classes:
+            new_files[classes_filename] = classes_content
+            changes.append(f"📦 {classes_filename}: מחלקות שהופקו מהמונולית")
+            new_files = self._inject_class_imports(new_files, classes_filename)
+
+        # הזרקת יבוא לפונקציות בין-מודוליות (Cross-module function imports)
+        func_to_module: Dict[str, str] = {}
+        for group_name, functions in groups.items():
+            module_stem = f"{base_name}_{group_name}"
+            for f in functions:
+                func_to_module[f.name] = module_stem
+        new_files = self._inject_function_imports(new_files, func_to_module)
+
         # ניקוי פוסט-פיצול: הסרת imports מיותרים ברמת קובץ
         new_files = self.post_refactor_cleanup(new_files)
         description = (
@@ -329,8 +423,11 @@ class RefactoringEngine:
 
     def _group_related_functions(self) -> Dict[str, List[FunctionInfo]]:
         """
-        קיבוץ פונקציות לפי קוהזיה לוגית: דומיין (IO/Compute/Helpers),
-        Prefix ותלויות — תוך שמירה על טווח קבוצות מועדף והימנעות מפיצול יתר.
+        קיבוץ פונקציות לפי קוהזיה סמנטית:
+        1) סעיף (Section) אם זוהה מתוך כותרות הקובץ
+        2) דומיין (IO/Compute/Helpers)
+        3) Prefix ותלויות
+        תוך שמירה על טווח קבוצות מועדף והימנעות מפיצול יתר.
         """
         if not self.analyzer:
             return {}
@@ -343,12 +440,21 @@ class RefactoringEngine:
                 for idx, func in enumerate(functions)
             }
 
-        # 1) קיבוץ דומייני בסיסי
-        domain_groups = self._group_by_domain(functions)
+        # 1) קיבוץ לפי סעיף (אם קיים). אם יש פונקציות ללא סעיף — נשמר אותן ע"י קיבוץ דומייני והוספה.
+        section_groups = self._group_by_section(functions)
+        if section_groups:
+            leftovers = [f for f in functions if not f.section]
+            if leftovers:
+                domain_for_leftovers = self._group_by_domain(leftovers)
+                for k, v in domain_for_leftovers.items():
+                    section_groups.setdefault(k, []).extend(v)
+        else:
+            # אין כותרות כלל — קיבוץ דומייני מלא
+            section_groups = self._group_by_domain(functions)
 
         # 2) קיבוץ נוסף לפי prefix בתוך כל דומיין, לשמירת קרבה סמנטית
         refined: Dict[str, List[FunctionInfo]] = {}
-        for domain, funcs in domain_groups.items():
+        for domain, funcs in section_groups.items():
             sub = self._group_by_prefix(funcs)
             large_sub = {f"{domain}_{k}": v for k, v in sub.items() if len(v) >= self.min_functions_per_group}
             if large_sub:
@@ -407,6 +513,14 @@ class RefactoringEngine:
             seen.add(base)
             stable[base] = funcs
         return stable
+
+    def _group_by_section(self, functions: List[FunctionInfo]) -> Dict[str, List[FunctionInfo]]:
+        """קיבוץ פונקציות לפי סעיף (Section) אם קיים."""
+        groups: Dict[str, List[FunctionInfo]] = {}
+        for f in functions:
+            if f.section:
+                groups.setdefault(f.section, []).append(f)
+        return groups
 
     def _group_by_dependencies(self) -> Dict[str, List[FunctionInfo]]:
         groups: Dict[str, List[FunctionInfo]] = {}
@@ -907,6 +1021,122 @@ class RefactoringEngine:
 
         return new_files
 
+    # === תמיכה במחלקות: יצירת קובץ מחלקות והזרקת יבוא למחלקות בשימוש ===
+    def _build_classes_file(self, base_name: str) -> Tuple[str, str]:
+        """
+        יוצר קובץ מרכזי לכל המחלקות שזוהו בקובץ המקורי.
+        מחזיר (שם הקובץ, תוכן).
+        """
+        classes_stem = f"{base_name}_classes"
+        filename = f"{classes_stem}.py"
+        if not self.analyzer or not self.analyzer.classes:
+            return filename, '"""\nמחלקות (אין)\n"""\n\n'
+        # בעזרת מסנן imports, נשמור רק ייבוא שנדרש למחלקות
+        classes_code_body = "\n\n".join(cls.code for cls in self.analyzer.classes)
+        filtered_imports = self._filter_imports_for_code(self.analyzer.imports, classes_code_body)
+        parts: List[str] = []
+        parts.append('"""')
+        parts.append("מחלקות שהופקו מהמונולית")
+        parts.append('"""')
+        parts.append("")
+        parts.extend(filtered_imports)
+        parts.append("")
+        for cls in self.analyzer.classes:
+            parts.append(cls.code)
+            parts.append("")
+        return filename, "\n".join(parts) + "\n"
+
+    def _inject_class_imports(self, new_files: Dict[str, str], classes_filename: str) -> Dict[str, str]:
+        """
+        עבור כל מודול פונקציות, מזהה אילו מחלקות בשימוש ומזריק שורת import מתאימה.
+        """
+        classes_stem = Path(classes_filename).stem
+        class_names = {cls.name for cls in (self.analyzer.classes if self.analyzer else [])}
+        out: Dict[str, str] = {}
+        for fn, content in new_files.items():
+            if fn in ("__init__.py",) or fn == classes_filename or fn.endswith("_shared.py"):
+                out[fn] = content
+                continue
+            used = self._extract_used_names(content)
+            needed = sorted([name for name in class_names if name in used])
+            if not needed:
+                out[fn] = content
+                continue
+            lines = content.splitlines()
+            # מצא את סוף הדוקסטרינג
+            insert_idx = 0
+            quote_count = 0
+            for i, line in enumerate(lines):
+                if line.strip().startswith('"""'):
+                    quote_count += 1
+                    if quote_count == 2:
+                        insert_idx = i + 2  # אחרי הדוקסטרינג ושורה ריקה
+                        break
+            import_line = f"from .{classes_stem} import {', '.join(needed)}"
+            # הזרק אם לא קיים
+            already = any(ln.strip().startswith(f"from .{classes_stem} import") for ln in lines)
+            if not already:
+                lines = lines[:insert_idx] + [import_line, ""] + lines[insert_idx:]
+            out[fn] = "\n".join(lines) + "\n"
+        return out
+
+    def _extract_defined_functions_in_code(self, code: str) -> Set[str]:
+        """שמות פונקציות טופ-לבל המוגדרות בקוד נתון."""
+        defined: Set[str] = set()
+        try:
+            tree = ast.parse(code)
+        except Exception:
+            return defined
+        for node in ast.walk(tree):
+            if isinstance(node, ast.FunctionDef):
+                # פונקציות טופ-לבל בלבד
+                if not any(isinstance(parent, ast.ClassDef) and node in parent.body for parent in ast.walk(tree)):
+                    defined.add(node.name)
+        return defined
+
+    def _inject_function_imports(self, new_files: Dict[str, str], func_to_module: Dict[str, str]) -> Dict[str, str]:
+        """
+        מזריק import יחסי לפונקציות שמוגדרות במודולים אחרים אך נמצאות בשימוש.
+        """
+        out: Dict[str, str] = {}
+        for fn, content in new_files.items():
+            if fn in ("__init__.py",) or fn.endswith("_shared.py"):
+                out[fn] = content
+                continue
+            current_stem = Path(fn).stem
+            used = self._extract_used_names(content)
+            defined_here = self._extract_defined_functions_in_code(content)
+            # פונקציות נדרשות: נמצאות בשימוש, ידוע היכן מוגדרות, לא מוגדרות כאן, ומוגדרות במודול אחר
+            needed = [name for name in used if name in func_to_module and name not in defined_here and func_to_module[name] != current_stem]
+            if not needed:
+                out[fn] = content
+                continue
+            # קיבוץ לפי מודול יעד
+            per_module: Dict[str, List[str]] = {}
+            for name in needed:
+                per_module.setdefault(func_to_module[name], []).append(name)
+            lines = content.splitlines()
+            # מצא את סוף הדוקסטרינג
+            insert_idx = 0
+            quote_count = 0
+            for i, line in enumerate(lines):
+                if line.strip().startswith('"""'):
+                    quote_count += 1
+                    if quote_count == 2:
+                        insert_idx = i + 2
+                        break
+            # בנה שורות import ללא כפילויות קיימות
+            new_imports: List[str] = []
+            for module_stem, names in per_module.items():
+                names_sorted = sorted(set(names))
+                imp = f"from .{module_stem} import {', '.join(names_sorted)}"
+                exists = any(ln.strip().startswith(f"from .{module_stem} import") for ln in lines)
+                if not exists:
+                    new_imports.append(imp)
+            if new_imports:
+                lines = lines[:insert_idx] + new_imports + [""] + lines[insert_idx:]
+            out[fn] = "\n".join(lines) + "\n"
+        return out
     def post_refactor_cleanup(self, files: Dict[str, str]) -> Dict[str, str]:
         """
         שלב ניקוי לאחר רפקטורינג: נקיון imports לא בשימוש ברמת קובץ.
