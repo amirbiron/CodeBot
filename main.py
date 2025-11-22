@@ -12,7 +12,7 @@ import functools
 import inspect
 import logging
 import asyncio
-from typing import Any
+from typing import Any, NotRequired, TypedDict
 from datetime import datetime
 
 import signal
@@ -1065,7 +1065,21 @@ def manage_mongo_lock():
 # משמש כדי לאפשר ל-main() לעשות reuse של אינסטנס קיים (לצרכי טסטים/אתחול)
 CURRENT_BOT: CodeKeeperBot | None = None  # יוגדר בתוך CodeKeeperBot.__init__
 
-HELP_SECTIONS = [
+
+class HelpEntry(TypedDict):
+    """Structure for a help entry."""
+    commands: tuple[str, ...]
+    description: str
+    highlight: NotRequired[bool]
+
+
+class HelpSection(TypedDict):
+    """Structure for a help section."""
+    title: str
+    entries: list[HelpEntry]
+
+
+HELP_SECTIONS: list[HelpSection] = [
     {
         "title": "מומלץ",
         "entries": [
