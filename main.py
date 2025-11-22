@@ -1065,6 +1065,218 @@ def manage_mongo_lock():
 # משמש כדי לאפשר ל-main() לעשות reuse של אינסטנס קיים (לצרכי טסטים/אתחול)
 CURRENT_BOT: CodeKeeperBot | None = None  # יוגדר בתוך CodeKeeperBot.__init__
 
+HELP_SECTIONS = [
+    {
+        "title": "מומלץ",
+        "entries": [
+            {
+                "commands": ("remind",),
+                "description": "יצירת תזכורת חכמה (כולל <code>/reminders</code> לניהול ודחייה)",
+                "highlight": True,
+            },
+            {
+                "commands": ("image",),
+                "description": "הפיכת קוד לתמונה מעוצבת עם שליטה בתמה/פונט/רוחב",
+                "highlight": True,
+            },
+        ],
+    },
+    {
+        "title": "שמירה וניהול קבצים",
+        "entries": [
+            {"commands": ("save",), "description": "פתיחת תהליך שמירה לקובץ חדש"},
+            {"commands": ("show",), "description": "הצגת קובץ עם הדגשת תחביר וכפתורי פעולה"},
+            {"commands": ("edit",), "description": "עריכת קובץ קיים ישירות מהצ'אט"},
+            {"commands": ("delete",), "description": "מחיקת קובץ מהספרייה האישית"},
+            {"commands": ("download",), "description": "שליחת הקובץ כקובץ מצורף"},
+            {"commands": ("large",), "description": "צפייה בקבצים גדולים בחלקים עם ניווט"},
+        ],
+    },
+    {
+        "title": "מועדפים וגרסאות",
+        "entries": [
+            {"commands": ("favorite", "fav"), "description": "הוספה או הסרה של קובץ מהמועדפים"},
+            {"commands": ("favorites",), "description": "רשימת הקבצים המועדפים שלך"},
+            {"commands": ("versions",), "description": "היסטוריית גרסאות לכל קובץ"},
+        ],
+    },
+    {
+        "title": "שיתוף וחיבורים",
+        "entries": [
+            {"commands": ("share",), "description": "אשף שיתוף ל-Gist, Pastebin או קישורים פנימיים"},
+            {"commands": ("share_help",), "description": "מדריך מפורט לכל אפשרויות השיתוף"},
+            {"commands": ("github",), "description": "תפריט העלאה מלאה ל-GitHub"},
+            {"commands": ("github_logout",), "description": "ניתוק חשבון GitHub מהבוט"},
+            {"commands": ("backup",), "description": "כלי גיבוי ושחזור לפרויקטים"},
+            {"commands": ("drive",), "description": "תפריט Google Drive עם העלאה ישירה"},
+            {"commands": ("webapp",), "description": "קישור מהיר ל-Web App המלא"},
+            {"commands": ("docs",), "description": "פתיחת התיעוד הרשמי של CodeBot"},
+        ],
+    },
+    {
+        "title": "תמונות ותצוגות",
+        "entries": [
+            {"commands": ("image",), "description": "יצירת תמונה מעוצבת מתוך קובץ"},
+            {"commands": ("preview",), "description": "תצוגה מהירה של 15 שורות ראשונות"},
+            {"commands": ("image_all",), "description": "תמונות לכל הקבצים האחרונים (מוגבל)"},
+        ],
+    },
+    {
+        "title": "תזכורות",
+        "entries": [
+            {"commands": ("remind",), "description": "פתיחת אשף תזכורות עם תאריכים טבעיים"},
+            {"commands": ("reminders",), "description": "רשימת התזכורות, דחייה ומחיקה"},
+        ],
+    },
+    {
+        "title": "חיפוש וניתוח",
+        "entries": [
+            {"commands": ("search",), "description": "חיפוש חכם בשם, תגיות או תוכן קוד"},
+            {"commands": ("analyze",), "description": "ניתוח מעמיק לקובץ בודד"},
+            {"commands": ("validate",), "description": "בדיקות איכות לקוד לפני שיתוף"},
+            {"commands": ("stats",), "description": "סטטיסטיקות אישיות על שימוש ושפות"},
+            {"commands": ("info",), "description": "מידע על קובץ בלי לפתוח אותו"},
+            {"commands": ("tags",), "description": "הוספת תגיות לקובץ כדי לארגן בקלות"},
+            {"commands": ("recent",), "description": "רשימת הקבצים שעודכנו לאחרונה"},
+        ],
+    },
+    {
+        "title": "Batch ועבודות רקע",
+        "entries": [
+            {"commands": ("batch_analyze",), "description": "ניתוח מרובה קבצים במכה אחת"},
+            {"commands": ("batch_validate",), "description": "הרצת ולידציה לכמה קבצים במקביל"},
+            {"commands": ("job_status",), "description": "בדיקת מצב העבודות שרצות ברקע"},
+        ],
+    },
+    {
+        "title": "ביצועים ו-Cache",
+        "entries": [
+            {"commands": ("cache_stats",), "description": "סטטיסטיקות Redis וביצועים כלליים"},
+            {"commands": ("clear_cache",), "description": "ניקוי ה-cache האישי שלך"},
+            {"commands": ("cache_warm",), "description": "חימום מהיר של ה-cache לסטטיסטיקות"},
+        ],
+    },
+    {
+        "title": "תקשורת (מוגבל)",
+        "entries": [
+            {"commands": ("broadcast",), "description": "שליחת הודעה רחבה לכלל המשתמשים (מנהלים)"},
+            {"commands": ("dm",), "description": "הודעת מנהלים פרטית עם שימור עיצוב"},
+        ],
+    },
+    {
+        "title": "קהילה וספרייה (מנהלים)",
+        "entries": [
+            {"commands": ("community_queue", "community_approve", "community_reject"), "description": "ניהול אוסף הקהילה והאישורים"},
+            {"commands": ("snippet_queue", "snippet_approve", "snippet_reject"), "description": "אישור קטעי קוד מהקהילה"},
+        ],
+    },
+    {
+        "title": "ChatOps ותפעול (מנהלים)",
+        "entries": [
+            {"commands": ("status", "health"), "description": "בדיקות בריאות מהירות"},
+            {"commands": ("observe", "triage"), "description": "תחקור תקלות חי ומעקב אחרי אירועים"},
+            {"commands": ("system_info", "metrics", "uptime"), "description": "מידע מערכת ומדדי SLO"},
+            {"commands": ("predict", "accuracy"), "description": "חיזוי תקלות ודיוק המודל"},
+            {"commands": ("sen",), "description": "קיצור גישה ל-Sentry"},
+            {"commands": ("errors", "rate_limit"), "description": "סקירת שגיאות וניטור Rate Limit"},
+            {"commands": ("enable_backoff", "disable_backoff"), "description": "שליטה ב-GitHub Backoff"},
+            {"commands": ("alerts", "incidents"), "description": "מצב התראות ואירועי ייצור"},
+            {"commands": ("silence", "unsilence", "silences"), "description": "ניהול השתקות ב-Alertmanager"},
+            {"commands": ("recycle_backfill",), "description": "משימות תחזוקה (אמיר בלבד)"},
+            {"commands": ("check",), "description": "בדיקת רישום הפקודות (אמיר בלבד)"},
+        ],
+    },
+]
+
+
+def _collect_commands_from_handler(handler, seen_ids: set[int]) -> set[str]:
+    """Extract command names (lowercase) from a handler or nested handlers."""
+    commands: set[str] = set()
+    if handler is None:
+        return commands
+    handler_id = id(handler)
+    if handler_id in seen_ids:
+        return commands
+    seen_ids.add(handler_id)
+
+    if isinstance(handler, CommandHandler):
+        for cmd in getattr(handler, "commands", []) or []:
+            name = getattr(cmd, "name", cmd)
+            if isinstance(name, str):
+                commands.add(name.lower())
+        return commands
+
+    if isinstance(handler, ConversationHandler):
+        for nested in getattr(handler, "entry_points", []) or []:
+            commands |= _collect_commands_from_handler(nested, seen_ids)
+        for nested_list in (getattr(handler, "states", {}) or {}).values():
+            for nested in nested_list or []:
+                commands |= _collect_commands_from_handler(nested, seen_ids)
+        for nested in getattr(handler, "fallbacks", []) or []:
+            commands |= _collect_commands_from_handler(nested, seen_ids)
+        return commands
+
+    # Composite handler (tuple/list) – iterate children if קיימים
+    if isinstance(handler, (list, tuple, set)):
+        for nested in handler:
+            commands |= _collect_commands_from_handler(nested, seen_ids)
+
+    return commands
+
+
+def _get_registered_commands(application) -> set[str]:
+    """Return the set of command names registered on the given application."""
+    if application is None:
+        return set()
+
+    handlers_container = getattr(application, "handlers", None)
+    if handlers_container is None:
+        return set()
+
+    command_names: set[str] = set()
+
+    if isinstance(handlers_container, dict):
+        iterable = handlers_container.values()
+    else:
+        iterable = handlers_container
+
+    for entry in iterable:
+        handler = entry
+        if isinstance(entry, tuple) and entry:
+            handler = entry[0]
+        command_names |= _collect_commands_from_handler(handler, set())
+
+    return command_names
+
+
+def _build_help_message(registered_commands: set[str]) -> str:
+    """Compose the help text according to the registered commands."""
+    lines: list[str] = ["📚 <b>רשימת הפקודות הזמינות</b>", ""]
+
+    for section in HELP_SECTIONS:
+        section_lines: list[str] = []
+        for entry in section["entries"]:
+            commands = [cmd for cmd in entry["commands"] if cmd in registered_commands]
+            if not commands:
+                continue
+            cmd_text = " / ".join(f"<code>/{cmd}</code>" for cmd in commands)
+            if entry.get("highlight"):
+                cmd_text = f"<b>{cmd_text}</b>"
+            section_lines.append(f"• {cmd_text} – {entry['description']}")
+        if section_lines:
+            lines.append(f"<b>{section['title']}</b>")
+            lines.extend(section_lines)
+            lines.append("")
+
+    lines.append("לבעיות או הצעות: @moominAmir")
+
+    # הסר שורות ריקות מיותרות בסוף
+    while len(lines) > 1 and not lines[-2].strip():
+        lines.pop(-2)
+
+    return "\n".join(lines).strip()
+
+
 class CodeKeeperBot:
     """
     המחלקה הראשית של Code Keeper Bot.
@@ -2378,48 +2590,10 @@ class CodeKeeperBot:
         if reporter is not None:
             reporter.report_activity(update.effective_user.id)
         await log_user_activity(update, context)
-        response = """
-📚 <b>רשימת הפקודות המלאה:</b>
-
-<b>שמירה וניהול:</b>
-• <code>/save &lt;filename&gt;</code> - התחלת שמירה של קובץ חדש.
-• <code>/list</code> - הצגת כל הקבצים שלך.
-• <code>/show &lt;filename&gt;</code> - הצגת קובץ עם הדגשת תחביר וכפתורי פעולה.
-• <code>/edit &lt;filename&gt;</code> - עריכת קוד של קובץ קיים.
-• <code>/delete &lt;filename&gt;</code> - מחיקת קובץ.
-• <code>/rename &lt;old&gt; &lt;new&gt;</code> - שינוי שם קובץ.
-• <code>/download &lt;filename&gt;</code> - הורדת קובץ כמסמך.
-• <code>/github</code> - תפריט העלאה ל-GitHub.
-    
-<b>חיפוש וסינון:</b>
-• <code>/recent</code> - הצגת קבצים שעודכנו לאחרונה.
-• <code>/stats</code> - סטטיסטיקות אישיות.
-• <code>/tags &lt;filename&gt; &lt;tag1&gt;,&lt;tag2&gt;</code> - הוספת תגיות לקובץ.
-• <code>/search &lt;query&gt;</code> - חיפוש טקסטואלי בקוד שלך.
-    
-<b>פיצ'רים חדשים:</b>
-• <code>/autocomplete &lt;חלק_משם&gt;</code> - אוטו-השלמה לשמות קבצים.
-• <code>/preview &lt;filename&gt;</code> - תצוגה מקדימה של קוד (15 שורות ראשונות).
-• <code>/info &lt;filename&gt;</code> - מידע מהיר על קובץ ללא פתיחה.
-• <code>/large &lt;filename&gt;</code> - הצגת קובץ גדול עם ניווט בחלקים.
-
-<b>עיבוד Batch (מרובה קבצים):</b>
-• <code>/batch_analyze all</code> - ניתוח כל הקבצים בו-זמנית.
-• <code>/batch_analyze python</code> - ניתוח קבצי שפה ספציפית.
-• <code>/batch_validate all</code> - בדיקת תקינות מרובה קבצים.
-• <code>/job_status</code> - בדיקת סטטוס עבודות ברקע.
-
-<b>ביצועים ותחזוקה:</b>
-• <code>/cache_stats</code> - סטטיסטיקות ביצועי cache.
-• <code>/clear_cache</code> - ניקוי cache אישי לשיפור ביצועים.
-
-<b>מידע כללי:</b>
-• <code>/recent</code> - הצגת קבצים שעודכנו לאחרונה.
-• <code>/help</code> - הצגת הודעה זו.
-
-🔧 <b>לכל תקלה בבוט נא לשלוח הודעה ל-@moominAmir</b>
-"""
-        await update.message.reply_text(response, parse_mode=ParseMode.HTML)
+        application = getattr(context, "application", None) or self.application
+        commands = _get_registered_commands(application)
+        response = _build_help_message(commands)
+        await update.message.reply_text(response, parse_mode=ParseMode.HTML, disable_web_page_preview=True)
     
     async def save_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """פקודת שמירת קוד"""
@@ -3219,53 +3393,20 @@ def setup_handlers(application: Application, db_manager):  # noqa: D401
         if reporter is not None:
             reporter.report_activity(update.effective_user.id)
         await log_user_activity(update, context)  # הוספת רישום משתמש לסטטיסטיקות
-        text = (
-            "<b>📚 עזרה – פקודות זמינות</b>\n\n"
-            "<b>מומלץ</b>\n"
-            "• <b>/remind</b> – יצירת תזכורות חכמות (כולל /reminders לרשימה)\n"
-            "• <b>/image</b> – יצירת תמונת קוד מעוצבת (עם תמה/פונט/רוחב)\n\n"
-            "<b>קבצים</b>\n"
-            "• /show &lt;שם־קובץ&gt; – הצג קובץ מודגש\n"
-            "• /edit &lt;שם־קובץ&gt; – עריכת קובץ\n"
-            "• /delete &lt;שם־קובץ&gt; – מחיקה\n"
-            "• /download &lt;שם־קובץ&gt; – הורדה\n\n"
-            "<b>מועדפים וגרסאות</b>\n"
-            "• /fav &lt;שם־קובץ&gt; – הוסף/הסר ממועדפים\n"
-            "• /favorites – רשימת מועדפים\n"
-            "• /versions &lt;שם־קובץ&gt; – גרסאות קובץ\n\n"
-            "<b>שיתוף</b>\n"
-            "• /share &lt;קבצים...&gt; – אשף שיתוף (Gist/Pastebin/פנימי)\n"
-            "• /share_help – עזרה מפורטת על שיתוף\n\n"
-            "<b>תמונות קוד</b>\n"
-            "• /image &lt;שם־קובץ&gt; – יצירת תמונה\n"
-            "• /preview &lt;שם־קובץ&gt; – תצוגה מקדימה\n"
-            "• /image_all – יצירת תמונות לקבצים האחרונים (מוגבל)\n\n"
-            "<b>תזכורות</b>\n"
-            "• /remind &lt;טקסט/זמן&gt; – יצירת תזכורת\n"
-            "• /reminders – רשימת תזכורות וניהול\n\n"
-            "<b>חיפוש וניתוח</b>\n"
-            "• /search &lt;טקסט&gt; – חיפוש בקוד\n"
-            "• /analyze &lt;שם־קובץ&gt; – ניתוח\n"
-            "• /validate &lt;שם־קובץ&gt; – בדיקות\n\n"
-            "<b>ארגון ומידע</b>\n"
-            "• /tags – תגיות\n"
-            "• /recent – אחרונים\n"
-            "• /info – מידע על החשבון/קבצים\n"
-            "• /broadcast – שידור (מוגבל)\n\n"
-            "<b>ChatOps/מנהל (מוגבל הרשאות)</b>\n"
-            "• /status, /health, /observe, /triage\n"
-            "• /system_info, /metrics, /uptime, /alerts, /incidents\n"
-            "• /predict, /accuracy, /errors, /rate_limit\n"
-            "• /enable_backoff, /disable_backoff, /silence, /unsilence, /silences\n\n"
-            "לבעיות/הצעות: @moominAmir"
-        )
+        app_obj = getattr(context, "application", None) or application
+        text = _build_help_message(_get_registered_commands(app_obj))
         try:
             await update.message.reply_text(text, parse_mode=ParseMode.HTML, disable_web_page_preview=True)
         except Exception:
-            await update.message.reply_text(
-                text.replace("<b>", "").replace("</b>", "").replace("&lt;", "<").replace("&gt;", ">"),
-                disable_web_page_preview=True,
+            plain_text = (
+                text.replace("<b>", "")
+                .replace("</b>", "")
+                .replace("<code>", "")
+                .replace("</code>", "")
+                .replace("&lt;", "<")
+                .replace("&gt;", ">")
             )
+            await update.message.reply_text(plain_text, disable_web_page_preview=True)
 
     application.add_handler(CommandHandler("start", start_command))
     application.add_handler(CommandHandler("help", help_command))
