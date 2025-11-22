@@ -359,15 +359,24 @@ class RefactoringEngine:
         imports_needed: Dict[str, List[str]] = {}
         per_file_filtered_imports: Dict[str, List[str]] = {}
         base_name = Path(self.analyzer.filename).stem
+        # הקצאת מחלקות לקבוצות (Collocation)
+        classes_by_group = self._assign_classes_to_groups(groups)
+        # בניית קבצי דומיין: מחלקות + פונקציות יחד
         for group_name, functions in groups.items():
             new_filename = f"{base_name}_{group_name}.py"
-            # סינון imports לפי שימוש אמיתי בקוד הפונקציות בקובץ זה
-            group_code_body = "\n\n".join(func.code for func in functions)
+            group_classes = classes_by_group.get(group_name, [])
+            # סינון imports לפי שימוש אמיתי בקוד המשולב
+            combined_body_parts: List[str] = []
+            for c in group_classes:
+                combined_body_parts.append(c.code)
+            for f in functions:
+                combined_body_parts.append(f.code)
+            group_code_body = "\n\n".join(combined_body_parts)
             filtered_imports = self._filter_imports_for_code(self.analyzer.imports, group_code_body)
             per_file_filtered_imports[new_filename] = filtered_imports
-            file_content = self._build_file_content(functions, imports=filtered_imports)
+            file_content = self._build_file_content(functions, imports=filtered_imports, classes=group_classes)
             new_files[new_filename] = file_content
-            changes.append(f"📦 {new_filename}: {len(functions)} פונקציות")
+            changes.append(f"📦 {new_filename}: {len(group_classes)} מחלקות, {len(functions)} פונקציות")
             # שמירה לאחור: imports_needed מכיל את ה-imports המקוריים (לצרכי תאימות בדוחות)
             imports_needed[new_filename] = self.analyzer.imports.copy()
         init_content = self._build_init_file(list(new_files.keys()))
@@ -381,12 +390,7 @@ class RefactoringEngine:
         if shared_filename in new_files and shared_filename not in original_keys:
             changes.append(f"📦 {shared_filename}: ייבוא משותף מרוכז")
 
-        # יצירת קובץ מחלקות מרכזי והזרקת יבוא למחלקות הנדרשות בכל מודול
-        classes_filename, classes_content = self._build_classes_file(base_name)
-        if self.analyzer.classes:
-            new_files[classes_filename] = classes_content
-            changes.append(f"📦 {classes_filename}: מחלקות שהופקו מהמונולית")
-            new_files = self._inject_class_imports(new_files, classes_filename)
+        # אין יותר קובץ מחלקות מרכזי – מחלקות מרוכזות לפי דומיין (Collocation)
 
         # הזרקת יבוא לפונקציות בין-מודוליות (Cross-module function imports)
         func_to_module: Dict[str, str] = {}
@@ -395,17 +399,25 @@ class RefactoringEngine:
             for f in functions:
                 func_to_module[f.name] = module_stem
         new_files = self._inject_function_imports(new_files, func_to_module)
+        # הזרקת יבוא למחלקות בין-מודוליות (Cross-module class imports)
+        class_to_module: Dict[str, str] = {}
+        for group_name, classes in classes_by_group.items():
+            module_stem = f"{base_name}_{group_name}"
+            for c in classes:
+                class_to_module[c.name] = module_stem
+        if class_to_module:
+            new_files = self._inject_cross_module_class_imports(new_files, class_to_module)
 
         # ניקוי פוסט-פיצול: הסרת imports מיותרים ברמת קובץ
         new_files = self.post_refactor_cleanup(new_files)
         description = (
             f"🏗️ מצאתי {len(self.analyzer.classes)} מחלקות ו-{len(self.analyzer.functions)} פונקציות.\n\n"
-            f"הצעת פיצול:\n"
+            f"הצעת פיצול לפי דומיין (Collocation):\n"
             f"📦 {self.analyzer.filename} →\n"
         )
         for fname in new_files.keys():
             description += f"   ├── {fname}\n"
-        description += "\n✅ כל הקבצים שומרים על ה-API המקורי"
+        description += "\n✅ מחלקות ופונקציות מרוכזות יחד בקבצי דומיין; אין קובץ מחלקות גנרי"
         warnings: List[str] = []
         if len(self.analyzer.global_vars) > 0:
             warnings.append(
@@ -734,14 +746,31 @@ class RefactoringEngine:
             if name in groups:
                 del groups[name]
         return groups
-    def _build_file_content(self, functions: List[FunctionInfo], imports: Optional[List[str]] = None) -> str:
-        """בונה תוכן קובץ חדש עבור קבוצת פונקציות עם רשימת imports נתונה."""
+    def _build_file_content(
+        self,
+        functions: List[FunctionInfo],
+        imports: Optional[List[str]] = None,
+        classes: Optional[List[ClassInfo]] = None,
+    ) -> str:
+        """בונה תוכן קובץ חדש עבור קבוצת דומיין עם מחלקות ופונקציות ובלוק imports מסונן."""
         content_parts: List[str] = []
-        func_names = ", ".join(f.name for f in functions)
-        content_parts.append(f'"""\nמודול עבור: {func_names}\n"""\n')
+        func_names = ", ".join(f.name for f in functions) if functions else ""
+        class_names = ", ".join(c.name for c in (classes or [])) if classes else ""
+        title_parts: List[str] = []
+        if class_names:
+            title_parts.append(f"מחלקות: {class_names}")
+        if func_names:
+            title_parts.append(f"פונקציות: {func_names}")
+        title = " | ".join(title_parts) if title_parts else "דומיין"
+        # תאימות לאחור: שמור את הסמן "מודול עבור" שנטען בטסטים
+        content_parts.append(f'"""\nמודול עבור: {title}\n"""\n')
         imports_list = list(imports or self.analyzer.imports)
         content_parts.extend(imports_list)
         content_parts.append("\n")
+        # סדר: מחלקות תחילה, אחר כך פונקציות – מפחית צורך ב-import פנימי
+        for cls in (classes or []):
+            content_parts.append(cls.code)
+            content_parts.append("\n\n")
         for func in functions:
             content_parts.append(func.code)
             content_parts.append("\n\n")
@@ -1081,17 +1110,18 @@ class RefactoringEngine:
         return out
 
     def _extract_defined_functions_in_code(self, code: str) -> Set[str]:
-        """שמות פונקציות טופ-לבל המוגדרות בקוד נתון."""
+        """שמות פונקציות טופ-לבל המוגדרות בקוד נתון.
+        תיקון: אל תכלול מתודות של מחלקות כדי למנוע דיכוי import נדרש.
+        """
         defined: Set[str] = set()
         try:
             tree = ast.parse(code)
         except Exception:
             return defined
-        for node in ast.walk(tree):
+        # פונקציות טופ-לבל הן כאלה שמופיעות ישירות ב-tree.body
+        for node in getattr(tree, "body", []):
             if isinstance(node, ast.FunctionDef):
-                # פונקציות טופ-לבל בלבד
-                if not any(isinstance(parent, ast.ClassDef) and node in parent.body for parent in ast.walk(tree)):
-                    defined.add(node.name)
+                defined.add(node.name)
         return defined
 
     def _inject_function_imports(self, new_files: Dict[str, str], func_to_module: Dict[str, str]) -> Dict[str, str]:
@@ -1189,6 +1219,143 @@ class RefactoringEngine:
             except Exception:
                 cleaned[filename] = content
         return cleaned
+
+    # === Collocation: הקצאת מחלקות לקבוצות פונקציות ובניית מיפוי ===
+    def _extract_defined_classes_in_code(self, code: str) -> Set[str]:
+        defined: Set[str] = set()
+        try:
+            tree = ast.parse(code)
+        except Exception:
+            return defined
+        for node in ast.walk(tree):
+            if isinstance(node, ast.ClassDef):
+                defined.add(node.name)
+        return defined
+
+    def _assign_classes_to_groups(
+        self, groups: Dict[str, List[FunctionInfo]]
+    ) -> Dict[str, List[ClassInfo]]:
+        """
+        מקצה כל Class לקבוצת דומיין אחת לפי:
+        - שימוש בפועל ע״י פונקציות הקבוצה (affinity)
+        - התאמת Section (אם קיימת) לשם הקבוצה
+        - דמיון שמות כאשר אין שימוש ברור
+        """
+        if not self.analyzer:
+            return {}
+        class_by_name: Dict[str, ClassInfo] = {c.name: c for c in self.analyzer.classes}
+        groups_classes: Dict[str, List[ClassInfo]] = {g: [] for g in groups.keys()}
+        if not class_by_name:
+            return groups_classes
+
+        # הכנה: שימושי קלאסים לפי פונקציות
+        def used_names_in_function(func: FunctionInfo) -> Set[str]:
+            return self._extract_used_names(func.code)
+
+        # צבירת ניקוד שימוש לכל Class מול כל קבוצה
+        score: Dict[Tuple[str, str], float] = {}  # (class_name, group_name) -> score
+        for gname, funcs in groups.items():
+            used_names: Set[str] = set()
+            for f in funcs:
+                used_names |= used_names_in_function(f)
+            for cname in class_by_name.keys():
+                s = 0.0
+                if cname in used_names:
+                    # נחשב שימוש ישיר במחלקה
+                    s += 3.0
+                # בונוס אם ה-Section של המחלקה תואם את שם הקבוצה
+                cls_section = class_by_name[cname].section or ""
+                if cls_section and cls_section == gname:
+                    s += 2.0
+                # דמיון לשם: כאשר אין שימוש או section
+                if s == 0.0:
+                    s += self._name_similarity(cname, gname)
+                score[(cname, gname)] = s
+
+        # התאמות לפי שימוש המחלקה בפונקציות (מתוך מתודות)
+        # אם מתודות המחלקה קוראות לפונקציות בקבוצה ספציפית – נזיז לשם
+        func_name_to_group: Dict[str, str] = {}
+        for gname, funcs in groups.items():
+            for f in funcs:
+                func_name_to_group[f.name] = gname
+        for cname, cls in class_by_name.items():
+            group_bonus: Dict[str, float] = {}
+            for m in cls.methods:
+                for called in m.calls:
+                    g = func_name_to_group.get(called)
+                    if g:
+                        group_bonus[g] = group_bonus.get(g, 0.0) + 1.0
+            if group_bonus:
+                # בונוס משמעותי לקבוצה עם מירב הקריאות
+                best_g, best_v = max(group_bonus.items(), key=lambda kv: kv[1])
+                score[(cname, best_g)] = score.get((cname, best_g), 0.0) + 3.0
+
+        # הקצאה: בחר את הקבוצה עם הניקוד הגבוה ביותר לכל Class
+        assigned_group_for_class: Dict[str, str] = {}
+        for cname in class_by_name.keys():
+            best_g = None
+            best_s = float("-inf")
+            for gname in groups.keys():
+                s = score.get((cname, gname), 0.0)
+                if s > best_s:
+                    best_s = s
+                    best_g = gname
+            if best_g is None:
+                # גיבוי: הצמד לקבוצה הראשונה
+                best_g = next(iter(groups.keys()))
+            assigned_group_for_class[cname] = best_g
+            groups_classes[best_g].append(class_by_name[cname])
+
+        return groups_classes
+
+    def _inject_cross_module_class_imports(
+        self,
+        new_files: Dict[str, str],
+        class_to_module: Dict[str, str],
+    ) -> Dict[str, str]:
+        """
+        מזריק import יחסי למחלקות שמוגדרות במודולים אחרים אך נמצאות בשימוש.
+        """
+        out: Dict[str, str] = {}
+        class_names: Set[str] = set(class_to_module.keys())
+        for fn, content in new_files.items():
+            if fn in ("__init__.py",) or fn.endswith("_shared.py"):
+                out[fn] = content
+                continue
+            current_stem = Path(fn).stem
+            used = self._extract_used_names(content)
+            defined_here = self._extract_defined_classes_in_code(content)
+            needed = [name for name in used if name in class_names and name not in defined_here and class_to_module.get(name) != current_stem]
+            if not needed:
+                out[fn] = content
+                continue
+            per_module: Dict[str, List[str]] = {}
+            for name in needed:
+                mod = class_to_module.get(name)
+                if not mod:
+                    continue
+                per_module.setdefault(mod, []).append(name)
+            lines = content.splitlines()
+            # מצא את סוף הדוקסטרינג
+            insert_idx = 0
+            quote_count = 0
+            for i, line in enumerate(lines):
+                if line.strip().startswith('"""'):
+                    quote_count += 1
+                    if quote_count == 2:
+                        insert_idx = i + 2
+                        break
+            new_imports: List[str] = []
+            for module_stem, names in per_module.items():
+                names_sorted = sorted(set(names))
+                imp = f"from .{module_stem} import {', '.join(names_sorted)}"
+                exists = any(ln.strip().startswith(f"from .{module_stem} import") for ln in lines)
+                if not exists:
+                    new_imports.append(imp)
+            if new_imports:
+                lines = lines[:insert_idx] + new_imports + [""] + lines[insert_idx:]
+            out[fn] = "\n".join(lines) + "\n"
+        return out
 
 
 # Instance גלובלי
