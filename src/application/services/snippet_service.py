@@ -6,6 +6,8 @@ from src.application.dto.create_snippet_dto import CreateSnippetDTO
 from src.domain.entities.snippet import Snippet
 from src.domain.services.code_normalizer import CodeNormalizer
 from src.domain.interfaces.snippet_repository_interface import ISnippetRepository
+import re
+from pathlib import Path
 
 
 class SnippetService:
@@ -42,39 +44,120 @@ class SnippetService:
         return await self._repo.search(user_id, query, language=language, limit=limit)
 
     def _detect_language(self, code: str, filename: str) -> str:
-        # Minimal heuristic for now; can be replaced with domain LanguageDetector later
-        fname = filename.lower()
-        # Markdown and variants first (סיומת גוברת)
-        if fname.endswith(('.md', '.markdown', '.mdown', '.mkd', '.mkdn')):
-            return 'markdown'
-        if fname.endswith('.py'):
-            return 'python'
-        if fname.endswith(('.js', '.jsx')):
-            return 'javascript'
-        if fname.endswith(('.ts', '.tsx')):
-            return 'typescript'
-        if fname.endswith('.java'):
-            return 'java'
-        if fname.endswith(('.cpp', '.cxx', '.cc', '.hpp', '.hxx')):
-            return 'cpp'
-        if fname.endswith('.c'):
-            return 'c'
-        if fname.endswith('.go'):
-            return 'go'
-        if fname.endswith('.rs'):
-            return 'rust'
-        if fname.endswith(('.rb', '.rake')):
-            return 'ruby'
-        if fname.endswith(('.php', '.phtml')):
-            return 'php'
-        if fname.endswith('.swift'):
-            return 'swift'
-        if fname.endswith(('.sh', '.bash', '.zsh', '.fish')):
-            return 'bash'
-        if fname.endswith('.sql'):
-            return 'sql'
-        if fname.endswith(('.html', '.htm')):
-            return 'html'
-        if fname.endswith('.css'):
-            return 'css'
-        return 'text'
+        """
+        Heuristic language detection combining filename and content.
+        - Non-generic extensions keep priority (backward compatible).
+        - Generic/ambiguous extensions (.txt, .md, no extension) may be overridden
+          by strong content signals (e.g., clear Python code).
+        - Special filenames (Dockerfile/Makefile/dotfiles) are supported.
+        """
+        fname = (filename or "").strip()
+        fname_lower = fname.lower()
+        ext = Path(fname_lower).suffix  # includes leading dot or '' if no extension
+
+        # Special well-known filenames (no extension)
+        if fname_lower == "dockerfile" or fname_lower.endswith("/dockerfile"):
+            return "dockerfile"
+        if fname_lower == "makefile" or fname_lower.endswith("/makefile"):
+            return "makefile"
+        if fname_lower in {".gitignore", ".dockerignore"}:
+            return "gitignore" if fname_lower == ".gitignore" else "dockerignore"
+
+        # Fast path by non-generic extension (keeps legacy behavior)
+        non_generic_map = {
+            # Python
+            ".py": "python",
+            ".pyw": "python",
+            ".pyx": "python",
+            ".pyi": "python",
+            # JS/TS
+            ".js": "javascript",
+            ".jsx": "javascript",
+            ".ts": "typescript",
+            ".tsx": "typescript",
+            ".mjs": "javascript",
+            # Web
+            ".html": "html",
+            ".htm": "html",
+            ".css": "css",
+            # JVM
+            ".java": "java",
+            # C/C++
+            ".cpp": "cpp",
+            ".cxx": "cpp",
+            ".cc": "cpp",
+            ".hpp": "cpp",
+            ".hxx": "cpp",
+            ".c": "c",
+            # Other
+            ".go": "go",
+            ".rs": "rust",
+            ".rb": "ruby",
+            ".rake": "ruby",
+            ".php": "php",
+            ".phtml": "php",
+            ".swift": "swift",
+            ".sh": "bash",
+            ".bash": "bash",
+            ".zsh": "bash",
+            ".fish": "bash",
+            ".sql": "sql",
+            ".scss": "scss",
+            ".sass": "sass",
+            ".less": "less",
+        }
+        if ext in non_generic_map:
+            return non_generic_map[ext]
+
+        # Generic/ambiguous: consider content signals
+        generic_md_exts = {".md", ".markdown", ".mdown", ".mkd", ".mkdn"}
+        generic_text_exts = {".txt", ""}
+
+        def looks_like_markdown(text: str) -> bool:
+            # Basic markdown markers
+            if re.search(r"(^|\n)\s{0,3}#[^#]", text):
+                return True
+            if re.search(r"(^|\n)\s{0,2}[-*+]\s+\S", text):
+                return True
+            if re.search(r"\[.+?\]\(.+?\)", text):
+                return True
+            if "```" in text:
+                return True
+            return False
+
+        def strong_python_signal(text: str) -> bool:
+            # Strong indicators of Python source
+            if re.search(r"^#!.*\bpython(\d+(?:\.\d+)*)?\b", text, flags=re.IGNORECASE | re.MULTILINE):
+                return True
+            signals = 0
+            if re.search(r"^\s*def\s+\w+\s*\(", text, flags=re.MULTILINE):
+                signals += 1
+            if re.search(r"^\s*class\s+\w+\s*\(?", text, flags=re.MULTILINE):
+                signals += 1
+            if re.search(r"^\s*import\s+\w+", text, flags=re.MULTILINE):
+                signals += 1
+            if "__name__" in text and "__main__" in text:
+                signals += 1
+            # Colon-based blocks and indentation patterns
+            if re.search(r":\s*(#.*)?\n\s{4,}\S", text, flags=re.MULTILINE):
+                signals += 1
+            return signals >= 2
+
+        # If markdown extension: prefer markdown unless code is clearly Python
+        if ext in generic_md_exts:
+            return "python" if strong_python_signal(code or "") and not looks_like_markdown(code or "") else "markdown"
+
+        # For pure text/no extension: allow strong content override
+        if ext in generic_text_exts:
+            if strong_python_signal(code or ""):
+                return "python"
+            return "text"
+
+        # Fallbacks for other configs and files
+        if ext in {".json"}:
+            return "json"
+        if ext in {".yaml", ".yml"}:
+            return "yaml"
+        if ext in {".xml"}:
+            return "xml"
+        return "text"

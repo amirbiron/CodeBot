@@ -35,7 +35,7 @@ from utils import get_language_emoji as get_file_emoji
 from user_stats import user_stats
 from typing import List, Optional, Dict, Type, cast
 from html import escape as html_escape
-from utils import TelegramUtils, TextUtils
+from utils import TelegramUtils, TextUtils, ValidationUtils
 from services import code_service
 from i18n.strings_he import MAIN_MENU as MAIN_KEYBOARD
 from handlers.pagination import build_pagination_row
@@ -2628,8 +2628,8 @@ async def receive_new_name(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         await update.message.reply_text("❌ שגיאה בנתוני הקובץ")
         return ConversationHandler.END
     
-    # בדיקת תקינות שם
-    if not re.match(r'^[\w\.\-\_]+\.[a-zA-Z0-9]+$', new_name):
+    # בדיקת תקינות שם – מאפשר גם שמות ללא סיומת ודוטפיילז
+    if not ValidationUtils.is_valid_filename(new_name):
         await update.message.reply_text(
             "🤔 השם נראה קצת מוזר...\n"
             "💡 נסה שם כמו: `script.py` או `index.html`\n"

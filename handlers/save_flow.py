@@ -9,6 +9,7 @@ from telegram.ext import ContextTypes, ConversationHandler
 from handlers.states import GET_CODE, GET_FILENAME, GET_NOTE, WAIT_ADD_CODE_MODE, LONG_COLLECT
 from services import code_service
 from utils import TextUtils
+from utils import ValidationUtils
 from utils import TelegramUtils
 from utils import normalize_code  # נרמול קלט כדי להסיר תווים נסתרים מוקדם
 
@@ -531,7 +532,8 @@ async def get_code(update, context: ContextTypes.DEFAULT_TYPE) -> int:
 async def get_filename(update, context: ContextTypes.DEFAULT_TYPE) -> int:
     filename = update.message.text.strip()
     user_id = update.message.from_user.id
-    if not re.match(r'^[\w\.\-\_]+\.[a-zA-Z0-9]+$', filename):
+    # קבלה של שמות ללא סיומת (Dockerfile/Makefile/Procfile), נקודתיים (.gitignore), וגם name.ext רגיל
+    if not ValidationUtils.is_valid_filename(filename):
         await update.message.reply_text(
             "🤔 השם נראה קצת מוזר...\n"
             "💡 נסה שם כמו: `script.py` או `index.html`\n"
