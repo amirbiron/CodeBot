@@ -21,6 +21,23 @@ refactoring\_engine module
        absolute_max_groups: int = 8
        min_functions_per_group: int = 2
 
+מקרה מיוחד: Safe Decomposition ל‑``models.py``
+-----------------------------------------------
+
+כאשר קובץ הקלט הוא ``models.py`` והוא כולל מחלקות בלבד (אין פונקציות טופ‑לבל), המנוע מבצע פיצול בטוח לתת‑מודולים דומייניים תחת ``models/``:
+
+- סיווג מחלקות לדומיינים: ``core``, ``billing``, ``inventory`` (ולפי צורך ``network``/``workflows``), על בסיס יוריסטיקות שם/סקשן.
+- יצירת קבצים: ``models/core.py``, ``models/billing.py``, ``models/inventory.py``.
+- יצירת ``models/__init__.py`` עם re‑exports לשמירת תאימות (ייבוא מ‑``models`` ימשיך לעבוד).
+- הזרקת יבוא בין‑מודולי למחלקות נדרשות (למשל: ``from .core import User`` בתוך ``billing.py``).
+- Dry‑Run Tarjan SCC לזיהוי מעגליות בתוך ``models/`` בלבד ומיזוג נקודתי במקרה של מעגל.
+
+ממשק פנימי רלוונטי:
+
+- ``_split_models_monolith()`` – בונה את חבילת ``models/`` והקבצים הדומייניים.
+- ``_inject_cross_module_class_imports()`` – הזרקת imports למחלקות בין מודולים פנימיים.
+- ``_resolve_circular_imports()`` – DRY‑Run לזיהוי ומיזוג נקודתי של מעגליות בייבוא.
+
 .. automodule:: refactoring_engine
    :members:
    :undoc-members:
