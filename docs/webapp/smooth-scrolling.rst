@@ -290,12 +290,73 @@ Debug Mode
      window.smoothScroll.throttle(updateScrollProgress, 16)
    );
 
+תמיכה באנדרואיד
+===============
+
+שיפורים ספציפיים למכשירי אנדרואיד
+--------------------------------
+
+התכונה כוללת אופטימיזציות מיוחדות למכשירי אנדרואיד:
+
+**בעיות שנפתרות:**
+
+* גלילה מקוטעת (Jittery scrolling)
+* השהיית מגע (Touch lag)
+* בעיות אינרציה (Momentum issues)
+* ביצועי WebView גרועים
+* Overscroll bounce לא רצוי
+
+**אופטימיזציות אוטומטיות:**
+
+.. code-block:: javascript
+
+   // המערכת מזהה אנדרואיד אוטומטית
+   if (isAndroid) {
+     // Hardware acceleration
+     // Passive touch listeners
+     // Optimized momentum scrolling
+     // Transform-based animations
+   }
+
+**דפדפנים נתמכים באנדרואיד:**
+
+.. list-table::
+   :header-rows: 1
+
+   * - דפדפן
+     - תמיכה
+     - הערות
+   * - Chrome
+     - מלאה ✅
+     - ביצועים מיטביים
+   * - Firefox
+     - טובה ✅
+     - מעט איטי מ-Chrome
+   * - Samsung Internet
+     - מותאמת ✅
+     - אופטימיזציות מיוחדות
+   * - WebView
+     - בסיסית ✅
+     - Virtual scrolling אוטומטי
+   * - Opera
+     - טובה ✅
+     - דומה ל-Chrome
+
+**הגדרות מומלצות לאנדרואיד:**
+
+* מהירות גלילה: 300ms (מהירה יותר)
+* Easing: ease-out (חלק יותר)
+* רגישות מגע: 1.2x (גבוהה יותר)
+* Momentum: מופעל
+* Overscroll bounce: מכובה
+
 מגבלות ידועות
 ============
 
 * **Safari iOS**: תמיכה חלקית ב-smooth behavior
-* **Firefox Android**: ביצועים מופחתים בהשוואה ל-Chrome
+* **Firefox Android < 68**: ביצועים מופחתים
 * **IE11**: אין תמיכה (fallback ל-גלילה רגילה)
+* **Android 4.x**: תמיכה בסיסית בלבד
 
 עדכונים עתידיים
 ==============
