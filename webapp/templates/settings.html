@@ -357,7 +357,7 @@
         gap: 1rem;
       "
     >
-      <div style="display: flex; align-items: center; gap: 1rem">
+        <div style="display: flex; align-items: center; gap: 1rem">
         <i class="fas fa-fill-drip" style="font-size: 1.5rem"></i>
         <div>
           <div style="font-weight: 600">ערכת נושא</div>
@@ -367,22 +367,22 @@
         </div>
         <div>
           <select
-          id="themeSelect"
-          class="filter-select"
-          aria-label="בחר ערכת נושא"
-          style="padding: 0.5rem 0.75rem; border-radius: 10px; border: 1px solid rgba(255,255,255,0.2); background: rgba(255,255,255,0.1); color: white;"
-        >
-          <option value="classic" {% if ui_theme == 'classic' %}selected{% endif %}>קלאסי{% if ui_theme == 'classic' %} (נוכחית){% endif %}</option>
-          <option value="ocean" {% if ui_theme == 'ocean' %}selected{% endif %}>אוקיינוס{% if ui_theme == 'ocean' %} (נוכחית){% endif %}</option>
-          <option value="forest" {% if ui_theme == 'forest' %}selected{% endif %}>יער{% if ui_theme == 'forest' %} (נוכחית){% endif %}</option>
-          <option value="rose-pine-dawn" {% if ui_theme == 'rose-pine-dawn' %}selected{% endif %}>🌹 Rose Pine Dawn{% if ui_theme == 'rose-pine-dawn' %} (נוכחית){% endif %}</option>
-          <option value="dark" {% if ui_theme == 'dark' %}selected{% endif %}>🌙 חשוך{% if ui_theme == 'dark' %} (נוכחית){% endif %}</option>
-          <option value="dim" {% if ui_theme == 'dim' %}selected{% endif %}>🌆 מעומעם{% if ui_theme == 'dim' %} (נוכחית){% endif %}</option>
-          <option value="high-contrast" {% if ui_theme == 'high-contrast' %}selected{% endif %}>ניגודיות גבוהה{% if ui_theme == 'high-contrast' %} (נוכחית){% endif %}</option>
-        </select>
+            id="themeSelect"
+            class="filter-select"
+            aria-label="בחר ערכת נושא"
+            style="padding: 0.5rem 0.75rem; border-radius: 10px; border: 1px solid rgba(255,255,255,0.2); background: rgba(255,255,255,0.1); color: white;"
+          >
+            <option value="classic" {% if ui_theme == 'classic' %}selected{% endif %}>קלאסי{% if ui_theme == 'classic' %} (נוכחית){% endif %}</option>
+            <option value="ocean" {% if ui_theme == 'ocean' %}selected{% endif %}>אוקיינוס{% if ui_theme == 'ocean' %} (נוכחית){% endif %}</option>
+            <option value="forest" {% if ui_theme == 'forest' %}selected{% endif %}>יער{% if ui_theme == 'forest' %} (נוכחית){% endif %}</option>
+            <option value="rose-pine-dawn" {% if ui_theme == 'rose-pine-dawn' %}selected{% endif %}>🌹 Rose Pine Dawn{% if ui_theme == 'rose-pine-dawn' %} (נוכחית){% endif %}</option>
+            <option value="dark" {% if ui_theme == 'dark' %}selected{% endif %}>🌙 חשוך{% if ui_theme == 'dark' %} (נוכחית){% endif %}</option>
+            <option value="dim" {% if ui_theme == 'dim' %}selected{% endif %}>🌆 מעומעם{% if ui_theme == 'dim' %} (נוכחית){% endif %}</option>
+            <option value="high-contrast" {% if ui_theme == 'high-contrast' %}selected{% endif %}>ניגודיות גבוהה{% if ui_theme == 'high-contrast' %} (נוכחית){% endif %}</option>
+          </select>
+        </div>
       </div>
     </div>
-  </div>
 
   <!-- Bookmarks toggle visibility (moved from panel) -->
   <div
