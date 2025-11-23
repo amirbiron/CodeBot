@@ -1081,7 +1081,7 @@ class HelpSection(TypedDict):
 
 HELP_SECTIONS: list[HelpSection] = [
     {
-        "title": "🧠 <b>תזכורות</b>",
+        "title": "🔔 <b>תזכורות</b>",
         "entries": [
             {"commands": ("remind",), "description": "יצירת תזכורת חכמה"},
             {"commands": ("reminders",), "description": "רשימת תזכורות וניהול"},
@@ -1092,6 +1092,19 @@ HELP_SECTIONS: list[HelpSection] = [
         "entries": [
             {"commands": ("image",), "description": "ייצור תמונה מעוצבת", "suffix": " &lt;קובץ&gt;"},
             {"commands": ("preview",), "description": "תצוגה מקדימה של קובץ", "suffix": " &lt;קובץ&gt;"},
+        ],
+    },
+    {
+        "title": "🧰 <b>מטמון</b>",
+        "entries": [
+            {"commands": ("cache_stats",), "description": "הצגת סטטיסטיקות מטמון (Cache)"},
+            {"commands": ("clear_cache",), "description": "ניקוי מטמון למשתמש הנוכחי"},
+        ],
+    },
+    {
+        "title": "🏗️ <b>רפקטורינג</b>",
+        "entries": [
+            {"commands": ("refactor",), "description": "רפקטורינג אוטומטי לקובץ", "suffix": " &lt;קובץ&gt;"},
         ],
     },
     {
@@ -1115,12 +1128,17 @@ HELP_EXCLUDED_COMMANDS: set[str] = {"start", "help", "cancel", "done"}
 
 STATIC_HELP_MESSAGE = (
     "<b>📚 עזרה – פקודות ללא כפתורים</b>\n\n"
-    "🧠 <b>תזכורות</b>\n"
+    "🔔 <b>תזכורות</b>\n"
     "• <code>/remind</code> – יצירת תזכורת חכמה\n"
     "• <code>/reminders</code> – רשימת תזכורות וניהול\n\n"
     "🎨 <b>תמונות קוד</b>\n"
     "• <code>/image</code> &lt;קובץ&gt; – ייצור תמונה מעוצבת\n"
     "• <code>/preview</code> &lt;קובץ&gt; – תצוגה מקדימה\n\n"
+    "🧰 <b>מטמון</b>\n"
+    "• <code>/cache_stats</code> – הצגת סטטיסטיקות מטמון (Cache)\n"
+    "• <code>/clear_cache</code> – ניקוי מטמון למשתמש הנוכחי\n\n"
+    "🏗️ <b>רפקטורינג</b>\n"
+    "• <code>/refactor</code> &lt;קובץ&gt; – רפקטורינג אוטומטי לקובץ\n\n"
     "⚙️ <b>מנהל (מוגבל)</b>\n"
     "• <code>/status</code> <code>/errors</code> <code>/metrics</code> <code>/uptime</code>\n\n"
     f"{SUPPORT_FOOTER}"
@@ -1232,18 +1250,8 @@ def _build_help_message(registered_commands: set[str]) -> str:
             lines.extend(section_lines)
             lines.append("")
 
-    additional_commands = sorted(
-        cmd
-        for cmd in available_commands
-        if cmd not in HELP_SECTION_COMMANDS and cmd not in HELP_EXCLUDED_COMMANDS
-    )
-
-    if additional_commands:
-        lines.append("🛠️ <b>פקודות נוספות</b>")
-        lines.extend(f"• <code>/{cmd}</code>" for cmd in additional_commands)
-        lines.append("")
-
-    if not has_sections and not additional_commands:
+    # הסרת סעיף "פקודות נוספות" לפי הדרישה – מציגים רק את הקטגוריות המוגדרות
+    if not has_sections:
         return STATIC_HELP_MESSAGE
 
     while lines and not lines[-1].strip():
@@ -1549,6 +1557,9 @@ class CodeKeeperBot:
                         try:
                             if hasattr(context, "user_data"):
                                 context.user_data["command"] = cleaned
+                                # ביטול מצב חיפוש על כל פקודה
+                                context.user_data.pop('awaiting_search_text', None)
+                                context.user_data.pop('search_ctx', None)
                         except Exception:
                             pass
             except Exception:
@@ -2126,6 +2137,8 @@ class CodeKeeperBot:
             main_menu_texts = {"➕ הוסף קוד חדש", "📚 הצג את כל הקבצים שלי", "📂 קבצים גדולים", "🔧 GitHub", "🏠 תפריט ראשי", "⚡ עיבוד Batch"}
             if text in main_menu_texts:
                 # נקה דגלים כדי למנוע טריגר שגוי
+                context.user_data.pop('awaiting_search_text', None)  # יציאה אוטומטית מ"מצב חיפוש"
+                context.user_data.pop('search_ctx', None)
                 context.user_data.pop('waiting_for_repo_url', None)
                 context.user_data.pop('waiting_for_delete_file_path', None)
                 context.user_data.pop('waiting_for_download_file_path', None)
