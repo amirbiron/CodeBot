@@ -688,12 +688,21 @@ async def receive_new_name(update, context: ContextTypes.DEFAULT_TYPE) -> int:
     try:
         user_id = update.effective_user.id
         old_name = context.user_data.get('editing_file_name') or file_data.get('file_name')
-        from database import db
-        success = db.rename_file(user_id, old_name, new_name)
+        # דרך ה-FilesFacade מה-Composition Root
+        try:
+            from src.infrastructure.composition import get_files_facade  # type: ignore
+            success = bool(get_files_facade().rename_file(user_id, old_name, new_name))
+        except Exception:
+            from database import db
+            success = db.rename_file(user_id, old_name, new_name)
         if success:
             # חשב fid עבור הכפתור 'הצג קוד' בהעדפת ID אם זמין
             try:
-                latest_doc = db.get_latest_version(user_id, new_name) or {}
+                try:
+                    latest_doc = get_files_facade().get_latest_version(user_id, new_name)  # type: ignore[name-defined]
+                except Exception:
+                    from database import db as _db
+                    latest_doc = _db.get_latest_version(user_id, new_name) or {}
                 fid = str(latest_doc.get('_id') or '')
             except Exception:
                 fid = ''
@@ -751,8 +760,12 @@ async def handle_versions_history(update, context: ContextTypes.DEFAULT_TYPE) ->
                 return ConversationHandler.END
             file_name = file_data.get('file_name')
         user_id = update.effective_user.id
-        from database import db
-        versions = db.get_all_versions(user_id, file_name)
+        try:
+            from src.infrastructure.composition import get_files_facade  # type: ignore
+            versions = get_files_facade().get_all_versions(user_id, file_name)
+        except Exception:
+            from database import db
+            versions = db.get_all_versions(user_id, file_name)
         if not versions:
             await query.edit_message_text("📚 אין היסטוריית גרסאות לקובץ זה")
             return ConversationHandler.END
