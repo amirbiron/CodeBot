@@ -363,7 +363,7 @@ class RefactoringEngine:
         classes_by_group = self._assign_classes_to_groups(groups)
         # בניית קבצי דומיין: מחלקות + פונקציות יחד
         for group_name, functions in groups.items():
-            new_filename = f"{base_name}_{group_name}.py"
+            new_filename = self._choose_filename_for_group(base_name, group_name)
             group_classes = classes_by_group.get(group_name, [])
             # סינון imports לפי שימוש אמיתי בקוד המשולב
             combined_body_parts: List[str] = []
@@ -1360,6 +1360,59 @@ class RefactoringEngine:
             assigned_group_for_class[cname] = best_g
             groups_classes[best_g].append(class_by_name[cname])
 
+        # כלל Coupling: הצמדת מנהל+ישות לאותו קובץ כאשר יש שימוש תכוף ב-Type Hint/שמות
+        # נזהה עבור כל מחלקה אילו מחלקות אחרות מוזכרות במתודותיה, ונאחד לקבוצה משותפת כאשר היחס גבוה.
+        try:
+            all_class_names: Set[str] = set(c.name for c in (self.analyzer.classes or []))
+            # מיפוי: cname -> counter של מחלקות אחרות שהוזכרו
+            mentions: Dict[str, Dict[str, int]] = {}
+            method_counts: Dict[str, int] = {}
+            for cls in (self.analyzer.classes or []):
+                method_counts[cls.name] = len(cls.methods or [])
+                for m in (cls.methods or []):
+                    used = self._extract_used_names(m.code)
+                    for other in (used & all_class_names):
+                        if other == cls.name:
+                            continue
+                        mentions.setdefault(cls.name, {}).setdefault(other, 0)
+                        mentions[cls.name][other] += 1
+            # סף: מחלקה A מזכירה את B בלפחות מחצית מהמתודות שלה (או 2 מתודות מינימום)
+            for a, counters in mentions.items():
+                total_methods = max(1, method_counts.get(a, 0))
+                # בחר את B עם ההזכרות הגבוהות ביותר
+                b, cnt = None, 0
+                for other, c in counters.items():
+                    if c > cnt:
+                        b, cnt = other, c
+                if not b:
+                    continue
+                strong_coupling = (cnt >= max(2, (total_methods + 1) // 2))
+                if not strong_coupling:
+                    continue
+                ga = assigned_group_for_class.get(a)
+                gb = assigned_group_for_class.get(b)
+                if ga and gb and ga != gb:
+                    # הזז את המחלקה הפחות "מוכרת" אל קבוצת המחלקה המרכזית (ga)
+                    # הקריטריון: אם b מזכיר את a פחות מ-a שמזכיר את b – נעדיף את קבוצת a
+                    a_to_b = cnt
+                    b_to_a = mentions.get(b, {}).get(a, 0)
+                    dest = ga if a_to_b >= b_to_a else gb
+                    src = gb if dest == ga else ga
+                    # עדכן mapping ורשימות
+                    assigned_group_for_class[b if dest == ga else a] = dest
+                    # הסר מקבוצת המקור והוסף ליעד
+                    move_name = b if dest == ga else a
+                    # הסרה בטוחה
+                    for gname, arr in groups_classes.items():
+                        groups_classes[gname] = [c for c in arr if c.name != move_name]
+                    # הוספה
+                    cls_obj = next((c for c in (self.analyzer.classes or []) if c.name == move_name), None)
+                    if cls_obj:
+                        groups_classes[dest].append(cls_obj)
+        except Exception:
+            # לא נכשיל את התהליך במקרה של חריגה – הכלל הוא שיפור-היוריסטי
+            pass
+
         return groups_classes
 
     def _inject_cross_module_class_imports(
@@ -1564,6 +1617,34 @@ class RefactoringEngine:
             iterations += 1
         return files, merged_pairs
 
+    # === Naming helpers ===
+    def _choose_filename_for_group(self, base_name: str, group_name: str) -> str:
+        """
+        קובע שם קובץ עבור קבוצה.
+        כאשר מדובר בדומיין מוכר – משתמש בשם דומייני יציב (users.py, finance.py, inventory.py, network.py, workflows.py).
+        אחרת – נשמר את שם הבסיס + הקבוצה (base_group.py) לשמירת תאימות.
+        """
+        canonical_map = {
+            "users": "users.py",
+            "finance": "finance.py",
+            "inventory": "inventory.py",
+            "api_clients": "network.py",
+            "workflows": "workflows.py",
+            "analytics": f"{base_name}_analytics.py",  # נשמר ממוקד-בסיס כדי לא לשבור ציפיות קיימות בטסטים
+            "utils": f"{base_name}_utils.py",
+            "files": f"{base_name}_files.py",
+            "permissions": f"{base_name}_permissions.py",
+            "main": f"{base_name}_main.py",
+            "debug": f"{base_name}_debug.py",
+            "compute": f"{base_name}_compute.py",
+            "helpers": f"{base_name}_helpers.py",
+            "io": f"{base_name}_io.py",
+        }
+        if group_name in canonical_map:
+            return canonical_map[group_name]
+        # ברירת מחדל: base_name_group.py
+        safe_group = re.sub(r"[^a-z0-9_]", "_", group_name.lower())
+        return f"{base_name}_{safe_group}.py"
 
 # Instance גלובלי
 refactoring_engine = RefactoringEngine()
