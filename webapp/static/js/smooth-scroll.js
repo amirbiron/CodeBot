@@ -1,29 +1,30 @@
 /* Smooth scrolling manager (basic implementation) */
 (function () {
-  'use strict';
+  "use strict";
   function clamp(val, min, max) {
     return Math.min(Math.max(val, min), max);
   }
   function isEditableTarget(el) {
     if (!el || el === document.body) return false;
-    const tag = (el.tagName || '').toLowerCase();
-    if (tag === 'input' || tag === 'textarea' || tag === 'select') return true;
+    const tag = (el.tagName || "").toLowerCase();
+    if (tag === "input" || tag === "textarea" || tag === "select") return true;
     if (el.isContentEditable) return true;
     return false;
   }
   function getOverflowStyle(el) {
     try {
       const cs = window.getComputedStyle(el);
-      return (cs && (cs.overflowY || cs.overflow)) || '';
+      return (cs && (cs.overflowY || cs.overflow)) || "";
     } catch (_) {
-      return '';
+      return "";
     }
   }
   function isScrollable(el) {
     if (!el) return false;
     const overflowY = getOverflowStyle(el);
-    const canScrollY = overflowY === 'auto' || overflowY === 'scroll' || overflowY === 'overlay';
-    return canScrollY && (el.scrollHeight - el.clientHeight > 2);
+    const canScrollY =
+      overflowY === "auto" || overflowY === "scroll" || overflowY === "overlay";
+    return canScrollY && el.scrollHeight - el.clientHeight > 2;
   }
   function findScrollableContainer(startEl) {
     let el = startEl;
@@ -35,7 +36,10 @@
   }
   function prefersReducedMotion() {
     try {
-      return window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+      return (
+        window.matchMedia &&
+        window.matchMedia("(prefers-reduced-motion: reduce)").matches
+      );
     } catch (_) {
       return false;
     }
@@ -44,15 +48,42 @@
   class SmoothScrollManager {
     constructor(options = {}) {
       const reduce = prefersReducedMotion();
-      this.config = {
+      const uaString = navigator.userAgent || "";
+      this.isAndroid = /Android/i.test(uaString);
+      this.isSamsungBrowser = /SamsungBrowser/i.test(uaString);
+      this.isAndroidWebView = (() => {
+        try {
+          const ua = uaString.toLowerCase();
+          const ios = /iphone|ipod|ipad/.test(ua);
+          const android = /android/.test(ua);
+          if (ios) return false;
+          if (!android) return false;
+          if (ua.includes("wv")) return true;
+          if (!ua.includes("chrome") && !ua.includes("firefox")) return true;
+          return false;
+        } catch (_) {
+          return false;
+        }
+      })();
+      this.defaultConfig = {
         duration: reduce ? 0 : 400,
-        easing: 'ease-in-out',
+        easing: "ease-in-out",
         offset: 0,
         enabled: !reduce,
         wheelSensitivity: 1,
         keyboardSensitivity: 1.5,
+        androidMomentumAmplifier: this.isAndroid ? 26 : 22,
+        androidMomentumFriction: 0.92,
+        androidMomentumThreshold: 0.18,
+        androidMomentumMaxDuration: 1200,
+        androidNativeMomentumTolerance: 5,
+        androidAssistRatio: 0.35,
+      };
+      this.config = {
+        ...this.defaultConfig,
         ...options,
       };
+      this.normalizeConfig();
       this.isScrolling = false;
       this.rafId = null;
       this.startTime = 0;
@@ -63,47 +94,38 @@
       this.bound = null;
       this.listenersAttached = false;
       // Android-specific state
-      this.isAndroid = /Android/i.test((navigator.userAgent || ''));
-      this.isSamsungBrowser = /SamsungBrowser/i.test((navigator.userAgent || ''));
-      this.isAndroidWebView = (() => {
-        try {
-          const ua = (navigator.userAgent || '').toLowerCase();
-          const ios = /iphone|ipod|ipad/.test(ua);
-          const android = /android/.test(ua);
-          if (ios) return false;
-          if (!android) return false;
-          if (ua.includes('wv')) return true;
-          if (!ua.includes('chrome') && !ua.includes('firefox')) return true;
-          return false;
-        } catch (_) { return false; }
-      })();
       this.touchActive = false;
       this._lastScrollY = 0;
       this._lastScrollTime = 0;
       this.touchVelocity = 0;
+      this.touchSampleHistory = [];
       this.momentumId = null;
-        this.androidListenersAttached = false;
-        this.androidTouchHandlers = null;
-        this.androidPerfRafId = null;
-        this.androidPerfVisibilityHandler = null;
-        this.debugMode = false;
-        this.debugRefs = null;
-        try {
-          const params = new URLSearchParams(window.location.search || '');
-          this.debugMode = params.get('smooth_debug') === '1';
-        } catch (_) {}
-        this.loadPreferences();
-        // Accessibility wins over saved preferences
-        if (prefersReducedMotion()) {
-          this.config.enabled = false;
-          this.config.duration = 0;
-        }
-        this.init();
-        if (this.debugMode) {
-          this.renderDebugPanel();
-        }
+      this.androidListenersAttached = false;
+      this.androidTouchHandlers = null;
+      this.androidPerfRafId = null;
+      this.androidPerfVisibilityHandler = null;
+      this.androidMomentumTimeout = null;
+      this.debugMode = false;
+      this.debugRefs = null;
       try {
-        document.documentElement.classList.add('js-smooth-scroll');
+        const params = new URLSearchParams(window.location.search || "");
+        this.debugMode = params.get("smooth_debug") === "1";
+      } catch (_) {}
+      this.loadPreferences();
+      // Accessibility wins over saved preferences
+      if (prefersReducedMotion()) {
+        this.config.enabled = false;
+        this.config.duration = 0;
+      }
+      this.init();
+      if (this.debugMode) {
+        this.renderDebugPanel();
+      }
+      try {
+        document.documentElement.classList.add("js-smooth-scroll");
+        if (this.isAndroid) {
+          document.documentElement.classList.add("android-device");
+        }
       } catch (_) {}
       if (this.config.enabled && this.isAndroid) {
         this.initAndroidOptimizations();
@@ -121,12 +143,16 @@
         };
       }
       // Note: passive must be false to be able to preventDefault() on wheel
-      document.addEventListener('wheel', this.bound.wheel, { passive: false });
-      document.addEventListener('keydown', this.bound.keydown);
-      document.addEventListener('click', this.bound.anchorClick);
+      document.addEventListener("wheel", this.bound.wheel, { passive: false });
+      document.addEventListener("keydown", this.bound.keydown);
+      document.addEventListener("click", this.bound.anchorClick);
       this.listenersAttached = true;
       // Attach Android hooks only when enabled
-      if (this.config.enabled && this.isAndroid && !this.androidListenersAttached) {
+      if (
+        this.config.enabled &&
+        this.isAndroid &&
+        !this.androidListenersAttached
+      ) {
         this.initAndroidOptimizations();
       }
     }
@@ -134,12 +160,12 @@
     initAndroidOptimizations() {
       if (this.androidListenersAttached) return;
       try {
-        document.body.classList.add('android-optimized', 'android-no-bounce');
+        document.body.classList.add("android-optimized", "android-no-bounce");
       } catch (_) {}
       // Samsung Internet: avoid double smoothing quirks
       try {
         if (this.isSamsungBrowser) {
-          document.documentElement.style.scrollBehavior = 'auto';
+          document.documentElement.style.scrollBehavior = "auto";
         }
       } catch (_) {}
       // Passive touch listeners to avoid main-thread blocking
@@ -147,10 +173,19 @@
       const onTouchStart = (e) => {
         this.touchActive = true;
         this.touchVelocity = 0;
+        if (this.androidMomentumTimeout) {
+          try {
+            clearTimeout(this.androidMomentumTimeout);
+          } catch (_) {}
+          this.androidMomentumTimeout = null;
+        }
+        this.touchSampleHistory = [];
         this._lastScrollY = window.pageYOffset || window.scrollY || 0;
         this._lastScrollTime = performance.now();
         if (this.momentumId) {
-          try { cancelAnimationFrame(this.momentumId); } catch (_) {}
+          try {
+            cancelAnimationFrame(this.momentumId);
+          } catch (_) {}
           this.momentumId = null;
         }
       };
@@ -162,48 +197,85 @@
         if (dt > 0) {
           const dy = nowY - this._lastScrollY; // +dy => scrolled down
           this.touchVelocity = dy / dt; // px per ms
+          this.touchSampleHistory.push(this.touchVelocity);
+          if (this.touchSampleHistory.length > 5)
+            this.touchSampleHistory.shift();
           this._lastScrollY = nowY;
           this._lastScrollTime = nowT;
         }
       };
       const onTouchEnd = () => {
         this.touchActive = false;
+        const averagedVelocity = this.getAverageTouchVelocity();
+        this.touchSampleHistory = [];
+        this.touchVelocity = 0;
         // If the page keeps moving naturally after touchend, don't add momentum
         const startY = window.pageYOffset || window.scrollY || 0;
-        setTimeout(() => {
+        const tolerance = this.config.androidNativeMomentumTolerance ?? 5;
+        const assistRatio = this.config.androidAssistRatio ?? 0.35;
+        const minVelocity = Math.max(
+          0.05,
+          this.config.androidMomentumThreshold ?? 0.18,
+        );
+        const timeoutId = setTimeout(() => {
+          if (this.touchActive || this.androidMomentumTimeout !== timeoutId) {
+            return;
+          }
           const afterY = window.pageYOffset || window.scrollY || 0;
           const moved = Math.abs(afterY - startY);
-          const speed = Math.abs(this.touchVelocity);
-          if (moved < 2 && speed > 0.4) {
-            this.startMomentumScroll(this.touchVelocity);
+          const speed = Math.abs(averagedVelocity);
+          if (speed < minVelocity) return;
+          if (moved < tolerance) {
+            this.startMomentumScroll(averagedVelocity);
+          } else if (moved < tolerance * 4 && assistRatio > 0) {
+            this.startMomentumScroll(
+              averagedVelocity * assistRatio,
+              assistRatio,
+            );
           }
-        }, 60);
+          this.androidMomentumTimeout = null;
+        }, 80);
+        this.androidMomentumTimeout = timeoutId;
       };
-      this.androidTouchHandlers = { onTouchStart, onTouchMove, onTouchEnd, opts: touchOpts };
-      window.addEventListener('touchstart', onTouchStart, touchOpts);
-      window.addEventListener('touchmove', onTouchMove, touchOpts);
-      window.addEventListener('touchend', onTouchEnd, touchOpts);
-      window.addEventListener('touchcancel', onTouchEnd, touchOpts);
+      this.androidTouchHandlers = {
+        onTouchStart,
+        onTouchMove,
+        onTouchEnd,
+        opts: touchOpts,
+      };
+      window.addEventListener("touchstart", onTouchStart, touchOpts);
+      window.addEventListener("touchmove", onTouchMove, touchOpts);
+      window.addEventListener("touchend", onTouchEnd, touchOpts);
+      window.addEventListener("touchcancel", onTouchEnd, touchOpts);
       // Lightweight performance monitor (Android only)
       this.startAndroidPerformanceMonitor();
       this.androidListenersAttached = true;
     }
 
-    startMomentumScroll(initialVelocity) {
-      let v = initialVelocity * 24; // convert px/ms to px/frame (@~60fps)
-      const friction = 0.94;
-      const threshold = 0.35;
-      const step = () => {
-        v *= friction;
-        if (Math.abs(v) > threshold) {
-          // v>0 means we were scrolling down (content goes up => scrollY increases)
-          window.scrollBy(0, v);
+    startMomentumScroll(initialVelocity, assistFactor = 1) {
+      if (!this.config.enabled) return;
+      const amplifier = Number(this.config.androidMomentumAmplifier) || 24;
+      const friction = Number(this.config.androidMomentumFriction) || 0.92;
+      const threshold = Number(this.config.androidMomentumThreshold) || 0.18;
+      const maxDuration =
+        Number(this.config.androidMomentumMaxDuration) || 1200;
+      let velocity = initialVelocity * amplifier * assistFactor;
+      let startTs = null;
+      const step = (ts) => {
+        if (!startTs) startTs = ts;
+        if (ts - startTs > maxDuration) {
+          this.momentumId = null;
+          return;
+        }
+        velocity *= friction;
+        if (Math.abs(velocity) > threshold) {
+          window.scrollBy(0, velocity);
           this.momentumId = requestAnimationFrame(step);
         } else {
           this.momentumId = null;
         }
       };
-      if (!this.momentumId) {
+      if (!this.momentumId && Math.abs(velocity) > threshold) {
         this.momentumId = requestAnimationFrame(step);
       }
     }
@@ -224,22 +296,35 @@
             const sorted = [...fpsWindow].sort((a, b) => a - b);
             const median = sorted[Math.floor(sorted.length / 2)];
             if (median < 40 && this.config.duration > 250) {
-              this.updateConfig({ duration: Math.max(200, this.config.duration - 100), easing: 'ease-out' });
+              this.updateConfig(
+                {
+                  duration: Math.max(200, this.config.duration - 100),
+                  easing: "ease-out",
+                },
+                { skipSave: true },
+              );
             }
-            last = t; frames = 0;
+            last = t;
+            frames = 0;
           }
           this.androidPerfRafId = requestAnimationFrame(tick);
         };
         this.androidPerfRafId = requestAnimationFrame(tick);
         // Pause on hidden tab; resume on visible
         this.androidPerfVisibilityHandler = () => {
-          if (document.visibilityState === 'hidden') {
-            if (this.androidPerfRafId) { cancelAnimationFrame(this.androidPerfRafId); this.androidPerfRafId = null; }
+          if (document.visibilityState === "hidden") {
+            if (this.androidPerfRafId) {
+              cancelAnimationFrame(this.androidPerfRafId);
+              this.androidPerfRafId = null;
+            }
           } else if (!this.androidPerfRafId && this.config.enabled) {
             this.androidPerfRafId = requestAnimationFrame(tick);
           }
         };
-        document.addEventListener('visibilitychange', this.androidPerfVisibilityHandler);
+        document.addEventListener(
+          "visibilitychange",
+          this.androidPerfVisibilityHandler,
+        );
       } catch (_) {}
     }
 
@@ -251,9 +336,12 @@
     removeListeners() {
       if (!this.listenersAttached) return;
       try {
-        if (this.bound?.wheel) document.removeEventListener('wheel', this.bound.wheel);
-        if (this.bound?.keydown) document.removeEventListener('keydown', this.bound.keydown);
-        if (this.bound?.anchorClick) document.removeEventListener('click', this.bound.anchorClick);
+        if (this.bound?.wheel)
+          document.removeEventListener("wheel", this.bound.wheel);
+        if (this.bound?.keydown)
+          document.removeEventListener("keydown", this.bound.keydown);
+        if (this.bound?.anchorClick)
+          document.removeEventListener("click", this.bound.anchorClick);
       } catch (_) {}
       this.listenersAttached = false;
     }
@@ -268,7 +356,7 @@
       if (isEditableTarget(target)) return;
       // Allow native scroll inside known scrollable widgets (e.g., TOC)
       try {
-        if (target && (target.closest && target.closest('#mdTocNav'))) return;
+        if (target && target.closest && target.closest("#mdTocNav")) return;
       } catch (_) {}
       const container = findScrollableContainer(target);
       const delta = this.normalizeWheelDelta(event);
@@ -277,7 +365,11 @@
       if (container) {
         // Animate the scrollable element itself
         event.preventDefault();
-        const to = clamp(container.scrollTop + distance, 0, container.scrollHeight - container.clientHeight);
+        const to = clamp(
+          container.scrollTop + distance,
+          0,
+          container.scrollHeight - container.clientHeight,
+        );
         this.animateElementScroll(container, container.scrollTop, to);
       } else {
         // Animate the window
@@ -294,44 +386,64 @@
       const page = window.innerHeight * 0.9;
       const max = document.documentElement.scrollHeight - window.innerHeight;
       let distance;
-      if (key === 'PageDown' || (key === ' ' && !event.shiftKey)) distance = page;
-      else if (key === 'PageUp' || (key === ' ' && event.shiftKey)) distance = -page;
-      else if (key === 'Home') distance = -document.documentElement.scrollHeight;
-      else if (key === 'End') distance = document.documentElement.scrollHeight;
-      else if (key === 'ArrowDown') distance = 100;
-      else if (key === 'ArrowUp') distance = -100;
+      if (key === "PageDown" || (key === " " && !event.shiftKey))
+        distance = page;
+      else if (key === "PageUp" || (key === " " && event.shiftKey))
+        distance = -page;
+      else if (key === "Home")
+        distance = -document.documentElement.scrollHeight;
+      else if (key === "End") distance = document.documentElement.scrollHeight;
+      else if (key === "ArrowDown") distance = 100;
+      else if (key === "ArrowUp") distance = -100;
       else return;
       // If focus is inside a scrollable container, scroll that container instead of window
-      const active = (document.activeElement || null);
-      const container = active ? (isScrollable(active) ? active : findScrollableContainer(active)) : null;
-      if (container && container !== document.body && container !== document.documentElement) {
+      const active = document.activeElement || null;
+      const container = active
+        ? isScrollable(active)
+          ? active
+          : findScrollableContainer(active)
+        : null;
+      if (
+        container &&
+        container !== document.body &&
+        container !== document.documentElement
+      ) {
         event.preventDefault();
         const localPage = Math.max(1, Math.floor(container.clientHeight * 0.9));
-        const localMax = Math.max(0, container.scrollHeight - container.clientHeight);
+        const localMax = Math.max(
+          0,
+          container.scrollHeight - container.clientHeight,
+        );
         let localDistance;
-        if (key === 'PageDown' || (key === ' ' && !event.shiftKey)) localDistance = localPage;
-        else if (key === 'PageUp' || (key === ' ' && event.shiftKey)) localDistance = -localPage;
-        else if (key === 'Home') {
+        if (key === "PageDown" || (key === " " && !event.shiftKey))
+          localDistance = localPage;
+        else if (key === "PageUp" || (key === " " && event.shiftKey))
+          localDistance = -localPage;
+        else if (key === "Home") {
           const from = container.scrollTop;
           this.animateElementScroll(container, from, 0);
           return;
-        } else if (key === 'End') {
+        } else if (key === "End") {
           const from = container.scrollTop;
           this.animateElementScroll(container, from, localMax);
           return;
-        } else if (key === 'ArrowDown') localDistance = 100;
-        else if (key === 'ArrowUp') localDistance = -100;
+        } else if (key === "ArrowDown") localDistance = 100;
+        else if (key === "ArrowUp") localDistance = -100;
         else return;
         const from = container.scrollTop;
-        const to = clamp(from + localDistance * this.config.keyboardSensitivity, 0, localMax);
+        const to = clamp(
+          from + localDistance * this.config.keyboardSensitivity,
+          0,
+          localMax,
+        );
         this.animateElementScroll(container, from, to);
         return;
       }
       // Otherwise, scroll window
       event.preventDefault();
-      if (key === 'Home' || key === 'End') {
+      if (key === "Home" || key === "End") {
         const from = window.pageYOffset || window.scrollY || 0;
-        const to = clamp(key === 'Home' ? 0 : max, 0, max);
+        const to = clamp(key === "Home" ? 0 : max, 0, max);
         this.animateScroll(from, to);
       } else {
         this.smoothScrollBy(distance * this.config.keyboardSensitivity);
@@ -341,10 +453,13 @@
     onAnchorClick(e) {
       if (!this.config.enabled) return;
       try {
-        const anchor = e.target && e.target.closest ? e.target.closest('a[href^="#"]') : null;
+        const anchor =
+          e.target && e.target.closest
+            ? e.target.closest('a[href^="#"]')
+            : null;
         if (!anchor) return;
-        const href = (anchor.getAttribute('href') || '').trim();
-        if (!href || href === '#') return;
+        const href = (anchor.getAttribute("href") || "").trim();
+        if (!href || href === "#") return;
         const id = decodeURIComponent(href.slice(1));
         const target = document.getElementById(id);
         if (!target) return;
@@ -361,25 +476,43 @@
     }
 
     smoothScrollTo(target, options = {}) {
-      const el = typeof target === 'string' ? document.querySelector(target) : target;
+      const el =
+        typeof target === "string" ? document.querySelector(target) : target;
       if (!el) return;
       const rect = el.getBoundingClientRect();
-      const absoluteTop = (window.pageYOffset || window.scrollY || 0) + rect.top;
-      const targetPos = Math.max(0, absoluteTop - (options.offset ?? this.config.offset));
-      this.animateScroll(window.pageYOffset || window.scrollY || 0, targetPos, options);
+      const absoluteTop =
+        (window.pageYOffset || window.scrollY || 0) + rect.top;
+      const targetPos = Math.max(
+        0,
+        absoluteTop - (options.offset ?? this.config.offset),
+      );
+      this.animateScroll(
+        window.pageYOffset || window.scrollY || 0,
+        targetPos,
+        options,
+      );
     }
 
     animateScroll(from, to, options = {}) {
       if (this.rafId) {
-        try { cancelAnimationFrame(this.rafId); } catch (_) {}
+        try {
+          cancelAnimationFrame(this.rafId);
+        } catch (_) {}
         this.rafId = null;
       }
-      const duration = typeof options.duration === 'number' ? options.duration : this.config.duration;
-      const easing = this.getEasingFunction(options.easing || this.config.easing);
+      const duration =
+        typeof options.duration === "number"
+          ? options.duration
+          : this.config.duration;
+      const easing = this.getEasingFunction(
+        options.easing || this.config.easing,
+      );
       if (duration <= 0) {
         window.scrollTo(0, to);
-        if (typeof options.callback === 'function') {
-          try { options.callback(); } catch (_) {}
+        if (typeof options.callback === "function") {
+          try {
+            options.callback();
+          } catch (_) {}
         }
         return;
       }
@@ -398,8 +531,10 @@
         } else {
           this.isScrolling = false;
           this.rafId = null;
-          if (typeof options.callback === 'function') {
-            try { options.callback(); } catch (_) {}
+          if (typeof options.callback === "function") {
+            try {
+              options.callback();
+            } catch (_) {}
           }
         }
       };
@@ -407,8 +542,13 @@
     }
 
     animateElementScroll(element, from, to, options = {}) {
-      const duration = typeof options.duration === 'number' ? options.duration : this.config.duration;
-      const easing = this.getEasingFunction(options.easing || this.config.easing);
+      const duration =
+        typeof options.duration === "number"
+          ? options.duration
+          : this.config.duration;
+      const easing = this.getEasingFunction(
+        options.easing || this.config.easing,
+      );
       if (duration <= 0) {
         element.scrollTop = to;
         return;
@@ -417,7 +557,10 @@
       // Cancel prior animation on this element
       try {
         const prev = this.elementRafIds.get(element);
-        if (prev) { cancelAnimationFrame(prev); this.elementRafIds.delete(element); }
+        if (prev) {
+          cancelAnimationFrame(prev);
+          this.elementRafIds.delete(element);
+        }
       } catch (_) {}
       const step = (now) => {
         if (!start) start = now;
@@ -429,7 +572,9 @@
           const id = requestAnimationFrame(step);
           this.elementRafIds.set(element, id);
         } else {
-          try { this.elementRafIds.delete(element); } catch (_) {}
+          try {
+            this.elementRafIds.delete(element);
+          } catch (_) {}
         }
       };
       const id = requestAnimationFrame(step);
@@ -440,11 +585,11 @@
     getEasingFunction(name) {
       const e = {
         linear: (t) => t,
-        'ease-in': (t) => t * t,
-        'ease-out': (t) => t * (2 - t),
-        'ease-in-out': (t) => (t < 0.5 ? 2 * t * t : -1 + (4 - 2 * t) * t),
+        "ease-in": (t) => t * t,
+        "ease-out": (t) => t * (2 - t),
+        "ease-in-out": (t) => (t < 0.5 ? 2 * t * t : -1 + (4 - 2 * t) * t),
       };
-      return e[name] || e['ease-in-out'];
+      return e[name] || e["ease-in-out"];
     }
 
     // Normalize delta across browsers
@@ -483,30 +628,109 @@
       };
     }
 
+    getAverageTouchVelocity() {
+      if (!this.touchSampleHistory || !this.touchSampleHistory.length) {
+        return this.touchVelocity || 0;
+      }
+      const sum = this.touchSampleHistory.reduce((acc, val) => acc + val, 0);
+      return sum / this.touchSampleHistory.length;
+    }
+
+    normalizeConfig() {
+      try {
+        this.config.duration = clamp(
+          Number(this.config.duration) || 0,
+          0,
+          2000,
+        );
+        this.config.wheelSensitivity = clamp(
+          Number(this.config.wheelSensitivity) || 1,
+          0.1,
+          3,
+        );
+        this.config.keyboardSensitivity = clamp(
+          Number(this.config.keyboardSensitivity) || 1.5,
+          0.5,
+          3,
+        );
+        this.config.offset = clamp(Number(this.config.offset) || 0, 0, 400);
+        this.config.androidMomentumAmplifier = clamp(
+          Number(this.config.androidMomentumAmplifier) ||
+            this.defaultConfig.androidMomentumAmplifier,
+          5,
+          80,
+        );
+        this.config.androidMomentumFriction = clamp(
+          Number(this.config.androidMomentumFriction) ||
+            this.defaultConfig.androidMomentumFriction,
+          0.8,
+          0.99,
+        );
+        this.config.androidMomentumThreshold = clamp(
+          Number(this.config.androidMomentumThreshold) ||
+            this.defaultConfig.androidMomentumThreshold,
+          0.05,
+          1,
+        );
+        this.config.androidMomentumMaxDuration = clamp(
+          Number(this.config.androidMomentumMaxDuration) ||
+            this.defaultConfig.androidMomentumMaxDuration,
+          200,
+          4000,
+        );
+        this.config.androidNativeMomentumTolerance = clamp(
+          Number(this.config.androidNativeMomentumTolerance) ||
+            this.defaultConfig.androidNativeMomentumTolerance,
+          1,
+          40,
+        );
+        this.config.androidAssistRatio = clamp(
+          Number(this.config.androidAssistRatio) ??
+            this.defaultConfig.androidAssistRatio,
+          0,
+          1,
+        );
+      } catch (_) {}
+    }
+
     async savePreferences() {
       try {
         const prefs = {
           enabled: !!this.config.enabled,
           duration: Number(this.config.duration) || 0,
-          easing: String(this.config.easing || 'ease-in-out'),
+          easing: String(this.config.easing || "ease-in-out"),
           wheelSensitivity: Number(this.config.wheelSensitivity) || 1,
           keyboardSensitivity: Number(this.config.keyboardSensitivity) || 1.5,
           offset: Number(this.config.offset) || 0,
+          androidMomentumAmplifier:
+            Number(this.config.androidMomentumAmplifier) ||
+            this.defaultConfig.androidMomentumAmplifier,
+          androidAssistRatio: Number(
+            this.config.androidAssistRatio ??
+              this.defaultConfig.androidAssistRatio,
+          ),
         };
-        localStorage.setItem('smoothScrollPrefs', JSON.stringify(prefs));
+        localStorage.setItem("smoothScrollPrefs", JSON.stringify(prefs));
         // Best-effort server post (ignored server-side if unsupported)
         const body = JSON.stringify({ smooth_scroll: prefs });
-        const headers = { 'Content-Type': 'application/json' };
-        try { fetch('/api/ui_prefs', { method: 'POST', headers, body }).catch(() => {}); } catch (_) {}
+        const headers = { "Content-Type": "application/json" };
+        try {
+          fetch("/api/ui_prefs", { method: "POST", headers, body }).catch(
+            () => {},
+          );
+        } catch (_) {}
       } catch (_) {}
     }
 
     loadPreferences() {
       try {
-        const raw = localStorage.getItem('smoothScrollPrefs');
+        const raw = localStorage.getItem("smoothScrollPrefs");
         if (!raw) return;
         const obj = JSON.parse(raw);
-        if (obj && typeof obj === 'object') Object.assign(this.config, obj);
+        if (obj && typeof obj === "object") {
+          Object.assign(this.config, obj);
+          this.normalizeConfig();
+        }
       } catch (_) {}
     }
 
@@ -520,143 +744,174 @@
       }
       this.config.enabled = true;
       this.init();
-      if (this.isAndroid && !this.androidListenersAttached) this.initAndroidOptimizations();
+      if (this.isAndroid && !this.androidListenersAttached)
+        this.initAndroidOptimizations();
       this.savePreferences();
     }
     disable() {
       if (!this.config.enabled) return;
       this.config.enabled = false;
       if (this.rafId) {
-        try { cancelAnimationFrame(this.rafId); } catch (_) {}
+        try {
+          cancelAnimationFrame(this.rafId);
+        } catch (_) {}
         this.rafId = null;
         this.isScrolling = false;
       }
       this.removeListeners();
       // Cancel all element animations
       try {
-        for (const id of this.elementRafIds.values()) { cancelAnimationFrame(id); }
+        for (const id of this.elementRafIds.values()) {
+          cancelAnimationFrame(id);
+        }
       } catch (_) {}
       this.elementRafIds.clear();
       // Remove Android hooks
       this.removeAndroidOptimizations();
       this.savePreferences();
     }
-    updateConfig(newCfg) {
+    updateConfig(newCfg, options = {}) {
       try {
         Object.assign(this.config, newCfg || {});
+        this.normalizeConfig();
         // Enforce reduced motion if requested by user
         if (prefersReducedMotion()) {
           this.config.enabled = false;
           this.config.duration = 0;
         }
       } catch (_) {}
-      this.savePreferences();
+      if (!options.skipSave) {
+        this.savePreferences();
+      }
     }
 
     removeAndroidOptimizations() {
       try {
         if (this.androidTouchHandlers) {
-          const { onTouchStart, onTouchMove, onTouchEnd, opts } = this.androidTouchHandlers;
-          window.removeEventListener('touchstart', onTouchStart, opts);
-          window.removeEventListener('touchmove', onTouchMove, opts);
-          window.removeEventListener('touchend', onTouchEnd, opts);
-          window.removeEventListener('touchcancel', onTouchEnd, opts);
+          const { onTouchStart, onTouchMove, onTouchEnd, opts } =
+            this.androidTouchHandlers;
+          window.removeEventListener("touchstart", onTouchStart, opts);
+          window.removeEventListener("touchmove", onTouchMove, opts);
+          window.removeEventListener("touchend", onTouchEnd, opts);
+          window.removeEventListener("touchcancel", onTouchEnd, opts);
         }
       } catch (_) {}
       this.androidTouchHandlers = null;
       this.androidListenersAttached = false;
-      if (this.momentumId) { try { cancelAnimationFrame(this.momentumId); } catch (_) {} this.momentumId = null; }
-      if (this.androidPerfRafId) { try { cancelAnimationFrame(this.androidPerfRafId); } catch (_) {} this.androidPerfRafId = null; }
+      if (this.momentumId) {
+        try {
+          cancelAnimationFrame(this.momentumId);
+        } catch (_) {}
+        this.momentumId = null;
+      }
+      if (this.androidPerfRafId) {
+        try {
+          cancelAnimationFrame(this.androidPerfRafId);
+        } catch (_) {}
+        this.androidPerfRafId = null;
+      }
       if (this.androidPerfVisibilityHandler) {
-        try { document.removeEventListener('visibilitychange', this.androidPerfVisibilityHandler); } catch (_) {}
+        try {
+          document.removeEventListener(
+            "visibilitychange",
+            this.androidPerfVisibilityHandler,
+          );
+        } catch (_) {}
         this.androidPerfVisibilityHandler = null;
       }
       try {
-        document.body.classList.remove('android-optimized', 'android-no-bounce');
-        if (this.isSamsungBrowser) { document.documentElement.style.scrollBehavior = ''; }
+        document.body.classList.remove(
+          "android-optimized",
+          "android-no-bounce",
+        );
+        if (this.isSamsungBrowser) {
+          document.documentElement.style.scrollBehavior = "";
+        }
       } catch (_) {}
     }
 
     renderDebugPanel() {
       if (this.debugRefs) return;
       try {
-        const panel = document.createElement('aside');
-        panel.id = 'smooth-scroll-debug-panel';
-        panel.setAttribute('dir', 'rtl');
-        panel.setAttribute('role', 'status');
-        panel.style.position = 'fixed';
-        panel.style.bottom = '16px';
-        panel.style.left = '16px';
-        panel.style.zIndex = '9999';
-        panel.style.background = 'rgba(0,0,0,0.85)';
-        panel.style.color = '#fff';
-        panel.style.padding = '12px';
-        panel.style.borderRadius = '8px';
-        panel.style.fontSize = '14px';
-        panel.style.lineHeight = '1.5';
-        panel.style.maxWidth = '280px';
-        panel.style.boxShadow = '0 4px 16px rgba(0,0,0,0.35)';
+        const panel = document.createElement("aside");
+        panel.id = "smooth-scroll-debug-panel";
+        panel.setAttribute("dir", "rtl");
+        panel.setAttribute("role", "status");
+        panel.style.position = "fixed";
+        panel.style.bottom = "16px";
+        panel.style.left = "16px";
+        panel.style.zIndex = "9999";
+        panel.style.background = "rgba(0,0,0,0.85)";
+        panel.style.color = "#fff";
+        panel.style.padding = "12px";
+        panel.style.borderRadius = "8px";
+        panel.style.fontSize = "14px";
+        panel.style.lineHeight = "1.5";
+        panel.style.maxWidth = "280px";
+        panel.style.boxShadow = "0 4px 16px rgba(0,0,0,0.35)";
 
-        const title = document.createElement('strong');
-        title.textContent = 'מצב גלילה חלקה (debug)';
+        const title = document.createElement("strong");
+        title.textContent = "מצב גלילה חלקה (debug)";
         panel.appendChild(title);
 
-        const statusEl = document.createElement('div');
-        statusEl.style.margin = '8px 0';
-        statusEl.id = 'smooth-scroll-debug-status';
+        const statusEl = document.createElement("div");
+        statusEl.style.margin = "8px 0";
+        statusEl.id = "smooth-scroll-debug-status";
         panel.appendChild(statusEl);
 
-        const noteEl = document.createElement('div');
-        noteEl.style.fontSize = '12px';
-        noteEl.style.opacity = '0.8';
+        const noteEl = document.createElement("div");
+        noteEl.style.fontSize = "12px";
+        noteEl.style.opacity = "0.8";
         panel.appendChild(noteEl);
 
-        const buttons = document.createElement('div');
-        buttons.style.display = 'flex';
-        buttons.style.flexWrap = 'wrap';
-        buttons.style.gap = '8px';
+        const buttons = document.createElement("div");
+        buttons.style.display = "flex";
+        buttons.style.flexWrap = "wrap";
+        buttons.style.gap = "8px";
 
-        const toggleBtn = document.createElement('button');
-        toggleBtn.type = 'button';
-        toggleBtn.style.flex = '1 1 auto';
-        toggleBtn.style.background = '#3b82f6';
-        toggleBtn.style.color = '#fff';
-        toggleBtn.style.border = 'none';
-        toggleBtn.style.padding = '6px 8px';
-        toggleBtn.style.borderRadius = '4px';
-        toggleBtn.style.cursor = 'pointer';
-        toggleBtn.addEventListener('click', () => {
+        const toggleBtn = document.createElement("button");
+        toggleBtn.type = "button";
+        toggleBtn.style.flex = "1 1 auto";
+        toggleBtn.style.background = "#3b82f6";
+        toggleBtn.style.color = "#fff";
+        toggleBtn.style.border = "none";
+        toggleBtn.style.padding = "6px 8px";
+        toggleBtn.style.borderRadius = "4px";
+        toggleBtn.style.cursor = "pointer";
+        toggleBtn.addEventListener("click", () => {
           if (this.config.enabled) this.disable();
           else this.enable();
           this.updateDebugPanel();
         });
 
-        const resetBtn = document.createElement('button');
-        resetBtn.type = 'button';
-        resetBtn.textContent = 'נקה העדפה';
-        resetBtn.style.flex = '1 1 auto';
-        resetBtn.style.background = '#f97316';
-        resetBtn.style.color = '#000';
-        resetBtn.style.border = 'none';
-        resetBtn.style.padding = '6px 8px';
-        resetBtn.style.borderRadius = '4px';
-        resetBtn.style.cursor = 'pointer';
-        resetBtn.addEventListener('click', () => {
-          try { localStorage.removeItem('smoothScrollPrefs'); } catch (_) {}
+        const resetBtn = document.createElement("button");
+        resetBtn.type = "button";
+        resetBtn.textContent = "נקה העדפה";
+        resetBtn.style.flex = "1 1 auto";
+        resetBtn.style.background = "#f97316";
+        resetBtn.style.color = "#000";
+        resetBtn.style.border = "none";
+        resetBtn.style.padding = "6px 8px";
+        resetBtn.style.borderRadius = "4px";
+        resetBtn.style.cursor = "pointer";
+        resetBtn.addEventListener("click", () => {
+          try {
+            localStorage.removeItem("smoothScrollPrefs");
+          } catch (_) {}
           window.location.reload();
         });
 
-        const closeBtn = document.createElement('button');
-        closeBtn.type = 'button';
-        closeBtn.textContent = 'סגור';
-        closeBtn.style.flex = '0 0 auto';
-        closeBtn.style.background = '#4b5563';
-        closeBtn.style.color = '#fff';
-        closeBtn.style.border = 'none';
-        closeBtn.style.padding = '6px 8px';
-        closeBtn.style.borderRadius = '4px';
-        closeBtn.style.cursor = 'pointer';
-        closeBtn.addEventListener('click', () => {
+        const closeBtn = document.createElement("button");
+        closeBtn.type = "button";
+        closeBtn.textContent = "סגור";
+        closeBtn.style.flex = "0 0 auto";
+        closeBtn.style.background = "#4b5563";
+        closeBtn.style.color = "#fff";
+        closeBtn.style.border = "none";
+        closeBtn.style.padding = "6px 8px";
+        closeBtn.style.borderRadius = "4px";
+        closeBtn.style.cursor = "pointer";
+        closeBtn.addEventListener("click", () => {
           panel.remove();
           this.debugRefs = null;
         });
@@ -676,22 +931,29 @@
       if (!this.debugRefs) return;
       const reduce = prefersReducedMotion();
       const info = [
-        ['הדפדפן דורש הפחתת תנועה', reduce ? 'כן' : 'לא'],
-        ['הגדרה פנימית פעילה', this.config.enabled ? 'כן' : 'לא'],
-        ['משך אנימציה (ms)', this.config.duration],
-        ['Samsung Browser', this.isSamsungBrowser ? 'כן' : 'לא'],
-        ['Android WebView', this.isAndroidWebView ? 'כן' : 'לא'],
-      ].map(([label, value]) => `<div><strong>${label}:</strong> ${value}</div>`).join('');
+        ["הדפדפן דורש הפחתת תנועה", reduce ? "כן" : "לא"],
+        ["הגדרה פנימית פעילה", this.config.enabled ? "כן" : "לא"],
+        ["משך אנימציה (ms)", this.config.duration],
+        ["Samsung Browser", this.isSamsungBrowser ? "כן" : "לא"],
+        ["Android WebView", this.isAndroidWebView ? "כן" : "לא"],
+      ]
+        .map(
+          ([label, value]) => `<div><strong>${label}:</strong> ${value}</div>`,
+        )
+        .join("");
       this.debugRefs.statusEl.innerHTML = info;
       if (reduce) {
-        this.debugRefs.noteEl.textContent = 'מערכת ההפעלה מסמנת להסיר אנימציות. בטל/י את "הסר אנימציות" בנגישות כדי לאפשר גלילה חלקה.';
+        this.debugRefs.noteEl.textContent =
+          'מערכת ההפעלה מסמנת להסיר אנימציות. בטל/י את "הסר אנימציות" בנגישות כדי לאפשר גלילה חלקה.';
       } else {
-        this.debugRefs.noteEl.textContent = 'ניתן להדליק או לכבות כאן, או למחוק העדפה (נשמר ב-localStorage).';
+        this.debugRefs.noteEl.textContent =
+          "ניתן להדליק או לכבות כאן, או למחוק העדפה (נשמר ב-localStorage).";
       }
-      this.debugRefs.toggleBtn.textContent = this.config.enabled ? 'כבה גלילה חלקה' : 'הפעל גלילה חלקה';
+      this.debugRefs.toggleBtn.textContent = this.config.enabled
+        ? "כבה גלילה חלקה"
+        : "הפעל גלילה חלקה";
     }
   }
 
   window.smoothScroll = new SmoothScrollManager();
-})(); 
-
+})();
