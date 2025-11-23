@@ -244,6 +244,90 @@
             </div>
         </div>
     </div>
+<div class="glass-card" id="smoothScrollSettingsCard">
+    <h2 class="section-title">
+        <i class="fas fa-stream"></i>
+        גלילה חלקה
+    </h2>
+    <div class="glass-card" style="background: rgba(255,255,255,0.05); display:flex; flex-direction:column; gap:1rem;">
+        <div class="smooth-scroll-setting-row">
+            <div>
+                <strong>הפעל גלילה חלקה</strong>
+                <small>כיבוי יכבד את הגדרות הנגישות של מערכת ההפעלה</small>
+            </div>
+            <label class="switch">
+                <input type="checkbox" id="smoothScrollEnabledToggle">
+                <span class="slider"></span>
+            </label>
+        </div>
+        <div class="smooth-scroll-setting-row">
+            <div>
+                <strong>משך אנימציה</strong>
+                <small>מגדיר תוך כמה זמן מסתיימת הגלילה</small>
+            </div>
+            <div class="smooth-scroll-control">
+                <input type="range" id="smoothScrollDuration" min="150" max="1200" step="50">
+                <span id="smoothScrollDurationValue">400ms</span>
+            </div>
+        </div>
+        <div class="smooth-scroll-setting-row">
+            <div>
+                <strong>עקומת אנימציה</strong>
+                <small>הגדרת easing (Linear, Ease-in וכו')</small>
+            </div>
+            <div class="smooth-scroll-control">
+                <select id="smoothScrollEasing" aria-label="בחר עקומת גלילה">
+                    <option value="linear">Linear</option>
+                    <option value="ease-in">Ease-in</option>
+                    <option value="ease-out">Ease-out</option>
+                    <option value="ease-in-out" selected>Ease-in-out</option>
+                </select>
+            </div>
+        </div>
+        <div class="smooth-scroll-setting-row">
+            <div>
+                <strong>רגישות גלגלת</strong>
+                <small>קובע כמה תנועה תתרגם לגלילה</small>
+            </div>
+            <div class="smooth-scroll-control">
+                <input type="range" id="smoothScrollWheel" min="0.5" max="3" step="0.1">
+                <span id="smoothScrollWheelValue">1.0×</span>
+            </div>
+        </div>
+        <div class="smooth-scroll-setting-row">
+            <div>
+                <strong>רגישות מקלדת</strong>
+                <small>משפיע על PageUp/PageDown וחיצים</small>
+            </div>
+            <div class="smooth-scroll-control">
+                <input type="range" id="smoothScrollKeyboard" min="0.5" max="3" step="0.1">
+                <span id="smoothScrollKeyboardValue">1.5×</span>
+            </div>
+        </div>
+        <div class="smooth-scroll-setting-row">
+            <div>
+                <strong>אינרציה באנדרואיד</strong>
+                <small>כמות התאוצה שמתווספת אחרי שחרור האצבע</small>
+            </div>
+            <div class="smooth-scroll-control">
+                <input type="range" id="smoothScrollMomentum" min="10" max="60" step="1">
+                <span id="smoothScrollMomentumValue">26×</span>
+            </div>
+        </div>
+        <div class="smooth-scroll-actions">
+            <button id="smoothScrollTestBtn" class="btn btn-secondary" type="button">
+                <i class="fas fa-play-circle"></i>
+                בדיקת גלילה
+            </button>
+            <button id="smoothScrollResetBtn" class="btn btn-tertiary" type="button">
+                <i class="fas fa-undo"></i>
+                איפוס לברירת מחדל
+            </button>
+        </div>
+    </div>
+    <p id="smoothScrollSettingsNote" style="opacity:.75; margin-top:.75rem;">
+        ההגדרות נשמרות מקומית ומסונכרנות לשרת (אם האפשרות זמינה). ברירת המחדל מכבדת את העדפות הנגישות של המכשיר.
+    </p>
 </div>
 
 <div class="glass-card">
@@ -309,6 +393,36 @@
 .slider:before { position: absolute; content: ""; height: 22px; width: 22px; left: 3px; top: 2px; background: white; transition: .2s; border-radius: 50%; }
 input:checked + .slider { background: rgba(72, 187, 120, 0.5); }
 input:checked + .slider:before { transform: translateX(24px); }
+
+  .smooth-scroll-setting-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 1rem;
+      flex-wrap: wrap;
+  }
+  .smooth-scroll-setting-row strong { display: block; }
+  .smooth-scroll-setting-row small { display: block; opacity: 0.7; font-size: 0.85rem; }
+  .smooth-scroll-control {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      flex: 1;
+      min-width: 220px;
+  }
+  .smooth-scroll-control input[type="range"] {
+      flex: 1;
+  }
+  .smooth-scroll-control span {
+      font-weight: 600;
+      min-width: 60px;
+      text-align: right;
+  }
+  .smooth-scroll-actions {
+      display: flex;
+      gap: 0.5rem;
+      flex-wrap: wrap;
+  }
 </style>
 
 {% block extra_js %}
@@ -394,9 +508,137 @@ input:checked + .slider:before { transform: translateX(24px); }
     try { localStorage.setItem(BM_KEY, show ? '1' : '0'); } catch(_) {}
     refreshBmState();
   }
-  if (bmShow) bmShow.addEventListener('click', ()=> setBm(true));
-  if (bmHide) bmHide.addEventListener('click', ()=> setBm(false));
-  refreshBmState();
+    if (bmShow) bmShow.addEventListener('click', ()=> setBm(true));
+    if (bmHide) bmHide.addEventListener('click', ()=> setBm(false));
+    refreshBmState();
+
+    // Smooth scroll configuration (settings page)
+    (function initSmoothScrollSettings(){
+      const manager = window.smoothScroll;
+      const card = document.getElementById('smoothScrollSettingsCard');
+      if (!card) return;
+      const noteEl = document.getElementById('smoothScrollSettingsNote');
+      const els = {
+        enabled: document.getElementById('smoothScrollEnabledToggle'),
+        duration: document.getElementById('smoothScrollDuration'),
+        durationLabel: document.getElementById('smoothScrollDurationValue'),
+        easing: document.getElementById('smoothScrollEasing'),
+        wheel: document.getElementById('smoothScrollWheel'),
+        wheelLabel: document.getElementById('smoothScrollWheelValue'),
+        keyboard: document.getElementById('smoothScrollKeyboard'),
+        keyboardLabel: document.getElementById('smoothScrollKeyboardValue'),
+        momentum: document.getElementById('smoothScrollMomentum'),
+        momentumLabel: document.getElementById('smoothScrollMomentumValue'),
+        test: document.getElementById('smoothScrollTestBtn'),
+        reset: document.getElementById('smoothScrollResetBtn'),
+      };
+      const disableUi = (message) => {
+        card.querySelectorAll('input, select, button').forEach((el) => { el.disabled = true; });
+        if (noteEl && message) noteEl.textContent = message;
+      };
+      if (!manager) {
+        disableUi('מנוע הגלילה לא נטען — רענן את הדף ובדוק את הקונסול לדיווחי שגיאה.');
+        return;
+      }
+      const defaults = { ...(manager.defaultConfig || {}) };
+      const reducePref = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+      if (noteEl && reducePref) {
+        noteEl.textContent = 'למערכת מוגדר "הפחת אנימציות", כך שהגלילה החלקה תכובה גם אם האפשרות מסומנת.';
+      }
+
+      const fmtMs = (v) => `${Math.round(v)}ms`;
+      const fmtX = (v) => `${v.toFixed(1)}×`;
+      const fmtAmp = (v) => `${Math.round(v)}×`;
+
+      function setSlider(input, label, value, formatter) {
+        if (!input || !label || typeof value !== 'number' || Number.isNaN(value)) return;
+        input.value = String(value);
+        label.textContent = formatter(value);
+      }
+
+      function refresh() {
+        const cfg = manager.config || defaults;
+        if (els.enabled) els.enabled.checked = !!cfg.enabled;
+        setSlider(els.duration, els.durationLabel, cfg.duration ?? defaults.duration ?? 400, fmtMs);
+        setSlider(els.wheel, els.wheelLabel, cfg.wheelSensitivity ?? defaults.wheelSensitivity ?? 1, fmtX);
+        setSlider(els.keyboard, els.keyboardLabel, cfg.keyboardSensitivity ?? defaults.keyboardSensitivity ?? 1.5, fmtX);
+        setSlider(els.momentum, els.momentumLabel, cfg.androidMomentumAmplifier ?? defaults.androidMomentumAmplifier ?? 26, fmtAmp);
+        if (els.easing) {
+          els.easing.value = cfg.easing || 'ease-in-out';
+        }
+      }
+
+      function commit(partial) {
+        manager.updateConfig(partial);
+        if (Object.prototype.hasOwnProperty.call(partial, 'enabled')) {
+          partial.enabled ? manager.enable() : manager.disable();
+        }
+        refresh();
+      }
+
+      function bindRange(input, label, formatter, key) {
+        if (!input || !label) return;
+        input.addEventListener('input', () => {
+          const val = Number(input.value);
+          if (!Number.isNaN(val)) {
+            label.textContent = formatter(val);
+          }
+        });
+        input.addEventListener('change', () => {
+          const val = Number(input.value);
+          if (!Number.isNaN(val)) {
+            const payload = {};
+            payload[key] = val;
+            commit(payload);
+          }
+        });
+      }
+
+      if (els.enabled) {
+        els.enabled.addEventListener('change', () => {
+          commit({ enabled: !!els.enabled.checked });
+        });
+      }
+      bindRange(els.duration, els.durationLabel, fmtMs, 'duration');
+      bindRange(els.wheel, els.wheelLabel, fmtX, 'wheelSensitivity');
+      bindRange(els.keyboard, els.keyboardLabel, fmtX, 'keyboardSensitivity');
+      bindRange(els.momentum, els.momentumLabel, fmtAmp, 'androidMomentumAmplifier');
+      if (els.easing) {
+        els.easing.addEventListener('change', () => {
+          commit({ easing: els.easing.value || 'ease-in-out' });
+        });
+      }
+      if (els.test) {
+        els.test.addEventListener('click', (event) => {
+          event.preventDefault();
+          try {
+            const marker = document.createElement('div');
+            marker.style.position = 'absolute';
+            marker.style.top = `${Math.max(200, Math.floor((document.body.scrollHeight || 2000) / 2))}px`;
+            marker.style.width = '1px';
+            marker.style.height = '1px';
+            marker.style.pointerEvents = 'none';
+            document.body.appendChild(marker);
+            manager.smoothScrollTo(marker, {
+              callback: () => {
+                setTimeout(() => {
+                  manager.smoothScrollTo('body');
+                  try { marker.remove(); } catch (_) {}
+                }, 300);
+              },
+            });
+          } catch (_) {}
+        });
+      }
+      if (els.reset) {
+        els.reset.addEventListener('click', (event) => {
+          event.preventDefault();
+          commit({ ...defaults });
+        });
+      }
+
+      refresh();
+    })();
 
   // --- Web Push (Service Worker + PushManager) ---
   const __PUSH_ENABLED__ = {{ 'true' if push_enabled else 'false' }};

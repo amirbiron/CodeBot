@@ -16,11 +16,13 @@ Smooth Scrolling (WebApp) — מדריך תמציתי לסוכני AI
 - נגישות:
   - כיבוד ``prefers-reduced-motion: reduce`` — אנימציות מקוצרות/מכובות
   - Fallback של ``scroll-behavior: smooth`` כאשר JS לא זמין
-- אנדרואיד (בסיס):
-  - מאזיני ``touch`` ב‑``{passive: true}``
-  - Momentum עדין לאחר שחרור האצבע (רק אם אין אינרציה נייטיבית)
+- אנדרואיד (מורחב):
+  - מאזיני ``touch`` ב‑``{passive: true}`` + דגימת מהירות בזמן אמת
+  - Momentum משופר + בוסטר אינרציה כאשר אין אינרציה נייטיבית
+  - הזרקת מחלקות ``android-optimized`` / ``android-no-bounce`` לאיפוס overscroll
   - התאמות Samsung Internet (מניעת ``scroll-behavior`` כפול)
-  - כוונון משך האנימציה בעת FPS נמוך (מניעת jank)
+  - ניטור FPS שמקצר משך אנימציה בעת עומס
+  - כרטיס "גלילה חלקה" במסך ההגדרות מאפשר לכוון משך, easing ורגישות (וקיים בכל פלטפורמה)
 
 API לשימוש קליינט
 ------------------
@@ -59,6 +61,24 @@ API לשימוש קליינט
 - ניסוי שליחה עדינה לשרת (אם קיים API): ``POST /api/ui_prefs`` עם ``{ smooth_scroll: {...} }``.
 - כישלון שרת אינו חוסם — אין תלות בבקשת ה‑POST.
 
+- ממשק הגדרות מובנה
+-------------------
+- במסך ``/settings`` קיים כרטיס **גלילה חלקה** עם הטפסים הבאים:
+  - Toggle הפעלה/כיבוי
+  - סליידר משך (150‑1200ms) + בחירת ``easing``
+  - רגישות גלגלת/מקלדת (0.5‑3x)
+  - סליידר אינרציה לאנדרואיד (10‑60x)
+  - כפתורי בדיקה/איפוס/שמירה
+- ניתן עדיין לפתוח חלונית debug באמצעות הוספת ``smooth_debug=1`` ל‑URL לצורך ניטור מהיר.
+- שליטה תכנותית קיימת דרך הקונסול באמצעות ``updateConfig``:
+
+.. code-block:: js
+
+   window.smoothScroll.updateConfig({
+       duration: 350,
+       wheelSensitivity: 1.2
+   });
+
 הנחיות לסוכני AI
 -----------------
 - זיהוי מהיר של זמינות:
@@ -75,10 +95,11 @@ API לשימוש קליינט
 אנדרואיד — מה יש ומה לא
 ------------------------
 הוטמעו:
-- Passive touch listeners
-- Momentum עדין (רק אם אין אינרציה נייטיבית)
-- התאמות Samsung Internet למניעת כפילות גלילה חלקה
-- ניטור FPS קליל המכוון משך/אופי אנימציה בזמן ריצה
+- Passive touch listeners + דגימת מהירות
+- Momentum יזום עם בוסטר אינרציה וכיול ``friction``/``threshold``
+- התאמות Samsung Internet ו‑overscroll (``android-optimized``)
+- ניטור FPS שמכוונן משך/עקומת אנימציה
+- UI מובנה לקביעת עוצמת אינרציה ומשך
 
 לא הוטמעו (ייעשה בשלבים הבאים):
 - אופטימיזציות WebView מתקדמות (lazy, IntersectionObserver מותאם)
@@ -99,7 +120,7 @@ API לשימוש קליינט
 - “גלילה עדיין קופצת ב‑Samsung”:
   - נבדק UA לזיהוי Samsung; מוודאים ש‑``document.documentElement.style.scrollBehavior = 'auto'`` הופעל.
 - “אין השפעה לשינוי הגדרות”:
-  - ודאו שהקריאה היא דרך ``updateConfig`` ושקיים ``window.smoothScroll``.
+  - ודאו שהקריאה היא דרך ``updateConfig`` / כרטיס ההגדרות ב‑``/settings`` ושקיים ``window.smoothScroll``.
 - “משתמש עם Reduced Motion עדיין רואה אנימציות”:
   - בדקו את העדפת המערכת (DevTools > Rendering > Emulate CSS prefers-reduced-motion).
 - “אני לא בטוח אם הפיצ'ר פועל”:
@@ -110,7 +131,6 @@ API לשימוש קליינט
 ---------------------------
 - CodeMirror: גלילה חלקה בתוך העורך ו‑Jump to line
 - TOC חכם: שימוש ב‑offset, Smart Scrolling, Active item
-- UI מודאל להגדרות משתמש (מהירות/easing/רגישות)
 - ניטור מתקדם (PerformanceObserver + Analytics)
 - אופטימיזציות WebView ו‑Virtual Scrolling לרשימות ארוכות
 
