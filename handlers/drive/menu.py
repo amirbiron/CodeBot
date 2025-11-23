@@ -18,7 +18,7 @@ from telegram.ext import ContextTypes
 from services import google_drive_service as gdrive
 from config import config
 from file_manager import backup_manager
-from database import db
+# שימוש ב-FilesFacade דרך Composition Root כדי להימנע מתלות ישירה ב-DB
 
 logger = logging.getLogger(__name__)
 
@@ -76,7 +76,8 @@ class GoogleDriveMenuHandler:
                 else:
                     # אם נכשל — נסה לזהות אם נדרש התחברות מחדש והצג הודעה ידידותית
                     try:
-                        tokens = db.get_drive_tokens(uid) or {}
+                        from src.infrastructure.composition import get_files_facade  # type: ignore
+                        tokens = get_files_facade().get_drive_tokens(uid) or {}
                     except Exception:
                         tokens = {}
                     need_reauth = False
@@ -107,7 +108,11 @@ class GoogleDriveMenuHandler:
                     update_prefs = {"last_backup_at": now_dt.isoformat(), "schedule_next_at": next_dt.isoformat()}
                     if ok:
                         update_prefs["last_full_backup_at"] = now_dt.isoformat()
-                    db.save_drive_prefs(uid, update_prefs)
+                    try:
+                        from src.infrastructure.composition import get_files_facade  # type: ignore
+                        get_files_facade().save_drive_prefs(uid, update_prefs)
+                    except Exception:
+                        pass
                     # עדכן גם על ה-Job עצמו עבור תצוגת סטטוס
                     try:
                         setattr(ctx.job, "next_t", next_dt)
@@ -148,7 +153,8 @@ class GoogleDriveMenuHandler:
                     pass
             # קבע first להרצה הבאה: העדף schedule_next_at קיים, אחרת last_full_backup_at/last_backup_at כשהוא מגולגל קדימה עד לעתיד, אחרת now
             try:
-                prefs = db.get_drive_prefs(user_id) or {}
+                from src.infrastructure.composition import get_files_facade  # type: ignore
+                prefs = get_files_facade().get_drive_prefs(user_id) or {}
             except Exception:
                 prefs = {}
             now_dt = datetime.now(timezone.utc)
@@ -263,7 +269,8 @@ class GoogleDriveMenuHandler:
             # אל תדרוס schedule_next_at קיים ותקין; עדכן רק אם חסר/עבר
             try:
                 if not nxt_dt or nxt_dt <= now_dt:
-                    db.save_drive_prefs(user_id, {"schedule_next_at": planned_next.isoformat()})
+                    from src.infrastructure.composition import get_files_facade  # type: ignore
+                    get_files_facade().save_drive_prefs(user_id, {"schedule_next_at": planned_next.isoformat()})
             except Exception:
                 pass
         except Exception as e:
@@ -291,7 +298,11 @@ class GoogleDriveMenuHandler:
             send = update.message.reply_text
 
         user_id = update.effective_user.id
-        tokens = db.get_drive_tokens(user_id)
+        try:
+            from src.infrastructure.composition import get_files_facade  # type: ignore
+            tokens = get_files_facade().get_drive_tokens(user_id)
+        except Exception:
+            tokens = {}
 
         # נחשיב "מחובר" אם יש טוקנים שמורים; בדיקת שירות בפועל תעשה לפני העלאה
         # זה מונע מצב מבלבל שבו מוצג "לא מחובר" מיד אחרי התחברות מוצלחת
@@ -503,7 +514,8 @@ class GoogleDriveMenuHandler:
             sess["selected_category"] = "zip"
             # שמירת בחירה אחרונה בפרפרנסים כדי שתשרוד דיפלוי
             try:
-                db.save_drive_prefs(user_id, {"last_selected_category": "zip"})
+                from src.infrastructure.composition import get_files_facade  # type: ignore
+                get_files_facade().save_drive_prefs(user_id, {"last_selected_category": "zip"})
             except Exception:
                 pass
             prefix = "ℹ️ לא נמצאו קבצי ZIP שמורים בבוט. באישור לא יועלה דבר.\n\n" if not saved_zips else "✅ נבחר: קבצי ZIP\n\n"
@@ -517,7 +529,8 @@ class GoogleDriveMenuHandler:
                 return
             sess["selected_category"] = "all"
             try:
-                db.save_drive_prefs(user_id, {"last_selected_category": "all"})
+                from src.infrastructure.composition import get_files_facade  # type: ignore
+                get_files_facade().save_drive_prefs(user_id, {"last_selected_category": "all"})
             except Exception:
                 pass
             await self._render_simple_selection(update, context, header_prefix="✅ נבחר: הכל\n\n")
@@ -560,13 +573,14 @@ class GoogleDriveMenuHandler:
                     if ok_any:
                         # עדכון מועד הבא אם יש תזמון פעיל
                         try:
-                            prefs = db.get_drive_prefs(user_id) or {}
+                            from src.infrastructure.composition import get_files_facade  # type: ignore
+                            prefs = get_files_facade().get_drive_prefs(user_id) or {}
                             key = prefs.get("schedule")
                             if key:
                                 seconds = self._interval_seconds(str(key))
                                 now_dt = datetime.now(timezone.utc)
                                 next_dt = now_dt + timedelta(seconds=seconds)
-                                db.save_drive_prefs(user_id, {"last_backup_at": now_dt.isoformat(), "schedule_next_at": next_dt.isoformat()})
+                                get_files_facade().save_drive_prefs(user_id, {"last_backup_at": now_dt.isoformat(), "schedule_next_at": next_dt.isoformat()})
                                 await self._ensure_schedule_job(context, user_id, str(key))
                         except Exception:
                             pass
@@ -580,13 +594,13 @@ class GoogleDriveMenuHandler:
                 else:
                     # Pre-check category has files
                     try:
-                        from database import db as _db
+                        from src.infrastructure.composition import get_files_facade  # type: ignore
                         has_any = False
                         if category == "large":
-                            large_files, _ = _db.get_user_large_files(user_id, page=1, per_page=1)
+                            large_files, _ = get_files_facade().get_user_large_files(user_id, page=1, per_page=1)
                             has_any = bool(large_files)
                         elif category == "other":
-                            files = _db.get_user_files(user_id, limit=1) or []
+                            files = get_files_facade().get_user_files(user_id, limit=10) or []
                             # other = not repo tagged
                             for d in files:
                                 tags = d.get('tags') or []
@@ -607,13 +621,14 @@ class GoogleDriveMenuHandler:
                     if fid:
                         # עדכון מועד הבא אם יש תזמון פעיל
                         try:
-                            prefs = db.get_drive_prefs(user_id) or {}
+                            from src.infrastructure.composition import get_files_facade  # type: ignore
+                            prefs = get_files_facade().get_drive_prefs(user_id) or {}
                             key = prefs.get("schedule")
                             if key:
                                 seconds = self._interval_seconds(str(key))
                                 now_dt = datetime.now(timezone.utc)
                                 next_dt = now_dt + timedelta(seconds=seconds)
-                                db.save_drive_prefs(user_id, {"last_backup_at": now_dt.isoformat(), "schedule_next_at": next_dt.isoformat()})
+                                get_files_facade().save_drive_prefs(user_id, {"last_backup_at": now_dt.isoformat(), "schedule_next_at": next_dt.isoformat()})
                                 await self._ensure_schedule_job(context, user_id, str(key))
                         except Exception:
                             pass
@@ -665,13 +680,14 @@ class GoogleDriveMenuHandler:
             if uploaded_any:
                 # עדכון מועד הבא אם יש תזמון פעיל
                 try:
-                    prefs = db.get_drive_prefs(user_id) or {}
+                    from src.infrastructure.composition import get_files_facade  # type: ignore
+                    prefs = get_files_facade().get_drive_prefs(user_id) or {}
                     key = prefs.get("schedule")
                     if key:
                         seconds = self._interval_seconds(str(key))
                         now_dt = datetime.now(timezone.utc)
                         next_dt = now_dt + timedelta(seconds=seconds)
-                        db.save_drive_prefs(user_id, {"last_backup_at": now_dt.isoformat(), "schedule_next_at": next_dt.isoformat()})
+                        get_files_facade().save_drive_prefs(user_id, {"last_backup_at": now_dt.isoformat(), "schedule_next_at": next_dt.isoformat()})
                         await self._ensure_schedule_job(context, user_id, str(key))
                 except Exception:
                     pass
@@ -710,7 +726,8 @@ class GoogleDriveMenuHandler:
             sess["target_folder_label"] = "גיבויי_קודלי"
             sess["target_folder_auto"] = False
             try:
-                db.save_drive_prefs(user_id, {"target_folder_label": "גיבויי_קודלי", "target_folder_auto": False, "target_folder_path": None})
+                from src.infrastructure.composition import get_files_facade  # type: ignore
+                get_files_facade().save_drive_prefs(user_id, {"target_folder_label": "גיבויי_קודלי", "target_folder_auto": False, "target_folder_path": None})
             except Exception:
                 pass
             # Return to proper menu depending on origin (אל תציג כשל גם אם לא הצלחנו ליצור בפועל כרגע)
@@ -723,7 +740,8 @@ class GoogleDriveMenuHandler:
             sess["target_folder_label"] = "אוטומטי"
             sess["target_folder_auto"] = True
             try:
-                db.save_drive_prefs(user_id, {"target_folder_label": "אוטומטי", "target_folder_auto": True})
+                from src.infrastructure.composition import get_files_facade  # type: ignore
+                get_files_facade().save_drive_prefs(user_id, {"target_folder_label": "אוטומטי", "target_folder_auto": True})
             except Exception:
                 pass
             await self._render_after_folder_selection(update, context, success=bool(fid))
@@ -758,7 +776,8 @@ class GoogleDriveMenuHandler:
                 await self._render_simple_selection(update, context)
             return
         if data == "drive_schedule":
-            current = (db.get_drive_prefs(user_id) or {}).get("schedule")
+            from src.infrastructure.composition import get_files_facade  # type: ignore
+            current = (get_files_facade().get_drive_prefs(user_id) or {}).get("schedule")
             def label(key: str, text: str) -> str:
                 return ("✅ " + text) if current == key else text
             back_cb = "drive_sel_adv" if self._session(user_id).get("last_menu") == "adv" else "drive_backup_now"
@@ -777,7 +796,8 @@ class GoogleDriveMenuHandler:
             # מסך מצב גיבוי: סוג נבחר/אחרון, תיקייה, תזמון, מועד ריצה הבא (אם קיים)
             # הצגה בלבד: אל תיצור Job חדש כאן — רק קרא פרפרנסים ונתוני Job אם קיימים
             try:
-                prefs = db.get_drive_prefs(user_id) or {}
+                from src.infrastructure.composition import get_files_facade  # type: ignore
+                prefs = get_files_facade().get_drive_prefs(user_id) or {}
             except Exception:
                 prefs = {}
             # Hydrate session to reflect persisted selections in the header
@@ -791,7 +811,8 @@ class GoogleDriveMenuHandler:
             next_run_text = "—"
             active_text = "—"
             try:
-                prefs = db.get_drive_prefs(user_id) or {}
+                from src.infrastructure.composition import get_files_facade  # type: ignore
+                prefs = get_files_facade().get_drive_prefs(user_id) or {}
                 sched_key = prefs.get("schedule")
                 active_text = ("פעיל" if sched_key else "אין גיבוי פעיל")
                 last_full_iso = prefs.get("last_full_backup_at")
@@ -857,7 +878,8 @@ class GoogleDriveMenuHandler:
             key = data.split(":", 1)[1]
             # Save preference (time interval only)
             if key == "off":
-                db.save_drive_prefs(user_id, {"schedule": None})
+                from src.infrastructure.composition import get_files_facade  # type: ignore
+                get_files_facade().save_drive_prefs(user_id, {"schedule": None})
                 # cancel job if exists
                 jobs = context.bot_data.setdefault("drive_schedule_jobs", {})
                 job = jobs.pop(user_id, None)
@@ -884,7 +906,8 @@ class GoogleDriveMenuHandler:
             # Map invalid/empty to 'all' by default
             if selected not in {"zip", "all", "by_repo", "large", "other"}:
                 selected = "all"
-            db.save_drive_prefs(user_id, {"schedule": key, "schedule_category": selected})
+            from src.infrastructure.composition import get_files_facade  # type: ignore
+            get_files_facade().save_drive_prefs(user_id, {"schedule": key, "schedule_category": selected})
             # schedule/update job and persist next run time
             await self._ensure_schedule_job(context, user_id, key)
             # Re-render menu to reflect updated schedule label
@@ -903,7 +926,8 @@ class GoogleDriveMenuHandler:
             return
         if data == "drive_logout_do":
             __import__('logging').getLogger(__name__).warning(f"Drive: logout by user {user_id}")
-            ok = db.delete_drive_tokens(user_id)
+            from src.infrastructure.composition import get_files_facade  # type: ignore
+            ok = get_files_facade().delete_drive_tokens(user_id)
             await query.edit_message_text("🚪נותקת מ‑Google Drive" if ok else "❌ לא בוצעה התנתקות")
             return
         if data == "drive_simple_confirm":
@@ -949,13 +973,15 @@ class GoogleDriveMenuHandler:
                 sess["last_upload"] = "zip"
                 # עדכון מועד הבא אם יש תזמון פעיל (upload_all_saved_zip_backups כבר מעדכן last_backup_at)
                 try:
-                    prefs = db.get_drive_prefs(user_id) or {}
+                    from src.infrastructure.composition import get_files_facade  # type: ignore
+                    prefs = get_files_facade().get_drive_prefs(user_id) or {}
                     key = prefs.get("schedule")
                     if key:
                         seconds = self._interval_seconds(str(key))
                         now_dt = datetime.now(timezone.utc)
                         next_dt = now_dt + timedelta(seconds=seconds)
-                        db.save_drive_prefs(user_id, {"schedule_next_at": next_dt.isoformat()})
+                        from src.infrastructure.composition import get_files_facade  # type: ignore
+                        get_files_facade().save_drive_prefs(user_id, {"schedule_next_at": next_dt.isoformat()})
                         await self._ensure_schedule_job(context, user_id, str(key))
                 except Exception:
                     pass
@@ -980,13 +1006,15 @@ class GoogleDriveMenuHandler:
                         now_dt = datetime.now(timezone.utc)
                         now_iso = now_dt.isoformat()
                         prefs_update = {"last_backup_at": now_iso, "last_full_backup_at": now_iso}
-                        prefs = db.get_drive_prefs(user_id) or {}
+                        from src.infrastructure.composition import get_files_facade  # type: ignore
+                        prefs = get_files_facade().get_drive_prefs(user_id) or {}
                         key = prefs.get("schedule")
                         if key:
                             seconds = self._interval_seconds(str(key))
                             next_dt = now_dt + timedelta(seconds=seconds)
                             prefs_update["schedule_next_at"] = next_dt.isoformat()
-                        db.save_drive_prefs(user_id, prefs_update)
+                        from src.infrastructure.composition import get_files_facade  # type: ignore
+                        get_files_facade().save_drive_prefs(user_id, prefs_update)
                         if key:
                             await self._ensure_schedule_job(context, user_id, str(key))
                     except Exception:
@@ -1051,7 +1079,8 @@ class GoogleDriveMenuHandler:
                 sess["target_folder_label"] = path
                 sess["target_folder_auto"] = False
                 try:
-                    db.save_drive_prefs(update.effective_user.id, {"target_folder_label": path, "target_folder_auto": False, "target_folder_path": path})
+                    from src.infrastructure.composition import get_files_facade  # type: ignore
+                    get_files_facade().save_drive_prefs(update.effective_user.id, {"target_folder_label": path, "target_folder_auto": False, "target_folder_path": path})
                 except Exception:
                     pass
                 await update.message.reply_text("✅ תיקייה יעד עודכנה בהצלחה")
@@ -1077,7 +1106,8 @@ class GoogleDriveMenuHandler:
         Ensures selections survive restarts/deploys and are reflected in menus.
         """
         try:
-            prefs = db.get_drive_prefs(user_id) or {}
+            from src.infrastructure.composition import get_files_facade  # type: ignore
+            prefs = get_files_facade().get_drive_prefs(user_id) or {}
         except Exception:
             prefs = {}
         sess = self._session(user_id)
@@ -1101,7 +1131,8 @@ class GoogleDriveMenuHandler:
                     if prefs.get("target_folder_id"):
                         sess["target_folder_label"] = "גיבויי_קודלי"
     def _schedule_button_label(self, user_id: int) -> str:
-        prefs = db.get_drive_prefs(user_id) or {}
+        from src.infrastructure.composition import get_files_facade  # type: ignore
+        prefs = get_files_facade().get_drive_prefs(user_id) or {}
         key = prefs.get("schedule")
         mapping = {
             "daily": "🕑 כל יום",
@@ -1148,7 +1179,8 @@ class GoogleDriveMenuHandler:
         if not label:
             # Fallback to persisted prefs if session missing (e.g., after deploy)
             try:
-                prefs = db.get_drive_prefs(user_id) or {}
+                from src.infrastructure.composition import get_files_facade  # type: ignore
+                prefs = get_files_facade().get_drive_prefs(user_id) or {}
                 label = prefs.get("target_folder_label") or prefs.get("target_folder_path")
                 if not label and prefs.get("target_folder_id"):
                     label = "גיבויי_קודלי"

@@ -27,6 +27,11 @@ class FilesFacade:
 
     def get_user_files(self, user_id: int, limit: int = 50, *, skip: int = 0) -> List[Dict[str, Any]]:
         return list(self._db.get_user_files(user_id, limit=limit, skip=skip) or [])
+    def get_user_large_files(self, user_id: int, page: int = 1, per_page: int = 8) -> Tuple[List[Dict[str, Any]], int]:
+        try:
+            return self._db.get_user_large_files(user_id, page=page, per_page=per_page)
+        except Exception:
+            return ([], 0)
 
     def get_user_file_names(self, user_id: int, limit: int = 1000) -> List[str]:
         return list(self._db.get_user_file_names(user_id, limit) or [])
@@ -119,4 +124,35 @@ class FilesFacade:
             return self._db.get_large_file(user_id, file_name)
         except Exception:
             return None
+
+    # ---- GitHub / Drive related convenience wrappers ----------------------
+    def save_selected_repo(self, user_id: int, repo_full: str) -> bool:
+        try:
+            return bool(self._db.save_selected_repo(user_id, repo_full))
+        except Exception:
+            return False
+
+    def get_drive_tokens(self, user_id: int) -> Optional[Dict[str, Any]]:
+        try:
+            return self._db.get_drive_tokens(user_id) or {}
+        except Exception:
+            return {}
+
+    def get_drive_prefs(self, user_id: int) -> Optional[Dict[str, Any]]:
+        try:
+            return self._db.get_drive_prefs(user_id) or {}
+        except Exception:
+            return {}
+
+    def save_drive_prefs(self, user_id: int, update_prefs: Dict[str, Any]) -> bool:
+        try:
+            return bool(self._db.save_drive_prefs(user_id, update_prefs))
+        except Exception:
+            return False
+
+    def delete_drive_tokens(self, user_id: int) -> bool:
+        try:
+            return bool(self._db.delete_drive_tokens(user_id))
+        except Exception:
+            return False
 
