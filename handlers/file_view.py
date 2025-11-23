@@ -463,19 +463,48 @@ async def receive_new_code(update, context: ContextTypes.DEFAULT_TYPE) -> int:
         file_name = context.user_data.pop('editing_note_file')
         user_id = update.effective_user.id
         try:
-            from database import db, CodeSnippet
-            doc = db.get_latest_version(user_id, file_name)
+            # שליפת גרסה אחרונה דרך Facade, עדכון הערה דרך save_code_snippet
+            try:
+                from src.infrastructure.composition import get_files_facade  # type: ignore
+                _facade = get_files_facade()
+                doc = _facade.get_latest_version(user_id, file_name)
+            except Exception:
+                _facade = None  # type: ignore
+                doc = None
+                try:
+                    from database import db as _db
+                    doc = _db.get_latest_version(user_id, file_name)
+                except Exception:
+                    doc = None
             if not doc:
                 await update.message.reply_text("❌ הקובץ לא נמצא לעדכון הערה")
                 return ConversationHandler.END
-            snippet = CodeSnippet(
-                user_id=user_id,
-                file_name=file_name,
-                code=doc.get('code', ''),
-                programming_language=doc.get('programming_language', 'text'),
-                description=("" if note_text.lower() == 'מחק' else note_text)[:280],
-            )
-            ok = db.save_code_snippet(snippet)
+            desc = ("" if note_text.lower() == 'מחק' else note_text)[:280]
+            ok = False
+            try:
+                if _facade is not None:
+                    ok = bool(_facade.save_code_snippet(
+                        user_id=user_id,
+                        file_name=file_name,
+                        code=doc.get('code', '') or '',
+                        programming_language=doc.get('programming_language', 'text') or 'text',
+                        description=desc,
+                    ))
+            except Exception:
+                ok = False
+            if not ok:
+                try:
+                    from database import db as _db, CodeSnippet as _CS
+                    snippet = _CS(
+                        user_id=user_id,
+                        file_name=file_name,
+                        code=doc.get('code', ''),
+                        programming_language=doc.get('programming_language', 'text'),
+                        description=desc,
+                    )
+                    ok = bool(_db.save_code_snippet(snippet))
+                except Exception:
+                    ok = False
             if ok:
                 await update.message.reply_text(
                     "✅ הערה עודכנה בהצלחה!",
@@ -501,16 +530,30 @@ async def receive_new_code(update, context: ContextTypes.DEFAULT_TYPE) -> int:
             # זיהוי עקבי גם בקבצים גדולים: מקור אחיד דרך code_service
             from services import code_service
             language = code_service.detect_language(new_code, file_name)
-            from database import LargeFile, db
-            updated_file = LargeFile(
-                user_id=user_id,
-                file_name=file_name,
-                content=new_code,
-                programming_language=language,
-                file_size=len(new_code.encode('utf-8')),
-                lines_count=len(new_code.split('\n')),
-            )
-            success = db.save_large_file(updated_file)
+            try:
+                from src.infrastructure.composition import get_files_facade  # type: ignore
+                success = bool(get_files_facade().save_large_file(
+                    user_id=user_id,
+                    file_name=file_name,
+                    content=new_code,
+                    programming_language=language,
+                    file_size=len(new_code.encode('utf-8')),
+                    lines_count=len(new_code.split('\n')),
+                ))
+            except Exception:
+                try:
+                    from database import LargeFile, db
+                    updated_file = LargeFile(
+                        user_id=user_id,
+                        file_name=file_name,
+                        content=new_code,
+                        programming_language=language,
+                        file_size=len(new_code.encode('utf-8')),
+                        lines_count=len(new_code.split('\n')),
+                    )
+                    success = db.save_large_file(updated_file)
+                except Exception:
+                    success = False
             if success:
                 from utils import get_language_emoji
                 emoji = get_language_emoji(language)
@@ -553,11 +596,24 @@ async def receive_new_code(update, context: ContextTypes.DEFAULT_TYPE) -> int:
             )
             return EDIT_CODE
         detected_language = code_service.detect_language(cleaned_code, file_name)
-        from database import db
-        success = db.save_file(user_id, file_name, cleaned_code, detected_language)
+        try:
+            from src.infrastructure.composition import get_files_facade  # type: ignore
+            success = bool(get_files_facade().save_file(user_id, file_name, cleaned_code, detected_language))
+        except Exception:
+            try:
+                from database import db
+                success = db.save_file(user_id, file_name, cleaned_code, detected_language)
+            except Exception:
+                success = False
         if success:
-            from database import db as _db
-            last_version = _db.get_latest_version(user_id, file_name)
+            try:
+                last_version = get_files_facade().get_latest_version(user_id, file_name)  # type: ignore[name-defined]
+            except Exception:
+                try:
+                    from database import db as _db
+                    last_version = _db.get_latest_version(user_id, file_name)
+                except Exception:
+                    last_version = None
             version_num = last_version.get('version', 1) if last_version else 1
             try:
                 fid = str((last_version or {}).get('_id') or '')
