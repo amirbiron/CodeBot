@@ -1477,6 +1477,11 @@ class RefactoringEngine:
             b_pat = re.compile(rf'^(\s*from\s+)\.{re.escape(b)}(\s+import\s+)', re.M)
             for fn, content in list(files_map.items()):
                 files_map[fn] = re.sub(b_pat, r'\1.' + a + r'\2', content)
+            # הסר self-imports בקובץ המאוחד (from .a import ...) כדי למנוע טעינת מודול חלקית
+            self_import_pat = re.compile(rf'^\s*from\s+\.{re.escape(a)}\s+import\s+.*$', re.M)
+            files_map[a_file] = re.sub(self_import_pat, '', files_map[a_file])
+            # נקה רווחים כפולים שנוצרו מהסרה
+            files_map[a_file] = re.sub(r'\n{3,}', '\n\n', files_map[a_file]).lstrip() + ("\n" if not files_map[a_file].endswith("\n") else "")
             return files_map, (stems_map[a], b_file)
 
         merged_pairs: List[Tuple[str, str]] = []
