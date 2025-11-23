@@ -116,6 +116,17 @@ services:
       # Alerts → Telegram (used by /alertmanager/webhook forwarder)
       ALERT_TELEGRAM_BOT_TOKEN: ${ALERT_TELEGRAM_BOT_TOKEN:-}
       ALERT_TELEGRAM_CHAT_ID: ${ALERT_TELEGRAM_CHAT_ID:-}
+      # Alerts tuning – reduce noise (adaptive + anomaly)
+      ALERT_TELEGRAM_MIN_SEVERITY: ${ALERT_TELEGRAM_MIN_SEVERITY:-critical}
+      # Internal anomaly detector (metrics.py)
+      ALERT_ERRORS_PER_MINUTE: ${ALERT_ERRORS_PER_MINUTE:-40}
+      ALERT_AVG_RESPONSE_TIME: ${ALERT_AVG_RESPONSE_TIME:-0}      # 0 disables avg_rt anomaly
+      ALERT_COOLDOWN_SECONDS: ${ALERT_COOLDOWN_SECONDS:-1200}      # 20 minutes
+      # Adaptive alert manager (alert_manager.py)
+      ALERT_MIN_LATENCY_SECONDS: ${ALERT_MIN_LATENCY_SECONDS:-2.0} # floor for latency thresholds
+      ALERT_LATENCY_THRESHOLD_SCALE: ${ALERT_LATENCY_THRESHOLD_SCALE:-1.4}
+      ALERT_MIN_SAMPLE_COUNT: ${ALERT_MIN_SAMPLE_COUNT:-60}
+      ALERT_COOLDOWN_SEC: ${ALERT_COOLDOWN_SEC:-1200}              # 20 minutes
     
     ports:
       - "${BOT_PORT:-8000}:8000"
@@ -163,6 +174,15 @@ services:
       # Alerts → Telegram for dev as well (optional)
       ALERT_TELEGRAM_BOT_TOKEN: ${ALERT_TELEGRAM_BOT_TOKEN}
       ALERT_TELEGRAM_CHAT_ID: ${ALERT_TELEGRAM_CHAT_ID}
+      # Alerts tuning – reduce noise (dev)
+      ALERT_TELEGRAM_MIN_SEVERITY: ${ALERT_TELEGRAM_MIN_SEVERITY:-critical}
+      ALERT_ERRORS_PER_MINUTE: ${ALERT_ERRORS_PER_MINUTE:-40}
+      ALERT_AVG_RESPONSE_TIME: ${ALERT_AVG_RESPONSE_TIME:-0}
+      ALERT_COOLDOWN_SECONDS: ${ALERT_COOLDOWN_SECONDS:-1200}
+      ALERT_MIN_LATENCY_SECONDS: ${ALERT_MIN_LATENCY_SECONDS:-2.0}
+      ALERT_LATENCY_THRESHOLD_SCALE: ${ALERT_LATENCY_THRESHOLD_SCALE:-1.4}
+      ALERT_MIN_SAMPLE_COUNT: ${ALERT_MIN_SAMPLE_COUNT:-60}
+      ALERT_COOLDOWN_SEC: ${ALERT_COOLDOWN_SEC:-1200}
     ports:
       - "${BOT_DEV_PORT:-8001}:8000"
     volumes:
