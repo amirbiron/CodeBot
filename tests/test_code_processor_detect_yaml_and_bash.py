@@ -20,3 +20,11 @@ def test_cp_detects_bash_by_shebang_without_extension():
     bash_text = "#!/bin/bash\necho hi\n"
     out = cp.detect_language(bash_text, filename="run")  # ללא סיומת
     assert out == 'bash'
+
+
+def test_cp_detects_bash_by_env_shebang_without_extension():
+    mod = importlib.import_module('code_processor')
+    cp = mod.code_processor
+    bash_text = "#!/usr/bin/env bash\necho hi\n"
+    out = cp.detect_language(bash_text, filename="run2")
+    assert out == 'bash'
