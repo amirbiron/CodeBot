@@ -12,7 +12,8 @@ import time
 import zipfile
 from datetime import datetime, timezone
 from io import BytesIO
-from typing import Awaitable, Callable, Iterable, List, Optional, Protocol, Sequence
+from types import SimpleNamespace
+from typing import Any, Awaitable, Callable, Iterable, List, Optional, Protocol, Sequence
 
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.constants import ParseMode
@@ -72,6 +73,11 @@ class DocumentHandler:
         self._last_encodings_attempted = self._encodings_to_try
         self._emit_event = emit_event
         self._errors_total = errors_total
+        self._files_facade: Optional[Any] = None
+        self._files_facade_initialized = False
+        self._legacy_db: Optional[Any] = globals().get("db")
+        self._legacy_db_checked = self._legacy_db is not None
+        self._prefer_legacy_first: Optional[bool] = None
 
     @staticmethod
     def _normalize_encodings(values: Sequence[str] | Iterable[str]) -> tuple[str, ...]:
@@ -100,6 +106,389 @@ class DocumentHandler:
                     self._encodings_to_try = resolved
                     return resolved
         return self._encodings_to_try
+
+    def _resolve_files_facade(self) -> Optional[Any]:
+        if self._files_facade_initialized:
+            return self._files_facade
+        self._files_facade_initialized = True
+        try:
+            from src.infrastructure.composition import get_files_facade  # type: ignore
+        except Exception as exc:
+            logger.debug("Files facade unavailable: %s", exc)
+            self._files_facade = None
+            return None
+        try:
+            self._files_facade = get_files_facade()
+        except Exception as exc:
+            logger.warning("Failed to initialize files facade: %s", exc)
+            self._files_facade = None
+        return self._files_facade
+
+    def _resolve_legacy_db(self) -> Optional[Any]:
+        if self._legacy_db_checked:
+            return self._legacy_db
+        self._legacy_db_checked = True
+        if self._legacy_db is not None:
+            return self._legacy_db
+        legacy = globals().get("db")
+        if legacy is None:
+            try:
+                from database import db as legacy  # type: ignore
+                globals()["db"] = legacy
+            except Exception as exc:
+                logger.debug("Legacy database unavailable: %s", exc)
+                legacy = None
+        self._legacy_db = legacy
+        return legacy
+
+    def _legacy_backend_first(self) -> bool:
+        if self._prefer_legacy_first is not None:
+            return self._prefer_legacy_first
+        legacy_db = self._resolve_legacy_db()
+        if legacy_db is None:
+            self._prefer_legacy_first = False
+            return False
+        try:
+            from database.manager import DatabaseManager  # type: ignore
+        except Exception:
+            self._prefer_legacy_first = True
+            return True
+        self._prefer_legacy_first = not isinstance(legacy_db, DatabaseManager)
+        return self._prefer_legacy_first
+
+    def _save_code_snippet(
+        self,
+        *,
+        user_id: int,
+        file_name: str,
+        language: str,
+        content: str,
+        description: str = "",
+        tags: Optional[List[str]] = None,
+    ) -> bool:
+        legacy_db = self._resolve_legacy_db()
+        prefer_legacy = self._legacy_backend_first()
+        if prefer_legacy and self._save_code_snippet_via_legacy(
+            legacy_db,
+            user_id=user_id,
+            file_name=file_name,
+            language=language,
+            content=content,
+            description=description,
+            tags=tags,
+        ):
+            return True
+        if self._save_code_snippet_via_facade(
+            user_id=user_id,
+            file_name=file_name,
+            language=language,
+            content=content,
+            description=description,
+            tags=tags,
+        ):
+            return True
+        if not prefer_legacy and self._save_code_snippet_via_legacy(
+            legacy_db,
+            user_id=user_id,
+            file_name=file_name,
+            language=language,
+            content=content,
+            description=description,
+            tags=tags,
+        ):
+            return True
+        return False
+
+    def _save_code_snippet_via_facade(
+        self,
+        *,
+        user_id: int,
+        file_name: str,
+        language: str,
+        content: str,
+        description: str = "",
+        tags: Optional[List[str]] = None,
+    ) -> bool:
+        facade = self._resolve_files_facade()
+        if facade is None:
+            return False
+        try:
+            return bool(
+                facade.save_code_snippet(  # type: ignore[attr-defined]
+                    user_id=user_id,
+                    file_name=file_name,
+                    code=content,
+                    programming_language=language,
+                    description=description,
+                    tags=tags,
+                )
+            )
+        except Exception as exc:
+            logger.warning("FilesFacade save_code_snippet failed: %s", exc)
+            return False
+
+    def _save_code_snippet_via_legacy(
+        self,
+        legacy_db: Optional[Any],
+        *,
+        user_id: int,
+        file_name: str,
+        language: str,
+        content: str,
+        description: str = "",
+        tags: Optional[List[str]] = None,
+    ) -> bool:
+        db_obj = legacy_db or self._resolve_legacy_db()
+        if db_obj is None:
+            return False
+        snippet = self._build_legacy_snippet_payload(
+            user_id=user_id,
+            file_name=file_name,
+            content=content,
+            language=language,
+            description=description,
+            tags=tags,
+        )
+        if snippet is None:
+            return False
+        try:
+            return bool(db_obj.save_code_snippet(snippet))
+        except Exception as exc:
+            logger.warning("Legacy DB save_code_snippet failed: %s", exc)
+            return False
+
+    def _save_large_file(
+        self,
+        *,
+        user_id: int,
+        file_name: str,
+        language: str,
+        content: str,
+        file_size: int,
+        lines_count: int,
+    ) -> bool:
+        legacy_db = self._resolve_legacy_db()
+        prefer_legacy = self._legacy_backend_first()
+        if prefer_legacy and self._save_large_file_via_legacy(
+            legacy_db,
+            user_id=user_id,
+            file_name=file_name,
+            language=language,
+            content=content,
+            file_size=file_size,
+            lines_count=lines_count,
+        ):
+            return True
+        if self._save_large_file_via_facade(
+            user_id=user_id,
+            file_name=file_name,
+            language=language,
+            content=content,
+            file_size=file_size,
+            lines_count=lines_count,
+        ):
+            return True
+        if not prefer_legacy and self._save_large_file_via_legacy(
+            legacy_db,
+            user_id=user_id,
+            file_name=file_name,
+            language=language,
+            content=content,
+            file_size=file_size,
+            lines_count=lines_count,
+        ):
+            return True
+        return False
+
+    def _save_large_file_via_facade(
+        self,
+        *,
+        user_id: int,
+        file_name: str,
+        language: str,
+        content: str,
+        file_size: int,
+        lines_count: int,
+    ) -> bool:
+        facade = self._resolve_files_facade()
+        if facade is None:
+            return False
+        try:
+            return bool(
+                facade.save_large_file(  # type: ignore[attr-defined]
+                    user_id=user_id,
+                    file_name=file_name,
+                    content=content,
+                    programming_language=language,
+                    file_size=file_size,
+                    lines_count=lines_count,
+                )
+            )
+        except Exception as exc:
+            logger.warning("FilesFacade save_large_file failed: %s", exc)
+            return False
+
+    def _save_large_file_via_legacy(
+        self,
+        legacy_db: Optional[Any],
+        *,
+        user_id: int,
+        file_name: str,
+        language: str,
+        content: str,
+        file_size: int,
+        lines_count: int,
+    ) -> bool:
+        db_obj = legacy_db or self._resolve_legacy_db()
+        if db_obj is None:
+            return False
+        large_file = self._build_legacy_large_file_payload(
+            user_id=user_id,
+            file_name=file_name,
+            content=content,
+            language=language,
+            file_size=file_size,
+            lines_count=lines_count,
+        )
+        if large_file is None:
+            return False
+        try:
+            return bool(db_obj.save_large_file(large_file))
+        except Exception as exc:
+            logger.warning("Legacy DB save_large_file failed: %s", exc)
+            return False
+
+    def _get_latest_version_entry(self, user_id: int, file_name: str) -> Optional[dict]:
+        prefer_legacy = self._legacy_backend_first()
+        legacy_db = self._resolve_legacy_db() if prefer_legacy else None
+        if prefer_legacy:
+            doc = self._get_latest_version_via_legacy(legacy_db, user_id, file_name)
+            if doc:
+                return doc
+        doc = self._get_latest_version_via_facade(user_id, file_name)
+        if doc:
+            return doc
+        return self._get_latest_version_via_legacy(legacy_db, user_id, file_name) if not prefer_legacy else None
+
+    def _get_large_file_entry(self, user_id: int, file_name: str) -> Optional[dict]:
+        prefer_legacy = self._legacy_backend_first()
+        legacy_db = self._resolve_legacy_db() if prefer_legacy else None
+        if prefer_legacy:
+            doc = self._get_large_file_via_legacy(legacy_db, user_id, file_name)
+            if doc:
+                return doc
+        doc = self._get_large_file_via_facade(user_id, file_name)
+        if doc:
+            return doc
+        return self._get_large_file_via_legacy(legacy_db, user_id, file_name) if not prefer_legacy else None
+
+    def _get_latest_version_via_facade(self, user_id: int, file_name: str) -> Optional[dict]:
+        facade = self._resolve_files_facade()
+        if facade is None:
+            return None
+        try:
+            doc = facade.get_latest_version(user_id, file_name)  # type: ignore[attr-defined]
+            return doc or None
+        except Exception:
+            return None
+
+    def _get_latest_version_via_legacy(
+        self,
+        legacy_db: Optional[Any],
+        user_id: int,
+        file_name: str,
+    ) -> Optional[dict]:
+        db_obj = legacy_db or self._resolve_legacy_db()
+        if db_obj is None or not hasattr(db_obj, "get_latest_version"):
+            return None
+        try:
+            return db_obj.get_latest_version(user_id, file_name) or None
+        except Exception:
+            return None
+
+    def _get_large_file_via_facade(self, user_id: int, file_name: str) -> Optional[dict]:
+        facade = self._resolve_files_facade()
+        if facade is None:
+            return None
+        try:
+            doc = facade.get_large_file(user_id, file_name)  # type: ignore[attr-defined]
+            return doc or None
+        except Exception:
+            return None
+
+    def _get_large_file_via_legacy(
+        self,
+        legacy_db: Optional[Any],
+        user_id: int,
+        file_name: str,
+    ) -> Optional[dict]:
+        db_obj = legacy_db or self._resolve_legacy_db()
+        if db_obj is None or not hasattr(db_obj, "get_large_file"):
+            return None
+        try:
+            return db_obj.get_large_file(user_id, file_name) or None
+        except Exception:
+            return None
+
+    def _build_legacy_snippet_payload(
+        self,
+        *,
+        user_id: int,
+        file_name: str,
+        content: str,
+        language: str,
+        description: str = "",
+        tags: Optional[List[str]] = None,
+    ) -> Optional[Any]:
+        payload = {
+            "user_id": user_id,
+            "file_name": file_name,
+            "code": content,
+            "programming_language": language,
+            "description": description,
+            "tags": list(tags or []),
+        }
+        try:
+            from database.models import CodeSnippet  # type: ignore
+        except Exception:
+            CodeSnippet = None  # type: ignore
+        if CodeSnippet is None:  # type: ignore
+            return SimpleNamespace(**payload)
+        try:
+            return CodeSnippet(**payload)  # type: ignore
+        except Exception as exc:
+            logger.warning("Failed creating CodeSnippet payload: %s", exc)
+            return SimpleNamespace(**payload)
+
+    def _build_legacy_large_file_payload(
+        self,
+        *,
+        user_id: int,
+        file_name: str,
+        content: str,
+        language: str,
+        file_size: int,
+        lines_count: int,
+    ) -> Optional[Any]:
+        payload = {
+            "user_id": user_id,
+            "file_name": file_name,
+            "content": content,
+            "programming_language": language,
+            "file_size": file_size,
+            "lines_count": lines_count,
+        }
+        try:
+            from database.models import LargeFile  # type: ignore
+        except Exception:
+            LargeFile = None  # type: ignore
+        if LargeFile is None:  # type: ignore
+            return SimpleNamespace(**payload)
+        try:
+            return LargeFile(**payload)  # type: ignore
+        except Exception as exc:
+            logger.warning("Failed creating LargeFile payload: %s", exc)
+            return SimpleNamespace(**payload)
 
     async def handle_document(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """נתיב ראשי לטיפול בקובץ שנשלח."""
@@ -804,18 +1193,16 @@ class DocumentHandler:
         content: str,
         detected_encoding: Optional[str],
     ) -> None:
-        try:
-            from src.infrastructure.composition import get_files_facade  # type: ignore
-            success = bool(get_files_facade().save_large_file(
-                user_id=user_id,
-                file_name=file_name,
-                content=content,
-                programming_language=language,
-                file_size=len(content.encode("utf-8")),
-                lines_count=len(content.split("\n")),
-            ))
-        except Exception:
-            success = False
+        size_bytes = len(content.encode("utf-8"))
+        lines_count = len(content.split("\n"))
+        success = self._save_large_file(
+            user_id=user_id,
+            file_name=file_name,
+            language=language,
+            content=content,
+            file_size=size_bytes,
+            lines_count=lines_count,
+        )
         if self._emit_event is not None:
             try:
                 self._emit_event(
@@ -823,7 +1210,7 @@ class DocumentHandler:
                     severity="info",
                     user_id=int(user_id),
                     language=str(language),
-                    size_bytes=int(len(content.encode("utf-8"))),
+                    size_bytes=int(size_bytes),
                     large=True,
                 )
             except Exception:
@@ -836,8 +1223,7 @@ class DocumentHandler:
 
         emoji = get_language_emoji(language)
         try:
-            from src.infrastructure.composition import get_files_facade  # type: ignore
-            saved_large = get_files_facade().get_large_file(user_id, file_name) or {}
+            saved_large = self._get_large_file_entry(user_id, file_name) or {}
             fid = str(saved_large.get("_id") or "")
         except Exception:
             fid = ""
@@ -858,7 +1244,6 @@ class DocumentHandler:
             [InlineKeyboardButton("🏠 תפריט ראשי", callback_data="main")],
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
-        lines_count = len(content.split("\n"))
         await update.message.reply_text(
             "✅ **הקובץ נשמר בהצלחה!**\n\n"
             + f"📄 **שם:** `{file_name}`\n"
@@ -890,16 +1275,13 @@ class DocumentHandler:
         content: str,
         detected_encoding: Optional[str],
     ) -> None:
-        try:
-            from src.infrastructure.composition import get_files_facade  # type: ignore
-            success = bool(get_files_facade().save_code_snippet(
-                user_id=user_id,
-                file_name=file_name,
-                code=content,
-                programming_language=language,
-            ))
-        except Exception:
-            success = False
+        size_bytes = len(content.encode("utf-8"))
+        success = self._save_code_snippet(
+            user_id=user_id,
+            file_name=file_name,
+            language=language,
+            content=content,
+        )
         if self._emit_event is not None:
             try:
                 self._emit_event(
@@ -907,7 +1289,7 @@ class DocumentHandler:
                     severity="info",
                     user_id=int(user_id),
                     language=str(language),
-                    size_bytes=int(len(content.encode("utf-8"))),
+                    size_bytes=int(size_bytes),
                     large=False,
                 )
             except Exception:
@@ -920,8 +1302,7 @@ class DocumentHandler:
 
         emoji = get_language_emoji(language)
         try:
-            from src.infrastructure.composition import get_files_facade  # type: ignore
-            saved_doc = get_files_facade().get_latest_version(user_id, file_name) or {}
+            saved_doc = self._get_latest_version_entry(user_id, file_name) or {}
             fid = str(saved_doc.get("_id") or "")
         except Exception:
             fid = ""

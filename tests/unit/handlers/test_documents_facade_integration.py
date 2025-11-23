@@ -1,4 +1,6 @@
+import sys
 import types
+
 import pytest
 
 from handlers.documents import DocumentHandler
@@ -45,6 +47,26 @@ class FacadeStub:
         return dict(self.large)
 
 
+class LegacyStub:
+    def __init__(self):
+        self.saved_regular = []
+        self.saved_large = []
+
+    def save_code_snippet(self, snippet):
+        self.saved_regular.append(snippet)
+        return True
+
+    def save_large_file(self, large_file):
+        self.saved_large.append(large_file)
+        return True
+
+    def get_latest_version(self, user_id, file_name):
+        return {"_id": "legacy-snippet"}
+
+    def get_large_file(self, user_id, file_name):
+        return {"_id": "legacy-large"}
+
+
 @pytest.mark.asyncio
 async def test_store_regular_and_large_files(monkeypatch):
     facade = FacadeStub()
@@ -71,4 +93,133 @@ async def test_store_regular_and_large_files(monkeypatch):
     await handler._store_large_file(upd2, ctx, user_id=123, file_name="big", language="text", content="x"*100, detected_encoding="utf-8")
     assert facade.saved_large and facade.saved_large[0]["file_name"] == "big"
     assert any("הקובץ נשמר בהצלחה" in t for t in upd2.message.texts)
+
+
+@pytest.mark.asyncio
+async def test_regular_file_falls_back_to_legacy_when_facade_fails():
+    facade = FacadeStub()
+    legacy = LegacyStub()
+    # כשל יזום ב-FilesFacade
+    facade.save_code_snippet = lambda **kwargs: False
+    facade.latest = {}
+
+    handler = DocumentHandler(
+        notify_admins=lambda *a, **k: None,
+        get_reporter=lambda: None,
+        log_user_activity=lambda *a, **k: None,
+        encodings_to_try=("utf-8",),
+        emit_event=None,
+        errors_total=None,
+    )
+    # נטרל גישה אמיתית ל-FilesFacade/DB והשתמש בסטאבים
+    handler._files_facade = facade
+    handler._files_facade_initialized = True
+    handler._legacy_db = legacy
+    handler._legacy_db_checked = True
+    handler._prefer_legacy_first = False
+
+    upd = DummyUpdate()
+    ctx = DummyContext()
+
+    await handler._store_regular_file(
+        upd,
+        ctx,
+        user_id=77,
+        file_name="fallback.py",
+        language="python",
+        content="print('fallback')",
+        detected_encoding="utf-8",
+    )
+
+    assert legacy.saved_regular, "צפויה שמירה ב-DB הישן לאחר כשל ב-FilesFacade"
+    assert legacy.saved_regular[0].file_name == "fallback.py"
+    assert any("הקובץ נשמר בהצלחה" in text for text in upd.message.texts)
+
+
+@pytest.mark.asyncio
+async def test_large_file_falls_back_to_legacy_when_facade_fails():
+    facade = FacadeStub()
+    legacy = LegacyStub()
+    facade.save_large_file = lambda **kwargs: False
+    facade.large = {}
+
+    handler = DocumentHandler(
+        notify_admins=lambda *a, **k: None,
+        get_reporter=lambda: None,
+        log_user_activity=lambda *a, **k: None,
+        encodings_to_try=("utf-8",),
+        emit_event=None,
+        errors_total=None,
+    )
+    handler._files_facade = facade
+    handler._files_facade_initialized = True
+    handler._legacy_db = legacy
+    handler._legacy_db_checked = True
+    handler._prefer_legacy_first = False
+
+    upd = DummyUpdate()
+    ctx = DummyContext()
+
+    await handler._store_large_file(
+        upd,
+        ctx,
+        user_id=55,
+        file_name="huge.py",
+        language="python",
+        content="x" * 5000,
+        detected_encoding="utf-8",
+    )
+
+    assert legacy.saved_large, "צפויה שמירת קובץ גדול ב-DB הישן לאחר כשל ב-FilesFacade"
+    assert legacy.saved_large[0].file_name == "huge.py"
+    assert any("הקובץ נשמר בהצלחה" in text for text in upd.message.texts)
+
+
+@pytest.mark.asyncio
+async def test_legacy_fallback_when_models_missing(monkeypatch):
+    legacy = LegacyStub()
+    handler = DocumentHandler(
+        notify_admins=lambda *a, **k: None,
+        get_reporter=lambda: None,
+        log_user_activity=lambda *a, **k: None,
+        encodings_to_try=("utf-8",),
+        emit_event=None,
+        errors_total=None,
+    )
+    handler._legacy_db = legacy
+    handler._legacy_db_checked = True
+    handler._prefer_legacy_first = True
+    handler._files_facade = None
+    handler._files_facade_initialized = True
+
+    empty_models = types.ModuleType("database.models")
+    monkeypatch.setitem(sys.modules, "database.models", empty_models)
+
+    upd = DummyUpdate()
+    ctx = DummyContext()
+    await handler._store_regular_file(
+        upd,
+        ctx,
+        user_id=11,
+        file_name="missing_models.py",
+        language="python",
+        content="print('ok')",
+        detected_encoding="utf-8",
+    )
+    assert legacy.saved_regular, "צפינו שהשמירה תתרחש גם בלי CodeSnippet"
+    assert getattr(legacy.saved_regular[0], "code") == "print('ok')"
+
+    upd2 = DummyUpdate()
+    await handler._store_large_file(
+        upd2,
+        ctx,
+        user_id=22,
+        file_name="missing_large.py",
+        language="python",
+        content="x" * 200,
+        detected_encoding="utf-8",
+    )
+    assert legacy.saved_large, "צפינו שהשמירה תתבצע גם בלי LargeFile"
+    assert getattr(legacy.saved_large[0], "file_name") == "missing_large.py"
+    assert any("הקובץ נשמר בהצלחה" in text for text in upd2.message.texts)
 
