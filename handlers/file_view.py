@@ -292,6 +292,26 @@ async def handle_view_file(update, context: ContextTypes.DEFAULT_TYPE) -> int:
                     context.user_data['files_cache'] = files_cache
             except Exception:
                 pass
+        # אם השפה שמורה כ-text או ריקה אך התוכן מרמז אחרת – נזהה מחדש להצגה
+        try:
+            lang_lower = str(language or "").lower()
+            if (not lang_lower) or lang_lower == "text":
+                try:
+                    from src.domain.services.language_detector import LanguageDetector
+                    new_lang = LanguageDetector().detect_language(code, file_name)
+                except Exception:
+                    # נפילה לשכבה הישנה שתפנה לדומיין אם קיים
+                    new_lang = code_service.detect_language(code, file_name)
+                if new_lang and new_lang != language:
+                    language = new_lang
+                    # עדכן cache לשימוש בהמשך
+                    try:
+                        files_cache[str(file_index)] = dict(file_data, programming_language=language)
+                        context.user_data['files_cache'] = files_cache
+                    except Exception:
+                        pass
+        except Exception:
+            pass
         max_length = 3500
         code_preview = code[:max_length]
         last_page = context.user_data.get('files_last_page')
@@ -464,8 +484,13 @@ async def receive_new_code(update, context: ContextTypes.DEFAULT_TYPE) -> int:
         try:
             user_id = update.effective_user.id
             file_name = editing_large_file['file_name']
-            from utils import detect_language_from_filename
-            language = detect_language_from_filename(file_name)
+            # זיהוי עקבי גם בקבצים גדולים: נעדיף דטקטור דומייני לפי תוכן+שם
+            try:
+                from src.domain.services.language_detector import LanguageDetector
+                language = LanguageDetector().detect_language(new_code, file_name)
+            except Exception:
+                from utils import detect_language_from_filename
+                language = detect_language_from_filename(file_name)
             from database import LargeFile, db
             updated_file = LargeFile(
                 user_id=user_id,
