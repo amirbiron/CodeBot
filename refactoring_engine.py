@@ -1295,6 +1295,13 @@ class RefactoringEngine:
         if not class_by_name:
             return groups_classes
 
+        # העדפה קשיחה: אם למחלקה יש Section התואם לקבוצה קיימת – אל תסיט אותה משם
+        for cname, cls in list(class_by_name.items()):
+            section = (cls.section or "").strip()
+            if section and section in groups:
+                groups_classes[section].append(cls)
+                del class_by_name[cname]
+
         # הכנה: שימושי קלאסים לפי פונקציות
         def used_names_in_function(func: FunctionInfo) -> Set[str]:
             return self._extract_used_names(func.code)
