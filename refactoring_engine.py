@@ -322,7 +322,11 @@ class RefactoringEngine:
         self.absolute_max_groups: int = 8
 
     def propose_refactoring(
-        self, code: str, filename: str, refactor_type: RefactorType
+        self,
+        code: str,
+        filename: str,
+        refactor_type: RefactorType,
+        layered_mode: Optional[bool] = None,
     ) -> RefactorResult:
         """הצעת רפקטורינג"""
         self.analyzer = CodeAnalyzer(code, filename)
@@ -332,6 +336,9 @@ class RefactoringEngine:
                 proposal=None,
                 error="כשל בניתוח הקוד - ייתכן שגיאת תחביר",
             )
+        # בקשת שכבות לפי-קריאה (ללא זיהום ENV גלובלי)
+        if layered_mode is not None:
+            setattr(self, "_layered_mode_override", bool(layered_mode))
         try:
             if refactor_type == RefactorType.SPLIT_FUNCTIONS:
                 proposal = self._split_functions()
@@ -350,6 +357,12 @@ class RefactoringEngine:
         except Exception as e:
             logger.error(f"שגיאה ברפקטורינג: {e}", exc_info=True)
             return RefactorResult(success=False, proposal=None, error=f"שגיאה: {str(e)}")
+        finally:
+            if hasattr(self, "_layered_mode_override"):
+                try:
+                    delattr(self, "_layered_mode_override")
+                except Exception:
+                    pass
 
     def _split_functions(self) -> RefactorProposal:
         # מצב מיוחד: קובץ מודלים מונוליתי (classes בלבד) — Safe Decomposition לדומיינים בתוך חבילת models/
@@ -365,7 +378,11 @@ class RefactoringEngine:
         imports_needed: Dict[str, List[str]] = {}
         per_file_filtered_imports: Dict[str, List[str]] = {}
         base_name = Path(self.analyzer.filename).stem
-        layered_mode = str(os.getenv("REFACTOR_LAYERED_MODE", "")).strip().lower() in ("1", "true", "yes", "on")
+        # עדיפות לעקיפת שכבות לפי-קריאה; אחרת – ENV
+        override = getattr(self, "_layered_mode_override", None)
+        layered_mode = bool(override) if override is not None else (
+            str(os.getenv("REFACTOR_LAYERED_MODE", "")).strip().lower() in ("1", "true", "yes", "on")
+        )
         # הקצאת מחלקות לקבוצות (Collocation)
         classes_by_group = self._assign_classes_to_groups(groups)
         # במצב שכבות (Layered) – דחוף את כל המחלקות לקובץ Leaf יחיד
