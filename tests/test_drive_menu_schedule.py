@@ -1,18 +1,50 @@
 import asyncio
+import sys
 import types
 import pytest
 
 
+def _set_facade(monkeypatch, facade):
+    module_name = "src.infrastructure.composition"
+    module = sys.modules.get(module_name)
+    if module is None:
+        module = types.ModuleType(module_name)
+        sys.modules[module_name] = module
+    monkeypatch.setattr(module, "get_files_facade", lambda: facade, raising=False)
+
+
+def _stub_requests(monkeypatch):
+    mod = sys.modules.get("requests")
+    if mod is not None and getattr(mod, "__file__", None):
+        return
+    sys.modules.pop("requests", None)
+    sys.modules.pop("requests.adapters", None)
+    try:
+        import requests  # type: ignore
+        import requests.adapters  # type: ignore
+        return
+    except Exception:
+        req_module = types.ModuleType("requests")
+        adapters_module = types.ModuleType("requests.adapters")
+        class _HTTPAdapter:  # minimal stub
+            def __init__(self, *args, **kwargs):
+                pass
+        adapters_module.HTTPAdapter = _HTTPAdapter
+        req_module.adapters = adapters_module  # type: ignore[attr-defined]
+        sys.modules["requests"] = req_module
+        sys.modules["requests.adapters"] = adapters_module
+
+
 @pytest.mark.asyncio
 async def test_ensure_schedule_job_sets_next_and_emits_events(monkeypatch):
+    _stub_requests(monkeypatch)
     import handlers.drive.menu as dm
 
     # stub emit_event to capture calls
     events = []
     monkeypatch.setattr(dm, "emit_event", lambda e, severity="info", **f: events.append((e, severity, f)), raising=True)
 
-    # stub db prefs storage
-    class _DB:
+    class _Facade:
         def __init__(self):
             self.saved = []
             self.prefs = {"schedule": "daily"}
@@ -23,8 +55,8 @@ async def test_ensure_schedule_job_sets_next_and_emits_events(monkeypatch):
             self.prefs.update(prefs)
             return True
 
-    db = _DB()
-    monkeypatch.setattr(dm, "db", db, raising=True)
+    facade = _Facade()
+    _set_facade(monkeypatch, facade)
 
     # job queue stub that records the scheduled callback and returns a job object
     scheduled = {}
@@ -43,7 +75,7 @@ async def test_ensure_schedule_job_sets_next_and_emits_events(monkeypatch):
     await handler._ensure_schedule_job(ctx, user_id=123, sched_key="daily")
 
     # schedule_next_at should be persisted
-    assert any("schedule_next_at" in d for d in db.saved)
+    assert any("schedule_next_at" in d for d in facade.saved)
     # job stored in bot_data and next_t set
     job = ctx.bot_data.get("drive_schedule_jobs", {}).get(123)
     assert job is not None
@@ -53,14 +85,14 @@ async def test_ensure_schedule_job_sets_next_and_emits_events(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_ensure_schedule_job_falls_back_when_persistent_unavailable(monkeypatch):
+    _stub_requests(monkeypatch)
     import handlers.drive.menu as dm
 
     # stub events collector
     events = []
     monkeypatch.setattr(dm, "emit_event", lambda e, severity="info", **f: events.append((e, severity, f)), raising=True)
 
-    # db prefs
-    class _DB:
+    class _Facade:
         def __init__(self):
             self.prefs = {"schedule": "daily"}
         def get_drive_prefs(self, user_id):
@@ -68,7 +100,7 @@ async def test_ensure_schedule_job_falls_back_when_persistent_unavailable(monkey
         def save_drive_prefs(self, user_id, prefs):
             self.prefs.update(prefs)
             return True
-    monkeypatch.setattr(dm, "db", _DB(), raising=True)
+    _set_facade(monkeypatch, _Facade())
 
     # job_queue stub: first call with job_kwargs present raises TypeError, second without succeeds
     calls = {"count": 0, "last_kwargs": None}
@@ -104,13 +136,13 @@ async def test_ensure_schedule_job_falls_back_when_persistent_unavailable(monkey
 
 @pytest.mark.asyncio
 async def test_drive_status_does_not_create_job(monkeypatch):
+    _stub_requests(monkeypatch)
     import handlers.drive.menu as dm
 
-    # prefs indicate active schedule
-    class _DB:
+    class _Facade:
         def get_drive_prefs(self, user_id):
             return {"schedule": "daily"}
-    monkeypatch.setattr(dm, "db", _DB(), raising=True)
+    _set_facade(monkeypatch, _Facade())
 
     # capture any scheduling attempts (should be none)
     class _JQ:
@@ -156,14 +188,14 @@ async def test_drive_status_does_not_create_job(monkeypatch):
     assert "סטטוס:" in (upd.callback_query.message.text or "")
 @pytest.mark.asyncio
 async def test_scheduled_backup_callback_success_updates_prefs_and_emits(monkeypatch):
+    _stub_requests(monkeypatch)
     import handlers.drive.menu as dm
 
     # stub emit_event to capture calls
     events = []
     monkeypatch.setattr(dm, "emit_event", lambda e, severity="info", **f: events.append((e, severity, f)), raising=True)
 
-    # stub db prefs
-    class _DB:
+    class _Facade:
         def __init__(self):
             self.saved = []
             self.prefs = {"schedule": "daily"}
@@ -173,8 +205,8 @@ async def test_scheduled_backup_callback_success_updates_prefs_and_emits(monkeyp
             self.saved.append(dict(prefs))
             self.prefs.update(prefs)
             return True
-    db = _DB()
-    monkeypatch.setattr(dm, "db", db, raising=True)
+    facade = _Facade()
+    _set_facade(monkeypatch, facade)
 
     # stub Drive scheduled backup to succeed
     monkeypatch.setattr(dm.gdrive, "perform_scheduled_backup", lambda uid: True, raising=True)
@@ -203,7 +235,7 @@ async def test_scheduled_backup_callback_success_updates_prefs_and_emits(monkeyp
 
     # prefs updated include schedule_next_at and last_backup_at
     merged = {}
-    for p in db.saved:
+    for p in facade.saved:
         merged.update(p)
     assert "schedule_next_at" in merged and "last_backup_at" in merged
     # events around start/result/update_prefs were emitted
@@ -215,10 +247,10 @@ async def test_scheduled_backup_callback_success_updates_prefs_and_emits(monkeyp
 
 @pytest.mark.asyncio
 async def test_scheduled_backup_callback_failure_prompts_reauth(monkeypatch):
+    _stub_requests(monkeypatch)
     import handlers.drive.menu as dm
 
-    # tokens exist → considered connected but service missing → prompt re-auth
-    class _DB:
+    class _Facade:
         def __init__(self):
             self.saved = []
             self.prefs = {"schedule": "daily"}
@@ -230,8 +262,7 @@ async def test_scheduled_backup_callback_failure_prompts_reauth(monkeypatch):
             return True
         def get_drive_tokens(self, user_id):
             return {"access_token": "t", "refresh_token": "r"}
-    db = _DB()
-    monkeypatch.setattr(dm, "db", db, raising=True)
+    _set_facade(monkeypatch, _Facade())
 
     # Drive backup fails and service is None → triggers re-auth message
     monkeypatch.setattr(dm.gdrive, "perform_scheduled_backup", lambda uid: False, raising=True)
@@ -269,10 +300,10 @@ async def test_scheduled_backup_callback_failure_prompts_reauth(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_manual_all_updates_next_and_triggers_reschedule(monkeypatch):
+    _stub_requests(monkeypatch)
     import handlers.drive.menu as dm
 
-    # stub db prefs with active schedule
-    class _DB:
+    class _Facade:
         def __init__(self):
             self.saved = []
             self.prefs = {"schedule": "daily"}
@@ -282,8 +313,8 @@ async def test_manual_all_updates_next_and_triggers_reschedule(monkeypatch):
             self.saved.append(dict(prefs))
             self.prefs.update(prefs)
             return True
-    db = _DB()
-    monkeypatch.setattr(dm, "db", db, raising=True)
+    facade = _Facade()
+    _set_facade(monkeypatch, facade)
 
     # stub Drive service and upload path
     monkeypatch.setattr(dm.gdrive, "get_drive_service", lambda uid: object(), raising=True)
@@ -345,7 +376,7 @@ async def test_manual_all_updates_next_and_triggers_reschedule(monkeypatch):
 
     # verify schedule_next_at persisted and job rescheduled once
     merged = {}
-    for p in db.saved:
+    for p in facade.saved:
         merged.update(p)
     assert "schedule_next_at" in merged
     assert ctx.application.job_queue.calls >= 1
@@ -353,9 +384,10 @@ async def test_manual_all_updates_next_and_triggers_reschedule(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_adv_by_repo_updates_next_when_uploaded(monkeypatch):
+    _stub_requests(monkeypatch)
     import handlers.drive.menu as dm
 
-    class _DB:
+    class _Facade:
         def __init__(self):
             self.saved = []
             self.prefs = {"schedule": "daily"}
@@ -365,8 +397,8 @@ async def test_adv_by_repo_updates_next_when_uploaded(monkeypatch):
             self.saved.append(dict(prefs))
             self.prefs.update(prefs)
             return True
-    db = _DB()
-    monkeypatch.setattr(dm, "db", db, raising=True)
+    facade = _Facade()
+    _set_facade(monkeypatch, facade)
 
     # stub Drive
     monkeypatch.setattr(dm.gdrive, "get_drive_service", lambda uid: object(), raising=True)
@@ -408,16 +440,17 @@ async def test_adv_by_repo_updates_next_when_uploaded(monkeypatch):
     await handler.handle_callback(upd, ctx)
 
     merged = {}
-    for p in db.saved:
+    for p in facade.saved:
         merged.update(p)
     assert "schedule_next_at" in merged
 
 
 @pytest.mark.asyncio
 async def test_manual_zip_updates_next_and_triggers_reschedule(monkeypatch):
+    _stub_requests(monkeypatch)
     import handlers.drive.menu as dm
 
-    class _DB:
+    class _Facade:
         def __init__(self):
             self.saved = []
             self.prefs = {"schedule": "daily"}
@@ -427,8 +460,8 @@ async def test_manual_zip_updates_next_and_triggers_reschedule(monkeypatch):
             self.saved.append(dict(prefs))
             self.prefs.update(prefs)
             return True
-    db = _DB()
-    monkeypatch.setattr(dm, "db", db, raising=True)
+    facade = _Facade()
+    _set_facade(monkeypatch, facade)
 
     # Ensure Drive service and existing saved zips
     monkeypatch.setattr(dm.gdrive, "get_drive_service", lambda uid: object(), raising=True)
@@ -487,7 +520,7 @@ async def test_manual_zip_updates_next_and_triggers_reschedule(monkeypatch):
     await handler.handle_callback(upd, ctx)
 
     merged = {}
-    for p in db.saved:
+    for p in facade.saved:
         merged.update(p)
     assert "schedule_next_at" in merged
     assert ctx.application.job_queue.calls >= 1
@@ -495,9 +528,10 @@ async def test_manual_zip_updates_next_and_triggers_reschedule(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_manual_zip_no_new_uploads_does_not_update_next(monkeypatch):
+    _stub_requests(monkeypatch)
     import handlers.drive.menu as dm
 
-    class _DB:
+    class _Facade:
         def __init__(self):
             self.saved = []
             self.prefs = {"schedule": "daily"}
@@ -507,8 +541,8 @@ async def test_manual_zip_no_new_uploads_does_not_update_next(monkeypatch):
             self.saved.append(dict(prefs))
             self.prefs.update(prefs)
             return True
-    db = _DB()
-    monkeypatch.setattr(dm, "db", db, raising=True)
+    facade = _Facade()
+    _set_facade(monkeypatch, facade)
 
     # Ensure Drive service and saved zips
     monkeypatch.setattr(dm.gdrive, "get_drive_service", lambda uid: object(), raising=True)
@@ -556,7 +590,7 @@ async def test_manual_zip_no_new_uploads_does_not_update_next(monkeypatch):
     await handler.handle_callback(upd, ctx)
 
     merged = {}
-    for p in db.saved:
+    for p in facade.saved:
         merged.update(p)
     # schedule_next_at should not be added on zero uploads path
     assert "schedule_next_at" not in merged
