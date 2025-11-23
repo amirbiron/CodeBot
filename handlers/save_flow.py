@@ -68,36 +68,12 @@ def _safe_construct(target, *preferred_args):
 
 
 def _build_layered_snippet_service():
-    """יוצר מופע שירות למסלול החדש, תוך סובלנות למוקים חלקיים."""
+    """יוצר מופע שירות למסלול החדש דרך Composition Root אחד."""
     try:
-        from src.application.services.snippet_service import SnippetService  # type: ignore
-        from src.domain.services.code_normalizer import CodeNormalizer  # type: ignore
-        from src.infrastructure.database.mongodb.repositories.snippet_repository import (  # type: ignore
-            SnippetRepository as NewSnippetRepository,
-        )
-        from database import db  # type: ignore
+        from src.infrastructure.composition import get_snippet_service  # type: ignore
+        return get_snippet_service()
     except Exception:
         return None
-
-    repo = _safe_construct(NewSnippetRepository, db)
-    normalizer = _safe_construct(CodeNormalizer)
-    if SnippetService is None:
-        return None
-
-    constructors = []
-    if repo is not None or normalizer is not None:
-        constructors.append(lambda: SnippetService(snippet_repository=repo, code_normalizer=normalizer))
-        constructors.append(lambda: SnippetService(repo, normalizer))
-    constructors.append(lambda: SnippetService())
-
-    for builder in constructors:
-        try:
-            return builder()
-        except TypeError:
-            continue
-        except Exception:
-            return None
-    return None
 
 
 async def _call_service_method(service, method_name, *args, **kwargs):
