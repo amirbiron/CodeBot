@@ -38,11 +38,22 @@ class _Ctx:
         self.user_data = {}
 
 
+def _set_facade(monkeypatch, facade):
+    module_name = "src.infrastructure.composition"
+    module = sys.modules.get(module_name)
+    if module is None:
+        module = types.ModuleType(module_name)
+        monkeypatch.setitem(sys.modules, module_name, module)
+    monkeypatch.setattr(module, "get_files_facade", lambda: facade, raising=False)
+
+
 @pytest.mark.asyncio
 async def test_view_file_includes_favorites_button_with_id(monkeypatch):
     # Stub DB with is_favorite=False
-    fake_db_mod = types.SimpleNamespace(db=types.SimpleNamespace(is_favorite=lambda uid, name: False))
-    monkeypatch.setitem(sys.modules, 'database', fake_db_mod)
+    class _Facade:
+        def is_favorite(self, uid, name):
+            return False
+    _set_facade(monkeypatch, _Facade())
 
     import handlers.file_view as fv
     # Stub UI and Telegram utils
@@ -86,9 +97,10 @@ async def test_view_file_includes_favorites_button_with_id(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_view_file_uses_token_when_no_id_and_maps_token(monkeypatch):
-    # DB: mark as not favorite to show add-to-favorites label
-    fake_db_mod = types.SimpleNamespace(db=types.SimpleNamespace(is_favorite=lambda uid, name: False))
-    monkeypatch.setitem(sys.modules, 'database', fake_db_mod)
+    class _Facade:
+        def is_favorite(self, uid, name):
+            return False
+    _set_facade(monkeypatch, _Facade())
 
     import handlers.file_view as fv
     # Stub UI
@@ -134,7 +146,7 @@ async def test_view_file_uses_token_when_no_id_and_maps_token(monkeypatch):
 @pytest.mark.asyncio
 async def test_view_direct_file_includes_favorites_button_with_id(monkeypatch):
     # Fake DB: get_latest_version returns file with _id
-    class _DB:
+    class _Facade:
         def get_latest_version(self, uid, name):
             return {
                 '_id': 'ID789',
@@ -146,8 +158,7 @@ async def test_view_direct_file_includes_favorites_button_with_id(monkeypatch):
         def is_favorite(self, uid, name):
             return True
 
-    fake_db_mod = types.SimpleNamespace(db=_DB())
-    monkeypatch.setitem(sys.modules, 'database', fake_db_mod)
+    _set_facade(monkeypatch, _Facade())
 
     import handlers.file_view as fv
     monkeypatch.setattr(fv, 'InlineKeyboardButton', _Btn, raising=True)
@@ -176,7 +187,7 @@ async def test_view_direct_file_includes_favorites_button_with_id(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_view_direct_large_file_uses_search_fallback(monkeypatch):
-    class _DB:
+    class _Facade:
         def get_file_by_id(self, file_id):
             return None
         def get_large_file_by_id(self, file_id):
@@ -192,8 +203,7 @@ async def test_view_direct_large_file_uses_search_fallback(monkeypatch):
         def is_favorite(self, uid, name):
             return False
 
-    fake_db_mod = types.SimpleNamespace(db=_DB())
-    monkeypatch.setitem(sys.modules, 'database', fake_db_mod)
+    _set_facade(monkeypatch, _Facade())
 
     import handlers.file_view as fv
     monkeypatch.setattr(fv, 'InlineKeyboardButton', _Btn, raising=True)
@@ -219,8 +229,10 @@ async def test_view_direct_large_file_uses_search_fallback(monkeypatch):
 @pytest.mark.asyncio
 async def test_file_menu_includes_favorites_button(monkeypatch):
     # DB: set is_favorite False to display add-to-favorites
-    fake_db_mod = types.SimpleNamespace(db=types.SimpleNamespace(is_favorite=lambda uid, name: False))
-    monkeypatch.setitem(sys.modules, 'database', fake_db_mod)
+    class _Facade:
+        def is_favorite(self, uid, name):
+            return False
+    _set_facade(monkeypatch, _Facade())
 
     import handlers.file_view as fv
     monkeypatch.setattr(fv, 'InlineKeyboardButton', _Btn, raising=True)
