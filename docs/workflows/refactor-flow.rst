@@ -75,6 +75,13 @@
          RE->>RE: _convert_to_classes()
        else DEPENDENCY_INJECTION
          RE->>RE: _add_dependency_injection()
+       else SPECIAL: models.py (Safe Decomposition)
+         RE->>RE: זיהוי מונולית מחלקות בלבד (ללא פונקציות)
+         RE->>RE: קיבוץ מחלקות לדומיינים: core/billing/inventory/(network/workflows)
+         RE->>RE: יצירת files תחת models/: core.py, billing.py, inventory.py, ...
+         RE->>RE: הזרקת יבוא בין-מודולי (למשל billing→core: from .core import User)
+         RE->>RE: בניית models/__init__.py עם re-exports
+         RE->>RE: Dry-Run Tarjan SCC בתוך models/ בלבד; מיזוג נקודתי אם נדרש והעדכון של __init__.py
        end
        
        RE-->>H: RefactorProposal
@@ -369,6 +376,16 @@ Smart Clustering ו‑Cycle Guard
   - נבנה גרף ייבוא בין הקבצים שנוצרו; מזוהים מעגלים באמצעות Tarjan SCC.
   - פירוק מעגלים נעשה ע"י מיזוג ממוקד של זוגות מתוך ה‑SCC בלבד, כולל ניקוי self‑import ועדכון ``__init__.py``.
   - ההצעה כוללת אזהרת ״פורקה תלות מעגלית״ כאשר הדבר התרחש.
+
+Safe Decomposition ל‑models.py
+------------------------------
+
+כאשר קובץ הקלט הוא ``models.py`` הכולל מחלקות בלבד (אין פונקציות טופ‑לבל), נבחר מסלול פיצול בטוח:
+
+- יצירת חבילת משנה ``models/`` עם מודולים דומייניים: ``core.py``, ``billing.py``, ``inventory.py`` (ולפי צורך ``network.py``/``workflows.py``).
+- הזרקת יבוא בין‑מודולי למחלקות נדרשות (לדוגמה: ``from .core import User`` בתוך ``billing.py``).
+- יצירת ``models/__init__.py`` שמייצא את כל הסימבולים לשמירת תאימות ייבוא קיימת.
+- Dry‑Run לזיהוי מעגליות בתוך ``models/`` בלבד, כולל מיזוג נקודתי ועדכון ``__init__.py``.
 
 שמות קבצים דומייניים (Canonical)
 ----------------------------------

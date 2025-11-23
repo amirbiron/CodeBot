@@ -352,6 +352,11 @@ class RefactoringEngine:
             return RefactorResult(success=False, proposal=None, error=f"שגיאה: {str(e)}")
 
     def _split_functions(self) -> RefactorProposal:
+        # מצב מיוחד: קובץ מודלים מונוליתי (classes בלבד) — Safe Decomposition לדומיינים בתוך חבילת models/
+        if self.analyzer and not self.analyzer.functions and self.analyzer.classes:
+            filename_stem = Path(self.analyzer.filename).stem
+            if filename_stem == "models":
+                return self._split_models_monolith()
         groups = self._group_related_functions()
         if len(groups) <= 1:
             raise ValueError("לא נמצאו קבוצות פונקציות נפרדות. הקוד כבר מאורגן היטב.")
@@ -809,6 +814,155 @@ class RefactoringEngine:
             if name in groups:
                 del groups[name]
         return groups
+    # ==== Safe Decomposition for models.py (classes-only) ====
+    def _classify_class_domain(self, cls: ClassInfo) -> str:
+        """
+        מסווג מחלקה לדומיין בסיסי כאשר אין פונקציות טופ-לבל:
+        core / billing / inventory / network / workflows.
+        ברירת מחדל: core.
+        """
+        name_l = cls.name.lower()
+        # סימנים חזקים
+        if any(k in name_l for k in ("subscription", "payment", "billing", "gateway")):
+            return "billing"
+        if any(k in name_l for k in ("product", "inventory", "stock")):
+            return "inventory"
+        if any(k in name_l for k in ("api", "client", "http", "network")):
+            return "network"
+        if any(k in name_l for k in ("workflow", "pipeline")):
+            return "workflows"
+        # ליבה/משתמשים/הרשאות/אימייל
+        if any(k in name_l for k in ("user", "permission", "email", "manager")):
+            return "core"
+        return "core"
+
+    def _extract_module_global_assignments(self) -> Tuple[List[str], str]:
+        """
+        מחזיר (שמות גלובליים לפי סדר הופעה, קוד ההקצאות) מתוך הקובץ המקורי ברמת מודול.
+        משמש בשלב Safe Decomposition ל-models.py כדי לשמר קבועים/משתנים גלובליים.
+        """
+        if not self.analyzer or not getattr(self.analyzer, "tree", None):
+            return [], ""
+        names_in_order: List[str] = []
+        seen: Set[str] = set()
+        code_blocks: List[str] = []
+        lines = self.analyzer.code.splitlines()
+        for node in getattr(self.analyzer.tree, "body", []):  # type: ignore[attr-defined]
+            if isinstance(node, (ast.Assign, ast.AnnAssign)):
+                # שחזור קוד מקור של ההקצאה
+                start = max(1, getattr(node, "lineno", 1))
+                end = getattr(node, "end_lineno", start)
+                snippet = "\n".join(lines[start - 1 : end])
+                code_blocks.append(snippet)
+                # איסוף שמות
+                targets: List[ast.AST] = []
+                if isinstance(node, ast.Assign):
+                    targets = list(node.targets)
+                else:
+                    targets = [node.target]  # type: ignore[attr-defined]
+                for t in targets:
+                    for n in ast.walk(t):
+                        if isinstance(n, ast.Name) and n.id not in seen:
+                            names_in_order.append(n.id)
+                            seen.add(n.id)
+        return names_in_order, ("\n".join(code_blocks).strip() + ("\n" if code_blocks else ""))
+
+    def _split_models_monolith(self) -> RefactorProposal:
+        """
+        פיצול בטוח של קובץ models.py מונוליתי לתת-מודולים דומייניים תחת models/.
+        - core.py: User, UserManager, PermissionSystem, EmailService וכו'
+        - billing.py: SubscriptionManager, PaymentGateway וכו'
+        - inventory.py: Product, Inventory וכו'
+        - network.py/workflows.py לפי הצורך
+        """
+        assert self.analyzer is not None
+        classes = list(self.analyzer.classes or [])
+        if not classes:
+            raise ValueError("לא נמצאו מחלקות לפיצול בתוך models.py")
+        # קיבוץ לפי דומיין
+        domain_to_classes: Dict[str, List[ClassInfo]] = {}
+        for c in classes:
+            domain = self._classify_class_domain(c)
+            domain_to_classes.setdefault(domain, []).append(c)
+        # סדר יציב להצגה
+        preferred_order = ["core", "billing", "inventory", "network", "workflows"]
+        ordered_domains = [d for d in preferred_order if d in domain_to_classes] + [
+            d for d in domain_to_classes.keys() if d not in preferred_order
+        ]
+        new_files: Dict[str, str] = {}
+        changes: List[str] = []
+        # חילוץ משתנים גלובליים ברמת המודול כדי לשמרם בפיצול (למניעת NameError)
+        global_names, globals_code = self._extract_module_global_assignments()
+        # בניית קבצים תחת models/
+        for domain in ordered_domains:
+            cls_list = domain_to_classes.get(domain, [])
+            if not cls_list:
+                continue
+            # סינון imports לפי שימוש במחלקות הדומיין
+            code_body = "\n\n".join(c.code for c in cls_list)
+            filtered_imports = self._filter_imports_for_code(self.analyzer.imports, code_body)
+            # בקובץ core נזריק את ההקצאות הגלובליות אחרי imports ולפני המחלקות
+            if domain == "core" and globals_code.strip():
+                title = "מחלקות: " + ", ".join(c.name for c in cls_list)
+                parts: List[str] = []
+                parts.append(f'"""\nמודול עבור: {title}\n"""\n')
+                parts.extend(filtered_imports)
+                parts.append("")
+                parts.append(globals_code.rstrip())
+                parts.append("")
+                for c in cls_list:
+                    parts.append(c.code)
+                    parts.append("\n")
+                content = "\n".join(parts)
+            else:
+                content = self._build_file_content(functions=[], imports=filtered_imports, classes=cls_list)
+            filename = f"models/{domain}.py"
+            new_files[filename] = content
+            changes.append(f"📦 {filename}: {len(cls_list)} מחלקות")
+        # __init__ לחבילת models/
+        models_module_files = [fn for fn in new_files.keys() if fn.startswith("models/") and fn.endswith(".py")]
+        new_files["models/__init__.py"] = self._build_init_file(models_module_files)
+        changes.append("📦 models/__init__.py: מייצא את כל הישויות")
+        # הזרקת יבוא בין-מודולי למחלקות (למשל billing → core)
+        class_to_module: Dict[str, str] = {}
+        for domain, cls_list in domain_to_classes.items():
+            for c in cls_list:
+                class_to_module[c.name] = domain
+        new_files = self._inject_cross_module_class_imports(new_files, class_to_module)
+        # הזרקת יבוא למשתנים גלובליים שנשמרו ב-core אל מודולים אחרים הצורכים אותם
+        if global_names:
+            new_files = self._inject_global_imports(new_files, set(global_names), source_module_stem="core")
+        # DRY-RUN: זיהוי/פירוק מעגליות בתוך models/ בלבד
+        subset = {k: v for k, v in new_files.items() if k.startswith("models/")}
+        subset, merged_pairs = self._resolve_circular_imports(subset)
+        if merged_pairs:
+            # עדכון __init__.py של models/ לאחר מיזוג
+            module_file_names = [fn for fn in subset.keys() if fn.endswith(".py") and not fn.endswith("__init__.py")]
+            subset["models/__init__.py"] = self._build_init_file(module_file_names)
+        # מיזוג חזרה אל המפה הכוללת
+        for k in list(new_files.keys()):
+            if k.startswith("models/"):
+                del new_files[k]
+        new_files.update(subset)
+        # ניקוי imports מיותרים
+        new_files = self.post_refactor_cleanup(new_files)
+        description = "🏗️ פיצול בטוח של models.py לתת-מודולים דומייניים תחת models/:\n"
+        for fn in sorted(new_files.keys()):
+            if fn.startswith("models/") and fn.endswith(".py"):
+                description += f"   ├── {fn}\n"
+        # אזהרות
+        warnings: List[str] = []
+        if global_names:
+            warnings.append(f"ℹ️ נשמרו {len(global_names)} משתנים גלובליים מתוך models.py בתוך models/core.py.")
+        return RefactorProposal(
+            refactor_type=RefactorType.SPLIT_FUNCTIONS,
+            original_file=self.analyzer.filename,
+            new_files=new_files,
+            description=description,
+            changes_summary=changes,
+            warnings=warnings,
+            imports_needed={},
+        )
     def _build_file_content(
         self,
         functions: List[FunctionInfo],
@@ -842,7 +996,7 @@ class RefactoringEngine:
     def _build_init_file(self, filenames: List[str]) -> str:
         content = '"""\nאינדקס מרכזי לכל הפונקציות\n"""\n\n'
         for fname in filenames:
-            if fname == "__init__.py":
+            if os.path.basename(fname) == "__init__.py":
                 continue
             module_name = Path(fname).stem
             content += f"from .{module_name} import *\n"
@@ -1146,7 +1300,7 @@ class RefactoringEngine:
         class_names = {cls.name for cls in (self.analyzer.classes if self.analyzer else [])}
         out: Dict[str, str] = {}
         for fn, content in new_files.items():
-            if fn in ("__init__.py",) or fn == classes_filename or fn.endswith("_shared.py"):
+            if os.path.basename(fn) == "__init__.py" or fn == classes_filename or fn.endswith("_shared.py"):
                 out[fn] = content
                 continue
             used = self._extract_used_names(content)
@@ -1193,7 +1347,7 @@ class RefactoringEngine:
         """
         out: Dict[str, str] = {}
         for fn, content in new_files.items():
-            if fn in ("__init__.py",) or fn.endswith("_shared.py"):
+            if os.path.basename(fn) == "__init__.py" or fn.endswith("_shared.py"):
                 out[fn] = content
                 continue
             current_stem = Path(fn).stem
@@ -1230,6 +1384,57 @@ class RefactoringEngine:
                 lines = lines[:insert_idx] + new_imports + [""] + lines[insert_idx:]
             out[fn] = "\n".join(lines) + "\n"
         return out
+    def _extract_defined_globals_in_code(self, code: str) -> Set[str]:
+        """שמות משתנים גלובליים (Assign/AnnAssign) המוגדרים בקוד נתון ברמת מודול."""
+        defined: Set[str] = set()
+        try:
+            tree = ast.parse(code)
+        except Exception:
+            return defined
+        for node in getattr(tree, "body", []):
+            if isinstance(node, ast.Assign):
+                for target in node.targets:
+                    for name in ast.walk(target):
+                        if isinstance(name, ast.Name):
+                            defined.add(name.id)
+            elif isinstance(node, ast.AnnAssign):
+                tgt = getattr(node, "target", None)
+                if isinstance(tgt, ast.Name):
+                    defined.add(tgt.id)
+        return defined
+    def _inject_global_imports(self, new_files: Dict[str, str], global_names: Set[str], source_module_stem: str) -> Dict[str, str]:
+        """
+        מזריק import למשתנים גלובליים שנשמרו במודול מקור (למשל core) אל מודולים שצורכים אותם.
+        """
+        out: Dict[str, str] = {}
+        for fn, content in new_files.items():
+            stem = Path(fn).stem
+            if not fn.endswith(".py") or os.path.basename(fn) == "__init__.py" or fn.endswith("_shared.py") or stem == source_module_stem:
+                out[fn] = content
+                continue
+            used = self._extract_used_names(content)
+            defined_here = self._extract_defined_globals_in_code(content)
+            needed = sorted([name for name in global_names if name in used and name not in defined_here])
+            if not needed:
+                out[fn] = content
+                continue
+            lines = content.splitlines()
+            # מצא את סוף הדוקסטרינג
+            insert_idx = 0
+            quote_count = 0
+            for i, line in enumerate(lines):
+                if line.strip().startswith('"""'):
+                    quote_count += 1
+                    if quote_count == 2:
+                        insert_idx = i + 2
+                        break
+            import_line = f"from .{source_module_stem} import {', '.join(needed)}"
+            # הזרקה אם לא קיים כבר
+            already = any(ln.strip().startswith(f"from .{source_module_stem} import") for ln in lines)
+            if not already:
+                lines = lines[:insert_idx] + [import_line, ""] + lines[insert_idx:]
+            out[fn] = "\n".join(lines) + "\n"
+        return out
     def post_refactor_cleanup(self, files: Dict[str, str]) -> Dict[str, str]:
         """
         שלב ניקוי לאחר רפקטורינג: נקיון imports לא בשימוש ברמת קובץ.
@@ -1237,7 +1442,7 @@ class RefactoringEngine:
         """
         cleaned: Dict[str, str] = {}
         for filename, content in files.items():
-            if not filename.endswith('.py') or filename == '__init__.py' or filename.endswith('_shared.py'):
+            if not filename.endswith('.py') or os.path.basename(filename) == '__init__.py' or filename.endswith('_shared.py'):
                 cleaned[filename] = content
                 continue
             try:
@@ -1442,7 +1647,7 @@ class RefactoringEngine:
         out: Dict[str, str] = {}
         class_names: Set[str] = set(class_to_module.keys())
         for fn, content in new_files.items():
-            if fn in ("__init__.py",) or fn.endswith("_shared.py"):
+            if os.path.basename(fn) == "__init__.py" or fn.endswith("_shared.py"):
                 out[fn] = content
                 continue
             current_stem = Path(fn).stem
@@ -1491,7 +1696,7 @@ class RefactoringEngine:
         def _module_stem(fn: str) -> Optional[str]:
             if not fn.endswith(".py"):
                 return None
-            if fn in ("__init__.py",):
+            if os.path.basename(fn) == "__init__.py":
                 return None
             if fn.endswith("_shared.py"):
                 return None
