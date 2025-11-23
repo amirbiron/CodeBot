@@ -9,6 +9,7 @@ import ast
 import re
 import logging
 from dataclasses import dataclass, field
+import os
 from enum import Enum
 from typing import Dict, List, Optional, Set, Tuple, Any
 from pathlib import Path
@@ -359,12 +360,23 @@ class RefactoringEngine:
         imports_needed: Dict[str, List[str]] = {}
         per_file_filtered_imports: Dict[str, List[str]] = {}
         base_name = Path(self.analyzer.filename).stem
+        layered_mode = str(os.getenv("REFACTOR_LAYERED_MODE", "")).strip().lower() in ("1", "true", "yes", "on")
         # הקצאת מחלקות לקבוצות (Collocation)
         classes_by_group = self._assign_classes_to_groups(groups)
-        # בניית קבצי דומיין: מחלקות + פונקציות יחד
+        # במצב שכבות (Layered) – דחוף את כל המחלקות לקובץ Leaf יחיד
+        classes_filename: Optional[str] = None
+        if layered_mode and (self.analyzer and self.analyzer.classes):
+            classes_filename, classes_file_content = self._build_classes_file("models")
+            # נשתמש בקובץ סטנדרטי בשם models.py ולא בשם מבוסס קלט
+            classes_filename = "models.py"
+            new_files[classes_filename] = classes_file_content
+            changes.append(f"📦 {classes_filename}: ריכוז ישויות (Leaf)")
+        # בניית קבצי דומיין
+        module_stem_by_group: Dict[str, str] = {}
         for group_name, functions in groups.items():
             new_filename = self._choose_filename_for_group(base_name, group_name)
-            group_classes = classes_by_group.get(group_name, [])
+            module_stem_by_group[group_name] = Path(new_filename).stem
+            group_classes = [] if layered_mode else classes_by_group.get(group_name, [])
             # סינון imports לפי שימוש אמיתי בקוד המשולב
             combined_body_parts: List[str] = []
             for c in group_classes:
@@ -395,18 +407,22 @@ class RefactoringEngine:
         # הזרקת יבוא לפונקציות בין-מודוליות (Cross-module function imports)
         func_to_module: Dict[str, str] = {}
         for group_name, functions in groups.items():
-            module_stem = f"{base_name}_{group_name}"
+            module_stem = module_stem_by_group.get(group_name, f"{base_name}_{group_name}")
             for f in functions:
                 func_to_module[f.name] = module_stem
         new_files = self._inject_function_imports(new_files, func_to_module)
         # הזרקת יבוא למחלקות בין-מודוליות (Cross-module class imports)
-        class_to_module: Dict[str, str] = {}
-        for group_name, classes in classes_by_group.items():
-            module_stem = f"{base_name}_{group_name}"
-            for c in classes:
-                class_to_module[c.name] = module_stem
-        if class_to_module:
-            new_files = self._inject_cross_module_class_imports(new_files, class_to_module)
+        if layered_mode and classes_filename:
+            # במצב שכבות – כל המחלקות ב-models.py, הזרק import ממנו
+            new_files = self._inject_class_imports(new_files, classes_filename)
+        else:
+            class_to_module: Dict[str, str] = {}
+            for group_name, classes in classes_by_group.items():
+                module_stem = module_stem_by_group.get(group_name, f"{base_name}_{group_name}")
+                for c in classes:
+                    class_to_module[c.name] = module_stem
+            if class_to_module:
+                new_files = self._inject_cross_module_class_imports(new_files, class_to_module)
 
         # DRY-RUN: זיהוי ומניעת תלות מעגלית בין המודולים שנוצרו
         cycle_warnings: List[str] = []
@@ -1606,9 +1622,18 @@ class RefactoringEngine:
                     # אין ייבוא הדדי ישיר – נמזג כל שניים ראשונים
                     pair_to_merge = (comp[0], comp[1])
                 a, b = pair_to_merge  # type: ignore[misc]
-                # שמור על שם שמייצב: בחר את הקצר/אלפביתי כ-a
-                if (b < a) or (len(b) < len(a) and b not in graph.get(a, set())):
+                # עדיפות יעד מיזוג: העדף דומיינים קנוניים כקובץ יעד (users, finance, inventory, network, workflows)
+                def _priority(stem: str) -> int:
+                    order = {"users": 0, "finance": 1, "inventory": 2, "network": 3, "workflows": 4}
+                    return order.get(stem, 9)
+                prioritized = False
+                if _priority(a) > _priority(b):
                     a, b = b, a
+                    prioritized = True
+                # שמור על שם שמייצב: בחר את הקצר/אלפביתי כ-a (רק אם לא הופעלה עדיפות דומיין)
+                if not prioritized:
+                    if (b < a) or (len(b) < len(a) and b not in graph.get(a, set())):
+                        a, b = b, a
                 files, merged = _merge_two(files, stems_map, a, b)
                 merged_pairs.append((merged[0], merged[1]))
                 changed = True
