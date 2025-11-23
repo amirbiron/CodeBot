@@ -236,7 +236,6 @@ class CodeAnalyzer:
         """
         self._sections_by_line = {}
         lines = self.code.splitlines()
-        last_section: Optional[str] = None
         for idx, raw in enumerate(lines, start=1):
             line = raw.strip()
             # דלג על מפרידי "#####"
@@ -253,8 +252,10 @@ class CodeAnalyzer:
             title = m.group(2).strip()
             slug = self._section_to_slug(title)
             if slug:
-                last_section = slug
                 self._sections_by_line[idx] = slug
+            else:
+                # כותרת שלא זוהתה נחשבת להפסקת סעיף קיים כדי לאפשר אזור "ללא סעיף"
+                self._sections_by_line[idx] = None
 
     def _section_to_slug(self, title: str) -> Optional[str]:
         t = title.lower()
@@ -312,6 +313,15 @@ class CodeAnalyzer:
 
 class RefactoringEngine:
     """מנוע רפקטורינג"""
+
+    CANONICAL_DOMAIN_PRIORITY: Dict[str, int] = {
+        "users": 0,
+        "finance": 1,
+        "inventory": 2,
+        "network": 3,
+        "workflows": 4,
+    }
+    STICKY_SUPPORT_DOMAINS: Set[str] = {"helpers", "utils"}
 
     def __init__(self) -> None:
         self.analyzer: Optional[CodeAnalyzer] = None
@@ -448,13 +458,18 @@ class RefactoringEngine:
 
         # DRY-RUN: זיהוי ומניעת תלות מעגלית בין המודולים שנוצרו
         cycle_warnings: List[str] = []
-        new_files, merged_pairs = self._resolve_circular_imports(new_files)
+        new_files, merged_pairs, skipped_canonical_cycles = self._resolve_circular_imports(new_files)
         if merged_pairs:
             for a, b in merged_pairs:
                 cycle_warnings.append(f"♻️ פורקה תלות מעגלית באמצעות מיזוג המודולים: {a} ⇄ {b}")
             # עדכון __init__.py לאחר מיזוגים
             module_file_names = [fn for fn in new_files.keys() if fn.endswith('.py') and fn != '__init__.py']
             new_files['__init__.py'] = self._build_init_file(module_file_names)
+        if skipped_canonical_cycles:
+            for comp in skipped_canonical_cycles:
+                cycle_warnings.append(
+                    f"⚠️ נותרה תלות מעגלית בין מודולים קנוניים שנשמרו לשימור דומיין: {' ⇄ '.join(comp)}"
+                )
 
         # ניקוי פוסט-פיצול: הסרת imports מיותרים ברמת קובץ
         new_files = self.post_refactor_cleanup(new_files)
@@ -718,9 +733,13 @@ class RefactoringEngine:
         if len(items) <= 1:
             return groups
         changed = True
+        protected_groups = set(self.CANONICAL_DOMAIN_PRIORITY.keys()) | self.STICKY_SUPPORT_DOMAINS
         while changed:
             changed = False
-            smallest = min(items, key=lambda kv: len(kv[1]))
+            merge_candidates = [kv for kv in items if kv[0] not in protected_groups]
+            if not merge_candidates:
+                break
+            smallest = min(merge_candidates, key=lambda kv: len(kv[1]))
             if len(smallest[1]) >= self.min_functions_per_group or len(items) <= self.preferred_min_groups:
                 break
             best_idx = None
@@ -744,8 +763,13 @@ class RefactoringEngine:
         # אם יש רק 2 קבוצות — נשאיר אותן כדי למנוע התמזגות למודול יחיד
         if len(items) <= 2:
             return groups
-        large: List[Tuple[str, List[FunctionInfo]]] = [(n, fs) for n, fs in items if len(fs) >= self.min_functions_per_group]
-        small: List[Tuple[str, List[FunctionInfo]]] = [(n, fs) for n, fs in items if len(fs) < self.min_functions_per_group]
+        protected_groups = set(self.CANONICAL_DOMAIN_PRIORITY.keys()) | self.STICKY_SUPPORT_DOMAINS
+        large: List[Tuple[str, List[FunctionInfo]]] = [
+            (n, fs) for n, fs in items if len(fs) >= self.min_functions_per_group or n in protected_groups
+        ]
+        small: List[Tuple[str, List[FunctionInfo]]] = [
+            (n, fs) for n, fs in items if len(fs) < self.min_functions_per_group and n not in protected_groups
+        ]
         if not small:
             return groups
         if not large:
@@ -951,11 +975,17 @@ class RefactoringEngine:
             new_files = self._inject_global_imports(new_files, set(global_names), source_module_stem="core")
         # DRY-RUN: זיהוי/פירוק מעגליות בתוך models/ בלבד
         subset = {k: v for k, v in new_files.items() if k.startswith("models/")}
-        subset, merged_pairs = self._resolve_circular_imports(subset)
+        subset, merged_pairs, skipped_canonical_cycles = self._resolve_circular_imports(subset)
         if merged_pairs:
             # עדכון __init__.py של models/ לאחר מיזוג
             module_file_names = [fn for fn in subset.keys() if fn.endswith(".py") and not fn.endswith("__init__.py")]
             subset["models/__init__.py"] = self._build_init_file(module_file_names)
+        cycle_warnings: List[str] = []
+        if skipped_canonical_cycles:
+            for comp in skipped_canonical_cycles:
+                cycle_warnings.append(
+                    f"⚠️ נותרה תלות מעגלית בין מודולים קנוניים בתוך models/: {' ⇄ '.join(comp)}"
+                )
         # מיזוג חזרה אל המפה הכוללת
         for k in list(new_files.keys()):
             if k.startswith("models/"):
@@ -971,6 +1001,7 @@ class RefactoringEngine:
         warnings: List[str] = []
         if global_names:
             warnings.append(f"ℹ️ נשמרו {len(global_names)} משתנים גלובליים מתוך models.py בתוך models/core.py.")
+        warnings.extend(cycle_warnings)
         return RefactorProposal(
             refactor_type=RefactorType.SPLIT_FUNCTIONS,
             original_file=self.analyzer.filename,
@@ -1768,7 +1799,9 @@ class RefactoringEngine:
         return out
 
     # === DRY-RUN: זיהוי ומניעת תלות מעגלית באמצעות מיזוג מודולים צמודים ===
-    def _resolve_circular_imports(self, files: Dict[str, str]) -> Tuple[Dict[str, str], List[Tuple[str, str]]]:
+    def _resolve_circular_imports(
+        self, files: Dict[str, str]
+    ) -> Tuple[Dict[str, str], List[Tuple[str, str]], List[List[str]]]:
         """
         מזהה רכיבים חזקים (SCC) בגרף הייבוא בין המודולים שנוצרו.
         עבור כל מעגל (SCC בגודל > 1) – ממזג מודולים בזוגות קרובים כדי לפרק את המעגל,
@@ -1884,33 +1917,34 @@ class RefactoringEngine:
             return files_map, (stems_map[a], b_file)
 
         merged_pairs: List[Tuple[str, str]] = []
+        skipped_canonical_cycles: List[List[str]] = []
         iterations = 0
+        canonical_domains = set(self.CANONICAL_DOMAIN_PRIORITY.keys())
+
+        def _is_canonical(stem: str) -> bool:
+            return stem in canonical_domains
+
         while iterations < 5:  # הגבלת ניסיונות כדי למנוע לולאה
             graph, stems_map = _build_graph(files)
             sccs = _tarjan_scc(graph)
-            # חפש SCCs עם יותר מצומת אחד (מעגלים)
             cycles = [comp for comp in sccs if len(comp) > 1]
             if not cycles:
                 break
             changed = False
             for comp in cycles:
-                # בחר זוג למיזוג: נעדיף זוג שיש ביניהם ייבוא הדדי,
-                # ואם אין – נעדיף זוג שבו לפחות אחד אינו דומיין קנוני (מזער פגיעה ב-users/finance/inventory/network/workflows).
+                component_has_non_canonical = any(not _is_canonical(node) for node in comp)
                 pair_to_merge: Optional[Tuple[str, str]] = None
                 mutual: List[Tuple[str, str]] = []
-                canonical_domains = {"users", "finance", "inventory", "network", "workflows"}
-                def _is_canonical(stem: str) -> bool:
-                    return stem in canonical_domains
                 for i in range(len(comp)):
                     for j in range(i + 1, len(comp)):
                         u, v = comp[i], comp[j]
                         if v in graph.get(u, set()) and u in graph.get(v, set()):
                             mutual.append((u, v))
                 if mutual:
-                    # יציבות: בחר לפי סדר אלפביתי כדי לקבל תוצאה דטרמיניסטית
-                    pair_to_merge = tuple(sorted(mutual, key=lambda p: (min(p[0], p[1]), max(p[0], p[1])))[0])  # type: ignore[assignment]
+                    pair_to_merge = tuple(
+                        sorted(mutual, key=lambda p: (min(p[0], p[1]), max(p[0], p[1])))[0]
+                    )  # type: ignore[assignment]
                 else:
-                    # אין ייבוא הדדי ישיר – נבחר זוג שמערב לפחות מודול לא-קנוני כדי לצמצם פגיעה בדומיינים.
                     candidates: List[Tuple[str, str]] = []
                     for i in range(len(comp)):
                         for j in range(i + 1, len(comp)):
@@ -1918,25 +1952,30 @@ class RefactoringEngine:
                             if not (_is_canonical(u) and _is_canonical(v)):
                                 candidates.append((u, v))
                     if candidates:
-                        # העדף זוג עם "אי-קנוניות" גבוהה (כלומר שניהם לא-קנוניים), ואז לפי סדר יציב
                         def _score(pair: Tuple[str, str]) -> Tuple[int, str, str]:
                             u, v = pair
                             non_canon_count = int(not _is_canonical(u)) + int(not _is_canonical(v))
                             return (-non_canon_count, min(u, v), max(u, v))
                         pair_to_merge = sorted(candidates, key=_score)[0]
                     else:
-                        # בלית ברירה (כל המודולים קנוניים) – נשמור התנהגות קיימת ונבחר שניים ראשונים
                         pair_to_merge = (comp[0], comp[1])
                 a, b = pair_to_merge  # type: ignore[misc]
-                # עדיפות יעד מיזוג: העדף דומיינים קנוניים כקובץ יעד (users, finance, inventory, network, workflows)
+                if not component_has_non_canonical and _is_canonical(a) and _is_canonical(b):
+                    skipped_canonical_cycles.append(sorted(comp))
+                    continue
+
                 def _priority(stem: str) -> int:
-                    order = {"users": 0, "finance": 1, "inventory": 2, "network": 3, "workflows": 4}
-                    return order.get(stem, 9)
+                    return self.CANONICAL_DOMAIN_PRIORITY.get(stem, 9)
+
                 prioritized = False
-                if _priority(a) > _priority(b):
+                if _is_canonical(a) and not _is_canonical(b):
+                    prioritized = True
+                elif _is_canonical(b) and not _is_canonical(a):
                     a, b = b, a
                     prioritized = True
-                # שמור על שם שמייצב: בחר את הקצר/אלפביתי כ-a (רק אם לא הופעלה עדיפות דומיין)
+                if not prioritized and _priority(a) > _priority(b):
+                    a, b = b, a
+                    prioritized = True
                 if not prioritized:
                     if (b < a) or (len(b) < len(a) and b not in graph.get(a, set())):
                         a, b = b, a
@@ -1946,7 +1985,7 @@ class RefactoringEngine:
             if not changed:
                 break
             iterations += 1
-        return files, merged_pairs
+        return files, merged_pairs, skipped_canonical_cycles
 
     # === Naming helpers ===
     def _choose_filename_for_group(self, base_name: str, group_name: str) -> str:
