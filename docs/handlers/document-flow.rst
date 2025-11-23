@@ -61,6 +61,13 @@ Best Practices
 - להקפיד על מגבלות: גודל קבצים, קצב GitHub API.
 - בכל הוספת מסלול חדש: לעדכן תיעוד וטסטים רלוונטיים (למשל ``tests/test_main_file_events.py``).
 
+שכבת אחסון (FilesFacade מול DB הישן)
+------------------------------------
+- כברירת מחדל DocumentHandler מנסה לשמור דרך ``src.infrastructure.composition.FilesFacade`` כדי להרוויח את כל מנגנוני ה‑DI החדשים.
+- אם ה‑Facade אינו זמין או מחזיר כישלון, מתקיים fallback אוטומטי לאובייקט ``db`` הגלובלי (כפי שמשתמשים בו טסטים וזרימות Legacy).
+- החלפה של ``handlers.documents.db`` ב‑Stub בטסטים גורמת ל‑DocumentHandler להעדיף אותו אוטומטית, ולכן אין צורך לעדכן את רוב הטסטים הישנים.
+- בכל שינוי ל־backend של הקבצים, יש להוסיף טסט שמכסה גם את נתיב ה‑Facade וגם את ה־fallback כדי לשמור על תאימות.
+
 ראו גם
 ------
 - :doc:`/architecture`
