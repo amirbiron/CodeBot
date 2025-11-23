@@ -62,6 +62,15 @@ def _stub_telegram_if_missing():
 _stub_telegram_if_missing()
 
 
+def _set_facade(monkeypatch, facade):
+    module_name = "src.infrastructure.composition"
+    module = sys.modules.get(module_name)
+    if module is None:
+        module = types.ModuleType(module_name)
+        monkeypatch.setitem(sys.modules, module_name, module)
+    monkeypatch.setattr(module, "get_files_facade", lambda: facade, raising=False)
+
+
 @pytest.mark.asyncio
 async def test_conversation_file_menu_markdown_escape_and_fallback(monkeypatch):
     # Import after stubbing telegram
@@ -179,8 +188,7 @@ async def test_file_view_direct_markdown_note_fallback(monkeypatch):
 
     monkeypatch.setattr(fv.TelegramUtils, 'safe_edit_message_text', fake_safe_edit_message_text)
 
-    # Stub db used inside handlers.file_view
-    class _DB:
+    class _Facade:
         @staticmethod
         def get_latest_version(user_id, file_name):
             return {
@@ -191,11 +199,7 @@ async def test_file_view_direct_markdown_note_fallback(monkeypatch):
                 'description': 'md*special',
                 '_id': 'abc123',
             }
-
-    # Inject stub database module so internal `from database import db` resolves
-    db_mod = types.ModuleType('database')
-    db_mod.db = _DB()
-    monkeypatch.setitem(sys.modules, 'database', db_mod)
+    _set_facade(monkeypatch, _Facade())
 
     # User/context
     ctx = types.SimpleNamespace(user_data={})
@@ -259,7 +263,7 @@ async def test_file_view_direct_markdown_language_uses_html(monkeypatch):
 
     monkeypatch.setattr(fv.TelegramUtils, 'safe_edit_message_text', fake_safe_edit_message_text)
 
-    class _DB:
+    class _Facade:
         @staticmethod
         def get_latest_version(user_id, file_name):
             return {
@@ -271,9 +275,7 @@ async def test_file_view_direct_markdown_language_uses_html(monkeypatch):
                 '_id': 'id1',
             }
 
-    db_mod = types.ModuleType('database')
-    db_mod.db = _DB()
-    monkeypatch.setitem(sys.modules, 'database', db_mod)
+    _set_facade(monkeypatch, _Facade())
 
     ctx = types.SimpleNamespace(user_data={})
     upd = types.SimpleNamespace(callback_query=Q(), effective_user=types.SimpleNamespace(id=1))
@@ -379,7 +381,7 @@ async def test_file_view_direct_no_note_markdown_block(monkeypatch):
 
     monkeypatch.setattr(fv.TelegramUtils, 'safe_edit_message_text', fake_safe_edit_message_text)
 
-    class _DB:
+    class _Facade:
         @staticmethod
         def get_latest_version(user_id, file_name):
             return {
@@ -391,9 +393,7 @@ async def test_file_view_direct_no_note_markdown_block(monkeypatch):
                 '_id': 'abc123',
             }
 
-    db_mod = types.ModuleType('database')
-    db_mod.db = _DB()
-    monkeypatch.setitem(sys.modules, 'database', db_mod)
+    _set_facade(monkeypatch, _Facade())
 
     ctx = types.SimpleNamespace(user_data={})
     upd = types.SimpleNamespace(callback_query=Q(), effective_user=types.SimpleNamespace(id=123))
