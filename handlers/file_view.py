@@ -275,23 +275,42 @@ async def handle_view_file(update, context: ContextTypes.DEFAULT_TYPE) -> int:
 
         # טעינת קוד עצלה: אם ברשימות שמרנו רק מטא־דאטה ללא code, שלוף גרסה אחרונה מה-DB
         if not code:
+            # נסה קודם דרך שכבת האפליקציה (Composition Root), נפילה ל-DB ישיר לתאימות
+            user_id = update.effective_user.id
+            loaded = False
             try:
-                from database import db
-                user_id = update.effective_user.id
-                latest_doc = db.get_latest_version(user_id, file_name)
-                if latest_doc:
-                    code = latest_doc.get('code', '') or ''
-                    language = latest_doc.get('programming_language', language) or language
-                    version = latest_doc.get('version', version) or version
-                    try:
-                        file_id_str = str(latest_doc.get('_id') or file_id_str)
-                    except Exception:
-                        pass
-                    # עדכן cache לזיהוי חזרה/המשך "הצג עוד"
+                from src.infrastructure.composition import get_snippet_service  # type: ignore
+                svc = get_snippet_service()
+                snippet = await _call_service_method(svc, "get_snippet", user_id, file_name)
+                if snippet:
+                    code = getattr(snippet, "code", "") or ""
+                    language = getattr(snippet, "language", language) or language
+                    version = getattr(snippet, "version", version) or version
+                    loaded = True
+            except Exception:
+                loaded = False
+            if not loaded:
+                try:
+                    from database import db
+                    latest_doc = db.get_latest_version(user_id, file_name)
+                    if latest_doc:
+                        code = latest_doc.get('code', '') or ''
+                        language = latest_doc.get('programming_language', language) or language
+                        version = latest_doc.get('version', version) or version
+                        try:
+                            file_id_str = str(latest_doc.get('_id') or file_id_str)
+                        except Exception:
+                            pass
+                        loaded = True
+                except Exception:
+                    pass
+            if loaded:
+                # עדכן cache לזיהוי חזרה/המשך "הצג עוד"
+                try:
                     files_cache[str(file_index)] = dict(file_data, code=code, programming_language=language, version=version)
                     context.user_data['files_cache'] = files_cache
-            except Exception:
-                pass
+                except Exception:
+                    pass
         # אם השפה שמורה כ-text או ריקה אך התוכן מרמז אחרת – נזהה מחדש להצגה דרך מקור אחיד
         try:
             lang_lower = str(language or "").lower()
