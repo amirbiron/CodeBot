@@ -8,6 +8,9 @@ def test_detect_language_from_filename_more_cases():
     # dotenv / env
     assert detect_language_from_filename(".env") == "env"
 
+    # Taskfile
+    assert detect_language_from_filename("Taskfile") == "yaml"
+
     # Markdown סיומות נוספות ורישיות
     assert detect_language_from_filename("README.MD") == "markdown"
     assert detect_language_from_filename("README.markdown") == "markdown"

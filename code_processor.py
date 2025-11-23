@@ -345,6 +345,8 @@ class CodeProcessor:
             'bash': [
                 r'#!/bin/bash',
                 r'#!/bin/sh',
+                r'#!/usr/bin/env\s+bash',
+                r'#!/usr/bin/env\s+sh',
                 r'\becho\s+',
                 r'\bif\s*\[.*\]',
                 r'\bfor\s+\w+\s+in',

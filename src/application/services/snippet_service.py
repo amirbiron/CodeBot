@@ -60,8 +60,12 @@ class SnippetService:
             return "dockerfile"
         if fname_lower == "makefile" or fname_lower.endswith("/makefile"):
             return "makefile"
+        if fname_lower == "taskfile" or fname_lower.endswith("/taskfile"):
+            return "yaml"
         if fname_lower in {".gitignore", ".dockerignore"}:
             return "gitignore" if fname_lower == ".gitignore" else "dockerignore"
+        if fname_lower in {".env"}:
+            return "env"
 
         # Fast path by non-generic extension (keeps legacy behavior)
         non_generic_map = {
@@ -154,8 +158,18 @@ class SnippetService:
 
         # For pure text/no extension: allow strong content override
         if ext in generic_text_exts:
+            # shell shebangs
+            first_line = (code.splitlines()[0] if code else "").strip().lower()
+            if first_line.startswith("#!"):
+                if "bash" in first_line or first_line.endswith("/sh") or " env sh" in first_line or " env bash" in first_line:
+                    return "bash"
+                if "python" in first_line:
+                    return "python"
             if strong_python_signal(code or ""):
                 return "python"
+            # YAML heuristic (common for Taskfile/config without extension)
+            if re.search(r"(?m)^\s*\w+\s*:", code or "") or re.search(r"(?m)^\s*-\s+\S", code or ""):
+                return "yaml"
             return "text"
 
         # Fallbacks for other configs and files
