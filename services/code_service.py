@@ -123,6 +123,12 @@ def detect_language(code: str, filename: str) -> str:
     - העדפת אותות תוכן עבור סיומות גנריות (.md/.txt/ללא סיומת)
     - נפילה חכמה למעבד ברירת מחדל ולמיפוי סיומות
     """
+    # נסה דטקטור דומייני מאוחד לקבלת עקביות בין כל הזרימות (שמירה/עריכה/תצוגה)
+    try:
+        from src.domain.services.language_detector import LanguageDetector
+        return LanguageDetector().detect_language(code, filename)
+    except Exception:
+        pass
     fname = (filename or "").strip()
     code = code or ""
     fname_lower = fname.lower()
