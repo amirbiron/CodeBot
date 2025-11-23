@@ -1,0 +1,16 @@
+/* Basic smooth scrolling styles and accessibility fallbacks */
+html {
+  /* Fallback native smooth behavior for APIs like scrollIntoView */
+  scroll-behavior: smooth;
+}
+
+/* Respect users who prefer reduced motion */
+@media (prefers-reduced-motion: reduce) {
+  * {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
