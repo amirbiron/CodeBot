@@ -354,7 +354,7 @@ class RefactorHandlers:
             gist_integration = None  # type: ignore
         is_available = bool(getattr(gist_integration, "is_available", lambda: False)())
         if not gist_integration or not is_available:
-            await query.message.reply_text("❌ ייצוא ל-Gist אינו זמין כרגע (חסר חיבור ל-GitHub).")
+            await query.message.reply_text("❌ ייצוא ל-Gist לא זמין כרגע (חסר חיבור ל-GitHub).")
             return
         description = (
             f"פיצול {proposal.original_file} ({len(files_map)} קבצים חדשים)"
