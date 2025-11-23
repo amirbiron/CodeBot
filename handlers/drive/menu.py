@@ -600,7 +600,7 @@ class GoogleDriveMenuHandler:
                             large_files, _ = get_files_facade().get_user_large_files(user_id, page=1, per_page=1)
                             has_any = bool(large_files)
                         elif category == "other":
-                            files = get_files_facade().get_user_files(user_id, limit=10) or []
+                            files = get_files_facade().get_user_files(user_id, limit=1) or []
                             # other = not repo tagged
                             for d in files:
                                 tags = d.get('tags') or []
