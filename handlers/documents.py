@@ -12,6 +12,7 @@ import time
 import zipfile
 from datetime import datetime, timezone
 from io import BytesIO
+from types import SimpleNamespace
 from typing import Any, Awaitable, Callable, Iterable, List, Optional, Protocol, Sequence
 
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
@@ -240,19 +241,16 @@ class DocumentHandler:
         db_obj = legacy_db or self._resolve_legacy_db()
         if db_obj is None:
             return False
-        try:
-            from database.models import CodeSnippet  # type: ignore
-        except Exception as exc:
-            logger.debug("CodeSnippet model unavailable: %s", exc)
-            return False
-        snippet = CodeSnippet(
+        snippet = self._build_legacy_snippet_payload(
             user_id=user_id,
             file_name=file_name,
-            code=content,
-            programming_language=language,
+            content=content,
+            language=language,
             description=description,
-            tags=list(tags or []),
+            tags=tags,
         )
+        if snippet is None:
+            return False
         try:
             return bool(db_obj.save_code_snippet(snippet))
         except Exception as exc:
@@ -344,19 +342,16 @@ class DocumentHandler:
         db_obj = legacy_db or self._resolve_legacy_db()
         if db_obj is None:
             return False
-        try:
-            from database.models import LargeFile  # type: ignore
-        except Exception as exc:
-            logger.debug("LargeFile model unavailable: %s", exc)
-            return False
-        large_file = LargeFile(
+        large_file = self._build_legacy_large_file_payload(
             user_id=user_id,
             file_name=file_name,
             content=content,
-            programming_language=language,
+            language=language,
             file_size=file_size,
             lines_count=lines_count,
         )
+        if large_file is None:
+            return False
         try:
             return bool(db_obj.save_large_file(large_file))
         except Exception as exc:
@@ -434,6 +429,66 @@ class DocumentHandler:
             return db_obj.get_large_file(user_id, file_name) or None
         except Exception:
             return None
+
+    def _build_legacy_snippet_payload(
+        self,
+        *,
+        user_id: int,
+        file_name: str,
+        content: str,
+        language: str,
+        description: str = "",
+        tags: Optional[List[str]] = None,
+    ) -> Optional[Any]:
+        payload = {
+            "user_id": user_id,
+            "file_name": file_name,
+            "code": content,
+            "programming_language": language,
+            "description": description,
+            "tags": list(tags or []),
+        }
+        try:
+            from database.models import CodeSnippet  # type: ignore
+        except Exception:
+            CodeSnippet = None  # type: ignore
+        if CodeSnippet is None:  # type: ignore
+            return SimpleNamespace(**payload)
+        try:
+            return CodeSnippet(**payload)  # type: ignore
+        except Exception as exc:
+            logger.warning("Failed creating CodeSnippet payload: %s", exc)
+            return SimpleNamespace(**payload)
+
+    def _build_legacy_large_file_payload(
+        self,
+        *,
+        user_id: int,
+        file_name: str,
+        content: str,
+        language: str,
+        file_size: int,
+        lines_count: int,
+    ) -> Optional[Any]:
+        payload = {
+            "user_id": user_id,
+            "file_name": file_name,
+            "content": content,
+            "programming_language": language,
+            "file_size": file_size,
+            "lines_count": lines_count,
+        }
+        try:
+            from database.models import LargeFile  # type: ignore
+        except Exception:
+            LargeFile = None  # type: ignore
+        if LargeFile is None:  # type: ignore
+            return SimpleNamespace(**payload)
+        try:
+            return LargeFile(**payload)  # type: ignore
+        except Exception as exc:
+            logger.warning("Failed creating LargeFile payload: %s", exc)
+            return SimpleNamespace(**payload)
 
     async def handle_document(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """נתיב ראשי לטיפול בקובץ שנשלח."""

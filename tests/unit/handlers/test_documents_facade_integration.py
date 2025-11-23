@@ -1,4 +1,6 @@
+import sys
 import types
+
 import pytest
 
 from handlers.documents import DocumentHandler
@@ -171,4 +173,53 @@ async def test_large_file_falls_back_to_legacy_when_facade_fails():
     assert legacy.saved_large, "צפויה שמירת קובץ גדול ב-DB הישן לאחר כשל ב-FilesFacade"
     assert legacy.saved_large[0].file_name == "huge.py"
     assert any("הקובץ נשמר בהצלחה" in text for text in upd.message.texts)
+
+
+@pytest.mark.asyncio
+async def test_legacy_fallback_when_models_missing(monkeypatch):
+    legacy = LegacyStub()
+    handler = DocumentHandler(
+        notify_admins=lambda *a, **k: None,
+        get_reporter=lambda: None,
+        log_user_activity=lambda *a, **k: None,
+        encodings_to_try=("utf-8",),
+        emit_event=None,
+        errors_total=None,
+    )
+    handler._legacy_db = legacy
+    handler._legacy_db_checked = True
+    handler._prefer_legacy_first = True
+    handler._files_facade = None
+    handler._files_facade_initialized = True
+
+    empty_models = types.ModuleType("database.models")
+    monkeypatch.setitem(sys.modules, "database.models", empty_models)
+
+    upd = DummyUpdate()
+    ctx = DummyContext()
+    await handler._store_regular_file(
+        upd,
+        ctx,
+        user_id=11,
+        file_name="missing_models.py",
+        language="python",
+        content="print('ok')",
+        detected_encoding="utf-8",
+    )
+    assert legacy.saved_regular, "צפינו שהשמירה תתרחש גם בלי CodeSnippet"
+    assert getattr(legacy.saved_regular[0], "code") == "print('ok')"
+
+    upd2 = DummyUpdate()
+    await handler._store_large_file(
+        upd2,
+        ctx,
+        user_id=22,
+        file_name="missing_large.py",
+        language="python",
+        content="x" * 200,
+        detected_encoding="utf-8",
+    )
+    assert legacy.saved_large, "צפינו שהשמירה תתבצע גם בלי LargeFile"
+    assert getattr(legacy.saved_large[0], "file_name") == "missing_large.py"
+    assert any("הקובץ נשמר בהצלחה" in text for text in upd2.message.texts)
 
