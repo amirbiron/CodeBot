@@ -15,6 +15,7 @@ import logging
 import os
 import re
 from io import BytesIO
+import inspect
 from datetime import datetime, timezone
 from typing import List, Optional
 import secrets
@@ -121,6 +122,24 @@ def _get_main_keyboard() -> list:
         return MAIN_KEYBOARD
     except Exception:
         return [[]]
+
+
+async def _call_service_method(service, method_name, *args, **kwargs):
+    """
+    קריאה בטוחה לפעולה אסינכרונית/סינכרונית של השירות (לשימוש מול Composition Root).
+    """
+    if not service:
+        return None
+    method = getattr(service, method_name, None)
+    if not callable(method):
+        return None
+    try:
+        result = method(*args, **kwargs)
+        if inspect.isawaitable(result):
+            return await result
+        return result
+    except Exception:
+        return None
 
 
 async def handle_file_menu(update, context: ContextTypes.DEFAULT_TYPE) -> int:

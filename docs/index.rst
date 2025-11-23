@@ -73,6 +73,7 @@ Code Keeper Bot - תיעוד API
    user/share_code
    user/github_browse
    user/download_repo
+   BOT_TEST_PLAN_CONTAINER
 
 .. toctree::
    :maxdepth: 2
@@ -102,6 +103,7 @@ Code Keeper Bot - תיעוד API
 
    quality/type-safety
    quality/code-normalization
+   ARCHITECTURE_LAYER_RULES
 
 
 .. toctree::
