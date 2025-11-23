@@ -1,541 +1,1159 @@
-{% extends "base.html" %}
-
-{% block title %}הגדרות - Code Keeper Bot{% endblock %}
-
-{% block content %}
+{% extends "base.html" %} {% block title %}הגדרות - Code Keeper Bot{% endblock
+%} {% block content %}
 <h1 class="page-title">
-    <i class="fas fa-cog"></i>
-    הגדרות
+  <i class="fas fa-cog"></i>
+  הגדרות
 </h1>
 
 <div class="glass-card">
-    <h2 class="section-title">
-        <i class="fas fa-user"></i>
-        פרטי חשבון
-    </h2>
-    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 2rem;">
-        <div>
-            <label style="opacity: 0.7; font-size: 0.9rem;">מזהה משתמש</label>
-            <p style="font-size: 1.2rem; margin: 0.5rem 0;">{{ user.id }}</p>
-        </div>
-        <div>
-            <label style="opacity: 0.7; font-size: 0.9rem;">שם משתמש בטלגרם</label>
-            <p style="font-size: 1.2rem; margin: 0.5rem 0;">
-                {% if user.username %}
-                    @{{ user.username }}
-                {% else %}
-                    <span style="opacity: 0.5;">לא מוגדר</span>
-                {% endif %}
-            </p>
-        </div>
-        <div>
-            <label style="opacity: 0.7; font-size: 0.9rem;">שם מלא</label>
-            <p style="font-size: 1.2rem; margin: 0.5rem 0;">
-                {{ user.first_name }} {{ user.last_name or '' }}
-            </p>
-        </div>
-        <div id="account-status">
-            <label style="opacity: 0.7; font-size: 0.9rem;">סטטוס</label>
-            <p style="font-size: 1.2rem; margin: 0.5rem 0;">
-                {% if is_admin %}
-                <span class="badge" style="background: linear-gradient(135deg, #fbbf24, #f59e0b); padding: 0.5rem 1rem;">
-                    🪪 משתמש אדמין
-                </span>
-                {% elif is_premium %}
-                <span class="badge" style="background: linear-gradient(135deg, #60a5fa, #7dd3fc); padding: 0.5rem 1rem;">
-                    💎 משתמש פרימיום
-                </span>
-                {% else %}
-                <span class="badge">משתמש רגיל</span>
-                {% endif %}
-            </p>
-        </div>
+  <h2 class="section-title">
+    <i class="fas fa-user"></i>
+    פרטי חשבון
+  </h2>
+  <div
+    style="
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+      gap: 2rem;
+    "
+  >
+    <div>
+      <label style="opacity: 0.7; font-size: 0.9rem">מזהה משתמש</label>
+      <p style="font-size: 1.2rem; margin: 0.5rem 0">{{ user.id }}</p>
     </div>
-    {% if is_premium %}
-    <div style="margin-top: 1.5rem; padding: 1rem; background: rgba(255,255,255,0.08); border-radius: 12px; display: flex; align-items: center; gap: 0.75rem;">
-        <div style="font-size: 1rem;">
-            💎 יש לך בקשה מיוחדת? מוזמן לפנות אליי בטלגרם: <a href="https://t.me/moominAmir" target="_blank" rel="noopener" style="color: #fff; text-decoration: underline;">@moominAmir</a>
-        </div>
+    <div>
+      <label style="opacity: 0.7; font-size: 0.9rem">שם משתמש בטלגרם</label>
+      <p style="font-size: 1.2rem; margin: 0.5rem 0">
+        {% if user.username %} @{{ user.username }} {% else %}
+        <span style="opacity: 0.5">לא מוגדר</span>
+        {% endif %}
+      </p>
     </div>
-    {% endif %}
+    <div>
+      <label style="opacity: 0.7; font-size: 0.9rem">שם מלא</label>
+      <p style="font-size: 1.2rem; margin: 0.5rem 0">
+        {{ user.first_name }} {{ user.last_name or '' }}
+      </p>
+    </div>
+    <div id="account-status">
+      <label style="opacity: 0.7; font-size: 0.9rem">סטטוס</label>
+      <p style="font-size: 1.2rem; margin: 0.5rem 0">
+        {% if is_admin %}
+        <span
+          class="badge"
+          style="
+            background: linear-gradient(135deg, #fbbf24, #f59e0b);
+            padding: 0.5rem 1rem;
+          "
+        >
+          🪪 משתמש אדמין
+        </span>
+        {% elif is_premium %}
+        <span
+          class="badge"
+          style="
+            background: linear-gradient(135deg, #60a5fa, #7dd3fc);
+            padding: 0.5rem 1rem;
+          "
+        >
+          💎 משתמש פרימיום
+        </span>
+        {% else %}
+        <span class="badge">משתמש רגיל</span>
+        {% endif %}
+      </p>
+    </div>
+  </div>
+  {% if is_premium %}
+  <div
+    style="
+      margin-top: 1.5rem;
+      padding: 1rem;
+      background: rgba(255, 255, 255, 0.08);
+      border-radius: 12px;
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+    "
+  >
+    <div style="font-size: 1rem">
+      💎 יש לך בקשה מיוחדת? מוזמן לפנות אליי בטלגרם:
+      <a
+        href="https://t.me/moominAmir"
+        target="_blank"
+        rel="noopener"
+        style="color: #fff; text-decoration: underline"
+        >@moominAmir</a
+      >
+    </div>
+  </div>
+  {% endif %}
 </div>
 
 <div class="glass-card">
-    <h2 class="section-title">
-        <i class="fas fa-clock"></i>
-        הגדרות סשן
-    </h2>
-    <div class="glass-card" style="background: rgba(255,255,255,0.05);">
-        <div style="display:flex; align-items:center; justify-content: space-between; gap: 1rem;">
-            <div style="display:flex; align-items:center; gap: 1rem;">
-                <i class="fas fa-check-circle" style="color: var(--success); font-size: 1.5rem;"></i>
-                <div>
-                    <div style="font-weight:600;">חיבור קבוע</div>
-                    <div style="opacity:.8; font-size:.95rem;">
-                        השאר מחובר אוטומטית עד {{ persistent_days }} יום במכשיר זה
-                    </div>
-                </div>
-            </div>
-            <label class="switch">
-                <input id="persistentToggle" type="checkbox" {% if persistent_login_enabled %}checked{% endif %}>
-                <span class="slider"></span>
-            </label>
+  <h2 class="section-title">
+    <i class="fas fa-clock"></i>
+    הגדרות סשן
+  </h2>
+  <div class="glass-card" style="background: rgba(255, 255, 255, 0.05)">
+    <div
+      style="
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 1rem;
+      "
+    >
+      <div style="display: flex; align-items: center; gap: 1rem">
+        <i
+          class="fas fa-check-circle"
+          style="color: var(--success); font-size: 1.5rem"
+        ></i>
+        <div>
+          <div style="font-weight: 600">חיבור קבוע</div>
+          <div style="opacity: 0.8; font-size: 0.95rem">
+            השאר מחובר אוטומטית עד {{ persistent_days }} יום במכשיר זה
+          </div>
         </div>
-        <div id="persistMsg" style="opacity:.8; margin-top:.75rem; font-size:.95rem;">
-            {% if persistent_login_enabled %}
-            החיבור הקבוע פעיל. תוכל לכבות בכל רגע.
-            {% else %}
-            החיבור הקבוע כבוי.
-            {% endif %}
-        </div>
+      </div>
+      <label class="switch">
+        <input
+          id="persistentToggle"
+          type="checkbox"
+          {%
+          if
+          persistent_login_enabled
+          %}checked{%
+          endif
+          %}
+        />
+        <span class="slider"></span>
+      </label>
     </div>
+    <div
+      id="persistMsg"
+      style="opacity: 0.8; margin-top: 0.75rem; font-size: 0.95rem"
+    >
+      {% if persistent_login_enabled %} החיבור הקבוע פעיל. תוכל לכבות בכל רגע.
+      {% else %} החיבור הקבוע כבוי. {% endif %}
+    </div>
+  </div>
 
-    <div style="margin-top: 1.5rem;">
-        <a href="/logout" class="btn btn-secondary btn-icon">
-            <i class="fas fa-sign-out-alt"></i>
-            התנתק מכל המכשירים
-        </a>
-        <p style="margin-top: 0.5rem; opacity: 0.7; font-size: 0.9rem;">
-            התנתקות תסיר את ההתחברות מכל הדפדפנים והמכשירים
-        </p>
-    </div>
+  <div style="margin-top: 1.5rem">
+    <a href="/logout" class="btn btn-secondary btn-icon">
+      <i class="fas fa-sign-out-alt"></i>
+      התנתק מכל המכשירים
+    </a>
+    <p style="margin-top: 0.5rem; opacity: 0.7; font-size: 0.9rem">
+      התנתקות תסיר את ההתחברות מכל הדפדפנים והמכשירים
+    </p>
+  </div>
 </div>
 
 {% if push_enabled %}
 <div class="glass-card">
-    <h2 class="section-title">
-        <i class="fas fa-bell"></i>
-        התראות דפדפן (Web Push)
-    </h2>
-    <div class="glass-card" style="background: rgba(255,255,255,0.05);">
-        <div style="display:flex; align-items:center; justify-content: space-between; gap: 1rem; flex-wrap: wrap;">
-            <div style="display:flex; align-items:center; gap: 1rem; min-width: 260px;">
-                <i class="fas fa-bell" style="font-size: 1.5rem;"></i>
-                <div>
-                    <div style="font-weight:600;">התראות לפתקי Sticky Notes</div>
-                    <div style="opacity:.8; font-size:.95rem;">קבל התראות כשהתזכורת מגיעה. ב‑iOS נדרש להתקין כ‑PWA.</div>
-                </div>
-            </div>
-            <div style="display:flex; gap:.5rem; flex-wrap: wrap;">
-                <button id="pushEnableBtn" class="btn btn-primary">אפשר התראות</button>
-                <button id="pushDisableBtn" class="btn btn-secondary">כבה התראות</button>
-                <button id="pushTestBtn" class="btn btn-tertiary">שלח פוש בדיקה</button>
-            </div>
+  <h2 class="section-title">
+    <i class="fas fa-bell"></i>
+    התראות דפדפן (Web Push)
+  </h2>
+  <div class="glass-card" style="background: rgba(255, 255, 255, 0.05)">
+    <div
+      style="
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 1rem;
+        flex-wrap: wrap;
+      "
+    >
+      <div
+        style="display: flex; align-items: center; gap: 1rem; min-width: 260px"
+      >
+        <i class="fas fa-bell" style="font-size: 1.5rem"></i>
+        <div>
+          <div style="font-weight: 600">התראות לפתקי Sticky Notes</div>
+          <div style="opacity: 0.8; font-size: 0.95rem">
+            קבל התראות כשהתזכורת מגיעה. ב‑iOS נדרש להתקין כ‑PWA.
+          </div>
         </div>
-        <div id="pushStatus" style="opacity:.8; margin-top:.75rem; font-size:.95rem;">מצב לא ידוע</div>
+      </div>
+      <div style="display: flex; gap: 0.5rem; flex-wrap: wrap">
+        <button id="pushEnableBtn" class="btn btn-primary">אפשר התראות</button>
+        <button id="pushDisableBtn" class="btn btn-secondary">
+          כבה התראות
+        </button>
+        <button id="pushTestBtn" class="btn btn-tertiary">שלח פוש בדיקה</button>
+      </div>
     </div>
+    <div
+      id="pushStatus"
+      style="opacity: 0.8; margin-top: 0.75rem; font-size: 0.95rem"
+    >
+      מצב לא ידוע
+    </div>
+  </div>
 </div>
 {% else %}
 <div class="glass-card">
-    <h2 class="section-title">
-        <i class="fas fa-bell-slash"></i>
-        התראות דפדפן (Web Push)
-    </h2>
-    <div class="glass-card" style="background: rgba(255,255,255,0.05);">
-        <div style="opacity:.8; font-size:.95rem;">התראות פוש כבויות במערכת.</div>
+  <h2 class="section-title">
+    <i class="fas fa-bell-slash"></i>
+    התראות דפדפן (Web Push)
+  </h2>
+  <div class="glass-card" style="background: rgba(255, 255, 255, 0.05)">
+    <div style="opacity: 0.8; font-size: 0.95rem">
+      התראות פוש כבויות במערכת.
     </div>
+  </div>
 </div>
-{% endif %}
-
-{% if is_admin %}
-<div class="glass-card" style="border: 2px solid rgba(251, 191, 36, 0.3);">
-    <h2 class="section-title">
-        <i class="fas fa-tools"></i>
-        כלי אדמין
-    </h2>
-    <div style="display: grid; gap: 1rem;">
-        <div style="padding: 1rem; background: rgba(255,255,255,0.05); border-radius: 10px;">
-            <h4>📃 ניהול ספריית סניפטים</h4>
-            <div style="display:flex; gap:.5rem; flex-wrap: wrap;">
-                <a class="btn btn-primary" href="/admin/snippets/pending">📥 הצעות ממתינות</a>
-                <a class="btn btn-secondary" href="/snippets">📚 מעבר לספרייה</a>
-                <a class="btn btn-secondary" href="/snippets/submit">➕ הוסף סניפט חדש</a>
-            </div>
-        </div>
-        <div style="padding: 1rem; background: rgba(255,255,255,0.05); border-radius: 10px;">
-            <h4>📣 ניהול הכרזות מערכת</h4>
-            <div style="display:flex; gap:.5rem; flex-wrap: wrap;">
-                <a class="btn btn-primary" href="/admin/announcements">פתח עמוד הכרזות</a>
-            </div>
-        </div>
-        <div style="padding: 1rem; background: rgba(255,255,255,0.05); border-radius: 10px;">
-            <h4>🧩 ממשקי משתמשים – אוסף הקהילה</h4>
-            <div style="display:flex; gap:.5rem; flex-wrap: wrap;">
-                <a class="btn btn-primary" href="/admin/community/pending">📥 אוספים ממתינים</a>
-                <a class="btn btn-secondary" href="/community-library">🏛️ לעמוד האוסף</a>
-            </div>
-        </div>
-        <div style="padding: 1rem; background: rgba(255,255,255,0.05); border-radius: 10px;">
-            <h4><i class="fas fa-database"></i> סטטיסטיקות מערכת</h4>
-            <p style="opacity: 0.8;">בקרוב: צפייה בנתונים כלליים של המערכת</p>
-        </div>
-        <div style="padding: 1rem; background: rgba(255,255,255,0.05); border-radius: 10px;">
-            <h4><i class="fas fa-users"></i> ניהול משתמשים</h4>
-            <p style="opacity: 0.8;">בקרוב: צפייה וניהול משתמשי המערכת</p>
-        </div>
-        <div style="padding: 1rem; background: rgba(255,255,255,0.05); border-radius: 10px;">
-            <h4><i class="fab fa-github"></i> אינטגרציית GitHub</h4>
-            <p style="opacity: 0.8;">בקרוב: חיבור וניהול ריפוזיטוריז מ-GitHub</p>
-        </div>
+{% endif %} {% if is_admin %}
+<div class="glass-card" style="border: 2px solid rgba(251, 191, 36, 0.3)">
+  <h2 class="section-title">
+    <i class="fas fa-tools"></i>
+    כלי אדמין
+  </h2>
+  <div style="display: grid; gap: 1rem">
+    <div
+      style="
+        padding: 1rem;
+        background: rgba(255, 255, 255, 0.05);
+        border-radius: 10px;
+      "
+    >
+      <h4>📃 ניהול ספריית סניפטים</h4>
+      <div style="display: flex; gap: 0.5rem; flex-wrap: wrap">
+        <a class="btn btn-primary" href="/admin/snippets/pending"
+          >📥 הצעות ממתינות</a
+        >
+        <a class="btn btn-secondary" href="/snippets">📚 מעבר לספרייה</a>
+        <a class="btn btn-secondary" href="/snippets/submit"
+          >➕ הוסף סניפט חדש</a
+        >
+      </div>
     </div>
+    <div
+      style="
+        padding: 1rem;
+        background: rgba(255, 255, 255, 0.05);
+        border-radius: 10px;
+      "
+    >
+      <h4>📣 ניהול הכרזות מערכת</h4>
+      <div style="display: flex; gap: 0.5rem; flex-wrap: wrap">
+        <a class="btn btn-primary" href="/admin/announcements"
+          >פתח עמוד הכרזות</a
+        >
+      </div>
+    </div>
+    <div
+      style="
+        padding: 1rem;
+        background: rgba(255, 255, 255, 0.05);
+        border-radius: 10px;
+      "
+    >
+      <h4>🧩 ממשקי משתמשים – אוסף הקהילה</h4>
+      <div style="display: flex; gap: 0.5rem; flex-wrap: wrap">
+        <a class="btn btn-primary" href="/admin/community/pending"
+          >📥 אוספים ממתינים</a
+        >
+        <a class="btn btn-secondary" href="/community-library"
+          >🏛️ לעמוד האוסף</a
+        >
+      </div>
+    </div>
+    <div
+      style="
+        padding: 1rem;
+        background: rgba(255, 255, 255, 0.05);
+        border-radius: 10px;
+      "
+    >
+      <h4><i class="fas fa-database"></i> סטטיסטיקות מערכת</h4>
+      <p style="opacity: 0.8">בקרוב: צפייה בנתונים כלליים של המערכת</p>
+    </div>
+    <div
+      style="
+        padding: 1rem;
+        background: rgba(255, 255, 255, 0.05);
+        border-radius: 10px;
+      "
+    >
+      <h4><i class="fas fa-users"></i> ניהול משתמשים</h4>
+      <p style="opacity: 0.8">בקרוב: צפייה וניהול משתמשי המערכת</p>
+    </div>
+    <div
+      style="
+        padding: 1rem;
+        background: rgba(255, 255, 255, 0.05);
+        border-radius: 10px;
+      "
+    >
+      <h4><i class="fab fa-github"></i> אינטגרציית GitHub</h4>
+      <p style="opacity: 0.8">בקרוב: חיבור וניהול ריפוזיטוריז מ-GitHub</p>
+    </div>
+  </div>
 </div>
 {% endif %}
 
 <div class="glass-card">
+  <h2 class="section-title">
+    <i class="fas fa-palette"></i>
+    העדפות תצוגה
+  </h2>
+  <div class="glass-card" style="background: rgba(255, 255, 255, 0.05)">
+    <div
+      style="
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 1rem;
+      "
+    >
+      <div style="display: flex; align-items: center; gap: 1rem">
+        <i class="fas fa-text-height" style="font-size: 1.5rem"></i>
+        <div>
+          <div style="font-weight: 600">גודל גופן</div>
+          <div style="opacity: 0.8; font-size: 0.95rem">
+            התאם את גודל הטקסט באפליקציה
+          </div>
+        </div>
+      </div>
+      <div
+        style="display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap"
+      >
+        <button
+          id="fontMinus"
+          class="btn btn-secondary"
+          title="הקטן"
+          style="min-width: 3rem"
+        >
+          A-
+        </button>
+        <div id="fontValue" class="badge">× {{ '%.2f' % ui_font_scale }}</div>
+        <button
+          id="fontPlus"
+          class="btn btn-secondary"
+          title="הגדל"
+          style="min-width: 3rem"
+        >
+          A+
+        </button>
+      </div>
+    </div>
+  </div>
+  <p style="opacity: 0.7; margin-top: 0.75rem; font-size: 0.9rem">
+    ההגדרה נשמרת למשתמש ולמכשיר זה.
+  </p>
+
+  <div
+    class="glass-card"
+    style="background: rgba(255, 255, 255, 0.05); margin-top: 1rem"
+  >
+    <div
+      style="
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 1rem;
+      "
+    >
+      <div style="display: flex; align-items: center; gap: 1rem">
+        <i class="fas fa-fill-drip" style="font-size: 1.5rem"></i>
+        <div>
+          <div style="font-weight: 600">ערכת נושא</div>
+          <div style="opacity: 0.8; font-size: 0.95rem">
+            בחר סגנון צבעים — כולל הנוכחית
+          </div>
+        </div>
+      </div>
+      <div>
+        <select
+          id="themeSelect"
+          class="filter-select"
+          aria-label="בחר ערכת נושא"
+          style="
+            padding: 0.5rem 0.75rem;
+            border-radius: 10px;
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            background: rgba(255, 255, 255, 0.1);
+            color: white;
+          "
+        >
+          <option
+            value="classic"
+            {%
+            if
+            ui_theme=""
+            ="classic"
+            %}selected{%
+            endif
+            %}
+          >
+            קלאסי{% if ui_theme == 'classic' %} (נוכחית){% endif %}
+          </option>
+          <option
+            value="ocean"
+            {%
+            if
+            ui_theme=""
+            ="ocean"
+            %}selected{%
+            endif
+            %}
+          >
+            אוקיינוס{% if ui_theme == 'ocean' %} (נוכחית){% endif %}
+          </option>
+          <option
+            value="forest"
+            {%
+            if
+            ui_theme=""
+            ="forest"
+            %}selected{%
+            endif
+            %}
+          >
+            יער{% if ui_theme == 'forest' %} (נוכחית){% endif %}
+          </option>
+          <option
+            value="rose-pine-dawn"
+            {%
+            if
+            ui_theme=""
+            ="rose-pine-dawn"
+            %}selected{%
+            endif
+            %}
+          >
+            🌹 Rose Pine Dawn{% if ui_theme == 'rose-pine-dawn' %} (נוכחית){%
+            endif %}
+          </option>
+          <option value="dark" {% if ui_theme="" ="dark" %}selected{% endif %}>
+            🌙 חשוך{% if ui_theme == 'dark' %} (נוכחית){% endif %}
+          </option>
+          <option value="dim" {% if ui_theme="" ="dim" %}selected{% endif %}>
+            🌆 מעומעם{% if ui_theme == 'dim' %} (נוכחית){% endif %}
+          </option>
+          <option
+            value="high-contrast"
+            {%
+            if
+            ui_theme=""
+            ="high-contrast"
+            %}selected{%
+            endif
+            %}
+          >
+            ניגודיות גבוהה{% if ui_theme == 'high-contrast' %} (נוכחית){% endif
+            %}
+          </option>
+        </select>
+      </div>
+    </div>
+  </div>
+
+  <!-- Bookmarks toggle visibility (moved from panel) -->
+  <div
+    class="glass-card"
+    style="background: rgba(255, 255, 255, 0.05); margin-top: 1rem"
+  >
+    <div
+      style="
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 1rem;
+      "
+    >
+      <div style="display: flex; align-items: center; gap: 1rem">
+        <i class="fas fa-bookmark" style="font-size: 1.5rem"></i>
+        <div>
+          <div style="font-weight: 600">הצגת כפתור סימניות</div>
+          <div style="opacity: 0.8; font-size: 0.95rem">
+            הצג / הסתר את הכפתור הצף 🔖
+          </div>
+        </div>
+      </div>
+      <div
+        style="display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap"
+      >
+        <button id="bmShowBtn" class="btn btn-secondary">הצג</button>
+        <button id="bmHideBtn" class="btn btn-secondary">הסתר</button>
+        <span
+          id="bmState"
+          class="badge"
+          style="min-width: 64px; text-align: center"
+        ></span>
+      </div>
+    </div>
+  </div>
+  <div class="glass-card" id="smoothScrollSettingsCard">
     <h2 class="section-title">
-        <i class="fas fa-palette"></i>
-        העדפות תצוגה
+      <i class="fas fa-stream"></i>
+      גלילה חלקה
     </h2>
-    <div class="glass-card" style="background: rgba(255,255,255,0.05);">
-        <div style="display:flex; align-items:center; justify-content: space-between; gap: 1rem;">
-            <div style="display:flex; align-items:center; gap: 1rem;">
-                <i class="fas fa-text-height" style="font-size: 1.5rem;"></i>
-                <div>
-                    <div style="font-weight:600;">גודל גופן</div>
-                    <div style="opacity:.8; font-size:.95rem;">התאם את גודל הטקסט באפליקציה</div>
-                </div>
-            </div>
-            <div style="display:flex; align-items:center; gap:.5rem; flex-wrap: wrap;">
-                <button id="fontMinus" class="btn btn-secondary" title="הקטן" style="min-width: 3rem;">A-</button>
-                <div id="fontValue" class="badge">× {{ '%.2f' % ui_font_scale }}</div>
-                <button id="fontPlus" class="btn btn-secondary" title="הגדל" style="min-width: 3rem;">A+</button>
-            </div>
+    <div
+      class="glass-card"
+      style="
+        background: rgba(255, 255, 255, 0.05);
+        display: flex;
+        flex-direction: column;
+        gap: 1rem;
+      "
+    >
+      <div class="smooth-scroll-setting-row">
+        <div>
+          <strong>הפעל גלילה חלקה</strong>
+          <small>כיבוי יכבד את הגדרות הנגישות של מערכת ההפעלה</small>
         </div>
-    </div>
-    <p style="opacity:.7; margin-top:.75rem; font-size:.9rem;">ההגדרה נשמרת למשתמש ולמכשיר זה.</p>
-
-    <div class="glass-card" style="background: rgba(255,255,255,0.05); margin-top: 1rem;">
-        <div style="display:flex; align-items:center; justify-content: space-between; gap: 1rem;">
-            <div style="display:flex; align-items:center; gap: 1rem;">
-                <i class="fas fa-fill-drip" style="font-size: 1.5rem;"></i>
-                <div>
-                    <div style="font-weight:600;">ערכת נושא</div>
-                    <div style="opacity:.8; font-size:.95rem;">בחר סגנון צבעים — כולל הנוכחית</div>
-                </div>
-            </div>
-            <div>
-                <select id="themeSelect" class="filter-select" aria-label="בחר ערכת נושא" style="padding: 0.5rem 0.75rem; border-radius: 10px; border: 1px solid rgba(255,255,255,0.2); background: rgba(255,255,255,0.1); color: white;">
-                    <option value="classic" {% if ui_theme == 'classic' %}selected{% endif %}>קלאסי{% if ui_theme == 'classic' %} (נוכחית){% endif %}</option>
-                    <option value="ocean" {% if ui_theme == 'ocean' %}selected{% endif %}>אוקיינוס{% if ui_theme == 'ocean' %} (נוכחית){% endif %}</option>
-                    <option value="forest" {% if ui_theme == 'forest' %}selected{% endif %}>יער{% if ui_theme == 'forest' %} (נוכחית){% endif %}</option>
-                    <option value="rose-pine-dawn" {% if ui_theme == 'rose-pine-dawn' %}selected{% endif %}>🌹 Rose Pine Dawn{% if ui_theme == 'rose-pine-dawn' %} (נוכחית){% endif %}</option>
-                    <option value="dark" {% if ui_theme == 'dark' %}selected{% endif %}>🌙 חשוך{% if ui_theme == 'dark' %} (נוכחית){% endif %}</option>
-                    <option value="dim" {% if ui_theme == 'dim' %}selected{% endif %}>🌆 מעומעם{% if ui_theme == 'dim' %} (נוכחית){% endif %}</option>
-                    <option value="high-contrast" {% if ui_theme == 'high-contrast' %}selected{% endif %}>ניגודיות גבוהה{% if ui_theme == 'high-contrast' %} (נוכחית){% endif %}</option>
-                </select>
-            </div>
+        <label class="switch">
+          <input type="checkbox" id="smoothScrollEnabledToggle" />
+          <span class="slider"></span>
+        </label>
+      </div>
+      <div class="smooth-scroll-setting-row">
+        <div>
+          <strong>משך אנימציה</strong>
+          <small>מגדיר תוך כמה זמן מסתיימת הגלילה</small>
         </div>
-    </div>
-
-    <!-- Bookmarks toggle visibility (moved from panel) -->
-    <div class="glass-card" style="background: rgba(255,255,255,0.05); margin-top: 1rem;">
-        <div style="display:flex; align-items:center; justify-content: space-between; gap: 1rem;">
-            <div style="display:flex; align-items:center; gap: 1rem;">
-                <i class="fas fa-bookmark" style="font-size: 1.5rem;"></i>
-                <div>
-                    <div style="font-weight:600;">הצגת כפתור סימניות</div>
-                    <div style="opacity:.8; font-size:.95rem;">הצג / הסתר את הכפתור הצף 🔖</div>
-                </div>
-            </div>
-            <div style="display:flex; align-items:center; gap:.5rem; flex-wrap: wrap;">
-                <button id="bmShowBtn" class="btn btn-secondary">הצג</button>
-                <button id="bmHideBtn" class="btn btn-secondary">הסתר</button>
-                <span id="bmState" class="badge" style="min-width:64px; text-align:center"></span>
-            </div>
+        <div class="smooth-scroll-control">
+          <input
+            type="range"
+            id="smoothScrollDuration"
+            min="150"
+            max="1200"
+            step="50"
+          />
+          <span id="smoothScrollDurationValue">400ms</span>
         </div>
+      </div>
+      <div class="smooth-scroll-setting-row">
+        <div>
+          <strong>עקומת אנימציה</strong>
+          <small>הגדרת easing (Linear, Ease-in וכו')</small>
+        </div>
+        <div class="smooth-scroll-control">
+          <select id="smoothScrollEasing" aria-label="בחר עקומת גלילה">
+            <option value="linear">Linear</option>
+            <option value="ease-in">Ease-in</option>
+            <option value="ease-out">Ease-out</option>
+            <option value="ease-in-out" selected>Ease-in-out</option>
+          </select>
+        </div>
+      </div>
+      <div class="smooth-scroll-setting-row">
+        <div>
+          <strong>רגישות גלגלת</strong>
+          <small>קובע כמה תנועה תתרגם לגלילה</small>
+        </div>
+        <div class="smooth-scroll-control">
+          <input
+            type="range"
+            id="smoothScrollWheel"
+            min="0.5"
+            max="3"
+            step="0.1"
+          />
+          <span id="smoothScrollWheelValue">1.0×</span>
+        </div>
+      </div>
+      <div class="smooth-scroll-setting-row">
+        <div>
+          <strong>רגישות מקלדת</strong>
+          <small>משפיע על PageUp/PageDown וחיצים</small>
+        </div>
+        <div class="smooth-scroll-control">
+          <input
+            type="range"
+            id="smoothScrollKeyboard"
+            min="0.5"
+            max="3"
+            step="0.1"
+          />
+          <span id="smoothScrollKeyboardValue">1.5×</span>
+        </div>
+      </div>
+      <div class="smooth-scroll-setting-row">
+        <div>
+          <strong>אינרציה באנדרואיד</strong>
+          <small>כמות התאוצה שמתווספת אחרי שחרור האצבע</small>
+        </div>
+        <div class="smooth-scroll-control">
+          <input
+            type="range"
+            id="smoothScrollMomentum"
+            min="10"
+            max="60"
+            step="1"
+          />
+          <span id="smoothScrollMomentumValue">26×</span>
+        </div>
+      </div>
+      <div class="smooth-scroll-actions">
+        <button
+          id="smoothScrollTestBtn"
+          class="btn btn-secondary"
+          type="button"
+        >
+          <i class="fas fa-play-circle"></i>
+          בדיקת גלילה
+        </button>
+        <button
+          id="smoothScrollResetBtn"
+          class="btn btn-tertiary"
+          type="button"
+        >
+          <i class="fas fa-undo"></i>
+          איפוס לברירת מחדל
+        </button>
+      </div>
     </div>
-</div>
+    <p id="smoothScrollSettingsNote" style="opacity: 0.75; margin-top: 0.75rem">
+      ההגדרות נשמרות מקומית ומסונכרנות לשרת (אם האפשרות זמינה). ברירת המחדל
+      מכבדת את העדפות הנגישות של המכשיר.
+    </p>
+  </div>
 
-<div class="glass-card">
+  <div class="glass-card">
     <h2 class="section-title">
-        <i class="fas fa-shield-alt"></i>
-        פרטיות ואבטחה
+      <i class="fas fa-shield-alt"></i>
+      פרטיות ואבטחה
     </h2>
-    <div style="display: grid; gap: 1rem;">
-        <div style="display: flex; align-items: start; gap: 1rem;">
-            <i class="fas fa-lock" style="color: var(--success); margin-top: 0.25rem;"></i>
-            <div>
-                <strong>חיבור מאובטח</strong>
-                <p style="opacity: 0.8; margin: 0.25rem 0;">כל התקשורת מוצפנת ב-HTTPS</p>
-            </div>
+    <div style="display: grid; gap: 1rem">
+      <div style="display: flex; align-items: start; gap: 1rem">
+        <i
+          class="fas fa-lock"
+          style="color: var(--success); margin-top: 0.25rem"
+        ></i>
+        <div>
+          <strong>חיבור מאובטח</strong>
+          <p style="opacity: 0.8; margin: 0.25rem 0">
+            כל התקשורת מוצפנת ב-HTTPS
+          </p>
         </div>
-        <div style="display: flex; align-items: start; gap: 1rem;">
-            <i class="fas fa-user-shield" style="color: var(--success); margin-top: 0.25rem;"></i>
-            <div>
-                <strong>אימות דרך Telegram</strong>
-                <p style="opacity: 0.8; margin: 0.25rem 0;">התחברות מאובטחת ללא סיסמאות</p>
-            </div>
+      </div>
+      <div style="display: flex; align-items: start; gap: 1rem">
+        <i
+          class="fas fa-user-shield"
+          style="color: var(--success); margin-top: 0.25rem"
+        ></i>
+        <div>
+          <strong>אימות דרך Telegram</strong>
+          <p style="opacity: 0.8; margin: 0.25rem 0">
+            התחברות מאובטחת ללא סיסמאות
+          </p>
         </div>
-        <div style="display: flex; align-items: start; gap: 1rem;">
-            <i class="fas fa-database" style="color: var(--success); margin-top: 0.25rem;"></i>
-            <div>
-                <strong>הצפנת נתונים</strong>
-                <p style="opacity: 0.8; margin: 0.25rem 0;">כל המידע הרגיש מוצפן במסד הנתונים</p>
-            </div>
+      </div>
+      <div style="display: flex; align-items: start; gap: 1rem">
+        <i
+          class="fas fa-database"
+          style="color: var(--success); margin-top: 0.25rem"
+        ></i>
+        <div>
+          <strong>הצפנת נתונים</strong>
+          <p style="opacity: 0.8; margin: 0.25rem 0">
+            כל המידע הרגיש מוצפן במסד הנתונים
+          </p>
         </div>
+      </div>
     </div>
-</div>
+  </div>
 
-<style>
-.badge {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.5rem;
-    padding: 0.25rem 0.75rem;
-    border-radius: 20px;
-    font-size: 0.9rem;
-    font-weight: 600;
-    background: rgba(255,255,255,0.1);
-    border: 1px solid rgba(255,255,255,0.2);
-}
+  <style>
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.5rem;
+      padding: 0.25rem 0.75rem;
+      border-radius: 20px;
+      font-size: 0.9rem;
+      font-weight: 600;
+      background: rgba(255, 255, 255, 0.1);
+      border: 1px solid rgba(255, 255, 255, 0.2);
+    }
 
-.section-title {
-    display: flex;
-    align-items: center;
-    gap: 0.75rem;
-    margin-bottom: 1.5rem;
-    font-size: 1.25rem;
-}
+    .section-title {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      margin-bottom: 1.5rem;
+      font-size: 1.25rem;
+    }
 
-.glass-card h4 {
-    margin: 0 0 0.5rem 0;
-    color: #fff; /* כותרות לבנות במקום כחול עבור הגדרות אדמין */
-}
+    .glass-card h4 {
+      margin: 0 0 0.5rem 0;
+      color: #fff; /* כותרות לבנות במקום כחול עבור הגדרות אדמין */
+    }
 
-/* Toggle switch */
-.switch { position: relative; display: inline-block; width: 52px; height: 28px; }
-.switch input { opacity: 0; width: 0; height: 0; }
-.slider { position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background: rgba(255,255,255,0.2); transition: .2s; border-radius: 28px; border: 1px solid rgba(255,255,255,0.3); }
-.slider:before { position: absolute; content: ""; height: 22px; width: 22px; left: 3px; top: 2px; background: white; transition: .2s; border-radius: 50%; }
-input:checked + .slider { background: rgba(72, 187, 120, 0.5); }
-input:checked + .slider:before { transform: translateX(24px); }
-</style>
+    /* Toggle switch */
+    .switch {
+      position: relative;
+      display: inline-block;
+      width: 52px;
+      height: 28px;
+    }
+    .switch input {
+      opacity: 0;
+      width: 0;
+      height: 0;
+    }
+    .slider {
+      position: absolute;
+      cursor: pointer;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background: rgba(255, 255, 255, 0.2);
+      transition: 0.2s;
+      border-radius: 28px;
+      border: 1px solid rgba(255, 255, 255, 0.3);
+    }
+    .slider:before {
+      position: absolute;
+      content: "";
+      height: 22px;
+      width: 22px;
+      left: 3px;
+      top: 2px;
+      background: white;
+      transition: 0.2s;
+      border-radius: 50%;
+    }
+    input:checked + .slider {
+      background: rgba(72, 187, 120, 0.5);
+    }
+    input:checked + .slider:before {
+      transform: translateX(24px);
+    }
 
-{% block extra_js %}
-<script>
-(function(){
-  const toggle = document.getElementById('persistentToggle');
-  const msg = document.getElementById('persistMsg');
-  if (toggle) {
-    toggle.addEventListener('change', async function(){
-      try {
-        const res = await fetch('/api/persistent_login', {
+    .smooth-scroll-setting-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 1rem;
+      flex-wrap: wrap;
+    }
+    .smooth-scroll-setting-row strong {
+      display: block;
+    }
+    .smooth-scroll-setting-row small {
+      display: block;
+      opacity: 0.7;
+      font-size: 0.85rem;
+    }
+    .smooth-scroll-control {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      flex: 1;
+      min-width: 220px;
+    }
+    .smooth-scroll-control input[type="range"] {
+      flex: 1;
+    }
+    .smooth-scroll-control span {
+      font-weight: 600;
+      min-width: 60px;
+      text-align: right;
+    }
+    .smooth-scroll-actions {
+      display: flex;
+      gap: 0.5rem;
+      flex-wrap: wrap;
+    }
+  </style>
+
+  {% block extra_js %}
+  <script>
+    (function(){
+      const toggle = document.getElementById('persistentToggle');
+      const msg = document.getElementById('persistMsg');
+      if (toggle) {
+        toggle.addEventListener('change', async function(){
+          try {
+            const res = await fetch('/api/persistent_login', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ enable: toggle.checked })
+            });
+            const data = await res.json();
+            if (!data.ok) throw new Error(data.error || 'Failed');
+            if (toggle.checked) { msg.textContent = 'החיבור הקבוע פעיל. תוכל לכבות בכל רגע.'; }
+            else { msg.textContent = 'החיבור הקבוע כבוי.'; }
+          } catch (e) {
+            toggle.checked = !toggle.checked;
+            alert('שגיאה בעדכון מצב החיבור הקבוע');
+          }
+        });
+      }
+
+      // Font size controls
+      const vEl = document.getElementById('fontValue');
+      const btnMinus = document.getElementById('fontMinus');
+      const btnPlus = document.getElementById('fontPlus');
+      const themeSel = document.getElementById('themeSelect');
+      function setVal(x){ if (vEl) vEl.textContent = '× ' + x.toFixed(2); }
+      function save(scale){
+        return fetch('/api/ui_prefs', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ enable: toggle.checked })
-        });
-        const data = await res.json();
-        if (!data.ok) throw new Error(data.error || 'Failed');
-        if (toggle.checked) { msg.textContent = 'החיבור הקבוע פעיל. תוכל לכבות בכל רגע.'; }
-        else { msg.textContent = 'החיבור הקבוע כבוי.'; }
-      } catch (e) {
-        toggle.checked = !toggle.checked;
-        alert('שגיאה בעדכון מצב החיבור הקבוע');
+          body: JSON.stringify({ font_scale: scale })
+        }).then(r=>r.json());
       }
-    });
-  }
-
-  // Font size controls
-  const vEl = document.getElementById('fontValue');
-  const btnMinus = document.getElementById('fontMinus');
-  const btnPlus = document.getElementById('fontPlus');
-  const themeSel = document.getElementById('themeSelect');
-  function setVal(x){ if (vEl) vEl.textContent = '× ' + x.toFixed(2); }
-  function save(scale){
-    return fetch('/api/ui_prefs', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ font_scale: scale })
-    }).then(r=>r.json());
-  }
-  function getCurrent(){
-    try { return parseFloat((vEl.textContent||'').replace(/[×\s]/g,'')) || 1.00; } catch(e){ return 1.00; }
-  }
-  if (btnMinus) btnMinus.addEventListener('click', async function(){
-    let cur = getCurrent();
-    cur = Math.max(0.85, (cur - 0.05));
-    setVal(cur);
-    try { const res = await save(cur); if (!res.ok) throw 0; } catch(e){ alert('שגיאה בשמירת גודל הגופן'); }
-    location.reload();
-  });
-  if (btnPlus) btnPlus.addEventListener('click', async function(){
-    let cur = getCurrent();
-    cur = Math.min(1.60, (cur + 0.05));
-    setVal(cur);
-    try { const res = await save(cur); if (!res.ok) throw 0; } catch(e){ alert('שגיאה בשמירת גודל הגופן'); }
-    location.reload();
-  });
-
-  if (themeSel) themeSel.addEventListener('change', async function(){
-    try {
-      const res = await fetch('/api/ui_prefs', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ theme: themeSel.value })
+      function getCurrent(){
+        try { return parseFloat((vEl.textContent||'').replace(/[×\s]/g,'')) || 1.00; } catch(e){ return 1.00; }
+      }
+      if (btnMinus) btnMinus.addEventListener('click', async function(){
+        let cur = getCurrent();
+        cur = Math.max(0.85, (cur - 0.05));
+        setVal(cur);
+        try { const res = await save(cur); if (!res.ok) throw 0; } catch(e){ alert('שגיאה בשמירת גודל הגופן'); }
+        location.reload();
       });
-      const data = await res.json();
-      if (!data.ok) throw 0;
-      location.reload();
-    } catch (e) { alert('שגיאה בעדכון ערכת הנושא'); }
-  });
+      if (btnPlus) btnPlus.addEventListener('click', async function(){
+        let cur = getCurrent();
+        cur = Math.min(1.60, (cur + 0.05));
+        setVal(cur);
+        try { const res = await save(cur); if (!res.ok) throw 0; } catch(e){ alert('שגיאה בשמירת גודל הגופן'); }
+        location.reload();
+      });
 
-  // Bookmarks toggle visibility controls
-  const BM_KEY = 'bookmarks_toggle_btn_visible';
-  const bmShow = document.getElementById('bmShowBtn');
-  const bmHide = document.getElementById('bmHideBtn');
-  const bmState = document.getElementById('bmState');
-  function refreshBmState(){
-    try {
-      const v = localStorage.getItem(BM_KEY);
-      const shown = v !== '0';
-      if (bmState) bmState.textContent = shown ? 'מוצג' : 'מוסתר';
-    } catch(_) { if (bmState) bmState.textContent = '—'; }
-  }
-  function setBm(show){
-    try { localStorage.setItem(BM_KEY, show ? '1' : '0'); } catch(_) {}
-    refreshBmState();
-  }
-  if (bmShow) bmShow.addEventListener('click', ()=> setBm(true));
-  if (bmHide) bmHide.addEventListener('click', ()=> setBm(false));
-  refreshBmState();
+      if (themeSel) themeSel.addEventListener('change', async function(){
+        try {
+          const res = await fetch('/api/ui_prefs', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ theme: themeSel.value })
+          });
+          const data = await res.json();
+          if (!data.ok) throw 0;
+          location.reload();
+        } catch (e) { alert('שגיאה בעדכון ערכת הנושא'); }
+      });
 
-  // --- Web Push (Service Worker + PushManager) ---
-  const __PUSH_ENABLED__ = {{ 'true' if push_enabled else 'false' }};
-  if (!__PUSH_ENABLED__) {
-    // When push is disabled server-side, skip all push JS logic
-    return;
-  }
-  const pushStatus = document.getElementById('pushStatus');
-  const pushEnableBtn = document.getElementById('pushEnableBtn');
-  const pushDisableBtn = document.getElementById('pushDisableBtn');
-  const pushTestBtn = document.getElementById('pushTestBtn');
-
-  function setPushStatus(text){ if (pushStatus) pushStatus.textContent = text; }
-
-  function urlBase64ToUint8Array(base64String) {
-    const padding = '='.repeat((4 - base64String.length % 4) % 4);
-    const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
-    const rawData = window.atob(base64);
-    const outputArray = new Uint8Array(rawData.length);
-    for (let i = 0; i < rawData.length; ++i) { outputArray[i] = rawData.charCodeAt(i); }
-    return outputArray;
-  }
-
-  async function registerSw(){
-    if (!('serviceWorker' in navigator)) throw new Error('ServiceWorker לא נתמך');
-    const reg = await navigator.serviceWorker.register('/sw.js');
-    try { await navigator.serviceWorker.ready; } catch(_) {}
-    return reg;
-  }
-
-  async function getVapid(){
-    const r = await fetch('/api/push/public-key', { cache:'no-store' });
-    const j = await r.json().catch(()=>({}));
-    if (!j || j.ok === false || !j.vapidPublicKey) throw new Error('מפתח VAPID לא זמין');
-    return j.vapidPublicKey;
-  }
-
-  async function enablePush(){
-    try {
-      if (!('Notification' in window)) throw new Error('התראות לא נתמכות בדפדפן');
-      if (!('serviceWorker' in navigator)) throw new Error('ServiceWorker לא נתמך');
-      if (!('PushManager' in window)) throw new Error('PushManager לא נתמך');
-
-      const reg = await registerSw();
-      // אם כבר קיים מנוי – הצג הודעת "כבר מופעלות" וסנכרן לשרת בעדינות
-      try {
-        const existing = reg && reg.pushManager ? await reg.pushManager.getSubscription() : null;
-        if (existing) {
-          try {
-            await fetch('/api/push/subscribe', { method:'POST', headers:{'Content-Type':'application/json'}, credentials:'include', body: JSON.stringify(existing) });
-          } catch(_) {}
-          setPushStatus('ההתראות כבר מופעלות');
-          return;
-        }
-      } catch(_) {}
-
-      const perm = await Notification.requestPermission();
-      if (perm !== 'granted') { setPushStatus('הרשאת התראות נדחתה'); return; }
-      setPushStatus('נרשם Service Worker...');
-      const key = await getVapid();
-      const sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: urlBase64ToUint8Array(key) });
-      const resp = await fetch('/api/push/subscribe', { method:'POST', headers:{'Content-Type':'application/json'}, credentials:'include', body: JSON.stringify(sub) });
-      const j = await resp.json().catch(()=>({}));
-      if (!resp.ok || !j || j.ok === false) throw new Error('שמירת מנוי נכשלה');
-      setPushStatus('התראות הופעלו בהצלחה');
-    } catch(e){ setPushStatus('שגיאה בהפעלת התראות'); console.warn('enablePush failed', e); }
-  }
-
-  async function disablePush(){
-    try {
-      if (!('serviceWorker' in navigator)) { setPushStatus('הדפדפן לא תומך בהתראות'); return; }
-      const reg = (await navigator.serviceWorker.getRegistration()) || (await registerSw());
-      const sub = (reg && reg.pushManager) ? await reg.pushManager.getSubscription() : null;
-      if (!sub) { setPushStatus('ההתראות כבר כבויות'); return; }
-      try {
-        const ep = (sub && typeof sub.endpoint === 'string') ? sub.endpoint : '';
-        if (ep) {
-          await fetch('/api/push/subscribe', { method:'DELETE', headers:{'Content-Type':'application/json'}, credentials:'include', body: JSON.stringify({ endpoint: ep }) });
-        }
-      } catch(_) {}
-      try { await sub.unsubscribe(); } catch(_) {}
-      setPushStatus('התראות כובו');
-    } catch(e){ setPushStatus('שגיאה בכיבוי התראות'); console.warn('disablePush failed', e); }
-  }
-
-  async function testPush(){
-    try {
-      const r = await fetch('/api/push/test', { method:'POST', credentials:'include' });
-      const j = await r.json().catch(()=>({}));
-      if (r.ok && j && j.ok) {
-        if (j.sent > 0) { setPushStatus('נשלחה התראת בדיקה'); return; }
-        const codes = j.codes || {};
-        const known = Object.keys(codes).map(k => Number(k));
-        // Treat only non-zero codes as meaningful; code 0 is a transport/TLS error
-        const nonZero = known.filter(k => k !== 0);
-        if (nonZero.includes(404) || nonZero.includes(410)) {
-          setPushStatus('המנוי פג (404/410) — כבה/הפעל התראות ואז נסה שוב');
-        } else if (nonZero.includes(401) || nonZero.includes(403)) {
-          setPushStatus('אי־התאמת מפתחות (401/403) — ודא זוג VAPID תואם ורענן מנוי');
-        } else if (nonZero.length) {
-          setPushStatus('כשל שליחה (קודים: ' + nonZero.join(', ') + ')');
-        } else if (Array.isArray(j.errors) && j.errors.length) {
-          const first = j.errors.find(e => !e.status || e.status === 0) || j.errors[0];
-          const msg = (first && first.error) ? String(first.error) : 'שגיאה לא ידועה';
-          setPushStatus('כשל שליחה (0): ' + msg);
-        } else {
-          setPushStatus('לא נשלחה התראה (בדוק מפתח VAPID/מנויים)');
-        }
-      } else {
-        if (j && j.error === 'no_subscriptions') setPushStatus('אין מנוי פוש לשלח אליו — הפעל התראות');
-        else if (j && j.error === 'missing_vapid_private_key') setPushStatus('חסר VAPID_PRIVATE_KEY בשרת');
-        else if (j && j.error === 'pywebpush_not_available') setPushStatus('שרת: pywebpush לא מותקן/זמין');
-        else if (j && j.error === 'internal_error') setPushStatus('שגיאה פנימית בשרת');
-        else setPushStatus('בדיקת פוש נכשלה');
+      // Bookmarks toggle visibility controls
+      const BM_KEY = 'bookmarks_toggle_btn_visible';
+      const bmShow = document.getElementById('bmShowBtn');
+      const bmHide = document.getElementById('bmHideBtn');
+      const bmState = document.getElementById('bmState');
+      function refreshBmState(){
+        try {
+          const v = localStorage.getItem(BM_KEY);
+          const shown = v !== '0';
+          if (bmState) bmState.textContent = shown ? 'מוצג' : 'מוסתר';
+        } catch(_) { if (bmState) bmState.textContent = '—'; }
       }
-    } catch(e){ setPushStatus('בדיקת פוש נכשלה'); }
-  }
+      function setBm(show){
+        try { localStorage.setItem(BM_KEY, show ? '1' : '0'); } catch(_) {}
+        refreshBmState();
+      }
+      if (bmShow) bmShow.addEventListener('click', ()=> setBm(true));
+      if (bmHide) bmHide.addEventListener('click', ()=> setBm(false));
+      refreshBmState();
 
-  async function refreshPushUi(){
-    try {
-      if (!('Notification' in window)) { setPushStatus('הדפדפן לא תומך בהתראות'); return; }
-      const st = Notification.permission;
-      let hasSub = false;
-      try {
-        const reg = (await navigator.serviceWorker.getRegistration()) || (await registerSw());
-        const sub = reg && reg.pushManager ? await reg.pushManager.getSubscription() : null;
-        hasSub = !!sub;
-      } catch(_) {}
-      if (st === 'granted' && hasSub) setPushStatus('התראות מופעלות בדפדפן זה');
-      else if (st === 'denied') setPushStatus('המשתמש חסם התראות – יש לאפשר ידנית');
-      else setPushStatus('נדרש להפעיל התראות');
-    } catch(_) { setPushStatus('מצב לא ידוע'); }
-  }
+      const initSmoothScrollSettingsCard = () => {
+        const card = document.getElementById('smoothScrollSettingsCard');
+        if (!card) return;
+        const noteEl = document.getElementById('smoothScrollSettingsNote');
+        const els = {
+          enabled: document.getElementById('smoothScrollEnabledToggle'),
+          duration: document.getElementById('smoothScrollDuration'),
+          durationLabel: document.getElementById('smoothScrollDurationValue'),
+          easing: document.getElementById('smoothScrollEasing'),
+          wheel: document.getElementById('smoothScrollWheel'),
+          wheelLabel: document.getElementById('smoothScrollWheelValue'),
+          keyboard: document.getElementById('smoothScrollKeyboard'),
+          keyboardLabel: document.getElementById('smoothScrollKeyboardValue'),
+          momentum: document.getElementById('smoothScrollMomentum'),
+          momentumLabel: document.getElementById('smoothScrollMomentumValue'),
+          test: document.getElementById('smoothScrollTestBtn'),
+          reset: document.getElementById('smoothScrollResetBtn'),
+        };
+        const disableUi = (message) => {
+          card.querySelectorAll('input, select, button').forEach((el) => { el.disabled = true; });
+          if (noteEl && message) noteEl.textContent = message;
+        };
 
-  if (pushEnableBtn) pushEnableBtn.addEventListener('click', enablePush);
-  if (pushDisableBtn) pushDisableBtn.addEventListener('click', disablePush);
-  if (pushTestBtn) pushTestBtn.addEventListener('click', testPush);
-  refreshPushUi();
-})();
-</script>
-{% endblock %}
-{% endblock %}
+        const attach = (manager) => {
+          const defaults = { ...(manager.defaultConfig || {}) };
+          const reducePref = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+          if (noteEl && reducePref) {
+            noteEl.textContent = 'למערכת מוגדר "הפחת אנימציות", כך שהגלילה החלקה תכובה גם אם האפשרות מסומנת.';
+          }
+
+          const fmtMs = (v) => `${Math.round(v)}ms`;
+          const fmtX = (v) => `${v.toFixed(1)}×`;
+          const fmtAmp = (v) => `${Math.round(v)}×`;
+
+          const setSlider = (input, label, value, formatter) => {
+            if (!input || !label || typeof value !== 'number' || Number.isNaN(value)) return;
+            input.value = String(value);
+            label.textContent = formatter(value);
+          };
+
+          const refresh = () => {
+            const cfg = manager.config || defaults;
+            if (els.enabled) els.enabled.checked = !!cfg.enabled;
+            setSlider(els.duration, els.durationLabel, cfg.duration ?? defaults.duration ?? 400, fmtMs);
+            setSlider(els.wheel, els.wheelLabel, cfg.wheelSensitivity ?? defaults.wheelSensitivity ?? 1, fmtX);
+            setSlider(els.keyboard, els.keyboardLabel, cfg.keyboardSensitivity ?? defaults.keyboardSensitivity ?? 1.5, fmtX);
+            setSlider(els.momentum, els.momentumLabel, cfg.androidMomentumAmplifier ?? defaults.androidMomentumAmplifier ?? 26, fmtAmp);
+            if (els.easing) {
+              els.easing.value = cfg.easing || 'ease-in-out';
+            }
+          };
+
+          const commit = (partial) => {
+            manager.updateConfig(partial);
+            if (Object.prototype.hasOwnProperty.call(partial, 'enabled')) {
+              partial.enabled ? manager.enable() : manager.disable();
+            }
+            refresh();
+          };
+
+          const bindRange = (input, label, formatter, key) => {
+            if (!input || !label) return;
+            input.addEventListener('input', () => {
+              const val = Number(input.value);
+              if (!Number.isNaN(val)) label.textContent = formatter(val);
+            });
+            input.addEventListener('change', () => {
+              const val = Number(input.value);
+              if (!Number.isNaN(val)) {
+                const payload = {};
+                payload[key] = val;
+                commit(payload);
+              }
+            });
+          };
+
+          if (els.enabled) {
+            els.enabled.addEventListener('change', () => {
+              commit({ enabled: !!els.enabled.checked });
+            });
+          }
+          bindRange(els.duration, els.durationLabel, fmtMs, 'duration');
+          bindRange(els.wheel, els.wheelLabel, fmtX, 'wheelSensitivity');
+          bindRange(els.keyboard, els.keyboardLabel, fmtX, 'keyboardSensitivity');
+          bindRange(els.momentum, els.momentumLabel, fmtAmp, 'androidMomentumAmplifier');
+          if (els.easing) {
+            els.easing.addEventListener('change', () => {
+              commit({ easing: els.easing.value || 'ease-in-out' });
+            });
+          }
+
+          let activeTestMarker = null;
+          let activeTestMarkerTimeout = null;
+          const clearActiveTestMarker = () => {
+            if (activeTestMarkerTimeout) {
+              clearTimeout(activeTestMarkerTimeout);
+              activeTestMarkerTimeout = null;
+            }
+            if (activeTestMarker) {
+              try { activeTestMarker.remove(); } catch (_) {}
+              activeTestMarker = null;
+            }
+          };
+
+          if (els.test) {
+            els.test.addEventListener('click', (event) => {
+              event.preventDefault();
+              clearActiveTestMarker();
+              try {
+                const marker = document.createElement('div');
+                marker.id = 'smooth-scroll-test-target';
+                marker.style.position = 'absolute';
+                marker.style.top = `${Math.max(200, Math.floor((document.body.scrollHeight || 4000) / 2))}px`;
+                marker.style.width = '1px';
+                marker.style.height = '1px';
+                marker.style.pointerEvents = 'none';
+                document.body.appendChild(marker);
+                activeTestMarker = marker;
+                activeTestMarkerTimeout = setTimeout(() => clearActiveTestMarker(), 5000);
+                manager.smoothScrollTo(marker, {
+                  callback: () => {
+                    setTimeout(() => {
+                      try { manager.smoothScrollTo('body'); } catch (_) {}
+                      clearActiveTestMarker();
+                    }, 300);
+                  },
+                });
+              } catch (_) {
+                clearActiveTestMarker();
+              }
+            });
+          }
+
+          if (els.reset) {
+            els.reset.addEventListener('click', (event) => {
+              event.preventDefault();
+              commit({ ...defaults });
+            });
+          }
+
+          refresh();
+        };
+
+        const waitForManager = (attempt = 0) => {
+          const manager = window.smoothScroll;
+          if (manager) {
+            attach(manager);
+            return;
+          }
+          if (attempt > 200) {
+            disableUi('מנוע הגלילה לא נטען — רענן את הדף ובדוק את הקונסול לדיווחי שגיאה.');
+            return;
+          }
+          setTimeout(() => waitForManager(attempt + 1), 50);
+        };
+
+        waitForManager();
+      };
+
+      if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', initSmoothScrollSettingsCard);
+      } else {
+        initSmoothScrollSettingsCard();
+      }
+
+      // --- Web Push (Service Worker + PushManager) ---
+      const __PUSH_ENABLED__ = {{ 'true' if push_enabled else 'false' }};
+      if (!__PUSH_ENABLED__) {
+        // When push is disabled server-side, skip all push JS logic
+        return;
+      }
+      const pushStatus = document.getElementById('pushStatus');
+      const pushEnableBtn = document.getElementById('pushEnableBtn');
+      const pushDisableBtn = document.getElementById('pushDisableBtn');
+      const pushTestBtn = document.getElementById('pushTestBtn');
+
+      function setPushStatus(text){ if (pushStatus) pushStatus.textContent = text; }
+
+      function urlBase64ToUint8Array(base64String) {
+        const padding = '='.repeat((4 - base64String.length % 4) % 4);
+        const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
+        const rawData = window.atob(base64);
+        const outputArray = new Uint8Array(rawData.length);
+        for (let i = 0; i < rawData.length; ++i) { outputArray[i] = rawData.charCodeAt(i); }
+        return outputArray;
+      }
+
+      async function registerSw(){
+        if (!('serviceWorker' in navigator)) throw new Error('ServiceWorker לא נתמך');
+        const reg = await navigator.serviceWorker.register('/sw.js');
+        try { await navigator.serviceWorker.ready; } catch(_) {}
+        return reg;
+      }
+
+      async function getVapid(){
+        const r = await fetch('/api/push/public-key', { cache:'no-store' });
+        const j = await r.json().catch(()=>({}));
+        if (!j || j.ok === false || !j.vapidPublicKey) throw new Error('מפתח VAPID לא זמין');
+        return j.vapidPublicKey;
+      }
+
+      async function enablePush(){
+        try {
+          if (!('Notification' in window)) throw new Error('התראות לא נתמכות בדפדפן');
+          if (!('serviceWorker' in navigator)) throw new Error('ServiceWorker לא נתמך');
+          if (!('PushManager' in window)) throw new Error('PushManager לא נתמך');
+
+          const reg = await registerSw();
+          // אם כבר קיים מנוי – הצג הודעת "כבר מופעלות" וסנכרן לשרת בעדינות
+          try {
+            const existing = reg && reg.pushManager ? await reg.pushManager.getSubscription() : null;
+            if (existing) {
+              try {
+                await fetch('/api/push/subscribe', { method:'POST', headers:{'Content-Type':'application/json'}, credentials:'include', body: JSON.stringify(existing) });
+              } catch(_) {}
+              setPushStatus('ההתראות כבר מופעלות');
+              return;
+            }
+          } catch(_) {}
+
+          const perm = await Notification.requestPermission();
+          if (perm !== 'granted') { setPushStatus('הרשאת התראות נדחתה'); return; }
+          setPushStatus('נרשם Service Worker...');
+          const key = await getVapid();
+          const sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: urlBase64ToUint8Array(key) });
+          const resp = await fetch('/api/push/subscribe', { method:'POST', headers:{'Content-Type':'application/json'}, credentials:'include', body: JSON.stringify(sub) });
+          const j = await resp.json().catch(()=>({}));
+          if (!resp.ok || !j || j.ok === false) throw new Error('שמירת מנוי נכשלה');
+          setPushStatus('התראות הופעלו בהצלחה');
+        } catch(e){ setPushStatus('שגיאה בהפעלת התראות'); console.warn('enablePush failed', e); }
+      }
+
+      async function disablePush(){
+        try {
+          if (!('serviceWorker' in navigator)) { setPushStatus('הדפדפן לא תומך בהתראות'); return; }
+          const reg = (await navigator.serviceWorker.getRegistration()) || (await registerSw());
+          const sub = (reg && reg.pushManager) ? await reg.pushManager.getSubscription() : null;
+          if (!sub) { setPushStatus('ההתראות כבר כבויות'); return; }
+          try {
+            const ep = (sub && typeof sub.endpoint === 'string') ? sub.endpoint : '';
+            if (ep) {
+              await fetch('/api/push/subscribe', { method:'DELETE', headers:{'Content-Type':'application/json'}, credentials:'include', body: JSON.stringify({ endpoint: ep }) });
+            }
+          } catch(_) {}
+          try { await sub.unsubscribe(); } catch(_) {}
+          setPushStatus('התראות כובו');
+        } catch(e){ setPushStatus('שגיאה בכיבוי התראות'); console.warn('disablePush failed', e); }
+      }
+
+      async function testPush(){
+        try {
+          const r = await fetch('/api/push/test', { method:'POST', credentials:'include' });
+          const j = await r.json().catch(()=>({}));
+          if (r.ok && j && j.ok) {
+            if (j.sent > 0) { setPushStatus('נשלחה התראת בדיקה'); return; }
+            const codes = j.codes || {};
+            const known = Object.keys(codes).map(k => Number(k));
+            // Treat only non-zero codes as meaningful; code 0 is a transport/TLS error
+            const nonZero = known.filter(k => k !== 0);
+            if (nonZero.includes(404) || nonZero.includes(410)) {
+              setPushStatus('המנוי פג (404/410) — כבה/הפעל התראות ואז נסה שוב');
+            } else if (nonZero.includes(401) || nonZero.includes(403)) {
+              setPushStatus('אי־התאמת מפתחות (401/403) — ודא זוג VAPID תואם ורענן מנוי');
+            } else if (nonZero.length) {
+              setPushStatus('כשל שליחה (קודים: ' + nonZero.join(', ') + ')');
+            } else if (Array.isArray(j.errors) && j.errors.length) {
+              const first = j.errors.find(e => !e.status || e.status === 0) || j.errors[0];
+              const msg = (first && first.error) ? String(first.error) : 'שגיאה לא ידועה';
+              setPushStatus('כשל שליחה (0): ' + msg);
+            } else {
+              setPushStatus('לא נשלחה התראה (בדוק מפתח VAPID/מנויים)');
+            }
+          } else {
+            if (j && j.error === 'no_subscriptions') setPushStatus('אין מנוי פוש לשלח אליו — הפעל התראות');
+            else if (j && j.error === 'missing_vapid_private_key') setPushStatus('חסר VAPID_PRIVATE_KEY בשרת');
+            else if (j && j.error === 'pywebpush_not_available') setPushStatus('שרת: pywebpush לא מותקן/זמין');
+            else if (j && j.error === 'internal_error') setPushStatus('שגיאה פנימית בשרת');
+            else setPushStatus('בדיקת פוש נכשלה');
+          }
+        } catch(e){ setPushStatus('בדיקת פוש נכשלה'); }
+      }
+
+      async function refreshPushUi(){
+        try {
+          if (!('Notification' in window)) { setPushStatus('הדפדפן לא תומך בהתראות'); return; }
+          const st = Notification.permission;
+          let hasSub = false;
+          try {
+            const reg = (await navigator.serviceWorker.getRegistration()) || (await registerSw());
+            const sub = reg && reg.pushManager ? await reg.pushManager.getSubscription() : null;
+            hasSub = !!sub;
+          } catch(_) {}
+          if (st === 'granted' && hasSub) setPushStatus('התראות מופעלות בדפדפן זה');
+          else if (st === 'denied') setPushStatus('המשתמש חסם התראות – יש לאפשר ידנית');
+          else setPushStatus('נדרש להפעיל התראות');
+        } catch(_) { setPushStatus('מצב לא ידוע'); }
+      }
+
+      if (pushEnableBtn) pushEnableBtn.addEventListener('click', enablePush);
+      if (pushDisableBtn) pushDisableBtn.addEventListener('click', disablePush);
+      if (pushTestBtn) pushTestBtn.addEventListener('click', testPush);
+      refreshPushUi();
+    })();
+  </script>
+  {% endblock %} {% endblock %}
+</div>
