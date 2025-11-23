@@ -529,10 +529,6 @@ class DocumentHandler:
         except Exception as exc:
             logger.warning("Failed creating LargeFile payload: %s", exc)
             return SimpleNamespace(**payload)
-<<<<<<< HEAD
-=======
-
->>>>>>> 8a154716 (Refactor: Use SimpleNamespace for legacy DB fallback)
     async def handle_document(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """נתיב ראשי לטיפול בקובץ שנשלח."""
 
