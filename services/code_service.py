@@ -125,7 +125,7 @@ def detect_language(code: str, filename: str) -> str:
     """
     # נסה דטקטור דומייני מאוחד לקבלת עקביות בין כל הזרימות (שמירה/עריכה/תצוגה)
     try:
-        from src.domain.services.language_detector import LanguageDetector  # type: ignore
+        from src.domain.services.language_detector import LanguageDetector
         return LanguageDetector().detect_language(code, filename)
     except Exception:
         pass

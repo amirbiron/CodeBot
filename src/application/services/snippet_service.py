@@ -7,7 +7,7 @@ from src.domain.entities.snippet import Snippet
 from src.domain.services.code_normalizer import CodeNormalizer
 try:
     # Optional during gradual refactor: allow running without the detector present
-    from src.domain.services.language_detector import LanguageDetector  # type: ignore
+    from src.domain.services.language_detector import LanguageDetector
 except Exception:  # pragma: no cover
     LanguageDetector = None  # type: ignore
 from src.domain.interfaces.snippet_repository_interface import ISnippetRepository

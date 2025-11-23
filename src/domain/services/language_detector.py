@@ -142,11 +142,12 @@ class LanguageDetector:
 
         # Plain text or no extension: allow content override
         if ext in generic_text_exts:
-            # Heuristic YAML (common in config/Taskfile without extension)
-            if re.search(r"(?m)^\s*\w+\s*:", text) or re.search(r"(?m)^\s*-\s+\S", text):
-                return "yaml"
+            # Prefer strong Python signals first to avoid misclassifying typed hints like `result: int`
             if strong_python_signal(text):
                 return "python"
+            # Heuristic YAML (common in config/Taskfile without extension)
+            if re.search(r"(?m)^\s*-\s+\S", text) or re.search(r"(?m)^\s*\w+\s*:", text):
+                return "yaml"
             return "text"
 
         # 5) Config/data formats

@@ -267,24 +267,6 @@ async def handle_view_file(update, context: ContextTypes.DEFAULT_TYPE) -> int:
         file_name = file_data.get('file_name', 'קובץ')
         code = file_data.get('code', '')
         language = file_data.get('programming_language', 'text')
-        # אם השפה שמורה כ-text או ריקה אך התוכן מרמז אחרת – נזהה מחדש להצגה ישירה
-        try:
-            lang_lower = str(language or "").lower()
-            if (not lang_lower) or lang_lower == "text":
-                try:
-                    from src.domain.services.language_detector import LanguageDetector  # type: ignore
-                    new_lang = LanguageDetector().detect_language(code, file_name)
-                except Exception:
-                    new_lang = code_service.detect_language(code, file_name)
-                if new_lang and new_lang != language:
-                    language = new_lang
-                    try:
-                        # רענון הנתון המקומי להצגה
-                        file_data['programming_language'] = language
-                    except Exception:
-                        pass
-        except Exception:
-            pass
         version = file_data.get('version', 1)
         try:
             file_id_str = str(file_data.get('_id') or '')
@@ -315,7 +297,7 @@ async def handle_view_file(update, context: ContextTypes.DEFAULT_TYPE) -> int:
             lang_lower = str(language or "").lower()
             if (not lang_lower) or lang_lower == "text":
                 try:
-                    from src.domain.services.language_detector import LanguageDetector  # type: ignore
+                    from src.domain.services.language_detector import LanguageDetector
                     new_lang = LanguageDetector().detect_language(code, file_name)
                 except Exception:
                     # נפילה לשכבה הישנה שתפנה לדומיין אם קיים
@@ -504,7 +486,7 @@ async def receive_new_code(update, context: ContextTypes.DEFAULT_TYPE) -> int:
             file_name = editing_large_file['file_name']
             # זיהוי עקבי גם בקבצים גדולים: נעדיף דטקטור דומייני לפי תוכן+שם
             try:
-                from src.domain.services.language_detector import LanguageDetector  # type: ignore
+                from src.domain.services.language_detector import LanguageDetector
                 language = LanguageDetector().detect_language(new_code, file_name)
             except Exception:
                 from utils import detect_language_from_filename
