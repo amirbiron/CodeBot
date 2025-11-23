@@ -18,7 +18,6 @@ from telegram.ext import ContextTypes
 from services import google_drive_service as gdrive
 from config import config
 from file_manager import backup_manager
-# שימוש ב-FilesFacade דרך Composition Root כדי להימנע מתלות ישירה ב-DB
 
 logger = logging.getLogger(__name__)
 
