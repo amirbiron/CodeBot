@@ -1437,12 +1437,16 @@ class RefactoringEngine:
         return out
     def post_refactor_cleanup(self, files: Dict[str, str]) -> Dict[str, str]:
         """
-        שלב ניקוי לאחר רפקטורינג: נקיון imports לא בשימוש ברמת קובץ.
+        שלב ניקוי לאחר רפקטורינג: נקיון imports לא בשימוש ברמת קובץ תוך שימור קבועים/הקצאות גלובליות.
         הערה: נמנעים מהרצת כלים חיצוניים (ruff/black) מסיבות תאימות סביבה.
         """
         cleaned: Dict[str, str] = {}
         for filename, content in files.items():
-            if not filename.endswith('.py') or os.path.basename(filename) == '__init__.py' or filename.endswith('_shared.py'):
+            if (
+                not filename.endswith('.py')
+                or os.path.basename(filename) == '__init__.py'
+                or filename.endswith('_shared.py')
+            ):
                 cleaned[filename] = content
                 continue
             try:
@@ -1450,40 +1454,78 @@ class RefactoringEngine:
                 import_lines: List[str] = []
                 body_lines: List[str] = []
                 for ln in content.splitlines():
-                    s = ln.strip()
-                    if s.startswith('import ') or s.startswith('from '):
-                        import_lines.append(s)
+                    stripped = ln.strip()
+                    if stripped.startswith('import ') or stripped.startswith('from '):
+                        import_lines.append(stripped)
                     else:
                         body_lines.append(ln)
                 code_body = "\n".join(body_lines)
                 filtered = self._filter_imports_for_code(import_lines, code_body)
-                # בניה מחדש: נשאיר הדוקסטרינג העליון אם קיים, נחליף בלוק imports בגרסה המסוננת
+
                 lines = content.splitlines()
-                # מצא תחילת-סוף בלוק imports (בשלד שנוצר יש בלוק אחד)
-                header_end = 0
+                # איתור הדוקסטרינג העליון כדי שלא נזיז קוד לפניו
+                docstring_end_idx = -1
                 quote_count = 0
-                for i, line in enumerate(lines):
+                for idx, line in enumerate(lines):
                     if line.strip().startswith('"""'):
                         quote_count += 1
                         if quote_count == 2:
-                            header_end = i + 1
+                            docstring_end_idx = idx
                             break
-                rebuilt: List[str] = []
-                rebuilt.extend(lines[:header_end])
-                rebuilt.append("")
-                rebuilt.extend(filtered)
-                rebuilt.append("")
-                # הוסף יתרת התוכן אחרי בלוק ה-imports המקורי
-                # מצא היכן מתחילות הפונקציות (השורה הראשונה שמתחילה ב-def/class/async def)
-                start_idx = None
-                for i, line in enumerate(lines[header_end + 1 :], start=header_end + 1):
-                    stripped = line.strip()
-                    if stripped.startswith(("def ", "class ", "async def ")):
-                        start_idx = i
-                        break
-                if start_idx is not None:
-                    rebuilt.extend(lines[start_idx:])
-                cleaned[filename] = "\n".join(rebuilt) + "\n"
+                if docstring_end_idx == -1:
+                    cleaned[filename] = content
+                    continue
+
+                # חיפוש בלוק ה-imports המופיע מיד אחרי הדוקסטרינג (עם רווחים/הערות ביניים)
+                def _is_import_stmt(text: str) -> bool:
+                    return text.startswith('import ') or text.startswith('from ')
+
+                import_start_idx: Optional[int] = None
+                scan_idx = docstring_end_idx + 1
+                while scan_idx < len(lines):
+                    stripped = lines[scan_idx].strip()
+                    if not stripped or stripped.startswith('#'):
+                        scan_idx += 1
+                        continue
+                    if _is_import_stmt(stripped):
+                        import_start_idx = scan_idx
+                    break
+
+                if import_start_idx is None:
+                    # אין בלוק imports לאחר הדוקסטרינג – אין מה לנקות
+                    cleaned[filename] = content
+                    continue
+
+                import_end_idx = import_start_idx
+                while import_end_idx < len(lines):
+                    stripped = lines[import_end_idx].strip()
+                    if not stripped or stripped.startswith('#') or _is_import_stmt(stripped):
+                        import_end_idx += 1
+                        continue
+                    break
+
+                before_block = lines[:import_start_idx]
+                after_block = lines[import_end_idx:]
+
+                rebuilt: List[str] = list(before_block)
+
+                def _ensure_trailing_blank(target: List[str]) -> None:
+                    if target and target[-1].strip() != "":
+                        target.append("")
+
+                if filtered:
+                    _ensure_trailing_blank(rebuilt)
+                    rebuilt.extend(filtered)
+                    if after_block and after_block[0].strip() != "":
+                        rebuilt.append("")
+                else:
+                    # אם אין imports לאחר הסינון, נשמור רווח אחד בין הדוקסטרינג לבין הגוף אם נדרש
+                    if after_block and after_block[0].strip() != "":
+                        _ensure_trailing_blank(rebuilt)
+
+                rebuilt.extend(after_block)
+                cleaned_content = "\n".join(rebuilt).rstrip() + "\n"
+                cleaned[filename] = cleaned_content
             except Exception:
                 cleaned[filename] = content
         return cleaned
