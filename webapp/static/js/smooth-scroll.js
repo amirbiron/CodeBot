@@ -104,6 +104,7 @@
       this.androidTouchHandlers = null;
       this.androidPerfRafId = null;
       this.androidPerfVisibilityHandler = null;
+      this.androidMomentumTimeout = null;
       this.debugMode = false;
       this.debugRefs = null;
       try {
@@ -172,6 +173,12 @@
       const onTouchStart = (e) => {
         this.touchActive = true;
         this.touchVelocity = 0;
+        if (this.androidMomentumTimeout) {
+          try {
+            clearTimeout(this.androidMomentumTimeout);
+          } catch (_) {}
+          this.androidMomentumTimeout = null;
+        }
         this.touchSampleHistory = [];
         this._lastScrollY = window.pageYOffset || window.scrollY || 0;
         this._lastScrollTime = performance.now();
@@ -210,7 +217,10 @@
           0.05,
           this.config.androidMomentumThreshold ?? 0.18,
         );
-        setTimeout(() => {
+        const timeoutId = setTimeout(() => {
+          if (this.touchActive || this.androidMomentumTimeout !== timeoutId) {
+            return;
+          }
           const afterY = window.pageYOffset || window.scrollY || 0;
           const moved = Math.abs(afterY - startY);
           const speed = Math.abs(averagedVelocity);
@@ -223,7 +233,9 @@
               assistRatio,
             );
           }
+          this.androidMomentumTimeout = null;
         }, 80);
+        this.androidMomentumTimeout = timeoutId;
       };
       this.androidTouchHandlers = {
         onTouchStart,
@@ -284,10 +296,13 @@
             const sorted = [...fpsWindow].sort((a, b) => a - b);
             const median = sorted[Math.floor(sorted.length / 2)];
             if (median < 40 && this.config.duration > 250) {
-              this.updateConfig({
-                duration: Math.max(200, this.config.duration - 100),
-                easing: "ease-out",
-              });
+              this.updateConfig(
+                {
+                  duration: Math.max(200, this.config.duration - 100),
+                  easing: "ease-out",
+                },
+                { skipSave: true },
+              );
             }
             last = t;
             frames = 0;
