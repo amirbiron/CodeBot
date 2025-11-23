@@ -13,9 +13,13 @@ import zipfile
 from datetime import datetime, timezone
 from io import BytesIO
 <<<<<<< HEAD
+<<<<<<< HEAD
 from types import SimpleNamespace
 =======
 >>>>>>> 210c7a37 (Refactor: Add legacy DB and facade support for file saving)
+=======
+from types import SimpleNamespace
+>>>>>>> 8a154716 (Refactor: Use SimpleNamespace for legacy DB fallback)
 from typing import Any, Awaitable, Callable, Iterable, List, Optional, Protocol, Sequence
 
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
@@ -434,6 +438,9 @@ class DocumentHandler:
             return None
 
 <<<<<<< HEAD
+<<<<<<< HEAD
+=======
+>>>>>>> 8a154716 (Refactor: Use SimpleNamespace for legacy DB fallback)
     def _build_legacy_snippet_payload(
         self,
         *,
@@ -493,6 +500,10 @@ class DocumentHandler:
         except Exception as exc:
             logger.warning("Failed creating LargeFile payload: %s", exc)
             return SimpleNamespace(**payload)
+<<<<<<< HEAD
+=======
+
+>>>>>>> 8a154716 (Refactor: Use SimpleNamespace for legacy DB fallback)
     async def handle_document(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """נתיב ראשי לטיפול בקובץ שנשלח."""
 
