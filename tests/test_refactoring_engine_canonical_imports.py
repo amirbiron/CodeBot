@@ -112,3 +112,34 @@ def run(u: User) -> bool:
     assert any(ln.startswith("from .models import") and "User" in ln and "SubscriptionManager" in ln for ln in lines)
     # וידוא הזרקת פונקציה בין-מודולית (bill) מה-finance
     assert "from .finance import bill" in content
+
+
+def test_cycle_merges_into_canonical_users():
+    code = """
+# 1) USERS
+class User:
+    def __init__(self, name: str):
+        self.name = name
+    def stats(self):
+        # קריאה לפונקציה באנליטיקה ליצירת תלות הדדית
+        return aggregate_user_stats(self)
+
+\n# 2) ANALYTICS
+def aggregate_user_stats(u: User):
+    # שימוש ב-User כדי להשאיר Reference דו-צדדי
+    return {"name": u.name, "score": 1}
+"""
+    eng = RefactoringEngine()
+    res = eng.propose_refactoring(code=code, filename="core.py", refactor_type=RefactorType.SPLIT_FUNCTIONS)
+    assert res.success and res.proposal
+    files = res.proposal.new_files
+    # אחרי פירוק מעגל, אמור להישאר קובץ דומייני יחיד: users.py
+    module_files = [fn for fn in files if fn.endswith(".py") and fn != "__init__.py" and not fn.endswith("_shared.py")]
+    assert len(module_files) == 1
+    merged_fn = module_files[0]
+    assert merged_fn.endswith("users.py"), f"Expected merge target users.py, got: {merged_fn}"
+    merged_content = files[merged_fn]
+    # אין self-import ל-users
+    assert "from .users import " not in merged_content
+    # יש סימון של קוד שמוזג מקובץ האנליטיקה הלא-קנוני
+    assert "# ---- merged from core_analytics.py" in merged_content
