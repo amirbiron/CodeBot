@@ -1515,11 +1515,12 @@ class RefactoringEngine:
                 cleaned[filename] = content
                 continue
             try:
+                module_import_lines = self._module_level_import_lines(content)
                 # נזהה imports בקובץ ונשמור רק אלו שבשימוש
                 import_lines: List[str] = []
                 body_lines: List[str] = []
-                for ln in content.splitlines():
-                    if ln.startswith('import ') or ln.startswith('from '):
+                for idx, ln in enumerate(content.splitlines(), start=1):
+                    if idx in module_import_lines:
                         import_lines.append(ln.strip())
                     else:
                         body_lines.append(ln)
@@ -2130,6 +2131,43 @@ class RefactoringEngine:
                 existing_funcs.add(wrapper_name)
         files_map[shared_filename] = "\n".join(line.rstrip() for line in lines).rstrip() + "\n"
         return files_map
+
+    def _module_level_import_lines(self, content: str) -> Set[int]:
+        try:
+            tree = ast.parse(content)
+        except SyntaxError:
+            return set()
+        module_lines: Set[int] = set()
+
+        def _collect(node: ast.AST, allow_nested_type_checking: bool = False) -> None:
+            if isinstance(node, (ast.Import, ast.ImportFrom)):
+                start = getattr(node, "lineno", None)
+                end = getattr(node, "end_lineno", start)
+                if start is None:
+                    return
+                for ln in range(start, (end or start) + 1):
+                    module_lines.add(ln)
+            elif isinstance(node, ast.If) and self._is_type_checking_guard(node.test):
+                for child in node.body:
+                    _collect(child, allow_nested_type_checking=True)
+            elif allow_nested_type_checking and isinstance(node, (ast.If, ast.With, ast.Try)):
+                for child in getattr(node, "body", []):
+                    _collect(child, allow_nested_type_checking=True)
+
+        for top in getattr(tree, "body", []):
+            _collect(top, allow_nested_type_checking=False)
+        return module_lines
+
+    def _is_type_checking_guard(self, expr: ast.AST) -> bool:
+        if isinstance(expr, ast.Name):
+            return expr.id == "TYPE_CHECKING"
+        if isinstance(expr, ast.Attribute):
+            return expr.attr == "TYPE_CHECKING"
+        if isinstance(expr, ast.Compare) and len(expr.ops) == 1 and isinstance(expr.ops[0], ast.Is):
+            # Handles patterns like "if typing.TYPE_CHECKING is True:"
+            left = expr.left
+            return isinstance(left, (ast.Name, ast.Attribute)) and self._is_type_checking_guard(left)
+        return False
 
     # === Naming helpers ===
     def _choose_filename_for_group(self, base_name: str, group_name: str) -> str:
