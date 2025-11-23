@@ -5,6 +5,11 @@ from typing import Optional, List
 from src.application.dto.create_snippet_dto import CreateSnippetDTO
 from src.domain.entities.snippet import Snippet
 from src.domain.services.code_normalizer import CodeNormalizer
+try:
+    # Optional during gradual refactor: allow running without the detector present
+    from src.domain.services.language_detector import LanguageDetector  # type: ignore
+except Exception:  # pragma: no cover
+    LanguageDetector = None  # type: ignore
 from src.domain.interfaces.snippet_repository_interface import ISnippetRepository
 import re
 from pathlib import Path
@@ -20,9 +25,12 @@ class SnippetService:
         self,
         snippet_repository: ISnippetRepository,
         code_normalizer: CodeNormalizer,
+        language_detector: Optional["LanguageDetector"] = None,
     ) -> None:
         self._repo = snippet_repository
         self._normalizer = code_normalizer
+        # Prefer domain-level detector when available; otherwise fall back to local heuristics
+        self._language_detector = language_detector if language_detector is not None else (LanguageDetector() if LanguageDetector else None)
 
     async def create_snippet(self, dto: CreateSnippetDTO) -> Snippet:
         normalized = self._normalizer.normalize(dto.code)
@@ -51,6 +59,13 @@ class SnippetService:
           by strong content signals (e.g., clear Python code).
         - Special filenames (Dockerfile/Makefile/dotfiles) are supported.
         """
+        # Use domain detector when present for consistency across flows
+        if self._language_detector is not None:
+            try:
+                return self._language_detector.detect_language(code, filename)
+            except Exception:
+                # Fall through to local heuristics on any unexpected error
+                pass
         fname = (filename or "").strip()
         fname_lower = fname.lower()
         ext = Path(fname_lower).suffix  # includes leading dot or '' if no extension
