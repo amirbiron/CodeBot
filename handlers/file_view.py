@@ -216,11 +216,7 @@ async def handle_file_menu(update, context: ContextTypes.DEFAULT_TYPE) -> int:
             from src.infrastructure.composition import get_files_facade  # type: ignore
             is_fav_now = bool(get_files_facade().is_favorite(update.effective_user.id, file_name))
         except Exception:
-            try:
-                from database import db as _db
-                is_fav_now = bool(_db.is_favorite(update.effective_user.id, file_name))
-            except Exception:
-                is_fav_now = False
+            is_fav_now = False
         fav_text = ("💔 הסר ממועדפים" if is_fav_now else "⭐ הוסף למועדפים")
         raw_id = file_id_str
         if raw_id and (len("fav_toggle_id:") + len(raw_id)) <= 60:
@@ -295,8 +291,8 @@ async def handle_view_file(update, context: ContextTypes.DEFAULT_TYPE) -> int:
                 loaded = False
             if not loaded:
                 try:
-                    from database import db
-                    latest_doc = db.get_latest_version(user_id, file_name)
+                    from src.infrastructure.composition import get_files_facade  # type: ignore
+                    latest_doc = get_files_facade().get_latest_version(user_id, file_name)
                     if latest_doc:
                         code = latest_doc.get('code', '') or ''
                         language = latest_doc.get('programming_language', language) or language
@@ -368,11 +364,7 @@ async def handle_view_file(update, context: ContextTypes.DEFAULT_TYPE) -> int:
             from src.infrastructure.composition import get_files_facade  # type: ignore
             is_fav_now = bool(get_files_facade().is_favorite(update.effective_user.id, file_name))
         except Exception:
-            try:
-                from database import db as _db
-                is_fav_now = bool(_db.is_favorite(update.effective_user.id, file_name))
-            except Exception:
-                is_fav_now = False
+            is_fav_now = False
         fav_text = ("💔 הסר ממועדפים" if is_fav_now else "⭐ הוסף למועדפים")
         # בנה callback בטוח: העדף מזהה מסד אם קיים, אחרת טוקן קצר במיפוי זמני
         raw_id = file_id_str
@@ -479,11 +471,6 @@ async def receive_new_code(update, context: ContextTypes.DEFAULT_TYPE) -> int:
             except Exception:
                 _facade = None  # type: ignore
                 doc = None
-                try:
-                    from database import db as _db
-                    doc = _db.get_latest_version(user_id, file_name)
-                except Exception:
-                    doc = None
             if not doc:
                 await update.message.reply_text("❌ הקובץ לא נמצא לעדכון הערה")
                 return ConversationHandler.END
@@ -500,19 +487,7 @@ async def receive_new_code(update, context: ContextTypes.DEFAULT_TYPE) -> int:
                     ))
             except Exception:
                 ok = False
-            if not ok:
-                try:
-                    from database import db as _db, CodeSnippet as _CS
-                    snippet = _CS(
-                        user_id=user_id,
-                        file_name=file_name,
-                        code=doc.get('code', ''),
-                        programming_language=doc.get('programming_language', 'text'),
-                        description=desc,
-                    )
-                    ok = bool(_db.save_code_snippet(snippet))
-                except Exception:
-                    ok = False
+            # אין fallback לייבוא DB ישיר; אם ה-facade אינו זמין – ok יישאר False
             if ok:
                 await update.message.reply_text(
                     "✅ הערה עודכנה בהצלחה!",
@@ -549,19 +524,7 @@ async def receive_new_code(update, context: ContextTypes.DEFAULT_TYPE) -> int:
                     lines_count=len(new_code.split('\n')),
                 ))
             except Exception:
-                try:
-                    from database import LargeFile, db
-                    updated_file = LargeFile(
-                        user_id=user_id,
-                        file_name=file_name,
-                        content=new_code,
-                        programming_language=language,
-                        file_size=len(new_code.encode('utf-8')),
-                        lines_count=len(new_code.split('\n')),
-                    )
-                    success = db.save_large_file(updated_file)
-                except Exception:
-                    success = False
+                success = False
             if success:
                 from utils import get_language_emoji
                 emoji = get_language_emoji(language)
@@ -608,20 +571,12 @@ async def receive_new_code(update, context: ContextTypes.DEFAULT_TYPE) -> int:
             from src.infrastructure.composition import get_files_facade  # type: ignore
             success = bool(get_files_facade().save_file(user_id, file_name, cleaned_code, detected_language))
         except Exception:
-            try:
-                from database import db
-                success = db.save_file(user_id, file_name, cleaned_code, detected_language)
-            except Exception:
-                success = False
+            success = False
         if success:
             try:
                 last_version = get_files_facade().get_latest_version(user_id, file_name)  # type: ignore[name-defined]
             except Exception:
-                try:
-                    from database import db as _db
-                    last_version = _db.get_latest_version(user_id, file_name)
-                except Exception:
-                    last_version = None
+                last_version = None
             version_num = last_version.get('version', 1) if last_version else 1
             try:
                 fid = str((last_version or {}).get('_id') or '')
@@ -757,16 +712,14 @@ async def receive_new_name(update, context: ContextTypes.DEFAULT_TYPE) -> int:
             from src.infrastructure.composition import get_files_facade  # type: ignore
             success = bool(get_files_facade().rename_file(user_id, old_name, new_name))
         except Exception:
-            from database import db
-            success = db.rename_file(user_id, old_name, new_name)
+            success = False
         if success:
             # חשב fid עבור הכפתור 'הצג קוד' בהעדפת ID אם זמין
             try:
                 try:
                     latest_doc = get_files_facade().get_latest_version(user_id, new_name)  # type: ignore[name-defined]
                 except Exception:
-                    from database import db as _db
-                    latest_doc = _db.get_latest_version(user_id, new_name) or {}
+                    latest_doc = {}
                 fid = str(latest_doc.get('_id') or '')
             except Exception:
                 fid = ''
@@ -828,8 +781,7 @@ async def handle_versions_history(update, context: ContextTypes.DEFAULT_TYPE) ->
             from src.infrastructure.composition import get_files_facade  # type: ignore
             versions = get_files_facade().get_all_versions(user_id, file_name)
         except Exception:
-            from database import db
-            versions = db.get_all_versions(user_id, file_name)
+            versions = []
         if not versions:
             await query.edit_message_text("📚 אין היסטוריית גרסאות לקובץ זה")
             return ConversationHandler.END
@@ -891,9 +843,12 @@ async def handle_download_file(update, context: ContextTypes.DEFAULT_TYPE) -> in
             if not isinstance(file_name, str):
                 await query.edit_message_text("❌ שם קובץ שגוי להורדה")
                 return ConversationHandler.END
-            from database import db
             user_id = update.effective_user.id
-            latest = db.get_latest_version(user_id, file_name)
+            try:
+                from src.infrastructure.composition import get_files_facade  # type: ignore
+                latest = get_files_facade().get_latest_version(user_id, file_name)
+            except Exception:
+                latest = None
             if not latest:
                 await query.edit_message_text("❌ לא נמצאה גרסה אחרונה לקובץ")
                 return ConversationHandler.END
@@ -974,11 +929,7 @@ async def handle_delete_file(update, context: ContextTypes.DEFAULT_TYPE) -> int:
             from src.infrastructure.composition import get_files_facade  # type: ignore
             success = bool(get_files_facade().delete_file(user_id, file_name))
         except Exception:
-            try:
-                from database import db
-                success = db.delete_file(user_id, file_name)
-            except Exception:
-                success = False
+            success = False
         if success:
             keyboard = [[InlineKeyboardButton("🔙 לרשימת קבצים", callback_data="files")]]
             reply_markup = InlineKeyboardMarkup(keyboard)
@@ -1052,21 +1003,13 @@ async def handle_view_direct_file(update, context: ContextTypes.DEFAULT_TYPE) ->
                 from src.infrastructure.composition import get_files_facade  # type: ignore
                 doc = get_files_facade().get_file_by_id(file_id)
             except Exception:
-                try:
-                    from database import db
-                    doc = db.get_file_by_id(file_id)
-                except Exception:
-                    doc = None
+                doc = None
             if not doc:
                 try:
                     from src.infrastructure.composition import get_files_facade  # type: ignore
                     lf = get_files_facade().get_large_file_by_id(file_id)
                 except Exception:
-                    try:
-                        from database import db
-                        lf = db.get_large_file_by_id(file_id)
-                    except Exception:
-                        lf = None
+                    lf = None
                 if lf:
                     is_large_file = True
                     file_name = lf.get('file_name') or 'file'
@@ -1090,22 +1033,14 @@ async def handle_view_direct_file(update, context: ContextTypes.DEFAULT_TYPE) ->
                 from src.infrastructure.composition import get_files_facade  # type: ignore
                 file_data = get_files_facade().get_latest_version(user_id, file_name)
             except Exception:
-                try:
-                    from database import db
-                    file_data = db.get_latest_version(user_id, file_name)
-                except Exception:
-                    file_data = None
+                file_data = None
         # תמיכה בקבצים גדולים: אם לא נמצא בקולקציה הרגילה, ננסה large_files
         if not file_data and file_name:
             try:
                 from src.infrastructure.composition import get_files_facade  # type: ignore
                 lf = get_files_facade().get_large_file(user_id, file_name)
             except Exception:
-                try:
-                    from database import db
-                    lf = db.get_large_file(user_id, file_name)
-                except Exception:
-                    lf = None
+                lf = None
             if lf:
                 is_large_file = True
                 file_data = {
@@ -1171,11 +1106,7 @@ async def handle_view_direct_file(update, context: ContextTypes.DEFAULT_TYPE) ->
             from src.infrastructure.composition import get_files_facade  # type: ignore
             is_fav_now = bool(get_files_facade().is_favorite(update.effective_user.id, file_name))
         except Exception:
-            try:
-                from database import db as _db
-                is_fav_now = bool(_db.is_favorite(update.effective_user.id, file_name))
-            except Exception:
-                is_fav_now = False
+            is_fav_now = False
         fav_text = ("💔 הסר ממועדפים" if is_fav_now else "⭐ הוסף למועדפים")
         # בנה callback בטוח: העדף מזהה מסד אם קיים, אחרת טוקן קצר במיפוי זמני
         if fid and (len("fav_toggle_id:") + len(fid)) <= 60:
@@ -1284,8 +1215,11 @@ async def handle_edit_code_direct(update, context: ContextTypes.DEFAULT_TYPE) ->
     try:
         file_name = query.data.replace("edit_code_direct_", "")
         user_id = update.effective_user.id
-        from database import db
-        file_data = db.get_latest_version(user_id, file_name)
+        try:
+            from src.infrastructure.composition import get_files_facade  # type: ignore
+            file_data = get_files_facade().get_latest_version(user_id, file_name)
+        except Exception:
+            file_data = None
         if not file_data:
             await query.edit_message_text("❌ שגיאה בזיהוי הקובץ")
             return ConversationHandler.END
@@ -1311,8 +1245,11 @@ async def handle_edit_name_direct(update, context: ContextTypes.DEFAULT_TYPE) ->
     try:
         file_name = query.data.replace("edit_name_direct_", "")
         user_id = update.effective_user.id
-        from database import db
-        file_data = db.get_latest_version(user_id, file_name)
+        try:
+            from src.infrastructure.composition import get_files_facade  # type: ignore
+            file_data = get_files_facade().get_latest_version(user_id, file_name)
+        except Exception:
+            file_data = None
         if not file_data:
             await query.edit_message_text("❌ שגיאה בזיהוי הקובץ")
             return ConversationHandler.END
@@ -1338,8 +1275,11 @@ async def handle_edit_note_direct(update, context: ContextTypes.DEFAULT_TYPE) ->
     try:
         file_name = query.data.replace("edit_note_direct_", "")
         user_id = update.effective_user.id
-        from database import db
-        file_data = db.get_latest_version(user_id, file_name)
+        try:
+            from src.infrastructure.composition import get_files_facade  # type: ignore
+            file_data = get_files_facade().get_latest_version(user_id, file_name)
+        except Exception:
+            file_data = None
         if not file_data:
             await query.edit_message_text("❌ לא נמצא הקובץ לעריכת הערה")
             return ConversationHandler.END
@@ -1387,29 +1327,38 @@ async def handle_clone(update, context: ContextTypes.DEFAULT_TYPE) -> int:
                 ext = name[dot:] if dot > 0 else ''
             except Exception:
                 stem, ext = name, ''
-            from database import db
             candidate = f"{stem} (copy){ext}"
-            exists = db.get_latest_version(user_id, candidate)
+            try:
+                from src.infrastructure.composition import get_files_facade  # type: ignore
+                exists = get_files_facade().get_latest_version(user_id, candidate)
+            except Exception:
+                exists = None
             if not exists:
                 return candidate
             for i in range(2, 100):
                 candidate = f"{stem} (copy {i}){ext}"
-                if not db.get_latest_version(user_id, candidate):
+                try:
+                    from src.infrastructure.composition import get_files_facade  # type: ignore
+                    exists2 = get_files_facade().get_latest_version(user_id, candidate)
+                except Exception:
+                    exists2 = None
+                if not exists2:
                     return candidate
             return f"{stem} (copy {int(datetime.now(timezone.utc).timestamp())}){ext}"
 
         new_name = _suggest_clone_name(original_name)
-
-        from database import db, CodeSnippet
-        snippet = CodeSnippet(
-            user_id=user_id,
-            file_name=new_name,
-            code=code,
-            programming_language=language,
-            description=description,
-            tags=tags,
-        )
-        ok = db.save_code_snippet(snippet)
+        try:
+            from src.infrastructure.composition import get_files_facade  # type: ignore
+            ok = bool(get_files_facade().save_code_snippet(
+                user_id=user_id,
+                file_name=new_name,
+                code=code,
+                programming_language=language,
+                description=description,
+                tags=tags,
+            ))
+        except Exception:
+            ok = False
         if ok:
             try:
                 # רענון חלקי של ה-cache המקומי אם זמין
@@ -1418,7 +1367,8 @@ async def handle_clone(update, context: ContextTypes.DEFAULT_TYPE) -> int:
             except Exception:
                 pass
             try:
-                latest_doc = db.get_latest_version(user_id, new_name) or {}
+                from src.infrastructure.composition import get_files_facade  # type: ignore
+                latest_doc = get_files_facade().get_latest_version(user_id, new_name) or {}
                 fid = str(latest_doc.get('_id') or '')
             except Exception:
                 fid = ''
@@ -1479,48 +1429,43 @@ async def handle_clone_direct(update, context: ContextTypes.DEFAULT_TYPE) -> int
             except Exception:
                 stem, ext = name, ''
             candidate = f"{stem} (copy){ext}"
-            if not db.get_latest_version(user_id, candidate):
+            try:
+                from src.infrastructure.composition import get_files_facade  # type: ignore
+                exists = get_files_facade().get_latest_version(user_id, candidate)
+            except Exception:
+                exists = None
+            if not exists:
                 return candidate
             for i in range(2, 100):
                 candidate = f"{stem} (copy {i}){ext}"
-                if not db.get_latest_version(user_id, candidate):
+                try:
+                    from src.infrastructure.composition import get_files_facade  # type: ignore
+                    exists2 = get_files_facade().get_latest_version(user_id, candidate)
+                except Exception:
+                    exists2 = None
+                if not exists2:
                     return candidate
             return f"{stem} (copy {int(datetime.now(timezone.utc).timestamp())}){ext}"
 
         new_name = _suggest_clone_name(file_name)
-        # יצירת snippet לשמירה: העדפה למחלקה מה-DB, עם נפילה חכמה לאובייקט פשוט/שמירה ישירה
+        # יצירת snippet לשמירה דרך Facade
         try:
-            from database import CodeSnippet  # type: ignore
-            snippet = CodeSnippet(
+            from src.infrastructure.composition import get_files_facade  # type: ignore
+            ok = bool(get_files_facade().save_code_snippet(
                 user_id=user_id,
                 file_name=new_name,
                 code=code,
                 programming_language=language,
                 description=description,
                 tags=tags,
-            )
-            ok = db.save_code_snippet(snippet)
+            ))
         except Exception:
-            # סביבה בדיקות/סטאב: ננסה אובייקט דמוי‑snippet או נפילה לשמירה ישירה
-            try:
-                SimpleSnippet = type("Snippet", (), {})
-                snippet = SimpleSnippet()
-                snippet.user_id = user_id
-                snippet.file_name = new_name
-                snippet.code = code
-                snippet.programming_language = language
-                snippet.description = description
-                try:
-                    snippet.tags = tags
-                except Exception:
-                    pass
-                ok = db.save_code_snippet(snippet)
-            except Exception:
-                ok = db.save_file(user_id, new_name, code, language)
+            ok = False
         if ok:
             # חשב fid עבור הכפתור 'הצג קוד' בהעדפת ID אם זמין
             try:
-                latest_doc = db.get_latest_version(user_id, new_name) or {}
+                from src.infrastructure.composition import get_files_facade  # type: ignore
+                latest_doc = get_files_facade().get_latest_version(user_id, new_name) or {}
                 fid = str(latest_doc.get('_id') or '')
             except Exception:
                 fid = ''
