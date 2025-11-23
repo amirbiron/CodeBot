@@ -113,6 +113,63 @@ Recent Alert IDs (DB, N≤10):
 - הרשאות: מנהלים בלבד
 - מה לחפש בפלט: מצב נוכחי והמלצות דילול
 
+## /lang
+- מתי להשתמש: לזהות במהירות את שפת הקובץ/התוכן בבוט (Source of Truth).
+- פרמטרים: אופציונלי `<file_name>`; ניתן להשיב ב‑reply עם קוד, או לצרף בלוק ``` בקומנד.
+- הרשאות: כולם
+- מה לחפש בפלט: `language` ו‑`reason` (מקור ההכרעה: shebang/סיומת/שם/תוכן).
+- דוגמאות:
+```
+/lang run
+```
+Reply עם:
+```bash
+#!/usr/bin/env bash
+python main.py
+```
+פלט צפוי:
+```
+🧠 שפה: bash
+📄 קובץ: `run`
+ℹ️ סיבה: shebang (bash/sh)
+```
+
+```
+/lang Taskfile
+```
+תוכן (YAML) ב‑reply → צפוי: `yaml`, reason: `שם קובץ מיוחד` או `תוכן`.
+
+```
+/lang Block.md
+```
+Reply עם קוד Python מובהק → צפוי: `python`, reason: `תוכן (override ל-.md)`.
+
+## /lang_debug (alias: /lang-debug)
+- מתי להשתמש: דיבוג מפורט של החלטת הדטקטור (conflict name↔content, תחקור “למה text?”).
+- פרמטרים: אופציונלי `<file_name>`; קוד עובר ב‑reply/בלוק ``` כמו ב‑/lang.
+- הרשאות: כולם
+- מה לחפש בפלט: שורת shebang, base/ext, אותות Python (def/class/import/__main__/indent), סמני Markdown (heading/list/link/fence), language הסופי ו‑reason.
+- דוגמה:
+```
+/lang_debug Block.md
+```
+Reply עם:
+```python
+import os, asyncio
+def main(): pass
+```
+פלט (מקוצר):
+```
+🧪 Language Debug
+📄 file: `Block.md`
+🔖 base: block.md  •  ext: .md
+#! shebang: —
+🐍 python_signals: def=True class=False import=True main=False block=True total=3
+📝 md_markers: heading=False list=False link=False fence=False
+🧠 language: python
+ℹ️ reason: תוכן (override ל-.md)
+```
+
 ## /dm
 - מתי להשתמש: שליחת הודעה פרטית למשתמש בודד (למשל להודיע על סטטוס ״פרימיום 💎״)
 - פרמטרים: `<user_id|@username> <message...>`
