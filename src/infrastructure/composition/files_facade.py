@@ -48,6 +48,11 @@ class FilesFacade:
             return int(self._db.get_favorites_count(user_id) or 0)
         except Exception:
             return 0
+    def is_favorite(self, user_id: int, file_name: str) -> bool:
+        try:
+            return bool(self._db.is_favorite(user_id, file_name))
+        except Exception:
+            return False
 
     # ---- Save/update operations -------------------------------------------
     def save_file(self, user_id: int, file_name: str, code: str, programming_language: str, extra_tags: Optional[List[str]] = None) -> bool:
@@ -95,4 +100,23 @@ class FilesFacade:
             lines_count=lines_count,
         )
         return bool(self._db.save_large_file(lf))
+
+    # ---- Direct lookups by id/name (for view/share flows) ------------------
+    def get_file_by_id(self, file_id: str) -> Optional[Dict[str, Any]]:
+        try:
+            return self._db.get_file_by_id(file_id)
+        except Exception:
+            return None
+
+    def get_large_file_by_id(self, file_id: str) -> Optional[Dict[str, Any]]:
+        try:
+            return self._db.get_large_file_by_id(file_id)
+        except Exception:
+            return None
+
+    def get_large_file(self, user_id: int, file_name: str) -> Optional[Dict[str, Any]]:
+        try:
+            return self._db.get_large_file(user_id, file_name)
+        except Exception:
+            return None
 

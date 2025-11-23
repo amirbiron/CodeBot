@@ -213,10 +213,14 @@ async def handle_file_menu(update, context: ContextTypes.DEFAULT_TYPE) -> int:
             note_line = "\n📝 הערה: —\n\n"
         # הוסף כפתור מועדפים גם במסך "מרכז בקרה מתקדם"
         try:
-            from database import db as _db
-            is_fav_now = bool(_db.is_favorite(update.effective_user.id, file_name))
+            from src.infrastructure.composition import get_files_facade  # type: ignore
+            is_fav_now = bool(get_files_facade().is_favorite(update.effective_user.id, file_name))
         except Exception:
-            is_fav_now = False
+            try:
+                from database import db as _db
+                is_fav_now = bool(_db.is_favorite(update.effective_user.id, file_name))
+            except Exception:
+                is_fav_now = False
         fav_text = ("💔 הסר ממועדפים" if is_fav_now else "⭐ הוסף למועדפים")
         raw_id = file_id_str
         if raw_id and (len("fav_toggle_id:") + len(raw_id)) <= 60:
@@ -361,10 +365,14 @@ async def handle_view_file(update, context: ContextTypes.DEFAULT_TYPE) -> int:
         keyboard.insert(3, share_row)
         # כפתור מועדפים (הוסף/הסר) לפי המצב הנוכחי
         try:
-            from database import db as _db
-            is_fav_now = bool(_db.is_favorite(update.effective_user.id, file_name))
+            from src.infrastructure.composition import get_files_facade  # type: ignore
+            is_fav_now = bool(get_files_facade().is_favorite(update.effective_user.id, file_name))
         except Exception:
-            is_fav_now = False
+            try:
+                from database import db as _db
+                is_fav_now = bool(_db.is_favorite(update.effective_user.id, file_name))
+            except Exception:
+                is_fav_now = False
         fav_text = ("💔 הסר ממועדפים" if is_fav_now else "⭐ הוסף למועדפים")
         # בנה callback בטוח: העדף מזהה מסד אם קיים, אחרת טוקן קצר במיפוי זמני
         raw_id = file_id_str
@@ -962,8 +970,15 @@ async def handle_delete_file(update, context: ContextTypes.DEFAULT_TYPE) -> int:
             return ConversationHandler.END
         user_id = update.effective_user.id
         file_name = file_data.get('file_name')
-        from database import db
-        success = db.delete_file(user_id, file_name)
+        try:
+            from src.infrastructure.composition import get_files_facade  # type: ignore
+            success = bool(get_files_facade().delete_file(user_id, file_name))
+        except Exception:
+            try:
+                from database import db
+                success = db.delete_file(user_id, file_name)
+            except Exception:
+                success = False
         if success:
             keyboard = [[InlineKeyboardButton("🔙 לרשימת קבצים", callback_data="files")]]
             reply_markup = InlineKeyboardMarkup(keyboard)
@@ -1027,7 +1042,6 @@ async def handle_view_direct_file(update, context: ContextTypes.DEFAULT_TYPE) ->
         data = query.data
         token = data.replace("view_direct_", "", 1)
         user_id = update.effective_user.id
-        from database import db
         file_data = None
         file_name = None
         is_large_file = False
@@ -1035,14 +1049,24 @@ async def handle_view_direct_file(update, context: ContextTypes.DEFAULT_TYPE) ->
         if token.startswith("id:"):
             file_id = token[3:]
             try:
-                doc = db.get_file_by_id(file_id)
+                from src.infrastructure.composition import get_files_facade  # type: ignore
+                doc = get_files_facade().get_file_by_id(file_id)
             except Exception:
-                doc = None
+                try:
+                    from database import db
+                    doc = db.get_file_by_id(file_id)
+                except Exception:
+                    doc = None
             if not doc:
                 try:
-                    lf = db.get_large_file_by_id(file_id)
+                    from src.infrastructure.composition import get_files_facade  # type: ignore
+                    lf = get_files_facade().get_large_file_by_id(file_id)
                 except Exception:
-                    lf = None
+                    try:
+                        from database import db
+                        lf = db.get_large_file_by_id(file_id)
+                    except Exception:
+                        lf = None
                 if lf:
                     is_large_file = True
                     file_name = lf.get('file_name') or 'file'
@@ -1062,13 +1086,26 @@ async def handle_view_direct_file(update, context: ContextTypes.DEFAULT_TYPE) ->
                 file_data = doc
         else:
             file_name = token
-            file_data = db.get_latest_version(user_id, file_name)
+            try:
+                from src.infrastructure.composition import get_files_facade  # type: ignore
+                file_data = get_files_facade().get_latest_version(user_id, file_name)
+            except Exception:
+                try:
+                    from database import db
+                    file_data = db.get_latest_version(user_id, file_name)
+                except Exception:
+                    file_data = None
         # תמיכה בקבצים גדולים: אם לא נמצא בקולקציה הרגילה, ננסה large_files
         if not file_data and file_name:
             try:
-                lf = db.get_large_file(user_id, file_name)
+                from src.infrastructure.composition import get_files_facade  # type: ignore
+                lf = get_files_facade().get_large_file(user_id, file_name)
             except Exception:
-                lf = None
+                try:
+                    from database import db
+                    lf = db.get_large_file(user_id, file_name)
+                except Exception:
+                    lf = None
             if lf:
                 is_large_file = True
                 file_data = {
@@ -1131,10 +1168,14 @@ async def handle_view_direct_file(update, context: ContextTypes.DEFAULT_TYPE) ->
             keyboard.insert(0, webapp_row)
         # כפתור מועדפים (הוסף/הסר) לפי המצב הנוכחי
         try:
-            from database import db as _db
-            is_fav_now = bool(_db.is_favorite(update.effective_user.id, file_name))
+            from src.infrastructure.composition import get_files_facade  # type: ignore
+            is_fav_now = bool(get_files_facade().is_favorite(update.effective_user.id, file_name))
         except Exception:
-            is_fav_now = False
+            try:
+                from database import db as _db
+                is_fav_now = bool(_db.is_favorite(update.effective_user.id, file_name))
+            except Exception:
+                is_fav_now = False
         fav_text = ("💔 הסר ממועדפים" if is_fav_now else "⭐ הוסף למועדפים")
         # בנה callback בטוח: העדף מזהה מסד אם קיים, אחרת טוקן קצר במיפוי זמני
         if fid and (len("fav_toggle_id:") + len(fid)) <= 60:
