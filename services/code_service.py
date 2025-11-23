@@ -39,6 +39,28 @@ except Exception:  # optional deps (e.g., cairosvg) might be missing locally
     code_processor = None
 
 
+def _normalize_detected_language(label: Optional[str]) -> Optional[str]:
+    """
+    מנרמל תוצאות זיהוי משירותים חיצוניים למונחים אחידים בתוך המערכת.
+    """
+    if not label:
+        return None
+    normalized = label.strip().lower()
+    alias_map = {
+        "text only": "text",
+        "plain text": "text",
+        "plaintext": "text",
+        "md": "markdown",
+        "gfm": "markdown",
+        "github flavored markdown": "markdown",
+        "github-flavored markdown": "markdown",
+    }
+    normalized = alias_map.get(normalized, normalized)
+    if not normalized or normalized in {"unknown"}:
+        return None
+    return normalized
+
+
 def _fallback_detect_language(code: str, filename: str) -> str:
     """
     זיהוי שפת תכנות לפי סיומת קובץ (fallback).
@@ -137,7 +159,9 @@ def detect_language(code: str, filename: str) -> str:
     detected = None
     if code_processor is not None:
         try:
-            detected = code_processor.detect_language(code, filename)
+            detected = _normalize_detected_language(
+                code_processor.detect_language(code, filename)
+            )
         except Exception:
             detected = None
 
