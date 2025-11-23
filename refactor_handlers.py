@@ -285,7 +285,10 @@ class RefactorHandlers:
             msg += "⚠️ *יש בעיות בדיקת תקינות - בדוק לפני אישור*\n"
         msg += f"\n_מספר קבצים חדשים: {len(proposal.new_files)}_"
         keyboard = [
-            [InlineKeyboardButton("✅ אשר ושמור", callback_data="refactor_action:approve")],
+            [
+                InlineKeyboardButton("✅ אשר ושמור", callback_data="refactor_action:approve"),
+                InlineKeyboardButton("🐙 ייצוא ל-Gist", callback_data="refactor_action:export_gist"),
+            ],
             [
                 InlineKeyboardButton("📄 תצוגה מקדימה", callback_data="refactor_action:preview"),
                 InlineKeyboardButton("📝 ערוך הצעה", callback_data="refactor_action:edit"),
@@ -314,6 +317,9 @@ class RefactorHandlers:
         if action == "edit":
             await query.answer("📝 עריכה ידנית טרם מיושמת - אשר או בטל", show_alert=True)
             return
+        if action == "export_gist":
+            await self._export_gist(query, user_id, proposal)
+            return
         if action == "approve":
             await self._approve_and_save(query, user_id, proposal)
             del self.pending_proposals[user_id]
@@ -336,6 +342,49 @@ class RefactorHandlers:
                 await query.message.reply_text(msg, parse_mode=ParseMode.MARKDOWN)
             except Exception:
                 await query.message.reply_text(f"📄 {filename}\n\n{preview_content}")
+
+    async def _export_gist(self, query, user_id: int, proposal: RefactorProposal) -> None:
+        files_map = proposal.new_files or {}
+        if not files_map:
+            await query.message.reply_text("❌ אין קבצים לייצוא בהצעה הנוכחית.")
+            return
+        try:
+            from integrations import gist_integration
+        except Exception:
+            gist_integration = None  # type: ignore
+        is_available = bool(getattr(gist_integration, "is_available", lambda: False)())
+        if not gist_integration or not is_available:
+            await query.message.reply_text("❌ ייצוא ל-Gist אינו זמין כרגע (חסר חיבור ל-GitHub).")
+            return
+        description = (
+            f"פיצול {proposal.original_file} ({len(files_map)} קבצים חדשים)"
+            if proposal.refactor_type == RefactorType.SPLIT_FUNCTIONS
+            else f"רפקטורינג {proposal.refactor_type.value} עבור {proposal.original_file}"
+        )
+        try:
+            result = gist_integration.create_gist_multi(  # type: ignore[attr-defined]
+                files_map=files_map,
+                description=description,
+                public=True,
+            )
+        except Exception as e:
+            logger.error(f"שגיאה ביצירת Gist לרפקטורינג {proposal.original_file}: {e}", exc_info=True)
+            result = None
+        if not result or not result.get("url"):
+            await query.message.reply_text("❌ יצירת Gist נכשלה. נסה שוב מאוחר יותר.")
+            return
+        logger.info(
+            "המשתמש %s ייצא את הרפקטורינג %s ל-Gist בהצלחה: %s",
+            user_id,
+            proposal.original_file,
+            result.get("url"),
+        )
+        await query.message.reply_text(
+            "🐙 *הקבצים יוצאו ל-Gist!*\n\n"
+            f"📄 {len(files_map)} קבצים חדשים\n"
+            f"🔗 {result['url']}",
+            parse_mode=ParseMode.MARKDOWN,
+        )
 
     async def _approve_and_save(self, query, user_id: int, proposal: RefactorProposal):
         await TelegramUtils.safe_edit_message_text(query, "💾 שומר קבצים חדשים...")
