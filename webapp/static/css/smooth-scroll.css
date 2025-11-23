@@ -14,3 +14,21 @@ html {
   }
 }
 
+/* Android-specific optimizations (added via JS on Android) */
+.android-optimized {
+  -webkit-overflow-scrolling: touch;
+  overflow-scrolling: touch;
+  will-change: scroll-position;
+}
+.android-no-bounce {
+  overscroll-behavior-y: contain;
+  overscroll-behavior-x: none;
+}
+.android-optimized img,
+.android-optimized video,
+.android-optimized iframe {
+  transform: translateZ(0);
+  backface-visibility: hidden;
+  will-change: transform;
+}
+

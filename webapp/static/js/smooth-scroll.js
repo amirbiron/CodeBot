@@ -60,11 +60,34 @@
       this.targetPos = 0;
       this.bound = null;
       this.listenersAttached = false;
+      // Android-specific state
+      this.isAndroid = /Android/i.test((navigator.userAgent || ''));
+      this.isSamsungBrowser = /SamsungBrowser/i.test((navigator.userAgent || ''));
+      this.isAndroidWebView = (() => {
+        try {
+          const ua = (navigator.userAgent || '').toLowerCase();
+          const ios = /iphone|ipod|ipad/.test(ua);
+          const android = /android/.test(ua);
+          if (ios) return false;
+          if (!android) return false;
+          if (ua.includes('wv')) return true;
+          if (!ua.includes('chrome') && !ua.includes('firefox')) return true;
+          return false;
+        } catch (_) { return false; }
+      })();
+      this.touchActive = false;
+      this._lastScrollY = 0;
+      this._lastScrollTime = 0;
+      this.touchVelocity = 0;
+      this.momentumId = null;
       this.loadPreferences();
       this.init();
       try {
         document.documentElement.classList.add('js-smooth-scroll');
       } catch (_) {}
+      if (this.isAndroid) {
+        this.initAndroidOptimizations();
+      }
     }
 
     init() {
@@ -82,6 +105,111 @@
       document.addEventListener('keydown', this.bound.keydown);
       document.addEventListener('click', this.bound.anchorClick);
       this.listenersAttached = true;
+    }
+
+    initAndroidOptimizations() {
+      try {
+        document.body.classList.add('android-optimized', 'android-no-bounce');
+      } catch (_) {}
+      // Samsung Internet: avoid double smoothing quirks
+      try {
+        if (this.isSamsungBrowser) {
+          document.documentElement.style.scrollBehavior = 'auto';
+        }
+      } catch (_) {}
+      // Passive touch listeners to avoid main-thread blocking
+      const touchOpts = { passive: true };
+      const onTouchStart = (e) => {
+        this.touchActive = true;
+        this.touchVelocity = 0;
+        this._lastScrollY = window.pageYOffset || window.scrollY || 0;
+        this._lastScrollTime = performance.now();
+        if (this.momentumId) {
+          try { cancelAnimationFrame(this.momentumId); } catch (_) {}
+          this.momentumId = null;
+        }
+      };
+      const onTouchMove = () => {
+        // Sample actual scroll velocity to align momentum direction
+        const nowY = window.pageYOffset || window.scrollY || 0;
+        const nowT = performance.now();
+        const dt = nowT - this._lastScrollTime;
+        if (dt > 0) {
+          const dy = nowY - this._lastScrollY; // +dy => scrolled down
+          this.touchVelocity = dy / dt; // px per ms
+          this._lastScrollY = nowY;
+          this._lastScrollTime = nowT;
+        }
+      };
+      const onTouchEnd = () => {
+        this.touchActive = false;
+        // If the page keeps moving naturally after touchend, don't add momentum
+        const startY = window.pageYOffset || window.scrollY || 0;
+        setTimeout(() => {
+          const afterY = window.pageYOffset || window.scrollY || 0;
+          const moved = Math.abs(afterY - startY);
+          const speed = Math.abs(this.touchVelocity);
+          if (moved < 2 && speed > 0.4) {
+            this.startMomentumScroll(this.touchVelocity);
+          }
+        }, 60);
+      };
+      window.addEventListener('touchstart', onTouchStart, touchOpts);
+      window.addEventListener('touchmove', onTouchMove, touchOpts);
+      window.addEventListener('touchend', onTouchEnd, touchOpts);
+      window.addEventListener('touchcancel', onTouchEnd, touchOpts);
+      // Lightweight performance monitor (Android only)
+      this.startAndroidPerformanceMonitor();
+    }
+
+    startMomentumScroll(initialVelocity) {
+      let v = initialVelocity * 24; // convert px/ms to px/frame (@~60fps)
+      const friction = 0.94;
+      const threshold = 0.35;
+      const step = () => {
+        v *= friction;
+        if (Math.abs(v) > threshold) {
+          // v>0 means we were scrolling down (content goes up => scrollY increases)
+          window.scrollBy(0, v);
+          this.momentumId = requestAnimationFrame(step);
+        } else {
+          this.momentumId = null;
+        }
+      };
+      if (!this.momentumId) {
+        this.momentumId = requestAnimationFrame(step);
+      }
+    }
+
+    startAndroidPerformanceMonitor() {
+      try {
+        let last = performance.now();
+        let frames = 0;
+        const fpsWindow = [];
+        const MAX_SAMPLES = 10;
+        const loop = (t) => {
+          frames++;
+          if (t - last >= 1000) {
+            const fps = Math.round((frames * 1000) / (t - last));
+            fpsWindow.push(fps);
+            if (fpsWindow.length > MAX_SAMPLES) fpsWindow.shift();
+            // if median fps is low, reduce animation duration to minimize jank
+            const sorted = [...fpsWindow].sort((a, b) => a - b);
+            const median = sorted[Math.floor(sorted.length / 2)];
+            if (median < 40 && this.config.duration > 250) {
+              this.updateConfig({ duration: Math.max(200, this.config.duration - 100), easing: 'ease-out' });
+            }
+            last = t; frames = 0;
+          }
+          requestAnimationFrame(loop);
+        };
+        requestAnimationFrame(loop);
+      } catch (_) {}
+    }
+
+    enableAndroidFallback() {
+      // Minimize custom animation to rely more on platform behavior
+      this.updateConfig({ duration: 0 });
     }
 
     removeListeners() {
