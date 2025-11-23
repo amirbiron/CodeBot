@@ -114,14 +114,19 @@ class SnippetService:
         generic_text_exts = {".txt", ""}
 
         def looks_like_markdown(text: str) -> bool:
+            content = text or ""
+            # Ignore leading shebang so code blocks are not mistaken for headings
+            if content.startswith("#!"):
+                newline_idx = content.find("\n")
+                content = "" if newline_idx == -1 else content[newline_idx + 1 :]
             # Basic markdown markers
-            if re.search(r"(^|\n)\s{0,3}#[^#]", text):
+            if re.search(r"(^|\n)\s{0,3}#[^#]", content):
                 return True
-            if re.search(r"(^|\n)\s{0,2}[-*+]\s+\S", text):
+            if re.search(r"(^|\n)\s{0,2}[-*+]\s+\S", content):
                 return True
-            if re.search(r"\[.+?\]\(.+?\)", text):
+            if re.search(r"\[.+?\]\(.+?\)", content):
                 return True
-            if "```" in text:
+            if "```" in content:
                 return True
             return False
 
