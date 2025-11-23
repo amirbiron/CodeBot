@@ -62,9 +62,11 @@
        CA->>CA: _calculate_dependencies()
        CA-->>RE: functions, classes, dependencies
        
-       RE->>RE: יצירת הצעת רפקטורינג
-       alt SPLIT_FUNCTIONS
-         RE->>RE: _split_large_file()
+      RE->>RE: יצירת הצעת רפקטורינג
+      alt SPLIT_FUNCTIONS
+        RE->>RE: Smart Clustering (קבוצות דומיין) + Coupling
+        RE->>RE: Dry-Run Import Graph (Tarjan SCC)
+        RE->>RE: Merge within cycle + clean self-import + update __init__
        else EXTRACT_FUNCTIONS
          RE->>RE: _extract_duplicate_code()
        else MERGE_SIMILAR
@@ -353,6 +355,42 @@ Edge Cases
 - הגבלת מספר קבוצות: יעד של 3–5 מודולים/מחלקות. לעולם לא מפצלים 1‑ל‑1 לכל פונקציה.
 - סף מינימלי לקבוצה: לא נוצרת קבוצה עבור פונקציה בודדת; קבוצות קטנות יתמזגו לקבוצות קרובות.
 - מניעת God Class: בעת המרה ל-OOP, אם מתקבלת קבוצה יחידה גדולה – מתבצע פיצול לפי דומיין למחלקות נפרדות (3–5).
+
+Smart Clustering ו‑Cycle Guard
+------------------------------
+
+- Smart Clustering:
+
+  - זיהוי "קישורים חלשים" בין דומיינים לצורך פיצול לתת‑גרפים עצמאיים (למשל ``inventory.py`` ו‑``network.py``).
+  - Coupling Rule: מנהל+ישות בצימוד גבוה יושבים יחד באותו קובץ (Collocation). אם ישנם ריבוי ישויות או העדפת שכבות – ראו מצב שכבות.
+
+- Dry‑Run Cycle Guard:
+
+  - נבנה גרף ייבוא בין הקבצים שנוצרו; מזוהים מעגלים באמצעות Tarjan SCC.
+  - פירוק מעגלים נעשה ע"י מיזוג ממוקד של זוגות מתוך ה‑SCC בלבד, כולל ניקוי self‑import ועדכון ``__init__.py``.
+  - ההצעה כוללת אזהרת ״פורקה תלות מעגלית״ כאשר הדבר התרחש.
+
+שמות קבצים דומייניים (Canonical)
+----------------------------------
+
+כדי לשמור יציבות וקריאות, שמות הקבצים הדומייניים הם:
+
+- ``users.py``, ``finance.py``, ``inventory.py``, ``network.py`` (API clients), ``workflows.py``
+- דומיינים נוספים: ``<base>_<group>.py`` (למשל: ``split_test_big_file_analytics.py``)
+
+מצב שכבות (Layered)
+--------------------
+
+- כאשר נדרש בידוד שכבה של ישויות (Entities) ללא תלות חזרה בשירותים:
+
+  - כל המחלקות נוצרות ב‑Leaf יחיד: ``models.py``.
+  - מודולי הדומיין מייבאים ממנו רק את המחלקות הדרושות.
+
+- הפעלה באמצעות משתנה סביבה:
+
+.. code-block:: bash
+
+   export REFACTOR_LAYERED_MODE=1
 
 פרמטרים ניתנים לכוונון
 ----------------------
