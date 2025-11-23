@@ -82,17 +82,26 @@
       this._lastScrollTime = 0;
       this.touchVelocity = 0;
       this.momentumId = null;
-      this.androidListenersAttached = false;
-      this.androidTouchHandlers = null;
-      this.androidPerfRafId = null;
-      this.androidPerfVisibilityHandler = null;
-      this.loadPreferences();
-      // Accessibility wins over saved preferences
-      if (prefersReducedMotion()) {
-        this.config.enabled = false;
-        this.config.duration = 0;
-      }
-      this.init();
+        this.androidListenersAttached = false;
+        this.androidTouchHandlers = null;
+        this.androidPerfRafId = null;
+        this.androidPerfVisibilityHandler = null;
+        this.debugMode = false;
+        this.debugRefs = null;
+        try {
+          const params = new URLSearchParams(window.location.search || '');
+          this.debugMode = params.get('smooth_debug') === '1';
+        } catch (_) {}
+        this.loadPreferences();
+        // Accessibility wins over saved preferences
+        if (prefersReducedMotion()) {
+          this.config.enabled = false;
+          this.config.duration = 0;
+        }
+        this.init();
+        if (this.debugMode) {
+          this.renderDebugPanel();
+        }
       try {
         document.documentElement.classList.add('js-smooth-scroll');
       } catch (_) {}
@@ -566,6 +575,120 @@
         document.body.classList.remove('android-optimized', 'android-no-bounce');
         if (this.isSamsungBrowser) { document.documentElement.style.scrollBehavior = ''; }
       } catch (_) {}
+    }
+
+    renderDebugPanel() {
+      if (this.debugRefs) return;
+      try {
+        const panel = document.createElement('aside');
+        panel.id = 'smooth-scroll-debug-panel';
+        panel.setAttribute('dir', 'rtl');
+        panel.setAttribute('role', 'status');
+        panel.style.position = 'fixed';
+        panel.style.bottom = '16px';
+        panel.style.left = '16px';
+        panel.style.zIndex = '9999';
+        panel.style.background = 'rgba(0,0,0,0.85)';
+        panel.style.color = '#fff';
+        panel.style.padding = '12px';
+        panel.style.borderRadius = '8px';
+        panel.style.fontSize = '14px';
+        panel.style.lineHeight = '1.5';
+        panel.style.maxWidth = '280px';
+        panel.style.boxShadow = '0 4px 16px rgba(0,0,0,0.35)';
+
+        const title = document.createElement('strong');
+        title.textContent = 'מצב גלילה חלקה (debug)';
+        panel.appendChild(title);
+
+        const statusEl = document.createElement('div');
+        statusEl.style.margin = '8px 0';
+        statusEl.id = 'smooth-scroll-debug-status';
+        panel.appendChild(statusEl);
+
+        const noteEl = document.createElement('div');
+        noteEl.style.fontSize = '12px';
+        noteEl.style.opacity = '0.8';
+        panel.appendChild(noteEl);
+
+        const buttons = document.createElement('div');
+        buttons.style.display = 'flex';
+        buttons.style.flexWrap = 'wrap';
+        buttons.style.gap = '8px';
+
+        const toggleBtn = document.createElement('button');
+        toggleBtn.type = 'button';
+        toggleBtn.style.flex = '1 1 auto';
+        toggleBtn.style.background = '#3b82f6';
+        toggleBtn.style.color = '#fff';
+        toggleBtn.style.border = 'none';
+        toggleBtn.style.padding = '6px 8px';
+        toggleBtn.style.borderRadius = '4px';
+        toggleBtn.style.cursor = 'pointer';
+        toggleBtn.addEventListener('click', () => {
+          if (this.config.enabled) this.disable();
+          else this.enable();
+          this.updateDebugPanel();
+        });
+
+        const resetBtn = document.createElement('button');
+        resetBtn.type = 'button';
+        resetBtn.textContent = 'נקה העדפה';
+        resetBtn.style.flex = '1 1 auto';
+        resetBtn.style.background = '#f97316';
+        resetBtn.style.color = '#000';
+        resetBtn.style.border = 'none';
+        resetBtn.style.padding = '6px 8px';
+        resetBtn.style.borderRadius = '4px';
+        resetBtn.style.cursor = 'pointer';
+        resetBtn.addEventListener('click', () => {
+          try { localStorage.removeItem('smoothScrollPrefs'); } catch (_) {}
+          window.location.reload();
+        });
+
+        const closeBtn = document.createElement('button');
+        closeBtn.type = 'button';
+        closeBtn.textContent = 'סגור';
+        closeBtn.style.flex = '0 0 auto';
+        closeBtn.style.background = '#4b5563';
+        closeBtn.style.color = '#fff';
+        closeBtn.style.border = 'none';
+        closeBtn.style.padding = '6px 8px';
+        closeBtn.style.borderRadius = '4px';
+        closeBtn.style.cursor = 'pointer';
+        closeBtn.addEventListener('click', () => {
+          panel.remove();
+          this.debugRefs = null;
+        });
+
+        buttons.appendChild(toggleBtn);
+        buttons.appendChild(resetBtn);
+        buttons.appendChild(closeBtn);
+        panel.appendChild(buttons);
+
+        document.body.appendChild(panel);
+        this.debugRefs = { panel, statusEl, noteEl, toggleBtn };
+        this.updateDebugPanel();
+      } catch (_) {}
+    }
+
+    updateDebugPanel() {
+      if (!this.debugRefs) return;
+      const reduce = prefersReducedMotion();
+      const info = [
+        ['הדפדפן דורש הפחתת תנועה', reduce ? 'כן' : 'לא'],
+        ['הגדרה פנימית פעילה', this.config.enabled ? 'כן' : 'לא'],
+        ['משך אנימציה (ms)', this.config.duration],
+        ['Samsung Browser', this.isSamsungBrowser ? 'כן' : 'לא'],
+        ['Android WebView', this.isAndroidWebView ? 'כן' : 'לא'],
+      ].map(([label, value]) => `<div><strong>${label}:</strong> ${value}</div>`).join('');
+      this.debugRefs.statusEl.innerHTML = info;
+      if (reduce) {
+        this.debugRefs.noteEl.textContent = 'מערכת ההפעלה מסמנת להסיר אנימציות. בטל/י את "הסר אנימציות" בנגישות כדי לאפשר גלילה חלקה.';
+      } else {
+        this.debugRefs.noteEl.textContent = 'ניתן להדליק או לכבות כאן, או למחוק העדפה (נשמר ב-localStorage).';
+      }
+      this.debugRefs.toggleBtn.textContent = this.config.enabled ? 'כבה גלילה חלקה' : 'הפעל גלילה חלקה';
     }
   }
 
