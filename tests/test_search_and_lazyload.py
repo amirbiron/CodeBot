@@ -515,22 +515,20 @@ async def test_view_file_show_more_idx_button_and_back_by_repo(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_view_direct_file_large_markdown_includes_note(monkeypatch):
-    # Stub database to return a large markdown file via large_files fallback
-    mod = types.ModuleType("database")
-    class _LargeFile: pass
-    mod.LargeFile = _LargeFile
+    # Stub FilesFacade to return a large markdown file via large_files fallback
     content = "# Title\n" + ("line\n" * 4000)
-    mod.db = types.SimpleNamespace(
-        get_latest_version=lambda *_: None,
-        get_large_file=lambda *_: {
-            'file_name': 'doc.md',
-            'content': content,
-            'programming_language': 'markdown',
-            'description': '',
-            '_id': 'abc'
-        }
-    )
-    monkeypatch.setitem(sys.modules, "database", mod)
+    class _Facade:
+        def get_latest_version(self, *_):
+            return None
+        def get_large_file(self, *_):
+            return {
+                'file_name': 'doc.md',
+                'content': content,
+                'programming_language': 'markdown',
+                'description': '',
+                '_id': 'abc'
+            }
+    _set_facade(monkeypatch, _Facade())
 
     class Q:
         def __init__(self):
