@@ -3,6 +3,15 @@ import sys
 import pytest
 
 
+def _set_facade(monkeypatch, facade):
+    module_name = "src.infrastructure.composition"
+    module = sys.modules.get(module_name)
+    if module is None:
+        module = types.ModuleType(module_name)
+        monkeypatch.setitem(sys.modules, module_name, module)
+    monkeypatch.setattr(module, "get_files_facade", lambda: facade, raising=False)
+
+
 class DummyDB:
     def __init__(self):
         self._docs = []
@@ -118,14 +127,12 @@ async def test_lazy_buttons_single_instance(monkeypatch):
         def __init__(self):
             self.user_data = {}
 
-    # Patch db.get_latest_version
-    # stub database module
-    mod = types.ModuleType("database")
-    class _LargeFile:
-        pass
-    mod.LargeFile = _LargeFile
-    mod.db = SimpleNamespace(get_latest_version=lambda _u, _n: doc, get_large_file=lambda *_: None)
-    monkeypatch.setitem(sys.modules, "database", mod)
+    class _Facade:
+        def get_latest_version(self, _u, _n):
+            return doc
+        def get_large_file(self, *_):
+            return None
+    _set_facade(monkeypatch, _Facade())
 
     # Act
     from handlers.file_view import handle_view_direct_file
