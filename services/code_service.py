@@ -117,129 +117,30 @@ def _fallback_detect_language(code: str, filename: str) -> str:
 
 def detect_language(code: str, filename: str) -> str:
     """
-    זיהוי שפת תכנות עבור קוד ושם קובץ נתונים, עם עדיפויות חכמות:
-    - שמות מיוחדים ללא סיומת (Dockerfile/Makefile/Taskfile/.*ignore/.env)
-    - זיהוי shebang (#!/usr/bin/env bash|python, #!/bin/sh וכו')
-    - העדפת אותות תוכן עבור סיומות גנריות (.md/.txt/ללא סיומת)
-    - נפילה חכמה למעבד ברירת מחדל ולמיפוי סיומות
+    מקור אמת לזיהוי שפה: דטקטור דומייני.
+    נשמרים fallback-ים ישנים לתאימות, אך החלטה סופית מגיעה מהדומיין כאשר אפשר.
     """
-    # נסה דטקטור דומייני מאוחד לקבלת עקביות בין כל הזרימות (שמירה/עריכה/תצוגה)
+    # 1) Domain detector (source of truth)
     try:
         from src.domain.services.language_detector import LanguageDetector
         return LanguageDetector().detect_language(code, filename)
     except Exception:
         pass
+    # 2) Filename-only mapping (legacy utils)
     fname = (filename or "").strip()
-    code = code or ""
-    fname_lower = fname.lower()
-    ext = Path(fname_lower).suffix  # '' when no extension
-
-    # 1) שמות מיוחדים ללא סיומת
-    special_names_map = {
-        "dockerfile": "dockerfile",
-        "makefile": "makefile",
-        "taskfile": "yaml",  # Taskfile (go-task) הוא YAML
-    }
-    base = Path(fname_lower).name
-    if base in special_names_map:
-        return special_names_map[base]
-    if base in {".gitignore"}:
-        return "gitignore"
-    if base in {".dockerignore"}:
-        return "dockerignore"
-    if base in {".env"}:
-        return "env"
-
-    # 2) Shebang detection (גם env-variations)
-    try:
-        first_line = (code.splitlines()[0] if code else "").strip().lower()
-    except Exception:
-        first_line = ""
-    if first_line.startswith("#!"):
-        if "bash" in first_line or first_line.endswith("/sh") or " env sh" in first_line or " env bash" in first_line:
-            return "bash"
-        if "python" in first_line:
-            return "python"
-
-    # 3) נשתמש במעבד השפות אם זמין
-    detected = None
-    if code_processor is not None:
-        try:
-            detected = _normalize_detected_language(
-                code_processor.detect_language(code, filename)
-            )
-        except Exception:
-            detected = None
-
-    # 4) העדפת תוכן עבור סיומות גנריות
-    generic_md_exts = {".md", ".markdown", ".mdown", ".mkd", ".mkdn"}
-    generic_text_exts = {".txt", ""}
-
-    def looks_like_markdown(text: str) -> bool:
-        content = text or ""
-        # התעלם מ-shebang בתחילת הטקסט
-        if content.startswith("#!"):
-            nl = content.find("\n")
-            content = "" if nl == -1 else content[nl + 1 :]
-        if re.search(r"(^|\n)\s{0,3}#[^#]", content):
-            return True
-        if re.search(r"(^|\n)\s{0,2}[-*+]\s+\S", content):
-            return True
-        if re.search(r"\[.+?\]\(.+?\)", content):
-            return True
-        if "```" in content:
-            return True
-        return False
-
-    def strong_python_signal(text: str) -> bool:
-        if re.search(r"^#!.*\bpython(\d+(?:\.\d+)*)?\b", text, flags=re.IGNORECASE | re.MULTILINE):
-            return True
-        signals = 0
-        if re.search(r"^\s*def\s+\w+\s*\(", text, flags=re.MULTILINE):
-            signals += 1
-        if re.search(r"^\s*class\s+\w+\s*\(?", text, flags=re.MULTILINE):
-            signals += 1
-        if re.search(r"^\s*import\s+\w+", text, flags=re.MULTILINE):
-            signals += 1
-        if "__name__" in text and "__main__" in text:
-            signals += 1
-        if re.search(r":\s*(#.*)?\n\s{4,}\S", text, flags=re.MULTILINE):
-            signals += 1
-        return signals >= 2
-
-    # Markdown: תעדוף Python אם יש אותות חזקים וללא סמני Markdown בולטים
-    if ext in generic_md_exts:
-        if strong_python_signal(code) and not looks_like_markdown(code):
-            return "python"
-        # אם המעבד מצא שפה שאינה markdown (למשל python) — קבל אותה; אחרת markdown
-        if detected and detected != "text":
-            return detected
-        return "markdown"
-
-    # טקסט/ללא סיומת: אם המעבד מצא שפה — קבל; אחרת בדיקה ידנית ליAML
-    if ext in generic_text_exts:
-        if detected and detected != "text":
-            return detected
-        # Taskfile/קבצי YAML ללא סיומת
-        if re.search(r"(?m)^\s*\w+\s*:", code) or re.search(r"(?m)^\s*-\s+\S", code):
-            return "yaml"
-        # מיפוי לפי שם קובץ (למשל .env)
-        mapped = _detect_from_filename(fname)
-        if mapped and mapped != "text":
-            return mapped
-        return "text"
-
-    # 5) אם המעבד מצא תוצאה — החזר אותה
-    if detected:
-        return detected
-
-    # 6) נפילה חכמה למיפוי לפי שם קובץ/סיומת
     mapped = _detect_from_filename(fname)
     if mapped and mapped != "text":
         return mapped
-
-    # 7) Fallback אחרון
-    return _fallback_detect_language(code, filename)
+    # 3) Old processor fallback (best-effort)
+    if code_processor is not None:
+        try:
+            detected = _normalize_detected_language(code_processor.detect_language(code, filename))
+            if detected:
+                return detected
+        except Exception:
+            pass
+    # 4) Final minimal fallback
+    return _fallback_detect_language(code or "", filename or "")
 
 
 @traced("code.validate_input")
