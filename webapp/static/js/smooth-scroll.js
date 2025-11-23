@@ -58,6 +58,8 @@
       this.startTime = 0;
       this.startPos = 0;
       this.targetPos = 0;
+      // Map of element => rafId for per-element animations
+      this.elementRafIds = new Map();
       this.bound = null;
       this.listenersAttached = false;
       // Android-specific state
@@ -80,12 +82,21 @@
       this._lastScrollTime = 0;
       this.touchVelocity = 0;
       this.momentumId = null;
+      this.androidListenersAttached = false;
+      this.androidTouchHandlers = null;
+      this.androidPerfRafId = null;
+      this.androidPerfVisibilityHandler = null;
       this.loadPreferences();
+      // Accessibility wins over saved preferences
+      if (prefersReducedMotion()) {
+        this.config.enabled = false;
+        this.config.duration = 0;
+      }
       this.init();
       try {
         document.documentElement.classList.add('js-smooth-scroll');
       } catch (_) {}
-      if (this.isAndroid) {
+      if (this.config.enabled && this.isAndroid) {
         this.initAndroidOptimizations();
       }
     }
@@ -105,9 +116,14 @@
       document.addEventListener('keydown', this.bound.keydown);
       document.addEventListener('click', this.bound.anchorClick);
       this.listenersAttached = true;
+      // Attach Android hooks only when enabled
+      if (this.config.enabled && this.isAndroid && !this.androidListenersAttached) {
+        this.initAndroidOptimizations();
+      }
     }
 
     initAndroidOptimizations() {
+      if (this.androidListenersAttached) return;
       try {
         document.body.classList.add('android-optimized', 'android-no-bounce');
       } catch (_) {}
@@ -154,12 +170,14 @@
           }
         }, 60);
       };
+      this.androidTouchHandlers = { onTouchStart, onTouchMove, onTouchEnd, opts: touchOpts };
       window.addEventListener('touchstart', onTouchStart, touchOpts);
       window.addEventListener('touchmove', onTouchMove, touchOpts);
       window.addEventListener('touchend', onTouchEnd, touchOpts);
       window.addEventListener('touchcancel', onTouchEnd, touchOpts);
       // Lightweight performance monitor (Android only)
       this.startAndroidPerformanceMonitor();
+      this.androidListenersAttached = true;
     }
 
     startMomentumScroll(initialVelocity) {
@@ -187,7 +205,7 @@
         let frames = 0;
         const fpsWindow = [];
         const MAX_SAMPLES = 10;
-        const loop = (t) => {
+        const tick = (t) => {
           frames++;
           if (t - last >= 1000) {
             const fps = Math.round((frames * 1000) / (t - last));
@@ -201,9 +219,18 @@
             }
             last = t; frames = 0;
           }
-          requestAnimationFrame(loop);
+          this.androidPerfRafId = requestAnimationFrame(tick);
         };
-        requestAnimationFrame(loop);
+        this.androidPerfRafId = requestAnimationFrame(tick);
+        // Pause on hidden tab; resume on visible
+        this.androidPerfVisibilityHandler = () => {
+          if (document.visibilityState === 'hidden') {
+            if (this.androidPerfRafId) { cancelAnimationFrame(this.androidPerfRafId); this.androidPerfRafId = null; }
+          } else if (!this.androidPerfRafId && this.config.enabled) {
+            this.androidPerfRafId = requestAnimationFrame(tick);
+          }
+        };
+        document.addEventListener('visibilitychange', this.androidPerfVisibilityHandler);
       } catch (_) {}
     }
 
@@ -265,6 +292,33 @@
       else if (key === 'ArrowDown') distance = 100;
       else if (key === 'ArrowUp') distance = -100;
       else return;
+      // If focus is inside a scrollable container, scroll that container instead of window
+      const active = (document.activeElement || null);
+      const container = active ? (isScrollable(active) ? active : findScrollableContainer(active)) : null;
+      if (container && container !== document.body && container !== document.documentElement) {
+        event.preventDefault();
+        const localPage = Math.max(1, Math.floor(container.clientHeight * 0.9));
+        const localMax = Math.max(0, container.scrollHeight - container.clientHeight);
+        let localDistance;
+        if (key === 'PageDown' || (key === ' ' && !event.shiftKey)) localDistance = localPage;
+        else if (key === 'PageUp' || (key === ' ' && event.shiftKey)) localDistance = -localPage;
+        else if (key === 'Home') {
+          const from = container.scrollTop;
+          this.animateElementScroll(container, from, 0);
+          return;
+        } else if (key === 'End') {
+          const from = container.scrollTop;
+          this.animateElementScroll(container, from, localMax);
+          return;
+        } else if (key === 'ArrowDown') localDistance = 100;
+        else if (key === 'ArrowUp') localDistance = -100;
+        else return;
+        const from = container.scrollTop;
+        const to = clamp(from + localDistance * this.config.keyboardSensitivity, 0, localMax);
+        this.animateElementScroll(container, from, to);
+        return;
+      }
+      // Otherwise, scroll window
       event.preventDefault();
       if (key === 'Home' || key === 'End') {
         const from = window.pageYOffset || window.scrollY || 0;
@@ -351,6 +405,11 @@
         return;
       }
       let start = 0;
+      // Cancel prior animation on this element
+      try {
+        const prev = this.elementRafIds.get(element);
+        if (prev) { cancelAnimationFrame(prev); this.elementRafIds.delete(element); }
+      } catch (_) {}
       const step = (now) => {
         if (!start) start = now;
         const elapsed = now - start;
@@ -358,10 +417,14 @@
         const eased = easing(t);
         element.scrollTop = from + (to - from) * eased;
         if (t < 1) {
-          requestAnimationFrame(step);
+          const id = requestAnimationFrame(step);
+          this.elementRafIds.set(element, id);
+        } else {
+          try { this.elementRafIds.delete(element); } catch (_) {}
         }
       };
-      requestAnimationFrame(step);
+      const id = requestAnimationFrame(step);
+      this.elementRafIds.set(element, id);
     }
 
     // Easing functions
@@ -440,8 +503,15 @@
 
     enable() {
       if (this.config.enabled) return;
+      // Respect OS-level reduced motion
+      if (prefersReducedMotion()) {
+        this.config.enabled = false;
+        this.config.duration = 0;
+        return;
+      }
       this.config.enabled = true;
       this.init();
+      if (this.isAndroid && !this.androidListenersAttached) this.initAndroidOptimizations();
       this.savePreferences();
     }
     disable() {
@@ -453,13 +523,49 @@
         this.isScrolling = false;
       }
       this.removeListeners();
+      // Cancel all element animations
+      try {
+        for (const id of this.elementRafIds.values()) { cancelAnimationFrame(id); }
+      } catch (_) {}
+      this.elementRafIds.clear();
+      // Remove Android hooks
+      this.removeAndroidOptimizations();
       this.savePreferences();
     }
     updateConfig(newCfg) {
       try {
         Object.assign(this.config, newCfg || {});
+        // Enforce reduced motion if requested by user
+        if (prefersReducedMotion()) {
+          this.config.enabled = false;
+          this.config.duration = 0;
+        }
       } catch (_) {}
       this.savePreferences();
+    }
+
+    removeAndroidOptimizations() {
+      try {
+        if (this.androidTouchHandlers) {
+          const { onTouchStart, onTouchMove, onTouchEnd, opts } = this.androidTouchHandlers;
+          window.removeEventListener('touchstart', onTouchStart, opts);
+          window.removeEventListener('touchmove', onTouchMove, opts);
+          window.removeEventListener('touchend', onTouchEnd, opts);
+          window.removeEventListener('touchcancel', onTouchEnd, opts);
+        }
+      } catch (_) {}
+      this.androidTouchHandlers = null;
+      this.androidListenersAttached = false;
+      if (this.momentumId) { try { cancelAnimationFrame(this.momentumId); } catch (_) {} this.momentumId = null; }
+      if (this.androidPerfRafId) { try { cancelAnimationFrame(this.androidPerfRafId); } catch (_) {} this.androidPerfRafId = null; }
+      if (this.androidPerfVisibilityHandler) {
+        try { document.removeEventListener('visibilitychange', this.androidPerfVisibilityHandler); } catch (_) {}
+        this.androidPerfVisibilityHandler = null;
+      }
+      try {
+        document.body.classList.remove('android-optimized', 'android-no-bounce');
+        if (this.isSamsungBrowser) { document.documentElement.style.scrollBehavior = ''; }
+      } catch (_) {}
     }
   }
 
