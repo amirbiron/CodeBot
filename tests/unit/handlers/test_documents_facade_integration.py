@@ -174,7 +174,6 @@ async def test_large_file_falls_back_to_legacy_when_facade_fails():
     assert legacy.saved_large[0].file_name == "huge.py"
     assert any("הקובץ נשמר בהצלחה" in text for text in upd.message.texts)
 
-
 @pytest.mark.asyncio
 async def test_legacy_fallback_when_models_missing(monkeypatch):
     legacy = LegacyStub()
@@ -222,4 +221,3 @@ async def test_legacy_fallback_when_models_missing(monkeypatch):
     assert legacy.saved_large, "צפינו שהשמירה תתבצע גם בלי LargeFile"
     assert getattr(legacy.saved_large[0], "file_name") == "missing_large.py"
     assert any("הקובץ נשמר בהצלחה" in text for text in upd2.message.texts)
-
