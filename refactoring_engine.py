@@ -408,6 +408,16 @@ class RefactoringEngine:
         if class_to_module:
             new_files = self._inject_cross_module_class_imports(new_files, class_to_module)
 
+        # DRY-RUN: זיהוי ומניעת תלות מעגלית בין המודולים שנוצרו
+        cycle_warnings: List[str] = []
+        new_files, merged_pairs = self._resolve_circular_imports(new_files)
+        if merged_pairs:
+            for a, b in merged_pairs:
+                cycle_warnings.append(f"♻️ פורקה תלות מעגלית באמצעות מיזוג המודולים: {a} ⇄ {b}")
+            # עדכון __init__.py לאחר מיזוגים
+            module_file_names = [fn for fn in new_files.keys() if fn.endswith('.py') and fn != '__init__.py']
+            new_files['__init__.py'] = self._build_init_file(module_file_names)
+
         # ניקוי פוסט-פיצול: הסרת imports מיותרים ברמת קובץ
         new_files = self.post_refactor_cleanup(new_files)
         description = (
@@ -423,6 +433,7 @@ class RefactoringEngine:
             warnings.append(
                 f"⚠️ יש {len(self.analyzer.global_vars)} משתנים גלובליים - עלול להיות צורך בהתאמה ידנית"
             )
+        warnings.extend(cycle_warnings)
         return RefactorProposal(
             refactor_type=RefactorType.SPLIT_FUNCTIONS,
             original_file=self.analyzer.filename,
@@ -1356,6 +1367,158 @@ class RefactoringEngine:
                 lines = lines[:insert_idx] + new_imports + [""] + lines[insert_idx:]
             out[fn] = "\n".join(lines) + "\n"
         return out
+
+    # === DRY-RUN: זיהוי ומניעת תלות מעגלית באמצעות מיזוג מודולים צמודים ===
+    def _resolve_circular_imports(self, files: Dict[str, str]) -> Tuple[Dict[str, str], List[Tuple[str, str]]]:
+        """
+        מזהה רכיבים חזקים (SCC) בגרף הייבוא בין המודולים שנוצרו.
+        עבור כל מעגל (SCC בגודל > 1) – ממזג מודולים בזוגות קרובים כדי לפרק את המעגל,
+        בהתאם לכלל ה-Coupling (הצמדה).
+        מחזיר (files_after, merged_pairs)
+        """
+        def _module_stem(fn: str) -> Optional[str]:
+            if not fn.endswith(".py"):
+                return None
+            if fn in ("__init__.py",):
+                return None
+            if fn.endswith("_shared.py"):
+                return None
+            return Path(fn).stem
+
+        def _build_graph(files_map: Dict[str, str]) -> Tuple[Dict[str, Set[str]], Dict[str, str]]:
+            stems: Dict[str, str] = {}
+            for fn in files_map.keys():
+                st = _module_stem(fn)
+                if st:
+                    stems[st] = fn
+            graph: Dict[str, Set[str]] = {st: set() for st in stems.keys()}
+            import_re = re.compile(r'^\s*from\s+\.(\w+)\s+import\s+')
+            for st, fn in stems.items():
+                content = files_map.get(fn, "")
+                for line in content.splitlines():
+                    m = import_re.match(line)
+                    if not m:
+                        continue
+                    target = m.group(1)
+                    if target in graph and target != st:
+                        graph[st].add(target)
+            return graph, stems
+
+        def _tarjan_scc(graph: Dict[str, Set[str]]) -> List[List[str]]:
+            index = 0
+            indices: Dict[str, int] = {}
+            lowlink: Dict[str, int] = {}
+            stack: List[str] = []
+            onstack: Set[str] = set()
+            sccs: List[List[str]] = []
+
+            def strongconnect(v: str) -> None:
+                nonlocal index
+                indices[v] = index
+                lowlink[v] = index
+                index += 1
+                stack.append(v)
+                onstack.add(v)
+                for w in graph.get(v, ()):
+                    if w not in indices:
+                        strongconnect(w)
+                        lowlink[v] = min(lowlink[v], lowlink[w])
+                    elif w in onstack:
+                        lowlink[v] = min(lowlink[v], indices[w])
+                if lowlink[v] == indices[v]:
+                    comp: List[str] = []
+                    while True:
+                        w = stack.pop()
+                        onstack.discard(w)
+                        comp.append(w)
+                        if w == v:
+                            break
+                    sccs.append(comp)
+
+            for v in graph.keys():
+                if v not in indices:
+                    strongconnect(v)
+            return sccs
+
+        def _merge_two(files_map: Dict[str, str], stems_map: Dict[str, str], a: str, b: str) -> Tuple[Dict[str, str], Tuple[str, str]]:
+            """
+            ממזג את המודול b לתוך a. מעדכן ייבואים בקבצים אחרים.
+            """
+            a_file = stems_map[a]
+            b_file = stems_map[b]
+            a_content = files_map.get(a_file, "")
+            b_content = files_map.get(b_file, "")
+            # הסר דוקסטרינג עליון מ-b כדי למנוע כפילות מרחיבה
+            def strip_top_docstring(text: str) -> str:
+                lines = text.splitlines()
+                out: List[str] = []
+                quote_count = 0
+                i = 0
+                while i < len(lines):
+                    line = lines[i]
+                    if quote_count < 2 and line.strip().startswith('"""'):
+                        quote_count += 1
+                        i += 1
+                        continue
+                    if quote_count < 2:
+                        i += 1
+                        continue
+                    break
+                # דלג גם על שורה ריקה שאחרי הדוקסטרינג
+                if i < len(lines) and lines[i].strip() == "":
+                    i += 1
+                out = lines[i:]
+                return "\n".join(out)
+            merged = a_content.rstrip() + f"\n\n# ---- merged from {b_file} ----\n" + strip_top_docstring(b_content).lstrip() + "\n"
+            files_map[a_file] = merged
+            # מחק את קובץ b
+            del files_map[b_file]
+            # עדכן ייבואים בכל שאר הקבצים: from .b import -> from .a import
+            b_pat = re.compile(rf'^(\s*from\s+)\.{re.escape(b)}(\s+import\s+)', re.M)
+            for fn, content in list(files_map.items()):
+                if fn == a_file:
+                    # החלף ייבוא פנימי הדדי בתוך הקובץ המאוחד
+                    files_map[fn] = re.sub(b_pat, r'\1.' + a + r'\2', content)
+                else:
+                    files_map[fn] = re.sub(b_pat, r'\1.' + a + r'\2', content)
+            return files_map, (stems_map[a], b_file)
+
+        merged_pairs: List[Tuple[str, str]] = []
+        iterations = 0
+        while iterations < 5:  # הגבלת ניסיונות כדי למנוע לולאה
+            graph, stems_map = _build_graph(files)
+            sccs = _tarjan_scc(graph)
+            # חפש SCCs עם יותר מצומת אחד (מעגלים)
+            cycles = [comp for comp in sccs if len(comp) > 1]
+            if not cycles:
+                break
+            changed = False
+            for comp in cycles:
+                # בחר זוג למיזוג: נעדיף זוג שיש ביניהם ייבוא הדדי
+                pair_to_merge: Optional[Tuple[str, str]] = None
+                mutual: List[Tuple[str, str]] = []
+                for i in range(len(comp)):
+                    for j in range(i + 1, len(comp)):
+                        u, v = comp[i], comp[j]
+                        if v in graph.get(u, set()) and u in graph.get(v, set()):
+                            mutual.append((u, v))
+                if mutual:
+                    # יציבות: בחר לפי סדר אלפביתי כדי לקבל תוצאה דטרמיניסטית
+                    pair_to_merge = tuple(sorted(mutual, key=lambda p: (min(p[0], p[1]), max(p[0], p[1])))[0])  # type: ignore[assignment]
+                else:
+                    # אין ייבוא הדדי ישיר – נמזג כל שניים ראשונים
+                    pair_to_merge = (comp[0], comp[1])
+                a, b = pair_to_merge  # type: ignore[misc]
+                # שמור על שם שמייצב: בחר את הקצר/אלפביתי כ-a
+                if (b < a) or (len(b) < len(a) and b not in graph.get(a, set())):
+                    a, b = b, a
+                files, merged = _merge_two(files, stems_map, a, b)
+                merged_pairs.append((merged[0], merged[1]))
+                changed = True
+            if not changed:
+                break
+            iterations += 1
+        return files, merged_pairs
 
 
 # Instance גלובלי
