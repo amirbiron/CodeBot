@@ -102,6 +102,9 @@ API לשימוש קליינט
   - ודאו שהקריאה היא דרך ``updateConfig`` ושקיים ``window.smoothScroll``.
 - “משתמש עם Reduced Motion עדיין רואה אנימציות”:
   - בדקו את העדפת המערכת (DevTools > Rendering > Emulate CSS prefers-reduced-motion).
+- “אני לא בטוח אם הפיצ'ר פועל”:
+  - הוסיפו ל‑URL את הפרמטר ``smooth_debug=1`` (למשל ``/?smooth_debug=1`` או ``&smooth_debug=1``) כדי לפתוח חלונית בדיקה.
+  - החלונית מציגה אם הדפדפן מסמן ``prefers-reduced-motion``, אם המנגנון פעיל, ומאפשרת להפעיל/לכבות או למחוק את ההעדפה שנשמרה ב‑``localStorage``.
 
 תוכנית המשך (Roadmap מקוצר)
 ---------------------------
