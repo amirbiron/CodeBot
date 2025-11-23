@@ -76,29 +76,37 @@
 .. code-block:: python
 
    class RefactoringEngine:
-       def __init__(self):
-           self.analyzer = CodeAnalyzer
+       def __init__(self) -> None:
+           self.analyzer: Optional[CodeAnalyzer] = None
        
-       async def refactor(
-           self,
-           code: str,
-           filename: str,
-           refactor_type: RefactorType
+       def propose_refactoring(
+           self, code: str, filename: str, refactor_type: RefactorType
        ) -> RefactorResult:
            # ניתוח קוד
-           analyzer = CodeAnalyzer(code, filename)
-           if not analyzer.analyze():
-               return RefactorResult(success=False, error="Parse error")
-           
-           # יצירת הצעה
-           proposal = await self._create_proposal(analyzer, refactor_type)
-           
-           # אימות
-           validation = await self._validate_proposal(proposal)
-           if not validation:
-               return RefactorResult(success=False, error="Validation failed")
-           
-           return RefactorResult(success=True, proposal=proposal)
+           self.analyzer = CodeAnalyzer(code, filename)
+           if not self.analyzer.analyze():
+               return RefactorResult(
+                   success=False, proposal=None, error="כשל בניתוח הקוד - ייתכן שגיאת תחביר"
+               )
+           # יצירת הצעה לפי סוג
+           try:
+               if refactor_type == RefactorType.SPLIT_FUNCTIONS:
+                   proposal = self._split_functions()
+               elif refactor_type == RefactorType.EXTRACT_FUNCTIONS:
+                   proposal = self._extract_functions()
+               elif refactor_type == RefactorType.MERGE_SIMILAR:
+                   proposal = self._merge_similar()
+               elif refactor_type == RefactorType.CONVERT_TO_CLASSES:
+                   proposal = self._convert_to_classes()
+               elif refactor_type == RefactorType.DEPENDENCY_INJECTION:
+                   proposal = self._add_dependency_injection()
+               else:
+                   return RefactorResult(success=False, proposal=None, error="סוג רפקטורינג לא נתמך")
+               # אימות בסיסי (AST) לתוצרים
+               validated = self._validate_proposal(proposal)
+               return RefactorResult(success=True, proposal=proposal, validation_passed=validated)
+           except Exception as e:
+               return RefactorResult(success=False, proposal=None, error=f"שגיאה: {e}")
 
 **CodeAnalyzer:**
 - משתמש ב-AST לניתוח Python
