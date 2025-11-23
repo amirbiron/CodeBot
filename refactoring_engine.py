@@ -352,6 +352,11 @@ class RefactoringEngine:
             return RefactorResult(success=False, proposal=None, error=f"שגיאה: {str(e)}")
 
     def _split_functions(self) -> RefactorProposal:
+        # מצב מיוחד: קובץ מודלים מונוליתי (classes בלבד) — Safe Decomposition לדומיינים בתוך חבילת models/
+        if self.analyzer and not self.analyzer.functions and self.analyzer.classes:
+            filename_stem = Path(self.analyzer.filename).stem
+            if filename_stem == "models":
+                return self._split_models_monolith()
         groups = self._group_related_functions()
         if len(groups) <= 1:
             raise ValueError("לא נמצאו קבוצות פונקציות נפרדות. הקוד כבר מאורגן היטב.")
@@ -809,6 +814,103 @@ class RefactoringEngine:
             if name in groups:
                 del groups[name]
         return groups
+    # ==== Safe Decomposition for models.py (classes-only) ====
+    def _classify_class_domain(self, cls: ClassInfo) -> str:
+        """
+        מסווג מחלקה לדומיין בסיסי כאשר אין פונקציות טופ-לבל:
+        core / billing / inventory / network / workflows.
+        ברירת מחדל: core.
+        """
+        name_l = cls.name.lower()
+        # סימנים חזקים
+        if any(k in name_l for k in ("subscription", "payment", "billing", "gateway")):
+            return "billing"
+        if any(k in name_l for k in ("product", "inventory", "stock")):
+            return "inventory"
+        if any(k in name_l for k in ("api", "client", "http", "network")):
+            return "network"
+        if any(k in name_l for k in ("workflow", "pipeline")):
+            return "workflows"
+        # ליבה/משתמשים/הרשאות/אימייל
+        if any(k in name_l for k in ("user", "permission", "email", "manager")):
+            return "core"
+        return "core"
+
+    def _split_models_monolith(self) -> RefactorProposal:
+        """
+        פיצול בטוח של קובץ models.py מונוליתי לתת-מודולים דומייניים תחת models/.
+        - core.py: User, UserManager, PermissionSystem, EmailService וכו'
+        - billing.py: SubscriptionManager, PaymentGateway וכו'
+        - inventory.py: Product, Inventory וכו'
+        - network.py/workflows.py לפי הצורך
+        """
+        assert self.analyzer is not None
+        classes = list(self.analyzer.classes or [])
+        if not classes:
+            raise ValueError("לא נמצאו מחלקות לפיצול בתוך models.py")
+        # קיבוץ לפי דומיין
+        domain_to_classes: Dict[str, List[ClassInfo]] = {}
+        for c in classes:
+            domain = self._classify_class_domain(c)
+            domain_to_classes.setdefault(domain, []).append(c)
+        # סדר יציב להצגה
+        preferred_order = ["core", "billing", "inventory", "network", "workflows"]
+        ordered_domains = [d for d in preferred_order if d in domain_to_classes] + [
+            d for d in domain_to_classes.keys() if d not in preferred_order
+        ]
+        new_files: Dict[str, str] = {}
+        changes: List[str] = []
+        # בניית קבצים תחת models/
+        for domain in ordered_domains:
+            cls_list = domain_to_classes.get(domain, [])
+            if not cls_list:
+                continue
+            # סינון imports לפי שימוש במחלקות הדומיין
+            code_body = "\n\n".join(c.code for c in cls_list)
+            filtered_imports = self._filter_imports_for_code(self.analyzer.imports, code_body)
+            content = self._build_file_content(functions=[], imports=filtered_imports, classes=cls_list)
+            filename = f"models/{domain}.py"
+            new_files[filename] = content
+            changes.append(f"📦 {filename}: {len(cls_list)} מחלקות")
+        # __init__ לחבילת models/
+        models_module_files = [fn for fn in new_files.keys() if fn.startswith("models/") and fn.endswith(".py")]
+        new_files["models/__init__.py"] = self._build_init_file(models_module_files)
+        changes.append("📦 models/__init__.py: מייצא את כל הישויות")
+        # הזרקת יבוא בין-מודולי למחלקות (למשל billing → core)
+        class_to_module: Dict[str, str] = {}
+        for domain, cls_list in domain_to_classes.items():
+            for c in cls_list:
+                class_to_module[c.name] = domain
+        new_files = self._inject_cross_module_class_imports(new_files, class_to_module)
+        # DRY-RUN: זיהוי/פירוק מעגליות בתוך models/ בלבד
+        subset = {k: v for k, v in new_files.items() if k.startswith("models/")}
+        subset, merged_pairs = self._resolve_circular_imports(subset)
+        if merged_pairs:
+            # עדכון __init__.py של models/ לאחר מיזוג
+            module_file_names = [fn for fn in subset.keys() if fn.endswith(".py") and not fn.endswith("__init__.py")]
+            subset["models/__init__.py"] = self._build_init_file(module_file_names)
+        # מיזוג חזרה אל המפה הכוללת
+        for k in list(new_files.keys()):
+            if k.startswith("models/"):
+                del new_files[k]
+        new_files.update(subset)
+        # ניקוי imports מיותרים
+        new_files = self.post_refactor_cleanup(new_files)
+        description = "🏗️ פיצול בטוח של models.py לתת-מודולים דומייניים תחת models/:\n"
+        for fn in sorted(new_files.keys()):
+            if fn.startswith("models/") and fn.endswith(".py"):
+                description += f"   ├── {fn}\n"
+        # אזהרות
+        warnings: List[str] = []
+        return RefactorProposal(
+            refactor_type=RefactorType.SPLIT_FUNCTIONS,
+            original_file=self.analyzer.filename,
+            new_files=new_files,
+            description=description,
+            changes_summary=changes,
+            warnings=warnings,
+            imports_needed={},
+        )
     def _build_file_content(
         self,
         functions: List[FunctionInfo],
