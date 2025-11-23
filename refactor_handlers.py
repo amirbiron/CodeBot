@@ -9,6 +9,7 @@ from datetime import datetime, timezone
 from typing import Optional
 from pathlib import Path
 import unicodedata
+import os
 
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.constants import ParseMode
@@ -252,6 +253,9 @@ class RefactorHandlers:
         except ValueError:
             await TelegramUtils.safe_edit_message_text(query, f"❌ סוג רפקטורינג לא חוקי: {refactor_type_str}")
             return
+        # ברירת מחדל: מצב שכבות פעיל כדי למנוע תלות מעגלית ולייצב imports
+        if refactor_type == RefactorType.SPLIT_FUNCTIONS:
+            os.environ.setdefault("REFACTOR_LAYERED_MODE", "1")
         result = refactoring_engine.propose_refactoring(code=code, filename=filename, refactor_type=refactor_type)
         if not result.success or not result.proposal:
             error_msg = result.error or "שגיאה לא ידועה"
