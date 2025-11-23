@@ -456,6 +456,9 @@ class RefactoringEngine:
             return {}
         functions = list(self.analyzer.functions)
         if len(functions) <= 1:
+            section_groups = self._scaffold_groups_from_sections(functions)
+            if section_groups:
+                return section_groups
             return {"module": functions}
         if len(functions) == 2:
             return {
@@ -536,6 +539,39 @@ class RefactoringEngine:
             seen.add(base)
             stable[base] = funcs
         return stable
+
+    def _scaffold_groups_from_sections(self, functions: List[FunctionInfo]) -> Optional[Dict[str, List[FunctionInfo]]]:
+        """
+        כאשר יש מעט מאוד פונקציות אך קיימות מחלקות בסעיפים שונים, נבנה קבוצות לפי הסעיפים
+        כדי לאפשר פיצול שעדיין ישמר את ההקשרים הסמנטיים (למשל Users לעומת Analytics).
+        """
+        if not self.analyzer:
+            return None
+        entries: Dict[str, Dict[str, Any]] = {}
+
+        def _ensure_entry(section: str, start_line: int) -> Dict[str, Any]:
+            data = entries.setdefault(section, {"start": start_line, "funcs": []})
+            data["start"] = min(data["start"], start_line)
+            return data
+
+        for func in functions:
+            if func.section:
+                entry = _ensure_entry(func.section, func.start_line)
+                entry["funcs"].append(func)
+        for cls in self.analyzer.classes:
+            if cls.section:
+                _ensure_entry(cls.section, cls.start_line)
+        if len(entries) < 2:
+            return None
+        ordered_sections = sorted(entries.items(), key=lambda kv: kv[1]["start"])
+        groups: Dict[str, List[FunctionInfo]] = {
+            section: list(entries[section]["funcs"]) for section, _ in ordered_sections
+        }
+        leftovers = [f for f in functions if not f.section]
+        if leftovers:
+            first_section = ordered_sections[0][0]
+            groups.setdefault(first_section, []).extend(leftovers)
+        return groups
 
     def _group_by_section(self, functions: List[FunctionInfo]) -> Dict[str, List[FunctionInfo]]:
         """קיבוץ פונקציות לפי סעיף (Section) אם קיים."""
