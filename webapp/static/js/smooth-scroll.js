@@ -784,7 +784,7 @@
         this.savePreferences();
       }
     }
-
+ 
     removeAndroidOptimizations() {
       try {
         if (this.androidTouchHandlers) {
@@ -803,6 +803,12 @@
           cancelAnimationFrame(this.momentumId);
         } catch (_) {}
         this.momentumId = null;
+      }
+      if (this.androidMomentumTimeout) {
+        try {
+          clearTimeout(this.androidMomentumTimeout);
+        } catch (_) {}
+        this.androidMomentumTimeout = null;
       }
       if (this.androidPerfRafId) {
         try {
