@@ -1169,8 +1169,18 @@ def generate_summary_stats(files_data: List[Dict[str, Any]]) -> Dict[str, Any]:
     }
 
 def detect_language_from_filename(filename: str) -> str:
-    """זיהוי שפת תכנות לפי סיומת הקובץ"""
-    # מיפוי סיומות לשפות
+    """זיהוי שפת תכנות לפי סיומת הקובץ (Filename-only).
+    נסה קודם את הדטקטור הדומייני כדי לשמור אחידות, ונפילה למיפוי מקומי לתאימות.
+    """
+    # Domain source of truth (filename-only)
+    try:
+        from src.domain.services.language_detector import LanguageDetector  # type: ignore
+        detected = LanguageDetector().detect_language(code=None, filename=filename)
+        if detected:
+            return detected
+    except Exception:
+        pass
+    # מיפוי סיומות לשפות (fallback)
     extensions_map = {
         # Python
         '.py': 'python',

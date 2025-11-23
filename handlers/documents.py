@@ -18,7 +18,8 @@ from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.constants import ParseMode
 from telegram.ext import ContextTypes
 
-from database import CodeSnippet, LargeFile, db
+# שימוש ב-FilesFacade דרך Composition Root כדי להימנע מתלות ישירה ב-DB
+from typing import Optional as _Optional  # local alias to avoid collision
 from file_manager import backup_manager
 from html import escape as html_escape
 
@@ -364,7 +365,8 @@ class DocumentHandler:
             )
             repo_full = repo.full_name
             try:
-                db.save_selected_repo(user_id, repo_full)
+                from src.infrastructure.composition import get_files_facade  # type: ignore
+                get_files_facade().save_selected_repo(user_id, repo_full)
                 sess = github_handler.get_user_session(user_id)
                 sess["selected_repo"] = repo_full
             except Exception as err:
@@ -802,15 +804,18 @@ class DocumentHandler:
         content: str,
         detected_encoding: Optional[str],
     ) -> None:
-        large_file = LargeFile(
-            user_id=user_id,
-            file_name=file_name,
-            content=content,
-            programming_language=language,
-            file_size=len(content.encode("utf-8")),
-            lines_count=len(content.split("\n")),
-        )
-        success = db.save_large_file(large_file)
+        try:
+            from src.infrastructure.composition import get_files_facade  # type: ignore
+            success = bool(get_files_facade().save_large_file(
+                user_id=user_id,
+                file_name=file_name,
+                content=content,
+                programming_language=language,
+                file_size=len(content.encode("utf-8")),
+                lines_count=len(content.split("\n")),
+            ))
+        except Exception:
+            success = False
         if self._emit_event is not None:
             try:
                 self._emit_event(
@@ -831,8 +836,8 @@ class DocumentHandler:
 
         emoji = get_language_emoji(language)
         try:
-            from bson import ObjectId  # noqa: F401  # נדרש לצורך יצירת ObjectId ב-db.get_large_file
-            saved_large = db.get_large_file(user_id, file_name) or {}
+            from src.infrastructure.composition import get_files_facade  # type: ignore
+            saved_large = get_files_facade().get_large_file(user_id, file_name) or {}
             fid = str(saved_large.get("_id") or "")
         except Exception:
             fid = ""
@@ -885,13 +890,16 @@ class DocumentHandler:
         content: str,
         detected_encoding: Optional[str],
     ) -> None:
-        snippet = CodeSnippet(
-            user_id=user_id,
-            file_name=file_name,
-            code=content,
-            programming_language=language,
-        )
-        success = db.save_code_snippet(snippet)
+        try:
+            from src.infrastructure.composition import get_files_facade  # type: ignore
+            success = bool(get_files_facade().save_code_snippet(
+                user_id=user_id,
+                file_name=file_name,
+                code=content,
+                programming_language=language,
+            ))
+        except Exception:
+            success = False
         if self._emit_event is not None:
             try:
                 self._emit_event(
@@ -912,7 +920,8 @@ class DocumentHandler:
 
         emoji = get_language_emoji(language)
         try:
-            saved_doc = db.get_latest_version(user_id, file_name) or {}
+            from src.infrastructure.composition import get_files_facade  # type: ignore
+            saved_doc = get_files_facade().get_latest_version(user_id, file_name) or {}
             fid = str(saved_doc.get("_id") or "")
         except Exception:
             fid = ""
