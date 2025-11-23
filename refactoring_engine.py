@@ -458,13 +458,20 @@ class RefactoringEngine:
 
         # DRY-RUN: זיהוי ומניעת תלות מעגלית בין המודולים שנוצרו
         cycle_warnings: List[str] = []
-        new_files, merged_pairs, skipped_canonical_cycles = self._resolve_circular_imports(new_files)
+        new_files, merged_pairs, shared_bridges, skipped_canonical_cycles = self._resolve_circular_imports(
+            new_files, base_name
+        )
         if merged_pairs:
             for a, b in merged_pairs:
                 cycle_warnings.append(f"♻️ פורקה תלות מעגלית באמצעות מיזוג המודולים: {a} ⇄ {b}")
             # עדכון __init__.py לאחר מיזוגים
             module_file_names = [fn for fn in new_files.keys() if fn.endswith('.py') and fn != '__init__.py']
             new_files['__init__.py'] = self._build_init_file(module_file_names)
+        if shared_bridges:
+            for comp in shared_bridges:
+                cycle_warnings.append(
+                    f"♻️ פורקה תלות מעגלית באמצעות שכבת shared: {' ⇄ '.join(comp)}"
+                )
         if skipped_canonical_cycles:
             for comp in skipped_canonical_cycles:
                 cycle_warnings.append(
@@ -975,12 +982,19 @@ class RefactoringEngine:
             new_files = self._inject_global_imports(new_files, set(global_names), source_module_stem="core")
         # DRY-RUN: זיהוי/פירוק מעגליות בתוך models/ בלבד
         subset = {k: v for k, v in new_files.items() if k.startswith("models/")}
-        subset, merged_pairs, skipped_canonical_cycles = self._resolve_circular_imports(subset)
+        subset, merged_pairs, shared_bridges, skipped_canonical_cycles = self._resolve_circular_imports(
+            subset, "models"
+        )
         if merged_pairs:
             # עדכון __init__.py של models/ לאחר מיזוג
             module_file_names = [fn for fn in subset.keys() if fn.endswith(".py") and not fn.endswith("__init__.py")]
             subset["models/__init__.py"] = self._build_init_file(module_file_names)
         cycle_warnings: List[str] = []
+        if shared_bridges:
+            for comp in shared_bridges:
+                cycle_warnings.append(
+                    f"♻️ פורקה תלות מעגלית בתוך models/ באמצעות שכבת shared: {' ⇄ '.join(comp)}"
+                )
         if skipped_canonical_cycles:
             for comp in skipped_canonical_cycles:
                 cycle_warnings.append(
@@ -1045,6 +1059,8 @@ class RefactoringEngine:
         content = '"""\nאינדקס מרכזי לכל הפונקציות\n"""\n\n'
         for fname in filenames:
             if os.path.basename(fname) == "__init__.py":
+                continue
+            if fname.endswith("_shared_core.py"):
                 continue
             module_name = Path(fname).stem
             content += f"from .{module_name} import *\n"
@@ -1494,6 +1510,7 @@ class RefactoringEngine:
                 not filename.endswith('.py')
                 or os.path.basename(filename) == '__init__.py'
                 or filename.endswith('_shared.py')
+                or filename.endswith('_shared_core.py')
             ):
                 cleaned[filename] = content
                 continue
@@ -1502,9 +1519,8 @@ class RefactoringEngine:
                 import_lines: List[str] = []
                 body_lines: List[str] = []
                 for ln in content.splitlines():
-                    stripped = ln.strip()
-                    if stripped.startswith('import ') or stripped.startswith('from '):
-                        import_lines.append(stripped)
+                    if ln.startswith('import ') or ln.startswith('from '):
+                        import_lines.append(ln.strip())
                     else:
                         body_lines.append(ln)
                 code_body = "\n".join(body_lines)
@@ -1800,8 +1816,8 @@ class RefactoringEngine:
 
     # === DRY-RUN: זיהוי ומניעת תלות מעגלית באמצעות מיזוג מודולים צמודים ===
     def _resolve_circular_imports(
-        self, files: Dict[str, str]
-    ) -> Tuple[Dict[str, str], List[Tuple[str, str]], List[List[str]]]:
+        self, files: Dict[str, str], base_name: str
+    ) -> Tuple[Dict[str, str], List[Tuple[str, str]], List[List[str]], List[List[str]]]:
         """
         מזהה רכיבים חזקים (SCC) בגרף הייבוא בין המודולים שנוצרו.
         עבור כל מעגל (SCC בגודל > 1) – ממזג מודולים בזוגות קרובים כדי לפרק את המעגל,
@@ -1813,7 +1829,7 @@ class RefactoringEngine:
                 return None
             if os.path.basename(fn) == "__init__.py":
                 return None
-            if fn.endswith("_shared.py"):
+            if fn.endswith("_shared.py") or fn.endswith("_shared_core.py"):
                 return None
             return Path(fn).stem
 
@@ -1917,6 +1933,7 @@ class RefactoringEngine:
             return files_map, (stems_map[a], b_file)
 
         merged_pairs: List[Tuple[str, str]] = []
+        shared_bridges: List[List[str]] = []
         skipped_canonical_cycles: List[List[str]] = []
         iterations = 0
         canonical_domains = set(self.CANONICAL_DOMAIN_PRIORITY.keys())
@@ -1961,6 +1978,11 @@ class RefactoringEngine:
                         pair_to_merge = (comp[0], comp[1])
                 a, b = pair_to_merge  # type: ignore[misc]
                 if not component_has_non_canonical and _is_canonical(a) and _is_canonical(b):
+                    files, bridged = self._introduce_shared_layer_for_cycle(files, stems_map, comp, base_name)
+                    if bridged:
+                        shared_bridges.append(sorted(comp))
+                        changed = True
+                        break
                     skipped_canonical_cycles.append(sorted(comp))
                     continue
 
@@ -1985,7 +2007,129 @@ class RefactoringEngine:
             if not changed:
                 break
             iterations += 1
-        return files, merged_pairs, skipped_canonical_cycles
+        return files, merged_pairs, shared_bridges, skipped_canonical_cycles
+
+    def _introduce_shared_layer_for_cycle(
+        self,
+        files_map: Dict[str, str],
+        stems_map: Dict[str, str],
+        cycle: List[str],
+        base_name: str,
+    ) -> Tuple[Dict[str, str], bool]:
+        cycle_set: Set[str] = set(cycle)
+        reference_file = stems_map[cycle[0]]
+        shared_filename, shared_stem = self._shared_core_filename(base_name, reference_file)
+        wrappers_needed: Dict[str, Set[str]] = {}
+        updated_files = dict(files_map)
+        modified = False
+        for module in cycle:
+            fn = stems_map.get(module)
+            if not fn:
+                continue
+            content = files_map[fn]
+            new_content, wrappers = self._rewrite_imports_with_shared_layer(content, cycle_set, shared_stem)
+            if wrappers:
+                for target, names in wrappers.items():
+                    wrappers_needed.setdefault(target, set()).update(names)
+                updated_files[fn] = new_content
+                modified = True
+        if not modified or not wrappers_needed:
+            return files_map, False
+        updated_files = self._ensure_shared_core_file(updated_files, shared_filename, wrappers_needed)
+        return updated_files, True
+
+    def _shared_core_filename(self, base_name: str, reference_file: str) -> Tuple[str, str]:
+        shared_name = f"{base_name}_shared_core.py"
+        ref_path = Path(reference_file)
+        parent = ref_path.parent
+        if str(parent) == ".":
+            filename = shared_name
+        else:
+            filename = str((parent / shared_name).as_posix())
+            if filename.startswith("./"):
+                filename = filename[2:]
+        return filename, Path(shared_name).stem
+
+    def _rewrite_imports_with_shared_layer(
+        self, content: str, cycle_set: Set[str], shared_stem: str
+    ) -> Tuple[str, Dict[str, Set[str]]]:
+        try:
+            tree = ast.parse(content)
+        except SyntaxError:
+            return content, {}
+        targets: List[ast.ImportFrom] = [
+            node
+            for node in ast.walk(tree)
+            if isinstance(node, ast.ImportFrom)
+            and node.level == 1
+            and node.module in cycle_set
+        ]
+        if not targets:
+            return content, {}
+        lines = content.splitlines()
+        wrappers_needed: Dict[str, Set[str]] = {}
+        inserted_aliases: Set[Tuple[str, str]] = set()
+        for node in sorted(targets, key=lambda n: (n.lineno, n.col_offset), reverse=True):
+            module = node.module or ""
+            indent_line = lines[node.lineno - 1] if node.lineno - 1 < len(lines) else ""
+            indent = indent_line[: len(indent_line) - len(indent_line.lstrip())]
+            replacement_lines: List[str] = []
+            for alias in node.names:
+                original = alias.name
+                alias_name = alias.asname or alias.name
+                key = (module, alias_name)
+                if key in inserted_aliases:
+                    continue
+                wrapper_name = self._build_shared_wrapper_name(module, original)
+                replacement_lines.append(f"{indent}from .{shared_stem} import {wrapper_name} as {alias_name}")
+                inserted_aliases.add(key)
+                wrappers_needed.setdefault(module, set()).add(original)
+            lines[node.lineno - 1 : node.end_lineno] = replacement_lines
+        new_content = "\n".join(lines)
+        if not new_content.endswith("\n"):
+            new_content += "\n"
+        return new_content, wrappers_needed
+
+    def _build_shared_wrapper_name(self, module: str, symbol: str) -> str:
+        safe_module = re.sub(r"[^0-9a-zA-Z_]", "_", module)
+        safe_symbol = re.sub(r"[^0-9a-zA-Z_]", "_", symbol)
+        return f"{safe_module}_{safe_symbol}_bridge"
+
+    def _ensure_shared_core_file(
+        self,
+        files_map: Dict[str, str],
+        shared_filename: str,
+        wrappers_needed: Dict[str, Set[str]],
+    ) -> Dict[str, str]:
+        content = files_map.get(shared_filename)
+        if content:
+            lines = content.rstrip("\n").splitlines()
+            existing_funcs = self._extract_defined_functions_in_code(content)
+        else:
+            lines = [
+                '"""',
+                "שכבת תיווך לדומיינים קנוניים כדי להימנע ממעגלי import",
+                '"""',
+                "",
+                "from __future__ import annotations",
+                "",
+            ]
+            existing_funcs = set()
+        if lines and lines[-1].strip():
+            lines.append("")
+        for target_module in sorted(wrappers_needed.keys()):
+            for symbol in sorted(wrappers_needed[target_module]):
+                wrapper_name = self._build_shared_wrapper_name(target_module, symbol)
+                if wrapper_name in existing_funcs:
+                    continue
+                lines.append(f"def {wrapper_name}(*args, **kwargs):")
+                lines.append(f"    \"\"\"Proxy ל-{symbol} מתוך {target_module} כדי למנוע תלות מעגלית\"\"\"")
+                lines.append(f"    from .{target_module} import {symbol} as _impl")
+                lines.append("    return _impl(*args, **kwargs)")
+                lines.append("")
+                existing_funcs.add(wrapper_name)
+        files_map[shared_filename] = "\n".join(line.rstrip() for line in lines).rstrip() + "\n"
+        return files_map
 
     # === Naming helpers ===
     def _choose_filename_for_group(self, base_name: str, group_name: str) -> str:
