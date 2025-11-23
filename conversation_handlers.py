@@ -3024,6 +3024,13 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
 
     try:
         data = query.data
+        # יציאה אוטומטית מ"מצב חיפוש" כאשר נלחץ כל כפתור שאינו התחלת חיפוש
+        try:
+            if data and data != "search_files":
+                context.user_data.pop('awaiting_search_text', None)
+                context.user_data.pop('search_ctx', None)
+        except Exception:
+            pass
         # ביטול אוטומטי של זרימות איסוף/הוספה אם נלחץ כפתור אחר
         try:
             if context.user_data.get('sn_item') and not (data and (data.startswith('snippet_') or data == 'cancel')):

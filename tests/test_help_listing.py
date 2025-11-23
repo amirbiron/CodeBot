@@ -42,12 +42,12 @@ def test_build_help_message_filters_sections():
     assert "/batch_analyze" not in text
 
 
-def test_build_help_message_additional_commands_section():
+def test_build_help_message_no_additional_commands_section():
+    # גם אם יש פקודות שאינן בקטגוריות, לא מציגים "פקודות נוספות"
     text = mod._build_help_message({"save", "search", "remind"})
-
-    assert "🛠️ <b>פקודות נוספות</b>" in text
-    assert "<code>/save</code>" in text
-    assert "<code>/search</code>" in text
+    assert "🛠️ <b>פקודות נוספות</b>" not in text
+    assert "<code>/save</code>" not in text
+    assert "<code>/search</code>" not in text
 
 
 def test_help_message_contains_spacing_before_footer():
