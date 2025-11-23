@@ -330,6 +330,7 @@ class RefactoringEngine:
         self.preferred_max_groups: int = 5
         self.min_functions_per_group: int = 2
         self.absolute_max_groups: int = 8
+        self._shared_symbol_registry: Dict[str, Dict[str, Tuple[str, str]]] = {}
 
     def propose_refactoring(
         self,
@@ -2020,7 +2021,7 @@ class RefactoringEngine:
         cycle_set: Set[str] = set(cycle)
         reference_file = stems_map[cycle[0]]
         shared_filename, shared_stem = self._shared_core_filename(base_name, reference_file)
-        wrappers_needed: Dict[str, Set[str]] = {}
+        wrappers_needed: Dict[str, Tuple[str, str]] = {}
         updated_files = dict(files_map)
         modified = False
         for module in cycle:
@@ -2030,8 +2031,8 @@ class RefactoringEngine:
             content = files_map[fn]
             new_content, wrappers = self._rewrite_imports_with_shared_layer(content, cycle_set, shared_stem)
             if wrappers:
-                for target, names in wrappers.items():
-                    wrappers_needed.setdefault(target, set()).update(names)
+                for alias, target in wrappers.items():
+                    wrappers_needed[alias] = target
                 updated_files[fn] = new_content
                 modified = True
         if not modified or not wrappers_needed:
@@ -2053,7 +2054,7 @@ class RefactoringEngine:
 
     def _rewrite_imports_with_shared_layer(
         self, content: str, cycle_set: Set[str], shared_stem: str
-    ) -> Tuple[str, Dict[str, Set[str]]]:
+    ) -> Tuple[str, Dict[str, Tuple[str, str]]]:
         try:
             tree = ast.parse(content)
         except SyntaxError:
@@ -2068,7 +2069,7 @@ class RefactoringEngine:
         if not targets:
             return content, {}
         lines = content.splitlines()
-        wrappers_needed: Dict[str, Set[str]] = {}
+        wrappers_needed: Dict[str, Tuple[str, str]] = {}
         inserted_aliases: Set[Tuple[str, str]] = set()
         for node in sorted(targets, key=lambda n: (n.lineno, n.col_offset), reverse=True):
             module = node.module or ""
@@ -2081,55 +2082,60 @@ class RefactoringEngine:
                 key = (module, alias_name)
                 if key in inserted_aliases:
                     continue
-                wrapper_name = self._build_shared_wrapper_name(module, original)
+                wrapper_name = self._build_shared_alias_name(module, original)
                 replacement_lines.append(f"{indent}from .{shared_stem} import {wrapper_name} as {alias_name}")
                 inserted_aliases.add(key)
-                wrappers_needed.setdefault(module, set()).add(original)
+                wrappers_needed.setdefault(wrapper_name, (module, original))
             lines[node.lineno - 1 : node.end_lineno] = replacement_lines
         new_content = "\n".join(lines)
         if not new_content.endswith("\n"):
             new_content += "\n"
         return new_content, wrappers_needed
 
-    def _build_shared_wrapper_name(self, module: str, symbol: str) -> str:
+    def _build_shared_alias_name(self, module: str, symbol: str) -> str:
         safe_module = re.sub(r"[^0-9a-zA-Z_]", "_", module)
         safe_symbol = re.sub(r"[^0-9a-zA-Z_]", "_", symbol)
-        return f"{safe_module}_{safe_symbol}_bridge"
+        return f"{safe_module}__{safe_symbol}"
 
     def _ensure_shared_core_file(
         self,
         files_map: Dict[str, str],
         shared_filename: str,
-        wrappers_needed: Dict[str, Set[str]],
+        wrappers_needed: Dict[str, Tuple[str, str]],
     ) -> Dict[str, str]:
-        content = files_map.get(shared_filename)
-        if content:
-            lines = content.rstrip("\n").splitlines()
-            existing_funcs = self._extract_defined_functions_in_code(content)
-        else:
-            lines = [
-                '"""',
-                "שכבת תיווך לדומיינים קנוניים כדי להימנע ממעגלי import",
-                '"""',
-                "",
-                "from __future__ import annotations",
-                "",
-            ]
-            existing_funcs = set()
-        if lines and lines[-1].strip():
-            lines.append("")
-        for target_module in sorted(wrappers_needed.keys()):
-            for symbol in sorted(wrappers_needed[target_module]):
-                wrapper_name = self._build_shared_wrapper_name(target_module, symbol)
-                if wrapper_name in existing_funcs:
-                    continue
-                lines.append(f"def {wrapper_name}(*args, **kwargs):")
-                lines.append(f"    \"\"\"Proxy ל-{symbol} מתוך {target_module} כדי למנוע תלות מעגלית\"\"\"")
-                lines.append(f"    from .{target_module} import {symbol} as _impl")
-                lines.append("    return _impl(*args, **kwargs)")
-                lines.append("")
-                existing_funcs.add(wrapper_name)
-        files_map[shared_filename] = "\n".join(line.rstrip() for line in lines).rstrip() + "\n"
+        registry = self._shared_symbol_registry.setdefault(shared_filename, {})
+        registry.update(wrappers_needed)
+        lines: List[str] = [
+            '"""',
+            "שכבת תיווך לדומיינים קנוניים כדי להימנע ממעגלי import",
+            '"""',
+            "",
+            "from __future__ import annotations",
+            "import importlib",
+            "",
+            "_LAZY_SYMBOLS = {",
+        ]
+        for alias, (module, symbol) in sorted(registry.items()):
+            lines.append(f"    '{alias}': ('{module}', '{symbol}'),")
+        lines.append("}")
+        lines.append("")
+        lines.append("__all__ = list(_LAZY_SYMBOLS.keys())")
+        lines.append("")
+        lines.append("def __getattr__(name: str):")
+        lines.append("    try:")
+        lines.append("        module, symbol = _LAZY_SYMBOLS[name]")
+        lines.append("    except KeyError as exc:")
+        lines.append("        raise AttributeError(name) from exc")
+        lines.append("    package = __package__")
+        lines.append("    if package:")
+        lines.append("        target_module = importlib.import_module(f'.{module}', package)")
+        lines.append("    else:")
+        lines.append("        target_module = importlib.import_module(module)")
+        lines.append("    value = getattr(target_module, symbol)")
+        lines.append("    globals()[name] = value")
+        lines.append("    return value")
+        lines.append("")
+        files_map[shared_filename] = "\n".join(lines)
         return files_map
 
     def _module_level_import_lines(self, content: str) -> Set[int]:
