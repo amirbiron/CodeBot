@@ -12,14 +12,7 @@ import time
 import zipfile
 from datetime import datetime, timezone
 from io import BytesIO
-<<<<<<< HEAD
-<<<<<<< HEAD
 from types import SimpleNamespace
-=======
->>>>>>> 210c7a37 (Refactor: Add legacy DB and facade support for file saving)
-=======
-from types import SimpleNamespace
->>>>>>> 8a154716 (Refactor: Use SimpleNamespace for legacy DB fallback)
 from typing import Any, Awaitable, Callable, Iterable, List, Optional, Protocol, Sequence
 
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
