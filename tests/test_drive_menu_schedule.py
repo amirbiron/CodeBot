@@ -9,30 +9,39 @@ def _set_facade(monkeypatch, facade):
     module = sys.modules.get(module_name)
     if module is None:
         module = types.ModuleType(module_name)
-        sys.modules[module_name] = module
+        monkeypatch.setitem(sys.modules, module_name, module)
     monkeypatch.setattr(module, "get_files_facade", lambda: facade, raising=False)
 
 
 def _stub_requests(monkeypatch):
-    mod = sys.modules.get("requests")
-    if mod is not None and getattr(mod, "__file__", None):
-        return
-    sys.modules.pop("requests", None)
-    sys.modules.pop("requests.adapters", None)
     try:
         import requests  # type: ignore
         import requests.adapters  # type: ignore
         return
-    except Exception:
-        req_module = types.ModuleType("requests")
-        adapters_module = types.ModuleType("requests.adapters")
-        class _HTTPAdapter:  # minimal stub
-            def __init__(self, *args, **kwargs):
-                pass
-        adapters_module.HTTPAdapter = _HTTPAdapter
-        req_module.adapters = adapters_module  # type: ignore[attr-defined]
-        sys.modules["requests"] = req_module
-        sys.modules["requests.adapters"] = adapters_module
+    except ModuleNotFoundError:
+        pass
+
+    # Attempt to import requests alone to avoid overriding a real module if present
+    requests_module = sys.modules.get("requests")
+    if requests_module is None:
+        requests_module = types.ModuleType("requests")
+        monkeypatch.setitem(sys.modules, "requests", requests_module)
+
+    try:
+        import requests.adapters  # type: ignore
+        return
+    except ModuleNotFoundError:
+        pass
+
+    adapters_module = types.ModuleType("requests.adapters")
+
+    class _HTTPAdapter:
+        def __init__(self, *args, **kwargs):
+            pass
+
+    adapters_module.HTTPAdapter = _HTTPAdapter
+    monkeypatch.setitem(sys.modules, "requests.adapters", adapters_module)
+    monkeypatch.setattr(requests_module, "adapters", adapters_module, raising=False)
 
 
 @pytest.mark.asyncio
