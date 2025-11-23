@@ -322,7 +322,11 @@ class RefactoringEngine:
         self.absolute_max_groups: int = 8
 
     def propose_refactoring(
-        self, code: str, filename: str, refactor_type: RefactorType
+        self,
+        code: str,
+        filename: str,
+        refactor_type: RefactorType,
+        layered_mode: Optional[bool] = None,
     ) -> RefactorResult:
         """הצעת רפקטורינג"""
         self.analyzer = CodeAnalyzer(code, filename)
@@ -332,6 +336,9 @@ class RefactoringEngine:
                 proposal=None,
                 error="כשל בניתוח הקוד - ייתכן שגיאת תחביר",
             )
+        # בקשת שכבות לפי-קריאה (ללא זיהום ENV גלובלי)
+        if layered_mode is not None:
+            setattr(self, "_layered_mode_override", bool(layered_mode))
         try:
             if refactor_type == RefactorType.SPLIT_FUNCTIONS:
                 proposal = self._split_functions()
@@ -350,6 +357,12 @@ class RefactoringEngine:
         except Exception as e:
             logger.error(f"שגיאה ברפקטורינג: {e}", exc_info=True)
             return RefactorResult(success=False, proposal=None, error=f"שגיאה: {str(e)}")
+        finally:
+            if hasattr(self, "_layered_mode_override"):
+                try:
+                    delattr(self, "_layered_mode_override")
+                except Exception:
+                    pass
 
     def _split_functions(self) -> RefactorProposal:
         # מצב מיוחד: קובץ מודלים מונוליתי (classes בלבד) — Safe Decomposition לדומיינים בתוך חבילת models/
@@ -365,7 +378,11 @@ class RefactoringEngine:
         imports_needed: Dict[str, List[str]] = {}
         per_file_filtered_imports: Dict[str, List[str]] = {}
         base_name = Path(self.analyzer.filename).stem
-        layered_mode = str(os.getenv("REFACTOR_LAYERED_MODE", "")).strip().lower() in ("1", "true", "yes", "on")
+        # עדיפות לעקיפת שכבות לפי-קריאה; אחרת – ENV
+        override = getattr(self, "_layered_mode_override", None)
+        layered_mode = bool(override) if override is not None else (
+            str(os.getenv("REFACTOR_LAYERED_MODE", "")).strip().lower() in ("1", "true", "yes", "on")
+        )
         # הקצאת מחלקות לקבוצות (Collocation)
         classes_by_group = self._assign_classes_to_groups(groups)
         # במצב שכבות (Layered) – דחוף את כל המחלקות לקובץ Leaf יחיד
@@ -1625,8 +1642,16 @@ class RefactoringEngine:
 
         # כלל Coupling: הצמדת מנהל+ישות לאותו קובץ כאשר יש שימוש תכוף ב-Type Hint/שמות
         # נזהה עבור כל מחלקה אילו מחלקות אחרות מוזכרות במתודותיה, ונאחד לקבוצה משותפת כאשר היחס גבוה.
+        # החמרה: עבור דומיינים שונים (למשל inventory מול core/billing) הצמדה תתבצע רק במקרה של אזכור הדדי חזק.
         try:
             all_class_names: Set[str] = set(c.name for c in (self.analyzer.classes or []))
+            # מיפוי דומיין עבור כל מחלקה
+            domain_by_class: Dict[str, str] = {}
+            for cls in (self.analyzer.classes or []):
+                try:
+                    domain_by_class[cls.name] = self._classify_class_domain(cls)
+                except Exception:
+                    domain_by_class[cls.name] = "core"
             # מיפוי: cname -> counter של מחלקות אחרות שהוזכרו
             mentions: Dict[str, Dict[str, int]] = {}
             method_counts: Dict[str, int] = {}
@@ -1655,10 +1680,25 @@ class RefactoringEngine:
                 ga = assigned_group_for_class.get(a)
                 gb = assigned_group_for_class.get(b)
                 if ga and gb and ga != gb:
-                    # הזז את המחלקה הפחות "מוכרת" אל קבוצת המחלקה המרכזית (ga)
-                    # הקריטריון: אם b מזכיר את a פחות מ-a שמזכיר את b – נעדיף את קבוצת a
+                    # בדיקת דומיינים – מניעת הצמדה חוצת-דומיין אגרסיבית.
+                    da = domain_by_class.get(a, "core")
+                    db = domain_by_class.get(b, "core")
                     a_to_b = cnt
                     b_to_a = mentions.get(b, {}).get(a, 0)
+                    # דרישת הדדיות עבור דומיינים שונים: שני הכיוונים צריכים להיות "חזקים"
+                    # (לפחות מחצי מהמתודות או מינימום 2, לכל אחד מהצדדים).
+                    if da != db:
+                        thr_a = max(2, (method_counts.get(a, 0) + 1) // 2)
+                        thr_b = max(2, (method_counts.get(b, 0) + 1) // 2)
+                        # הקשחה נוספת: אם אחד הדומיינים הוא 'inventory', אל תבצע הצמדה אלא אם שני הכיוונים חזקים.
+                        involves_inventory = ("inventory" in (da, db))
+                        if involves_inventory and not (a_to_b >= thr_a and b_to_a >= thr_b):
+                            continue
+                        # בהיעדר הדדיות מספקת – אל תבצע הצמדה חוצת-דומיין
+                        if not (a_to_b >= thr_a and b_to_a >= thr_b):
+                            continue
+                    # הזז את המחלקה הפחות "מוכרת" אל קבוצת המחלקה המרכזית
+                    # הקריטריון: אם b מזכיר את a פחות מ-a שמזכיר את b – נעדיף את קבוצת a
                     dest = ga if a_to_b >= b_to_a else gb
                     src = gb if dest == ga else ga
                     # עדכן mapping ורשימות
@@ -1854,9 +1894,13 @@ class RefactoringEngine:
                 break
             changed = False
             for comp in cycles:
-                # בחר זוג למיזוג: נעדיף זוג שיש ביניהם ייבוא הדדי
+                # בחר זוג למיזוג: נעדיף זוג שיש ביניהם ייבוא הדדי,
+                # ואם אין – נעדיף זוג שבו לפחות אחד אינו דומיין קנוני (מזער פגיעה ב-users/finance/inventory/network/workflows).
                 pair_to_merge: Optional[Tuple[str, str]] = None
                 mutual: List[Tuple[str, str]] = []
+                canonical_domains = {"users", "finance", "inventory", "network", "workflows"}
+                def _is_canonical(stem: str) -> bool:
+                    return stem in canonical_domains
                 for i in range(len(comp)):
                     for j in range(i + 1, len(comp)):
                         u, v = comp[i], comp[j]
@@ -1866,8 +1910,23 @@ class RefactoringEngine:
                     # יציבות: בחר לפי סדר אלפביתי כדי לקבל תוצאה דטרמיניסטית
                     pair_to_merge = tuple(sorted(mutual, key=lambda p: (min(p[0], p[1]), max(p[0], p[1])))[0])  # type: ignore[assignment]
                 else:
-                    # אין ייבוא הדדי ישיר – נמזג כל שניים ראשונים
-                    pair_to_merge = (comp[0], comp[1])
+                    # אין ייבוא הדדי ישיר – נבחר זוג שמערב לפחות מודול לא-קנוני כדי לצמצם פגיעה בדומיינים.
+                    candidates: List[Tuple[str, str]] = []
+                    for i in range(len(comp)):
+                        for j in range(i + 1, len(comp)):
+                            u, v = comp[i], comp[j]
+                            if not (_is_canonical(u) and _is_canonical(v)):
+                                candidates.append((u, v))
+                    if candidates:
+                        # העדף זוג עם "אי-קנוניות" גבוהה (כלומר שניהם לא-קנוניים), ואז לפי סדר יציב
+                        def _score(pair: Tuple[str, str]) -> Tuple[int, str, str]:
+                            u, v = pair
+                            non_canon_count = int(not _is_canonical(u)) + int(not _is_canonical(v))
+                            return (-non_canon_count, min(u, v), max(u, v))
+                        pair_to_merge = sorted(candidates, key=_score)[0]
+                    else:
+                        # בלית ברירה (כל המודולים קנוניים) – נשמור התנהגות קיימת ונבחר שניים ראשונים
+                        pair_to_merge = (comp[0], comp[1])
                 a, b = pair_to_merge  # type: ignore[misc]
                 # עדיפות יעד מיזוג: העדף דומיינים קנוניים כקובץ יעד (users, finance, inventory, network, workflows)
                 def _priority(stem: str) -> int:
