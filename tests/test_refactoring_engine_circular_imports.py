@@ -27,7 +27,7 @@ def aggregate_user_stats(u: User):
     # לא אמורות להיות שתי תלויות הדדיות בין שני קבצים שונים; אם הייתה – המיזוג אמור לבטל אחת מהן
     # בדיקה פשוטה: לא יופיעו בו־זמנית שני קבצים עם import הדדי
     edges = {}
-    pat = re.compile(r"^\\s*from\\s+\\.(\\w+)\\s+import\\s+", re.M)
+    pat = re.compile(r"^\s*from\s+\.(\w+)\s+import\s+", re.M)
     stems = {fn.rsplit('.', 1)[0].split('/')[-1]: fn for fn in module_files}
     for stem, fn in stems.items():
         content = files[fn]

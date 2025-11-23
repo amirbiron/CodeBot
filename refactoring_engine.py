@@ -1476,11 +1476,7 @@ class RefactoringEngine:
             # עדכן ייבואים בכל שאר הקבצים: from .b import -> from .a import
             b_pat = re.compile(rf'^(\s*from\s+)\.{re.escape(b)}(\s+import\s+)', re.M)
             for fn, content in list(files_map.items()):
-                if fn == a_file:
-                    # החלף ייבוא פנימי הדדי בתוך הקובץ המאוחד
-                    files_map[fn] = re.sub(b_pat, r'\1.' + a + r'\2', content)
-                else:
-                    files_map[fn] = re.sub(b_pat, r'\1.' + a + r'\2', content)
+                files_map[fn] = re.sub(b_pat, r'\1.' + a + r'\2', content)
             return files_map, (stems_map[a], b_file)
 
         merged_pairs: List[Tuple[str, str]] = []
