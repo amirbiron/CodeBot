@@ -5,10 +5,11 @@ from utils import detect_language_from_filename
 
 
 def test_detect_language_from_filename_uses_domain_first(monkeypatch):
-    fake_domain = types.SimpleNamespace(
-        LanguageDetector=type("LD", (), {"detect_language": staticmethod(lambda code, fn: "x-test")})
-    )
-    monkeypatch.setitem(sys.modules, 'src.domain.services.language_detector', fake_domain)
+    # ספק מודול דמה תואם import עם מחלקה LanguageDetector
+    fake_mod = types.ModuleType("language_detector")
+    LD = type("LD", (), {"detect_language": staticmethod(lambda code=None, filename=None: "x-test")})
+    setattr(fake_mod, "LanguageDetector", LD)
+    monkeypatch.setitem(sys.modules, 'src.domain.services.language_detector', fake_mod)
     assert detect_language_from_filename("ANY") == "x-test"
 
 

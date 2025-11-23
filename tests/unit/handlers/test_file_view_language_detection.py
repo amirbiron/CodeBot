@@ -9,23 +9,12 @@ async def test_edit_large_file_detects_bash_via_shebang(monkeypatch):
 
     saved = {}
 
-    # Stub database module to capture LargeFile save with detected language
-    mod = types.ModuleType("database")
-
-    class _LargeFile:
-        def __init__(self, **kwargs):
-            for k, v in kwargs.items():
-                setattr(self, k, v)
-
-    class _DB:
-        @staticmethod
-        def save_large_file(large_file):
-            saved["language"] = getattr(large_file, "programming_language", None)
+    # Stub Facade to capture detected language in save_large_file
+    class _Facade:
+        def save_large_file(self, *, user_id, file_name, content, programming_language, file_size, lines_count):
+            saved["language"] = programming_language
             return True
-
-    mod.LargeFile = _LargeFile
-    mod.db = _DB()
-    monkeypatch.setitem(sys.modules, "database", mod)
+    monkeypatch.setitem(sys.modules, "src.infrastructure.composition", types.SimpleNamespace(get_files_facade=lambda: _Facade()))
 
     # Prepare update/context for large-file edit flow
     class Msg:
@@ -57,20 +46,14 @@ async def test_edit_regular_file_detects_yaml_for_taskfile(monkeypatch):
 
     calls = {}
 
-    # Stub database module for regular file save
-    class _DB:
-        @staticmethod
-        def save_file(user_id, file_name, content, detected_language):
+    # Stub Facade for regular file save
+    class _Facade:
+        def save_file(self, user_id, file_name, content, detected_language):
             calls["language"] = detected_language
             return True
-
-        @staticmethod
-        def get_latest_version(user_id, file_name):
+        def get_latest_version(self, user_id, file_name):
             return {"version": 1, "_id": "x1"}
-
-    mod = types.ModuleType("database")
-    mod.db = _DB()
-    monkeypatch.setitem(sys.modules, "database", mod)
+    monkeypatch.setitem(sys.modules, "src.infrastructure.composition", types.SimpleNamespace(get_files_facade=lambda: _Facade()))
 
     # Make validation pass-through
     monkeypatch.setattr(
@@ -118,19 +101,13 @@ async def test_edit_regular_file_detects_env_for_dotenv(monkeypatch):
 
     calls = {}
 
-    class _DB:
-        @staticmethod
-        def save_file(user_id, file_name, content, detected_language):
+    class _Facade:
+        def save_file(self, user_id, file_name, content, detected_language):
             calls["language"] = detected_language
             return True
-
-        @staticmethod
-        def get_latest_version(user_id, file_name):
+        def get_latest_version(self, user_id, file_name):
             return {"version": 1}
-
-    mod = types.ModuleType("database")
-    mod.db = _DB()
-    monkeypatch.setitem(sys.modules, "database", mod)
+    monkeypatch.setitem(sys.modules, "src.infrastructure.composition", types.SimpleNamespace(get_files_facade=lambda: _Facade()))
 
     # Pass validation
     monkeypatch.setattr(

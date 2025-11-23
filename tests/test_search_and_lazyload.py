@@ -630,22 +630,21 @@ async def test_search_no_results_stays_awaiting(monkeypatch):
 @pytest.mark.asyncio
 async def test_view_direct_file_large_markdown_with_note(monkeypatch):
     # Large markdown + note should render HTML and include note text
-    mod = types.ModuleType("database")
-    class _LargeFile: pass
-    mod.LargeFile = _LargeFile
     content = ("# H1\n" * 3000)
     note = "כאן הערה"
-    mod.db = types.SimpleNamespace(
-        get_latest_version=lambda *_: None,
-        get_large_file=lambda *_: {
-            'file_name': 'doc.md',
-            'content': content,
-            'programming_language': 'markdown',
-            'description': note,
-            '_id': 'id2'
-        }
-    )
-    monkeypatch.setitem(sys.modules, "database", mod)
+    # פאסדה חדשה: ספק get_files_facade עם large_file
+    class _Facade:
+        def get_latest_version(self, *_):
+            return None
+        def get_large_file(self, *_):
+            return {
+                'file_name': 'doc.md',
+                'content': content,
+                'programming_language': 'markdown',
+                'description': note,
+                '_id': 'id2'
+            }
+    monkeypatch.setitem(sys.modules, "src.infrastructure.composition", types.SimpleNamespace(get_files_facade=lambda: _Facade()))
 
     class Q:
         def __init__(self):
@@ -800,20 +799,18 @@ async def test_back_after_view_fallsback_to_db(monkeypatch):
 @pytest.mark.asyncio
 async def test_view_direct_file_non_markdown_markdown_mode(monkeypatch):
     # Stub db to return a small python file
-    mod = types.ModuleType("database")
-    class _LargeFile: pass
-    mod.LargeFile = _LargeFile
-    mod.db = types.SimpleNamespace(
-        get_latest_version=lambda *_: {
-            'file_name': 's.py',
-            'code': 'print(1)',
-            'programming_language': 'python',
-            'description': '',
-            '_id': 'id1'
-        },
-        get_large_file=lambda *_: None
-    )
-    monkeypatch.setitem(sys.modules, "database", mod)
+    class _Facade:
+        def get_latest_version(self, *_):
+            return {
+                'file_name': 's.py',
+                'code': 'print(1)',
+                'programming_language': 'python',
+                'description': '',
+                '_id': 'id1'
+            }
+        def get_large_file(self, *_):
+            return None
+    monkeypatch.setitem(sys.modules, "src.infrastructure.composition", types.SimpleNamespace(get_files_facade=lambda: _Facade()))
 
     class Q:
         def __init__(self):
@@ -979,17 +976,18 @@ async def test_receive_new_name_prefers_id_when_available(monkeypatch):
     # After rename, the 'view code' button should prefer view_direct_id when fid exists
     import types, sys
 
-    mod = types.ModuleType("database")
-    mod.db = types.SimpleNamespace(
-        rename_file=lambda *_: True,
-        get_latest_version=lambda _u, name: {
-            '_id': 'OID123',
-            'file_name': name,
-            'code': 'print(1)',
-            'programming_language': 'python'
-        }
-    )
-    monkeypatch.setitem(sys.modules, "database", mod)
+    # פאסדה: תמיכה ב-rename + latest_version עם _id
+    class _Facade:
+        def rename_file(self, *_):
+            return True
+        def get_latest_version(self, _u, name):
+            return {
+                '_id': 'OID123',
+                'file_name': name,
+                'code': 'print(1)',
+                'programming_language': 'python'
+            }
+    monkeypatch.setitem(sys.modules, "src.infrastructure.composition", types.SimpleNamespace(get_files_facade=lambda: _Facade()))
 
     class Msg:
         def __init__(self):
@@ -1041,6 +1039,13 @@ async def test_handle_clone_direct_prefers_id(monkeypatch):
     mod = types.ModuleType("database")
     mod.db = db
     monkeypatch.setitem(sys.modules, "database", mod)
+    # פאסדה: שמירה + latest_version מחזירה NEWID לשורת הכפתור
+    class _Facade:
+        def save_code_snippet(self, **kwargs):
+            return True
+        def get_latest_version(self, _u, name):
+            return {'_id': 'NEWID', 'file_name': name}
+    monkeypatch.setitem(sys.modules, "src.infrastructure.composition", types.SimpleNamespace(get_files_facade=lambda: _Facade()))
 
     from handlers.file_view import handle_clone_direct
 
