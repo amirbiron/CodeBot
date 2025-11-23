@@ -1,5 +1,15 @@
+import sys
 import types
 import pytest
+
+
+def _set_facade(monkeypatch, facade):
+    module_name = "src.infrastructure.composition"
+    module = sys.modules.get(module_name)
+    if module is None:
+        module = types.ModuleType(module_name)
+        monkeypatch.setitem(sys.modules, module_name, module)
+    monkeypatch.setattr(module, "get_files_facade", lambda: facade, raising=False)
 
 
 @pytest.mark.asyncio
@@ -31,8 +41,7 @@ async def test_view_direct_favorites_button_appears_even_with_long_id(monkeypatc
         def __init__(self):
             self.user_data = {}
 
-    # Stub DB
-    class _DB:
+    class _Facade:
         def get_latest_version(self, uid, name):
             return {
                 "_id": "X" * 120,  # overly long id
@@ -43,7 +52,7 @@ async def test_view_direct_favorites_button_appears_even_with_long_id(monkeypatc
             }
         def is_favorite(self, uid, name):
             return False
-    monkeypatch.setitem(__import__('sys').modules, 'database', types.SimpleNamespace(db=_DB()))
+    _set_facade(monkeypatch, _Facade())
 
     monkeypatch.setattr(fv, 'InlineKeyboardButton', _Btn, raising=True)
     monkeypatch.setattr(fv, 'InlineKeyboardMarkup', _Markup, raising=True)
