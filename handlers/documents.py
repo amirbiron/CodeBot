@@ -437,10 +437,46 @@ class DocumentHandler:
         except Exception:
             return None
 
-<<<<<<< HEAD
-<<<<<<< HEAD
-=======
->>>>>>> 8a154716 (Refactor: Use SimpleNamespace for legacy DB fallback)
+    def _save_selected_repo(self, user_id: int, repo_full: str) -> bool:
+        legacy_db = self._resolve_legacy_db()
+        prefer_legacy = self._legacy_backend_first()
+        if prefer_legacy and self._save_selected_repo_via_legacy(legacy_db, user_id, repo_full):
+            return True
+        if self._save_selected_repo_via_facade(user_id, repo_full):
+            return True
+        if not prefer_legacy and self._save_selected_repo_via_legacy(legacy_db, user_id, repo_full):
+            return True
+        return False
+
+    def _save_selected_repo_via_facade(self, user_id: int, repo_full: str) -> bool:
+        facade = self._resolve_files_facade()
+        if facade is None:
+            return False
+        try:
+            logger.debug("Trying to save selected repo via FilesFacade for %s", repo_full)
+            return bool(facade.save_selected_repo(user_id, repo_full))  # type: ignore[attr-defined]
+        except Exception as exc:
+            logger.warning("FilesFacade save_selected_repo failed: %s", exc)
+            return False
+
+    def _save_selected_repo_via_legacy(
+        self,
+        legacy_db: Optional[Any],
+        user_id: int,
+        repo_full: str,
+    ) -> bool:
+        db_obj = legacy_db or self._resolve_legacy_db()
+        if db_obj is None or not hasattr(db_obj, "save_selected_repo"):
+            return False
+        try:
+            logger.debug("Trying to save selected repo via legacy DB for %s", repo_full)
+            result = db_obj.save_selected_repo(user_id, repo_full)
+            if result is None:
+                return True
+            return bool(result)
+        except Exception as exc:
+            logger.warning("Legacy DB save_selected_repo failed: %s", exc)
+            return False
     def _build_legacy_snippet_payload(
         self,
         *,
@@ -768,10 +804,14 @@ class DocumentHandler:
             )
             repo_full = repo.full_name
             try:
-                from src.infrastructure.composition import get_files_facade  # type: ignore
-                get_files_facade().save_selected_repo(user_id, repo_full)
-                sess = github_handler.get_user_session(user_id)
-                sess["selected_repo"] = repo_full
+                if self._save_selected_repo(user_id, repo_full):
+                    try:
+                        sess = github_handler.get_user_session(user_id)
+                        sess["selected_repo"] = repo_full
+                    except Exception as err:
+                        logger.warning("Failed updating github session after repo save: %s", err)
+                else:
+                    logger.warning("Saving selected repo failed (facade and legacy)")
             except Exception as err:
                 logger.warning("Failed saving selected repo: %s", err)
 
