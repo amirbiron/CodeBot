@@ -88,6 +88,10 @@ class SmoothScrollManager {
     // קאש של אלמנטים לביצועים טובים
     this.scrollContainers = new WeakMap();
     
+    // אתחול משתנים לניהול listeners
+    this.boundHandlers = null;
+    this.listenersAttached = false;
+    
     // טען העדפות משמורות
     this.loadPreferences();
     
@@ -98,18 +102,34 @@ class SmoothScrollManager {
   init() {
     if (!this.config.enabled) return;
     
+    // מנע כפילויות - הסר listeners קיימים לפני הוספה
+    if (this.listenersAttached) {
+      this.removeListeners();
+    }
+    
+    // שמור references ל-bound functions כדי שנוכל להסיר אותן
+    if (!this.boundHandlers) {
+      this.boundHandlers = {
+        wheel: this.throttle(this.onWheel.bind(this), 16),
+        keydown: this.onKeyDown.bind(this),
+        anchorClick: null
+      };
+    }
+    
     // מאזין לגלגלת עכבר
-    this.handleWheel = this.throttle(this.onWheel.bind(this), 16);
-    document.addEventListener('wheel', this.handleWheel, { passive: false });
+    document.addEventListener('wheel', this.boundHandlers.wheel, { passive: false });
     
     // מאזין למקלדת
-    document.addEventListener('keydown', this.onKeyDown.bind(this));
+    document.addEventListener('keydown', this.boundHandlers.keydown);
     
     // מאזינים לקישורים פנימיים
     this.attachAnchorListeners();
     
     // תמיכה ב-touch devices
     this.attachTouchListeners();
+    
+    // סמן שהמאזינים מחוברים
+    this.listenersAttached = true;
   }
   
   onWheel(event) {
@@ -242,6 +262,33 @@ class SmoothScrollManager {
     return Math.sign(delta) * Math.min(Math.abs(delta), 200);
   }
   
+  // ניהול מאזינים לקישורי עוגן
+  attachAnchorListeners() {
+    // שמור את ה-handler לצורך הסרה מאוחר יותר
+    this.boundHandlers.anchorClick = (e) => {
+      const anchor = e.target.closest('a[href^="#"]');
+      if (!anchor) return;
+      
+      e.preventDefault();
+      const targetId = anchor.getAttribute('href').slice(1);
+      if (targetId) {
+        const target = document.getElementById(targetId);
+        if (target) {
+          this.smoothScrollTo(target);
+        }
+      }
+    };
+    
+    // השתמש ב-delegation לביצועים טובים יותר
+    document.addEventListener('click', this.boundHandlers.anchorClick);
+  }
+  
+  // תמיכה במכשירי מגע
+  attachTouchListeners() {
+    // TODO: implement touch support בעתיד
+    // כרגע נשען על תמיכת הדפדפן הנייטיבית
+  }
+  
   // Utility functions
   throttle(func, wait) {
     let timeout;
@@ -310,17 +357,50 @@ class SmoothScrollManager {
     }
   }
   
+  // הסרת כל המאזינים
+  removeListeners() {
+    if (!this.listenersAttached) return;
+    
+    // הסר מאזינים בסיסיים
+    if (this.boundHandlers) {
+      if (this.boundHandlers.wheel) {
+        document.removeEventListener('wheel', this.boundHandlers.wheel);
+      }
+      if (this.boundHandlers.keydown) {
+        document.removeEventListener('keydown', this.boundHandlers.keydown);
+      }
+      if (this.boundHandlers.anchorClick) {
+        document.removeEventListener('click', this.boundHandlers.anchorClick);
+      }
+    }
+    
+    this.listenersAttached = false;
+  }
+  
   // API ציבורי
   enable() {
+    if (this.config.enabled) return; // כבר מופעל
+    
     this.config.enabled = true;
     this.init();
     this.savePreferences();
   }
   
   disable() {
+    if (!this.config.enabled) return; // כבר מכובה
+    
     this.config.enabled = false;
-    document.removeEventListener('wheel', this.handleWheel);
-    document.removeEventListener('keydown', this.onKeyDown);
+    
+    // בטל אנימציות פעילות
+    if (this.rafId) {
+      cancelAnimationFrame(this.rafId);
+      this.rafId = null;
+      this.isScrolling = false;
+    }
+    
+    // הסר מאזינים
+    this.removeListeners();
+    
     this.savePreferences();
   }
   
@@ -605,11 +685,25 @@ function saveSmoothScrollSettings() {
 }
 
 function testSmoothScroll() {
-  // גלול למטה ובחזרה למעלה
-  window.smoothScroll.smoothScrollTo(document.body.scrollHeight / 2, {
+  // יצירת אלמנט זמני לגלילה אליו
+  const testTarget = document.createElement('div');
+  testTarget.id = 'smooth-scroll-test-target';
+  testTarget.style.position = 'absolute';
+  testTarget.style.top = Math.floor(document.body.scrollHeight / 2) + 'px';
+  testTarget.style.width = '1px';
+  testTarget.style.height = '1px';
+  testTarget.style.visibility = 'hidden';
+  document.body.appendChild(testTarget);
+  
+  // גלול לאלמנט הזמני
+  window.smoothScroll.smoothScrollTo(testTarget, {
     callback: () => {
+      // הסר את האלמנט הזמני
+      testTarget.remove();
+      
+      // חזור למעלה אחרי השהייה
       setTimeout(() => {
-        window.smoothScroll.smoothScrollTo(0);
+        window.smoothScroll.smoothScrollTo('body');
       }, 500);
     }
   });
