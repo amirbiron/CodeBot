@@ -232,7 +232,12 @@ class AdvancedBotHandlers:
             "silences",
             chat_allowlist_required(admin_required(self.silences_command))
         ))
-        
+
+        # ChatOps – Language detection (פתוח לכל המשתמשים)
+        self.application.add_handler(CommandHandler("lang", self.lang_command))
+        self.application.add_handler(CommandHandler("lang_debug", self.lang_debug_command))
+        self.application.add_handler(CommandHandler("lang-debug", self.lang_debug_command))  # alias
+
         # Callback handlers לכפתורים
         # Guard הגלובלי התשתיתי מתווסף ב-main.py; כאן נשאר רק ה-handler הכללי
         # חשוב: הוספה בקבוצה מאוחרת, כדי לתת עדיפות ל-handlers ספציפיים (למשל מועדפים)
@@ -3890,6 +3895,126 @@ class AdvancedBotHandlers:
             await query.edit_message_text(f"❌ קובץ `{file_name}` לא נמצא.")
             return
         await query.message.reply_document(document=InputFile(io.BytesIO(file_data['code'].encode('utf-8')), filename=f"{file_name}"))
+
+    # ===== ChatOps: Language detection =====
+    def _extract_code_from_message_or_reply(self, update: Update) -> Optional[str]:
+        """ניסיון למשוך קוד מהודעה נוכחית או מהודעת תגובה (reply)."""
+        try:
+            # אם יש תגובה – העדף את הטקסט מההודעה אליה מגיבים
+            if getattr(update.message, "reply_to_message", None):
+                rt = update.message.reply_to_message
+                if getattr(rt, "text", None):
+                    return rt.text
+                if getattr(rt, "caption", None):
+                    return rt.caption
+        except Exception:
+            pass
+        # חיפוש בלוק ``` בקומנד הנוכחי
+        try:
+            txt = update.message.text or ""
+            if "```" in txt:
+                first = txt.find("```")
+                last = txt.rfind("```")
+                if last > first:
+                    return txt[first + 3:last].strip()
+        except Exception:
+            pass
+        return None
+
+    def _infer_reason(self, code: str, filename: str, language: str) -> str:
+        """הסבר קצר על מה הכריע: shebang / שם קובץ / סיומת / תוכן / fallback."""
+        try:
+            fn = (filename or "").strip()
+            base = (fn.lower().split("/")[-1] if fn else "")
+            from pathlib import Path as _P
+            ext = _P(base).suffix  # '' אם אין סיומת
+            first_line = (code.splitlines()[0] if code else "").strip().lower()
+            if first_line.startswith("#!"):
+                if "bash" in first_line or first_line.endswith("/sh") or " env sh" in first_line or " env bash" in first_line:
+                    return "shebang (bash/sh)"
+                if "python" in first_line:
+                    return "shebang (python)"
+            if base in {"dockerfile", "makefile", "taskfile", ".gitignore", ".dockerignore", ".env"}:
+                return "שם קובץ מיוחד"
+            non_generic = {".py", ".pyw", ".pyx", ".pyi", ".js", ".jsx", ".ts", ".tsx", ".mjs", ".html", ".htm", ".css", ".scss", ".sass", ".less", ".java", ".cpp", ".cxx", ".cc", ".hpp", ".hxx", ".c", ".cs", ".go", ".rs", ".rb", ".rake", ".php", ".phtml", ".swift", ".sh", ".bash", ".zsh", ".fish", ".sql", ".json", ".yaml", ".yml", ".xml"}
+            if ext in non_generic:
+                return "סיומת לא-גנרית"
+            generic_md = {".md", ".markdown", ".mdown", ".mkd", ".mkdn"}
+            if ext in generic_md:
+                return "תוכן (override ל-.md)" if language == "python" else "סיומת גנרית (.md)"
+            if ext in {"", ".txt"}:
+                return "תוכן (override ל-.txt/ללא סיומת)" if language in {"python", "yaml", "bash"} else "ברירת מחדל (.txt/ללא)"
+            return "fallback"
+        except Exception:
+            return ""
+
+    async def lang_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """/lang – זיהוי שפה קצר: מקבל שם קובץ אופציונלי ו/או קוד (reply/``` block)."""
+        try:
+            args = context.args or []
+            arg_text = " ".join(args).strip()
+            code = self._extract_code_from_message_or_reply(update) or ""
+            filename = arg_text or (
+                (context.user_data.get("editing_file_name"))
+                or (context.user_data.get("last_save_success") or {}).get("file_name")
+                or ""
+            )
+            language = code_processor.detect_language(code, filename)
+            reason = self._infer_reason(code, filename, language)
+            msg = f"🧠 שפה: {language}"
+            if filename:
+                msg += f"\n📄 קובץ: `{filename}`"
+            if reason:
+                msg += f"\nℹ️ סיבה: {reason}"
+            await update.message.reply_text(msg, parse_mode=ParseMode.MARKDOWN)
+        except Exception as e:
+            await update.message.reply_text(f"❌ שגיאה ב-/lang: {html.escape(str(e))}")
+
+    async def lang_debug_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """/lang_debug – פירוט מלא: שם/סיומת/shebang/אותות תוכן והכרעה."""
+        try:
+            from pathlib import Path as _P
+            import re as _re
+            args = context.args or []
+            arg_text = " ".join(args).strip()
+            code = self._extract_code_from_message_or_reply(update) or ""
+            filename = arg_text or (
+                (context.user_data.get("editing_file_name"))
+                or (context.user_data.get("last_save_success") or {}).get("file_name")
+                or ""
+            )
+            language = code_processor.detect_language(code, filename)
+            fn = (filename or "").strip()
+            base = (fn.lower().split("/")[-1] if fn else "")
+            ext = _P(base).suffix or "(none)"
+            first_line = (code.splitlines()[0] if code else "")
+            # אותות תוכן
+            py_signals = 0
+            s_def = bool(_re.search(r"^\s*def\s+\w+\s*\(", code or "", flags=_re.MULTILINE))
+            s_class = bool(_re.search(r"^\s*class\s+\w+\s*\(?", code or "", flags=_re.MULTILINE))
+            s_import = bool(_re.search(r"^\s*import\s+\w+", code or "", flags=_re.MULTILINE))
+            s_main = "__name__" in (code or "") and "__main__" in (code or "")
+            s_block = bool(_re.search(r":\s*(#.*)?\n\s{4,}\S", code or "", flags=_re.MULTILINE))
+            for b in (s_def, s_class, s_import, s_main, s_block):
+                py_signals += 1 if b else 0
+            md_heading = bool(_re.search(r"(^|\n)\s{0,3}#[^#]", code or ""))
+            md_list = bool(_re.search(r"(^|\n)\s{0,2}[-*+]\s+\S", code or ""))
+            md_link = bool(_re.search(r"\[.+?\]\(.+?\)", code or ""))
+            md_fence = ("```" in (code or ""))
+            reason = self._infer_reason(code, filename, language)
+            lines = [
+                "🧪 Language Debug",
+                f"📄 file: `{filename or '—'}`",
+                f"🔖 base: {base or '—'}  •  ext: {ext}",
+                f"#! shebang: {first_line[:120] + ('…' if len(first_line) > 120 else '') or '—'}",
+                f"🐍 python_signals: def={s_def} class={s_class} import={s_import} main={s_main} block={s_block} total={py_signals}",
+                f"📝 md_markers: heading={md_heading} list={md_list} link={md_link} fence={md_fence}",
+                f"🧠 language: {language}",
+                f"ℹ️ reason: {reason or '—'}",
+            ]
+            await update.message.reply_text("\n".join(lines), parse_mode=ParseMode.MARKDOWN)
+        except Exception as e:
+            await update.message.reply_text(f"❌ שגיאה ב-/lang_debug: {html.escape(str(e))}")
 
     # --- Image generation commands ---------------------------------------
     async def image_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
