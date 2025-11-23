@@ -635,22 +635,20 @@ async def test_search_no_results_stays_awaiting(monkeypatch):
 @pytest.mark.asyncio
 async def test_view_direct_file_large_markdown_with_note(monkeypatch):
     # Large markdown + note should render HTML and include note text
-    mod = types.ModuleType("database")
-    class _LargeFile: pass
-    mod.LargeFile = _LargeFile
     content = ("# H1\n" * 3000)
     note = "כאן הערה"
-    mod.db = types.SimpleNamespace(
-        get_latest_version=lambda *_: None,
-        get_large_file=lambda *_: {
-            'file_name': 'doc.md',
-            'content': content,
-            'programming_language': 'markdown',
-            'description': note,
-            '_id': 'id2'
-        }
-    )
-    monkeypatch.setitem(sys.modules, "database", mod)
+    class _Facade:
+        def get_latest_version(self, *_):
+            return None
+        def get_large_file(self, *_):
+            return {
+                'file_name': 'doc.md',
+                'content': content,
+                'programming_language': 'markdown',
+                'description': note,
+                '_id': 'id2'
+            }
+    _set_facade(monkeypatch, _Facade())
 
     class Q:
         def __init__(self):
