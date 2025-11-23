@@ -1557,6 +1557,9 @@ class CodeKeeperBot:
                         try:
                             if hasattr(context, "user_data"):
                                 context.user_data["command"] = cleaned
+                                # ביטול מצב חיפוש על כל פקודה
+                                context.user_data.pop('awaiting_search_text', None)
+                                context.user_data.pop('search_ctx', None)
                         except Exception:
                             pass
             except Exception:
@@ -2184,22 +2187,6 @@ class CodeKeeperBot:
                 logger.info(f"🔗 Routing GitHub-related text input from user {update.effective_user.id}")
                 return await github_handler.handle_text_input(update, context)
             return False
-
-        # ניקוי אוטומטי של מצב חיפוש בעת שליחת כל פקודה (למניעת הדבקה לא מכוונת לחיפוש)
-        async def _autoclear_search_on_any_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-            try:
-                context.user_data.pop('awaiting_search_text', None)
-                context.user_data.pop('search_ctx', None)
-            except Exception:
-                pass
-            # לא "בולעים" את הפקודה — נותנים ל-CommandHandlers אחרים לטפל בה
-            return
-
-        try:
-            self.application.add_handler(MessageHandler(filters.COMMAND, _autoclear_search_on_any_command), group=-100)
-        except TypeError:
-            # גרסה ללא תמיכת groups
-            self.application.add_handler(MessageHandler(filters.COMMAND, _autoclear_search_on_any_command))
 
         # הוסף את ה-handler עם עדיפות גבוהה
         self.application.add_handler(
