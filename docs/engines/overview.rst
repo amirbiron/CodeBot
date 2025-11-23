@@ -108,6 +108,38 @@
            except Exception as e:
                return RefactorResult(success=False, proposal=None, error=f"שגיאה: {e}")
 
+יכולות מתקדמות (Smart Clustering, Cycle Guard)
+-----------------------------------------------
+
+- Smart Clustering (פיצול חכם לתת‑דומיינים):
+
+  - המנוע בונה גרף תלותים בין פונקציות/מחלקות, מזהה "קישורים חלשים" (Weak Links) ומפצל תתי‑גרפים עצמאיים לקבצים נפרדים.
+  - דוגמה: ``Inventory`` ו‑``ApiClient`` נחתכים לקבצים עצמאיים כאשר אינם תלויים ב‑Users/Finance.
+
+- Coupling Rule (הצמדה): כאשר יש צימוד גבוה בין מנהל לישות (Type Hints/שימוש תכוף), הם יישבו יחד באותו קובץ (Collocation), למשל ``User`` + ``UserManager`` ב‑``users.py``.
+
+- Dry‑Run Cycle Guard (מניעת מעגליות):
+
+  - בניית גרף ייבוא בין המודולים שנוצרו, זיהוי SCC (Tarjan) ומיזוג נקודתי רק בתוך המעגל כדי לשבור אותו.
+  - ניקוי self‑import ועדכון ``__init__.py`` בהתאם. מוסיף אזהרה ידידותית להצעה.
+
+- שמות קבצים דומייניים יציבים (Canonical):
+
+  - ``users.py``, ``finance.py``, ``inventory.py``, ``network.py`` (ל‑API clients), ``workflows.py``.
+  - דומיינים אחרים יקבלו שם יציב על בסיס שם הקלט: ``<base>_<group>.py``.
+
+מצב שכבות (Layered Mode)
+-------------------------
+
+- אופציונלי: דחיפת כל הישויות ל‑Leaf יחיד ``models.py`` והמודולים התלויים ייבאו ממנו.
+- הפעלה דרך משתנה סביבה (ללא שינוי קוד):
+
+.. code-block:: bash
+
+   export REFACTOR_LAYERED_MODE=1
+
+- בברירת מחדל (ללא הדגל) מופעל Collocation: מחלקות ופונקציות נוצרות יחד לפי דומיין.
+
 **CodeAnalyzer:**
 - משתמש ב-AST לניתוח Python
 - מזהה פונקציות, מחלקות, imports

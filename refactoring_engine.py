@@ -9,6 +9,7 @@ import ast
 import re
 import logging
 from dataclasses import dataclass, field
+import os
 from enum import Enum
 from typing import Dict, List, Optional, Set, Tuple, Any
 from pathlib import Path
@@ -359,12 +360,23 @@ class RefactoringEngine:
         imports_needed: Dict[str, List[str]] = {}
         per_file_filtered_imports: Dict[str, List[str]] = {}
         base_name = Path(self.analyzer.filename).stem
+        layered_mode = str(os.getenv("REFACTOR_LAYERED_MODE", "")).strip().lower() in ("1", "true", "yes", "on")
         # הקצאת מחלקות לקבוצות (Collocation)
         classes_by_group = self._assign_classes_to_groups(groups)
-        # בניית קבצי דומיין: מחלקות + פונקציות יחד
+        # במצב שכבות (Layered) – דחוף את כל המחלקות לקובץ Leaf יחיד
+        classes_filename: Optional[str] = None
+        if layered_mode and (self.analyzer and self.analyzer.classes):
+            classes_filename, classes_file_content = self._build_classes_file("models")
+            # נשתמש בקובץ סטנדרטי בשם models.py ולא בשם מבוסס קלט
+            classes_filename = "models.py"
+            new_files[classes_filename] = classes_file_content
+            changes.append(f"📦 {classes_filename}: ריכוז ישויות (Leaf)")
+        # בניית קבצי דומיין
+        module_stem_by_group: Dict[str, str] = {}
         for group_name, functions in groups.items():
-            new_filename = f"{base_name}_{group_name}.py"
-            group_classes = classes_by_group.get(group_name, [])
+            new_filename = self._choose_filename_for_group(base_name, group_name)
+            module_stem_by_group[group_name] = Path(new_filename).stem
+            group_classes = [] if layered_mode else classes_by_group.get(group_name, [])
             # סינון imports לפי שימוש אמיתי בקוד המשולב
             combined_body_parts: List[str] = []
             for c in group_classes:
@@ -395,18 +407,22 @@ class RefactoringEngine:
         # הזרקת יבוא לפונקציות בין-מודוליות (Cross-module function imports)
         func_to_module: Dict[str, str] = {}
         for group_name, functions in groups.items():
-            module_stem = f"{base_name}_{group_name}"
+            module_stem = module_stem_by_group.get(group_name, f"{base_name}_{group_name}")
             for f in functions:
                 func_to_module[f.name] = module_stem
         new_files = self._inject_function_imports(new_files, func_to_module)
         # הזרקת יבוא למחלקות בין-מודוליות (Cross-module class imports)
-        class_to_module: Dict[str, str] = {}
-        for group_name, classes in classes_by_group.items():
-            module_stem = f"{base_name}_{group_name}"
-            for c in classes:
-                class_to_module[c.name] = module_stem
-        if class_to_module:
-            new_files = self._inject_cross_module_class_imports(new_files, class_to_module)
+        if layered_mode and classes_filename:
+            # במצב שכבות – כל המחלקות ב-models.py, הזרק import ממנו
+            new_files = self._inject_class_imports(new_files, classes_filename)
+        else:
+            class_to_module: Dict[str, str] = {}
+            for group_name, classes in classes_by_group.items():
+                module_stem = module_stem_by_group.get(group_name, f"{base_name}_{group_name}")
+                for c in classes:
+                    class_to_module[c.name] = module_stem
+            if class_to_module:
+                new_files = self._inject_cross_module_class_imports(new_files, class_to_module)
 
         # DRY-RUN: זיהוי ומניעת תלות מעגלית בין המודולים שנוצרו
         cycle_warnings: List[str] = []
@@ -1360,6 +1376,59 @@ class RefactoringEngine:
             assigned_group_for_class[cname] = best_g
             groups_classes[best_g].append(class_by_name[cname])
 
+        # כלל Coupling: הצמדת מנהל+ישות לאותו קובץ כאשר יש שימוש תכוף ב-Type Hint/שמות
+        # נזהה עבור כל מחלקה אילו מחלקות אחרות מוזכרות במתודותיה, ונאחד לקבוצה משותפת כאשר היחס גבוה.
+        try:
+            all_class_names: Set[str] = set(c.name for c in (self.analyzer.classes or []))
+            # מיפוי: cname -> counter של מחלקות אחרות שהוזכרו
+            mentions: Dict[str, Dict[str, int]] = {}
+            method_counts: Dict[str, int] = {}
+            for cls in (self.analyzer.classes or []):
+                method_counts[cls.name] = len(cls.methods or [])
+                for m in (cls.methods or []):
+                    used = self._extract_used_names(m.code)
+                    for other in (used & all_class_names):
+                        if other == cls.name:
+                            continue
+                        mentions.setdefault(cls.name, {}).setdefault(other, 0)
+                        mentions[cls.name][other] += 1
+            # סף: מחלקה A מזכירה את B בלפחות מחצית מהמתודות שלה (או 2 מתודות מינימום)
+            for a, counters in mentions.items():
+                total_methods = max(1, method_counts.get(a, 0))
+                # בחר את B עם ההזכרות הגבוהות ביותר
+                b, cnt = None, 0
+                for other, c in counters.items():
+                    if c > cnt:
+                        b, cnt = other, c
+                if not b:
+                    continue
+                strong_coupling = (cnt >= max(2, (total_methods + 1) // 2))
+                if not strong_coupling:
+                    continue
+                ga = assigned_group_for_class.get(a)
+                gb = assigned_group_for_class.get(b)
+                if ga and gb and ga != gb:
+                    # הזז את המחלקה הפחות "מוכרת" אל קבוצת המחלקה המרכזית (ga)
+                    # הקריטריון: אם b מזכיר את a פחות מ-a שמזכיר את b – נעדיף את קבוצת a
+                    a_to_b = cnt
+                    b_to_a = mentions.get(b, {}).get(a, 0)
+                    dest = ga if a_to_b >= b_to_a else gb
+                    src = gb if dest == ga else ga
+                    # עדכן mapping ורשימות
+                    assigned_group_for_class[b if dest == ga else a] = dest
+                    # הסר מקבוצת המקור והוסף ליעד
+                    move_name = b if dest == ga else a
+                    # הסרה בטוחה
+                    for gname, arr in groups_classes.items():
+                        groups_classes[gname] = [c for c in arr if c.name != move_name]
+                    # הוספה
+                    cls_obj = next((c for c in (self.analyzer.classes or []) if c.name == move_name), None)
+                    if cls_obj:
+                        groups_classes[dest].append(cls_obj)
+        except Exception:
+            # לא נכשיל את התהליך במקרה של חריגה – הכלל הוא שיפור-היוריסטי
+            pass
+
         return groups_classes
 
     def _inject_cross_module_class_imports(
@@ -1553,9 +1622,18 @@ class RefactoringEngine:
                     # אין ייבוא הדדי ישיר – נמזג כל שניים ראשונים
                     pair_to_merge = (comp[0], comp[1])
                 a, b = pair_to_merge  # type: ignore[misc]
-                # שמור על שם שמייצב: בחר את הקצר/אלפביתי כ-a
-                if (b < a) or (len(b) < len(a) and b not in graph.get(a, set())):
+                # עדיפות יעד מיזוג: העדף דומיינים קנוניים כקובץ יעד (users, finance, inventory, network, workflows)
+                def _priority(stem: str) -> int:
+                    order = {"users": 0, "finance": 1, "inventory": 2, "network": 3, "workflows": 4}
+                    return order.get(stem, 9)
+                prioritized = False
+                if _priority(a) > _priority(b):
                     a, b = b, a
+                    prioritized = True
+                # שמור על שם שמייצב: בחר את הקצר/אלפביתי כ-a (רק אם לא הופעלה עדיפות דומיין)
+                if not prioritized:
+                    if (b < a) or (len(b) < len(a) and b not in graph.get(a, set())):
+                        a, b = b, a
                 files, merged = _merge_two(files, stems_map, a, b)
                 merged_pairs.append((merged[0], merged[1]))
                 changed = True
@@ -1564,6 +1642,34 @@ class RefactoringEngine:
             iterations += 1
         return files, merged_pairs
 
+    # === Naming helpers ===
+    def _choose_filename_for_group(self, base_name: str, group_name: str) -> str:
+        """
+        קובע שם קובץ עבור קבוצה.
+        כאשר מדובר בדומיין מוכר – משתמש בשם דומייני יציב (users.py, finance.py, inventory.py, network.py, workflows.py).
+        אחרת – נשמר את שם הבסיס + הקבוצה (base_group.py) לשמירת תאימות.
+        """
+        canonical_map = {
+            "users": "users.py",
+            "finance": "finance.py",
+            "inventory": "inventory.py",
+            "api_clients": "network.py",
+            "workflows": "workflows.py",
+            "analytics": f"{base_name}_analytics.py",  # נשמר ממוקד-בסיס כדי לא לשבור ציפיות קיימות בטסטים
+            "utils": f"{base_name}_utils.py",
+            "files": f"{base_name}_files.py",
+            "permissions": f"{base_name}_permissions.py",
+            "main": f"{base_name}_main.py",
+            "debug": f"{base_name}_debug.py",
+            "compute": f"{base_name}_compute.py",
+            "helpers": f"{base_name}_helpers.py",
+            "io": f"{base_name}_io.py",
+        }
+        if group_name in canonical_map:
+            return canonical_map[group_name]
+        # ברירת מחדל: base_name_group.py
+        safe_group = re.sub(r"[^a-z0-9_]", "_", group_name.lower())
+        return f"{base_name}_{safe_group}.py"
 
 # Instance גלובלי
 refactoring_engine = RefactoringEngine()
