@@ -1252,6 +1252,7 @@ def detect_language_from_filename(filename: str) -> str:
         '.vim': 'vim',
         '.dockerfile': 'dockerfile',
         'Dockerfile': 'dockerfile',
+        'Taskfile': 'yaml',
         '.makefile': 'makefile',
         'Makefile': 'makefile',
         '.cmake': 'cmake',
