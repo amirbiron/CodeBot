@@ -61,3 +61,34 @@ class SubscriptionManager:
     assert "from .core import *" in init_content
     assert "from .billing import *" in init_content
     assert "from .inventory import *" in init_content
+
+
+def test_models_globals_preserved_and_imported():
+    code = """
+DEFAULT_ROLE = "user"
+MAX_ITEMS = 50
+
+class User:
+    def __init__(self, name: str):
+        self.name = name
+
+class UserManager:
+    def default_role(self) -> str:
+        return DEFAULT_ROLE
+
+class SubscriptionManager:
+    def limit(self) -> int:
+        # שימוש במשתנה גלובלי שהוגדר ב-models.py
+        return MAX_ITEMS
+"""
+    eng = RefactoringEngine()
+    res = eng.propose_refactoring(code=code, filename="models.py", refactor_type=RefactorType.SPLIT_FUNCTIONS)
+    assert res.success and res.proposal
+    files = res.proposal.new_files
+    # הגדרות גלובליות נשמרו בתוך core.py
+    core = files["models/core.py"]
+    assert "DEFAULT_ROLE = \"user\"" in core
+    assert "MAX_ITEMS = 50" in core
+    # מודול billing ייבא את MAX_ITEMS מ-core (כי הוא משתמש בו)
+    billing = files["models/billing.py"]
+    assert "from .core import MAX_ITEMS" in billing
