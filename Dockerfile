@@ -1,11 +1,11 @@
 # syntax=docker/dockerfile:1.6
 # ===================================
-# Code Keeper Bot - Production Dockerfile (Playwright base)
+# Code Keeper Bot - Production Dockerfile (Debian slim)
 # ===================================
 
 ######################################
 # שלב 1: Build stage (pip wheels + cache)
-FROM mcr.microsoft.com/playwright/python:v1.49.0-jammy AS builder
+FROM python:3.11-slim AS builder
 
 LABEL maintainer="Code Keeper Bot Team"
 LABEL version="1.1.0"
@@ -52,8 +52,8 @@ RUN --mount=type=cache,target=/root/.cache/pip \
     pip install --user -r /app/requirements/production.txt -c /app/constraints.txt --retries 5 --timeout 60
 
 ######################################
-# שלב 2: Production stage (Playwright base)
-FROM mcr.microsoft.com/playwright/python:v1.49.0-jammy AS production
+# שלב 2: Production stage (Debian slim)
+FROM python:3.11-slim AS production
 
 USER root
 
@@ -63,7 +63,6 @@ ENV PYTHONUNBUFFERED=1 \
     PYTHONFAULTHANDLER=1 \
     PATH="/home/botuser/.local/bin:$PATH" \
     PYTHONPATH="/app:$PYTHONPATH" \
-    PLAYWRIGHT_BROWSERS_PATH=/ms-playwright \
     DEBIAN_FRONTEND=noninteractive
 
 # חבילות Runtime הנדרשות מעבר למה שקיים בבייס (בעיקר פונטים/כלים)
@@ -85,27 +84,10 @@ RUN apt-get update -y && apt-get upgrade -y && \
 # שמירה על גרסאות pip/setuptools מעודכנות
 RUN python -m pip install --upgrade --no-cache-dir 'pip>=24.1' 'setuptools>=78.1.1' 'wheel>=0.43.0'
 
-# יצירת משתמש לא-root (אידמפוטנטי גם אם ה-UID/GID כבר תפוסים בבייס)
-ARG BOT_UID=1000
-ARG BOT_GID=1000
-RUN set -eux; \
-    if getent group "${BOT_GID}" >/dev/null 2>&1; then \
-        GROUP_FLAGS="-g ${BOT_GID} -o"; \
-    else \
-        GROUP_FLAGS="-g ${BOT_GID}"; \
-    fi; \
-    if ! getent group botuser >/dev/null 2>&1; then \
-        groupadd ${GROUP_FLAGS} botuser; \
-    fi; \
-    if getent passwd "${BOT_UID}" >/dev/null 2>&1; then \
-        USER_FLAGS="-u ${BOT_UID} -o"; \
-    else \
-        USER_FLAGS="-u ${BOT_UID}"; \
-    fi; \
-    if ! id -u botuser >/dev/null 2>&1; then \
-        useradd ${USER_FLAGS} -m -s /bin/bash -g botuser botuser; \
-    fi; \
-    mkdir -p /app /app/logs /app/backups /app/temp; \
+# יצירת משתמש לא-root
+RUN groupadd -g 1000 botuser && \
+    useradd -m -s /bin/bash -u 1000 -g 1000 botuser && \
+    mkdir -p /app /app/logs /app/backups /app/temp && \
     chown -R botuser:botuser /app
 
 # העתקת Python packages ו-constraints מה-builder stage

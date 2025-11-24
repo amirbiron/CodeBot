@@ -12,7 +12,17 @@ import functools
 import inspect
 import logging
 import asyncio
-from typing import Any, NotRequired, TypedDict
+from typing import Any, TypedDict
+try:
+    from typing import NotRequired  # type: ignore[attr-defined]
+except ImportError:  # pragma: no cover
+    try:
+        from typing_extensions import NotRequired  # type: ignore[assignment]
+    except Exception:  # pragma: no cover
+        class _NotRequiredShim:
+            def __class_getitem__(cls, item):
+                return item
+        NotRequired = _NotRequiredShim  # type: ignore[misc,assignment]
 from datetime import datetime
 
 import signal
