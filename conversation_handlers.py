@@ -19,7 +19,11 @@ from telegram.ext import (
     CallbackQueryHandler,
     filters,
 )
-from database import DatabaseManager
+try:
+    from database import DatabaseManager
+except Exception:
+    class DatabaseManager:  # type: ignore
+        ...
 from file_manager import backup_manager
 # Reporter מוזרק בזמן ריצה כדי להימנע מפתיחת חיבור בעת import
 class _NoopReporter:
@@ -137,7 +141,9 @@ def _resolve_is_favorite(
         facade = _get_files_facade_or_none()
     if facade is not None:
         try:
-            return bool(facade.is_favorite(user_id, file_name))
+            fav_state = facade.is_favorite(user_id, file_name)
+            if fav_state:
+                return True
         except Exception:
             pass
     try:
