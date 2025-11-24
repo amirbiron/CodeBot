@@ -42,9 +42,14 @@ export default {
 
     // Set VAPID details globally for the library instance
     // Note: In Cloudflare Workers, env is only available in the handler, so we must set it here.
+    let subject = env.WORKER_VAPID_SUB_EMAIL || 'mailto:support@example.com';
+    if (!subject.startsWith('mailto:')) {
+      subject = `mailto:${subject}`;
+    }
+
     try {
       webpush.setVapidDetails(
-        env.WORKER_VAPID_SUB_EMAIL || 'mailto:support@example.com',
+        subject,
         env.WORKER_VAPID_PUBLIC_KEY,
         env.WORKER_VAPID_PRIVATE_KEY
       );
@@ -57,13 +62,20 @@ export default {
     const endpointHash = await hashEndpoint(subscription.endpoint || "");
 
     try {
+      // Forward headers including Idempotency Key
+      const sendHeaders = options?.headers || {};
+      const idempotencyKey = request.headers.get("X-Idempotency-Key");
+      if (idempotencyKey) {
+        sendHeaders["X-Idempotency-Key"] = idempotencyKey;
+      }
+
       // Send the notification
       await webpush.sendNotification(
         subscription,
         JSON.stringify(payload),
         {
           TTL: options?.ttl,
-          headers: options?.headers,
+          headers: sendHeaders,
           contentEncoding: options?.contentEncoding || 'aes128gcm',
           urgency: options?.urgency
         }
