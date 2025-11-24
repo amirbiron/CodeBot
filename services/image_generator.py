@@ -132,6 +132,7 @@ class CodeImageGenerator:
         self.colors = self.THEMES.get(theme, self.THEMES['dark'])
         self.font_family = (font_family or '').strip().lower() or None
         self._font_cache: dict[str, FreeTypeFont] = {}
+        self._note_font_cache: dict[str, FreeTypeFont] = {}
         self._logo_cache: Optional[Image.Image] = None
 
         # Playwright (מועדף) – שימוש ב-Async API כדי להימנע מקונפליקט עם event loop
@@ -198,6 +199,47 @@ class CodeImageGenerator:
         if font is None:
             font = ImageFont.load_default()
         self._font_cache[cache_key] = font  # type: ignore[assignment]
+        return font  # type: ignore[return-value]
+
+    def _get_note_font(self, size: int, bold: bool = False) -> FreeTypeFont:
+        """פונט קריא להערות (לא מונוספייס) עם תמיכה מלאה בעברית."""
+        cache_key = f"{size}_{int(bold)}"
+        if cache_key in self._note_font_cache:
+            return self._note_font_cache[cache_key]
+
+        # DejaVuSans כולל כיסוי עברית; נוסיף fallback-ים פופולריים.
+        primary = '/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf'
+        candidates = [
+            primary,
+            '/usr/share/fonts/truetype/noto/NotoSans-Regular.ttf',
+            '/usr/share/fonts/truetype/freefont/FreeSans.ttf',
+            '/System/Library/Fonts/SFNSDisplay.ttf',
+            'C:/Windows/Fonts/segoeui.ttf',
+        ]
+        if bold:
+            bold_candidates = [
+                '/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf',
+                '/usr/share/fonts/truetype/noto/NotoSans-Bold.ttf',
+                '/usr/share/fonts/truetype/freefont/FreeSansBold.ttf',
+                '/System/Library/Fonts/SFNSText.ttf',
+                'C:/Windows/Fonts/segoeuib.ttf',
+            ]
+            candidates = bold_candidates + candidates
+
+        font: Optional[FreeTypeFont] = None
+        for path_str in candidates:
+            try:
+                path = Path(path_str)
+                if not path.exists():
+                    continue
+                font = ImageFont.truetype(str(path), size)
+                break
+            except Exception:
+                continue
+
+        if font is None:
+            font = ImageFont.load_default()
+        self._note_font_cache[cache_key] = font  # type: ignore[assignment]
         return font  # type: ignore[return-value]
 
     def _get_logo_image(self) -> Optional[Image.Image]:
@@ -832,10 +874,15 @@ class CodeImageGenerator:
             base = img.convert('RGBA')
         except Exception:
             base = img
-        max_width = max(160, min(int(base.width * 0.35), 320))
-        if base.width - max_width < 60 or base.height < 120:
+        inner_padding = 12
+        card_left_boundary = self.CARD_MARGIN + inner_padding
+        card_right_boundary = base.width - self.CARD_MARGIN - inner_padding
+        card_width = max(0, card_right_boundary - card_left_boundary)
+        max_width = min(max(160, min(int(base.width * 0.35), 320)), card_width)
+        if base.width - max_width < 60 or base.height < 120 or max_width < 80:
             return img
-        font = self._get_font(max(12, self.FONT_SIZE + 2), bold=True)
+        font_size = max(14, self.FONT_SIZE + 4)
+        font = self._get_note_font(font_size, bold=True)
         padding = 18
         inner_width = max_width - padding * 2
         lines = self._wrap_note_text(text, font, inner_width)
@@ -843,7 +890,12 @@ class CodeImageGenerator:
         if len(lines) > max_lines:
             lines = lines[:max_lines]
             lines[-1] = lines[-1][: max(0, len(lines[-1]) - 1)] + "…"
-        line_height = max(24, int(font.size * 1.35))
+        try:
+            ascent, descent = font.getmetrics()
+            measured_height = ascent + descent
+        except Exception:
+            measured_height = font_size
+        line_height = max(24, int(measured_height * 1.2))
         height = padding * 2 + line_height * len(lines)
         overlay = Image.new('RGBA', (max_width, height), (255, 244, 148, 235))
         draw = ImageDraw.Draw(overlay)
@@ -866,9 +918,15 @@ class CodeImageGenerator:
         for idx, line in enumerate(lines):
             y = padding + idx * line_height
             draw.text((padding, y), line, fill=text_color, font=font)
-        margin = 24
-        x = max(margin, base.width - max_width - margin)
-        y = margin
+        # שמור את הפתקית בתוך מעטפת ה"shell"
+        card_left = card_left_boundary
+        card_right = card_right_boundary
+        x = max(card_left, card_right - max_width)
+        content_top = self.CARD_MARGIN + self.TITLE_BAR_HEIGHT + inner_padding
+        content_bottom = base.height - self.CARD_MARGIN - inner_padding
+        y = content_top
+        if y + height > content_bottom:
+            y = max(content_top, content_bottom - height)
         try:
             base.paste(overlay, (x, y), overlay)
         except Exception:
