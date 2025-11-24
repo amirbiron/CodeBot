@@ -120,6 +120,19 @@ def detect_language(code: str, filename: str) -> str:
     מקור אמת לזיהוי שפה: דטקטור דומייני.
     נשמרים fallback-ים ישנים לתאימות, אך החלטה סופית מגיעה מהדומיין כאשר אפשר.
     """
+    # Fast-path special filenames before any heavy detection
+    try:
+        name = (filename or "").strip()
+        name_lower = name.lower()
+        base = Path(name_lower).name
+        # Taskfile (with or without extension)
+        if base.startswith("taskfile"):
+            return "yaml"
+        # Dotenv variants: .env, .env.local, .env.production, etc.
+        if base == ".env" or base.startswith(".env."):
+            return "env"
+    except Exception:
+        pass
     # 1) Domain detector (source of truth)
     try:
         from src.domain.services.language_detector import LanguageDetector

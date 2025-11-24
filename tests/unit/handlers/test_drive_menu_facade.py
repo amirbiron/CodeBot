@@ -25,6 +25,8 @@ class DummyQuery:
         self.edits = []
         self.answered = False
         self.message = types.SimpleNamespace(chat_id=111, message_id=1)
+        # Handlers expect Telegram's CallbackQuery.from_user
+        self.from_user = types.SimpleNamespace(id=111)
 
     async def answer(self, *a, **k):
         self.answered = True

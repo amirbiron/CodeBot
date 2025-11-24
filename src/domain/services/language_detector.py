@@ -32,13 +32,13 @@ class LanguageDetector:
             return "dockerfile"
         if base in {"makefile"}:
             return "makefile"
-        if base in {"taskfile"}:
+        if base in {"taskfile"} or base.startswith("taskfile"):
             return "yaml"  # go-task Taskfile is YAML
         if base in {".gitignore"}:
             return "gitignore"
         if base in {".dockerignore"}:
             return "dockerignore"
-        if base in {".env"}:
+        if base in {".env"} or base.startswith(".env."):
             return "env"
 
         # 2) Shebang detection (take precedence for extensionless/generic files)
