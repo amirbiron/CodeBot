@@ -57,5 +57,6 @@ async def test_user_style_tag_is_escaped(monkeypatch):
     _ = gen.generate_image(snippet, language='html', max_width=320)
 
     html_doc = captured.get('html') or ''
-    assert "&lt;style&gt; body { display: none; } &lt;/style&gt;" in html_doc
-    assert '<div class="code"><pre><code><style>' not in html_doc
+    # אין תגית style אמיתית בתוך הקוד (היא פורקה ל-span-ים בטוחים)
+    assert '<style' not in html_doc
+    assert '&lt;' in html_doc  # וידוא שהתווים הומרו ל-entities
