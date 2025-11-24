@@ -3,6 +3,15 @@ import sys
 import pytest
 
 
+def _set_facade(monkeypatch, facade):
+    module_name = "src.infrastructure.composition"
+    module = sys.modules.get(module_name)
+    if module is None:
+        module = types.ModuleType(module_name)
+        monkeypatch.setitem(sys.modules, module_name, module)
+    monkeypatch.setattr(module, "get_files_facade", lambda: facade, raising=False)
+
+
 class DummyDB:
     def __init__(self):
         self._docs = []
@@ -118,14 +127,12 @@ async def test_lazy_buttons_single_instance(monkeypatch):
         def __init__(self):
             self.user_data = {}
 
-    # Patch db.get_latest_version
-    # stub database module
-    mod = types.ModuleType("database")
-    class _LargeFile:
-        pass
-    mod.LargeFile = _LargeFile
-    mod.db = SimpleNamespace(get_latest_version=lambda _u, _n: doc, get_large_file=lambda *_: None)
-    monkeypatch.setitem(sys.modules, "database", mod)
+    class _Facade:
+        def get_latest_version(self, _u, _n):
+            return doc
+        def get_large_file(self, *_):
+            return None
+    _set_facade(monkeypatch, _Facade())
 
     # Act
     from handlers.file_view import handle_view_direct_file
@@ -508,22 +515,20 @@ async def test_view_file_show_more_idx_button_and_back_by_repo(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_view_direct_file_large_markdown_includes_note(monkeypatch):
-    # Stub database to return a large markdown file via large_files fallback
-    mod = types.ModuleType("database")
-    class _LargeFile: pass
-    mod.LargeFile = _LargeFile
+    # Stub FilesFacade to return a large markdown file via large_files fallback
     content = "# Title\n" + ("line\n" * 4000)
-    mod.db = types.SimpleNamespace(
-        get_latest_version=lambda *_: None,
-        get_large_file=lambda *_: {
-            'file_name': 'doc.md',
-            'content': content,
-            'programming_language': 'markdown',
-            'description': '',
-            '_id': 'abc'
-        }
-    )
-    monkeypatch.setitem(sys.modules, "database", mod)
+    class _Facade:
+        def get_latest_version(self, *_):
+            return None
+        def get_large_file(self, *_):
+            return {
+                'file_name': 'doc.md',
+                'content': content,
+                'programming_language': 'markdown',
+                'description': '',
+                '_id': 'abc'
+            }
+    _set_facade(monkeypatch, _Facade())
 
     class Q:
         def __init__(self):
@@ -632,7 +637,6 @@ async def test_view_direct_file_large_markdown_with_note(monkeypatch):
     # Large markdown + note should render HTML and include note text
     content = ("# H1\n" * 3000)
     note = "כאן הערה"
-    # פאסדה חדשה: ספק get_files_facade עם large_file
     class _Facade:
         def get_latest_version(self, *_):
             return None
@@ -644,7 +648,7 @@ async def test_view_direct_file_large_markdown_with_note(monkeypatch):
                 'description': note,
                 '_id': 'id2'
             }
-    monkeypatch.setitem(sys.modules, "src.infrastructure.composition", types.SimpleNamespace(get_files_facade=lambda: _Facade()))
+    _set_facade(monkeypatch, _Facade())
 
     class Q:
         def __init__(self):
