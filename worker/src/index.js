@@ -40,25 +40,28 @@ export default {
       return json({ ok: false, status: 500, error: "worker_misconfigured" }, 502);
     }
 
-    // Prepare VAPID details
-    const vapidDetails = {
-      subject: env.WORKER_VAPID_SUB_EMAIL || 'mailto:support@example.com',
-      publicKey: env.WORKER_VAPID_PUBLIC_KEY,
-      privateKey: env.WORKER_VAPID_PRIVATE_KEY
-    };
+    // Set VAPID details globally for the library instance
+    // Note: In Cloudflare Workers, env is only available in the handler, so we must set it here.
+    try {
+      webpush.setVapidDetails(
+        env.WORKER_VAPID_SUB_EMAIL || 'mailto:support@example.com',
+        env.WORKER_VAPID_PUBLIC_KEY,
+        env.WORKER_VAPID_PRIVATE_KEY
+      );
+    } catch (err) {
+      console.error("vapid_setup_error", err);
+      return json({ ok: false, status: 500, error: "vapid_setup_failed" }, 502);
+    }
 
     // Log endpoint hash
     const endpointHash = await hashEndpoint(subscription.endpoint || "");
 
     try {
       // Send the notification
-      // Note: web-push uses the global Fetch API available in Workers context or node-fetch via polyfill.
-      // With nodejs_compat, it should just work.
       await webpush.sendNotification(
         subscription,
         JSON.stringify(payload),
         {
-          vapidDetails,
           TTL: options?.ttl,
           headers: options?.headers,
           contentEncoding: options?.contentEncoding || 'aes128gcm',
