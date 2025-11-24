@@ -585,12 +585,23 @@ def _send_for_user(user_id: int | str, reminders: list[dict]) -> None:
         except Exception:
             # If claiming fails unexpectedly, fall back to best-effort send
             pass
+        title_text = "🔔 יש פתק ממתין"
+        body_text = _coerce_preview(db, r)
+        note_id_str = str(r.get("note_id") or "")
+        file_id_str = str(r.get("file_id") or "")
+
         payload = {
-            "title": "🔔 יש פתק ממתין",
-            "body": _coerce_preview(db, r),
+            "title": title_text,
+            "body": body_text,
+            "notification": {
+                "title": title_text,
+                "body": body_text
+            },
             "data": {
-                "note_id": str(r.get("note_id") or ""),
-                "file_id": str(r.get("file_id") or ""),
+                "note_id": note_id_str,
+                "file_id": file_id_str,
+                "title": title_text,
+                "body": body_text,
             },
             "actions": [
                 {"action": "open_note", "title": "פתח פתק"},
@@ -805,10 +816,20 @@ def test_push():
             except Exception:
                 return jsonify({"ok": False, "error": "pywebpush_not_available"}), 500
 
+        title_text = "🔔 בדיקת פוש"
+        body_text = "זוהי הודעת בדיקה"
+        
         payload = {
-            "title": "🔔 בדיקת פוש",
-            "body": "זוהי הודעת בדיקה",
-            "data": {},
+            "title": title_text,
+            "body": body_text,
+            "notification": {
+                "title": title_text,
+                "body": body_text
+            },
+            "data": {
+                "title": title_text,
+                "body": body_text,
+            },
             "actions": [
                 {"action": "open_note", "title": "פתח"},
             ],
