@@ -21,6 +21,8 @@ async def test_edit_large_file_detects_bash_via_shebang(monkeypatch):
         mod = types.ModuleType(mod_name)
         monkeypatch.setitem(sys.modules, mod_name, mod)
     monkeypatch.setattr(mod, "get_files_facade", lambda: _Facade(), raising=False)
+    # Belt-and-suspenders: also expose on handlers.file_view module if referenced directly
+    monkeypatch.setattr(fv, "get_files_facade", lambda: _Facade(), raising=False)
 
     # Prepare update/context for large-file edit flow
     class Msg:
@@ -65,6 +67,7 @@ async def test_edit_regular_file_detects_yaml_for_taskfile(monkeypatch):
         mod = types.ModuleType(mod_name)
         monkeypatch.setitem(sys.modules, mod_name, mod)
     monkeypatch.setattr(mod, "get_files_facade", lambda: _Facade(), raising=False)
+    monkeypatch.setattr(fv, "get_files_facade", lambda: _Facade(), raising=False)
 
     # Make validation pass-through
     monkeypatch.setattr(
@@ -124,6 +127,7 @@ async def test_edit_regular_file_detects_env_for_dotenv(monkeypatch):
         mod = types.ModuleType(mod_name)
         monkeypatch.setitem(sys.modules, mod_name, mod)
     monkeypatch.setattr(mod, "get_files_facade", lambda: _Facade(), raising=False)
+    monkeypatch.setattr(fv, "get_files_facade", lambda: _Facade(), raising=False)
 
     # Pass validation
     monkeypatch.setattr(
