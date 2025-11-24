@@ -56,11 +56,21 @@ class _DBWithItems:
         for i in range(self.n):
             items.append({"file_name": f"f{i}.py", "programming_language": "python", "_id": f"id-{i}"})
         return items
+    def is_favorite(self, user_id, file_name):
+        return True
 
 
 def _make_db_module(db_impl):
     fake_manager_cls = type('DatabaseManager', (), {})
     return types.SimpleNamespace(db=db_impl, DatabaseManager=fake_manager_cls)
+
+
+def _install_handlers_modules(monkeypatch):
+    import handlers.pagination as pagination_mod  # type: ignore
+    def build_pagination_row(page, total, per_page, prefix):
+        return [_Btn(f"page {page}", callback_data=f"{prefix}{page}")]
+
+    monkeypatch.setattr(pagination_mod, 'build_pagination_row', build_pagination_row, raising=False)
 
 
 @pytest.mark.asyncio
@@ -91,14 +101,7 @@ async def test_show_favorites_callback_with_items_and_pagination(monkeypatch):
     fake_db_mod = _make_db_module(_DBWithItems(n=12))
     monkeypatch.setitem(sys.modules, 'database', fake_db_mod)
 
-    # Fake handlers.pagination.build_pagination_row
-    handlers_mod = types.ModuleType('handlers')
-    pagination_mod = types.ModuleType('handlers.pagination')
-    def build_pagination_row(page, total, per_page, prefix):
-        return [_Btn(f"page {page}", callback_data=f"{prefix}{page}")]
-    pagination_mod.build_pagination_row = build_pagination_row
-    monkeypatch.setitem(sys.modules, 'handlers', handlers_mod)
-    monkeypatch.setitem(sys.modules, 'handlers.pagination', pagination_mod)
+    _install_handlers_modules(monkeypatch)
 
     import conversation_handlers as ch
     monkeypatch.setattr(ch, 'InlineKeyboardButton', _Btn, raising=True)
@@ -118,6 +121,9 @@ async def test_show_favorites_callback_with_items_and_pagination(monkeypatch):
     flat_texts = [btn.text for row in markup.keyboard for btn in row]
     assert any(t.startswith("page 1") for t in flat_texts)
     assert any("חזור" in t for t in flat_texts)
+    fav_labels = [row[1].text for row in markup.keyboard if isinstance(row, list) and len(row) == 2]
+    assert fav_labels, "expected favorite toggle buttons"
+    assert all("הסר" in text for text in fav_labels), "favorite buttons should default to remove state"
 
     # Context should note favorites origin and first page
     assert ctx.user_data.get('files_origin', {}).get('type') == 'favorites'
@@ -130,13 +136,7 @@ async def test_show_favorites_page_callback_next_page(monkeypatch):
     fake_db_mod = _make_db_module(_DBWithItems(n=12))
     monkeypatch.setitem(sys.modules, 'database', fake_db_mod)
 
-    handlers_mod = types.ModuleType('handlers')
-    pagination_mod = types.ModuleType('handlers.pagination')
-    def build_pagination_row(page, total, per_page, prefix):
-        return [_Btn(f"page {page}", callback_data=f"{prefix}{page}")]
-    pagination_mod.build_pagination_row = build_pagination_row
-    monkeypatch.setitem(sys.modules, 'handlers', handlers_mod)
-    monkeypatch.setitem(sys.modules, 'handlers.pagination', pagination_mod)
+    _install_handlers_modules(monkeypatch)
 
     import conversation_handlers as ch
     monkeypatch.setattr(ch, 'InlineKeyboardButton', _Btn, raising=True)
