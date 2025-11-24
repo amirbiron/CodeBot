@@ -2383,10 +2383,9 @@ async def receive_new_code(update: Update, context: ContextTypes.DEFAULT_TYPE) -
             user_id = update.effective_user.id
             file_name = editing_large_file['file_name']
             file_data = editing_large_file['file_data']
-            
-            from utils import detect_language_from_filename
-            language = detect_language_from_filename(file_name)
-            
+
+            language = code_service.detect_language(new_code, file_name)
+
             # יצירת קובץ גדול חדש עם התוכן המעודכן
             from database import LargeFile
             updated_file = LargeFile(
@@ -2445,10 +2444,8 @@ async def receive_new_code(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         editing_file_index = context.user_data.get('editing_file_index')
         files_cache = context.user_data.get('files_cache')
         
-        from code_processor import code_processor
-        
         # אימות וסניטציה של הקוד הנכנס
-        is_valid, cleaned_code, error_message = code_processor.validate_code_input(new_code, file_name, user_id)
+        is_valid, cleaned_code, error_message = code_service.validate_code_input(new_code, file_name, user_id)
         
         if not is_valid:
             await update.message.reply_text(
@@ -2459,7 +2456,7 @@ async def receive_new_code(update: Update, context: ContextTypes.DEFAULT_TYPE) -
             return EDIT_CODE  # חזרה למצב עריכה
         
         # זיהוי שפה עם הקוד המנוקה
-        detected_language = code_processor.detect_language(cleaned_code, file_name)
+        detected_language = code_service.detect_language(cleaned_code, file_name)
         
         from database import db
         success = db.save_file(user_id, file_name, cleaned_code, detected_language)
