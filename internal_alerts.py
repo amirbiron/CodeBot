@@ -50,6 +50,19 @@ def _format_text(name: str, severity: str, summary: str, details: Dict[str, Any]
         safe = {k: v for k, v in details.items() if k.lower() not in {"token", "password", "secret", "authorization"}}
         if safe:
             parts.append("details=" + ", ".join(f"{k}={v}" for k, v in list(safe.items())[:6]))
+
+    # Add Sentry Link if configured
+    sentry_url = os.getenv("SENTRY_DASHBOARD_URL")
+    sentry_org = os.getenv("SENTRY_ORG")
+    if sentry_url:
+        parts.append(f"\n[Open in Sentry]({sentry_url})")
+    elif sentry_org and os.getenv("SENTRY_DSN"):
+        # Construct search link
+        import urllib.parse
+        query = urllib.parse.quote(f"is:unresolved {name}")
+        link = f"https://{sentry_org}.sentry.io/issues/?query={query}"
+        parts.append(f"\n[Open in Sentry]({link})")
+
     return "\n".join(parts)
 
 
