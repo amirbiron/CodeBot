@@ -69,6 +69,14 @@ class LogEventAggregator:
             re.compile(r"(Traceback \(|UnhandledPromiseRejection|TypeError:|ReferenceError:)", re.I),
             re.compile(r"(Exited with code (?!0)\d+)", re.I),
         ]
+        # Generic variable patterns to strip
+        self._variable_patterns: List[re.Pattern[str]] = [
+            re.compile(r"\b[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\b"),  # UUID
+            re.compile(r"\b(20\d{2}-\d{2}-\d{2}[T\s]\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:?\d{2})?)\b"),  # ISO8601
+            re.compile(r"\/tmp\/[\w\d_-]+"),  # tmp paths
+            re.compile(r"0x[0-9A-Fa-f]+"),  # Hex
+            re.compile(r"\b\d+\b"),  # Numbers
+        ]
 
     # --- Config loading ---
     @staticmethod
@@ -104,13 +112,25 @@ class LogEventAggregator:
 
     # --- Canonicalization and fingerprinting ---
     def _canonicalize(self, line: str) -> str:
+        # Check explicit patterns first (they act as labels)
         for rx in self._canon_patterns:
             m = rx.search(line)
             if m:
                 return m.group(1).lower()
-        # generic fallback: strip volatile numbers/hexes to group similar lines
-        out = re.sub(r"0x[0-9A-Fa-f]+", "0x?", line)
-        out = re.sub(r"\b\d+\b", "#", out)
+        
+        # Generic fallback: strip volatile data
+        out = line
+        # Strip UUIDs
+        out = re.sub(r"\b[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\b", "<UUID>", out)
+        # Strip timestamps
+        out = re.sub(r"\b\d{4}-\d{2}-\d{2}[T\s]\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:?\d{2})?\b", "<TS>", out)
+        # Strip hex
+        out = re.sub(r"0x[0-9A-Fa-f]+", "<HEX>", out)
+        # Strip numbers
+        out = re.sub(r"\b\d+\b", "<NUM>", out)
+        # Strip paths roughly (e.g. /var/lib/...)
+        out = re.sub(r"\/[\w\d_\-\.]+\/[\w\d_\-\.\/]+", "<PATH>", out)
+        
         return out[:200].lower()
 
     def _fingerprint(self, line: str, match: SignatureMatch) -> str:
