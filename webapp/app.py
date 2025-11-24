@@ -4358,17 +4358,29 @@ def _build_push_card(db, user_id: int, *, now: Optional[datetime] = None) -> Dic
     else:
         status_text = f"מופעל ב-{subs_count} דפדפנים"
 
-    def _note_summary(doc):
+    def _note_summary(doc, *, prefer_future: bool = False):
         if not doc:
             return None
         note = notes_map.get(str(doc.get('note_id')))
         if not note:
             return None
-        dt = _normalize_dt(doc.get('last_push_success_at') or doc.get('remind_at'))
+        remind_dt = _normalize_dt(doc.get('remind_at'))
+        push_dt = _normalize_dt(doc.get('last_push_success_at'))
+        if prefer_future:
+            timestamp = remind_dt or push_dt
+            if remind_dt and remind_dt >= now:
+                relative = _format_relative(remind_dt)
+            elif remind_dt:
+                relative = "ממתין לשליחה"
+            else:
+                relative = "לא ידוע"
+        else:
+            timestamp = push_dt or remind_dt
+            relative = _format_relative(timestamp) if timestamp else "לא ידוע"
         return {
             'title': _extract_note_preview(note.get('content', '')),
-            'relative_time': _format_relative(dt),
-            'timestamp': dt.isoformat() if dt else None,
+            'relative_time': relative,
+            'timestamp': timestamp.isoformat() if timestamp else None,
         }
 
     last_push = None
@@ -4376,7 +4388,7 @@ def _build_push_card(db, user_id: int, *, now: Optional[datetime] = None) -> Dic
         last_push = _note_summary(last_push_doc)
     next_reminder = None
     if next_reminder_doc:
-        next_reminder = _note_summary(next_reminder_doc)
+        next_reminder = _note_summary(next_reminder_doc, prefer_future=True)
 
     return {
         'feature_enabled': push_enabled,

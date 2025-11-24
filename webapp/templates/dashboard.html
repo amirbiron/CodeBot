@@ -134,7 +134,6 @@
             <header class="timeline-card-header">
                 <div>
                     <h3>פיד אחרון</h3>
-                    <p>במובייל מוצגים 5 אירועים בלבד · בדסקטופ נפתחת היסטוריה מלאה</p>
                 </div>
                 <button class="timeline-expand mobile-only" type="button" data-timeline-expand>
                     <span>הצג הכול</span>
@@ -184,9 +183,6 @@
                                 <div>
                                     <div class="group-title">{{ group.title }}</div>
                                     <div class="group-summary">{{ group.summary }}</div>
-                                    {% if group.id == 'backups' %}
-                                    <div class="group-note">כולל גיבויי Drive ו-Export Zip שנוצרו דרך Code Keeper</div>
-                                    {% endif %}
                                 </div>
                             </div>
                             <i class="fas fa-chevron-down"></i>
@@ -271,7 +267,7 @@
                 <div class="card-icon">🗒️</div>
                 <div>
                     <h3>פתקים אחרונים</h3>
-                    <p>הפתקים האחרונים שסימנת כדי לזכור מאיפה ממשיכים</p>
+                    <p>הפתקים שעודכנו לאחרונה או ממתינים לתזכורת</p>
                 </div>
             </header>
             {% if notes_snapshot.has_notes %}
@@ -550,12 +546,6 @@
     display: flex;
     gap: 0.75rem;
     align-items: center;
-}
-
-.group-note {
-    font-size: 0.8rem;
-    opacity: 0.7;
-    margin-top: 0.2rem;
 }
 
 .group-items {
