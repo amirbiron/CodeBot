@@ -850,17 +850,17 @@ class GoogleDriveMenuHandler:
                         pass
                     next_dt = candidate
             # עדיפות 3: מתוך ה-Job אם קיים
-                if next_dt is None:
-                    # נסה מה-Job אם קיים
-                    jobs = context.bot_data.setdefault("drive_schedule_jobs", {})
-                    job = jobs.get(user_id)
-                    if job:
-                        next_dt = getattr(job, "next_t", None)
-                if next_dt:
-                    try:
-                        next_run_text = next_dt.astimezone(tz).strftime("%d/%m/%Y %H:%M")
-                    except Exception:
-                        next_run_text = next_dt.astimezone(timezone.utc).strftime("%d/%m/%Y %H:%M UTC")
+            if next_dt is None:
+                # נסה מה-Job אם קיים
+                jobs = context.bot_data.setdefault("drive_schedule_jobs", {})
+                job = jobs.get(user_id)
+                if job:
+                    next_dt = getattr(job, "next_t", None)
+            if next_dt:
+                try:
+                    next_run_text = next_dt.astimezone(tz).strftime("%d/%m/%Y %H:%M")
+                except Exception:
+                    next_run_text = next_dt.astimezone(timezone.utc).strftime("%d/%m/%Y %H:%M UTC")
             except Exception:
                 pass
             text = (
