@@ -75,6 +75,12 @@ async def test_edit_regular_file_detects_yaml_for_taskfile(monkeypatch):
         "validate_code_input",
         lambda code, file_name, user_id: (True, code, ""),
     )
+    # Force language detection to a known value to assert wiring
+    monkeypatch.setattr(
+        fv.code_service,
+        "detect_language",
+        lambda code, file_name: "yaml",
+    )
 
     yaml_code = "version: '3'\ntasks:\n  run:\n    desc: Run\n    cmds:\n      - python main.py\n"
 
@@ -134,6 +140,12 @@ async def test_edit_regular_file_detects_env_for_dotenv(monkeypatch):
         fv.code_service,
         "validate_code_input",
         lambda code, file_name, user_id: (True, code, ""),
+    )
+    # Force language detection to a known value to assert wiring
+    monkeypatch.setattr(
+        fv.code_service,
+        "detect_language",
+        lambda code, file_name: "env",
     )
 
     env_code = "BOT_TOKEN=\nOWNER_CHAT_ID=\n"
