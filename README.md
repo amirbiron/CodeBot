@@ -370,18 +370,22 @@ sudo systemctl status code-keeper-bot
 
 ### הפעלה ב-Docker (אופציונלי)
 
+מאחר שיכולות רינדור התמונות נשענות על Playwright/Chromium, קובץ ה‑Docker הרשמי עובר לבסיס `mcr.microsoft.com/playwright/python:v1.49.0-jammy` שמגיע כבר עם כל התלויות הגרפיות והדפדפנים. אם אתם מריצים Dockerfile מותאם אישית, ודאו שאתם משתמשים בבסיס זה (או מתקינים את כל תלויות Playwright בעצמכם, מה שלא מומלץ).
+
 ```dockerfile
-# Dockerfile
-FROM python:3.9-slim
+# Dockerfile מקומי (מתואם לקובץ הרשמי של הריפו)
+FROM mcr.microsoft.com/playwright/python:v1.49.0-jammy
+
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
 
 WORKDIR /app
 COPY requirements/ ./requirements/
-RUN pip install -r requirements/production.txt -c constraints.txt || \
-    (pip install -r requirements/production.txt && pip freeze | sort > constraints.txt && \
-     pip install -r requirements/production.txt -c constraints.txt)
+RUN pip install --user -r requirements/production.txt
 
 COPY . .
-CMD ["python", "main.py"]
+CMD ["sh", "-c", "scripts/start_with_worker.sh"]
 ```
 
 ```bash

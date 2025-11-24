@@ -32,3 +32,30 @@ async def test_selected_font_family_is_injected_into_html(monkeypatch):
     assert "DejaVu Sans Mono" in html
     # Ensure we did not inject a Python tuple like ("...") into CSS
     assert "font-family:(" not in html.replace(" ", "")
+
+
+@pytest.mark.asyncio
+async def test_user_style_tag_is_escaped(monkeypatch):
+    from services.image_generator import CodeImageGenerator
+
+    captured = {}
+
+    def fake_render(html_content: str, width: int, height: int):
+        captured['html'] = html_content
+        from PIL import Image
+        im = Image.new('RGB', (max(width, 50) or 50, max(height, 30) or 30), (0, 0, 0))
+        bio = io.BytesIO()
+        im.save(bio, format='PNG')
+        bio.seek(0)
+        return Image.open(bio)
+
+    gen = CodeImageGenerator(style='monokai', theme='dark')
+    monkeypatch.setattr(gen, '_has_playwright', True, raising=True)
+    monkeypatch.setattr(gen, '_render_html_with_playwright', fake_render, raising=True)
+
+    snippet = "<style> body { display: none; } </style>"
+    _ = gen.generate_image(snippet, language='html', max_width=320)
+
+    html_doc = captured.get('html') or ''
+    assert "&lt;style&gt; body { display: none; } &lt;/style&gt;" in html_doc
+    assert '<div class="code"><pre><code><style>' not in html_doc
