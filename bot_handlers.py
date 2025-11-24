@@ -13,7 +13,7 @@ import html
 import secrets
 import telegram.error
 from datetime import datetime, timedelta, timezone
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple, Set
 
 from telegram import (InlineKeyboardButton, InlineKeyboardMarkup, InputFile,
                       Update, ReplyKeyboardMarkup)
@@ -97,11 +97,27 @@ logger = logging.getLogger(__name__)
 
 import os as _os
 
+class _ImageNoteWaitingFilter(filters.UpdateFilter):
+    def __init__(self, parent: "AdvancedBotHandlers") -> None:
+        self.parent = parent
+
+    def filter(self, update: Update) -> bool:
+        try:
+            user = getattr(update, 'effective_user', None)
+            if not user:
+                return False
+            return user.id in self.parent._image_note_waiters
+        except Exception:
+            return False
+
+
 class AdvancedBotHandlers:
     """פקודות מתקדמות של הבוט"""
     
     def __init__(self, application):
         self.application = application
+        self._image_note_waiters: Set[int] = set()
+        self._image_note_filter = _ImageNoteWaitingFilter(self)
         self.setup_advanced_handlers()
     
     def setup_advanced_handlers(self):
@@ -285,7 +301,10 @@ class AdvancedBotHandlers:
         # קלט טקסט לפתקית תמונה (לפני מסננים כלליים)
         try:
             self.application.add_handler(
-                MessageHandler(filters.TEXT & ~filters.COMMAND, self._handle_image_note_input),
+                MessageHandler(
+                    filters.TEXT & (~filters.COMMAND) & self._image_note_filter,
+                    self._handle_image_note_input,
+                ),
                 group=-2,
             )
         except Exception as e:
@@ -409,12 +428,18 @@ class AdvancedBotHandlers:
         state = context.user_data.get('waiting_for_image_note')
         if not state:
             return False
+        user = getattr(update, 'effective_user', None)
+        user_id = getattr(user, 'id', None)
+        if user_id is not None:
+            self._image_note_waiters.discard(user_id)
         # הוצא את הדגל כדי למנוע טריגרים כפולים
         context.user_data.pop('waiting_for_image_note', None)
         message = getattr(update, 'message', None)
         if message is None:
             # החזר דגל כדי שלא לאבד את מצב הפתקית, ומנע המשך עיבוד
             context.user_data['waiting_for_image_note'] = state
+            if user_id is not None:
+                self._image_note_waiters.add(user_id)
             raise ApplicationHandlerStop()
         file_name = (state.get('file_name') or state.get('file') or '').strip()
         if not file_name:
@@ -424,6 +449,8 @@ class AdvancedBotHandlers:
         if not text:
             # תחזיר את הדגל כדי לאסוף שוב תשובה
             context.user_data['waiting_for_image_note'] = state
+            if user_id is not None:
+                self._image_note_waiters.add(user_id)
             await message.reply_text("ℹ️ ההודעה ריקה. שלח טקסט עד 220 תווים או כתוב 'בטל'.")
             raise ApplicationHandlerStop()
         lowered = text.lower()
@@ -3464,6 +3491,10 @@ class AdvancedBotHandlers:
                     'message_id': getattr(getattr(query, "message", None), "message_id", None),
                 }
                 context.user_data['waiting_for_image_note'] = state
+                try:
+                    self._image_note_waiters.add(user_id)
+                except Exception:
+                    pass
                 try:
                     await query.answer("שלח הודעה עם טקסט הפתקית (עד 220 תווים).", show_alert=False)
                 except Exception:

@@ -96,6 +96,7 @@ async def test_image_settings_callbacks_and_persist(monkeypatch):
     assert state['chat_id'] == 777
     assert state['message_id'] == 555
     assert calls['note_prompt'], 'expected prompt reply_text to be sent'
+    assert 123 in h._image_note_waiters
 
     # 7) Simulate user text input for note
     class _NoteMsg:
@@ -116,6 +117,7 @@ async def test_image_settings_callbacks_and_persist(monkeypatch):
     assert ctx.user_data.get('img_settings', {}).get('demo.py', {}).get('note') == "פתק חדש"
     assert calls['note_saved'], 'expected confirmation message after saving note'
     assert calls['bot_edits'], 'expected edit_message_reply_markup to refresh keyboard'
+    assert 123 not in h._image_note_waiters
 
     # 8) Clear the note via button
     await h.handle_callback_query(_Upd('img_note_clear:demo.py'), ctx)
@@ -127,3 +129,4 @@ async def test_image_settings_callbacks_and_persist(monkeypatch):
     with pytest.raises(ApplicationHandlerStop):
         await h._handle_image_note_input(no_msg_update, ctx)
     assert ctx.user_data.get('waiting_for_image_note', {}).get('file_name') == 'demo.py'
+    assert 123 in h._image_note_waiters
