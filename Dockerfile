@@ -57,6 +57,7 @@ RUN --mount=type=cache,target=/root/.cache/pip \
 FROM python:3.11-slim AS production
 
 ARG NODE_MAJOR=18
+ARG NODE_VERSION=18.20.5
 
 USER root
 
@@ -67,7 +68,8 @@ ENV PYTHONUNBUFFERED=1 \
     PATH="/home/botuser/.local/bin:/root/.local/bin:$PATH" \
     PYTHONPATH="/app:$PYTHONPATH" \
     DEBIAN_FRONTEND=noninteractive
-ENV NODE_MAJOR=${NODE_MAJOR}
+ENV NODE_MAJOR=${NODE_MAJOR} \
+    NODE_VERSION=${NODE_VERSION}
 
 # חבילות Runtime הנדרשות מעבר למה שקיים בבייס (בעיקר פונטים/כלים)
 RUN apt-get update -y && apt-get upgrade -y && \
@@ -80,26 +82,29 @@ RUN apt-get update -y && apt-get upgrade -y && \
         curl \
         ca-certificates \
         gnupg \
+        xz-utils \
         libxml2 \
         sqlite3 && \
     fc-cache -f -v && \
     rm -rf /var/lib/apt/lists/*
 
-# התקנת Node 18.x ממאגר NodeSource (כולל npm תואם)
+# התקנת Node 18.x דרך ארכיון רשמי (מביא npm תואם בלי תלות ב־apt)
 RUN set -eux; \
-    : "${NODE_MAJOR:?NODE_MAJOR build arg must be set}"; \
-    mkdir -p /etc/apt/keyrings; \
-    curl -fsSL https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key | gpg --dearmor -o /etc/apt/keyrings/nodesource.gpg; \
-    echo "deb [signed-by=/etc/apt/keyrings/nodesource.gpg] https://deb.nodesource.com/node_${NODE_MAJOR}.x nodistro main" > /etc/apt/sources.list.d/nodesource.list; \
-    apt-get update -y; \
-    apt-get install -y --no-install-recommends nodejs; \
-    if ! command -v npm >/dev/null 2>&1; then \
-        echo "npm was not found after installing nodejs"; \
-        exit 1; \
-    fi; \
+    : "${NODE_VERSION:?NODE_VERSION build arg must be set}"; \
+    arch="$(dpkg --print-architecture)"; \
+    case "${arch}" in \
+        amd64) node_arch="x64" ;; \
+        arm64) node_arch="arm64" ;; \
+        armhf) node_arch="armv7l" ;; \
+        ppc64el) node_arch="ppc64le" ;; \
+        s390x) node_arch="s390x" ;; \
+        *) echo "Unsupported architecture for Node.js binaries: ${arch}"; exit 1 ;; \
+    esac; \
+    curl -fsSL "https://nodejs.org/dist/v${NODE_VERSION}/node-v${NODE_VERSION}-linux-${node_arch}.tar.xz" -o /tmp/node.tar.xz; \
+    tar -xJf /tmp/node.tar.xz -C /usr/local --strip-components=1; \
+    rm -f /tmp/node.tar.xz; \
     npm --version; \
-    node --version; \
-    rm -rf /var/lib/apt/lists/*
+    node --version
 
 # שמירה על גרסאות pip/setuptools מעודכנות
 RUN python -m pip install --upgrade --no-cache-dir 'pip>=24.1' 'setuptools>=78.1.1' 'wheel>=0.43.0'
