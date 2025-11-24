@@ -66,15 +66,32 @@ ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     PYTHONFAULTHANDLER=1 \
     PATH="/home/botuser/.local/bin:/root/.local/bin:$PATH" \
-    PYTHONPATH="/app:/home/botuser/.local/lib/python3.11/site-packages" \
-    DEBIAN_FRONTEND=noninteractive \
-    PLAYWRIGHT_BROWSERS_PATH="/ms-playwright"
+    PYTHONPATH="/app:$PYTHONPATH" \
+    DEBIAN_FRONTEND=noninteractive
 ENV NODE_MAJOR=${NODE_MAJOR} \
     NODE_VERSION=${NODE_VERSION}
 
-# חבילות Runtime הנדרשות מעבר למה שקיים בבייס (בעיקר פונטים/כלים)
+# חבילות Runtime הנדרשות (כולל Playwright deps מלאים)
 RUN apt-get update -y && apt-get upgrade -y && \
     apt-get install -y --no-install-recommends \
+        libasound2 \
+        libatk-bridge2.0-0 \
+        libatk1.0-0 \
+        libatspi2.0-0 \
+        libcairo2 \
+        libdbus-1-3 \
+        libdrm2 \
+        libgbm1 \
+        libgdk-pixbuf-2.0-0 \
+        libnspr4 \
+        libnss3 \
+        libpango-1.0-0 \
+        libpangoft2-1.0-0 \
+        libxcomposite1 \
+        libxdamage1 \
+        libxfixes3 \
+        libxkbcommon0 \
+        libxrandr2 \
         fontconfig \
         fonts-dejavu \
         fonts-jetbrains-mono \
@@ -85,11 +102,15 @@ RUN apt-get update -y && apt-get upgrade -y && \
         gnupg \
         xz-utils \
         libxml2 \
-        sqlite3 && \
+        sqlite3 \
+        zlib1g \
+        libjpeg62-turbo && \
     fc-cache -f -v && \
     rm -rf /var/lib/apt/lists/*
 
-RUN mkdir -p ${PLAYWRIGHT_BROWSERS_PATH}
+# התקנת תלותי Playwright (root) למנועי Chromium
+RUN python -m pip install --no-cache-dir 'playwright==1.49.0' && \
+    (python -m playwright install-deps chromium || true)
 
 # התקנת Node 18.x דרך ארכיון רשמי (מביא npm תואם בלי תלות ב־apt)
 RUN set -eux; \
@@ -125,11 +146,6 @@ RUN groupadd -o -f -g 1000 botuser && \
 COPY --from=builder --chown=botuser:botuser /root/.local /home/botuser/.local
 COPY --from=builder --chown=botuser:botuser /app/constraints.txt /app/constraints.txt
 
-# התקנת Chromium של Playwright + תלותים בזמן הבילד כדי שהרינדור יישאר חד
-RUN python3 -m playwright install --with-deps chromium && \
-    chown -R botuser:botuser ${PLAYWRIGHT_BROWSERS_PATH} && \
-    rm -rf /var/lib/apt/lists/*
-
 USER botuser
 WORKDIR /app
 
@@ -138,6 +154,9 @@ COPY --chown=botuser:botuser . .
 
 # התקנת תלויות ה-Worker (Node)
 RUN npm --prefix push_worker install --omit=dev && npm cache clean --force
+
+# הורדת Chromium עבור Playwright למשתמש היישום
+RUN python -m playwright install chromium || true
 
 # הגדרת timezone
 ENV TZ=UTC
