@@ -52,6 +52,9 @@ from services import code_service
 
 logger = logging.getLogger(__name__)
 
+# Injection hook for tests: set to an instance providing the FilesFacade API
+FILES_FACADE = None
+
 
 DEFAULT_WEBAPP_URL = "https://code-keeper-webapp.onrender.com"
 
@@ -112,6 +115,13 @@ def _get_files_facade():
     מחזיר את ה-FilesFacade עם נפילה חכמה לגרסה שמוזרקת בטסטים.
     קודם ננסה את ה-Composition Root, ואם נכשל/לא זמין ננסה פונקציה גלובלית שמוקפצת בטסטים.
     """
+    # עדיפות עליונה: אובייקט מוזרק ישירות (לשימוש בטסטים)
+    try:
+        injected = globals().get("FILES_FACADE")
+        if injected is not None:
+            return injected
+    except Exception:
+        pass
     # עדיפות ראשונה: פונקציה גלובלית שמוקפצת בטסטים (monkeypatch על handlers.file_view.get_files_facade)
     try:
         gf = globals().get("get_files_facade")
