@@ -353,8 +353,7 @@ class CodeImageGenerator:
 
         for tag in soup.find_all(True):
             if tag.name not in allowed_tags:
-                escaped = html.escape(str(tag))
-                tag.replace_with(soup.new_string(escaped))
+                tag.replace_with(soup.new_string(str(tag)))
                 continue
             for attr in list(tag.attrs):
                 if attr not in allowed_attrs:
