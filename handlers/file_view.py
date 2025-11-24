@@ -112,17 +112,20 @@ def _get_files_facade():
     מחזיר את ה-FilesFacade עם נפילה חכמה לגרסה שמוזרקת בטסטים.
     קודם ננסה את ה-Composition Root, ואם נכשל/לא זמין ננסה פונקציה גלובלית שמוקפצת בטסטים.
     """
+    # עדיפות ראשונה: פונקציה גלובלית שמוקפצת בטסטים (monkeypatch על handlers.file_view.get_files_facade)
+    try:
+        gf = globals().get("get_files_facade")
+        if callable(gf):
+            inst = gf()
+            if inst:
+                return inst
+    except Exception:
+        pass
     try:
         from src.infrastructure.composition import get_files_facade as _gff  # type: ignore
         facade = _gff()
         if facade:
             return facade
-    except Exception:
-        pass
-    try:
-        gf = globals().get("get_files_facade")
-        if callable(gf):
-            return gf()
     except Exception:
         pass
     return None
