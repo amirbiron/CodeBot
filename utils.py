@@ -1277,6 +1277,9 @@ def detect_language_from_filename(filename: str) -> str:
     
     # בדיקת סיומת
     filename_lower = filename.lower()
+    normalized_name = filename_lower.replace('\\', '/').split('/')[-1]
+    if normalized_name.startswith('.env'):
+        return 'env'
     for ext, lang in extensions_map.items():
         if filename_lower.endswith(ext.lower()) or filename_lower == ext.lower():
             return lang

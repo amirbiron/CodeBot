@@ -134,7 +134,6 @@
             <header class="timeline-card-header">
                 <div>
                     <h3>פיד אחרון</h3>
-                    <p>במובייל מוצגים 5 אירועים בלבד · בדסקטופ נפתחת היסטוריה מלאה</p>
                 </div>
                 <button class="timeline-expand mobile-only" type="button" data-timeline-expand>
                     <span>הצג הכול</span>
@@ -268,7 +267,7 @@
                 <div class="card-icon">🗒️</div>
                 <div>
                     <h3>פתקים אחרונים</h3>
-                    <p>תצוגה מהירה של מה שמחכים להמשך</p>
+                    <p>הפתקים שעודכנו לאחרונה או ממתינים לתזכורת</p>
                 </div>
             </header>
             {% if notes_snapshot.has_notes %}
@@ -288,7 +287,7 @@
                 {% endfor %}
             </ul>
             {% if notes_snapshot.total > notes_snapshot.notes|length %}
-            <p class="notes-more">ועוד {{ notes_snapshot.total - notes_snapshot.notes|length }} פתקים</p>
+            <p class="notes-more">ועוד {{ notes_snapshot.total - notes_snapshot.notes|length }} פתקים ממתינים</p>
             {% endif %}
             {% else %}
             <p class="timeline-empty">עוד לא הוספת פתקים להצגת המצב. תוכל להוסיף פתק דרך תצוגת Markdown של קובץ.</p>
@@ -440,6 +439,15 @@
 .timeline-texts {
     flex: 1;
     text-align: right;
+}
+
+.timeline-title,
+.timeline-subtitle,
+.note-title,
+.note-meta,
+.timeline-link {
+    word-break: break-word;
+    overflow-wrap: anywhere;
 }
 
 .timeline-title {
@@ -675,6 +683,18 @@
 .notes-more {
     font-size: 0.85rem;
     opacity: 0.75;
+}
+
+@media (max-width: 700px) {
+    .activity-cards {
+        flex-direction: column;
+        overflow: visible;
+        scroll-snap-type: none;
+    }
+
+    .activity-card {
+        min-width: 100%;
+    }
 }
 
 @media (min-width: 900px) {

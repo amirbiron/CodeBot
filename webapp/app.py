@@ -49,7 +49,7 @@ if ROOT_DIR not in sys.path:
 from http_sync import request as http_request  # noqa: E402
 
 # נרמול טקסט/קוד לפני שמירה (הסרת תווים נסתרים, כיווניות, אחידות שורות)
-from utils import normalize_code, TimeUtils  # noqa: E402
+from utils import normalize_code, TimeUtils, detect_language_from_filename  # noqa: E402
 from file_manager import backup_manager  # noqa: E402
 
 # קונפיגורציה מרכזית (Pydantic Settings)
@@ -3620,8 +3620,8 @@ def is_binary_file(content: str | bytes, filename: str = "") -> bool:
     
     return False
 
-def get_language_icon(language: str) -> str:
-    """מחזיר אייקון עבור שפת תכנות"""
+def get_language_icon(language: Optional[str]) -> str:
+    """מחזיר אייקון עבור שפת תכנות/קטגוריה"""
     icons = {
         'python': '🐍',
         'javascript': '📜',
@@ -3646,8 +3646,27 @@ def get_language_icon(language: str) -> str:
         'json': '📊',
         'xml': '📄',
         'markdown': '📝',
+        'env': '🔐',
+        'dotenv': '🔐',
+        'gitignore': '🚫',
+        'dockerignore': '🚫',
+        'text': '📄',
     }
-    return icons.get(language.lower(), '📄')
+    normalized = (language or '').strip().lower()
+    return icons.get(normalized, '📄')
+
+
+def resolve_file_language(language: Optional[str], file_name: str = "") -> str:
+    """מחליט על שפה לתצוגה לפי שדה השפה והסיומת בפועל"""
+    lang = (language or '').strip().lower()
+    if (not lang or lang == 'text') and file_name:
+        try:
+            detected = detect_language_from_filename(file_name)
+        except Exception:
+            detected = ''
+        lang = (detected or '').strip().lower()
+    return lang or 'text'
+
 
 # המרה בטוחה למחרוזת ISO8601; לא מפילה על טיפוס שגוי
 def safe_iso(value, field: str = "") -> str:
@@ -4117,23 +4136,27 @@ def _build_activity_timeline(db, user_id: int, active_query: Optional[Dict[str, 
         is_new = version == 1
         action = "נוצר" if is_new else "עודכן"
         file_name = doc.get('file_name') or "ללא שם"
+        language = resolve_file_language(doc.get('programming_language'), file_name)
         title = f"{action} {file_name}"
         details: List[str] = []
         if doc.get('programming_language'):
             details.append(doc['programming_language'])
+        elif language and language != 'text':
+            details.append(language)
         if version:
             details.append(f"גרסה {version}")
         description = (doc.get('description') or "").strip()
         subtitle = description if description else (" · ".join(details) if details else "ללא פרטים נוספים")
         href = f"/file/{doc.get('_id')}"
+        file_badge = doc.get('programming_language') or (language if language and language != 'text' else None)
         events['files'].append(
             _build_timeline_event(
                 'files',
                 title=title,
                 subtitle=subtitle,
                 dt=dt,
-                icon='📁',
-                badge=doc.get('programming_language'),
+                icon=get_language_icon(language),
+                badge=file_badge,
                 badge_variant='code',
                 href=href,
                 meta={'details': " · ".join(details)},
@@ -4335,17 +4358,29 @@ def _build_push_card(db, user_id: int, *, now: Optional[datetime] = None) -> Dic
     else:
         status_text = f"מופעל ב-{subs_count} דפדפנים"
 
-    def _note_summary(doc):
+    def _note_summary(doc, *, prefer_future: bool = False):
         if not doc:
             return None
         note = notes_map.get(str(doc.get('note_id')))
         if not note:
             return None
-        dt = _normalize_dt(doc.get('last_push_success_at') or doc.get('remind_at'))
+        remind_dt = _normalize_dt(doc.get('remind_at'))
+        push_dt = _normalize_dt(doc.get('last_push_success_at'))
+        if prefer_future:
+            timestamp = remind_dt or push_dt
+            if remind_dt and remind_dt >= now:
+                relative = _format_relative(remind_dt)
+            elif remind_dt:
+                relative = "ממתין לשליחה"
+            else:
+                relative = "לא ידוע"
+        else:
+            timestamp = push_dt or remind_dt
+            relative = _format_relative(timestamp) if timestamp else "לא ידוע"
         return {
             'title': _extract_note_preview(note.get('content', '')),
-            'relative_time': _format_relative(dt),
-            'timestamp': dt.isoformat() if dt else None,
+            'relative_time': relative,
+            'timestamp': timestamp.isoformat() if timestamp else None,
         }
 
     last_push = None
@@ -4353,7 +4388,7 @@ def _build_push_card(db, user_id: int, *, now: Optional[datetime] = None) -> Dic
         last_push = _note_summary(last_push_doc)
     next_reminder = None
     if next_reminder_doc:
-        next_reminder = _note_summary(next_reminder_doc)
+        next_reminder = _note_summary(next_reminder_doc, prefer_future=True)
 
     return {
         'feature_enabled': push_enabled,
@@ -4369,7 +4404,7 @@ def _build_push_card(db, user_id: int, *, now: Optional[datetime] = None) -> Dic
     }
 
 
-def _build_notes_snapshot(db, user_id: int, limit: int = 3) -> Dict[str, Any]:
+def _build_notes_snapshot(db, user_id: int, limit: int = 10) -> Dict[str, Any]:
     try:
         total_notes = db.sticky_notes.count_documents({'user_id': user_id})
     except Exception:
@@ -4484,7 +4519,9 @@ def dashboard():
         # עיבוד הנתונים לתצוגה
         for file in recent_files:
             file['_id'] = str(file['_id'])
-            file['icon'] = get_language_icon(file.get('programming_language', ''))
+            language = resolve_file_language(file.get('programming_language'), file.get('file_name', ''))
+            file['language'] = language
+            file['icon'] = get_language_icon(language)
             if 'created_at' in file:
                 file['created_at_formatted'] = file['created_at'].strftime('%d/%m/%Y %H:%M')
         
@@ -4964,8 +5001,7 @@ def files():
         for latest in page_items:
             fname = latest.get('file_name') or ''
             code_str = latest.get('code') or ''
-            lang_raw = (latest.get('programming_language') or '').lower() or 'text'
-            lang_display = 'markdown' if (lang_raw in {'', 'text'} and fname.lower().endswith('.md')) else lang_raw
+            lang_display = resolve_file_language(latest.get('programming_language'), fname)
             files_list.append({
                 'id': str(latest.get('_id')),
                 'file_name': fname,
@@ -5117,9 +5153,7 @@ def files():
     for file in files_cursor:
         code_str = file.get('code') or ''
         fname = file.get('file_name') or ''
-        lang_raw = (file.get('programming_language') or '').lower() or 'text'
-        # Fallback: אם שמור כ-text אבל הסיומת היא .md – נתייג כ-markdown לתצוגה
-        lang_display = 'markdown' if (lang_raw in {'', 'text'} and fname.lower().endswith('.md')) else lang_raw
+        lang_display = resolve_file_language(file.get('programming_language'), fname)
         files_list.append({
             'id': str(file['_id']),
             'file_name': fname,
@@ -5242,13 +5276,7 @@ def view_file(file_id):
 
     # הדגשת syntax
     code = file.get('code', '')
-    language = (file.get('programming_language') or 'text').lower()
-    # תקן תיוג: אם נשמר כ-text אך הסיומת .md – תייג כ-markdown לתצוגה וכפתור 🌐
-    try:
-        if (not language or language == 'text') and str(file.get('file_name') or '').lower().endswith('.md'):
-            language = 'markdown'
-    except Exception:
-        pass
+    language = resolve_file_language(file.get('programming_language'), file.get('file_name', ''))
     
     # הגבלת גודל תצוגה - 1MB
     MAX_DISPLAY_SIZE = 1024 * 1024  # 1MB
@@ -7602,8 +7630,8 @@ def public_share(share_id):
         return render_template('404.html'), 404
 
     code = doc.get('code', '')
-    language = (doc.get('language', 'text') or 'text').lower()
     file_name = doc.get('file_name', 'snippet.txt')
+    language = resolve_file_language(doc.get('language'), file_name)
     description = doc.get('description', '')
 
     can_save_shared = bool(session.get('user_id'))
@@ -7715,8 +7743,8 @@ def public_shared_files(token: str):
     view_items = []
     for f in files:
         code = f.get('code', '')
-        language = (f.get('programming_language') or 'text').lower()
         file_name = (f.get('file_name') or 'snippet.txt')
+        language = resolve_file_language(f.get('programming_language'), file_name)
         size = len((code or '').encode('utf-8'))
         lines = len((code or '').split('\n'))
         view_items.append({
