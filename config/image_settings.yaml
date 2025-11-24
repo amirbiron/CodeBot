@@ -1,11 +1,12 @@
 image_generation:
   default_theme: "dark"
   default_style: "monokai"
-  default_width: 1200
+  default_width: 1400
   default_font_size: 14
   line_height: 24
   padding: 40
   supported_formats: ["png"]
+  width_options: [800, 1200, 1400, 1800, 2000]
   preview:
     enabled: true
     max_lines: 50
