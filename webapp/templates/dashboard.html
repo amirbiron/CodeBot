@@ -184,6 +184,9 @@
                                 <div>
                                     <div class="group-title">{{ group.title }}</div>
                                     <div class="group-summary">{{ group.summary }}</div>
+                                    {% if group.id == 'backups' %}
+                                    <div class="group-note">כולל גיבויי Drive ו-Export Zip שנוצרו דרך Code Keeper</div>
+                                    {% endif %}
                                 </div>
                             </div>
                             <i class="fas fa-chevron-down"></i>
@@ -268,7 +271,7 @@
                 <div class="card-icon">🗒️</div>
                 <div>
                     <h3>פתקים אחרונים</h3>
-                    <p>תצוגה מהירה של מה שמחכים להמשך</p>
+                    <p>הפתקים האחרונים שסימנת כדי לזכור מאיפה ממשיכים</p>
                 </div>
             </header>
             {% if notes_snapshot.has_notes %}
@@ -288,7 +291,7 @@
                 {% endfor %}
             </ul>
             {% if notes_snapshot.total > notes_snapshot.notes|length %}
-            <p class="notes-more">ועוד {{ notes_snapshot.total - notes_snapshot.notes|length }} פתקים</p>
+            <p class="notes-more">ועוד {{ notes_snapshot.total - notes_snapshot.notes|length }} פתקים ממתינים</p>
             {% endif %}
             {% else %}
             <p class="timeline-empty">עוד לא הוספת פתקים להצגת המצב. תוכל להוסיף פתק דרך תצוגת Markdown של קובץ.</p>
@@ -442,6 +445,15 @@
     text-align: right;
 }
 
+.timeline-title,
+.timeline-subtitle,
+.note-title,
+.note-meta,
+.timeline-link {
+    word-break: break-word;
+    overflow-wrap: anywhere;
+}
+
 .timeline-title {
     font-weight: 600;
 }
@@ -538,6 +550,12 @@
     display: flex;
     gap: 0.75rem;
     align-items: center;
+}
+
+.group-note {
+    font-size: 0.8rem;
+    opacity: 0.7;
+    margin-top: 0.2rem;
 }
 
 .group-items {
@@ -675,6 +693,18 @@
 .notes-more {
     font-size: 0.85rem;
     opacity: 0.75;
+}
+
+@media (max-width: 700px) {
+    .activity-cards {
+        flex-direction: column;
+        overflow: visible;
+        scroll-snap-type: none;
+    }
+
+    .activity-card {
+        min-width: 100%;
+    }
 }
 
 @media (min-width: 900px) {
