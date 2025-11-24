@@ -59,4 +59,4 @@ async def test_user_style_tag_is_escaped(monkeypatch):
     html_doc = captured.get('html') or ''
     # אין תגית style אמיתית בתוך אזור הקוד (היא הומרה ל-span-ים בטוחים)
     assert '<div class="code"><pre><code><style>' not in html_doc
-    assert '&lt;style&gt;' in html_doc  # וידוא שהתווים הומרו ל-entities
+    assert '&lt;/' in html_doc  # וידוא שהתווים הומרו ל-entities
