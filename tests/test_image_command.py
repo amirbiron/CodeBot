@@ -107,3 +107,54 @@ async def test_image_command_success(monkeypatch):
     h = H(_App())
     await h.image_command(_Upd(), _Ctx())
     assert 'photo' in captured
+
+
+@pytest.mark.asyncio
+async def test_image_command_with_note(monkeypatch):
+    mod = __import__('bot_handlers')
+    H = getattr(mod, 'AdvancedBotHandlers')
+
+    class _App:
+        def add_handler(self, *a, **k):
+            pass
+
+    def _get_latest_version(uid, fn):
+        return {'file_name': fn, 'code': "print('x')", 'programming_language': 'python'}
+
+    db_mod = __import__('database', fromlist=['db'])
+    monkeypatch.setattr(db_mod, 'db', SimpleNamespace(get_latest_version=_get_latest_version), raising=True)
+    monkeypatch.setattr(mod, 'db', SimpleNamespace(get_latest_version=_get_latest_version), raising=True)
+
+    captured_note = {}
+
+    class _FakeGen:
+        def __init__(self, *a, **k):
+            pass
+
+        def generate_image(self, *a, **k):
+            captured_note['note'] = k.get('note')
+            return b'fake_png_data'
+
+    monkeypatch.setattr(mod, 'CodeImageGenerator', _FakeGen, raising=True)
+
+    class _Msg:
+        async def reply_text(self, *a, **k):
+            pass
+
+        async def reply_photo(self, *a, **k):
+            pass
+
+    class _User:
+        id = 4
+
+    class _Upd:
+        effective_user = _User()
+        message = _Msg()
+
+    class _Ctx:
+        args = ['note.py', '--note', 'בדיקה', 'חשובה']
+        user_data = {}
+
+    h = H(_App())
+    await h.image_command(_Upd(), _Ctx())
+    assert captured_note['note'] == "בדיקה חשובה"

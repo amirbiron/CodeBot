@@ -545,6 +545,7 @@ class CodeImageGenerator:
         filename: Optional[str] = None,
         max_width: int = DEFAULT_WIDTH,
         max_height: Optional[int] = None,
+        note: Optional[str] = None,
     ) -> bytes:
         if not isinstance(code, str):
             raise TypeError("Code must be a string")
@@ -640,6 +641,7 @@ class CodeImageGenerator:
         if self._has_playwright:
             try:
                 img = self._render_html_with_playwright(full_html, image_width, image_height)
+                img = self._add_annotation_overlay(img, note)
                 img = self.optimize_image_size(img)
                 return self.save_optimized_png(img)
             except Exception as e:
@@ -649,6 +651,7 @@ class CodeImageGenerator:
         if self._has_weasyprint:
             try:
                 img = self._render_html_with_weasyprint(full_html, image_width, image_height)
+                img = self._add_annotation_overlay(img, note)
                 img = self.optimize_image_size(img)
                 return self.save_optimized_png(img)
             except Exception as e:
@@ -815,5 +818,94 @@ class CodeImageGenerator:
         # המרה חזרה ל-RGB לפני downscale
         img_rgb = img2.convert('RGB')
         img = img_rgb.resize((int(image_width), int(image_height)), Image.Resampling.LANCZOS)
+        img = self._add_annotation_overlay(img, note)
         img = self.optimize_image_size(img)
         return self.save_optimized_png(img)
+
+    # --- Notes overlay ------------------------------------------------------
+    def _add_annotation_overlay(self, img: Image.Image, note: Optional[str]) -> Image.Image:
+        text = (note or "").strip()
+        if not text:
+            return img
+        text = text[:220]
+        try:
+            base = img.convert('RGBA')
+        except Exception:
+            base = img
+        max_width = max(160, min(int(base.width * 0.35), 320))
+        if base.width - max_width < 60 or base.height < 120:
+            return img
+        font = self._get_font(max(12, self.FONT_SIZE + 2), bold=True)
+        padding = 18
+        inner_width = max_width - padding * 2
+        lines = self._wrap_note_text(text, font, inner_width)
+        max_lines = 5
+        if len(lines) > max_lines:
+            lines = lines[:max_lines]
+            lines[-1] = lines[-1][: max(0, len(lines[-1]) - 1)] + "…"
+        line_height = max(24, int(font.size * 1.35))
+        height = padding * 2 + line_height * len(lines)
+        overlay = Image.new('RGBA', (max_width, height), (255, 244, 148, 235))
+        draw = ImageDraw.Draw(overlay)
+        try:
+            draw.rounded_rectangle(
+                [(0, 0), (max_width - 1, height - 1)],
+                radius=12,
+                fill=(255, 244, 148, 235),
+                outline=(230, 207, 102, 255),
+                width=2,
+            )
+        except Exception:
+            draw.rectangle(
+                [(0, 0), (max_width - 1, height - 1)],
+                fill=(255, 244, 148, 235),
+                outline=(230, 207, 102, 255),
+                width=2,
+            )
+        text_color = (80, 64, 16, 255)
+        for idx, line in enumerate(lines):
+            y = padding + idx * line_height
+            draw.text((padding, y), line, fill=text_color, font=font)
+        margin = 24
+        x = max(margin, base.width - max_width - margin)
+        y = margin
+        try:
+            base.paste(overlay, (x, y), overlay)
+        except Exception:
+            overlay_rgb = overlay.convert('RGB')
+            base.paste(overlay_rgb, (x, y))
+        return base.convert('RGB')
+
+    def _wrap_note_text(self, text: str, font: FreeTypeFont, max_width: int) -> List[str]:
+        lines: List[str] = []
+        for raw_line in text.splitlines():
+            line = raw_line.strip()
+            if not line:
+                if lines and lines[-1]:
+                    lines.append("")
+                continue
+            words = line.split()
+            current = ""
+            for word in words:
+                candidate = f"{current} {word}".strip()
+                if not candidate:
+                    continue
+                width = self._measure_text_width(candidate, font)
+                if width <= max_width:
+                    current = candidate
+                else:
+                    if current:
+                        lines.append(current)
+                    current = word
+            if current:
+                lines.append(current)
+        if not lines:
+            return [text[:32]]
+        return lines
+
+    def _measure_text_width(self, text: str, font: FreeTypeFont) -> int:
+        try:
+            bbox = font.getbbox(text)  # type: ignore[attr-defined]
+            return max(0, bbox[2] - bbox[0])
+        except Exception:
+            return len(text) * (font.size // 2 + 4)
