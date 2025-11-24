@@ -107,6 +107,27 @@ def _get_webapp_button_row(file_id: Optional[str], file_name: Optional[str] = No
         return None
 
 
+def _get_files_facade():
+    """
+    מחזיר את ה-FilesFacade עם נפילה חכמה לגרסה שמוזרקת בטסטים.
+    קודם ננסה את ה-Composition Root, ואם נכשל/לא זמין ננסה פונקציה גלובלית שמוקפצת בטסטים.
+    """
+    try:
+        from src.infrastructure.composition import get_files_facade as _gff  # type: ignore
+        facade = _gff()
+        if facade:
+            return facade
+    except Exception:
+        pass
+    try:
+        gf = globals().get("get_files_facade")
+        if callable(gf):
+            return gf()
+    except Exception:
+        pass
+    return None
+
+
 def _get_main_keyboard() -> list:
     """
     מחזיר את פריסת המקלדת הראשית.
@@ -532,18 +553,15 @@ async def receive_new_code(update, context: ContextTypes.DEFAULT_TYPE) -> int:
             # זיהוי עקבי גם בקבצים גדולים: מקור אחיד דרך code_service
             from services import code_service
             language = code_service.detect_language(new_code, file_name)
-            try:
-                from src.infrastructure.composition import get_files_facade  # type: ignore
-                success = bool(get_files_facade().save_large_file(
-                    user_id=user_id,
-                    file_name=file_name,
-                    content=new_code,
-                    programming_language=language,
-                    file_size=len(new_code.encode('utf-8')),
-                    lines_count=len(new_code.split('\n')),
-                ))
-            except Exception:
-                success = False
+            facade = _get_files_facade()
+            success = bool(facade and facade.save_large_file(
+                user_id=user_id,
+                file_name=file_name,
+                content=new_code,
+                programming_language=language,
+                file_size=len(new_code.encode('utf-8')),
+                lines_count=len(new_code.split('\n')),
+            ))
             if success:
                 from utils import get_language_emoji
                 emoji = get_language_emoji(language)
@@ -586,11 +604,8 @@ async def receive_new_code(update, context: ContextTypes.DEFAULT_TYPE) -> int:
             )
             return EDIT_CODE
         detected_language = code_service.detect_language(cleaned_code, file_name)
-        try:
-            from src.infrastructure.composition import get_files_facade  # type: ignore
-            success = bool(get_files_facade().save_file(user_id, file_name, cleaned_code, detected_language))
-        except Exception:
-            success = False
+        facade = _get_files_facade()
+        success = bool(facade and facade.save_file(user_id, file_name, cleaned_code, detected_language))
         if success:
             try:
                 last_version = get_files_facade().get_latest_version(user_id, file_name)  # type: ignore[name-defined]
