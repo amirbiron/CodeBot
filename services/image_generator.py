@@ -16,7 +16,6 @@ import logging
 import re
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
-import html
 from bs4 import BeautifulSoup
 from typing import Optional, Tuple, List
 
@@ -339,27 +338,6 @@ class CodeImageGenerator:
         return common.get(c, (212, 212, 212))
 
     # --- HTML template for high-quality renderers -------------------------
-    def _sanitize_highlighted_html(self, html_fragment: str) -> str:
-        """ממיר תגיות מסוכנות לטקסט ומאפשר רק <span>/<br> עם style."""
-        if not html_fragment:
-            return ""
-        try:
-            soup = BeautifulSoup(html_fragment, "html.parser")
-        except Exception:
-            return html.escape(html_fragment)
-
-        allowed_tags = {"span", "br"}
-        allowed_attrs = {"style"}
-
-        for tag in soup.find_all(True):
-            if tag.name not in allowed_tags:
-                tag.replace_with(soup.new_string(str(tag)))
-                continue
-            for attr in list(tag.attrs):
-                if attr not in allowed_attrs:
-                    del tag[attr]
-        return str(soup)
-
     def _create_professional_html(self, highlighted_html: str, lines: List[str], width: int, height: int) -> str:
         """
         יוצר HTML עם עיצוב "Carbon-style" מקצועי. משתמש ב-inline styles של Pygments
@@ -385,7 +363,6 @@ class CodeImageGenerator:
         fallback_stack = "'DejaVu Sans Mono','Liberation Mono','Noto Sans Mono','SF Mono','Monaco','Inconsolata','Fira Code','Source Code Pro','Consolas','Courier New',monospace"
         font_stack = f"{selected_css_font}, {fallback_stack}" if selected_css_font else fallback_stack
         line_numbers_html = "\n".join(f'<span class="line-number">{i}</span>' for i in range(1, len(lines) + 1))
-        safe_highlighted_html = self._sanitize_highlighted_html(highlighted_html)
         # כיתוב watermark טקסטואלי – אם אחר כך נוסיף לוגו אמיתי ב-PIL, נמנע כפילות
         html_doc = f"""<!DOCTYPE html>
 <html lang="he" dir="ltr">
@@ -471,7 +448,7 @@ class CodeImageGenerator:
     <div class="title"><span class="tl red"></span><span class="tl yellow"></span><span class="tl green"></span></div>
     <div class="content">
       <div class="nums">{line_numbers_html}</div>
-      <div class="code"><pre><code>{safe_highlighted_html}</code></pre></div>
+      <div class="code"><pre><code>{highlighted_html}</code></pre></div>
     </div>
     <div class="wm">@my_code_keeper_bot</div>
   </div>
