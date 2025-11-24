@@ -1,9 +1,11 @@
+import webpush from 'web-push';
+
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
     const method = request.method.toUpperCase();
 
-    // ברירת מחדל ל-404
+    // Default to 404 for unknown paths
     if (url.pathname !== "/send") {
       return json({ ok: false, status: 404, error: "not_found" }, 404);
     }
@@ -13,11 +15,10 @@ export default {
       });
     }
 
-    // אימות Bearer מול סוד ב-Worker
+    // Auth check: Bearer token
     const auth = request.headers.get("authorization") || "";
     const expected = env.PUSH_DELIVERY_TOKEN ? `Bearer ${env.PUSH_DELIVERY_TOKEN}` : null;
     if (!expected || auth !== expected) {
-      // לפי הסכמה: כשל ידוע יכול להיות 200 עם ok=false וסטטוס לוגי
       return json({ ok: false, status: 401, error: "unauthorized" }, 200);
     }
 
@@ -33,55 +34,89 @@ export default {
       return json({ ok: false, status: 400, error: "missing_fields" }, 200);
     }
 
-    // אנונימיזציה של endpoint ללוגים בלבד
-    const endpointHash = await hashEndpoint(subscription?.endpoint || "");
-
-    // אם הוגדר יעד פרוקסי (Node Worker אמיתי) – נבצע שליחה דרך fetch
-    const base = (env.FORWARD_URL || "").trim().replace(/\/$/, "");
-    if (base) {
-      const forwardUrl = `${base}/send`;
-      const controller = new AbortController();
-      const timeoutMs = Number(env.FORWARD_TIMEOUT_MS || 3000);
-      const t = setTimeout(() => controller.abort("timeout"), Math.max(500, timeoutMs));
-      try {
-        const authHeader = env.FORWARD_TOKEN
-          ? `Bearer ${env.FORWARD_TOKEN}`
-          : (env.PUSH_DELIVERY_TOKEN ? `Bearer ${env.PUSH_DELIVERY_TOKEN}` : "");
-        const resp = await fetch(forwardUrl, {
-          method: "POST",
-          headers: {
-            "content-type": "application/json",
-            ...(authHeader ? { authorization: authHeader } : {}),
-            // שמירת Idempotency אם נשלח מהשרת
-            "X-Idempotency-Key": request.headers.get("X-Idempotency-Key") || "",
-          },
-          body: JSON.stringify({ subscription, payload, options }),
-          signal: controller.signal,
-        });
-        clearTimeout(t);
-
-        const status = resp.status;
-        // Worker ה-Node מחזיר 200 עם ok:true/false למצבים ידועים; 5xx לשגיאות פנימיות
-        if (status >= 500) {
-          console.error("proxy_worker_5xx", { endpoint_hash: endpointHash, status });
-          return json({ ok: false, error: "worker_5xx", status }, 502);
-        }
-        let bodyJson = {};
-        try { bodyJson = await resp.json(); } catch (_) { bodyJson = {}; }
-        if (typeof bodyJson === "object" && bodyJson && ("ok" in bodyJson)) {
-          // החזר ישיר לשימור הסכמה
-          return json(bodyJson, 200);
-        }
-        return json({ ok: false, error: "invalid_worker_response", status }, 200);
-      } catch (e) {
-        console.error("proxy_worker_error", { endpoint_hash: endpointHash, msg: String(e && e.message || e) });
-        return json({ ok: false, error: "worker_timeout", status: 0 }, 200);
-      }
+    // Validate VAPID config
+    if (!env.WORKER_VAPID_PUBLIC_KEY || !env.WORKER_VAPID_PRIVATE_KEY) {
+      console.error("Missing VAPID keys in Worker environment");
+      return json({ ok: false, status: 500, error: "worker_misconfigured" }, 502);
     }
 
-    // Fallback: מצב Stub (ללא שליחה אמיתית)
-    console.log(JSON.stringify({ event: "push_send_stub", provider: "cloudflare_worker", endpoint_hash: endpointHash }));
-    return json({ ok: true });
+    // Set VAPID details globally for the library instance
+    // Note: In Cloudflare Workers, env is only available in the handler, so we must set it here.
+    let subject = env.WORKER_VAPID_SUB_EMAIL || 'mailto:support@example.com';
+    if (!subject.startsWith('mailto:')) {
+      subject = `mailto:${subject}`;
+    }
+
+    try {
+      webpush.setVapidDetails(
+        subject,
+        env.WORKER_VAPID_PUBLIC_KEY,
+        env.WORKER_VAPID_PRIVATE_KEY
+      );
+    } catch (err) {
+      console.error("vapid_setup_error", err);
+      return json({ ok: false, status: 500, error: "vapid_setup_failed" }, 502);
+    }
+
+    // Log endpoint hash
+    const endpointHash = await hashEndpoint(subscription.endpoint || "");
+
+    try {
+      // Forward headers including Idempotency Key
+      const sendHeaders = options?.headers || {};
+      const idempotencyKey = request.headers.get("X-Idempotency-Key");
+      if (idempotencyKey) {
+        sendHeaders["X-Idempotency-Key"] = idempotencyKey;
+      }
+
+      // Send the notification
+      await webpush.sendNotification(
+        subscription,
+        JSON.stringify(payload),
+        {
+          TTL: options?.ttl,
+          headers: sendHeaders,
+          contentEncoding: options?.contentEncoding || 'aes128gcm',
+          urgency: options?.urgency
+        }
+      );
+
+      console.log(JSON.stringify({ 
+        event: "push_sent", 
+        endpoint_hash: endpointHash,
+        status: 201 
+      }));
+
+      return json({ ok: true });
+
+    } catch (err) {
+      const status = err.statusCode || 500;
+      const errorBody = err.body || err.message;
+      
+      console.error("push_error", { 
+        endpoint_hash: endpointHash, 
+        status, 
+        error: errorBody 
+      });
+
+      // Map WebPush errors to our API schema
+      // 404/410/403/401 are "known failures" that the server should handle (e.g. remove sub)
+      if (status >= 400 && status < 500) {
+        return json({ 
+          ok: false, 
+          status: status, 
+          error: "upstream_error", 
+          details: errorBody 
+        }, 200);
+      }
+
+      // 5xx or network errors
+      return json({ 
+        ok: false, 
+        status: status, 
+        error: "worker_send_failed" 
+      }, 502);
+    }
   },
 };
 
@@ -96,10 +131,10 @@ function json(obj, status = 200, headers = {}) {
 }
 
 async function hashEndpoint(endpoint) {
+  if (!endpoint) return "";
   const enc = new TextEncoder();
   const data = enc.encode(endpoint);
   const digest = await crypto.subtle.digest("SHA-256", data);
   const bytes = new Uint8Array(digest);
-  // הקצרה לצורכי לוג בלבד
   return [...bytes].slice(0, 16).map((b) => b.toString(16).padStart(2, "0")).join("");
 }
