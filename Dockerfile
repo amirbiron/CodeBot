@@ -20,7 +20,8 @@ ENV PYTHONUNBUFFERED=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=1 \
     PIP_DEFAULT_TIMEOUT=100 \
     PIP_INDEX_URL=https://pypi.org/simple \
-    DEBIAN_FRONTEND=noninteractive
+    DEBIAN_FRONTEND=noninteractive \
+    PATH="/root/.local/bin:$PATH"
 
 # כלים לבניית חבילות heavy (wheels)
 RUN apt-get update -y && apt-get upgrade -y && \
@@ -61,7 +62,7 @@ USER root
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     PYTHONFAULTHANDLER=1 \
-    PATH="/home/botuser/.local/bin:$PATH" \
+    PATH="/home/botuser/.local/bin:/root/.local/bin:$PATH" \
     PYTHONPATH="/app:$PYTHONPATH" \
     DEBIAN_FRONTEND=noninteractive
 
@@ -74,19 +75,32 @@ RUN apt-get update -y && apt-get upgrade -y && \
         fonts-cascadia-code \
         tzdata \
         curl \
+        ca-certificates \
+        gnupg \
         libxml2 \
-        sqlite3 \
-        nodejs \
-        npm && \
+        sqlite3 && \
     fc-cache -f -v && \
+    rm -rf /var/lib/apt/lists/*
+
+# התקנת Node 18.x ממאגר NodeSource (כולל npm תואם)
+ENV NODE_MAJOR=18
+RUN mkdir -p /etc/apt/keyrings && \
+    curl -fsSL https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key | gpg --dearmor -o /etc/apt/keyrings/nodesource.gpg && \
+    echo "deb [signed-by=/etc/apt/keyrings/nodesource.gpg] https://deb.nodesource.com/node_${NODE_MAJOR}.x nodistro main" > /etc/apt/sources.list.d/nodesource.list && \
+    apt-get update -y && \
+    apt-get install -y --no-install-recommends nodejs && \
+    npm --version && node --version && \
     rm -rf /var/lib/apt/lists/*
 
 # שמירה על גרסאות pip/setuptools מעודכנות
 RUN python -m pip install --upgrade --no-cache-dir 'pip>=24.1' 'setuptools>=78.1.1' 'wheel>=0.43.0'
 
-# יצירת משתמש לא-root
-RUN groupadd -g 1000 botuser && \
-    useradd -m -s /bin/bash -u 1000 -g 1000 botuser && \
+# יצירת משתמש לא-root (אידמפוטנטי גם כשהקבוצה/המשתמש כבר קיימים)
+RUN groupadd -o -f -g 1000 botuser && \
+    if ! id -u botuser >/dev/null 2>&1; then \
+        useradd -m -s /bin/bash -u 1000 -g botuser botuser 2>/dev/null || \
+        useradd -m -s /bin/bash -g botuser botuser; \
+    fi && \
     mkdir -p /app /app/logs /app/backups /app/temp && \
     chown -R botuser:botuser /app
 
