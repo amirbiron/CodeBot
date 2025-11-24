@@ -235,8 +235,8 @@ class AdvancedBotHandlers:
 
         # ChatOps – Language detection (פתוח לכל המשתמשים)
         self.application.add_handler(CommandHandler("lang", self.lang_command))
-        self.application.add_handler(CommandHandler("lang_debug", self.lang_debug_command))
-        self.application.add_handler(CommandHandler("lang-debug", self.lang_debug_command))  # alias
+        # מותר בטלגרם: אותיות/ספרות/קו תחתון בלבד
+        self.application.add_handler(CommandHandler(["lang_debug", "langdebug"], self.lang_debug_command))
 
         # Callback handlers לכפתורים
         # Guard הגלובלי התשתיתי מתווסף ב-main.py; כאן נשאר רק ה-handler הכללי

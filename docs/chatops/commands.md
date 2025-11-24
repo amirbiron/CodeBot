@@ -144,7 +144,7 @@ python main.py
 ```
 Reply עם קוד Python מובהק → צפוי: `python`, reason: `תוכן (override ל-.md)`.
 
-## /lang_debug (alias: /lang-debug)
+## /lang_debug
 - מתי להשתמש: דיבוג מפורט של החלטת הדטקטור (conflict name↔content, תחקור “למה text?”).
 - פרמטרים: אופציונלי `<file_name>`; קוד עובר ב‑reply/בלוק ``` כמו ב‑/lang.
 - הרשאות: כולם

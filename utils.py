@@ -1308,7 +1308,7 @@ def get_language_emoji(language: str) -> str:
         'sass': '🎨',
         'less': '🎨',
         'json': '📋',
-        'yaml': '📄',
+        'yaml': '⚙️',
         'xml': '📰',
         'markdown': '📝',
         'r': '📊',

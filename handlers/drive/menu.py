@@ -819,35 +819,37 @@ class GoogleDriveMenuHandler:
                 nxt_iso = prefs.get("schedule_next_at")
                 tz = ZoneInfo("Asia/Jerusalem") if ZoneInfo else timezone.utc
                 next_dt = None
-                if sched_key:
+                # עדיפות 1: schedule_next_at אם קיים ועתידי
+                if isinstance(nxt_iso, str) and nxt_iso:
+                    try:
+                        candidate = datetime.fromisoformat(nxt_iso)
+                        now_dt = datetime.now(timezone.utc)
+                        if candidate > now_dt:
+                            next_dt = candidate
+                    except Exception:
+                        next_dt = None
+                # עדיפות 2: חישוב מחדש מבוסס last_* אם יש תזמון
+                if next_dt is None and sched_key:
                     secs = self._interval_seconds(str(sched_key))
                     base_last_dt = None
-                    if isinstance(last_full_iso, str) and last_full_iso:
-                        try:
-                            base_last_dt = datetime.fromisoformat(last_full_iso)
-                        except Exception:
-                            base_last_dt = None
-                    if base_last_dt is None and isinstance(last_iso, str) and last_iso:
-                        try:
-                            base_last_dt = datetime.fromisoformat(last_iso)
-                        except Exception:
-                            base_last_dt = None
+                    for src in (last_full_iso, last_iso):
+                        if isinstance(src, str) and src:
+                            try:
+                                base_last_dt = datetime.fromisoformat(src)
+                                if base_last_dt:
+                                    break
+                            except Exception:
+                                base_last_dt = None
                     if base_last_dt is not None:
                         candidate = base_last_dt + timedelta(seconds=secs)
                         try:
                             now_dt = datetime.now(timezone.utc)
-                            for _ in range(0, 520):
-                                if candidate > now_dt:
-                                    break
+                            while candidate <= now_dt:
                                 candidate += timedelta(seconds=secs)
                         except Exception:
                             pass
                         next_dt = candidate
-                if next_dt is None and isinstance(nxt_iso, str) and nxt_iso:
-                    try:
-                        next_dt = datetime.fromisoformat(nxt_iso)
-                    except Exception:
-                        next_dt = None
+                # עדיפות 3: מתוך ה-Job אם קיים
                 if next_dt is None:
                     # נסה מה-Job אם קיים
                     jobs = context.bot_data.setdefault("drive_schedule_jobs", {})
