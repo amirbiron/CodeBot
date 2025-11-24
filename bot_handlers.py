@@ -18,7 +18,13 @@ from typing import Any, Dict, List, Optional, Tuple
 from telegram import (InlineKeyboardButton, InlineKeyboardMarkup, InputFile,
                       Update, ReplyKeyboardMarkup)
 from telegram.constants import ParseMode
-from telegram.ext import CallbackQueryHandler, CommandHandler, ContextTypes
+from telegram.ext import (
+    CallbackQueryHandler,
+    CommandHandler,
+    ContextTypes,
+    MessageHandler,
+    filters,
+)
 from telegram.ext import ApplicationHandlerStop
 
 from services import code_service as code_processor
@@ -267,7 +273,7 @@ class AdvancedBotHandlers:
             # אל תבלע חריגות שקטות – דווח ללוג כדי לא לשבור את כפתורי השיתוף
             logger.error(f"Failed to register share CallbackQueryHandler: {e}")
         # Handler מוקדם לכפתורי /image (צור מחדש/עריכת הגדרות/Drive/פונטים/שמירה)
-        image_pattern = r'^(regenerate_image_|edit_image_settings_|img_set_theme:|img_set_width:|img_set_font:|img_settings_done:|save_to_drive_)'
+        image_pattern = r'^(regenerate_image_|edit_image_settings_|img_set_theme:|img_set_width:|img_set_font:|img_note_prompt:|img_note_clear:|img_settings_done:|save_to_drive_)'
         image_handler = CallbackQueryHandler(self.handle_callback_query, pattern=image_pattern)
         try:
             self.application.add_handler(image_handler, group=-5)
@@ -275,6 +281,15 @@ class AdvancedBotHandlers:
             self.application.add_handler(image_handler)
         except Exception as e:
             logger.error(f"Failed to register image CallbackQueryHandler: {e}")
+
+        # קלט טקסט לפתקית תמונה (לפני מסננים כלליים)
+        try:
+            self.application.add_handler(
+                MessageHandler(filters.TEXT & ~filters.COMMAND, self._handle_image_note_input),
+                group=-2,
+            )
+        except Exception as e:
+            logger.error(f"Failed to register image note MessageHandler: {e}")
     
     def _get_image_settings(self, context: ContextTypes.DEFAULT_TYPE, file_name: str) -> Dict[str, Any]:
         try:
@@ -389,6 +404,56 @@ class AdvancedBotHandlers:
             note = note[:220]
         return file_name, note or None, note_explicit
 
+    async def _handle_image_note_input(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """קולט טקסט חופשי לאחר שלחיצה על 'פתקית' ביקשה קלט."""
+        state = context.user_data.get('waiting_for_image_note')
+        if not state:
+            return False
+        # הוצא את הדגל כדי למנוע טריגרים כפולים
+        context.user_data.pop('waiting_for_image_note', None)
+        message = getattr(update, 'message', None)
+        if message is None:
+            return False
+        file_name = (state.get('file_name') or state.get('file') or '').strip()
+        if not file_name:
+            await message.reply_text("⚠️ לא הצלחתי לאתר את הקובץ לעדכון הפתקית.")
+            raise ApplicationHandlerStop()
+        text = (message.text or '').strip()
+        if not text:
+            # תחזיר את הדגל כדי לאסוף שוב תשובה
+            context.user_data['waiting_for_image_note'] = state
+            await message.reply_text("ℹ️ ההודעה ריקה. שלח טקסט עד 220 תווים או כתוב 'בטל'.")
+            raise ApplicationHandlerStop()
+        lowered = text.lower()
+        cancel_tokens = {"בטל", "cancel", "ביטול", "דלג", "skip"}
+        clear_tokens = {"מחק", "delete", "clear", "ללא", "נקה", "remove", "מחיקה"}
+        if lowered in cancel_tokens:
+            await message.reply_text("❎ בוטל – הפתקית לא שונתה.")
+            raise ApplicationHandlerStop()
+        if lowered in clear_tokens:
+            self._set_image_setting(context, file_name, 'note', None)
+            await message.reply_text(f"🧹 הפתקית הוסרה עבור {file_name}.")
+        else:
+            trimmed = text[:220]
+            if len(text) > 220:
+                await message.reply_text("✂️ הפתקית קוצרה ל-220 תווים ונשמרה.")
+            else:
+                await message.reply_text("✅ הפתקית נשמרה.")
+            self._set_image_setting(context, file_name, 'note', trimmed)
+        chat_id = state.get('chat_id')
+        message_id = state.get('message_id')
+        if chat_id and message_id:
+            try:
+                kb = self._build_image_settings_keyboard(update.effective_user.id, context, file_name)
+                await context.bot.edit_message_reply_markup(
+                    chat_id=chat_id,
+                    message_id=message_id,
+                    reply_markup=kb,
+                )
+            except Exception:
+                pass
+        raise ApplicationHandlerStop()
+
     def _build_image_settings_keyboard(self, user_id: int, context: ContextTypes.DEFAULT_TYPE, file_name: str) -> InlineKeyboardMarkup:
         """בנה מקלדת הגדרות תמונה (תמה/רוחב/פונט) תוך סימון הבחירה הנוכחית.
 
@@ -402,11 +467,14 @@ class AdvancedBotHandlers:
         except Exception:
             current_width = 1200
         current_font = str(settings.get('font') or 'dejavu')
+        current_note = str(settings.get('note') or '').strip()
 
         # suffixes בטוחים עבור callback_data קצרים
         theme_suffix = self._make_safe_suffix(context, "img_set_theme:", file_name)
         width_suffix = self._make_safe_suffix(context, "img_set_width:", file_name)
         font_suffix = self._make_safe_suffix(context, "img_set_font:", file_name)
+        note_suffix = self._make_safe_suffix(context, "img_note_prompt:", file_name)
+        clear_suffix = self._make_safe_suffix(context, "img_note_clear:", file_name)
         done_suffix = self._make_safe_suffix(context, "img_settings_done:", file_name)
 
         def _mk_theme_cb(val: str) -> str:
@@ -467,6 +535,22 @@ class AdvancedBotHandlers:
             )
         for i in range(0, len(width_buttons), 2):
             rows.append(width_buttons[i:i + 2])
+
+        note_label = "🗒️ הוסף פתקית" if not current_note else "🗒️ ערוך פתקית"
+        note_row = [
+            InlineKeyboardButton(
+                note_label,
+                callback_data=f"img_note_prompt:{note_suffix}"
+            )
+        ]
+        if current_note:
+            note_row.append(
+                InlineKeyboardButton(
+                    "🧹 נקה",
+                    callback_data=f"img_note_clear:{clear_suffix}"
+                )
+            )
+        rows.append(note_row)
 
         rows.append([
             InlineKeyboardButton(
@@ -3361,6 +3445,57 @@ class AdvancedBotHandlers:
                 self._set_image_setting(context, file_name, 'font', font_key)
                 try:
                     await query.answer("🔤 עודכן!", show_alert=False)
+                except Exception:
+                    pass
+                try:
+                    kb = self._build_image_settings_keyboard(user_id, context, file_name)
+                    await TelegramUtils.safe_edit_message_reply_markup(query, reply_markup=kb)
+                except Exception:
+                    pass
+
+            elif data.startswith("img_note_prompt:"):
+                suffix = data.replace("img_note_prompt:", "", 1)
+                file_name = self._resolve_image_target(context, suffix)
+                state = {
+                    'file_name': file_name,
+                    'chat_id': getattr(getattr(query, "message", None), "chat_id", None),
+                    'message_id': getattr(getattr(query, "message", None), "message_id", None),
+                }
+                context.user_data['waiting_for_image_note'] = state
+                try:
+                    await query.answer("שלח הודעה עם טקסט הפתקית (עד 220 תווים).", show_alert=False)
+                except Exception:
+                    pass
+                msg = getattr(query, "message", None)
+                preview = ""
+                current_note = str(self._get_effective_image_settings(user_id, context, file_name).get('note') or '').strip()
+                if current_note:
+                    safe_note = html.escape(current_note[:120])
+                    if len(current_note) > 120:
+                        safe_note += "…"
+                    preview = f"\nנוכחי: {safe_note}"
+                if msg and hasattr(msg, "reply_text"):
+                    try:
+                        await msg.reply_text(
+                            f"🗒️ שלח עכשיו את טקסט הפתקית עבור <code>{html.escape(file_name)}</code> (עד 220 תווים).\n"
+                            "כתוב 'מחק' להסרה או 'בטל' כדי לבטל."
+                            f"{preview}",
+                            parse_mode=ParseMode.HTML,
+                        )
+                    except Exception:
+                        pass
+                else:
+                    try:
+                        await query.answer("שלח הודעה חדשה עם הטקסט המבוקש.", show_alert=True)
+                    except Exception:
+                        pass
+
+            elif data.startswith("img_note_clear:"):
+                suffix = data.replace("img_note_clear:", "", 1)
+                file_name = self._resolve_image_target(context, suffix)
+                self._set_image_setting(context, file_name, 'note', None)
+                try:
+                    await query.answer("🧹 הפתקית נוקתה.", show_alert=False)
                 except Exception:
                     pass
                 try:
