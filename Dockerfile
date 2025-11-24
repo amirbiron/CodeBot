@@ -56,6 +56,8 @@ RUN --mount=type=cache,target=/root/.cache/pip \
 # שלב 2: Production stage (Debian slim)
 FROM python:3.11-slim AS production
 
+ARG NODE_MAJOR=18
+
 USER root
 
 # משתני סביבה לייצור
@@ -65,6 +67,7 @@ ENV PYTHONUNBUFFERED=1 \
     PATH="/home/botuser/.local/bin:/root/.local/bin:$PATH" \
     PYTHONPATH="/app:$PYTHONPATH" \
     DEBIAN_FRONTEND=noninteractive
+ENV NODE_MAJOR=${NODE_MAJOR}
 
 # חבילות Runtime הנדרשות מעבר למה שקיים בבייס (בעיקר פונטים/כלים)
 RUN apt-get update -y && apt-get upgrade -y && \
@@ -83,13 +86,19 @@ RUN apt-get update -y && apt-get upgrade -y && \
     rm -rf /var/lib/apt/lists/*
 
 # התקנת Node 18.x ממאגר NodeSource (כולל npm תואם)
-ENV NODE_MAJOR=18
-RUN mkdir -p /etc/apt/keyrings && \
-    curl -fsSL https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key | gpg --dearmor -o /etc/apt/keyrings/nodesource.gpg && \
-    echo "deb [signed-by=/etc/apt/keyrings/nodesource.gpg] https://deb.nodesource.com/node_${NODE_MAJOR}.x nodistro main" > /etc/apt/sources.list.d/nodesource.list && \
-    apt-get update -y && \
-    apt-get install -y --no-install-recommends nodejs && \
-    npm --version && node --version && \
+RUN set -eux; \
+    : "${NODE_MAJOR:?NODE_MAJOR build arg must be set}"; \
+    mkdir -p /etc/apt/keyrings; \
+    curl -fsSL https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key | gpg --dearmor -o /etc/apt/keyrings/nodesource.gpg; \
+    echo "deb [signed-by=/etc/apt/keyrings/nodesource.gpg] https://deb.nodesource.com/node_${NODE_MAJOR}.x nodistro main" > /etc/apt/sources.list.d/nodesource.list; \
+    apt-get update -y; \
+    apt-get install -y --no-install-recommends nodejs; \
+    if ! command -v npm >/dev/null 2>&1; then \
+        echo "npm was not found after installing nodejs"; \
+        exit 1; \
+    fi; \
+    npm --version; \
+    node --version; \
     rm -rf /var/lib/apt/lists/*
 
 # שמירה על גרסאות pip/setuptools מעודכנות
