@@ -1038,10 +1038,6 @@ class GitHubMenuHandler:
             keyboard.append(
                 [InlineKeyboardButton("🧰 גיבוי ושחזור", callback_data="github_backup_menu")]
             )
-            keyboard.append(
-                [InlineKeyboardButton("↩️ רולבאק לפי קומיט", callback_data="restore_commit_menu")]
-            )
-
         # כפתור ניתוח ריפו - תמיד מוצג אם יש טוקן
         if token:
             keyboard.append([InlineKeyboardButton("🔍 נתח ריפו", callback_data="analyze_repo")])
@@ -7278,6 +7274,7 @@ class GitHubMenuHandler:
             [InlineKeyboardButton("📂 שחזר מגיבוי שמור לריפו", callback_data="github_restore_zip_list")],
             [InlineKeyboardButton("🏷 נקודת שמירה בגיט", callback_data="git_checkpoint")],
             [InlineKeyboardButton("↩️ חזרה לנקודת שמירה", callback_data="restore_checkpoint_menu")],
+            [InlineKeyboardButton("↩️ רולבאק לפי קומיט", callback_data="restore_commit_menu")],
             [InlineKeyboardButton("🗂 גיבויי DB אחרונים", callback_data="github_backup_db_list")],
             [InlineKeyboardButton("♻️ שחזור מגיבוי (ZIP)", callback_data="backup_restore_full_start")],
             [InlineKeyboardButton("ℹ️ הסבר על הכפתורים", callback_data="github_backup_help")],
