@@ -13,7 +13,7 @@ import html
 import secrets
 import telegram.error
 from datetime import datetime, timedelta, timezone
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 from telegram import (InlineKeyboardButton, InlineKeyboardMarkup, InputFile,
                       Update, ReplyKeyboardMarkup)
@@ -287,8 +287,14 @@ class AdvancedBotHandlers:
         try:
             settings_map = context.user_data.setdefault('img_settings', {})
             entry = dict(settings_map.get(file_name) or {})
-            entry[key] = value
-            settings_map[file_name] = entry
+            if value is None:
+                entry.pop(key, None)
+            else:
+                entry[key] = value
+            if entry:
+                settings_map[file_name] = entry
+            else:
+                settings_map.pop(file_name, None)
         except Exception:
             pass
 
@@ -345,6 +351,43 @@ class AdvancedBotHandlers:
             return f"tok:{tok}"
         except Exception:
             return file_name
+
+    def _parse_image_args(self, args: List[str]) -> Tuple[str, Optional[str], bool]:
+        """מפצל פרמטרים של /image לשם קובץ ואופציונלית הערה קצרה (--note)."""
+        if not args:
+            return "", None, False
+        file_tokens: List[str] = []
+        note_tokens: List[str] = []
+        note_mode = False
+        note_explicit = False
+        clear_requested = False
+        for token in args:
+            if token == '--note-clear':
+                note_tokens = []
+                note_mode = False
+                note_explicit = True
+                clear_requested = True
+                continue
+            if note_mode:
+                note_tokens.append(token)
+                continue
+            if token == '--note':
+                note_mode = True
+                note_explicit = True
+                continue
+            if token.startswith('--note='):
+                note_mode = True
+                note_explicit = True
+                note_tokens.append(token.split('=', 1)[1])
+                continue
+            file_tokens.append(token)
+        file_name = " ".join(file_tokens).strip()
+        if clear_requested:
+            return file_name, "", True
+        note = " ".join(note_tokens).strip() if note_tokens else None
+        if note:
+            note = note[:220]
+        return file_name, note or None, note_explicit
 
     def _build_image_settings_keyboard(self, user_id: int, context: ContextTypes.DEFAULT_TYPE, file_name: str) -> InlineKeyboardMarkup:
         """בנה מקלדת הגדרות תמונה (תמה/רוחב/פונט) תוך סימון הבחירה הנוכחית.
@@ -2694,7 +2737,8 @@ class AdvancedBotHandlers:
             "• /system_info, /metrics, /uptime, /alerts, /incidents\n"
             "• /predict, /accuracy, /errors, /rate_limit\n"
             "• /enable_backoff, /disable_backoff, /silence, /unsilence, /silences\n\n"
-            "טיפ: בפלואו /image אפשר לבחור תמה/רוחב/פונט ולשמור כברירת‑מחדל."
+            "טיפ: בפלואו /image אפשר לבחור תמה/רוחב/פונט ולשמור כברירת‑מחדל.\n"
+            "הערה: הוסף תווית קצרה לתמונה עם <code>--note</code> (או נקה עם <code>--note-clear</code>)."
         )
         try:
             await update.message.reply_text(text, parse_mode=ParseMode.HTML, disable_web_page_preview=True)
@@ -3218,9 +3262,16 @@ class AdvancedBotHandlers:
                 theme = str(settings.get('theme') or IMAGE_CONFIG.get('default_theme') or 'dark')
                 width = int(settings.get('width') or IMAGE_CONFIG.get('default_width') or 1200)
                 font_family = str(settings.get('font') or 'dejavu')
+                note_text = str(settings.get('note') or '').strip() or None
                 gen = CodeImageGenerator(style=style, theme=theme, font_family=font_family)
                 try:
-                    img = gen.generate_image(code=str(doc['code']), language=str(doc.get('programming_language') or 'text'), filename=file_name, max_width=width)
+                    img = gen.generate_image(
+                        code=str(doc['code']),
+                        language=str(doc.get('programming_language') or 'text'),
+                        filename=file_name,
+                        max_width=width,
+                        note=note_text,
+                    )
                 finally:
                     try:
                         gen.cleanup()  # type: ignore[attr-defined]
@@ -3237,9 +3288,12 @@ class AdvancedBotHandlers:
                      InlineKeyboardButton("📝 ערוך הגדרות", callback_data=f"edit_image_settings_{edit_suffix}")],
                     [InlineKeyboardButton("💾 שמור ב-Drive", callback_data=f"save_to_drive_{save_suffix}")]
                 ])
+                extra_caption = ""
+                if note_text:
+                    extra_caption = f"\n📌 הערה: {html.escape(note_text)}"
                 await query.message.reply_photo(
                     photo=InputFile(bio, filename=bio.name),
-                    caption=f"🔄 נוצר מחדש: <code>{html.escape(file_name)}</code>",
+                    caption=f"🔄 נוצר מחדש: <code>{html.escape(file_name)}</code>{extra_caption}",
                     parse_mode=ParseMode.HTML,
                     reply_markup=kb,
                 )
@@ -3376,9 +3430,16 @@ class AdvancedBotHandlers:
                 theme = str(settings.get('theme') or IMAGE_CONFIG.get('default_theme') or 'dark')
                 width = int(settings.get('width') or IMAGE_CONFIG.get('default_width') or 1200)
                 font_family = str(settings.get('font') or 'dejavu')
+                note_text = str(settings.get('note') or '').strip() or None
                 gen = CodeImageGenerator(style=style, theme=theme, font_family=font_family)
                 try:
-                    img = gen.generate_image(code=str(doc['code']), language=str(doc.get('programming_language') or 'text'), filename=file_name, max_width=width)
+                    img = gen.generate_image(
+                        code=str(doc['code']),
+                        language=str(doc.get('programming_language') or 'text'),
+                        filename=file_name,
+                        max_width=width,
+                        note=note_text,
+                    )
                 finally:
                     try:
                         gen.cleanup()  # type: ignore[attr-defined]
@@ -4065,7 +4126,8 @@ class AdvancedBotHandlers:
         if not context.args:
             await update.message.reply_text(
                 "🖼️ <b>יצירת תמונת קוד</b>\n"
-                "שימוש: <code>/image &lt;file_name&gt;</code>",
+                "שימוש: <code>/image &lt;file_name&gt;</code>\n"
+                "אפשר להוסיף הערה קצרה: <code>/image file.py --note בדיקה</code>",
                 parse_mode=ParseMode.HTML,
             )
             return
@@ -4079,7 +4141,15 @@ class AdvancedBotHandlers:
             await update.message.reply_text("⏱️ יותר מדי בקשות. אנא נסה שוב בעוד דקה.")
             return
 
-        file_name = " ".join(context.args)
+        file_name, inline_note, note_explicit = self._parse_image_args(list(context.args))
+        if not file_name:
+            await update.message.reply_text(
+                "❌ אנא ציין שם קובץ.\nדוגמה: <code>/image script.py</code>",
+                parse_mode=ParseMode.HTML,
+            )
+            return
+        if note_explicit:
+            self._set_image_setting(context, file_name, 'note', (inline_note or None))
         file_data = db.get_latest_version(user_id, file_name)
         if not file_data:
             safe = html.escape(file_name)
@@ -4103,10 +4173,17 @@ class AdvancedBotHandlers:
             width = int(settings.get('width') or IMAGE_CONFIG.get('default_width') or 1200)
             requested_width = width
             font_family = str(settings.get('font') or 'dejavu')
+            note_text = str(settings.get('note') or '').strip() or None
 
             generator = CodeImageGenerator(style=style, theme=theme, font_family=font_family)
             try:
-                image_bytes = generator.generate_image(code=code, language=language, filename=file_name, max_width=width)
+                image_bytes = generator.generate_image(
+                    code=code,
+                    language=language,
+                    filename=file_name,
+                    max_width=width,
+                    note=note_text,
+                )
             finally:
                 try:
                     generator.cleanup()  # type: ignore[attr-defined]
@@ -4117,6 +4194,9 @@ class AdvancedBotHandlers:
             bio.name = f"{file_name}.png"
             safe_name = html.escape(file_name)
             safe_lang = html.escape(language)
+            note_caption = ""
+            if note_text:
+                note_caption = f"\n📌 הערה: {html.escape(note_text)}"
             # כפתורים מתקדמים – ודא עמידה במגבלת 64 בתים של טלגרם
             regen_suffix = self._make_safe_suffix(context, "regenerate_image_", file_name)
             edit_suffix = self._make_safe_suffix(context, "edit_image_settings_", file_name)
@@ -4131,6 +4211,7 @@ class AdvancedBotHandlers:
                 caption=(
                     f"🖼️ <b>תמונת קוד:</b> <code>{safe_name}</code>\n"
                     f"🔤 שפה: {safe_lang} | 🎨 תמה: {html.escape(theme)} | 🧩 סגנון: {html.escape(style)}"
+                    f"{note_caption}"
                 ),
                 parse_mode=ParseMode.HTML,
                 reply_markup=kb,
