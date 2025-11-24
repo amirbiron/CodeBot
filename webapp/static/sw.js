@@ -11,12 +11,24 @@ self.addEventListener('activate', (event) => {
 });
 
 self.addEventListener('push', (event) => {
-  const data = event.data ? (() => { try { return event.data.json(); } catch(_) { return {}; } })() : {};
+  const json = event.data ? (() => { try { return event.data.json(); } catch(_) { return {}; } })() : {};
+  
+  // Robust extraction of title/body from various payload structures
+  // 1. Top-level (Standard Web Push)
+  // 2. notification key (FCM style)
+  // 3. data key (Data-only style)
+  const title = json.title || (json.notification && json.notification.title) || (json.data && json.data.title) || '🔔 יש פתק ממתין';
+  const body = json.body || (json.notification && json.notification.body) || (json.data && json.data.body) || '';
+  const customData = json.data || {};
+  // Merge top-level custom fields if they exist and aren't in data
+  if (json.note_id && !customData.note_id) customData.note_id = json.note_id;
+  if (json.file_id && !customData.file_id) customData.file_id = json.file_id;
+
   const options = {
-    body: data.body || '',
+    body: body,
     icon: '/static/icons/app-icon-192.png',
     badge: '/static/icons/app-icon-192.png',
-    data: data.data || {},
+    data: customData,
     actions: [
       { action: 'open_note', title: 'פתח פתק' },
       { action: 'snooze_10', title: 'דחה 10 דק׳' },
@@ -25,7 +37,7 @@ self.addEventListener('push', (event) => {
     ]
   };
   event.waitUntil(
-    self.registration.showNotification(data.title || '🔔 יש פתק ממתין', options)
+    self.registration.showNotification(title, options)
   );
 });
 
