@@ -18,6 +18,27 @@ push_bp = Blueprint("push_api", __name__, url_prefix="/api/push")
 _INDEX_READY = False
 
 
+def _env_positive_int(name: str, default: int) -> int:
+    try:
+        raw = os.getenv(name)
+        if raw is None:
+            return default
+        raw = raw.strip()
+        if not raw:
+            return default
+        value = int(raw)
+        return value if value > 0 else default
+    except Exception:
+        return default
+
+
+_PUSH_DELIVERY_TTL_SECONDS = _env_positive_int("PUSH_DELIVERY_TTL_SECONDS", 900)
+_PUSH_TEST_TTL_SECONDS = _env_positive_int("PUSH_TEST_TTL_SECONDS", 120)
+_PUSH_DELIVERY_URGENCY = (os.getenv("PUSH_DELIVERY_URGENCY") or "high").strip().lower()
+if _PUSH_DELIVERY_URGENCY not in {"very-low", "low", "normal", "high"}:
+    _PUSH_DELIVERY_URGENCY = "high"
+
+
 def _ensure_indexes() -> None:
     global _INDEX_READY
     if _INDEX_READY:
@@ -154,6 +175,8 @@ def _post_to_worker(
     *,
     content_encoding: str = "aes128gcm",
     idempotency_key: str = "",
+    ttl: Optional[int] = None,
+    urgency: Optional[str] = None,
 ) -> tuple[bool, int, str]:
     """POST to external push worker. Returns (ok, status, error)."""
     try:
@@ -173,7 +196,12 @@ def _post_to_worker(
     }
     if idempotency_key:
         headers["X-Idempotency-Key"] = idempotency_key
-    body = {"subscription": subscription, "payload": payload, "options": {"contentEncoding": content_encoding}}
+    options: dict[str, object] = {"contentEncoding": content_encoding}
+    if ttl and ttl > 0:
+        options["ttl"] = int(ttl)
+    if urgency:
+        options["urgency"] = urgency
+    body = {"subscription": subscription, "payload": payload, "options": options}
     try:
         r = requests.post(url, data=_json.dumps(body, ensure_ascii=False), headers=headers, timeout=timeout_s)
         # Worker returns 200 with ok:true/false for known cases; 5xx on internal errors
@@ -604,7 +632,14 @@ def _send_for_user(user_id: int | str, reminders: list[dict]) -> None:
                 ce = "aes128gcm"
 
             if use_remote:
-                ok, status_code, _err = _post_to_worker(info if isinstance(info, dict) else {}, payload, content_encoding=ce, idempotency_key=str(r.get("_id") or ""))
+                ok, status_code, _err = _post_to_worker(
+                    info if isinstance(info, dict) else {},
+                    payload,
+                    content_encoding=ce,
+                    idempotency_key=str(r.get("_id") or ""),
+                    ttl=_PUSH_DELIVERY_TTL_SECONDS,
+                    urgency=_PUSH_DELIVERY_URGENCY,
+                )
                 if ok:
                     success_any = True
                 else:
@@ -628,6 +663,7 @@ def _send_for_user(user_id: int | str, reminders: list[dict]) -> None:
             try:
                 delivered = False
                 last_err: Exception | None = None
+                urgency_headers = {"Urgency": _PUSH_DELIVERY_URGENCY} if _PUSH_DELIVERY_URGENCY else None
                 for key_variant in _vapid_key_candidates(vapid_private):
                     try:
                         webpush(
@@ -636,6 +672,8 @@ def _send_for_user(user_id: int | str, reminders: list[dict]) -> None:
                             vapid_private_key=key_variant,
                             vapid_claims={"sub": (f"mailto:{vapid_email}" if vapid_email and not vapid_email.startswith("mailto:") else vapid_email) or "mailto:support@example.com"},
                             content_encoding=ce,
+                            ttl=_PUSH_DELIVERY_TTL_SECONDS,
+                            headers=urgency_headers,
                         )
                         delivered = True
                         last_err = None
@@ -793,7 +831,13 @@ def test_push():
                 ce = "aes128gcm"
 
             if use_remote:
-                ok, status_code, err = _post_to_worker(info if isinstance(info, dict) else {}, payload, content_encoding=ce)
+                ok, status_code, err = _post_to_worker(
+                    info if isinstance(info, dict) else {},
+                    payload,
+                    content_encoding=ce,
+                    ttl=_PUSH_TEST_TTL_SECONDS,
+                    urgency=_PUSH_DELIVERY_URGENCY,
+                )
                 if ok:
                     sent += 1
                 else:
@@ -804,6 +848,7 @@ def test_push():
             try:
                 delivered = False
                 last_err: Exception | None = None
+                urgency_headers = {"Urgency": _PUSH_DELIVERY_URGENCY} if _PUSH_DELIVERY_URGENCY else None
                 for key_variant in _vapid_key_candidates(vapid_private):
                     try:
                         webpush(
@@ -812,6 +857,8 @@ def test_push():
                             vapid_private_key=key_variant,
                             vapid_claims={"sub": (f"mailto:{vapid_email}" if vapid_email and not vapid_email.startswith("mailto:") else vapid_email) or "mailto:support@example.com"},
                             content_encoding=ce,
+                            ttl=_PUSH_TEST_TTL_SECONDS,
+                            headers=urgency_headers,
                         )
                         delivered = True
                         last_err = None
