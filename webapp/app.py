@@ -12,7 +12,7 @@ import json
 import time
 from datetime import datetime, timezone
 from functools import wraps, lru_cache
-from typing import Optional, Dict, Any, List
+from typing import Optional, Dict, Any, List, Tuple
 
 from flask import Flask, render_template, jsonify, request, session, redirect, url_for, send_file, abort, Response, g
 import threading
@@ -49,7 +49,8 @@ if ROOT_DIR not in sys.path:
 from http_sync import request as http_request  # noqa: E402
 
 # נרמול טקסט/קוד לפני שמירה (הסרת תווים נסתרים, כיווניות, אחידות שורות)
-from utils import normalize_code  # noqa: E402
+from utils import normalize_code, TimeUtils  # noqa: E402
+from file_manager import backup_manager  # noqa: E402
 
 # קונפיגורציה מרכזית (Pydantic Settings)
 try:  # שמירה על יציבות גם בסביבות דוקס/CI
@@ -3927,6 +3928,482 @@ def logout():
     session.clear()
     return resp
 
+
+_TIMELINE_GROUP_META: Dict[str, Dict[str, str]] = {
+    'files': {'title': 'קבצים', 'icon': '📁', 'accent': 'timeline-accent-code'},
+    'push': {'title': 'התראות פוש', 'icon': '📣', 'accent': 'timeline-accent-push'},
+    'backups': {'title': 'גיבויים', 'icon': '🗄️', 'accent': 'timeline-accent-backup'},
+}
+_TIMELINE_LIMITS = {'files': 12, 'push': 8, 'backups': 5}
+_MIN_DT = datetime(1970, 1, 1, tzinfo=timezone.utc)
+
+
+def _normalize_dt(value: Any) -> Optional[datetime]:
+    if isinstance(value, datetime):
+        return value if value.tzinfo else value.replace(tzinfo=timezone.utc)
+    if isinstance(value, str):
+        try:
+            parsed = datetime.fromisoformat(value)
+            return parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
+        except Exception:
+            return None
+    return None
+
+
+def _format_relative(dt: Optional[datetime]) -> str:
+    if not isinstance(dt, datetime):
+        return "לא ידוע"
+    try:
+        return TimeUtils.format_relative_time(dt)
+    except Exception:
+        try:
+            return dt.strftime('%d/%m/%Y %H:%M')
+        except Exception:
+            return "לא ידוע"
+
+
+def _format_calendar_hint(dt: Optional[datetime]) -> str:
+    if not isinstance(dt, datetime):
+        return ""
+    try:
+        localized = dt.astimezone(timezone.utc)
+    except Exception:
+        localized = dt
+    return localized.strftime('%d/%m %H:%M')
+
+
+def _finalize_events(items: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    finalized: List[Dict[str, Any]] = []
+    for ev in items:
+        cleaned = dict(ev)
+        cleaned.pop('_dt', None)
+        finalized.append(cleaned)
+    return finalized
+
+
+def _summarize_group(title: str, total_count: int, recent_count: int) -> str:
+    if total_count <= 0:
+        return f"אין פעילות {title.lower()} עדיין"
+    if recent_count > 0:
+        return f"{recent_count} פעולות {title.lower()} השבוע"
+    return f"{total_count} פעולות אחרונות"
+
+
+def _extract_note_preview(note_content: str, limit: int = 80) -> str:
+    text = (note_content or "").strip()
+    if not text:
+        return "פתק ללא תוכן"
+    preview = text.splitlines()[0].strip()
+    if len(preview) > limit:
+        return preview[:limit - 1].rstrip() + "…"
+    return preview
+
+
+def _lookup_notes_map(db, user_id: int, note_ids: List[Any]) -> Dict[str, Dict[str, Any]]:
+    note_ids_clean = [str(n) for n in (note_ids or []) if str(n).strip()]
+    if not note_ids_clean:
+        return {}
+    object_ids: List[Any] = []
+    plain_ids: List[str] = []
+    for note_id in note_ids_clean:
+        try:
+            object_ids.append(ObjectId(note_id))
+        except Exception:
+            plain_ids.append(note_id)
+    projection = {'content': 1, 'file_id': 1, 'updated_at': 1, 'color': 1}
+    results: Dict[str, Dict[str, Any]] = {}
+    try:
+        if object_ids:
+            cursor = db.sticky_notes.find({'_id': {'$in': object_ids}, 'user_id': int(user_id)}, projection)
+            for doc in cursor or []:
+                results[str(doc.get('_id'))] = doc
+    except Exception:
+        pass
+    try:
+        if plain_ids:
+            cursor = db.sticky_notes.find({'_id': {'$in': plain_ids}, 'user_id': int(user_id)}, projection)
+            for doc in cursor or []:
+                results[str(doc.get('_id'))] = doc
+    except Exception:
+        pass
+    return results
+
+
+def _lookup_files_map(db, file_ids: List[Any]) -> Dict[str, str]:
+    unique_ids = []
+    seen = set()
+    for fid in file_ids or []:
+        if not fid:
+            continue
+        val = str(fid)
+        if val in seen:
+            continue
+        seen.add(val)
+        unique_ids.append(val)
+    object_ids: List[Any] = []
+    for fid in unique_ids:
+        try:
+            object_ids.append(ObjectId(fid))
+        except Exception:
+            continue
+    if not object_ids:
+        return {}
+    try:
+        cursor = db.code_snippets.find({'_id': {'$in': object_ids}}, {'file_name': 1})
+    except Exception:
+        return {}
+    files: Dict[str, str] = {}
+    try:
+        for doc in cursor or []:
+            files[str(doc.get('_id'))] = doc.get('file_name') or 'ללא שם'
+    except Exception:
+        return {}
+    return files
+
+
+def _build_timeline_event(
+    group: str,
+    *,
+    title: str,
+    subtitle: str,
+    dt: Any,
+    icon: str,
+    badge: Optional[str] = None,
+    badge_variant: Optional[str] = None,
+    href: Optional[str] = None,
+    status: Optional[str] = None,
+    meta: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    normalized_dt = _normalize_dt(dt)
+    return {
+        '_dt': normalized_dt,
+        'group': group,
+        'icon': icon,
+        'title': title,
+        'subtitle': subtitle or '',
+        'badge': badge,
+        'badge_variant': badge_variant,
+        'href': href,
+        'status': status,
+        'meta': meta or {},
+        'timestamp': normalized_dt.isoformat() if normalized_dt else None,
+        'relative_time': _format_relative(normalized_dt),
+        'accent': _TIMELINE_GROUP_META.get(group, {}).get('accent', ''),
+    }
+
+
+def _build_activity_timeline(db, user_id: int, active_query: Optional[Dict[str, Any]] = None, *, now: Optional[datetime] = None) -> Dict[str, Any]:
+    now = now or datetime.now(timezone.utc)
+    recent_cutoff = now - timedelta(days=7)
+    events: Dict[str, List[Dict[str, Any]]] = {k: [] for k in _TIMELINE_GROUP_META}
+    errors: List[str] = []
+
+    # Files activity
+    try:
+        file_query = active_query or {
+            'user_id': user_id,
+            '$or': [{'is_active': True}, {'is_active': {'$exists': False}}],
+        }
+        cursor = db.code_snippets.find(
+            file_query,
+            {'file_name': 1, 'programming_language': 1, 'updated_at': 1, 'created_at': 1, 'version': 1, 'description': 1},
+        ).sort('updated_at', DESCENDING).limit(_TIMELINE_LIMITS['files'])
+    except Exception:
+        cursor = []
+        errors.append('files')
+    for doc in cursor or []:
+        dt = doc.get('updated_at') or doc.get('created_at')
+        version = doc.get('version') or 1
+        is_new = version == 1
+        action = "נוצר" if is_new else "עודכן"
+        file_name = doc.get('file_name') or "ללא שם"
+        title = f"{action} {file_name}"
+        details: List[str] = []
+        if doc.get('programming_language'):
+            details.append(doc['programming_language'])
+        if version:
+            details.append(f"גרסה {version}")
+        description = (doc.get('description') or "").strip()
+        subtitle = description if description else (" · ".join(details) if details else "ללא פרטים נוספים")
+        href = f"/file/{doc.get('_id')}"
+        events['files'].append(
+            _build_timeline_event(
+                'files',
+                title=title,
+                subtitle=subtitle,
+                dt=dt,
+                icon='📁',
+                badge=doc.get('programming_language'),
+                badge_variant='code',
+                href=href,
+                meta={'details': " · ".join(details)},
+            )
+        )
+
+    # Push/reminder events
+    push_docs: List[Dict[str, Any]] = []
+    try:
+        cursor = db.note_reminders.find(
+            {'user_id': user_id},
+            {'note_id': 1, 'status': 1, 'remind_at': 1, 'updated_at': 1, 'ack_at': 1, 'last_push_success_at': 1},
+        ).sort('updated_at', DESCENDING).limit(_TIMELINE_LIMITS['push'])
+        push_docs = list(cursor or [])
+    except Exception:
+        errors.append('push')
+    note_ids = [doc.get('note_id') for doc in push_docs if doc.get('note_id')]
+    notes_map = _lookup_notes_map(db, user_id, note_ids)
+    for doc in push_docs:
+        note_id = str(doc.get('note_id', ''))
+        note_doc = notes_map.get(note_id)
+        note_preview = _extract_note_preview(note_doc.get('content', '')) if note_doc else "פתק ללא שם"
+        remind_at = _normalize_dt(doc.get('remind_at'))
+        last_push = _normalize_dt(doc.get('last_push_success_at'))
+        ack_at = _normalize_dt(doc.get('ack_at'))
+        status = str(doc.get('status') or 'pending').lower()
+        if ack_at:
+            badge, variant = "נסגר", "success"
+            subtitle = "התזכורת טופלה"
+            dt = ack_at
+        elif last_push and (not remind_at or last_push >= remind_at):
+            badge, variant = "נשלח", "success"
+            subtitle = "התראה נשלחה"
+            dt = last_push
+        elif status == 'snoozed':
+            badge, variant = "מושהה", "warning"
+            subtitle = "נדחה על ידי המשתמש"
+            dt = remind_at or doc.get('updated_at')
+        elif remind_at and remind_at > now:
+            badge, variant = "מתוכנן", "info"
+            subtitle = f"תוזמן ל-{_format_calendar_hint(remind_at)}"
+            dt = remind_at
+        else:
+            badge, variant = "ממתין", "warning"
+            subtitle = "בהמתנה למשלוח"
+            dt = remind_at or doc.get('updated_at')
+
+        href = None
+        file_id = note_doc.get('file_id') if note_doc else None
+        if file_id:
+            href = f"/file/{file_id}"
+
+        events['push'].append(
+            _build_timeline_event(
+                'push',
+                title=f"תזכורת לפתק {note_preview}",
+                subtitle=subtitle,
+                dt=dt,
+                icon='📣',
+                badge=badge,
+                badge_variant=variant,
+                href=href,
+                status=status,
+            )
+        )
+
+    # Backup events
+    try:
+        backups = backup_manager.list_backups(int(user_id))[: _TIMELINE_LIMITS['backups']]
+    except Exception:
+        backups = []
+        errors.append('backups')
+    for backup in backups or []:
+        dt = getattr(backup, 'created_at', None)
+        title = f"גיבוי {getattr(backup, 'backup_id', '') or 'ללא שם'}"
+        subtitle_parts: List[str] = []
+        file_count = getattr(backup, 'file_count', 0)
+        if file_count:
+            subtitle_parts.append(f"{file_count} קבצים")
+        total_size = getattr(backup, 'total_size', 0)
+        if total_size:
+            subtitle_parts.append(format_file_size(total_size))
+        repo = getattr(backup, 'repo', None)
+        if repo:
+            subtitle_parts.append(str(repo))
+        subtitle = " · ".join(subtitle_parts) if subtitle_parts else "גיבוי מוכן לשחזור"
+        backup_type = str(getattr(backup, 'backup_type', '') or '').lower()
+        badge = "אוטומטי" if backup_type in {'scheduled', 'drive', 'auto'} else "ידני"
+        variant = "info" if badge == "אוטומטי" else "neutral"
+        events['backups'].append(
+            _build_timeline_event(
+                'backups',
+                title=title,
+                subtitle=subtitle,
+                dt=dt,
+                icon='🗄️',
+                badge=badge,
+                badge_variant=variant,
+            )
+        )
+
+    # Sort groups and build summaries
+    feed: List[Dict[str, Any]] = []
+    filters: List[Dict[str, Any]] = [{'id': 'all', 'label': 'הכול', 'count': 0}]
+    groups_payload: List[Dict[str, Any]] = []
+    for group_id, meta in _TIMELINE_GROUP_META.items():
+        sorted_items = sorted(events[group_id], key=lambda ev: ev.get('_dt') or _MIN_DT, reverse=True)
+        events[group_id] = sorted_items
+        feed.extend(sorted_items)
+        recent_count = sum(1 for ev in sorted_items if isinstance(ev.get('_dt'), datetime) and ev['_dt'] >= recent_cutoff)
+        groups_payload.append({
+            'id': group_id,
+            'title': meta['title'],
+            'icon': meta['icon'],
+            'summary': _summarize_group(meta['title'], len(sorted_items), recent_count),
+            'events': _finalize_events(sorted_items),
+        })
+        filters.append({'id': group_id, 'label': meta['title'], 'count': len(sorted_items)})
+
+    feed_sorted = sorted(feed, key=lambda ev: ev.get('_dt') or _MIN_DT, reverse=True)
+    filters[0]['count'] = len(feed_sorted)
+
+    return {
+        'groups': groups_payload,
+        'feed': _finalize_events(feed_sorted[:30]),
+        'filters': filters,
+        'compact_limit': 5,
+        'has_events': any(events[group] for group in events),
+        'updated_at': now.isoformat(),
+        'errors': errors,
+    }
+
+
+def _build_push_card(db, user_id: int, *, now: Optional[datetime] = None) -> Dict[str, Any]:
+    now = now or datetime.now(timezone.utc)
+    push_enabled = (os.getenv('PUSH_NOTIFICATIONS_ENABLED', 'true').strip().lower() in {'1', 'true', 'yes', 'on'})
+    variants = [user_id, str(user_id)]
+
+    try:
+        subs_count = db.push_subscriptions.count_documents({'user_id': {'$in': variants}})
+    except Exception:
+        subs_count = 0
+
+    last_subscribed = None
+    if subs_count:
+        try:
+            cur = db.push_subscriptions.find({'user_id': {'$in': variants}}, {'updated_at': 1}).sort('updated_at', DESCENDING).limit(1)
+            docs = list(cur or [])
+            if docs:
+                last_subscribed = _normalize_dt(docs[0].get('updated_at'))
+        except Exception:
+            last_subscribed = None
+
+    try:
+        pending_count = db.note_reminders.count_documents({'user_id': user_id, 'status': {'$in': ['pending', 'snoozed']}})
+    except Exception:
+        pending_count = 0
+
+    last_push_doc = None
+    try:
+        cur = db.note_reminders.find(
+            {'user_id': user_id, 'last_push_success_at': {'$ne': None}},
+            {'note_id': 1, 'last_push_success_at': 1}
+        ).sort('last_push_success_at', DESCENDING).limit(1)
+        docs = list(cur or [])
+        if docs:
+            last_push_doc = docs[0]
+    except Exception:
+        last_push_doc = None
+
+    next_reminder_doc = None
+    try:
+        cur = db.note_reminders.find(
+            {'user_id': user_id, 'status': {'$in': ['pending', 'snoozed']}, 'remind_at': {'$gte': now}},
+            {'note_id': 1, 'remind_at': 1}
+        ).sort('remind_at', 1).limit(1)
+        docs = list(cur or [])
+        if docs:
+            next_reminder_doc = docs[0]
+    except Exception:
+        next_reminder_doc = None
+
+    note_ids = []
+    if last_push_doc and last_push_doc.get('note_id'):
+        note_ids.append(last_push_doc['note_id'])
+    if next_reminder_doc and next_reminder_doc.get('note_id'):
+        note_ids.append(next_reminder_doc['note_id'])
+    notes_map = _lookup_notes_map(db, user_id, note_ids)
+
+    status_variant = 'success'
+    if not push_enabled:
+        status_text = "התראות הושבתו ברמת המערכת"
+        status_variant = 'danger'
+    elif subs_count <= 0:
+        status_text = "עוד לא הופעל בדפדפן הזה"
+        status_variant = 'warning'
+    elif subs_count == 1:
+        status_text = "מופעל בדפדפן אחד"
+    else:
+        status_text = f"מופעל ב-{subs_count} דפדפנים"
+
+    def _note_summary(doc):
+        if not doc:
+            return None
+        note = notes_map.get(str(doc.get('note_id')))
+        if not note:
+            return None
+        dt = _normalize_dt(doc.get('last_push_success_at') or doc.get('remind_at'))
+        return {
+            'title': _extract_note_preview(note.get('content', '')),
+            'relative_time': _format_relative(dt),
+            'timestamp': dt.isoformat() if dt else None,
+        }
+
+    last_push = None
+    if last_push_doc:
+        last_push = _note_summary(last_push_doc)
+    next_reminder = None
+    if next_reminder_doc:
+        next_reminder = _note_summary(next_reminder_doc)
+
+    return {
+        'feature_enabled': push_enabled,
+        'subscriptions': subs_count,
+        'status_text': status_text,
+        'status_variant': status_variant,
+        'last_subscription': _format_relative(last_subscribed) if last_subscribed else None,
+        'pending_count': pending_count,
+        'last_push': last_push,
+        'next_reminder': next_reminder,
+        'cta_href': '/settings#push',
+        'cta_label': 'נהל התראות',
+    }
+
+
+def _build_notes_snapshot(db, user_id: int, limit: int = 3) -> Dict[str, Any]:
+    try:
+        total_notes = db.sticky_notes.count_documents({'user_id': user_id})
+    except Exception:
+        total_notes = 0
+    try:
+        cursor = db.sticky_notes.find({'user_id': user_id}).sort('updated_at', DESCENDING).limit(limit)
+        note_docs = list(cursor or [])
+    except Exception:
+        note_docs = []
+
+    file_ids = [note.get('file_id') for note in note_docs if note.get('file_id')]
+    files_map = _lookup_files_map(db, file_ids)
+    notes_payload: List[Dict[str, Any]] = []
+    for note in note_docs:
+        dt = _normalize_dt(note.get('updated_at'))
+        file_id = note.get('file_id')
+        file_name = files_map.get(str(file_id), 'ללא קובץ') if file_id else 'ללא קובץ'
+        notes_payload.append({
+            'id': str(note.get('_id')),
+            'title': _extract_note_preview(note.get('content', '')),
+            'file_name': file_name,
+            'file_url': f"/file/{file_id}" if file_id else None,
+            'color': note.get('color'),
+            'timestamp': dt.isoformat() if dt else None,
+            'relative_time': _format_relative(dt),
+        })
+
+    return {
+        'notes': notes_payload,
+        'total': total_notes,
+        'has_notes': bool(notes_payload),
+    }
+
+
 @app.route('/dashboard')
 @login_required
 def dashboard():
@@ -4025,9 +4502,16 @@ def dashboard():
             'recent_files': recent_files
         }
         
+        activity_timeline = _build_activity_timeline(db, user_id, active_query)
+        push_card = _build_push_card(db, user_id)
+        notes_snapshot = _build_notes_snapshot(db, user_id)
+
         return render_template('dashboard.html', 
                              user=session['user_data'],
                              stats=stats,
+                             activity_timeline=activity_timeline,
+                             push_card=push_card,
+                             notes_snapshot=notes_snapshot,
                              bot_username=BOT_USERNAME_CLEAN)
                              
     except Exception as e:
@@ -4035,6 +4519,17 @@ def dashboard():
         import traceback
         traceback.print_exc()
         # נסה להציג דשבורד ריק במקרה של שגיאה
+        fallback_timeline = {
+            'groups': [],
+            'feed': [],
+            'filters': [{'id': 'all', 'label': 'הכול', 'count': 0}],
+            'compact_limit': 5,
+            'has_events': False,
+            'updated_at': datetime.now(timezone.utc).isoformat()
+        }
+        fallback_card = {'feature_enabled': False, 'subscriptions': 0, 'status_text': "לא זמין", 'status_variant': 'danger', 'pending_count': 0, 'last_push': None, 'next_reminder': None, 'cta_href': '/settings#push', 'cta_label': 'נהל התראות'}
+        fallback_notes = {'notes': [], 'total': 0, 'has_notes': False}
+
         return render_template('dashboard.html', 
                              user=session.get('user_data', {}),
                              stats={
@@ -4043,6 +4538,9 @@ def dashboard():
                                  'top_languages': [],
                                  'recent_files': []
                              },
+                             activity_timeline=fallback_timeline,
+                             push_card=fallback_card,
+                             notes_snapshot=fallback_notes,
                              error="אירעה שגיאה בטעינת הנתונים. אנא נסה שוב.",
                              bot_username=BOT_USERNAME_CLEAN)
 
