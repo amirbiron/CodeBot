@@ -66,8 +66,9 @@ ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     PYTHONFAULTHANDLER=1 \
     PATH="/home/botuser/.local/bin:/root/.local/bin:$PATH" \
-    PYTHONPATH="/app:$PYTHONPATH" \
-    DEBIAN_FRONTEND=noninteractive
+    PYTHONPATH="/app:/home/botuser/.local/lib/python3.11/site-packages" \
+    DEBIAN_FRONTEND=noninteractive \
+    PLAYWRIGHT_BROWSERS_PATH="/ms-playwright"
 ENV NODE_MAJOR=${NODE_MAJOR} \
     NODE_VERSION=${NODE_VERSION}
 
@@ -87,6 +88,8 @@ RUN apt-get update -y && apt-get upgrade -y && \
         sqlite3 && \
     fc-cache -f -v && \
     rm -rf /var/lib/apt/lists/*
+
+RUN mkdir -p ${PLAYWRIGHT_BROWSERS_PATH}
 
 # התקנת Node 18.x דרך ארכיון רשמי (מביא npm תואם בלי תלות ב־apt)
 RUN set -eux; \
@@ -121,6 +124,11 @@ RUN groupadd -o -f -g 1000 botuser && \
 # העתקת Python packages ו-constraints מה-builder stage
 COPY --from=builder --chown=botuser:botuser /root/.local /home/botuser/.local
 COPY --from=builder --chown=botuser:botuser /app/constraints.txt /app/constraints.txt
+
+# התקנת Chromium של Playwright + תלותים בזמן הבילד כדי שהרינדור יישאר חד
+RUN python3 -m playwright install --with-deps chromium && \
+    chown -R botuser:botuser ${PLAYWRIGHT_BROWSERS_PATH} && \
+    rm -rf /var/lib/apt/lists/*
 
 USER botuser
 WORKDIR /app
