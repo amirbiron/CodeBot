@@ -1367,6 +1367,21 @@ async def handle_clone(update, context: ContextTypes.DEFAULT_TYPE) -> int:
             tags = []
         user_id = update.effective_user.id
 
+        if not code:
+            try:
+                from src.infrastructure.composition import get_files_facade  # type: ignore
+                latest_doc = get_files_facade().get_latest_version(user_id, original_name)
+            except Exception:
+                latest_doc = None
+            if latest_doc:
+                code = latest_doc.get('code', '') or code
+                language = latest_doc.get('programming_language', language) or language
+                description = latest_doc.get('description', description) or description
+                try:
+                    tags = list(latest_doc.get('tags') or tags or [])
+                except Exception:
+                    pass
+
         def _suggest_clone_name(name: str) -> str:
             try:
                 dot = name.rfind('.')
@@ -1455,8 +1470,11 @@ async def handle_clone_direct(update, context: ContextTypes.DEFAULT_TYPE) -> int
     try:
         file_name = query.data.replace("clone_direct_", "")
         user_id = update.effective_user.id
-        from database import db
-        file_data = db.get_latest_version(user_id, file_name)
+        try:
+            from src.infrastructure.composition import get_files_facade  # type: ignore
+            file_data = get_files_facade().get_latest_version(user_id, file_name)
+        except Exception:
+            file_data = None
         if not file_data:
             await query.edit_message_text("❌ הקובץ לא נמצא לשכפול")
             return ConversationHandler.END

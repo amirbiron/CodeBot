@@ -93,6 +93,60 @@ def _get_webapp_button_row(file_id: Optional[str], file_name: Optional[str] = No
         return None
 
 
+def _get_files_facade_or_none():
+    """Helper to access the new composition facade without breaking older tests."""
+    try:
+        from src.infrastructure.composition import get_files_facade  # type: ignore
+        return get_files_facade()
+    except Exception:
+        return None
+
+
+def _load_favorites(user_id: int, limit: int = 1000, facade=None) -> List[Dict[str, object]]:
+    """Fetch favorites via facade when available, fallback to legacy db."""
+    if facade is None:
+        facade = _get_files_facade_or_none()
+    if facade is not None:
+        try:
+            docs = list(facade.get_favorites(user_id, limit=limit) or [])
+            if docs:
+                return docs
+        except Exception:
+            pass
+    try:
+        from database import db  # type: ignore
+        return list(db.get_favorites(user_id, limit=limit) or [])
+    except Exception:
+        return []
+
+
+def _resolve_is_favorite(
+    user_id: Optional[int],
+    file_name: str,
+    *,
+    hint: Optional[bool] = None,
+    default: bool = False,
+    facade=None,
+) -> bool:
+    """Determine favorite state with optional hint from existing doc."""
+    if user_id is None:
+        return False
+    if hint is not None:
+        return bool(hint)
+    if facade is None:
+        facade = _get_files_facade_or_none()
+    if facade is not None:
+        try:
+            return bool(facade.is_favorite(user_id, file_name))
+        except Exception:
+            pass
+    try:
+        from database import db as _db  # type: ignore
+        return bool(_db.is_favorite(user_id, file_name))
+    except Exception:
+        return default
+
+
 def _coerce_command_args(raw_args) -> List[str]:
     """המרת args מסוגים שונים לרשימת מחרוזות נקייה."""
     normalized: List[str] = []
@@ -1667,6 +1721,7 @@ async def show_regular_files_callback(update: Update, context: ContextTypes.DEFA
     
     # Instead of creating a fake update, adapt show_all_files logic for callback queries
     user_id = update.effective_user.id
+    files_facade = _get_files_facade_or_none()
     from database import db
     
     try:
@@ -1704,11 +1759,10 @@ async def show_regular_files_callback(update: Update, context: ContextTypes.DEFA
                 context.user_data['files_cache'][str(i)] = file
                 emoji = get_file_emoji(language)
                 # ⭐ חיווי מועדף — רק אם השם לא ארוך מדי כדי לא לפגוע בקריאות
-                try:
-                    from database import db as _db
-                    is_fav = bool(_db.is_favorite(user_id, file_name))
-                except Exception:
-                    is_fav = False
+                hint = file.get('is_favorite')
+                if hint is None and file.get('favorited_at'):
+                    hint = True
+                is_fav = _resolve_is_favorite(user_id, file_name, hint=hint, facade=files_facade)
                 star = "⭐ " if is_fav and len(str(file_name) or "") <= 35 else ""
                 button_text = f"{star}{emoji} {file_name}"
                 # כפתור כניסה בלבד (ללא כפתור מועדפים ברשימה)
@@ -1760,9 +1814,9 @@ async def show_favorites_callback(update: Update, context: ContextTypes.DEFAULT_
     except Exception:
         pass
     user_id = update.effective_user.id
-    from database import db
+    files_facade = _get_files_facade_or_none()
     try:
-        favs = db.get_favorites(user_id, limit=1000) or []
+        favs = _load_favorites(user_id, limit=1000, facade=files_facade)
         if not favs:
             await query.edit_message_text(
                 "💭 אין לך מועדפים כרגע.\nהוסף בעזרת /favorite &lt;שם&gt; או דרך כפתור ⭐ במסכי הקובץ",
@@ -1798,12 +1852,12 @@ async def show_favorites_callback(update: Update, context: ContextTypes.DEFAULT_
                 tokens_map = context.user_data.get('fav_tokens') or {}
                 tokens_map[str(i)] = name
                 context.user_data['fav_tokens'] = tokens_map
-            # קבע תווית מדויקת לפי המסד (בטוח יותר מהשדה במסמך שמוחזר מהרשימה)
-            try:
-                from database import db as _db
-                is_fav = bool(_db.is_favorite(user_id, name))
-            except Exception:
-                is_fav = True  # בהקשר 'מועדפים' נניח שזה מועדף
+            hint = file.get('is_favorite')
+            if hint is None and file.get('favorited_at'):
+                hint = True
+            if hint is None:
+                hint = True
+            is_fav = _resolve_is_favorite(user_id, name, hint=hint, default=True, facade=files_facade)
             fav_label = "💔 הסר ממועדפים" if is_fav else "⭐ הוסף למועדפים"
             keyboard.append([
                 InlineKeyboardButton(f"{emoji} {name}", callback_data=f"file_{i}"),
@@ -1840,9 +1894,9 @@ async def show_favorites_page_callback(update: Update, context: ContextTypes.DEF
     query = update.callback_query
     await query.answer()
     user_id = update.effective_user.id
-    from database import db
+    files_facade = _get_files_facade_or_none()
     try:
-        favs = db.get_favorites(user_id, limit=1000) or []
+        favs = _load_favorites(user_id, limit=1000, facade=files_facade)
         total_files = len(favs)
         if total_files == 0:
             await query.edit_message_text("💭 אין מועדפים להצגה")
@@ -1889,6 +1943,7 @@ async def show_regular_files_page_callback(update: Update, context: ContextTypes
     query = update.callback_query
     await query.answer()
     user_id = update.effective_user.id
+    files_facade = _get_files_facade_or_none()
     from database import db
     try:
         # שלוף דף ספציפי מה-DB ללא תוכן קוד (ה-DB כבר מהדק עמוד חוקי במידת הצורך)
@@ -1933,11 +1988,10 @@ async def show_regular_files_page_callback(update: Update, context: ContextTypes
                 keyboard.append([InlineKeyboardButton(button_text, callback_data=f"rf_toggle:{page_used}:{file_id}")])
             else:
                 context.user_data['files_cache'][str(i)] = file
-                try:
-                    from database import db as _db
-                    is_fav = bool(_db.is_favorite(user_id, file_name))
-                except Exception:
-                    is_fav = False
+                hint = file.get('is_favorite')
+                if hint is None and file.get('favorited_at'):
+                    hint = True
+                is_fav = _resolve_is_favorite(user_id, file_name, hint=hint, facade=files_facade)
                 star = "⭐ " if is_fav and len(str(file_name) or "") <= 35 else ""
                 button_text = f"{star}{emoji} {file_name}"
                 keyboard.append([InlineKeyboardButton(button_text, callback_data=f"file_{i}")])
@@ -2190,6 +2244,9 @@ async def handle_file_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -
             file_id_str = str(file_data.get('_id') or '')
         except Exception:
             file_id_str = ''
+        files_facade = _get_files_facade_or_none()
+        user_obj = getattr(update, 'effective_user', None)
+        user_id = getattr(user_obj, 'id', None)
         
         # כפתורים מתקדמים מלאים
         webapp_row = _get_webapp_button_row(file_id_str, file_name)
@@ -2228,12 +2285,10 @@ async def handle_file_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         keyboard.append([InlineKeyboardButton("🔙 חזרה לרשימה", callback_data=back_cb)])
 
         # הוסף כפתור מועדפים לפני היסטוריה/הורדה
-        try:
-            from database import db as _db
-            user_id = update.effective_user.id if getattr(update, 'effective_user', None) else None
-            is_fav_now = user_id is not None and bool(_db.is_favorite(user_id, file_name))
-        except Exception:
-            is_fav_now = False
+        hint = file_data.get('is_favorite')
+        if hint is None and file_data.get('favorited_at'):
+            hint = True
+        is_fav_now = _resolve_is_favorite(user_id, file_name, hint=hint, facade=files_facade)
         fav_text = "💔 הסר ממועדפים" if is_fav_now else "⭐ הוסף למועדפים"
         raw_id = file_id_str
         if raw_id and (len("fav_toggle_id:") + len(raw_id)) <= 60:

@@ -34,34 +34,25 @@ class _Context:
 
 @pytest.mark.asyncio
 async def test_clone_direct_creates_unique_name(monkeypatch):
-	# Arrange database stubs
-	from database import db as real_db
-	calls = {"saved": []}
-
-	def _fake_get_latest_version(user_id, file_name):
-		# Simulate original exists and also first copy exists
-		if file_name in {"hello.py", "hello (copy).py"}:
-			return {"user_id": user_id, "file_name": file_name, "code": "print('x')", "programming_language": "python", "description": "", "version": 1}
-		return None
-
-	# Patch DB methods using import-path style
-	monkeypatch.setattr("database.db.get_latest_version", _fake_get_latest_version)
-
-	def _fake_save(snippet):
-		calls["saved"].append(snippet.file_name)
-		return True
-
-	monkeypatch.setattr("database.db.save_code_snippet", _fake_save)
-
-	# Import after monkeypatch
 	import handlers.file_view as fv
-
-	# Prepare update with direct clone
 	upd = _Update()
 	upd.callback_query.data = "clone_direct_hello.py"
 
-	# Also stub file fetch inside handler
-	monkeypatch.setattr("database.db.get_latest_version", lambda uid, name: {"file_name": "hello.py", "code": "print('x')", "programming_language": "python", "description": ""} if name == "hello.py" else _fake_get_latest_version(uid, name))
+	class _Facade:
+		def __init__(self):
+			self.saved = []
+		def get_latest_version(self, user_id, file_name):
+			if file_name == "hello.py":
+				return {"file_name": file_name, "code": "print('x')", "programming_language": "python", "description": "", "tags": []}
+			if file_name == "hello (copy).py":
+				return {"file_name": file_name, "code": "print('x')", "programming_language": "python", "description": "", "tags": []}
+			return None
+		def save_code_snippet(self, *, user_id, file_name, code, programming_language, description, tags):
+			self.saved.append(file_name)
+			return True
+
+	facade = _Facade()
+	monkeypatch.setattr("src.infrastructure.composition.get_files_facade", lambda: facade, raising=False)
 
 	# Stub telegram utils to avoid real editing
 	async def _safe_edit(q, text, reply_markup=None, parse_mode=None):
@@ -72,7 +63,7 @@ async def test_clone_direct_creates_unique_name(monkeypatch):
 	await fv.handle_clone_direct(upd, ctx)
 
 	# Assert that second unique name was attempted: "hello (copy 2).py"
-	assert any(name.startswith("hello (copy 2)") for name in calls["saved"]) or any(name.startswith("hello (copy ") for name in calls["saved"]) 
+	assert any(name.startswith("hello (copy 2)") for name in facade.saved) or any(name.startswith("hello (copy ") for name in facade.saved)
 
 
 @pytest.mark.asyncio
@@ -86,13 +77,17 @@ async def test_clone_from_list_uses_cache_and_succeeds(monkeypatch):
 	}
 	upd.callback_query.data = "clone_3"
 
-	# DB stubs
-	from database import db
-	monkeypatch.setattr(db, "get_latest_version", lambda uid, name: None)
-	class _Saver:
-		def save_code_snippet(self, snippet):
+	class _Facade:
+		def __init__(self):
+			self.saved = False
+		def get_latest_version(self, user_id, file_name):
+			return None
+		def save_code_snippet(self, *, user_id, file_name, code, programming_language, description, tags):
+			self.saved = True
 			return True
-	monkeypatch.setattr(db, "save_code_snippet", _Saver().save_code_snippet)
+
+	facade = _Facade()
+	monkeypatch.setattr("src.infrastructure.composition.get_files_facade", lambda: facade, raising=False)
 
 	# Stub Telegram utils
 	async def _safe_edit(q, text, reply_markup=None, parse_mode=None):
@@ -101,7 +96,51 @@ async def test_clone_from_list_uses_cache_and_succeeds(monkeypatch):
 
 	await fv.handle_clone(upd, ctx)
 	# If no exception, and we reached end, test passes
-	assert True
+	assert facade.saved is True
+
+
+@pytest.mark.asyncio
+async def test_clone_from_list_fetches_code_when_missing(monkeypatch):
+	import handlers.file_view as fv
+	upd = _Update()
+	ctx = _Context()
+	ctx.user_data["files_cache"] = {
+		"1": {"file_name": "missing.py", "code": "", "programming_language": "text", "description": "", "tags": []}
+	}
+	upd.callback_query.data = "clone_1"
+
+	class _Facade:
+		def __init__(self):
+			self.saved = None
+		def get_latest_version(self, user_id, file_name):
+			return {
+				"file_name": file_name,
+				"code": "print('server')",
+				"programming_language": "python",
+				"description": "srv",
+				"tags": ["t"],
+			}
+		def save_code_snippet(self, *, user_id, file_name, code, programming_language, description, tags):
+			self.saved = {
+				"user_id": user_id,
+				"file_name": file_name,
+				"code": code,
+				"programming_language": programming_language,
+				"description": description,
+				"tags": list(tags or []),
+			}
+			return True
+
+	facade = _Facade()
+	monkeypatch.setattr("src.infrastructure.composition.get_files_facade", lambda: facade, raising=False)
+
+	async def _safe_edit(q, text, reply_markup=None, parse_mode=None):
+		return None
+	monkeypatch.setattr(fv.TelegramUtils, "safe_edit_message_text", _safe_edit)
+
+	await fv.handle_clone(upd, ctx)
+	assert facade.saved is not None
+	assert facade.saved["code"] == "print('server')"
 
 
 @pytest.mark.asyncio
