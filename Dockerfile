@@ -1,11 +1,11 @@
 # syntax=docker/dockerfile:1.6
 # ===================================
-# Code Keeper Bot - Production Dockerfile (Playwright base)
+# Code Keeper Bot - Production Dockerfile (Debian slim)
 # ===================================
 
 ######################################
 # שלב 1: Build stage (pip wheels + cache)
-FROM mcr.microsoft.com/playwright/python:v1.49.0-jammy AS builder
+FROM python:3.11-slim AS builder
 
 LABEL maintainer="Code Keeper Bot Team"
 LABEL version="1.1.0"
@@ -52,8 +52,8 @@ RUN --mount=type=cache,target=/root/.cache/pip \
     pip install --user -r /app/requirements/production.txt -c /app/constraints.txt --retries 5 --timeout 60
 
 ######################################
-# שלב 2: Production stage (Playwright base)
-FROM mcr.microsoft.com/playwright/python:v1.49.0-jammy AS production
+# שלב 2: Production stage (Debian slim)
+FROM python:3.11-slim AS production
 
 USER root
 
@@ -63,23 +63,29 @@ ENV PYTHONUNBUFFERED=1 \
     PYTHONFAULTHANDLER=1 \
     PATH="/home/botuser/.local/bin:$PATH" \
     PYTHONPATH="/app:$PYTHONPATH" \
-    PLAYWRIGHT_BROWSERS_PATH=/ms-playwright \
     DEBIAN_FRONTEND=noninteractive
 
-# חבילות Runtime הנדרשות מעבר למה שקיים בבייס (בעיקר פונטים/כלים)
-RUN apt-get update -y && apt-get upgrade -y && \
+# חבילות Runtime + התקנת Node 18 (כולל תלויות תמיכה חיוניות)
+RUN set -eux; \
+    apt-get update -y; \
+    apt-get upgrade -y; \
     apt-get install -y --no-install-recommends \
+        bash \
+        curl \
+        ca-certificates \
+        gnupg \
         fontconfig \
         fonts-dejavu \
         fonts-jetbrains-mono \
         fonts-cascadia-code \
         tzdata \
-        curl \
         libxml2 \
         sqlite3 \
-        nodejs \
-        npm && \
-    fc-cache -f -v && \
+        zlib1g \
+        libjpeg62-turbo; \
+    curl -fsSL https://deb.nodesource.com/setup_18.x | bash -; \
+    apt-get install -y --no-install-recommends nodejs; \
+    fc-cache -f -v; \
     rm -rf /var/lib/apt/lists/*
 
 # שמירה על גרסאות pip/setuptools מעודכנות
