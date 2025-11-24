@@ -106,15 +106,197 @@
     </div>
 </div>
 
-<div class="glass-card" style="margin-top: 2rem;">
-    <h2 class="section-title">
-        <i class="fas fa-chart-line"></i>
-        גרף פעילות
-    </h2>
-    <div id="activityChart" style="height: 200px; display: flex; align-items: center; justify-content: center; background: rgba(255,255,255,0.05); border-radius: 10px;">
-        <p style="opacity: 0.7;">בקרוב: גרף פעילות שבועי</p>
+<section class="activity-section" id="activity-timeline">
+    <div class="activity-header">
+        <div class="activity-title">
+            <h2 class="section-title">
+                <i class="fas fa-bolt"></i>
+                היסטוריית פעולות
+            </h2>
+            <p class="activity-subtitle">קח החלטות מהירות עם תמונת מצב של שמירות, פוש וגיבויים</p>
+        </div>
+        {% if activity_timeline.filters %}
+        <div class="timeline-filters desktop-only">
+            {% for filter in activity_timeline.filters %}
+            <button type="button"
+                    class="timeline-filter-btn{% if loop.first %} is-active{% endif %}"
+                    data-filter="{{ filter.id }}">
+                <span>{{ filter.label }}</span>
+                <span class="filter-count">{{ filter.count }}</span>
+            </button>
+            {% endfor %}
+        </div>
+        {% endif %}
     </div>
-</div>
+
+    <div class="activity-cards" data-activity-cards data-active-filter="all">
+        <article class="activity-card timeline-card glass-card" data-card="timeline" data-expanded="false">
+            <header class="timeline-card-header">
+                <div>
+                    <h3>פיד אחרון</h3>
+                    <p>במובייל מוצגים 5 אירועים בלבד · בדסקטופ נפתחת היסטוריה מלאה</p>
+                </div>
+                <button class="timeline-expand mobile-only" type="button" data-timeline-expand>
+                    <span>הצג הכול</span>
+                    <i class="fas fa-chevron-down"></i>
+                </button>
+            </header>
+
+            <div class="timeline-feed mobile-only" data-timeline-feed>
+                {% if activity_timeline.has_events %}
+                    {% for event in activity_timeline.feed %}
+                        {% if loop.index <= activity_timeline.compact_limit %}
+                        <article class="timeline-item" data-timeline-event data-group="{{ event.group }}" data-accent="{{ event.accent }}">
+                            <div class="timeline-marker"></div>
+                            <div class="timeline-item-body">
+                                <div class="timeline-item-header">
+                                    <div class="timeline-icon">{{ event.icon }}</div>
+                                    <div class="timeline-texts">
+                                        <div class="timeline-title">{{ event.title }}</div>
+                                        <div class="timeline-subtitle">{{ event.subtitle }}</div>
+                                    </div>
+                                    <div class="timeline-time">{{ event.relative_time }}</div>
+                                </div>
+                                <div class="timeline-item-footer">
+                                    {% if event.badge %}
+                                    <span class="timeline-badge timeline-badge-{{ event.badge_variant|default('neutral') }}">{{ event.badge }}</span>
+                                    {% endif %}
+                                    {% if event.href %}
+                                    <a class="timeline-link" href="{{ event.href }}">פתח</a>
+                                    {% endif %}
+                                </div>
+                            </div>
+                        </article>
+                        {% endif %}
+                    {% endfor %}
+                {% else %}
+                    <p class="timeline-empty">עוד לא שמרת קבצים, פתקים או תזכורות. כל פעולה חדשה תופיע כאן.</p>
+                {% endif %}
+            </div>
+
+            <div class="timeline-groups" data-timeline-groups>
+                {% if activity_timeline.groups %}
+                    {% for group in activity_timeline.groups %}
+                    <div class="timeline-group" data-group="{{ group.id }}">
+                        <button class="group-toggle" type="button" data-group-toggle>
+                            <div class="group-info">
+                                <span class="group-icon">{{ group.icon }}</span>
+                                <div>
+                                    <div class="group-title">{{ group.title }}</div>
+                                    <div class="group-summary">{{ group.summary }}</div>
+                                </div>
+                            </div>
+                            <i class="fas fa-chevron-down"></i>
+                        </button>
+                        <div class="group-items">
+                            {% for event in group.events %}
+                            <article class="timeline-item" data-timeline-event data-group="{{ group.id }}" data-accent="{{ event.accent }}">
+                                <div class="timeline-marker"></div>
+                                <div class="timeline-item-body">
+                                    <div class="timeline-item-header">
+                                        <div class="timeline-icon">{{ event.icon }}</div>
+                                        <div class="timeline-texts">
+                                            <div class="timeline-title">{{ event.title }}</div>
+                                            <div class="timeline-subtitle">{{ event.subtitle }}</div>
+                                        </div>
+                                        <div class="timeline-time">{{ event.relative_time }}</div>
+                                    </div>
+                                    <div class="timeline-item-footer">
+                                        {% if event.badge %}
+                                        <span class="timeline-badge timeline-badge-{{ event.badge_variant|default('neutral') }}">{{ event.badge }}</span>
+                                        {% endif %}
+                                        {% if event.href %}
+                                        <a class="timeline-link" href="{{ event.href }}">פתח</a>
+                                        {% endif %}
+                                    </div>
+                                </div>
+                            </article>
+                            {% endfor %}
+                        </div>
+                    </div>
+                    {% endfor %}
+                {% else %}
+                    <p class="timeline-empty">אין נתוני פעילות זמינים.</p>
+                {% endif %}
+            </div>
+        </article>
+
+        <article class="activity-card push-card glass-card" data-card="push">
+            <header class="mini-card-header">
+                <div class="card-icon">📣</div>
+                <div>
+                    <h3>הגדרות פוש</h3>
+                    <span class="status-pill status-{{ push_card.status_variant|default('neutral') }}">{{ push_card.status_text }}</span>
+                </div>
+            </header>
+            <ul class="push-stats">
+                <li>
+                    <span>מנויים פעילים</span>
+                    <strong>{{ push_card.subscriptions }}</strong>
+                </li>
+                <li>
+                    <span>תזכורות בהמתנה</span>
+                    <strong>{{ push_card.pending_count }}</strong>
+                </li>
+                <li>
+                    <span>שליחה אחרונה</span>
+                    {% if push_card.last_push %}
+                    <strong>{{ push_card.last_push.title }}</strong>
+                    <small>{{ push_card.last_push.relative_time }}</small>
+                    {% else %}
+                    <strong>לא נשלחו התראות</strong>
+                    {% endif %}
+                </li>
+                <li>
+                    <span>התזכורת הבאה</span>
+                    {% if push_card.next_reminder %}
+                    <strong>{{ push_card.next_reminder.title }}</strong>
+                    <small>{{ push_card.next_reminder.relative_time }}</small>
+                    {% else %}
+                    <strong>אין תזמון עתידי</strong>
+                    {% endif %}
+                </li>
+            </ul>
+            <a href="{{ push_card.cta_href }}" class="btn btn-secondary btn-icon">
+                <i class="fas fa-sliders-h"></i>
+                {{ push_card.cta_label }}
+            </a>
+        </article>
+
+        <article class="activity-card notes-card glass-card" data-card="notes">
+            <header class="mini-card-header">
+                <div class="card-icon">🗒️</div>
+                <div>
+                    <h3>פתקים אחרונים</h3>
+                    <p>תצוגה מהירה של מה שמחכים להמשך</p>
+                </div>
+            </header>
+            {% if notes_snapshot.has_notes %}
+            <ul class="notes-list">
+                {% for note in notes_snapshot.notes %}
+                <li>
+                    <div class="note-title">{{ note.title }}</div>
+                    <div class="note-meta">
+                        {{ note.file_name }}
+                        <span>·</span>
+                        <span>{{ note.relative_time }}</span>
+                    </div>
+                    {% if note.file_url %}
+                    <a class="note-link" href="{{ note.file_url }}">פתח קובץ</a>
+                    {% endif %}
+                </li>
+                {% endfor %}
+            </ul>
+            {% if notes_snapshot.total > notes_snapshot.notes|length %}
+            <p class="notes-more">ועוד {{ notes_snapshot.total - notes_snapshot.notes|length }} פתקים</p>
+            {% endif %}
+            {% else %}
+            <p class="timeline-empty">עוד לא הוספת פתקים להצגת המצב. תוכל להוסיף פתק דרך תצוגת Markdown של קובץ.</p>
+            <a class="note-link" href="/files">פתח קובץ חדש</a>
+            {% endif %}
+        </article>
+    </div>
+</section>
 
 <div class="quick-actions glass-card" style="margin-top: 2rem; text-align: center;">
     <h2 class="section-title">פעולות מהירות</h2>
@@ -154,6 +336,382 @@
         grid-template-columns: 1fr !important;
     }
 }
+
+.activity-section {
+    margin-top: 2rem;
+    display: flex;
+    flex-direction: column;
+    gap: 1.5rem;
+}
+
+.activity-header {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: space-between;
+    gap: 1rem;
+    align-items: flex-start;
+}
+
+.activity-subtitle {
+    margin: 0.35rem 0 0;
+    opacity: 0.75;
+    font-size: 0.95rem;
+}
+
+.activity-cards {
+    display: flex;
+    gap: 1rem;
+    overflow-x: auto;
+    scroll-snap-type: x mandatory;
+    padding-bottom: 0.5rem;
+}
+
+.activity-card {
+    min-width: calc(100% - 1.5rem);
+    scroll-snap-align: start;
+}
+
+.timeline-card-header {
+    display: flex;
+    justify-content: space-between;
+    gap: 1rem;
+    align-items: flex-start;
+}
+
+.timeline-feed,
+.timeline-groups {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+}
+
+.timeline-groups {
+    display: none;
+}
+
+.timeline-card[data-expanded="true"] .timeline-groups {
+    display: flex;
+}
+
+.timeline-card[data-expanded="true"] .timeline-feed {
+    display: none;
+}
+
+.timeline-item {
+    position: relative;
+    padding: 1rem 2.2rem 1rem 1rem;
+    border-radius: 14px;
+    background: rgba(255,255,255,0.02);
+    border-right: 3px solid rgba(255,255,255,0.08);
+}
+
+.timeline-marker {
+    position: absolute;
+    top: 1.1rem;
+    right: 0.4rem;
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    background: #c084fc;
+    box-shadow: 0 0 0 4px rgba(192,132,252,0.2);
+}
+
+.timeline-item[data-accent="timeline-accent-push"] .timeline-marker {
+    background: #fb923c;
+    box-shadow: 0 0 0 4px rgba(251,146,60,0.2);
+}
+
+.timeline-item[data-accent="timeline-accent-backup"] .timeline-marker {
+    background: #38bdf8;
+    box-shadow: 0 0 0 4px rgba(56,189,248,0.2);
+}
+
+.timeline-item-header {
+    display: flex;
+    gap: 0.75rem;
+    align-items: flex-start;
+    justify-content: space-between;
+}
+
+.timeline-icon {
+    font-size: 1.25rem;
+}
+
+.timeline-texts {
+    flex: 1;
+    text-align: right;
+}
+
+.timeline-title {
+    font-weight: 600;
+}
+
+.timeline-subtitle {
+    font-size: 0.9rem;
+    opacity: 0.75;
+}
+
+.timeline-time {
+    white-space: nowrap;
+    font-size: 0.85rem;
+    opacity: 0.65;
+}
+
+.timeline-item-footer {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-top: 0.75rem;
+    gap: 1rem;
+}
+
+.timeline-badge {
+    border-radius: 999px;
+    padding: 0.15rem 0.9rem;
+    font-size: 0.8rem;
+    background: rgba(255,255,255,0.12);
+}
+
+.timeline-badge-code {
+    background: rgba(168,85,247,0.2);
+    color: #f3e8ff;
+}
+
+.timeline-badge-info {
+    background: rgba(59,130,246,0.2);
+    color: #dbeafe;
+}
+
+.timeline-badge-warning {
+    background: rgba(251,191,36,0.2);
+    color: #fef9c3;
+}
+
+.timeline-badge-neutral {
+    background: rgba(148,163,184,0.2);
+    color: #e2e8f0;
+}
+
+.timeline-link {
+    color: #a5b4fc;
+    font-weight: 600;
+    font-size: 0.85rem;
+}
+
+.timeline-empty {
+    opacity: 0.7;
+    text-align: center;
+}
+
+.timeline-expand {
+    width: 100%;
+    margin-top: 1rem;
+    background: rgba(255,255,255,0.05);
+    border: none;
+    color: inherit;
+    border-radius: 10px;
+    padding: 0.75rem 1rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+}
+
+.timeline-group {
+    border-radius: 14px;
+    background: rgba(255,255,255,0.02);
+}
+
+.group-toggle {
+    width: 100%;
+    border: none;
+    background: transparent;
+    color: inherit;
+    padding: 1rem 1.25rem;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 1rem;
+}
+
+.group-info {
+    display: flex;
+    gap: 0.75rem;
+    align-items: center;
+}
+
+.group-items {
+    display: none;
+    flex-direction: column;
+    gap: 1rem;
+    padding: 0 1.25rem 1.25rem;
+}
+
+.timeline-group.is-open .group-items {
+    display: flex;
+}
+
+.timeline-item.is-hidden-by-filter,
+.timeline-group.is-hidden-by-filter {
+    display: none !important;
+}
+
+.mobile-only {
+    display: block;
+}
+
+.desktop-only {
+    display: none;
+}
+
+.timeline-filter-btn {
+    background: rgba(255,255,255,0.05);
+    border: 1px solid transparent;
+    color: inherit;
+    border-radius: 999px;
+    padding: 0.45rem 0.9rem;
+    display: flex;
+    gap: 0.4rem;
+    align-items: center;
+}
+
+.timeline-filter-btn.is-active {
+    border-color: rgba(167,139,250,0.4);
+    background: rgba(129,140,248,0.15);
+}
+
+.filter-count {
+    font-size: 0.85rem;
+    opacity: 0.8;
+}
+
+.mini-card-header {
+    display: flex;
+    gap: 0.75rem;
+    align-items: center;
+    margin-bottom: 1rem;
+}
+
+.card-icon {
+    width: 44px;
+    height: 44px;
+    border-radius: 12px;
+    display: grid;
+    place-items: center;
+    font-size: 1.4rem;
+    background: rgba(255,255,255,0.08);
+}
+
+.status-pill {
+    display: inline-flex;
+    padding: 0.1rem 0.75rem;
+    border-radius: 999px;
+    font-size: 0.8rem;
+}
+
+.status-success {
+    background: rgba(34,197,94,0.2);
+    color: #bbf7d0;
+}
+
+.status-warning {
+    background: rgba(251,191,36,0.2);
+    color: #fef3c7;
+}
+
+.status-danger {
+    background: rgba(248,113,113,0.2);
+    color: #fecaca;
+}
+
+.status-neutral {
+    background: rgba(148,163,184,0.2);
+    color: #e2e8f0;
+}
+
+.push-stats {
+    list-style: none;
+    padding: 0;
+    margin: 0 0 1rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+}
+
+.push-stats li {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 0.5rem;
+}
+
+.push-stats strong {
+    font-size: 1rem;
+}
+
+.notes-list {
+    list-style: none;
+    padding: 0;
+    margin: 0 0 1rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.85rem;
+}
+
+.note-title {
+    font-weight: 600;
+}
+
+.note-meta {
+    font-size: 0.85rem;
+    opacity: 0.75;
+}
+
+.note-link {
+    font-size: 0.85rem;
+    color: #a5b4fc;
+}
+
+.notes-more {
+    font-size: 0.85rem;
+    opacity: 0.75;
+}
+
+@media (min-width: 900px) {
+    .activity-cards {
+        display: grid;
+        grid-template-columns: minmax(0, 2fr) minmax(0, 1fr);
+        grid-template-rows: auto auto;
+        overflow: visible;
+    }
+
+    .activity-card {
+        min-width: 0;
+        scroll-snap-align: unset;
+    }
+
+    .timeline-card {
+        grid-row: span 2;
+    }
+
+    .timeline-card .timeline-feed,
+    .timeline-expand {
+        display: none !important;
+    }
+
+    .timeline-card .timeline-groups {
+        display: flex !important;
+    }
+
+    .mobile-only {
+        display: none !important;
+    }
+
+    .desktop-only {
+        display: flex !important;
+        gap: 0.5rem;
+    }
+}
 </style>
 
 <script>
@@ -174,5 +732,73 @@ function refreshStats() {
             btn.disabled = false;
         });
 }
+
+document.addEventListener('DOMContentLoaded', () => {
+    const timelineCard = document.querySelector('[data-card="timeline"]');
+    const activityWrapper = document.querySelector('[data-activity-cards]');
+    if (!timelineCard || !activityWrapper) {
+        return;
+    }
+
+    const filterButtons = activityWrapper.querySelectorAll('.timeline-filter-btn[data-filter]');
+    const timelineEvents = timelineCard.querySelectorAll('[data-timeline-event]');
+
+    const applyFilter = (filter) => {
+        timelineCard.querySelectorAll('.timeline-group').forEach(group => {
+            const groupId = group.getAttribute('data-group');
+            const hide = filter !== 'all' && filter !== groupId;
+            group.classList.toggle('is-hidden-by-filter', hide);
+        });
+        timelineEvents.forEach(eventEl => {
+            const groupId = eventEl.getAttribute('data-group');
+            const hide = filter !== 'all' && filter !== groupId;
+            eventEl.classList.toggle('is-hidden-by-filter', hide);
+        });
+        activityWrapper.setAttribute('data-active-filter', filter);
+    };
+
+    filterButtons.forEach(btn => {
+        btn.addEventListener('click', () => {
+            filterButtons.forEach(other => other.classList.toggle('is-active', other === btn));
+            applyFilter(btn.getAttribute('data-filter') || 'all');
+        });
+    });
+
+    const expandBtn = timelineCard.querySelector('[data-timeline-expand]');
+    if (expandBtn) {
+        expandBtn.addEventListener('click', () => {
+            timelineCard.dataset.manualExpand = 'true';
+            timelineCard.setAttribute('data-expanded', 'true');
+            timelineCard.querySelectorAll('.timeline-group').forEach(group => group.classList.add('is-open'));
+            expandBtn.style.display = 'none';
+        });
+    }
+
+    timelineCard.querySelectorAll('[data-group-toggle]').forEach(toggle => {
+        toggle.addEventListener('click', () => {
+            const parent = toggle.closest('.timeline-group');
+            if (parent) {
+                parent.classList.toggle('is-open');
+            }
+        });
+    });
+
+    const mq = window.matchMedia('(min-width: 900px)');
+    const syncDesktop = () => {
+        if (mq.matches) {
+            timelineCard.setAttribute('data-expanded', 'true');
+            timelineCard.querySelectorAll('.timeline-group').forEach(group => group.classList.add('is-open'));
+        } else if (!timelineCard.dataset.manualExpand) {
+            timelineCard.setAttribute('data-expanded', 'false');
+            timelineCard.querySelectorAll('.timeline-group').forEach(group => group.classList.remove('is-open'));
+        }
+    };
+    try {
+        mq.addEventListener('change', syncDesktop);
+    } catch (err) {
+        mq.addListener(syncDesktop);
+    }
+    syncDesktop();
+});
 </script>
 {% endblock %}
