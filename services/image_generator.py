@@ -881,6 +881,11 @@ class CodeImageGenerator:
         max_width = min(max(160, min(int(base.width * 0.35), 320)), card_width)
         if base.width - max_width < 60 or base.height < 120 or max_width < 80:
             return img
+        content_top = self.CARD_MARGIN + self.TITLE_BAR_HEIGHT + inner_padding
+        content_bottom = base.height - self.CARD_MARGIN - inner_padding
+        available_height = max(0, content_bottom - content_top)
+        if available_height <= 0:
+            return img
         font_size = max(14, self.FONT_SIZE + 4)
         font = self._get_note_font(font_size, bold=True)
         padding = 18
@@ -896,6 +901,14 @@ class CodeImageGenerator:
         except Exception:
             measured_height = font_size
         line_height = max(24, int(measured_height * 1.2))
+        min_note_height = padding * 2 + line_height
+        if available_height < min_note_height:
+            return img
+        space_for_lines = max(0, available_height - padding * 2)
+        max_lines_fit = min(len(lines), max(1, space_for_lines // line_height))
+        if len(lines) > max_lines_fit:
+            lines = lines[:max_lines_fit]
+            lines[-1] = lines[-1][: max(0, len(lines[-1]) - 1)] + "…"
         height = padding * 2 + line_height * len(lines)
         overlay = Image.new('RGBA', (max_width, height), (255, 244, 148, 235))
         draw = ImageDraw.Draw(overlay)
@@ -922,8 +935,6 @@ class CodeImageGenerator:
         card_left = card_left_boundary
         card_right = card_right_boundary
         x = max(card_left, card_right - max_width)
-        content_top = self.CARD_MARGIN + self.TITLE_BAR_HEIGHT + inner_padding
-        content_bottom = base.height - self.CARD_MARGIN - inner_padding
         y = content_top
         if y + height > content_bottom:
             y = max(content_top, content_bottom - height)
