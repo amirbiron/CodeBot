@@ -3725,8 +3725,12 @@ async def setup_bot_data(application: Application) -> None:  # noqa: D401
                         continue
             except Exception:
                 pass
-        # Run once shortly after startup to restore jobs after restarts/deploys
-        application.job_queue.run_once(_reschedule_drive_jobs, when=1)
+        # Run once shortly after startup כדי לאפשר ל-JobQueue להתייצב בלי אזהרות misfire
+        application.job_queue.run_once(
+            _reschedule_drive_jobs,
+            when=5,  # השיהיה קטנה כדי לא לעקוף את זמן הסטארטאפ של APScheduler
+            job_kwargs={"misfire_grace_time": 30},  # משאיר מרווח נשימה כך שאיחור קטן לא ידווח
+        )
     except Exception:
         logger.warning("Failed to schedule Drive jobs rescan on startup")
 
