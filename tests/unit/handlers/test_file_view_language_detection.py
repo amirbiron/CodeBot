@@ -14,7 +14,13 @@ async def test_edit_large_file_detects_bash_via_shebang(monkeypatch):
         def save_large_file(self, *, user_id, file_name, content, programming_language, file_size, lines_count):
             saved["language"] = programming_language
             return True
-    monkeypatch.setitem(sys.modules, "src.infrastructure.composition", types.SimpleNamespace(get_files_facade=lambda: _Facade()))
+    # Set get_files_facade on the real module to avoid import caching issues
+    mod_name = "src.infrastructure.composition"
+    mod = sys.modules.get(mod_name)
+    if mod is None:
+        mod = types.ModuleType(mod_name)
+        monkeypatch.setitem(sys.modules, mod_name, mod)
+    monkeypatch.setattr(mod, "get_files_facade", lambda: _Facade(), raising=False)
 
     # Prepare update/context for large-file edit flow
     class Msg:
@@ -53,7 +59,12 @@ async def test_edit_regular_file_detects_yaml_for_taskfile(monkeypatch):
             return True
         def get_latest_version(self, user_id, file_name):
             return {"version": 1, "_id": "x1"}
-    monkeypatch.setitem(sys.modules, "src.infrastructure.composition", types.SimpleNamespace(get_files_facade=lambda: _Facade()))
+    mod_name = "src.infrastructure.composition"
+    mod = sys.modules.get(mod_name)
+    if mod is None:
+        mod = types.ModuleType(mod_name)
+        monkeypatch.setitem(sys.modules, mod_name, mod)
+    monkeypatch.setattr(mod, "get_files_facade", lambda: _Facade(), raising=False)
 
     # Make validation pass-through
     monkeypatch.setattr(
@@ -107,7 +118,12 @@ async def test_edit_regular_file_detects_env_for_dotenv(monkeypatch):
             return True
         def get_latest_version(self, user_id, file_name):
             return {"version": 1}
-    monkeypatch.setitem(sys.modules, "src.infrastructure.composition", types.SimpleNamespace(get_files_facade=lambda: _Facade()))
+    mod_name = "src.infrastructure.composition"
+    mod = sys.modules.get(mod_name)
+    if mod is None:
+        mod = types.ModuleType(mod_name)
+        monkeypatch.setitem(sys.modules, mod_name, mod)
+    monkeypatch.setattr(mod, "get_files_facade", lambda: _Facade(), raising=False)
 
     # Pass validation
     monkeypatch.setattr(
