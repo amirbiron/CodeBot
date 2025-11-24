@@ -1,5 +1,11 @@
 #!/usr/bin/env sh
-set -euo pipefail
+set -eu
+
+# Enable pipefail when running under shells that support it (dash does not).
+if [ -n "${BASH_VERSION:-}" ] || [ -n "${ZSH_VERSION:-}" ]; then
+  # shellcheck disable=SC3040
+  set -o pipefail
+fi
 
 # Load local worker overrides if present (not committed to git)
 if [ -f ".env.worker" ]; then
