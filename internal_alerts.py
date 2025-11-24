@@ -55,13 +55,13 @@ def _format_text(name: str, severity: str, summary: str, details: Dict[str, Any]
     sentry_url = os.getenv("SENTRY_DASHBOARD_URL")
     sentry_org = os.getenv("SENTRY_ORG")
     if sentry_url:
-        parts.append(f"\n[Open in Sentry]({sentry_url})")
+        parts.append(f"\n[פתח ב-Sentry]({sentry_url})")
     elif sentry_org and os.getenv("SENTRY_DSN"):
         # Construct search link
         import urllib.parse
         query = urllib.parse.quote(f"is:unresolved {name}")
         link = f"https://{sentry_org}.sentry.io/issues/?query={query}"
-        parts.append(f"\n[Open in Sentry]({link})")
+        parts.append(f"\n[פתח ב-Sentry]({link})")
 
     return "\n".join(parts)
 
