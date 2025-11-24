@@ -413,7 +413,9 @@ class AdvancedBotHandlers:
         context.user_data.pop('waiting_for_image_note', None)
         message = getattr(update, 'message', None)
         if message is None:
-            return False
+            # החזר דגל כדי שלא לאבד את מצב הפתקית, ומנע המשך עיבוד
+            context.user_data['waiting_for_image_note'] = state
+            raise ApplicationHandlerStop()
         file_name = (state.get('file_name') or state.get('file') or '').strip()
         if not file_name:
             await message.reply_text("⚠️ לא הצלחתי לאתר את הקובץ לעדכון הפתקית.")

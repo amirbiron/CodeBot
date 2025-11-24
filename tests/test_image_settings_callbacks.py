@@ -120,3 +120,10 @@ async def test_image_settings_callbacks_and_persist(monkeypatch):
     # 8) Clear the note via button
     await h.handle_callback_query(_Upd('img_note_clear:demo.py'), ctx)
     assert not ctx.user_data.get('img_settings', {}).get('demo.py', {}).get('note')
+
+    # 9) Missing message should restore waiting state and stop propagation
+    ctx.user_data['waiting_for_image_note'] = {'file_name': 'demo.py'}
+    no_msg_update = SimpleNamespace(effective_user=SimpleNamespace(id=123))
+    with pytest.raises(ApplicationHandlerStop):
+        await h._handle_image_note_input(no_msg_update, ctx)
+    assert ctx.user_data.get('waiting_for_image_note', {}).get('file_name') == 'demo.py'
