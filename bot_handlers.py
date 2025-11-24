@@ -375,7 +375,7 @@ class AdvancedBotHandlers:
         def _lbl(selected: bool, selected_label: str, default_label: str) -> str:
             return (f"✅ {selected_label}" if selected else default_label)
 
-        kb = InlineKeyboardMarkup([
+        rows: List[List[InlineKeyboardButton]] = [
             [
                 InlineKeyboardButton(
                     _lbl(current_theme == 'dark', 'Dark', '🎨 Dark'),
@@ -412,33 +412,58 @@ class AdvancedBotHandlers:
                     callback_data=_mk_theme_cb('dracula')
                 ),
             ],
-            [
+        ]
+
+        width_buttons: List[InlineKeyboardButton] = []
+        for opt in self._get_configured_width_options():
+            width_buttons.append(
                 InlineKeyboardButton(
-                    _lbl(current_width == 800, '800px', '⬅️ 800px'),
-                    callback_data=_mk_width_cb(800)
-                ),
-                InlineKeyboardButton(
-                    _lbl(current_width == 1400, '1400px', '➡️ 1400px'),
-                    callback_data=_mk_width_cb(1400)
-                ),
-            ],
-            [
-                InlineKeyboardButton(
-                    _lbl(current_font == 'dejavu', 'DejaVu', '📝 DejaVu Sans Mono'),
-                    callback_data=f"img_set_font:dejavu:{font_suffix}"
-                ),
-                InlineKeyboardButton(
-                    _lbl(current_font == 'jetbrains', 'JetBrains', '🚀 JetBrains Mono'),
-                    callback_data=f"img_set_font:jetbrains:{font_suffix}"
-                ),
-                InlineKeyboardButton(
-                    _lbl(current_font == 'cascadia', 'Cascadia', '💻 Cascadia Code'),
-                    callback_data=f"img_set_font:cascadia:{font_suffix}"
-                ),
-            ],
-            [InlineKeyboardButton("שמור", callback_data=f"img_settings_done:{done_suffix}")],
+                    _lbl(current_width == opt, f"{opt}px", f"{opt}px"),
+                    callback_data=_mk_width_cb(opt)
+                )
+            )
+        for i in range(0, len(width_buttons), 2):
+            rows.append(width_buttons[i:i + 2])
+
+        rows.append([
+            InlineKeyboardButton(
+                _lbl(current_font == 'dejavu', 'DejaVu', '📝 DejaVu Sans Mono'),
+                callback_data=f"img_set_font:dejavu:{font_suffix}"
+            ),
+            InlineKeyboardButton(
+                _lbl(current_font == 'jetbrains', 'JetBrains', '🚀 JetBrains Mono'),
+                callback_data=f"img_set_font:jetbrains:{font_suffix}"
+            ),
+            InlineKeyboardButton(
+                _lbl(current_font == 'cascadia', 'Cascadia', '💻 Cascadia Code'),
+                callback_data=f"img_set_font:cascadia:{font_suffix}"
+            ),
         ])
-        return kb
+        rows.append([InlineKeyboardButton("שמור", callback_data=f"img_settings_done:{done_suffix}")])
+        return InlineKeyboardMarkup(rows)
+
+    def _get_configured_width_options(self) -> List[int]:
+        """הפקת רשימת רוחבים זמינים (מסוננת וממוינת)."""
+        fallback = [800, 1200, 1400, 1800, 2000]
+        try:
+            raw = IMAGE_CONFIG.get('width_options')
+            if not raw:
+                return fallback
+            if isinstance(raw, int):
+                raw = [raw]
+            widths: List[int] = []
+            for val in raw:
+                try:
+                    w = int(val)
+                    if w >= 600 and w <= 2600:
+                        widths.append(w)
+                except Exception:
+                    continue
+            if not widths:
+                return fallback
+            return sorted(dict.fromkeys(widths))
+        except Exception:
+            return fallback
 
     def _get_effective_image_settings(self, user_id: int, context: ContextTypes.DEFAULT_TYPE, file_name: str) -> Dict[str, Any]:
         """מאחד העדפות פר-משתמש (DB) עם העדפות פר-קובץ (context)."""
@@ -455,6 +480,20 @@ class AdvancedBotHandlers:
         merged = dict(base)
         merged.update(overrides)
         return merged
+    
+    def _build_image_error_hint(self, requested_width: Optional[int], code_length: int) -> str:
+        """טקסט עזרה עדין לשגיאות, עם הדגשה על הורדת רזולוציה/קיצור קובץ."""
+        try:
+            suggestions: List[str] = []
+            if requested_width and requested_width >= 1600:
+                suggestions.append("נסה לבחור רוחב נמוך יותר דרך הכפתור \"📝 ערוך הגדרות\" (למשל 1200px או 1400px).")
+            if code_length > 12000:
+                suggestions.append("לקבצים ארוכים במיוחד כדאי ליצור תמונה רק לחלק מהשורות או לקצר מעט.")
+            if not suggestions:
+                suggestions.append("אפשר לנסות שוב אחרי הקטנת הרוחב או קיצור הקובץ.")
+            return "\n💡 " + " ".join(suggestions)
+        except Exception:
+            return "\n💡 נסה שוב אחרי הקטנת הרוחב או קיצור הקובץ."
     
     async def _edit_message_with_media_fallback(
         self,
@@ -4053,12 +4092,16 @@ class AdvancedBotHandlers:
             await update.message.reply_text("❌ הקובץ ריק.")
             return
 
+        code_length = len(code)
+        requested_width: Optional[int] = None
+
         try:
             # העדפות אפקטיביות: פר-משתמש (DB) עם דריסה פר-קובץ (context)
             settings = self._get_effective_image_settings(user_id, context, file_name)
             style = str(settings.get('style') or IMAGE_CONFIG.get('default_style') or 'monokai')
             theme = str(settings.get('theme') or IMAGE_CONFIG.get('default_theme') or 'dark')
             width = int(settings.get('width') or IMAGE_CONFIG.get('default_width') or 1200)
+            requested_width = width
             font_family = str(settings.get('font') or 'dejavu')
 
             generator = CodeImageGenerator(style=style, theme=theme, font_family=font_family)
@@ -4100,7 +4143,8 @@ class AdvancedBotHandlers:
         except Exception as e:
             logger.error(f"Error generating image: {e}", exc_info=True)
             await update.message.reply_text(
-                f"❌ שגיאה ביצירת תמונה: <code>{html.escape(str(e))}</code>",
+                f"❌ שגיאה ביצירת תמונה: <code>{html.escape(str(e))}</code>"
+                f"{self._build_image_error_hint(requested_width, code_length)}",
                 parse_mode=ParseMode.HTML,
             )
 
