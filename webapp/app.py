@@ -50,7 +50,6 @@ from http_sync import request as http_request  # noqa: E402
 
 # נרמול טקסט/קוד לפני שמירה (הסרת תווים נסתרים, כיווניות, אחידות שורות)
 from utils import normalize_code, TimeUtils, detect_language_from_filename  # noqa: E402
-from file_manager import backup_manager  # noqa: E402
 
 # קונפיגורציה מרכזית (Pydantic Settings)
 try:  # שמירה על יציבות גם בסביבות דוקס/CI
@@ -3951,9 +3950,8 @@ def logout():
 _TIMELINE_GROUP_META: Dict[str, Dict[str, str]] = {
     'files': {'title': 'קבצים', 'icon': '📁', 'accent': 'timeline-accent-code'},
     'push': {'title': 'התראות פוש', 'icon': '📣', 'accent': 'timeline-accent-push'},
-    'backups': {'title': 'גיבויים', 'icon': '🗄️', 'accent': 'timeline-accent-backup'},
 }
-_TIMELINE_LIMITS = {'files': 12, 'push': 8, 'backups': 5}
+_TIMELINE_LIMITS = {'files': 12, 'push': 8}
 _MIN_DT = datetime(1970, 1, 1, tzinfo=timezone.utc)
 
 
@@ -4220,41 +4218,6 @@ def _build_activity_timeline(db, user_id: int, active_query: Optional[Dict[str, 
                 badge_variant=variant,
                 href=href,
                 status=status,
-            )
-        )
-
-    # Backup events
-    try:
-        backups = backup_manager.list_backups(int(user_id))[: _TIMELINE_LIMITS['backups']]
-    except Exception:
-        backups = []
-        errors.append('backups')
-    for backup in backups or []:
-        dt = getattr(backup, 'created_at', None)
-        title = f"גיבוי {getattr(backup, 'backup_id', '') or 'ללא שם'}"
-        subtitle_parts: List[str] = []
-        file_count = getattr(backup, 'file_count', 0)
-        if file_count:
-            subtitle_parts.append(f"{file_count} קבצים")
-        total_size = getattr(backup, 'total_size', 0)
-        if total_size:
-            subtitle_parts.append(format_file_size(total_size))
-        repo = getattr(backup, 'repo', None)
-        if repo:
-            subtitle_parts.append(str(repo))
-        subtitle = " · ".join(subtitle_parts) if subtitle_parts else "גיבוי מוכן לשחזור"
-        backup_type = str(getattr(backup, 'backup_type', '') or '').lower()
-        badge = "אוטומטי" if backup_type in {'scheduled', 'drive', 'auto'} else "ידני"
-        variant = "info" if badge == "אוטומטי" else "neutral"
-        events['backups'].append(
-            _build_timeline_event(
-                'backups',
-                title=title,
-                subtitle=subtitle,
-                dt=dt,
-                icon='🗄️',
-                badge=badge,
-                badge_variant=variant,
             )
         )
 
