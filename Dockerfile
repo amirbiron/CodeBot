@@ -1,121 +1,100 @@
 # syntax=docker/dockerfile:1.6
 # ===================================
-# Code Keeper Bot - Production Dockerfile (Debian slim)
+# Code Keeper Bot - Production Dockerfile (Playwright base)
 # ===================================
 
-# שלב 1: Build stage (wheel build if needed)
-FROM python:3.12-slim AS builder
+######################################
+# שלב 1: Build stage (pip wheels + cache)
+FROM mcr.microsoft.com/playwright/python:v1.49.0-jammy AS builder
 
-# מידע על התמונה
 LABEL maintainer="Code Keeper Bot Team"
-LABEL version="1.0.0"
+LABEL version="1.1.0"
 LABEL description="Advanced Telegram bot for managing code snippets"
 
+USER root
+
 # משתני סביבה לבילד
-ENV PYTHONUNBUFFERED=1
-ENV PYTHONDONTWRITEBYTECODE=1
-ENV PIP_NO_CACHE_DIR=0
-ENV PIP_DISABLE_PIP_VERSION_CHECK=1
-ENV PIP_DEFAULT_TIMEOUT=100
-ENV PIP_INDEX_URL=https://pypi.org/simple
-# עדכון חבילות מערכת ושדרוג כלי פייתון בסיסיים (pip/setuptools/wheel)
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PIP_NO_CACHE_DIR=0 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    PIP_DEFAULT_TIMEOUT=100 \
+    PIP_INDEX_URL=https://pypi.org/simple \
+    DEBIAN_FRONTEND=noninteractive
+
+# כלים לבניית חבילות heavy (wheels)
 RUN apt-get update -y && apt-get upgrade -y && \
-    python -m pip install --upgrade --no-cache-dir 'pip>=24.1' 'setuptools>=78.1.1' 'wheel>=0.43.0'
-# Build deps for wheels
-RUN apt-get install -y --no-install-recommends \
-    build-essential \
-    python3-dev \
-    libc6-dev \
-    libffi-dev \
-    libssl-dev \
-    pkg-config \
-    libjpeg-dev \
-    zlib1g-dev && \
+    apt-get install -y --no-install-recommends \
+        build-essential \
+        python3-dev \
+        libc6-dev \
+        libffi-dev \
+        libssl-dev \
+        pkg-config \
+        libjpeg-dev \
+        zlib1g-dev && \
     rm -rf /var/lib/apt/lists/*
 
-# בשכבת ה-build אין צורך במשתמש נפרד (נשתמש ב-root); המשתמש ייווצר רק בשכבת ה-production
+RUN python -m pip install --upgrade --no-cache-dir 'pip>=24.1' 'setuptools>=78.1.1' 'wheel>=0.43.0'
 
-# יצירת תיקיות עבודה
 WORKDIR /app
 
 # העתקת requirements והתקנת dependencies (Production-only)
-# נשתמש ב-BuildKit cache כדי להאיץ התקנות pip
 COPY requirements/ /app/requirements/
 RUN --mount=type=cache,target=/root/.cache/pip \
-    pip install --user -r /app/requirements/production.txt --retries 5 --timeout 60 -i https://pypi.org/simple
-# ייצור constraints.txt אוטומטי מהסביבה שננעלה כעת
+    pip install --user -r /app/requirements/production.txt --retries 5 --timeout 60
+
+# יצירת constraints לשחזור צפוי
 RUN python -m pip freeze | sort > /app/constraints.txt
-# וידוא התקנה מול constraints (לרפרודוציביליות עתידית)
+
+# אימות התקנה מול constraints
 RUN --mount=type=cache,target=/root/.cache/pip \
-    pip install --user -r /app/requirements/production.txt -c /app/constraints.txt --retries 5 --timeout 60 -i https://pypi.org/simple
+    pip install --user -r /app/requirements/production.txt -c /app/constraints.txt --retries 5 --timeout 60
 
 ######################################
-# שלב 2: Production stage (Alpine)
-FROM python:3.12-slim AS production
+# שלב 2: Production stage (Playwright base)
+FROM mcr.microsoft.com/playwright/python:v1.49.0-jammy AS production
+
+USER root
 
 # משתני סביבה לייצור
-ENV PYTHONUNBUFFERED=1
-ENV PYTHONDONTWRITEBYTECODE=1
-ENV PATH="/home/botuser/.local/bin:$PATH"
-ENV PYTHONPATH="/app:$PYTHONPATH"
-ENV PYTHONFAULTHANDLER=1
-# התקנת תלויות runtime (כולל ספריות Playwright/Chromium דרושות בזמן ריצה)
-RUN apt-get update -y && apt-get upgrade -y && apt-get install -y --no-install-recommends \
-    libasound2 \
-    libatk-bridge2.0-0 \
-    libatk1.0-0 \
-    libatspi2.0-0 \
-    libcairo2 \
-    libdbus-1-3 \
-    libdrm2 \
-    libgbm1 \
-    libgdk-pixbuf-2.0-0 \
-    libnspr4 \
-    libnss3 \
-    libpango-1.0-0 \
-    libpangoft2-1.0-0 \
-    libxcomposite1 \
-    libxdamage1 \
-    libxfixes3 \
-    libxkbcommon0 \
-    libxrandr2 \
-    fontconfig \
-    fonts-dejavu \
-    fonts-jetbrains-mono \
-    fonts-cascadia-code \
-    tzdata \
-    curl \
-    libxml2 \
-    sqlite3 \
-    zlib1g \
-    libjpeg62-turbo \
-    nodejs \
-    npm && \
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONFAULTHANDLER=1 \
+    PATH="/home/botuser/.local/bin:$PATH" \
+    PYTHONPATH="/app:$PYTHONPATH" \
+    PLAYWRIGHT_BROWSERS_PATH=/ms-playwright \
+    DEBIAN_FRONTEND=noninteractive
+
+# חבילות Runtime הנדרשות מעבר למה שקיים בבייס (בעיקר פונטים/כלים)
+RUN apt-get update -y && apt-get upgrade -y && \
+    apt-get install -y --no-install-recommends \
+        fontconfig \
+        fonts-dejavu \
+        fonts-jetbrains-mono \
+        fonts-cascadia-code \
+        tzdata \
+        curl \
+        libxml2 \
+        sqlite3 \
+        nodejs \
+        npm && \
     fc-cache -f -v && \
     rm -rf /var/lib/apt/lists/*
 
-# שדרוג כלי פייתון בסיסיים גם בשכבת ה-production כדי למנוע CVEs ב-site-packages של המערכת
+# שמירה על גרסאות pip/setuptools מעודכנות
 RUN python -m pip install --upgrade --no-cache-dir 'pip>=24.1' 'setuptools>=78.1.1' 'wheel>=0.43.0'
 
-# התקנת Playwright והתקנת תלויות מערכת ל-Chromium (root)
-# הערה: החבילה עצמה קיימת גם בסביבת המשתמש (מאושרת דרך builder), כאן נשתמש בה רק לצורך install-deps
-RUN python -m pip install --no-cache-dir 'playwright==1.49.0' && \
-    (python -m playwright install-deps chromium || true)
-
 # יצירת משתמש לא-root
-# Alpine: create non-root user
 RUN groupadd -g 1000 botuser && \
-    useradd -m -s /bin/bash -u 1000 -g 1000 botuser
-
-# יצירת תיקיות
-RUN mkdir -p /app /app/logs /app/backups /app/temp \
-    && chown -R botuser:botuser /app
+    useradd -m -s /bin/bash -u 1000 -g 1000 botuser && \
+    mkdir -p /app /app/logs /app/backups /app/temp && \
+    chown -R botuser:botuser /app
 
 # העתקת Python packages ו-constraints מה-builder stage
 COPY --from=builder --chown=botuser:botuser /root/.local /home/botuser/.local
 COPY --from=builder --chown=botuser:botuser /app/constraints.txt /app/constraints.txt
 
-# מעבר למשתמש לא-root
 USER botuser
 WORKDIR /app
 
@@ -124,9 +103,6 @@ COPY --chown=botuser:botuser . .
 
 # התקנת תלויות ה-Worker (Node)
 RUN npm --prefix push_worker install --omit=dev && npm cache clean --force
-
-# הורדת דפדפן Chromium לסביבת המשתמש (botuser) בזמן build
-RUN python -m playwright install chromium || true
 
 # הגדרת timezone
 ENV TZ=UTC
