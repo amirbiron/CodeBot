@@ -6739,7 +6739,7 @@ class GitHubMenuHandler:
                 keyboard.append(nav)
             keyboard.append([InlineKeyboardButton("🔙 חזור", callback_data="github_menu")])
             text = (
-                f"↩️ בחר/י קומיט לחזרה בענף <code>{safe_html_escape(base_branch)}</code>\n"
+                f"🔄 בחר/י קומיט לחזרה בענף <code>{safe_html_escape(base_branch)}</code>\n"
                 f"ריפו: <code>{safe_html_escape(repo_full)}</code>\n"
                 f"מוצגים עד 50 קומיטים אחרונים."
             )
@@ -7288,7 +7288,7 @@ class GitHubMenuHandler:
             [InlineKeyboardButton("📂 שחזר מגיבוי שמור לריפו", callback_data="github_restore_zip_list")],
             [InlineKeyboardButton("🏷 נקודת שמירה בגיט", callback_data="git_checkpoint")],
             [InlineKeyboardButton("↩️ חזרה לנקודת שמירה", callback_data="restore_checkpoint_menu")],
-            [InlineKeyboardButton("↩️ רולבאק לפי קומיט", callback_data="restore_commit_menu")],
+            [InlineKeyboardButton("🔄 רולבאק לפי קומיט", callback_data="restore_commit_menu")],
             [InlineKeyboardButton("🗂 גיבויי DB אחרונים", callback_data="github_backup_db_list")],
             [InlineKeyboardButton("♻️ שחזור מגיבוי (ZIP)", callback_data="backup_restore_full_start")],
             [InlineKeyboardButton("ℹ️ הסבר על הכפתורים", callback_data="github_backup_help")],
