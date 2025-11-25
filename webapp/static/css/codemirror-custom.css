@@ -23,35 +23,41 @@
 
 /* Dark Mode CodeMirror */
 [data-theme="dark"] .codemirror-container,
-[data-theme="dim"] .codemirror-container {
+[data-theme="dim"] .codemirror-container,
+[data-theme="nebula"] .codemirror-container {
   background: var(--code-bg);
   border-color: var(--code-border);
 }
 
 [data-theme="dark"] .cm-editor,
-[data-theme="dim"] .cm-editor {
+[data-theme="dim"] .cm-editor,
+[data-theme="nebula"] .cm-editor {
   background: var(--code-bg);
   color: var(--code-text);
 }
 
 [data-theme="dark"] .cm-gutters,
-[data-theme="dim"] .cm-gutters {
+[data-theme="dim"] .cm-gutters,
+[data-theme="nebula"] .cm-gutters {
   background: var(--bg-tertiary);
   border-right-color: var(--code-border);
   color: var(--text-muted);
 }
 
 [data-theme="dark"] .cm-activeLineGutter,
-[data-theme="dim"] .cm-activeLineGutter {
+[data-theme="dim"] .cm-activeLineGutter,
+[data-theme="nebula"] .cm-activeLineGutter {
   background: var(--glass-hover);
 }
 
 [data-theme="dark"] .cm-activeLine,
-[data-theme="dim"] .cm-activeLine {
+[data-theme="dim"] .cm-activeLine,
+[data-theme="nebula"] .cm-activeLine {
   background: var(--glass);
 }
 
 [data-theme="dark"] .cm-selectionBackground,
-[data-theme="dim"] .cm-selectionBackground {
+[data-theme="dim"] .cm-selectionBackground,
+[data-theme="nebula"] .cm-selectionBackground {
   background-color: rgba(124, 138, 255, 0.3) !important;
 }
