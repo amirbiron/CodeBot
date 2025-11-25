@@ -131,6 +131,10 @@ MAX_BRANCH_DATE_FETCH = 120  # אם יש יותר מזה — נוותר על מ�
 # תצוגת קובץ חלקית
 VIEW_LINES_PER_PAGE = 80
 
+# קידומות קצרות ל-callbackים כדי להישאר מתחת ל-64 תווים (מגבלת טלגרם)
+CALLBACK_BRANCH_FROM_COMMIT = "rcb"
+CALLBACK_REVERT_PR_FROM_COMMIT = "rcpr"
+
 
 def _safe_rmtree_tmp(target_path: str) -> None:
     """מחיקה בטוחה של תיקייה תחת /tmp בלבד, עם סורגי בטיחות.
@@ -2122,7 +2126,7 @@ class GitHubMenuHandler:
             tag_name = query.data.split(":", 1)[1]
             await self.create_branch_from_tag(update, context, tag_name)
 
-        elif query.data.startswith("restore_branch_from_commit:"):
+        elif query.data.startswith("restore_branch_from_commit:") or query.data.startswith(f"{CALLBACK_BRANCH_FROM_COMMIT}:"):
             commit_sha = query.data.split(":", 1)[1]
             await self.create_branch_from_commit(update, context, commit_sha)
 
@@ -2134,7 +2138,7 @@ class GitHubMenuHandler:
             tag_name = query.data.split(":", 1)[1]
             await self.create_revert_pr_from_tag(update, context, tag_name)
 
-        elif query.data.startswith("restore_revert_pr_from_commit:"):
+        elif query.data.startswith("restore_revert_pr_from_commit:") or query.data.startswith(f"{CALLBACK_REVERT_PR_FROM_COMMIT}:"):
             commit_sha = query.data.split(":", 1)[1]
             await self.create_revert_pr_from_commit(update, context, commit_sha)
 
@@ -6792,13 +6796,15 @@ class GitHubMenuHandler:
                 f"תאריך: {safe_html_escape(date_str)}\n\n"
                 f"{safe_html_escape(commit_msg or 'ללא הודעת commit')}"
             )
+            branch_cb = f"{CALLBACK_BRANCH_FROM_COMMIT}:{commit_sha}"
+            revert_cb = f"{CALLBACK_REVERT_PR_FROM_COMMIT}:{commit_sha}"
             kb = [
                 [
                     InlineKeyboardButton("🔗 פתח בגיטהאב", url=commit_obj.html_url),
                 ],
                 [
-                    InlineKeyboardButton("🌿 צור ענף מהקומיט", callback_data=f"restore_branch_from_commit:{commit_sha}"),
-                    InlineKeyboardButton("🔁 פתח PR רולבאק מהקומיט", callback_data=f"restore_revert_pr_from_commit:{commit_sha}"),
+                    InlineKeyboardButton("🌿 צור ענף מהקומיט", callback_data=branch_cb),
+                    InlineKeyboardButton("🔁 פתח PR רולבאק מהקומיט", callback_data=revert_cb),
                 ],
                 [InlineKeyboardButton("🔙 חזור", callback_data="restore_commit_menu")],
             ]
