@@ -6667,6 +6667,7 @@ class GitHubMenuHandler:
             g = Github(token)
             repo = g.get_repo(repo_full)
             base_branch = context.user_data.get("browse_ref") or getattr(repo, "default_branch", None) or "main"
+            context.user_data["restore_commits_branch"] = base_branch
             cache_key = f"{repo_full}:{base_branch}"
             cache_store = context.user_data.get("_restore_commits_cache") or {}
             cached = cache_store.get(cache_key)
@@ -7177,10 +7178,13 @@ class GitHubMenuHandler:
                 [InlineKeyboardButton("🔀 פתח PR מהענף", callback_data=f"open_pr_from_branch:{branch_name}")],
                 [InlineKeyboardButton("🔙 חזור", callback_data="restore_commit_menu")],
             ]
-            await query.edit_message_text(
+            success_text = (
                 f"✅ נוצר ענף שחזור: <code>{branch_name}</code>\n"
                 f"SHA מקור: <code>{commit_sha[:12]}</code>\n\n"
-                f"שחזור מקומי: <code>git fetch origin && git checkout {branch_name}</code>",
+                f"שחזור מקומי: <code>git fetch origin && git checkout {branch_name}</code>"
+            )
+            await query.edit_message_text(
+                text=success_text,
                 parse_mode="HTML",
                 reply_markup=InlineKeyboardMarkup(kb),
             )
@@ -7204,7 +7208,8 @@ class GitHubMenuHandler:
         try:
             g = Github(token)
             repo = g.get_repo(repo_full)
-            base_branch = repo.default_branch or "main"
+            preferred_branch = context.user_data.get("restore_commits_branch")
+            base_branch = preferred_branch or repo.default_branch or "main"
             commit_obj = repo.get_commit(commit_sha)
             tree_sha = getattr(getattr(commit_obj.commit, "tree", None), "sha", None)
             if not tree_sha:
@@ -7212,7 +7217,11 @@ class GitHubMenuHandler:
                 return
             work_branch_base = re.sub(r"[^A-Za-z0-9._/-]+", "-", f"restore-from-{commit_sha[:7]}")
             work_branch = work_branch_base
-            base_ref = repo.get_branch(base_branch)
+            try:
+                base_ref = repo.get_branch(base_branch)
+            except GithubException:
+                base_branch = repo.default_branch or "main"
+                base_ref = repo.get_branch(base_branch)
             base_sha = base_ref.commit.sha
             try:
                 repo.create_git_ref(ref=f"refs/heads/{work_branch}", sha=base_sha)
