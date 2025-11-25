@@ -10,6 +10,7 @@ import re
 import time
 import zipfile as _stdlib_zipfile
 from datetime import datetime, timezone
+from itertools import islice
 import tempfile
 import shutil
 from html import escape
@@ -1037,7 +1038,6 @@ class GitHubMenuHandler:
             keyboard.append(
                 [InlineKeyboardButton("🧰 גיבוי ושחזור", callback_data="github_backup_menu")]
             )
-
         # כפתור ניתוח ריפו - תמיד מוצג אם יש טוקן
         if token:
             keyboard.append([InlineKeyboardButton("🔍 נתח ריפו", callback_data="analyze_repo")])
@@ -2091,6 +2091,9 @@ class GitHubMenuHandler:
         elif query.data == "restore_checkpoint_menu":
             await self.show_restore_checkpoint_menu(update, context)
         
+        elif query.data == "restore_commit_menu":
+            await self.show_commit_restore_menu(update, context)
+        
         elif query.data.startswith("restore_tags_page_"):
             try:
                 p = int(query.data.split("_")[-1])
@@ -2099,13 +2102,29 @@ class GitHubMenuHandler:
             context.user_data["restore_tags_page"] = max(0, p)
             await self.show_restore_checkpoint_menu(update, context)
         
+        elif query.data.startswith("restore_commits_page_"):
+            try:
+                p = int(query.data.split("_")[-1])
+            except Exception:
+                p = 0
+            context.user_data["restore_commits_page"] = max(0, p)
+            await self.show_commit_restore_menu(update, context)
+        
         elif query.data.startswith("restore_select_tag:"):
             tag_name = query.data.split(":", 1)[1]
             await self.show_restore_tag_actions(update, context, tag_name)
         
+        elif query.data.startswith("restore_select_commit:"):
+            commit_sha = query.data.split(":", 1)[1]
+            await self.show_commit_restore_actions(update, context, commit_sha)
+        
         elif query.data.startswith("restore_branch_from_tag:"):
             tag_name = query.data.split(":", 1)[1]
             await self.create_branch_from_tag(update, context, tag_name)
+
+        elif query.data.startswith("restore_branch_from_commit:"):
+            commit_sha = query.data.split(":", 1)[1]
+            await self.create_branch_from_commit(update, context, commit_sha)
 
         elif query.data.startswith("open_pr_from_branch:"):
             branch_name = query.data.split(":", 1)[1]
@@ -2114,6 +2133,10 @@ class GitHubMenuHandler:
         elif query.data.startswith("restore_revert_pr_from_tag:"):
             tag_name = query.data.split(":", 1)[1]
             await self.create_revert_pr_from_tag(update, context, tag_name)
+
+        elif query.data.startswith("restore_revert_pr_from_commit:"):
+            commit_sha = query.data.split(":", 1)[1]
+            await self.create_revert_pr_from_commit(update, context, commit_sha)
 
         elif query.data == "close_menu":
             await query.edit_message_text("👋 התפריט נסגר")
@@ -6622,6 +6645,171 @@ class GitHubMenuHandler:
                 except Exception:
                     pass
 
+    async def show_commit_restore_menu(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """מציג קומיטים אחרונים לבחירה לשחזור"""
+        query = update.callback_query
+        user_id = query.from_user.id
+        session = self.get_user_session(user_id)
+        token = self.get_user_token(user_id)
+        repo_full = session.get("selected_repo")
+        if not (token and repo_full):
+            try:
+                await query.edit_message_text("❌ חסר טוקן או ריפו נבחר")
+            except BadRequest as br:
+                if "message is not modified" not in str(br).lower():
+                    raise
+                try:
+                    await query.answer("❌ חסר טוקן או ריפו נבחר", show_alert=True)
+                except Exception:
+                    pass
+            return
+        try:
+            g = Github(token)
+            repo = g.get_repo(repo_full)
+            base_branch = context.user_data.get("browse_ref") or getattr(repo, "default_branch", None) or "main"
+            context.user_data["restore_commits_branch"] = base_branch
+            cache_key = f"{repo_full}:{base_branch}"
+            cache_store = context.user_data.get("_restore_commits_cache") or {}
+            cached = cache_store.get(cache_key)
+            now = time.time()
+            commits_data = []
+            if cached and (now - cached.get("ts", 0)) < 120:
+                commits_data = cached.get("items", [])
+            else:
+                commits = repo.get_commits(sha=base_branch)
+                for commit in islice(commits, 0, 50):
+                    message = ""
+                    author_name = None
+                    author_date = None
+                    try:
+                        if getattr(commit, "commit", None):
+                            raw_msg = getattr(commit.commit, "message", "") or ""
+                            message = raw_msg.strip().splitlines()[0] if raw_msg else ""
+                            author = getattr(commit.commit, "author", None)
+                            author_name = getattr(author, "name", None)
+                            author_date = getattr(author, "date", None)
+                    except Exception:
+                        message = ""
+                    commits_data.append(
+                        {
+                            "sha": commit.sha,
+                            "message": message,
+                            "author": author_name,
+                            "date": author_date,
+                        }
+                    )
+                cache_store[cache_key] = {"items": commits_data, "ts": now}
+                context.user_data["_restore_commits_cache"] = cache_store
+            if not commits_data:
+                await query.edit_message_text(
+                    f"ℹ️ לא נמצאו קומיטים להצגה בענף <code>{safe_html_escape(base_branch)}</code>.",
+                    parse_mode="HTML",
+                    reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 חזור", callback_data="github_menu")]]),
+                )
+                return
+            page = int(context.user_data.get("restore_commits_page", 0) or 0)
+            per_page = 6
+            total = len(commits_data)
+            total_pages = max(1, (total + per_page - 1) // per_page)
+            page = min(max(0, page), total_pages - 1)
+            start = page * per_page
+            end = start + per_page
+            page_items = commits_data[start:end]
+
+            def _shorten(msg: str, limit: int = 40) -> str:
+                if not msg:
+                    return "ללא הודעה"
+                clean = msg.replace("\n", " ").strip()
+                return clean if len(clean) <= limit else (clean[: limit - 1] + "…")
+
+            keyboard = []
+            for entry in page_items:
+                sha = (entry.get("sha") or "")[:7]
+                label_msg = _shorten(entry.get("message") or "")
+                keyboard.append(
+                    [InlineKeyboardButton(f"{sha} • {label_msg}", callback_data=f"restore_select_commit:{entry.get('sha')}")]
+                )
+            nav = []
+            if page > 0:
+                nav.append(InlineKeyboardButton("⬅️ הקודם", callback_data=f"restore_commits_page_{page-1}"))
+            nav.append(InlineKeyboardButton(f"עמוד {page+1}/{total_pages}", callback_data="noop"))
+            if page < total_pages - 1:
+                nav.append(InlineKeyboardButton("הבא ➡️", callback_data=f"restore_commits_page_{page+1}"))
+            if nav:
+                keyboard.append(nav)
+            keyboard.append([InlineKeyboardButton("🔙 חזור", callback_data="github_menu")])
+            text = (
+                f"↩️ בחר/י קומיט לחזרה בענף <code>{safe_html_escape(base_branch)}</code>\n"
+                f"ריפו: <code>{safe_html_escape(repo_full)}</code>\n"
+                f"מוצגים עד 50 קומיטים אחרונים."
+            )
+            try:
+                await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="HTML")
+            except BadRequest as br:
+                if "message is not modified" not in str(br).lower():
+                    await query.message.reply_text(text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="HTML")
+                else:
+                    try:
+                        await query.answer("אין שינוי בתצוגה", show_alert=False)
+                    except Exception:
+                        pass
+        except GithubException as ge:
+            msg = getattr(ge, "data", {}) or {}
+            err = msg.get("message") if isinstance(msg, dict) else str(ge)
+            await query.edit_message_text(f"❌ שגיאה בטעינת קומיטים: {safe_html_escape(str(err))}")
+        except Exception as e:
+            await query.edit_message_text(f"❌ שגיאה בטעינת קומיטים: {safe_html_escape(str(e))}")
+
+    async def show_commit_restore_actions(self, update: Update, context: ContextTypes.DEFAULT_TYPE, commit_sha: str):
+        """מציג פעולות זמינות עבור קומיט מסוים"""
+        query = update.callback_query
+        user_id = query.from_user.id
+        session = self.get_user_session(user_id)
+        token = self.get_user_token(user_id)
+        repo_full = session.get("selected_repo")
+        if not (token and repo_full):
+            await query.edit_message_text("❌ חסר טוקן או ריפו נבחר")
+            return
+        try:
+            g = Github(token)
+            repo = g.get_repo(repo_full)
+            commit_obj = repo.get_commit(commit_sha)
+            commit_msg = ""
+            author_name = "-"
+            date_str = "-"
+            try:
+                commit_msg = (commit_obj.commit.message or "").strip()
+                author_name = getattr(getattr(commit_obj.commit, "author", None), "name", None) or "-"
+                commit_date = getattr(getattr(commit_obj.commit, "author", None), "date", None)
+                aware = self._to_utc_aware(commit_date) if commit_date else None
+                if aware:
+                    date_str = aware.strftime("%d/%m/%Y %H:%M UTC")
+            except Exception:
+                commit_msg = ""
+            text = (
+                f"🧱 קומיט נבחר: <code>{safe_html_escape(commit_sha[:12])}</code>\n"
+                f"מחבר: {safe_html_escape(author_name)}\n"
+                f"תאריך: {safe_html_escape(date_str)}\n\n"
+                f"{safe_html_escape(commit_msg or 'ללא הודעת commit')}"
+            )
+            kb = [
+                [
+                    InlineKeyboardButton("🔗 פתח בגיטהאב", url=commit_obj.html_url),
+                ],
+                [
+                    InlineKeyboardButton("🌿 צור ענף מהקומיט", callback_data=f"restore_branch_from_commit:{commit_sha}"),
+                    InlineKeyboardButton("🔁 פתח PR רולבאק מהקומיט", callback_data=f"restore_revert_pr_from_commit:{commit_sha}"),
+                ],
+                [InlineKeyboardButton("🔙 חזור", callback_data="restore_commit_menu")],
+            ]
+            await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(kb), parse_mode="HTML")
+        except GithubException as ge:
+            msg = getattr(ge, "data", {}) or {}
+            err = msg.get("message") if isinstance(msg, dict) else str(ge)
+            await query.edit_message_text(f"❌ שגיאה בטעינת קומיט: {safe_html_escape(str(err))}")
+        except Exception as e:
+            await query.edit_message_text(f"❌ שגיאה בטעינת קומיט: {safe_html_escape(str(e))}")
+
     async def show_restore_tag_actions(self, update: Update, context: ContextTypes.DEFAULT_TYPE, tag_name: str):
         """מציג פעולות אפשריות לשחזור מתגית נתונה"""
         query = update.callback_query
@@ -6961,6 +7149,112 @@ class GitHubMenuHandler:
             logger.exception("[create_revert_pr_from_tag] Unexpected error: %s", e)
             await query.edit_message_text(f"❌ שגיאה ביצירת PR לשחזור: {safe_html_escape(str(e))}")
 
+    async def create_branch_from_commit(self, update: Update, context: ContextTypes.DEFAULT_TYPE, commit_sha: str):
+        """יוצר ענף חדש המצביע ל-commit שנבחר"""
+        query = update.callback_query
+        user_id = query.from_user.id
+        session = self.get_user_session(user_id)
+        token = self.get_user_token(user_id)
+        repo_full = session.get("selected_repo")
+        if not (token and repo_full):
+            await query.edit_message_text("❌ חסר טוקן או ריפו נבחר")
+            return
+        try:
+            g = Github(token)
+            repo = g.get_repo(repo_full)
+            commit_obj = repo.get_commit(commit_sha)
+            base_branch_name = f"restore-{commit_sha[:7]}"
+            safe_branch = re.sub(r"[^A-Za-z0-9._/-]+", "-", base_branch_name)
+            branch_name = safe_branch
+            try:
+                repo.create_git_ref(ref=f"refs/heads/{branch_name}", sha=commit_obj.sha)
+            except GithubException as gbe:
+                if getattr(gbe, "status", None) == 422:
+                    branch_name = f"{safe_branch}-{int(time.time())}"
+                    repo.create_git_ref(ref=f"refs/heads/{branch_name}", sha=commit_obj.sha)
+                else:
+                    raise
+            kb = [
+                [InlineKeyboardButton("🔀 פתח PR מהענף", callback_data=f"open_pr_from_branch:{branch_name}")],
+                [InlineKeyboardButton("🔙 חזור", callback_data="restore_commit_menu")],
+            ]
+            success_text = (
+                f"✅ נוצר ענף שחזור: <code>{branch_name}</code>\n"
+                f"SHA מקור: <code>{commit_sha[:12]}</code>\n\n"
+                f"שחזור מקומי: <code>git fetch origin && git checkout {branch_name}</code>"
+            )
+            await query.edit_message_text(
+                text=success_text,
+                parse_mode="HTML",
+                reply_markup=InlineKeyboardMarkup(kb),
+            )
+        except GithubException as ge:
+            msg = getattr(ge, "data", {}) or {}
+            err = msg.get("message") if isinstance(msg, dict) else str(ge)
+            await query.edit_message_text(f"❌ שגיאה ביצירת ענף: {safe_html_escape(str(err))}")
+        except Exception as e:
+            await query.edit_message_text(f"❌ שגיאה ביצירת ענף: {safe_html_escape(str(e))}")
+
+    async def create_revert_pr_from_commit(self, update: Update, context: ContextTypes.DEFAULT_TYPE, commit_sha: str):
+        """פותח PR שמחזיר את הענף הראשי למצב קומיט נתון"""
+        query = update.callback_query
+        user_id = query.from_user.id
+        session = self.get_user_session(user_id)
+        token = self.get_user_token(user_id)
+        repo_full = session.get("selected_repo")
+        if not (token and repo_full):
+            await query.edit_message_text("❌ חסר טוקן או ריפו נבחר")
+            return
+        try:
+            g = Github(token)
+            repo = g.get_repo(repo_full)
+            preferred_branch = context.user_data.get("restore_commits_branch")
+            base_branch = preferred_branch or repo.default_branch or "main"
+            commit_obj = repo.get_commit(commit_sha)
+            tree_sha = getattr(getattr(commit_obj.commit, "tree", None), "sha", None)
+            if not tree_sha:
+                await query.edit_message_text("❌ לא ניתן לאתר את עץ הקומיט לשחזור")
+                return
+            work_branch_base = re.sub(r"[^A-Za-z0-9._/-]+", "-", f"restore-from-{commit_sha[:7]}")
+            work_branch = work_branch_base
+            try:
+                base_ref = repo.get_branch(base_branch)
+            except GithubException:
+                base_branch = repo.default_branch or "main"
+                base_ref = repo.get_branch(base_branch)
+            base_sha = base_ref.commit.sha
+            try:
+                repo.create_git_ref(ref=f"refs/heads/{work_branch}", sha=base_sha)
+            except GithubException as gbe:
+                if getattr(gbe, "status", None) == 422:
+                    work_branch = f"{work_branch_base}-{int(time.time())}"
+                    repo.create_git_ref(ref=f"refs/heads/{work_branch}", sha=base_sha)
+                else:
+                    raise
+            parent_commit = repo.get_git_commit(base_sha)
+            new_tree = repo.get_git_tree(tree_sha)
+            new_commit_message = f"Restore repository state to commit {commit_sha[:7]}"
+            new_commit = repo.create_git_commit(new_commit_message, new_tree, [parent_commit])
+            repo.get_git_ref(f"heads/{work_branch}").edit(new_commit.sha, force=True)
+            title = f"Restore to commit {commit_sha[:7]}"
+            body = (
+                f"This PR restores the repository to commit `{commit_sha}` by recreating its tree "
+                f"on top of `{base_branch}`.\n\nנוצר אוטומטית דרך הבוט."
+            )
+            pr = repo.create_pull(title=title, body=body, head=work_branch, base=base_branch)
+            kb = [[InlineKeyboardButton("🔙 חזור", callback_data="github_menu")]]
+            await query.edit_message_text(
+                f"✅ נפתח PR: <a href=\"{pr.html_url}\">#{pr.number}</a> ← <code>{safe_html_escape(base_branch)}</code> ← <code>{safe_html_escape(work_branch)}</code>",
+                parse_mode="HTML",
+                reply_markup=InlineKeyboardMarkup(kb),
+            )
+        except GithubException as ge:
+            msg = getattr(ge, "data", {}) or {}
+            err = msg.get("message") if isinstance(msg, dict) else str(ge)
+            await query.edit_message_text(f"❌ שגיאה ביצירת PR רולבאק: {safe_html_escape(str(err))}")
+        except Exception as e:
+            await query.edit_message_text(f"❌ שגיאה ביצירת PR רולבאק: {safe_html_escape(str(e))}")
+
     async def show_github_backup_menu(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """מציג תפריט גיבוי/שחזור עבור הריפו הנבחר"""
         query = update.callback_query
@@ -6994,6 +7288,7 @@ class GitHubMenuHandler:
             [InlineKeyboardButton("📂 שחזר מגיבוי שמור לריפו", callback_data="github_restore_zip_list")],
             [InlineKeyboardButton("🏷 נקודת שמירה בגיט", callback_data="git_checkpoint")],
             [InlineKeyboardButton("↩️ חזרה לנקודת שמירה", callback_data="restore_checkpoint_menu")],
+            [InlineKeyboardButton("↩️ רולבאק לפי קומיט", callback_data="restore_commit_menu")],
             [InlineKeyboardButton("🗂 גיבויי DB אחרונים", callback_data="github_backup_db_list")],
             [InlineKeyboardButton("♻️ שחזור מגיבוי (ZIP)", callback_data="backup_restore_full_start")],
             [InlineKeyboardButton("ℹ️ הסבר על הכפתורים", callback_data="github_backup_help")],
