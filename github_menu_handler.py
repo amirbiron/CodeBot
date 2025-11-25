@@ -6792,8 +6792,13 @@ class GitHubMenuHandler:
                 f"{safe_html_escape(commit_msg or 'ללא הודעת commit')}"
             )
             kb = [
-                [InlineKeyboardButton("🌿 צור ענף מהקומיט", callback_data=f"restore_branch_from_commit:{commit_sha}")],
-                [InlineKeyboardButton("🔁 פתח PR רולבאק מהקומיט", callback_data=f"restore_revert_pr_from_commit:{commit_sha}")],
+                [
+                    InlineKeyboardButton("🔗 פתח בגיטהאב", url=commit_obj.html_url),
+                ],
+                [
+                    InlineKeyboardButton("🌿 צור ענף מהקומיט", callback_data=f"restore_branch_from_commit:{commit_sha}"),
+                    InlineKeyboardButton("🔁 פתח PR רולבאק מהקומיט", callback_data=f"restore_revert_pr_from_commit:{commit_sha}"),
+                ],
                 [InlineKeyboardButton("🔙 חזור", callback_data="restore_commit_menu")],
             ]
             await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(kb), parse_mode="HTML")
