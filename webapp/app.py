@@ -818,7 +818,7 @@ def inject_globals():
                 pass
     except Exception:
         pass
-    if theme not in {'classic','ocean','forest','high-contrast','dark','dim','rose-pine-dawn'}:
+    if theme not in ALLOWED_UI_THEMES:
         theme = 'classic'
 
     show_welcome_modal = False
@@ -885,7 +885,16 @@ def inject_globals():
 
     
 # --- Theme helpers (single source of truth) ---
-ALLOWED_UI_THEMES = {'classic', 'ocean', 'forest', 'high-contrast', 'dark', 'dim', 'rose-pine-dawn'}
+ALLOWED_UI_THEMES = {
+    'classic',
+    'ocean',
+    'forest',
+    'high-contrast',
+    'dark',
+    'dim',
+    'rose-pine-dawn',
+    'nebula',
+}
 
 def get_current_theme() -> str:
     """קובע את ערכת הנושא הנוכחית לפי cookie ו/או העדפות משתמש (DB).
@@ -932,7 +941,7 @@ def get_pygments_style(theme_name: str) -> str:
     """
     theme = (theme_name or '').strip().lower()
     preferred = 'github'
-    if theme in ('dark', 'dim'):
+    if theme in ('dark', 'dim', 'nebula'):
         preferred = 'github-dark'
     elif theme == 'high-contrast':
         preferred = 'monokai'
@@ -7310,7 +7319,7 @@ def api_ui_prefs():
 
     קלט JSON נתמך:
     - font_scale: float בין 0.85 ל-1.6 (אופציונלי)
-    - theme: אחד מ-{"classic","ocean","forest","high-contrast","dark","dim"} (אופציונלי)
+    - theme: אחד מ-{"classic","ocean","forest","high-contrast","dark","dim","rose-pine-dawn","nebula"} (אופציונלי)
     - editor: "simple" | "codemirror" (אופציונלי)
     - work_state: אובייקט עם מצב עבודה נוכחי (last_url, scroll_y, timestamp)
     """
@@ -7344,7 +7353,7 @@ def api_ui_prefs():
         # עדכון ערכת צבעים במידת הצורך
         if 'theme' in payload:
             theme = (payload.get('theme') or '').strip().lower()
-            if theme in {'classic', 'ocean', 'forest', 'high-contrast', 'dark', 'dim', 'rose-pine-dawn'}:
+            if theme in ALLOWED_UI_THEMES:
                 update_fields['ui_prefs.theme'] = theme
                 resp_payload['theme'] = theme
                 theme_cookie_value = theme

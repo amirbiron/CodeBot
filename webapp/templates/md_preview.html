@@ -22,20 +22,23 @@
 
 /* Dark/Dim theme support */
 [data-theme="dark"] #md-content,
-[data-theme="dim"] #md-content {
+[data-theme="dim"] #md-content,
+[data-theme="nebula"] #md-content {
   background: var(--bg-primary);
   color: var(--text-primary);
 }
 
 [data-theme="dark"] #md-content code:not(pre code),
-[data-theme="dim"] #md-content code:not(pre code) {
+[data-theme="dim"] #md-content code:not(pre code),
+[data-theme="nebula"] #md-content code:not(pre code) {
   background: var(--bg-tertiary);
   color: var(--code-text);
   border: 1px solid var(--code-border);
 }
 
 [data-theme="dark"] #md-content pre,
-[data-theme="dim"] #md-content pre {
+[data-theme="dim"] #md-content pre,
+[data-theme="nebula"] #md-content pre {
   background: var(--code-bg);
   border: 1px solid var(--code-border);
 }
