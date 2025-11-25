@@ -23,17 +23,6 @@ class StubCollection:
         return StubCursor([doc.copy() for doc in self._docs])
 
 
-def _stub_backup(created_at):
-    return SimpleNamespace(
-        backup_id="bk-1",
-        created_at=created_at,
-        file_count=2,
-        total_size=2048,
-        backup_type="manual",
-        repo=None,
-    )
-
-
 def test_build_activity_timeline_groups(monkeypatch):
     now = datetime(2025, 1, 1, 12, 0, tzinfo=timezone.utc)
     files = [
@@ -71,7 +60,6 @@ def test_build_activity_timeline_groups(monkeypatch):
         sticky_notes=StubCollection(notes),
     )
     monkeypatch.setattr(webapp_app.TimeUtils, "format_relative_time", lambda *_: "unit-test")
-    monkeypatch.setattr(webapp_app.backup_manager, "list_backups", lambda user_id: [_stub_backup(now - timedelta(hours=2))])
 
     timeline = webapp_app._build_activity_timeline(stub_db, user_id=1, active_query=None, now=now)
 
@@ -80,8 +68,8 @@ def test_build_activity_timeline_groups(monkeypatch):
     groups = {group['id']: group for group in timeline['groups']}
     assert 'files' in groups and groups['files']['events']
     assert 'push' in groups and groups['push']['events']
-    assert 'backups' in groups and groups['backups']['events']
-    assert timeline['feed'][0]['group'] in {'files', 'push', 'backups'}
+    assert 'backups' not in groups
+    assert timeline['feed'][0]['group'] in {'files', 'push'}
 
 
 def test_build_activity_timeline_empty(monkeypatch):
@@ -91,7 +79,6 @@ def test_build_activity_timeline_empty(monkeypatch):
         sticky_notes=StubCollection([]),
     )
     monkeypatch.setattr(webapp_app.TimeUtils, "format_relative_time", lambda *_: "unit-test")
-    monkeypatch.setattr(webapp_app.backup_manager, "list_backups", lambda user_id: [])
 
     timeline = webapp_app._build_activity_timeline(stub_db, user_id=1, active_query=None, now=datetime.now(timezone.utc))
 
