@@ -118,24 +118,42 @@
 </script>
 <script>
 document.addEventListener('DOMContentLoaded', async function() {
-  try {
     const container = document.getElementById('snippetEditorContainer');
-    if (container && window.editorManager) {
-      console.log('[snippet_submit] Initializing editor with language: text');
-      await window.editorManager.initEditor(container, {
-        language: 'text',
-        value: '',
-        theme: 'dark'
-      });
-
-      const languageSelect = document.getElementById('language');
-      if (languageSelect) {
-        languageSelect.addEventListener('change', async (e) => {
-          try { await window.editorManager.updateLanguage(e.target.value); } catch(_) {}
-        });
-      }
+    if (!container) {
+        console.warn('[snippet_submit] Container #snippetEditorContainer not found');
+        return;
     }
-  } catch (_) {}
+
+    // Polling for editorManager (up to 3s)
+    let attempts = 0;
+    while (!window.editorManager && attempts < 30) {
+        await new Promise(r => setTimeout(r, 100));
+        attempts++;
+    }
+
+    if (!window.editorManager) {
+        console.error('[snippet_submit] window.editorManager not found after wait');
+        // Fallback: Show simple textarea if it was hidden? It's already visible by default.
+        return;
+    }
+
+    console.log('[snippet_submit] Initializing editor with language: text');
+    try {
+        await window.editorManager.initEditor(container, {
+            language: 'text',
+            value: '',
+            theme: 'dark'
+        });
+
+        const languageSelect = document.getElementById('language');
+        if (languageSelect) {
+            languageSelect.addEventListener('change', async (e) => {
+                try { await window.editorManager.updateLanguage(e.target.value); } catch(err) { console.error(err); }
+            });
+        }
+    } catch (e) {
+        console.error('[snippet_submit] Error initializing editor:', e);
+    }
 });
 </script>
 {% endblock %}

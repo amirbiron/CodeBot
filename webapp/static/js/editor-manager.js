@@ -248,32 +248,16 @@
     async loadCodeMirror() {
       // נסה קודם טעינה מקומית (bundle) כדי לעבוד גם ללא CDN
       try {
-        const localUrl = (() => {
-          try {
-            const base = new URL('.', import.meta.url);
-            return new URL('codemirror.local.js', base).href;
-          } catch (_) {
-            try {
-              const script = document.querySelector('script[type="module"][src*="editor-manager.js"]');
-              if (script && script.src) {
-                const src = String(script.src || '').split('?')[0];
-                return src.replace(/editor-manager\.js$/, 'codemirror.local.js');
-              }
-            } catch(_) {}
-            try {
-              const anyStatic = document.querySelector('link[href*="/static/"]');
-              if (anyStatic) {
-                const href = new URL(anyStatic.href, window.location.href);
-                const idx = href.pathname.indexOf('/static/');
-                if (idx >= 0) {
-                  const basePath = href.pathname.slice(0, idx + 1);
-                  return `${window.location.origin}${basePath}static/js/codemirror.local.js`;
-                }
-              }
-            } catch(_) {}
-            return '/static/js/codemirror.local.js';
-          }
-        })();
+        let localUrl;
+        try {
+           // שימוש בנתיב אבסולוטי מפורש כפי שנדרש
+           const baseUrl = window.location.origin;
+           localUrl = `${baseUrl}/static/js/codemirror.local.js`;
+        } catch(_) {
+           // Fallback logic
+           localUrl = '/static/js/codemirror.local.js';
+        }
+
         try { console.log('[EditorManager] Attempting to load local CodeMirror bundle from:', localUrl); } catch(_) {}
         const localModule = await this.withTimeout(import(localUrl), 12000, 'codemirror_local_import');
         const localApi = (localModule && (localModule.default || localModule.CodeMirror6)) || null;
@@ -542,4 +526,5 @@
   }
 
   window.editorManager = new EditorManager();
+  try { console.log('[EditorManager] Assigned window.editorManager instance'); } catch(_) {}
 })();
