@@ -259,8 +259,27 @@
         }
 
         try { console.log('[EditorManager] Attempting to load local CodeMirror bundle from:', localUrl); } catch(_) {}
-        const localModule = await this.withTimeout(import(localUrl), 12000, 'codemirror_local_import');
-        const localApi = (localModule && (localModule.default || localModule.CodeMirror6)) || null;
+        
+        // ניסיון ראשון: import() דינמי
+        let localModule;
+        try {
+            localModule = await this.withTimeout(import(localUrl), 12000, 'codemirror_local_import');
+        } catch (importErr) {
+            console.warn('[EditorManager] dynamic import failed, trying script tag fallback', importErr);
+            // Fallback: טעינה דרך תגית script אם import נכשל
+            await new Promise((resolve, reject) => {
+                const s = document.createElement('script');
+                s.type = 'module';
+                s.src = localUrl;
+                s.onload = () => resolve();
+                s.onerror = (e) => reject(new Error('Script tag load failed'));
+                document.head.appendChild(s);
+            });
+            // במקרה של script tag, ה-API יהיה ב-window.CodeMirror6
+        }
+
+        // בדיקה האם ה-API זמין (בין אם מ-import או מ-script tag)
+        const localApi = (localModule && (localModule.default || localModule.CodeMirror6)) || window.CodeMirror6 || null;
 
         if (localApi && localApi.EditorView && localApi.EditorState) {
           window.CodeMirror6 = localApi;
@@ -269,14 +288,15 @@
           return;
         }
 
-        // המתנה קצרה (עד ~500ms) למקרה שה-bundle מגדיר את window.CodeMirror6 באיחור קצר
+        // המתנה קצרה (עד ~2000ms) למקרה שה-bundle מגדיר את window.CodeMirror6 באיחור קצר
+        // הוגדל מ-500ms ל-2000ms ליתר ביטחון
         {
           let attempts = 0;
           while (
             (!window.CodeMirror6 ||
              !window.CodeMirror6.EditorView ||
              !window.CodeMirror6.EditorState) &&
-            attempts < 10
+            attempts < 40
           ) {
             await new Promise((resolve) => setTimeout(resolve, 50));
             attempts++;
@@ -291,7 +311,7 @@
 
         console.warn('codemirror.local.js נטען אבל ה-export חסר את ה-API המצופה');
       } catch (e) {
-        console.warn('אי אפשר לטעון את bundle המקומי של CodeMirror:', e);
+        console.error('אי אפשר לטעון את bundle המקומי של CodeMirror (גם ב-fallback):', e);
         /* נמשיך ל-CDN אם אין bundle מקומי או כשהנתיב המקומי לא זמין */
       }
 
