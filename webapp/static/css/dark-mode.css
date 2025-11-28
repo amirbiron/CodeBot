@@ -218,6 +218,12 @@
     opacity: 0.9;
 }
 
+[data-theme="nebula"] .logo,
+[data-theme="nebula"] .logo:hover {
+    color: var(--text-primary);
+    opacity: 1;
+}
+
 /* ============================================
    Quick Access Menu
    ============================================ */
