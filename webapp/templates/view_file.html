@@ -68,80 +68,6 @@
     gap: 1rem;
 }
 
-/* Code search toolbar */
-.code-search-bar {
-    position: sticky;
-    top: 0;
-    z-index: 5;
-    display: flex;
-    flex-wrap: wrap;
-    gap: 0.5rem;
-    align-items: center;
-    padding: 0.75rem;
-    margin: 0 -0.25rem 0.75rem;
-    border-radius: 12px;
-    background: var(--code-search-bg, var(--card-bg, rgba(255, 255, 255, 0.95)));
-    border: 1px solid var(--code-search-border, var(--glass-border, rgba(0, 0, 0, 0.08)));
-    box-shadow: 0 14px 40px rgba(15, 23, 42, 0.12);
-    backdrop-filter: blur(18px);
-    color: var(--text-primary, #1f2933);
-}
-
-.code-search-input {
-    flex: 1 1 220px;
-    min-width: 0;
-    background: var(--code-search-input-bg, var(--bg-tertiary, rgba(255, 255, 255, 0.85)));
-    border: 1px solid var(--code-search-input-border, var(--glass-border, rgba(0, 0, 0, 0.1)));
-    border-radius: 8px;
-    padding: 0.6rem 0.8rem;
-    font-size: 0.95rem;
-    color: var(--text-primary, #1f2933);
-    outline: none;
-    transition: border-color 0.2s ease, box-shadow 0.2s ease, background 0.2s ease;
-}
-
-.code-search-input::placeholder {
-    color: var(--text-muted, rgba(15, 23, 42, 0.55));
-}
-
-.code-search-input:focus {
-    border-color: var(--primary, #9775fa);
-    box-shadow: 0 0 0 3px var(--glass-border, rgba(151, 117, 250, 0.25));
-    background: var(--code-search-input-focus-bg, #ffffff);
-}
-
-.code-search-count {
-    color: var(--text-secondary, var(--text-primary, #1f2933));
-    font-size: 0.85rem;
-    padding: 0.35rem 0.6rem;
-    background: var(--code-search-pill-bg, var(--glass, rgba(0, 0, 0, 0.04)));
-    border-radius: 6px;
-    min-width: 60px;
-    text-align: center;
-    border: 1px solid var(--glass-border, rgba(0, 0, 0, 0.08));
-    flex: 0 0 auto;
-}
-
-.code-search-btn {
-    background: var(
-        --code-search-btn-bg,
-        var(--bg-tertiary, var(--glass, rgba(0, 0, 0, 0.05)))
-    ) !important;
-    border: 1px solid var(--code-search-btn-border, var(--glass-border, rgba(0, 0, 0, 0.12))) !important;
-    color: var(--code-search-btn-color, var(--text-primary, #1f2933)) !important;
-    flex: 0 0 auto;
-    min-width: 0;
-    border-radius: 8px;
-    transition: background 0.2s ease, border-color 0.2s ease, color 0.2s ease;
-}
-
-.code-search-btn:hover,
-.code-search-btn:focus-visible {
-    background: var(--glass-hover, rgba(0, 0, 0, 0.08)) !important;
-    border-color: var(--primary, rgba(151, 117, 250, 0.5)) !important;
-    color: var(--primary, #9775fa) !important;
-}
-
 /* כאשר הכרטיס במסך מלא – הקוד יתפוס כמעט את כל הגובה */
 #codeCard:fullscreen .code-container {
     height: calc(100vh - 120px);
@@ -465,12 +391,12 @@ body.telegram-mini-app .file-title { font-size: 1.125rem; }
             מסך מלא
         </button>
     </div>
-    <div class="search-bar code-search-bar" id="code-search">
-        <input id="codeSearchInput" type="text" class="code-search-input" placeholder="🔍 חפש בקוד...">
-        <span id="codeSearchCount" class="result-count code-search-count"></span>
-        <button id="codeSearchNext" type="button" class="btn btn-secondary btn-icon code-search-btn" title="הבא">◀</button>
-        <button id="codeSearchPrev" type="button" class="btn btn-secondary btn-icon code-search-btn" title="קודם">▶</button>
-        <button id="codeSearchClear" type="button" class="btn btn-secondary btn-icon code-search-btn" title="נקה">✕</button>
+    <div class="search-bar" id="code-search" style="position:sticky;top:0;z-index:5;display:flex;flex-wrap:wrap;gap:.5rem;align-items:center;background:linear-gradient(135deg, var(--primary) 0%, var(--secondary) 100%);padding:.75rem;border-radius:12px;box-shadow:0 2px 8px rgba(0,0,0,0.2);margin:0 -.25rem .75rem;">
+        <input id="codeSearchInput" type="text" placeholder="🔍 חפש בקוד..." style="flex:1 1 220px;min-width:0;background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.2);border-radius:8px;padding:.6rem .8rem;color:#fff;font-size:.95rem;outline:none;padding-right:1rem;">
+        <span id="codeSearchCount" class="result-count" style="color:rgba(255,255,255,.9);font-size:.85rem;padding:.35rem .6rem;background:rgba(255,255,255,.12);border-radius:6px;min-width:60px;text-align:center;flex:0 0 auto;"></span>
+        <button id="codeSearchNext" type="button" class="btn btn-secondary btn-icon" title="הבא" style="background:rgba(255,255,255,.12);border:1px solid rgba(255,255,255,.2);flex:0 0 auto;">◀</button>
+        <button id="codeSearchPrev" type="button" class="btn btn-secondary btn-icon" title="קודם" style="background:rgba(255,255,255,.12);border:1px solid rgba(255,255,255,.2);flex:0 0 auto;">▶</button>
+        <button id="codeSearchClear" type="button" class="btn btn-secondary btn-icon" title="נקה" style="background:rgba(255,255,255,.12);border:1px solid rgba(255,255,255,.2);flex:0 0 auto;">✕</button>
     </div>
     <div class="code-container">
         {{ highlighted_code|safe }}
