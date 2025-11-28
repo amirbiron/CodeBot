@@ -19,11 +19,23 @@
     function loadPreference() {
         try {
             const saved = localStorage.getItem(DARK_MODE_KEY);
-            if (saved && typeof saved === 'string' && saved.trim().length > 0) {
+            if (saved === 'dark' || saved === 'dim' || saved === 'light' || saved === 'auto') {
                 return saved;
             }
         } catch (e) {
             console.warn('Failed to load dark mode preference:', e);
+        }
+        return null;
+    }
+
+    function readServerTheme() {
+        try {
+            const match = document.cookie.match(/(?:^|;\s*)ui_theme=([^;]+)/);
+            if (match && match[1]) {
+                return decodeURIComponent(match[1]).trim();
+            }
+        } catch (e) {
+            console.warn('Failed to read ui_theme cookie:', e);
         }
         return null;
     }
@@ -34,6 +46,32 @@
         } catch (e) {
             console.warn('Failed to save dark mode preference:', e);
         }
+    }
+
+    function clearPreference() {
+        try {
+            localStorage.removeItem(DARK_MODE_KEY);
+        } catch (e) {
+            console.warn('Failed to clear dark mode preference:', e);
+        }
+    }
+
+    function normalizePreferenceValue(mode) {
+        if (mode === 'dark' || mode === 'dim') {
+            return mode;
+        }
+        if (mode === 'light') {
+            return 'classic';
+        }
+        return null;
+    }
+
+    function normalizeCookieTheme(theme) {
+        if (!theme) return null;
+        if (theme === 'classic' || theme === 'dark' || theme === 'dim') {
+            return theme;
+        }
+        return null;
     }
 
     function applyTheme(theme) {
@@ -71,6 +109,30 @@
         }
     }
 
+    function ensureThemeSync() {
+        const preference = loadPreference();
+        const cookieTheme = readServerTheme();
+        if (preference) {
+            if (cookieTheme && preference !== 'auto') {
+                const normalizedCookie = normalizeCookieTheme(cookieTheme);
+                const normalizedPref = normalizePreferenceValue(preference);
+                if (normalizedCookie && normalizedPref && normalizedCookie !== normalizedPref) {
+                    clearPreference();
+                    document.documentElement.setAttribute(THEME_ATTRIBUTE, cookieTheme);
+                    updateToggleButton(cookieTheme);
+                    return;
+                }
+            }
+            updateTheme();
+            updateToggleButton(preference);
+            return;
+        }
+        if (cookieTheme) {
+            document.documentElement.setAttribute(THEME_ATTRIBUTE, cookieTheme);
+            updateToggleButton(cookieTheme);
+        }
+    }
+
     function toggleDarkMode() {
         const current = loadPreference();
         let next;
@@ -92,16 +154,8 @@
         const icon = document.getElementById('darkModeIcon');
         const text = toggleBtn?.querySelector('.btn-text');
         if (!toggleBtn || !icon) return;
-        const icons = {
-            'auto': 'fa-adjust', 'dark': 'fa-moon', 'dim': 'fa-cloud-moon', 'light': 'fa-sun',
-            'classic': 'fa-code', 'ocean': 'fa-water', 'forest': 'fa-tree',
-            'rose-pine-dawn': 'fa-seedling', 'nebula': 'fa-meteor', 'high-contrast': 'fa-eye'
-        };
-        const labels = {
-            'auto': 'אוטומטי', 'dark': 'חשוך', 'dim': 'מעומעם', 'light': 'בהיר',
-            'classic': 'קלאסי', 'ocean': 'אוקיינוס', 'forest': 'יער',
-            'rose-pine-dawn': 'Rose Pine', 'nebula': 'Nebula', 'high-contrast': 'ניגודיות'
-        };
+        const icons = { 'auto': 'fa-adjust', 'dark': 'fa-moon', 'dim': 'fa-cloud-moon', 'light': 'fa-sun' };
+        const labels = { 'auto': 'אוטומטי', 'dark': 'חשוך', 'dim': 'מעומעם', 'light': 'בהיר' };
         icon.className = 'fas ' + (icons[mode] || icons.auto);
         if (text) text.textContent = labels[mode] || labels.auto;
         toggleBtn.setAttribute('title', `מצב: ${labels[mode] || labels.auto}`);
@@ -126,7 +180,7 @@
     }
 
     function init() {
-        if (loadPreference()) { updateTheme(); }
+        ensureThemeSync();
         const toggleBtn = document.getElementById('darkModeToggle');
         if (toggleBtn) {
             toggleBtn.addEventListener('click', toggleDarkMode);
@@ -150,6 +204,8 @@
     } else {
         init();
     }
+
+    window.addEventListener('pageshow', ensureThemeSync);
 
     window.DarkMode = {
         toggle: toggleDarkMode,
