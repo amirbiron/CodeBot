@@ -252,10 +252,12 @@
         try {
            // שימוש בנתיב אבסולוטי מפורש כפי שנדרש
            const baseUrl = window.location.origin;
-           localUrl = `${baseUrl}/static/js/codemirror.local.js`;
+           // הוספת cache buster כדי לוודא שלא טוענים גרסה ישנה מהמטמון
+           const cacheBuster = `?v=${new Date().getTime()}`;
+           localUrl = `${baseUrl}/static/js/codemirror.local.js${cacheBuster}`;
         } catch(_) {
            // Fallback logic
-           localUrl = '/static/js/codemirror.local.js';
+           localUrl = '/static/js/codemirror.local.js?v=' + new Date().getTime();
         }
 
         try { console.log('[EditorManager] Attempting to load local CodeMirror bundle from:', localUrl); } catch(_) {}
@@ -271,8 +273,19 @@
                 const s = document.createElement('script');
                 s.type = 'module';
                 s.src = localUrl;
-                s.onload = () => resolve();
-                s.onerror = (e) => reject(new Error('Script tag load failed'));
+                s.onload = () => {
+                    console.log('[EditorManager] Script tag loaded successfully');
+                    if (window.CodeMirror6) {
+                        console.log('[EditorManager] window.CodeMirror6 found after script load');
+                    } else {
+                        console.warn('[EditorManager] Script loaded but window.CodeMirror6 is undefined');
+                    }
+                    resolve();
+                };
+                s.onerror = (e) => {
+                    console.error('[EditorManager] Script tag failed to load', e);
+                    reject(new Error('Script tag load failed'));
+                };
                 document.head.appendChild(s);
             });
             // במקרה של script tag, ה-API יהיה ב-window.CodeMirror6
