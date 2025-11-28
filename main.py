@@ -1858,11 +1858,26 @@ class CodeKeeperBot:
 
                 if not sent:
                     try:
-                        chat = getattr(update, "effective_chat", None)
                         bot = getattr(context, "bot", None)
+                        if bot is None:
+                            # fallback ל-bot דרך application (במקרים שבהם context.bot לא קיים)
+                            bot = getattr(getattr(context, "application", None), "bot", None)
+                        if bot is None:
+                            bot = getattr(getattr(context, "app", None), "bot", None)
+
+                        chat = getattr(update, "effective_chat", None)
                         chat_id = getattr(chat, "id", None)
+                        if chat_id is None:
+                            # נסה להפיק chat_id ממשתמש או מהודעה אם קיים
+                            message = getattr(update, "message", None) or getattr(update, "effective_message", None)
+                            chat_id = getattr(getattr(message, "chat", None), "id", None) or getattr(message, "chat_id", None)
+                        if chat_id is None:
+                            user = getattr(update, "effective_user", None)
+                            chat_id = getattr(user, "id", None)
+
                         if bot is not None and chat_id is not None:
                             await bot.send_message(chat_id=chat_id, text=maintenance_text)
+                            sent = True
                     except Exception:
                         pass
 

@@ -563,3 +563,84 @@ async def test_maintenance_message_uses_context_bot_when_no_message(monkeypatch)
 
     assert fake_bot.sent, 'expected send_message fallback when no message provided'
     assert fake_bot.sent[-1][1] == mod.config.MAINTENANCE_MESSAGE
+
+
+@pytest.mark.asyncio
+async def test_maintenance_message_uses_application_bot_when_context_bot_missing(monkeypatch):
+    monkeypatch.setenv('BOT_TOKEN', 'x')
+    monkeypatch.setenv('MONGODB_URL', 'mongodb://localhost:27017/test')
+    monkeypatch.setenv('DISABLE_DB', '1')
+    monkeypatch.setenv('MAINTENANCE_MODE', 'true')
+    monkeypatch.setenv('MAINTENANCE_AUTO_WARMUP_SECS', '15')
+
+    import importlib
+    import config as cfg
+    importlib.reload(cfg)
+    import main as mod
+    importlib.reload(mod)
+
+    class _MiniApp:
+        def __init__(self):
+            self.handlers = []
+            self.bot_data = {}
+
+        def add_handler(self, handler, group=None):
+            self.handlers.append((handler, group))
+
+        def add_error_handler(self, handler, group=None):
+            pass
+
+    class _Builder:
+        def token(self, *a, **k):
+            return self
+
+        def defaults(self, *a, **k):
+            return self
+
+        def persistence(self, *a, **k):
+            return self
+
+        def post_init(self, *a, **k):
+            return self
+
+        def build(self):
+            return _MiniApp()
+
+    class _AppNS:
+        def builder(self):
+            return _Builder()
+
+    monkeypatch.setattr(mod, 'Application', _AppNS())
+
+    bot = mod.CodeKeeperBot()
+
+    maintenance_handlers = [h for h, g in bot.application.handlers if g == -100]
+    maint_msg_handler = None
+    for h in maintenance_handlers:
+        if getattr(getattr(h, 'callback', None), '__name__', '') == 'maintenance_reply':
+            maint_msg_handler = h
+            break
+    assert maint_msg_handler is not None
+
+    class _FakeBot:
+        def __init__(self):
+            self.sent = []
+
+        async def send_message(self, chat_id, text):
+            self.sent.append((chat_id, text))
+
+    fake_bot = _FakeBot()
+    fake_app = types.SimpleNamespace(bot=fake_bot)
+    update = types.SimpleNamespace(
+        callback_query=None,
+        message=None,
+        effective_message=None,
+        effective_chat=types.SimpleNamespace(id=654),
+        effective_user=types.SimpleNamespace(id=7),
+    )
+    context = types.SimpleNamespace(application=fake_app)
+
+    await maint_msg_handler.callback(update, context)
+
+    assert fake_bot.sent, 'expected send_message fallback via application.bot when context.bot missing'
+    assert fake_bot.sent[-1][1] == mod.config.MAINTENANCE_MESSAGE
