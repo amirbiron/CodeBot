@@ -32,6 +32,15 @@ def _coerce_int(value: str | None, default: int) -> int:
         return default
 
 
+def _coerce_float(value: str | None, default: float) -> float:
+    if value is None or value.strip() == "":
+        return default
+    try:
+        return float(value)
+    except Exception:
+        return default
+
+
 class _Cfg:
     def __init__(self) -> None:
         self.SENTRY_DSN = ""
@@ -44,6 +53,9 @@ class _Cfg:
         )
         self.MAINTENANCE_AUTO_WARMUP_SECS = _coerce_int(
             os.getenv("MAINTENANCE_AUTO_WARMUP_SECS"), 30
+        )
+        self.MAINTENANCE_WARMUP_GRACE_SECS = _coerce_float(
+            os.getenv("MAINTENANCE_WARMUP_GRACE_SECS"), 0.75
         )
         self.PUBLIC_BASE_URL = os.getenv("PUBLIC_BASE_URL") or ""
         self.WEBAPP_URL = os.getenv("WEBAPP_URL") or ""

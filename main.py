@@ -1797,6 +1797,8 @@ class CodeKeeperBot:
         if maintenance_flag is None:
             maintenance_flag = False
 
+        DEFAULT_MAINTENANCE_WARMUP_GRACE_SECS = 0.75
+
         if maintenance_flag:
             # הגדרת חלון זמן פנימי שבו הודעת תחזוקה פעילה, כך שגם אם מחיקת ה-handlers לא תתבצע
             # ההודעה תיכבה אוטומטית לאחר ה-warmup. החישוב בפועל נדחה לסוף setup_handlers כדי
@@ -1823,8 +1825,15 @@ class CodeKeeperBot:
                     active_until = float(raw_active_until) if raw_active_until is not None else None
                 except Exception:
                     active_until = None
+                try:
+                    grace_value = getattr(
+                        config, "MAINTENANCE_WARMUP_GRACE_SECS", DEFAULT_MAINTENANCE_WARMUP_GRACE_SECS
+                    )
+                    grace_secs = max(0.0, float(grace_value))
+                except Exception:
+                    grace_secs = DEFAULT_MAINTENANCE_WARMUP_GRACE_SECS
                 now = time.time()
-                is_active = True if active_until is None else (active_until > 0 and now < active_until)
+                is_active = True if active_until is None else (active_until > 0 and now < (active_until + grace_secs))
                 if not is_active:
                     return ConversationHandler.END
 

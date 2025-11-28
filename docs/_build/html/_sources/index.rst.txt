@@ -47,6 +47,7 @@ Code Keeper Bot - תיעוד API
    database/indexing
    database/cursor-pagination
    database-schema
+   database/detailed-schema
 
 .. toctree::
    :maxdepth: 2
@@ -72,12 +73,37 @@ Code Keeper Bot - תיעוד API
    user/share_code
    user/github_browse
    user/download_repo
+   BOT_TEST_PLAN_CONTAINER
+
+.. toctree::
+   :maxdepth: 2
+   :caption: זרימות עבודה:
+
+   workflows/index
+
+.. toctree::
+   :maxdepth: 2
+   :caption: מנועי המערכת:
+
+   engines/overview
+
+.. toctree::
+   :maxdepth: 2
+   :caption: Edge Cases וטיפול בשגיאות:
+
+   edge-cases
+
+.. note::
+   חלק מהפיצ'רים (Bookmarks, Collections, Sticky Notes) זמינים ב‑WebApp בלבד (לא בבוט).
+   ראו :doc:`webapp/overview` לפרטים נוספים.
 
 .. toctree::
    :maxdepth: 2
    :caption: איכות וקונבנציות:
 
    quality/type-safety
+   quality/code-normalization
+   ARCHITECTURE_LAYER_RULES
 
 
 .. toctree::
@@ -85,12 +111,18 @@ Code Keeper Bot - תיעוד API
    :caption: WebApp:
 
    webapp/overview
+   DEV_WEB_PUSH
+   webapp/user-interfaces
+   webapp/snippet-library
+   webapp/onboarding
    webapp/caching
    webapp/advanced-caching
    webapp/static-checklist
    webapp/api-reference
    webapp/bulk-actions
    webapp/editor
+   webapp/markdown-folding
+   webapp/smooth-scrolling
 
 .. toctree::
    :maxdepth: 2
@@ -101,9 +133,11 @@ Code Keeper Bot - תיעוד API
    observability/guidelines
    logging_schema
    metrics
+   resilience
    alerts
    observability/log_based_alerts
    sentry
+   runbooks/incident-checklist
    runbooks/logging-levels
    runbooks/github_backup_restore
    runbooks/slo
@@ -133,6 +167,7 @@ Code Keeper Bot - תיעוד API
 
    observability/events_catalog
    observability/error_codes
+   observability/tracing_hotspots
    observability/metrics_promql
    observability/alerts_playbook
 
@@ -148,6 +183,9 @@ Code Keeper Bot - תיעוד API
 * 🔗 אינטגרציה עם GitHub
 * 📦 גיבוי ושחזור נתונים
 * 🔐 אבטחה והצפנה
+* 📑 סימניות ואוספים - ארגון מתקדם של הקוד
+* 📝 פתקים דביקים - הערות ויזואליות
+* ⏰ תזכורות - ניהול זמן ומשימות
 
 תכונות עיקריות
 ---------------
@@ -167,6 +205,13 @@ Code Keeper Bot - תיעוד API
    - גיבוי אוטומטי
    - סטטיסטיקות שימוש
    - ניהול משתמשים
+
+**ארגון וניהול אישי:**
+   - סימניות (Bookmarks) - סימון נקודות חשובות בקוד
+   - אוספים (Collections) - ארגון קבצים לפי נושאים
+   - פתקים דביקים (Sticky Notes) - הערות ויזואליות על הקוד
+   - מועדפים (Favorites) - סימון קבצים חשובים
+   - תזכורות (Reminders) - תזכורות זמן משימות
 
 התחלה מהירה
 ------------

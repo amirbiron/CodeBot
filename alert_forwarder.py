@@ -10,7 +10,12 @@ If none are configured, alerts will still be emitted as structured events.
 """
 from __future__ import annotations
 
+import math
 import os
+import re
+from dataclasses import dataclass
+from threading import Lock, Timer
+from time import monotonic
 from typing import Any, Dict, List, Optional
 
 # Graceful degradation for HTTP client: prefer pooled http_sync for retries/backoff,
@@ -29,6 +34,27 @@ try:
 except Exception:  # pragma: no cover
     def emit_event(event: str, severity: str = "info", **fields):  # type: ignore
         return None
+
+
+_ANOMALY_WINDOW_SECONDS = max(
+    0.0,
+    float(os.getenv("ALERT_ANOMALY_BATCH_WINDOW_SECONDS", "180") or 180),
+)
+_ANOMALY_LOCK: Lock = Lock()
+_DIGIT_RE = re.compile(r"\d+")
+
+
+@dataclass
+class _AnomalyBatch:
+    key: str
+    representative_alert: Dict[str, Any]
+    count: int
+    started_at: float
+    window_seconds: float
+    timer: Timer
+
+
+_ANOMALY_BATCHES: Dict[str, _AnomalyBatch] = {}
 
 
 def _format_alert_text(alert: Dict[str, Any]) -> str:
@@ -68,6 +94,9 @@ def _format_alert_text(alert: Dict[str, Any]) -> str:
         parts.append(f"instance: {instance}")
     if summary:
         parts.append(str(summary))
+    detail_preview = annotations.get("details_preview") or annotations.get("details")
+    if detail_preview:
+        parts.append(str(detail_preview))
     if request_id:
         parts.append(f"request_id: {request_id}")
 
@@ -151,6 +180,100 @@ def _build_sentry_link(
         return None
     except Exception:
         return None
+
+
+def _format_duration_label(seconds: float) -> str:
+    try:
+        seconds = float(seconds)
+    except Exception:
+        seconds = 60.0
+    minutes = max(1, int(math.ceil(seconds / 60.0)))
+    return f"{minutes} דקות"
+
+
+def _format_anomaly_batch_text(alert: Dict[str, Any], count: int, duration_seconds: float) -> str:
+    base = _format_alert_text(alert)
+    duration = _format_duration_label(duration_seconds)
+    return f"{base}\n{count} מופעים ב-{duration}"
+
+
+def _anomaly_bucket_key(alert: Dict[str, Any]) -> str:
+    labels = alert.get("labels", {}) or {}
+    annotations = alert.get("annotations", {}) or {}
+
+    def _pick(sources: List[Dict[str, Any]], keys: List[str]) -> str:
+        for key in keys:
+            for src in sources:
+                try:
+                    val = src.get(key)
+                except Exception:
+                    continue
+                if val not in (None, ""):
+                    return str(val).strip().lower()
+        return ""
+
+    alert_name = _pick([labels], ["alertname", "name"]) or "anomaly"
+    service = _pick([labels], ["service", "app", "application", "job", "component"])
+    environment = _pick([labels], ["env", "environment", "namespace", "cluster"])
+    signature = _pick([annotations, labels], ["error_signature", "signature"])
+    if not signature:
+        summary = _pick([annotations], ["summary", "description"])
+        if summary:
+            signature = _DIGIT_RE.sub("0", summary.lower())[:80]
+    parts = [alert_name]
+    if service:
+        parts.append(service)
+    if environment:
+        parts.append(environment)
+    if signature:
+        parts.append(signature)
+    return "|".join(parts)
+
+
+def _queue_anomaly_alert(alert: Dict[str, Any]) -> bool:
+    if _ANOMALY_WINDOW_SECONDS <= 0:
+        return False
+    key = _anomaly_bucket_key(alert)
+    timer: Timer | None = None
+    with _ANOMALY_LOCK:
+        batch = _ANOMALY_BATCHES.get(key)
+        if batch:
+            batch.count += 1
+            batch.representative_alert = alert
+            return True
+        timer = Timer(_ANOMALY_WINDOW_SECONDS, _flush_anomaly_batch, args=(key,))
+        timer.daemon = True
+        _ANOMALY_BATCHES[key] = _AnomalyBatch(
+            key=key,
+            representative_alert=alert,
+            count=1,
+            started_at=monotonic(),
+            window_seconds=_ANOMALY_WINDOW_SECONDS,
+            timer=timer,
+        )
+    if timer is not None:
+        timer.start()
+    return True
+
+
+def _flush_anomaly_batch(key: str) -> None:
+    with _ANOMALY_LOCK:
+        batch = _ANOMALY_BATCHES.pop(key, None)
+    if not batch:
+        return
+    duration_seconds = max(batch.window_seconds, monotonic() - batch.started_at)
+    text = _format_anomaly_batch_text(batch.representative_alert, batch.count, duration_seconds)
+    _post_to_telegram(text)
+
+
+def _reset_anomaly_batches_for_tests() -> None:
+    with _ANOMALY_LOCK:
+        for batch in _ANOMALY_BATCHES.values():
+            try:
+                batch.timer.cancel()
+            except Exception:
+                pass
+        _ANOMALY_BATCHES.clear()
 
 
 def _is_monkeypatched_pooled() -> bool:
@@ -289,6 +412,9 @@ def forward_alerts(alerts: List[Dict[str, Any]]) -> None:
             _post_to_slack(text)
             # Send to Telegram only if severity >= configured minimum
             if _severity_rank(severity) >= min_tg_rank:
+                sev_norm = str(severity or "").strip().lower()
+                if sev_norm == "anomaly" and _queue_anomaly_alert(alert):
+                    continue
                 _post_to_telegram(text)
         except Exception:
             emit_event("alert_forward_error", severity="warn")

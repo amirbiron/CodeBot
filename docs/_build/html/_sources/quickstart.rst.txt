@@ -44,3 +44,4 @@
 - :doc:`environment-variables` – משתני סביבה
 - :doc:`api/index` – תיעוד API
 - :doc:`contributing` – איך לתרום
+- :doc:`webapp/overview` – אפליקציית Web (אופציונלי)

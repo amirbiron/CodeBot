@@ -196,3 +196,97 @@ def test_alert_manager_uses_regional_host_from_dsn(monkeypatch):
     )
 
     assert "https://us.sentry.io/organizations/beta/issues/?query=" in text
+
+
+def test_forwarder_includes_details_preview_when_provided(monkeypatch):
+    _clear_sentry_env(monkeypatch)
+
+    import alert_forwarder as af
+    importlib.reload(af)
+
+    alert = {
+        "status": "firing",
+        "labels": {"alertname": "DetailAlert", "severity": "warn"},
+        "annotations": {
+            "summary": "extra context",
+            "details_preview": "cause=spike, region=eu-west",
+        },
+    }
+
+    text = af._format_alert_text(alert)  # noqa: SLF001
+
+    assert "extra context" in text
+    assert "cause=spike" in text
+    assert "region=eu-west" in text
+
+
+def test_internal_alerts_forward_payload_includes_context(monkeypatch):
+    _clear_sentry_env(monkeypatch)
+
+    import internal_alerts as ia
+    importlib.reload(ia)
+
+    captured = {}
+
+    def _fake_forward(alerts):
+        captured["alerts"] = alerts
+
+    monkeypatch.setattr(ia, "forward_alerts", _fake_forward)
+
+    ia.emit_internal_alert(
+        name="anomaly_detected",
+        severity="error",
+        summary="avg_rt high",
+        service="api",
+        env="prod",
+        instance="pod-a",
+        request_id="rid-42",
+        generator_url="https://grafana/alert",
+        error_signature="OOM_KILLED",
+        sentry_permalink="https://sentry.io/org/issues/42",
+        token="SECRET",
+        shard="3",
+    )
+
+    alert_list = captured.get("alerts")
+    assert alert_list is not None
+    assert len(alert_list) == 1
+    alert = alert_list[0]
+
+    labels = alert["labels"]
+    annotations = alert["annotations"]
+
+    assert labels["service"] == "api"
+    assert labels["env"] == "prod"
+    assert labels["instance"] == "pod-a"
+    assert labels["request_id"] == "rid-42"
+    assert alert["generatorURL"] == "https://grafana/alert"
+    assert annotations["sentry_permalink"] == "https://sentry.io/org/issues/42"
+    assert annotations["error_signature"] == "OOM_KILLED"
+    assert "shard=3" in annotations["details_preview"]
+    assert "SECRET" not in annotations["details_preview"]
+
+
+def test_internal_alerts_respect_min_severity_for_direct_telegram(monkeypatch):
+    monkeypatch.setenv("ALERT_TELEGRAM_MIN_SEVERITY", "error")
+    monkeypatch.setenv("ALERT_TELEGRAM_BOT_TOKEN", "token")
+    monkeypatch.setenv("ALERT_TELEGRAM_CHAT_ID", "chat")
+
+    import internal_alerts as ia
+    importlib.reload(ia)
+
+    calls = []
+
+    def _fake_request(method, url, json=None, timeout=5):  # noqa: ARG001
+        calls.append({"url": url, "payload": json})
+        return None
+
+    monkeypatch.setattr(ia, "request", _fake_request)
+    monkeypatch.setattr(ia, "forward_alerts", None)
+
+    ia.emit_internal_alert(name="low", severity="info", summary="skipme")
+    assert calls == []
+
+    ia.emit_internal_alert(name="high", severity="error", summary="sendme")
+    assert len(calls) == 1
+    assert "[ERROR]" in calls[0]["payload"]["text"]
