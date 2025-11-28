@@ -19,6 +19,18 @@
         // קביעה מוקדמת של data-theme כדי למנוע הבהוב לפני טעינת ה-CSS
         (function() {
             try {
+                // Re-apply theme on bfcache restore (back button navigation)
+                window.addEventListener('pageshow', function(event) {
+                    if (event.persisted) {
+                        try {
+                            var saved = localStorage.getItem('dark_mode_preference');
+                            if (saved && saved !== 'auto') {
+                                document.documentElement.setAttribute('data-theme', saved);
+                            }
+                        } catch (_) {}
+                    }
+                });
+
                 var saved = localStorage.getItem('dark_mode_preference');
                 var html = document.documentElement;
                 if (saved && saved !== 'auto') {
