@@ -6939,17 +6939,28 @@ class GitHubMenuHandler:
                 pass
 
             # 2) בדוק שיש הבדלים בין HEAD ל-base (אחרת GitHub יחזיר Validation Failed)
+            created_snapshot_commit = False
+            snapshot_failure_reason = None
             try:
                 cmp = repo.compare(base_branch, branch_name)
+                if getattr(cmp, "ahead_by", 0) == 0:
+                    created_snapshot_commit, snapshot_failure_reason = self._ensure_branch_snapshot_commit(
+                        repo, base_branch, branch_name
+                    )
+                    if created_snapshot_commit:
+                        cmp = repo.compare(base_branch, branch_name)
                 if getattr(cmp, "ahead_by", 0) == 0 and getattr(cmp, "behind_by", 0) == 0:
                     kb = [
                         [InlineKeyboardButton("↩️ בחר תגית אחרת", callback_data="restore_checkpoint_menu")],
                         [InlineKeyboardButton("🔙 חזור", callback_data="github_menu")],
                     ]
+                    extra_hint = ""
+                    if snapshot_failure_reason == "identical_tree":
+                        extra_hint = f"\n\nהענף <code>{branch_name}</code> זהה כרגע ל-<code>{base_branch}</code>."
                     await query.edit_message_text(
                         (
                             "❌ לא ניתן לפתוח PR: אין שינויים בין הענף "
-                            f"<code>{branch_name}</code> ל- <code>{base_branch}</code>\n\n"
+                            f"<code>{branch_name}</code> ל- <code>{base_branch}</code>{extra_hint}\n\n"
                             "נסה לבחור תגית אחרת לשחזור, או בצע שינוי/commit בענף לפני פתיחת PR."
                         ),
                         parse_mode="HTML",
@@ -6966,10 +6977,16 @@ class GitHubMenuHandler:
                 f"Automated PR to restore state from branch `{branch_name}`.\n\n"
                 f"Created via Telegram bot."
             )
+            if created_snapshot_commit:
+                body += (
+                    "\n\nהבוט יצר commit חדש על גבי "
+                    f"`{base_branch}` כדי לשחזר את תוכן הענף."
+                )
             pr = repo.create_pull(title=title, body=body, head=branch_name, base=base_branch)
             kb = [[InlineKeyboardButton("🔙 חזור", callback_data="github_menu")]]
             await query.edit_message_text(
-                f"✅ נפתח PR: <a href=\"{pr.html_url}\">#{pr.number}</a> ← <code>{base_branch}</code> ← <code>{branch_name}</code>",
+                f"✅ נפתח PR: <a href=\"{pr.html_url}\">#{pr.number}</a> ← <code>{base_branch}</code> ← <code>{branch_name}</code>"
+                + (" (נוסף commit שחזור אוטומטי)" if created_snapshot_commit else ""),
                 parse_mode="HTML",
                 reply_markup=InlineKeyboardMarkup(kb),
             )
@@ -7031,6 +7048,61 @@ class GitHubMenuHandler:
             await query.edit_message_text(f"❌ שגיאה בפתיחת PR: {safe_html_escape(message_text)}", parse_mode="HTML")
         except Exception as e:
             await query.edit_message_text(f"❌ שגיאה בפתיחת PR: {safe_html_escape(str(e))}")
+
+    def _ensure_branch_snapshot_commit(self, repo, base_branch: str, branch_name: str):
+        """מנסה לוודא שיש commit חדש בראש הענף שמייצר diff מול base.
+
+        מחזיר tuple של (האם נוצר commit חדש, קוד סיבת כישלון).
+        """
+        try:
+            branch_ref = repo.get_git_ref(f"heads/{branch_name}")
+            branch_sha = getattr(getattr(branch_ref, "object", None), "sha", None)
+            if not branch_sha:
+                return False, "missing_branch_sha"
+            branch_commit = repo.get_commit(branch_sha)
+            branch_tree_sha = getattr(getattr(branch_commit.commit, "tree", None), "sha", None)
+            if not branch_tree_sha:
+                return False, "missing_branch_tree"
+
+            base_ref = repo.get_branch(base_branch)
+            base_sha = getattr(getattr(base_ref, "commit", None), "sha", None)
+            if not base_sha:
+                return False, "missing_base_sha"
+            base_commit = repo.get_commit(base_sha)
+            base_tree_sha = getattr(getattr(base_commit.commit, "tree", None), "sha", None)
+
+            # אם העצים זהים – אין צורך ליצור commit מלאכותי
+            if branch_tree_sha and base_tree_sha and branch_tree_sha == base_tree_sha:
+                return False, "identical_tree"
+
+            parent_git_commit = repo.get_git_commit(base_sha)
+            new_tree = repo.get_git_tree(branch_tree_sha)
+
+            new_commit_message = f"Restore snapshot from {branch_name} onto {base_branch}"
+            new_commit = repo.create_git_commit(new_commit_message, new_tree, [parent_git_commit])
+            # עדכן את ה-ref של הענף ל-commit החדש
+            branch_ref.edit(new_commit.sha, force=True)
+            logger.info(
+                "[open_pr_from_branch] Created snapshot commit=%s on %s from tree=%s",
+                new_commit.sha,
+                branch_name,
+                branch_tree_sha,
+            )
+            return True, None
+        except GithubException as ge:
+            logger.warning(
+                "[open_pr_from_branch] Failed to create snapshot commit for %s: %s",
+                branch_name,
+                getattr(ge, "data", None) or str(ge),
+            )
+            return False, "github_error"
+        except Exception as exc:
+            logger.exception(
+                "[open_pr_from_branch] Unexpected error while creating snapshot commit for %s: %s",
+                branch_name,
+                exc,
+            )
+            return False, "unexpected_error"
 
     async def create_revert_pr_from_tag(self, update: Update, context: ContextTypes.DEFAULT_TYPE, tag_name: str):
         """יוצר PR שמשחזר את מצב הריפו לתגית ע"י יצירת commit חדש עם עץ התגית על גבי base.

@@ -264,3 +264,106 @@ async def test_create_revert_pr_from_commit_uses_selected_branch(monkeypatch):
 
     assert fake_repo.pull_args[3] == "feature/x"
     assert "feature/x" in update.callback_query.edited_texts[-1][0]
+
+
+@pytest.mark.asyncio
+async def test_open_pr_from_branch_creates_snapshot_commit_when_needed(monkeypatch):
+    import github_menu_handler as gh
+
+    handler = gh.GitHubMenuHandler()
+    update = DummyUpdate()
+    context = DummyContext()
+
+    session = handler.get_user_session(update.callback_query.from_user.id)
+    session["selected_repo"] = "owner/repo"
+    monkeypatch.setattr(handler, "get_user_token", lambda _uid: "token")
+
+    class FakeRepo:
+        default_branch = "main"
+        owner = types.SimpleNamespace(login="owner")
+
+        def __init__(self):
+            self.compare_calls = 0
+            self.snapshot_commit = None
+            self.pull_args = None
+            self.edited_refs = []
+
+        def get_pulls(self, **kwargs):
+            return []
+
+        def compare(self, base, head):
+            self.compare_calls += 1
+            if self.compare_calls == 1:
+                return types.SimpleNamespace(ahead_by=0, behind_by=4)
+            return types.SimpleNamespace(ahead_by=1, behind_by=0)
+
+        def get_branch(self, name):
+            assert name == "main"
+            return types.SimpleNamespace(commit=types.SimpleNamespace(sha="base123"))
+
+        def get_git_ref(self, ref):
+            assert ref == "heads/restore-abc1234"
+
+            class _Ref:
+                def __init__(self, outer):
+                    self.outer = outer
+                    self.object = types.SimpleNamespace(sha="branch123")
+
+                def edit(self, sha, force=False):
+                    self.outer.edited_refs.append((sha, force))
+                    self.object.sha = sha
+
+            return _Ref(self)
+
+        def get_commit(self, sha):
+            if sha == "branch123":
+                return make_commit(sha, "branch", tree_sha="tree-branch")
+            if sha == "base123":
+                return make_commit(sha, "base", tree_sha="tree-base")
+            raise AssertionError(f"unexpected sha {sha}")
+
+        def get_git_commit(self, sha):
+            return types.SimpleNamespace(sha=sha)
+
+        def get_git_tree(self, sha):
+            return types.SimpleNamespace(sha=sha)
+
+        def create_git_commit(self, message, tree, parents):
+            self.snapshot_commit = {
+                "message": message,
+                "tree": tree.sha,
+                "parents": [p.sha for p in parents],
+            }
+            return types.SimpleNamespace(sha="new-snapshot")
+
+        def create_pull(self, title, body, head, base):
+            self.pull_args = (title, body, head, base)
+            return types.SimpleNamespace(html_url="https://example.com/pr/9", number=9)
+
+    fake_repo = FakeRepo()
+
+    class FakeGithub:
+        def __init__(self, token):
+            pass
+
+        def get_repo(self, full):
+            assert full == "owner/repo"
+            return fake_repo
+
+    monkeypatch.setattr(gh, "Github", FakeGithub)
+    monkeypatch.setattr(gh, "InlineKeyboardButton", lambda *a, **k: (a, k))
+    monkeypatch.setattr(gh, "InlineKeyboardMarkup", lambda rows: rows)
+
+    await handler.open_pr_from_branch(update, context, "restore-abc1234")
+
+    assert fake_repo.snapshot_commit is not None
+    assert fake_repo.snapshot_commit["tree"] == "tree-branch"
+    assert fake_repo.snapshot_commit["parents"] == ["base123"]
+    assert fake_repo.pull_args == (
+        "Restore from checkpoint: restore-abc1234",
+        "Automated PR to restore state from branch `restore-abc1234`.\n\nCreated via Telegram bot.\n\n"
+        "הבוט יצר commit חדש על גבי `main` כדי לשחזר את תוכן הענף.",
+        "restore-abc1234",
+        "main",
+    )
+    assert "נוסף commit שחזור אוטומטי" in update.callback_query.edited_texts[-1][0]
