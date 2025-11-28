@@ -262,40 +262,25 @@
 
         try { console.log('[EditorManager] Attempting to load local CodeMirror bundle from:', localUrl); } catch(_) {}
         
-        // ניסיון ראשון: import() דינמי
-        let localModule;
-        try {
-            localModule = await this.withTimeout(import(localUrl), 12000, 'codemirror_local_import');
-        } catch (importErr) {
-            console.warn('[EditorManager] dynamic import failed, trying script tag fallback', importErr);
-            // Fallback: טעינה דרך תגית script אם import נכשל
-            await new Promise((resolve, reject) => {
-                const s = document.createElement('script');
-                s.type = 'module';
-                s.src = localUrl;
-                s.onload = () => {
-                    console.log('[EditorManager] Script tag loaded successfully');
-                    if (window.CodeMirror6) {
-                        console.log('[EditorManager] window.CodeMirror6 found after script load');
-                    } else {
-                        console.warn('[EditorManager] Script loaded but window.CodeMirror6 is undefined');
-                    }
-                    resolve();
-                };
-                s.onerror = (e) => {
-                    console.error('[EditorManager] Script tag failed to load', e);
-                    reject(new Error('Script tag load failed'));
-                };
-                document.head.appendChild(s);
-            });
-            // במקרה של script tag, ה-API יהיה ב-window.CodeMirror6
-        }
+        // טעינה באמצעות תגית script רגילה (יותר אמין מ-dynamic import בסביבות מסוימות)
+        await new Promise((resolve, reject) => {
+            const s = document.createElement('script');
+            // הערה: הסרנו את type="module" כי ה-build עבר לפורמט IIFE
+            // s.type = 'module'; 
+            s.src = localUrl;
+            s.onload = () => {
+                try { console.log('[EditorManager] Script tag loaded successfully'); } catch(_) {}
+                resolve();
+            };
+            s.onerror = (e) => {
+                try { console.error('[EditorManager] Script tag failed to load', e); } catch(_) {}
+                reject(new Error('Script tag load failed'));
+            };
+            document.head.appendChild(s);
+        });
 
-        // בדיקה האם ה-API זמין (בין אם מ-import או מ-script tag)
-        const localApi = (localModule && (localModule.default || localModule.CodeMirror6)) || window.CodeMirror6 || null;
-
-        if (localApi && localApi.EditorView && localApi.EditorState) {
-          window.CodeMirror6 = localApi;
+        // בדיקה האם ה-API זמין (ה-bundle אמור להגדיר את window.CodeMirror6)
+        if (window.CodeMirror6 && window.CodeMirror6.EditorView && window.CodeMirror6.EditorState) {
           this._cdnUrl = null;
           try { console.log('[EditorManager] Local CodeMirror bundle loaded successfully'); } catch(_) {}
           return;
@@ -322,9 +307,9 @@
           return;
         }
 
-        console.warn('codemirror.local.js נטען אבל ה-export חסר את ה-API המצופה');
+        console.warn('codemirror.local.js נטען אבל window.CodeMirror6 חסר או לא תקין');
       } catch (e) {
-        console.error('אי אפשר לטעון את bundle המקומי של CodeMirror (גם ב-fallback):', e);
+        console.error('אי אפשר לטעון את bundle המקומי של CodeMirror:', e);
         /* נמשיך ל-CDN אם אין bundle מקומי או כשהנתיב המקומי לא זמין */
       }
 

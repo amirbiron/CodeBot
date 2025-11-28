@@ -16,7 +16,7 @@ mkdirSync(dirname(outfile), { recursive: true });
     await build({
       entryPoints: [entry],
       bundle: true,
-      format: 'esm',
+      format: 'iife',
       platform: 'browser',
       target: ['es2018'],
       outfile,
