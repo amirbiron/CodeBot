@@ -241,6 +241,12 @@ class BotConfig(BaseSettings):
     MAINTENANCE_AUTO_WARMUP_SECS: int = Field(
         default=30, ge=1, le=600, description="Warmup seconds after maintenance"
     )
+    MAINTENANCE_WARMUP_GRACE_SECS: float = Field(
+        default=0.75,
+        ge=0.0,
+        le=30.0,
+        description="Grace window added to the maintenance warmup timer (seconds)",
+    )
 
     # קצב
     RATE_LIMIT_PER_MINUTE: int = Field(
