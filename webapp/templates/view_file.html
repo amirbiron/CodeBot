@@ -80,60 +80,66 @@
     padding: 0.75rem;
     margin: 0 -0.25rem 0.75rem;
     border-radius: 12px;
-    background: var(--glass, rgba(255, 255, 255, 0.08));
-    border: 1px solid var(--glass-border, rgba(255, 255, 255, 0.2));
-    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2);
+    background: var(--code-search-bg, var(--card-bg, rgba(255, 255, 255, 0.95)));
+    border: 1px solid var(--code-search-border, var(--card-border, rgba(0, 0, 0, 0.08)));
+    box-shadow: 0 14px 40px rgba(15, 23, 42, 0.12);
     backdrop-filter: blur(18px);
+    color: var(--text-primary, #1f2933);
 }
 
 .code-search-input {
     flex: 1 1 220px;
     min-width: 0;
-    background: var(--glass, rgba(255, 255, 255, 0.08));
-    border: 1px solid var(--glass-border, rgba(255, 255, 255, 0.2));
+    background: var(--code-search-input-bg, var(--bg-tertiary, rgba(255, 255, 255, 0.85)));
+    border: 1px solid var(--code-search-input-border, var(--glass-border, rgba(0, 0, 0, 0.1)));
     border-radius: 8px;
     padding: 0.6rem 0.8rem;
     font-size: 0.95rem;
-    color: var(--text-primary, #ffffff);
+    color: var(--text-primary, #1f2933);
     outline: none;
     transition: border-color 0.2s ease, box-shadow 0.2s ease, background 0.2s ease;
 }
 
 .code-search-input::placeholder {
-    color: rgba(255, 255, 255, 0.65);
+    color: var(--text-muted, rgba(15, 23, 42, 0.55));
 }
 
 .code-search-input:focus {
     border-color: var(--primary, #9775fa);
     box-shadow: 0 0 0 3px rgba(151, 117, 250, 0.25);
-    background: rgba(255, 255, 255, 0.12);
+    background: var(--code-search-input-focus-bg, #ffffff);
 }
 
 .code-search-count {
-    color: var(--text-primary, #ffffff);
+    color: var(--text-secondary, var(--text-primary, #1f2933));
     font-size: 0.85rem;
     padding: 0.35rem 0.6rem;
-    background: var(--glass, rgba(255, 255, 255, 0.12));
+    background: var(--code-search-pill-bg, var(--glass, rgba(0, 0, 0, 0.04)));
     border-radius: 6px;
     min-width: 60px;
     text-align: center;
-    border: 1px solid var(--glass-border, rgba(255, 255, 255, 0.2));
+    border: 1px solid var(--glass-border, rgba(0, 0, 0, 0.08));
     flex: 0 0 auto;
 }
 
 .code-search-btn {
-    background: var(--glass, rgba(255, 255, 255, 0.12)) !important;
-    border: 1px solid var(--glass-border, rgba(255, 255, 255, 0.25)) !important;
-    color: var(--text-primary, #ffffff) !important;
+    background: var(
+        --code-search-btn-bg,
+        var(--bg-tertiary, var(--glass, rgba(0, 0, 0, 0.05)))
+    ) !important;
+    border: 1px solid var(--code-search-btn-border, var(--glass-border, rgba(0, 0, 0, 0.12))) !important;
+    color: var(--code-search-btn-color, var(--text-primary, #1f2933)) !important;
     flex: 0 0 auto;
     min-width: 0;
-    transition: background 0.2s ease, border-color 0.2s ease;
+    border-radius: 8px;
+    transition: background 0.2s ease, border-color 0.2s ease, color 0.2s ease;
 }
 
 .code-search-btn:hover,
 .code-search-btn:focus-visible {
-    background: rgba(255, 255, 255, 0.2) !important;
-    border-color: rgba(255, 255, 255, 0.35) !important;
+    background: var(--glass-hover, rgba(0, 0, 0, 0.08)) !important;
+    border-color: var(--primary, rgba(151, 117, 250, 0.5)) !important;
+    color: var(--primary, #9775fa) !important;
 }
 
 /* כאשר הכרטיס במסך מלא – הקוד יתפוס כמעט את כל הגובה */
