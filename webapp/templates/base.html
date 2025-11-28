@@ -345,7 +345,7 @@
         .logo {
             font-size: 1.5rem;
             font-weight: 700;
-            color: white;
+            color: var(--text-primary, white);
             text-decoration: none;
             display: flex;
             align-items: center;
@@ -360,7 +360,7 @@
         }
         
         .nav-link {
-            color: white;
+            color: var(--text-primary, white);
             text-decoration: none;
             font-weight: 500;
             transition: opacity 0.3s;
@@ -457,7 +457,7 @@
         
         .btn-secondary {
             background: var(--glass);
-            color: white;
+            color: var(--text-primary, white);
             border: 1px solid var(--glass-border);
         }
         
@@ -568,7 +568,7 @@
             display: none;
             background: transparent;
             border: none;
-            color: white;
+            color: var(--text-primary, white);
             font-size: 1.5rem;
             cursor: pointer;
         }
@@ -988,7 +988,7 @@
             border-radius: 12px;
             margin-top: 8px;
             padding: 6px 10px;
-            color: #fff;
+            color: var(--text-primary, #fff);
             display: flex;
             align-items: center;
             gap: 8px;
@@ -1006,7 +1006,7 @@
             animation: none !important;
         }
         .announcement-banner__content { white-space: normal; line-height: 1.28; opacity: 0.95; font-size: 0.95rem; }
-        .announcement-banner__content a { color: #fff; text-decoration: underline; }
+        .announcement-banner__content a { color: inherit; text-decoration: underline; }
         .announcement-banner__content a:hover { opacity: 0.9; }
         .announcement-banner:hover .announcement-banner__inner,
         .announcement-banner:focus-within .announcement-banner__inner,
