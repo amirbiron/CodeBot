@@ -367,3 +367,176 @@ async def test_open_pr_from_branch_creates_snapshot_commit_when_needed(monkeypat
         "main",
     )
     assert "נוסף commit שחזור אוטומטי" in update.callback_query.edited_texts[-1][0]
+
+
+@pytest.mark.asyncio
+async def test_open_pr_from_branch_reports_identical_tree_hint(monkeypatch):
+    import github_menu_handler as gh
+
+    handler = gh.GitHubMenuHandler()
+    update = DummyUpdate()
+    context = DummyContext()
+
+    session = handler.get_user_session(update.callback_query.from_user.id)
+    session["selected_repo"] = "owner/repo"
+    monkeypatch.setattr(handler, "get_user_token", lambda _uid: "token")
+
+    class FakeRepo:
+        default_branch = "main"
+        owner = types.SimpleNamespace(login="owner")
+
+        def get_pulls(self, **kwargs):
+            return []
+
+        def compare(self, base, head):
+            assert base == "main"
+            assert head == "restore-identical"
+            return types.SimpleNamespace(ahead_by=0, behind_by=0)
+
+    class FakeGithub:
+        def __init__(self, token):
+            pass
+
+        def get_repo(self, full):
+            assert full == "owner/repo"
+            return FakeRepo()
+
+    def fake_button(*args, **kwargs):
+        return (args, kwargs)
+
+    def fake_markup(rows):
+        return rows
+
+    monkeypatch.setattr(gh, "Github", FakeGithub)
+    monkeypatch.setattr(gh, "InlineKeyboardButton", fake_button)
+    monkeypatch.setattr(gh, "InlineKeyboardMarkup", fake_markup)
+    handler._ensure_branch_snapshot_commit = lambda *_, **__: (False, "identical_tree")
+
+    await handler.open_pr_from_branch(update, context, "restore-identical")
+
+    text = update.callback_query.edited_texts[-1][0]
+    assert "אין שינויים" in text
+    assert "זהה כרגע" in text
+
+
+def test_ensure_snapshot_commit_missing_branch_sha():
+    import github_menu_handler as gh
+
+    handler = gh.GitHubMenuHandler()
+
+    class FakeRepo:
+        def get_git_ref(self, ref):
+            class _Ref:
+                def __init__(self):
+                    self.object = types.SimpleNamespace(sha=None)
+
+            return _Ref()
+
+    created, reason = handler._ensure_branch_snapshot_commit(FakeRepo(), "main", "feature/x")
+    assert created is False
+    assert reason == "missing_branch_sha"
+
+
+def test_ensure_snapshot_commit_missing_branch_tree():
+    import github_menu_handler as gh
+
+    handler = gh.GitHubMenuHandler()
+
+    class FakeRepo:
+        def get_git_ref(self, ref):
+            class _Ref:
+                def __init__(self):
+                    self.object = types.SimpleNamespace(sha="branchsha")
+
+            return _Ref()
+
+        def get_commit(self, sha):
+            assert sha == "branchsha"
+            return make_commit(sha, "branch commit")  # tree attr חסר בכוונה
+
+    created, reason = handler._ensure_branch_snapshot_commit(FakeRepo(), "main", "feature/x")
+    assert created is False
+    assert reason == "missing_branch_tree"
+
+
+def test_ensure_snapshot_commit_missing_base_sha():
+    import github_menu_handler as gh
+
+    handler = gh.GitHubMenuHandler()
+
+    class FakeRepo:
+        def get_git_ref(self, ref):
+            class _Ref:
+                def __init__(self):
+                    self.object = types.SimpleNamespace(sha="branchsha")
+
+            return _Ref()
+
+        def get_commit(self, sha):
+            assert sha == "branchsha"
+            return make_commit(sha, "branch", tree_sha="tree-123")
+
+        def get_branch(self, name):
+            assert name == "main"
+            return types.SimpleNamespace(commit=types.SimpleNamespace(sha=None))
+
+    created, reason = handler._ensure_branch_snapshot_commit(FakeRepo(), "main", "feature/x")
+    assert created is False
+    assert reason == "missing_base_sha"
+
+
+def test_ensure_snapshot_commit_identical_tree():
+    import github_menu_handler as gh
+
+    handler = gh.GitHubMenuHandler()
+
+    class FakeRepo:
+        def get_git_ref(self, ref):
+            class _Ref:
+                def __init__(self):
+                    self.object = types.SimpleNamespace(sha="branchsha")
+
+            return _Ref()
+
+        def get_commit(self, sha):
+            if sha == "branchsha":
+                return make_commit(sha, "branch", tree_sha="shared-tree")
+            if sha == "basesha":
+                return make_commit(sha, "base", tree_sha="shared-tree")
+            raise AssertionError(f"unexpected sha {sha}")
+
+        def get_branch(self, name):
+            assert name == "main"
+            return types.SimpleNamespace(commit=types.SimpleNamespace(sha="basesha"))
+
+    created, reason = handler._ensure_branch_snapshot_commit(FakeRepo(), "main", "feature/x")
+    assert created is False
+    assert reason == "identical_tree"
+
+
+def test_ensure_snapshot_commit_handles_github_exception(monkeypatch):
+    import github_menu_handler as gh
+
+    handler = gh.GitHubMenuHandler()
+
+    class FakeRepo:
+        def get_git_ref(self, ref):
+            raise gh.GithubException(500, {"message": "boom"})
+
+    created, reason = handler._ensure_branch_snapshot_commit(FakeRepo(), "main", "feature/x")
+    assert created is False
+    assert reason == "github_error"
+
+
+def test_ensure_snapshot_commit_handles_unexpected_exception():
+    import github_menu_handler as gh
+
+    handler = gh.GitHubMenuHandler()
+
+    class FakeRepo:
+        def get_git_ref(self, ref):
+            raise RuntimeError("unexpected failure")
+
+    created, reason = handler._ensure_branch_snapshot_commit(FakeRepo(), "main", "feature/x")
+    assert created is False
+    assert reason == "unexpected_error"
