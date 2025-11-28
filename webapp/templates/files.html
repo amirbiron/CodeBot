@@ -472,16 +472,19 @@
 }
 
 .search-input::placeholder {
-    color: rgba(255,255,255,0.5);
+    color: var(--text-muted, rgba(255,255,255,0.5));
 }
 
 .filter-select {
     cursor: pointer;
+    background: var(--bg-tertiary, rgba(255,255,255,0.1));
+    color: var(--text-primary, #fff);
+    border: 1px solid var(--glass-border, rgba(255,255,255,0.2));
 }
 
 .filter-select option {
-    background: var(--primary);
-    color: white;
+    background: var(--card-bg, var(--primary));
+    color: var(--text-primary, #1f2937);
 }
 
 .file-card {
