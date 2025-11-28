@@ -68,14 +68,6 @@
 @keyframes noteAppear{ from{ opacity: 0; transform: scale(.9);} to{opacity:1; transform: scale(1);} }
 .sticky-note{ animation: noteAppear .2s ease-out; }
 
-/* Dark mode */
-@media (prefers-color-scheme: dark){
-  .sticky-note{ background:#3a3a3a; border-color:#555; color:#eee; }
-  .sticky-note-header{ background: rgba(255,255,255,.06); }
-  .sticky-note-content{ color:#eee; }
-  .sticky-note-fab{ background: #555; color:#eee; border-color:#666; }
-}
-
 /* Print: hide notes */
 @media print{
   .sticky-note, .sticky-note-fab{ display:none !important; }
