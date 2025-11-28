@@ -21,9 +21,9 @@
   width:100%;
   padding:0.75rem 2.5rem 0.75rem 0.9rem; /* מרחב לאייקון מצד ימין (RTL) ולשוליים משמאל */
   border-radius:10px; /* יישור לעיצוב של תיבת החיפוש התחתונה */
-  border:1px solid rgba(255,255,255,0.2);
-  background: rgba(255,255,255,0.10);
-  color:#fff;
+  border:1px solid var(--glass-border);
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
   font-size:1rem;
   outline:none;
   transition: background .2s ease, border-color .2s ease, box-shadow .2s ease;

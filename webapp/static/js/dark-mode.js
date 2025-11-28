@@ -19,7 +19,7 @@
     function loadPreference() {
         try {
             const saved = localStorage.getItem(DARK_MODE_KEY);
-            if (saved === 'dark' || saved === 'dim' || saved === 'light' || saved === 'auto') {
+            if (saved && typeof saved === 'string' && saved.trim().length > 0) {
                 return saved;
             }
         } catch (e) {
@@ -92,8 +92,16 @@
         const icon = document.getElementById('darkModeIcon');
         const text = toggleBtn?.querySelector('.btn-text');
         if (!toggleBtn || !icon) return;
-        const icons = { 'auto': 'fa-adjust', 'dark': 'fa-moon', 'dim': 'fa-cloud-moon', 'light': 'fa-sun' };
-        const labels = { 'auto': 'אוטומטי', 'dark': 'חשוך', 'dim': 'מעומעם', 'light': 'בהיר' };
+        const icons = {
+            'auto': 'fa-adjust', 'dark': 'fa-moon', 'dim': 'fa-cloud-moon', 'light': 'fa-sun',
+            'classic': 'fa-code', 'ocean': 'fa-water', 'forest': 'fa-tree',
+            'rose-pine-dawn': 'fa-seedling', 'nebula': 'fa-meteor', 'high-contrast': 'fa-eye'
+        };
+        const labels = {
+            'auto': 'אוטומטי', 'dark': 'חשוך', 'dim': 'מעומעם', 'light': 'בהיר',
+            'classic': 'קלאסי', 'ocean': 'אוקיינוס', 'forest': 'יער',
+            'rose-pine-dawn': 'Rose Pine', 'nebula': 'Nebula', 'high-contrast': 'ניגודיות'
+        };
         icon.className = 'fas ' + (icons[mode] || icons.auto);
         if (text) text.textContent = labels[mode] || labels.auto;
         toggleBtn.setAttribute('title', `מצב: ${labels[mode] || labels.auto}`);

@@ -19,9 +19,21 @@
         // קביעה מוקדמת של data-theme כדי למנוע הבהוב לפני טעינת ה-CSS
         (function() {
             try {
+                // Re-apply theme on bfcache restore (back button navigation)
+                window.addEventListener('pageshow', function(event) {
+                    if (event.persisted) {
+                        try {
+                            var saved = localStorage.getItem('dark_mode_preference');
+                            if (saved && saved !== 'auto') {
+                                document.documentElement.setAttribute('data-theme', saved);
+                            }
+                        } catch (_) {}
+                    }
+                });
+
                 var saved = localStorage.getItem('dark_mode_preference');
                 var html = document.documentElement;
-                if (saved === 'dark' || saved === 'dim') {
+                if (saved && saved !== 'auto') {
                     html.setAttribute('data-theme', saved);
                 } else if (saved === 'auto' && window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) {
                     html.setAttribute('data-theme', 'dark');
@@ -54,7 +66,16 @@
             --light: #f7fafc;
             --glass: rgba(255, 255, 255, 0.1);
             --glass-border: rgba(255, 255, 255, 0.2);
+            --glass-hover: rgba(255, 255, 255, 0.15);
             --ui-font-scale: 1;
+
+            /* Default variables for light/gradient themes (classic, ocean, forest) */
+            --bg-tertiary: rgba(255, 255, 255, 0.1);
+            --text-primary: #ffffff;
+            --text-secondary: rgba(255, 255, 255, 0.9);
+            --text-muted: rgba(255, 255, 255, 0.7);
+            --card-bg: rgba(255, 255, 255, 0.1);
+            --card-border: rgba(255, 255, 255, 0.2);
         }
 
         /* Theme palettes */
@@ -75,6 +96,19 @@
             --primary: #907aa9; /* iris */
             --primary-dark: #7b6f9a;
             --secondary: #d7827e; /* rose */
+            --glass: rgba(255, 255, 255, 0.6);
+            --glass-border: rgba(144, 122, 169, 0.2);
+            --card-bg: rgba(255, 255, 255, 0.85);
+            
+            /* Full palette definition */
+            --bg-primary: #faf4ed;
+            --bg-secondary: #fffaf3;
+            --bg-tertiary: #f2e9e1;
+            --text-primary: #575279;
+            --text-secondary: #797593;
+            --text-muted: #9893a5;
+            --card-border: rgba(87, 82, 121, 0.1);
+            --glass-hover: rgba(255, 255, 255, 0.9);
         }
 
         /* Theme palettes - Dark & Dim */
@@ -177,7 +211,8 @@
         /* עדכון body למצב חשוך/מעומעם */
         :root[data-theme="dark"] body,
         :root[data-theme="dim"] body,
-        :root[data-theme="nebula"] body {
+        :root[data-theme="nebula"] body,
+        :root[data-theme="rose-pine-dawn"] body {
             background: linear-gradient(135deg, var(--bg-primary) 0%, var(--bg-secondary) 100%);
             color: var(--text-primary);
         }
