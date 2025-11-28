@@ -93,6 +93,7 @@
         const cookieTheme = readServerTheme();
         if (cookieTheme) {
             document.documentElement.setAttribute(THEME_ATTRIBUTE, cookieTheme);
+            updateToggleButton(cookieTheme);
         }
     }
 
