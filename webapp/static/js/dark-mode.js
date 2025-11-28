@@ -48,6 +48,32 @@
         }
     }
 
+    function clearPreference() {
+        try {
+            localStorage.removeItem(DARK_MODE_KEY);
+        } catch (e) {
+            console.warn('Failed to clear dark mode preference:', e);
+        }
+    }
+
+    function normalizePreferenceValue(mode) {
+        if (mode === 'dark' || mode === 'dim') {
+            return mode;
+        }
+        if (mode === 'light') {
+            return 'classic';
+        }
+        return null;
+    }
+
+    function normalizeCookieTheme(theme) {
+        if (!theme) return null;
+        if (theme === 'classic' || theme === 'dark' || theme === 'dim') {
+            return theme;
+        }
+        return null;
+    }
+
     function applyTheme(theme) {
         const html = document.documentElement;
         if (theme && theme !== 'auto') {
@@ -85,12 +111,22 @@
 
     function ensureThemeSync() {
         const preference = loadPreference();
+        const cookieTheme = readServerTheme();
         if (preference) {
+            if (cookieTheme && preference !== 'auto') {
+                const normalizedCookie = normalizeCookieTheme(cookieTheme);
+                const normalizedPref = normalizePreferenceValue(preference);
+                if (normalizedCookie && normalizedPref && normalizedCookie !== normalizedPref) {
+                    clearPreference();
+                    document.documentElement.setAttribute(THEME_ATTRIBUTE, cookieTheme);
+                    updateToggleButton(cookieTheme);
+                    return;
+                }
+            }
             updateTheme();
             updateToggleButton(preference);
             return;
         }
-        const cookieTheme = readServerTheme();
         if (cookieTheme) {
             document.documentElement.setAttribute(THEME_ATTRIBUTE, cookieTheme);
             updateToggleButton(cookieTheme);

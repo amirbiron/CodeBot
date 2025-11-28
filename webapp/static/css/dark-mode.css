@@ -12,6 +12,19 @@
     border-bottom: 1px solid var(--glass-border);
 }
 
+[data-theme="dark"] .navbar .nav-link,
+[data-theme="dim"] .navbar .nav-link,
+[data-theme="nebula"] .navbar .nav-link {
+    color: var(--text-primary);
+}
+
+[data-theme="dark"] .navbar .nav-link:hover,
+[data-theme="dim"] .navbar .nav-link:hover,
+[data-theme="nebula"] .navbar .nav-link:hover {
+    color: var(--text-primary);
+    opacity: 0.85;
+}
+
 [data-theme="dark"] .glass-card,
 [data-theme="dim"] .glass-card,
 [data-theme="nebula"] .glass-card {
@@ -74,7 +87,7 @@
 [data-theme="nebula"] .btn-primary:hover {
     background: var(--primary-dark);
     transform: translateY(-2px);
-    box-shadow: 0 6px 20px rgba(124, 138, 255, 0.4);
+    box-shadow: 0 2px 6px rgba(124, 138, 255, 0.4);
 }
 
 [data-theme="dark"] .btn-secondary,
