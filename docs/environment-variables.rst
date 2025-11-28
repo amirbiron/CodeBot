@@ -523,7 +523,7 @@
      - הודעת ברירת מחדל ידידותית
      - ``"🚀 אנחנו מעלים עדכון חדש!"``
      - WebApp
-   * - ``MAINTENANCE_AUTO_WARMUP_SECS``
+  * - ``MAINTENANCE_AUTO_WARMUP_SECS``
      - חימום אוטומטי לאחר יציאה מתחזוקה (שניות)
      - לא
      - ``30``
@@ -535,6 +535,7 @@
     - ``0.75``
     - ``1.5``
     - Bot/WebApp
+
    * - ``RATE_LIMIT_PER_MINUTE``
      - מגבלת קצב בקשות לדקה
      - לא
