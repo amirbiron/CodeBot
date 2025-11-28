@@ -30,12 +30,12 @@
   box-sizing: border-box;
 }
 
-.search-box::placeholder{ color: rgba(255,255,255,0.7); }
+.search-box::placeholder{ color: var(--text-muted); }
 
 .search-box:focus{
-  background: rgba(255,255,255,0.18);
-  border-color: rgba(255,255,255,0.45);
-  box-shadow: 0 0 0 3px rgba(255,255,255,0.15);
+  background: var(--bg-secondary);
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px var(--glass-hover);
 }
 
 .search-icon{
@@ -43,7 +43,7 @@
   right:12px; /* RTL: אייקון בתחילת השורה */
   top:50%;
   transform: translateY(-50%);
-  color: rgba(255,255,255,0.85);
+  color: var(--text-muted);
   pointer-events:none;
 }
 
@@ -56,11 +56,11 @@
   display:none; /* מוצג רק כשיש טקסט */
   align-items:center; justify-content:center;
   border:none; border-radius:50%;
-  background: rgba(255,255,255,0.15);
-  color:#fff; cursor:pointer;
+  background: var(--glass);
+  color: var(--text-primary); cursor:pointer;
   transition: background .2s ease;
 }
-.clear-search-btn:hover{ background: rgba(255,255,255,0.25); }
+.clear-search-btn:hover{ background: var(--glass-hover); }
 
 /* כרטיס תוצאת חיפוש – רחב וממורכז ~95% מרוחב המסך */
 .search-result-card{
@@ -137,9 +137,9 @@
 .search-and-filters select.form-control{
   padding: 0.75rem;
   border-radius: 10px;
-  border: 1px solid rgba(255,255,255,0.2);
-  background: rgba(255,255,255,0.1);
-  color: #fff;
+  border: 1px solid var(--glass-border);
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
   font-size: 1rem;
   height: auto;
   /* מניעת גלישה של הסלקט מחוץ לכרטיס */
@@ -147,7 +147,7 @@
   max-width: 100%;
   box-sizing: border-box;
 }
-.search-and-filters select.form-control option{ background: var(--primary); color:#fff; }
+.search-and-filters select.form-control option{ background: var(--card-bg); color: var(--text-primary); }
 
 /* ייצוב פריסת בקרי החיפוש */
 .search-and-filters .filters-row{
