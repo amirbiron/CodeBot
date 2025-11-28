@@ -26,16 +26,14 @@
 }
 
 [data-theme="dark"] .glass-card,
-[data-theme="dim"] .glass-card,
-[data-theme="nebula"] .glass-card {
+[data-theme="dim"] .glass-card {
     background: var(--card-bg);
     border: 1px solid var(--card-border);
     color: var(--text-primary);
 }
 
 [data-theme="dark"] .glass-card:hover,
-[data-theme="dim"] .glass-card:hover,
-[data-theme="nebula"] .glass-card:hover {
+[data-theme="dim"] .glass-card:hover {
     background: var(--glass-hover);
 }
 
@@ -75,16 +73,14 @@
    ============================================ */
 
 [data-theme="dark"] .btn-primary,
-[data-theme="dim"] .btn-primary,
-[data-theme="nebula"] .btn-primary {
+[data-theme="dim"] .btn-primary {
     background: var(--primary);
     color: white;
     border: 1px solid var(--primary-dark);
 }
 
 [data-theme="dark"] .btn-primary:hover,
-[data-theme="dim"] .btn-primary:hover,
-[data-theme="nebula"] .btn-primary:hover {
+[data-theme="dim"] .btn-primary:hover {
     background: var(--primary-dark);
     transform: translateY(-2px);
     box-shadow: 0 2px 6px rgba(124, 138, 255, 0.4);
@@ -364,8 +360,7 @@
 
 @media (max-width: 768px) {
     [data-theme="dark"] .glass-card,
-    [data-theme="dim"] .glass-card,
-    [data-theme="nebula"] .glass-card {
+    [data-theme="dim"] .glass-card {
         padding: 1rem;
     }
 }

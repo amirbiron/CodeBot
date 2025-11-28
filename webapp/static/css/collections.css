@@ -25,6 +25,64 @@
   min-width:0;
   overflow-x:hidden
 }
+:root[data-theme="rose-pine-dawn"] .collections-content{
+  background:var(--card-bg);
+  color:var(--text-primary);
+  border:1px solid var(--glass-border);
+  box-shadow:0 18px 40px rgba(87,82,121,0.18);
+}
+:root[data-theme="rose-pine-dawn"] .sidebar-item{
+  background:rgba(144,122,169,0.12);
+  border:1px solid rgba(144,122,169,0.25);
+  color:var(--text-primary);
+}
+:root[data-theme="rose-pine-dawn"] .sidebar-item:hover{
+  background:rgba(144,122,169,0.2);
+}
+:root[data-theme="rose-pine-dawn"] .sidebar-item.active{
+  background:rgba(144,122,169,0.28);
+  border-color:rgba(144,122,169,0.45);
+}
+:root[data-theme="rose-pine-dawn"] .collection-item{
+  background:rgba(255,250,245,0.98);
+  border:1px solid rgba(144,122,169,0.4);
+  color:var(--text-primary);
+}
+:root[data-theme="rose-pine-dawn"] .collection-item .file{
+  color:var(--primary-dark);
+}
+:root[data-theme="rose-pine-dawn"] .collection-item .pin,
+:root[data-theme="rose-pine-dawn"] .collection-item .preview,
+:root[data-theme="rose-pine-dawn"] .collection-item .remove{
+  background:rgba(144,122,169,0.12);
+  border:1px solid rgba(144,122,169,0.3);
+  color:var(--text-primary);
+}
+:root[data-theme="rose-pine-dawn"] .collection-icon-btn,
+:root[data-theme="rose-pine-dawn"] .collection-header .actions .btn.btn-secondary,
+:root[data-theme="rose-pine-dawn"] .share-controls{
+  background:rgba(247,234,227,0.9);
+  border:1px solid rgba(144,122,169,0.4);
+  color:var(--text-primary);
+}
+:root[data-theme="rose-pine-dawn"] .share-controls .share-divider{
+  color:var(--text-muted);
+}
+:root[data-theme="rose-pine-dawn"] .share-controls .share-copy{
+  background:rgba(144,122,169,0.18);
+  border:1px solid rgba(144,122,169,0.45);
+  color:#433c59;
+}
+:root[data-theme="rose-pine-dawn"] .share-controls .share-copy:disabled{
+  opacity:.6;
+  background:rgba(144,122,169,0.1);
+  color:var(--text-muted);
+}
+:root[data-theme="rose-pine-dawn"] .collection-header .actions .btn.btn-danger{
+  background:#ffeef2;
+  border-color:#f2a1b8;
+  color:#b4637a;
+}
 .collection-items{display:flex;flex-direction:column;gap:.5rem;min-width:0}
 .collection-header{display:grid;grid-template-columns:minmax(0,auto) minmax(0,1fr) minmax(0,auto);align-items:center;margin-bottom:.5rem;column-gap:.75rem;row-gap:.5rem}
 .collection-header .title{display:flex;align-items:center;gap:.5rem;font-weight:700;font-size:1rem;min-width:0;justify-self:start}
