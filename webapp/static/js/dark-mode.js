@@ -28,18 +28,6 @@
         return null;
     }
 
-    function readServerTheme() {
-        try {
-            const match = document.cookie.match(/(?:^|;\s*)ui_theme=([^;]+)/);
-            if (match && match[1]) {
-                return decodeURIComponent(match[1]).trim();
-            }
-        } catch (e) {
-            console.warn('Failed to read ui_theme cookie:', e);
-        }
-        return null;
-    }
-
     function savePreference(mode) {
         try {
             localStorage.setItem(DARK_MODE_KEY, mode);
@@ -80,20 +68,6 @@
             }
         } else {
             applyTheme(preference);
-        }
-    }
-
-    function ensureThemeSync() {
-        const preference = loadPreference();
-        if (preference) {
-            updateTheme();
-            updateToggleButton(preference);
-            return;
-        }
-        const cookieTheme = readServerTheme();
-        if (cookieTheme) {
-            document.documentElement.setAttribute(THEME_ATTRIBUTE, cookieTheme);
-            updateToggleButton(cookieTheme);
         }
     }
 
@@ -144,7 +118,7 @@
     }
 
     function init() {
-        ensureThemeSync();
+        if (loadPreference()) { updateTheme(); }
         const toggleBtn = document.getElementById('darkModeToggle');
         if (toggleBtn) {
             toggleBtn.addEventListener('click', toggleDarkMode);
@@ -168,8 +142,6 @@
     } else {
         init();
     }
-
-    window.addEventListener('pageshow', ensureThemeSync);
 
     window.DarkMode = {
         toggle: toggleDarkMode,
