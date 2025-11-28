@@ -68,6 +68,9 @@ def _format_alert_text(alert: Dict[str, Any]) -> str:
         parts.append(f"instance: {instance}")
     if summary:
         parts.append(str(summary))
+    detail_preview = annotations.get("details_preview") or annotations.get("details")
+    if detail_preview:
+        parts.append(str(detail_preview))
     if request_id:
         parts.append(f"request_id: {request_id}")
 

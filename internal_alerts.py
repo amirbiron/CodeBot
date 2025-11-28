@@ -40,6 +40,106 @@ except Exception:  # pragma: no cover
 _MAX = int(os.getenv("INTERNAL_ALERTS_BUFFER", "200") or 200)
 _ALERTS: "deque[Dict[str, Any]]" = deque(maxlen=max(10, _MAX))
 
+_SENSITIVE_DETAIL_KEYS = {"token", "password", "secret", "authorization", "auth"}
+_PROMOTED_DETAIL_KEYS = {
+    "service",
+    "component",
+    "app",
+    "application",
+    "env",
+    "environment",
+    "namespace",
+    "cluster",
+    "request_id",
+    "request-id",
+    "x-request-id",
+    "x_request_id",
+    "instance",
+    "pod",
+    "hostname",
+    "host",
+}
+_SENTRY_META_KEYS = {"sentry", "sentry_url", "sentry-permalink", "sentry_permalink"}
+
+
+def _coerce_str(value: Any) -> str:
+    try:
+        return str(value)
+    except Exception:
+        return ""
+
+
+def _first_detail(details: Dict[str, Any], keys) -> Any:
+    for key in keys:
+        try:
+            if key in details:
+                val = details.get(key)
+                if val not in (None, ""):
+                    return _coerce_str(val)
+        except Exception:
+            continue
+    return None
+
+
+def _details_preview(details: Dict[str, Any]) -> str | None:
+    if not isinstance(details, dict):
+        return None
+    safe_items: List[str] = []
+    for key, value in details.items():
+        try:
+            lk = str(key).lower()
+        except Exception:
+            continue
+        if lk in _SENSITIVE_DETAIL_KEYS or lk in _PROMOTED_DETAIL_KEYS or lk in _SENTRY_META_KEYS:
+            continue
+        safe_items.append(f"{key}={_coerce_str(value)}")
+        if len(safe_items) >= 6:
+            break
+    if safe_items:
+        return ", ".join(safe_items)
+    return None
+
+
+def _build_forward_payload(name: str, severity: str, summary: str, details: Dict[str, Any]) -> Dict[str, Any]:
+    alert = {
+        "status": "firing",
+        "labels": {"alertname": str(name or "InternalAlert"), "severity": str(severity or "warn")},
+        "annotations": {"summary": str(summary or "")},
+    }
+    if not isinstance(details, dict) or not details:
+        return alert
+
+    service = _first_detail(details, ("service", "component", "app", "application"))
+    environment = _first_detail(details, ("env", "environment", "namespace", "cluster"))
+    instance = _first_detail(details, ("instance", "pod", "hostname", "host"))
+    request_id = _first_detail(details, ("request_id", "request-id", "x-request-id", "x_request_id"))
+
+    if service:
+        alert["labels"]["service"] = service
+    if environment:
+        alert["labels"]["env"] = environment
+    if instance:
+        alert["labels"]["instance"] = instance
+    if request_id:
+        alert["labels"]["request_id"] = request_id
+
+    generator_url = _first_detail(details, ("generator_url", "grafana_url", "dashboard_url"))
+    if generator_url:
+        alert["generatorURL"] = generator_url
+
+    sentry_direct = _first_detail(details, ("sentry_permalink", "sentry-permalink", "sentry_url", "sentry"))
+    if sentry_direct:
+        alert["annotations"]["sentry_permalink"] = sentry_direct
+    error_signature = _first_detail(details, ("error_signature", "signature"))
+    if error_signature:
+        alert["annotations"]["error_signature"] = error_signature
+
+    preview = _details_preview(details)
+    if preview:
+        alert["annotations"]["details_preview"] = preview
+
+    return alert
+
 
 def _format_text(name: str, severity: str, summary: str, details: Dict[str, Any]) -> str:
     parts = [f"[{severity.upper()}] {name}"]
@@ -122,11 +222,7 @@ def emit_internal_alert(name: str, severity: str = "info", summary: str = "", **
             # Prefer alert_forwarder when available; otherwise Telegram fallback
             try:
                 if forward_alerts is not None:
-                    alert = {
-                        "status": "firing",
-                        "labels": {"alertname": str(name or "InternalAlert"), "severity": str(severity or "warn")},
-                        "annotations": {"summary": str(summary or "")},
-                    }
+                    alert = _build_forward_payload(name, severity, summary, details)
                     forward_alerts([alert])
                 else:
                     _send_telegram(_format_text(name, severity, summary, details))
