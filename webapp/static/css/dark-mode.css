@@ -209,6 +209,20 @@
     opacity: 0.9;
 }
 
+/* שמירת צבע טקסט לבן בתפריט העליון כדי לשמור קריאוּת */
+[data-theme="dark"] .navbar .nav-link,
+[data-theme="dim"] .navbar .nav-link,
+[data-theme="nebula"] .navbar .nav-link {
+    color: var(--text-primary);
+}
+
+[data-theme="dark"] .navbar .nav-link:hover,
+[data-theme="dim"] .navbar .nav-link:hover,
+[data-theme="nebula"] .navbar .nav-link:hover {
+    color: var(--text-primary);
+    opacity: 0.85;
+}
+
 /* ============================================
    Quick Access Menu
    ============================================ */
