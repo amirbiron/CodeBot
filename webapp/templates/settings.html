@@ -365,13 +365,12 @@
             בחר סגנון צבעים — כולל הנוכחית
           </div>
         </div>
-        </div>
         <div>
           <select
             id="themeSelect"
             class="filter-select"
             aria-label="בחר ערכת נושא"
-            style="padding: 0.5rem 0.75rem; border-radius: 10px; border: 1px solid var(--glass-border); background: var(--bg-tertiary); color: var(--text-primary); min-width: 220px;"
+            style="padding: 0.5rem 0.75rem; border-radius: 10px; border: 1px solid rgba(255,255,255,0.2); background: rgba(255,255,255,0.1); color: white;"
           >
             <option value="classic" {% if ui_theme == 'classic' %}selected{% endif %}>קלאסי{% if ui_theme == 'classic' %} (נוכחית){% endif %}</option>
             <option value="ocean" {% if ui_theme == 'ocean' %}selected{% endif %}>אוקיינוס{% if ui_theme == 'ocean' %} (נוכחית){% endif %}</option>
@@ -616,7 +615,7 @@
 
     .glass-card h4 {
       margin: 0 0 0.5rem 0;
-      color: var(--text-primary); /* שימוש במשתנה במקום צבע קבוע */
+      color: #fff; /* כותרות לבנות במקום כחול עבור הגדרות אדמין */
     }
 
     /* Toggle switch */
