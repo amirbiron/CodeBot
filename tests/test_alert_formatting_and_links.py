@@ -265,3 +265,28 @@ def test_internal_alerts_forward_payload_includes_context(monkeypatch):
     assert annotations["error_signature"] == "OOM_KILLED"
     assert "shard=3" in annotations["details_preview"]
     assert "SECRET" not in annotations["details_preview"]
+
+
+def test_internal_alerts_respect_min_severity_for_direct_telegram(monkeypatch):
+    monkeypatch.setenv("ALERT_TELEGRAM_MIN_SEVERITY", "error")
+    monkeypatch.setenv("ALERT_TELEGRAM_BOT_TOKEN", "token")
+    monkeypatch.setenv("ALERT_TELEGRAM_CHAT_ID", "chat")
+
+    import internal_alerts as ia
+    importlib.reload(ia)
+
+    calls = []
+
+    def _fake_request(method, url, json=None, timeout=5):  # noqa: ARG001
+        calls.append({"url": url, "payload": json})
+        return None
+
+    monkeypatch.setattr(ia, "request", _fake_request)
+    monkeypatch.setattr(ia, "forward_alerts", None)
+
+    ia.emit_internal_alert(name="low", severity="info", summary="skipme")
+    assert calls == []
+
+    ia.emit_internal_alert(name="high", severity="error", summary="sendme")
+    assert len(calls) == 1
+    assert "[ERROR]" in calls[0]["payload"]["text"]

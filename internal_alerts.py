@@ -141,6 +141,36 @@ def _build_forward_payload(name: str, severity: str, summary: str, details: Dict
     return alert
 
 
+def _severity_rank(value: str | None) -> int:
+    try:
+        v = (value or "").strip().lower()
+        if v in {"critical", "fatal", "crit"}:
+            return 4
+        if v in {"error", "err", "errors"}:
+            return 3
+        if v in {"warning", "warn"}:
+            return 2
+        if v in {"info", "notice", "anomaly"}:
+            return 1
+        if v in {"debug", "trace"}:
+            return 0
+    except Exception:
+        return 1
+    return 1
+
+
+def _min_direct_telegram_rank() -> int:
+    raw = os.getenv("ALERT_TELEGRAM_MIN_SEVERITY", "info")
+    return _severity_rank(raw)
+
+
+def _should_send_direct_telegram(severity: str) -> bool:
+    try:
+        return _severity_rank(severity) >= _min_direct_telegram_rank()
+    except Exception:
+        return True
+
+
 def _format_text(name: str, severity: str, summary: str, details: Dict[str, Any]) -> str:
     parts = [f"[{severity.upper()}] {name}"]
     if summary:
@@ -166,7 +196,9 @@ def _format_text(name: str, severity: str, summary: str, details: Dict[str, Any]
     return "\n".join(parts)
 
 
-def _send_telegram(text: str) -> None:
+def _send_telegram(text: str, severity: str = "info") -> None:
+    if not _should_send_direct_telegram(severity):
+        return
     token = os.getenv("ALERT_TELEGRAM_BOT_TOKEN")
     chat_id = os.getenv("ALERT_TELEGRAM_CHAT_ID")
     if not token or not chat_id or request is None:
@@ -209,7 +241,7 @@ def emit_internal_alert(name: str, severity: str = "info", summary: str = "", **
             except Exception:
                 # Fallback to Telegram only
                 try:
-                    _send_telegram(_format_text(name, severity, summary, details))
+                    _send_telegram(_format_text(name, severity, summary, details), severity=str(severity))
                 except Exception:
                     pass
                 # Best-effort: persist critical alert when fallback path used
@@ -225,11 +257,11 @@ def emit_internal_alert(name: str, severity: str = "info", summary: str = "", **
                     alert = _build_forward_payload(name, severity, summary, details)
                     forward_alerts([alert])
                 else:
-                    _send_telegram(_format_text(name, severity, summary, details))
+                    _send_telegram(_format_text(name, severity, summary, details), severity=str(severity))
             except Exception:
                 # Never break on sinks; try fallback Telegram
                 try:
-                    _send_telegram(_format_text(name, severity, summary, details))
+                    _send_telegram(_format_text(name, severity, summary, details), severity=str(severity))
                 except Exception:
                     pass
             # Best-effort: persist non-critical alert (single write)

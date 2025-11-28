@@ -1,4 +1,5 @@
 import os
+import time
 import types
 import importlib
 
@@ -86,3 +87,45 @@ def test_format_alert_text_contains_name_and_severity(monkeypatch):
         "annotations": {"summary": "Almost full"},
     })
     assert "DiskFull" in text and "CRITICAL" in text
+
+
+def test_anomaly_alerts_are_batched_before_telegram(monkeypatch):
+    monkeypatch.setenv("ALERT_TELEGRAM_BOT_TOKEN", "token")
+    monkeypatch.setenv("ALERT_TELEGRAM_CHAT_ID", "chat")
+    monkeypatch.setenv("ALERT_TELEGRAM_MIN_SEVERITY", "info")
+    monkeypatch.setenv("ALERT_ANOMALY_BATCH_WINDOW_SECONDS", "0.05")
+
+    import alert_forwarder as af
+    importlib.reload(af)
+
+    sent = []
+
+    def _fake_slack(text):
+        sent.append(("slack", text))
+
+    def _fake_tg(text):
+        sent.append(("telegram", text))
+
+    monkeypatch.setattr(af, "_post_to_slack", _fake_slack)
+    monkeypatch.setattr(af, "_post_to_telegram", _fake_tg)
+
+    alert = {
+        "status": "firing",
+        "labels": {"alertname": "AnomalySpike", "severity": "anomaly", "service": "api", "env": "prod"},
+        "annotations": {"summary": "latency spike"},
+    }
+
+    af.forward_alerts([alert, alert])
+
+    # Slack receives both alerts immediately
+    slack_calls = [c for c in sent if c[0] == "slack"]
+    assert len(slack_calls) == 2
+
+    # Telegram message should be delayed and aggregated
+    assert not [c for c in sent if c[0] == "telegram"]
+    time.sleep(0.1)
+    telegram_calls = [c for c in sent if c[0] == "telegram"]
+    assert len(telegram_calls) == 1
+    assert "2 מופעים" in telegram_calls[0][1]
+
+    af._reset_anomaly_batches_for_tests()
