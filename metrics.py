@@ -322,7 +322,7 @@ _ERR_TIMESTAMPS: deque[float] = deque(maxlen=1000)
 _ANOMALY_COOLDOWN_SEC: int = int(os.getenv("ALERT_COOLDOWN_SECONDS", "300"))
 _ANOMALY_LAST_TS: float = 0.0
 _ERRS_PER_MIN_THRESHOLD: int = int(os.getenv("ALERT_ERRORS_PER_MINUTE", "20"))
-_AVG_RT_THRESHOLD: float = float(os.getenv("ALERT_AVG_RESPONSE_TIME", "2.0"))
+_AVG_RT_THRESHOLD: float = float(os.getenv("ALERT_AVG_RESPONSE_TIME", "3.0"))
 
 
 @contextmanager
