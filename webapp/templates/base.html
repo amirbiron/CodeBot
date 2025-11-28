@@ -21,7 +21,7 @@
             try {
                 var saved = localStorage.getItem('dark_mode_preference');
                 var html = document.documentElement;
-                if (saved === 'dark' || saved === 'dim') {
+                if (saved && saved !== 'auto') {
                     html.setAttribute('data-theme', saved);
                 } else if (saved === 'auto' && window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) {
                     html.setAttribute('data-theme', 'dark');
@@ -54,6 +54,7 @@
             --light: #f7fafc;
             --glass: rgba(255, 255, 255, 0.1);
             --glass-border: rgba(255, 255, 255, 0.2);
+            --glass-hover: rgba(255, 255, 255, 0.15);
             --ui-font-scale: 1;
         }
 
@@ -75,6 +76,9 @@
             --primary: #907aa9; /* iris */
             --primary-dark: #7b6f9a;
             --secondary: #d7827e; /* rose */
+            --glass: rgba(255, 255, 255, 0.6);
+            --glass-border: rgba(144, 122, 169, 0.2);
+            --card-bg: rgba(255, 255, 255, 0.85);
         }
 
         /* Theme palettes - Dark & Dim */
@@ -177,7 +181,8 @@
         /* עדכון body למצב חשוך/מעומעם */
         :root[data-theme="dark"] body,
         :root[data-theme="dim"] body,
-        :root[data-theme="nebula"] body {
+        :root[data-theme="nebula"] body,
+        :root[data-theme="rose-pine-dawn"] body {
             background: linear-gradient(135deg, var(--bg-primary) 0%, var(--bg-secondary) 100%);
             color: var(--text-primary);
         }
