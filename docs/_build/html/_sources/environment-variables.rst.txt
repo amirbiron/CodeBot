@@ -121,11 +121,29 @@
      - "" (ריק)
      - ``https://share.example.com``
      - WebApp
+   * - ``WEEKLY_TIP_ENABLED``
+     - מתג כללי להצגת רכיב ההכרזות (on/off)
+     - לא
+     - ``true``
+     - ``true``
+     - WebApp
    * - ``PUBLIC_SHARE_TTL_DAYS``
      - תוקף ברירת מחדל לקישורי שיתוף (ימים)
      - לא
      - ``7``
      - ``14``
+     - WebApp
+   * - ``ADMIN_USER_IDS``
+     - מזהי משתמש טלגרם עם הרשאות אדמין (CSV)
+     - לא
+     - "" (ריק)
+     - ``123,456``
+     - Bot/WebApp
+   * - ``PREMIUM_USER_IDS``
+     - מזהי משתמש טלגרם לסטטוס פרימיום (CSV)
+     - לא
+     - "" (ריק)
+     - ``123,456``
      - WebApp
    * - ``FA_SRI_HASH``
      - ערך SRI עבור ספריית אייקונים (למשל FontAwesome)
@@ -175,6 +193,78 @@
      - ``120`` (מינימום 30)
      - ``300``
      - WebApp
+   * - ``VAPID_PUBLIC_KEY``
+     - מפתח ציבורי ל‑Web Push (VAPID)
+     - לא
+     - "" (ריק)
+     - ``BExxx...``
+     - WebApp
+   * - ``VAPID_PRIVATE_KEY``
+     - מפתח פרטי ל‑Web Push (VAPID)
+     - לא
+     - "" (ריק)
+     - ``xxxxxxxx``
+     - WebApp
+   * - ``VAPID_SUB_EMAIL``
+     - Subject (דוא"ל) לתביעות VAPID
+     - לא
+     - "" (ריק)
+     - ``support@example.com``
+     - WebApp
+   * - ``PUSH_NOTIFICATIONS_ENABLED``
+     - הפעלת שליחת Web Push (רקע)
+     - לא
+     - ``true``
+     - ``false``
+     - WebApp
+   * - ``PUSH_REMOTE_DELIVERY_ENABLED``
+     - שליחה דרך Worker חיצוני (במקום pywebpush)
+     - לא
+     - ``false``
+     - ``true``
+     - WebApp
+   * - ``PUSH_DELIVERY_URL``
+     - כתובת בסיס ל‑Worker (ללא ``/send``)
+     - לא
+     - "" (ריק)
+     - ``https://code-keeper-push-worker.onrender.com``
+     - WebApp
+   * - ``PUSH_DELIVERY_TOKEN``
+     - טוקן Bearer לאימות שרת→Worker
+     - לא
+     - "" (ריק)
+     - ``s3cr3t-token``
+     - WebApp/Worker
+   * - ``PUSH_DELIVERY_TIMEOUT_SECONDS``
+     - Timeout לבקשת ``/send`` ל‑Worker (שניות)
+     - לא
+     - ``3``
+     - ``2``
+     - WebApp
+   * - ``PUSH_WORKER_PORT``
+     - פורט פנימי ל‑Sidecar Worker (localhost בלבד)
+     - לא
+     - ``18080``
+     - ``18080``
+     - WebApp/Worker
+   * - ``WORKER_VAPID_PUBLIC_KEY``
+     - מפתח ציבורי ל‑VAPID עבור ה‑Worker (Sidecar)
+     - לא
+     - "" (ריק)
+     - ``BExxx...``
+     - Worker
+   * - ``WORKER_VAPID_PRIVATE_KEY``
+     - מפתח פרטי ל‑VAPID עבור ה‑Worker (Sidecar)
+     - לא
+     - "" (ריק)
+     - ``xxxxxxxx``
+     - Worker
+   * - ``WORKER_VAPID_SUB_EMAIL``
+     - Subject (דוא"ל) לתביעות VAPID עבור ה‑Worker
+     - לא
+     - ``support@example.com``
+     - ``alerts@example.com``
+     - Worker
    * - ``PERSISTENT_LOGIN_DAYS``
      - תוקף התחברות מתמשכת (ימים)
      - לא
@@ -294,6 +384,12 @@
      - לא
      - ``3``
      - ``5``
+     - Bot
+   * - ``BACKUPS_DISK_MIN_FREE_BYTES``
+     - סף (ב־bytes) להתראת "דיסק כמעט מלא" לפני שמירת ZIP
+     - לא
+     - ``209715200`` (200MB)
+     - ``314572800`` (300MB)
      - Bot
    * - ``DISABLE_CACHE_MAINTENANCE``
      - דילוג על פעולות ניקוי קאש (לוג בלבד)
@@ -433,6 +529,12 @@
      - ``30``
      - ``60``
      - WebApp
+   * - ``MAINTENANCE_WARMUP_GRACE_SECS``
+     - חלון חסד (שניות) שנוסף ל-warmup כדי לכסות שיהוי איטי בתחילת ריצה
+     - לא
+     - ``0.75``
+     - ``1.5``
+     - Bot/WebApp
    * - ``RATE_LIMIT_PER_MINUTE``
      - מגבלת קצב בקשות לדקה
      - לא

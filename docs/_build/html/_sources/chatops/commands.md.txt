@@ -19,6 +19,14 @@ OK | p95: 320ms | errors: 0.2% | request_id: 2f3a...
 - הרשאות: מנהלים בלבד
 - מה לחפש בפלט: קוד/מסר שגיאה חוזרים, request_id
 
+סטטוסי תוצאות (Mappings)
+-------------------------
+- אנו ממפים תוצאות לסטטוסים אחידים לצורך ניתוח מהיר ודשבורדים:
+  - `2xx` – הצלחה
+  - `cancelled` – בוטל ע"י משתמש/זרימה
+  - `error`/`5xx` – כשל
+  נצפו גם לייבלים משלימים במטריקות: `status`, `cache_hit`.
+
 ## /triage
 - מתי להשתמש: תחקור מהיר של תקלה פעילה.
 - פרמטרים: `request_id=<id>` אופציונלי
@@ -104,3 +112,82 @@ Recent Alert IDs (DB, N≤10):
 - פרמטרים: ללא
 - הרשאות: מנהלים בלבד
 - מה לחפש בפלט: מצב נוכחי והמלצות דילול
+
+## /lang
+- מתי להשתמש: לזהות במהירות את שפת הקובץ/התוכן בבוט (Source of Truth).
+- פרמטרים: אופציונלי `<file_name>`; ניתן להשיב ב‑reply עם קוד, או לצרף בלוק ``` בקומנד.
+- הרשאות: כולם
+- מה לחפש בפלט: `language` ו‑`reason` (מקור ההכרעה: shebang/סיומת/שם/תוכן).
+- דוגמאות:
+```
+/lang run
+```
+Reply עם:
+```bash
+#!/usr/bin/env bash
+python main.py
+```
+פלט צפוי:
+```
+🧠 שפה: bash
+📄 קובץ: `run`
+ℹ️ סיבה: shebang (bash/sh)
+```
+
+```
+/lang Taskfile
+```
+תוכן (YAML) ב‑reply → צפוי: `yaml`, reason: `שם קובץ מיוחד` או `תוכן`.
+
+```
+/lang Block.md
+```
+Reply עם קוד Python מובהק → צפוי: `python`, reason: `תוכן (override ל-.md)`.
+
+## /lang_debug
+- מתי להשתמש: דיבוג מפורט של החלטת הדטקטור (conflict name↔content, תחקור “למה text?”).
+- פרמטרים: אופציונלי `<file_name>`; קוד עובר ב‑reply/בלוק ``` כמו ב‑/lang.
+- הרשאות: כולם
+- מה לחפש בפלט: שורת shebang, base/ext, אותות Python (def/class/import/__main__/indent), סמני Markdown (heading/list/link/fence), language הסופי ו‑reason.
+- דוגמה:
+```
+/lang_debug Block.md
+```
+Reply עם:
+```python
+import os, asyncio
+def main(): pass
+```
+פלט (מקוצר):
+```
+🧪 Language Debug
+📄 file: `Block.md`
+🔖 base: block.md  •  ext: .md
+#! shebang: —
+🐍 python_signals: def=True class=False import=True main=False block=True total=3
+📝 md_markers: heading=False list=False link=False fence=False
+🧠 language: python
+ℹ️ reason: תוכן (override ל-.md)
+```
+
+## /dm
+- מתי להשתמש: שליחת הודעה פרטית למשתמש בודד (למשל להודיע על סטטוס ״פרימיום 💎״)
+- פרמטרים: `<user_id|@username> <message...>`
+- הרשאות: מנהלים בלבד (`ADMIN_USER_IDS`)
+- התנהגות: ההודעה נשלחת ב‑HTML עם עטיפת `<pre>` כדי לשמר רווחים ושורות
+- דוגמאות:
+```
+/dm 123456789 היי! עשיתי בדיקה קטנה בשרת וגיליתי שאתה המשתמש הכי פעיל לאחרונה.
+אז הוספתי לך סטטוס “משתמש פרימיום 💎” 🙂
+
+מה זה נותן?
+• אפשרות לבקש פריוולגיות מיוחדות לפי הצורך
+
+אם יש משהו שבא לך שנוסיף - תרגיש חופשי לכתוב לי.
+תודה שאתה משתמש בבוט באופן קבוע 🙌
+```
+או לפי שם משתמש:
+```
+/dm @someuser היי! נוספה לך גישה לפרימיום 💎
+```
+‑ הפקודה מחזירה משוב הצלחה/כישלון למנהל; במקרה של חסימה ע״י המשתמש – יסומן `blocked` במסד.

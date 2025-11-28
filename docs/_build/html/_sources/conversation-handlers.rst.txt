@@ -13,6 +13,12 @@ Conversation Handlers & States
    # handlers/states.py
    GET_CODE, GET_FILENAME, GET_NOTE, EDIT_CODE, EDIT_NAME, WAIT_ADD_CODE_MODE, LONG_COLLECT = range(7)
 
+   # ספריית סניפטים – זרימת הגשה
+   CL_COLLECT_TITLE, CL_COLLECT_DESCRIPTION, CL_COLLECT_URL, CL_COLLECT_LOGO = range(7, 11)
+   SN_COLLECT_TITLE, SN_COLLECT_DESCRIPTION, SN_COLLECT_CODE, SN_COLLECT_LANGUAGE = range(11, 15)
+   SN_REJECT_REASON = 15
+   SN_LONG_COLLECT = 16
+
    # github_menu_handler.py (שיחות העלאה)
    REPO_SELECT, FILE_UPLOAD, FOLDER_SELECT = range(3)
 
@@ -32,6 +38,35 @@ Save Flow (תרשים מצבים)
 
 GitHub Flow (תרשים מצבים)
 -------------------------
+
+ספריית סניפטים – זרימת הגשה (Bot)
+-----------------------------------
+
+.. list-table:: Snippet Submit Flow
+   :header-rows: 1
+
+   * - שלב
+     - תיאור
+   * - בחירת מצב
+     - "🧩 קוד רגיל" או "✍️ קוד ארוך" (מצב איסוף רב־חלקי, סיום ב־/done)
+   * - SN_COLLECT_TITLE
+     - קבלת כותרת (3–180)
+   * - SN_COLLECT_DESCRIPTION
+     - קבלת תיאור קצר (עד 1000)
+   * - SN_COLLECT_CODE / SN_LONG_COLLECT
+     - קבלת קוד (חד־חלקי או רב־חלקי)
+   * - SN_COLLECT_LANGUAGE
+     - קבלת שפה (python/js/…)
+
+ביטול הוגן
+~~~~~~~~~~~
+- כפתור ``❌ ביטול`` מסיים את הזרימה ומנקה ``context.user_data``.
+- לחיצה על כל כפתור אחר בזמן הזרימה מבטלת אוטומטית את ההקשר (אין "הידבקות" של כפתורים לטקסט הקלט).
+
+התראות אדמין והודעת משתמש
+~~~~~~~~~~~~~~~~~~~~~~~~~~
+- אדמין מקבל Inline Keyboard לאישור/דחייה + כפתור "👁️ הצג סניפט" (ווב־אפ).
+- המשתמש מקבל הודעה ידידותית בעת אישור/דחייה (כולל סיבת דחייה אם צוינה).
 
 .. mermaid::
 

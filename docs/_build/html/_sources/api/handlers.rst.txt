@@ -20,6 +20,7 @@ Submodules
 .. toctree::
    :maxdepth: 4
 
+   handlers.documents
    handlers.file_view
    handlers.pagination
    handlers.save_flow
