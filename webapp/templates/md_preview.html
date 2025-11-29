@@ -309,7 +309,10 @@
 #md-content li { margin: 0.25rem 0; }
 /* רשימות מקוננות – מעט רווח מעל/מתחת */
 #md-content li > ul, #md-content li > ol { margin-block: 0.25rem 0.5rem; }
-#md-content .code-block { position: relative; margin: 1rem 0; }
+#md-content .code-block {
+  position: relative;
+  margin: 1rem 0;
+}
 #md-content .code-block pre {
   margin: 0;
   /* ריווח סימטרי בתוך הבלוק עצמו – לא משפיע על המיקום של הבלוק בדף */
@@ -319,10 +322,28 @@
   padding-top: 2.6rem;           /* מקום לשורת כפתורים עליונה */
   box-sizing: border-box;
 }
-#md-content .md-copy-btn {
+/* שמירת חיבור ויזואלי כאשר לוח הקלט פתוח */
+#md-content .code-block.is-source-open pre {
+  border-bottom-left-radius: 0;
+  border-bottom-right-radius: 0;
+}
+#md-content .code-toolbar {
   position: absolute;
   top: 10px;
-  left: 10px;
+  left: clamp(22px, 6vw, 36px);
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  z-index: 3;
+  pointer-events: none;
+}
+#md-content .code-toolbar > * {
+  pointer-events: auto;
+}
+#md-content .md-copy-btn {
+  position: relative;
+  top: auto;
+  left: auto;
   display: inline-flex;
   align-items: center;
   gap: 0.4rem;
@@ -336,6 +357,29 @@
   transition: background 0.2s ease, transform 0.2s ease, border-color 0.2s ease, color 0.2s ease;
   box-shadow: 0 1px 2px rgba(15, 23, 42, 0.08);
   z-index: 2;
+}
+#md-content .md-source-btn {
+  border: none;
+  background: transparent;
+  color: var(--md-source-btn-color, #f8fafc);
+  font-size: 0.85rem;
+  padding: 4px 8px;
+  border-radius: 999px;
+  cursor: pointer;
+  transition: color 0.2s ease, background 0.2s ease;
+  font-weight: 500;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+#md-content .md-source-btn:hover,
+#md-content .md-source-btn:focus-visible {
+  color: #93c5fd;
+  background: rgba(255, 255, 255, 0.08);
+}
+#md-content .md-source-btn:focus-visible {
+  outline: 2px solid rgba(147, 197, 253, 0.8);
+  outline-offset: 2px;
 }
 #md-content .md-copy-btn:hover {
   background: #f6f8fa;
@@ -360,6 +404,61 @@
 }
 #md-content .md-copy-btn .copied-text {
   font-weight: 500;
+}
+#md-content .code-source-panel {
+  width: 100%;
+  box-sizing: border-box;
+  overflow: hidden;
+  max-height: 0;
+  opacity: 0;
+  transform: translateY(-4px);
+  transition: max-height 0.3s ease, opacity 0.25s ease, transform 0.25s ease, padding 0.25s ease;
+  padding: 0 clamp(22px, 6vw, 36px);
+  background: rgba(15, 23, 42, 0.92);
+  border-radius: 0 0 12px 12px;
+  border: 1px solid rgba(59, 130, 246, 0.35);
+  border-top: none;
+  backdrop-filter: blur(3px);
+  box-shadow: 0 12px 20px rgba(15, 23, 42, 0.35);
+}
+#md-content .code-source-panel.is-open {
+  opacity: 1;
+  transform: translateY(0);
+  padding-top: 14px;
+  padding-bottom: 16px;
+}
+#md-content .code-source-panel-inner {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+#md-content .code-source-label {
+  font-size: 0.85rem;
+  color: rgba(226, 232, 240, 0.9);
+  letter-spacing: 0.01em;
+}
+#md-content .code-source-input {
+  width: 100%;
+  border: 1px solid rgba(148, 163, 184, 0.65);
+  border-radius: 8px;
+  padding: 10px 12px;
+  font-size: 0.92rem;
+  background: rgba(15, 23, 42, 0.85);
+  color: #f5f7fb;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+#md-content .code-source-input:focus {
+  border-color: rgba(96, 165, 250, 0.9);
+  outline: none;
+  box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.35);
+}
+#md-content .code-source-input::placeholder {
+  color: rgba(226, 232, 240, 0.6);
+}
+#md-content .code-source-helper {
+  font-size: 0.78rem;
+  color: rgba(203, 213, 225, 0.9);
+  margin: 0;
 }
 #md-content code:not(pre code) {
   background: #f3f4f6;            /* אפור בהיר עם ניגודיות טובה על לבן */
@@ -1972,8 +2071,9 @@ try { if (typeof window !== 'undefined') { window.attachColorSwatches = attachCo
         return success;
       } catch(_) { return false; }
     }
-    // כפתור העתקה משופר לכל בלוק קוד + נגישות מלאה
+    // כפתור העתקה משופר לכל בלוק קוד + שורת קישור למקור
     try {
+      let codeSourcePanelCounter = 0;
       function showCopySuccess(btn) {
         try {
           btn.classList.add('copied');
@@ -1991,18 +2091,126 @@ try { if (typeof window !== 'undefined') { window.attachColorSwatches = attachCo
       function showCopyError(btn) {
         try { btn.classList.add('copy-error'); setTimeout(() => btn.classList.remove('copy-error'), 2000); } catch(_) {}
       }
-      function addCopyButtons() {
-        const pres = document.querySelectorAll('#md-content pre');
-        pres.forEach(pre => {
-          if (pre.querySelector('.md-copy-btn')) return;
-          let wrapper = pre.parentElement;
-          if (!wrapper || !wrapper.classList || !wrapper.classList.contains('code-block')) {
-            wrapper = document.createElement('div');
-            wrapper.className = 'code-block';
-            pre.replaceWith(wrapper);
-            wrapper.appendChild(pre);
-          }
-          const btn = document.createElement('button');
+      function buildSourcePanel(wrapper) {
+        const baseId = `md-source-${++codeSourcePanelCounter}`;
+        const panel = document.createElement('div');
+        panel.className = 'code-source-panel';
+        panel.id = `${baseId}-panel`;
+        panel.hidden = true;
+        panel.setAttribute('aria-hidden', 'true');
+        panel.style.maxHeight = '0px';
+        const inner = document.createElement('div');
+        inner.className = 'code-source-panel-inner';
+        const label = document.createElement('label');
+        label.className = 'code-source-label';
+        const inputId = `${baseId}-input`;
+        label.setAttribute('for', inputId);
+        label.textContent = 'הוסף קישור למקור';
+        const input = document.createElement('input');
+        input.type = 'url';
+        input.id = inputId;
+        input.className = 'code-source-input';
+        input.placeholder = 'https://example.com/source';
+        input.setAttribute('aria-label', 'הוסף קישור למקור');
+        input.autocomplete = 'url';
+        input.inputMode = 'url';
+        const helper = document.createElement('p');
+        helper.className = 'code-source-helper';
+        helper.textContent = 'הקישור נשמר מקומית בלבד בשלב זה.';
+        inner.appendChild(label);
+        inner.appendChild(input);
+        inner.appendChild(helper);
+        panel.appendChild(inner);
+        wrapper.appendChild(panel);
+        return { panel, input };
+      }
+      function ensureSourcePanel(wrapper) {
+        let panel = wrapper.querySelector('.code-source-panel');
+        let input = panel ? panel.querySelector('.code-source-input') : null;
+        if (!panel || !input) {
+          ({ panel, input } = buildSourcePanel(wrapper));
+        }
+        if (!panel.id) {
+          panel.id = `md-source-${++codeSourcePanelCounter}-panel`;
+        }
+        return { panel, input };
+      }
+      function clearPanelTimers(panel) {
+        if (panel.__openTimer) { clearTimeout(panel.__openTimer); panel.__openTimer = null; }
+        if (panel.__closeTimer) { clearTimeout(panel.__closeTimer); panel.__closeTimer = null; }
+      }
+      function openSourcePanel(panel, wrapper, sourceBtn, input) {
+        clearPanelTimers(panel);
+        wrapper.classList.add('is-source-open');
+        panel.hidden = false;
+        panel.setAttribute('aria-hidden', 'false');
+        panel.classList.add('is-open');
+        panel.style.maxHeight = panel.scrollHeight + 'px';
+        sourceBtn.setAttribute('aria-expanded', 'true');
+        panel.__openTimer = setTimeout(() => {
+          panel.style.maxHeight = 'none';
+          panel.__openTimer = null;
+        }, 320);
+        setTimeout(() => { try { input?.focus({ preventScroll: true }); } catch(_){} }, 220);
+      }
+      function closeSourcePanel(panel, wrapper, sourceBtn) {
+        clearPanelTimers(panel);
+        panel.style.maxHeight = panel.scrollHeight + 'px';
+        panel.classList.remove('is-open');
+        wrapper.classList.remove('is-source-open');
+        panel.setAttribute('aria-hidden', 'true');
+        sourceBtn.setAttribute('aria-expanded', 'false');
+        requestAnimationFrame(() => { panel.style.maxHeight = '0px'; });
+        panel.__closeTimer = setTimeout(() => {
+          panel.hidden = true;
+          panel.__closeTimer = null;
+        }, 320);
+      }
+      function toggleSourcePanel({ panel, wrapper, sourceBtn, input }) {
+        if (panel.classList.contains('is-open')) {
+          closeSourcePanel(panel, wrapper, sourceBtn);
+        } else {
+          openSourcePanel(panel, wrapper, sourceBtn, input);
+        }
+      }
+      function ensureSourceButton(wrapper, toolbar, panelInfo) {
+        let sourceBtn = wrapper.querySelector('.md-source-btn');
+        if (!sourceBtn) {
+          sourceBtn = document.createElement('button');
+          sourceBtn.type = 'button';
+          sourceBtn.className = 'md-source-btn';
+          sourceBtn.setAttribute('aria-label', 'הצג או הסתר קישור למקור');
+          sourceBtn.innerHTML = `
+            <span aria-hidden="true">🔗</span>
+            <span>למקור</span>
+          `;
+        }
+        if (!toolbar.contains(sourceBtn)) {
+          toolbar.appendChild(sourceBtn);
+        }
+        sourceBtn.setAttribute('aria-controls', panelInfo.panel.id);
+        sourceBtn.setAttribute('aria-expanded', panelInfo.panel.classList.contains('is-open') ? 'true' : 'false');
+        if (!sourceBtn.dataset.sourceInitialized) {
+          sourceBtn.dataset.sourceInitialized = 'true';
+          sourceBtn.addEventListener('click', () => toggleSourcePanel({
+            panel: panelInfo.panel,
+            wrapper,
+            sourceBtn,
+            input: panelInfo.input
+          }));
+          sourceBtn.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter' || e.key === ' ') {
+              e.preventDefault();
+              sourceBtn.click();
+            }
+          });
+        }
+        return sourceBtn;
+      }
+      function ensureCopyButton(wrapper, toolbar, pre) {
+        let btn = wrapper.querySelector('.md-copy-btn');
+        if (!btn) {
+          btn = document.createElement('button');
           btn.type = 'button';
           btn.className = 'md-copy-btn';
           btn.setAttribute('aria-label', 'העתק קוד');
@@ -2012,6 +2220,9 @@ try { if (typeof window !== 'undefined') { window.attachColorSwatches = attachCo
             <span class="copy-text">העתק</span>
             <span class="copied-text" style="display:none">✅ הועתק!</span>
           `;
+        }
+        if (!btn.dataset.copyInitialized) {
+          btn.dataset.copyInitialized = 'true';
           btn.addEventListener('click', async () => {
             const code = pre.querySelector('code')?.innerText || pre.innerText;
             try {
@@ -2034,7 +2245,35 @@ try { if (typeof window !== 'undefined') { window.attachColorSwatches = attachCo
               btn.click();
             }
           });
-          wrapper.appendChild(btn);
+        }
+        if (!toolbar.contains(btn)) {
+          toolbar.appendChild(btn);
+        }
+        return btn;
+      }
+      function ensureToolbar(wrapper, pre) {
+        let toolbar = wrapper.querySelector('.code-toolbar');
+        if (!toolbar) {
+          toolbar = document.createElement('div');
+          toolbar.className = 'code-toolbar';
+          wrapper.insertBefore(toolbar, pre);
+        }
+        return toolbar;
+      }
+      function addCopyButtons() {
+        const pres = document.querySelectorAll('#md-content pre');
+        pres.forEach(pre => {
+          let wrapper = pre.parentElement;
+          if (!wrapper || !wrapper.classList || !wrapper.classList.contains('code-block')) {
+            wrapper = document.createElement('div');
+            wrapper.className = 'code-block';
+            pre.replaceWith(wrapper);
+            wrapper.appendChild(pre);
+          }
+          const toolbar = ensureToolbar(wrapper, pre);
+          ensureCopyButton(wrapper, toolbar, pre);
+          const panelInfo = ensureSourcePanel(wrapper);
+          ensureSourceButton(wrapper, toolbar, panelInfo);
         });
       }
       addCopyButtons();
