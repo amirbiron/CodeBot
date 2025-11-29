@@ -40,6 +40,26 @@
       const r = await fetch(`/api/collections/${encodeURIComponent(id)}/share`, {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload||{})});
       return r.json();
     },
+    async updateWorkspaceState(itemId, state){
+      const r = await fetch(`/api/workspace/items/${encodeURIComponent(itemId)}/state`, {
+        method: 'PATCH',
+        headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({ state }),
+      });
+      let data = null;
+      try {
+        data = await r.json();
+      } catch (_err) {
+        data = null;
+      }
+      if (!r.ok || !data || data.ok === false) {
+        const err = (data && data.error) || 'workspace_state_update_failed';
+        const error = new Error(err);
+        error.code = err;
+        throw error;
+      }
+      return data;
+    },
   };
 
   const ALLOWED_ICONS = [
@@ -50,6 +70,14 @@
   const resolvedFileIdCache = new Map();
   let currentCollectionId = '';
   let initialCollectionIdConsumed = false;
+  const WORKSPACE_STATE_META = {
+    todo: { label: 'לטיפול', description: 'משימות שטרם התחלת', shortcut: 'Shift+1' },
+    in_progress: { label: 'בתהליך', description: 'עבודה בתהליך', shortcut: 'Shift+2' },
+    done: { label: 'הושלם', description: 'סיימת לטפל', shortcut: 'Shift+3' },
+  };
+  const WORKSPACE_STATE_ORDER = Object.keys(WORKSPACE_STATE_META);
+  let workspaceBoardCtx = null;
+  let workspaceActiveCard = null;
 
   function readInitialCollectionId() {
     let value = '';
@@ -431,6 +459,7 @@
       return;
     }
     markSidebarSelection(collectionId);
+    teardownWorkspaceBoard();
     container.innerHTML = '<div class="loading">טוען…</div>';
     try {
       const [colRes, data] = await Promise.all([
@@ -440,21 +469,14 @@
       if (!data || !data.ok) throw new Error((data && data.error) || 'שגיאה');
       if (!colRes || !colRes.ok) throw new Error((colRes && colRes.error) || 'שגיאה');
       const col = colRes.collection || {};
+      const isWorkspace = isWorkspaceCollection(col);
 
-      const itemsHtml = (data.items || []).map(it => `
-        <div class="collection-item" data-source="${escapeHtml(it.source || 'regular')}" data-name="${escapeHtml(it.file_name || '')}" data-file-id="${escapeHtml(it.file_id || '')}">
-          <span class="drag" draggable="true">⋮⋮</span>
-          <a class="file" href="#" draggable="false" data-open="${escapeHtml(it.file_name || '')}">${escapeHtml(it.file_name || '')}</a>
-          <button class="pin ${it.pinned ? 'pinned' : ''}" title="${it.pinned ? 'בטל הצמדה' : 'הצמד'}">📌</button>
-          <button class="preview" title="תצוגה מקדימה" aria-label="תצוגה מקדימה">🧾</button>
-          <button class="remove" title="הסר">✕</button>
-        </div>
-      `).join('');
+      const baseItems = Array.isArray(data.items) ? data.items : [];
       const iconChar = (col.icon && ALLOWED_ICONS.includes(col.icon)) ? col.icon : (ALLOWED_ICONS[0] || '📂');
       const share = col.share || {};
       const shareEnabled = !!share.enabled;
       const shareUrl = resolvePublicUrl(col);
-      container.innerHTML = `
+      const headerHtml = `
         <div class="collection-header">
           <div class="title">
             <button class="collection-icon-btn" type="button" aria-label="בחר אייקון" title="בחר אייקון">${escapeHtml(iconChar)}</button>
@@ -474,9 +496,22 @@
             <button class="btn btn-secondary rename">שנה שם</button>
             <button class="btn btn-danger delete">מחק</button>
           </div>
-        </div>
-        <div class="collection-items" id="collectionItems">${itemsHtml || '<div class="empty">אין פריטים</div>'}</div>
-      `;
+        </div>`;
+      if (isWorkspace) {
+        const boardHtml = buildWorkspaceBoardHtml(baseItems);
+        container.innerHTML = `${headerHtml}${boardHtml}`;
+      } else {
+        const itemsHtml = baseItems.map(it => `
+          <div class="collection-item" data-source="${escapeHtml(it.source || 'regular')}" data-name="${escapeHtml(it.file_name || '')}" data-file-id="${escapeHtml(it.file_id || '')}">
+            <span class="drag" draggable="true">⋮⋮</span>
+            <a class="file" href="#" draggable="false" data-open="${escapeHtml(it.file_name || '')}">${escapeHtml(it.file_name || '')}</a>
+            <button class="pin ${it.pinned ? 'pinned' : ''}" title="${it.pinned ? 'בטל הצמדה' : 'הצמד'}">📌</button>
+            <button class="preview" title="תצוגה מקדימה" aria-label="תצוגה מקדימה">🧾</button>
+            <button class="remove" title="הסר">✕</button>
+          </div>
+        `).join('');
+        container.innerHTML = `${headerHtml}<div class="collection-items" id="collectionItems">${itemsHtml || '<div class="empty">אין פריטים</div>'}</div>`;
+      }
 
       const iconBtn = container.querySelector('.collection-icon-btn');
       if (iconBtn) {
@@ -581,11 +616,15 @@
         });
       }
 
-      const itemsContainer = container.querySelector('#collectionItems');
-      wireDnd(itemsContainer, collectionId);
-
-      // התאמת טקסט דינמית לשמות קבצים ארוכים
-      autoFitText('#collectionItems .file', { minPx: 12, maxPx: 16 });
+      let itemsContainer = null;
+      if (isWorkspace) {
+        hydrateWorkspaceBoard(container, collectionId, baseItems);
+        autoFitText('.workspace-card__name', { minPx: 12, maxPx: 16 });
+      } else {
+        itemsContainer = container.querySelector('#collectionItems');
+        wireDnd(itemsContainer, collectionId);
+        autoFitText('#collectionItems .file', { minPx: 12, maxPx: 16 });
+      }
 
       // Header actions
       const renameBtn = container.querySelector('.collection-header .rename');
@@ -607,59 +646,57 @@
         container.innerHTML = '<div class="empty">האוסף נמחק. הקבצים נשארים זמינים בבוט ובמסך הקבצים.</div>';
       });
 
-      // Items actions (remove, open, pin)
-      itemsContainer.addEventListener('click', async (ev) => {
-        const row = ev.target.closest('.collection-item');
-        if (!row) return;
-        const source = row.getAttribute('data-source') || 'regular';
-        const name = row.getAttribute('data-name') || '';
+      if (!isWorkspace && itemsContainer) {
+        itemsContainer.addEventListener('click', async (ev) => {
+          const row = ev.target.closest('.collection-item');
+          if (!row) return;
+          const source = row.getAttribute('data-source') || 'regular';
+          const name = row.getAttribute('data-name') || '';
 
-        // Remove item
-        const rm = ev.target.closest('.remove');
-        if (rm) {
-          if (!confirm('להסיר את הפריט מהאוסף? הקובץ עצמו יישאר זמין בבוט ובמסך הקבצים.')) return;
-          const res = await api.removeItems(collectionId, [{ source, file_name: name }]);
-          if (!res || !res.ok) return alert((res && res.error) || 'שגיאה במחיקה');
-          row.remove();
-          if (!itemsContainer.querySelector('.collection-item')) {
-            itemsContainer.innerHTML = '<div class="empty">אין פריטים</div>';
+          const rm = ev.target.closest('.remove');
+          if (rm) {
+            if (!confirm('להסיר את הפריט מהאוסף? הקובץ עצמו יישאר זמין בבוט ובמסך הקבצים.')) return;
+            const res = await api.removeItems(collectionId, [{ source, file_name: name }]);
+            if (!res || !res.ok) return alert((res && res.error) || 'שגיאה במחיקה');
+            row.remove();
+            if (!itemsContainer.querySelector('.collection-item')) {
+              itemsContainer.innerHTML = '<div class="empty">אין פריטים</div>';
+            }
+            return;
           }
-          return;
-        }
 
-        // Pin/unpin
-        const pinBtn = ev.target.closest('.pin');
-        if (pinBtn) {
-          const nextPinned = !pinBtn.classList.contains('pinned');
-          const res = await api.addItems(collectionId, [{ source, file_name: name, pinned: nextPinned }]);
-          if (!res || !res.ok) return alert((res && res.error) || 'שגיאה בעדכון הצמדה');
-          await renderCollectionItems(collectionId);
-          return;
-        }
+          const pinBtn = ev.target.closest('.pin');
+          if (pinBtn) {
+            const nextPinned = !pinBtn.classList.contains('pinned');
+            const res = await api.addItems(collectionId, [{ source, file_name: name, pinned: nextPinned }]);
+            if (!res || !res.ok) return alert((res && res.error) || 'שגיאה בעדכון הצמדה');
+            await renderCollectionItems(collectionId);
+            return;
+          }
 
-        const previewBtn = ev.target.closest('.preview');
-        if (previewBtn) {
-          ev.preventDefault();
-          await handlePreviewClick(row, previewBtn, name);
-          return;
-        }
+          const previewBtn = ev.target.closest('.preview');
+          if (previewBtn) {
+            ev.preventDefault();
+            await handlePreviewClick(row, previewBtn, name);
+            return;
+          }
 
-        // Open file by clicking the name or row (except drag handle and buttons)
-        if (ev.target.closest('.card-code-preview-wrapper')) {
-          return;
-        }
-        const link = ev.target.closest('a.file[data-open]');
-        if (link) {
-          ev.preventDefault();
-          const fname = link.getAttribute('data-open') || '';
-          await openFileByName(fname);
-          return;
-        }
-        if (!ev.target.closest('.drag') && !ev.target.closest('button')) {
-          const fname = name;
-          await openFileByName(fname);
-        }
-      });
+          if (ev.target.closest('.card-code-preview-wrapper')) {
+            return;
+          }
+          const link = ev.target.closest('a.file[data-open]');
+          if (link) {
+            ev.preventDefault();
+            const fname = link.getAttribute('data-open') || '';
+            await openFileByName(fname);
+            return;
+          }
+          if (!ev.target.closest('.drag') && !ev.target.closest('button')) {
+            const fname = name;
+            await openFileByName(fname);
+          }
+        });
+      }
 
       currentCollectionId = collectionId;
     } catch (e) {
@@ -775,6 +812,335 @@
         alert('שגיאה בפתיחת הקובץ');
       }
     }
+  }
+
+  function isWorkspaceCollection(col){
+    if (!col) return false;
+    try {
+      const name = String(col.name || '').trim();
+      if (name === 'שולחן עבודה') {
+        return true;
+      }
+      const slug = String(col.slug || '').trim().toLowerCase();
+      return slug === 'workspace' || slug === 'שולחן-עבודה';
+    } catch (_err) {
+      return false;
+    }
+  }
+
+  function normalizeWorkspaceState(value){
+    const key = String(value || '').trim().toLowerCase();
+    if (WORKSPACE_STATE_META[key]) {
+      return key;
+    }
+    return WORKSPACE_STATE_ORDER[0];
+  }
+
+  function workspaceStateLabel(state){
+    const key = normalizeWorkspaceState(state);
+    return WORKSPACE_STATE_META[key]?.label || WORKSPACE_STATE_META[WORKSPACE_STATE_ORDER[0]].label;
+  }
+
+  function buildWorkspaceBoardHtml(items){
+    const groups = {};
+    WORKSPACE_STATE_ORDER.forEach((state) => { groups[state] = []; });
+    (items || []).forEach((item) => {
+      const state = normalizeWorkspaceState(item.workspace_state);
+      if (!groups[state]) {
+        groups[state] = [];
+      }
+      groups[state].push(item);
+    });
+    return `
+      <div class="workspace-board" data-workspace-board="1">
+        <div class="workspace-board__live" aria-live="polite" aria-atomic="true"></div>
+        <div class="workspace-board__helper">טיפ: גרור באמצעות הידית או השתמש בקיצורים (Shift+1/2/3)</div>
+        <div class="workspace-board__grid">
+          ${WORKSPACE_STATE_ORDER.map((state) => {
+            const meta = WORKSPACE_STATE_META[state] || {};
+            const itemsHtml = (groups[state] || []).map(renderWorkspaceCard).join('');
+            const emptyAttr = itemsHtml ? '0' : '1';
+            return `
+              <section class="workspace-column" data-state="${state}">
+                <div class="workspace-column__header">
+                  <div class="workspace-column__title">
+                    <span>${escapeHtml(meta.label || state)}</span>
+                    <span class="workspace-column__count">${Number((groups[state] || []).length)}</span>
+                  </div>
+                  <div class="workspace-column__meta">
+                    <span class="workspace-column__description">${escapeHtml(meta.description || '')}</span>
+                    ${meta.shortcut ? `<span class="workspace-shortcut-hint">${escapeHtml(meta.shortcut)}</span>` : ''}
+                  </div>
+                </div>
+                <div class="workspace-column__list" data-state-list="${state}" data-empty="${emptyAttr}">
+                  ${itemsHtml}
+                </div>
+              </section>
+            `;
+          }).join('')}
+        </div>
+      </div>
+    `;
+  }
+
+  function renderWorkspaceCard(item){
+    const state = normalizeWorkspaceState(item.workspace_state);
+    const itemId = String(item.id || item._id || item.file_name || '');
+    const pinnedClass = item.pinned ? 'pinned' : '';
+    return `
+      <article class="workspace-card" data-item-id="${escapeHtml(itemId)}" data-state="${escapeHtml(state)}" data-source="${escapeHtml(item.source || 'regular')}" data-name="${escapeHtml(item.file_name || '')}" data-file-id="${escapeHtml(item.file_id || '')}">
+        <div class="workspace-card__top">
+          <button class="workspace-card__drag" type="button" aria-label="גרור להזזת הפריט">⋮⋮</button>
+          <div class="workspace-card__body">
+            <div class="workspace-card__name">
+              <a class="workspace-card__link" href="#" data-open="${escapeHtml(item.file_name || '')}">${escapeHtml(item.file_name || '')}</a>
+            </div>
+            <div class="workspace-card__meta">
+              <span class="workspace-card__tag"><span class="workspace-card__status-indicator" data-state="${escapeHtml(state)}"></span>${escapeHtml(workspaceStateLabel(state))}</span>
+              ${item.note ? `<span>📝 ${escapeHtml(item.note)}</span>` : ''}
+              ${item.pinned ? '<span>📌 מוצמד</span>' : ''}
+            </div>
+          </div>
+        </div>
+        <div class="workspace-card__actions">
+          <button type="button" class="preview" title="תצוגה מקדימה" aria-label="תצוגה מקדימה">🧾</button>
+          <button type="button" class="pin ${pinnedClass}" title="${item.pinned ? 'בטל הצמדה' : 'הצמד'}">📌</button>
+          <button type="button" class="remove" title="הסר">✕</button>
+        </div>
+      </article>
+    `;
+  }
+
+  function hydrateWorkspaceBoard(container, collectionId, items){
+    const board = container.querySelector('.workspace-board');
+    if (!board) {
+      return;
+    }
+    const lists = {};
+    board.querySelectorAll('[data-state-list]').forEach((listEl) => {
+      const state = listEl.getAttribute('data-state-list');
+      if (!state) {
+        return;
+      }
+      lists[state] = listEl;
+      listEl.dataset.empty = listEl.querySelector('.workspace-card') ? '0' : '1';
+    });
+    const ctx = {
+      board,
+      collectionId,
+      lists,
+      liveRegion: board.querySelector('.workspace-board__live'),
+      cleanup: null,
+      keyboardHandler: null,
+    };
+    workspaceBoardCtx = ctx;
+    bindWorkspaceCardEvents(ctx);
+    setupWorkspaceSortable(ctx);
+    setupWorkspaceKeyboard(ctx);
+  }
+
+  function bindWorkspaceCardEvents(ctx){
+    const board = ctx.board;
+    board.addEventListener('focusin', (ev) => {
+      const card = ev.target.closest('.workspace-card');
+      if (card) {
+        workspaceActiveCard = card;
+      }
+    });
+    board.addEventListener('click', async (ev) => {
+      const card = ev.target.closest('.workspace-card');
+      if (card) {
+        workspaceActiveCard = card;
+      }
+      if (!card) return;
+      const source = card.getAttribute('data-source') || 'regular';
+      const name = card.getAttribute('data-name') || '';
+      const itemId = card.getAttribute('data-item-id') || '';
+
+      const removeBtn = ev.target.closest('.remove');
+      if (removeBtn) {
+        if (!confirm('להסיר את הפריט מהאוסף? הקובץ עצמו יישאר זמין בבוט ובמסך הקבצים.')) return;
+        const res = await api.removeItems(ctx.collectionId, [{ source, file_name: name }]);
+        if (!res || !res.ok) {
+          alert((res && res.error) || 'שגיאה במחיקה');
+          return;
+        }
+        card.remove();
+        updateWorkspaceEmptyStates(ctx);
+        return;
+      }
+
+      const pinBtn = ev.target.closest('.pin');
+      if (pinBtn) {
+        const nextPinned = !pinBtn.classList.contains('pinned');
+        const res = await api.addItems(ctx.collectionId, [{ source, file_name: name, pinned: nextPinned }]);
+        if (!res || !res.ok) {
+          alert((res && res.error) || 'שגיאה בעדכון הצמדה');
+          return;
+        }
+        await renderCollectionItems(ctx.collectionId);
+        return;
+      }
+
+      const previewBtn = ev.target.closest('.preview');
+      if (previewBtn) {
+        ev.preventDefault();
+        await handlePreviewClick(card, previewBtn, name);
+        return;
+      }
+
+      if (ev.target.closest('.workspace-card__drag')) {
+        return;
+      }
+      const link = ev.target.closest('a[data-open]');
+      if (link) {
+        ev.preventDefault();
+        const fname = link.getAttribute('data-open') || '';
+        await openFileByName(fname);
+        return;
+      }
+      if (!ev.target.closest('button')) {
+        await openFileByName(name);
+      }
+    });
+  }
+
+  function setupWorkspaceSortable(ctx){
+    if (typeof Sortable === 'undefined') {
+      return;
+    }
+    Object.values(ctx.lists || {}).forEach((listEl) => {
+      new Sortable(listEl, {
+        group: 'workspace-board',
+        handle: '.workspace-card__drag',
+        animation: 150,
+        forceFallback: true,
+        fallbackTolerance: 8,
+        dragClass: 'workspace-card--dragging',
+        ghostClass: 'workspace-card--ghost',
+        onEnd(evt) {
+          handleWorkspaceDrop(ctx, evt.item, evt.from, evt.to);
+        },
+      });
+    });
+  }
+
+  function handleWorkspaceDrop(ctx, card, _from, to){
+    if (!card || !to) {
+      updateWorkspaceEmptyStates(ctx);
+      return;
+    }
+    const newState = to.getAttribute('data-state-list');
+    const prevState = card.getAttribute('data-state') || '';
+    if (!newState || newState === prevState) {
+      updateWorkspaceEmptyStates(ctx);
+      return;
+    }
+    const itemId = card.getAttribute('data-item-id') || '';
+    if (!itemId) {
+      updateWorkspaceEmptyStates(ctx);
+      return;
+    }
+    const name = card.getAttribute('data-name') || '';
+    card.setAttribute('data-state', newState);
+    updateWorkspaceEmptyStates(ctx);
+    commitWorkspaceState(ctx, card, itemId, newState, prevState, name);
+  }
+
+  async function commitWorkspaceState(ctx, card, itemId, nextState, prevState, name){
+    if (!itemId) {
+      return;
+    }
+    card.classList.add('workspace-card--updating');
+    try {
+      await api.updateWorkspaceState(itemId, nextState);
+      announceWorkspaceChange(ctx, name, nextState);
+    } catch (err) {
+      const list = ctx.lists?.[prevState];
+      if (list) {
+        list.appendChild(card);
+      }
+      card.setAttribute('data-state', prevState);
+      updateWorkspaceEmptyStates(ctx);
+      const code = (err && err.code) || '';
+      if (code === 'workspace_item_not_found') {
+        alert('הפריט לא נמצא לעדכון');
+      } else if (code && code !== 'workspace_state_update_failed') {
+        alert(code);
+      } else {
+        alert('שגיאה בעדכון הסטטוס');
+      }
+    } finally {
+      card.classList.remove('workspace-card--updating');
+    }
+  }
+
+  function announceWorkspaceChange(ctx, name, state){
+    if (!ctx || !ctx.liveRegion) {
+      return;
+    }
+    const label = workspaceStateLabel(state);
+    const trimmedName = String(name || '').trim();
+    ctx.liveRegion.textContent = trimmedName ? `הפריט "${trimmedName}" הועבר לסטטוס ${label}` : `הסטטוס עודכן ל-${label}`;
+  }
+
+  function updateWorkspaceEmptyStates(ctx){
+    Object.values(ctx.lists || {}).forEach((listEl) => {
+      listEl.dataset.empty = listEl.querySelector('.workspace-card') ? '0' : '1';
+    });
+  }
+
+  function moveWorkspaceCardToState(ctx, card, targetState){
+    if (!ctx || !card) return;
+    const itemId = card.getAttribute('data-item-id') || '';
+    if (!itemId) return;
+    const prevState = card.getAttribute('data-state') || '';
+    if (prevState === targetState) {
+      announceWorkspaceChange(ctx, card.getAttribute('data-name') || '', targetState);
+      return;
+    }
+    const list = ctx.lists?.[targetState];
+    if (!list) return;
+    list.appendChild(card);
+    card.setAttribute('data-state', targetState);
+    updateWorkspaceEmptyStates(ctx);
+    commitWorkspaceState(ctx, card, itemId, targetState, prevState, card.getAttribute('data-name') || '');
+  }
+
+  function setupWorkspaceKeyboard(ctx){
+    if (ctx.cleanup) {
+      try { ctx.cleanup(); } catch (_err) {}
+    }
+    const handler = (ev) => {
+      if (!ev.shiftKey) return;
+      const lookup = { '1': 'todo', '2': 'in_progress', '3': 'done' };
+      const nextState = lookup[ev.key];
+      if (!nextState) return;
+      if (!workspaceBoardCtx || workspaceBoardCtx !== ctx) return;
+      let targetCard = null;
+      if (workspaceActiveCard && ctx.board.contains(workspaceActiveCard)) {
+        targetCard = workspaceActiveCard;
+      } else {
+        targetCard = ctx.board.querySelector('.workspace-card');
+      }
+      if (!targetCard) return;
+      ev.preventDefault();
+      workspaceActiveCard = targetCard;
+      moveWorkspaceCardToState(ctx, targetCard, nextState);
+    };
+    document.addEventListener('keydown', handler);
+    ctx.keyboardHandler = handler;
+    ctx.cleanup = () => {
+      document.removeEventListener('keydown', handler);
+    };
+  }
+
+  function teardownWorkspaceBoard(){
+    if (workspaceBoardCtx && typeof workspaceBoardCtx.cleanup === 'function') {
+      try { workspaceBoardCtx.cleanup(); } catch (_err) {}
+    }
+    workspaceBoardCtx = null;
+    workspaceActiveCard = null;
   }
 
   function wireDnd(container, cid){

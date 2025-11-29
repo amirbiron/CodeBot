@@ -4,7 +4,11 @@ import typing as t
 
 import pytest
 
-from database.collections_manager import CollectionsManager, ObjectId
+from database.collections_manager import (
+    CollectionsManager,
+    ObjectId,
+    DEFAULT_WORKSPACE_STATE,
+)
 
 
 class FakeUpdateResult:
@@ -239,6 +243,31 @@ def test_add_remove_reorder_and_counts(mgr: CollectionsManager):
     # get items (manual mode)
     out = mgr.get_collection_items(3, cid, page=1, per_page=10, include_computed=True)
     assert out["ok"] and len(out["items"]) == 2
+
+
+def test_workspace_state_flow(mgr: CollectionsManager):
+    mgr.ensure_default_collections(50)
+    cols = mgr.list_collections(50)
+    assert cols["ok"]
+    workspace = next(col for col in cols["collections"] if col["name"] == "שולחן עבודה")
+    add = mgr.add_items(50, workspace["id"], [{"source": "regular", "file_name": "task.py"}])
+    assert add["ok"]
+    raw_item = next(d for d in mgr.items.docs if d.get("file_name") == "task.py")  # type: ignore[attr-defined]
+    assert raw_item.get("workspace_state") == DEFAULT_WORKSPACE_STATE
+    item_id = str(raw_item["_id"])
+
+    ok = mgr.update_workspace_item_state(50, item_id, "done")
+    assert ok["ok"] and ok["state"] == "done"
+
+    lst = mgr.get_collection_items(50, workspace["id"], page=1, per_page=10)
+    assert lst["ok"]
+    assert lst["items"][0]["workspace_state"] == "done"
+
+    bad_state = mgr.update_workspace_item_state(50, item_id, "invalid")
+    assert not bad_state["ok"] and bad_state["error"] == "invalid_workspace_state"
+
+    missing = mgr.update_workspace_item_state(999, item_id, "todo")
+    assert not missing["ok"]
 
 
 def test_get_collection_invalid_id(mgr: CollectionsManager):

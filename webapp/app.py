@@ -515,6 +515,14 @@ try:
         from webapp.collections_api import collections_bp  # noqa: E402
         # רישום יחיד וקנוני של ה-API בנתיב /api/collections
         app.register_blueprint(collections_bp, url_prefix="/api/collections")
+        try:
+            from webapp.workspace_api import workspace_bp  # noqa: E402
+            app.register_blueprint(workspace_bp, url_prefix="/api/workspace")
+        except Exception as _workspace_err:
+            try:
+                logger.info("workspace_api blueprint not registered: %s", _workspace_err)
+            except Exception:
+                pass
         # רישום דפי UI (server-rendered) הטעונים למסלול /collections
         try:
             from webapp.collections_ui import collections_ui  # noqa: E402

@@ -50,6 +50,8 @@ ALLOWED_ICONS: List[str] = [
 COLLECTION_COLORS: List[str] = [
     "blue","green","purple","orange","red","teal","pink","yellow"
 ]
+WORKSPACE_STATES: Tuple[str, ...] = ("todo", "in_progress", "done")
+DEFAULT_WORKSPACE_STATE: str = WORKSPACE_STATES[0]
 
 
 def _now() -> datetime:
@@ -187,6 +189,21 @@ class CollectionsManager:
     def _normalize_color(self, color: Optional[str]) -> str:
         c = str(color or "").lower()
         return c if c in COLLECTION_COLORS else ""
+
+    def _normalize_workspace_state(self, state: Optional[str], *, allow_default: bool = True) -> str:
+        try:
+            value = str(state or "").strip().lower()
+        except Exception:
+            value = ""
+        if value in WORKSPACE_STATES:
+            return value
+        return DEFAULT_WORKSPACE_STATE if allow_default else ""
+
+    def _is_valid_workspace_state(self, state: Optional[str]) -> bool:
+        try:
+            return str(state or "").strip().lower() in WORKSPACE_STATES
+        except Exception:
+            return False
 
     # --- Collections CRUD ---
     def create_collection(
@@ -448,6 +465,8 @@ class CollectionsManager:
                     set_fields["pinned"] = bool(it.get("pinned"))
                 if "custom_order" in it:
                     set_fields["custom_order"] = it.get("custom_order")
+                if "workspace_state" in it:
+                    set_fields["workspace_state"] = self._normalize_workspace_state(it.get("workspace_state"))
 
                 try:
                     upd_res = self.items.update_one(query, {"$set": set_fields})
@@ -468,6 +487,7 @@ class CollectionsManager:
                     "note": str(it.get("note") or "")[:500],
                     "pinned": bool(it.get("pinned") or False),
                     "custom_order": it.get("custom_order"),
+                    "workspace_state": self._normalize_workspace_state(it.get("workspace_state")),
                     "added_at": now,
                     "updated_at": now,
                 }
@@ -775,6 +795,60 @@ class CollectionsManager:
             emit_event("collections_get_items_error", severity="error", user_id=int(user_id), error=str(e))
             return {"ok": False, "error": "שגיאה בשליפת פריטים"}
 
+    def update_workspace_item_state(self, user_id: int, item_id: str, state: str) -> Dict[str, Any]:
+        try:
+            uid = int(user_id)
+        except Exception:
+            return {"ok": False, "error": "invalid_user"}
+        if not self._is_valid_workspace_state(state):
+            return {"ok": False, "error": "invalid_workspace_state"}
+        try:
+            iid = ObjectId(item_id)
+        except Exception:
+            return {"ok": False, "error": "invalid_item_id"}
+        try:
+            item = self.items.find_one({"_id": iid, "user_id": uid})
+        except Exception:
+            item = None
+        if not item:
+            return {"ok": False, "error": "workspace_item_not_found"}
+        collection_id = item.get("collection_id")
+        if collection_id is None:
+            return {"ok": False, "error": "workspace_collection_missing"}
+        try:
+            workspace_doc = self.collections.find_one({
+                "_id": collection_id,
+                "user_id": uid,
+                "name": "שולחן עבודה",
+                "$or": [{"is_active": True}, {"is_active": {"$exists": False}}],
+            })
+        except Exception:
+            workspace_doc = None
+        if not workspace_doc:
+            return {"ok": False, "error": "workspace_item_not_found"}
+        next_state = self._normalize_workspace_state(state)
+        try:
+            res = self.items.update_one(
+                {"_id": iid, "user_id": uid},
+                {"$set": {"workspace_state": next_state, "updated_at": _now()}},
+            )
+            matched = int(getattr(res, "matched_count", 0) or 0)
+            if matched <= 0:
+                matched = int(getattr(res, "modified_count", 0) or 0)
+            if matched <= 0:
+                return {"ok": False, "error": "workspace_item_not_found"}
+        except Exception as e:
+            emit_event(
+                "workspace_state_update_error",
+                severity="error",
+                user_id=uid,
+                item_id=str(item_id),
+                error=str(e),
+            )
+            return {"ok": False, "error": "workspace_state_update_failed"}
+        emit_event("workspace_state_update", user_id=uid, item_id=str(item_id), state=next_state)
+        return {"ok": True, "item_id": str(iid), "state": next_state}
+
     def compute_smart_items(self, user_id: int, rules: Dict[str, Any], limit: int = 200) -> List[Dict[str, Any]]:
         """הפקת פריטים על בסיס חוקים פשוטים מתוך אוסף code_snippets.
 
@@ -874,6 +948,7 @@ class CollectionsManager:
             "note": d.get("note") or "",
             "pinned": bool(d.get("pinned", False)),
             "custom_order": d.get("custom_order"),
+            "workspace_state": self._normalize_workspace_state(d.get("workspace_state")),
             "added_at": (d.get("added_at").isoformat() if isinstance(d.get("added_at"), datetime) else None),
             "updated_at": (d.get("updated_at").isoformat() if isinstance(d.get("updated_at"), datetime) else None),
         }
