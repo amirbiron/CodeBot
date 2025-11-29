@@ -232,7 +232,11 @@
             <span class="editor-info-status" aria-live="polite"></span>
           </div>
         </div>
-        <div class="editor-clipboard-actions" role="group" aria-label="פעולות העתקה והדבקה">
+        <div class="editor-clipboard-actions" role="group" aria-label="פעולות עריכה">
+          <button type="button" class="btn-editor-clip btn-editor-select" title="בחר את כל הקוד">
+            <i class="fas fa-arrows-alt"></i>
+            <span>בחר הכל</span>
+          </button>
           <button type="button" class="btn-editor-clip btn-editor-copy" title="העתק את הקוד">
             <i class="far fa-copy"></i>
             <span>העתק</span>
@@ -269,6 +273,10 @@
         this.updateInfoBanner(switcher);
       });
 
+      const selectBtn = switcher.querySelector('.btn-editor-select');
+      if (selectBtn) {
+        selectBtn.addEventListener('click', () => this.handleSelectAll(switcher));
+      }
       const copyBtn = switcher.querySelector('.btn-editor-copy');
       if (copyBtn) {
         copyBtn.addEventListener('click', () => this.handleClipboardCopy(switcher));
@@ -437,6 +445,11 @@
       } catch(_) {}
     }
 
+    handleSelectAll(switcher) {
+      const success = this.selectAllContent({ scrollIntoView: true });
+      this.showClipboardNotice(switcher, success ? 'כל הקוד סומן' : 'לא היה מה לסמן');
+    }
+
     registerSelectionFix() {
       try {
         this.teardownSelectionFix();
@@ -445,12 +458,7 @@
           const key = (event.key || '').toLowerCase();
           if (key === 'a' && (event.metaKey || event.ctrlKey)) {
             event.preventDefault();
-            this.unfoldAllSections();
-            const docLength = this.cmInstance.state ? this.cmInstance.state.doc.length : 0;
-            this.cmInstance.dispatch({
-              selection: { anchor: 0, head: docLength },
-              scrollIntoView: true
-            });
+            this.selectAllContent({ scrollIntoView: true, silent: true });
           }
         };
         this.cmInstance.contentDOM.addEventListener('keydown', handler);
@@ -479,6 +487,27 @@
           mods.foldMod.unfoldAll(this.cmInstance);
         }
       } catch(_) {}
+    }
+
+    selectAllContent({ scrollIntoView = false, silent = false } = {}) {
+      try {
+        if (this.cmInstance && this.cmInstance.state) {
+          this.unfoldAllSections();
+          this.cmInstance.focus();
+          const docLength = this.cmInstance.state.doc.length;
+          this.cmInstance.dispatch({
+            selection: { anchor: 0, head: docLength },
+            scrollIntoView
+          });
+          return docLength > 0 || !silent;
+        }
+        if (this.textarea) {
+          this.textarea.focus();
+          this.textarea.select();
+          return this.textarea.value && this.textarea.value.length > 0;
+        }
+      } catch(_) {}
+      return false;
     }
 
     async updateLanguage(lang) {
