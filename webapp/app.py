@@ -5634,6 +5634,9 @@ def view_file(file_id):
     
     if not file:
         abort(404)
+
+    _log_webapp_user_activity()
+
     # עדכון רשימת "נפתחו לאחרונה" (MRU) עבור המשתמש הנוכחי — לפני בדיקות Cache
     try:
         ensure_recent_opens_indexes()
