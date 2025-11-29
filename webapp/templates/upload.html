@@ -357,7 +357,7 @@
 
         const uploadSucceeded = form.getAttribute('data-upload-success') === '1';
         if (uploadSucceeded) {
-          removeDraft();
+          removeDraft(true);
         }
 
         const initialState = collectState();
@@ -370,6 +370,7 @@
         });
 
         const existingDraft = loadDraft();
+        toggleClearButton(!existingDraft);
         if (existingDraft && !hasPrefill) {
           applyDraft(existingDraft);
           lastSnapshot = JSON.stringify(collectState());
@@ -438,15 +439,15 @@
           if (snapshot === lastSnapshot) {
             return;
           }
-          lastSnapshot = snapshot;
           if (!hasMeaningfulContent(state)) {
-            removeDraft();
-            updateStatus(null);
+            removeDraft(true);
+            lastSnapshot = snapshot;
             return;
           }
           const payload = { ...state, savedAt: Date.now() };
           try {
             localStorage.setItem(storageKey, JSON.stringify(payload));
+            lastSnapshot = snapshot;
             updateStatus(payload.savedAt);
             toggleClearButton(false);
           } catch (err) {
