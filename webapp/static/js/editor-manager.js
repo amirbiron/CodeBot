@@ -228,7 +228,7 @@
             <span>${this.currentEditor === 'simple' ? 'עורך מתקדם' : 'עורך פשוט'}</span>
           </button>
           <div class="editor-info">
-            <span class="editor-info-primary">${this.currentEditor === 'codemirror' ? '<i class="fas fa-keyboard"></i> קיצורי מקלדת זמינים' : '<i class="fas fa-info-circle"></i> עורך טקסט בסיסי'}</span>
+            <span class="editor-info-primary${this.currentEditor === 'codemirror' ? ' is-keyboard-hint' : ''}">${this.currentEditor === 'codemirror' ? '<i class="fas fa-keyboard"></i> קיצורי מקלדת זמינים' : '<i class="fas fa-info-circle"></i> עורך טקסט בסיסי'}</span>
             <span class="editor-info-status" aria-live="polite"></span>
           </div>
         </div>
@@ -330,9 +330,16 @@
       try {
         const target = switcher ? switcher.querySelector('.editor-info-primary') : null;
         if (!target) return;
-        target.innerHTML = this.currentEditor === 'codemirror'
+        const isCodeMirror = this.currentEditor === 'codemirror';
+        target.innerHTML = isCodeMirror
           ? '<i class="fas fa-keyboard"></i> קיצורי מקלדת זמינים'
           : '<i class="fas fa-info-circle"></i> עורך טקסט בסיסי';
+          
+        if (isCodeMirror) {
+          target.classList.add('is-keyboard-hint');
+        } else {
+          target.classList.remove('is-keyboard-hint');
+        }
       } catch(_) {}
     }
 
