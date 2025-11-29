@@ -107,6 +107,73 @@
 
 ---
 
+## 7. Workspace Layout Presets & Quick Toggle
+**למה עכשיו:** עמודי `files.html` ו-`dashboard.html` כבר עמוסים ברכיבים (חיפוש, כרטיסים, timeline). משתמשים שונים רוצים לראות את אותם נתונים אבל בסידור אחר – כרגע אין דרך לשמור פריסות מותאמות, למרות שקיים API להעדפות (`/api/ui_prefs` שמשרת את `editor-manager.js`).
+
+**מה מציעים:**
+- יצירת \"Preset\" שמגדיר אילו מקטעים מוצגים, האם החיפוש פתוח, כמה עמודות מוצגות ב-grid, והאם ה-timeline מוצג ככרטיס מלא או כפס.
+- כפתור Toggle צף (בדומה ל-Dark Mode) שמחליף בין פריסות נפוצות: \"Search First\", \"Collections First\", \"Dashboard Compact\".
+- שמירת הפריסה ב-`ui_prefs` + localStorage, ושיתוף preset דרך URL (`?layout=focus`).
+
+**מימוש:**  
+1. רפקטור של החלק העליון ב-`files.html` כך שהקונטיינרים יקבלו `data-slot` ויהיו ניתנים להזזה באמצעות CSS grid classes שנקבעות ב-JS.  
+2. מודול JS קטן (`static/js/layout-presets.js`) שמאזין ללחיצות toggle, קורא/כותב את הפריסה ומעדכן את DOM.  
+3. הרחבת API ההעדפות (`app.py` → `/api/ui_prefs`) לשדה `layout_presets`.
+
+**מדד הצלחה:** ≥50% מהמשתמשים הכבדים ישתמשו בלפחות preset אחד בתוך חודשיים.
+
+---
+
+## 8. Collections Kanban & Drag Handles
+**למה עכשיו:** `collections.html` + `static/js/collections.js` מספקים סיידבר נחמד ורשימת פריטים, אבל שימושים כמו \"תור משימות\" דורשים לנהל סטטוסים. כרגע אי אפשר לגרור קובץ מאוסף אחד לאחר בלי לפתוח דיאלוגים.
+
+**מה מציעים:**
+- מצב Kanban שבו כל אוסף הופך לטור (To-do / In Review / Done) עם גרירה חופשית של כרטיסים (HTML משתמש באותן כרטיסיות כמו `files.html` כדי לשמור על עקביות).
+- גרירת פריט מה-grid הראשי אל סיידבר האוספים (drop zone) כדי להוסיף אותו מיד.
+- תיעוד היסטוריית מעבר (מי הזיז, מתי) לטובת דשבורד הצוות.
+
+**מימוש:**  
+1. הוספת endpoint `POST /api/collections/<id>/items/move` שמעדכן את `position` ואת `collection_id` בבת אחת.  
+2. שימוש ב-Drag & Drop API של הדפדפן ב-`collections.js`, עם ghost preview שממחזר את ה-markup של `card-preview`.  
+3. שמירת log קטן ב-`collections_manager.py` (collection חדשה `collection_events`) כדי שאפשר יהיה להציג ב-dashboard.
+
+**מדד הצלחה:** קיטון של 30% במספר הפניות ל-API `addItems` (כי המשתמשים גוררים במקום לפתוח דיאלוג לכל קובץ).
+
+---
+
+## 9. Markdown Presentation Mode & Speaker Notes
+**למה עכשיו:** `md_preview.html` כבר מספק חוויית קריאה חזקה עם צבעי רקע ופתקים, אך משתמשים מבקשים \"להציג\" דוקומנטים ישירות מהאפליקציה (למשל, מדריך deployment) – בייחוד בתוך סביבת הטלגרם. כרגע צריך להעתיק את הטקסט למצגת חיצונית.
+
+**מה מציעים:**
+- כפתור \"Presentation\" בתצוגת Markdown שמעלה מצב מסך-מלא: כל `<h1>/<h2>` נהפך ל-slide, ופתקי Sticky Notes מוצגים בתור \"Speaker Notes\" בפאנל צדדי.
+- תמיכה ב-clicker (מקשי חיצים / מקלדת) ובטיימר זמן.
+- יצוא share link שמתחיל ישירות במצב מצגת (עם token קצר טווח).
+
+**מימוש:**  
+1. הרחבת `md_preview.html` עם תבנית `<template id=\"slide-template\">` ו-css ייעודי (קובץ `static/css/md-presentation.css`).  
+2. Script חדש `static/js/md_presentation.js` שמבצע slicing ל-DOM ומדביק את הסלאידים + את ההערות (עבור כל slide נעשית קריאה ל-`/api/sticky-notes/<file_id>?section=...`).  
+3. Endpoint אופציונלי `/md/<file_id>/present` שמחזיר גרסה דלה של הדף עם CSP מחמירה (לשיתוף חיצוני).
+
+**מדד הצלחה:** ≥20 מצגות מוצגות בחודש הראשון ללא צורך בכלי חיצוני.
+
+---
+
+## 10. Scheduled ZIP Backups & Drift Alerts
+**למה עכשיו:** ב-`files.html` כבר מוצגים `zip_backups`, אבל יצירת ZIP היא פעולה ידנית דרך ה-toolbar, ואין התרעה אם zip ישן או אם קבצים השתנו מאז הגיבוי האחרון.
+
+**מה מציעים:**
+- יצירת Job מתוזמן (ב-worker הקיים) שמריץ ZIP נבחר פעם ביום/שבוע ומצמיד אותו לקטגוריית ZIP בעמוד. המשתמש מגדיר אילו אוספים או תגיות להכניס.
+- Drift Alert: אם קובץ שייך ל-ZIP מתוזמן וקיבל עדכון מאז הגיבוי האחרון, מוצגת התראה בדשבורד/Action Center עם כפתור \"צור ZIP עכשיו\".
+- אפשרות להוריד diff (רשימת קבצים שנוספו/נמחקו) כחלק מה-zip metadata.
+
+**מימוש:**  
+1. שדות חדשים בטבלת `zip_backups` (או collection Mongo): `schedule`, `last_run`, `filters`.  
+2. Endpoint `/api/zip-backups/<id>/schedule` לבחירת תדירות והגדרות (חיבור ל-`push_worker` או לסקריפט cron קיים).  
+3. הרחבת `files.html` כדי להציג badge \"מתוזמן\" + הצגת drift count (מבוסס על קווריית Mongo פשוטה שמחפשת קבצים שעודכנו אחרי `last_run`).
+
+**מדד הצלחה:** 80% מהגיבויים השבועיים נוצרים אוטומטית וללא תלות בהפעלת כפתור ידני.
+
+---
 ## סיכום קצר
 - כל רעיון נשען על קבצים ותשתיות שכבר קיימים (`sticky-notes`, `multi-select`, `collections`, `dashboard`, `global_search`, `html_preview`).
 - אין הצעות לשיתוף קהילתי או לסוכני AI, בהתאם לבקשה.
