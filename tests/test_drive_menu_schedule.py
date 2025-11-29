@@ -195,6 +195,49 @@ async def test_drive_status_does_not_create_job(monkeypatch):
     assert ctx.application.job_queue.calls == 0
     # Status text should include activity indication
     assert "סטטוס:" in (upd.callback_query.message.text or "")
+
+
+@pytest.mark.asyncio
+async def test_ensure_schedule_job_if_missing_runs_only_when_needed(monkeypatch):
+    _stub_requests(monkeypatch)
+    import handlers.drive.menu as dm
+
+    class _Facade:
+        def __init__(self):
+            self.prefs = {"schedule": "daily"}
+
+        def get_drive_prefs(self, user_id):
+            return dict(self.prefs)
+
+        def save_drive_prefs(self, user_id, prefs):
+            self.prefs.update(prefs)
+            return True
+
+    _set_facade(monkeypatch, _Facade())
+
+    calls = {"count": 0}
+
+    class _JQ:
+        def __init__(self):
+            self.scheduler = types.SimpleNamespace(jobstores={})
+
+        def run_repeating(self, *a, **k):
+            calls["count"] += 1
+            return types.SimpleNamespace(schedule_removal=lambda: None)
+
+    class _App:
+        def __init__(self):
+            self.job_queue = _JQ()
+
+    ctx = types.SimpleNamespace(application=_App(), bot_data={})
+
+    handler = dm.GoogleDriveMenuHandler()
+    created_first = await handler.ensure_schedule_job_if_missing(ctx, user_id=5, sched_key="daily")
+    created_second = await handler.ensure_schedule_job_if_missing(ctx, user_id=5, sched_key="daily")
+
+    assert created_first is True
+    assert created_second is False
+    assert calls["count"] == 1
 @pytest.mark.asyncio
 async def test_scheduled_backup_callback_success_updates_prefs_and_emits(monkeypatch):
     _stub_requests(monkeypatch)

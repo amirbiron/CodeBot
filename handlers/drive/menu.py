@@ -279,6 +279,27 @@ class GoogleDriveMenuHandler:
             except Exception:
                 pass
 
+    async def ensure_schedule_job_if_missing(self, context: ContextTypes.DEFAULT_TYPE, user_id: int, sched_key: str) -> bool:
+        """
+        Lightweight guard used by keepalive/rehydration jobs: only recreate the
+        scheduler job when it is actually missing from bot_data.
+        Returns True when a new job was scheduled, False when an existing job
+        was already registered.
+        """
+        jobs = context.bot_data.setdefault("drive_schedule_jobs", {})
+        if jobs.get(user_id):
+            return False
+        try:
+            logger.warning("drive_schedule_job_missing user_id=%s key=%s", user_id, sched_key)
+        except Exception:
+            pass
+        try:
+            emit_event("drive_schedule_job_missing", severity="warn", user_id=int(user_id), key=str(sched_key))
+        except Exception:
+            pass
+        await self._ensure_schedule_job(context, user_id, sched_key)
+        return True
+
     async def menu(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         # Feature flag: allow fallback to old behavior if disabled
         if not config.DRIVE_MENU_V2:
