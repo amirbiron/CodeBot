@@ -7317,7 +7317,7 @@ class GitHubMenuHandler:
             title = f"Restore to commit {commit_sha[:7]}"
             body = (
                 f"This PR restores the repository to commit `{commit_sha}` by recreating its tree "
-                f"on top of `{base_branch}`.\n\nנוצר אוטומטית דרך הבוט."
+                f"on top of `{base_branch}`.\n\nנוצר אוטומטית דרך בוט CodeBot"
             )
             pr = repo.create_pull(title=title, body=body, head=work_branch, base=base_branch)
             kb = [[InlineKeyboardButton("🔙 חזור", callback_data="github_menu")]]

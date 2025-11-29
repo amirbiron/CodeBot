@@ -2167,7 +2167,15 @@ class CodeKeeperBot:
         # הוסף handler כללי לטיפול בקלט טקסט של GitHub (כולל URL לניתוח)
         async def handle_github_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
             # העבר כל קלט רלוונטי למנהל GitHub לפי דגלים ב-user_data
-            text = (update.message.text or '').strip()
+            message = getattr(update, "message", None)
+            if message is None:
+                logger.debug("handle_github_text: update without message, ignoring")
+                return False
+            message_text = getattr(message, "text", None)
+            if message_text is None:
+                logger.debug("handle_github_text: missing text payload, ignoring")
+                return False
+            text = (message_text or '').strip()
             main_menu_texts = {"➕ הוסף קוד חדש", "📚 הצג את כל הקבצים שלי", "📂 קבצים גדולים", "🔧 GitHub", "🏠 תפריט ראשי", "⚡ עיבוד Batch"}
             if text in main_menu_texts:
                 # נקה דגלים כדי למנוע טריגר שגוי
@@ -2955,7 +2963,15 @@ class CodeKeeperBot:
             reporter.report_activity(update.effective_user.id)
         await log_user_activity(update, context)
         user_id = update.effective_user.id
-        text = update.message.text
+        message = getattr(update, "message", None)
+        if message is None:
+            logger.debug("handle_text_message: update without message, ignoring")
+            return
+        message_text = getattr(message, "text", None)
+        if message_text is None:
+            logger.debug("handle_text_message: missing text payload, ignoring")
+            return
+        text = message_text
 
         # מצב חיפוש אינטראקטיבי (מופעל מהכפתור "🔎 חפש קובץ")
         if context.user_data.get('awaiting_search_text'):
