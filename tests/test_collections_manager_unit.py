@@ -31,8 +31,8 @@ class FakeCollection:
     # CRUD helpers
     def insert_one(self, doc: dict):
         if "_id" not in doc or not doc["_id"]:
-            # simple ObjectId-like
-            doc["_id"] = f"oid{len(self.docs)+1}"
+            # Generate a valid 24-character hex string that ObjectId accepts
+            doc["_id"] = f"{len(self.docs)+1:024x}"
         self.docs.append(dict(doc))
         return FakeUpdateResult(inserted_id=doc["_id"])
 
