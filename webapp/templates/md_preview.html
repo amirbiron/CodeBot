@@ -319,10 +319,18 @@
   padding-top: 2.6rem;           /* מקום לשורת כפתורים עליונה */
   box-sizing: border-box;
 }
-#md-content .md-copy-btn {
+/* Toolbar for buttons */
+#md-content .code-toolbar {
   position: absolute;
   top: 10px;
   left: 10px;
+  display: flex;
+  gap: 0.5rem;
+  z-index: 2;
+}
+
+#md-content .md-copy-btn {
+  /* Removed absolute positioning */
   display: inline-flex;
   align-items: center;
   gap: 0.4rem;
@@ -335,7 +343,59 @@
   cursor: pointer;
   transition: background 0.2s ease, transform 0.2s ease, border-color 0.2s ease, color 0.2s ease;
   box-shadow: 0 1px 2px rgba(15, 23, 42, 0.08);
-  z-index: 2;
+  /* z-index: 2; Removed as it's in toolbar */
+}
+#md-content .source-link-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 6px 10px;
+  font-size: 0.85rem;
+  background: rgba(255, 255, 255, 0.95);
+  color: #1f2937;
+  border: 1px solid rgba(209, 213, 219, 0.9);
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background 0.2s ease, transform 0.2s ease, border-color 0.2s ease, color 0.2s ease;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.08);
+  text-decoration: none;
+}
+#md-content .source-link-btn:hover {
+  background: #f6f8fa;
+  border-color: rgba(148, 163, 184, 0.9);
+  transform: translateY(-1px);
+}
+
+/* Source Input Container */
+#md-content .source-input-container {
+    position: absolute;
+    top: 45px; /* Below toolbar */
+    left: 10px;
+    z-index: 10;
+    background: white;
+    padding: 8px;
+    border-radius: 6px;
+    box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+    border: 1px solid #e5e7eb;
+    display: none;
+    transform-origin: top center;
+    animation: slideDown 0.2s ease-out;
+    display: flex;
+    gap: 4px;
+}
+#md-content .source-input-container.visible {
+    display: flex;
+}
+@keyframes slideDown {
+    from { opacity: 0; transform: translateY(-10px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+#md-content .source-input-container input {
+    border: 1px solid #d1d5db;
+    border-radius: 4px;
+    padding: 4px 8px;
+    font-size: 0.85rem;
+    width: 200px;
 }
 #md-content .md-copy-btn:hover {
   background: #f6f8fa;
@@ -1994,7 +2054,9 @@ try { if (typeof window !== 'undefined') { window.attachColorSwatches = attachCo
       function addCopyButtons() {
         const pres = document.querySelectorAll('#md-content pre');
         pres.forEach(pre => {
-          if (pre.querySelector('.md-copy-btn')) return;
+          // Check if toolbar already exists in the wrapper (parent)
+          if (pre.parentElement && pre.parentElement.classList.contains('code-block') && pre.parentElement.querySelector('.code-toolbar')) return;
+          
           let wrapper = pre.parentElement;
           if (!wrapper || !wrapper.classList || !wrapper.classList.contains('code-block')) {
             wrapper = document.createElement('div');
@@ -2002,6 +2064,10 @@ try { if (typeof window !== 'undefined') { window.attachColorSwatches = attachCo
             pre.replaceWith(wrapper);
             wrapper.appendChild(pre);
           }
+          
+          const toolbar = document.createElement('div');
+          toolbar.className = 'code-toolbar';
+          
           const btn = document.createElement('button');
           btn.type = 'button';
           btn.className = 'md-copy-btn';
@@ -2034,7 +2100,39 @@ try { if (typeof window !== 'undefined') { window.attachColorSwatches = attachCo
               btn.click();
             }
           });
-          wrapper.appendChild(btn);
+          toolbar.appendChild(btn);
+          
+          const sourceBtn = document.createElement('button');
+          sourceBtn.type = 'button';
+          sourceBtn.className = 'source-link-btn';
+          sourceBtn.setAttribute('aria-label', 'הוסף מקור');
+          sourceBtn.innerHTML = `🔗 למקור`;
+          
+          const inputContainer = document.createElement('div');
+          inputContainer.className = 'source-input-container';
+          
+          const input = document.createElement('input');
+          input.type = 'text';
+          input.placeholder = 'הדבק קישור כאן...';
+          input.setAttribute('aria-label', 'קישור למקור');
+          
+          inputContainer.appendChild(input);
+          
+          sourceBtn.addEventListener('click', () => {
+             const isVisible = inputContainer.classList.contains('visible');
+             if (isVisible) {
+                 inputContainer.style.display = 'none';
+                 inputContainer.classList.remove('visible');
+             } else {
+                 inputContainer.style.display = 'flex';
+                 inputContainer.classList.add('visible');
+                 input.focus();
+             }
+          });
+          
+          toolbar.appendChild(sourceBtn);
+          wrapper.appendChild(toolbar);
+          wrapper.appendChild(inputContainer);
         });
       }
       addCopyButtons();
