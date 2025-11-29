@@ -1,718 +1,106 @@
-# 🌟 רעיונות חדשניים לשיפור WebApp - Code Keeper Bot
-## פיצ'רים ממוקדי משתמש ויעילות - נובמבר 2025
+# 🌟 רעיונות ממוקדים לשדרוג WebApp – דצמבר 2025
 
-תאריך: 22/11/2025  
-מטרה: הצעות פיצ'רים ייחודיים שלא הוצעו במסמכים קיימים  
-דגש: יעילות, פרקטיות, וערך אמיתי למשתמשים
-
----
-
-## 📋 תוכן עניינים
-
-1. [עדיפות גבוהה - פיצ'רים מהפכניים](#עדיפות-גבוהה---פיצ'רים-מהפכניים)
-2. [עדיפות בינונית - שיפורי פרודוקטיביות](#עדיפות-בינונית---שיפורי-פרודוקטיביות)  
-3. [עדיפות נמוכה - תוספות נחמדות](#עדיפות-נמוכה---תוספות-נחמדות)
-4. [תכנית יישום מוצעת](#תכנית-יישום-מוצעת)
+תאריך: 29.11.2025  
+מטרה: להציע שיפורי UX ותפעול שלא תועדו עד היום ולחזק את מה שכבר קיים בקוד.  
+הקפדתי לעבור על `webapp/templates/dashboard.html`, `webapp/templates/files.html`, `webapp/templates/md_preview.html`, סקריפטי ה-JS העיקריים (`static/js/global_search.js`, `card-preview.js`, `bulk-actions.js`, `sticky-notes.js`, `collections.js`, `editor-manager.js`), על `reminders/*`, `services/backup_service.py`, ועל כל קבצי `webapp/FEATURE_SUGGESTIONS` כדי לוודא שאין כפילויות.
 
 ---
 
-## 🔥 עדיפות גבוהה - פיצ'רים מהפכניים
+## הצעות חדשות (לא קיימות במסמכים הקיימים)
 
-### 1. 🎮 Code Playground - הרצת קוד בדפדפן
+### 1. Flow Recipes – מתכוני פעולה רב-שלביים
+**מה**: תן למשתמש להקליט/להרכיב "מתכון" לפעולות שחוזרות על עצמן (למשל: בחירה מרובה → הוסף תגית → צור תזכורת → שתף לינק). בלחיצה אחת כל השלבים מתבצעים בסדר הנכון.
 
-**מה זה:**
-סביבת הרצה מובנית לקוד ישירות בדפדפן, ללא צורך בשרת נפרד.
+**למה עכשיו**: ב-`files.html` כבר קיימים bulk actions, אבל משתמשים עדיין צריכים להריץ אותם אחד-אחד. המתכונים חוסכים זמן ומונעים טעויות אנוש.
 
-**איך זה עובד:**
-- **JavaScript/TypeScript**: ריצה ישירה בדפדפן עם console output
-- **Python**: Pyodide (Python ב-WebAssembly)
-- **HTML/CSS**: iframe עם live preview
-- **SQL**: sql.js (SQLite ב-WASM)
-- **Go/Rust**: WebAssembly compilation
-- פאנל פלט עם console, errors, ותוצאות
-- שמירת סשנים ותוצאות ריצה
+**איך**:
+- UI חדש בסרגל הבחירה (`bulk-actions.js`) שמאפשר להקליט רצף פעולות ולתת לו שם.
+- אחסון ההגדרות במונגו (collections ייעודית) וקריאה מה-API של `collections_api.py` כדי לשמור תאימות.
+- hooks מוכנים לכל פעולה קיימת (`addToFavorites`, `showTagDialog`, יצירת ZIP, קריאה ל-`reminders` או `push_api`).
+- תצוגת quick actions קטנה על כל כרטיס קובץ למתכונים שמוגדרים כ"חד שלבי".
 
-**למה זה מהפכני:**
-- הופך את האפליקציה ל-IDE קל משקל
-- לומדים יכולים לנסות קוד מיד
-- בדיקות מהירות ללא סביבת פיתוח
-- שיתוף קוד רץ עם אחרים
-
-**דוגמת מימוש:**
-```html
-<div class="playground-container">
-    <div class="playground-editor">
-        <!-- CodeMirror editor -->
-    </div>
-    <div class="playground-controls">
-        <button onclick="runCode()">▶️ הרץ</button>
-        <select id="runtime">
-            <option value="js">JavaScript</option>
-            <option value="python">Python</option>
-            <option value="html">HTML/CSS</option>
-        </select>
-    </div>
-    <div class="playground-output">
-        <div class="console-output"></div>
-        <div class="preview-frame"></div>
-    </div>
-</div>
-```
-
-```javascript
-// JavaScript runtime
-async function runJavaScript(code) {
-    const iframe = document.createElement('iframe');
-    iframe.style.display = 'none';
-    document.body.appendChild(iframe);
-    
-    // Override console methods
-    const output = [];
-    iframe.contentWindow.console.log = (...args) => {
-        output.push(args.join(' '));
-    };
-    
-    try {
-        iframe.contentWindow.eval(code);
-        return { success: true, output };
-    } catch (error) {
-        return { success: false, error: error.toString() };
-    }
-}
-
-// Python runtime with Pyodide
-async function runPython(code) {
-    if (!window.pyodide) {
-        window.pyodide = await loadPyodide();
-    }
-    
-    try {
-        pyodide.runPython(`
-            import sys
-            from io import StringIO
-            sys.stdout = StringIO()
-        `);
-        pyodide.runPython(code);
-        const output = pyodide.runPython("sys.stdout.getvalue()");
-        return { success: true, output };
-    } catch (error) {
-        return { success: false, error: error.toString() };
-    }
-}
-```
-
-**מורכבות:** גבוהה | **ROI:** גבוה מאוד | **זמן משוער:** 3-4 שבועות
+**מאמץ**: בינוני (1.5–2 ספרינטים) עם ROI גבוה במיוחד למשתמשים כבדים.
 
 ---
 
-### 2. 🎨 Visual Git Timeline - ציר זמן ויזואלי לקוד
+### 2. Personal Ops Board – לוח משימות אישי בדשבורד
+**מה**: כרטיס חדש ב-`dashboard.html` שמרכז במבט אחד: סימניות פתוחות עם הערות (`bookmarks_api.py`), פתקים עם תזכורות (`sticky_notes_api.py`), ותזכורות מהבוט (`reminders/*`). כל פריט מוצג ככרטיס drag & drop בין שלושה עמודות ("לבדיקה", "בטיפול", "הסתיים").
 
-**מה זה:**
-תצוגה ויזואלית אינטראקטיבית של היסטוריית השינויים בקוד.
+**למה עכשיו**: הנתונים קיימים, אבל מפוזרים: timeline, notes snapshot, push card. לוח אחיד מחליף רשימות חיצוניות שהמשתמש מנהל בנפרד.
 
-**איך זה עובד:**
-- ציר זמן אופקי/אנכי עם נקודות לכל גרסה
-- תצוגת diff ויזואלית בין גרסאות
-- אנימציה של התפתחות הקוד
-- הדגשת שינויים חמים (hotspots)
-- פילטר לפי תאריך/תגית/גודל שינוי
-- מיני-מפה של כל הקובץ עם אינדיקציה לשינויים
+**איך**:
+- API מאוחד שירנדר JSON משולב (bookmarks + sticky_notes + reminders) עם שדה status.
+- קומפוננטת front-end קטנה (Grid / flex) עם drag & drop (ספרייה קלת משקל או HTML5) בתוך `dashboard.html`.
+- פעולה מהירה מכל כרטיס: קפיצה לשורה (`view_file.html`) או שינוי סטטוס (עדכון bookmark/sticky-note/reminder).
+- פילטר "מועדף" שמציג רק פריטים עם badge מיוחד (נמשכים מסימניות צבעוניות).
 
-**למה זה מהפכני:**
-- הבנה מיידית של התפתחות הקוד
-- זיהוי מהיר של באגים שהוכנסו
-- למידה מהיסטוריה
-- ויזואליזציה יפה ומרשימה
-
-**דוגמת מימוש:**
-```javascript
-class GitTimeline {
-    constructor(container, versions) {
-        this.container = container;
-        this.versions = versions;
-        this.currentIndex = versions.length - 1;
-    }
-    
-    render() {
-        const timeline = document.createElement('div');
-        timeline.className = 'git-timeline';
-        
-        // Create timeline points
-        this.versions.forEach((version, index) => {
-            const point = document.createElement('div');
-            point.className = 'timeline-point';
-            point.dataset.index = index;
-            
-            // Size based on change magnitude
-            const changeSize = this.calculateChangeSize(version);
-            point.style.width = `${10 + changeSize * 2}px`;
-            point.style.height = `${10 + changeSize * 2}px`;
-            
-            // Color based on change type
-            point.style.background = this.getChangeColor(version);
-            
-            // Tooltip with details
-            point.title = `${version.date} - ${version.message}`;
-            
-            point.addEventListener('click', () => this.showVersion(index));
-            timeline.appendChild(point);
-        });
-        
-        this.container.appendChild(timeline);
-    }
-    
-    showVersion(index) {
-        const version = this.versions[index];
-        const previousVersion = index > 0 ? this.versions[index - 1] : null;
-        
-        // Animate transition
-        this.animateTransition(previousVersion, version);
-        
-        // Show diff
-        this.showDiff(previousVersion, version);
-    }
-    
-    animateTransition(from, to) {
-        // Smooth animation between versions
-        const lines = this.container.querySelectorAll('.code-line');
-        lines.forEach(line => {
-            if (line.dataset.changed) {
-                line.classList.add('highlight-change');
-                setTimeout(() => line.classList.remove('highlight-change'), 1000);
-            }
-        });
-    }
-}
-```
-
-**מורכבות:** גבוהה | **ROI:** גבוה | **זמן משוער:** 2-3 שבועות
+**מאמץ**: בינוני, בלי השפעה על APIs קיימים.
 
 ---
 
-### 3. 🎙️ Voice Code Commands - פקודות קוליות לקוד
+### 3. Config Drift Lab – מעבדה לשינויים בקבצי קונפיג
+**מה**: מצב צפייה מיוחד לקבצי הקונפיג (`config/*.yml`, `.env`, `docker-compose.yml`), שמציג Diff מול snapshot אחרון, מריץ בדיקות מהירות (YAML/JSON validation, בדיקת מפתחות חובה) ומדגיש שדות רגישים לפני שיתוף או הורדה.
 
-**מה זה:**
-שליטה קולית על העורך והניווט בקוד.
+**למה עכשיו**: ב-`view_file.html` כבר יש קוד להזרקת CSS, חיפוש, העתקה. קבצי קונפיג עדיין נבדקים מחוץ למערכת ועשויים להכיל טעויות קטנות שלא נלכדות בזמן.
 
-**איך זה עובד:**
-- Web Speech API לזיהוי קול
-- פקודות טבעיות: "גלול למטה", "חפש פונקציה main", "סמן שורה 42"
-- פקודות עריכה: "מחק שורה", "הוסף הערה", "שנה שם משתנה"
-- פקודות ניווט: "עבור לקובץ", "פתח מועדפים"
-- משוב קולי (TTS) אופציונלי
-- תמיכה בעברית ואנגלית
+**איך**:
+- זיהוי סוג הקובץ בצד השרת (כבר קיים `detect_language_from_filename`). אם זו קונפיג → מפעילים את מצב המעבדה.
+- חלונית צד שמציגה Diff מול snapshot שנשמר אוטומטית ב-`backup_service.py` או מול גרסה שנבחרה.
+- הפעלה קצרת טווח של ולידטורים (מודול פייתון קטן תחת `scripts/` או `services/`) עם תוצאות שמוצגות ליד הקובץ.
+- כפתור "העתק את מה שהשתנה" שמייצא רק את הבלוקים שהשתנו, כדי לשתף בצורה בטוחה יותר.
 
-**למה זה מהפכני:**
-- נגישות למשתמשים עם מוגבלויות
-- עבודה hands-free
-- מהירות בפעולות נפוצות
-- חדשנות וייחודיות
-
-**דוגמת מימוש:**
-```javascript
-class VoiceCommands {
-    constructor() {
-        this.recognition = new webkitSpeechRecognition();
-        this.recognition.lang = 'he-IL';
-        this.recognition.continuous = true;
-        this.recognition.interimResults = true;
-        
-        this.commands = {
-            'גלול למטה': () => window.scrollBy(0, 200),
-            'גלול למעלה': () => window.scrollBy(0, -200),
-            'חפש': (query) => this.search(query),
-            'עבור לשורה': (lineNum) => this.goToLine(lineNum),
-            'סמן שורה': (lineNum) => this.selectLine(lineNum),
-            'מחק שורה': () => this.deleteLine(),
-            'שמור': () => this.saveFile(),
-            'ביטול': () => this.undo(),
-            'חזור': () => this.redo()
-        };
-    }
-    
-    start() {
-        this.recognition.onresult = (event) => {
-            const transcript = event.results[event.results.length - 1][0].transcript;
-            this.processCommand(transcript);
-        };
-        
-        this.recognition.start();
-        this.showListening();
-    }
-    
-    processCommand(transcript) {
-        // Natural language processing
-        const normalized = transcript.toLowerCase().trim();
-        
-        // Match commands
-        for (const [pattern, handler] of Object.entries(this.commands)) {
-            const regex = new RegExp(pattern + '\\s*(\\d+)?');
-            const match = normalized.match(regex);
-            
-            if (match) {
-                handler(match[1]);
-                this.showFeedback(`✓ ${pattern}`);
-                break;
-            }
-        }
-    }
-    
-    showListening() {
-        const indicator = document.createElement('div');
-        indicator.className = 'voice-indicator';
-        indicator.innerHTML = '🎙️ מאזין...';
-        document.body.appendChild(indicator);
-    }
-}
-```
-
-**מורכבות:** בינונית | **ROI:** גבוה | **זמן משוער:** 1-2 שבועות
+**מאמץ**: בינוני-גבוה (שילוב front/back), אך מונע תקלות הפצה.
 
 ---
 
-### 4. 📊 Code Metrics Dashboard - לוח מדדי קוד חכם
+### 4. Workspace Snapshots – צילום מצב של סשן עבודה
+**מה**: שמירת סטייט שלם של הסשן (קובץ פתוח, שורת גלילה, חיפוש פעיל ב-`global_search.js`, כרטיסים שפתוחים ב-`card-preview.js`, סימניות מסומנות, מצב `multiSelect`). ניתן לפתוח Snapshot מהרכיב "שולחן עבודה" שכבר קיים ב-UI, לשתף אותו או להמשיך בדיוק מאותה נקודה.
 
-**מה זה:**
-דשבורד אנליטי מתקדם למדידת איכות ומורכבות הקוד.
+**למה עכשיו**: משתמשים עוברים בין דפדפן ללחיצות בבוט ומאבדים את המיקוד. Snapshot אחד מחזיר אותם לאותו הקשר תוך שניות.
 
-**איך זה עובד:**
-- **מדדי מורכבות**: Cyclomatic complexity, nesting depth
-- **מדדי איכות**: Code coverage, duplication percentage
-- **מדדי תחזוקה**: Technical debt, maintainability index
-- **טרנדים**: גרפים של שיפור/הרעה לאורך זמן
-- **השוואות**: בין קבצים, פרויקטים, תקופות
-- **המלצות**: הצעות אוטומטיות לשיפור
-- **Heatmap**: ויזואליזציה של אזורים בעייתיים
+**איך**:
+- טופס Save Snapshot שמופיע ליד כפתור "שולחן עבודה" (כבר יש `navigateToWorkspace()` ב-`files.html`).
+- שמירת הנתונים באוסף חדש (fields: filters, scroll positions, selected file ids, applied recipes). אפשר למחזר את תשתית `collections.js` להצגת הרשימה.
+- בזמן פתיחת snapshot: קריאה ל-API שמחזיר את הסטייט, ואז הפעלת JS hooks (למשל `cardPreview.expand`, `multiSelect.restoreState`, `performGlobalSearch` עם query שמור).
+- אינטגרציה עם `dashboard` – כרטיס "המשך מאיפה שהפסקת" שמציג את שני ה-Snapshots האחרונים.
 
-**למה זה מהפכני:**
-- תובנות עמוקות על איכות הקוד
-- מניעת באגים מראש
-- שיפור מתמיד
-- מדדים אובייקטיביים
-
-**דוגמת מימוש:**
-```javascript
-class CodeMetricsAnalyzer {
-    analyzeComplexity(code) {
-        const metrics = {
-            cyclomaticComplexity: 0,
-            nestingDepth: 0,
-            linesOfCode: 0,
-            functions: [],
-            duplicates: []
-        };
-        
-        // Parse AST
-        const ast = parseCode(code);
-        
-        // Calculate cyclomatic complexity
-        ast.traverse({
-            IfStatement: () => metrics.cyclomaticComplexity++,
-            ForStatement: () => metrics.cyclomaticComplexity++,
-            WhileStatement: () => metrics.cyclomaticComplexity++,
-            CaseStatement: () => metrics.cyclomaticComplexity++,
-            CatchClause: () => metrics.cyclomaticComplexity++,
-            LogicalExpression: (node) => {
-                if (node.operator === '&&' || node.operator === '||') {
-                    metrics.cyclomaticComplexity++;
-                }
-            }
-        });
-        
-        // Find duplicates
-        metrics.duplicates = this.findDuplicates(ast);
-        
-        // Calculate maintainability index
-        metrics.maintainabilityIndex = this.calculateMaintainability(metrics);
-        
-        return metrics;
-    }
-    
-    renderDashboard(metrics) {
-        return `
-            <div class="metrics-dashboard">
-                <div class="metric-card complexity">
-                    <div class="metric-value">${metrics.cyclomaticComplexity}</div>
-                    <div class="metric-label">מורכבות ציקלומטית</div>
-                    <div class="metric-status ${this.getStatus(metrics.cyclomaticComplexity)}">
-                        ${this.getRecommendation(metrics.cyclomaticComplexity)}
-                    </div>
-                </div>
-                
-                <div class="metric-chart">
-                    <canvas id="complexityTrend"></canvas>
-                </div>
-                
-                <div class="code-heatmap">
-                    ${this.generateHeatmap(metrics)}
-                </div>
-            </div>
-        `;
-    }
-}
-```
-
-**מורכבות:** גבוהה | **ROI:** גבוה מאוד | **זמן משוער:** 3-4 שבועות
+**מאמץ**: בינוני, לא דורש ספריות חדשות.
 
 ---
 
-## 📈 עדיפות בינונית - שיפורי פרודוקטיביות
+### 5. Markdown Action Blocks – בלוקים אינטראקטיביים בתוך מסמכי Markdown
+**מה**: רכיבים ייעודיים שאפשר להוסיף ב-Markdown (תחביר פשוט כמו `:::action {type="checklist"}`) ומוצגים ב-`md_preview.html` כטפסים קטנים, מתגי סטטוס או טיימר לספרינט. הנתונים נשמרים בלוקאל סטרג' או בסשן, בלי לשנות את טקסט המקור.
 
-### 5. ⚡ Live Preview for Web - תצוגה חיה של HTML/CSS/JS
+**למה עכשיו**: `md_preview` כבר תומך בצבעי רקע, חיפוש, Sticky Notes. משתמשים עדיין צריכים לצאת למסמכים אחרים כדי לסמן התקדמות.
 
-**מה זה:**
-תצוגה מיידית של שינויים בקוד web בזמן אמת.
+**איך**:
+- הרחבת הפיענוח בצד הלקוח (אותו pipeline שמטעין את markdown-it) עם plugin קטן שמזהה בלוקים מסוג action.
+- קומפוננטות קלילות שמתחברות לאותו Event Bus כמו `sticky-notes.js`, כך שאפשר לפתוח פדיון "סמן כסגור" מהדף עצמו.
+- אפשרות להצמיד reminder לבלוק (קריאה ל-`/api/sticky-notes/.../reminder`).
+- שמירת מצב בלוק במפתח `md-action:<file_id>:<block_id>` כדי להישאר מנותק מהתוכן המקורי.
 
-**איך זה עובד:**
-- iframe מובנה עם auto-refresh
-- Hot reload בעת שינוי קוד
-- פיצול מסך עורך/תצוגה
-- DevTools מובנים (console, network)
-- Responsive preview (מובייל/טאבלט/דסקטופ)
-- שיתוף URL לתצוגה חיה
-
-**למה זה חשוב:**
-- פיתוח web מהיר יותר
-- פידבק מיידי על שינויים
-- לא צריך לעבור בין חלונות
-- מושלם ללמידה
-
-**מורכבות:** בינונית | **ROI:** גבוה | **זמן משוער:** 1-2 שבועות
+**מאמץ**: בינוני (רובו front-end), ערך גבוה ללומדים ולכותבי runbooks.
 
 ---
 
-### 6. 🔍 Smart Code Search with AI - חיפוש חכם עם AI
+### 6. Script Monitor & Quick Run – הרצה בטוחה של סקריפטים מוכרים
+**מה**: דף אדמין קטן (בלשונית ההגדרות) שמציג את סקריפטי התחזוקה שקיימים בתיקיית `scripts/` ואת מצב הריצה האחרון שלהם. ניתן להריץ מחדש (עם confirm כפול), לראות לוגים קצרים, ולהגדיר תזמון פשוט.
 
-**מה זה:**
-חיפוש סמנטי חכם שמבין את הכוונה, לא רק מילות מפתח.
+**למה עכשיו**: יש כבר סקריפטים (`cleanup_repo_tags.py`, `migrate_workspace_collections.py` ועוד), אבל הם רצים ידנית דרך CLI. ממשק וובי חוסך קפיצה לשרת ומאפשר תיעוד ביצוע.
 
-**איך זה עובד:**
-- חיפוש לפי משמעות: "פונקציה שמחשבת ממוצע"
-- חיפוש דמיון קוד: "קוד שדומה לזה"
-- חיפוש לפי באגים: "קוד שעלול לגרום ל-null pointer"
-- Vector embeddings של הקוד
-- שימוש ב-Sentence Transformers
-- תוצאות מדורגות לפי רלוונטיות
+**איך**:
+- שירות backend קטן (Flask Blueprint) שממפה שם סקריפט לפקודה מאושרת מראש (whitelist בלבד, רץ בתיקיית tmp בהתאם לכללי המחיקה הבטוחה).
+- UI ב-`settings.html` (כרטיס "כלי אדמין") שמציג סטטוס, כפתור run, וצ'יפ "ריצה אחרונה".
+- שמירת לוג קצר ב-Redis/Mongo להצגה ולניטור (הרחבה עתידית למערכת monitoring/observability שכבר קיימת).
+- Guardrails: הצגת הקומנדה המדויקת לפני אישור, חיווי ברור אם הריצה נכשלה.
 
-**למה זה חשוב:**
-- מציאת קוד רלוונטי במהירות
-- גילוי patterns ובעיות
-- חיפוש אינטואיטיבי
-- למידה מקוד קיים
-
-**מורכבות:** גבוהה | **ROI:** גבוה | **זמן משוער:** 2-3 שבועות
+**מאמץ**: בינוני-נמוך, חוסך זמן לצוות התפעול.
 
 ---
 
-### 7. 🎯 Code Intentions - כוונות קוד
-
-**מה זה:**
-הוספת "כוונות" לקטעי קוד - מה הקוד אמור לעשות.
-
-**איך זה עובד:**
-- הגדרת כוונה לפני כתיבת הקוד
-- בדיקה אוטומטית האם הקוד מממש את הכוונה
-- TODO שהופך לקוד
-- תיעוד אוטומטי מכוונות
-- בדיקות יחידה אוטומטיות מכוונות
-
-**למה זה חשוב:**
-- TDD טבעי
-- תיעוד טוב יותר
-- פחות באגים
-- בהירות בקוד
-
-**מורכבות:** בינונית | **ROI:** בינוני-גבוה | **זמן משוער:** 2 שבועות
-
----
-
-### 8. 🔗 Dependency Graph - גרף תלויות אינטראקטיבי
-
-**מה זה:**
-ויזואליזציה של תלויות בין קבצים ומודולים.
-
-**איך זה עובד:**
-- גרף אינטראקטיבי (D3.js או vis.js)
-- זיהוי imports/requires
-- הדגשת circular dependencies
-- זום וניווט בגרף
-- פילטר לפי סוג תלות
-- ניתוח impact של שינויים
-
-**למה זה חשוב:**
-- הבנת ארכיטקטורה
-- זיהוי בעיות עיצוב
-- תכנון refactoring
-- תיעוד ויזואלי
-
-**מורכבות:** בינונית-גבוהה | **ROI:** בינוני-גבוה | **זמן משוער:** 2 שבועות
-
----
-
-### 9. 🤝 Code Review Mode - מצב ביקורת קוד
-
-**מה זה:**
-מצב מיוחד לביקורת קוד עם כלים ייעודיים.
-
-**איך זה עובד:**
-- הערות inline על שורות
-- סימון בעיות (bug/security/style)
-- checklist לביקורת
-- השוואת גרסאות side-by-side
-- אישור/דחיית שינויים
-- דוח ביקורת מסכם
-
-**למה זה חשוב:**
-- שיפור איכות הקוד
-- למידה הדדית
-- תיעוד החלטות
-- מניעת באגים
-
-**מורכבות:** בינונית | **ROI:** גבוה | **זמן משוער:** 2 שבועות
-
----
-
-### 10. 📐 Code Formatter - פורמטר קוד אוטומטי
-
-**מה זה:**
-פרמוט אוטומטי של קוד לפי סטנדרטים.
-
-**איך זה עובד:**
-- תמיכה בכל השפות הנפוצות
-- Prettier ל-JS/TS/HTML/CSS
-- Black ל-Python
-- gofmt ל-Go
-- הגדרות מותאמות אישית
-- Format on save
-- Diff לפני/אחרי
-
-**למה זה חשוב:**
-- קוד אחיד ונקי
-- פחות ויכוחים על סגנון
-- קריאות משופרת
-- מקצועיות
-
-**מורכבות:** נמוכה-בינונית | **ROI:** גבוה | **זמן משוער:** 1 שבוע
-
----
-
-## 🎁 עדיפות נמוכה - תוספות נחמדות
-
-### 11. 🏅 Achievements & Badges - הישגים ותגי הוקרה
-
-**מה זה:**
-מערכת gamification עם הישגים על פעילות.
-
-**איך זה עובד:**
-- תגים על מאות פעולות
-- רמות משתמש
-- לוח תוצאות
-- אתגרים יומיים/שבועיים
-- פרסים וירטואליים
-
-**מורכבות:** נמוכה | **ROI:** בינוני | **זמן משוער:** 1 שבוע
-
----
-
-### 12. 🌈 Code Themes Marketplace - חנות ערכות נושא
-
-**מה זה:**
-מאגר ערכות נושא להתאמה אישית.
-
-**איך זה עובד:**
-- עשרות themes מוכנות
-- יצירת theme מותאם אישית
-- שיתוף themes
-- דירוג ופופולריות
-- preview לפני התקנה
-
-**מורכבות:** נמוכה | **ROI:** נמוך-בינוני | **זמן משוער:** 1 שבוע
-
----
-
-### 13. 📸 Code Screenshots - צילומי מסך יפים לקוד
-
-**מה זה:**
-יצירת תמונות יפות של קוד לשיתוף.
-
-**איך זה עובד:**
-- רקעים ומסגרות יפות
-- לוגו/watermark אופציונלי
-- בחירת שורות ספציפיות
-- יצוא ל-PNG/SVG
-- שיתוף ישיר לרשתות
-
-**מורכבות:** נמוכה | **ROI:** נמוך-בינוני | **זמן משוער:** 3-5 ימים
-
----
-
-### 14. 🎬 Code Replay - הקלטת סשן קידוד
-
-**מה זה:**
-הקלטה והשמעה של סשן עבודה על קוד.
-
-**איך זה עובד:**
-- הקלטת כל השינויים
-- השמעה עם בקרת מהירות
-- קפיצה לנקודות זמן
-- הוספת הערות לרגעים
-- יצוא כ-video
-
-**מורכבות:** בינונית-גבוהה | **ROI:** נמוך-בינוני | **זמן משוער:** 2-3 שבועות
-
----
-
-### 15. 💬 Code Comments Thread - דיונים על קוד
-
-**מה זה:**
-מערכת תגובות ודיונים על קטעי קוד.
-
-**איך זה עובד:**
-- threads על שורות ספציפיות
-- mentions (@username)
-- reactions (👍❤️🎉)
-- נוטיפיקציות
-- היסטוריית דיונים
-
-**מורכבות:** בינונית | **ROI:** בינוני | **זמן משוער:** 1-2 שבועות
-
----
-
-## 🚀 תכנית יישום מוצעת
-
-### Phase 1: Quick Wins (חודש 1)
-**מטרה:** שיפורים מהירים עם השפעה גדולה
-
-1. **Code Formatter** - 1 שבוע
-2. **Voice Commands (בסיסי)** - 1 שבוע  
-3. **Live Preview for Web** - 2 שבועות
-
-**תוצאה צפויה:** שיפור משמעותי בחוויית המשתמש
-
----
-
-### Phase 2: Game Changers (חודשים 2-3)
-**מטרה:** פיצ'רים מהפכניים שמבדילים את המוצר
-
-1. **Code Playground** - 3-4 שבועות
-2. **Visual Git Timeline** - 2-3 שבועות
-3. **Code Metrics Dashboard** - 3-4 שבועות
-
-**תוצאה צפויה:** ייחודיות ויתרון תחרותי
-
----
-
-### Phase 3: Advanced Features (חודשים 4-5)
-**מטרה:** העמקת היכולות והערך
-
-1. **Smart Code Search with AI** - 2-3 שבועות
-2. **Dependency Graph** - 2 שבועות
-3. **Code Review Mode** - 2 שבועות
-4. **Code Intentions** - 2 שבועות
-
-**תוצאה צפויה:** פלטפורמה מקצועית ומתקדמת
-
----
-
-### Phase 4: Polish & Delight (חודש 6+)
-**מטרה:** שיפורי UX ו-engagement
-
-1. **Achievements & Badges** - 1 שבוע
-2. **Code Screenshots** - 3-5 ימים
-3. **Themes Marketplace** - 1 שבוע
-4. **Comments Thread** - 1-2 שבועות
-5. **Code Replay** - 2-3 שבועות
-
-**תוצאה צפויה:** חוויית משתמש מושלמת
-
----
-
-## 📊 מטריצת השפעה-מאמץ
-
-| פיצ'ר | השפעה | מאמץ | עדיפות | ROI |
-|-------|--------|-------|---------|-----|
-| Code Playground | 🔥🔥🔥 | גבוה | 1 | מעולה |
-| Visual Git Timeline | 🔥🔥🔥 | בינוני-גבוה | 2 | מעולה |
-| Voice Commands | 🔥🔥🔥 | בינוני | 3 | מעולה |
-| Code Metrics Dashboard | 🔥🔥🔥 | גבוה | 4 | מעולה |
-| Live Preview | 🔥🔥 | בינוני | 5 | טוב מאוד |
-| Smart Search AI | 🔥🔥 | גבוה | 6 | טוב |
-| Code Formatter | 🔥🔥 | נמוך | 7 | מעולה |
-| Dependency Graph | 🔥 | בינוני | 8 | טוב |
-| Code Review Mode | 🔥 | בינוני | 9 | טוב |
-| Code Intentions | 🔥 | בינוני | 10 | בינוני |
-
----
-
-## 💡 המלצות טכניות
-
-### ארכיטקטורה
-- **Microservices**: פיצול לשירותים קטנים
-- **WebAssembly**: לביצועים מהירים
-- **Web Workers**: לעיבוד ברקע
-- **IndexedDB**: לשמירה מקומית
-- **WebSockets**: לעדכונים בזמן אמת
-
-### טכנולוגיות מומלצות
-- **Pyodide**: Python בדפדפן
-- **Monaco Editor**: עורך מתקדם (או CodeMirror 6)
-- **D3.js / vis.js**: ויזואליזציות
-- **Workbox**: Service Worker מתקדם
-- **TensorFlow.js**: ML בדפדפן
-
-### ביצועים
-- Code splitting אגרסיבי
-- Lazy loading לכל פיצ'ר
-- Virtual scrolling לרשימות
-- Web Assembly לחישובים כבדים
-- SharedArrayBuffer לעיבוד מקבילי
-
-### נגישות
-- ARIA labels מלאים
-- Keyboard navigation
-- Screen reader support
-- High contrast mode
-- RTL מלא
-
----
-
-## 🎯 KPIs להצלחה
-
-1. **Engagement**
-   - זמן שהייה ממוצע +40%
-   - פעולות למשתמש +60%
-   - חזרה יומית +30%
-
-2. **Performance**
-   - Time to Interactive < 2s
-   - First Contentful Paint < 1s
-   - Lighthouse score > 95
-
-3. **User Satisfaction**
-   - NPS > 50
-   - דירוג 4.5+ כוכבים
-   - המלצות משתמשים +50%
-
-4. **Technical**
-   - Code coverage > 80%
-   - Zero critical bugs
-   - 99.9% uptime
-
----
-
-## 🌟 סיכום
-
-הרעיונות המוצעים כאן ממוקדים ביצירת ערך אמיתי למשתמשים תוך שמירה על פשטות ויעילות. כל פיצ'ר נבחר בקפידה כדי לענות על צורך אמיתי ולהוסיף ערך ייחודי שמבדיל את Code Keeper Bot מהמתחרים.
-
-הדגש הוא על:
-- ✅ חדשנות טכנולוגית
-- ✅ חוויית משתמש מעולה
-- ✅ פרקטיות ושימושיות
-- ✅ ביצועים מהירים
-- ✅ נגישות מלאה
-
-**המלצה:** להתחיל עם Code Playground ו-Visual Git Timeline - אלו הפיצ'רים עם ה-WOW factor הגבוה ביותר שיבדילו מיידית את המוצר בשוק.
-
----
-
-נוצר עבור Code Keeper Bot | נובמבר 2025 | גרסה 2.0
+## הצעת סדר עבודה (למי שרוצה להרים מהר)
+1. להתחיל ב-Flow Recipes ו-Workspace Snapshots – מבוסס בעיקר על UI קיים ומביא וואו-פקטור מיידי.
+2. להמשיך ב-Personal Ops Board ו-Markdown Action Blocks – שדרוג חוויית המשתמש היום-יומית.
+3. לסגור עם Config Drift Lab ו-Script Monitor – נותן שכבת ביטחון תפעולית וניטורית.
+
+כל סעיף כאן נשען על רכיבים שכבר קיימים במאגר הקוד, כדי לצמצם סיכונים ולהוציא ערך בזמן קצר בלי להמציא תשתיות חדשות.
