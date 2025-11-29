@@ -51,6 +51,8 @@ from http_sync import request as http_request  # noqa: E402
 
 # נרמול טקסט/קוד לפני שמירה (הסרת תווים נסתרים, כיווניות, אחידות שורות)
 from utils import normalize_code, TimeUtils, detect_language_from_filename  # noqa: E402
+from user_stats import user_stats  # noqa: E402
+from webapp.activity_tracker import log_user_event  # noqa: E402
 
 # קונפיגורציה מרכזית (Pydantic Settings)
 try:  # שמירה על יציבות גם בסביבות דוקס/CI
@@ -1956,6 +1958,66 @@ def is_premium(user_id: int) -> bool:
         return user_id in premium_ids
     except Exception:
         return False
+
+
+def _log_webapp_user_activity() -> bool:
+    """Best-effort logging של שימוש ב-WebApp לצורכי סטטיסטיקות. מחזיר True אם נרשמה פעילות."""
+    try:
+        user_id = session.get('user_id')
+    except Exception:
+        user_id = None
+    if not user_id:
+        return False
+    username = None
+    try:
+        user_data = session.get('user_data') or {}
+        if isinstance(user_data, dict):
+            username = user_data.get('username')
+    except Exception:
+        username = None
+
+    try:
+        logged = log_user_event(int(user_id), username=username)
+        return bool(logged)
+    except Exception:
+        return False
+
+
+@app.route('/admin/stats')
+@admin_required
+def admin_stats_page():
+    """מסך אדמין להצגת פעילות משתמשים במערכת."""
+    fallback_summary = {'total_users': 0, 'active_today': 0, 'active_week': 0}
+    try:
+        summary_raw = user_stats.get_all_time_stats() or {}
+        summary = {
+            'total_users': int(summary_raw.get('total_users') or 0),
+            'active_today': int(summary_raw.get('active_today') or 0),
+            'active_week': int(summary_raw.get('active_week') or 0),
+        }
+        weekly_users = user_stats.get_weekly_stats() or []
+        weekly_limit = 100
+        displayed_users = weekly_users[:weekly_limit]
+        total_actions = sum(int(u.get('total_actions') or 0) for u in displayed_users)
+        return render_template(
+            'admin_stats.html',
+            summary=summary,
+            weekly_users=displayed_users,
+            weekly_limit=weekly_limit,
+            total_actions=total_actions,
+            generated_at=datetime.now(timezone.utc).strftime('%d/%m/%Y %H:%M'),
+        )
+    except Exception:
+        logger.exception("Error in admin stats page")
+        return render_template(
+            'admin_stats.html',
+            summary=fallback_summary,
+            weekly_users=[],
+            weekly_limit=0,
+            total_actions=0,
+            error="אירעה שגיאה בטעינת הנתונים. נסה שוב מאוחר יותר.",
+            generated_at=datetime.now(timezone.utc).strftime('%d/%m/%Y %H:%M'),
+        ), 500
 
 
 # --- Snippet library admin UI ---
@@ -5574,6 +5636,15 @@ def view_file(file_id):
     
     if not file:
         abort(404)
+
+    skip_activity = False
+    try:
+        skip_activity = bool(session.pop('_skip_view_activity_once', False))
+    except Exception:
+        skip_activity = False
+    if not skip_activity:
+        _log_webapp_user_activity()
+
     # עדכון רשימת "נפתחו לאחרונה" (MRU) עבור המשתמש הנוכחי — לפני בדיקות Cache
     try:
         ensure_recent_opens_indexes()
@@ -6204,6 +6275,8 @@ def edit_file_page(file_id):
                 try:
                     res = db.code_snippets.insert_one(new_doc)
                     if res and getattr(res, 'inserted_id', None):
+                        if _log_webapp_user_activity():
+                            session['_skip_view_activity_once'] = True
                         return redirect(url_for('view_file', file_id=str(res.inserted_id)))
                     error = 'שמירת הקובץ נכשלה'
                 except Exception as _e:
@@ -6705,6 +6778,8 @@ def api_save_shared_file():
         except Exception:
             pass
 
+        _log_webapp_user_activity()
+
         return jsonify({'ok': True, 'file_id': inserted_id, 'file_name': safe_name, 'version': version})
     except Exception:
         return jsonify({'ok': False, 'error': 'שגיאה לא צפויה'}), 500
@@ -6983,6 +7058,8 @@ def upload_file_web():
                 except Exception as _e:
                     res = None
                 if res and getattr(res, 'inserted_id', None):
+                    if _log_webapp_user_activity():
+                        session['_skip_view_activity_once'] = True
                     return redirect(url_for('view_file', file_id=str(res.inserted_id)))
                 error = 'שמירת הקובץ נכשלה'
         except Exception as e:
