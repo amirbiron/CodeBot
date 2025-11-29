@@ -152,6 +152,8 @@
     try {
       const container = document.getElementById('editorContainer');
       const languageSelect = document.getElementById('languageSelect');
+      const fileNameInput = document.querySelector('input[name="file_name"]');
+      let languageSelectTouched = false;
       if (container && window.editorManager && typeof window.editorManager.initEditor === 'function') {
         await window.editorManager.initEditor(container, {
           language: '{{ file.language }}',
@@ -159,11 +161,43 @@
           theme: 'dark'
         });
       }
+      const languageOptionExists = (value) => {
+        if (!languageSelect) {
+          return false;
+        }
+        return !!Array.from(languageSelect.options || []).find((opt) => opt.value === value);
+      };
+      const autoSetLanguageFromFilename = (triggerSource) => {
+        if (!fileNameInput || !languageSelect || !window.editorManager || typeof window.editorManager.inferLanguageFromFilename !== 'function') {
+          return;
+        }
+        if (triggerSource === 'initial' && languageSelect.value !== 'text') {
+          return;
+        }
+        const manualSelectionLocked = languageSelectTouched && languageSelect.value !== 'text';
+        if (manualSelectionLocked) {
+          return;
+        }
+        const detected = window.editorManager.inferLanguageFromFilename(fileNameInput.value || '');
+        if (!detected || !languageOptionExists(detected) || languageSelect.value === detected) {
+          return;
+        }
+        languageSelect.value = detected;
+        languageSelect.dispatchEvent(new Event('change', { bubbles: true }));
+      };
       if (languageSelect && window.editorManager && typeof window.editorManager.updateLanguage === 'function') {
         languageSelect.addEventListener('change', async (e) => {
+          if (e && e.isTrusted) {
+            languageSelectTouched = true;
+          }
           try { await window.editorManager.updateLanguage(e.target.value); } catch (_) {}
         });
       }
+      if (fileNameInput) {
+        fileNameInput.addEventListener('input', () => autoSetLanguageFromFilename('input'));
+        fileNameInput.addEventListener('blur', () => autoSetLanguageFromFilename('blur'));
+      }
+      autoSetLanguageFromFilename('initial');
 
       (function initSourceUrlToggle(){
         const toggle = document.getElementById('sourceUrlToggle');

@@ -1,5 +1,36 @@
 (function(){
   try { console.log('[EditorManager] Script loaded at:', new Date().toISOString(), 'url:', (typeof import.meta !== 'undefined' && import.meta && import.meta.url) ? import.meta.url : (document.currentScript && document.currentScript.src)); } catch(_) {}
+  // מפה בסיסית בין סיומות לקיצורי שפות שנתמכות ב-CodeMirror אצלנו
+  const EXTENSION_LANGUAGE_MAP = {
+    py: 'python',
+    pyw: 'python',
+    js: 'javascript',
+    mjs: 'javascript',
+    cjs: 'javascript',
+    jsx: 'javascript',
+    ts: 'typescript',
+    tsx: 'typescript',
+    html: 'html',
+    htm: 'html',
+    css: 'css',
+    scss: 'css',
+    less: 'css',
+    sql: 'sql',
+    json: 'json',
+    md: 'markdown',
+    markdown: 'markdown',
+    yml: 'yaml',
+    yaml: 'yaml',
+    xml: 'xml',
+    sh: 'shell',
+    bash: 'shell',
+    zsh: 'shell',
+    go: 'go',
+    java: 'java',
+    cs: 'csharp',
+    csharp: 'csharp',
+    'd.ts': 'typescript'
+  };
   class EditorManager {
     constructor() {
       this.currentEditor = this.loadPreference();
@@ -225,6 +256,36 @@
         if (typeof val === 'string' && val.trim()) return val;
       } catch(_) {}
       return null;
+    }
+
+    inferLanguageFromFilename(filename) {
+      try {
+        if (!filename || typeof filename !== 'string') {
+          return null;
+        }
+        const normalized = filename.trim().toLowerCase();
+        if (!normalized) {
+          return null;
+        }
+        const sanitized = normalized.split(/[\\/]/).pop();
+        if (!sanitized || sanitized.endsWith('.')) {
+          return null;
+        }
+        const parts = sanitized.split('.');
+        if (parts.length < 2) {
+          return null;
+        }
+        if (parts.length >= 2) {
+          const lastTwo = parts.slice(-2).join('.');
+          if (EXTENSION_LANGUAGE_MAP[lastTwo]) {
+            return EXTENSION_LANGUAGE_MAP[lastTwo];
+          }
+        }
+        const ext = parts[parts.length - 1];
+        return EXTENSION_LANGUAGE_MAP[ext] || null;
+      } catch(_) {
+        return null;
+      }
     }
 
     async updateLanguage(lang) {
