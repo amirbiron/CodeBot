@@ -6564,8 +6564,25 @@ def upload_file_web():
         except Exception as e:
             error = f'שגיאה בהעלאה: {e}'
     # שליפת שפות קיימות להצעה
-    languages = db.code_snippets.distinct('programming_language', {'user_id': user_id}) if db is not None else []
-    languages = sorted([l for l in languages if l]) if languages else []
+    raw_languages = db.code_snippets.distinct('programming_language', {'user_id': user_id}) if db is not None else []
+    if raw_languages:
+        cleaned_languages = []
+        for lang in raw_languages:
+            if not lang:
+                continue
+            lang_str = str(lang).strip()
+            if not lang_str:
+                continue
+            if lang_str.lower() == 'text':
+                continue
+            cleaned_languages.append(lang_str)
+        dedup_by_lower = {}
+        for lang in cleaned_languages:
+            key = lang.lower()
+            dedup_by_lower.setdefault(key, lang)
+        languages = [dedup_by_lower[key] for key in sorted(dedup_by_lower.keys())]
+    else:
+        languages = []
     return render_template(
         'upload.html',
         bot_username=BOT_USERNAME_CLEAN,
