@@ -17,10 +17,10 @@ _SAMPLE_PROBABILITY = 0.25
 _WEIGHT = 4  # 1 / 0.25
 
 
-def log_user_event(user_id: int, username: Optional[str] = None) -> None:
+def log_user_event(user_id: int, username: Optional[str] = None) -> bool:
     """רושם פעילות משתמש (עם דגימה) עבור סטטיסטיקות הווב-אפליקציה."""
     if not user_id or _user_stats is None:
-        return
+        return False
 
     try:
         sampled = random.random() < _SAMPLE_PROBABILITY
@@ -28,13 +28,15 @@ def log_user_event(user_id: int, username: Optional[str] = None) -> None:
         sampled = True
 
     if not sampled:
-        return
+        return False
 
     try:
         _user_stats.log_user(user_id, username, weight=_WEIGHT)
+        return True
     except TypeError:
         # תאימות לאחור במידה והחתימה אינה תומכת ב-weight.
         _user_stats.log_user(user_id, username)
+        return True
     except Exception:
         # לעולם לא נכשיל בקשה רק בגלל סטטיסטיקה.
-        pass
+        return False

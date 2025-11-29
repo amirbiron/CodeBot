@@ -1960,14 +1960,14 @@ def is_premium(user_id: int) -> bool:
         return False
 
 
-def _log_webapp_user_activity() -> None:
-    """Best-effort logging של שימוש ב-WebApp לצורכי סטטיסטיקות."""
+def _log_webapp_user_activity() -> bool:
+    """Best-effort logging של שימוש ב-WebApp לצורכי סטטיסטיקות. מחזיר True אם נרשמה פעילות."""
     try:
         user_id = session.get('user_id')
     except Exception:
         user_id = None
     if not user_id:
-        return
+        return False
     username = None
     try:
         user_data = session.get('user_data') or {}
@@ -1975,10 +1975,12 @@ def _log_webapp_user_activity() -> None:
             username = user_data.get('username')
     except Exception:
         username = None
+
     try:
-        log_user_event(int(user_id), username=username)
+        logged = log_user_event(int(user_id), username=username)
+        return bool(logged)
     except Exception:
-        pass
+        return False
 
 
 @app.route('/admin/stats')
@@ -5635,7 +5637,13 @@ def view_file(file_id):
     if not file:
         abort(404)
 
-    _log_webapp_user_activity()
+    skip_activity = False
+    try:
+        skip_activity = bool(session.pop('_skip_view_activity_once', False))
+    except Exception:
+        skip_activity = False
+    if not skip_activity:
+        _log_webapp_user_activity()
 
     # עדכון רשימת "נפתחו לאחרונה" (MRU) עבור המשתמש הנוכחי — לפני בדיקות Cache
     try:
@@ -6267,7 +6275,8 @@ def edit_file_page(file_id):
                 try:
                     res = db.code_snippets.insert_one(new_doc)
                     if res and getattr(res, 'inserted_id', None):
-                        _log_webapp_user_activity()
+                        if _log_webapp_user_activity():
+                            session['_skip_view_activity_once'] = True
                         return redirect(url_for('view_file', file_id=str(res.inserted_id)))
                     error = 'שמירת הקובץ נכשלה'
                 except Exception as _e:
@@ -7049,7 +7058,8 @@ def upload_file_web():
                 except Exception as _e:
                     res = None
                 if res and getattr(res, 'inserted_id', None):
-                    _log_webapp_user_activity()
+                    if _log_webapp_user_activity():
+                        session['_skip_view_activity_once'] = True
                     return redirect(url_for('view_file', file_id=str(res.inserted_id)))
                 error = 'שמירת הקובץ נכשלה'
         except Exception as e:
