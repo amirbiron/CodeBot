@@ -1,3 +1,5 @@
+try { console.log('[CodeMirror Bundle] Starting execution...'); } catch(_) {}
+
 import { EditorState, Compartment } from '@codemirror/state';
 import { EditorView, keymap, drawSelection, dropCursor, highlightSpecialChars, highlightActiveLine, highlightActiveLineGutter, rectangularSelection, crosshairCursor } from '@codemirror/view';
 import { history, defaultKeymap, historyKeymap } from '@codemirror/commands';

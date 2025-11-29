@@ -72010,6 +72010,10 @@
   var oneDark = [oneDarkTheme, /* @__PURE__ */ syntaxHighlighting(oneDarkHighlightStyle)];
 
   // codemirror.bundle.entry.mjs
+  try {
+    console.log("[CodeMirror Bundle] Starting execution...");
+  } catch (_) {
+  }
   var basicSetup = [
     lineNumbers(),
     highlightActiveLineGutter(),
