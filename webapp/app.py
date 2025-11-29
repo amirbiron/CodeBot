@@ -58,6 +58,56 @@ try:  # שמירה על יציבות גם בסביבות דוקס/CI
 except Exception:  # pragma: no cover
     cfg = None
 
+DEFAULT_LANGUAGE_CHOICES = [
+    "python",
+    "javascript",
+    "typescript",
+    "html",
+    "css",
+    "sql",
+    "json",
+    "markdown",
+    "xml",
+    "shell",
+    "bash",
+    "go",
+    "java",
+    "yaml",
+    "csharp",
+]
+
+
+def _load_supported_languages_from_config() -> List[str]:
+    try:
+        configured = list((cfg.SUPPORTED_LANGUAGES if cfg else []) or [])
+        if configured:
+            return configured
+    except Exception:
+        pass
+    return list(DEFAULT_LANGUAGE_CHOICES)
+
+
+def _build_language_choices(user_langs: Optional[List[str]] = None) -> List[str]:
+    """איחוד שפות: נתונים קיימים של המשתמש + ברירת מחדל מהקונפיג."""
+    dedup: Dict[str, str] = {}
+
+    def _add_languages(candidates: List[str]) -> None:
+        for lang in candidates or []:
+            if not lang:
+                continue
+            lang_str = str(lang).strip()
+            if not lang_str:
+                continue
+            if lang_str.lower() == "text":
+                continue
+            key = lang_str.lower()
+            dedup.setdefault(key, lang_str)
+
+    _add_languages(user_langs or [])
+    _add_languages(_load_supported_languages_from_config())
+
+    return [dedup[key] for key in sorted(dedup.keys())]
+
 
 def _cfg_or_env(attr: str, default: Any = None, *, env_name: str | None = None) -> Any:
     """משיג ערך מהקונפיג או מהסביבה, כולל תמיכה ב-Stubs פשוטים בטסטים."""
@@ -6163,10 +6213,10 @@ def edit_file_page(file_id):
 
     # טופס עריכה (GET או POST עם שגיאה)
     try:
-        languages = db.code_snippets.distinct('programming_language', {'user_id': user_id}) if db is not None else []
-        languages = sorted([l for l in languages if l]) if languages else []
+        user_langs = db.code_snippets.distinct('programming_language', {'user_id': user_id}) if db is not None else []
     except Exception:
-        languages = []
+        user_langs = []
+    languages = _build_language_choices(user_langs)
 
     # המרה לנתונים לתבנית
     code_value = file.get('code') or ''
@@ -6937,26 +6987,12 @@ def upload_file_web():
                 error = 'שמירת הקובץ נכשלה'
         except Exception as e:
             error = f'שגיאה בהעלאה: {e}'
-    # שליפת שפות קיימות להצעה
-    raw_languages = db.code_snippets.distinct('programming_language', {'user_id': user_id}) if db is not None else []
-    if raw_languages:
-        cleaned_languages = []
-        for lang in raw_languages:
-            if not lang:
-                continue
-            lang_str = str(lang).strip()
-            if not lang_str:
-                continue
-            if lang_str.lower() == 'text':
-                continue
-            cleaned_languages.append(lang_str)
-        dedup_by_lower = {}
-        for lang in cleaned_languages:
-            key = lang.lower()
-            dedup_by_lower.setdefault(key, lang)
-        languages = [dedup_by_lower[key] for key in sorted(dedup_by_lower.keys())]
-    else:
-        languages = []
+    # שליפת שפות קיימות + השלמה לברירת מחדל
+    try:
+        raw_languages = db.code_snippets.distinct('programming_language', {'user_id': user_id}) if db is not None else []
+    except Exception:
+        raw_languages = []
+    languages = _build_language_choices(raw_languages)
     return render_template(
         'upload.html',
         bot_username=BOT_USERNAME_CLEAN,

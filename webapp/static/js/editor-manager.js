@@ -25,6 +25,7 @@
     sh: 'shell',
     bash: 'shell',
     zsh: 'shell',
+    ps1: 'shell',
     go: 'go',
     java: 'java',
     cs: 'csharp',
