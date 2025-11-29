@@ -1,5 +1,5 @@
 (() => {
-  // ../../node_modules/@marijn/find-cluster-break/src/index.js
+  // node_modules/@marijn/find-cluster-break/src/index.js
   var rangeFrom = [];
   var rangeTo = [];
   (() => {
@@ -73,7 +73,7 @@
     return code < 65536 ? 1 : 2;
   }
 
-  // ../../node_modules/@codemirror/state/dist/index.js
+  // node_modules/@codemirror/state/dist/index.js
   var Text = class _Text {
     /**
     Get the line description around the given position.
@@ -3415,7 +3415,7 @@
     return strict === true ? -1 : string2.length;
   }
 
-  // ../../node_modules/style-mod/src/style-mod.js
+  // node_modules/style-mod/src/style-mod.js
   var C = "\u037C";
   var COUNT = typeof Symbol == "undefined" ? "__" + C : Symbol.for(C);
   var SET = typeof Symbol == "undefined" ? "__styleSet" + Math.floor(Math.random() * 1e8) : Symbol("styleSet");
@@ -3546,7 +3546,7 @@
     }
   };
 
-  // ../../node_modules/w3c-keyname/index.js
+  // node_modules/w3c-keyname/index.js
   var base = {
     8: "Backspace",
     9: "Tab",
@@ -3652,7 +3652,7 @@
     return name2;
   }
 
-  // ../../node_modules/crelt/index.js
+  // node_modules/crelt/index.js
   function crelt() {
     var elt2 = arguments[0];
     if (typeof elt2 == "string") elt2 = document.createElement(elt2);
@@ -3681,7 +3681,7 @@
     }
   }
 
-  // ../../node_modules/@codemirror/view/dist/index.js
+  // node_modules/@codemirror/view/dist/index.js
   var nav = typeof navigator != "undefined" ? navigator : { userAgent: "", vendor: "", platform: "" };
   var doc = typeof document != "undefined" ? document : { documentElement: { style: {} } };
   var ie_edge = /* @__PURE__ */ /Edge\/(\d+)/.exec(nav.userAgent);
@@ -13085,7 +13085,7 @@
     return activeLineGutterHighlighter;
   }
 
-  // ../../node_modules/@lezer/common/dist/index.js
+  // node_modules/@lezer/common/dist/index.js
   var DefaultBufferLength = 1024;
   var nextPropID = 0;
   var Range2 = class {
@@ -15122,7 +15122,7 @@
     return result;
   }
 
-  // ../../node_modules/@lezer/highlight/dist/index.js
+  // node_modules/@lezer/highlight/dist/index.js
   var nextTagID = 0;
   var Tag = class _Tag {
     /**
@@ -15846,7 +15846,7 @@
     { tag: tags.punctuation, class: "tok-punctuation" }
   ]);
 
-  // ../../node_modules/@codemirror/language/dist/index.js
+  // node_modules/@codemirror/language/dist/index.js
   var _a;
   var languageDataProp = /* @__PURE__ */ new NodeProp();
   function defineLanguageFacet(baseData) {
@@ -17058,7 +17058,7 @@
     auto: /* @__PURE__ */ Decoration.mark({ class: "cm-iso", inclusive: true, attributes: { dir: "auto" }, bidiIsolate: null })
   };
 
-  // ../../node_modules/@codemirror/commands/dist/index.js
+  // node_modules/@codemirror/commands/dist/index.js
   var toggleComment = (target) => {
     let { state } = target, line = state.doc.lineAt(state.selection.main.from), config2 = getConfig(target.state, line.from);
     return config2.line ? toggleLineComment(target) : config2.block ? toggleBlockCommentByLine(target) : false;
@@ -18130,7 +18130,7 @@
     { key: "Ctrl-m", mac: "Shift-Alt-m", run: toggleTabFocusMode }
   ].concat(standardKeymap);
 
-  // ../../node_modules/@codemirror/text/dist/index.js
+  // node_modules/@codemirror/text/dist/index.js
   var extend = /* @__PURE__ */ "lc,34,7n,7,7b,19,,,,2,,2,,,20,b,1c,l,g,,2t,7,2,6,2,2,,4,z,,u,r,2j,b,1m,9,9,,o,4,,9,,3,,5,17,3,3b,f,,w,1j,,,,4,8,4,,3,7,a,2,t,,1m,,,,2,4,8,,9,,a,2,q,,2,2,1l,,4,2,4,2,2,3,3,,u,2,3,,b,2,1l,,4,5,,2,4,,k,2,m,6,,,1m,,,2,,4,8,,7,3,a,2,u,,1n,,,,c,,9,,14,,3,,1l,3,5,3,,4,7,2,b,2,t,,1m,,2,,2,,3,,5,2,7,2,b,2,s,2,1l,2,,,2,4,8,,9,,a,2,t,,20,,4,,2,3,,,8,,29,,2,7,c,8,2q,,2,9,b,6,22,2,r,,,,,,1j,e,,5,,2,5,b,,10,9,,2u,4,,6,,2,2,2,p,2,4,3,g,4,d,,2,2,6,,f,,jj,3,qa,3,t,3,t,2,u,2,1s,2,,7,8,,2,b,9,,19,3,3b,2,y,,3a,3,4,2,9,,6,3,63,2,2,,1m,,,7,,,,,2,8,6,a,2,,1c,h,1r,4,1c,7,,,5,,14,9,c,2,w,4,2,2,,3,1k,,,2,3,,,3,1m,8,2,2,48,3,,d,,7,4,,6,,3,2,5i,1m,,5,ek,,5f,x,2da,3,3x,,2o,w,fe,6,2x,2,n9w,4,,a,w,2,28,2,7k,,3,,4,,p,2,5,,47,2,q,i,d,,12,8,p,b,1a,3,1c,,2,4,2,2,13,,1v,6,2,2,2,2,c,,8,,1b,,1f,,,3,2,2,5,2,,,16,2,8,,6m,,2,,4,,fn4,,kh,g,g,g,a6,2,gt,,6a,,45,5,1ae,3,,2,5,4,14,3,4,,4l,2,fx,4,ar,2,49,b,4w,,1i,f,1k,3,1d,4,2,2,1x,3,10,5,,8,1q,,c,2,1g,9,a,4,2,,2n,3,2,,,2,6,,4g,,3,8,l,2,1l,2,,,,,m,,e,7,3,5,5f,8,2,3,,,n,,29,,2,6,,,2,,,2,,2,6j,,2,4,6,2,,2,r,2,2d,8,2,,,2,2y,,,,2,6,,,2t,3,2,4,,5,77,9,,2,6t,,a,2,,,4,,40,4,2,2,4,,w,a,14,6,2,4,8,,9,6,2,3,1a,d,,2,ba,7,,6,,,2a,m,2,7,,2,,2,3e,6,3,,,2,,7,,,20,2,3,,,,9n,2,f0b,5,1n,7,t4,,1r,4,29,,f5k,2,43q,,,3,4,5,8,8,2,7,u,4,44,3,1iz,1j,4,1e,8,,e,,m,5,,f,11s,7,,h,2,7,,2,,5,79,7,c5,4,15s,7,31,7,240,5,gx7k,2o,3k,6o".split(",").map((s) => s ? parseInt(s, 36) : 1);
   for (let i = 1; i < extend.length; i++)
     extend[i] += extend[i - 1];
@@ -18757,7 +18757,7 @@
     }
   };
 
-  // ../../node_modules/@codemirror/fold/node_modules/@codemirror/state/dist/index.js
+  // node_modules/@codemirror/fold/node_modules/@codemirror/state/dist/index.js
   var DefaultSplit2 = /\r\n?|\n/;
   var MapMode2 = /* @__PURE__ */ (function(MapMode7) {
     MapMode7[MapMode7["Simple"] = 0] = "Simple";
@@ -20673,7 +20673,7 @@
     return result;
   }
 
-  // ../../node_modules/@codemirror/rangeset/node_modules/@codemirror/state/dist/index.js
+  // node_modules/@codemirror/rangeset/node_modules/@codemirror/state/dist/index.js
   var DefaultSplit3 = /\r\n?|\n/;
   var MapMode3 = /* @__PURE__ */ (function(MapMode7) {
     MapMode7[MapMode7["Simple"] = 0] = "Simple";
@@ -22571,7 +22571,7 @@
   EditorState3.transactionExtender = transactionExtender3;
   Compartment3.reconfigure = /* @__PURE__ */ StateEffect3.define();
 
-  // ../../node_modules/@codemirror/rangeset/dist/index.js
+  // node_modules/@codemirror/rangeset/dist/index.js
   var RangeValue2 = class {
     /**
     Compare this value with another value. The default
@@ -23321,7 +23321,7 @@
     return found;
   }
 
-  // ../../node_modules/@codemirror/fold/node_modules/@codemirror/view/dist/index.js
+  // node_modules/@codemirror/fold/node_modules/@codemirror/view/dist/index.js
   function getSelection2(root) {
     let target;
     if (root.nodeType == 11) {
@@ -29571,7 +29571,7 @@
     themeSpec[".cm-line"].caretColor = "transparent !important";
   var UnicodeRegexpSupport2 = /x/.unicode != null ? "gu" : "g";
 
-  // ../../node_modules/@codemirror/fold/node_modules/@lezer/common/dist/index.js
+  // node_modules/@codemirror/fold/node_modules/@lezer/common/dist/index.js
   var DefaultBufferLength2 = 1024;
   var nextPropID2 = 0;
   var Range4 = class {
@@ -30875,7 +30875,7 @@
   };
   var stoppedInner2 = new NodeProp2({ perNode: true });
 
-  // ../../node_modules/@codemirror/fold/node_modules/@codemirror/language/dist/index.js
+  // node_modules/@codemirror/fold/node_modules/@codemirror/language/dist/index.js
   var _a2;
   var languageDataProp2 = /* @__PURE__ */ new NodeProp2();
   var Language2 = class {
@@ -31374,7 +31374,7 @@
     return syntaxFolding(state, lineStart, lineEnd2);
   }
 
-  // ../../node_modules/@codemirror/gutter/node_modules/@codemirror/state/dist/index.js
+  // node_modules/@codemirror/gutter/node_modules/@codemirror/state/dist/index.js
   var DefaultSplit4 = /\r\n?|\n/;
   var MapMode4 = /* @__PURE__ */ (function(MapMode7) {
     MapMode7[MapMode7["Simple"] = 0] = "Simple";
@@ -33290,7 +33290,7 @@
     return result;
   }
 
-  // ../../node_modules/@codemirror/gutter/node_modules/@codemirror/view/dist/index.js
+  // node_modules/@codemirror/gutter/node_modules/@codemirror/view/dist/index.js
   function getSelection3(root) {
     let target;
     if (root.nodeType == 11) {
@@ -39540,7 +39540,7 @@
     themeSpec2[".cm-line"].caretColor = "transparent !important";
   var UnicodeRegexpSupport3 = /x/.unicode != null ? "gu" : "g";
 
-  // ../../node_modules/@codemirror/gutter/dist/index.js
+  // node_modules/@codemirror/gutter/dist/index.js
   var GutterMarker2 = class extends RangeValue2 {
     /**
     @internal
@@ -39960,7 +39960,7 @@
     return last;
   }
 
-  // ../../node_modules/@codemirror/fold/dist/index.js
+  // node_modules/@codemirror/fold/dist/index.js
   function mapRange(range, mapping) {
     let from = mapping.mapPos(range.from, 1), to = mapping.mapPos(range.to, -1);
     return from >= to ? void 0 : { from, to };
@@ -40214,7 +40214,7 @@
     }
   });
 
-  // ../../node_modules/@codemirror/search/dist/index.js
+  // node_modules/@codemirror/search/dist/index.js
   var basicNormalize = typeof String.prototype.normalize == "function" ? (x) => x.normalize("NFKD") : (x) => x;
   var SearchCursor = class {
     /**
@@ -41331,7 +41331,7 @@
     baseTheme6
   ];
 
-  // ../../node_modules/@codemirror/closebrackets/node_modules/@codemirror/state/dist/index.js
+  // node_modules/@codemirror/closebrackets/node_modules/@codemirror/state/dist/index.js
   var DefaultSplit5 = /\r\n?|\n/;
   var MapMode5 = /* @__PURE__ */ (function(MapMode7) {
     MapMode7[MapMode7["Simple"] = 0] = "Simple";
@@ -43229,7 +43229,7 @@
   EditorState5.transactionExtender = transactionExtender5;
   Compartment5.reconfigure = /* @__PURE__ */ StateEffect5.define();
 
-  // ../../node_modules/@codemirror/closebrackets/node_modules/@codemirror/view/dist/index.js
+  // node_modules/@codemirror/closebrackets/node_modules/@codemirror/view/dist/index.js
   function getSelection4(root) {
     let target;
     if (root.nodeType == 11) {
@@ -49479,7 +49479,7 @@
     themeSpec3[".cm-line"].caretColor = "transparent !important";
   var UnicodeRegexpSupport4 = /x/.unicode != null ? "gu" : "g";
 
-  // ../../node_modules/@codemirror/closebrackets/node_modules/@lezer/common/dist/index.js
+  // node_modules/@codemirror/closebrackets/node_modules/@lezer/common/dist/index.js
   var DefaultBufferLength3 = 1024;
   var nextPropID3 = 0;
   var Range5 = class {
@@ -50783,7 +50783,7 @@
   };
   var stoppedInner3 = new NodeProp3({ perNode: true });
 
-  // ../../node_modules/@codemirror/closebrackets/node_modules/@codemirror/language/dist/index.js
+  // node_modules/@codemirror/closebrackets/node_modules/@codemirror/language/dist/index.js
   var _a3;
   var languageDataProp3 = /* @__PURE__ */ new NodeProp3();
   var Language3 = class {
@@ -51248,7 +51248,7 @@
     enables: [Language3.state, parseWorker3]
   });
 
-  // ../../node_modules/@codemirror/closebrackets/dist/index.js
+  // node_modules/@codemirror/closebrackets/dist/index.js
   var defaults2 = {
     brackets: ["(", "[", "{", "'", '"'],
     before: ")]}:;>"
@@ -51465,7 +51465,7 @@
     return false;
   }
 
-  // ../../node_modules/@codemirror/matchbrackets/node_modules/@codemirror/state/dist/index.js
+  // node_modules/@codemirror/matchbrackets/node_modules/@codemirror/state/dist/index.js
   var DefaultSplit6 = /\r\n?|\n/;
   var MapMode6 = /* @__PURE__ */ (function(MapMode7) {
     MapMode7[MapMode7["Simple"] = 0] = "Simple";
@@ -53381,7 +53381,7 @@
     return result;
   }
 
-  // ../../node_modules/@codemirror/matchbrackets/node_modules/@lezer/common/dist/index.js
+  // node_modules/@codemirror/matchbrackets/node_modules/@lezer/common/dist/index.js
   var DefaultBufferLength4 = 1024;
   var nextPropID4 = 0;
   var Range6 = class {
@@ -54685,7 +54685,7 @@
   };
   var stoppedInner4 = new NodeProp4({ perNode: true });
 
-  // ../../node_modules/@codemirror/matchbrackets/node_modules/@codemirror/view/dist/index.js
+  // node_modules/@codemirror/matchbrackets/node_modules/@codemirror/view/dist/index.js
   function getSelection5(root) {
     let target;
     if (root.nodeType == 11) {
@@ -60935,7 +60935,7 @@
     themeSpec4[".cm-line"].caretColor = "transparent !important";
   var UnicodeRegexpSupport5 = /x/.unicode != null ? "gu" : "g";
 
-  // ../../node_modules/@codemirror/matchbrackets/node_modules/@codemirror/language/dist/index.js
+  // node_modules/@codemirror/matchbrackets/node_modules/@codemirror/language/dist/index.js
   var _a4;
   var languageDataProp4 = /* @__PURE__ */ new NodeProp4();
   var Language4 = class {
@@ -61400,7 +61400,7 @@
     enables: [Language4.state, parseWorker4]
   });
 
-  // ../../node_modules/@codemirror/matchbrackets/dist/index.js
+  // node_modules/@codemirror/matchbrackets/dist/index.js
   var baseTheme9 = /* @__PURE__ */ EditorView5.baseTheme({
     "&.cm-focused .cm-matchingBracket": { backgroundColor: "#328c8252" },
     "&.cm-focused .cm-nonmatchingBracket": { backgroundColor: "#bb555544" }
@@ -61523,7 +61523,7 @@
     return iter.done ? { start: startToken, matched: false } : null;
   }
 
-  // ../../node_modules/@codemirror/autocomplete/dist/index.js
+  // node_modules/@codemirror/autocomplete/dist/index.js
   var CompletionContext = class {
     /**
     Create a new completion context. (Mostly useful for testing
@@ -63106,7 +63106,7 @@
   ];
   var completionKeymapExt = /* @__PURE__ */ Prec.highest(/* @__PURE__ */ keymap.computeN([completionConfig], (state) => state.facet(completionConfig).defaultKeymap ? [completionKeymap] : []));
 
-  // ../../node_modules/@lezer/lr/dist/index.js
+  // node_modules/@lezer/lr/dist/index.js
   var Stack = class _Stack {
     /**
     @internal
@@ -64865,7 +64865,7 @@
     return spec.get;
   }
 
-  // ../../node_modules/@lezer/python/dist/index.js
+  // node_modules/@lezer/python/dist/index.js
   var printKeyword = 1;
   var indent = 194;
   var dedent = 195;
@@ -65201,7 +65201,7 @@
     tokenPrec: 7668
   });
 
-  // ../../node_modules/@codemirror/lang-python/dist/index.js
+  // node_modules/@codemirror/lang-python/dist/index.js
   var cache = /* @__PURE__ */ new NodeWeakMap();
   var ScopeNodes = /* @__PURE__ */ new Set([
     "Script",
@@ -65621,7 +65621,7 @@
     ]);
   }
 
-  // ../../node_modules/@lezer/javascript/dist/index.js
+  // node_modules/@lezer/javascript/dist/index.js
   var noSemi = 316;
   var noSemiType = 317;
   var incdec = 1;
@@ -65833,7 +65833,7 @@
     tokenPrec: 15201
   });
 
-  // ../../node_modules/@codemirror/lang-javascript/dist/index.js
+  // node_modules/@codemirror/lang-javascript/dist/index.js
   var snippets2 = [
     /* @__PURE__ */ snippetCompletion("function ${name}(${params}) {\n	${}\n}", {
       label: "function",
@@ -66131,7 +66131,7 @@
     return true;
   });
 
-  // ../../node_modules/@lezer/html/dist/index.js
+  // node_modules/@lezer/html/dist/index.js
   var scriptText = 55;
   var StartCloseScriptTag = 1;
   var styleText = 56;
@@ -66475,7 +66475,7 @@
     });
   }
 
-  // ../../node_modules/@lezer/css/dist/index.js
+  // node_modules/@lezer/css/dist/index.js
   var descendantOp = 122;
   var Unit = 1;
   var identifier = 123;
@@ -66647,7 +66647,7 @@
     tokenPrec: 1963
   });
 
-  // ../../node_modules/@codemirror/lang-css/dist/index.js
+  // node_modules/@codemirror/lang-css/dist/index.js
   var _properties = null;
   function properties() {
     if (!_properties && typeof document == "object" && document.body) {
@@ -67508,7 +67508,7 @@
     return new LanguageSupport(cssLanguage, cssLanguage.data.of({ autocomplete: cssCompletionSource }));
   }
 
-  // ../../node_modules/@codemirror/lang-html/dist/index.js
+  // node_modules/@codemirror/lang-html/dist/index.js
   var Targets = ["_blank", "_self", "_top", "_parent"];
   var Charsets = ["ascii", "utf-8", "utf-16", "latin1", "latin1"];
   var Methods = ["get", "post", "put", "delete"];
@@ -68237,7 +68237,7 @@
     return true;
   });
 
-  // ../../node_modules/@codemirror/lang-sql/dist/index.js
+  // node_modules/@codemirror/lang-sql/dist/index.js
   var whitespace = 36;
   var LineComment2 = 1;
   var BlockComment2 = 2;
@@ -68952,7 +68952,7 @@
     plsqlQuotingMechanism: true
   });
 
-  // ../../node_modules/@lezer/json/dist/index.js
+  // node_modules/@lezer/json/dist/index.js
   var jsonHighlighting = styleTags({
     String: tags.string,
     Number: tags.number,
@@ -68984,7 +68984,7 @@
     tokenPrec: 0
   });
 
-  // ../../node_modules/@codemirror/lang-json/dist/index.js
+  // node_modules/@codemirror/lang-json/dist/index.js
   var jsonLanguage = /* @__PURE__ */ LRLanguage.define({
     name: "json",
     parser: /* @__PURE__ */ parser6.configure({
@@ -69007,7 +69007,7 @@
     return new LanguageSupport(jsonLanguage);
   }
 
-  // ../../node_modules/@lezer/markdown/dist/index.js
+  // node_modules/@lezer/markdown/dist/index.js
   var CompositeBlock = class _CompositeBlock {
     static create(type, value, from, parentHash, end) {
       let hash3 = parentHash + (parentHash << 8) + type + (value << 4) | 0;
@@ -71054,7 +71054,7 @@
     }]
   };
 
-  // ../../node_modules/@codemirror/lang-markdown/dist/index.js
+  // node_modules/@codemirror/lang-markdown/dist/index.js
   var data = /* @__PURE__ */ defineLanguageFacet({ commentTokens: { block: { open: "<!--", close: "-->" } } });
   var headingProp = /* @__PURE__ */ new NodeProp();
   var commonmark = /* @__PURE__ */ parser7.configure({
@@ -71473,7 +71473,7 @@
     }
   });
 
-  // ../../node_modules/@lezer/xml/dist/index.js
+  // node_modules/@lezer/xml/dist/index.js
   var StartTag2 = 1;
   var StartCloseTag2 = 2;
   var MissingCloseTag = 3;
@@ -71593,7 +71593,7 @@
     tokenPrec: 0
   });
 
-  // ../../node_modules/@codemirror/lang-xml/dist/index.js
+  // node_modules/@codemirror/lang-xml/dist/index.js
   function tagName(doc6, tag) {
     let name2 = tag && tag.getChild("TagName");
     return name2 ? doc6.sliceString(name2.from, name2.to) : "";
@@ -71865,7 +71865,7 @@
     return true;
   });
 
-  // ../../node_modules/@codemirror/theme-one-dark/dist/index.js
+  // node_modules/@codemirror/theme-one-dark/dist/index.js
   var chalky = "#e5c07b";
   var coral = "#e06c75";
   var cyan = "#56b6c2";
@@ -72009,7 +72009,7 @@
   ]);
   var oneDark = [oneDarkTheme, /* @__PURE__ */ syntaxHighlighting(oneDarkHighlightStyle)];
 
-  // codemirror.bundle.entry.mjs
+  // webapp/static_build/codemirror.bundle.entry.mjs
   var basicSetup = [
     lineNumbers(),
     highlightActiveLineGutter(),
@@ -72084,7 +72084,7 @@
     getTheme
   };
   if (typeof window !== "undefined") {
+    console.log("[CM Bundle] Assigning CodeMirror6 to window");
     window.CodeMirror6 = api;
   }
-  var codemirror_bundle_entry_default = api;
 })();

@@ -170,7 +170,7 @@
             const errBanner = document.createElement('div');
             errBanner.className = 'editor-error-banner alert alert-error';
             errBanner.style.marginTop = '.5rem';
-            errBanner.textContent = 'טעינת העורך המתקדם נכשלה. הוחזר לעורך הפשוט.';
+            errBanner.textContent = 'טעינת העורך המתקדם נכשלה (' + (e.message || 'unknown error') + '). הוחזר לעורך הפשוט.';
             container.appendChild(errBanner);
           } catch(_) {}
           throw e;
@@ -282,8 +282,10 @@
         // בדיקה האם ה-API זמין (ה-bundle אמור להגדיר את window.CodeMirror6)
         if (window.CodeMirror6 && window.CodeMirror6.EditorView && window.CodeMirror6.EditorState) {
           this._cdnUrl = null;
-          try { console.log('[EditorManager] Local CodeMirror bundle loaded successfully'); } catch(_) {}
+          try { console.log('[EditorManager] Local CodeMirror bundle loaded successfully (immediate check)'); } catch(_) {}
           return;
+        } else {
+             try { console.warn('[EditorManager] Local script loaded but CodeMirror6 missing. keys:', window.CodeMirror6 ? Object.keys(window.CodeMirror6) : 'undefined'); } catch(_) {}
         }
 
         // המתנה קצרה (עד ~2000ms) למקרה שה-bundle מגדיר את window.CodeMirror6 באיחור קצר
