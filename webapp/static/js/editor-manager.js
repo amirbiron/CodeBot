@@ -262,17 +262,6 @@
 
         try { console.log('[EditorManager] Attempting to load local CodeMirror bundle from:', localUrl); } catch(_) {}
         
-        // DIAGNOSTIC: Fetch the file to inspect content (header)
-        try {
-            fetch(localUrl).then(r => {
-                console.log('[EditorManager] Fetch status:', r.status, r.statusText, 'Content-Type:', r.headers.get('Content-Type'));
-                return r.text();
-            }).then(txt => {
-                console.log('[EditorManager] File start (first 100 chars):', txt.substring(0, 100));
-                console.log('[EditorManager] File length:', txt.length);
-            }).catch(e => console.error('[EditorManager] Fetch diagnostic failed', e));
-        } catch(_) {}
-
         // טעינה באמצעות תגית script רגילה (יותר אמין מ-dynamic import בסביבות מסוימות)
         await new Promise((resolve, reject) => {
             const s = document.createElement('script');
