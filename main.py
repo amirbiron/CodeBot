@@ -3743,16 +3743,15 @@ async def setup_bot_data(application: Application) -> None:  # noqa: D401
     # Reschedule Google Drive backup jobs for all users with an active schedule
     try:
         async def _reschedule_drive_jobs(context: ContextTypes.DEFAULT_TYPE):
+            stats = {"total": 0, "recreated": 0}
             try:
                 drive_handler = context.application.bot_data.get('drive_handler')
                 if not drive_handler:
                     return
-                # Access users collection directly to find users with drive schedules
                 users_coll = db.db.users if getattr(db, 'db', None) else None
                 if users_coll is None:
                     return
                 sched_keys = {"daily", "every3", "weekly", "biweekly", "monthly"}
-                cursor = None
                 try:
                     cursor = users_coll.find({"drive_prefs.schedule": {"$in": list(sched_keys)}})
                 except Exception:
@@ -3765,24 +3764,85 @@ async def setup_bot_data(application: Application) -> None:  # noqa: D401
                         prefs = doc.get("drive_prefs") or {}
                         key = prefs.get("schedule")
                         if key in sched_keys:
-                            # Ensure a repeating job exists and is aligned to the next planned time
-                            # _ensure_schedule_job מיועד ב-drive_handler; אם לא קיים, נתעלם בשקט
-                            try:
+                            stats["total"] += 1
+                            recreated = False
+                            ensure_fn = getattr(drive_handler, "ensure_schedule_job_if_missing", None)
+                            if callable(ensure_fn):
+                                recreated = bool(await ensure_fn(context, uid, key))
+                            else:
                                 await drive_handler._ensure_schedule_job(context, uid, key)
-                            except AttributeError:
-                                pass
+                                recreated = True
+                            if recreated:
+                                stats["recreated"] += 1
                     except Exception:
                         continue
             except Exception:
                 pass
-        # Run once shortly after startup כדי לאפשר ל-JobQueue להתייצב בלי אזהרות misfire
-        application.job_queue.run_once(
+            finally:
+                try:
+                    logger.info(
+                        "drive_reschedule_jobs_run total=%s recreated=%s",
+                        stats["total"],
+                        stats["recreated"],
+                    )
+                except Exception:
+                    pass
+                try:
+                    emit_event(
+                        "drive_reschedule_jobs_run",
+                        severity="info",
+                        total=int(stats["total"]),
+                        recreated=int(stats["recreated"]),
+                    )
+                except Exception:
+                    pass
+
+        def _safe_run_once(callback, *, when: int, name: str, grace: int) -> None:
+            try:
+                application.job_queue.run_once(
+                    callback,
+                    when=when,
+                    name=name,
+                    job_kwargs={"misfire_grace_time": grace},
+                )
+            except TypeError:
+                application.job_queue.run_once(callback, when=when, name=name)
+            except Exception as exc:
+                logger.warning("Failed to schedule %s: %s", name, exc)
+
+        def _safe_run_repeating(callback, *, interval: int, first: int, name: str, grace: int) -> None:
+            try:
+                application.job_queue.run_repeating(
+                    callback,
+                    interval=interval,
+                    first=first,
+                    name=name,
+                    job_kwargs={"misfire_grace_time": grace},
+                )
+            except TypeError:
+                application.job_queue.run_repeating(callback, interval=interval, first=first, name=name)
+            except Exception as exc:
+                logger.warning("Failed to schedule %s: %s", name, exc)
+
+        bootstrap_delay = int(os.getenv("DRIVE_RESCHEDULE_BOOTSTRAP_DELAY", "5") or 5)
+        keepalive_interval = int(os.getenv("DRIVE_RESCHEDULE_INTERVAL", "900") or 900)
+        keepalive_first = int(os.getenv("DRIVE_RESCHEDULE_FIRST_DELAY", "60") or 60)
+
+        _safe_run_once(
             _reschedule_drive_jobs,
-            when=5,  # השיהיה קטנה כדי לא לעקוף את זמן הסטארטאפ של APScheduler
-            job_kwargs={"misfire_grace_time": 30},  # משאיר מרווח נשימה כך שאיחור קטן לא ידווח
+            when=bootstrap_delay,
+            name="drive_reschedule_bootstrap",
+            grace=30,
+        )
+        _safe_run_repeating(
+            _reschedule_drive_jobs,
+            interval=max(keepalive_interval, 300),
+            first=max(keepalive_first, 30),
+            name="drive_reschedule_keepalive",
+            grace=60,
         )
     except Exception:
-        logger.warning("Failed to schedule Drive jobs rescan on startup")
+        logger.warning("Failed to schedule Drive jobs rescan keepalive")
 
     # Weekly admin report (usage summary) — scheduled with JobQueue
     try:
