@@ -1965,11 +1965,12 @@ def _apply_snippet_json_import(
     dry_run: bool = False,
 ) -> Dict[str, Any]:
     """מיישם עדכוני JSON (בעיקר כותרות) ומחזיר סיכום תרצה."""
-    summary = {
+    errors_list: List[str] = []
+    summary: Dict[str, Any] = {
         "total": len(payload),
         "updated": 0,
         "skipped": 0,
-        "errors": [],
+        "errors": errors_list,
         "dry_run": dry_run,
     }
     if coll is None or not payload:
@@ -2000,20 +2001,20 @@ def _apply_snippet_json_import(
     for idx, entry in enumerate(payload):
         if not isinstance(entry, dict):
             summary["skipped"] += 1
-            if len(summary["errors"]) < max_errors:
-                summary["errors"].append(f"#{idx + 1}: האיבר אינו אובייקט JSON")
+            if len(errors_list) < max_errors:
+                errors_list.append(f"#{idx + 1}: האיבר אינו אובייקט JSON")
             continue
         raw_id = entry.get("id") or entry.get("_id")
         if not raw_id:
             summary["skipped"] += 1
-            if len(summary["errors"]) < max_errors:
-                summary["errors"].append(f"#{idx + 1}: חסר שדה 'id'")
+            if len(errors_list) < max_errors:
+                errors_list.append(f"#{idx + 1}: חסר שדה 'id'")
             continue
         normalized_id = _normalize_id(raw_id)
         if normalized_id is None:
             summary["skipped"] += 1
-            if len(summary["errors"]) < max_errors:
-                summary["errors"].append(f"#{idx + 1}: מזהה לא תקין ({raw_id})")
+            if len(errors_list) < max_errors:
+                errors_list.append(f"#{idx + 1}: מזהה לא תקין ({raw_id})")
             continue
 
         updates: Dict[str, Any] = {}
@@ -2041,8 +2042,8 @@ def _apply_snippet_json_import(
             result = coll.update_one({'_id': normalized_id}, {'$set': updates})
         except Exception as exc:
             summary["skipped"] += 1
-            if len(summary["errors"]) < max_errors:
-                summary["errors"].append(f"#{idx + 1}: שגיאת DB ({exc})")
+            if len(errors_list) < max_errors:
+                errors_list.append(f"#{idx + 1}: שגיאת DB ({exc})")
             continue
 
         modified = int(getattr(result, "modified_count", 0) or 0)
@@ -2051,8 +2052,8 @@ def _apply_snippet_json_import(
             summary["updated"] += 1
         else:
             summary["skipped"] += 1
-            if len(summary["errors"]) < max_errors:
-                summary["errors"].append(f"#{idx + 1}: לא נמצא סניפט עם המזהה {raw_id}")
+            if len(errors_list) < max_errors:
+                errors_list.append(f"#{idx + 1}: לא נמצא סניפט עם המזהה {raw_id}")
 
     return summary
 
