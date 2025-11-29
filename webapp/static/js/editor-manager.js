@@ -330,9 +330,16 @@
       try {
         const target = switcher ? switcher.querySelector('.editor-info-primary') : null;
         if (!target) return;
-        target.innerHTML = this.currentEditor === 'codemirror'
+        const isCodeMirror = this.currentEditor === 'codemirror';
+        target.innerHTML = isCodeMirror
           ? '<i class="fas fa-keyboard"></i> קיצורי מקלדת זמינים'
           : '<i class="fas fa-info-circle"></i> עורך טקסט בסיסי';
+          
+        if (isCodeMirror) {
+          target.classList.add('is-keyboard-hint');
+        } else {
+          target.classList.remove('is-keyboard-hint');
+        }
       } catch(_) {}
     }
 
