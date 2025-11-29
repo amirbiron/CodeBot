@@ -91,7 +91,10 @@ const api = {
 };
 
 if (typeof window !== 'undefined') {
+  console.log('[CM Bundle] Assigning CodeMirror6 to window');
   window.CodeMirror6 = api;
 }
 
-export default api;
+// Remove export default to prevent issues in some IIFE bundlers
+// export default api;
+
