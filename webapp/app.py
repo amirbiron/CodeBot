@@ -1855,6 +1855,209 @@ except Exception:
     _snip_service = None  # type: ignore
 
 
+def _get_snippets_collection_and_repo():
+    """מאחזר את אוסף הסניפטים ואת ה-Repository לשימוש בכלי האדמין."""
+    try:
+        from database import db as _db
+    except Exception:
+        return None, None
+    coll = getattr(_db, 'snippets_collection', None)
+    if coll is None:
+        coll = getattr(getattr(_db, 'db', None), 'snippets', None)
+    repo = None
+    try:
+        repo = _db._get_repo()
+    except Exception:
+        repo = None
+    return coll, repo
+
+
+def _collect_snippets_stats(coll):
+    """החזרת נתוני מצב בסיסיים עבור דף האדמין."""
+    stats = {"approved": 0, "pending": 0, "total": 0}
+    if coll is None:
+        return stats
+    try:
+        stats["approved"] = int(coll.count_documents({"status": "approved"}))
+    except Exception:
+        stats["approved"] = 0
+    try:
+        stats["pending"] = int(coll.count_documents({"status": "pending"}))
+    except Exception:
+        stats["pending"] = 0
+    try:
+        stats["total"] = int(coll.count_documents({}))
+    except Exception:
+        stats["total"] = stats["approved"]
+    return stats
+
+
+def _build_snippet_export_payload(coll, *, include_pending: bool = False) -> List[Dict[str, Any]]:
+    """בונה רשימת אובייקטים לייצוא JSON מתוך אוסף Mongo."""
+    if coll is None:
+        return []
+    query: Dict[str, Any] = {}
+    if include_pending:
+        query["status"] = {"$in": ["approved", "pending"]}
+    else:
+        query["status"] = "approved"
+    try:
+        cursor = coll.find(
+            query,
+            {
+                "title": 1,
+                "description": 1,
+                "language": 1,
+                "status": 1,
+            },
+        )
+    except Exception:
+        return []
+    try:
+        rows = list(cursor)
+    except Exception:
+        rows = []
+
+    def _norm(value: Any, *, limit: int | None = None) -> str:
+        try:
+            text = str(value or "").strip()
+        except Exception:
+            text = ""
+        if limit and len(text) > limit:
+            text = text[:limit]
+        return text
+
+    payload: List[Dict[str, Any]] = []
+    for doc in rows:
+        item = {
+            "id": str(doc.get("_id")) if doc.get("_id") is not None else "",
+            "title": _norm(doc.get("title"), limit=180),
+            "language": _norm(doc.get("language"), limit=40),
+            "description": _norm(doc.get("description"), limit=1000),
+            "status": _norm(doc.get("status"), limit=20) or "approved",
+        }
+        payload.append(item)
+    payload.sort(key=lambda it: (it.get("language", ""), it.get("title", "")))
+    return payload
+
+
+def _sanitize_snippet_field(value: Any, *, limit: int | None = None) -> str:
+    """נירמול טקסטי זהה לזה של שירות הסניפטים (Fallback במקרה שאין)."""
+    if _snip_service is not None and hasattr(_snip_service, "_sanitize_text"):
+        try:
+            return _snip_service._sanitize_text(value, limit or 180)  # type: ignore[attr-defined]
+        except Exception:
+            pass
+    try:
+        text = str(value or "").strip()
+    except Exception:
+        text = ""
+    if limit and len(text) > limit:
+        text = text[:limit]
+    return text
+
+
+def _apply_snippet_json_import(
+    coll,
+    repo,
+    payload: List[Any],
+    *,
+    dry_run: bool = False,
+) -> Dict[str, Any]:
+    """מיישם עדכוני JSON (בעיקר כותרות) ומחזיר סיכום תרצה."""
+    errors_list: List[str] = []
+    summary: Dict[str, Any] = {
+        "total": len(payload),
+        "updated": 0,
+        "skipped": 0,
+        "errors": errors_list,
+        "dry_run": dry_run,
+    }
+    if coll is None or not payload:
+        return summary
+
+    normalizer = None
+    if repo is not None:
+        normalizer = getattr(repo, "_normalize_snippet_identifier", None)
+
+    def _normalize_id(raw_id: Any):
+        candidate = str(raw_id or "").strip()
+        if not candidate:
+            return None
+        if callable(normalizer):
+            try:
+                normalized = normalizer(candidate)
+                if normalized is not None:
+                    return normalized
+            except Exception:
+                pass
+        try:
+            return ObjectId(candidate)
+        except Exception:
+            return None
+
+    max_errors = 20
+
+    for idx, entry in enumerate(payload):
+        if not isinstance(entry, dict):
+            summary["skipped"] += 1
+            if len(errors_list) < max_errors:
+                errors_list.append(f"#{idx + 1}: האיבר אינו אובייקט JSON")
+            continue
+        raw_id = entry.get("id") or entry.get("_id")
+        if not raw_id:
+            summary["skipped"] += 1
+            if len(errors_list) < max_errors:
+                errors_list.append(f"#{idx + 1}: חסר שדה 'id'")
+            continue
+        normalized_id = _normalize_id(raw_id)
+        if normalized_id is None:
+            summary["skipped"] += 1
+            if len(errors_list) < max_errors:
+                errors_list.append(f"#{idx + 1}: מזהה לא תקין ({raw_id})")
+            continue
+
+        updates: Dict[str, Any] = {}
+        if "title" in entry:
+            updates["title"] = _sanitize_snippet_field(entry.get("title"), limit=180)
+        if "description" in entry:
+            updates["description"] = _sanitize_snippet_field(entry.get("description"), limit=1000)
+        if "language" in entry:
+            updates["language"] = _sanitize_snippet_field(entry.get("language"), limit=40)
+        if "code" in entry:
+            try:
+                updates["code"] = str(entry.get("code") or "")
+            except Exception:
+                updates["code"] = ""
+
+        if not updates:
+            summary["skipped"] += 1
+            continue
+
+        if dry_run:
+            summary["updated"] += 1
+            continue
+
+        try:
+            result = coll.update_one({'_id': normalized_id}, {'$set': updates})
+        except Exception as exc:
+            summary["skipped"] += 1
+            if len(errors_list) < max_errors:
+                errors_list.append(f"#{idx + 1}: שגיאת DB ({exc})")
+            continue
+
+        modified = int(getattr(result, "modified_count", 0) or 0)
+        matched = int(getattr(result, "matched_count", 0) or 0)
+        if modified or matched:
+            summary["updated"] += 1
+        else:
+            summary["skipped"] += 1
+            if len(errors_list) < max_errors:
+                errors_list.append(f"#{idx + 1}: לא נמצא סניפט עם המזהה {raw_id}")
+
+    return summary
+
+
 @app.route('/admin/snippets/pending')
 @admin_required
 def admin_snippets_pending():
@@ -2534,6 +2737,64 @@ def admin_snippets_import():
         'titles': [s.title for s in snippets],
     }
     return render_template('admin_snippets_import.html', result=summary, error=None, source_url=source_url, content=content, auto_approve=auto_approve, dry_run=dry_run)
+
+
+@app.route('/admin/snippets/translate', methods=['GET', 'POST'])
+@admin_required
+def admin_snippets_translate():
+    coll, repo = _get_snippets_collection_and_repo()
+    builtin_count = len(getattr(_snip_service, "BUILTIN_SNIPPETS", [])) if _snip_service is not None else 0
+    stats = _collect_snippets_stats(coll)
+    error = None
+    import_result = None
+    default_dry_run = True
+    if request.method == 'POST':
+        default_dry_run = bool(request.form.get('dry_run'))
+        uploaded = request.files.get('json_file')
+        if coll is None:
+            error = "אוסף הסניפטים אינו זמין כרגע (יתכן ששרת ה-DB לא מחובר)."
+        elif uploaded is None or not uploaded.filename:
+            error = "נא לבחור קובץ JSON לייבוא."
+        else:
+            raw_bytes = uploaded.read()
+            max_size = 5_000_000  # ~5MB
+            if not raw_bytes:
+                error = "הקובץ שנבחר ריק."
+            elif len(raw_bytes) > max_size:
+                error = "קובץ גדול מדי (עד 5MB). נסו לפצל או להסיר שדות מיותרים."
+            else:
+                try:
+                    payload = json.loads(raw_bytes.decode('utf-8'))
+                except Exception as exc:
+                    error = f"JSON לא תקין: {exc}"
+                else:
+                    if not isinstance(payload, list):
+                        error = "הקובץ חייב להכיל מערך של אובייקטים (list)."
+                    else:
+                        dry_run = bool(request.form.get('dry_run'))
+                        import_result = _apply_snippet_json_import(coll, repo, payload, dry_run=dry_run)
+                        default_dry_run = dry_run
+    return render_template(
+        'admin_snippets_translate.html',
+        stats=stats,
+        builtin_count=builtin_count,
+        error=error,
+        import_result=import_result,
+        default_dry_run=default_dry_run,
+    )
+
+
+@app.route('/admin/snippets/export-json')
+@admin_required
+def admin_snippets_export_json():
+    coll, _ = _get_snippets_collection_and_repo()
+    include_pending = request.args.get('include_pending') == '1'
+    payload = _build_snippet_export_payload(coll, include_pending=include_pending)
+    body = json.dumps(payload, ensure_ascii=False, indent=2)
+    file_name = f"snippets-export-{datetime.now(timezone.utc).strftime('%Y%m%d')}.json"
+    response = Response(body, mimetype='application/json; charset=utf-8')
+    response.headers['Content-Disposition'] = f'attachment; filename="{file_name}"'
+    return response
 
 
 # --- Community library admin: minimal Edit/Delete ---
