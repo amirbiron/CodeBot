@@ -165,7 +165,12 @@
         if (!languageSelect) {
           return false;
         }
-        return !!Array.from(languageSelect.options || []).find((opt) => opt.value === value);
+        const target = (value || '').toLowerCase();
+        if (!target) return false;
+        return !!Array.from(languageSelect.options || []).find((opt) => {
+          const optValue = (opt && typeof opt.value === 'string') ? opt.value.toLowerCase() : '';
+          return optValue === target;
+        });
       };
       const autoSetLanguageFromFilename = (triggerSource) => {
         if (!fileNameInput || !languageSelect || !window.editorManager || typeof window.editorManager.inferLanguageFromFilename !== 'function') {
