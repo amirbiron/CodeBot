@@ -114,6 +114,7 @@
         if (this.cmInstance) {
           // העתקת התוכן חזרה ל-textarea והרס העורך
           try { this.textarea.value = this.cmInstance.state.doc.toString(); } catch(_) {}
+          this.teardownSelectionFix();
           try { this.cmInstance.destroy(); } catch(_) {}
           this.cmInstance = null;
         }
@@ -191,6 +192,7 @@
 
           this.cmInstance = new EditorView({ state, parent: cmWrapper });
           try { console.log('[EditorManager] CodeMirror editor instance created'); } catch(_) {}
+          this.registerSelectionFix();
         } catch (e) {
           console.error('CodeMirror init failed', e);
           this.currentEditor = 'simple';
@@ -432,6 +434,50 @@
           this._statusTimers.delete(status);
         }, 2500);
         this._statusTimers.set(status, timer);
+      } catch(_) {}
+    }
+
+    registerSelectionFix() {
+      try {
+        this.teardownSelectionFix();
+        if (!this.cmInstance || !this.cmInstance.contentDOM) return;
+        const handler = (event) => {
+          const key = (event.key || '').toLowerCase();
+          if (key === 'a' && (event.metaKey || event.ctrlKey)) {
+            event.preventDefault();
+            this.unfoldAllSections();
+            const docLength = this.cmInstance.state ? this.cmInstance.state.doc.length : 0;
+            this.cmInstance.dispatch({
+              selection: { anchor: 0, head: docLength },
+              scrollIntoView: true
+            });
+          }
+        };
+        this.cmInstance.contentDOM.addEventListener('keydown', handler);
+        this._selectionFixHandler = handler;
+      } catch(_) {}
+    }
+
+    teardownSelectionFix() {
+      try {
+        if (this._selectionFixHandler && this.cmInstance && this.cmInstance.contentDOM) {
+          this.cmInstance.contentDOM.removeEventListener('keydown', this._selectionFixHandler);
+        }
+      } catch(_) {}
+      this._selectionFixHandler = null;
+    }
+
+    unfoldAllSections() {
+      try {
+        if (!this.cmInstance) return;
+        const mods = (window.CodeMirror6 && window.CodeMirror6._mods) || {};
+        if (mods.langMod && typeof mods.langMod.unfoldAll === 'function') {
+          mods.langMod.unfoldAll(this.cmInstance);
+          return;
+        }
+        if (mods.foldMod && typeof mods.foldMod.unfoldAll === 'function') {
+          mods.foldMod.unfoldAll(this.cmInstance);
+        }
       } catch(_) {}
     }
 
