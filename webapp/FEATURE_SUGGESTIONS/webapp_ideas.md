@@ -20,8 +20,8 @@
 | # | רעיון | למה זה שווה | מאמץ מוערך |
 |---|-------|-------------|-------------|
 | 1 | Workspace Scenes | חילוף מהיר בין פילטרים/מצבי תצוגה חוזרים | בינוני |
-| 2 | Reading Queue & Focus Sessions | עבודה מתוכננת על קבצים + טיימר פוקוס | בינוני |
-| 3 | Error Signature Badges | חשיפת תקלות ישירות על הקבצים | בינוני |
+| 2 | Workspace Shelf Upgrades | משדרג את \"שולחן העבודה\" הקיים לארגון חכם | בינוני |
+| 3 | File Activity Heatmap | מדגיש קבצים פעילים/רדומים דרך הנתונים הקיימים | בינוני |
 | 4 | Maintenance Console | הרצת סקריפטי תחזוקה דרך UI מאובטח | בינוני-גבוה |
 | 5 | Collections Kanban View | גרירה בין אוספים וארגון חזותי | בינוני |
 | 6 | CodeShot Presets | יצירת תמונות קוד בקליק אחד | נמוך-בינוני |
@@ -44,41 +44,41 @@
 
 ---
 
-## 2. 📚 Reading Queue & Focus Sessions
-**הבעיה:** יש `Focus Mode` קיים, אך אין דרך לבנות רשימת קריאה או למדוד זמן ריכוז אמיתי. משתמשים עושים bookmarking ידני או sticky notes כדי לזכור מה לקרוא – לא נוח.
+## 2. 🧱 Workspace Shelf Upgrades (מצב שולחן העבודה הקיים)
+**הבעיה:** ב-`files.html` כבר יש קיצור ל"שולחן עבודה" (Workspace) כחלק ממערכת האוספים, אך הוא מתפקד כרשימה שטוחה. קשה לראות באיזה שלב נמצא כל קובץ, אין קיצורי דרך, ואי אפשר לחבר את Focus Mode ישירות לשולחן העבודה.
 
-**הפתרון:**
-- "רשימת קריאה" – כפתור חדש בכרטיס קובץ (`files.html`) שמוסיף את הקובץ לטבלת `reading_queue` פר־משתמש (מצב: חדש / בעבודה / הושלם).
-- טיימר Focus – בעת מעבר למצב פוקוס (`mode-focus`), מופיע טיימר פומודורו קטן + אינדיקטור התקדמות לקריאת אותו קובץ.
-- דשבורד: כרטיס חדש ב-`dashboard.html` המציג "3 הפריטים הבאים לקריאה" + זמן ריכוז השבועי.
+**הפתרון:** להפוך את ה-Workspace הקיים ל"מדף" אינטראקטיבי:
+- חלוקה לשלושה מצבים קבועים (למשל: "לבדיקה", "בתהליך", "הושלם") + תמיכה ביצירת עמודות מותאמות.
+- טיימר Focus intégré: כשעוברים למצב פוקוס על קובץ שנמצא ב-Workspace, מוצג mini-widget שמתחיל מדידה ושומר את התוצאה על הפריט עצמו.
+- Quick Actions: גרירת קובץ מלוח התוצאות ישירות ל-Workspace, קיצורי מקלדת (`Shift+W`) להוספה/הסרה, ותצוגת badge על הכרטיס שמראה כמה זמן הושקע בו.
 
 **איך לממש:**
-- DB: אוסף חדש `reading_sessions` השומר user_id, file_id, session_duration. קיימת כבר תשתית `session['user_id']` ב-Blueprints, כך שהוספת API `POST /api/reading-queue` ו-`POST /api/reading-session` פשוטה.
-- Frontend: מודול JS שמחובר ל-`displayModeState`. בעת כניסה לפוקוס, הטיימר יוצר `performance.mark` ושומר ב-LocalStorage. בעת יציאה – שליחה לשרת.
-- UX: Badge קטן על הקובץ שמראה התקדמות (% שורות שנסרקו). רענון הדף שומר את המצב בזכות Scene + queue.
+- DB: להרחיב את המסמך של ה-Workspace (כפי שמנוהל באוספים) עם שדות `workspace_state`, `focus_minutes`, `last_focus_at`. אין צורך באוסף חדש, רק הרחבה של הקיים.
+- API: ב-`collections_api` קיימת כבר לוגיקה להוספה/הסרה. מוסיפים endpoints ייעודיים ל-Workspace: `POST /api/workspace/items`, `PUT /api/workspace/<item_id>/state`, וקריאה שמחזירה את הסיכום לטובת הטיימר.
+- Frontend: מודול `static/js/collections.js` יכול לקבל מצב חדש של Board (בדומה לרעיון Kanban) אבל מוגבל ל-Workspace בלבד. המשך ישיר ל-`navigateToWorkspace()` שכבר קיים ב-`files.html`.
 
 **מדדים:**
-- ≥20% מהקבצים הנצפים נכנסים לרשימת קריאה לפחות פעם אחת.
-- עלייה של 25% בזמן ריכוז ממוצע (יצירת session בפועל) בקרב power-users.
+- לפחות 60% ממשתמשי Workspace מעדכנים את הסטטוס של פריט פעם בשבוע.
+- זמן ממוצע להחלפת סטטוס יורד מתהליך של 3 קליקים לקיצור אחד (נמדד דרך telemetry).
 
 ---
 
-## 3. 🚨 Error Signature Badges
-**הבעיה:** קיימים `config/error_signatures.yml` ו-`scripts/run_log_aggregator.py`, אך אין חיווי למנהלי המערכת אילו קבצים טריגרו תקלות. היום רק לוגים בשרת.
+## 3. 🔥 File Activity Heatmap
+**הבעיה:** `dashboard.html` כבר מציג סטטיסטיקות ו-"פיד אחרון", אבל אין דרך להבין במהירות אילו קבצים זוכים להרבה פעילות ואילו הוזנחו. המשתמש צריך לעבור בין כמה כרטיסים כדי לקבל תמונת מצב.
 
-**הפתרון:**
-- מנתחים לוגים/alerts לפי החתימות (`config/error_signatures.yml`) ומוסיפים `issue_flags` לכל `file_name` ב-`code_snippets`.
-- ב-`files.html` (Power Mode) מופיע Badge קטן: 🛑 Config, ⚠️ Transient וכו'. ניתן לסנן "show only error-prone files".
-- ב-`view_file.html` מוצג פאנל "אירועים אחרונים" עם קישור ל-`/monitoring` אם יש.
+**הפתרון:** להוסיף לוח Heatmap שמבוסס על הנתונים שכבר נאספים (`stats.recent_files`, `activity_timeline`). כל קובץ יקבל ניקוד פעילות (צפיות, עריכות, פתקים, שיתופים). נציג את החום הזה ב:
+- כרטיס ייעודי בדשבורד שמציג טבלה/מטריצה קטנה (Top Active vs. Cold Files).
+- Badge קטן על כרטיסי הקבצים ב-`files.html`/`Power Mode` עם אינדיקטור פעילות (🟢 פעיל, 🟡 פושר, ⚫ הוזנח).
+- פילטר חדש "הצג רק קבצים שלא נגעתי בהם X ימים" כדי לעודד ריענון.
 
 **איך לממש:**
-- Worker (אפשר reuse לוגיקה של `scripts/run_log_aggregator.py`) ש"מטפיס" חתימות וטוען טבלת `file_health`. שמירת הזמן האחרון ותיאור השגיאה.
-- API: `GET /api/files/<id>/health` מחזיר badges, ספירה, ו-link לאירוע.
-- Frontend: תוספת קלה ל`static/js/card-preview.js` ו-`files.html` להצגת תגים.
+- Backend: cron job (או reuse של `scripts/run_log_aggregator.py`) שרץ פעם בשעה, סופר אינטראקציות מתוך `activity_timeline`/`notes`/`bookmarks` ושומר טבלה `file_activity_cache` (user_id, file_name, score, last_event). ה-API יחשוף `GET /api/files/activity-summary`.
+- Frontend: ב-`dashboard.html` מוסיפים קומפוננט חדש עם Chart.js (כבר נטען ב-CDN במקומות אחרים) וב-`files.html` ממשיכים להשתמש ב-badges קיימים כדי לא להעמיס HTML חדש.
+- נגישות: לכל Badge תהיה תווית `aria-label` שמסבירה מתי עבר האירוע האחרון.
 
 **מדדים:**
-- זמן ממוצע לטיפול בבעיה יורד (נמדד לפי time-to-resolve בלוגים).
-- לפחות 80% ממקרי ה-oom_killed מזוהים ומסומנים תוך 5 דקות.
+- ≥50% ממשתמשי הדשבורד פותחים את heatmap לפחות פעם ביום (נמדד באירוע JS).
+- ירידה של 20% במספר הקבצים שלא נפתחו יותר מחודש – סימן שה-heatmap מעודד ריענון.
 
 ---
 
