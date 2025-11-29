@@ -330,20 +330,16 @@
 #md-content .code-toolbar {
   position: absolute;
   top: 10px;
-  left: clamp(22px, 6vw, 36px);
+  left: 10px;
   display: inline-flex;
   align-items: center;
   gap: 0.45rem;
   z-index: 3;
-  pointer-events: none;
-}
-#md-content .code-toolbar > * {
-  pointer-events: auto;
 }
 #md-content .md-copy-btn {
-  position: relative;
-  top: auto;
-  left: auto;
+  position: absolute;
+  top: 10px;
+  left: 10px;
   display: inline-flex;
   align-items: center;
   gap: 0.4rem;
@@ -357,6 +353,11 @@
   transition: background 0.2s ease, transform 0.2s ease, border-color 0.2s ease, color 0.2s ease;
   box-shadow: 0 1px 2px rgba(15, 23, 42, 0.08);
   z-index: 2;
+}
+#md-content .code-toolbar .md-copy-btn {
+  position: relative;
+  top: auto;
+  left: auto;
 }
 #md-content .md-source-btn {
   border: none;
