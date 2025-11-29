@@ -415,6 +415,11 @@ body.telegram-mini-app .file-title { font-size: 1.125rem; }
             העתק קוד
             <div class="copy-feedback" id="copyFeedback">הועתק!</div>
         </button>
+        {% if file.source_url %}
+        <a href="{{ file.source_url }}" class="btn btn-secondary btn-icon" target="_blank" rel="noopener noreferrer" title="פתח את המקור{% if file.source_url_host %} ({{ file.source_url_host }}){% endif %}">
+            🔗 למקור
+        </a>
+        {% endif %}
         {% if file.language|lower == 'html' or (file.file_name|lower).endswith('.html') or (file.file_name|lower).endswith('.htm') %}
         <a href="/html/{{ file.id }}" class="btn btn-secondary btn-icon">🌐 תצוגת דפדפן</a>
         {% endif %}
