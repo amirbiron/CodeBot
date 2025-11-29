@@ -1,5 +1,37 @@
 (function(){
   try { console.log('[EditorManager] Script loaded at:', new Date().toISOString(), 'url:', (typeof import.meta !== 'undefined' && import.meta && import.meta.url) ? import.meta.url : (document.currentScript && document.currentScript.src)); } catch(_) {}
+  // מפה בסיסית בין סיומות לקיצורי שפות שנתמכות ב-CodeMirror אצלנו
+  const EXTENSION_LANGUAGE_MAP = {
+    py: 'python',
+    pyw: 'python',
+    js: 'javascript',
+    mjs: 'javascript',
+    cjs: 'javascript',
+    jsx: 'javascript',
+    ts: 'typescript',
+    tsx: 'typescript',
+    html: 'html',
+    htm: 'html',
+    css: 'css',
+    scss: 'css',
+    less: 'css',
+    sql: 'sql',
+    json: 'json',
+    md: 'markdown',
+    markdown: 'markdown',
+    yml: 'yaml',
+    yaml: 'yaml',
+    xml: 'xml',
+    sh: 'shell',
+    bash: 'shell',
+    zsh: 'shell',
+    ps1: 'shell',
+    go: 'go',
+    java: 'java',
+    cs: 'csharp',
+    csharp: 'csharp',
+    'd.ts': 'typescript'
+  };
   class EditorManager {
     constructor() {
       this.currentEditor = this.loadPreference();
@@ -71,8 +103,8 @@
         try {
           const btn = container.querySelector('.editor-switcher .btn-switch-editor span');
           if (btn) btn.textContent = 'עורך מתקדם';
-          const info = container.querySelector('.editor-switcher .editor-info');
-          if (info) info.innerHTML = '<span><i class="fas fa-info-circle"></i> עורך טקסט בסיסי</span>';
+          const switcherEl = container.querySelector('.editor-switcher');
+          if (switcherEl) this.updateInfoBanner(switcherEl);
         } catch(_) {}
       }
     }
@@ -82,6 +114,7 @@
         if (this.cmInstance) {
           // העתקת התוכן חזרה ל-textarea והרס העורך
           try { this.textarea.value = this.cmInstance.state.doc.toString(); } catch(_) {}
+          this.teardownSelectionFix();
           try { this.cmInstance.destroy(); } catch(_) {}
           this.cmInstance = null;
         }
@@ -159,6 +192,7 @@
 
           this.cmInstance = new EditorView({ state, parent: cmWrapper });
           try { console.log('[EditorManager] CodeMirror editor instance created'); } catch(_) {}
+          this.registerSelectionFix();
         } catch (e) {
           console.error('CodeMirror init failed', e);
           this.currentEditor = 'simple';
@@ -188,18 +222,36 @@
       const switcher = document.createElement('div');
       switcher.className = 'editor-switcher';
       switcher.innerHTML = `
-        <button type="button" class="btn-switch-editor" title="החלף עורך">
-          <i class="fas fa-exchange-alt"></i>
-          <span>${this.currentEditor === 'simple' ? 'עורך מתקדם' : 'עורך פשוט'}</span>
-        </button>
-        <div class="editor-info">
-          ${this.currentEditor === 'codemirror' ? '<span><i class="fas fa-keyboard"></i> קיצורי מקלדת זמינים</span>' : '<span><i class="fas fa-info-circle"></i> עורך טקסט בסיסי</span>'}
+        <div class="editor-switcher-row">
+          <button type="button" class="btn-switch-editor" title="החלף עורך">
+            <i class="fas fa-exchange-alt"></i>
+            <span>${this.currentEditor === 'simple' ? 'עורך מתקדם' : 'עורך פשוט'}</span>
+          </button>
+          <div class="editor-info">
+            <span class="editor-info-primary">${this.currentEditor === 'codemirror' ? '<i class="fas fa-keyboard"></i> קיצורי מקלדת זמינים' : '<i class="fas fa-info-circle"></i> עורך טקסט בסיסי'}</span>
+            <span class="editor-info-status" aria-live="polite"></span>
+          </div>
+        </div>
+        <div class="editor-clipboard-actions" role="group" aria-label="פעולות עריכה">
+          <button type="button" class="btn-editor-clip btn-editor-select" title="בחר את כל הקוד">
+            <i class="fas fa-arrows-alt"></i>
+            <span>בחר הכל</span>
+          </button>
+          <button type="button" class="btn-editor-clip btn-editor-copy" title="העתק את הקוד">
+            <i class="far fa-copy"></i>
+            <span>העתק</span>
+          </button>
+          <button type="button" class="btn-editor-clip btn-editor-paste" title="הדבק מהלוח">
+            <i class="fas fa-paste"></i>
+            <span>הדבק</span>
+          </button>
         </div>
       `;
       const codeLabel = container.querySelector('label') || container;
       codeLabel.parentNode.insertBefore(switcher, codeLabel.nextSibling);
 
-      switcher.querySelector('.btn-switch-editor').addEventListener('click', async () => {
+      const toggleBtn = switcher.querySelector('.btn-switch-editor');
+      toggleBtn.addEventListener('click', async () => {
         const prev = this.currentEditor;
         this.currentEditor = prev === 'simple' ? 'codemirror' : 'simple';
         if (this.currentEditor === 'codemirror') {
@@ -214,8 +266,25 @@
           this.initSimpleEditor(container, { value: this.cmInstance ? this.cmInstance.state.doc.toString() : this.textarea.value });
         }
         this.savePreference(this.currentEditor);
-        try { switcher.querySelector('span').textContent = this.currentEditor === 'simple' ? 'עורך מתקדם' : 'עורך פשוט'; } catch(_) {}
+        try {
+          const label = switcher.querySelector('.btn-switch-editor span');
+          if (label) label.textContent = this.currentEditor === 'simple' ? 'עורך מתקדם' : 'עורך פשוט';
+        } catch(_) {}
+        this.updateInfoBanner(switcher);
       });
+
+      const selectBtn = switcher.querySelector('.btn-editor-select');
+      if (selectBtn) {
+        selectBtn.addEventListener('click', () => this.handleSelectAll(switcher));
+      }
+      const copyBtn = switcher.querySelector('.btn-editor-copy');
+      if (copyBtn) {
+        copyBtn.addEventListener('click', () => this.handleClipboardCopy(switcher));
+      }
+      const pasteBtn = switcher.querySelector('.btn-editor-paste');
+      if (pasteBtn) {
+        pasteBtn.addEventListener('click', () => this.handleClipboardPaste(switcher));
+      }
     }
 
     getSelectedLanguage() {
@@ -225,6 +294,220 @@
         if (typeof val === 'string' && val.trim()) return val;
       } catch(_) {}
       return null;
+    }
+
+    inferLanguageFromFilename(filename) {
+      try {
+        if (!filename || typeof filename !== 'string') {
+          return null;
+        }
+        const normalized = filename.trim().toLowerCase();
+        if (!normalized) {
+          return null;
+        }
+        const sanitized = normalized.split(/[\\/]/).pop();
+        if (!sanitized || sanitized.endsWith('.')) {
+          return null;
+        }
+        const parts = sanitized.split('.');
+        if (parts.length < 2) {
+          return null;
+        }
+        if (parts.length >= 2) {
+          const lastTwo = parts.slice(-2).join('.');
+          if (EXTENSION_LANGUAGE_MAP[lastTwo]) {
+            return EXTENSION_LANGUAGE_MAP[lastTwo];
+          }
+        }
+        const ext = parts[parts.length - 1];
+        return EXTENSION_LANGUAGE_MAP[ext] || null;
+      } catch(_) {
+        return null;
+      }
+    }
+
+    updateInfoBanner(switcher) {
+      try {
+        const target = switcher ? switcher.querySelector('.editor-info-primary') : null;
+        if (!target) return;
+        target.innerHTML = this.currentEditor === 'codemirror'
+          ? '<i class="fas fa-keyboard"></i> קיצורי מקלדת זמינים'
+          : '<i class="fas fa-info-circle"></i> עורך טקסט בסיסי';
+      } catch(_) {}
+    }
+
+    getEditorContent() {
+      try {
+        if (this.cmInstance && this.cmInstance.state) {
+          return this.cmInstance.state.doc.toString();
+        }
+      } catch(_) {}
+      try {
+        if (this.textarea) {
+          return this.textarea.value || '';
+        }
+      } catch(_) {}
+      return '';
+    }
+
+    setEditorContent(nextValue) {
+      const value = typeof nextValue === 'string' ? nextValue : '';
+      try {
+        if (this.cmInstance && this.cmInstance.state) {
+          const view = this.cmInstance;
+          view.dispatch({
+            changes: { from: 0, to: view.state.doc.length, insert: value },
+            selection: { anchor: value.length }
+          });
+        }
+      } catch(_) {}
+      try {
+        if (this.textarea) {
+          this.textarea.value = value;
+          this.textarea.dispatchEvent(new Event('input', { bubbles: true }));
+        }
+      } catch(_) {}
+    }
+
+    async handleClipboardCopy(switcher) {
+      const content = this.getEditorContent() || '';
+      let success = false;
+      try {
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          await navigator.clipboard.writeText(content);
+          success = true;
+        }
+      } catch (err) {
+        console.warn('clipboard write failed', err);
+      }
+      if (!success) {
+        try {
+          const helper = document.createElement('textarea');
+          helper.value = content;
+          helper.setAttribute('readonly', '');
+          helper.style.position = 'fixed';
+          helper.style.opacity = '0';
+          helper.style.pointerEvents = 'none';
+          document.body.appendChild(helper);
+          helper.focus();
+          helper.select();
+          helper.setSelectionRange(0, helper.value.length);
+          success = document.execCommand('copy');
+          helper.remove();
+        } catch (err) {
+          console.warn('execCommand copy failed', err);
+          success = false;
+        }
+      }
+      this.showClipboardNotice(switcher, success ? 'התוכן הועתק ללוח' : 'נכשלה העתקה');
+    }
+
+    async handleClipboardPaste(switcher) {
+      let text = '';
+      let usedPrompt = false;
+      try {
+        if (navigator.clipboard && navigator.clipboard.readText) {
+          text = await navigator.clipboard.readText();
+        } else {
+          usedPrompt = true;
+          text = window.prompt('הדבק כאן את הקוד שברצונך להכניס לעורך:') || '';
+        }
+      } catch (err) {
+        console.warn('clipboard read failed', err);
+        usedPrompt = true;
+        text = window.prompt('הדבק כאן את הקוד שברצונך להכניס לעורך:') || '';
+      }
+      if (!text) {
+        this.showClipboardNotice(switcher, usedPrompt ? 'לא הוזן טקסט' : 'הלוח ריק');
+        return;
+      }
+      this.setEditorContent(text);
+      this.showClipboardNotice(switcher, 'הטקסט הודבק');
+    }
+
+    showClipboardNotice(switcher, message) {
+      if (!switcher) return;
+      try {
+        const status = switcher.querySelector('.editor-info-status');
+        if (!status) return;
+        status.textContent = message || '';
+        if (!this._statusTimers) {
+          this._statusTimers = new WeakMap();
+        }
+        const prevTimer = this._statusTimers.get(status);
+        if (prevTimer) clearTimeout(prevTimer);
+        if (!message) return;
+        const timer = setTimeout(() => {
+          status.textContent = '';
+          this._statusTimers.delete(status);
+        }, 2500);
+        this._statusTimers.set(status, timer);
+      } catch(_) {}
+    }
+
+    handleSelectAll(switcher) {
+      const success = this.selectAllContent({ scrollIntoView: true });
+      this.showClipboardNotice(switcher, success ? 'כל הקוד סומן' : 'לא היה מה לסמן');
+    }
+
+    registerSelectionFix() {
+      try {
+        this.teardownSelectionFix();
+        if (!this.cmInstance || !this.cmInstance.contentDOM) return;
+        const handler = (event) => {
+          const key = (event.key || '').toLowerCase();
+          if (key === 'a' && (event.metaKey || event.ctrlKey)) {
+            event.preventDefault();
+            this.selectAllContent({ scrollIntoView: true, silent: true });
+          }
+        };
+        this.cmInstance.contentDOM.addEventListener('keydown', handler);
+        this._selectionFixHandler = handler;
+      } catch(_) {}
+    }
+
+    teardownSelectionFix() {
+      try {
+        if (this._selectionFixHandler && this.cmInstance && this.cmInstance.contentDOM) {
+          this.cmInstance.contentDOM.removeEventListener('keydown', this._selectionFixHandler);
+        }
+      } catch(_) {}
+      this._selectionFixHandler = null;
+    }
+
+    unfoldAllSections() {
+      try {
+        if (!this.cmInstance) return;
+        const mods = (window.CodeMirror6 && window.CodeMirror6._mods) || {};
+        if (mods.langMod && typeof mods.langMod.unfoldAll === 'function') {
+          mods.langMod.unfoldAll(this.cmInstance);
+          return;
+        }
+        if (mods.foldMod && typeof mods.foldMod.unfoldAll === 'function') {
+          mods.foldMod.unfoldAll(this.cmInstance);
+        }
+      } catch(_) {}
+    }
+
+    selectAllContent({ scrollIntoView = false, silent = false } = {}) {
+      try {
+        if (this.cmInstance && this.cmInstance.state) {
+          this.unfoldAllSections();
+          this.cmInstance.focus();
+          const docLength = this.cmInstance.state.doc.length;
+          this.cmInstance.dispatch({
+            selection: { anchor: 0, head: docLength },
+            scrollIntoView
+          });
+          return docLength > 0 || !silent;
+        }
+        if (this.textarea) {
+          this.textarea.focus();
+          this.textarea.select();
+          return this.textarea.value && this.textarea.value.length > 0;
+        }
+      } catch(_) {}
+      return false;
     }
 
     async updateLanguage(lang) {
