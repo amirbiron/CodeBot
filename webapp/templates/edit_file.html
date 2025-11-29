@@ -5,6 +5,80 @@
 {% block content %}
 <h1 class="page-title">עריכת קובץ</h1>
 
+<style>
+  .source-url-block {
+    border: 1px solid var(--glass-border, rgba(255,255,255,0.2));
+    border-radius: 12px;
+    padding: 0.75rem 1rem;
+    background: var(--glass, rgba(255,255,255,0.08));
+  }
+
+  .source-url-toggle {
+    background: transparent;
+    border: none;
+    color: var(--text-primary, #ffffff);
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    font-size: 0.95rem;
+    cursor: pointer;
+    font-weight: 500;
+    padding: 0;
+  }
+
+  .source-url-toggle:focus-visible {
+    outline: 2px solid var(--primary, #9775fa);
+    outline-offset: 3px;
+  }
+
+  .source-url-toggle__icon {
+    font-size: 1.1rem;
+  }
+
+  .source-url-field {
+    overflow: hidden;
+    max-height: 0;
+    opacity: 0;
+    transform: translateY(-6px);
+    transition: max-height 0.25s ease, opacity 0.2s ease, transform 0.2s ease;
+  }
+
+  .source-url-field.is-open {
+    max-height: 220px;
+    opacity: 1;
+    transform: translateY(0);
+    margin-top: 0.75rem;
+  }
+
+  .source-url-field label {
+    display: block;
+    margin-bottom: 0.35rem;
+    font-size: 0.9rem;
+    color: var(--text-secondary, rgba(255,255,255,0.82));
+  }
+
+  .source-url-input {
+    width: 100%;
+    padding: .75rem;
+    border-radius: 10px;
+    border: 1px solid var(--glass-border, rgba(255,255,255,0.25));
+    background: var(--bg-tertiary, rgba(255,255,255,0.1));
+    color: var(--text-primary, #ffffff);
+    font-family: inherit;
+  }
+
+  .source-url-input::placeholder {
+    color: var(--text-muted, rgba(255,255,255,0.65));
+  }
+
+  .source-url-hint {
+    display: block;
+    margin-top: 0.35rem;
+    font-size: 0.85rem;
+    color: var(--text-muted, rgba(255,255,255,0.65));
+  }
+</style>
+
 <div class="glass-card">
   {% if error %}
   <div class="alert alert-error">{{ error }}</div>
@@ -40,6 +114,31 @@
       <label>קוד</label>
       <textarea name="code" rows="18" style="width: 100%; padding: .75rem; border-radius: 10px; border: 1px solid rgba(255,255,255,0.2); background: rgba(255,255,255,0.1); color: white; font-family: 'Fira Code', 'Consolas', monospace;">{{ code_value }}</textarea>
     </div>
+    <div class="source-url-block">
+      <button type="button"
+              id="sourceUrlToggle"
+              class="source-url-toggle"
+              aria-expanded="{{ 'true' if file.source_url else 'false' }}"
+              aria-controls="sourceUrlField"
+              data-open-label="הסתר קישור למקור"
+              data-closed-label="הוסף קישור למקור">
+        <span class="source-url-toggle__icon">🔗</span>
+        <span class="source-url-toggle__text">{{ 'הסתר קישור למקור' if file.source_url else 'הוסף קישור למקור' }}</span>
+      </button>
+      <div class="source-url-field{% if file.source_url %} is-open{% endif %}" id="sourceUrlField" data-open="{{ '1' if file.source_url else '0' }}">
+        <label for="sourceUrlInput">קישור למקור</label>
+        <input type="url"
+               name="source_url"
+               id="sourceUrlInput"
+               class="source-url-input"
+               value="{{ file.source_url or '' }}"
+               placeholder="https://github.com/..."
+               inputmode="url"
+               autocomplete="url">
+        <small class="source-url-hint">שמור קישור למקור הקוד (GitHub, StackOverflow וכו׳) כדי לזכור את ההשראה.</small>
+      </div>
+      <input type="hidden" name="source_url_touched" id="sourceUrlTouched" value="{{ 'edited' if file.source_url else '0' }}">
+    </div>
     <div style="display: flex; gap: 1rem;">
       <button type="submit" class="btn btn-primary btn-icon"><i class="fas fa-save"></i> שמור גרסה חדשה</button>
       <a href="/file/{{ file.id }}" class="btn btn-secondary btn-icon"><i class="fas fa-times"></i> ביטול</a>
@@ -65,6 +164,55 @@
           try { await window.editorManager.updateLanguage(e.target.value); } catch (_) {}
         });
       }
+
+      (function initSourceUrlToggle(){
+        const toggle = document.getElementById('sourceUrlToggle');
+        const field = document.getElementById('sourceUrlField');
+        const input = document.getElementById('sourceUrlInput');
+        const touched = document.getElementById('sourceUrlTouched');
+        if (!toggle || !field || !input) {
+          return;
+        }
+        const openClass = 'is-open';
+        const openLabel = toggle.dataset.openLabel || 'הסתר קישור למקור';
+        const closedLabel = toggle.dataset.closedLabel || 'הוסף קישור למקור';
+        const textNode = toggle.querySelector('.source-url-toggle__text');
+
+        function updateLabel(open) {
+          if (textNode) {
+            textNode.textContent = open ? openLabel : closedLabel;
+          } else {
+            toggle.textContent = open ? openLabel : closedLabel;
+          }
+        }
+
+        function markTouched() {
+          if (touched) {
+            touched.value = 'edited';
+          }
+        }
+
+        function setOpen(open) {
+          field.classList.toggle(openClass, open);
+          toggle.setAttribute('aria-expanded', open ? 'true' : 'false');
+          updateLabel(open);
+          if (open) {
+            setTimeout(() => {
+              try { input.focus(); } catch (_) {}
+            }, 80);
+          }
+        }
+
+        const defaultOpen = field.dataset.open === '1';
+        setOpen(defaultOpen);
+
+        toggle.addEventListener('click', () => {
+          const nextState = !field.classList.contains(openClass);
+          setOpen(nextState);
+        });
+
+        input.addEventListener('input', markTouched);
+      })();
     } catch (_) {}
   });
 </script>

@@ -19,6 +19,7 @@ import threading
 import atexit
 import time as _time
 from werkzeug.http import http_date, parse_date
+from urllib.parse import urlparse, urlunparse
 from werkzeug.exceptions import HTTPException
 from flask_compress import Compress
 from pymongo import MongoClient, DESCENDING
@@ -1120,6 +1121,65 @@ def _compute_file_etag(doc: Dict[str, Any]) -> str:
     except Exception:
         # Fallback: time-based weak tag
         return f'W/"{int(time.time())}"'
+
+
+_SOURCE_URL_SCHEMES = {'http', 'https'}
+
+
+def _normalize_source_url_value(raw: str) -> Tuple[Optional[str], Optional[str]]:
+    """מאמת ומנרמל קישור מקור של משתמש (http/https בלבד)."""
+    value = (raw or '').strip()
+    if not value:
+        return None, None
+
+    candidate = value
+    if candidate.startswith('//'):
+        candidate = f'https:{candidate}'
+    elif '://' not in candidate:
+        candidate = f'https://{candidate}'
+
+    if any(ch.isspace() for ch in candidate):
+        return None, 'קישור למקור לא יכול להכיל רווחים'
+
+    try:
+        parsed = urlparse(candidate)
+    except Exception:
+        return None, 'קישור למקור אינו תקין'
+
+    scheme = (parsed.scheme or '').lower()
+    if scheme not in _SOURCE_URL_SCHEMES:
+        return None, 'ניתן להזין רק קישורי http או https'
+
+    netloc = (parsed.netloc or '').strip()
+    if not netloc or ' ' in netloc:
+        return None, 'שם המארח בקישור אינו תקין'
+
+    cleaned = urlunparse((
+        scheme,
+        netloc,
+        parsed.path or '',
+        parsed.params or '',
+        parsed.query or '',
+        parsed.fragment or '',
+    ))
+    return cleaned, None
+
+
+def _extract_source_hostname(url: str) -> str:
+    """מחזיר שם מארח לתצוגה בלחצן הקישור."""
+    if not url:
+        return ''
+    try:
+        parsed = urlparse(url)
+    except Exception:
+        return ''
+    host = (parsed.netloc or '').strip()
+    if not host:
+        return ''
+    host = host.split('@')[-1]
+    if ':' in host:
+        host = host.split(':', 1)[0]
+    return host
 
 
 # --- Ensure indexes for code_snippets once per process ---
@@ -5527,7 +5587,9 @@ def view_file(file_id):
                                  'lines': len(code.splitlines()),
                                  'created_at': format_datetime_display(file.get('created_at')),
                                  'updated_at': format_datetime_display(file.get('updated_at')),
-                                 'version': file.get('version', 1)
+                                 'version': file.get('version', 1),
+                                 'source_url': file.get('source_url') or '',
+                                 'source_url_host': _extract_source_hostname(file.get('source_url')),
                              },
                              highlighted_code='<div class="alert alert-info" style="text-align: center; padding: 3rem;"><i class="fas fa-file-alt" style="font-size: 3rem; margin-bottom: 1rem;"></i><br>הקובץ גדול מדי לתצוגה (' + format_file_size(len(code.encode('utf-8'))) + ')<br><br>ניתן להוריד את הקובץ לצפייה מקומית</div>',
                              syntax_css='')
@@ -5551,7 +5613,9 @@ def view_file(file_id):
                                  'lines': 0,
                                  'created_at': format_datetime_display(file.get('created_at')),
                                  'updated_at': format_datetime_display(file.get('updated_at')),
-                                 'version': file.get('version', 1)
+                                 'version': file.get('version', 1),
+                                 'source_url': file.get('source_url') or '',
+                                 'source_url_host': _extract_source_hostname(file.get('source_url')),
                              },
                              highlighted_code='<div class="alert alert-warning" style="text-align: center; padding: 3rem;"><i class="fas fa-lock" style="font-size: 3rem; margin-bottom: 1rem;"></i><br>קובץ בינארי - לא ניתן להציג את התוכן<br><br>ניתן להוריד את הקובץ בלבד</div>',
                              syntax_css='')
@@ -5609,6 +5673,8 @@ def view_file(file_id):
         'updated_at': format_datetime_display(file.get('updated_at')),
         'version': file.get('version', 1),
         'is_favorite': bool(file.get('is_favorite', False)),
+        'source_url': file.get('source_url') or '',
+        'source_url_host': _extract_source_hostname(file.get('source_url')),
     }
     
     html = render_template('view_file.html',
@@ -5893,10 +5959,26 @@ def edit_file_page(file_id):
             description = (request.form.get('description') or '').strip()
             raw_tags = (request.form.get('tags') or '').strip()
             tags = [t.strip() for t in re.split(r'[,#\n]+', raw_tags) if t.strip()] if raw_tags else list(file.get('tags') or [])
+            raw_source_url = request.form.get('source_url') or ''
+            source_url_value = raw_source_url.strip()
+            source_url_state = (request.form.get('source_url_touched') or '').strip().lower()
+            source_url_was_edited = source_url_state == 'edited'
+            clean_source_url = None
+            source_url_removed = False
+            if source_url_value:
+                clean_source_url, source_url_err = _normalize_source_url_value(source_url_value)
+                if source_url_err:
+                    error = source_url_err
+                elif clean_source_url:
+                    source_url_value = clean_source_url
+            elif source_url_was_edited:
+                source_url_removed = True
+            if source_url_was_edited:
+                file['source_url'] = source_url_value
 
-            if not file_name:
+            if not file_name and not error:
                 error = 'יש להזין שם קובץ'
-            elif not code:
+            elif not code and not error:
                 error = 'יש להזין תוכן קוד'
             else:
                 # זיהוי שפה בסיסי אם לא סופק
@@ -6060,6 +6142,15 @@ def edit_file_page(file_id):
                     'updated_at': now,
                     'is_active': True,
                 }
+                prev_source = None
+                try:
+                    prev_source = (prev or file or {}).get('source_url')
+                except Exception:
+                    prev_source = None
+                if clean_source_url:
+                    new_doc['source_url'] = clean_source_url
+                elif not source_url_removed and prev_source:
+                    new_doc['source_url'] = prev_source
                 try:
                     res = db.code_snippets.insert_one(new_doc)
                     if res and getattr(res, 'inserted_id', None):
@@ -6086,6 +6177,7 @@ def edit_file_page(file_id):
         'description': file.get('description') or '',
         'tags': file.get('tags') or [],
         'version': file.get('version', 1),
+        'source_url': file.get('source_url') or '',
     }
 
     return render_template('edit_file.html',
@@ -6583,6 +6675,7 @@ def upload_file_web():
     description_value = ''
     tags_value = ''
     code_value = ''
+    source_url_value = ''
     if request.method == 'POST':
         try:
             file_name = (request.form.get('file_name') or '').strip()
@@ -6591,6 +6684,20 @@ def upload_file_web():
             description = (request.form.get('description') or '').strip()
             raw_tags = (request.form.get('tags') or '').strip()
             tags = [t.strip() for t in re.split(r'[,#\n]+', raw_tags) if t.strip()] if raw_tags else []
+            raw_source_url = request.form.get('source_url') or ''
+            source_url_value = raw_source_url.strip()
+            source_url_state = (request.form.get('source_url_touched') or '').strip().lower()
+            source_url_was_edited = source_url_state == 'edited'
+            clean_source_url = None
+            source_url_removed = False
+            if source_url_value:
+                clean_source_url, source_url_err = _normalize_source_url_value(source_url_value)
+                if source_url_err:
+                    error = source_url_err
+                elif clean_source_url:
+                    source_url_value = clean_source_url
+            elif source_url_was_edited:
+                source_url_removed = True
 
             # שמור את הערכים שהוזנו לצורך שחזור בטופס
             file_name_value = file_name
@@ -6640,7 +6747,7 @@ def upload_file_web():
             if not had_upload_too_large:
                 code_value = code  # עדכן גם את ערך השחזור לאחר נרמול, אלא אם קובץ היה גדול מדי
 
-            if not file_name:
+            if not file_name and not error:
                 error = 'יש להזין שם קובץ'
             elif not code and not error:
                 error = 'יש להזין תוכן קוד'
@@ -6815,6 +6922,12 @@ def upload_file_web():
                     'updated_at': now,
                     'is_active': True,
                 }
+                if clean_source_url:
+                    doc['source_url'] = clean_source_url
+                elif not source_url_removed:
+                    prev_source = (prev or {}).get('source_url')
+                    if prev_source:
+                        doc['source_url'] = prev_source
                 try:
                     res = db.code_snippets.insert_one(doc)
                 except Exception as _e:
@@ -6857,6 +6970,7 @@ def upload_file_web():
         description_value=description_value,
         tags_value=tags_value,
         code_value=code_value,
+        source_url_value=source_url_value,
     )
 
 @app.route('/api/favorite/toggle/<file_id>', methods=['POST'])
