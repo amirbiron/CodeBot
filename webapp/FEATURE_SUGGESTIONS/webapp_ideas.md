@@ -24,7 +24,7 @@
 | 3 | File Activity Heatmap | מדגיש קבצים פעילים/רדומים דרך הנתונים הקיימים | בינוני |
 | 4 | Maintenance Console | הרצת סקריפטי תחזוקה דרך UI מאובטח | בינוני-גבוה |
 | 5 | Collections Kanban View | גרירה בין אוספים וארגון חזותי | בינוני |
-| 6 | CodeShot Presets | יצירת תמונות קוד בקליק אחד | נמוך-בינוני |
+| 6 | Upload Recipes & Auto-Metadata | מעלה קבצים עם מילוי שדות חכם | נמוך-בינוני |
 
 ---
 
@@ -120,28 +120,28 @@
 
 ---
 
-## 6. 🖼️ CodeShot Presets (תמונות קוד בקליק)
-**הבעיה:** למרות שקיים שירות `services/image_generator.py` והגדרות ב-`config/image_settings.yaml`, אין ממשק מהיר להפוך קוד לתמונה לשיתוף בסליידים/טלגרם. משתמשים עושים צילום מסך ידני.
+## 6. 📤 Upload Recipes & Auto-Metadata
+**הבעיה:** דף `upload.html` סומך על המשתמש שימלא ידנית שם, תגיות, שפה ותיאור. בפועל, הרבה קבצים מגיעים ללא מטאדאטה או עם שגיאות (למשל שפה לא מזוהה, תיאור חסר), מה שמקשה על החיפוש והסינון בהמשך.
 
-**הפתרון:**
-- להוסיף כפתור "ייצא תמונה" ב-`view_file.html` ובתצוגת Markdown. לחיצה פותחת מודל עם Presets ("Slack", "מצגת", "Dark Tweet").
-- המשתמש בוחר preset → השרת יוצר משימה (`POST /api/code-image`) שמריצה את `CodeImageGenerator` עם theme וגודל תואמים להגדרות בקובץ הקונפיג.
-- לאחר יצירה – הצגת preview ושמירת history (אפשר להחזיק ב-`tmp/` עם TTL ולהציע "העתק URL"/"הורד").
+**הפתרון:** להוסיף "מתכוני העלאה" (Recipes) שמזהים את סוג הקובץ וממלאים מראש שדות מומלצים:
+- Detect & Fill: ניתוח קובץ בצד לקוח (MIME + Regex) שמציע שפה ותגיות (למשל `requirements.txt` → Python, `docker-compose.yml` → DevOps).
+- Templates: כפתור "החל מתכון" שמוסיף תיאור קצר, הצעות לטאגים ואייקון מתאים, בדומה ל-`scripts/import_snippets_from_markdown.py` שמבצע parsing חכם.
+- Validation Assistant: התייחסות לכללים מה-`config/error_signatures.yml`/`alerts.yml` כדי להזהיר מראש על טעויות נפוצות (למשל שימוש בסיסמה גלויה).
 
 **איך לממש:**
-- Backend: Blueprint חדש `code_image_bp` או הרחבה ל-`code_service`. שימוש ב-ThreadPool שכבר קיים במחלקה (ראה `ThreadPoolExecutor` ב-`image_generator.py`).
-- Frontend: מודול קטן ב-`static/js/card-preview.js` שמגיב ללחיצה ופותח מודל (אפשר reuse מרכיב ההעלאה). אפשר להוסיף גם קיצור `Shift+I`.
-- הגדרות: מיפוי preset→theme→width נשען על `config/image_settings.yaml` כדי לשמור אחידות.
+- Frontend: הרחבה ל-`static/js/upload.js` (או קובץ חדש) שמבצע אנליזה בסיסית לפני השליחה. ניתן להיעזר בספרייה lightweight ל-detect language לפי סיומת/תוכן.
+- Backend: Endpoint `POST /api/upload/inspect` שמקבל קובץ זמני ומחזיר הצעות (שפה, תגיות, הצעת תיאור). reuse של לוגיקה קיימת ב-`scripts/import_snippets_from_markdown.py` לזיהוי כותרות/סיבות.
+- UX: תיבת צד שמציגה Recipe cards ("תיעוד", "DevOps", "Front-end") עם תיאור קצר ולחצן "החל". קיצור `Shift+R` להחלת המתכון האחרון.
 
 **מדדים:**
-- ≥30% מהמשתמשים הפעילים משתפים לפחות תמונה אחת בשבוע.
-- מדד NPS למשתמשי מצגות/בלוגרים עולה (מדידה איכותית).
+- ≥70% מהקבצים החדשים מגיעים עם לפחות תגית אחת ותיאור (שיפור ביחס למצב נוכחי).
+- ירידה של 40% בזמן שמושקע בעריכת מטאדאטה אחרי העלאה (נמדד ב-telemetry בדף `files.html`/`edit_file.html`).
 
 ---
 
 ## ✔️ סיכום והמלצות
-1. להתחיל ב-Workspace Scenes ו-Reading Queue – שינויי UI בלבד עם ערך מיידי.
-2. במקביל להרים את Error Badges + Maintenance Console עבור אדמין (מקטין סיכון תקלות).
-3. בהמשך להוסיף Collections Kanban ו-CodeShot Presets כתוספי חוויית משתמש.
+1. להתחיל ב-Workspace Scenes ובשדרוג ה-Workspace Shelf – שינויי UI בלבד שמעלים פרודוקטיביות מידית.
+2. במקביל להרים את Maintenance Console ואת File Activity Heatmap עבור אדמין ומשתמשי כוח.
+3. בהמשך להוסיף Collections Kanban ו-Upload Recipes כדי לשדרג ארגון והעלאה.
 
 כך נשיג גם יעילות יומיומית למשתמש הקצה וגם כלים טובים יותר לצוות שמתחזק את המערכת.
