@@ -227,24 +227,24 @@
             <i class="fas fa-exchange-alt"></i>
             <span>${this.currentEditor === 'simple' ? 'עורך מתקדם' : 'עורך פשוט'}</span>
           </button>
-          <div class="editor-info">
-            <span class="editor-info-primary${this.currentEditor === 'codemirror' ? ' is-keyboard-hint' : ''}">${this.currentEditor === 'codemirror' ? '<i class="fas fa-keyboard"></i> קיצורי מקלדת זמינים' : '<i class="fas fa-info-circle"></i> עורך טקסט בסיסי'}</span>
-            <span class="editor-info-status" aria-live="polite"></span>
+          <div class="editor-clipboard-actions" role="group" aria-label="פעולות עריכה">
+            <button type="button" class="btn-editor-clip btn-editor-select" title="בחר את כל הקוד">
+              <i class="fas fa-arrows-alt"></i>
+              <span>בחר הכל</span>
+            </button>
+            <button type="button" class="btn-editor-clip btn-editor-copy" title="העתק את הקוד">
+              <i class="far fa-copy"></i>
+              <span>העתק</span>
+            </button>
+            <button type="button" class="btn-editor-clip btn-editor-paste" title="הדבק מהלוח">
+              <i class="fas fa-paste"></i>
+              <span>הדבק</span>
+            </button>
           </div>
         </div>
-        <div class="editor-clipboard-actions" role="group" aria-label="פעולות עריכה">
-          <button type="button" class="btn-editor-clip btn-editor-select" title="בחר את כל הקוד">
-            <i class="fas fa-arrows-alt"></i>
-            <span>בחר הכל</span>
-          </button>
-          <button type="button" class="btn-editor-clip btn-editor-copy" title="העתק את הקוד">
-            <i class="far fa-copy"></i>
-            <span>העתק</span>
-          </button>
-          <button type="button" class="btn-editor-clip btn-editor-paste" title="הדבק מהלוח">
-            <i class="fas fa-paste"></i>
-            <span>הדבק</span>
-          </button>
+        <div class="editor-info">
+          <span class="editor-info-primary${this.currentEditor === 'codemirror' ? ' is-keyboard-hint' : ''}">${this.currentEditor === 'codemirror' ? '<i class="fas fa-keyboard"></i> קיצורי מקלדת זמינים' : '<i class="fas fa-info-circle"></i> עורך טקסט בסיסי'}</span>
+          <span class="editor-info-status" aria-live="polite"></span>
         </div>
       `;
       const codeLabel = container.querySelector('label') || container;
