@@ -5978,9 +5978,9 @@ def edit_file_page(file_id):
 
             if not file_name and not error:
                 error = 'יש להזין שם קובץ'
-            elif not code and not error:
+            if not code and not error:
                 error = 'יש להזין תוכן קוד'
-            else:
+            if not error:
                 # זיהוי שפה בסיסי אם לא סופק
                 if not language or language == 'text':
                     try:
@@ -6749,9 +6749,9 @@ def upload_file_web():
 
             if not file_name and not error:
                 error = 'יש להזין שם קובץ'
-            elif not code and not error:
+            if not code and not error:
                 error = 'יש להזין תוכן קוד'
-            else:
+            if not error:
                 # זיהוי שפה בסיסי אם לא סופק
                 if not language or language == 'text':
                     try:
