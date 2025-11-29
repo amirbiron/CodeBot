@@ -51,6 +51,7 @@ from http_sync import request as http_request  # noqa: E402
 
 # נרמול טקסט/קוד לפני שמירה (הסרת תווים נסתרים, כיווניות, אחידות שורות)
 from utils import normalize_code, TimeUtils, detect_language_from_filename  # noqa: E402
+from user_stats import user_stats  # noqa: E402
 from webapp.activity_tracker import log_user_event  # noqa: E402
 
 # קונפיגורציה מרכזית (Pydantic Settings)
@@ -1978,6 +1979,43 @@ def _log_webapp_user_activity() -> None:
         log_user_event(int(user_id), username=username)
     except Exception:
         pass
+
+
+@app.route('/admin/stats')
+@admin_required
+def admin_stats_page():
+    """מסך אדמין להצגת פעילות משתמשים במערכת."""
+    fallback_summary = {'total_users': 0, 'active_today': 0, 'active_week': 0}
+    try:
+        summary_raw = user_stats.get_all_time_stats() or {}
+        summary = {
+            'total_users': int(summary_raw.get('total_users') or 0),
+            'active_today': int(summary_raw.get('active_today') or 0),
+            'active_week': int(summary_raw.get('active_week') or 0),
+        }
+        weekly_users = user_stats.get_weekly_stats() or []
+        weekly_limit = 100
+        displayed_users = weekly_users[:weekly_limit]
+        total_actions = sum(int(u.get('total_actions') or 0) for u in displayed_users)
+        return render_template(
+            'admin_stats.html',
+            summary=summary,
+            weekly_users=displayed_users,
+            weekly_limit=weekly_limit,
+            total_actions=total_actions,
+            generated_at=datetime.now(timezone.utc).strftime('%d/%m/%Y %H:%M'),
+        )
+    except Exception:
+        logger.exception("Error in admin stats page")
+        return render_template(
+            'admin_stats.html',
+            summary=fallback_summary,
+            weekly_users=[],
+            weekly_limit=0,
+            total_actions=0,
+            error="אירעה שגיאה בטעינת הנתונים. נסה שוב מאוחר יותר.",
+            generated_at=datetime.now(timezone.utc).strftime('%d/%m/%Y %H:%M'),
+        ), 500
 
 
 # --- Snippet library admin UI ---
