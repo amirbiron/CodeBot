@@ -896,7 +896,10 @@
               <a class="workspace-card__link" href="#" data-open="${escapeHtml(item.file_name || '')}">${escapeHtml(item.file_name || '')}</a>
             </div>
             <div class="workspace-card__meta">
-              <span class="workspace-card__tag"><span class="workspace-card__status-indicator" data-state="${escapeHtml(state)}"></span>${escapeHtml(workspaceStateLabel(state))}</span>
+              <span class="workspace-card__tag">
+                <span class="workspace-card__status-indicator" data-state="${escapeHtml(state)}"></span>
+                <span class="workspace-card__tag-text">${escapeHtml(workspaceStateLabel(state))}</span>
+              </span>
               ${item.note ? `<span>📝 ${escapeHtml(item.note)}</span>` : ''}
               ${item.pinned ? '<span>📌 מוצמד</span>' : ''}
             </div>
@@ -1025,6 +1028,22 @@
     });
   }
 
+  function refreshWorkspaceCardState(card, state){
+    if (!card) {
+      return;
+    }
+    const nextState = normalizeWorkspaceState(state);
+    card.setAttribute('data-state', nextState);
+    const indicator = card.querySelector('.workspace-card__status-indicator');
+    if (indicator) {
+      indicator.setAttribute('data-state', nextState);
+    }
+    const labelTextEl = card.querySelector('.workspace-card__tag-text');
+    if (labelTextEl) {
+      labelTextEl.textContent = workspaceStateLabel(nextState);
+    }
+  }
+
   function handleWorkspaceDrop(ctx, card, _from, to){
     if (!card || !to) {
       updateWorkspaceEmptyStates(ctx);
@@ -1042,7 +1061,7 @@
       return;
     }
     const name = card.getAttribute('data-name') || '';
-    card.setAttribute('data-state', newState);
+    refreshWorkspaceCardState(card, newState);
     updateWorkspaceEmptyStates(ctx);
     commitWorkspaceState(ctx, card, itemId, newState, prevState, name);
   }
@@ -1060,7 +1079,7 @@
       if (list) {
         list.appendChild(card);
       }
-      card.setAttribute('data-state', prevState);
+      refreshWorkspaceCardState(card, prevState);
       updateWorkspaceEmptyStates(ctx);
       const code = (err && err.code) || '';
       if (code === 'workspace_item_not_found') {
@@ -1085,8 +1104,16 @@
   }
 
   function updateWorkspaceEmptyStates(ctx){
-    Object.values(ctx.lists || {}).forEach((listEl) => {
-      listEl.dataset.empty = listEl.querySelector('.workspace-card') ? '0' : '1';
+    Object.entries(ctx.lists || {}).forEach(([state, listEl]) => {
+      const cards = listEl.querySelectorAll('.workspace-card').length;
+      listEl.dataset.empty = cards ? '0' : '1';
+      const column = listEl.closest('.workspace-column');
+      if (column) {
+        const countEl = column.querySelector('.workspace-column__count');
+        if (countEl) {
+          countEl.textContent = String(cards);
+        }
+      }
     });
   }
 
@@ -1102,7 +1129,7 @@
     const list = ctx.lists?.[targetState];
     if (!list) return;
     list.appendChild(card);
-    card.setAttribute('data-state', targetState);
+    refreshWorkspaceCardState(card, targetState);
     updateWorkspaceEmptyStates(ctx);
     commitWorkspaceState(ctx, card, itemId, targetState, prevState, card.getAttribute('data-name') || '');
   }
