@@ -51,6 +51,7 @@ from http_sync import request as http_request  # noqa: E402
 
 # נרמול טקסט/קוד לפני שמירה (הסרת תווים נסתרים, כיווניות, אחידות שורות)
 from utils import normalize_code, TimeUtils, detect_language_from_filename  # noqa: E402
+from webapp.activity_tracker import log_user_event  # noqa: E402
 
 # קונפיגורציה מרכזית (Pydantic Settings)
 try:  # שמירה על יציבות גם בסביבות דוקס/CI
@@ -1956,6 +1957,27 @@ def is_premium(user_id: int) -> bool:
         return user_id in premium_ids
     except Exception:
         return False
+
+
+def _log_webapp_user_activity() -> None:
+    """Best-effort logging של שימוש ב-WebApp לצורכי סטטיסטיקות."""
+    try:
+        user_id = session.get('user_id')
+    except Exception:
+        user_id = None
+    if not user_id:
+        return
+    username = None
+    try:
+        user_data = session.get('user_data') or {}
+        if isinstance(user_data, dict):
+            username = user_data.get('username')
+    except Exception:
+        username = None
+    try:
+        log_user_event(int(user_id), username=username)
+    except Exception:
+        pass
 
 
 # --- Snippet library admin UI ---
@@ -6204,6 +6226,7 @@ def edit_file_page(file_id):
                 try:
                     res = db.code_snippets.insert_one(new_doc)
                     if res and getattr(res, 'inserted_id', None):
+                        _log_webapp_user_activity()
                         return redirect(url_for('view_file', file_id=str(res.inserted_id)))
                     error = 'שמירת הקובץ נכשלה'
                 except Exception as _e:
@@ -6705,6 +6728,8 @@ def api_save_shared_file():
         except Exception:
             pass
 
+        _log_webapp_user_activity()
+
         return jsonify({'ok': True, 'file_id': inserted_id, 'file_name': safe_name, 'version': version})
     except Exception:
         return jsonify({'ok': False, 'error': 'שגיאה לא צפויה'}), 500
@@ -6983,6 +7008,7 @@ def upload_file_web():
                 except Exception as _e:
                     res = None
                 if res and getattr(res, 'inserted_id', None):
+                    _log_webapp_user_activity()
                     return redirect(url_for('view_file', file_id=str(res.inserted_id)))
                 error = 'שמירת הקובץ נכשלה'
         except Exception as e:

@@ -16,6 +16,7 @@ import html
 import logging
 
 from cache_manager import dynamic_cache, cache
+from webapp.activity_tracker import log_user_event
 try:
     from config import config as _cfg  # type: ignore
 except Exception:  # pragma: no cover
@@ -51,6 +52,29 @@ collections_bp = Blueprint('collections', __name__)
 # Alias for conventional import style in app registration
 # Some environments expect `collections_api.bp` by convention.
 bp = collections_bp
+
+
+# --- Activity logging ---
+@collections_bp.before_request
+def _log_collections_usage() -> None:
+    """נרשם רק עבור משתמשים מחוברים כדי להעשיר את סטטיסטיקות ה-Web."""
+    try:
+        user_id = session.get('user_id')
+    except Exception:
+        user_id = None
+    if not user_id:
+        return
+    username = None
+    try:
+        user_data = session.get('user_data') or {}
+        if isinstance(user_data, dict):
+            username = user_data.get('username')
+    except Exception:
+        username = None
+    try:
+        log_user_event(int(user_id), username=username)
+    except Exception:
+        pass
 
 
 # ==================== Helpers ====================
