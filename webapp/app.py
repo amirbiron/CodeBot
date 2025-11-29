@@ -1933,7 +1933,7 @@ def _build_snippet_export_payload(coll, *, include_pending: bool = False) -> Lis
             "id": str(doc.get("_id")) if doc.get("_id") is not None else "",
             "title": _norm(doc.get("title"), limit=180),
             "language": _norm(doc.get("language"), limit=40),
-            "description": _norm(doc.get("description"), limit=400),
+            "description": _norm(doc.get("description"), limit=1000),
             "status": _norm(doc.get("status"), limit=20) or "approved",
         }
         payload.append(item)
