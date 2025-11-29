@@ -6,10 +6,16 @@
   overflow: hidden;
 }
 .cm-editor { min-height: 400px; max-height: 60vh; font-family: 'Fira Code','Consolas',monospace; }
-.editor-switcher { display:flex; justify-content: space-between; align-items:center; margin:.5rem 0; padding:.5rem; background: rgba(255,255,255,0.05); border-radius:8px; }
+.editor-switcher { display:flex; flex-direction:column; gap:.35rem; margin:.5rem 0; padding:.5rem; background: rgba(255,255,255,0.05); border-radius:8px; }
+.editor-switcher-row { display:flex; justify-content: space-between; align-items:center; gap:.5rem; flex-wrap:wrap; }
 .btn-switch-editor { padding:.5rem 1rem; background: rgba(100,100,255,0.2); border:1px solid rgba(100,100,255,0.5); border-radius:6px; color:#fff; cursor:pointer; }
 .btn-switch-editor:hover { background: rgba(100,100,255,0.3); }
-.editor-info { font-size:.85rem; opacity:.8; }
+.editor-clipboard-actions { display:flex; gap:.5rem; flex-wrap:wrap; }
+.btn-editor-clip { padding:.35rem .75rem; border-radius:6px; border:1px solid rgba(255,255,255,0.25); background: rgba(255,255,255,0.08); color:#fff; font-size:.85rem; display:flex; align-items:center; gap:.35rem; cursor:pointer; transition: background .2s ease, border-color .2s ease; }
+.btn-editor-clip:hover { background: rgba(255,255,255,0.15); border-color: rgba(255,255,255,0.4); }
+.btn-editor-clip:disabled { opacity:.6; cursor:not-allowed; }
+.editor-info { display:flex; flex-direction:column; gap:.15rem; font-size:.85rem; opacity:.85; min-width:0; }
+.editor-info-status { font-size:.8rem; color: var(--primary, #8ec5ff); min-height:1.1em; }
 .editor-loading { position: relative; min-height: 48px; display:flex; align-items:center; gap:.5rem; color:#fff; }
 .editor-transitioning { opacity: .7; }
 /* בזמן טעינה – ננעל רק את אזור העורך, לא את כפתור ההחלפה */
@@ -19,7 +25,12 @@
 .cm-activeLineGutter { background: rgba(100,100,255,0.2); }
 .cm-editor.cm-focused { outline: 2px solid rgba(100,100,255,0.5); }
 .cm-selectionBackground { background-color: rgba(100,100,255,0.3) !important; }
-@media (max-width: 768px){ .cm-editor { max-height: 50vh; font-size: 14px; } .editor-switcher { flex-direction: column; gap:.5rem; } }
+@media (max-width: 768px){
+  .cm-editor { max-height: 50vh; font-size: 14px; }
+  .editor-switcher-row { flex-direction: column; align-items: stretch; }
+  .editor-clipboard-actions { width: 100%; }
+  .btn-editor-clip { flex: 1 1 auto; justify-content: center; }
+}
 
 /* Dark Mode CodeMirror */
 [data-theme="dark"] .codemirror-container,
