@@ -130,7 +130,7 @@ http://localhost:5000
    - Name: `code-keeper-webapp`
    - Environment: Python
    - Build Command: `cd webapp && pip install -r ../requirements/production.txt`
-   - Start Command: `cd webapp && gunicorn app:app --bind 0.0.0.0:$PORT`
+   - Start Command: `./scripts/start_webapp.sh` _(דואג ל-ASSET_VERSION ול-Warmup)_
 
 2. **הגדר משתני סביבה:**
    - `SECRET_KEY` - מפתח סודי ל-Flask sessions
@@ -148,6 +148,14 @@ http://localhost:5000
 
 3. **Deploy!**
 
+### 🔥 Cache Busting & Warmup אוטומטי
+
+`scripts/start_webapp.sh` הוא ה-Start Command המומלץ:
+
+- לפני העלייה הוא מחשב `ASSET_VERSION` דינמי (בברירת מחדל `RENDER_GIT_COMMIT` מקוצר, ואז `git rev-parse`, ולבסוף timestamp) ומייצא אותו ל-Flask לצורך Cache Busting של CSS/JS.
+- מיד אחרי הפעלת Gunicorn הוא מבצע קריאת `curl` best-effort ל-`/healthz` (דרך `WEBAPP_URL` או `http://127.0.0.1:$PORT`) כדי לחמם חיבורי Mongo ואינדקסים בזמן שהדיפלוי עדיין מסומן כ-In Progress.
+- ניתן לכוון את ההתנהגות עם משתני סביבה: `ASSET_VERSION` (override מפורש), `WEBAPP_ENABLE_WARMUP=0` לביטול, `WEBAPP_WARMUP_URL` ליעד מותאם, `WEBAPP_WARMUP_MAX_ATTEMPTS` ו-`WEBAPP_WARMUP_DELAY_SECONDS` ללולאת ה-warmup.
+
 ## משתני סביבה 🔐
 
 | משתנה | תיאור | חובה | ברירת מחדל |
@@ -158,6 +166,11 @@ http://localhost:5000
 | `BOT_USERNAME` | שם המשתמש של הבוט | ❌ | `my_code_keeper_bot` |
 | `DATABASE_NAME` | שם מסד הנתונים | ❌ | `code_keeper_bot` |
 | `WEBAPP_URL` | כתובת ה-Web App | ❌ | `https://code-keeper-webapp.onrender.com` |
+| `ASSET_VERSION` | מזהה build לקבצים סטטיים (מוגדר אוטומטית ע"י `scripts/start_webapp.sh`) | ❌ | קומיט נוכחי |
+| `WEBAPP_ENABLE_WARMUP` | הפעלת warmup אחרי העלייה (`1`/`0`) | ❌ | `1` |
+| `WEBAPP_WARMUP_URL` | יעד ה-curl לחימום (ברירת מחדל: `${WEBAPP_URL}/healthz` או `http://127.0.0.1:$PORT/healthz`) | ❌ | - |
+| `WEBAPP_WARMUP_MAX_ATTEMPTS` | מספר ניסיונות warmup | ❌ | `15` |
+| `WEBAPP_WARMUP_DELAY_SECONDS` | השהיה בין ניסיונות warmup (שניות) | ❌ | `2` |
 | `UPTIME_PROVIDER` | ספק זמינות חיצוני (`betteruptime`/`uptimerobot`) | ❌ | - |
 | `UPTIME_API_KEY` | מפתח API ל‑uptime | ❌ | - |
 | `UPTIME_MONITOR_ID` | מזהה monitor | ❌ | - |
