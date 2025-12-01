@@ -391,6 +391,14 @@ def _update_ewma(duration_seconds: float) -> float:
         return float(duration_seconds)
 
 
+def get_avg_response_time_seconds() -> float:
+    """Return the smoothed average HTTP response time (seconds)."""
+    try:
+        return max(0.0, float(_EWMA_RT or 0.0))
+    except Exception:
+        return 0.0
+
+
 def _status_label_from_code(status_code: int | None, override: str | None = None) -> str:
     try:
         if override:
