@@ -153,7 +153,7 @@ http://localhost:5000
 `scripts/start_webapp.sh` הוא ה-Start Command המומלץ:
 
 - לפני העלייה הוא מחשב `ASSET_VERSION` דינמי (בברירת מחדל `RENDER_GIT_COMMIT` מקוצר, ואז `git rev-parse`, ולבסוף timestamp) ומייצא אותו ל-Flask לצורך Cache Busting של CSS/JS.
-- מיד אחרי הפעלת Gunicorn הוא מבצע קריאת `curl` best-effort ל-`/healthz` (דרך `WEBAPP_URL` או `http://127.0.0.1:$PORT`) כדי לחמם חיבורי Mongo ואינדקסים בזמן שהדיפלוי עדיין מסומן כ-In Progress.
+- מיד אחרי הפעלת Gunicorn הוא מבצע קריאת `curl` best-effort ל-`/healthz` (ברירת מחדל `http://127.0.0.1:$PORT` כדי לוודא שמחממים את ה-instance המקומי; ניתן להגדיר יעד אחר עם `WEBAPP_WARMUP_URL`) כדי לחמם חיבורי Mongo ואינדקסים בזמן שהדיפלוי עדיין מסומן כ-In Progress.
 - ניתן לכוון את ההתנהגות עם משתני סביבה: `ASSET_VERSION` (override מפורש), `WEBAPP_ENABLE_WARMUP=0` לביטול, `WEBAPP_WARMUP_URL` ליעד מותאם, `WEBAPP_WARMUP_MAX_ATTEMPTS` ו-`WEBAPP_WARMUP_DELAY_SECONDS` ללולאת ה-warmup.
 
 ## משתני סביבה 🔐
@@ -168,7 +168,7 @@ http://localhost:5000
 | `WEBAPP_URL` | כתובת ה-Web App | ❌ | `https://code-keeper-webapp.onrender.com` |
 | `ASSET_VERSION` | מזהה build לקבצים סטטיים (מוגדר אוטומטית ע"י `scripts/start_webapp.sh`) | ❌ | קומיט נוכחי |
 | `WEBAPP_ENABLE_WARMUP` | הפעלת warmup אחרי העלייה (`1`/`0`) | ❌ | `1` |
-| `WEBAPP_WARMUP_URL` | יעד ה-curl לחימום (ברירת מחדל: `${WEBAPP_URL}/healthz` או `http://127.0.0.1:$PORT/healthz`) | ❌ | - |
+| `WEBAPP_WARMUP_URL` | יעד ה-curl לחימום (ברירת מחדל: `http://127.0.0.1:$PORT/healthz`) | ❌ | - |
 | `WEBAPP_WARMUP_MAX_ATTEMPTS` | מספר ניסיונות warmup | ❌ | `15` |
 | `WEBAPP_WARMUP_DELAY_SECONDS` | השהיה בין ניסיונות warmup (שניות) | ❌ | `2` |
 | `UPTIME_PROVIDER` | ספק זמינות חיצוני (`betteruptime`/`uptimerobot`) | ❌ | - |

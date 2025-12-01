@@ -55,11 +55,7 @@ warmup() {
   fi
   local warmup_url="${WEBAPP_WARMUP_URL:-}"
   if [ -z "$warmup_url" ]; then
-    if [ -n "${WEBAPP_URL:-}" ]; then
-      warmup_url="${WEBAPP_URL%/}/healthz"
-    else
-      warmup_url="http://127.0.0.1:${PORT}/healthz"
-    fi
+    warmup_url="http://127.0.0.1:${PORT}/healthz"
   fi
   local attempts="${WEBAPP_WARMUP_MAX_ATTEMPTS:-15}"
   local delay="${WEBAPP_WARMUP_DELAY_SECONDS:-2}"
