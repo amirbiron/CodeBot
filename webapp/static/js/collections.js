@@ -461,6 +461,13 @@
     sidebarShellEl = host || document.querySelector('.collections-sidebar');
   }
 
+  function resolveSidebarContainer(){
+    if (!sidebarContainerEl || !sidebarContainerEl.isConnected) {
+      sidebarContainerEl = document.getElementById('collectionsSidebar');
+    }
+    return sidebarContainerEl;
+  }
+
   function setSidebarDragVisual(active){
     if (!sidebarShellEl || !sidebarShellEl.isConnected) {
       sidebarShellEl = document.querySelector('.collections-sidebar');
@@ -572,13 +579,70 @@
 
   function findSidebarButtonFromPoint(x, y){
     if (typeof document === 'undefined') return null;
-    const el = document.elementFromPoint(x, y);
-    if (!el) return null;
-    if (!sidebarContainerEl || !sidebarContainerEl.isConnected) {
-      sidebarContainerEl = document.getElementById('collectionsSidebar');
+    let el = null;
+    try {
+      el = document.elementFromPoint(x, y);
+    } catch (_err) {
+      el = null;
     }
-    if (!sidebarContainerEl) return null;
-    return el.closest('#collectionsSidebar .sidebar-item');
+    if (el) {
+      const directBtn = el.closest('#collectionsSidebar .sidebar-item');
+      if (directBtn) {
+        return directBtn;
+      }
+    }
+    return findSidebarButtonByBounds(x, y);
+  }
+
+  function findSidebarButtonByBounds(x, y){
+    if (typeof x !== 'number' || typeof y !== 'number') {
+      return null;
+    }
+    const container = resolveSidebarContainer();
+    if (!container) {
+      return null;
+    }
+    const rect = container.getBoundingClientRect();
+    if (!rect) {
+      return null;
+    }
+    const padding = 16;
+    const insideSidebar = (
+      x >= rect.left - padding &&
+      x <= rect.right + padding &&
+      y >= rect.top - padding &&
+      y <= rect.bottom + padding
+    );
+    if (!insideSidebar) {
+      return null;
+    }
+    const buttons = container.querySelectorAll('.sidebar-item');
+    let fallbackBtn = null;
+    let smallestDelta = Number.POSITIVE_INFINITY;
+    for (let i = 0; i < buttons.length; i += 1) {
+      const btn = buttons[i];
+      if (!(btn instanceof HTMLElement)) continue;
+      const btnRect = btn.getBoundingClientRect();
+      if (!btnRect) continue;
+      const tolerance = 8;
+      const withinBtn = (
+        x >= btnRect.left - tolerance &&
+        x <= btnRect.right + tolerance &&
+        y >= btnRect.top - tolerance &&
+        y <= btnRect.bottom + tolerance
+      );
+      if (withinBtn) {
+        return btn;
+      }
+      const centerY = (btnRect.top + btnRect.bottom) / 2;
+      const delta = Math.abs(centerY - y);
+      const withinHorizontal = x >= btnRect.left - padding && x <= btnRect.right + padding;
+      if (withinHorizontal && delta < smallestDelta) {
+        smallestDelta = delta;
+        fallbackBtn = btn;
+      }
+    }
+    return fallbackBtn;
   }
 
   function updateSidebarHoverFromPoint(x, y){
