@@ -12,7 +12,7 @@
         body {
             margin: 0;
             padding: 32px;
-            background: #f2efe9;
+            background: #ffffff;
             color: #1f2328;
             line-height: 1.5;
         }
@@ -164,7 +164,9 @@
         .token.operator { color: var(--token-operator, var(--text-color)); }
 
         /* ==================== משטחים לתצוגה ==================== */
-        .surface-classic { --surface-bg: #eef3fb; --surface-border: #d0d7de; --surface-text: #4c5866; }
+        .surface-classic { --surface-bg: #ffffff; --surface-border: #d0d7de; --surface-text: #4c5866; }
+        .surface-forest { --surface-bg: #ffffff; --surface-border: #d0d7de; --surface-text: #4c5866; }
+        .surface-ocean { --surface-bg: #ffffff; --surface-border: #d0d7de; --surface-text: #4c5866; }
         .surface-warm { --surface-bg: #fdf6e3; --surface-border: #dccfb6; --surface-text: #5f5a4e; }
         .surface-brown-light { --surface-bg: #f5e6d3; --surface-border: #e0cdb4; --surface-text: #6b5d4f; }
         .surface-brown-medium { --surface-bg: #e8d4b0; --surface-border: #d4c19c; --surface-text: #5d5040; }
@@ -193,6 +195,46 @@
             --token-function: #8250df;
             --token-comment: #6e7781;
             --token-number: #0550ae;
+        }
+
+        .theme-forest {
+            --block-bg: #e6edf4;
+            --code-bg: #f6f8fa;
+            --text-color: #24292f;
+            --border-color: #d0d7de;
+            --header-bg: #e6edf4;
+            --header-color: #57606a;
+            --badge-bg: #dce3eb;
+            --badge-color: #24292f;
+            --copy-border: #d0d7de;
+            --copy-bg: #ffffff;
+            --copy-color: #57606a;
+            --copy-hover-bg: #e4ebf2;
+            --token-keyword: #22863a;
+            --token-string: #116329;
+            --token-function: #0969da;
+            --token-comment: #6e7781;
+            --token-number: #0550ae;
+        }
+
+        .theme-ocean {
+            --block-bg: #e6edf4;
+            --code-bg: #f6f8fa;
+            --text-color: #24292f;
+            --border-color: #d0d7de;
+            --header-bg: #e6edf4;
+            --header-color: #57606a;
+            --badge-bg: #dce3eb;
+            --badge-color: #24292f;
+            --copy-border: #d0d7de;
+            --copy-bg: #ffffff;
+            --copy-color: #57606a;
+            --copy-hover-bg: #e4ebf2;
+            --token-keyword: #0a558c;
+            --token-string: #035388;
+            --token-function: #1f6feb;
+            --token-comment: #6e7781;
+            --token-number: #005cc5;
         }
 
         /* ==================== Solarized Light ==================== */
@@ -373,7 +415,7 @@
     <main>
         <h1>קובץ בדיקה לערכות Markdown</h1>
         <p class="lead">
-            כאן ניתן לראות אחד לאחד את חמשת הרקעים החומים שסיפקת בקבצי ה־HTML, וחמש ערכות מצב מתקדמות (One Dark, Dracula, Nord, Rose Pine Dawn).
+            כאן ניתן לראות אחד לאחד את חמשת הרקעים החומים שסיפקת בקבצי ה־HTML, יחד עם שלושת המצבים הקלאסיים (Classic, יער, אוקיינוס) ושאר ערכות החשוכות.
             לכל ערכה יש אותם מבני CSS וכפתור העתקה כדי שנוכל להעתיק את ההגדרות ישירות למרקדאון.
         </p>
 
@@ -396,8 +438,43 @@
             </div>
         </section>
 
+        <section class="preview-card surface-forest">
+            <h2>2. יער · GitHub Light Forest</h2>
+            <p>אותו בסיס קלאסי עם הדגשות ירקרקות שמיישרות קו עם מצב “יער”.</p>
+            <div class="code-block-wrapper theme-forest">
+                <div class="code-header">
+                    <span class="lang-label">python</span>
+                    <button class="copy-btn" onclick="copyCode(this)" title="העתק">
+                        <svg class="icon-copy" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
+                        <svg class="icon-check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
+                    </button>
+                </div>
+                <pre><code><span class="token comment"># חיבור ליער של שרתים</span>
+<span class="token keyword">def</span> <span class="token function">seed_forest</span>(nodes):
+    <span class="token keyword">for</span> node <span class="token keyword">in</span> nodes:
+        <span class="token keyword">print</span>(node)</code></pre>
+            </div>
+        </section>
+
+        <section class="preview-card surface-ocean">
+            <h2>3. אוקיינוס · GitHub Light Ocean</h2>
+            <p>גרסת האוקיינוס משתמשת באותו רקע, עם גווני כחול עמוקים יותר להדגשות.</p>
+            <div class="code-block-wrapper theme-ocean">
+                <div class="code-header">
+                    <span class="lang-label">python</span>
+                    <button class="copy-btn" onclick="copyCode(this)" title="העתק">
+                        <svg class="icon-copy" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
+                        <svg class="icon-check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
+                    </button>
+                </div>
+                <pre><code><span class="token comment"># מעקב אחר גלי רענון</span>
+<span class="token keyword">def</span> <span class="token function">stream_ocean</span>(samples):
+    buffer = [s <span class="token keyword">for</span> s <span class="token keyword">in</span> samples <span class="token keyword">if</span> s]</code></pre>
+            </div>
+        </section>
+
         <section class="preview-card surface-warm">
-            <h2>2. Warm · Solarized Light</h2>
+            <h2>4. Warm · Solarized Light</h2>
             <p>רקע בז' עדין, כותרת כהה יותר, והדגשת התחביר של Solarized.</p>
             <div class="code-block-wrapper theme-warm">
                 <div class="code-header">
@@ -418,7 +495,7 @@
         </section>
 
         <section class="preview-card surface-brown-light">
-            <h2>3. חום בהיר · #f5e6d3</h2>
+            <h2>5. חום בהיר · #f5e6d3</h2>
             <p>הרקע הראשון מהקובץ השני – מעט ורדרד עם טקסט כהה.</p>
             <div class="code-block-wrapper theme-brown-light">
                 <div class="code-header">
@@ -436,7 +513,7 @@
         </section>
 
         <section class="preview-card surface-brown-medium">
-            <h2>4. חום בינוני · #e8d4b0</h2>
+            <h2>6. חום בינוני · #e8d4b0</h2>
             <p>אותו צבע רקע מהדוגמה – טקסט כהה יותר ותקרה כהה.</p>
             <div class="code-block-wrapper theme-brown-medium">
                 <div class="code-header">
@@ -455,7 +532,7 @@
         </section>
 
         <section class="preview-card surface-brown-deep">
-            <h2>5. חום כהה · #d4b896</h2>
+            <h2>7. חום כהה · #d4b896</h2>
             <p>הרקע החום העמוק מהקובץ – שומר על אותם צבעים.</p>
             <div class="code-block-wrapper theme-brown-deep">
                 <div class="code-header">
@@ -475,7 +552,7 @@
         </section>
 
         <section class="preview-card surface-dark">
-            <h2>6. חשוך · One Dark</h2>
+            <h2>8. חשוך · One Dark</h2>
             <p>עכשיו יש קונטרסט ברור בין רקע הסקשן לבין הבלוק.</p>
             <div class="code-block-wrapper theme-one-dark">
                 <div class="code-header">
@@ -496,7 +573,7 @@ type BackoffMode = <span class="token string">"fast"</span> | <span class="token
         </section>
 
         <section class="preview-card surface-dracula">
-            <h2>7. נובלה · Dracula</h2>
+            <h2>9. נובלה · Dracula</h2>
             <p>כותרת כהה, הדגשה ורודה/צהובה כמו בעורך המקורי.</p>
             <div class="code-block-wrapper theme-dracula">
                 <div class="code-header">
@@ -515,7 +592,7 @@ pub struct Shard {
         </section>
 
         <section class="preview-card surface-nord">
-            <h2>8. מעומעם · Nord</h2>
+            <h2>10. מעומעם · Nord</h2>
             <p>גוונים כחולים-עדינים, עם מחרוזות ירקרקות.</p>
             <div class="code-block-wrapper theme-nord">
                 <div class="code-header">
@@ -533,7 +610,7 @@ type WindowedBuffer struct {
         </section>
 
         <section class="preview-card surface-rose">
-            <h2>9. Rose Pine Dawn</h2>
+            <h2>11. Rose Pine Dawn</h2>
             <p>פלטה ורדרדה-עדינה לחלוטין, כולל כפתור Copy בגוון מקורי.</p>
             <div class="code-block-wrapper theme-rose">
                 <div class="code-header">
