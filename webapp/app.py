@@ -241,16 +241,25 @@ def _record_startup_metric(name: str, duration_seconds: float | None, *, accumul
         duration_ms = max(0.0, float(duration_seconds) * 1000.0)
     except Exception:
         return
+    updated_value: float | None = None
     try:
         with _STARTUP_METRICS_LOCK:
             if accumulate:
-                _STARTUP_METRICS_MS[name] = duration_ms + _STARTUP_METRICS_MS.get(name, 0.0)
+                updated_value = duration_ms + _STARTUP_METRICS_MS.get(name, 0.0)
+                _STARTUP_METRICS_MS[name] = updated_value
             else:
                 existing = _STARTUP_METRICS_MS.get(name)
                 if existing is None or duration_ms > existing:
                     _STARTUP_METRICS_MS[name] = duration_ms
+                    updated_value = duration_ms
+                else:
+                    updated_value = existing
     except Exception:
         return
+    try:
+        record_startup_stage_metric(name, updated_value)
+    except Exception:
+        pass
 
 
 def _emit_startup_metrics_log(total_ms: float | None = None) -> None:
@@ -283,6 +292,10 @@ def _emit_startup_metrics_log(total_ms: float | None = None) -> None:
             except Exception:
                 total_ms = 0.0
         ordered_parts.append(f"total={int(round(total_ms or 0.0))}ms")
+        try:
+            record_startup_total_metric(total_ms)
+        except Exception:
+            pass
         logger.info("[startup-metrics] %s", " ".join(ordered_parts))
     except Exception:
         pass
@@ -729,6 +742,9 @@ try:
         note_first_request_latency,
         record_dependency_init,
         get_avg_response_time_seconds,
+        update_health_gauges,
+        record_startup_stage_metric,
+        record_startup_total_metric,
      )
 except Exception:  # pragma: no cover
     def record_request_outcome(status_code: int, duration_seconds: float, **_kwargs) -> None:
@@ -745,6 +761,12 @@ except Exception:  # pragma: no cover
         return None
     def get_avg_response_time_seconds() -> float:
         return 0.0
+    def update_health_gauges(**_kwargs) -> None:
+        return None
+    def record_startup_stage_metric(_stage: str, _duration_ms: float | None) -> None:
+        return None
+    def record_startup_total_metric(_duration_ms: float | None) -> None:
+        return None
 
 # Trigger preload only after metrics helpers are available
 _preload_heavy_assets_async()
@@ -4220,6 +4242,8 @@ def healthz():
     }
     errors: List[str] = []
     latency_breakdown: Dict[str, float] = {}
+    avg_rt_ms = 0.0
+    mongo_latency_ms: float | None = None
 
     # זמן תגובה ממוצע של שכבת ה-Web (EWMA) – מסייע לזהות רגרסיה כללית
     try:
@@ -4271,6 +4295,18 @@ def healthz():
         if payload["status"] == "ok":
             payload["status"] = "error"
     status_code = 200 if payload["status"] == "ok" else 503
+    try:
+        ping_value = mongo_latency_ms
+        if ping_value is None and payload.get("mongo") != "connected":
+            ping_value = 0.0
+        update_health_gauges(
+            mongo_connected=payload.get("mongo") == "connected",
+            ping_ms=ping_value,
+            indexes_total=payload.get("indexes"),
+            latency_ewma_ms=avg_rt_ms,
+        )
+    except Exception:
+        pass
     return jsonify(payload), status_code
 
 
