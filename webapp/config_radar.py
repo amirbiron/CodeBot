@@ -306,7 +306,8 @@ def _parse_yaml_or_json(text: str) -> Tuple[Any, Optional[str]]:
     if yaml is not None:
         try:
             loaded = yaml.safe_load(text)
-            return loaded, None
+            if loaded is not None:
+                return loaded, None
         except Exception as exc:
             yaml_error = f"פענוח YAML נכשל: {exc}"
 
