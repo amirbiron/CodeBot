@@ -42,7 +42,8 @@
 
 /* Hide keyboard shortcuts hint on small mobile devices only */
 @media (max-width: 767px) {
-.editor-info-primary.is-keyboard-hint { display: none; }
+  .editor-info-primary.is-keyboard-hint { display: none; }
+}
 
 textarea[name="code"],
 .editor-textarea {
@@ -69,7 +70,6 @@ textarea[name="code"]::placeholder,
 
 .cm-editor .cm-gutters {
   direction: ltr;
-}
 }
 
 /* Dark Mode CodeMirror */
