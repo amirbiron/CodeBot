@@ -13,6 +13,7 @@ import time
 import html
 import re
 import hashlib
+import threading
 # Robust ObjectId/InvalidId import with fallbacks for stub environments
 try:  # type: ignore
     from bson import ObjectId  # type: ignore
@@ -49,63 +50,156 @@ def get_db():
 # Blueprint
 sticky_notes_bp = Blueprint("sticky_notes", __name__, url_prefix="/api/sticky-notes")
 
+try:
+    from cache_manager import cache  # type: ignore
+except Exception:
+    cache = None  # type: ignore
+
 # Module-level guard to ensure indexes only once per process
 _INDEX_READY = False
+_INDEX_READY_LOCK = threading.Lock()
+_INDEX_READY_CACHE_KEY = "sticky_notes_indexes_ready_v1"
+_INDEX_READY_CACHE_TTL_SECONDS = 24 * 3600
+_INDEX_CACHE_LAST_CHECK = 0.0
+_WARMUP_TRIGGERED = threading.Event()
 
-def _ensure_indexes() -> None:
-    global _INDEX_READY
+
+def _emit_index_event(stage: str, duration_ms: Optional[int] = None, error: Optional[str] = None) -> None:
+    """Emit lightweight observability events without failing the request."""
+    try:
+        severity = "info" if not error else "error"
+        emit_event(
+            "sticky_indexes_warmup",
+            severity=severity,
+            stage=stage,
+            duration_ms=duration_ms,
+            error=error,
+        )
+    except Exception:
+        pass
+
+
+def _cache_flag_ready() -> bool:
+    """Check shared cache flag (best-effort) to avoid duplicate index builds."""
+    global _INDEX_READY, _INDEX_CACHE_LAST_CHECK
     if _INDEX_READY:
+        return True
+    cache_obj = cache if 'cache' in globals() else None
+    if cache_obj is None or not getattr(cache_obj, "is_enabled", False):
+        return False
+    now = time.time()
+    if now - _INDEX_CACHE_LAST_CHECK < 30.0:
+        return False
+    _INDEX_CACHE_LAST_CHECK = now
+    try:
+        flag = cache_obj.get(_INDEX_READY_CACHE_KEY)
+    except Exception:
+        flag = None
+    if flag:
+        _INDEX_READY = True
+        return True
+    return False
+
+
+def _mark_cache_flag() -> None:
+    cache_obj = cache if 'cache' in globals() else None
+    if cache_obj is None or not getattr(cache_obj, "is_enabled", False):
         return
     try:
-        db = get_db()
-        coll = db.sticky_notes
-        try:
-            from pymongo import ASCENDING, DESCENDING, IndexModel  # type: ignore
-            indexes = [
-                IndexModel([("user_id", ASCENDING), ("file_id", ASCENDING)], name="user_file_idx"),
-                IndexModel([("user_id", ASCENDING), ("file_id", ASCENDING), ("created_at", ASCENDING)], name="user_file_created"),
-                IndexModel([("updated_at", DESCENDING)], name="updated_desc"),
-            ]
-            coll.create_indexes(indexes)
-        except Exception:
-            # Best-effort: if pymongo typings not available or running in stub env
+        cache_obj.set(
+            _INDEX_READY_CACHE_KEY,
+            {"ready": True, "ts": int(time.time())},
+            _INDEX_READY_CACHE_TTL_SECONDS,
+        )
+    except Exception:
+        pass
+
+
+def _mark_indexes_ready(duration_ms: Optional[int] = None) -> None:
+    global _INDEX_READY
+    _INDEX_READY = True
+    _mark_cache_flag()
+    _emit_index_event("done", duration_ms=duration_ms)
+
+
+def kickoff_index_warmup(*, background: bool = True, delay_seconds: float = 0.0) -> None:
+    """Run index warmup once during startup so requests won't block on it."""
+    if _INDEX_READY or _cache_flag_ready() or _WARMUP_TRIGGERED.is_set():
+        return
+    _WARMUP_TRIGGERED.set()
+
+    def _job():
+        if delay_seconds > 0:
             try:
-                coll.create_index([("user_id", 1), ("file_id", 1)], name="user_file_idx")
-                coll.create_index([("user_id", 1), ("file_id", 1), ("created_at", 1)], name="user_file_created")
-                coll.create_index([("updated_at", -1)], name="updated_desc")
+                time.sleep(delay_seconds)
             except Exception:
                 pass
-        # Ensure note reminders collection indexes (best-effort)
+        _ensure_indexes()
+
+    if background:
         try:
-            nr = db.note_reminders
+            threading.Thread(target=_job, name="sticky-index-warmup", daemon=True).start()
+        except Exception:
+            _job()
+    else:
+        _job()
+
+def _ensure_indexes() -> None:
+    if _INDEX_READY or _cache_flag_ready():
+        return
+    try:
+        with _INDEX_READY_LOCK:
+            if _INDEX_READY or _cache_flag_ready():
+                return
+            started = time.perf_counter()
+            db = get_db()
+            coll = db.sticky_notes
             try:
                 from pymongo import ASCENDING, DESCENDING, IndexModel  # type: ignore
-                nr.create_indexes([
-                    IndexModel([("user_id", ASCENDING), ("note_id", ASCENDING)], name="user_note_idx"),
-                    IndexModel([("user_id", ASCENDING), ("status", ASCENDING), ("remind_at", ASCENDING)], name="user_status_time_idx"),
-                    IndexModel([("remind_at", ASCENDING)], name="remind_at_idx"),
-                ])
+                indexes = [
+                    IndexModel([("user_id", ASCENDING), ("file_id", ASCENDING)], name="user_file_idx"),
+                    IndexModel([("user_id", ASCENDING), ("file_id", ASCENDING), ("created_at", ASCENDING)], name="user_file_created"),
+                    IndexModel([("updated_at", DESCENDING)], name="updated_desc"),
+                ]
+                coll.create_indexes(indexes)
             except Exception:
+                # Best-effort: if pymongo typings not available or running in stub env
                 try:
-                    nr.create_index([("user_id", 1), ("note_id", 1)], name="user_note_idx")
+                    coll.create_index([("user_id", 1), ("file_id", 1)], name="user_file_idx")
+                    coll.create_index([("user_id", 1), ("file_id", 1), ("created_at", 1)], name="user_file_created")
+                    coll.create_index([("updated_at", -1)], name="updated_desc")
                 except Exception:
                     pass
+            # Ensure note reminders collection indexes (best-effort)
+            try:
+                nr = db.note_reminders
                 try:
-                    nr.create_index([("user_id", 1), ("status", 1), ("remind_at", 1)], name="user_status_time_idx")
+                    from pymongo import ASCENDING, DESCENDING, IndexModel  # type: ignore
+                    nr.create_indexes([
+                        IndexModel([("user_id", ASCENDING), ("note_id", ASCENDING)], name="user_note_idx"),
+                        IndexModel([("user_id", ASCENDING), ("status", ASCENDING), ("remind_at", ASCENDING)], name="user_status_time_idx"),
+                        IndexModel([("remind_at", ASCENDING)], name="remind_at_idx"),
+                    ])
                 except Exception:
-                    pass
-                try:
-                    nr.create_index([("remind_at", 1)], name="remind_at_idx")
-                except Exception:
-                    pass
-        except Exception:
-            # Never fail request because of index creation
-            pass
-
-        _INDEX_READY = True
-    except Exception:
-        # Do not fail requests due to index creation errors
-        pass
+                    try:
+                        nr.create_index([("user_id", 1), ("note_id", 1)], name="user_note_idx")
+                    except Exception:
+                        pass
+                    try:
+                        nr.create_index([("user_id", 1), ("status", 1), ("remind_at", 1)], name="user_status_time_idx")
+                    except Exception:
+                        pass
+                    try:
+                        nr.create_index([("remind_at", 1)], name="remind_at_idx")
+                    except Exception:
+                        pass
+            except Exception:
+                # Never fail request because of index creation
+                pass
+            duration_ms = int(max(0.0, (time.perf_counter() - started) * 1000.0))
+            _mark_indexes_ready(duration_ms=duration_ms)
+    except Exception as exc:
+        _emit_index_event("failed", error=str(exc))
 
 # --- Helpers ---
 
