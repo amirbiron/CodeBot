@@ -66,6 +66,40 @@ telegram_updates_total = (
 )
 active_indexes = Gauge("active_indexes", "Active DB indexes") if Gauge else None
 
+# Health check gauges exposed via /metrics
+health_mongo_status = (
+    Gauge("health_mongo_status", "1 when MongoDB is connected, else 0") if Gauge else None
+)
+health_ping_ms = (
+    Gauge("health_ping_ms", "MongoDB ping latency reported by /healthz (milliseconds)")
+    if Gauge
+    else None
+)
+health_indexes_total = (
+    Gauge("health_indexes_total", "Healthy index count reported by /healthz") if Gauge else None
+)
+health_latency_ewma = (
+    Gauge("health_latency_ewma", "Application EWMA latency in milliseconds reported by /healthz")
+    if Gauge
+    else None
+)
+
+# Startup metrics (milliseconds) to track cold-start regressions
+startup_stage_duration_ms = (
+    Gauge(
+        "startup_stage_duration_ms",
+        "Duration of individual startup stages in milliseconds",
+        ["stage"],
+    )
+    if Gauge
+    else None
+)
+startup_total_duration_ms = (
+    Gauge("startup_total_duration_ms", "Total application startup duration in milliseconds")
+    if Gauge
+    else None
+)
+
 # Optional business events counter for high-level analytics
 business_events_total = (
     Counter(
@@ -581,6 +615,52 @@ def _normalize_metric_label(value: str | None, default: str) -> str:
         return v.replace(" ", "_")[:120]
     except Exception:
         return default
+
+
+def update_health_gauges(
+    *,
+    mongo_connected: bool | None = None,
+    ping_ms: float | None = None,
+    indexes_total: float | None = None,
+    latency_ewma_ms: float | None = None,
+) -> None:
+    """Best-effort bridge from /healthz payload into Prometheus gauges."""
+    try:
+        if health_mongo_status is not None and mongo_connected is not None:
+            health_mongo_status.set(1.0 if mongo_connected else 0.0)
+        if health_ping_ms is not None and ping_ms is not None:
+            health_ping_ms.set(max(0.0, float(ping_ms)))
+        if health_indexes_total is not None and indexes_total is not None:
+            health_indexes_total.set(max(0.0, float(indexes_total)))
+        if health_latency_ewma is not None and latency_ewma_ms is not None:
+            health_latency_ewma.set(max(0.0, float(latency_ewma_ms)))
+    except Exception:
+        return
+
+
+def record_startup_stage_metric(stage: str, duration_ms: float | None) -> None:
+    """Expose per-stage startup duration (milliseconds) via Prometheus."""
+    if duration_ms is None:
+        return
+    try:
+        if startup_stage_duration_ms is None:
+            return
+        stage_label = _normalize_metric_label(stage, "unknown_stage")
+        startup_stage_duration_ms.labels(stage=stage_label).set(max(0.0, float(duration_ms)))
+    except Exception:
+        return
+
+
+def record_startup_total_metric(duration_ms: float | None) -> None:
+    """Expose total startup duration (milliseconds) via Prometheus."""
+    if duration_ms is None:
+        return
+    try:
+        if startup_total_duration_ms is None:
+            return
+        startup_total_duration_ms.set(max(0.0, float(duration_ms)))
+    except Exception:
+        return
 
 
 def record_http_request(
