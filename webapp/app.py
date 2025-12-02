@@ -8418,7 +8418,7 @@ def api_observability_alerts():
         return jsonify(data)
     except ValueError as exc:
         logger.warning("observability_alerts_bad_request: %s", exc)
-        return jsonify({'ok': False, 'error': 'invalid_request'}), 400
+        return jsonify({'ok': False, 'error': 'bad_request'}), 400
     except Exception:
         logger.exception("observability_alerts_failed")
         return jsonify({'ok': False, 'error': 'internal_error'}), 500
