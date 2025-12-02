@@ -226,6 +226,66 @@ Compress(app)
 # לוגר מודולרי לשימוש פנימי
 logger = logging.getLogger(__name__)
 
+# --- Startup metrics instrumentation (נרשם רק בזמן עלייה) ---
+_STARTUP_METRICS_MS: Dict[str, float] = {}
+_STARTUP_METRICS_LOCK = threading.Lock()
+_STARTUP_METRICS_LOGGED = False
+
+
+def _record_startup_metric(name: str, duration_seconds: float | None, *, accumulate: bool = False) -> None:
+    """שומר מדידה (במילי-שניות) עבור שלב העלייה – ללא תקורה בזמן ריצה."""
+    if duration_seconds is None:
+        return
+    try:
+        duration_ms = max(0.0, float(duration_seconds) * 1000.0)
+    except Exception:
+        return
+    try:
+        with _STARTUP_METRICS_LOCK:
+            if accumulate:
+                _STARTUP_METRICS_MS[name] = duration_ms + _STARTUP_METRICS_MS.get(name, 0.0)
+            else:
+                existing = _STARTUP_METRICS_MS.get(name)
+                if existing is None or duration_ms > existing:
+                    _STARTUP_METRICS_MS[name] = duration_ms
+    except Exception:
+        return
+
+
+def _emit_startup_metrics_log(total_ms: float | None = None) -> None:
+    """מדפיס לוג מובנה בסיום העלייה בפורמט שניתן לניתוח."""
+    global _STARTUP_METRICS_LOGGED
+    with _STARTUP_METRICS_LOCK:
+        if _STARTUP_METRICS_LOGGED:
+            return
+        _STARTUP_METRICS_LOGGED = True
+        metrics_snapshot = dict(_STARTUP_METRICS_MS)
+    try:
+        templates_ms = metrics_snapshot.get('templates')
+        mongo_ms = metrics_snapshot.get('mongo') or metrics_snapshot.get('mongo_ping')
+        indexes_ms = (
+            metrics_snapshot.get('indexes_recent', 0.0) +
+            metrics_snapshot.get('indexes_code', 0.0) +
+            metrics_snapshot.get('indexes_announcements', 0.0)
+        )
+        ordered_parts: list[str] = []
+        for label, value in (
+            ('mongo', mongo_ms),
+            ('templates', templates_ms),
+            ('indexes', indexes_ms),
+        ):
+            if value and value > 0.0:
+                ordered_parts.append(f"{label}={int(round(value))}ms")
+        if total_ms is None:
+            try:
+                total_ms = max(0.0, (_time.perf_counter() - get_boot_monotonic()) * 1000.0)
+            except Exception:
+                total_ms = 0.0
+        ordered_parts.append(f"total={int(round(total_ms or 0.0))}ms")
+        logger.info("[startup-metrics] %s", " ".join(ordered_parts))
+    except Exception:
+        pass
+
 # --- Static asset version (for cache-busting of PWA manifest/icons) ---
 _MANIFEST_PATH = (Path(__file__).parent / 'static' / 'manifest.json')
 
@@ -395,6 +455,7 @@ def _preload_heavy_assets_async() -> None:
     try:
         import threading as _thr
         def _job():
+            job_started = _time.perf_counter()
             # Preload Pygments lexers/formatters (import and simple use)
             try:
                 from pygments.lexers import get_lexer_by_name as _g
@@ -404,8 +465,13 @@ def _preload_heavy_assets_async() -> None:
                         _ = _g(_name)
                     except Exception:
                         pass
+                duration = max(0.0, float(_time.perf_counter() - _t0))
                 try:
-                    record_dependency_init("pygments_lexers", max(0.0, float(_time.perf_counter() - _t0)))
+                    record_dependency_init("pygments_lexers", duration)
+                except Exception:
+                    pass
+                try:
+                    _record_startup_metric('lexers', duration)
                 except Exception:
                     pass
             except Exception:
@@ -420,13 +486,18 @@ def _preload_heavy_assets_async() -> None:
                             _ = app.jinja_env.get_template(_tpl)
                         except Exception:
                             pass
+                duration = max(0.0, float(_time.perf_counter() - _t1))
                 try:
-                    record_dependency_init("jinja_precompile", max(0.0, float(_time.perf_counter() - _t1)))
+                    record_dependency_init("jinja_precompile", duration)
+                except Exception:
+                    pass
+                try:
+                    _record_startup_metric('templates', duration)
                 except Exception:
                     pass
             except Exception:
                 pass
-            # Optionally attempt DB ping in background (best-effort)
+            # Optionally attempt DB ping + init in background (best-effort)
             try:
                 _t0 = _time.perf_counter()
                 # Use a short‑lived client to avoid mutating the global shared client
@@ -447,24 +518,40 @@ def _preload_heavy_assets_async() -> None:
                             _tmp_client.close()
                         except Exception:
                             pass
+                    try:
+                        _ = get_db()
+                    except Exception:
+                        pass
+                duration = max(0.0, float(_time.perf_counter() - _t0))
                 try:
-                    record_dependency_init("mongodb_ping", max(0.0, float(_time.perf_counter() - _t0)))
+                    record_dependency_init("mongodb_ping", duration)
+                except Exception:
+                    pass
+                try:
+                    _record_startup_metric('mongo_ping', duration)
                 except Exception:
                     pass
             except Exception:
                 pass
             # Signal startup completion at the end of preload sequence
+            total_ms = max(0.0, float((_time.perf_counter() - job_started) * 1000.0))
             try:
                 mark_startup_complete()
-            except Exception:
-                pass
+            finally:
+                try:
+                    _emit_startup_metrics_log(total_ms=total_ms)
+                except Exception:
+                    pass
         _thr.Thread(target=_job, name="preload-assets", daemon=True).start()
     except Exception:
         # Never block on preload failures
         try:
             mark_startup_complete()
-        except Exception:
-            pass
+        finally:
+            try:
+                _emit_startup_metrics_log()
+            except Exception:
+                pass
 
 # --- API blueprints registration ---
 try:
@@ -617,6 +704,7 @@ try:
         mark_startup_complete,
         note_first_request_latency,
         record_dependency_init,
+        get_avg_response_time_seconds,
      )
 except Exception:  # pragma: no cover
     def record_request_outcome(status_code: int, duration_seconds: float, **_kwargs) -> None:
@@ -631,6 +719,8 @@ except Exception:  # pragma: no cover
         return None
     def record_dependency_init(_name: str, _dur: float) -> None:
         return None
+    def get_avg_response_time_seconds() -> float:
+        return 0.0
 
 # Trigger preload only after metrics helpers are available
 _preload_heavy_assets_async()
@@ -829,6 +919,43 @@ REMEMBER_COOKIE_NAME = 'remember_me'
 # חיבור ל-MongoDB
 client = None
 db = None
+
+# Cache לנתוני healthz (מדידת אינדקסים) כדי לעמוד בדרישת 300ms
+_HEALTHZ_INDEX_CACHE_TTL_SECONDS = 60
+_HEALTHZ_INDEX_CACHE: Dict[str, Any] = {'ts': 0.0, 'count': 0}
+_HEALTHZ_INDEX_CACHE_LOCK = threading.Lock()
+_HEALTHZ_CRITICAL_COLLECTIONS: Tuple[str, ...] = (
+    'code_snippets',
+    'recent_opens',
+    'collections',
+    'users',
+)
+
+
+def _sample_critical_index_count(db_ref) -> tuple[int, float]:
+    """מודד מספר אינדקסים בסיסי עבור אוספים קריטיים (עם cache קצר)."""
+    if db_ref is None:
+        return (0, 0.0)
+    now_ts = time.time()
+    with _HEALTHZ_INDEX_CACHE_LOCK:
+        cached_ts = float(_HEALTHZ_INDEX_CACHE.get('ts') or 0.0)
+        if (now_ts - cached_ts) < _HEALTHZ_INDEX_CACHE_TTL_SECONDS:
+            return (int(_HEALTHZ_INDEX_CACHE.get('count') or 0), 0.0)
+    start = _time.perf_counter()
+    total_indexes = 0
+    for coll_name in _HEALTHZ_CRITICAL_COLLECTIONS:
+        try:
+            info = db_ref[coll_name].index_information()
+            total_indexes += len(info or {})
+        except Exception:
+            continue
+    duration = max(0.0, float(_time.perf_counter() - start))
+    with _HEALTHZ_INDEX_CACHE_LOCK:
+        _HEALTHZ_INDEX_CACHE['ts'] = now_ts
+        _HEALTHZ_INDEX_CACHE['count'] = total_indexes
+    return (total_indexes, duration)
+
+
 @app.context_processor
 def inject_globals():
     """הזרקת משתנים גלובליים לכל התבניות"""
@@ -1034,9 +1161,14 @@ def get_db():
                     )
                     # בדיקת חיבור
                     client.server_info()
+                    duration = max(0.0, float(_time.perf_counter() - _t0))
                     db = client[DATABASE_NAME]
                     try:
-                        record_dependency_init("mongodb", max(0.0, float(_time.perf_counter() - _t0)))
+                        record_dependency_init("mongodb", duration)
+                    except Exception:
+                        pass
+                    try:
+                        _record_startup_metric('mongo', duration)
                     except Exception:
                         pass
                 except Exception:
@@ -1083,11 +1215,14 @@ def ensure_recent_opens_indexes() -> None:
     global _recent_opens_indexes_ready
     if _recent_opens_indexes_ready:
         return
+    _start = _time.perf_counter()
+    _did_work = False
     try:
         # השתמש ב-db גלובלי אם כבר מאותחל; אל תקרא get_db() כדי להימנע מ-deadlock בזמן אתחול
         _db = db if db is not None else None
         if _db is None:
             return
+        _did_work = True
         coll = _db.recent_opens
         try:
             from pymongo import ASCENDING, DESCENDING
@@ -1100,6 +1235,12 @@ def ensure_recent_opens_indexes() -> None:
     except Exception:
         # אין להפיל את השרת במקרה של בעיית DB בתחילת חיים
         pass
+    finally:
+        if _did_work:
+            try:
+                _record_startup_metric('indexes_recent', max(0.0, float(_time.perf_counter() - _start)), accumulate=True)
+            except Exception:
+                pass
 
 
 # --- Ensure indexes for announcements once per process ---
@@ -1115,10 +1256,13 @@ def ensure_announcements_indexes() -> None:
     global _announcements_indexes_ready
     if _announcements_indexes_ready:
         return
+    _start = _time.perf_counter()
+    _did_work = False
     try:
         _db = db if db is not None else None
         if _db is None:
             return
+        _did_work = True
         coll = _db.announcements
         try:
             from pymongo import ASCENDING, DESCENDING
@@ -1129,6 +1273,12 @@ def ensure_announcements_indexes() -> None:
         _announcements_indexes_ready = True
     except Exception:
         pass
+    finally:
+        if _did_work:
+            try:
+                _record_startup_metric('indexes_announcements', max(0.0, float(_time.perf_counter() - _start)), accumulate=True)
+            except Exception:
+                pass
 
 
 # --- HTTP caching helpers (ETag / Last-Modified) ---
@@ -1258,11 +1408,14 @@ def ensure_code_snippets_indexes() -> None:
     global _code_snippets_indexes_ready
     if _code_snippets_indexes_ready:
         return
+    _start = _time.perf_counter()
+    _did_work = False
     try:
         # השתמש ב-db גלובלי אם כבר מאותחל; אל תקרא get_db() כדי להימנע מ-deadlock בזמן אתחול
         _db = db if db is not None else None
         if _db is None:
             return
+        _did_work = True
         coll = _db.code_snippets
         try:
             from pymongo import ASCENDING, DESCENDING
@@ -1323,6 +1476,12 @@ def ensure_code_snippets_indexes() -> None:
     except Exception:
         # אין להפיל את האפליקציה במקרה של בעיית DB בתחילת חיים
         pass
+    finally:
+        if _did_work:
+            try:
+                _record_startup_metric('indexes_code', max(0.0, float(_time.perf_counter() - _start)), accumulate=True)
+            except Exception:
+                pass
 
 # (הוסר שימוש ב-before_first_request; ראה הקריאה בתוך get_db למניעת שגיאה בפלאסק 3)
 
@@ -4009,13 +4168,69 @@ def metrics_endpoint():
 @app.route('/healthz')
 @_limiter_exempt()
 def healthz():
-    """Simple liveness probe for platforms expecting /healthz."""
+    """בדיקת עומק מהירה (תחת 300ms) עבור Load Balancer וניטור חיצוני."""
+    start = _time.perf_counter()
+    payload: Dict[str, Any] = {
+        "status": "ok",
+        "mongo": "unknown",
+        "indexes": 0,
+        "latency_ms": 0.0,
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+    }
+    errors: List[str] = []
+    latency_breakdown: Dict[str, float] = {}
+
+    # זמן תגובה ממוצע של שכבת ה-Web (EWMA) – מסייע לזהות רגרסיה כללית
     try:
-        # Light check: ensure app context and (optional) DB client object exist
-        _ = app.name  # noqa: F841
-        return jsonify({"status": "ok"}), 200
+        avg_rt_ms = max(0.0, float(get_avg_response_time_seconds()) * 1000.0)
+        if avg_rt_ms > 0.0:
+            latency_breakdown["app_avg"] = round(avg_rt_ms, 2)
     except Exception:
-        return jsonify({"status": "error"}), 503
+        pass
+
+    db_ref = db if db is not None else None
+    if not MONGODB_URL:
+        payload["status"] = "error"
+        payload["mongo"] = "missing"
+        errors.append("mongo_url_missing")
+    else:
+        if db_ref is None:
+            try:
+                db_ref = get_db()
+            except Exception:
+                db_ref = None
+                payload["mongo"] = "error"
+                errors.append("mongo_init_failed")
+        if db_ref is not None:
+            # פינג קצר למסד הנתונים
+            try:
+                ping_start = _time.perf_counter()
+                db_ref.command('ping')
+                mongo_latency_ms = max(0.0, float(_time.perf_counter() - ping_start) * 1000.0)
+                latency_breakdown["mongo_ping"] = round(mongo_latency_ms, 2)
+                payload["mongo"] = "connected"
+            except Exception:
+                payload["mongo"] = "error"
+                errors.append("mongo_ping_failed")
+            # ספירת אינדקסים קריטיים (עם cache קצר כדי לשמור על SLA של 300ms)
+            try:
+                indexes_count, indexes_duration = _sample_critical_index_count(db_ref)
+                payload["indexes"] = int(indexes_count)
+                if indexes_duration > 0.0:
+                    latency_breakdown["indexes_scan"] = round(indexes_duration * 1000.0, 2)
+            except Exception:
+                payload["indexes"] = 0
+                errors.append("index_sample_failed")
+
+    payload["latency_ms"] = round(max(0.0, float((_time.perf_counter() - start) * 1000.0)), 2)
+    if latency_breakdown:
+        payload["latency_breakdown_ms"] = latency_breakdown
+    if errors:
+        payload["errors"] = errors
+        if payload["status"] == "ok":
+            payload["status"] = "error"
+    status_code = 200 if payload["status"] == "ok" else 503
+    return jsonify(payload), status_code
 
 
 @app.route('/api/search/health')
