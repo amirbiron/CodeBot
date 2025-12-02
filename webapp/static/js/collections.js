@@ -620,9 +620,12 @@
     } catch (err) {
       alert((err && err.message) || 'שגיאה בהעברת הפריט');
     } finally {
+      ctx.dropInProgress = false;
       stopBusy();
-      resetDragUi();
-      activeDragContext = null;
+      if (activeDragContext === ctx) {
+        resetDragUi();
+        activeDragContext = null;
+      }
     }
   }
 
