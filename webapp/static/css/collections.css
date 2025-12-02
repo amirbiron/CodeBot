@@ -8,6 +8,10 @@
 .sidebar-item{display:flex;align-items:center;gap:.5rem;justify-content:space-between;border:1px solid transparent;background:rgba(255,255,255,.06);color:var(--text-primary);border-radius:8px;padding:.4rem .6rem;cursor:pointer;text-align:right}
 .sidebar-item:hover{background:rgba(255,255,255,.14)}
 .sidebar-item.active{background:rgba(255,255,255,.18);border-color:rgba(255,255,255,.4);box-shadow:0 0 0 1px rgba(255,255,255,.08) inset}
+.collections-sidebar.drag-active .sidebar-item{transition:transform .16s ease,box-shadow .16s ease,background .16s ease}
+.sidebar-item--drop-ready{border-color:rgba(99,102,241,.6);background:rgba(99,102,241,.08);transform:scale(1.02);box-shadow:0 6px 16px rgba(99,102,241,.25)}
+.sidebar-item--drop-hover{transform:scale(1.05);background:rgba(99,102,241,.16);box-shadow:0 12px 28px rgba(99,102,241,.28)}
+.sidebar-item--drop-busy{opacity:.8}
 .sidebar-item .emoji{min-width:1.4rem}
 .sidebar-item .name{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .sidebar-item .count{opacity:.8;font-size:.9rem;display:flex;align-items:center;gap:.25rem}
