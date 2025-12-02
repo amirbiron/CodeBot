@@ -7045,6 +7045,9 @@ def api_save_shared_file():
         return jsonify({'ok': False, 'error': 'שגיאה לא צפויה'}), 500
 
 
+_UPLOAD_CLEAR_DRAFT_SESSION_KEY = 'upload_should_clear_draft'
+
+
 @app.route('/upload', methods=['GET', 'POST'])
 @login_required
 @traced("files.upload_web")
@@ -7054,6 +7057,7 @@ def upload_file_web():
     user_id = session['user_id']
     error = None
     success = None
+    should_clear_local_draft = bool(session.pop(_UPLOAD_CLEAR_DRAFT_SESSION_KEY, False))
     # החזקת ערכי טופס לשחזור במקרה של שגיאה ולרינדור ראשוני
     file_name_value = ''
     language_value = 'text'
@@ -7318,6 +7322,7 @@ def upload_file_web():
                 except Exception as _e:
                     res = None
                 if res and getattr(res, 'inserted_id', None):
+                    session[_UPLOAD_CLEAR_DRAFT_SESSION_KEY] = True
                     if _log_webapp_user_activity():
                         session['_skip_view_activity_once'] = True
                     return redirect(url_for('view_file', file_id=str(res.inserted_id)))
@@ -7344,6 +7349,7 @@ def upload_file_web():
         tags_value=tags_value,
         code_value=code_value,
         source_url_value=source_url_value,
+        clear_local_draft=should_clear_local_draft,
     )
 
 @app.route('/api/favorite/toggle/<file_id>', methods=['POST'])
