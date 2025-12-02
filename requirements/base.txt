@@ -85,6 +85,7 @@ aiofiles==25.1.0
 redis==7.0.0
 
 # Configuration
+pyyaml==6.0.2
 pydantic==2.12.3
 pydantic-core==2.41.4
 pydantic-settings==2.11.0
