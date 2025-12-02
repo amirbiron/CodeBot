@@ -78,6 +78,10 @@
   const WORKSPACE_STATE_ORDER = Object.keys(WORKSPACE_STATE_META);
   let workspaceBoardCtx = null;
   let workspaceActiveCard = null;
+  let activeDragContext = null;
+  let sidebarContainerEl = null;
+  let sidebarShellEl = null;
+  let sidebarHoverBtn = null;
 
   function readInitialCollectionId() {
     let value = '';
@@ -163,6 +167,7 @@
         <div class="sidebar-list" id="collectionsList">${items || '<div class="empty">אין אוספים</div>'}</div>
       `;
       wireSidebarHandlers(root);
+      setupSidebarDropHandlers(root);
       if (currentCollectionId) {
         markSidebarSelection(currentCollectionId);
       } else {
@@ -449,9 +454,239 @@
     }
   }
 
+  function updateSidebarShell(root){
+    sidebarContainerEl = root || document.getElementById('collectionsSidebar');
+    const host = sidebarContainerEl ? sidebarContainerEl.closest('.collections-sidebar') : null;
+    sidebarShellEl = host || document.querySelector('.collections-sidebar');
+  }
+
+  function setSidebarDragVisual(active){
+    if (!sidebarShellEl || !sidebarShellEl.isConnected) {
+      sidebarShellEl = document.querySelector('.collections-sidebar');
+    }
+    if (!sidebarShellEl) return;
+    sidebarShellEl.classList.toggle('drag-active', !!active);
+  }
+
+  function setSidebarDropHover(btn, mode){
+    if (sidebarHoverBtn === btn) {
+      if (!btn) return;
+      if (mode === 'hover') {
+        btn.classList.add('sidebar-item--drop-hover');
+      } else {
+        btn.classList.remove('sidebar-item--drop-hover');
+      }
+      return;
+    }
+    if (sidebarHoverBtn) {
+      sidebarHoverBtn.classList.remove('sidebar-item--drop-ready', 'sidebar-item--drop-hover', 'sidebar-item--drop-busy');
+    }
+    sidebarHoverBtn = btn && btn.isConnected ? btn : null;
+    if (sidebarHoverBtn) {
+      sidebarHoverBtn.classList.add('sidebar-item--drop-ready');
+      if (mode === 'hover') {
+        sidebarHoverBtn.classList.add('sidebar-item--drop-hover');
+      }
+    }
+  }
+
+  function withSidebarDropBusy(btn){
+    if (!btn || !btn.classList) {
+      return () => {};
+    }
+    btn.classList.add('sidebar-item--drop-busy');
+    return () => {
+      btn.classList.remove('sidebar-item--drop-busy');
+    };
+  }
+
+  function canDropOnSidebar(targetId){
+    if (!activeDragContext) return false;
+    const desired = String(targetId || '').trim();
+    if (!desired) return false;
+    return desired !== String(activeDragContext.collectionId || '').trim();
+  }
+
+  function beginCollectionItemDrag(row, collectionId, listEl, origin){
+    const payload = buildItemPayloadFromRow(row);
+    if (!payload) return;
+    activeDragContext = {
+      element: row,
+      collectionId: collectionId,
+      container: listEl,
+      payload,
+      origin,
+      dropInProgress: false,
+    };
+    setSidebarDragVisual(true);
+  }
+
+  function resetDragUi(){
+    setSidebarDropHover(null);
+    setSidebarDragVisual(false);
+  }
+
+  function clearActiveDragContext(){
+    resetDragUi();
+    activeDragContext = null;
+  }
+
+  function buildItemPayloadFromRow(row){
+    if (!row) return null;
+    const fileName = row.getAttribute('data-name') || '';
+    if (!fileName) return null;
+    const payload = {
+      source: row.getAttribute('data-source') || 'regular',
+      file_name: fileName,
+    };
+    const pinnedAttr = row.getAttribute('data-pinned');
+    if (pinnedAttr === '1') {
+      payload.pinned = true;
+    }
+    return payload;
+  }
+
+  function ensureItemsContainerState(container){
+    if (!container || !container.isConnected) return;
+    if (container.querySelector('.collection-item')) {
+      return;
+    }
+    container.innerHTML = '<div class="empty">אין פריטים</div>';
+  }
+
+  function findSidebarButtonFromPoint(x, y){
+    if (typeof document === 'undefined') return null;
+    const el = document.elementFromPoint(x, y);
+    if (!el) return null;
+    if (!sidebarContainerEl || !sidebarContainerEl.isConnected) {
+      sidebarContainerEl = document.getElementById('collectionsSidebar');
+    }
+    if (!sidebarContainerEl) return null;
+    return el.closest('#collectionsSidebar .sidebar-item');
+  }
+
+  function updateSidebarHoverFromPoint(x, y){
+    if (!activeDragContext) return;
+    const btn = findSidebarButtonFromPoint(x, y);
+    if (btn && canDropOnSidebar(btn.getAttribute('data-id') || '')) {
+      setSidebarDropHover(btn, 'hover');
+    } else {
+      setSidebarDropHover(null);
+    }
+  }
+
+  async function handleSidebarDropRequest(targetId, targetBtn){
+    if (!canDropOnSidebar(targetId)) {
+      setSidebarDropHover(null);
+      return;
+    }
+    if (!activeDragContext || activeDragContext.dropInProgress) {
+      return;
+    }
+    activeDragContext.dropInProgress = true;
+    await moveDraggedItemToCollection(targetId, targetBtn || sidebarHoverBtn);
+  }
+
+  async function moveDraggedItemToCollection(targetCollectionId, targetBtn){
+    const ctx = activeDragContext;
+    if (!ctx) {
+      resetDragUi();
+      return;
+    }
+    const payload = ctx.payload;
+    if (!payload || !payload.file_name) {
+      ctx.dropInProgress = false;
+      resetDragUi();
+      activeDragContext = null;
+      return;
+    }
+    setSidebarDropHover(targetBtn || sidebarHoverBtn, 'hover');
+    const stopBusy = withSidebarDropBusy(targetBtn || sidebarHoverBtn);
+    try {
+      const addRes = await api.addItems(targetCollectionId, [payload]);
+      if (!addRes || !addRes.ok) {
+        throw new Error((addRes && addRes.error) || 'שגיאה בהעברת הפריט');
+      }
+      const removeRes = await api.removeItems(ctx.collectionId, [{ source: ctx.payload.source || 'regular', file_name: ctx.payload.file_name }]);
+      if (!removeRes || !removeRes.ok) {
+        throw new Error((removeRes && removeRes.error) || 'שגיאה בהעברת הפריט');
+      }
+      if (ctx.element && ctx.element.remove) {
+        const listEl = (ctx.container && ctx.container.isConnected) ? ctx.container : ctx.element.parentElement;
+        ctx.element.remove();
+        ensureItemsContainerState(listEl);
+      }
+      await ensureCollectionsSidebar();
+    } catch (err) {
+      alert((err && err.message) || 'שגיאה בהעברת הפריט');
+    } finally {
+      stopBusy();
+      resetDragUi();
+      activeDragContext = null;
+    }
+  }
+
+  function setupSidebarDropHandlers(root){
+    updateSidebarShell(root);
+    const buttons = root.querySelectorAll('.sidebar-item');
+    buttons.forEach((btn) => {
+      btn.addEventListener('dragenter', handleSidebarDragEnter);
+      btn.addEventListener('dragover', handleSidebarDragOver);
+      btn.addEventListener('dragleave', handleSidebarDragLeave);
+      btn.addEventListener('drop', handleSidebarDrop);
+    });
+    if (activeDragContext) {
+      setSidebarDragVisual(true);
+    }
+  }
+
+  function handleSidebarDragEnter(ev){
+    const btn = ev.currentTarget;
+    if (!(btn instanceof HTMLElement)) return;
+    const cid = btn.getAttribute('data-id') || '';
+    if (!canDropOnSidebar(cid)) return;
+    ev.preventDefault();
+    setSidebarDropHover(btn, 'ready');
+  }
+
+  function handleSidebarDragOver(ev){
+    const btn = ev.currentTarget;
+    if (!(btn instanceof HTMLElement)) return;
+    const cid = btn.getAttribute('data-id') || '';
+    if (!canDropOnSidebar(cid)) return;
+    ev.preventDefault();
+    if (ev.dataTransfer) {
+      ev.dataTransfer.dropEffect = 'move';
+    }
+    setSidebarDropHover(btn, 'hover');
+  }
+
+  function handleSidebarDragLeave(ev){
+    const btn = ev.currentTarget;
+    if (!(btn instanceof HTMLElement)) return;
+    const related = ev.relatedTarget;
+    if (related && btn.contains(related)) {
+      return;
+    }
+    if (sidebarHoverBtn === btn) {
+      setSidebarDropHover(null);
+    }
+  }
+
+  function handleSidebarDrop(ev){
+    const btn = ev.currentTarget;
+    if (!(btn instanceof HTMLElement)) return;
+    const cid = btn.getAttribute('data-id') || '';
+    if (!canDropOnSidebar(cid)) return;
+    ev.preventDefault();
+    handleSidebarDropRequest(cid, btn).catch(() => {});
+  }
+
   async function renderCollectionItems(cid){
     const container = document.getElementById('collectionsContent');
     if (!container) return;
+    resetDragUi();
+    activeDragContext = null;
     const collectionId = String(cid || '').trim();
     if (!collectionId) {
       container.innerHTML = '<div class="error">האוסף לא נמצא</div>';
@@ -502,7 +737,7 @@
         container.innerHTML = `${headerHtml}${boardHtml}`;
       } else {
         const itemsHtml = baseItems.map(it => `
-          <div class="collection-item" data-source="${escapeHtml(it.source || 'regular')}" data-name="${escapeHtml(it.file_name || '')}" data-file-id="${escapeHtml(it.file_id || '')}">
+          <div class="collection-item" data-source="${escapeHtml(it.source || 'regular')}" data-name="${escapeHtml(it.file_name || '')}" data-file-id="${escapeHtml(it.file_id || '')}" data-pinned="${it.pinned ? '1' : '0'}">
             <span class="drag" draggable="true">⋮⋮</span>
             <a class="file" href="#" draggable="false" data-open="${escapeHtml(it.file_name || '')}">${escapeHtml(it.file_name || '')}</a>
             <button class="pin ${it.pinned ? 'pinned' : ''}" title="${it.pinned ? 'בטל הצמדה' : 'הצמד'}">📌</button>
@@ -1176,9 +1411,23 @@
       const handle = el.querySelector('.drag');
       if (!handle) return;
       // גרירה מותרת רק מהידית כדי לא לחסום לחיצות על שם הקובץ
-      handle.addEventListener('dragstart', () => { dragEl = el; el.classList.add('dragging'); });
+      handle.addEventListener('dragstart', (event) => {
+        dragEl = el;
+        el.classList.add('dragging');
+        beginCollectionItemDrag(el, cid, container, 'html');
+        if (event && event.dataTransfer) {
+          event.dataTransfer.effectAllowed = 'move';
+          try {
+            event.dataTransfer.setData('text/plain', el.getAttribute('data-name') || '');
+          } catch (_err) {}
+        }
+      });
       handle.addEventListener('dragend', async () => {
         el.classList.remove('dragging');
+        if (activeDragContext && activeDragContext.dropInProgress) {
+          return;
+        }
+        clearActiveDragContext();
         // שליחת סדר חדש לשרת
         const order = Array.from(container.querySelectorAll('.collection-item')).map(x => ({
           source: x.getAttribute('data-source')||'regular',
@@ -1196,6 +1445,12 @@
         let upHandler = null;
         let activePointerId = null;
 
+        const cleanupPointerListeners = () => {
+          window.removeEventListener('pointermove', moveHandler);
+          window.removeEventListener('pointerup', upHandler);
+          window.removeEventListener('pointercancel', upHandler);
+        };
+
         const onPointerDown = (ev) => {
           // נטפל רק במגע/עט כדי לא לשבש עכבר בדסקטופ
           const type = (ev.pointerType || '').toLowerCase();
@@ -1206,6 +1461,7 @@
           activePointerId = ev.pointerId;
           dragEl = el;
           el.classList.add('dragging');
+          beginCollectionItemDrag(el, cid, container, 'pointer');
           const prevUserSelect = document.body.style.userSelect;
           document.body.dataset.prevUserSelect = prevUserSelect || '';
           document.body.style.userSelect = 'none';
@@ -1221,6 +1477,7 @@
             } else {
               container.insertBefore(dragEl, after);
             }
+            updateSidebarHoverFromPoint(e.clientX, e.clientY);
           };
 
           upHandler = async (e) => {
@@ -1233,18 +1490,26 @@
             document.body.style.userSelect = document.body.dataset.prevUserSelect || '';
             delete document.body.dataset.prevUserSelect;
 
+            const dropBtn = findSidebarButtonFromPoint(e.clientX, e.clientY);
+            const dropId = dropBtn ? (dropBtn.getAttribute('data-id') || '') : '';
+
+            // ניקוי מאזינים
+            activePointerId = null;
+            cleanupPointerListeners();
+
+            if (dropBtn && canDropOnSidebar(dropId)) {
+              await handleSidebarDropRequest(dropId, dropBtn);
+              return;
+            }
+
+            clearActiveDragContext();
+
             // שליחת סדר חדש לשרת
             const order = Array.from(container.querySelectorAll('.collection-item')).map(x => ({
               source: x.getAttribute('data-source')||'regular',
               file_name: x.getAttribute('data-name')||''
             }));
-            try { await api.reorder(cid, order); } catch(_) { /* ignore */ }
-
-            // ניקוי מאזינים
-            activePointerId = null;
-            window.removeEventListener('pointermove', moveHandler);
-            window.removeEventListener('pointerup', upHandler);
-            window.removeEventListener('pointercancel', upHandler);
+            try { await api.reorder(cid, order); } catch(_){ /* ignore */ }
           };
 
           window.addEventListener('pointermove', moveHandler, { passive: false });
@@ -1266,6 +1531,7 @@
           touchDragging = true;
           dragEl = el;
           el.classList.add('dragging');
+          beginCollectionItemDrag(el, cid, container, 'touch');
           const prevUserSelect = document.body.style.userSelect;
           document.body.dataset.prevUserSelect = prevUserSelect || '';
           document.body.style.userSelect = 'none';
@@ -1293,14 +1559,16 @@
             } else {
               container.insertBefore(dragEl, after);
             }
+            updateSidebarHoverFromPoint(t.clientX, t.clientY);
           };
           endHandler = async (e) => {
             if (!touchDragging) return;
             // נסיים רק כשאותו מזהה מגע השתחרר
             let endedActive = false;
             const cl = e.changedTouches || [];
+            let relevantTouch = null;
             for (let i = 0; i < cl.length; i++) {
-              if (cl[i].identifier === activeTouchId) { endedActive = true; break; }
+              if (cl[i].identifier === activeTouchId) { endedActive = true; relevantTouch = cl[i]; break; }
             }
             if (!endedActive) return;
             touchDragging = false;
@@ -1308,16 +1576,25 @@
             document.body.style.userSelect = document.body.dataset.prevUserSelect || '';
             delete document.body.dataset.prevUserSelect;
 
-            const order = Array.from(container.querySelectorAll('.collection-item')).map(x => ({
-              source: x.getAttribute('data-source')||'regular',
-              file_name: x.getAttribute('data-name')||''
-            }));
-            try { await api.reorder(cid, order); } catch(_) { /* ignore */ }
-
             activeTouchId = null;
             window.removeEventListener('touchmove', moveHandler);
             window.removeEventListener('touchend', endHandler);
             window.removeEventListener('touchcancel', endHandler);
+
+            const dropBtn = relevantTouch ? findSidebarButtonFromPoint(relevantTouch.clientX, relevantTouch.clientY) : null;
+            const dropId = dropBtn ? (dropBtn.getAttribute('data-id') || '') : '';
+            if (dropBtn && canDropOnSidebar(dropId)) {
+              await handleSidebarDropRequest(dropId, dropBtn);
+              return;
+            }
+
+            clearActiveDragContext();
+
+            const order = Array.from(container.querySelectorAll('.collection-item')).map(x => ({
+              source: x.getAttribute('data-source')||'regular',
+              file_name: x.getAttribute('data-name')||''
+            }));
+            try { await api.reorder(cid, order); } catch(_){ /* ignore */ }
           };
 
           window.addEventListener('touchmove', moveHandler, { passive: false });
