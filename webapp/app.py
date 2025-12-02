@@ -2048,6 +2048,21 @@ def _add_default_csp(resp):
     return resp
 
 
+@app.after_request
+def _disable_html_cache(resp):
+    """Force browsers to revalidate HTML responses and pick up fresh assets."""
+    try:
+        content_type = resp.headers.get('Content-Type', '')
+        if isinstance(content_type, str) and 'text/html' in content_type:
+            resp.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
+            resp.headers['Pragma'] = 'no-cache'
+            resp.headers['Expires'] = '0'
+    except Exception:
+        # Never fail the response if header manipulation crashes
+        pass
+    return resp
+
+
 # --- Service Worker: served at root scope (/sw.js) ---
 @app.route('/sw.js')
 def service_worker_js():
