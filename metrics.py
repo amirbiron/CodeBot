@@ -3,10 +3,13 @@ Prometheus metrics primitives and helpers.
 """
 from __future__ import annotations
 
+import logging
 import time
 from contextlib import contextmanager
-from typing import Dict, Optional
+from datetime import datetime
+from typing import Any, Dict, Optional, List, Tuple
 import os
+import threading
 import time as _time
 from collections import deque
 
@@ -43,6 +46,9 @@ except Exception:  # pragma: no cover - prometheus optional in some envs
     def generate_latest():  # type: ignore
         return b""
     CONTENT_TYPE_LATEST = "text/plain; version=0.0.4; charset=utf-8"  # type: ignore
+
+# Logger for structured warnings around anomalies
+logger = logging.getLogger(__name__)
 
 # Core metrics (names chosen to be generic and reusable)
 errors_total = Counter("errors_total", "Total error count", ["code"]) if Counter else None
@@ -158,6 +164,7 @@ prevented_incidents_total = (
 codebot_active_users_total = Gauge("codebot_active_users_total", "Number of active users recently") if Gauge else None
 codebot_failed_requests_total = Counter("codebot_failed_requests_total", "Total failed HTTP requests (status >= 500)") if Counter else None
 codebot_avg_response_time_seconds = Gauge("codebot_avg_response_time_seconds", "Smoothed average response time (EWMA) in seconds") if Gauge else None
+codebot_active_requests_total = Gauge("codebot_active_requests_total", "Number of in-flight HTTP requests") if Gauge else None
 
 # Internal helper: total requests for uptime calculation (not externally required but useful)
 codebot_requests_total = Counter("codebot_requests_total", "Total HTTP requests processed") if Counter else None
@@ -350,13 +357,25 @@ dependency_init_seconds = (
 
 # In-memory assistance structures (fail-open, best-effort)
 _ACTIVE_USERS: set[int] = set()
+_ACTIVE_REQUESTS: int = 0
+_ACTIVE_REQUESTS_LOCK = threading.Lock()
 _EWMA_ALPHA: float = float(os.getenv("METRICS_EWMA_ALPHA", "0.2"))
 _EWMA_RT: float | None = None
-_ERR_TIMESTAMPS: deque[float] = deque(maxlen=1000)
+_HTTP_SAMPLE_BUFFER = int(os.getenv("HTTP_SAMPLE_BUFFER", "2000"))
+_HTTP_REQUEST_SAMPLES: deque[Tuple[float, str, str, float, int]] = deque(maxlen=max(100, _HTTP_SAMPLE_BUFFER))
+_HTTP_SAMPLES_LOCK = threading.Lock()
+_HTTP_SAMPLE_RETENTION_SECONDS: int = int(os.getenv("HTTP_SAMPLE_RETENTION_SECONDS", "600"))
+_ERROR_HISTORY_SECONDS: int = max(60, int(os.getenv("ERROR_HISTORY_SECONDS", "600")))
+_ERROR_HISTORY_MAX_SAMPLES: int = int(os.getenv("ERROR_HISTORY_MAX_SAMPLES", "2000"))
+_ERR_TIMESTAMPS: deque[float] = deque(maxlen=max(200, _ERROR_HISTORY_MAX_SAMPLES))
+_ERR_TIMESTAMPS_LOCK = threading.Lock()
 _ANOMALY_COOLDOWN_SEC: int = int(os.getenv("ALERT_COOLDOWN_SECONDS", "300"))
 _ANOMALY_LAST_TS: float = 0.0
 _ERRS_PER_MIN_THRESHOLD: int = int(os.getenv("ALERT_ERRORS_PER_MINUTE", "20"))
 _AVG_RT_THRESHOLD: float = float(os.getenv("ALERT_AVG_RESPONSE_TIME", "3.0"))
+_DEPLOY_AVG_RT_THRESHOLD: float = float(os.getenv("ALERT_AVG_RESPONSE_TIME_DEPLOY", "10.0"))
+_DEPLOY_GRACE_PERIOD_SECONDS: int = int(os.getenv("DEPLOY_GRACE_PERIOD_SECONDS", "120"))
+_LAST_DEPLOYMENT_TS: float | None = None
 
 
 @contextmanager
@@ -409,6 +428,231 @@ def note_active_user(user_id: int) -> None:
             codebot_active_users_total.set(len(_ACTIVE_USERS))
     except Exception:
         return
+
+
+def _update_active_requests_gauge(value: int) -> None:
+    try:
+        if codebot_active_requests_total is not None:
+            codebot_active_requests_total.set(max(0.0, float(value)))
+    except Exception:
+        pass
+
+
+def note_request_started() -> None:
+    """Increment the in-flight requests gauge (best-effort)."""
+    global _ACTIVE_REQUESTS
+    try:
+        with _ACTIVE_REQUESTS_LOCK:
+            _ACTIVE_REQUESTS += 1
+            current = _ACTIVE_REQUESTS
+        _update_active_requests_gauge(current)
+    except Exception:
+        return
+
+
+def note_request_finished() -> None:
+    """Decrement the in-flight requests gauge (never negative)."""
+    global _ACTIVE_REQUESTS
+    try:
+        with _ACTIVE_REQUESTS_LOCK:
+            _ACTIVE_REQUESTS = max(0, _ACTIVE_REQUESTS - 1)
+            current = _ACTIVE_REQUESTS
+        _update_active_requests_gauge(current)
+    except Exception:
+        return
+
+
+def get_active_requests_count() -> int:
+    """Return the current in-flight request count (best-effort)."""
+    try:
+        with _ACTIVE_REQUESTS_LOCK:
+            return max(0, int(_ACTIVE_REQUESTS))
+    except Exception:
+        return 0
+
+
+def get_current_memory_usage() -> float:
+    """Return current process RSS in MB (best-effort)."""
+    try:
+        import psutil  # type: ignore
+
+        process = psutil.Process()
+        return float(process.memory_info().rss) / 1024.0 / 1024.0
+    except Exception:
+        return 0.0
+
+
+def _record_error_timestamp(ts: float | None = None) -> None:
+    """Record an error timestamp with retention and max sample cap."""
+    try:
+        value = float(ts if ts is not None else _time.time())
+    except Exception:
+        value = _time.time()
+    cutoff = value - float(_ERROR_HISTORY_SECONDS)
+    try:
+        with _ERR_TIMESTAMPS_LOCK:
+            _ERR_TIMESTAMPS.append(value)
+            while _ERR_TIMESTAMPS and _ERR_TIMESTAMPS[0] < cutoff:
+                _ERR_TIMESTAMPS.popleft()
+    except Exception:
+        return
+
+
+def get_recent_errors_count(minutes: int = 5) -> int:
+    """Return the number of 5xx errors recorded in the last X minutes."""
+    if minutes is None:
+        minutes = 5
+    try:
+        window = max(0, int(minutes)) * 60
+        if window <= 0:
+            return 0
+        cutoff = _time.time() - float(window)
+    except Exception:
+        return 0
+    try:
+        with _ERR_TIMESTAMPS_LOCK:
+            return sum(1 for ts in _ERR_TIMESTAMPS if ts >= cutoff)
+    except Exception:
+        return 0
+
+
+def _note_http_request_sample(
+    method: str,
+    endpoint: str,
+    status_code: int,
+    duration_seconds: float,
+    *,
+    ts: float | None = None,
+) -> None:
+    """Store a lightweight sample for slow-endpoint summaries (best-effort)."""
+    try:
+        timestamp = float(ts if ts is not None else _time.time())
+        sample = (
+            timestamp,
+            (method or "").upper() or "GET",
+            endpoint or "unknown",
+            max(0.0, float(duration_seconds)),
+            int(status_code),
+        )
+    except Exception:
+        return
+    cutoff = timestamp - float(max(60, _HTTP_SAMPLE_RETENTION_SECONDS))
+    try:
+        with _HTTP_SAMPLES_LOCK:
+            _HTTP_REQUEST_SAMPLES.append(sample)
+            while _HTTP_REQUEST_SAMPLES and _HTTP_REQUEST_SAMPLES[0][0] < cutoff:
+                _HTTP_REQUEST_SAMPLES.popleft()
+    except Exception:
+        return
+
+
+def _recent_http_samples(window_seconds: Optional[int] = None) -> List[Tuple[float, str, str, float, int]]:
+    try:
+        with _HTTP_SAMPLES_LOCK:
+            samples = list(_HTTP_REQUEST_SAMPLES)
+    except Exception:
+        return []
+    if not samples:
+        return []
+    try:
+        window = int(window_seconds) if window_seconds is not None else _HTTP_SAMPLE_RETENTION_SECONDS
+        cutoff = _time.time() - float(max(1, window))
+    except Exception:
+        cutoff = _time.time() - float(_HTTP_SAMPLE_RETENTION_SECONDS)
+    return [sample for sample in samples if sample[0] >= cutoff]
+
+
+def get_top_slow_endpoints(limit: int = 5, window_seconds: Optional[int] = None) -> List[Dict[str, Any]]:
+    """Return the slowest endpoints observed recently (best-effort)."""
+    try:
+        max_items = max(0, int(limit))
+    except Exception:
+        max_items = 5
+    if max_items <= 0:
+        return []
+
+    samples = _recent_http_samples(window_seconds)
+    stats: Dict[Tuple[str, str], Dict[str, float]] = {}
+    for _ts, method, endpoint, duration, _status in samples:
+        key = (method or "GET", endpoint or "unknown")
+        data = stats.setdefault(key, {"count": 0.0, "sum": 0.0, "max": 0.0})
+        data["count"] += 1.0
+        data["sum"] += float(duration)
+        data["max"] = max(data["max"], float(duration))
+
+    results: List[Dict[str, Any]] = []
+    for (method, endpoint), data in stats.items():
+        count = max(1.0, data["count"])
+        avg = data["sum"] / count
+        results.append(
+            {
+                "method": method,
+                "endpoint": endpoint,
+                "count": int(count),
+                "avg_duration": float(avg),
+                "max_duration": float(data["max"]),
+            }
+        )
+
+    results.sort(key=lambda item: item.get("max_duration", 0.0), reverse=True)
+    return results[:max_items]
+
+
+def get_slowest_endpoint() -> str:
+    """Return a formatted string describing the slowest endpoint recently seen."""
+    top = get_top_slow_endpoints(limit=1)
+    if not top:
+        return "unknown"
+    entry = top[0]
+    try:
+        method = str(entry.get("method", "GET"))
+        endpoint = str(entry.get("endpoint", "unknown"))
+        max_dur = float(entry.get("max_duration", 0.0))
+        return f"{method} {endpoint} ({max_dur:.3f}s)"
+    except Exception:
+        return "unknown"
+
+
+def _emit_deployment_alert(summary: str, *, name: str) -> None:
+    try:
+        from internal_alerts import emit_internal_alert  # type: ignore
+
+        emit_internal_alert(name=name, severity="info", summary=str(summary))
+    except Exception:
+        try:
+            emit_event(name, severity="info", summary=str(summary))
+        except Exception:
+            pass
+
+
+def note_deployment_started(summary: str = "Service starting up") -> None:
+    """Mark the start of a deployment and emit an informational alert."""
+    global _LAST_DEPLOYMENT_TS
+    try:
+        _LAST_DEPLOYMENT_TS = _time.time()
+    except Exception:
+        _LAST_DEPLOYMENT_TS = None
+    _emit_deployment_alert(summary, name="deployment_event")
+
+
+def note_deployment_shutdown(summary: str = "Service shutting down") -> None:
+    """Emit a shutdown deployment event (does not reset latency grace period)."""
+    _emit_deployment_alert(summary, name="deployment_event")
+
+
+def _current_latency_threshold(now_ts: float) -> float:
+    """Return the dynamic latency threshold depending on deploy grace period."""
+    try:
+        if (
+            _DEPLOY_GRACE_PERIOD_SECONDS > 0
+            and _LAST_DEPLOYMENT_TS is not None
+            and (now_ts - float(_LAST_DEPLOYMENT_TS)) < float(_DEPLOY_GRACE_PERIOD_SECONDS)
+            and _DEPLOY_AVG_RT_THRESHOLD > 0
+        ):
+            return float(_DEPLOY_AVG_RT_THRESHOLD)
+    except Exception:
+        pass
+    return float(_AVG_RT_THRESHOLD)
 
 
 def _update_ewma(duration_seconds: float) -> float:
@@ -509,9 +753,10 @@ def record_request_outcome(
     try:
         if codebot_requests_total is not None:
             codebot_requests_total.inc()
-        if status_int >= 500 and codebot_failed_requests_total is not None:
-            codebot_failed_requests_total.inc()
-            _ERR_TIMESTAMPS.append(_time.time())
+        if status_int >= 500:
+            if codebot_failed_requests_total is not None:
+                codebot_failed_requests_total.inc()
+            _record_error_timestamp()
         _update_ewma(float(duration_seconds))
         _maybe_trigger_anomaly()
         # Dual-write: enqueue request metrics to DB (best-effort, batched)
@@ -690,6 +935,7 @@ def record_http_request(
                 http_request_duration_seconds.labels(m, ep).observe(max(0.0, float(duration_seconds)))
             except Exception:
                 pass
+        _note_http_request_sample(m, ep, int(status), float(duration_seconds))
     except Exception:
         return
 
@@ -841,31 +1087,74 @@ def _maybe_trigger_anomaly() -> None:
 
         # Errors per minute window
         window_start = now - 60.0
-        while _ERR_TIMESTAMPS and _ERR_TIMESTAMPS[0] < window_start:
-            _ERR_TIMESTAMPS.popleft()
-        err_rate = len(_ERR_TIMESTAMPS)
+        try:
+            with _ERR_TIMESTAMPS_LOCK:
+                err_rate = sum(1 for ts in _ERR_TIMESTAMPS if ts >= window_start)
+        except Exception:
+            err_rate = 0
 
         # Average response time
         avg_rt = float(_EWMA_RT or 0.0)
+        latency_threshold = _current_latency_threshold(now)
 
         breach_msgs: list[str] = []
         if err_rate >= _ERRS_PER_MIN_THRESHOLD and _ERRS_PER_MIN_THRESHOLD > 0:
             breach_msgs.append(f"errors/min >= {err_rate} (threshold {_ERRS_PER_MIN_THRESHOLD})")
-        if avg_rt >= _AVG_RT_THRESHOLD and _AVG_RT_THRESHOLD > 0:
-            breach_msgs.append(f"avg_rt={avg_rt:.3f}s (threshold {_AVG_RT_THRESHOLD:.3f}s)")
+        if avg_rt >= latency_threshold and latency_threshold > 0:
+            breach_msgs.append(f"avg_rt={avg_rt:.3f}s (threshold {latency_threshold:.3f}s)")
 
         if not breach_msgs:
             return
 
         _ANOMALY_LAST_TS = now
         summary = "; ".join(breach_msgs)
+        slow_endpoints = get_top_slow_endpoints(limit=5)
+        top_endpoint = get_slowest_endpoint()
+        active_requests = get_active_requests_count()
+        recent_errors_5m = get_recent_errors_count(minutes=5)
+        memory_mb = get_current_memory_usage()
+        if avg_rt >= latency_threshold and latency_threshold > 0:
+            try:
+                logger.warning(
+                    "High response time detected",
+                    extra={
+                        "avg_response_time": round(avg_rt, 4),
+                        "threshold": round(latency_threshold, 4),
+                        "active_requests": active_requests,
+                        "recent_errors_5m": recent_errors_5m,
+                        "slow_endpoints": slow_endpoints,
+                        "memory_mb": round(memory_mb, 2),
+                        "timestamp": datetime.utcnow().isoformat(),
+                    },
+                )
+            except Exception:
+                pass
+
+        alert_labels = {
+            "top_slow_endpoint": top_endpoint,
+            "active_requests": str(active_requests),
+            "recent_errors_5m": str(recent_errors_5m),
+            "avg_memory_usage_mb": f"{memory_mb:.2f}",
+        }
         try:
             from internal_alerts import emit_internal_alert  # type: ignore
-            emit_internal_alert(name="anomaly_detected", severity="anomaly", summary=summary)
+            emit_internal_alert(
+                name="anomaly_detected",
+                severity="anomaly",
+                summary=summary,
+                labels=alert_labels,
+                slow_endpoints=slow_endpoints,
+            )
         except Exception:
             # As a fallback, emit a structured event only
             try:
-                emit_event("anomaly_detected", severity="anomaly", summary=summary)
+                emit_event(
+                    "anomaly_detected",
+                    severity="anomaly",
+                    summary=summary,
+                    labels=alert_labels,
+                    slow_endpoints=slow_endpoints,
+                )
             except Exception:
                 pass
     except Exception:

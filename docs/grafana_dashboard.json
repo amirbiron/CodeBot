@@ -40,6 +40,16 @@
           {"expr": "increase(predicted_incidents_total[1h])", "legendFormat": "predicted"},
           {"expr": "increase(actual_incidents_total[1h])", "legendFormat": "actual"}
         ]
+      },
+      {
+        "type": "timeseries",
+        "title": "Deployments vs Anomalies (5m rate)",
+        "id": 4,
+        "gridPos": {"x": 0, "y": 16, "w": 24, "h": 8},
+        "targets": [
+          {"expr": "increase(internal_alerts_total{name=\"deployment_event\"}[5m])", "legendFormat": "deployment_event"},
+          {"expr": "increase(internal_alerts_total{name=\"anomaly_detected\"}[5m])", "legendFormat": "anomaly_detected"}
+        ]
       }
     ]
   }

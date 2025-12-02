@@ -19,6 +19,11 @@ from datetime import datetime, timezone
 from typing import Any, Dict, List
 import os
 
+try:
+    from prometheus_client import Counter, REGISTRY
+except Exception:  # pragma: no cover
+    Counter = REGISTRY = None  # type: ignore
+
 try:  # runtime optional
     from http_sync import request  # type: ignore
 except Exception:  # pragma: no cover
@@ -39,6 +44,34 @@ except Exception:  # pragma: no cover
 
 _MAX = int(os.getenv("INTERNAL_ALERTS_BUFFER", "200") or 200)
 _ALERTS: "deque[Dict[str, Any]]" = deque(maxlen=max(10, _MAX))
+
+
+def _get_prom_counter(name: str, documentation: str, labelnames: List[str]):
+    if Counter is None:
+        return None
+    if REGISTRY is not None:
+        try:
+            existing = getattr(REGISTRY, "_names_to_collectors", {}).get(name)
+        except Exception:
+            existing = None
+        if existing is not None:
+            return existing
+    try:
+        return Counter(name, documentation, labelnames)
+    except ValueError:
+        if REGISTRY is not None:
+            try:
+                return getattr(REGISTRY, "_names_to_collectors", {}).get(name)
+            except Exception:
+                return None
+        return None
+
+
+internal_alerts_total = _get_prom_counter(
+    "internal_alerts_total",
+    "Total internal alerts emitted",
+    ["name", "severity"],
+)
 
 _SENSITIVE_DETAIL_KEYS = {"token", "password", "secret", "authorization", "auth"}
 _PROMOTED_DETAIL_KEYS = {
@@ -227,6 +260,11 @@ def emit_internal_alert(name: str, severity: str = "info", summary: str = "", **
         if details:
             rec["details"] = {k: (str(v) if not isinstance(v, (int, float, bool)) else v) for k, v in details.items()}
         _ALERTS.append(rec)
+        if internal_alerts_total is not None:
+            try:
+                internal_alerts_total.labels(str(name or "InternalAlert"), str(severity or "info")).inc()
+            except Exception:
+                pass
 
         # Emit structured log/event as well
         emit_event("internal_alert", severity=str(severity), name=str(name), summary=str(summary))

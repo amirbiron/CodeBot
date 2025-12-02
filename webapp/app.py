@@ -745,6 +745,10 @@ try:
         update_health_gauges,
         record_startup_stage_metric,
         record_startup_total_metric,
+        note_request_started,
+        note_request_finished,
+        note_deployment_started,
+        note_deployment_shutdown,
      )
 except Exception:  # pragma: no cover
     def record_request_outcome(status_code: int, duration_seconds: float, **_kwargs) -> None:
@@ -767,9 +771,23 @@ except Exception:  # pragma: no cover
         return None
     def record_startup_total_metric(_duration_ms: float | None) -> None:
         return None
+    def note_request_started() -> None:
+        return None
+    def note_request_finished() -> None:
+        return None
+    def note_deployment_started(_summary: str = "Service starting up") -> None:
+        return None
+    def note_deployment_shutdown(_summary: str = "Service shutting down") -> None:
+        return None
 
 # Trigger preload only after metrics helpers are available
 _preload_heavy_assets_async()
+
+try:
+    note_deployment_started("webapp service starting up")
+except Exception:
+    pass
+atexit.register(lambda: note_deployment_shutdown("webapp service shutting down"))
 
 # --- Search: metrics, limiter (lightweight, optional) ---
 def _no_op(*args, **kwargs):
@@ -1904,6 +1922,7 @@ def _metrics_start_timer():  # minimal, best-effort
     try:
         request._metrics_start = _time.perf_counter( )
         setattr(g, "_otel_cache_hit", None)
+        note_request_started()
     except Exception:
         pass
 
@@ -1943,6 +1962,14 @@ def _metrics_after(resp):
     except Exception:
         pass
     return resp
+
+
+@app.teardown_request
+def _metrics_teardown(_exc):
+    try:
+        note_request_finished()
+    except Exception:
+        pass
 
 
 @app.after_request
