@@ -583,8 +583,12 @@ except Exception:
 
 # Sticky Notes API (Markdown inline notes)
 try:
-    from webapp.sticky_notes_api import sticky_notes_bp  # noqa: E402
+    from webapp.sticky_notes_api import sticky_notes_bp, kickoff_index_warmup  # noqa: E402
     app.register_blueprint(sticky_notes_bp)
+    try:
+        kickoff_index_warmup()
+    except Exception:
+        pass
 except Exception:
     # אל תפיל את היישום אם ה-Blueprint אינו זמין (למשל בסביבת דוקס/CI)
     pass
