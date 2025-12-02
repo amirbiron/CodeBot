@@ -7,7 +7,7 @@ import logging
 import time
 from contextlib import contextmanager
 from datetime import datetime
-from typing import Dict, Optional, List, Tuple
+from typing import Any, Dict, Optional, List, Tuple
 import os
 import threading
 import time as _time
@@ -562,7 +562,7 @@ def _recent_http_samples(window_seconds: Optional[int] = None) -> List[Tuple[flo
     return [sample for sample in samples if sample[0] >= cutoff]
 
 
-def get_top_slow_endpoints(limit: int = 5, window_seconds: Optional[int] = None) -> List[Dict[str, object]]:
+def get_top_slow_endpoints(limit: int = 5, window_seconds: Optional[int] = None) -> List[Dict[str, Any]]:
     """Return the slowest endpoints observed recently (best-effort)."""
     try:
         max_items = max(0, int(limit))
@@ -580,7 +580,7 @@ def get_top_slow_endpoints(limit: int = 5, window_seconds: Optional[int] = None)
         data["sum"] += float(duration)
         data["max"] = max(data["max"], float(duration))
 
-    results: List[Dict[str, object]] = []
+    results: List[Dict[str, Any]] = []
     for (method, endpoint), data in stats.items():
         count = max(1.0, data["count"])
         avg = data["sum"] / count
