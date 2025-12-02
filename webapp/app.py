@@ -288,32 +288,51 @@ def _emit_startup_metrics_log(total_ms: float | None = None) -> None:
 
 # --- Static asset version (for cache-busting of PWA manifest/icons) ---
 _MANIFEST_PATH = (Path(__file__).parent / 'static' / 'manifest.json')
+_STATIC_VERSION_SOURCE = "init"
 
 def _compute_static_version() -> str:
     """Return a short version string to bust caches for static assets.
 
     Preference order:
-    1) ASSET_VERSION env
-    2) APP_VERSION env
-    3) SHA1(first 8) of manifest.json contents
-    4) Hourly rolling timestamp
+    1) ASSET_VERSION env (exported by start_webapp.sh)
+    2) APP_VERSION env (explicit override)
+    3) VCS commit env (Render/Heroku/etc.)
+    4) SHA1(first 8) of manifest.json contents
+    5) Hourly rolling timestamp
     """
-    v = os.getenv("ASSET_VERSION") or os.getenv("APP_VERSION")
-    if v:
-        return str(v)
+    global _STATIC_VERSION_SOURCE
+    version_candidates = [
+        ("ASSET_VERSION", os.getenv("ASSET_VERSION")),
+        ("APP_VERSION", os.getenv("APP_VERSION")),
+        ("RENDER_GIT_COMMIT", os.getenv("RENDER_GIT_COMMIT")),
+        ("SOURCE_VERSION", os.getenv("SOURCE_VERSION")),
+        ("GIT_COMMIT", os.getenv("GIT_COMMIT")),
+        ("HEROKU_SLUG_COMMIT", os.getenv("HEROKU_SLUG_COMMIT")),
+    ]
+    for source_name, value in version_candidates:
+        if value:
+            _STATIC_VERSION_SOURCE = source_name.lower()
+            return str(value)[:8]  # קיצור כדי לשמור על מחרוזת קצרה ויציבה
     try:
         p = _MANIFEST_PATH
         if p.is_file():
             h = hashlib.sha1(p.read_bytes()).hexdigest()  # nosec - not for security
+            _STATIC_VERSION_SOURCE = "manifest_sha"
             return h[:8]
     except Exception:
         pass
     try:
+        _STATIC_VERSION_SOURCE = "hourly_timestamp"
         return str(int(_time.time() // 3600))
     except Exception:
+        _STATIC_VERSION_SOURCE = "default_dev"
         return "dev"
 
 _STATIC_VERSION = _compute_static_version()
+try:
+    logger.info("[static-version] using=%s source=%s", _STATIC_VERSION, _STATIC_VERSION_SOURCE)
+except Exception:
+    pass
 
 # מזהי המדריכים המשותפים לזרימת ה-Onboarding בווב
 WELCOME_GUIDE_PRIMARY_SHARE_ID = "JjvpJFTXZO0oHtoC"
@@ -4176,6 +4195,8 @@ def healthz():
         "indexes": 0,
         "latency_ms": 0.0,
         "timestamp": datetime.now(timezone.utc).isoformat(),
+        "static_version": _STATIC_VERSION,
+        "static_version_source": _STATIC_VERSION_SOURCE,
     }
     errors: List[str] = []
     latency_breakdown: Dict[str, float] = {}
