@@ -79,6 +79,7 @@
   let workspaceBoardCtx = null;
   let workspaceActiveCard = null;
   let activeDragContext = null;
+  let workspaceDragPointer = null;
   let sidebarContainerEl = null;
   let sidebarShellEl = null;
   let sidebarHoverBtn = null;
@@ -531,6 +532,21 @@
     activeDragContext = null;
   }
 
+  function trackWorkspacePointer(event){
+    if (!event) return;
+    const { clientX, clientY } = event;
+    if (typeof clientX !== 'number' || typeof clientY !== 'number') {
+      return;
+    }
+    workspaceDragPointer = { x: clientX, y: clientY };
+  }
+
+  function consumeWorkspacePointer(){
+    const point = workspaceDragPointer;
+    workspaceDragPointer = null;
+    return point;
+  }
+
   function buildItemPayloadFromRow(row){
     if (!row) return null;
     const fileName = row.getAttribute('data-name') || '';
@@ -614,7 +630,13 @@
       if (ctx.element && ctx.element.remove) {
         const listEl = (ctx.container && ctx.container.isConnected) ? ctx.container : ctx.element.parentElement;
         ctx.element.remove();
-        ensureItemsContainerState(listEl);
+        if (listEl && typeof listEl.hasAttribute === 'function' && listEl.hasAttribute('data-state-list')) {
+          if (workspaceBoardCtx) {
+            updateWorkspaceEmptyStates(workspaceBoardCtx);
+          }
+        } else {
+          ensureItemsContainerState(listEl);
+        }
       }
       await ensureCollectionsSidebar();
     } catch (err) {
@@ -1259,7 +1281,36 @@
         fallbackTolerance: 8,
         dragClass: 'workspace-card--dragging',
         ghostClass: 'workspace-card--ghost',
+        onStart(evt) {
+          if (!evt || !evt.item) return;
+          const originContainer = evt.from || listEl;
+          beginCollectionItemDrag(evt.item, ctx.collectionId, originContainer, 'workspace');
+        },
+        onMove(evt, originalEvent) {
+          const event = originalEvent || (evt && evt.originalEvent) || null;
+          if (!event) return;
+          trackWorkspacePointer(event);
+          if (activeDragContext && activeDragContext.origin === 'workspace') {
+            updateSidebarHoverFromPoint(event.clientX, event.clientY);
+          }
+        },
         onEnd(evt) {
+          const event = (evt && (evt.originalEvent || evt.event)) || null;
+          if (event) {
+            trackWorkspacePointer(event);
+          }
+          const point = consumeWorkspacePointer();
+          if (point && activeDragContext && activeDragContext.origin === 'workspace') {
+            const dropBtn = findSidebarButtonFromPoint(point.x, point.y);
+            const dropId = dropBtn ? (dropBtn.getAttribute('data-id') || '') : '';
+            if (dropBtn && canDropOnSidebar(dropId)) {
+              handleSidebarDropRequest(dropId, dropBtn).catch(() => {});
+              return;
+            }
+          }
+          if (activeDragContext && activeDragContext.origin === 'workspace') {
+            clearActiveDragContext();
+          }
           handleWorkspaceDrop(ctx, evt.item, evt.from, evt.to);
         },
       });
