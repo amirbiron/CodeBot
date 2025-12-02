@@ -7,14 +7,18 @@
 }
 .cm-editor { min-height: 400px; max-height: 60vh; font-family: 'Fira Code','Consolas',monospace; }
 /* Modified: Default to row layout for tablets/desktop */
-.editor-switcher { display:flex; flex-direction:row; align-items: center; flex-wrap: wrap; gap:.35rem; margin:.5rem 0; padding:.5rem; background: rgba(255,255,255,0.05); border-radius:8px; }
-.editor-switcher-row { display:flex; justify-content:flex-start; align-items:center; gap:.5rem; flex-wrap:wrap; width:100%; }
+.editor-switcher { display:flex; flex-direction:column; align-items: stretch; gap:.5rem; margin:.5rem 0; padding:.65rem; background: rgba(255,255,255,0.05); border-radius:8px; }
+.editor-switcher-row { display:flex; justify-content:flex-start; align-items:center; gap:.75rem; flex-wrap:wrap; width:100%; }
+.editor-switcher-actions { display:flex; align-items:center; gap:.75rem; flex-wrap:wrap; }
 .btn-switch-editor { padding:.5rem 1rem; background: rgba(100,100,255,0.2); border:1px solid rgba(100,100,255,0.5); border-radius:6px; color:#fff; cursor:pointer; }
+.btn-switch-editor i { margin-inline-end:.35rem; }
+.editor-switcher .btn-switch-editor { min-width: fit-content; }
 .btn-switch-editor:hover { background: rgba(100,100,255,0.3); }
 .editor-clipboard-actions { display:flex; gap:.5rem; flex-wrap:wrap; }
 .btn-editor-clip { padding:.35rem .75rem; border-radius:6px; border:1px solid rgba(255,255,255,0.25); background: rgba(255,255,255,0.08); color:#fff; font-size:.85rem; display:flex; align-items:center; gap:.35rem; cursor:pointer; transition: background .2s ease, border-color .2s ease; }
 .btn-editor-clip:hover { background: rgba(255,255,255,0.15); border-color: rgba(255,255,255,0.4); }
 .btn-editor-clip:disabled { opacity:.6; cursor:not-allowed; }
+.editor-info-primary { display:flex; align-items:center; gap:.4rem; font-size:.85rem; opacity:.9; margin-left:auto; padding:.25rem .85rem; border-radius: 999px; background: rgba(255,255,255,0.04); }
 .editor-info { display:flex; flex-direction:column; gap:.15rem; font-size:.85rem; opacity:.85; min-width:0; width:100%; align-items:flex-start; text-align:start; }
 .editor-info-status { font-size:.8rem; color: var(--primary, #8ec5ff); min-height:1.1em; }
 .editor-loading { position: relative; min-height: 48px; display:flex; align-items:center; gap:.5rem; color:#fff; }
@@ -29,15 +33,43 @@
 @media (max-width: 768px){
   .cm-editor { max-height: 50vh; font-size: 14px; }
   /* Mobile: Stack vertically */
-  .editor-switcher { flex-direction: column; align-items: stretch; }
-  .editor-switcher-row { flex-direction: column; align-items: stretch; }
+  .editor-switcher-row { flex-direction: column; align-items: stretch; gap:.5rem; }
+  .editor-switcher-actions { width: 100%; flex-direction: column; }
   .editor-clipboard-actions { width: 100%; }
   .btn-editor-clip { flex: 1 1 auto; justify-content: center; }
+  .editor-info-primary { margin-left: 0; width: 100%; justify-content: center; text-align: center; }
 }
 
 /* Hide keyboard shortcuts hint on small mobile devices only */
 @media (max-width: 767px) {
   .editor-info-primary.is-keyboard-hint { display: none; }
+}
+
+textarea[name="code"],
+.editor-textarea {
+  direction: ltr;
+  text-align: left;
+  font-family: 'Fira Code','Consolas',monospace;
+}
+
+textarea[name="code"]::placeholder,
+.editor-textarea::placeholder {
+  text-align: left;
+}
+
+.cm-editor {
+  direction: ltr;
+  text-align: left;
+}
+
+.cm-editor .cm-scroller,
+.cm-editor .cm-content {
+  direction: ltr;
+  text-align: left;
+}
+
+.cm-editor .cm-gutters {
+  direction: ltr;
 }
 
 /* Dark Mode CodeMirror */

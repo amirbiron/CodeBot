@@ -80,6 +80,12 @@
       this.textarea = container.querySelector('textarea[name="code"]');
       if (!this.textarea) { try { console.warn('[EditorManager] Textarea not found in container'); } catch(_) {} return; }
       try { console.log('[EditorManager] Textarea found:', this.textarea); } catch(_) {}
+      try {
+        this.textarea.classList.add('editor-textarea');
+        this.textarea.setAttribute('dir', 'ltr');
+        this.textarea.style.direction = 'ltr';
+        this.textarea.style.textAlign = 'left';
+      } catch(_) {}
 
       let fallback = false;
       if (this.currentEditor === 'codemirror') {
@@ -223,27 +229,29 @@
       switcher.className = 'editor-switcher';
       switcher.innerHTML = `
         <div class="editor-switcher-row">
-          <button type="button" class="btn-switch-editor" title="החלף עורך">
-            <i class="fas fa-exchange-alt"></i>
-            <span>${this.currentEditor === 'simple' ? 'עורך מתקדם' : 'עורך פשוט'}</span>
-          </button>
-          <div class="editor-clipboard-actions" role="group" aria-label="פעולות עריכה">
-            <button type="button" class="btn-editor-clip btn-editor-select" title="בחר את כל הקוד">
-              <i class="fas fa-arrows-alt"></i>
-              <span>בחר הכל</span>
+          <div class="editor-switcher-actions">
+            <button type="button" class="btn-switch-editor" title="החלף עורך">
+              <i class="fas fa-exchange-alt"></i>
+              <span>${this.currentEditor === 'simple' ? 'עורך מתקדם' : 'עורך פשוט'}</span>
             </button>
-            <button type="button" class="btn-editor-clip btn-editor-copy" title="העתק את הקוד">
-              <i class="far fa-copy"></i>
-              <span>העתק</span>
-            </button>
-            <button type="button" class="btn-editor-clip btn-editor-paste" title="הדבק מהלוח">
-              <i class="fas fa-paste"></i>
-              <span>הדבק</span>
-            </button>
+            <div class="editor-clipboard-actions" role="group" aria-label="פעולות עריכה">
+              <button type="button" class="btn-editor-clip btn-editor-select" title="בחר את כל הקוד">
+                <i class="fas fa-arrows-alt"></i>
+                <span>בחר הכל</span>
+              </button>
+              <button type="button" class="btn-editor-clip btn-editor-copy" title="העתק את הקוד">
+                <i class="far fa-copy"></i>
+                <span>העתק</span>
+              </button>
+              <button type="button" class="btn-editor-clip btn-editor-paste" title="הדבק מהלוח">
+                <i class="fas fa-paste"></i>
+                <span>הדבק</span>
+              </button>
+            </div>
           </div>
+          <span class="editor-info-primary${this.currentEditor === 'codemirror' ? ' is-keyboard-hint' : ''}">${this.currentEditor === 'codemirror' ? '<i class="fas fa-keyboard"></i> קיצורי מקלדת זמינים' : '<i class="fas fa-info-circle"></i> עורך טקסט בסיסי'}</span>
         </div>
         <div class="editor-info">
-          <span class="editor-info-primary${this.currentEditor === 'codemirror' ? ' is-keyboard-hint' : ''}">${this.currentEditor === 'codemirror' ? '<i class="fas fa-keyboard"></i> קיצורי מקלדת זמינים' : '<i class="fas fa-info-circle"></i> עורך טקסט בסיסי'}</span>
           <span class="editor-info-status" aria-live="polite"></span>
         </div>
       `;
