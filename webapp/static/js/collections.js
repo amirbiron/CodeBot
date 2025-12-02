@@ -641,6 +641,7 @@
       await ensureCollectionsSidebar();
     } catch (err) {
       alert((err && err.message) || 'שגיאה בהעברת הפריט');
+      throw err;
     } finally {
       ctx.dropInProgress = false;
       stopBusy();
@@ -1284,6 +1285,9 @@
         onStart(evt) {
           if (!evt || !evt.item) return;
           const originContainer = evt.from || listEl;
+          evt.item.__workspacePrevContainer = originContainer;
+          evt.item.__workspacePrevIndex = Array.prototype.indexOf.call(originContainer ? originContainer.children : [], evt.item);
+          evt.item.__workspacePrevState = evt.item.getAttribute('data-state') || '';
           beginCollectionItemDrag(evt.item, ctx.collectionId, originContainer, 'workspace');
         },
         onMove(evt, originalEvent) {
@@ -1294,7 +1298,16 @@
             updateSidebarHoverFromPoint(event.clientX, event.clientY);
           }
         },
-        onEnd(evt) {
+        async onEnd(evt) {
+          const item = evt && evt.item;
+          const prevContainer = item && item.__workspacePrevContainer;
+          const prevIndex = (item && typeof item.__workspacePrevIndex === 'number') ? item.__workspacePrevIndex : null;
+          const prevState = item ? (item.__workspacePrevState || '') : '';
+          if (item) {
+            delete item.__workspacePrevContainer;
+            delete item.__workspacePrevIndex;
+            delete item.__workspacePrevState;
+          }
           const event = (evt && (evt.originalEvent || evt.event)) || null;
           if (event) {
             trackWorkspacePointer(event);
@@ -1304,7 +1317,16 @@
             const dropBtn = findSidebarButtonFromPoint(point.x, point.y);
             const dropId = dropBtn ? (dropBtn.getAttribute('data-id') || '') : '';
             if (dropBtn && canDropOnSidebar(dropId)) {
-              handleSidebarDropRequest(dropId, dropBtn).catch(() => {});
+              try {
+                await handleSidebarDropRequest(dropId, dropBtn);
+              } catch (_err) {
+                restoreWorkspaceCardPosition(prevContainer, item, prevIndex);
+                if (prevState) {
+                  refreshWorkspaceCardState(item, prevState);
+                }
+                updateWorkspaceEmptyStates(ctx);
+                setSidebarDropHover(null);
+              }
               return;
             }
           }
@@ -1404,6 +1426,18 @@
         }
       }
     });
+  }
+
+  function restoreWorkspaceCardPosition(container, card, index){
+    if (!container || !card || !container.insertBefore) {
+      return;
+    }
+    const children = Array.from(container.children || []).filter(el => el !== card);
+    if (typeof index === 'number' && index >= 0 && index < children.length) {
+      container.insertBefore(card, children[index]);
+    } else {
+      container.appendChild(card);
+    }
   }
 
   function moveWorkspaceCardToState(ctx, card, targetState){
@@ -1552,8 +1586,12 @@
             cleanupPointerListeners();
 
             if (dropBtn && canDropOnSidebar(dropId)) {
-              await handleSidebarDropRequest(dropId, dropBtn);
-              return;
+              try {
+                await handleSidebarDropRequest(dropId, dropBtn);
+                return;
+              } catch (_err) {
+                // ניפול חזרה להמשך הלוגיקה כדי להשיב את הפריט למקום
+              }
             }
 
             clearActiveDragContext();
@@ -1638,8 +1676,12 @@
             const dropBtn = relevantTouch ? findSidebarButtonFromPoint(relevantTouch.clientX, relevantTouch.clientY) : null;
             const dropId = dropBtn ? (dropBtn.getAttribute('data-id') || '') : '';
             if (dropBtn && canDropOnSidebar(dropId)) {
-              await handleSidebarDropRequest(dropId, dropBtn);
-              return;
+              try {
+                await handleSidebarDropRequest(dropId, dropBtn);
+                return;
+              } catch (_err) {
+                // במקרה של כשל בהעברה נמשיך להמשך הלוגיקה כדי להשיב את הפריט
+              }
             }
 
             clearActiveDragContext();
