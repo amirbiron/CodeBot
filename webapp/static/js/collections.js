@@ -79,6 +79,7 @@
   let workspaceBoardCtx = null;
   let workspaceActiveCard = null;
   let activeDragContext = null;
+  let workspaceDragPointer = null;
   let sidebarContainerEl = null;
   let sidebarShellEl = null;
   let sidebarHoverBtn = null;
@@ -531,6 +532,21 @@
     activeDragContext = null;
   }
 
+  function trackWorkspacePointer(event){
+    if (!event) return;
+    const { clientX, clientY } = event;
+    if (typeof clientX !== 'number' || typeof clientY !== 'number') {
+      return;
+    }
+    workspaceDragPointer = { x: clientX, y: clientY };
+  }
+
+  function consumeWorkspacePointer(){
+    const point = workspaceDragPointer;
+    workspaceDragPointer = null;
+    return point;
+  }
+
   function buildItemPayloadFromRow(row){
     if (!row) return null;
     const fileName = row.getAttribute('data-name') || '';
@@ -614,11 +630,18 @@
       if (ctx.element && ctx.element.remove) {
         const listEl = (ctx.container && ctx.container.isConnected) ? ctx.container : ctx.element.parentElement;
         ctx.element.remove();
-        ensureItemsContainerState(listEl);
+        if (listEl && typeof listEl.hasAttribute === 'function' && listEl.hasAttribute('data-state-list')) {
+          if (workspaceBoardCtx) {
+            updateWorkspaceEmptyStates(workspaceBoardCtx);
+          }
+        } else {
+          ensureItemsContainerState(listEl);
+        }
       }
       await ensureCollectionsSidebar();
     } catch (err) {
       alert((err && err.message) || 'שגיאה בהעברת הפריט');
+      throw err;
     } finally {
       ctx.dropInProgress = false;
       stopBusy();
@@ -1259,7 +1282,57 @@
         fallbackTolerance: 8,
         dragClass: 'workspace-card--dragging',
         ghostClass: 'workspace-card--ghost',
-        onEnd(evt) {
+        onStart(evt) {
+          if (!evt || !evt.item) return;
+          const originContainer = evt.from || listEl;
+          evt.item.__workspacePrevContainer = originContainer;
+          evt.item.__workspacePrevIndex = Array.prototype.indexOf.call(originContainer ? originContainer.children : [], evt.item);
+          evt.item.__workspacePrevState = evt.item.getAttribute('data-state') || '';
+          beginCollectionItemDrag(evt.item, ctx.collectionId, originContainer, 'workspace');
+        },
+        onMove(evt, originalEvent) {
+          const event = originalEvent || (evt && evt.originalEvent) || null;
+          if (!event) return;
+          trackWorkspacePointer(event);
+          if (activeDragContext && activeDragContext.origin === 'workspace') {
+            updateSidebarHoverFromPoint(event.clientX, event.clientY);
+          }
+        },
+        async onEnd(evt) {
+          const item = evt && evt.item;
+          const prevContainer = item && item.__workspacePrevContainer;
+          const prevIndex = (item && typeof item.__workspacePrevIndex === 'number') ? item.__workspacePrevIndex : null;
+          const prevState = item ? (item.__workspacePrevState || '') : '';
+          if (item) {
+            delete item.__workspacePrevContainer;
+            delete item.__workspacePrevIndex;
+            delete item.__workspacePrevState;
+          }
+          const event = (evt && (evt.originalEvent || evt.event)) || null;
+          if (event) {
+            trackWorkspacePointer(event);
+          }
+          const point = consumeWorkspacePointer();
+          if (point && activeDragContext && activeDragContext.origin === 'workspace') {
+            const dropBtn = findSidebarButtonFromPoint(point.x, point.y);
+            const dropId = dropBtn ? (dropBtn.getAttribute('data-id') || '') : '';
+            if (dropBtn && canDropOnSidebar(dropId)) {
+              try {
+                await handleSidebarDropRequest(dropId, dropBtn);
+              } catch (_err) {
+                restoreWorkspaceCardPosition(prevContainer, item, prevIndex);
+                if (prevState) {
+                  refreshWorkspaceCardState(item, prevState);
+                }
+                updateWorkspaceEmptyStates(ctx);
+                setSidebarDropHover(null);
+              }
+              return;
+            }
+          }
+          if (activeDragContext && activeDragContext.origin === 'workspace') {
+            clearActiveDragContext();
+          }
           handleWorkspaceDrop(ctx, evt.item, evt.from, evt.to);
         },
       });
@@ -1353,6 +1426,18 @@
         }
       }
     });
+  }
+
+  function restoreWorkspaceCardPosition(container, card, index){
+    if (!container || !card || !container.insertBefore) {
+      return;
+    }
+    const children = Array.from(container.children || []).filter(el => el !== card);
+    if (typeof index === 'number' && index >= 0 && index < children.length) {
+      container.insertBefore(card, children[index]);
+    } else {
+      container.appendChild(card);
+    }
   }
 
   function moveWorkspaceCardToState(ctx, card, targetState){
@@ -1501,8 +1586,12 @@
             cleanupPointerListeners();
 
             if (dropBtn && canDropOnSidebar(dropId)) {
-              await handleSidebarDropRequest(dropId, dropBtn);
-              return;
+              try {
+                await handleSidebarDropRequest(dropId, dropBtn);
+                return;
+              } catch (_err) {
+                // ניפול חזרה להמשך הלוגיקה כדי להשיב את הפריט למקום
+              }
             }
 
             clearActiveDragContext();
@@ -1587,8 +1676,12 @@
             const dropBtn = relevantTouch ? findSidebarButtonFromPoint(relevantTouch.clientX, relevantTouch.clientY) : null;
             const dropId = dropBtn ? (dropBtn.getAttribute('data-id') || '') : '';
             if (dropBtn && canDropOnSidebar(dropId)) {
-              await handleSidebarDropRequest(dropId, dropBtn);
-              return;
+              try {
+                await handleSidebarDropRequest(dropId, dropBtn);
+                return;
+              } catch (_err) {
+                // במקרה של כשל בהעברה נמשיך להמשך הלוגיקה כדי להשיב את הפריט
+              }
             }
 
             clearActiveDragContext();
