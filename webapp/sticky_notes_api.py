@@ -145,7 +145,6 @@ def kickoff_index_warmup(*, background: bool = True, delay_seconds: float = 0.0)
         _job()
 
 def _ensure_indexes() -> None:
-    global _INDEX_READY
     if _INDEX_READY or _cache_flag_ready():
         return
     try:
