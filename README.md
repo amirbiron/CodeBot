@@ -84,6 +84,7 @@
 - **בדיקת תחביר** - זיהוי שגיאות
 - **מדדי מורכבות** - הערכת איכות הקוד
 - **חילוץ פונקציות** - רשימת הפונקציות בקוד
+- **Observability Dashboard** - מסך אדמין חדש עם זמני תגובה, סיכומים, פילטרים היסטוריים וגרפים בזמן אמת
 
 ### 💾 גיבוי ושחזור
 - **גיבויים אוטומטיים** - שמירה תקופתית
@@ -687,6 +688,18 @@ docs/
 ├── services/          # תיעוד services
 └── database/          # תיעוד מסד נתונים
 ```
+
+### 📊 Observability Dashboard API
+
+מסך האדמין החדש נשען על שלושה endpoints שניתן לצרוך גם מחוץ לממשק:
+
+| Endpoint | תיאור | פרמטרים עיקריים |
+| --- | --- | --- |
+| `GET /api/observability/alerts` | טבלת התראות עם פג'ינציה וסינון | `timerange`, `start_time` / `end_time`, `severity`, `alert_type`, `endpoint`, `search`, `page`, `per_page` |
+| `GET /api/observability/aggregations` | קלפי סיכום, נקודות קצה איטיות וקורלציה לדיפלוימנטים | `timerange`, `limit` |
+| `GET /api/observability/timeseries` | גרפים היסטוריים (חומרות, זמני תגובה, error rate) | `timerange`, `granularity` (`5m`, `1h`, `6h`…), `metric` (`alerts_count`, `response_time`, `error_rate`) |
+
+כל endpoint מחזיר JSON עם המפתחות `ok`, `data` ושדות עזר נוספים, כך שקל להרחיב את הדשבורד או לחבר אותו למערכות ניטור כגון Grafana, Slack bots או CLI מותאם.
 
 ### 🌐 תיעוד אונליין
 

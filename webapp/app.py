@@ -54,6 +54,7 @@ from utils import normalize_code, TimeUtils, detect_language_from_filename  # no
 from user_stats import user_stats  # noqa: E402
 from webapp.activity_tracker import log_user_event  # noqa: E402
 from webapp.config_radar import build_config_radar_snapshot  # noqa: E402
+from services import observability_dashboard as observability_service  # noqa: E402
 
 # קונפיגורציה מרכזית (Pydantic Settings)
 try:  # שמירה על יציבות גם בסביבות דוקס/CI
@@ -1935,13 +1936,17 @@ def _metrics_after(resp):
             dur = max(0.0, float(_time.perf_counter() - start))
             status = int(getattr(resp, "status_code", 0) or 0)
             endpoint = getattr(request, "endpoint", None)
-            handler_label = endpoint or getattr(request, "path", "")
+            path_label = getattr(request, "path", "")
+            method_label = getattr(request, "method", "GET")
+            handler_label = endpoint or path_label
             cache_flag = getattr(g, "_otel_cache_hit", None)
             record_request_outcome(
                 status,
                 dur,
                 source="webapp",
                 handler=handler_label,
+                method=method_label,
+                path=path_label,
                 cache_hit=cache_flag,
             )
             try:
@@ -2215,6 +2220,89 @@ def is_premium(user_id: int) -> bool:
         return False
 
 
+def _parse_iso_arg(name: str) -> Optional[datetime]:
+    raw = request.args.get(name)
+    if not raw:
+        return None
+    text = str(raw).strip()
+    if not text:
+        return None
+    try:
+        if text.endswith('Z'):
+            text = text[:-1] + '+00:00'
+        dt = datetime.fromisoformat(text)
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return dt
+    except Exception:
+        raise ValueError(f"invalid_{name}")
+
+
+def _parse_duration_to_seconds(raw: Optional[str], default_seconds: int, *, allow_none: bool = False) -> int:
+    if not raw:
+        return default_seconds
+    text = str(raw).strip().lower()
+    if not text:
+        return default_seconds
+    try:
+        if text.endswith('ms'):
+            value = float(text[:-2])
+            seconds = max(0.001, value / 1000.0)
+        elif text.endswith('s'):
+            seconds = float(text[:-1])
+        elif text.endswith('m'):
+            seconds = float(text[:-1]) * 60.0
+        elif text.endswith('h'):
+            seconds = float(text[:-1]) * 3600.0
+        elif text.endswith('d'):
+            seconds = float(text[:-1]) * 86400.0
+        else:
+            seconds = float(text)
+    except Exception:
+        if allow_none:
+            return default_seconds
+        raise ValueError("invalid_duration")
+    return max(1, int(seconds))
+
+
+def _resolve_time_window(default_hours: int = 24) -> Tuple[Optional[datetime], Optional[datetime]]:
+    start_dt = _parse_iso_arg('start_time')
+    end_dt = _parse_iso_arg('end_time')
+    timerange = str(request.args.get('timerange') or request.args.get('range') or '').strip().lower()
+
+    if start_dt and end_dt:
+        if end_dt < start_dt:
+            raise ValueError("invalid_timerange")
+        return start_dt, end_dt
+
+    now = datetime.now(timezone.utc)
+    if timerange:
+        if timerange == 'custom':
+            if not (start_dt and end_dt):
+                raise ValueError("custom_range_requires_start_and_end")
+            if end_dt < start_dt:
+                raise ValueError("invalid_timerange")
+            return start_dt, end_dt
+        duration_seconds = _parse_duration_to_seconds(timerange, default_hours * 3600)
+        return now - timedelta(seconds=duration_seconds), now
+
+    duration_seconds = default_hours * 3600
+    return now - timedelta(seconds=duration_seconds), now
+
+
+def _parse_pagination() -> Tuple[int, int]:
+    try:
+        page = max(1, int(request.args.get('page', 1)))
+    except Exception:
+        page = 1
+    try:
+        per_page = int(request.args.get('per_page', 50))
+    except Exception:
+        per_page = 50
+    per_page = max(1, min(200, per_page))
+    return page, per_page
+
+
 def _log_webapp_user_activity() -> bool:
     """Best-effort logging של שימוש ב-WebApp לצורכי סטטיסטיקות. מחזיר True אם נרשמה פעילות."""
     try:
@@ -2273,6 +2361,17 @@ def admin_stats_page():
             error="אירעה שגיאה בטעינת הנתונים. נסה שוב מאוחר יותר.",
             generated_at=datetime.now(timezone.utc).strftime('%d/%m/%Y %H:%M'),
         ), 500
+
+
+@app.route('/admin/observability')
+@admin_required
+def admin_observability_page():
+    """מסך Observability Dashboard המציג התראות, גרפים ואגרגציות."""
+    return render_template(
+        'admin_observability.html',
+        default_range='24h',
+        default_page=1,
+    )
 
 
 # --- Snippet library admin UI ---
@@ -8275,6 +8374,104 @@ def api_config_radar():
         return jsonify(snapshot)
     except Exception:
         logger.exception("config_radar_snapshot_failed")
+        return jsonify({'ok': False, 'error': 'internal_error'}), 500
+
+
+def _require_admin_user() -> Optional[int]:
+    user_id = session.get('user_id')
+    try:
+        user_id_int = int(user_id) if user_id is not None else None
+    except Exception:
+        user_id_int = None
+    if not user_id_int or not is_admin(user_id_int):
+        return None
+    return user_id_int
+
+
+@app.route('/api/observability/alerts', methods=['GET'])
+@login_required
+def api_observability_alerts():
+    if not _require_admin_user():
+        return jsonify({'ok': False, 'error': 'admin_only'}), 403
+    try:
+        start_dt, end_dt = _resolve_time_window(default_hours=24)
+        page, per_page = _parse_pagination()
+        severity = request.args.get('severity') or None
+        if severity and severity.lower() in {'all', 'any'}:
+            severity = None
+        alert_type = request.args.get('alert_type') or None
+        if alert_type and alert_type.lower() in {'all', 'any'}:
+            alert_type = None
+        endpoint = request.args.get('endpoint') or None
+        search = request.args.get('search') or request.args.get('q') or None
+        data = observability_service.fetch_alerts(
+            start_dt=start_dt,
+            end_dt=end_dt,
+            severity=severity,
+            alert_type=alert_type,
+            endpoint=endpoint,
+            search=search,
+            page=page,
+            per_page=per_page,
+        )
+        data['ok'] = True
+        return jsonify(data)
+    except ValueError as exc:
+        return jsonify({'ok': False, 'error': str(exc)}), 400
+    except Exception:
+        logger.exception("observability_alerts_failed")
+        return jsonify({'ok': False, 'error': 'internal_error'}), 500
+
+
+@app.route('/api/observability/aggregations', methods=['GET'])
+@login_required
+def api_observability_aggregations():
+    if not _require_admin_user():
+        return jsonify({'ok': False, 'error': 'admin_only'}), 403
+    try:
+        start_dt, end_dt = _resolve_time_window(default_hours=24)
+        try:
+            limit = int(request.args.get('limit', 5))
+        except Exception:
+            limit = 5
+        limit = max(1, min(20, limit))
+        payload = observability_service.fetch_aggregations(
+            start_dt=start_dt,
+            end_dt=end_dt,
+            slow_endpoints_limit=limit,
+        )
+        payload['ok'] = True
+        return jsonify(payload)
+    except ValueError as exc:
+        return jsonify({'ok': False, 'error': str(exc)}), 400
+    except Exception:
+        logger.exception("observability_aggregations_failed")
+        return jsonify({'ok': False, 'error': 'internal_error'}), 500
+
+
+@app.route('/api/observability/timeseries', methods=['GET'])
+@login_required
+def api_observability_timeseries():
+    if not _require_admin_user():
+        return jsonify({'ok': False, 'error': 'admin_only'}), 403
+    try:
+        start_dt, end_dt = _resolve_time_window(default_hours=7 * 24)
+        granularity_arg = request.args.get('granularity') or '1h'
+        granularity_seconds = _parse_duration_to_seconds(granularity_arg, default_seconds=3600)
+        metric = request.args.get('metric') or 'alerts_count'
+        payload = observability_service.fetch_timeseries(
+            start_dt=start_dt,
+            end_dt=end_dt,
+            granularity_seconds=granularity_seconds,
+            metric=metric,
+        )
+        payload['ok'] = True
+        payload['granularity_seconds'] = granularity_seconds
+        return jsonify(payload)
+    except ValueError as exc:
+        return jsonify({'ok': False, 'error': str(exc)}), 400
+    except Exception:
+        logger.exception("observability_timeseries_failed")
         return jsonify({'ok': False, 'error': 'internal_error'}), 500
 
 

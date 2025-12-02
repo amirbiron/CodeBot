@@ -22,7 +22,7 @@ Public API:
 from __future__ import annotations
 
 from datetime import datetime, timezone, timedelta
-from typing import Optional, Tuple, List
+from typing import Any, Dict, List, Optional, Tuple
 import hashlib
 import os
 
@@ -44,6 +44,125 @@ def _enabled() -> bool:
 _client = None  # type: ignore
 _collection = None  # type: ignore
 _init_failed = False
+
+_SENSITIVE_DETAIL_KEYS = {
+    "token",
+    "password",
+    "secret",
+    "authorization",
+    "auth",
+    "email",
+    "phone",
+    "session",
+    "cookie",
+}
+_ENDPOINT_HINT_KEYS = ("endpoint", "path", "route", "url", "request_path")
+_ALERT_TYPE_HINT_KEYS = ("alert_type", "type", "category", "kind")
+_DETAIL_TEXT_LIMIT = 512
+
+
+def _safe_str(value: Any, *, limit: int = 256) -> str:
+    try:
+        text = str(value or "").strip()
+    except Exception:
+        text = ""
+    if limit and len(text) > limit:
+        return text[:limit]
+    return text
+
+
+def _sanitize_details(details: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+    if not isinstance(details, dict):
+        return {}
+    clean: Dict[str, Any] = {}
+    for key, value in details.items():
+        try:
+            lk = str(key).lower()
+        except Exception:
+            continue
+        if lk in _SENSITIVE_DETAIL_KEYS:
+            continue
+        if value is None:
+            continue
+        if isinstance(value, (int, float)):
+            clean[str(key)] = value
+            continue
+        if isinstance(value, bool):
+            clean[str(key)] = bool(value)
+            continue
+        clean[str(key)] = _safe_str(value, limit=_DETAIL_TEXT_LIMIT)
+    return clean
+
+
+def _extract_endpoint(details: Dict[str, Any]) -> Optional[str]:
+    for key in _ENDPOINT_HINT_KEYS:
+        try:
+            value = details.get(key)
+        except Exception:
+            continue
+        if value not in (None, ""):
+            text = _safe_str(value, limit=256)
+            if text:
+                return text
+    return None
+
+
+def _extract_alert_type(name: str, details: Dict[str, Any]) -> Optional[str]:
+    for key in _ALERT_TYPE_HINT_KEYS:
+        try:
+            value = details.get(key)
+        except Exception:
+            continue
+        if value not in (None, ""):
+            return _safe_str(value, limit=128).lower()
+    if name and name.lower() == "deployment_event":
+        return "deployment_event"
+    return None
+
+
+def _extract_duration(details: Dict[str, Any]) -> Optional[float]:
+    for key in ("duration_seconds", "duration", "duration_secs", "duration_ms"):
+        try:
+            value = details.get(key)
+        except Exception:
+            continue
+        if value in (None, ""):
+            continue
+        try:
+            num = float(value)
+        except Exception:
+            continue
+        if key.endswith("_ms"):
+            num = num / 1000.0
+        if num >= 0:
+            return num
+    return None
+
+
+def _build_search_blob(name: str, summary: str, details: Dict[str, Any]) -> str:
+    parts = [name or "", summary or ""]
+    if details:
+        for key, value in details.items():
+            try:
+                parts.append(f"{key}:{value}")
+            except Exception:
+                continue
+    text = " | ".join(part for part in parts if part)
+    return _safe_str(text, limit=2048)
+
+
+def _build_time_filter(start_dt: Optional[datetime], end_dt: Optional[datetime]) -> Dict[str, Any]:
+    if not start_dt and not end_dt:
+        return {}
+    match: Dict[str, Any] = {}
+    window: Dict[str, Any] = {}
+    if start_dt:
+        window["$gte"] = start_dt
+    if end_dt:
+        window["$lte"] = end_dt
+    if window:
+        match["ts_dt"] = window
+    return match
 
 
 def _get_collection():  # pragma: no cover - exercised indirectly
@@ -128,6 +247,7 @@ def record_alert(
     summary: str = "",
     source: str = "",
     silenced: bool = False,
+    details: Optional[Dict[str, Any]] = None,
 ) -> None:
     """Insert (or upsert via unique key) a single alert record.
 
@@ -142,19 +262,34 @@ def record_alert(
             return
         now = datetime.now(timezone.utc)
         key = _build_key(alert_id, name or "", severity or "", summary or "", now)
+        clean_details = _sanitize_details(details)
+        endpoint = _extract_endpoint(clean_details) if clean_details else None
+        alert_type = _extract_alert_type(str(name or ""), clean_details)
+        duration_seconds = _extract_duration(clean_details)
+        search_blob = _build_search_blob(str(name or ""), str(summary or ""), clean_details)
+
         doc = {
             "ts_dt": now,
             "name": str(name or "alert"),
-            "severity": str(severity or "info"),
+            "severity": str(severity or "info").lower(),
             "summary": str(summary or ""),
             "source": str(source or ""),
             "_key": key,
+            "search_blob": search_blob,
         }
         # Transparency: mark whether this alert was silenced at dispatch time
         try:
             doc["silenced"] = bool(silenced)
         except Exception:
             doc["silenced"] = False
+        if clean_details:
+            doc["details"] = clean_details
+        if endpoint:
+            doc["endpoint"] = endpoint
+        if alert_type:
+            doc["alert_type"] = alert_type
+        if duration_seconds is not None:
+            doc["duration_seconds"] = float(duration_seconds)
         if alert_id:
             doc["alert_id"] = str(alert_id)
         try:
@@ -230,3 +365,267 @@ def list_recent_alert_ids(limit: int = 10) -> List[str]:
         return out
     except Exception:
         return []
+
+
+def fetch_alerts(
+    *,
+    start_dt: Optional[datetime],
+    end_dt: Optional[datetime],
+    severity: Optional[str] = None,
+    alert_type: Optional[str] = None,
+    endpoint: Optional[str] = None,
+    search: Optional[str] = None,
+    page: int = 1,
+    per_page: int = 50,
+) -> Tuple[List[Dict[str, Any]], int]:
+    """Return paginated alert documents filtered by the provided criteria."""
+    coll = _get_collection()
+    if coll is None:
+        return [], 0
+
+    try:
+        per_page = max(1, min(200, int(per_page)))
+    except Exception:
+        per_page = 50
+    try:
+        page = max(1, int(page))
+    except Exception:
+        page = 1
+    skip = (page - 1) * per_page
+
+    match = _build_time_filter(start_dt, end_dt)
+    if severity:
+        match["severity"] = str(severity).lower()
+    if alert_type:
+        match["alert_type"] = str(alert_type).lower()
+    if endpoint:
+        match["endpoint"] = str(endpoint)
+    if search:
+        pattern = _safe_str(search, limit=256)
+        if pattern:
+            match["$or"] = [
+                {"name": {"$regex": pattern, "$options": "i"}},
+                {"summary": {"$regex": pattern, "$options": "i"}},
+                {"search_blob": {"$regex": pattern, "$options": "i"}},
+            ]
+
+    projection = {
+        "_id": 0,
+        "ts_dt": 1,
+        "name": 1,
+        "severity": 1,
+        "summary": 1,
+        "details": 1,
+        "duration_seconds": 1,
+        "alert_type": 1,
+        "endpoint": 1,
+        "source": 1,
+        "silenced": 1,
+    }
+
+    try:
+        cursor = (
+            coll.find(match, projection)  # type: ignore[attr-defined]
+            .sort("ts_dt", -1)  # type: ignore[attr-defined]
+            .skip(skip)  # type: ignore[attr-defined]
+            .limit(per_page)  # type: ignore[attr-defined]
+        )
+    except Exception:
+        return [], 0
+
+    alerts: List[Dict[str, Any]] = []
+    for doc in cursor:
+        ts = doc.get("ts_dt")
+        ts_iso = ts.isoformat() if isinstance(ts, datetime) else None
+        alerts.append(
+            {
+                "timestamp": ts_iso,
+                "name": doc.get("name"),
+                "severity": doc.get("severity"),
+                "summary": doc.get("summary"),
+                "metadata": doc.get("details") or {},
+                "duration_seconds": doc.get("duration_seconds"),
+                "alert_type": doc.get("alert_type"),
+                "endpoint": doc.get("endpoint"),
+                "source": doc.get("source"),
+                "silenced": bool(doc.get("silenced", False)),
+            }
+        )
+
+    try:
+        total = int(coll.count_documents(match))  # type: ignore[attr-defined]
+    except Exception:
+        total = len(alerts)
+    return alerts, total
+
+
+def aggregate_alert_summary(
+    *,
+    start_dt: Optional[datetime],
+    end_dt: Optional[datetime],
+) -> Dict[str, int]:
+    """Aggregate alert counts by severity and deployment flag."""
+    coll = _get_collection()
+    if coll is None:
+        return {"total": 0, "critical": 0, "anomaly": 0, "deployment": 0}
+    match = _build_time_filter(start_dt, end_dt)
+    pipeline = [
+        {"$match": match},
+        {
+            "$group": {
+                "_id": None,
+                "total": {"$sum": 1},
+                "critical": {
+                    "$sum": {
+                        "$cond": [{"$eq": ["$severity", "critical"]}, 1, 0],
+                    }
+                },
+                "anomaly": {
+                    "$sum": {
+                        "$cond": [{"$eq": ["$severity", "anomaly"]}, 1, 0],
+                    }
+                },
+                "deployment": {
+                    "$sum": {
+                        "$cond": [
+                            {
+                                "$or": [
+                                    {"$eq": ["$alert_type", "deployment_event"]},
+                                    {"$eq": ["$name", "deployment_event"]},
+                                ]
+                            },
+                            1,
+                            0,
+                        ]
+                    }
+                },
+            }
+        },
+    ]
+    try:
+        result = list(coll.aggregate(pipeline))  # type: ignore[attr-defined]
+        if not result:
+            return {"total": 0, "critical": 0, "anomaly": 0, "deployment": 0}
+        doc = result[0]
+        return {
+            "total": int(doc.get("total", 0)),
+            "critical": int(doc.get("critical", 0)),
+            "anomaly": int(doc.get("anomaly", 0)),
+            "deployment": int(doc.get("deployment", 0)),
+        }
+    except Exception:
+        return {"total": 0, "critical": 0, "anomaly": 0, "deployment": 0}
+
+
+def fetch_alert_timestamps(
+    *,
+    start_dt: Optional[datetime],
+    end_dt: Optional[datetime],
+    severity: Optional[str] = None,
+    alert_type: Optional[str] = None,
+    limit: int = 500,
+) -> List[datetime]:
+    """Return recent alert timestamps matching the given filters."""
+    coll = _get_collection()
+    if coll is None:
+        return []
+    match = _build_time_filter(start_dt, end_dt)
+    if severity:
+        match["severity"] = str(severity).lower()
+    if alert_type:
+        match["alert_type"] = str(alert_type).lower()
+    try:
+        cursor = (
+            coll.find(match, {"ts_dt": 1})  # type: ignore[attr-defined]
+            .sort("ts_dt", -1)  # type: ignore[attr-defined]
+            .limit(max(1, limit))  # type: ignore[attr-defined]
+        )
+    except Exception:
+        return []
+    out: List[datetime] = []
+    for doc in cursor:
+        ts = doc.get("ts_dt")
+        if isinstance(ts, datetime):
+            out.append(ts)
+    return out
+
+
+def aggregate_alert_timeseries(
+    *,
+    start_dt: Optional[datetime],
+    end_dt: Optional[datetime],
+    granularity_seconds: int,
+) -> List[Dict[str, Any]]:
+    """Aggregate alert counts per severity over time buckets."""
+    coll = _get_collection()
+    if coll is None:
+        return []
+    try:
+        bucket_seconds = max(1, int(granularity_seconds or 60))
+    except Exception:
+        bucket_seconds = 3600
+    bucket_ms = bucket_seconds * 1000
+    match = _build_time_filter(start_dt, end_dt)
+    pipeline = [
+        {"$match": match},
+        {
+            "$project": {
+                "bucket": {
+                    "$toDate": {
+                        "$subtract": [
+                            {"$toLong": "$ts_dt"},
+                            {"$mod": [{"$toLong": "$ts_dt"}, bucket_ms]},
+                        ]
+                    }
+                },
+                "severity": {
+                    "$toLower": {"$ifNull": ["$severity", "info"]},
+                },
+            }
+        },
+        {
+            "$group": {
+                "_id": {"bucket": "$bucket", "severity": "$severity"},
+                "count": {"$sum": 1},
+            }
+        },
+        {
+            "$group": {
+                "_id": "$_id.bucket",
+                "counts": {
+                    "$push": {
+                        "severity": "$_id.severity",
+                        "count": "$count",
+                    }
+                },
+                "total": {"$sum": "$count"},
+            }
+        },
+        {"$sort": {"_id": 1}},
+    ]
+    try:
+        rows = list(coll.aggregate(pipeline))  # type: ignore[attr-defined]
+    except Exception:
+        return []
+
+    result: List[Dict[str, Any]] = []
+    for row in rows:
+        bucket = row.get("_id")
+        ts_iso = bucket.isoformat() if isinstance(bucket, datetime) else None
+        counts = {"critical": 0, "anomaly": 0, "warning": 0, "info": 0}
+        for entry in row.get("counts", []):
+            severity = str(entry.get("severity") or "info").lower()
+            if severity not in counts:
+                if severity.startswith("crit"):
+                    severity = "critical"
+                elif severity.startswith("warn"):
+                    severity = "warning"
+                elif severity.startswith("anom"):
+                    severity = "anomaly"
+                else:
+                    severity = "info"
+            counts[severity] += int(entry.get("count", 0))
+        counts["total"] = int(row.get("total", 0))
+        counts["timestamp"] = ts_iso
+        result.append(counts)
+    return result

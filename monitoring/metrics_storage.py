@@ -23,7 +23,7 @@ import time
 from collections import deque
 from datetime import datetime, timezone
 from threading import Lock
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 # Optional structured event emission (do not hard-depend)
 try:  # pragma: no cover
@@ -50,6 +50,19 @@ _init_failed = False
 _buf: deque[Dict[str, Any]] = deque()
 _lock = Lock()
 _last_flush_ts: float = time.time()
+
+
+def _build_time_match(start_dt: Optional[datetime], end_dt: Optional[datetime]) -> Dict[str, Any]:
+    match: Dict[str, Any] = {"type": "request"}
+    if start_dt or end_dt:
+        window: Dict[str, Any] = {}
+        if start_dt:
+            window["$gte"] = start_dt
+        if end_dt:
+            window["$lte"] = end_dt
+        if window:
+            match["ts"] = window
+    return match
 
 
 def _max_buffer_size() -> int:
@@ -208,3 +221,211 @@ def enqueue_request_metric(
     except Exception:
         # Fail-open: never raise
         return
+
+
+def aggregate_request_timeseries(
+    *,
+    start_dt: Optional[datetime],
+    end_dt: Optional[datetime],
+    granularity_seconds: int,
+) -> List[Dict[str, Any]]:
+    """Aggregate request metrics into fixed time buckets."""
+    coll = _get_collection()
+    if coll is None:
+        return []
+    try:
+        bucket_seconds = max(1, int(granularity_seconds or 1))
+    except Exception:
+        bucket_seconds = 60
+    bucket_ms = bucket_seconds * 1000
+
+    match = _build_time_match(start_dt, end_dt)
+    pipeline = [
+        {"$match": match},
+        {
+            "$project": {
+                "bucket": {
+                    "$toDate": {
+                        "$subtract": [
+                            {"$toLong": "$ts"},
+                            {"$mod": [{"$toLong": "$ts"}, bucket_ms]},
+                        ]
+                    }
+                },
+                "duration_seconds": "$duration_seconds",
+                "status_code": "$status_code",
+            }
+        },
+        {
+            "$group": {
+                "_id": "$bucket",
+                "count": {"$sum": 1},
+                "avg_duration": {"$avg": "$duration_seconds"},
+                "max_duration": {"$max": "$duration_seconds"},
+                "error_count": {
+                    "$sum": {
+                        "$cond": [
+                            {"$gte": ["$status_code", 500]},
+                            1,
+                            0,
+                        ]
+                    }
+                },
+            }
+        },
+        {"$sort": {"_id": 1}},
+    ]
+    try:
+        rows = list(coll.aggregate(pipeline))  # type: ignore[attr-defined]
+    except Exception:
+        return []
+
+    out: List[Dict[str, Any]] = []
+    for row in rows:
+        bucket = row.get("_id")
+        ts_iso = None
+        if isinstance(bucket, datetime):
+            ts_iso = bucket.astimezone(timezone.utc).isoformat()
+        out.append(
+            {
+                "timestamp": ts_iso,
+                "count": int(row.get("count", 0)),
+                "avg_duration": float(row.get("avg_duration", 0.0) or 0.0),
+                "max_duration": float(row.get("max_duration", 0.0) or 0.0),
+                "error_count": int(row.get("error_count", 0)),
+            }
+        )
+    return out
+
+
+def aggregate_top_endpoints(
+    *,
+    start_dt: Optional[datetime],
+    end_dt: Optional[datetime],
+    limit: int = 5,
+) -> List[Dict[str, Any]]:
+    """Return the slowest HTTP endpoints within the given time window."""
+    coll = _get_collection()
+    if coll is None:
+        return []
+    try:
+        max_items = max(1, min(50, int(limit)))
+    except Exception:
+        max_items = 5
+
+    match = _build_time_match(start_dt, end_dt)
+    pipeline = [
+        {"$match": match},
+        {
+            "$project": {
+                "path": {
+                    "$ifNull": [
+                        "$path",
+                        {"$ifNull": ["$handler", "unknown"]},
+                    ]
+                },
+                "method": {"$ifNull": ["$method", "UNKNOWN"]},
+                "duration_seconds": "$duration_seconds",
+            }
+        },
+        {
+            "$group": {
+                "_id": {"path": "$path", "method": "$method"},
+                "count": {"$sum": 1},
+                "avg_duration": {"$avg": "$duration_seconds"},
+                "max_duration": {"$max": "$duration_seconds"},
+            }
+        },
+        {"$sort": {"max_duration": -1}},
+        {"$limit": max_items},
+    ]
+    try:
+        rows = list(coll.aggregate(pipeline))  # type: ignore[attr-defined]
+    except Exception:
+        return []
+
+    out: List[Dict[str, Any]] = []
+    for row in rows:
+        ident = row.get("_id") or {}
+        path = ident.get("path") or "unknown"
+        method = ident.get("method") or "UNKNOWN"
+        out.append(
+            {
+                "endpoint": str(path),
+                "method": str(method),
+                "count": int(row.get("count", 0)),
+                "avg_duration": float(row.get("avg_duration", 0.0) or 0.0),
+                "max_duration": float(row.get("max_duration", 0.0) or 0.0),
+            }
+        )
+    return out
+
+
+def average_request_duration(
+    *,
+    start_dt: Optional[datetime],
+    end_dt: Optional[datetime],
+) -> Optional[float]:
+    """Return the average request duration for a given window."""
+    coll = _get_collection()
+    if coll is None:
+        return None
+    match = _build_time_match(start_dt, end_dt)
+    pipeline = [
+        {"$match": match},
+        {
+            "$group": {
+                "_id": None,
+                "avg_duration": {"$avg": "$duration_seconds"},
+            }
+        },
+    ]
+    try:
+        rows = list(coll.aggregate(pipeline))  # type: ignore[attr-defined]
+    except Exception:
+        return None
+    if not rows:
+        return None
+    value = rows[0].get("avg_duration")
+    try:
+        return float(value)
+    except Exception:
+        return None
+
+
+def aggregate_error_ratio(
+    *,
+    start_dt: Optional[datetime],
+    end_dt: Optional[datetime],
+) -> Dict[str, int]:
+    """Return total/error counts for the window."""
+    coll = _get_collection()
+    if coll is None:
+        return {"total": 0, "errors": 0}
+    match = _build_time_match(start_dt, end_dt)
+    pipeline = [
+        {"$match": match},
+        {
+            "$group": {
+                "_id": None,
+                "total": {"$sum": 1},
+                "errors": {
+                    "$sum": {
+                        "$cond": [
+                            {"$gte": ["$status_code", 500]},
+                            1,
+                            0,
+                        ]
+                    }
+                },
+            }
+        },
+    ]
+    try:
+        rows = list(coll.aggregate(pipeline))  # type: ignore[attr-defined]
+    except Exception:
+        return {"total": 0, "errors": 0}
+    if not rows:
+        return {"total": 0, "errors": 0}
+    doc = rows[0]
+    return {"total": int(doc.get("total", 0)), "errors": int(doc.get("errors", 0))}

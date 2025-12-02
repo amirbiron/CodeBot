@@ -735,6 +735,8 @@ def record_request_outcome(
     command: str | None = None,
     cache_hit: bool | str | None = None,
     status_label: str | None = None,
+    method: str | None = None,
+    path: str | None = None,
 ) -> None:
     """Record a single HTTP request outcome across services.
 
@@ -764,7 +766,46 @@ def record_request_outcome(
             ctx = _get_structlog_ctx() or {}
             req_id = ctx.get("request_id") if isinstance(ctx, dict) else None
             rid = str(req_id) if req_id else None
-            _db_enqueue_request_metric(int(status_code), float(duration_seconds), request_id=rid)
+            extra_fields: Dict[str, Any] = {}
+            if source:
+                extra_fields["source"] = str(source)
+            if handler:
+                try:
+                    handler_text = str(handler).strip()
+                except Exception:
+                    handler_text = ""
+                if handler_text:
+                    extra_fields["handler"] = handler_text[:200]
+            if command:
+                try:
+                    cmd_text = str(command).strip()
+                except Exception:
+                    cmd_text = ""
+                if cmd_text:
+                    extra_fields["command"] = cmd_text[:120]
+            if method:
+                try:
+                    method_text = str(method).upper()
+                except Exception:
+                    method_text = ""
+                if method_text:
+                    extra_fields["method"] = method_text[:16]
+            if path:
+                try:
+                    path_text = str(path).strip()
+                except Exception:
+                    path_text = ""
+                if path_text:
+                    extra_fields["path"] = path_text[:512]
+            extra_fields["status_bucket"] = status_bucket
+            if cache_label:
+                extra_fields["cache_hit"] = cache_label
+            _db_enqueue_request_metric(
+                int(status_code),
+                float(duration_seconds),
+                request_id=rid,
+                extra=extra_fields or None,
+            )
         except Exception:
             pass
         # Feed adaptive thresholds module (best-effort)
