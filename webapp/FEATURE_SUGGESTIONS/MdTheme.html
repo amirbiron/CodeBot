@@ -1,0 +1,231 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>בלוק קוד מושלם - מיזוג סופי</title>
+
+    <style>
+        /* הגדרות כלליות */
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background-color: #ffffff; padding: 40px; max-width: 800px; margin: 0 auto; color: #24292f; }
+        h2 { border-bottom: 2px solid #eaeaea; padding-bottom: 10px; margin-bottom: 30px; margin-top: 50px; }
+
+        /* ==========================================================================
+           📦 המבנה הכללי (Wrapper)
+           ========================================================================== */
+        .code-block-wrapper {
+            border-radius: 6px;
+            overflow: hidden;
+            margin: 25px 0;
+            direction: ltr;
+            text-align: left;
+        }
+
+        /* --- ה"כובע" (Header) --- */
+        .code-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 8px 16px;
+            font-size: 0.8rem;
+            font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+            user-select: none;
+        }
+
+        .lang-label {
+            font-weight: 600;
+            text-transform: capitalize;
+        }
+
+        /* --- כפתור ההעתקה (SVG) --- */
+        .copy-btn {
+            background: none;
+            border: 1px solid transparent;
+            cursor: pointer;
+            padding: 4px 8px;
+            border-radius: 4px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.2s;
+            color: inherit; /* יורש צבע מההדר */
+            opacity: 0.7;
+        }
+
+        .copy-btn:hover {
+            opacity: 1;
+            background-color: rgba(0,0,0,0.05);
+        }
+
+        /* אייקונים להחלפה */
+        .icon-check { display: none; }
+
+        /* המצב שבו הועתק בהצלחה */
+        .copy-btn.copied {
+            border-color: transparent;
+            color: #1a7f37 !important;
+            opacity: 1;
+        }
+
+        .copy-btn.copied .icon-copy { display: none; }
+        .copy-btn.copied .icon-check { display: inline-block; }
+
+        /* --- גוף הקוד --- */
+        .code-block-wrapper pre {
+            margin: 0 !important;
+            padding: 16px !important;
+            overflow-x: auto;
+            font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+            font-size: 14px;
+            line-height: 1.5;
+            border: none !important;
+        }
+
+        .code-block-wrapper code {
+            background: none !important;
+            padding: 0 !important;
+            color: inherit;
+        }
+
+
+        /* ==========================================================================
+           🎨 ערכת נושא 1: GitHub Light (לבן נקי)
+           ========================================================================== */
+
+        .theme-clean {
+            border: 1px solid #d0d7de;
+            background-color: #e6edf4; /* צבע מסגרת */
+        }
+
+        .theme-clean .code-header {
+            background-color: #e6edf4; /* רקע כותרת */
+            border-bottom: 1px solid #d0d7de;
+            color: #57606a;
+        }
+
+        .theme-clean pre {
+            background-color: #f6f8fa; /* קוד באפור בהיר */
+            color: #24292f;
+        }
+
+        .theme-clean .k { color: #cf222e; }
+        .theme-clean .s { color: #0a3069; }
+        .theme-clean .f { color: #8250df; }
+        .theme-clean .c { color: #6e7781; font-style: italic; }
+
+
+        /* ==========================================================================
+           🎨 ערכת נושא 2: Sepia Warm (חמים/בז')
+           ========================================================================== */
+
+        .theme-sepia {
+            border: 1px solid #d3cbb7;
+            background-color: #eee8d5; /* רקע הבלוק - חום בהיר */
+            box-shadow: 0 2px 5px rgba(0,0,0,0.05);
+        }
+
+        .theme-sepia .code-header {
+            background-color: #e4dfc9; /* כותרת כהה יותר */
+            border-bottom: 1px solid #d3cbb7;
+            color: #586e75;
+        }
+
+        .theme-sepia pre {
+            background-color: #eee8d5; /* קוד בצבע התואם למסגרת */
+            color: #657b83;
+        }
+
+        .theme-sepia .k { color: #859900; font-weight: bold; }
+        .theme-sepia .s { color: #2aa198; }
+        .theme-sepia .f { color: #268bd2; }
+        .theme-sepia .c { color: #93a1a1; font-style: italic; }
+
+    </style>
+</head>
+<body>
+
+    <div style="background: white; padding: 20px; border-radius: 10px;">
+        <h2>1. עיצוב נקי (GitHub Style)</h2>
+        <p>טקסט רגיל במסמך...</p>
+
+        <div class="code-block-wrapper theme-clean">
+            <div class="code-header">
+                <span class="lang-label">python</span>
+
+                <button class="copy-btn" onclick="copyCode(this)" title="העתק ללוח">
+                    <svg class="icon-copy" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
+                    <svg class="icon-check" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
+                </button>
+            </div>
+            <pre><code><span class="c"># פונקציה לחישוב שטח</span>
+<span class="k">def</span> <span class="f">calculate_area</span>(radius):
+    pi = 3.14159
+    <span class="k">if</span> radius < 0:
+        <span class="k">return</span> <span class="k">None</span>
+    <span class="k">print</span>(<span class="s">f"Area: {pi * radius**2}"</span>)</code></pre>
+        </div>
+    </div>
+
+
+    <div style="background: #fdf6e3; padding: 20px; border-radius: 10px; margin-top: 40px;">
+        <h2>2. עיצוב חמים (Sepia)</h2>
+        <p style="color: #5f5a4e;">טקסט רגיל על נייר...</p>
+
+        <div class="code-block-wrapper theme-sepia">
+            <div class="code-header">
+                <span class="lang-label">javascript</span>
+
+                <button class="copy-btn" onclick="copyCode(this)" title="העתק ללוח">
+                    <svg class="icon-copy" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
+                    <svg class="icon-check" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
+                </button>
+            </div>
+            <pre><code><span class="c">// הגדרת משתמש</span>
+<span class="k">const</span> <span class="f">user</span> = {
+    name: <span class="s">"CodeKeeper"</span>,
+    active: <span class="k">true</span>
+};
+<span class="f">console</span>.log(<span class="s">"Cozy vibes!"</span>);</code></pre>
+        </div>
+    </div>
+
+
+    <script>
+        async function copyCode(button) {
+            // מוצאים את הקוד ששייך לכפתור הזה
+            const container = button.closest('.code-block-wrapper');
+            const codeBlock = container.querySelector('code');
+            const textToCopy = codeBlock.innerText;
+
+            try {
+                // ניסיון ראשון: API מודרני
+                await navigator.clipboard.writeText(textToCopy);
+                showSuccess(button);
+            } catch (err) {
+                // ניסיון שני: Fallback (למקרה שאין הרשאה או HTTPS)
+                try {
+                    const textArea = document.createElement('textarea');
+                    textArea.value = textToCopy;
+                    document.body.appendChild(textArea);
+                    textArea.select();
+                    document.execCommand('copy');
+                    document.body.removeChild(textArea);
+                    showSuccess(button);
+                } catch (fallbackErr) {
+                    console.error('Copy failed:', fallbackErr);
+                    alert('לא הצלחנו להעתיק את הקוד אוטומטית');
+                }
+            }
+        }
+
+        // פונקציה להצגת הוי הירוק
+        function showSuccess(button) {
+            button.classList.add('copied');
+            setTimeout(() => {
+                button.classList.remove('copied');
+            }, 2000);
+        }
+    </script>
+
+</body>
+</html>
