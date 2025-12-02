@@ -1,0 +1,303 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>3 ערכות חום - בלוקים מושלמים</title>
+
+    <style>
+        /* הגדרות כלליות */
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            background-color: #ffffff;
+            padding: 40px;
+            max-width: 800px;
+            margin: 0 auto;
+            color: #24292f;
+        }
+
+        h2 {
+            border-bottom: 2px solid #eaeaea;
+            padding-bottom: 10px;
+            margin-bottom: 30px;
+            margin-top: 50px;
+        }
+
+        /* ==========================================================================
+           📦 המבנה הכללי (Wrapper)
+           ========================================================================== */
+        .code-block-wrapper {
+            border-radius: 6px;
+            overflow: hidden;
+            margin: 25px 0;
+            direction: ltr;
+            text-align: left;
+        }
+
+        /* --- ה"כובע" (Header) --- */
+        .code-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 8px 16px;
+            font-size: 0.8rem;
+            font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+            user-select: none;
+        }
+
+        .lang-label {
+            font-weight: 600;
+            text-transform: capitalize;
+        }
+
+        /* --- כפתור ההעתקה (SVG) --- */
+        .copy-btn {
+            background: none;
+            border: 1px solid transparent;
+            cursor: pointer;
+            padding: 4px 8px;
+            border-radius: 4px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.2s;
+            color: inherit;
+            opacity: 0.7;
+        }
+
+        .copy-btn:hover {
+            opacity: 1;
+            background-color: rgba(0,0,0,0.05);
+        }
+
+        /* אייקונים להחלפה */
+        .icon-check { display: none; }
+
+        /* המצב שבו הועתק בהצלחה */
+        .copy-btn.copied {
+            border-color: transparent;
+            color: #1a7f37 !important;
+            opacity: 1;
+        }
+
+        .copy-btn.copied .icon-copy { display: none; }
+        .copy-btn.copied .icon-check { display: inline-block; }
+
+        /* --- גוף הקוד --- */
+        .code-block-wrapper pre {
+            margin: 0 !important;
+            padding: 16px !important;
+            overflow-x: auto;
+            font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+            font-size: 14px;
+            line-height: 1.5;
+            border: none !important;
+        }
+
+        .code-block-wrapper code {
+            background: none !important;
+            padding: 0 !important;
+            color: inherit;
+        }
+
+
+        /* ==========================================================================
+           🎨 ערכת 1: חום בהיר (#f5e6d3)
+           ========================================================================== */
+
+        .theme-light-brown {
+            border: 1px solid #e6d4bc;
+            background-color: #eddcc4; /* בלוק - כהה יותר מהדף */
+            box-shadow: 0 2px 5px rgba(0,0,0,0.05);
+        }
+
+        .theme-light-brown .code-header {
+            background-color: #e3d1b8; /* כותרת - הכי כהה */
+            border-bottom: 1px solid #e6d4bc;
+            color: #6b5d4f;
+        }
+
+        .theme-light-brown pre {
+            background-color: #eddcc4; /* קוד - תואם לבלוק */
+            color: #5a4a3a;
+        }
+
+        .theme-light-brown .k { color: #a67c52; font-weight: bold; }
+        .theme-light-brown .s { color: #6b8e23; }
+        .theme-light-brown .f { color: #4682b4; }
+        .theme-light-brown .c { color: #8b7d6b; font-style: italic; }
+
+
+        /* ==========================================================================
+           🎨 ערכת 2: חום בינוני (#e8d4b0)
+           ========================================================================== */
+
+        .theme-medium-brown {
+            border: 1px solid #d4c19c;
+            background-color: #dcc9a8; /* בלוק - כהה יותר מהדף */
+            box-shadow: 0 2px 5px rgba(0,0,0,0.05);
+        }
+
+        .theme-medium-brown .code-header {
+            background-color: #d0bd98; /* כותרת - הכי כהה */
+            border-bottom: 1px solid #d4c19c;
+            color: #5d5040;
+        }
+
+        .theme-medium-brown pre {
+            background-color: #dcc9a8; /* קוד - תואם לבלוק */
+            color: #4a3d2f;
+        }
+
+        .theme-medium-brown .k { color: #8b6914; font-weight: bold; }
+        .theme-medium-brown .s { color: #2e8b57; }
+        .theme-medium-brown .f { color: #4169e1; }
+        .theme-medium-brown .c { color: #7a6e5d; font-style: italic; }
+
+
+        /* ==========================================================================
+           🎨 ערכת 3: חום כהה (#d4b896)
+           ========================================================================== */
+
+        .theme-dark-brown {
+            border: 1px solid #c4a882;
+            background-color: #c9ae88; /* בלוק - כהה יותר מהדף */
+            box-shadow: 0 2px 5px rgba(0,0,0,0.05);
+        }
+
+        .theme-dark-brown .code-header {
+            background-color: #bea47a; /* כותרת - הכי כהה */
+            border-bottom: 1px solid #c4a882;
+            color: #4a3f2f;
+        }
+
+        .theme-dark-brown pre {
+            background-color: #c9ae88; /* קוד - תואם לבלוק */
+            color: #3d3020;
+        }
+
+        .theme-dark-brown .k { color: #8b4513; font-weight: bold; }
+        .theme-dark-brown .s { color: #228b22; }
+        .theme-dark-brown .f { color: #4682b4; }
+        .theme-dark-brown .c { color: #6b5d4f; font-style: italic; }
+
+    </style>
+</head>
+<body>
+
+    <!-- ============================================
+         ערכת 1: חום בהיר
+         ============================================ -->
+    <div style="background: #f5e6d3; padding: 20px; border-radius: 10px;">
+        <h2 style="color: #8b7355;">1. חום בהיר (#f5e6d3)</h2>
+        <p style="color: #5a4a3a;">רקע דף בהיר ועדין, מתאים לקריאה ממושכת...</p>
+
+        <div class="code-block-wrapper theme-light-brown">
+            <div class="code-header">
+                <span class="lang-label">python</span>
+
+                <button class="copy-btn" onclick="copyCode(this)" title="העתק ללוח">
+                    <svg class="icon-copy" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
+                    <svg class="icon-check" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
+                </button>
+            </div>
+            <pre><code><span class="c"># חישוב פשוט</span>
+<span class="k">def</span> <span class="f">calculate</span>(x, y):
+    result = x + y
+    <span class="k">return</span> result
+
+<span class="k">print</span>(<span class="s">"Light brown theme"</span>)</code></pre>
+        </div>
+    </div>
+
+
+    <!-- ============================================
+         ערכת 2: חום בינוני
+         ============================================ -->
+    <div style="background: #e8d4b0; padding: 20px; border-radius: 10px; margin-top: 40px;">
+        <h2 style="color: #7a6850;">2. חום בינוני (#e8d4b0)</h2>
+        <p style="color: #4a3d2f;">רקע עשיר יותר, מרגיש חם ונעים...</p>
+
+        <div class="code-block-wrapper theme-medium-brown">
+            <div class="code-header">
+                <span class="lang-label">javascript</span>
+
+                <button class="copy-btn" onclick="copyCode(this)" title="העתק ללוח">
+                    <svg class="icon-copy" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
+                    <svg class="icon-check" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
+                </button>
+            </div>
+            <pre><code><span class="c">// אובייקט משתמש</span>
+<span class="k">const</span> <span class="f">user</span> = {
+    name: <span class="s">"CodeKeeper"</span>,
+    level: <span class="k">5</span>
+};
+
+<span class="f">console</span>.log(<span class="s">"Medium brown"</span>);</code></pre>
+        </div>
+    </div>
+
+
+    <!-- ============================================
+         ערכת 3: חום כהה
+         ============================================ -->
+    <div style="background: #d4b896; padding: 20px; border-radius: 10px; margin-top: 40px;">
+        <h2 style="color: #5a4530;">3. חום כהה (#d4b896)</h2>
+        <p style="color: #3d3020;">רקע עמוק וחום, מרגיש קלאסי ומקצועי...</p>
+
+        <div class="code-block-wrapper theme-dark-brown">
+            <div class="code-header">
+                <span class="lang-label">ruby</span>
+
+                <button class="copy-btn" onclick="copyCode(this)" title="העתק ללוח">
+                    <svg class="icon-copy" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
+                    <svg class="icon-check" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
+                </button>
+            </div>
+            <pre><code><span class="c"># מחלקה פשוטה</span>
+<span class="k">class</span> <span class="f">User</span>
+  <span class="k">def</span> <span class="f">initialize</span>(name)
+    @name = name
+  <span class="k">end</span>
+<span class="k">end</span>
+
+puts <span class="s">"Dark brown theme"</span></code></pre>
+        </div>
+    </div>
+
+
+    <script>
+        async function copyCode(button) {
+            const container = button.closest('.code-block-wrapper');
+            const codeBlock = container.querySelector('code');
+            const textToCopy = codeBlock.innerText;
+
+            try {
+                await navigator.clipboard.writeText(textToCopy);
+                showSuccess(button);
+            } catch (err) {
+                try {
+                    const textArea = document.createElement('textarea');
+                    textArea.value = textToCopy;
+                    document.body.appendChild(textArea);
+                    textArea.select();
+                    document.execCommand('copy');
+                    document.body.removeChild(textArea);
+                    showSuccess(button);
+                } catch (fallbackErr) {
+                    console.error('Copy failed:', fallbackErr);
+                    alert('לא הצלחנו להעתיק את הקוד אוטומטית');
+                }
+            }
+        }
+
+        function showSuccess(button) {
+            button.classList.add('copied');
+            setTimeout(() => {
+                button.classList.remove('copied');
+            }, 2000);
+        }
+    </script>
+
+</body>
+</html>
