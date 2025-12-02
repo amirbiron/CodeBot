@@ -1,0 +1,507 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>תצוגת Markdown – תיאום ערכות נושא</title>
+    <style>
+        :root {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
+            color-scheme: light dark;
+        }
+
+        body {
+            margin: 0;
+            padding: 32px;
+            background: #f2efe9;
+            color: #1f2328;
+            line-height: 1.5;
+        }
+
+        main {
+            max-width: 1100px;
+            margin: 0 auto;
+        }
+
+        h1 {
+            margin-top: 0;
+            font-size: 2rem;
+        }
+
+        p.lead {
+            max-width: 720px;
+            font-size: 1rem;
+            color: #4f566b;
+        }
+
+        section.preview-card {
+            border-radius: 18px;
+            padding: 28px;
+            margin: 36px 0;
+            border: 1px solid var(--surface-border, rgba(31,35,40,0.1));
+            background: var(--surface-bg, #ffffff);
+            box-shadow: 0 12px 30px rgba(15, 23, 42, 0.08);
+        }
+
+        section.preview-card h2 {
+            margin-top: 0;
+            margin-bottom: 8px;
+        }
+
+        section.preview-card p {
+            margin-top: 0;
+            margin-bottom: 16px;
+            color: var(--surface-text, #4b5563);
+        }
+
+        .code-block-wrapper {
+            --block-bg: #ffffff;
+            --code-bg: #0d1117;
+            --text-color: #1f2328;
+            --border-color: rgba(15,23,42,0.12);
+            --header-bg: #ffffff;
+            --header-color: #1f2328;
+            --badge-bg: rgba(15,23,42,0.08);
+            --badge-color: #1f2328;
+            --copy-border: rgba(15,23,42,0.15);
+            --copy-bg: rgba(255,255,255,0.7);
+            --copy-color: #1f2328;
+            --copy-hover-bg: rgba(15,23,42,0.08);
+            --copy-hover-color: #111322;
+            --token-keyword: #d73a49;
+            --token-string: #1a7f37;
+            --token-function: #6f42c1;
+            --token-comment: #6e7781;
+            --token-number: #0550ae;
+            --token-operator: #1f2328;
+            border-radius: 14px;
+            overflow: hidden;
+            border: 1px solid var(--border-color);
+            background: var(--block-bg);
+            color: var(--text-color);
+            direction: ltr;
+            text-align: left;
+        }
+
+        .code-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 10px 16px;
+            background: var(--header-bg);
+            color: var(--header-color);
+            font-size: 0.85rem;
+            font-family: ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", Menlo, monospace;
+            border-bottom: 1px solid var(--border-color);
+        }
+
+        .lang-label {
+            background: var(--badge-bg);
+            color: var(--badge-color);
+            padding: 2px 10px;
+            border-radius: 999px;
+            text-transform: capitalize;
+            font-weight: 600;
+            letter-spacing: 0.02em;
+        }
+
+        .copy-btn {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            background: var(--copy-bg);
+            color: var(--copy-color);
+            border: 1px solid var(--copy-border);
+            border-radius: 8px;
+            padding: 4px 10px;
+            cursor: pointer;
+            transition: background 0.2s ease, color 0.2s ease, opacity 0.2s ease;
+            opacity: 0.85;
+        }
+
+        .copy-btn svg {
+            width: 16px;
+            height: 16px;
+        }
+
+        .copy-btn:hover {
+            opacity: 1;
+            background: var(--copy-hover-bg);
+            color: var(--copy-hover-color, var(--copy-color));
+        }
+
+        .copy-btn .icon-check {
+            display: none;
+        }
+
+        .copy-btn.copied {
+            border-color: transparent;
+            background: rgba(42, 194, 94, 0.15);
+            color: #1a7f37;
+            opacity: 1;
+        }
+
+        .copy-btn.copied .icon-copy {
+            display: none;
+        }
+
+        .copy-btn.copied .icon-check {
+            display: inline-block;
+        }
+
+        pre {
+            margin: 0;
+            background: var(--code-bg, var(--block-bg));
+            color: var(--code-color, var(--text-color));
+            padding: 20px;
+            font-family: ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", Menlo, monospace;
+            font-size: 0.94rem;
+            line-height: 1.55;
+            overflow-x: auto;
+        }
+
+        code {
+            display: block;
+            white-space: pre;
+        }
+
+        .token.keyword { color: var(--token-keyword); }
+        .token.string { color: var(--token-string); }
+        .token.function { color: var(--token-function); }
+        .token.comment { color: var(--token-comment); font-style: italic; }
+        .token.number { color: var(--token-number); }
+        .token.operator { color: var(--token-operator); }
+
+        /* ==================== משטחים כלליים ==================== */
+        .surface-classic { --surface-bg: #f7fafd; --surface-border: #d0d7de; --surface-text: #4c5666; }
+        .surface-warm { --surface-bg: #fdf6e3; --surface-border: #dccfb6; --surface-text: #5f5a4e; }
+        .surface-dark { --surface-bg: #11121a; --surface-border: rgba(255,255,255,0.08); --surface-text: #cdd5ff; color: #e5e9ff; }
+        .surface-dracula { --surface-bg: #1f1d28; --surface-border: rgba(255,255,255,0.08); --surface-text: #cecfff; color: #f8f8f2; }
+        .surface-nord { --surface-bg: #1c222c; --surface-border: rgba(236,239,244,0.08); --surface-text: #d8dee9; color: #eceff4; }
+        .surface-rose { --surface-bg: #fff9f4; --surface-border: #f2e9e1; --surface-text: #706884; }
+
+        /* ==================== GitHub Light ==================== */
+        .theme-classic {
+            --block-bg: #ffffff;
+            --code-bg: #f6f8fa;
+            --text-color: #24292f;
+            --border-color: #d0d7de;
+            --header-bg: #f6f8fa;
+            --header-color: #57606a;
+            --badge-bg: #eaeef2;
+            --badge-color: #24292f;
+            --copy-border: #d0d7de;
+            --copy-bg: #ffffff;
+            --copy-color: #57606a;
+            --copy-hover-bg: #e6ebf1;
+            --copy-hover-color: #24292f;
+            --token-keyword: #d73a49;
+            --token-string: #032f62;
+            --token-function: #6f42c1;
+            --token-comment: #6a737d;
+            --token-number: #005cc5;
+            --token-operator: #24292f;
+            --code-color: #24292f;
+        }
+
+        /* ==================== Solarized Light ==================== */
+        .theme-warm {
+            --block-bg: #fdf6e3;
+            --code-bg: #fffdf7;
+            --text-color: #586e75;
+            --border-color: #d3cbb7;
+            --header-bg: #eee2c6;
+            --header-color: #5b5142;
+            --badge-bg: #e4d7b3;
+            --badge-color: #5b5142;
+            --copy-border: #d1c7ab;
+            --copy-bg: #f8eed2;
+            --copy-color: #5a4c3a;
+            --copy-hover-bg: #eadfca;
+            --token-keyword: #859900;
+            --token-string: #2aa198;
+            --token-function: #268bd2;
+            --token-comment: #93a1a1;
+            --token-number: #d33682;
+            --token-operator: #b58900;
+            --code-color: #586e75;
+        }
+
+        /* ==================== One Dark ==================== */
+        .theme-one-dark {
+            --block-bg: #1f1f28;
+            --code-bg: #1a1c23;
+            --text-color: #e5e9f0;
+            --border-color: rgba(255,255,255,0.08);
+            --header-bg: #25273a;
+            --header-color: #cfd7ff;
+            --badge-bg: rgba(255,255,255,0.08);
+            --badge-color: #e5e9ff;
+            --copy-border: #3c3f60;
+            --copy-bg: #2d2f49;
+            --copy-color: #f8f9ff;
+            --copy-hover-bg: #3b3f5c;
+            --token-keyword: #c678dd;
+            --token-string: #98c379;
+            --token-function: #61afef;
+            --token-comment: #5c6370;
+            --token-number: #d19a66;
+            --token-operator: #56b6c2;
+            --code-color: #e5eaf7;
+        }
+
+        /* ==================== Dracula ==================== */
+        .theme-dracula {
+            --block-bg: #282a36;
+            --code-bg: #242635;
+            --text-color: #f8f8f2;
+            --border-color: rgba(248,248,242,0.12);
+            --header-bg: #343746;
+            --header-color: #f8f8f2;
+            --badge-bg: rgba(248,248,242,0.12);
+            --badge-color: #f8f8f2;
+            --copy-border: #44475a;
+            --copy-bg: #363850;
+            --copy-color: #f8f8f2;
+            --copy-hover-bg: #4b4e68;
+            --token-keyword: #ff79c6;
+            --token-string: #f1fa8c;
+            --token-function: #50fa7b;
+            --token-comment: #6272a4;
+            --token-number: #bd93f9;
+            --token-operator: #8be9fd;
+            --code-color: #f8f8f2;
+        }
+
+        /* ==================== Nord ==================== */
+        .theme-nord {
+            --block-bg: #2e3440;
+            --code-bg: #272c36;
+            --text-color: #eceff4;
+            --border-color: rgba(236,239,244,0.1);
+            --header-bg: #3b4252;
+            --header-color: #eceff4;
+            --badge-bg: rgba(236,239,244,0.15);
+            --badge-color: #eceff4;
+            --copy-border: #4c566a;
+            --copy-bg: #39404f;
+            --copy-color: #eceff4;
+            --copy-hover-bg: #4c5568;
+            --token-keyword: #81a1c1;
+            --token-string: #a3be8c;
+            --token-function: #88c0d0;
+            --token-comment: #616e88;
+            --token-number: #b48ead;
+            --token-operator: #ebcb8b;
+            --code-color: #eceff4;
+        }
+
+        /* ==================== Rose Pine Dawn ==================== */
+        .theme-rose {
+            --block-bg: #fffaf3;
+            --code-bg: #faf4ed;
+            --text-color: #575279;
+            --border-color: #f2e9e1;
+            --header-bg: #f2e9e1;
+            --header-color: #575279;
+            --badge-bg: #fbe8e0;
+            --badge-color: #b4637a;
+            --copy-border: #f2d4d7;
+            --copy-bg: #ffe9ea;
+            --copy-color: #b4637a;
+            --copy-hover-bg: #f8dfe4;
+            --token-keyword: #907aa9;
+            --token-string: #56949f;
+            --token-function: #286983;
+            --token-comment: #9893a5;
+            --token-number: #ea9d34;
+            --token-operator: #d7827e;
+            --code-color: #575279;
+        }
+    </style>
+</head>
+<body>
+    <main>
+        <h1>קובץ בדיקה לערכות Markdown</h1>
+        <p class="lead">
+            הקובץ מדגים את כל ששת המצבים שנדרשנו להם: Classic (GitHub Light), מצב חמים (Solarized Light),
+            חשוך (One Dark), נובלה (Dracula), מעומעם (Nord) ו-Rose Pine Dawn. כל בלוק משתמש באותם משתני CSS
+            עבור תגית שפה, כפתור העתקה, רקע הקוד והדגשת התחביר כדי להבטיח עקביות.
+        </p>
+
+        <section class="preview-card surface-classic">
+            <h2>Classic · GitHub Light</h2>
+            <p>משחק צבעים מינימליסטי על רקע לבן, עם טקסט אפור כהה וקונטרסט עדין.</p>
+            <div class="code-block-wrapper theme-classic">
+                <div class="code-header">
+                    <span class="lang-label">python</span>
+                    <button class="copy-btn" onclick="copyCode(this)" title="העתק">
+                        <svg class="icon-copy" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
+                        <svg class="icon-check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
+                    </button>
+                </div>
+                <pre><code><span class="token comment"># ניהול מטמונים לשאילתות API</span>
+<span class="token keyword">from</span> functools <span class="token keyword">import</span> lru_cache
+
+<span class="token keyword">@lru_cache</span>(maxsize=<span class="token number">256</span>)
+<span class="token keyword">def</span> <span class="token function">fetch_note</span>(note_id: <span class="token keyword">int</span>) -> dict:
+    payload = {<span class="token string">"id"</span>: note_id}
+    response = client.post(<span class="token string">"/notes/fetch"</span>, json=payload)
+    <span class="token keyword">return</span> response.json()
+
+<span class="token keyword">print</span>(<span class="token string">"cache size"</span>, fetch_note.cache_info())</code></pre>
+            </div>
+        </section>
+
+        <section class="preview-card surface-warm">
+            <h2>Warm · Solarized Light</h2>
+            <p>הגוונים הבז’יים ממשפחת Solarized מייצרים תחושה חמה לקריאה ארוכה.</p>
+            <div class="code-block-wrapper theme-warm">
+                <div class="code-header">
+                    <span class="lang-label">javascript</span>
+                    <button class="copy-btn" onclick="copyCode(this)" title="העתק">
+                        <svg class="icon-copy" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
+                        <svg class="icon-check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
+                    </button>
+                </div>
+                <pre><code><span class="token comment">// Pipeline של חימום טרנדים</span>
+<span class="token keyword">const</span> endpoint = <span class="token string">"/insights/trends"</span>;
+
+<span class="token keyword">async</span> <span class="token keyword">function</span> <span class="token function">collectWarmSignals</span>(spanMinutes = <span class="token number">30</span>) {
+    <span class="token keyword">const</span> response = <span class="token keyword">await</span> fetch(endpoint, {
+        method: <span class="token string">"POST"</span>,
+        body: JSON.stringify({ window: spanMinutes })
+    });
+    <span class="token keyword">return</span> response.json();
+}
+
+collectWarmSignals().then(<span class="token function">console</span>.log);</code></pre>
+            </div>
+        </section>
+
+        <section class="preview-card surface-dark">
+            <h2>חשוך · One Dark</h2>
+            <p>גרסה קלאסית למצב כהה עם כפתור Copy תואם והדגשות טורקיז-סגלגל.</p>
+            <div class="code-block-wrapper theme-one-dark">
+                <div class="code-header">
+                    <span class="lang-label">typescript</span>
+                    <button class="copy-btn" onclick="copyCode(this)" title="העתק">
+                        <svg class="icon-copy" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
+                        <svg class="icon-check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
+                    </button>
+                </div>
+                <pre><code><span class="token comment">// חישוב Backoff חכם</span>
+<span class="token keyword">type</span> BackoffMode = <span class="token string">"fast"</span> | <span class="token string">"safe"</span>;
+
+<span class="token keyword">function</span> <span class="token function">nextDelay</span>(attempt: <span class="token number">number</span>, mode: BackoffMode = <span class="token string">"safe"</span>) {
+    <span class="token keyword">const</span> base = mode === <span class="token string">"fast"</span> ? <span class="token number">250</span> : <span class="token number">600</span>;
+    <span class="token keyword">return</span> Math.min(<span class="token number">8000</span>, Math.round(base * <span class="token function">Math</span>.exp(attempt / <span class="token number">2.2</span>)));
+}
+</code></pre>
+            </div>
+        </section>
+
+        <section class="preview-card surface-dracula">
+            <h2>נובלה · Dracula</h2>
+            <p>סרגל כותרת כהה, טקסט ירקרק והדגשות ורודות-סגולות כפי שמוכר מעורך Dracula.</p>
+            <div class="code-block-wrapper theme-dracula">
+                <div class="code-header">
+                    <span class="lang-label">rust</span>
+                    <button class="copy-btn" onclick="copyCode(this)" title="העתק">
+                        <svg class="icon-copy" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
+                        <svg class="icon-check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
+                    </button>
+                </div>
+                <pre><code><span class="token comment">// מנוע עדכונים על פני אשכולות</span>
+<span class="token keyword">pub struct</span> <span class="token function">Shard</span> {
+    id: <span class="token keyword">u16</span>,
+    weight: <span class="token keyword">f32</span>,
+}
+
+<span class="token keyword">pub fn</span> <span class="token function">rebalance</span>(shards: &mut Vec&lt;Shard&gt;) {
+    shards.sort_by(|a, b| a.weight.partial_cmp(&b.weight).unwrap());
+}</code></pre>
+            </div>
+        </section>
+
+        <section class="preview-card surface-nord">
+            <h2>מעומעם · Nord</h2>
+            <p>גווני כחול-קרח רכים עם סימון אופייני למחרוזות ירקרקות ומילות מפתח כחלחלות.</p>
+            <div class="code-block-wrapper theme-nord">
+                <div class="code-header">
+                    <span class="lang-label">go</span>
+                    <button class="copy-btn" onclick="copyCode(this)" title="העתק">
+                        <svg class="icon-copy" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
+                        <svg class="icon-check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
+                    </button>
+                </div>
+                <pre><code><span class="token comment">// Buffer עם חלון זמן</span>
+<span class="token keyword">type</span> WindowedBuffer struct {
+    limit <span class="token keyword">int</span>
+    values []<span class="token keyword">int</span>
+}
+
+<span class="token keyword">func</span> <span class="token function">NewWindowedBuffer</span>(limit <span class="token keyword">int</span>) WindowedBuffer {
+    <span class="token keyword">return</span> WindowedBuffer{limit: limit}
+}</code></pre>
+            </div>
+        </section>
+
+        <section class="preview-card surface-rose">
+            <h2>Rose Pine Dawn</h2>
+            <p>פלטה רכה בסגנון המקורי של Rose Pine Dawn – ורוד אפרסק, זהב וירקרק.</p>
+            <div class="code-block-wrapper theme-rose">
+                <div class="code-header">
+                    <span class="lang-label">swift</span>
+                    <button class="copy-btn" onclick="copyCode(this)" title="העתק">
+                        <svg class="icon-copy" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
+                        <svg class="icon-check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
+                    </button>
+                </div>
+                <pre><code><span class="token comment">// עוזר לכתיבת לוגים רכים</span>
+<span class="token keyword">struct</span> <span class="token function">RoseLogger</span> {
+    <span class="token keyword">let</span> name: String
+    <span class="token keyword">let</span> accent: String
+}
+
+<span class="token keyword">extension</span> <span class="token function">RoseLogger</span> {
+    <span class="token keyword">func</span> <span class="token function">log</span>(_ message: String) {
+        <span class="token keyword">print</span>(<span class="token string">"[rose]"</span>, message)
+    }
+}</code></pre>
+            </div>
+        </section>
+    </main>
+
+    <script>
+        async function copyCode(button) {
+            const wrapper = button.closest('.code-block-wrapper');
+            const codeBlock = wrapper.querySelector('code');
+            const text = codeBlock.innerText;
+
+            try {
+                await navigator.clipboard.writeText(text);
+                showCopySuccess(button);
+            } catch (err) {
+                const textArea = document.createElement('textarea');
+                textArea.value = text;
+                document.body.appendChild(textArea);
+                textArea.select();
+                try {
+                    document.execCommand('copy');
+                    showCopySuccess(button);
+                } catch (fallbackErr) {
+                    alert('לא הצלחנו להעתיק אוטומטית');
+                } finally {
+                    document.body.removeChild(textArea);
+                }
+            }
+        }
+
+        function showCopySuccess(button) {
+            button.classList.add('copied');
+            setTimeout(() => button.classList.remove('copied'), 2000);
+        }
+    </script>
+</body>
+</html>
