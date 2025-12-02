@@ -115,6 +115,48 @@
      - -
      - ``https://my.app``
      - WebApp
+   * - ``WEBAPP_ENABLE_WARMUP``
+     - הפעלת שלב warmup אוטומטי אחרי עליית Gunicorn (``1``/``0``)
+     - לא
+     - ``1``
+     - ``0``
+     - WebApp
+   * - ``WEBAPP_WARMUP_URL``
+     - יעד curl לבדיקת הבריאות הראשונית (ברירת מחדל ``http://127.0.0.1:$PORT/healthz``)
+     - לא
+     - ``http://127.0.0.1:$PORT/healthz``
+     - ``https://internal.lb/healthz``
+     - WebApp
+   * - ``WEBAPP_WARMUP_MAX_ATTEMPTS``
+     - מספר ניסיונות curl עבור בדיקת הבריאות
+     - לא
+     - ``15``
+     - ``10``
+     - WebApp
+   * - ``WEBAPP_WARMUP_DELAY_SECONDS``
+     - השהיה בין ניסיונות ה-warmup הראשיים (שניות)
+     - לא
+     - ``2``
+     - ``5``
+     - WebApp
+   * - ``WEBAPP_WARMUP_PATHS``
+     - רשימת מסלולי Frontend (CSV) לחימום לאחר שה-Healthz הצליח
+     - לא
+     - "" (ריק)
+     - ``/dashboard,/collections,/settings``
+     - WebApp
+   * - ``WEBAPP_WARMUP_BASE_URL``
+     - בסיס ה-URL לבקשות ה-Frontend Warmup
+     - לא
+     - ``http://127.0.0.1:$PORT``
+     - ``https://code-keeper-webapp.onrender.com``
+     - WebApp
+   * - ``WEBAPP_WARMUP_REQUEST_TIMEOUT``
+     - Timeout בשניות לכל בקשת Frontend Warmup
+     - לא
+     - ``2``
+     - ``4``
+     - WebApp
    * - ``PUBLIC_BASE_URL``
      - כתובת בסיס ציבורית ליצירת קישורי שיתוף
      - לא
