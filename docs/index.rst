@@ -129,6 +129,7 @@ Code Keeper Bot - תיעוד API
    :caption: Observability
 
    observability
+   observability/observability_dashboard
    rate-limiting
    observability/guidelines
    logging_schema
