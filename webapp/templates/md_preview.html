@@ -18,6 +18,20 @@
   border: none; /* ביטול מסגרת (שנתפסה כ"סגולה") */
   padding: 14px; /* ריווח אחיד ועדין – לא מרחיק את הבלוק מהגבול */
   transition: background-color 0.3s ease, color 0.3s ease;
+  --md-inline-code-bg: #f3f4f6;
+  --md-inline-code-border: #e5e7eb;
+  --md-inline-code-color: #111111;
+  --md-code-border: #d8cfc0;
+  --md-code-header-bg: #efe7d8;
+  --md-code-header-text: #4f463b;
+  --md-code-bg: #fdf9f1;
+  --md-code-text: #2f2a24;
+  --md-code-shadow: 0 12px 24px rgba(27, 23, 20, 0.08);
+  --md-code-copy-bg: rgba(255, 255, 255, 0.4);
+  --md-code-copy-color: #4f463b;
+  --md-code-copy-hover-bg: rgba(79, 70, 61, 0.14);
+  --md-code-copy-success-color: #1a7f37;
+  --md-code-copy-error-color: #b42318;
 }
 
 /* Dark/Dim theme support */
@@ -26,6 +40,42 @@
 [data-theme="nebula"] #md-content {
   background: var(--bg-primary);
   color: var(--text-primary);
+}
+
+[data-theme="dark"] #md-content,
+[data-theme="dim"] #md-content,
+[data-theme="nebula"] #md-content {
+  --md-inline-code-bg: rgba(255, 255, 255, 0.08);
+  --md-inline-code-border: rgba(255, 255, 255, 0.2);
+  --md-inline-code-color: #e9ecff;
+  --md-code-border: rgba(255, 255, 255, 0.18);
+  --md-code-header-bg: #1f1f28;
+  --md-code-header-text: #f4f4ff;
+  --md-code-bg: #141421;
+  --md-code-text: #f5f6ff;
+  --md-code-copy-bg: #2d2f49;
+  --md-code-copy-color: #f4f4ff;
+  --md-code-copy-hover-bg: #3b3f5c;
+  --md-code-copy-success-color: #4ade80;
+  --md-code-copy-error-color: #f87171;
+  --md-code-shadow: 0 18px 30px rgba(0, 0, 0, 0.55);
+}
+
+:root[data-theme="rose-pine-dawn"] #md-content {
+  --md-inline-code-bg: rgba(244, 219, 214, 0.9);
+  --md-inline-code-border: rgba(180, 99, 122, 0.4);
+  --md-inline-code-color: #4a2c2a;
+  --md-code-border: rgba(180, 99, 122, 0.45);
+  --md-code-header-bg: #f4dbd6;
+  --md-code-header-text: #42211f;
+  --md-code-bg: #fff4ef;
+  --md-code-text: #4a2c2a;
+  --md-code-copy-bg: #b4637a;
+  --md-code-copy-color: #ffffff;
+  --md-code-copy-hover-bg: #c98299;
+  --md-code-copy-success-color: #286983;
+  --md-code-copy-error-color: #b4637a;
+  --md-code-shadow: 0 16px 30px rgba(180, 99, 122, 0.25);
 }
 
 [data-theme="dark"] #md-content code:not(pre code),
@@ -47,16 +97,53 @@
 #md-content.bg-light {
   background: #f7eadb; /* מעט בהיר יותר */
   color: #2b2b2b;
+  --md-inline-code-bg: rgba(255, 255, 255, 0.4);
+  --md-inline-code-border: rgba(0, 0, 0, 0.1);
+  --md-inline-code-color: #2b2b2b;
+  --md-code-border: #e6d7c4;
+  --md-code-header-bg: #f1e3d2;
+  --md-code-bg: #fdf6e9;
+  --md-code-text: #3c2f23;
+  --md-code-shadow: 0 14px 30px rgba(87, 63, 32, 0.18);
 }
 
 #md-content.bg-medium {
   background: #ecd9bd; /* בינוני בהיר */
   color: #1f1f1f;
+  --md-inline-code-bg: rgba(255, 255, 255, 0.35);
+  --md-inline-code-border: rgba(0, 0, 0, 0.12);
+  --md-inline-code-color: #2b241b;
+  --md-code-border: #decab0;
+  --md-code-header-bg: #e7cfb4;
+  --md-code-bg: #f7e9d4;
+  --md-code-text: #352a1f;
+  --md-code-shadow: 0 15px 32px rgba(92, 60, 25, 0.2);
 }
 
 #md-content.bg-dark {
   background: #dec4a3; /* הכהה מבין השלושה אך עדיין חם ובהיר */
   color: #111111;
+  --md-inline-code-bg: rgba(255, 255, 255, 0.3);
+  --md-inline-code-border: rgba(0, 0, 0, 0.15);
+  --md-inline-code-color: #2b1f16;
+  --md-code-border: #ccaf8c;
+  --md-code-header-bg: #d6b892;
+  --md-code-bg: #f1dcc3;
+  --md-code-text: #2d2015;
+  --md-code-shadow: 0 18px 36px rgba(70, 44, 15, 0.22);
+}
+
+#md-content.bg-sepia {
+  background: #fdf6e3;
+  color: #2c2520;
+  --md-inline-code-bg: rgba(255, 255, 255, 0.45);
+  --md-inline-code-border: rgba(0, 0, 0, 0.08);
+  --md-inline-code-color: #2c2520;
+  --md-code-border: #e2d5bd;
+  --md-code-header-bg: #f3e7cf;
+  --md-code-bg: #fff9ed;
+  --md-code-text: #3c332b;
+  --md-code-shadow: 0 14px 28px rgba(90, 66, 33, 0.16);
 }
 
 /* קיפול H3 (admin) – צבע רקע נעים לעיניים בהתאם לצבע הכללי */
@@ -64,6 +151,7 @@
 #md-content.bg-light { --md-fold-bg: #fbf2e6; --md-fold-border: rgba(0,0,0,0.08); }
 #md-content.bg-medium { --md-fold-bg: #f2e2c8; --md-fold-border: rgba(0,0,0,0.09); }
 #md-content.bg-dark { --md-fold-bg: #e8d2b4; --md-fold-border: rgba(0,0,0,0.10); }
+#md-content.bg-sepia { --md-fold-bg: #fff3dc; --md-fold-border: rgba(0,0,0,0.07); }
 
 #md-content details.md-section-collapse {
   background: transparent;
@@ -91,21 +179,24 @@
 /* התאמת צבעי אלמנטים פנימיים לרקע החום */
 #md-content.bg-light code:not(pre code),
 #md-content.bg-medium code:not(pre code),
-#md-content.bg-dark code:not(pre code) {
+#md-content.bg-dark code:not(pre code),
+#md-content.bg-sepia code:not(pre code) {
   background: rgba(255, 255, 255, 0.4);
   border: 1px solid rgba(0, 0, 0, 0.1);
 }
 
 #md-content.bg-light blockquote,
 #md-content.bg-medium blockquote,
-#md-content.bg-dark blockquote {
+#md-content.bg-dark blockquote,
+#md-content.bg-sepia blockquote {
   background: rgba(255, 255, 255, 0.3);
   border-inline-start-color: rgba(0, 0, 0, 0.2);
 }
 
 #md-content.bg-light table thead,
 #md-content.bg-medium table thead,
-#md-content.bg-dark table thead {
+#md-content.bg-dark table thead,
+#md-content.bg-sepia table thead {
   background: rgba(255, 255, 255, 0.3);
 }
 
@@ -114,7 +205,9 @@
 #md-content.bg-medium table th,
 #md-content.bg-medium table td,
 #md-content.bg-dark table th,
-#md-content.bg-dark table td {
+#md-content.bg-dark table td,
+#md-content.bg-sepia table th,
+#md-content.bg-sepia table td {
   border-color: rgba(0, 0, 0, 0.1);
 }
 
@@ -239,13 +332,11 @@
 #md-content pre > code,
 #md-content code.hljs {
   display: block;
-  /* נשמור על ריווח מינימלי בתוך תגית הקוד עצמה – דק שלא יבטל הדגשות */
-  padding: 0 2px 0 0;            /* תוספת עדינה מימין ב-RTL */
-  border-radius: 8px;
+  padding: 0;
+  border-radius: 0;
   font-family: 'Fira Code', 'Consolas', monospace;
-  font-size: 16px;               /* נגישות טובה יותר */
-  line-height: 1.5;              /* רווח אנכי טוב */
-  /* גלילה אופקית במקום עטיפה – כדי לא לחתוך קוד ארוך */
+  font-size: 16px;
+  line-height: 1.5;
   white-space: pre !important;
   word-break: normal !important;
   overflow-wrap: normal !important;
@@ -257,28 +348,101 @@
   border-radius: 3px;
   font-weight: 600;
 }
-#md-content pre { overflow-x: auto; max-width: 100%; margin: 1rem 0; width: 100%; }
-#md-content .hljs { overflow-x: auto; display: block; }
 #md-content pre {
-  background: linear-gradient(135deg, #1e3a5f 0%, #2d4a6f 100%);
-  border: 0;                        /* הסרת מסגרת דקה שמצטיירת כסגולה */
-  border-radius: 12px;
-  padding: 16px;                    /* בסיס */
-  /* ריווח פנימי סימטרי בתוך הבלוק – כדי שהקוד לא ייגע בגבולות */
-  padding-right: clamp(22px, 6vw, 36px);
-  padding-left: clamp(22px, 6vw, 36px);
-  box-shadow: 0 4px 12px rgba(0,0,0,0.3);
   overflow-x: auto;
-  margin: 1em 0;                    /* אין מרווח שלילי – לא שוברים פריסה */
-  width: 100%;                      /* מילוי רוחב הכרטיס, ללא גלישה */
-  color: #e8eaed;                   /* Fallback: טקסט בהיר אם hljs לא נטען */
+  max-width: 100%;
+  width: 100%;
+  margin: 1rem 0;
+  background: var(--md-code-bg);
+  color: var(--md-code-text);
+  border: 0;
+  border-radius: 12px;
+  border-top: 1px solid var(--md-code-border);
+  padding: 1.25rem clamp(1.5rem, 6vw, 2.25rem) 1.5rem;
+  box-shadow: var(--md-code-shadow);
   box-sizing: border-box;
 }
-#md-content pre code {
-  display: block;
-  overflow-x: auto;
-  /* ריווח עדין בתוך תגית הקוד עצמה */
-  padding: 0 2px;
+#md-content .code-block {
+  margin: 1.5rem 0;
+  border: 1px solid var(--md-code-border);
+  border-radius: 12px;
+  overflow: hidden;
+  background: var(--md-code-bg);
+  box-shadow: var(--md-code-shadow);
+  position: relative;
+  direction: ltr;
+  text-align: left;
+}
+#md-content .code-block pre {
+  margin: 0;
+  border-radius: 0;
+  border: none;
+  border-top: 0;
+  box-shadow: none;
+}
+#md-content .hljs { overflow-x: auto; display: block; }
+#md-content .md-code-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+  padding: 0.65rem 1.25rem;
+  background: var(--md-code-header-bg);
+  color: var(--md-code-header-text);
+  font-family: ui-monospace, 'SFMono-Regular', Consolas, monospace;
+  font-size: 0.82rem;
+  border-bottom: 1px solid var(--md-code-border);
+}
+#md-content .md-code-lang {
+  text-transform: capitalize;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: inherit;
+}
+#md-content .md-copy-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.35rem;
+  padding: 0.35rem 0.75rem;
+  font-size: 0.9rem;
+  border-radius: 6px;
+  border: 1px solid transparent;
+  background: var(--md-code-copy-bg);
+  color: var(--md-code-copy-color);
+  cursor: pointer;
+  transition: background 0.2s ease, color 0.2s ease, transform 0.2s ease;
+}
+#md-content .md-copy-btn svg {
+  width: 16px;
+  height: 16px;
+  stroke: currentColor;
+  fill: none;
+}
+#md-content .md-copy-btn .icon-check {
+  display: none;
+}
+#md-content .md-copy-btn:hover,
+#md-content .md-copy-btn:focus-visible {
+  background: var(--md-code-copy-hover-bg);
+  color: var(--md-code-copy-color);
+  transform: translateY(-1px);
+  outline: 2px solid var(--primary, #8b5cf6);
+  outline-offset: 2px;
+}
+#md-content .md-copy-btn.copied {
+  color: var(--md-code-copy-success-color);
+}
+#md-content .md-copy-btn.copied .icon-copy {
+  display: none;
+}
+#md-content .md-copy-btn.copied .icon-check {
+  display: inline-block;
+}
+#md-content .md-copy-btn.copy-error {
+  color: var(--md-code-copy-error-color);
+  background: color-mix(in srgb, var(--md-code-copy-error-color) 20%, transparent);
 }
 #md-content {
   /* לא נחסום גלישה כדי שלא ייחתכו מספרים/תווים מחוץ לקופסה (למשל ברשימות) */
@@ -309,62 +473,10 @@
 #md-content li { margin: 0.25rem 0; }
 /* רשימות מקוננות – מעט רווח מעל/מתחת */
 #md-content li > ul, #md-content li > ol { margin-block: 0.25rem 0.5rem; }
-#md-content .code-block { position: relative; margin: 1rem 0; }
-#md-content .code-block pre {
-  margin: 0;
-  /* ריווח סימטרי בתוך הבלוק עצמו – לא משפיע על המיקום של הבלוק בדף */
-  padding: 16px;
-  padding-right: clamp(22px, 6vw, 36px);
-  padding-left: clamp(22px, 6vw, 36px);
-  padding-top: 2.6rem;           /* מקום לשורת כפתורים עליונה */
-  box-sizing: border-box;
-}
-#md-content .md-copy-btn {
-  position: absolute;
-  top: 10px;
-  left: 10px;
-  display: inline-flex;
-  align-items: center;
-  gap: 0.4rem;
-  padding: 6px 10px;
-  font-size: 0.85rem;
-  background: rgba(255, 255, 255, 0.95);
-  color: #1f2937;
-  border: 1px solid rgba(209, 213, 219, 0.9);
-  border-radius: 6px;
-  cursor: pointer;
-  transition: background 0.2s ease, transform 0.2s ease, border-color 0.2s ease, color 0.2s ease;
-  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.08);
-  z-index: 2;
-}
-#md-content .md-copy-btn:hover {
-  background: #f6f8fa;
-  border-color: rgba(148, 163, 184, 0.9);
-  transform: translateY(-1px);
-}
-#md-content .md-copy-btn.copied {
-  background: #28a745;
-  border-color: #28a745;
-  color: #ffffff;
-}
-#md-content .md-copy-btn.copy-error {
-  background: #fee2e2;
-  border-color: #ef4444;
-  color: #991b1b;
-}
-#md-content .md-copy-btn::before {
-  content: none;
-}
-#md-content .md-copy-btn .copy-icon {
-  font-size: 1rem;
-}
-#md-content .md-copy-btn .copied-text {
-  font-weight: 500;
-}
 #md-content code:not(pre code) {
-  background: #f3f4f6;            /* אפור בהיר עם ניגודיות טובה על לבן */
-  color: #111111;                 /* טקסט כהה לקריאות */
-  border: 1px solid #e5e7eb;      /* מסגרת עדינה */
+  background: var(--md-inline-code-bg);
+  color: var(--md-inline-code-color);
+  border: 1px solid var(--md-inline-code-border);
   padding: 0.2rem 0.4rem;
   border-radius: 6px;
   font-family: 'Fira Code', 'Consolas', monospace;
@@ -1019,6 +1131,10 @@ input.md-task-checkbox {
             צבע רקע
           </button>
           <div id="bgColorOptions" style="display:none;position:absolute;top:100%;left:50%;transform:translateX(-50%);margin-top:5px;background:white;border-radius:8px;box-shadow:0 4px 12px rgba(0,0,0,0.2);padding:10px;white-space:nowrap;">
+            <button class="bg-color-option" data-color="sepia" style="display:block;width:100%;padding:8px 12px;margin:4px 0;border:1px solid #ddd;border-radius:6px;background:#fdf6e3;color:#333;cursor:pointer;font-size:14px;transition:all 0.2s ease;">
+              <span style="display:inline-block;width:20px;height:20px;border-radius:4px;background:#fdf6e3;border:1px solid #999;vertical-align:middle;margin-left:8px;"></span>
+              נייר חם
+            </button>
             <button class="bg-color-option" data-color="light" style="display:block;width:100%;padding:8px 12px;margin:4px 0;border:1px solid #ddd;border-radius:6px;background:#f7eadb;color:#333;cursor:pointer;font-size:14px;transition:all 0.2s ease;">
               <span style="display:inline-block;width:20px;height:20px;border-radius:4px;background:#f7eadb;border:1px solid #999;vertical-align:middle;margin-left:8px;"></span>
               חום בהיר
@@ -1974,27 +2090,58 @@ try { if (typeof window !== 'undefined') { window.attachColorSwatches = attachCo
     }
     // כפתור העתקה משופר לכל בלוק קוד + נגישות מלאה
     try {
+      const FALLBACK_LANG = (document.documentElement && document.documentElement.dir === 'rtl') ? 'טקסט' : 'Text';
       function showCopySuccess(btn) {
         try {
+          btn.classList.remove('copy-error');
           btn.classList.add('copied');
-          const copyText = btn.querySelector('.copy-text');
-          const copiedText = btn.querySelector('.copied-text');
-          if (copyText) copyText.style.display = 'none';
-          if (copiedText) copiedText.style.display = 'inline';
-          setTimeout(() => {
-            btn.classList.remove('copied');
-            if (copyText) copyText.style.display = 'inline';
-            if (copiedText) copiedText.style.display = 'none';
-          }, 2000);
+          setTimeout(() => btn.classList.remove('copied'), 1800);
         } catch(_) {}
       }
       function showCopyError(btn) {
-        try { btn.classList.add('copy-error'); setTimeout(() => btn.classList.remove('copy-error'), 2000); } catch(_) {}
+        try {
+          btn.classList.remove('copied');
+          btn.classList.add('copy-error');
+          setTimeout(() => btn.classList.remove('copy-error'), 1800);
+        } catch(_) {}
+      }
+      function detectLanguage(pre) {
+        try {
+          const code = pre.querySelector('code');
+          let lang = null;
+          if (code) {
+            lang = code.getAttribute('data-language') || code.getAttribute('data-lang');
+            if (!lang && code.dataset) {
+              lang = code.dataset.language || code.dataset.lang || null;
+            }
+            if (!lang) {
+              const classes = (code.className || '').split(/\s+/);
+              for (const cls of classes) {
+                if (!cls) continue;
+                if (cls.startsWith('language-')) { lang = cls.replace(/^language-/, ''); break; }
+                if (cls.startsWith('lang-')) { lang = cls.replace(/^lang-/, ''); break; }
+              }
+            }
+          }
+          if (!lang && pre.className) {
+            const preClasses = pre.className.split(/\s+/);
+            for (const cls of preClasses) {
+              if (!cls) continue;
+              if (cls.startsWith('language-')) { lang = cls.replace(/^language-/, ''); break; }
+              if (cls.startsWith('lang-')) { lang = cls.replace(/^lang-/, ''); break; }
+            }
+          }
+          if (!lang) return FALLBACK_LANG;
+          lang = lang.replace(/[-_]+/g, ' ').trim();
+          if (!lang) return FALLBACK_LANG;
+          return lang.replace(/\b\w/g, (ch) => ch.toUpperCase());
+        } catch(_) {
+          return FALLBACK_LANG;
+        }
       }
       function addCopyButtons() {
         const pres = document.querySelectorAll('#md-content pre');
         pres.forEach(pre => {
-          if (pre.querySelector('.md-copy-btn')) return;
           let wrapper = pre.parentElement;
           if (!wrapper || !wrapper.classList || !wrapper.classList.contains('code-block')) {
             wrapper = document.createElement('div');
@@ -2002,39 +2149,60 @@ try { if (typeof window !== 'undefined') { window.attachColorSwatches = attachCo
             pre.replaceWith(wrapper);
             wrapper.appendChild(pre);
           }
-          const btn = document.createElement('button');
-          btn.type = 'button';
-          btn.className = 'md-copy-btn';
-          btn.setAttribute('aria-label', 'העתק קוד');
-          btn.setAttribute('role', 'button');
-          btn.innerHTML = `
-            <span class="copy-icon" aria-hidden="true">📋</span>
-            <span class="copy-text">העתק</span>
-            <span class="copied-text" style="display:none">✅ הועתק!</span>
-          `;
-          btn.addEventListener('click', async () => {
-            const code = pre.querySelector('code')?.innerText || pre.innerText;
-            try {
-              await navigator.clipboard.writeText(code);
-              showCopySuccess(btn);
-              announceToScreenReader('הקוד הועתק ללוח');
-            } catch(_) {
-              if (fallbackCopy(code)) {
+          let header = wrapper.querySelector('.md-code-header');
+          if (!header) {
+            header = document.createElement('div');
+            header.className = 'md-code-header';
+            wrapper.insertBefore(header, pre);
+          }
+          let langEl = header.querySelector('.md-code-lang');
+          if (!langEl) {
+            langEl = document.createElement('span');
+            langEl.className = 'md-code-lang';
+            header.insertBefore(langEl, header.firstChild || null);
+          }
+          langEl.textContent = detectLanguage(pre);
+          let btn = header.querySelector('.md-copy-btn');
+          if (!btn) {
+            btn = document.createElement('button');
+            btn.type = 'button';
+            btn.className = 'md-copy-btn';
+            btn.setAttribute('aria-label', 'העתק קוד');
+            btn.setAttribute('title', 'העתק קוד');
+            btn.innerHTML = `
+              <svg class="icon-copy" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" aria-hidden="true" stroke-linecap="round" stroke-linejoin="round" stroke-width="2">
+                <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+                <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+              </svg>
+              <svg class="icon-check" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" aria-hidden="true" stroke-linecap="round" stroke-linejoin="round" stroke-width="2">
+                <polyline points="20 6 9 17 4 12"></polyline>
+              </svg>
+              <span class="sr-only">העתק קוד</span>
+            `;
+            btn.addEventListener('click', async () => {
+              const code = pre.querySelector('code')?.innerText || pre.innerText;
+              try {
+                await navigator.clipboard.writeText(code);
                 showCopySuccess(btn);
                 announceToScreenReader('הקוד הועתק ללוח');
-              } else {
-                showCopyError(btn);
-                announceToScreenReader('ההעתקה נכשלה');
+              } catch(_) {
+                if (fallbackCopy(code)) {
+                  showCopySuccess(btn);
+                  announceToScreenReader('הקוד הועתק ללוח');
+                } else {
+                  showCopyError(btn);
+                  announceToScreenReader('ההעתקה נכשלה');
+                }
               }
-            }
-          });
-          btn.addEventListener('keydown', (e) => {
-            if (e.key === 'Enter' || e.key === ' ') {
-              e.preventDefault();
-              btn.click();
-            }
-          });
-          wrapper.appendChild(btn);
+            });
+            btn.addEventListener('keydown', (e) => {
+              if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault();
+                btn.click();
+              }
+            });
+            header.appendChild(btn);
+          }
         });
       }
       addCopyButtons();
@@ -2342,6 +2510,7 @@ try { if (typeof window !== 'undefined') { window.attachColorSwatches = attachCo
   'use strict';
   
   const COLORS = {
+    sepia: '#fdf6e3',
     light: '#f5e6d3',
     medium: '#e8d4b0',
     dark: '#d4b896'
@@ -2375,7 +2544,7 @@ try { if (typeof window !== 'undefined') { window.attachColorSwatches = attachCo
     if (!mdContent) return;
     
     // הסרת כל המחלקות הקודמות
-    mdContent.classList.remove('bg-light', 'bg-medium', 'bg-dark');
+    mdContent.classList.remove('bg-sepia', 'bg-light', 'bg-medium', 'bg-dark');
     
     // החלת צבע חדש אם נבחר
     if (color && COLORS[color]) {
