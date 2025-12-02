@@ -7,7 +7,6 @@
     <style>
         :root {
             font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
-            color-scheme: light dark;
         }
 
         body {
@@ -29,8 +28,7 @@
         }
 
         p.lead {
-            max-width: 720px;
-            font-size: 1rem;
+            max-width: 760px;
             color: #4f566b;
         }
 
@@ -40,18 +38,18 @@
             margin: 36px 0;
             border: 1px solid var(--surface-border, rgba(31,35,40,0.1));
             background: var(--surface-bg, #ffffff);
-            box-shadow: 0 12px 30px rgba(15, 23, 42, 0.08);
+            box-shadow: 0 14px 30px rgba(15, 23, 42, 0.08);
         }
 
         section.preview-card h2 {
             margin-top: 0;
-            margin-bottom: 8px;
+            margin-bottom: 6px;
         }
 
         section.preview-card p {
             margin-top: 0;
-            margin-bottom: 16px;
-            color: var(--surface-text, #4b5563);
+            margin-bottom: 18px;
+            color: var(--surface-text, #4c5666);
         }
 
         .code-block-wrapper {
@@ -98,7 +96,7 @@
         .lang-label {
             background: var(--badge-bg);
             color: var(--badge-color);
-            padding: 2px 10px;
+            padding: 2px 12px;
             border-radius: 999px;
             text-transform: capitalize;
             font-weight: 600;
@@ -130,9 +128,7 @@
             color: var(--copy-hover-color, var(--copy-color));
         }
 
-        .copy-btn .icon-check {
-            display: none;
-        }
+        .copy-btn .icon-check { display: none; }
 
         .copy-btn.copied {
             border-color: transparent;
@@ -141,13 +137,8 @@
             opacity: 1;
         }
 
-        .copy-btn.copied .icon-copy {
-            display: none;
-        }
-
-        .copy-btn.copied .icon-check {
-            display: inline-block;
-        }
+        .copy-btn.copied .icon-copy { display: none; }
+        .copy-btn.copied .icon-check { display: inline-block; }
 
         pre {
             margin: 0;
@@ -169,73 +160,135 @@
         .token.string { color: var(--token-string); }
         .token.function { color: var(--token-function); }
         .token.comment { color: var(--token-comment); font-style: italic; }
-        .token.number { color: var(--token-number); }
-        .token.operator { color: var(--token-operator); }
+        .token.number { color: var(--token-number, var(--token-string)); }
+        .token.operator { color: var(--token-operator, var(--text-color)); }
 
-        /* ==================== משטחים כלליים ==================== */
-        .surface-classic { --surface-bg: #f7fafd; --surface-border: #d0d7de; --surface-text: #4c5666; }
+        /* ==================== משטחים לתצוגה ==================== */
+        .surface-classic { --surface-bg: #eef3fb; --surface-border: #d0d7de; --surface-text: #4c5866; }
         .surface-warm { --surface-bg: #fdf6e3; --surface-border: #dccfb6; --surface-text: #5f5a4e; }
-        .surface-dark { --surface-bg: #11121a; --surface-border: rgba(255,255,255,0.08); --surface-text: #cdd5ff; color: #e5e9ff; }
+        .surface-brown-light { --surface-bg: #f5e6d3; --surface-border: #e0cdb4; --surface-text: #6b5d4f; }
+        .surface-brown-medium { --surface-bg: #e8d4b0; --surface-border: #d4c19c; --surface-text: #5d5040; }
+        .surface-brown-deep { --surface-bg: #d4b896; --surface-border: #c4a882; --surface-text: #4a3f2f; }
+        .surface-dark { --surface-bg: #05060b; --surface-border: rgba(255,255,255,0.08); --surface-text: #cdd5ff; color: #e5e9ff; }
         .surface-dracula { --surface-bg: #1f1d28; --surface-border: rgba(255,255,255,0.08); --surface-text: #cecfff; color: #f8f8f2; }
         .surface-nord { --surface-bg: #1c222c; --surface-border: rgba(236,239,244,0.08); --surface-text: #d8dee9; color: #eceff4; }
         .surface-rose { --surface-bg: #fff9f4; --surface-border: #f2e9e1; --surface-text: #706884; }
 
         /* ==================== GitHub Light ==================== */
         .theme-classic {
-            --block-bg: #ffffff;
+            --block-bg: #e6edf4;
             --code-bg: #f6f8fa;
             --text-color: #24292f;
             --border-color: #d0d7de;
-            --header-bg: #f6f8fa;
+            --header-bg: #e6edf4;
             --header-color: #57606a;
-            --badge-bg: #eaeef2;
+            --badge-bg: #dce3eb;
             --badge-color: #24292f;
             --copy-border: #d0d7de;
             --copy-bg: #ffffff;
             --copy-color: #57606a;
-            --copy-hover-bg: #e6ebf1;
-            --copy-hover-color: #24292f;
-            --token-keyword: #d73a49;
-            --token-string: #032f62;
-            --token-function: #6f42c1;
-            --token-comment: #6a737d;
-            --token-number: #005cc5;
-            --token-operator: #24292f;
-            --code-color: #24292f;
+            --copy-hover-bg: #e4ebf2;
+            --token-keyword: #cf222e;
+            --token-string: #0a3069;
+            --token-function: #8250df;
+            --token-comment: #6e7781;
+            --token-number: #0550ae;
         }
 
         /* ==================== Solarized Light ==================== */
         .theme-warm {
-            --block-bg: #fdf6e3;
-            --code-bg: #fffdf7;
-            --text-color: #586e75;
+            --block-bg: #eee8d5;
+            --code-bg: #eee8d5;
+            --text-color: #657b83;
             --border-color: #d3cbb7;
-            --header-bg: #eee2c6;
-            --header-color: #5b5142;
-            --badge-bg: #e4d7b3;
-            --badge-color: #5b5142;
+            --header-bg: #e4dfc9;
+            --header-color: #586e75;
+            --badge-bg: #d9cfb6;
+            --badge-color: #4f4a3a;
             --copy-border: #d1c7ab;
-            --copy-bg: #f8eed2;
+            --copy-bg: #faf2da;
             --copy-color: #5a4c3a;
             --copy-hover-bg: #eadfca;
             --token-keyword: #859900;
             --token-string: #2aa198;
             --token-function: #268bd2;
             --token-comment: #93a1a1;
-            --token-number: #d33682;
+            --token-number: #b58900;
             --token-operator: #b58900;
-            --code-color: #586e75;
+        }
+
+        /* ==================== חום בהיר ==================== */
+        .theme-brown-light {
+            --block-bg: #eddcc4;
+            --code-bg: #eddcc4;
+            --text-color: #5a4a3a;
+            --border-color: #e6d4bc;
+            --header-bg: #e3d1b8;
+            --header-color: #6b5d4f;
+            --badge-bg: #dcc7ab;
+            --badge-color: #5a4a3a;
+            --copy-border: #d8c5ac;
+            --copy-bg: #f5e7cf;
+            --copy-color: #5a4a3a;
+            --copy-hover-bg: #e9d9c0;
+            --token-keyword: #a67c52;
+            --token-string: #6b8e23;
+            --token-function: #4682b4;
+            --token-comment: #8b7d6b;
+            --token-number: #c97b63;
+        }
+
+        /* ==================== חום בינוני ==================== */
+        .theme-brown-medium {
+            --block-bg: #dcc9a8;
+            --code-bg: #dcc9a8;
+            --text-color: #4a3d2f;
+            --border-color: #d4c19c;
+            --header-bg: #d0bd98;
+            --header-color: #5d5040;
+            --badge-bg: #c9b48f;
+            --badge-color: #443628;
+            --copy-border: #cbb793;
+            --copy-bg: #ebd8b6;
+            --copy-color: #4a3d2f;
+            --copy-hover-bg: #decaa8;
+            --token-keyword: #8b6914;
+            --token-string: #2e8b57;
+            --token-function: #4169e1;
+            --token-comment: #7a6e5d;
+            --token-number: #c97b63;
+        }
+
+        /* ==================== חום כהה ==================== */
+        .theme-brown-deep {
+            --block-bg: #c9ae88;
+            --code-bg: #c9ae88;
+            --text-color: #3d3020;
+            --border-color: #c4a882;
+            --header-bg: #bea47a;
+            --header-color: #4a3f2f;
+            --badge-bg: #b7966d;
+            --badge-color: #3d2f1e;
+            --copy-border: #bfa37b;
+            --copy-bg: #d6ba92;
+            --copy-color: #3d3020;
+            --copy-hover-bg: #c7ad87;
+            --token-keyword: #8b4513;
+            --token-string: #228b22;
+            --token-function: #4682b4;
+            --token-comment: #6b5d4f;
+            --token-number: #d2691e;
         }
 
         /* ==================== One Dark ==================== */
         .theme-one-dark {
             --block-bg: #1f1f28;
-            --code-bg: #1a1c23;
+            --code-bg: #1b1d26;
             --text-color: #e5e9f0;
             --border-color: rgba(255,255,255,0.08);
             --header-bg: #25273a;
             --header-color: #cfd7ff;
-            --badge-bg: rgba(255,255,255,0.08);
+            --badge-bg: rgba(255,255,255,0.12);
             --badge-color: #e5e9ff;
             --copy-border: #3c3f60;
             --copy-bg: #2d2f49;
@@ -247,7 +300,6 @@
             --token-comment: #5c6370;
             --token-number: #d19a66;
             --token-operator: #56b6c2;
-            --code-color: #e5eaf7;
         }
 
         /* ==================== Dracula ==================== */
@@ -270,7 +322,6 @@
             --token-comment: #6272a4;
             --token-number: #bd93f9;
             --token-operator: #8be9fd;
-            --code-color: #f8f8f2;
         }
 
         /* ==================== Nord ==================== */
@@ -293,7 +344,6 @@
             --token-comment: #616e88;
             --token-number: #b48ead;
             --token-operator: #ebcb8b;
-            --code-color: #eceff4;
         }
 
         /* ==================== Rose Pine Dawn ==================== */
@@ -316,7 +366,6 @@
             --token-comment: #9893a5;
             --token-number: #ea9d34;
             --token-operator: #d7827e;
-            --code-color: #575279;
         }
     </style>
 </head>
@@ -324,14 +373,13 @@
     <main>
         <h1>קובץ בדיקה לערכות Markdown</h1>
         <p class="lead">
-            הקובץ מדגים את כל ששת המצבים שנדרשנו להם: Classic (GitHub Light), מצב חמים (Solarized Light),
-            חשוך (One Dark), נובלה (Dracula), מעומעם (Nord) ו-Rose Pine Dawn. כל בלוק משתמש באותם משתני CSS
-            עבור תגית שפה, כפתור העתקה, רקע הקוד והדגשת התחביר כדי להבטיח עקביות.
+            כאן ניתן לראות אחד לאחד את חמשת הרקעים החומים שסיפקת בקבצי ה־HTML, וחמש ערכות מצב מתקדמות (One Dark, Dracula, Nord, Rose Pine Dawn).
+            לכל ערכה יש אותם מבני CSS וכפתור העתקה כדי שנוכל להעתיק את ההגדרות ישירות למרקדאון.
         </p>
 
         <section class="preview-card surface-classic">
-            <h2>Classic · GitHub Light</h2>
-            <p>משחק צבעים מינימליסטי על רקע לבן, עם טקסט אפור כהה וקונטרסט עדין.</p>
+            <h2>1. Classic · GitHub Light</h2>
+            <p>אותו שילוב כחול-אפור עדין כמו בדוגמה המקורית.</p>
             <div class="code-block-wrapper theme-classic">
                 <div class="code-header">
                     <span class="lang-label">python</span>
@@ -340,22 +388,17 @@
                         <svg class="icon-check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
                     </button>
                 </div>
-                <pre><code><span class="token comment"># ניהול מטמונים לשאילתות API</span>
-<span class="token keyword">from</span> functools <span class="token keyword">import</span> lru_cache
-
-<span class="token keyword">@lru_cache</span>(maxsize=<span class="token number">256</span>)
-<span class="token keyword">def</span> <span class="token function">fetch_note</span>(note_id: <span class="token keyword">int</span>) -> dict:
+                <pre><code><span class="token comment"># מטמון דינמי לקריאות API</span>
+<span class="token keyword">def</span> <span class="token function">fetch_note</span>(note_id):
     payload = {<span class="token string">"id"</span>: note_id}
-    response = client.post(<span class="token string">"/notes/fetch"</span>, json=payload)
-    <span class="token keyword">return</span> response.json()
-
-<span class="token keyword">print</span>(<span class="token string">"cache size"</span>, fetch_note.cache_info())</code></pre>
+    response = client.post(<span class="token string">"/notes"</span>, json=payload)
+    <span class="token keyword">return</span> response.json()</code></pre>
             </div>
         </section>
 
         <section class="preview-card surface-warm">
-            <h2>Warm · Solarized Light</h2>
-            <p>הגוונים הבז’יים ממשפחת Solarized מייצרים תחושה חמה לקריאה ארוכה.</p>
+            <h2>2. Warm · Solarized Light</h2>
+            <p>רקע בז' עדין, כותרת כהה יותר, והדגשת התחביר של Solarized.</p>
             <div class="code-block-wrapper theme-warm">
                 <div class="code-header">
                     <span class="lang-label">javascript</span>
@@ -367,21 +410,73 @@
                 <pre><code><span class="token comment">// Pipeline של חימום טרנדים</span>
 <span class="token keyword">const</span> endpoint = <span class="token string">"/insights/trends"</span>;
 
-<span class="token keyword">async</span> <span class="token keyword">function</span> <span class="token function">collectWarmSignals</span>(spanMinutes = <span class="token number">30</span>) {
-    <span class="token keyword">const</span> response = <span class="token keyword">await</span> fetch(endpoint, {
-        method: <span class="token string">"POST"</span>,
-        body: JSON.stringify({ window: spanMinutes })
-    });
+<span class="token keyword">async function</span> <span class="token function">collectWarmSignals</span>() {
+    <span class="token keyword">const</span> response = <span class="token keyword">await</span> fetch(endpoint);
     <span class="token keyword">return</span> response.json();
-}
+}</code></pre>
+            </div>
+        </section>
 
-collectWarmSignals().then(<span class="token function">console</span>.log);</code></pre>
+        <section class="preview-card surface-brown-light">
+            <h2>3. חום בהיר · #f5e6d3</h2>
+            <p>הרקע הראשון מהקובץ השני – מעט ורדרד עם טקסט כהה.</p>
+            <div class="code-block-wrapper theme-brown-light">
+                <div class="code-header">
+                    <span class="lang-label">python</span>
+                    <button class="copy-btn" onclick="copyCode(this)" title="העתק">
+                        <svg class="icon-copy" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
+                        <svg class="icon-check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
+                    </button>
+                </div>
+                <pre><code><span class="token comment"># חישוב פשוט</span>
+<span class="token keyword">def</span> <span class="token function">calculate</span>(x, y):
+    total = x + y
+    <span class="token keyword">return</span> total</code></pre>
+            </div>
+        </section>
+
+        <section class="preview-card surface-brown-medium">
+            <h2>4. חום בינוני · #e8d4b0</h2>
+            <p>אותו צבע רקע מהדוגמה – טקסט כהה יותר ותקרה כהה.</p>
+            <div class="code-block-wrapper theme-brown-medium">
+                <div class="code-header">
+                    <span class="lang-label">javascript</span>
+                    <button class="copy-btn" onclick="copyCode(this)" title="העתק">
+                        <svg class="icon-copy" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
+                        <svg class="icon-check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
+                    </button>
+                </div>
+                <pre><code><span class="token comment">// אובייקט משתמש</span>
+<span class="token keyword">const</span> user = {
+    name: <span class="token string">"CodeKeeper"</span>,
+    level: <span class="token number">5</span>
+};</code></pre>
+            </div>
+        </section>
+
+        <section class="preview-card surface-brown-deep">
+            <h2>5. חום כהה · #d4b896</h2>
+            <p>הרקע החום העמוק מהקובץ – שומר על אותם צבעים.</p>
+            <div class="code-block-wrapper theme-brown-deep">
+                <div class="code-header">
+                    <span class="lang-label">ruby</span>
+                    <button class="copy-btn" onclick="copyCode(this)" title="העתק">
+                        <svg class="icon-copy" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
+                        <svg class="icon-check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
+                    </button>
+                </div>
+                <pre><code><span class="token comment"># מחלקה פשוטה</span>
+<span class="token keyword">class</span> <span class="token function">User</span>
+  <span class="token keyword">def</span> <span class="token function">initialize</span>(name)
+    @name = name
+  <span class="token keyword">end</span>
+<span class="token keyword">end</span></code></pre>
             </div>
         </section>
 
         <section class="preview-card surface-dark">
-            <h2>חשוך · One Dark</h2>
-            <p>גרסה קלאסית למצב כהה עם כפתור Copy תואם והדגשות טורקיז-סגלגל.</p>
+            <h2>6. חשוך · One Dark</h2>
+            <p>עכשיו יש קונטרסט ברור בין רקע הסקשן לבין הבלוק.</p>
             <div class="code-block-wrapper theme-one-dark">
                 <div class="code-header">
                     <span class="lang-label">typescript</span>
@@ -391,19 +486,18 @@ collectWarmSignals().then(<span class="token function">console</span>.log);</cod
                     </button>
                 </div>
                 <pre><code><span class="token comment">// חישוב Backoff חכם</span>
-<span class="token keyword">type</span> BackoffMode = <span class="token string">"fast"</span> | <span class="token string">"safe"</span>;
+type BackoffMode = <span class="token string">"fast"</span> | <span class="token string">"safe"</span>;
 
-<span class="token keyword">function</span> <span class="token function">nextDelay</span>(attempt: <span class="token number">number</span>, mode: BackoffMode = <span class="token string">"safe"</span>) {
+<span class="token keyword">function</span> <span class="token function">nextDelay</span>(attempt: number, mode: BackoffMode = <span class="token string">"safe"</span>) {
     <span class="token keyword">const</span> base = mode === <span class="token string">"fast"</span> ? <span class="token number">250</span> : <span class="token number">600</span>;
-    <span class="token keyword">return</span> Math.min(<span class="token number">8000</span>, Math.round(base * <span class="token function">Math</span>.exp(attempt / <span class="token number">2.2</span>)));
-}
-</code></pre>
+    <span class="token keyword">return</span> Math.min(<span class="token number">8000</span>, Math.round(base * Math.exp(attempt / <span class="token number">2.2</span>)));
+}</code></pre>
             </div>
         </section>
 
         <section class="preview-card surface-dracula">
-            <h2>נובלה · Dracula</h2>
-            <p>סרגל כותרת כהה, טקסט ירקרק והדגשות ורודות-סגולות כפי שמוכר מעורך Dracula.</p>
+            <h2>7. נובלה · Dracula</h2>
+            <p>כותרת כהה, הדגשה ורודה/צהובה כמו בעורך המקורי.</p>
             <div class="code-block-wrapper theme-dracula">
                 <div class="code-header">
                     <span class="lang-label">rust</span>
@@ -412,21 +506,17 @@ collectWarmSignals().then(<span class="token function">console</span>.log);</cod
                         <svg class="icon-check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
                     </button>
                 </div>
-                <pre><code><span class="token comment">// מנוע עדכונים על פני אשכולות</span>
-<span class="token keyword">pub struct</span> <span class="token function">Shard</span> {
-    id: <span class="token keyword">u16</span>,
-    weight: <span class="token keyword">f32</span>,
-}
-
-<span class="token keyword">pub fn</span> <span class="token function">rebalance</span>(shards: &mut Vec&lt;Shard&gt;) {
-    shards.sort_by(|a, b| a.weight.partial_cmp(&b.weight).unwrap());
+                <pre><code><span class="token comment">// עדכון אשכולות</span>
+pub struct Shard {
+    id: <span class="token number">u16</span>,
+    weight: <span class="token number">f32</span>,
 }</code></pre>
             </div>
         </section>
 
         <section class="preview-card surface-nord">
-            <h2>מעומעם · Nord</h2>
-            <p>גווני כחול-קרח רכים עם סימון אופייני למחרוזות ירקרקות ומילות מפתח כחלחלות.</p>
+            <h2>8. מעומעם · Nord</h2>
+            <p>גוונים כחולים-עדינים, עם מחרוזות ירקרקות.</p>
             <div class="code-block-wrapper theme-nord">
                 <div class="code-header">
                     <span class="lang-label">go</span>
@@ -436,20 +526,15 @@ collectWarmSignals().then(<span class="token function">console</span>.log);</cod
                     </button>
                 </div>
                 <pre><code><span class="token comment">// Buffer עם חלון זמן</span>
-<span class="token keyword">type</span> WindowedBuffer struct {
-    limit <span class="token keyword">int</span>
-    values []<span class="token keyword">int</span>
-}
-
-<span class="token keyword">func</span> <span class="token function">NewWindowedBuffer</span>(limit <span class="token keyword">int</span>) WindowedBuffer {
-    <span class="token keyword">return</span> WindowedBuffer{limit: limit}
+type WindowedBuffer struct {
+    limit int
 }</code></pre>
             </div>
         </section>
 
         <section class="preview-card surface-rose">
-            <h2>Rose Pine Dawn</h2>
-            <p>פלטה רכה בסגנון המקורי של Rose Pine Dawn – ורוד אפרסק, זהב וירקרק.</p>
+            <h2>9. Rose Pine Dawn</h2>
+            <p>פלטה ורדרדה-עדינה לחלוטין, כולל כפתור Copy בגוון מקורי.</p>
             <div class="code-block-wrapper theme-rose">
                 <div class="code-header">
                     <span class="lang-label">swift</span>
@@ -459,15 +544,8 @@ collectWarmSignals().then(<span class="token function">console</span>.log);</cod
                     </button>
                 </div>
                 <pre><code><span class="token comment">// עוזר לכתיבת לוגים רכים</span>
-<span class="token keyword">struct</span> <span class="token function">RoseLogger</span> {
-    <span class="token keyword">let</span> name: String
-    <span class="token keyword">let</span> accent: String
-}
-
-<span class="token keyword">extension</span> <span class="token function">RoseLogger</span> {
-    <span class="token keyword">func</span> <span class="token function">log</span>(_ message: String) {
-        <span class="token keyword">print</span>(<span class="token string">"[rose]"</span>, message)
-    }
+struct RoseLogger {
+    let name: String
 }</code></pre>
             </div>
         </section>
