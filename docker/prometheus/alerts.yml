@@ -57,3 +57,58 @@ groups:
           component: webapp
         annotations:
           summary: "קריטי: זמן תגובה P95 מעל 3 שניות לאורך זמן"
+
+      # --- Health & Startup metrics exposed via /healthz ---
+      - alert: SlowMongoConnection
+        expr: health_ping_ms > 100
+        for: 5m
+        labels:
+          severity: warning
+          component: mongo
+        annotations:
+          summary: "זמן פינג למונגו חוצה 100ms"
+          description: "health_ping_ms נותר מעל ‎100‎ מילישניות למשך 5 דקות."
+
+      - alert: MongoLatencyRegressionVsBaseline
+        expr: |
+          avg_over_time(health_ping_ms[30m])
+            > avg_over_time(health_ping_ms[30m] offset 6h) * 1.5
+        for: 10m
+        labels:
+          severity: warning
+          component: mongo
+        annotations:
+          summary: "הממוצע הנוכחי גבוה ב־50% מה-baseline שלפני 6 שעות"
+          description: "השוואת חצי שעה אחרונה לעומת חלון זהה עם offset 6h לאחור."
+
+      - alert: MongoLatencyPredictiveSpike
+        expr: predict_linear(health_ping_ms[1h], 10m) > 120
+        for: 0m
+        labels:
+          severity: critical
+          component: mongo
+        annotations:
+          summary: "חיזוי: פינג למונגו יעלה מעל 120ms"
+          description: "predict_linear מצביע על קפיצה צפויה בעשר הדקות הקרובות."
+
+      - alert: MongoDisconnected
+        expr: health_mongo_status == 0
+        for: 2m
+        labels:
+          severity: critical
+          component: mongo
+        annotations:
+          summary: "מונגו לא זמין"
+          description: "health_mongo_status נשאר 0 לפחות שתי דקות."
+
+      - alert: AppLatencyEWMARegression
+        expr: |
+          health_latency_ewma
+            > predict_linear(health_latency_ewma[2h], 15m) * 1.2
+        for: 10m
+        labels:
+          severity: warning
+          component: webapp
+        annotations:
+          summary: "EWMA של האפליקציה מזנקת ביחס לטרנד"
+          description: "השוואה ל-predict_linear על חלון של שעתיים קדימה 15 דקות."
