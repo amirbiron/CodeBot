@@ -20,9 +20,9 @@ from typing import Any, Dict, List
 import os
 
 try:
-    from prometheus_client import Counter
+    from prometheus_client import Counter, REGISTRY
 except Exception:  # pragma: no cover
-    Counter = None  # type: ignore
+    Counter = REGISTRY = None  # type: ignore
 
 try:  # runtime optional
     from http_sync import request  # type: ignore
@@ -44,8 +44,33 @@ except Exception:  # pragma: no cover
 
 _MAX = int(os.getenv("INTERNAL_ALERTS_BUFFER", "200") or 200)
 _ALERTS: "deque[Dict[str, Any]]" = deque(maxlen=max(10, _MAX))
-internal_alerts_total = (
-    Counter("internal_alerts_total", "Total internal alerts emitted", ["name", "severity"]) if Counter else None
+
+
+def _get_prom_counter(name: str, documentation: str, labelnames: List[str]):
+    if Counter is None:
+        return None
+    if REGISTRY is not None:
+        try:
+            existing = getattr(REGISTRY, "_names_to_collectors", {}).get(name)
+        except Exception:
+            existing = None
+        if existing is not None:
+            return existing
+    try:
+        return Counter(name, documentation, labelnames)
+    except ValueError:
+        if REGISTRY is not None:
+            try:
+                return getattr(REGISTRY, "_names_to_collectors", {}).get(name)
+            except Exception:
+                return None
+        return None
+
+
+internal_alerts_total = _get_prom_counter(
+    "internal_alerts_total",
+    "Total internal alerts emitted",
+    ["name", "severity"],
 )
 
 _SENSITIVE_DETAIL_KEYS = {"token", "password", "secret", "authorization", "auth"}
