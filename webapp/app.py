@@ -8443,9 +8443,9 @@ def api_observability_aggregations():
         )
         payload['ok'] = True
         return jsonify(payload)
-    except ValueError as exc:
-        logger.warning("observability_aggregations_bad_request: %s", exc)
-        return jsonify({'ok': False, 'error': 'invalid_request'}), 400
+    except ValueError:
+        logger.exception("observability_aggregations_bad_request")
+        return jsonify({'ok': False, 'error': 'bad_request'}), 400
     except Exception:
         logger.exception("observability_aggregations_failed")
         return jsonify({'ok': False, 'error': 'internal_error'}), 500
