@@ -71,8 +71,14 @@ groups:
 
       - alert: MongoLatencyRegressionVsBaseline
         expr: |
-          avg_over_time(health_ping_ms[30m])
-            > avg_over_time(health_ping_ms[30m] offset 6h) * 1.5
+          (
+            avg_over_time(health_ping_ms[30m] offset 6h) > 0
+          )
+          and
+          (
+            avg_over_time(health_ping_ms[30m])
+              > avg_over_time(health_ping_ms[30m] offset 6h) * 1.5
+          )
         for: 10m
         labels:
           severity: warning

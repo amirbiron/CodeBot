@@ -4296,9 +4296,7 @@ def healthz():
             payload["status"] = "error"
     status_code = 200 if payload["status"] == "ok" else 503
     try:
-        ping_value = mongo_latency_ms
-        if ping_value is None and payload.get("mongo") != "connected":
-            ping_value = 0.0
+        ping_value = mongo_latency_ms if payload.get("mongo") == "connected" else None
         update_health_gauges(
             mongo_connected=payload.get("mongo") == "connected",
             ping_ms=ping_value,

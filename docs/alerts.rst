@@ -81,8 +81,14 @@
 
    - alert: MongoLatencyRegressionVsBaseline
      expr: |
-       avg_over_time(health_ping_ms[30m])
-         > avg_over_time(health_ping_ms[30m] offset 6h) * 1.5
+       (
+         avg_over_time(health_ping_ms[30m] offset 6h) > 0
+       )
+       and
+       (
+         avg_over_time(health_ping_ms[30m])
+           > avg_over_time(health_ping_ms[30m] offset 6h) * 1.5
+       )
      for: 10m
      labels:
        severity: warning
@@ -119,7 +125,7 @@
      annotations:
        summary: "EWMA של האפליקציה מזנקת ביחס לטרנד"
 
-החוקים עם ``offset`` משווים בין חצי שעה אחרונה לבין אותו חלון בדיוק שש שעות אחורה, כדי לזהות סטיה ביחס לשגרה היומית. החוקים המבוססים על ``predict_linear`` נותנים heads-up לפני שהערך באמת חוצה את הסף ולכן מקבלים ``severity`` גבוה יותר ו-``for`` קצר לצמצום זמן התגובה.
+החוקים עם ``offset`` משווים בין חצי שעה אחרונה לבין אותו חלון בדיוק שש שעות אחורה, כדי לזהות סטיה ביחס לשגרה היומית. הוספנו תנאי בסיס שדורש שה-baseline יהיה גדול מאפס כדי למנוע false positives אחרי חזרה מתקלה שבה ה-ping הוחזק כ-0. החוקים המבוססים על ``predict_linear`` נותנים heads-up לפני שהערך באמת חוצה את הסף ולכן מקבלים ``severity`` גבוה יותר ו-``for`` קצר לצמצום זמן התגובה.
 
 קונפיגורציית ``alert_manager`` באפליקציה
 -----------------------------------------
