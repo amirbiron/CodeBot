@@ -1,3 +1,4 @@
+import atexit
 import logging
 import os
 from typing import Optional
@@ -48,11 +49,23 @@ try:
         metrics_endpoint_bytes,
         metrics_content_type,
         record_request_outcome,
+        note_request_started,
+        note_request_finished,
+        note_deployment_started,
+        note_deployment_shutdown,
     )
 except Exception:  # pragma: no cover
     metrics_endpoint_bytes = lambda: b""  # type: ignore
     metrics_content_type = lambda: "text/plain; charset=utf-8"  # type: ignore
     def record_request_outcome(status_code: int, duration_seconds: float, **_kwargs) -> None:  # type: ignore
+        return None
+    def note_request_started() -> None:  # type: ignore
+        return None
+    def note_request_finished() -> None:  # type: ignore
+        return None
+    def note_deployment_started(_summary: str = "Service starting up") -> None:  # type: ignore
+        return None
+    def note_deployment_shutdown(_summary: str = "Service shutting down") -> None:  # type: ignore
         return None
 from html import escape as html_escape
 
@@ -81,6 +94,10 @@ def create_app() -> web.Application:
         start = time.perf_counter()
         handler_name = getattr(handler, "__name__", None) or handler.__class__.__name__
         try:
+            note_request_started()
+        except Exception:
+            pass
+        try:
             bind_request_id(req_id)
         except Exception as e:
             try:
@@ -97,7 +114,13 @@ def create_app() -> web.Application:
                     "bind_request_id_failed", extra={"operation": "request_id_middleware", "handled": True}
                 )
         # המשך עיבוד
-        response = await handler(request)
+        try:
+            response = await handler(request)
+        finally:
+            try:
+                note_request_finished()
+            except Exception:
+                pass
         try:
             if hasattr(response, "headers") and req_id:
                 response.headers["X-Request-ID"] = req_id
@@ -372,6 +395,11 @@ def create_app() -> web.Application:
 
 
 def run(host: str = "0.0.0.0", port: int = 10000) -> None:
+    try:
+        note_deployment_started("aiohttp service starting up")
+        atexit.register(lambda: note_deployment_shutdown("aiohttp service shutting down"))
+    except Exception:
+        pass
     app = create_app()
     web.run_app(app, host=host, port=port)
 
