@@ -8417,7 +8417,8 @@ def api_observability_alerts():
         data['ok'] = True
         return jsonify(data)
     except ValueError as exc:
-        return jsonify({'ok': False, 'error': str(exc)}), 400
+        logger.warning("observability_alerts_bad_request: %s", exc)
+        return jsonify({'ok': False, 'error': 'invalid_request'}), 400
     except Exception:
         logger.exception("observability_alerts_failed")
         return jsonify({'ok': False, 'error': 'internal_error'}), 500
@@ -8443,7 +8444,8 @@ def api_observability_aggregations():
         payload['ok'] = True
         return jsonify(payload)
     except ValueError as exc:
-        return jsonify({'ok': False, 'error': str(exc)}), 400
+        logger.warning("observability_aggregations_bad_request: %s", exc)
+        return jsonify({'ok': False, 'error': 'invalid_request'}), 400
     except Exception:
         logger.exception("observability_aggregations_failed")
         return jsonify({'ok': False, 'error': 'internal_error'}), 500
@@ -8469,7 +8471,8 @@ def api_observability_timeseries():
         payload['granularity_seconds'] = granularity_seconds
         return jsonify(payload)
     except ValueError as exc:
-        return jsonify({'ok': False, 'error': str(exc)}), 400
+        logger.warning("observability_timeseries_bad_request: %s", exc)
+        return jsonify({'ok': False, 'error': 'invalid_request'}), 400
     except Exception:
         logger.exception("observability_timeseries_failed")
         return jsonify({'ok': False, 'error': 'internal_error'}), 500
