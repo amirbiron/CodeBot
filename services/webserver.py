@@ -148,12 +148,16 @@ def create_app() -> web.Application:
                 route_name = getattr(route, "name", None)
             except Exception:
                 route_name = None
-            handler_label = route_name or handler_name or getattr(request, "path", "")
+            path_label = getattr(request, "path", "")
+            method_label = getattr(request, "method", "GET")
+            handler_label = route_name or handler_name or path_label
             record_request_outcome(
                 status,
                 duration,
                 source="aiohttp",
                 handler=handler_label,
+                path=path_label,
+                method=method_label,
                 cache_hit=None,
             )
         except Exception as e:

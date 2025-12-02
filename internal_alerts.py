@@ -285,7 +285,14 @@ def emit_internal_alert(name: str, severity: str = "info", summary: str = "", **
                 # Best-effort: persist critical alert when fallback path used
                 try:
                     from monitoring.alerts_storage import record_alert  # type: ignore
-                    record_alert(alert_id=None, name=str(name), severity="critical", summary=str(summary), source="internal_alerts")
+                    record_alert(
+                        alert_id=None,
+                        name=str(name),
+                        severity="critical",
+                        summary=str(summary),
+                        source="internal_alerts",
+                        details=details if isinstance(details, dict) else None,
+                    )
                 except Exception:
                     pass
         else:
@@ -305,7 +312,14 @@ def emit_internal_alert(name: str, severity: str = "info", summary: str = "", **
             # Best-effort: persist non-critical alert (single write)
             try:
                 from monitoring.alerts_storage import record_alert  # type: ignore
-                record_alert(alert_id=None, name=str(name), severity=str(severity), summary=str(summary), source="internal_alerts")
+                record_alert(
+                    alert_id=None,
+                    name=str(name),
+                    severity=str(severity),
+                    summary=str(summary),
+                    source="internal_alerts",
+                    details=details if isinstance(details, dict) else None,
+                )
             except Exception:
                 pass
     except Exception:

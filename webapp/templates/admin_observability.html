@@ -1,0 +1,601 @@
+{% extends "base.html" %}
+
+{% block title %}Observability Dashboard{% endblock %}
+
+{% block extra_css %}
+<style>
+.obs-page {
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+  color: #fff;
+}
+.obs-page .page-title {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  font-size: 1.8rem;
+  font-weight: 600;
+}
+.obs-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  align-items: center;
+  justify-content: space-between;
+}
+.obs-toolbar .range-buttons {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+.obs-toolbar button.range-btn {
+  border: none;
+  border-radius: 999px;
+  padding: 0.35rem 0.9rem;
+  background: rgba(255,255,255,0.08);
+  color: #fff;
+  cursor: pointer;
+  font-size: 0.9rem;
+  transition: background 0.2s ease;
+}
+.obs-toolbar button.range-btn.active {
+  background: linear-gradient(135deg,#ff749c,#ffa34f);
+  color: #121826;
+  font-weight: 600;
+}
+.obs-toolbar .last-updated {
+  font-size: 0.9rem;
+  opacity: 0.8;
+}
+.obs-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(230px,1fr));
+  gap: 1rem;
+}
+.obs-card {
+  background: rgba(18,24,38,0.75);
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 16px;
+  padding: 1.25rem;
+  box-shadow: 0 10px 30px rgba(0,0,0,0.25);
+}
+.obs-card h3 {
+  font-size: 0.9rem;
+  margin: 0;
+  opacity: 0.75;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+.obs-card .obs-card-value {
+  font-size: 2.4rem;
+  font-weight: 600;
+  margin: 0.5rem 0 0;
+}
+.obs-card .obs-card-subtext {
+  font-size: 0.85rem;
+  opacity: 0.65;
+  margin-top: 0.2rem;
+}
+.obs-graphs {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(320px,1fr));
+  gap: 1rem;
+}
+.obs-graph {
+  background: rgba(18,24,38,0.72);
+  border-radius: 18px;
+  padding: 1rem 1.25rem 1.2rem;
+  border: 1px solid rgba(255,255,255,0.05);
+  box-shadow: 0 18px 32px rgba(0,0,0,0.35);
+}
+.obs-graph h2 {
+  margin: 0 0 0.8rem;
+  font-size: 1.1rem;
+}
+.obs-section {
+  background: rgba(18,24,38,0.72);
+  border-radius: 18px;
+  padding: 1rem 1.25rem 1.5rem;
+  border: 1px solid rgba(255,255,255,0.05);
+  box-shadow: 0 18px 32px rgba(0,0,0,0.35);
+}
+.obs-section h2 {
+  margin: 0 0 0.8rem;
+  font-size: 1.1rem;
+}
+.obs-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.92rem;
+}
+.obs-table thead th {
+  text-align: right;
+  padding: 0.5rem;
+  border-bottom: 1px solid rgba(255,255,255,0.09);
+  font-weight: 500;
+  opacity: 0.75;
+}
+.obs-table tbody td {
+  padding: 0.55rem 0.5rem;
+  border-bottom: 1px solid rgba(255,255,255,0.05);
+}
+.obs-table tbody tr:hover {
+  background: rgba(255,255,255,0.02);
+}
+.obs-history-card {
+  background: rgba(18,24,38,0.8);
+  border-radius: 20px;
+  padding: 1.25rem;
+  border: 1px solid rgba(255,255,255,0.05);
+  box-shadow: 0 20px 38px rgba(0,0,0,0.4);
+}
+.history-header {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 1rem;
+}
+.history-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+}
+.history-filters select,
+.history-filters input {
+  background: rgba(255,255,255,0.05);
+  border: 1px solid rgba(255,255,255,0.1);
+  border-radius: 999px;
+  color: #fff;
+  padding: 0.35rem 0.9rem;
+  font-size: 0.85rem;
+}
+.history-filters input {
+  border-radius: 12px;
+}
+.pagination-controls {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-top: 0.8rem;
+}
+.pagination-controls button {
+  background: rgba(255,255,255,0.08);
+  border: none;
+  color: #fff;
+  padding: 0.4rem 0.9rem;
+  border-radius: 999px;
+  cursor: pointer;
+}
+.pagination-controls button:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+.status-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  border-radius: 999px;
+  padding: 0.2rem 0.7rem;
+  font-size: 0.8rem;
+}
+.status-critical { background: rgba(255,99,132,0.15); color: #ff627c; }
+.status-anomaly { background: rgba(255,206,86,0.18); color: #fcd177; }
+.status-warning { background: rgba(54,162,235,0.18); color: #5ec0ff; }
+.status-info { background: rgba(99,255,203,0.15); color: #64ffda; }
+.meta-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  font-size: 0.8rem;
+  opacity: 0.8;
+}
+.meta-list span {
+  background: rgba(255,255,255,0.06);
+  border-radius: 8px;
+  padding: 0.15rem 0.5rem;
+}
+@media (max-width: 720px) {
+  .obs-toolbar {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+  .obs-toolbar .last-updated {
+    width: 100%;
+  }
+}
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="obs-page" dir="rtl">
+  <div class="page-title">
+    <i class="fas fa-eye"></i>
+    לוח Observability
+  </div>
+
+  <div class="obs-toolbar">
+    <div class="range-buttons" id="rangeButtons">
+      <button class="range-btn active" data-range="1h">1 שעה</button>
+      <button class="range-btn" data-range="24h">24 שעות</button>
+      <button class="range-btn" data-range="7d">7 ימים</button>
+      <button class="range-btn" data-range="30d">30 יום</button>
+    </div>
+    <div class="last-updated">
+      <span>עודכן לאחרונה:</span>
+      <span id="lastUpdated">—</span>
+    </div>
+  </div>
+
+  <div class="obs-cards">
+    <div class="obs-card" data-card="critical">
+      <h3>CRITICAL היום</h3>
+      <div class="obs-card-value" id="criticalCount">—</div>
+      <div class="obs-card-subtext">התראות מחמירות ב-24 השעות האחרונות</div>
+    </div>
+    <div class="obs-card" data-card="anomaly">
+      <h3>אנומליות בשבוע</h3>
+      <div class="obs-card-value" id="anomalyCount">—</div>
+      <div class="obs-card-subtext">התרעות anomaly בטווח שנבחר</div>
+    </div>
+    <div class="obs-card" data-card="deployments">
+      <h3>דיפלוימנטים</h3>
+      <div class="obs-card-value" id="deployCount">—</div>
+      <div class="obs-card-subtext">דיפלוימנטים שדווחו בטווח</div>
+    </div>
+    <div class="obs-card" data-card="error-rate">
+      <h3>Spike בזמן דיפלוימנט</h3>
+      <div class="obs-card-value" id="deploySpike">—</div>
+      <div class="obs-card-subtext">ממוצע שניות עיכוב בסמוך לדיפלוימנטים</div>
+    </div>
+  </div>
+
+  <div class="obs-graphs">
+    <div class="obs-graph">
+      <h2>התראות לפי חומרה</h2>
+      <canvas id="alertsChart" height="240"></canvas>
+    </div>
+    <div class="obs-graph">
+      <h2>זמני תגובה ממוצעים</h2>
+      <canvas id="responseChart" height="240"></canvas>
+    </div>
+  </div>
+
+  <div class="obs-section">
+    <h2>נקודות קצה איטיות (24 שעות אחרונות)</h2>
+    <div class="table-responsive" style="overflow-x:auto;">
+      <table class="obs-table" id="slowEndpointsTable">
+        <thead>
+          <tr>
+            <th>Endpoint</th>
+            <th>שיטה</th>
+            <th>ממוצע (ש׳׳)</th>
+            <th>מקסימום (ש׳׳)</th>
+            <th>כמות</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr><td colspan="5">טוען נתונים…</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="obs-history-card">
+    <div class="history-header">
+      <h2>היסטוריית התראות</h2>
+      <div class="history-filters">
+        <select id="severityFilter">
+          <option value="all">כל החומרות</option>
+          <option value="critical">Critical</option>
+          <option value="anomaly">Anomaly</option>
+          <option value="warning">Warning</option>
+          <option value="info">Info</option>
+        </select>
+        <select id="typeFilter">
+          <option value="all">כל הסוגים</option>
+          <option value="deployment_event">Deployment</option>
+          <option value="anomaly_detected">Anomaly Detected</option>
+          <option value="high_error_rate">High Error Rate</option>
+        </select>
+        <input type="text" id="endpointFilter" placeholder="Endpoint / Path">
+        <input type="search" id="searchFilter" placeholder="חיפוש חופשי">
+      </div>
+    </div>
+    <div class="table-responsive" style="overflow-x:auto;">
+      <table class="obs-table" id="alertsTable">
+        <thead>
+          <tr>
+            <th>זמן</th>
+            <th>שם</th>
+            <th>חומרה</th>
+            <th>סיכום</th>
+            <th>Meta</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr><td colspan="5">טוען נתונים…</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="pagination-controls">
+      <button id="prevPageBtn">&larr; קודם</button>
+      <div id="pageLabel">עמוד 1</div>
+      <button id="nextPageBtn">הבא &rarr;</button>
+    </div>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script>
+(function(){
+  const state = {
+    range: '1h',
+    severity: 'all',
+    type: 'all',
+    endpoint: '',
+    search: '',
+    page: 1,
+    perPage: 25,
+    lastUpdatedEl: document.getElementById('lastUpdated'),
+  };
+  let alertsChart;
+  let responseChart;
+
+  function formatTimestamp(ts){
+    if (!ts) return '—';
+    try {
+      const date = new Date(ts);
+      return date.toLocaleString('he-IL', { hour12: false });
+    } catch (e) {
+      return ts;
+    }
+  }
+
+  function getGranularity() {
+    if (state.range === '1h') return '5m';
+    if (state.range === '24h') return '1h';
+    if (state.range === '7d') return '6h';
+    return '12h';
+  }
+
+  async function fetchJson(url) {
+    const res = await fetch(url, { headers: { 'Accept': 'application/json' } });
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    return res.json();
+  }
+
+  function updateCards(summary, correlation) {
+    const criticalEl = document.getElementById('criticalCount');
+    const anomalyEl = document.getElementById('anomalyCount');
+    const deployEl = document.getElementById('deployCount');
+    const spikeEl = document.getElementById('deploySpike');
+    if (criticalEl) criticalEl.textContent = summary?.critical ?? '0';
+    if (anomalyEl) anomalyEl.textContent = summary?.anomaly ?? '0';
+    if (deployEl) deployEl.textContent = summary?.deployment ?? '0';
+    if (spikeEl) spikeEl.textContent = correlation?.avg_spike_during_deployment?.toFixed?.(2) ?? '0';
+  }
+
+  function updateLastUpdated() {
+    if (state.lastUpdatedEl) {
+      state.lastUpdatedEl.textContent = new Date().toLocaleString('he-IL', { hour12: false });
+    }
+  }
+
+  function renderTopEndpoints(rows) {
+    const body = document.querySelector('#slowEndpointsTable tbody');
+    if (!body) return;
+    if (!rows || !rows.length) {
+      body.innerHTML = '<tr><td colspan="5">אין נתונים זמינים</td></tr>';
+      return;
+    }
+    body.innerHTML = rows.map(row => `
+      <tr>
+        <td>${row.endpoint || '-'}</td>
+        <td>${row.method || '-'}</td>
+        <td>${Number(row.avg_duration || 0).toFixed(2)}</td>
+        <td>${Number(row.max_duration || 0).toFixed(2)}</td>
+        <td>${row.count || 0}</td>
+      </tr>
+    `).join('');
+  }
+
+  function ensureChart(ctxId, cfg) {
+    const ctx = document.getElementById(ctxId);
+    if (!ctx) return null;
+    if (ctxId === 'alertsChart' && alertsChart) alertsChart.destroy();
+    if (ctxId === 'responseChart' && responseChart) responseChart.destroy();
+    const chart = new Chart(ctx, cfg);
+    if (ctxId === 'alertsChart') alertsChart = chart;
+    if (ctxId === 'responseChart') responseChart = chart;
+    return chart;
+  }
+
+  function renderAlertsChart(data) {
+    const labels = data.map(d => d.timestamp ? new Date(d.timestamp).toLocaleString('he-IL', { hour12: false }) : '');
+    const critical = data.map(d => d.critical || 0);
+    const anomaly = data.map(d => d.anomaly || 0);
+    const info = data.map(d => d.info || 0);
+    ensureChart('alertsChart', {
+      type: 'line',
+      data: {
+        labels,
+        datasets: [
+          { label: 'Critical', data: critical, borderColor: '#ff6384', backgroundColor: 'rgba(255,99,132,0.15)', tension: 0.3 },
+          { label: 'Anomaly', data: anomaly, borderColor: '#ffcd56', backgroundColor: 'rgba(255,206,86,0.15)', tension: 0.3 },
+          { label: 'Info', data: info, borderColor: '#36a2eb', backgroundColor: 'rgba(54,162,235,0.15)', tension: 0.3 },
+        ],
+      },
+      options: {
+        plugins: { legend: { labels: { color: '#fff' } } },
+        scales: {
+          x: { ticks: { color: '#ccc' }, grid: { color: 'rgba(255,255,255,0.05)' } },
+          y: { ticks: { color: '#ccc' }, grid: { color: 'rgba(255,255,255,0.05)' }, beginAtZero: true },
+        },
+      },
+    });
+  }
+
+  function renderResponseChart(data) {
+    const labels = data.map(d => d.timestamp ? new Date(d.timestamp).toLocaleString('he-IL', { hour12: false }) : '');
+    const avg = data.map(d => d.avg_duration || 0);
+    const max = data.map(d => d.max_duration || 0);
+    ensureChart('responseChart', {
+      type: 'line',
+      data: {
+        labels,
+        datasets: [
+          { label: 'ממוצע (ש׳׳)', data: avg, borderColor: '#64ffda', backgroundColor: 'rgba(100,255,218,0.15)', tension: 0.25 },
+          { label: 'מקסימום (ש׳׳)', data: max, borderColor: '#ff79c6', backgroundColor: 'rgba(255,121,198,0.15)', tension: 0.25 },
+        ],
+      },
+      options: {
+        plugins: { legend: { labels: { color: '#fff' } } },
+        scales: {
+          x: { ticks: { color: '#ccc' }, grid: { color: 'rgba(255,255,255,0.05)' } },
+          y: { ticks: { color: '#ccc' }, grid: { color: 'rgba(255,255,255,0.05)' }, beginAtZero: true },
+        },
+      },
+    });
+  }
+
+  function severityClass(sev) {
+    if (!sev) return 'status-info';
+    const v = String(sev).toLowerCase();
+    if (v.startsWith('crit')) return 'status-critical';
+    if (v.startsWith('anom')) return 'status-anomaly';
+    if (v.startsWith('warn')) return 'status-warning';
+    return 'status-info';
+  }
+
+  function renderAlertsTable(alerts, total, page, perPage) {
+    const body = document.querySelector('#alertsTable tbody');
+    if (!body) return;
+    if (!alerts || !alerts.length) {
+      body.innerHTML = '<tr><td colspan="5">לא נמצאו התראות בטווח שנבחר</td></tr>';
+      return;
+    }
+    body.innerHTML = alerts.map(alert => {
+      const meta = alert.metadata || {};
+      const metaItems = Object.keys(meta)
+        .slice(0, 3)
+        .map(key => `<span>${key}: ${meta[key]}</span>`)
+        .join('');
+      return `
+        <tr>
+          <td>${formatTimestamp(alert.timestamp)}</td>
+          <td>${alert.name || '-'}</td>
+          <td><span class="status-pill ${severityClass(alert.severity)}">${alert.severity || '-'}</span></td>
+          <td>${alert.summary || '-'}</td>
+          <td><div class="meta-list">${metaItems || ''}</div></td>
+        </tr>
+      `;
+    }).join('');
+
+    const totalPages = Math.max(1, Math.ceil((total || 0) / perPage));
+    const label = document.getElementById('pageLabel');
+    if (label) label.textContent = `עמוד ${page} מתוך ${totalPages}`;
+    const prevBtn = document.getElementById('prevPageBtn');
+    const nextBtn = document.getElementById('nextPageBtn');
+    if (prevBtn) prevBtn.disabled = page <= 1;
+    if (nextBtn) nextBtn.disabled = page >= totalPages;
+  }
+
+  async function refreshAggregations() {
+    const params = new URLSearchParams({ timerange: state.range, limit: '5' });
+    const data = await fetchJson('/api/observability/aggregations?' + params.toString());
+    if (!data.ok) throw new Error(data.error || 'aggregation_error');
+    updateCards(data.summary, data.deployment_correlation);
+    renderTopEndpoints(data.top_slow_endpoints || []);
+  }
+
+  async function refreshTimeseries() {
+    const granularity = getGranularity();
+    const baseParams = `timerange=${state.range}&granularity=${granularity}`;
+    const alertsData = await fetchJson(`/api/observability/timeseries?${baseParams}&metric=alerts_count`);
+    if (alertsData.ok !== false) {
+      renderAlertsChart(alertsData.data || []);
+    }
+    const responseData = await fetchJson(`/api/observability/timeseries?${baseParams}&metric=response_time`);
+    if (responseData.ok !== false) {
+      renderResponseChart(responseData.data || []);
+    }
+  }
+
+  async function refreshHistory() {
+    const params = new URLSearchParams({
+      timerange: state.range,
+      severity: state.severity === 'all' ? '' : state.severity,
+      alert_type: state.type === 'all' ? '' : state.type,
+      endpoint: state.endpoint || '',
+      search: state.search || '',
+      page: String(state.page),
+      per_page: String(state.perPage),
+    });
+    const data = await fetchJson('/api/observability/alerts?' + params.toString());
+    if (!data.ok) throw new Error(data.error || 'alerts_error');
+    renderAlertsTable(data.alerts || [], data.total || 0, data.page || 1, data.per_page || state.perPage);
+  }
+
+  async function refreshAll() {
+    try {
+      updateLastUpdated();
+      await Promise.all([refreshAggregations(), refreshTimeseries(), refreshHistory()]);
+    } catch (err) {
+      console.error('Observability dashboard error:', err);
+    }
+  }
+
+  function initRangeButtons() {
+    document.querySelectorAll('#rangeButtons .range-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        document.querySelectorAll('#rangeButtons .range-btn').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        state.range = btn.dataset.range || '24h';
+        state.page = 1;
+        refreshAll();
+      });
+    });
+  }
+
+  function initFilters() {
+    const severitySelect = document.getElementById('severityFilter');
+    const typeSelect = document.getElementById('typeFilter');
+    const endpointInput = document.getElementById('endpointFilter');
+    const searchInput = document.getElementById('searchFilter');
+    if (severitySelect) severitySelect.addEventListener('change', () => { state.severity = severitySelect.value; state.page = 1; refreshHistory(); });
+    if (typeSelect) typeSelect.addEventListener('change', () => { state.type = typeSelect.value; state.page = 1; refreshHistory(); });
+    if (endpointInput) endpointInput.addEventListener('change', () => { state.endpoint = endpointInput.value.trim(); state.page = 1; refreshHistory(); });
+    if (searchInput) {
+      let timer;
+      searchInput.addEventListener('input', () => {
+        clearTimeout(timer);
+        timer = setTimeout(() => {
+          state.search = searchInput.value.trim();
+          state.page = 1;
+          refreshHistory();
+        }, 350);
+      });
+    }
+    const prevBtn = document.getElementById('prevPageBtn');
+    const nextBtn = document.getElementById('nextPageBtn');
+    if (prevBtn) prevBtn.addEventListener('click', () => {
+      if (state.page > 1) {
+        state.page -= 1;
+        refreshHistory();
+      }
+    });
+    if (nextBtn) nextBtn.addEventListener('click', () => {
+      state.page += 1;
+      refreshHistory();
+    });
+  }
+
+  initRangeButtons();
+  initFilters();
+  refreshAll();
+})();
+</script>
+{% endblock %}
