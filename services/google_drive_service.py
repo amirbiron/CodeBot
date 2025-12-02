@@ -19,7 +19,23 @@ try:
     from google.auth.transport.requests import Request  # type: ignore
 except Exception:  # pragma: no cover - optional dependency
     build = None  # type: ignore[assignment]
-    HttpError = Exception  # type: ignore[assignment]
+
+    class _HttpErrorStub(Exception):
+        """Fallback HttpError replacement when googleapiclient is unavailable."""
+
+        def __init__(self, resp=None, content=None, *args, **kwargs):
+            msg = ""
+            try:
+                status = getattr(resp, "status", "")
+                reason = getattr(resp, "reason", "")
+                msg = f"HTTP {status} {reason}".strip()
+            except Exception:
+                msg = ""
+            super().__init__(msg or "HttpError")
+            self.resp = resp
+            self.content = content
+
+    HttpError = _HttpErrorStub  # type: ignore[assignment]
     MediaIoBaseUpload = None  # type: ignore[assignment]
     MediaFileUpload = None  # type: ignore[assignment]
     Credentials = None  # type: ignore[assignment]
