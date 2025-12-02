@@ -6318,6 +6318,37 @@ def api_resolve_file_by_name():
             pass
         return jsonify({'ok': False, 'error': 'internal_error'}), 500
 
+
+def _sync_collection_items_after_web_rename(db, user_id: int, old_name: str, new_name: str) -> None:
+    """Ensure My Collections reflect renamed files when שינוי שם נעשה מהווב."""
+    if not old_name or not new_name or old_name == new_name:
+        return
+    coll = getattr(db, 'collection_items', None)
+    if coll is None:
+        return
+    try:
+        coll.update_many(
+            {"user_id": int(user_id), "file_name": str(old_name)},
+            {"$set": {"file_name": str(new_name), "updated_at": datetime.now(timezone.utc)}},
+        )
+    except Exception as exc:  # pragma: no cover - best effort
+        try:
+            logger.warning(
+                "collections rename sync failed",
+                extra={"user_id": user_id, "old_name": old_name, "new_name": new_name, "error": str(exc)},
+            )
+        except Exception:
+            pass
+        return
+    try:
+        cache.invalidate_user_cache(int(user_id))
+    except Exception:
+        pass
+    try:
+        cache.delete_pattern(f"collections_*:{int(user_id)}:*")
+    except Exception:
+        pass
+
 @app.route('/edit/<file_id>', methods=['GET', 'POST'])
 @login_required
 def edit_file_page(file_id):
@@ -6331,6 +6362,7 @@ def edit_file_page(file_id):
     if not file:
         abort(404)
 
+    original_file_name = str(file.get('file_name') or '')
     error = None
     success = None
 
@@ -6539,6 +6571,8 @@ def edit_file_page(file_id):
                 try:
                     res = db.code_snippets.insert_one(new_doc)
                     if res and getattr(res, 'inserted_id', None):
+                        if original_file_name and original_file_name != file_name:
+                            _sync_collection_items_after_web_rename(db, user_id, original_file_name, file_name)
                         if _log_webapp_user_activity():
                             session['_skip_view_activity_once'] = True
                         return redirect(url_for('view_file', file_id=str(res.inserted_id)))

@@ -477,6 +477,21 @@
   border-color: var(--primary, rgba(151, 117, 250, 0.5));
   color: var(--primary, #9775fa);
 }
+
+:root[data-theme="classic"] #md-search input {
+  color: #1c1f3a;
+  background: rgba(255, 255, 255, 0.98);
+}
+
+:root[data-theme="classic"] #md-search input::placeholder {
+  color: rgba(28, 31, 58, 0.65);
+}
+
+:root[data-theme="classic"] #md-search input:focus {
+  color: #12142b;
+  border-color: rgba(255, 255, 255, 0.85);
+  box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.35);
+}
 #bgColorSwitcher { position: relative; z-index: 1; margin-inline-end: .5rem; }
 @media (max-width: 600px) {
   /* במובייל – אם צריך, ניתן להעביר לשורה שנייה בתוך הכותרת */
@@ -962,7 +977,7 @@ input.md-task-checkbox {
     0 2px 10px rgba(0,0,0,0.06),
     inset 0 1px 0 rgba(255,255,255,0.5);
   border: 1px solid rgba(255,255,255,0.3);
-  z-index: 900;
+  z-index: 970;
   overflow: hidden;
   transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 }
