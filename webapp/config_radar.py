@@ -290,25 +290,34 @@ def _load_mapping(path: Path, *, required_name: str) -> Tuple[Dict[str, Any], Li
         issues.append(_issue(required_name, "file", f"קריאת הקובץ נכשלה: {exc}"))
         return {}, issues
 
-    data = _parse_yaml_or_json(text)
+    data, parse_issue = _parse_yaml_or_json(text)
+    if parse_issue:
+        issues.append(_issue(required_name, "file", parse_issue))
     if not isinstance(data, dict):
         issues.append(_issue(required_name, "file", "מבנה הקובץ חייב להיות YAML/JSON של מפתחות"))
         return {}, issues
     return data, issues
 
 
-def _parse_yaml_or_json(text: str) -> Any:
+def _parse_yaml_or_json(text: str) -> Tuple[Any, Optional[str]]:
+    yaml_missing = yaml is None
+    yaml_error: Optional[str] = None
+
     if yaml is not None:
         try:
             loaded = yaml.safe_load(text)
-            if loaded is not None:
-                return loaded
-        except Exception:
-            pass
+            return loaded, None
+        except Exception as exc:
+            yaml_error = f"פענוח YAML נכשל: {exc}"
+
     try:
-        return json.loads(text or "{}")
-    except Exception:
-        return {}
+        return json.loads(text or "{}"), None
+    except Exception as exc:
+        if yaml_missing:
+            return {}, "לא ניתן לקרוא קובץ YAML כי ספריית PyYAML אינה מותקנת (pip install pyyaml)"
+        if yaml_error:
+            return {}, yaml_error
+        return {}, f"קובץ אינו JSON תקין: {exc}"
 
 
 def _resolve_path(env_key: str, default_rel_path: str) -> Path:

@@ -40,3 +40,12 @@ def test_config_radar_returns_snapshot(monkeypatch):
         assert isinstance(payload['image_settings'], dict)
         assert payload['alerts']['window_minutes'] == 5
         assert payload['error_signatures']['categories']
+
+
+def test_config_radar_reports_missing_yaml(monkeypatch):
+    import webapp.config_radar as config_radar
+
+    monkeypatch.setattr(config_radar, 'yaml', None, raising=False)
+    snapshot = config_radar.build_config_radar_snapshot()
+    assert snapshot['validation']['status'] == 'error'
+    assert any('PyYAML' in issue['message'] for issue in snapshot['validation']['issues'])

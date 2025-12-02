@@ -945,6 +945,18 @@
     }
     .radar-issues li {
       margin-bottom: 0.25rem;
+      display: flex;
+      gap: 0.4rem;
+      align-items: baseline;
+    }
+    .radar-issues-count {
+      margin-top: 0.75rem;
+      font-size: 0.85rem;
+      opacity: 0.85;
+    }
+    .radar-issue-index {
+      font-weight: 600;
+      color: #93c5fd;
     }
   </style>
 
@@ -1094,12 +1106,12 @@
           if (!issues.length) {
             return '';
           }
-          const preview = issues.slice(0, 3).map((issue) => {
+          const countLabel = `<div class="radar-issues-count">${issues.length} בעיות אותרו</div>`;
+          const listItems = issues.map((issue, idx) => {
             const scope = [issue.file, issue.field].filter(Boolean).join(' • ');
-            return `<li>${escapeHtml(scope || 'לא ידוע')} – ${escapeHtml(issue.message || '')}</li>`;
+            return `<li><span class="radar-issue-index">#${idx + 1}</span> ${escapeHtml(scope || 'לא ידוע')} – ${escapeHtml(issue.message || '')}</li>`;
           }).join('');
-          const extra = issues.length > 3 ? '<li>ועוד בעיות נוספות...</li>' : '';
-          return `<ul class="radar-issues">${preview}${extra}</ul>`;
+          return `${countLabel}<ul class="radar-issues" aria-live="polite">${listItems}</ul>`;
         };
 
         const activatePanel = (panelName) => {
