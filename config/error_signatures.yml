@@ -57,7 +57,7 @@ categories:
     signatures:
       - id: python_traceback
         summary: שגיאה בקוד Python שסיפק המשתמש
-        pattern: 'Traceback \\('
+        pattern: 'Traceback \('
       - id: js_reference_error
         summary: שגיאה בקוד JavaScript שסיפק המשתמש
         pattern: 'UnhandledPromiseRejection|TypeError:|ReferenceError:'

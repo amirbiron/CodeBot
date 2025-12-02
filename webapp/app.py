@@ -53,6 +53,7 @@ from http_sync import request as http_request  # noqa: E402
 from utils import normalize_code, TimeUtils, detect_language_from_filename  # noqa: E402
 from user_stats import user_stats  # noqa: E402
 from webapp.activity_tracker import log_user_event  # noqa: E402
+from webapp.config_radar import build_config_radar_snapshot  # noqa: E402
 
 # קונפיגורציה מרכזית (Pydantic Settings)
 try:  # שמירה על יציבות גם בסביבות דוקס/CI
@@ -8151,6 +8152,25 @@ def api_ui_prefs():
         return resp
     except Exception:
         return jsonify({'ok': False, 'error': 'שגיאה לא צפויה'}), 500
+
+
+@app.route('/api/config/radar', methods=['GET'])
+@login_required
+def api_config_radar():
+    """מאחד את קבצי הקונפיגורציה הקריטיים למסך Config Radar."""
+    user_id = session.get('user_id')
+    try:
+        user_id_int = int(user_id) if user_id is not None else None
+    except Exception:
+        user_id_int = None
+    if not user_id_int or not is_admin(user_id_int):
+        return jsonify({'ok': False, 'error': 'admin_only'}), 403
+    try:
+        snapshot = build_config_radar_snapshot()
+        return jsonify(snapshot)
+    except Exception:
+        logger.exception("config_radar_snapshot_failed")
+        return jsonify({'ok': False, 'error': 'internal_error'}), 500
 
 
 @app.route('/api/welcome/ack', methods=['POST'])

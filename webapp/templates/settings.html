@@ -205,7 +205,56 @@
     </div>
   </div>
 </div>
-{% endif %} {% if is_admin %}
+{% endif %}
+{% if is_admin %}
+<div class="glass-card config-radar-card" id="configRadarCard">
+  <div class="config-radar-header">
+    <div>
+      <h2 class="section-title">
+        <i class="fas fa-satellite-dish"></i>
+        Config Radar – נראות קונפיגורציה
+      </h2>
+      <p class="config-radar-lead">
+        מבט מרוכז על alerts.yml, error_signatures.yml ו-image_settings.yaml כולל סטטוס ולידציה ו-Git.
+      </p>
+    </div>
+    <div class="config-radar-actions">
+      <button class="btn btn-secondary btn-icon" id="configRadarRefreshBtn" type="button">
+        <i class="fas fa-sync-alt"></i>
+        טען מחדש
+      </button>
+      <button class="btn btn-primary btn-icon" id="configRadarValidateBtn" type="button">
+        <i class="fas fa-shield-check"></i>
+        Validate Schema
+      </button>
+    </div>
+  </div>
+  <div class="config-radar-status" data-radar-status>
+    <span class="badge">ממתין לנתונים...</span>
+  </div>
+  <small class="config-radar-timestamp" data-radar-timestamp></small>
+  <div class="config-radar-tabs" role="tablist">
+    <button class="radar-tab active" data-panel="alerts" type="button">התראות</button>
+    <button class="radar-tab" data-panel="errors" type="button">חתימות שגיאה</button>
+    <button class="radar-tab" data-panel="images" type="button">הגדרות תמונה</button>
+  </div>
+  <div class="radar-panel active" data-panel="alerts">
+    <div class="radar-panel-body" id="configRadarAlerts" data-radar-panel="alerts">
+      <div class="radar-empty-state">בקרוב יוצגו נתונים על alerts.yml</div>
+    </div>
+  </div>
+  <div class="radar-panel" data-panel="errors">
+    <div class="radar-panel-body" id="configRadarErrors" data-radar-panel="errors">
+      <div class="radar-empty-state">בקרוב יוצגו חתימות שגיאה</div>
+    </div>
+  </div>
+  <div class="radar-panel" data-panel="images">
+    <div class="radar-panel-body" id="configRadarImages" data-radar-panel="images">
+      <div class="radar-empty-state">בקרוב יוצגו הגדרות התמונה</div>
+    </div>
+  </div>
+</div>
+
 <div class="glass-card" style="border: 2px solid rgba(251, 191, 36, 0.3)">
   <h2 class="section-title">
     <i class="fas fa-tools"></i>
@@ -705,6 +754,198 @@
       gap: 0.5rem;
       flex-wrap: wrap;
     }
+
+    .config-radar-card {
+      margin-bottom: 2rem;
+      border: 1px solid rgba(251, 191, 36, 0.25);
+    }
+    .config-radar-header {
+      display: flex;
+      justify-content: space-between;
+      gap: 1.5rem;
+      flex-wrap: wrap;
+      align-items: flex-start;
+    }
+    .config-radar-actions {
+      display: flex;
+      gap: 0.5rem;
+      flex-wrap: wrap;
+    }
+    .config-radar-lead {
+      opacity: 0.85;
+      margin: 0.25rem 0 0;
+    }
+    .config-radar-status {
+      margin-top: 0.75rem;
+    }
+    .config-radar-timestamp {
+      display: block;
+      opacity: 0.7;
+      margin-top: 0.25rem;
+    }
+    .config-radar-tabs {
+      display: flex;
+      gap: 0.5rem;
+      margin-top: 1rem;
+      flex-wrap: wrap;
+    }
+    .radar-tab {
+      padding: 0.5rem 1rem;
+      border-radius: 999px;
+      border: 1px solid rgba(255,255,255,0.2);
+      background: rgba(255,255,255,0.05);
+      color: inherit;
+      cursor: pointer;
+      transition: background 0.2s ease;
+    }
+    .radar-tab.active {
+      background: linear-gradient(120deg, #fbbf24, #f59e0b);
+      border-color: transparent;
+      color: #1f1f1f;
+      font-weight: 600;
+    }
+    .radar-panel {
+      display: none;
+      margin-top: 1rem;
+    }
+    .radar-panel.active {
+      display: block;
+    }
+    .radar-panel-body {
+      display: flex;
+      flex-direction: column;
+      gap: 1rem;
+    }
+    .radar-empty-state {
+      padding: 1rem;
+      border-radius: 12px;
+      background: rgba(255,255,255,0.05);
+      opacity: 0.8;
+    }
+    .radar-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+      gap: 1rem;
+    }
+    .radar-kpi {
+      padding: 1rem;
+      border-radius: 12px;
+      background: rgba(255,255,255,0.05);
+      border: 1px solid rgba(255,255,255,0.08);
+    }
+    .radar-kpi strong {
+      display: block;
+      font-size: 1.85rem;
+      margin-bottom: 0.15rem;
+    }
+    .radar-meta {
+      display: flex;
+      gap: 1rem;
+      flex-wrap: wrap;
+      font-size: 0.85rem;
+      opacity: 0.8;
+    }
+    .radar-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.9rem;
+    }
+    .radar-table th,
+    .radar-table td {
+      padding: 0.5rem;
+      border-bottom: 1px solid rgba(255,255,255,0.08);
+      text-align: right;
+    }
+    .radar-table tbody tr:hover {
+      background: rgba(255,255,255,0.03);
+    }
+    .radar-badge {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      padding: 0.1rem 0.55rem;
+      border-radius: 999px;
+      font-size: 0.75rem;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+    .radar-badge.severity {
+      background: rgba(248, 113, 113, 0.25);
+      border: 1px solid rgba(248, 113, 113, 0.45);
+    }
+    .radar-badge.policy {
+      background: rgba(96, 165, 250, 0.25);
+      border: 1px solid rgba(96, 165, 250, 0.45);
+    }
+    .radar-badge.immediate {
+      background: rgba(251, 191, 36, 0.2);
+      border: 1px solid rgba(251, 191, 36, 0.45);
+      color: #fcd34d;
+    }
+    .radar-accordion {
+      border-radius: 12px;
+      border: 1px solid rgba(255,255,255,0.1);
+      background: rgba(255,255,255,0.04);
+      padding: 0.25rem 1rem 0.75rem;
+    }
+    .radar-accordion summary {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 1rem;
+      cursor: pointer;
+      list-style: none;
+    }
+    .radar-accordion summary::-webkit-details-marker {
+      display: none;
+    }
+    .radar-accordion[open] {
+      background: rgba(255,255,255,0.07);
+    }
+    .radar-signature {
+      border-top: 1px solid rgba(255,255,255,0.08);
+      padding: 0.75rem 0;
+      display: flex;
+      flex-direction: column;
+      gap: 0.3rem;
+    }
+    .radar-signature:first-of-type {
+      border-top: none;
+    }
+    .radar-chip {
+      display: inline-flex;
+      padding: 0.15rem 0.5rem;
+      border-radius: 999px;
+      border: 1px solid rgba(255,255,255,0.15);
+      background: rgba(255,255,255,0.04);
+      font-size: 0.8rem;
+      margin-left: 0.25rem;
+    }
+    .badge-success {
+      background: rgba(16, 185, 129, 0.2);
+      border-color: rgba(16, 185, 129, 0.4);
+      color: #10b981;
+    }
+    .badge-danger {
+      background: rgba(248, 113, 113, 0.2);
+      border-color: rgba(248, 113, 113, 0.4);
+      color: #f87171;
+    }
+    .config-radar-card code {
+      font-family: "Fira Code", "JetBrains Mono", monospace;
+      font-size: 0.85rem;
+      background: rgba(0, 0, 0, 0.35);
+      padding: 0.15rem 0.35rem;
+      border-radius: 6px;
+    }
+    .radar-issues {
+      margin: 0.5rem 0 0;
+      padding-right: 1.25rem;
+      font-size: 0.85rem;
+    }
+    .radar-issues li {
+      margin-bottom: 0.25rem;
+    }
   </style>
 
   {% block extra_js %}
@@ -794,6 +1035,290 @@
       if (bmShow) bmShow.addEventListener('click', ()=> setBm(true));
       if (bmHide) bmHide.addEventListener('click', ()=> setBm(false));
       refreshBmState();
+
+      const escapeHtml = (value) => {
+        if (value === null || value === undefined) return '';
+        return String(value).replace(/[&<>"]/g, (char) => {
+          switch (char) {
+            case '&': return '&amp;';
+            case '<': return '&lt;';
+            case '>': return '&gt;';
+            case '"': return '&quot;';
+            case "'": return '&#39;';
+            default: return char;
+          }
+        });
+      };
+
+      const formatDateTime = (value) => {
+        if (!value) return 'לא זמין';
+        try {
+          const dt = new Date(value);
+          if (Number.isNaN(dt.getTime())) return value;
+          return new Intl.DateTimeFormat('he-IL', {
+            dateStyle: 'short',
+            timeStyle: 'short',
+          }).format(dt);
+        } catch (e) {
+          return value;
+        }
+      };
+
+      const initConfigRadar = () => {
+        const card = document.getElementById('configRadarCard');
+        if (!card) return;
+
+        const statusEl = card.querySelector('[data-radar-status]');
+        const timestampEl = card.querySelector('[data-radar-timestamp]');
+        const refreshBtn = document.getElementById('configRadarRefreshBtn');
+        const validateBtn = document.getElementById('configRadarValidateBtn');
+        const tabs = Array.from(card.querySelectorAll('.radar-tab'));
+        const panels = Array.from(card.querySelectorAll('.radar-panel'));
+        const slots = {
+          alerts: card.querySelector('#configRadarAlerts'),
+          errors: card.querySelector('#configRadarErrors'),
+          images: card.querySelector('#configRadarImages'),
+        };
+
+        let isLoading = false;
+
+        const setStatus = (message, variant = 'muted', extraHtml = '') => {
+          if (!statusEl) return;
+          let badgeClass = 'badge';
+          if (variant === 'success') badgeClass += ' badge-success';
+          if (variant === 'error') badgeClass += ' badge-danger';
+          statusEl.innerHTML = `<span class="${badgeClass}">${escapeHtml(message)}</span>${extraHtml}`;
+        };
+
+        const buildIssuesList = (issues = []) => {
+          if (!issues.length) {
+            return '';
+          }
+          const preview = issues.slice(0, 3).map((issue) => {
+            const scope = [issue.file, issue.field].filter(Boolean).join(' • ');
+            return `<li>${escapeHtml(scope || 'לא ידוע')} – ${escapeHtml(issue.message || '')}</li>`;
+          }).join('');
+          const extra = issues.length > 3 ? '<li>ועוד בעיות נוספות...</li>' : '';
+          return `<ul class="radar-issues">${preview}${extra}</ul>`;
+        };
+
+        const activatePanel = (panelName) => {
+          tabs.forEach((btn) => {
+            btn.classList.toggle('active', btn.dataset.panel === panelName);
+          });
+          panels.forEach((panel) => {
+            panel.classList.toggle('active', panel.dataset.panel === panelName);
+          });
+        };
+
+        tabs.forEach((btn) => {
+          btn.addEventListener('click', () => {
+            activatePanel(btn.dataset.panel);
+          });
+        });
+
+        const buildGitMeta = (meta = {}, fallbackPath) => {
+          const bits = [];
+          if (meta.path || fallbackPath) bits.push(`קובץ: ${escapeHtml(meta.path || fallbackPath || '')}`);
+          if (meta.last_updated) bits.push(`עודכן: ${escapeHtml(formatDateTime(meta.last_updated))}`);
+          if (meta.author) bits.push(`ע\"י ${escapeHtml(meta.author)}`);
+          if (meta.last_commit) bits.push(`Commit ${escapeHtml(meta.last_commit)}`);
+          if (!bits.length) return '';
+          return `<div class="radar-meta">${bits.map((bit) => `<span>${bit}</span>`).join('')}</div>`;
+        };
+
+        const buildAlertsPanel = (snapshot) => {
+          const alerts = snapshot?.alerts || {};
+          const categories = snapshot?.error_signatures?.categories || [];
+          const kpis = [
+            { label: 'חלון זמן (דק׳)', value: alerts.window_minutes },
+            { label: 'סף min_count', value: alerts.min_count_default },
+            { label: 'Cooldown (דק׳)', value: alerts.cooldown_minutes },
+          ];
+          const kpiHtml = kpis.map((kpi) => `
+            <div class="radar-kpi">
+              <strong>${escapeHtml(kpi.value ?? '—')}</strong>
+              <span>${escapeHtml(kpi.label)}</span>
+            </div>
+          `).join('');
+          const immediate = (alerts.immediate_categories || []).map((cat) => `<span class="radar-chip">${escapeHtml(cat)}</span>`).join(' ') || '<span class="radar-chip">לא הוגדרו</span>';
+          const rows = categories.length ? categories.map((cat) => `
+            <tr>
+              <td>${escapeHtml(cat.name || '')}</td>
+              <td>${escapeHtml(cat.description || '')}</td>
+              <td><span class="radar-badge severity">${escapeHtml(cat.default_severity || '')}</span></td>
+              <td><span class="radar-badge policy">${escapeHtml(cat.default_policy || '')}</span></td>
+              <td>${cat.is_immediate ? '<span class="radar-badge immediate">Immediate</span>' : '—'}</td>
+              <td>${escapeHtml(cat.total_signatures ?? 0)}</td>
+            </tr>
+          `).join('') : '<tr><td colspan="6">לא נמצאו קטגוריות בקובץ</td></tr>';
+          return `
+            ${buildGitMeta(alerts.git, alerts.path)}
+            <div class="radar-grid">${kpiHtml}</div>
+            <div>
+              <strong>Immediate categories:</strong>
+              ${immediate}
+            </div>
+            <table class="radar-table">
+              <thead>
+                <tr>
+                  <th>קטגוריה</th>
+                  <th>תיאור</th>
+                  <th>חומרה</th>
+                  <th>מדיניות</th>
+                  <th>Immediate</th>
+                  <th>חתימות</th>
+                </tr>
+              </thead>
+              <tbody>${rows}</tbody>
+            </table>
+          `;
+        };
+
+        const buildErrorsPanel = (snapshot) => {
+          const signatures = snapshot?.error_signatures || {};
+          const allowlist = signatures.noise_allowlist || [];
+          const allowlistHtml = allowlist.length
+            ? allowlist.map((expr) => `<code dir="ltr">${escapeHtml(expr)}</code>`).join(' ')
+            : '<span class="radar-chip">לא הוגדר</span>';
+          const categories = signatures.categories || [];
+          const categoriesHtml = categories.length
+            ? categories.map((cat) => {
+                const signaturesHtml = (cat.signatures || []).map((sig) => `
+                  <div class="radar-signature">
+                    <div><strong>${escapeHtml(sig.summary || sig.id || '')}</strong></div>
+                    <code dir="ltr">${escapeHtml(sig.pattern || '')}</code>
+                    <div>
+                      <span class="radar-badge severity">${escapeHtml(sig.severity || '')}</span>
+                      <span class="radar-badge policy">${escapeHtml(sig.policy || '')}</span>
+                    </div>
+                  </div>
+                `).join('') || '<div class="radar-empty-state">אין חתימות בקטגוריה זו</div>';
+                return `
+                  <details class="radar-accordion"${cat.is_immediate ? ' open' : ''}>
+                    <summary>
+                      <div>
+                        <strong>${escapeHtml(cat.name || '')}</strong>
+                        ${cat.is_immediate ? '<span class="radar-badge immediate">Immediate</span>' : ''}
+                      </div>
+                      <div>
+                        <span class="radar-badge severity">${escapeHtml(cat.default_severity || '')}</span>
+                        <span class="radar-badge policy">${escapeHtml(cat.default_policy || '')}</span>
+                        <span class="radar-chip">${escapeHtml(cat.total_signatures ?? 0)} חתימות</span>
+                      </div>
+                    </summary>
+                    <div class="radar-accordion-body">
+                      <p style="opacity:0.8">${escapeHtml(cat.description || '')}</p>
+                      ${signaturesHtml}
+                    </div>
+                  </details>
+                `;
+              }).join('')
+            : '<div class="radar-empty-state">לא קיימות קטגוריות בקובץ error_signatures.yml</div>';
+          return `
+            ${buildGitMeta(signatures.git, signatures.path)}
+            <div>
+              <strong>Noise allowlist:</strong>
+              ${allowlistHtml}
+            </div>
+            ${categoriesHtml}
+          `;
+        };
+
+        const buildImagesPanel = (snapshot) => {
+          const settings = snapshot?.image_settings || {};
+          const preview = settings.preview || {};
+          const imageAll = settings.image_all || {};
+          const supported = (settings.supported_formats || []).map((fmt) => `<span class="radar-chip">${escapeHtml(fmt)}</span>`).join(' ') || '<span class="radar-chip">לא הוגדר</span>';
+          const widths = (settings.width_options || []).map((w) => `<span class="radar-chip">${escapeHtml(w)}px</span>`).join(' ') || '<span class="radar-chip">לא הוגדר</span>';
+          return `
+            ${buildGitMeta(settings.git, settings.path)}
+            <div class="radar-grid">
+              <div class="radar-kpi"><strong>${escapeHtml(settings.default_theme || 'dark')}</strong><span>ערכת נושא</span></div>
+              <div class="radar-kpi"><strong>${escapeHtml(settings.default_style || '—')}</strong><span>סגנון</span></div>
+              <div class="radar-kpi"><strong>${escapeHtml(settings.default_width ?? '—')}px</strong><span>רוחב ברירת מחדל</span></div>
+              <div class="radar-kpi"><strong>${escapeHtml(settings.default_font_size ?? '—')}px</strong><span>גודל גופן</span></div>
+            </div>
+            <div class="radar-grid">
+              <div class="radar-kpi">
+                <strong>${escapeHtml(preview.max_lines ?? '—')}</strong>
+                <span>Preview max lines</span>
+                <small>מונע גלריה כבדה במסך הצפייה המקדימה</small>
+              </div>
+              <div class="radar-kpi">
+                <strong>${escapeHtml(imageAll.max_lines ?? '—')}</strong>
+                <span>Image all – max lines</span>
+                <small>מונע עומס על מנגנון הייצוא</small>
+              </div>
+              <div class="radar-kpi">
+                <strong>${escapeHtml(imageAll.max_total_chars ?? '—')}</strong>
+                <span>תקציב תווים</span>
+                <small>שומר על יציבות וצריכת זיכרון</small>
+              </div>
+              <div class="radar-kpi">
+                <strong>${escapeHtml(imageAll.max_images ?? '—')}</strong>
+                <span>כמות תמונות</span>
+                <small>מגבלה לפרוסס יחיד</small>
+              </div>
+            </div>
+            <div>
+              <strong>פורמטים נתמכים:</strong>
+              ${supported}
+            </div>
+            <div>
+              <strong>רוחבים זמינים:</strong>
+              ${widths}
+            </div>
+          `;
+        };
+
+        const renderSnapshot = (snapshot) => {
+          const validation = snapshot?.validation;
+          const ok = validation?.status === 'ok';
+          const issuesHtml = validation && validation.status !== 'ok'
+            ? buildIssuesList(validation.issues || [])
+            : '';
+          setStatus(
+            ok ? 'הכול תקין לפי הסכמות' : 'נמצאו בעיות בקבצי הקונפיגורציה',
+            ok ? 'success' : 'error',
+            issuesHtml
+          );
+          if (timestampEl) {
+            timestampEl.textContent = snapshot?.checked_at
+              ? `עודכן ב-${formatDateTime(snapshot.checked_at)}`
+              : '';
+          }
+          if (slots.alerts) slots.alerts.innerHTML = buildAlertsPanel(snapshot);
+          if (slots.errors) slots.errors.innerHTML = buildErrorsPanel(snapshot);
+          if (slots.images) slots.images.innerHTML = buildImagesPanel(snapshot);
+        };
+
+        const fetchSnapshot = async (label) => {
+          if (isLoading) return;
+          isLoading = true;
+          card.classList.add('loading');
+          setStatus(label || 'טוען נתונים...', 'muted');
+          try {
+            const res = await fetch('/api/config/radar', { cache: 'no-store', credentials: 'same-origin' });
+            if (!res.ok) throw new Error('request_failed');
+            const payload = await res.json();
+            renderSnapshot(payload);
+          } catch (e) {
+            setStatus('שגיאה בטעינת Config Radar', 'error');
+            Object.values(slots).forEach((slot) => {
+              if (slot) slot.innerHTML = '<div class="radar-empty-state">לא ניתן לטעון נתונים כרגע.</div>';
+            });
+          } finally {
+            isLoading = false;
+            card.classList.remove('loading');
+          }
+        };
+
+        refreshBtn?.addEventListener('click', () => fetchSnapshot('מרענן נתונים...'));
+        validateBtn?.addEventListener('click', () => fetchSnapshot('מריץ ולידציה...'));
+
+        fetchSnapshot();
+      };
 
       const initSmoothScrollSettingsCard = () => {
         const card = document.getElementById('smoothScrollSettingsCard');
@@ -954,10 +1479,15 @@
         waitForManager();
       };
 
-      if (document.readyState === 'loading') {
-        document.addEventListener('DOMContentLoaded', initSmoothScrollSettingsCard);
-      } else {
+      const initAfterDom = () => {
         initSmoothScrollSettingsCard();
+        initConfigRadar();
+      };
+
+      if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', initAfterDom);
+      } else {
+        initAfterDom();
       }
 
       // --- Web Push (Service Worker + PushManager) ---
