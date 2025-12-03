@@ -1,261 +1,515 @@
 <!DOCTYPE html>
 <html lang="he" dir="rtl">
-  <head>
-    <meta charset="utf-8" />
-    <title>דמו: העלאת תמונות ל-Markdown</title>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>העלאת תמונה לקובץ Markdown - Demo</title>
     <style>
-      :root {
-        color-scheme: light dark;
-        font-family: "Assistant", Arial, sans-serif;
-      }
-
-      body {
-        margin: 0;
-        padding: 2rem;
-        background: #f4f5f7;
-        color: #1f2430;
-      }
-
-      main {
-        max-width: 480px;
-        margin: 0 auto;
-        padding: 2rem;
-        border-radius: 16px;
-        background: white;
-        box-shadow: 0 20px 60px rgba(26, 32, 44, 0.2);
-      }
-
-      h1 {
-        margin-top: 0;
-        font-size: 1.5rem;
-        font-weight: 600;
-      }
-
-      .filename-field {
-        display: flex;
-        flex-direction: column;
-        gap: 0.5rem;
-        font-size: 0.95rem;
-        margin-bottom: 1rem;
-      }
-
-      .input-wrapper {
-        position: relative;
-      }
-
-      .input-wrapper input[type="text"] {
-        width: 100%;
-        padding: 0.65rem 2.75rem 0.65rem 0.75rem;
-        border-radius: 10px;
-        border: 1px solid #ced3de;
-        font-size: 1rem;
-        background: #fefefe;
-      }
-
-      #image-upload-trigger {
-        position: absolute;
-        inset-inline-end: 0.35rem;
-        inset-block-start: 50%;
-        transform: translateY(-50%);
-        border: none;
-        background: #edf2ff;
-        color: #1d3fd8;
-        width: 36px;
-        height: 36px;
-        border-radius: 10px;
-        font-size: 1.1rem;
-        cursor: pointer;
-        display: none;
-        align-items: center;
-        justify-content: center;
-        transition: background 0.2s ease;
-      }
-
-      #image-upload-trigger.visible {
-        display: inline-flex;
-      }
-
-      #image-upload-trigger:active {
-        background: #d7e3ff;
-      }
-
-      .helper {
-        font-size: 0.85rem;
-        color: #586276;
-        margin-bottom: 1.5rem;
-      }
-
-      .preview {
-        display: flex;
-        flex-direction: column;
-        gap: 0.35rem;
-      }
-
-      .preview.hidden {
-        display: none;
-      }
-
-      .preview img {
-        width: 80px;
-        height: 80px;
-        object-fit: cover;
-        border-radius: 8px;
-        border: 2px solid #dbe1f1;
-        cursor: zoom-in;
-        box-shadow: 0 8px 24px rgba(15, 23, 42, 0.18);
-      }
-
-      .preview figcaption {
-        font-size: 0.85rem;
-        color: #4a5264;
-      }
-
-      .fullscreen-backdrop {
-        position: fixed;
-        inset: 0;
-        background: rgba(0, 0, 0, 0.85);
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        opacity: 0;
-        pointer-events: none;
-        transition: opacity 0.25s ease;
-      }
-
-      .fullscreen-backdrop.visible {
-        opacity: 1;
-        pointer-events: auto;
-      }
-
-      .fullscreen-backdrop img {
-        max-width: 90vw;
-        max-height: 90vh;
-        border-radius: 16px;
-        box-shadow: 0 20px 80px rgba(0, 0, 0, 0.35);
-      }
-
-      .close-hint {
-        position: absolute;
-        inset-block-start: 32px;
-        inset-inline-start: 50%;
-        transform: translateX(-50%);
-        color: white;
-        font-size: 0.95rem;
-        opacity: 0.8;
-      }
-
-      @media (max-width: 420px) {
-        #image-upload-trigger {
-          width: 32px;
-          height: 32px;
-          font-size: 1rem;
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
         }
 
-        .input-wrapper input[type="text"] {
-          padding-inline-end: 2.5rem;
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
         }
-      }
+
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+        }
+
+        .page-title {
+            color: white;
+            font-size: 32px;
+            font-weight: bold;
+            text-align: center;
+            margin-bottom: 40px;
+        }
+
+        .form-card {
+            background: rgba(255, 255, 255, 0.1);
+            backdrop-filter: blur(20px);
+            border-radius: 20px;
+            padding: 30px;
+            margin-bottom: 20px;
+        }
+
+        .form-group {
+            margin-bottom: 24px;
+        }
+
+        .form-label {
+            color: white;
+            font-size: 18px;
+            font-weight: 600;
+            display: block;
+            margin-bottom: 12px;
+            text-align: right;
+        }
+
+        /* שם קובץ עם אייקון העלאה */
+        .filename-container {
+            position: relative;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            flex-wrap: nowrap;
+            overflow: hidden;
+        }
+
+        .filename-input {
+            flex: 1;
+            background: rgba(255, 255, 255, 0.15);
+            border: 2px solid rgba(255, 255, 255, 0.3);
+            border-radius: 12px;
+            color: white;
+            padding: 14px 20px;
+            font-size: 16px;
+            direction: ltr;
+            text-align: left;
+        }
+
+        .filename-input::placeholder {
+            color: rgba(255, 255, 255, 0.5);
+        }
+
+        .filename-input:focus {
+            outline: none;
+            border-color: rgba(255, 255, 255, 0.6);
+            background: rgba(255, 255, 255, 0.2);
+        }
+
+        /* כפתור העלאת תמונה */
+        .upload-image-btn {
+            background: rgba(255, 255, 255, 0.15);
+            border: 2px solid rgba(255, 255, 255, 0.3);
+            border-radius: 12px;
+            color: white;
+            padding: 14px 20px;
+            font-size: 24px;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            display: none; /* מוסתר כברירת מחדל */
+            align-items: center;
+            justify-content: center;
+            min-width: 60px;
+            flex: 0 0 60px;
+        }
+
+        .upload-image-btn.visible {
+            display: flex;
+        }
+
+        .upload-image-btn:hover {
+            background: rgba(255, 255, 255, 0.25);
+            transform: scale(1.05);
+        }
+
+        .upload-image-btn:active {
+            transform: scale(0.95);
+        }
+
+        /* תצוגת תמונות מוקטנות */
+        .images-preview {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 12px;
+            margin-top: 16px;
+            padding: 16px;
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 12px;
+            min-height: 80px;
+        }
+
+        .images-preview.empty {
+            display: none;
+        }
+
+        .image-thumbnail {
+            position: relative;
+            width: 100px;
+            height: 100px;
+            border-radius: 8px;
+            overflow: hidden;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            border: 2px solid rgba(255, 255, 255, 0.3);
+        }
+
+        .image-thumbnail:hover {
+            transform: scale(1.05);
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+        }
+
+        .image-thumbnail img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+        }
+
+        .image-thumbnail .remove-btn {
+            position: absolute;
+            top: 4px;
+            left: 4px;
+            background: rgba(255, 68, 68, 0.9);
+            color: white;
+            border: none;
+            border-radius: 50%;
+            width: 24px;
+            height: 24px;
+            font-size: 16px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            opacity: 0;
+            transition: opacity 0.2s;
+        }
+
+        .image-thumbnail:hover .remove-btn {
+            opacity: 1;
+        }
+
+        /* Modal למסך מלא */
+        .image-modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.95);
+            z-index: 9999;
+            justify-content: center;
+            align-items: center;
+            padding: 20px;
+        }
+
+        .image-modal.active {
+            display: flex;
+        }
+
+        .image-modal img {
+            max-width: 100%;
+            max-height: 100%;
+            object-fit: contain;
+            border-radius: 8px;
+        }
+
+        .image-modal .close-btn {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            background: rgba(255, 255, 255, 0.2);
+            color: white;
+            border: none;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            font-size: 24px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.2s;
+        }
+
+        .image-modal .close-btn:hover {
+            background: rgba(255, 255, 255, 0.3);
+            transform: scale(1.1);
+        }
+
+        /* שאר השדות */
+        .input-field {
+            background: rgba(255, 255, 255, 0.1);
+            border: 1px solid rgba(255, 255, 255, 0.3);
+            border-radius: 12px;
+            color: white;
+            padding: 12px 20px;
+            font-size: 16px;
+            width: 100%;
+        }
+
+        .input-field::placeholder {
+            color: rgba(255, 255, 255, 0.5);
+        }
+
+        .select-field {
+            background: rgba(255, 255, 255, 0.1);
+            border: 1px solid rgba(255, 255, 255, 0.3);
+            border-radius: 12px;
+            color: white;
+            padding: 12px 20px;
+            font-size: 16px;
+            width: 100%;
+            cursor: pointer;
+        }
+
+        /* הסתר input file האמיתי */
+        #imageFileInput {
+            display: none;
+        }
+
+        /* הודעת מידע */
+        .info-box {
+            background: rgba(255, 255, 255, 0.1);
+            backdrop-filter: blur(10px);
+            border-radius: 12px;
+            padding: 20px;
+            color: white;
+            margin-top: 20px;
+        }
+
+        .info-box h3 {
+            margin-bottom: 12px;
+            font-size: 18px;
+        }
+
+        .info-box ul {
+            list-style: none;
+            padding-right: 20px;
+        }
+
+        .info-box li {
+            line-height: 1.8;
+            opacity: 0.9;
+        }
+
+        .info-box li:before {
+            content: "✓ ";
+            color: #4ade80;
+            font-weight: bold;
+            margin-left: 8px;
+        }
+
+        @media (max-width: 768px) {
+            .upload-image-btn {
+                min-width: 52px;
+                flex-basis: 52px;
+                padding: 12px;
+                font-size: 20px;
+            }
+        }
+
+        @media (max-width: 414px) {
+            .upload-image-btn {
+                min-width: 44px;
+                flex-basis: 44px;
+                padding: 10px;
+                font-size: 18px;
+            }
+
+            .filename-input {
+                font-size: 15px;
+            }
+        }
     </style>
-  </head>
-  <body>
-    <main>
-      <h1>דמו: העלאת תמונה רק ל־Markdown</h1>
-      <p class="helper">
-        כתוב שם קובץ עם סיומת <code>.md</code> והאייקון יופיע. בחר תמונה לראות
-        תצוגה ממוזערת ולחיצה תפתח למסך מלא.
-      </p>
-      <label class="filename-field" for="filename">
-        <span>שם הקובץ</span>
-        <div class="input-wrapper">
-          <input
-            id="filename"
-            type="text"
-            placeholder="notes.md"
-            value="notes.md"
-            autocomplete="off"
-          />
-          <button
-            id="image-upload-trigger"
-            type="button"
-            aria-label="העלאת תמונה"
-            title="העלאת תמונה"
-          >
-            📷
-          </button>
+</head>
+<body>
+    <div class="container">
+        <h1 class="page-title">העלה קובץ חדש</h1>
+
+        <div class="form-card">
+            <div class="form-group">
+                <label class="form-label">שם קובץ</label>
+                <div class="filename-container">
+                    <input
+                        type="text"
+                        class="filename-input"
+                        id="filenameInput"
+                        placeholder="note.md"
+                        value="note.md"
+                    >
+
+                    <!-- כפתור העלאת תמונה - מופיע רק ל-.md -->
+                    <button
+                        class="upload-image-btn visible"
+                        id="uploadImageBtn"
+                        title="צרף תמונה"
+                    >
+                        🖼️
+                    </button>
+
+                    <!-- Input file מוסתר -->
+                    <input
+                        type="file"
+                        id="imageFileInput"
+                        accept="image/*"
+                        multiple
+                    >
+                </div>
+
+                <!-- תצוגת תמונות מוקטנות -->
+                <div class="images-preview" id="imagesPreview"></div>
+            </div>
+
+            <div class="form-group">
+                <label class="form-label">שפה</label>
+                <select class="select-field">
+                    <option>markdown</option>
+                    <option>python</option>
+                    <option>javascript</option>
+                </select>
+            </div>
+
+            <div class="form-group">
+                <label class="form-label">תיאור קצר</label>
+                <input type="text" class="input-field" placeholder="תיאור...">
+            </div>
+
+            <div class="form-group">
+                <label class="form-label">תגיות</label>
+                <input type="text" class="input-field" placeholder="utils, #repo:owner/name#">
+            </div>
         </div>
-      </label>
-      <input id="image-upload-input" type="file" accept="image/*" hidden />
 
-      <figure id="preview" class="preview hidden">
-        <img id="preview-image" alt="תצוגה מקדימה" />
-        <figcaption>לחץ על התמונה לפתיחה במסך מלא</figcaption>
-      </figure>
-    </main>
+        <div class="info-box">
+            <h3>💡 איך זה עובד:</h3>
+            <ul>
+                <li>כתוב שם קובץ עם סיומת <code>.md</code> - אייקון 🖼️ יופיע</li>
+                <li>שנה ל-<code>.py</code> או סיומת אחרת - האייקון ייעלם</li>
+                <li>לחץ על 🖼️ כדי לבחור תמונות מהגלריה</li>
+                <li>התמונות יופיעו כתצוגה מקדימה (thumbnail)</li>
+                <li>לחץ על תמונה מוקטנת לצפייה במסך מלא</li>
+                <li>העבר עכבר על תמונה ולחץ ✕ למחיקה</li>
+            </ul>
+        </div>
+    </div>
 
-    <div id="fullscreen" class="fullscreen-backdrop" role="dialog" aria-modal="true">
-      <div class="close-hint">הקש בכל מקום כדי לסגור</div>
-      <img id="fullscreen-image" alt="תמונה מוגדלת" />
+    <!-- Modal לתצוגת תמונה במסך מלא -->
+    <div class="image-modal" id="imageModal">
+        <button class="close-btn" onclick="closeModal()">✕</button>
+        <img id="modalImage" src="" alt="תמונה במסך מלא">
     </div>
 
     <script>
-      const filenameInput = document.getElementById("filename");
-      const triggerButton = document.getElementById("image-upload-trigger");
-      const fileInput = document.getElementById("image-upload-input");
-      const preview = document.getElementById("preview");
-      const previewImage = document.getElementById("preview-image");
-      const fullscreen = document.getElementById("fullscreen");
-      const fullscreenImage = document.getElementById("fullscreen-image");
+        const filenameInput = document.getElementById('filenameInput');
+        const uploadImageBtn = document.getElementById('uploadImageBtn');
+        const imageFileInput = document.getElementById('imageFileInput');
+        const imagesPreview = document.getElementById('imagesPreview');
+        const imageModal = document.getElementById('imageModal');
+        const modalImage = document.getElementById('modalImage');
 
-      let currentObjectUrl = null;
+        let uploadedImages = [];
 
-      const toggleTrigger = () => {
-        const isMarkdown = /\.md$/i.test(filenameInput.value.trim());
-        triggerButton.classList.toggle("visible", isMarkdown);
-        if (!isMarkdown) {
-          fileInput.value = "";
-          preview.classList.add("hidden");
-        }
-      };
+        // בדיקה אם זה קובץ .md
+        function checkFilename() {
+            const filename = filenameInput.value.toLowerCase();
 
-      const openPreview = (url) => {
-        previewImage.src = url;
-        preview.classList.remove("hidden");
-      };
-
-      const openFullscreen = () => {
-        if (!previewImage.src) return;
-        fullscreenImage.src = previewImage.src;
-        fullscreen.classList.add("visible");
-      };
-
-      const closeFullscreen = () => {
-        fullscreen.classList.remove("visible");
-      };
-
-      triggerButton.addEventListener("click", () => fileInput.click());
-
-      fileInput.addEventListener("change", (event) => {
-        const [file] = event.target.files || [];
-        if (!file) return;
-
-        if (currentObjectUrl) {
-          URL.revokeObjectURL(currentObjectUrl);
+            if (filename.endsWith('.md')) {
+                uploadImageBtn.classList.add('visible');
+            } else {
+                uploadImageBtn.classList.remove('visible');
+                // אופציונלי: נקה תמונות אם משנים ל-non-md
+                // uploadedImages = [];
+                // updatePreview();
+            }
         }
 
-        currentObjectUrl = URL.createObjectURL(file);
-        openPreview(currentObjectUrl);
-      });
+        // האזנה לשינויים בשם הקובץ
+        filenameInput.addEventListener('input', checkFilename);
+        filenameInput.addEventListener('change', checkFilename);
 
-      preview.addEventListener("click", openFullscreen);
-      fullscreen.addEventListener("click", closeFullscreen);
-      window.addEventListener("keyup", (event) => {
-        if (event.key === "Escape") {
-          closeFullscreen();
+        // לחיצה על כפתור העלאה
+        uploadImageBtn.addEventListener('click', () => {
+            imageFileInput.click();
+        });
+
+        // כשבוחרים קבצים
+        imageFileInput.addEventListener('change', (e) => {
+            const files = Array.from(e.target.files);
+
+            files.forEach(file => {
+                if (file.type.startsWith('image/')) {
+                    const reader = new FileReader();
+
+                    reader.onload = (e) => {
+                        uploadedImages.push({
+                            id: Date.now() + Math.random(),
+                            url: e.target.result,
+                            name: file.name
+                        });
+                        updatePreview();
+                    };
+
+                    reader.readAsDataURL(file);
+                }
+            });
+
+            // נקה את ה-input כדי שאפשר יהיה לבחור אותם קבצים שוב
+            imageFileInput.value = '';
+        });
+
+        // עדכון תצוגת התמונות
+        function updatePreview() {
+            imagesPreview.innerHTML = '';
+
+            if (uploadedImages.length === 0) {
+                imagesPreview.classList.add('empty');
+                return;
+            }
+
+            imagesPreview.classList.remove('empty');
+
+            uploadedImages.forEach(image => {
+                const thumbnail = document.createElement('div');
+                thumbnail.className = 'image-thumbnail';
+
+                thumbnail.innerHTML = `
+                    <img src="${image.url}" alt="${image.name}">
+                    <button class="remove-btn" onclick="removeImage('${image.id}')">✕</button>
+                `;
+
+                // לחיצה על תמונה - פתיחה במסך מלא
+                thumbnail.querySelector('img').addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    openModal(image.url);
+                });
+
+                imagesPreview.appendChild(thumbnail);
+            });
         }
-      });
 
-      toggleTrigger();
-      filenameInput.addEventListener("input", toggleTrigger);
+        // הסרת תמונה
+        function removeImage(imageId) {
+            uploadedImages = uploadedImages.filter(img => img.id != imageId);
+            updatePreview();
+        }
+
+        // פתיחת modal
+        function openModal(imageUrl) {
+            modalImage.src = imageUrl;
+            imageModal.classList.add('active');
+            document.body.style.overflow = 'hidden';
+        }
+
+        // סגירת modal
+        function closeModal() {
+            imageModal.classList.remove('active');
+            document.body.style.overflow = 'auto';
+        }
+
+        // סגירה בלחיצה על הרקע
+        imageModal.addEventListener('click', (e) => {
+            if (e.target === imageModal) {
+                closeModal();
+            }
+        });
+
+        // סגירה עם ESC
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape' && imageModal.classList.contains('active')) {
+                closeModal();
+            }
+        });
+
+        // בדיקה ראשונית
+        checkFilename();
     </script>
-  </body>
+</body>
 </html>
