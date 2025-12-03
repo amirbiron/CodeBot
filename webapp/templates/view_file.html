@@ -1161,7 +1161,7 @@ function goBack(ev){
 (function(){
     try {
         const container = document.querySelector('#codeCard .code-container');
-        const input = document.getElementById('codeSearchInput');
+        const input = document.getElementById('codeSearchInput') || document.getElementById('searchInput');
         const clearBtn = document.getElementById('closeSearchBtn') || document.getElementById('codeSearchClear');
         const nextBtn = document.getElementById('nextMatchBtn') || document.getElementById('codeSearchNext');
         const prevBtn = document.getElementById('prevMatchBtn') || document.getElementById('codeSearchPrev');
