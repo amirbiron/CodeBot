@@ -81,7 +81,7 @@ def test_fetch_timeseries_external_metric_enforces_allowlist(monkeypatch):
 
     captured = {}
 
-    def _fake_http_get(url, headers=None, timeout=None):
+    def _fake_http_get(url, *, headers=None, timeout=None, allowed_hosts=None):
         captured["url"] = url
         return {"data": [{"timestamp": "2025-01-01T00:00:00+00:00", "value": 42.0}]}
 
@@ -119,7 +119,7 @@ def test_fetch_timeseries_external_metric_blocks_unknown_host(monkeypatch):
             },
         }
 
-    def _fake_http_get(url, headers=None, timeout=None):
+    def _fake_http_get(url, *, headers=None, timeout=None, allowed_hosts=None):
         raise AssertionError("HTTP request should not be executed for blocked host")
 
     monkeypatch.setattr(obs, "_get_metric_definition", _fake_get_definition)

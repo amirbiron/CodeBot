@@ -904,13 +904,14 @@ def _http_get_json(
 ) -> Any:
     response_text = None
     request_fn = None
-    if allowed_hosts:
-        allowed_hosts = [str(h).strip().lower() for h in allowed_hosts if h]
-        parsed = urlparse(url)
-        host = (parsed.hostname or "").lower()
-        scheme = (parsed.scheme or "").lower()
-        if scheme not in {"http", "https"} or host not in allowed_hosts:
-            raise RuntimeError("http_host_not_allowed")
+    allowed_hosts = [str(h).strip().lower() for h in (allowed_hosts or []) if h]
+    if not allowed_hosts:
+        raise RuntimeError("allowed_hosts_required")
+    parsed = urlparse(url)
+    host = (parsed.hostname or "").lower()
+    scheme = (parsed.scheme or "").lower()
+    if scheme not in {"http", "https"} or host not in allowed_hosts:
+        raise RuntimeError("http_host_not_allowed")
 
     try:
         from http_sync import request as http_request  # type: ignore
