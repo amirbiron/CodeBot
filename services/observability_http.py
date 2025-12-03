@@ -43,7 +43,7 @@ def resolve_and_validate_domain(domain: str) -> Tuple[str, List[str]]:
     except Exception as exc:  # pragma: no cover - unexpected errors
         raise SecurityError(f"Resolution error for '{domain}': {exc}") from exc
 
-    all_ips = sorted({info[4][0] for info in addr_info if info and info[4]})
+    all_ips = sorted({str(info[4][0]) for info in addr_info if info and info[4]})
     if not all_ips:
         raise SecurityError(f"No IPs resolved for domain: {domain}")
 
