@@ -64,7 +64,7 @@ def _hash_identifier(raw: Any) -> str:
     if not text:
         return ""
     try:
-        digest = hashlib.sha1(text.encode("utf-8", "ignore")).hexdigest()
+        digest = hashlib.sha256(text.encode("utf-8", "ignore")).hexdigest()
     except Exception:
         return ""
     return digest[:12]
