@@ -2374,6 +2374,23 @@ def admin_observability_page():
     )
 
 
+@app.route('/admin/observability/replay')
+@admin_required
+def admin_observability_replay_page():
+    """ציר זמן Incident Replay עם אפשרות לשיתוף טווח זמן."""
+    timerange = request.args.get('timerange') or request.args.get('range') or '3h'
+    start_arg = request.args.get('start') or request.args.get('start_time')
+    end_arg = request.args.get('end') or request.args.get('end_time')
+    focus_ts = request.args.get('focus_ts')
+    return render_template(
+        'observability_replay.html',
+        default_range=timerange,
+        initial_start=start_arg,
+        initial_end=end_arg,
+        initial_focus=focus_ts,
+    )
+
+
 # --- Snippet library admin UI ---
 try:
     from services import snippet_library_service as _snip_service  # type: ignore
@@ -8476,6 +8493,86 @@ def api_observability_timeseries():
     except Exception:
         logger.exception("observability_timeseries_failed")
         return jsonify({'ok': False, 'error': 'internal_error'}), 500
+
+
+@app.route('/api/observability/export', methods=['GET'])
+@login_required
+def api_observability_export():
+    user_id = _require_admin_user()
+    if not user_id:
+        return jsonify({'ok': False, 'error': 'admin_only'}), 403
+    try:
+        start_dt, end_dt = _resolve_time_window(default_hours=24)
+        timerange = request.args.get('timerange') or request.args.get('range') or '24h'
+        try:
+            alerts_limit = int(request.args.get('alerts_limit') or request.args.get('per_page', 120))
+        except Exception:
+            alerts_limit = 120
+        snapshot = observability_service.build_dashboard_snapshot(
+            start_dt=start_dt,
+            end_dt=end_dt,
+            timerange_label=timerange,
+            alerts_limit=alerts_limit,
+        )
+        snapshot['ok'] = True
+        return jsonify(snapshot)
+    except ValueError as exc:
+        logger.warning("observability_export_bad_request: %s", exc)
+        return jsonify({'ok': False, 'error': 'bad_request'}), 400
+    except Exception:
+        logger.exception("observability_export_failed")
+        return jsonify({'ok': False, 'error': 'internal_error'}), 500
+
+
+@app.route('/api/observability/replay', methods=['GET'])
+@login_required
+def api_observability_replay():
+    if not _require_admin_user():
+        return jsonify({'ok': False, 'error': 'admin_only'}), 403
+    try:
+        start_dt, end_dt = _resolve_time_window(default_hours=6)
+        try:
+            limit = int(request.args.get('limit', 200))
+        except Exception:
+            limit = 200
+        payload = observability_service.fetch_incident_replay(
+            start_dt=start_dt,
+            end_dt=end_dt,
+            limit=limit,
+        )
+        payload['ok'] = True
+        return jsonify(payload)
+    except ValueError as exc:
+        logger.warning("observability_replay_bad_request: %s", exc)
+        return jsonify({'ok': False, 'error': 'bad_request'}), 400
+    except Exception:
+        logger.exception("observability_replay_failed")
+        return jsonify({'ok': False, 'error': 'internal_error'}), 500
+
+
+@app.route('/api/observability/quickfix/track', methods=['POST'])
+@login_required
+def api_observability_quickfix_track():
+    user_id = _require_admin_user()
+    if not user_id:
+        return jsonify({'ok': False, 'error': 'admin_only'}), 403
+    payload = request.get_json(silent=True) or {}
+    action_id = str(payload.get('action_id') or '').strip()
+    action_label = str(payload.get('action_label') or '').strip()
+    alert_snapshot = payload.get('alert') or {}
+    if not action_id or not isinstance(alert_snapshot, dict):
+        return jsonify({'ok': False, 'error': 'missing_fields'}), 400
+    try:
+        observability_service.record_quick_fix_action(
+            action_id=action_id,
+            action_label=action_label or action_id,
+            alert_snapshot=alert_snapshot,
+            user_id=user_id,
+        )
+    except Exception:
+        logger.exception("observability_quickfix_track_failed")
+        return jsonify({'ok': False, 'error': 'internal_error'}), 500
+    return jsonify({'ok': True})
 
 
 @app.route('/api/welcome/ack', methods=['POST'])

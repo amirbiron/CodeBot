@@ -1,0 +1,325 @@
+{% extends "base.html" %}
+
+{% block title %}Incident Replay{% endblock %}
+
+{% block extra_css %}
+<style>
+.replay-page {
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+  color: #fff;
+}
+.replay-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+}
+.replay-header h1 {
+  font-size: 1.7rem;
+  margin: 0;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+.replay-header .actions {
+  display: flex;
+  gap: 0.5rem;
+}
+.replay-header .actions a,
+.replay-header .actions button {
+  background: rgba(255,255,255,0.08);
+  color: #fff;
+  border: 1px solid rgba(255,255,255,0.2);
+  border-radius: 999px;
+  padding: 0.45rem 0.9rem;
+  text-decoration: none;
+  font-size: 0.9rem;
+  cursor: pointer;
+}
+.replay-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+  align-items: center;
+}
+.replay-range-buttons {
+  display: flex;
+  gap: 0.45rem;
+}
+.replay-range-buttons button {
+  border: none;
+  border-radius: 999px;
+  padding: 0.35rem 0.85rem;
+  background: rgba(255,255,255,0.08);
+  color: #fff;
+  cursor: pointer;
+}
+.replay-range-buttons button.active {
+  background: linear-gradient(135deg,#ff749c,#ffa34f);
+  color: #121826;
+  font-weight: 600;
+}
+.custom-range {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  align-items: center;
+}
+.custom-range label {
+  font-size: 0.85rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+.custom-range input {
+  background: rgba(255,255,255,0.06);
+  border: 1px solid rgba(255,255,255,0.2);
+  border-radius: 8px;
+  color: #fff;
+  padding: 0.25rem 0.5rem;
+}
+.timeline-wrapper {
+  background: rgba(18,24,38,0.78);
+  border-radius: 18px;
+  border: 1px solid rgba(255,255,255,0.08);
+  padding: 1.25rem;
+  box-shadow: 0 15px 35px rgba(0,0,0,0.35);
+}
+.timeline-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.timeline-item {
+  display: grid;
+  grid-template-columns: 120px 1fr;
+  gap: 1rem;
+  padding: 1rem 0;
+  border-bottom: 1px solid rgba(255,255,255,0.08);
+}
+.timeline-item:last-child {
+  border-bottom: none;
+}
+.timeline-item .event-time {
+  font-size: 0.85rem;
+  opacity: 0.75;
+}
+.timeline-item .event-body {
+  min-width: 0;
+}
+.timeline-item .event-title {
+  font-size: 1rem;
+  margin: 0;
+}
+.timeline-item .event-meta {
+  font-size: 0.85rem;
+  opacity: 0.75;
+  margin-top: 0.2rem;
+  display: flex;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+}
+.timeline-item .event-summary {
+  margin-top: 0.4rem;
+  font-size: 0.9rem;
+  opacity: 0.9;
+}
+.timeline-item .event-actions {
+  margin-top: 0.6rem;
+}
+.timeline-item .event-actions a {
+  color: #64ffda;
+  text-decoration: none;
+  font-size: 0.9rem;
+}
+.timeline-item[data-type="deployment"] {
+  border-color: rgba(255,196,77,0.35);
+}
+.timeline-item[data-type="chatops"] {
+  border-color: rgba(100,255,218,0.35);
+}
+.empty-state {
+  text-align: center;
+  padding: 2rem 0;
+  opacity: 0.8;
+}
+@media (max-width: 768px) {
+  .timeline-item {
+    grid-template-columns: 1fr;
+  }
+  .timeline-item .event-time {
+    font-weight: 500;
+  }
+}
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="replay-page" dir="rtl">
+  <div class="replay-header">
+    <h1>⏪ Incident Replay</h1>
+    <div class="actions">
+      <a href="/admin/observability">חזרה ללוח</a>
+      <button id="shareReplayBtn">🔗 העתק קישור</button>
+    </div>
+  </div>
+
+  <div class="replay-controls">
+    <div class="replay-range-buttons" id="replayRangeButtons">
+      <button data-range="1h">1 שעה</button>
+      <button data-range="3h">3 שעות</button>
+      <button data-range="24h">24 שעות</button>
+      <button data-range="7d">7 ימים</button>
+    </div>
+    <div class="custom-range">
+      <label>
+        התחלה
+        <input type="datetime-local" id="startInput" value="{{ initial_start|default('', true) }}">
+      </label>
+      <label>
+        סיום
+        <input type="datetime-local" id="endInput" value="{{ initial_end|default('', true) }}">
+      </label>
+      <button id="applyCustomRange">עדכן</button>
+    </div>
+  </div>
+
+  <div class="timeline-wrapper">
+    <div class="timeline-head">
+      <div id="timelineSummary" style="font-size:0.9rem; opacity:0.8; margin-bottom:0.8rem;">טוען נתונים…</div>
+    </div>
+    <ul class="timeline-list" id="timelineList">
+      <li class="empty-state">טוען אירועים…</li>
+    </ul>
+  </div>
+</div>
+
+<script>
+(() => {
+  const state = {
+    range: '{{ default_range|default("3h", true) }}',
+    start: '{{ initial_start|default('', true) }}',
+    end: '{{ initial_end|default('', true) }}',
+    focus: '{{ initial_focus|default('', true) }}'
+  };
+
+  const rangeButtons = document.querySelectorAll('#replayRangeButtons button');
+  rangeButtons.forEach(btn => {
+    if (btn.dataset.range === state.range) {
+      btn.classList.add('active');
+    }
+    btn.addEventListener('click', () => {
+      rangeButtons.forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      state.range = btn.dataset.range || '3h';
+      state.start = '';
+      state.end = '';
+      document.getElementById('startInput').value = '';
+      document.getElementById('endInput').value = '';
+      loadTimeline();
+    });
+  });
+
+  document.getElementById('applyCustomRange').addEventListener('click', () => {
+    state.start = document.getElementById('startInput').value;
+    state.end = document.getElementById('endInput').value;
+    loadTimeline();
+  });
+
+  document.getElementById('shareReplayBtn').addEventListener('click', async () => {
+    try {
+      const params = new URLSearchParams();
+      if (state.range) params.set('timerange', state.range);
+      if (state.start) params.set('start', state.start);
+      if (state.end) params.set('end', state.end);
+      if (state.focus) params.set('focus_ts', state.focus);
+      const shareUrl = `${window.location.origin}/admin/observability/replay?${params.toString()}`;
+      await navigator.clipboard.writeText(shareUrl);
+      showShareToast('הקישור הועתק ללוח');
+    } catch (err) {
+      console.error('share link failed', err);
+    }
+  });
+
+  function showShareToast(text) {
+    const toast = document.createElement('div');
+    toast.textContent = text;
+    toast.style.position = 'fixed';
+    toast.style.bottom = '24px';
+    toast.style.left = '50%';
+    toast.style.transform = 'translateX(-50%)';
+    toast.style.background = 'rgba(0,0,0,0.7)';
+    toast.style.color = '#fff';
+    toast.style.padding = '0.6rem 1rem';
+    toast.style.borderRadius = '999px';
+    toast.style.zIndex = '999';
+    document.body.appendChild(toast);
+    setTimeout(() => toast.remove(), 2200);
+  }
+
+  function formatTime(ts) {
+    if (!ts) return '—';
+    try {
+      return new Date(ts).toLocaleString('he-IL', {hour12: false});
+    } catch (err) {
+      return ts;
+    }
+  }
+
+  function buildQuery() {
+    const params = new URLSearchParams();
+    if (state.range && !(state.start || state.end)) params.set('timerange', state.range);
+    if (state.start) params.set('start_time', state.start);
+    if (state.end) params.set('end_time', state.end);
+    return params.toString();
+  }
+
+  async function loadTimeline() {
+    const query = buildQuery();
+    const res = await fetch(`/api/observability/replay?${query}`, {headers: {'Accept': 'application/json'}});
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const payload = await res.json();
+    if (payload.ok === False) throw new Error(payload.error || 'replay_error');
+    renderTimeline(payload.events || [], payload.counts || {}, payload.window || {});
+  }
+
+  function renderTimeline(events, counts, windowInfo) {
+    const summaryEl = document.getElementById('timelineSummary');
+    summaryEl.textContent = `סה"כ ${counts.alerts || 0} התראות, ${counts.deployments || 0} דיפלוימנטים, ${counts.chatops || 0} פעולות ChatOps`;
+    const list = document.getElementById('timelineList');
+    if (!events.length) {
+      list.innerHTML = '<li class="empty-state">לא נמצאו אירועים בטווח הנבחר.</li>';
+      return;
+    }
+    list.innerHTML = events.map(evt => {
+      const metaParts = [];
+      if (evt.type === 'deployment') metaParts.push('Deployment');
+      if (evt.metadata && evt.metadata.alert_type) metaParts.push(evt.metadata.alert_type);
+      if (evt.metadata && evt.metadata.endpoint) metaParts.push(evt.metadata.endpoint);
+      return `
+        <li class="timeline-item" data-type="${evt.type}">
+          <div class="event-time">${formatTime(evt.timestamp)}</div>
+          <div class="event-body">
+            <div class="event-title">${evt.title || 'אירוע'}</div>
+            <div class="event-meta">${metaParts.join(' • ')}</div>
+            <div class="event-summary">${evt.summary || ''}</div>
+            <div class="event-actions">
+              <a href="${evt.link || '/admin/observability'}" target="_blank" rel="noopener">פתח הקשר</a>
+            </div>
+          </div>
+        </li>
+      `;
+    }).join('');
+  }
+
+  loadTimeline().catch(err => {
+    console.error('replay load failed', err);
+    const list = document.getElementById('timelineList');
+    list.innerHTML = '<li class="empty-state">שגיאה בטעינת הנתונים.</li>';
+    document.getElementById('timelineSummary').textContent = 'שגיאה בטעינת ציר הזמן';
+  });
+})();
+</script>
+{% endblock %}

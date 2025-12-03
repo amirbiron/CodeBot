@@ -1,0 +1,117 @@
+{
+  "version": 1,
+  "by_alert_type": {
+    "deployment_event": [
+      {
+        "id": "open_replay_window",
+        "label": "⏪ Incident Replay",
+        "type": "link",
+        "href": "/admin/observability/replay?timerange=3h&focus_ts={{timestamp}}",
+        "description": "פתח את ציר הזמן סביב הדיפלוימנט כדי להבין מה התרחש לפני ואחרי.",
+        "safety": "safe"
+      },
+      {
+        "id": "pin_dashboard_view",
+        "label": "📊 עבור לגרף הדיפלוימנטים",
+        "type": "link",
+        "href": "/admin/observability?timerange=24h&focus_ts={{timestamp}}#deployments",
+        "description": "ממקם את לוח הבקרה על חלון הזמן של הדיפלוימנט.",
+        "safety": "safe"
+      }
+    ],
+    "high_error_rate": [
+      {
+        "id": "copy_triage_errors",
+        "label": "🧪 /triage errors",
+        "type": "copy",
+        "payload": "/triage errors",
+        "description": "העתק פקודת ChatOps לקבלת רמזים מהלוגים בזמן אמת.",
+        "safety": "safe"
+      },
+      {
+        "id": "open_error_playbook",
+        "label": "📘 Playbook שגיאות",
+        "type": "link",
+        "href": "/GUIDES/LOGGING_IMPROVEMENTS.md",
+        "description": "חוזר לפלייבוק המלא לטיפול בזינוקי Error Rate.",
+        "safety": "safe"
+      }
+    ],
+    "slow_response": [
+      {
+        "id": "copy_triage_latency",
+        "label": "⚙️ /triage latency",
+        "type": "copy",
+        "payload": "/triage latency",
+        "description": "מריץ Playbook צ׳אטאפס לזיהוי צווארי בקשות איטיות.",
+        "safety": "safe"
+      },
+      {
+        "id": "open_latency_guide",
+        "label": "🧭 מדריך Latency",
+        "type": "link",
+        "href": "/GUIDES/GUIDE_CONNECTION_POOLING.md",
+        "description": "תזכורת לצעדים להפחתת P95 גבוה.",
+        "safety": "safe"
+      }
+    ],
+    "rate_limit_warning": [
+      {
+        "id": "copy_triage_github",
+        "label": "🐙 /triage github",
+        "type": "copy",
+        "payload": "/triage github",
+        "description": "בודק דרך ChatOps את סטטוס ה-Rate Limit ואת הקריאות הפעילות.",
+        "safety": "caution"
+      },
+      {
+        "id": "open_rate_limit_doc",
+        "label": "📚 מדריך Rate Limit",
+        "type": "link",
+        "href": "/GUIDES/CONFIG_RADAR_GUIDE.md#github",
+        "description": "עובר על ההנחיות להגבלת קריאות ומטמון תוצאות.",
+        "safety": "safe"
+      }
+    ],
+    "db_connection_issue": [
+      {
+        "id": "copy_triage_db",
+        "label": "🗄️ /triage db",
+        "type": "copy",
+        "payload": "/triage db",
+        "description": "פקודת ChatOps שמושכת מדדי Pool, כמות חיבורים ושגיאות.",
+        "safety": "caution"
+      },
+      {
+        "id": "open_backup_runbook",
+        "label": "🛠️ בדיקת DB",
+        "type": "link",
+        "href": "/GUIDES/BACKUP_RESTORE.md#db-health-check",
+        "description": "צעדים לאימות תקינות DB והרצת בדיקות בסיסיות.",
+        "safety": "caution"
+      }
+    ]
+  },
+  "by_severity": {
+    "critical": [
+      {
+        "id": "copy_errors_command",
+        "label": "🚨 /errors",
+        "type": "copy",
+        "payload": "/errors",
+        "description": "מושך את 5 השגיאות האחרונות מהבאפר כדי להבין אם מדובר בתופעה רוחבית.",
+        "safety": "safe"
+      }
+    ]
+  },
+  "fallback": [
+    {
+      "id": "open_incident_replay",
+      "label": "⏪ פתח Incident Replay",
+      "type": "link",
+      "href": "/admin/observability/replay?timerange=6h",
+      "description": "צפה בציר הזמן המשולב כדי לראות מה הקדים את ההתראה הזו.",
+      "safety": "safe"
+    }
+  ]
+}
