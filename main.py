@@ -3791,8 +3791,29 @@ async def setup_bot_data(application: Application) -> None:  # noqa: D401
                     ]
                 }
                 projection = {"user_id": 1, "drive_prefs": 1}
+                cursor = []
                 try:
-                    cursor = users_coll.find(query, projection)
+                    # Debug: log DB state
+                    wide_cnt = 0
+                    match_cnt = 0
+                    try:
+                        total_cnt = users_coll.count_documents({})
+                        wide_query = {"drive_prefs": {"$exists": True, "$ne": None}}
+                        wide_cnt = users_coll.count_documents(wide_query)
+                        match_cnt = users_coll.count_documents(query)
+                        logger.info(
+                            "drive_reschedule_debug total_users=%s with_prefs=%s match_query=%s coll=%s",
+                            total_cnt, wide_cnt, match_cnt, getattr(users_coll, 'name', 'unknown')
+                        )
+                    except Exception as e:
+                        logger.warning("drive_reschedule_debug_error error=%s", e)
+                    
+                    # Fallback: if query returns 0 but broad query has items, use broad query and filter in python
+                    if match_cnt == 0 and wide_cnt > 0:
+                        logger.info("drive_reschedule_fallback using wide query")
+                        cursor = users_coll.find(wide_query, projection)
+                    else:
+                        cursor = users_coll.find(query, projection)
                 except Exception as exc:
                     logger.warning("drive_reschedule_jobs_query_failed error=%s", exc)
                     cursor = []
