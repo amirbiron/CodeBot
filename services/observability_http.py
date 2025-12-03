@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import ipaddress
 import socket
-from typing import Dict, List, Tuple
-from urllib.parse import urlparse, urlunparse
+from typing import Dict, List, Optional, Tuple
+from urllib.parse import quote, urlparse, urlunparse
 
 import requests
 from requests.adapters import HTTPAdapter
@@ -81,14 +81,19 @@ class HostHeaderSSLAdapter(HTTPAdapter):
 _DEFAULT_USER_AGENT = "CodeBot/ObservabilityDashboard"
 
 
-def _format_locked_netloc(ip: str, port: int | None) -> str:
+def _format_locked_netloc(ip: str, port: int | None, username: Optional[str], password: Optional[str]) -> str:
     if ":" in ip and not ip.startswith("["):
         host = f"[{ip}]"
     else:
         host = ip
     if port:
-        return f"{host}:{port}"
-    return host
+        host = f"{host}:{port}"
+    if not username:
+        return host
+    user = quote(username, safe="")
+    if password is not None:
+        user = f"{user}:{quote(password, safe='')}"
+    return f"{user}@{host}"
 
 
 def fetch_graph_securely(
@@ -124,7 +129,7 @@ def fetch_graph_securely(
 
     locked_ip, _ = resolve_and_validate_domain(parsed.hostname)
 
-    netloc_with_ip = _format_locked_netloc(locked_ip, parsed.port)
+    netloc_with_ip = _format_locked_netloc(locked_ip, parsed.port, parsed.username, parsed.password)
     parsed_with_ip = parsed._replace(netloc=netloc_with_ip)
     url_with_locked_ip = urlunparse(parsed_with_ip)
 

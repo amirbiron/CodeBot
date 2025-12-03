@@ -71,6 +71,56 @@ def test_fetch_graph_securely_rewrites_host(monkeypatch):
     assert dummy_session.called["allow_redirects"] is False
 
 
+def test_fetch_graph_securely_preserves_basic_auth(monkeypatch):
+    locked_ip = "93.184.216.34"
+
+    def fake_getaddrinfo(*_args, **_kwargs):
+        return [(None, None, None, None, (locked_ip, 0))]
+
+    monkeypatch.setattr(obs_http.socket, "getaddrinfo", fake_getaddrinfo)
+
+    class DummyResponse:
+        def __init__(self, content: bytes):
+            self.content = content
+
+        def raise_for_status(self):
+            return None
+
+    class DummySession:
+        def __init__(self):
+            self.called = {}
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def mount(self, *_args, **_kwargs):
+            return None
+
+        def get(self, url, headers, timeout, allow_redirects, verify):
+            self.called = {
+                "url": url,
+                "headers": headers,
+                "timeout": timeout,
+                "allow_redirects": allow_redirects,
+                "verify": verify,
+            }
+            return DummyResponse(b'{"ok": true}')
+
+    dummy_session = DummySession()
+    monkeypatch.setattr(obs_http.requests, "Session", lambda: dummy_session)
+
+    obs_http.fetch_graph_securely(
+        "https://user:pass@grafana.example.com/render?panel={panel}",
+        panel="99",
+    )
+
+    assert dummy_session.called["url"].startswith(f"https://user:pass@{locked_ip}")
+    assert dummy_session.called["headers"]["Host"] == "grafana.example.com"
+
+
 def test_http_get_json_decodes_payload(monkeypatch):
     monkeypatch.setattr(obs_dash, "fetch_graph_securely", lambda *a, **k: b'{"value": 1}')
     data = obs_dash._http_get_json("https://example.com/path")
