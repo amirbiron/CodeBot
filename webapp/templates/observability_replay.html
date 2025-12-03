@@ -80,6 +80,21 @@
   color: #fff;
   padding: 0.25rem 0.5rem;
 }
+.custom-range button {
+  border: none;
+  border-radius: 999px;
+  padding: 0.45rem 1.2rem;
+  background: linear-gradient(135deg,#64ffda,#36c2ff);
+  color: #0b1224;
+  font-weight: 600;
+  cursor: pointer;
+  box-shadow: 0 10px 25px rgba(0,0,0,0.35);
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+.custom-range button:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 14px 28px rgba(0,0,0,0.45);
+}
 .timeline-wrapper {
   background: rgba(18,24,38,0.78);
   border-radius: 18px;
@@ -205,27 +220,39 @@
     focus: '{{ initial_focus|default('', true) }}'
   };
 
+  const timelineSummaryEl = document.getElementById('timelineSummary');
+  const timelineListEl = document.getElementById('timelineList');
   const rangeButtons = document.querySelectorAll('#replayRangeButtons button');
+
+  function markActiveRange(rangeValue) {
+    rangeButtons.forEach(b => {
+      if (b.dataset.range === rangeValue) {
+        b.classList.add('active');
+      } else {
+        b.classList.remove('active');
+      }
+    });
+  }
+  markActiveRange(state.range);
+
   rangeButtons.forEach(btn => {
-    if (btn.dataset.range === state.range) {
-      btn.classList.add('active');
-    }
     btn.addEventListener('click', () => {
-      rangeButtons.forEach(b => b.classList.remove('active'));
-      btn.classList.add('active');
+      markActiveRange(btn.dataset.range);
       state.range = btn.dataset.range || '3h';
       state.start = '';
       state.end = '';
       document.getElementById('startInput').value = '';
       document.getElementById('endInput').value = '';
-      loadTimeline();
+      loadTimelineWithGuard();
     });
   });
 
   document.getElementById('applyCustomRange').addEventListener('click', () => {
+    state.range = '';
+    markActiveRange('');
     state.start = document.getElementById('startInput').value;
     state.end = document.getElementById('endInput').value;
-    loadTimeline();
+    loadTimelineWithGuard();
   });
 
   document.getElementById('shareReplayBtn').addEventListener('click', async () => {
@@ -276,19 +303,30 @@
     return params.toString();
   }
 
+  function showLoadingState() {
+    timelineSummaryEl.textContent = 'טוען נתונים…';
+    timelineListEl.innerHTML = '<li class="empty-state">טוען אירועים…</li>';
+  }
+
+  function handleTimelineError(err) {
+    console.error('replay load failed', err);
+    timelineListEl.innerHTML = '<li class="empty-state">שגיאה בטעינת הנתונים.</li>';
+    timelineSummaryEl.textContent = 'שגיאה בטעינת ציר הזמן';
+  }
+
   async function loadTimeline() {
+    showLoadingState();
     const query = buildQuery();
     const res = await fetch(`/api/observability/replay?${query}`, {headers: {'Accept': 'application/json'}});
     if (!res.ok) throw new Error('HTTP ' + res.status);
     const payload = await res.json();
-    if (payload.ok === False) throw new Error(payload.error || 'replay_error');
+    if (payload.ok === false) throw new Error(payload.error || 'replay_error');
     renderTimeline(payload.events || [], payload.counts || {}, payload.window || {});
   }
 
   function renderTimeline(events, counts, windowInfo) {
-    const summaryEl = document.getElementById('timelineSummary');
-    summaryEl.textContent = `סה"כ ${counts.alerts || 0} התראות, ${counts.deployments || 0} דיפלוימנטים, ${counts.chatops || 0} פעולות ChatOps`;
-    const list = document.getElementById('timelineList');
+    timelineSummaryEl.textContent = `סה"כ ${counts.alerts || 0} התראות, ${counts.deployments || 0} דיפלוימנטים, ${counts.chatops || 0} פעולות ChatOps`;
+    const list = timelineListEl;
     if (!events.length) {
       list.innerHTML = '<li class="empty-state">לא נמצאו אירועים בטווח הנבחר.</li>';
       return;
@@ -314,12 +352,11 @@
     }).join('');
   }
 
-  loadTimeline().catch(err => {
-    console.error('replay load failed', err);
-    const list = document.getElementById('timelineList');
-    list.innerHTML = '<li class="empty-state">שגיאה בטעינת הנתונים.</li>';
-    document.getElementById('timelineSummary').textContent = 'שגיאה בטעינת ציר הזמן';
-  });
+  function loadTimelineWithGuard() {
+    loadTimeline().catch(handleTimelineError);
+  }
+
+  loadTimelineWithGuard();
 })();
 </script>
 {% endblock %}
