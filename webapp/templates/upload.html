@@ -454,7 +454,18 @@
       const MARKDOWN_IMAGE_MAX_BYTES = 2 * 1024 * 1024;
       const MARKDOWN_ALLOWED_TYPES = ['image/png', 'image/jpeg', 'image/webp', 'image/gif'];
       let markdownSelectedImages = [];
-      const supportsDataTransfer = typeof DataTransfer !== 'undefined';
+      const supportsDataTransfer = (() => {
+        if (typeof DataTransfer === 'undefined') {
+          return false;
+        }
+        try {
+          // חלק מהדפדפנים (בעיקר מובייל) חושפים את DataTransfer אבל לא מאפשרים לבנות אותו
+          new DataTransfer();
+          return true;
+        } catch (_) {
+          return false;
+        }
+      })();
       let previousBodyOverflow = '';
       window.addEventListener('beforeunload', revokeAllMarkdownImageUrls);
 
