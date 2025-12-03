@@ -80,6 +80,8 @@
   let workspaceActiveCard = null;
   let activeDragContext = null;
   let workspaceDragPointer = null;
+  let workspacePointerCleanup = null;
+  let workspacePointerOwnerToken = null;
   let sidebarContainerEl = null;
   let sidebarShellEl = null;
   let sidebarHoverBtn = null;
@@ -518,7 +520,7 @@
   function beginCollectionItemDrag(row, collectionId, listEl, origin){
     const payload = buildItemPayloadFromRow(row);
     if (!payload) return;
-    activeDragContext = {
+    const ctx = {
       element: row,
       collectionId: collectionId,
       container: listEl,
@@ -526,6 +528,10 @@
       origin,
       dropInProgress: false,
     };
+    if (origin === 'workspace') {
+      ctx.workspacePointerToken = startWorkspacePointerTracking();
+    }
+    activeDragContext = ctx;
     setSidebarDragVisual(true);
   }
 
@@ -535,8 +541,11 @@
   }
 
   function clearActiveDragContext(){
-    resetDragUi();
-    activeDragContext = null;
+    const ctx = activeDragContext;
+    clearActiveDragContext();
+    if (ctx && ctx.origin === 'workspace') {
+      stopWorkspacePointerTracking(ctx.workspacePointerToken);
+    }
   }
 
   function trackWorkspacePointer(event){
@@ -552,6 +561,71 @@
     const point = workspaceDragPointer;
     workspaceDragPointer = null;
     return point;
+  }
+
+  function startWorkspacePointerTracking(){
+    if (typeof document === 'undefined') {
+      return null;
+    }
+    stopWorkspacePointerTracking();
+    const token = Symbol('workspace-pointer');
+    const handlers = [];
+    const updateFromEvent = (ev) => {
+      if (!ev) return;
+      let pointX = null;
+      let pointY = null;
+      if (typeof ev.clientX === 'number' && typeof ev.clientY === 'number') {
+        pointX = ev.clientX;
+        pointY = ev.clientY;
+      } else if (ev.touches && ev.touches[0]) {
+        pointX = ev.touches[0].clientX;
+        pointY = ev.touches[0].clientY;
+      }
+      if (typeof pointX !== 'number' || typeof pointY !== 'number') {
+        return;
+      }
+      trackWorkspacePointer({ clientX: pointX, clientY: pointY });
+      if (activeDragContext && activeDragContext.origin === 'workspace') {
+        updateSidebarHoverFromPoint(pointX, pointY);
+      }
+    };
+    const hasPointer = typeof window !== 'undefined' && 'onpointermove' in window;
+    if (hasPointer) {
+      const pointerHandler = (ev) => updateFromEvent(ev);
+      document.addEventListener('pointermove', pointerHandler);
+      handlers.push(() => {
+        document.removeEventListener('pointermove', pointerHandler);
+      });
+    } else {
+      const mouseHandler = (ev) => updateFromEvent(ev);
+      const touchHandler = (ev) => updateFromEvent(ev);
+      document.addEventListener('mousemove', mouseHandler);
+      document.addEventListener('touchmove', touchHandler);
+      handlers.push(() => {
+        document.removeEventListener('mousemove', mouseHandler);
+        document.removeEventListener('touchmove', touchHandler);
+      });
+    }
+    workspacePointerCleanup = () => {
+      handlers.forEach((fn) => {
+        try { fn(); } catch (_err) {}
+      });
+      workspacePointerCleanup = null;
+      workspacePointerOwnerToken = null;
+    };
+    workspacePointerOwnerToken = token;
+    return token;
+  }
+
+  function stopWorkspacePointerTracking(token){
+    if (token && workspacePointerOwnerToken && token !== workspacePointerOwnerToken) {
+      return;
+    }
+    if (typeof workspacePointerCleanup === 'function') {
+      try { workspacePointerCleanup(); } catch (_err) {}
+    }
+    workspacePointerCleanup = null;
+    workspacePointerOwnerToken = null;
   }
 
   function buildItemPayloadFromRow(row){
@@ -676,8 +750,11 @@
     const payload = ctx.payload;
     if (!payload || !payload.file_name) {
       ctx.dropInProgress = false;
-      resetDragUi();
-      activeDragContext = null;
+      if (activeDragContext === ctx) {
+        clearActiveDragContext();
+      } else if (ctx.origin === 'workspace') {
+        stopWorkspacePointerTracking(ctx.workspacePointerToken);
+      }
       return;
     }
     setSidebarDropHover(targetBtn || sidebarHoverBtn, 'hover');
@@ -710,8 +787,9 @@
       ctx.dropInProgress = false;
       stopBusy();
       if (activeDragContext === ctx) {
-        resetDragUi();
-        activeDragContext = null;
+        clearActiveDragContext();
+      } else if (ctx.origin === 'workspace') {
+        stopWorkspacePointerTracking(ctx.workspacePointerToken);
       }
     }
   }
