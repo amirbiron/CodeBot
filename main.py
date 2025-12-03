@@ -3750,74 +3750,55 @@ async def setup_bot_data(application: Application) -> None:  # noqa: D401
             try:
                 drive_handler = context.application.bot_data.get('drive_handler')
                 if not drive_handler:
+                    logger.warning("drive_reschedule_jobs_skip reason=no_drive_handler")
                     return
-                # אתר את מנהל ה-DB: עדיפות למנהל שנשמר ב-bot_data כדי לשתף מצב עם שאר הרכיבים
-                db_candidates: list[Any] = []
-                bot_db = context.application.bot_data.get('db_manager')
-                if bot_db:
-                    db_candidates.append(bot_db)
-                try:
-                    from database import db as module_db  # type: ignore
-                except Exception:
-                    module_db = None  # type: ignore[assignment]
-                if module_db:
-                    db_candidates.append(module_db)
-                # fallback: המופע המקומי שנוצר ב-main (אם זמין בסקופ)
-                try:
-                    db_candidates.append(db)
-                except Exception:
-                    pass
-                users_coll = None
-                for candidate in db_candidates:
-                    if not candidate:
-                        continue
-                    cand_db = getattr(candidate, 'db', None)
-                    coll = getattr(cand_db, 'users', None)
-                    if coll is not None and hasattr(coll, 'find'):
-                        users_coll = coll
-                        break
-                if users_coll is None:
-                    logger.warning("drive_reschedule_jobs_skip reason=no_users_collection")
-                    return
-                sched_keys = {"daily", "every3", "weekly", "biweekly", "monthly"}
-                query = {
-                    "$or": [
-                        {"drive_prefs.schedule": {"$in": list(sched_keys)}},
-                        {"drive_prefs.schedule.key": {"$in": list(sched_keys)}},
-                        {"drive_prefs.schedule.value": {"$in": list(sched_keys)}},
-                        {"drive_prefs.schedule.name": {"$in": list(sched_keys)}},
-                        {"drive_prefs.schedule_key": {"$in": list(sched_keys)}},
-                        {"drive_prefs.scheduleKey": {"$in": list(sched_keys)}},
-                    ]
-                }
-                projection = {"user_id": 1, "drive_prefs": 1}
-                cursor = []
-                try:
-                    # Debug: log DB state
-                    wide_cnt = 0
-                    match_cnt = 0
+                # אתר את מנהל ה-DB: עדיפות למנהל שנשמר ב-bot_data, אחר כך ייבוא ישיר
+                db_manager = context.application.bot_data.get('db_manager')
+                if not db_manager:
                     try:
-                        total_cnt = users_coll.count_documents({})
-                        wide_query = {"drive_prefs": {"$exists": True, "$ne": None}}
-                        wide_cnt = users_coll.count_documents(wide_query)
-                        match_cnt = users_coll.count_documents(query)
+                        from database import db as module_db  # type: ignore
+                        db_manager = module_db
+                    except Exception:
+                        pass
+                if not db_manager:
+                    # fallback: המופע המקומי שנוצר ב-main (אם זמין בסקופ)
+                    try:
+                        db_manager = db
+                    except Exception:
+                        pass
+                if not db_manager:
+                    logger.warning("drive_reschedule_jobs_skip reason=no_db_manager")
+                    return
+                # Use the new Repository method to get users with active schedules
+                sched_keys = {"daily", "every3", "weekly", "biweekly", "monthly"}
+                users_docs = []
+                try:
+                    get_users_fn = getattr(db_manager, 'get_users_with_active_drive_schedule', None)
+                    if callable(get_users_fn):
+                        users_docs = get_users_fn()
                         logger.info(
-                            "drive_reschedule_debug total_users=%s with_prefs=%s match_query=%s coll=%s",
-                            total_cnt, wide_cnt, match_cnt, getattr(users_coll, 'name', 'unknown')
+                            "drive_reschedule_via_repo users_found=%s",
+                            len(users_docs),
                         )
-                    except Exception as e:
-                        logger.warning("drive_reschedule_debug_error error=%s", e)
-                    
-                    # Fallback: if query returns 0 but broad query has items, use broad query and filter in python
-                    if match_cnt == 0 and wide_cnt > 0:
-                        logger.info("drive_reschedule_fallback using wide query")
-                        cursor = users_coll.find(wide_query, projection)
                     else:
-                        cursor = users_coll.find(query, projection)
+                        # Fallback to direct collection access if method not available
+                        logger.warning("drive_reschedule_fallback_to_direct reason=method_missing")
+                        cand_db = getattr(db_manager, 'db', None)
+                        users_coll = getattr(cand_db, 'users', None) if cand_db else None
+                        if users_coll and hasattr(users_coll, 'find'):
+                            wide_query = {"drive_prefs": {"$exists": True, "$ne": None}}
+                            users_docs = list(users_coll.find(wide_query, {"user_id": 1, "drive_prefs": 1}))
+                            logger.info(
+                                "drive_reschedule_direct_query users_found=%s",
+                                len(users_docs),
+                            )
+                        else:
+                            logger.warning("drive_reschedule_jobs_skip reason=no_users_collection")
+                            return
                 except Exception as exc:
                     logger.warning("drive_reschedule_jobs_query_failed error=%s", exc)
-                    cursor = []
-                for doc in cursor:
+                    users_docs = []
+                for doc in users_docs:
                     try:
                         uid = int(doc.get("user_id") or 0)
                         if not uid:
