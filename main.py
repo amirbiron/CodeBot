@@ -3785,7 +3785,9 @@ async def setup_bot_data(application: Application) -> None:  # noqa: D401
                         {"drive_prefs.schedule": {"$in": list(sched_keys)}},
                         {"drive_prefs.schedule.key": {"$in": list(sched_keys)}},
                         {"drive_prefs.schedule.value": {"$in": list(sched_keys)}},
+                        {"drive_prefs.schedule.name": {"$in": list(sched_keys)}},
                         {"drive_prefs.schedule_key": {"$in": list(sched_keys)}},
+                        {"drive_prefs.scheduleKey": {"$in": list(sched_keys)}},
                     ]
                 }
                 projection = {"user_id": 1, "drive_prefs": 1}
