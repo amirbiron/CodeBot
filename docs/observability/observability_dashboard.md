@@ -201,6 +201,7 @@ curl -H 'Accept: application/json' \
 - משתנים נתמכים בטמפלייט: `{{metric_name}}`, `{{start_time}}`, `{{end_time}}`, `{{granularity_seconds}}`, `{{start_ts_ms}}`, `{{end_ts_ms}}`.
 - ה-API החיצוני צריך להחזיר מערך של רשומות או אובייקט עם `data` המכיל רשומות. ברירת המחדל היא לחפש שדות בשם `timestamp` ו-`value`, אך ניתן לעדכן בעזרת `timestamp_key`/`value_key`.
 - לכל מקור חובה להגדיר `allowed_hosts` – רשימת שמות דומיין מאושרים. לפני כל קריאה נוודא שה-URL הסופי משתמש ב-HTTP/S ושם המארח נמצא ברשימה, אחרת הקריאה תיחסם כדי למנוע SSRF.
+- שמות המטריקות עצמם משמשים כ־Allowlist. מערכת ה-WebApp תבצע קריאה חיצונית רק אם המטריקה הוגדרה בקובץ הזה; ניסיון לבקש מטריקה שלא קיימת פשוט ייחסם.
 - כך ניתן לחבר Grafana/DataDog/Prometheus JSON API בלי שינוי קוד: אם אין מטריקה פנימית, המשתמש יראה את ההודעה *"No visual data available for this metric"* עד שיוגדר Template מתאים.
 
 ## 🔐 אבטחה, Rate Limiting וקאש

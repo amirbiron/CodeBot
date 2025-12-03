@@ -166,6 +166,7 @@ _ALERT_GRAPH_RULES: List[Dict[str, Any]] = [
 _ALERT_GRAPH_SOURCES_PATH = Path(os.getenv("ALERT_GRAPH_SOURCES_PATH", "config/alert_graph_sources.json"))
 _GRAPH_SOURCES_CACHE: Dict[str, Any] = {}
 _GRAPH_SOURCES_MTIME: float = 0.0
+_EXTERNAL_ALLOWED_METRICS: set[str] = set()
 
 
 def _cache_get(kind: str, key: Any, ttl: float) -> Any:
@@ -293,7 +294,7 @@ def get_quick_fix_actions(alert: Dict[str, Any]) -> List[Dict[str, Any]]:
 
 
 def _load_graph_sources_config() -> Dict[str, Any]:
-    global _GRAPH_SOURCES_CACHE, _GRAPH_SOURCES_MTIME
+    global _GRAPH_SOURCES_CACHE, _GRAPH_SOURCES_MTIME, _EXTERNAL_ALLOWED_METRICS
     path = _ALERT_GRAPH_SOURCES_PATH
     if not path:
         return _GRAPH_SOURCES_CACHE
@@ -320,10 +321,13 @@ def _load_graph_sources_config() -> Dict[str, Any]:
         for key, value in sources.items():
             if not isinstance(value, dict):
                 continue
-            normalized[str(key).lower()] = value
+            norm_key = str(key).lower()
+            normalized[norm_key] = value
         _GRAPH_SOURCES_CACHE = normalized
+        _EXTERNAL_ALLOWED_METRICS = set(normalized.keys())
     else:
         _GRAPH_SOURCES_CACHE = {}
+        _EXTERNAL_ALLOWED_METRICS = set()
     _GRAPH_SOURCES_MTIME = stat.st_mtime
     return _GRAPH_SOURCES_CACHE
 
@@ -939,6 +943,9 @@ def _fetch_external_metric_series(
 ) -> List[Dict[str, Any]]:
     if definition.get("source") != "external":
         raise ValueError("unsupported_external_metric")
+    if metric not in _EXTERNAL_ALLOWED_METRICS:
+        logger.warning("external_metric_not_allowlisted", extra={"metric": metric})
+        raise ValueError("invalid_metric")
     config = definition.get("external_config") or {}
     template = config.get("graph_url_template")
     if not template:

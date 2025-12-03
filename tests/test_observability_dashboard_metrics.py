@@ -2,6 +2,8 @@ import sys
 import types
 from datetime import datetime, timezone
 
+import pytest
+
 
 def _ts(minutes: int) -> float:
     base = datetime(2025, 1, 1, tzinfo=timezone.utc)
@@ -59,6 +61,7 @@ def test_fetch_timeseries_requests_per_minute(monkeypatch):
 def test_fetch_timeseries_external_metric_enforces_allowlist(monkeypatch):
     from services import observability_dashboard as obs
     obs._CACHE.clear()
+    obs._EXTERNAL_ALLOWED_METRICS = {"external_metric"}
 
     def _fake_get_definition(metric):
         return {
@@ -100,6 +103,7 @@ def test_fetch_timeseries_external_metric_enforces_allowlist(monkeypatch):
 def test_fetch_timeseries_external_metric_blocks_unknown_host(monkeypatch):
     from services import observability_dashboard as obs
     obs._CACHE.clear()
+    obs._EXTERNAL_ALLOWED_METRICS = {"external_metric"}
 
     def _fake_get_definition(metric):
         return {
@@ -131,3 +135,33 @@ def test_fetch_timeseries_external_metric_blocks_unknown_host(monkeypatch):
     # Host is not on allowlist -> no data and no outbound HTTP call.
     assert payload["metric"] == "external_metric"
     assert payload["data"] == []
+
+
+def test_fetch_timeseries_external_metric_not_allowlisted(monkeypatch):
+    from services import observability_dashboard as obs
+    obs._CACHE.clear()
+    obs._EXTERNAL_ALLOWED_METRICS = set()
+
+    def _fake_get_definition(metric):
+        return {
+            "metric": metric,
+            "source": "external",
+            "label": "External Metric",
+            "unit": "%",
+            "category": "spike",
+            "default_range": "1h",
+            "allowed_hosts": ["safe.example"],
+            "external_config": {
+                "graph_url_template": "https://safe.example/api?metric={{metric_name}}",
+            },
+        }
+
+    monkeypatch.setattr(obs, "_get_metric_definition", _fake_get_definition)
+
+    with pytest.raises(ValueError):
+        obs.fetch_timeseries(
+            start_dt=datetime(2025, 1, 1, tzinfo=timezone.utc),
+            end_dt=datetime(2025, 1, 1, 0, 30, tzinfo=timezone.utc),
+            granularity_seconds=900,
+            metric="external_metric",
+        )
