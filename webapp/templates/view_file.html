@@ -70,165 +70,130 @@
     margin-bottom: 1.25rem;
 }
 
-#fullscreenBtn {
-    background: rgba(255, 255, 255, 0.1) !important;
-    color: #ffffff !important;
-    border: 1px solid rgba(255, 255, 255, 0.25) !important;
-    border-radius: 10px !important;
-    padding: 10px 18px !important;
-    font-size: 14px !important;
+/* Editor toolbar */
+.editor-toolbar {
+    width: 100%;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 10px;
+    padding: 8px;
+    margin: 0 0 1rem;
+    background: rgba(255, 255, 255, 0.08);
+    border: 1px solid rgba(255, 255, 255, 0.18);
+    border-radius: 12px;
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    position: sticky;
+    top: 0;
+    z-index: 5;
+}
+
+.search-capsule {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 8px;
+    flex: 1 1 320px;
+    min-width: 240px;
+    padding: 6px 10px;
+    border-radius: 10px;
+    background: rgba(0, 0, 0, 0.25);
+    border: 1px solid transparent;
+    transition: border-color 0.2s ease, background 0.2s ease;
+}
+
+.search-capsule:focus-within {
+    border-color: rgba(255, 255, 255, 0.5);
+    background: rgba(0, 0, 0, 0.4);
+}
+
+.search-input {
+    flex: 1 1 200px;
+    min-width: 0;
+    border: none;
+    background: transparent;
+    color: #ffffff;
+    font-size: 15px;
+    padding: 6px 4px;
+    outline: none;
+}
+
+.search-input::placeholder {
+    color: rgba(255, 255, 255, 0.6);
+}
+
+.search-count {
+    color: rgba(255, 255, 255, 0.85);
+    font-size: 13px;
+    white-space: nowrap;
+    min-width: 48px;
+    text-align: center;
+    font-variant-numeric: tabular-nums;
+}
+
+.divider {
+    width: 1px;
+    height: 22px;
+    background: rgba(255, 255, 255, 0.25);
+}
+
+.icon-btn {
+    background: transparent;
+    border: none;
+    color: rgba(255, 255, 255, 0.9);
+    width: 34px;
+    height: 34px;
+    border-radius: 6px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    transition: background 0.2s ease;
+    font-size: 16px;
+}
+
+.icon-btn:hover,
+.icon-btn:focus-visible {
+    background: rgba(255, 255, 255, 0.15);
+}
+
+.fullscreen-btn {
     display: inline-flex;
     align-items: center;
     gap: 8px;
-    cursor: pointer;
-    transition: all 0.2s ease;
-    backdrop-filter: blur(10px);
-    -webkit-backdrop-filter: blur(10px);
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
-    white-space: nowrap;
-}
-
-#fullscreenBtn:hover {
-    background: rgba(255, 255, 255, 0.2) !important;
-    border-color: rgba(255, 255, 255, 0.4) !important;
-    transform: translateY(-1px);
-}
-
-/* Code search toolbar */
-.code-search-bar {
-    width: 100% !important;
-    display: flex !important;
-    flex-wrap: wrap !important;
-    align-items: center !important;
-    gap: 12px !important;
-    padding: 0 !important;
-    margin: 0 0 1rem !important;
-    background: transparent !important;
-    border: none !important;
-    box-shadow: none !important;
-    position: sticky !important;
-    top: 0 !important;
-    z-index: 5 !important;
-}
-
-.code-search-input {
-    flex: 1 1 100% !important;
-    width: 100% !important;
-    min-width: 0 !important;
-    order: 1 !important;
-    background: rgba(255, 255, 255, 0.15);
-    border: 1px solid rgba(255, 255, 255, 0.35);
-    border-radius: 12px;
-    padding: 14px 20px;
-    padding-inline-start: 45px;
-    padding-inline-end: 16px;
-    color: #ffffff;
-    font-size: 15px;
-    line-height: 1.2;
-    transition: all 0.2s ease;
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12);
-    backdrop-filter: blur(10px);
-    -webkit-backdrop-filter: blur(10px);
-}
-
-.code-search-input::placeholder {
-    color: rgba(255, 255, 255, 0.65);
-}
-
-.code-search-input:focus {
-    outline: none;
-    border-color: rgba(255, 255, 255, 0.65);
-    background: rgba(255, 255, 255, 0.22);
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.18);
-}
-
-.code-search-count {
-    flex: 1 1 100%;
-    width: 100% !important;
-    min-width: 200px !important;
-    order: 5 !important;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    padding: 12px 16px;
-    border-radius: 12px;
-    background: rgba(255, 255, 255, 0.15);
-    border: 1px solid rgba(255, 255, 255, 0.3);
-    color: rgba(255, 255, 255, 0.92);
-    font-size: 14px;
-    font-weight: 500;
-    min-height: 48px;
-    text-align: center;
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
-}
-
-.code-search-btn {
-    background: rgba(255, 255, 255, 0.1) !important;
-    color: #ffffff !important;
-    border: 1px solid rgba(255, 255, 255, 0.25) !important;
+    padding: 10px 20px;
     border-radius: 10px;
-    width: 48px;
-    height: 48px;
-    min-width: 48px;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    font-size: 18px;
+    border: 1px solid rgba(255, 255, 255, 0.25);
+    background: rgba(255, 255, 255, 0.12);
+    color: #ffffff;
+    font-size: 14px;
     cursor: pointer;
-    transition: all 0.2s ease;
+    transition: background 0.2s ease, border-color 0.2s ease;
+    white-space: nowrap;
+    margin-inline-start: auto;
     backdrop-filter: blur(10px);
     -webkit-backdrop-filter: blur(10px);
-    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.12);
 }
 
-.code-search-btn:hover,
-.code-search-btn:focus-visible {
-    background: rgba(255, 255, 255, 0.22) !important;
-    border-color: rgba(255, 255, 255, 0.45) !important;
-    transform: translateY(-1px);
+.fullscreen-btn:hover,
+.fullscreen-btn:focus-visible {
+    background: rgba(255, 255, 255, 0.22);
+    border-color: rgba(255, 255, 255, 0.4);
 }
 
-.code-search-btn:active {
-    transform: translateY(0);
-}
-
-#codeSearchNext,
-#codeSearchPrev,
-#codeSearchClear {
-    order: 2 !important;
-}
-
-#codeSearchPrev {
-    order: 3 !important;
-}
-
-#codeSearchClear {
-    order: 4 !important;
-}
-
-@media (max-width: 768px) {
-    #fullscreenBtn {
-        width: 100% !important;
-        justify-content: center !important;
+@media (max-width: 500px) {
+    .search-capsule {
+        flex-basis: 100%;
+        width: 100%;
+        min-width: 0;
+        order: 2;
     }
-    .code-search-btn {
-        width: 44px !important;
-        height: 44px !important;
-        min-width: 44px !important;
-        font-size: 16px !important;
-    }
-    .code-search-input {
-        padding: 12px 16px !important;
-        padding-inline-start: 40px !important;
-    }
-}
 
-@media (max-width: 480px) {
-    .code-search-bar {
-        gap: 10px !important;
-    }
-    .code-search-input {
-        font-size: 14px !important;
+    .fullscreen-btn {
+        width: auto;
+        order: 1;
+        margin-inline-start: auto;
     }
 }
 
@@ -712,17 +677,38 @@ body.telegram-mini-app .file-title { font-size: 1.125rem; }
             <i class="fas fa-code"></i>
             קוד מקור
         </h2>
-        <button id="fullscreenBtn" class="btn btn-secondary btn-icon" title="מסך מלא">
-            <i class="fas fa-expand"></i>
-            מסך מלא
-        </button>
     </div>
-    <div class="search-bar code-search-bar" id="code-search">
-        <input id="codeSearchInput" type="text" class="code-search-input" placeholder="🔍 חפש בקוד...">
-        <span id="codeSearchCount" class="result-count code-search-count"></span>
-        <button id="codeSearchNext" type="button" class="btn btn-secondary btn-icon code-search-btn" title="הבא">◀</button>
-        <button id="codeSearchPrev" type="button" class="btn btn-secondary btn-icon code-search-btn" title="קודם">▶</button>
-        <button id="codeSearchClear" type="button" class="btn btn-secondary btn-icon code-search-btn" title="נקה">✕</button>
+    <div class="editor-toolbar" id="code-search">
+        <div class="search-capsule">
+            <input id="codeSearchInput"
+                   type="text"
+                   class="search-input"
+                   placeholder="🔍 חפש בקוד..."
+                   aria-label="חיפוש בתוך הקוד">
+            <span id="searchCount"
+                  class="search-count"
+                  aria-live="polite"></span>
+            <div class="divider" aria-hidden="true"></div>
+            <button id="prevMatchBtn"
+                    type="button"
+                    class="icon-btn"
+                    title="התוצאה הקודמת"
+                    aria-label="התוצאה הקודמת">▲</button>
+            <button id="nextMatchBtn"
+                    type="button"
+                    class="icon-btn"
+                    title="התוצאה הבאה"
+                    aria-label="התוצאה הבאה">▼</button>
+            <button id="closeSearchBtn"
+                    type="button"
+                    class="icon-btn"
+                    title="נקה חיפוש"
+                    aria-label="נקה חיפוש">✕</button>
+        </div>
+        <button id="fullscreenBtn" class="fullscreen-btn" type="button" title="מסך מלא">
+            <span aria-hidden="true">⛶</span>
+            <span>מסך מלא</span>
+        </button>
     </div>
     <div class="code-container">
         {{ highlighted_code|safe }}
@@ -1176,10 +1162,10 @@ function goBack(ev){
     try {
         const container = document.querySelector('#codeCard .code-container');
         const input = document.getElementById('codeSearchInput');
-        const clearBtn = document.getElementById('codeSearchClear');
-        const nextBtn = document.getElementById('codeSearchNext');
-        const prevBtn = document.getElementById('codeSearchPrev');
-        const countEl = document.getElementById('codeSearchCount');
+        const clearBtn = document.getElementById('closeSearchBtn') || document.getElementById('codeSearchClear');
+        const nextBtn = document.getElementById('nextMatchBtn') || document.getElementById('codeSearchNext');
+        const prevBtn = document.getElementById('prevMatchBtn') || document.getElementById('codeSearchPrev');
+        const countEl = document.getElementById('searchCount') || document.getElementById('codeSearchCount');
         if (!container || !input || !clearBtn || !countEl) return;
         let justAutoFocused = false;
 
