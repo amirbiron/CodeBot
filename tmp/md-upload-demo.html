@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>העלאת תמונה לקובץ Markdown - Demo</title>
+    <title>העלאת תמונה לקובץ Markdown - מתוקן למובייל</title>
     <style>
         * {
             margin: 0;
@@ -52,23 +52,22 @@
             text-align: right;
         }
 
-        /* שם קובץ עם אייקון העלאה */
+        /* שם קובץ עם אייקון העלאה - FIXED */
         .filename-container {
-            position: relative;
             display: flex;
-            align-items: center;
-            gap: 12px;
-            flex-wrap: nowrap;
-            overflow: hidden;
+            align-items: stretch;
+            gap: 8px;
+            width: 100%;
         }
 
         .filename-input {
             flex: 1;
+            min-width: 0; /* חשוב! מאפשר ל-flex item להתכווץ */
             background: rgba(255, 255, 255, 0.15);
             border: 2px solid rgba(255, 255, 255, 0.3);
             border-radius: 12px;
             color: white;
-            padding: 14px 20px;
+            padding: 14px 16px;
             font-size: 16px;
             direction: ltr;
             text-align: left;
@@ -84,21 +83,22 @@
             background: rgba(255, 255, 255, 0.2);
         }
 
-        /* כפתור העלאת תמונה */
+        /* כפתור העלאת תמונה - FIXED למובייל */
         .upload-image-btn {
+            flex: 0 0 auto; /* לא יגדל, לא יקטן */
             background: rgba(255, 255, 255, 0.15);
             border: 2px solid rgba(255, 255, 255, 0.3);
             border-radius: 12px;
             color: white;
-            padding: 14px 20px;
+            padding: 14px;
             font-size: 24px;
             cursor: pointer;
             transition: all 0.2s ease;
             display: none; /* מוסתר כברירת מחדל */
             align-items: center;
             justify-content: center;
-            min-width: 60px;
-            flex: 0 0 60px;
+            min-width: 54px;
+            width: 54px;
         }
 
         .upload-image-btn.visible {
@@ -287,25 +287,121 @@
             margin-left: 8px;
         }
 
-        @media (max-width: 768px) {
-            .upload-image-btn {
-                min-width: 52px;
-                flex-basis: 52px;
-                padding: 12px;
-                font-size: 20px;
-            }
+        .status-badge {
+            display: inline-block;
+            background: rgba(74, 222, 128, 0.2);
+            color: #4ade80;
+            padding: 4px 12px;
+            border-radius: 8px;
+            font-size: 14px;
+            font-weight: 600;
+            margin-top: 8px;
         }
 
-        @media (max-width: 414px) {
+        /* ===== MOBILE RESPONSIVE ===== */
+        
+        /* Tablet */
+        @media (max-width: 768px) {
+            .page-title {
+                font-size: 28px;
+                margin-bottom: 30px;
+            }
+
+            .form-card {
+                padding: 24px;
+            }
+
             .upload-image-btn {
-                min-width: 44px;
-                flex-basis: 44px;
-                padding: 10px;
-                font-size: 18px;
+                min-width: 50px;
+                width: 50px;
+                padding: 12px;
+                font-size: 22px;
             }
 
             .filename-input {
                 font-size: 15px;
+                padding: 12px 14px;
+            }
+        }
+
+        /* Mobile */
+        @media (max-width: 480px) {
+            body {
+                padding: 12px;
+            }
+
+            .page-title {
+                font-size: 24px;
+                margin-bottom: 24px;
+            }
+
+            .form-card {
+                padding: 20px;
+                border-radius: 16px;
+            }
+
+            .form-label {
+                font-size: 16px;
+                margin-bottom: 10px;
+            }
+
+            .filename-container {
+                gap: 6px;
+            }
+
+            .upload-image-btn {
+                min-width: 46px;
+                width: 46px;
+                padding: 10px;
+                font-size: 20px;
+            }
+
+            .filename-input {
+                font-size: 14px;
+                padding: 11px 12px;
+            }
+
+            .input-field,
+            .select-field {
+                font-size: 14px;
+                padding: 11px 16px;
+            }
+
+            .image-thumbnail {
+                width: 80px;
+                height: 80px;
+            }
+
+            .images-preview {
+                padding: 12px;
+                gap: 8px;
+            }
+
+            .info-box {
+                padding: 16px;
+            }
+
+            .info-box h3 {
+                font-size: 16px;
+            }
+
+            .info-box li {
+                font-size: 14px;
+            }
+        }
+
+        /* Extra small mobile */
+        @media (max-width: 360px) {
+            .upload-image-btn {
+                min-width: 44px;
+                width: 44px;
+                padding: 9px;
+                font-size: 18px;
+            }
+
+            .filename-input {
+                font-size: 13px;
+                padding: 10px;
             }
         }
     </style>
@@ -318,27 +414,27 @@
             <div class="form-group">
                 <label class="form-label">שם קובץ</label>
                 <div class="filename-container">
-                    <input
-                        type="text"
-                        class="filename-input"
+                    <input 
+                        type="text" 
+                        class="filename-input" 
                         id="filenameInput"
                         placeholder="note.md"
                         value="note.md"
                     >
-
+                    
                     <!-- כפתור העלאת תמונה - מופיע רק ל-.md -->
-                    <button
-                        class="upload-image-btn visible"
+                    <button 
+                        class="upload-image-btn visible" 
                         id="uploadImageBtn"
                         title="צרף תמונה"
                     >
                         🖼️
                     </button>
-
+                    
                     <!-- Input file מוסתר -->
-                    <input
-                        type="file"
-                        id="imageFileInput"
+                    <input 
+                        type="file" 
+                        id="imageFileInput" 
                         accept="image/*"
                         multiple
                     >
@@ -378,6 +474,7 @@
                 <li>לחץ על תמונה מוקטנת לצפייה במסך מלא</li>
                 <li>העבר עכבר על תמונה ולחץ ✕ למחיקה</li>
             </ul>
+            <span class="status-badge">✅ מתוקן למובייל - הכפתור לא יוצא מהמסגרת!</span>
         </div>
     </div>
 
@@ -400,14 +497,11 @@
         // בדיקה אם זה קובץ .md
         function checkFilename() {
             const filename = filenameInput.value.toLowerCase();
-
+            
             if (filename.endsWith('.md')) {
                 uploadImageBtn.classList.add('visible');
             } else {
                 uploadImageBtn.classList.remove('visible');
-                // אופציונלי: נקה תמונות אם משנים ל-non-md
-                // uploadedImages = [];
-                // updatePreview();
             }
         }
 
@@ -423,11 +517,11 @@
         // כשבוחרים קבצים
         imageFileInput.addEventListener('change', (e) => {
             const files = Array.from(e.target.files);
-
+            
             files.forEach(file => {
                 if (file.type.startsWith('image/')) {
                     const reader = new FileReader();
-
+                    
                     reader.onload = (e) => {
                         uploadedImages.push({
                             id: Date.now() + Math.random(),
@@ -436,41 +530,39 @@
                         });
                         updatePreview();
                     };
-
+                    
                     reader.readAsDataURL(file);
                 }
             });
 
-            // נקה את ה-input כדי שאפשר יהיה לבחור אותם קבצים שוב
             imageFileInput.value = '';
         });
 
         // עדכון תצוגת התמונות
         function updatePreview() {
             imagesPreview.innerHTML = '';
-
+            
             if (uploadedImages.length === 0) {
                 imagesPreview.classList.add('empty');
                 return;
             }
-
+            
             imagesPreview.classList.remove('empty');
-
+            
             uploadedImages.forEach(image => {
                 const thumbnail = document.createElement('div');
                 thumbnail.className = 'image-thumbnail';
-
+                
                 thumbnail.innerHTML = `
                     <img src="${image.url}" alt="${image.name}">
                     <button class="remove-btn" onclick="removeImage('${image.id}')">✕</button>
                 `;
-
-                // לחיצה על תמונה - פתיחה במסך מלא
+                
                 thumbnail.querySelector('img').addEventListener('click', (e) => {
                     e.stopPropagation();
                     openModal(image.url);
                 });
-
+                
                 imagesPreview.appendChild(thumbnail);
             });
         }
