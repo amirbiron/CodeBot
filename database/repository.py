@@ -1744,6 +1744,47 @@ class Repository:
             emit_event("db_get_drive_prefs_error", severity="error", error=str(e))
             return None
 
+    def get_users_with_active_drive_schedule(self) -> List[Dict[str, Any]]:
+        """
+        Return all users who have an active drive backup schedule.
+        Used by the rescheduler to restore jobs after restart.
+        """
+        sched_keys = ["daily", "every3", "weekly", "biweekly", "monthly"]
+        try:
+            users_collection = self.manager.db.users
+            # Query for any known schedule key format
+            query = {
+                "$or": [
+                    {"drive_prefs.schedule": {"$in": sched_keys}},
+                    {"drive_prefs.schedule.key": {"$in": sched_keys}},
+                    {"drive_prefs.schedule.value": {"$in": sched_keys}},
+                    {"drive_prefs.schedule.name": {"$in": sched_keys}},
+                    {"drive_prefs.schedule_key": {"$in": sched_keys}},
+                    {"drive_prefs.scheduleKey": {"$in": sched_keys}},
+                ]
+            }
+            projection = {"user_id": 1, "drive_prefs": 1}
+            # First try with query; if 0 results, fallback to broad search
+            results = list(users_collection.find(query, projection))
+            if results:
+                logger.info(
+                    "get_users_with_active_drive_schedule matched=%s",
+                    len(results),
+                )
+                return results
+            # Fallback: get all users with drive_prefs and filter in Python
+            wide_query = {"drive_prefs": {"$exists": True, "$ne": None}}
+            wide_results = list(users_collection.find(wide_query, projection))
+            logger.info(
+                "get_users_with_active_drive_schedule fallback_wide=%s",
+                len(wide_results),
+            )
+            return wide_results
+        except Exception as e:
+            emit_event("db_get_users_with_active_drive_schedule_error", severity="error", error=str(e))
+            logger.exception("get_users_with_active_drive_schedule error=%s", e)
+            return []
+
     # --- Image generation preferences ---
     @traced("db.save_image_prefs")
     @_instrument_db("db.save_image_prefs")
