@@ -81,6 +81,7 @@
   let activeDragContext = null;
   let workspaceDragPointer = null;
   let workspacePointerCleanup = null;
+  let workspacePointerOwnerToken = null;
   let sidebarContainerEl = null;
   let sidebarShellEl = null;
   let sidebarHoverBtn = null;
@@ -519,7 +520,7 @@
   function beginCollectionItemDrag(row, collectionId, listEl, origin){
     const payload = buildItemPayloadFromRow(row);
     if (!payload) return;
-    activeDragContext = {
+    const ctx = {
       element: row,
       collectionId: collectionId,
       container: listEl,
@@ -528,8 +529,9 @@
       dropInProgress: false,
     };
     if (origin === 'workspace') {
-      startWorkspacePointerTracking();
+      ctx.workspacePointerToken = startWorkspacePointerTracking();
     }
+    activeDragContext = ctx;
     setSidebarDragVisual(true);
   }
 
@@ -539,11 +541,10 @@
   }
 
   function clearActiveDragContext(){
-    const origin = activeDragContext ? activeDragContext.origin : '';
-    resetDragUi();
-    activeDragContext = null;
-    if (origin === 'workspace') {
-      stopWorkspacePointerTracking();
+    const ctx = activeDragContext;
+    clearActiveDragContext();
+    if (ctx && ctx.origin === 'workspace') {
+      stopWorkspacePointerTracking(ctx.workspacePointerToken);
     }
   }
 
@@ -564,9 +565,10 @@
 
   function startWorkspacePointerTracking(){
     if (typeof document === 'undefined') {
-      return;
+      return null;
     }
     stopWorkspacePointerTracking();
+    const token = Symbol('workspace-pointer');
     const handlers = [];
     const updateFromEvent = (ev) => {
       if (!ev) return;
@@ -609,14 +611,21 @@
         try { fn(); } catch (_err) {}
       });
       workspacePointerCleanup = null;
+      workspacePointerOwnerToken = null;
     };
+    workspacePointerOwnerToken = token;
+    return token;
   }
 
-  function stopWorkspacePointerTracking(){
+  function stopWorkspacePointerTracking(token){
+    if (token && workspacePointerOwnerToken && token !== workspacePointerOwnerToken) {
+      return;
+    }
     if (typeof workspacePointerCleanup === 'function') {
       try { workspacePointerCleanup(); } catch (_err) {}
     }
     workspacePointerCleanup = null;
+    workspacePointerOwnerToken = null;
   }
 
   function buildItemPayloadFromRow(row){
@@ -741,7 +750,11 @@
     const payload = ctx.payload;
     if (!payload || !payload.file_name) {
       ctx.dropInProgress = false;
-      clearActiveDragContext();
+      if (activeDragContext === ctx) {
+        clearActiveDragContext();
+      } else if (ctx.origin === 'workspace') {
+        stopWorkspacePointerTracking(ctx.workspacePointerToken);
+      }
       return;
     }
     setSidebarDropHover(targetBtn || sidebarHoverBtn, 'hover');
@@ -776,7 +789,7 @@
       if (activeDragContext === ctx) {
         clearActiveDragContext();
       } else if (ctx.origin === 'workspace') {
-        stopWorkspacePointerTracking();
+        stopWorkspacePointerTracking(ctx.workspacePointerToken);
       }
     }
   }
