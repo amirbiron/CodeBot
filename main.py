@@ -12,7 +12,7 @@ import functools
 import inspect
 import logging
 import asyncio
-from typing import Any, TypedDict
+from typing import Any, Optional, TypedDict
 try:
     from typing import NotRequired  # type: ignore[attr-defined]
 except ImportError:  # pragma: no cover
@@ -75,6 +75,7 @@ def _default_generate_request_id() -> str:
         return ""
 
 
+
 def _observability_attr(name: str, default):
     if _observability is None:
         return default
@@ -123,6 +124,7 @@ from conversation_handlers import set_activity_reporter as set_ch_activity_repor
 from github_menu_handler import GitHubMenuHandler
 from backup_menu_handler import BackupMenuHandler
 from handlers.drive.menu import GoogleDriveMenuHandler
+from handlers.drive.utils import extract_schedule_key as drive_extract_schedule_key
 from handlers.documents import DocumentHandler
 from file_manager import backup_manager
 from large_files_handler import large_files_handler
@@ -3743,47 +3745,96 @@ async def setup_bot_data(application: Application) -> None:  # noqa: D401
     # Reschedule Google Drive backup jobs for all users with an active schedule
     try:
         async def _reschedule_drive_jobs(context: ContextTypes.DEFAULT_TYPE):
-            stats = {"total": 0, "recreated": 0}
+            stats = {"total": 0, "recreated": 0, "scanned": 0, "skipped": 0}
+
             try:
                 drive_handler = context.application.bot_data.get('drive_handler')
                 if not drive_handler:
                     return
-                users_coll = db.db.users if getattr(db, 'db', None) else None
+                # אתר את מנהל ה-DB: עדיפות למנהל שנשמר ב-bot_data כדי לשתף מצב עם שאר הרכיבים
+                db_candidates: list[Any] = []
+                bot_db = context.application.bot_data.get('db_manager')
+                if bot_db:
+                    db_candidates.append(bot_db)
+                try:
+                    from database import db as module_db  # type: ignore
+                except Exception:
+                    module_db = None  # type: ignore[assignment]
+                if module_db:
+                    db_candidates.append(module_db)
+                # fallback: המופע המקומי שנוצר ב-main (אם זמין בסקופ)
+                try:
+                    db_candidates.append(db)
+                except Exception:
+                    pass
+                users_coll = None
+                for candidate in db_candidates:
+                    if not candidate:
+                        continue
+                    cand_db = getattr(candidate, 'db', None)
+                    coll = getattr(cand_db, 'users', None)
+                    if coll is not None and hasattr(coll, 'find'):
+                        users_coll = coll
+                        break
                 if users_coll is None:
+                    logger.warning("drive_reschedule_jobs_skip reason=no_users_collection")
                     return
                 sched_keys = {"daily", "every3", "weekly", "biweekly", "monthly"}
+                query = {
+                    "$or": [
+                        {"drive_prefs.schedule": {"$in": list(sched_keys)}},
+                        {"drive_prefs.schedule.key": {"$in": list(sched_keys)}},
+                        {"drive_prefs.schedule.value": {"$in": list(sched_keys)}},
+                        {"drive_prefs.schedule.name": {"$in": list(sched_keys)}},
+                        {"drive_prefs.schedule_key": {"$in": list(sched_keys)}},
+                        {"drive_prefs.scheduleKey": {"$in": list(sched_keys)}},
+                    ]
+                }
+                projection = {"user_id": 1, "drive_prefs": 1}
                 try:
-                    cursor = users_coll.find({"drive_prefs.schedule": {"$in": list(sched_keys)}})
-                except Exception:
+                    cursor = users_coll.find(query, projection)
+                except Exception as exc:
+                    logger.warning("drive_reschedule_jobs_query_failed error=%s", exc)
                     cursor = []
                 for doc in cursor:
                     try:
                         uid = int(doc.get("user_id") or 0)
                         if not uid:
+                            stats["skipped"] += 1
                             continue
+                        stats["scanned"] += 1
                         prefs = doc.get("drive_prefs") or {}
-                        key = prefs.get("schedule")
-                        if key in sched_keys:
-                            stats["total"] += 1
-                            recreated = False
-                            ensure_fn = getattr(drive_handler, "ensure_schedule_job_if_missing", None)
-                            if callable(ensure_fn):
-                                recreated = bool(await ensure_fn(context, uid, key))
-                            else:
-                                await drive_handler._ensure_schedule_job(context, uid, key)
-                                recreated = True
-                            if recreated:
-                                stats["recreated"] += 1
+                        key = drive_extract_schedule_key(prefs)
+                        if not key:
+                            stats["skipped"] += 1
+                            continue
+                        key = str(key).strip().lower()
+                        if key not in sched_keys:
+                            stats["skipped"] += 1
+                            continue
+                        stats["total"] += 1
+                        recreated = False
+                        ensure_fn = getattr(drive_handler, "ensure_schedule_job_if_missing", None)
+                        if callable(ensure_fn):
+                            recreated = bool(await ensure_fn(context, uid, key))
+                        else:
+                            await drive_handler._ensure_schedule_job(context, uid, key)
+                            recreated = True
+                        if recreated:
+                            stats["recreated"] += 1
                     except Exception:
+                        stats["skipped"] += 1
                         continue
             except Exception:
                 pass
             finally:
                 try:
                     logger.info(
-                        "drive_reschedule_jobs_run total=%s recreated=%s",
+                        "drive_reschedule_jobs_run total=%s recreated=%s scanned=%s skipped=%s",
                         stats["total"],
                         stats["recreated"],
+                        stats["scanned"],
+                        stats["skipped"],
                     )
                 except Exception:
                     pass
@@ -3793,6 +3844,8 @@ async def setup_bot_data(application: Application) -> None:  # noqa: D401
                         severity="info",
                         total=int(stats["total"]),
                         recreated=int(stats["recreated"]),
+                        scanned=int(stats["scanned"]),
+                        skipped=int(stats["skipped"]),
                     )
                 except Exception:
                     pass

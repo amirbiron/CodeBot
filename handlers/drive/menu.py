@@ -18,8 +18,10 @@ from telegram.ext import ContextTypes
 from services import google_drive_service as gdrive
 from config import config
 from file_manager import backup_manager
+from handlers.drive.utils import extract_schedule_key
 
 logger = logging.getLogger(__name__)
+
 
 # Observability events (best-effort)
 try:
