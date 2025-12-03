@@ -66,242 +66,173 @@
     justify-content: space-between;
     align-items: center;
     gap: 1rem;
+    flex-wrap: wrap;
+    margin-bottom: 1.25rem;
+}
+
+#fullscreenBtn {
+    background: rgba(255, 255, 255, 0.1) !important;
+    color: #ffffff !important;
+    border: 1px solid rgba(255, 255, 255, 0.25) !important;
+    border-radius: 10px !important;
+    padding: 10px 18px !important;
+    font-size: 14px !important;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+    white-space: nowrap;
+}
+
+#fullscreenBtn:hover {
+    background: rgba(255, 255, 255, 0.2) !important;
+    border-color: rgba(255, 255, 255, 0.4) !important;
+    transform: translateY(-1px);
 }
 
 /* Code search toolbar */
-.code-viewer-header,
-.search-header-container {
-    display: flex !important;
-    flex-direction: column !important;
-    gap: 12px !important;
-    width: 100% !important;
-    padding: 0 !important;
-    margin-bottom: 1rem;
+.code-search-bar {
+    width: 100%;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 12px;
+    padding: 0;
+    margin: 0 0 1rem;
+    background: transparent;
+    border: none;
+    box-shadow: none;
+    position: sticky;
+    top: 0;
+    z-index: 5;
 }
 
-.header-top-row {
-    display: flex !important;
-    justify-content: space-between !important;
-    align-items: center !important;
-    width: 100% !important;
-    gap: 12px !important;
-    flex-wrap: wrap !important;
+.code-search-input {
+    flex: 1 1 280px;
+    min-width: 0;
+    background: rgba(255, 255, 255, 0.15);
+    border: 1px solid rgba(255, 255, 255, 0.35);
+    border-radius: 12px;
+    padding: 14px 20px;
+    padding-inline-start: 45px;
+    padding-inline-end: 16px;
+    color: #ffffff;
+    font-size: 15px;
+    line-height: 1.2;
+    transition: all 0.2s ease;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
 }
 
-.source-code-title,
-.code-title {
-    color: white !important;
-    font-size: 18px !important;
-    font-weight: 600 !important;
-    display: flex !important;
-    align-items: center !important;
-    gap: 8px !important;
-    margin: 0;
+.code-search-input::placeholder {
+    color: rgba(255, 255, 255, 0.65);
 }
 
-.source-code-title .icon,
-.code-title .icon,
-.source-code-title i,
-.code-title i {
-    color: rgba(255, 255, 255, 0.8) !important;
-    font-size: 18px !important;
+.code-search-input:focus {
+    outline: none;
+    border-color: rgba(255, 255, 255, 0.65);
+    background: rgba(255, 255, 255, 0.22);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.18);
 }
 
-.code-viewer-header .fullscreen-btn {
+.code-search-count {
+    flex: 1 1 100%;
+    order: 5;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 12px 16px;
+    border-radius: 12px;
+    background: rgba(255, 255, 255, 0.15);
+    border: 1px solid rgba(255, 255, 255, 0.3);
+    color: rgba(255, 255, 255, 0.92);
+    font-size: 14px;
+    font-weight: 500;
+    min-height: 48px;
+    text-align: center;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+}
+
+.code-search-btn {
     background: rgba(255, 255, 255, 0.1) !important;
-    backdrop-filter: blur(10px) !important;
-    -webkit-backdrop-filter: blur(10px) !important;
+    color: #ffffff !important;
     border: 1px solid rgba(255, 255, 255, 0.25) !important;
-    border-radius: 10px !important;
-    color: white !important;
-    padding: 10px 18px !important;
-    font-size: 14px !important;
-    display: flex !important;
-    align-items: center !important;
-    gap: 8px !important;
-    cursor: pointer !important;
-    transition: all 0.2s ease !important;
-    white-space: nowrap !important;
+    border-radius: 10px;
+    width: 48px;
+    height: 48px;
+    min-width: 48px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 18px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.12);
 }
 
-.code-viewer-header .fullscreen-btn:hover {
-    background: rgba(255, 255, 255, 0.2) !important;
-    border-color: rgba(255, 255, 255, 0.4) !important;
-    transform: scale(1.05) !important;
+.code-search-btn:hover,
+.code-search-btn:focus-visible {
+    background: rgba(255, 255, 255, 0.22) !important;
+    border-color: rgba(255, 255, 255, 0.45) !important;
+    transform: translateY(-1px);
 }
 
-.search-row {
-    display: flex !important;
-    width: 100% !important;
-    gap: 12px !important;
-    align-items: center !important;
+.code-search-btn:active {
+    transform: translateY(0);
 }
 
-.code-viewer-header .search-input-container,
-.code-viewer-header .code-search-bar {
-    position: relative !important;
-    flex: 1 !important;
-    width: 100% !important;
-    min-width: 0 !important;
+#codeSearchInput {
+    order: 1;
 }
 
-.code-viewer-header .search-icon {
-    position: absolute !important;
-    left: 16px !important;
-    top: 50% !important;
-    transform: translateY(-50%);
-    color: rgba(255, 255, 255, 0.7) !important;
-    font-size: 18px !important;
-    pointer-events: none !important;
+#codeSearchCount {
+    order: 5;
 }
 
-.code-viewer-header .code-search-input {
-    flex: 1 !important;
-    width: 100% !important;
-    min-width: 0 !important;
-    background: rgba(255, 255, 255, 0.15) !important;
-    backdrop-filter: blur(10px) !important;
-    -webkit-backdrop-filter: blur(10px) !important;
-    border: 1px solid rgba(255, 255, 255, 0.3) !important;
-    border-radius: 12px !important;
-    color: white !important;
-    font-size: 15px !important;
-    padding: 14px 20px !important;
-    padding-inline-start: 45px !important;
-    padding-inline-end: 16px !important;
-    padding-left: 45px !important;
-    padding-right: 16px !important;
-    transition: all 0.2s ease !important;
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1) !important;
+#codeSearchNext,
+#codeSearchPrev,
+#codeSearchClear {
+    order: 2;
 }
 
-.code-viewer-header .code-search-input::placeholder {
-    color: rgba(255, 255, 255, 0.6) !important;
+#codeSearchPrev {
+    order: 3;
 }
 
-.code-viewer-header .code-search-input:focus {
-    outline: none !important;
-    background: rgba(255, 255, 255, 0.2) !important;
-    border-color: rgba(255, 255, 255, 0.5) !important;
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15) !important;
-}
-
-.code-viewer-header .nav-controls,
-.code-viewer-header .code-editor-controls,
-.code-viewer-header .search-controls {
-    display: flex !important;
-    gap: 10px !important;
-    align-items: center !important;
-    flex: 0 0 auto !important;
-}
-
-.code-viewer-header .nav-button,
-.code-viewer-header .code-nav-btn,
-.code-viewer-header .close-btn,
-.code-viewer-header .next-btn,
-.code-viewer-header .prev-btn {
-    background: rgba(255, 255, 255, 0.1) !important;
-    backdrop-filter: blur(10px) !important;
-    -webkit-backdrop-filter: blur(10px) !important;
-    border: 1px solid rgba(255, 255, 255, 0.25) !important;
-    border-radius: 10px !important;
-    color: white !important;
-    width: 48px !important;
-    height: 48px !important;
-    min-width: 48px !important;
-    display: flex !important;
-    align-items: center !important;
-    justify-content: center !important;
-    font-size: 20px !important;
-    cursor: pointer !important;
-    transition: all 0.2s ease !important;
-    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.1) !important;
-}
-
-.code-viewer-header .nav-button:hover,
-.code-viewer-header .code-nav-btn:hover,
-.code-viewer-header .close-btn:hover,
-.code-viewer-header .next-btn:hover,
-.code-viewer-header .prev-btn:hover {
-    background: rgba(255, 255, 255, 0.2) !important;
-    border-color: rgba(255, 255, 255, 0.4) !important;
-    transform: scale(1.05) !important;
-    box-shadow: 0 4px 10px rgba(0, 0, 0, 0.15) !important;
-}
-
-.code-viewer-header .close-btn {
-    background: rgba(255, 68, 68, 0.15) !important;
-    border-color: rgba(255, 68, 68, 0.3) !important;
-}
-
-.code-viewer-header .close-btn:hover {
-    background: rgba(255, 68, 68, 0.25) !important;
-    border-color: rgba(255, 68, 68, 0.5) !important;
-}
-
-.search-status-row {
-    width: 100% !important;
-}
-
-.code-viewer-header .code-search-count,
-.code-viewer-header .search-progress,
-.code-viewer-header .search-results-count {
-    width: 100% !important;
-    display: inline-flex !important;
-    align-items: center !important;
-    justify-content: center !important;
-    padding: 12px 16px !important;
-    background: rgba(255, 255, 255, 0.15) !important;
-    border: 1px solid rgba(255, 255, 255, 0.3) !important;
-    border-radius: 12px !important;
-    color: rgba(255, 255, 255, 0.9) !important;
-    font-size: 14px !important;
-    font-weight: 500 !important;
-    min-height: 48px !important;
-    text-align: center !important;
-    transition: all 0.2s ease !important;
+#codeSearchClear {
+    order: 4;
 }
 
 @media (max-width: 768px) {
-    .code-viewer-header .fullscreen-btn {
-        padding: 10px 16px !important;
-        font-size: 13px !important;
+    #fullscreenBtn {
+        width: 100%;
+        justify-content: center;
     }
-    .search-row {
-        flex-direction: column !important;
-        align-items: stretch !important;
+    .code-search-btn {
+        width: 44px;
+        height: 44px;
+        min-width: 44px;
+        font-size: 16px;
     }
-    .code-viewer-header .nav-controls {
-        width: 100% !important;
-        justify-content: space-between !important;
-    }
-    .code-viewer-header .nav-button,
-    .code-viewer-header .code-nav-btn,
-    .code-viewer-header .close-btn,
-    .code-viewer-header .next-btn,
-    .code-viewer-header .prev-btn {
-        width: 44px !important;
-        height: 44px !important;
-        min-width: 44px !important;
-        font-size: 18px !important;
-    }
-    .code-viewer-header .code-search-input {
-        padding: 12px 16px !important;
-        padding-inline-start: 42px !important;
-        padding-left: 42px !important;
+    .code-search-input {
+        padding: 12px 16px;
+        padding-inline-start: 40px;
     }
 }
 
 @media (max-width: 480px) {
-    .code-viewer-header .fullscreen-btn {
-        width: 100% !important;
-        justify-content: center !important;
+    .code-search-bar {
+        gap: 10px;
     }
-    .code-viewer-header .nav-controls {
-        gap: 8px !important;
-    }
-    .code-viewer-header .code-search-input {
-        font-size: 13px !important;
+    .code-search-input {
+        font-size: 14px;
     }
 }
 
@@ -368,147 +299,71 @@
 
 .file-actions {
     display: flex;
-    gap: 1rem;
+    gap: 0.75rem;
     flex-wrap: wrap;
+    width: 100%;
 }
 
-.action-btn,
-.file-action-btn,
-.primary-action-btn {
+.file-actions .btn {
     background: rgba(255, 255, 255, 0.95) !important;
     color: #667eea !important;
-    width: auto !important;
-    min-width: auto !important;
-    max-width: none !important;
-    display: inline-flex !important;
-    padding: 12px 20px !important;
-    margin: 0 !important;
-    border: 1px solid rgba(102, 126, 234, 0.3) !important;
+    border: 1px solid rgba(102, 126, 234, 0.35) !important;
     border-radius: 12px !important;
-    font-size: 15px !important;
-    font-weight: 500 !important;
-    white-space: nowrap !important;
-    align-items: center !important;
-    justify-content: center !important;
-    gap: 8px !important;
-    cursor: pointer !important;
-    transition: all 0.2s ease !important;
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1) !important;
+    padding: 12px 20px !important;
+    display: inline-flex !important;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    font-size: 15px;
+    font-weight: 500;
+    white-space: nowrap;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12);
+    transition: all 0.2s ease;
 }
 
-.action-btn:hover,
-.file-action-btn:hover,
-.primary-action-btn:hover {
+.file-actions .btn:hover {
     background: rgba(255, 255, 255, 1) !important;
-    transform: translateY(-2px) !important;
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15) !important;
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.18);
 }
 
-.action-btn:active,
-.file-action-btn:active,
-.primary-action-btn:active {
-    transform: translateY(0) !important;
+.file-actions .btn:active {
+    transform: translateY(0);
 }
 
-.action-btn .icon,
-.action-btn svg,
-.file-action-btn .icon,
-.file-action-btn svg {
-    width: 18px !important;
-    height: 18px !important;
-    color: #667eea !important;
+.file-actions .btn .fas,
+.file-actions .btn i,
+.file-actions .btn svg {
+    color: #667eea;
 }
 
-.copy-code-btn,
-[data-action="copy"],
-button[onclick*="copy"] {
-    background: rgba(255, 255, 255, 0.95) !important;
-    color: #667eea !important;
-    width: auto !important;
-    display: inline-flex !important;
-    padding: 12px 20px !important;
-}
-
-.edit-btn,
-[data-action="edit"],
-button[onclick*="edit"] {
-    background: rgba(255, 255, 255, 0.95) !important;
-    color: #667eea !important;
-    width: auto !important;
-    display: inline-flex !important;
-    padding: 12px 20px !important;
-}
-
-.action-btn.secondary,
-.file-action-btn.secondary {
-    background: rgba(255, 255, 255, 0.1) !important;
-    color: white !important;
-    border: 1px solid rgba(255, 255, 255, 0.3) !important;
-}
-
-.action-btn.secondary:hover,
-.file-action-btn.secondary:hover {
-    background: rgba(255, 255, 255, 0.2) !important;
-}
-
-.action-btn.starred,
-.favorite-btn {
+#favoriteBtn {
     background: rgba(255, 215, 0, 0.2) !important;
     border-color: rgba(255, 215, 0, 0.4) !important;
-    color: #667eea !important;
+    color: #5c4ac7 !important;
 }
 
-.action-buttons,
-.file-actions,
-.button-group {
-    display: flex !important;
-    flex-wrap: wrap !important;
-    gap: 12px !important;
-    align-items: center !important;
+#favoriteBtn span,
+#favoriteBtn i {
+    color: inherit;
+}
+
+.file-actions .btn.btn-secondary {
+    background: rgba(255, 255, 255, 0.9) !important;
+    color: #667eea !important;
 }
 
 @media (max-width: 768px) {
-    .action-btn,
-    .file-action-btn,
-    .primary-action-btn {
-        padding: 10px 16px !important;
-        font-size: 14px !important;
-    }
-
-    .action-buttons,
-    .file-actions,
-    .button-group {
-        gap: 8px !important;
+    .file-actions .btn {
+        flex: 1 1 calc(50% - 0.5rem);
+        justify-content: center;
     }
 }
 
 @media (max-width: 480px) {
-    .action-btn,
-    .file-action-btn,
-    .primary-action-btn {
-        padding: 10px 14px !important;
-        font-size: 13px !important;
+    .file-actions .btn {
+        flex: 1 1 100%;
     }
-
-    .action-buttons,
-    .file-actions,
-    .button-group {
-        gap: 6px !important;
-    }
-}
-
-.btn-block,
-.btn-full-width,
-.w-100,
-.full-width {
-    width: auto !important;
-    display: inline-flex !important;
-}
-
-.text-dark,
-.text-black,
-[class*="text-gray"] {
-    color: #667eea !important;
 }
 
 .file-meta {
@@ -799,16 +654,16 @@ body.telegram-mini-app .file-title { font-size: 1.125rem; }
         {% endif %}
     </div>
 
-    <div class="file-actions action-buttons">
+    <div class="file-actions">
         <button id="favoriteBtn" class="btn btn-secondary btn-icon" onclick="toggleFavorite()" aria-pressed="{{ 'true' if file.is_favorite else 'false' }}" title="{{ 'הסר ממועדפים' if file.is_favorite else 'הוסף למועדפים' }}" aria-label="{{ 'הסר ממועדפים' if file.is_favorite else 'הוסף למועדפים' }}">
             <span id="favoriteIcon">{{ '💔' if file.is_favorite else '⭐' }}</span>
             <span id="favoriteLabel">{{ 'הסר ממועדפים' if file.is_favorite else 'הוסף למועדפים' }}</span>
         </button>
-        <a href="/edit/{{ file.id }}" class="btn btn-primary btn-icon action-btn primary-action-btn file-action-btn edit-btn">
+        <a href="/edit/{{ file.id }}" class="btn btn-primary btn-icon">
             <i class="fas fa-edit"></i>
             ערוך
         </a>
-        <button onclick="copyCode()" class="btn btn-primary btn-icon action-btn primary-action-btn file-action-btn copy-button copy-code-btn">
+        <button onclick="copyCode()" class="btn btn-primary btn-icon copy-button">
             <i class="fas fa-copy"></i>
             העתק קוד
             <div class="copy-feedback" id="copyFeedback">הועתק!</div>
@@ -887,31 +742,22 @@ body.telegram-mini-app .file-title { font-size: 1.125rem; }
 {% endif %}
 
 <div class="glass-card" id="codeCard">
-    <div class="code-viewer-header search-header-container">
-        <div class="header-top-row">
-            <h2 class="section-title source-code-title">
-                <i class="fas fa-code" aria-hidden="true"></i>
-                קוד מקור
-            </h2>
-            <button id="fullscreenBtn" class="btn btn-secondary btn-icon fullscreen-btn" title="מסך מלא">
-                <i class="fas fa-expand" aria-hidden="true"></i>
-                מסך מלא
-            </button>
-        </div>
-        <div class="search-row" id="code-search">
-            <div class="search-input-container code-search-bar">
-                <span class="search-icon" aria-hidden="true">🔍</span>
-                <input id="codeSearchInput" type="text" class="code-search-input" placeholder="🔍 חפש בקוד...">
-            </div>
-            <div class="nav-controls">
-                <button id="codeSearchClear" type="button" class="btn btn-secondary btn-icon code-search-btn nav-button code-nav-btn close-btn" title="נקה">✕</button>
-                <button id="codeSearchNext" type="button" class="btn btn-secondary btn-icon code-search-btn nav-button code-nav-btn next-btn" title="הבא">◀</button>
-                <button id="codeSearchPrev" type="button" class="btn btn-secondary btn-icon code-search-btn nav-button code-nav-btn prev-btn" title="קודם">▶</button>
-            </div>
-        </div>
-        <div class="search-status-row">
-            <span id="codeSearchCount" class="result-count code-search-count search-progress"></span>
-        </div>
+    <div class="section-header">
+        <h2 class="section-title" style="margin: 0;">
+            <i class="fas fa-code"></i>
+            קוד מקור
+        </h2>
+        <button id="fullscreenBtn" class="btn btn-secondary btn-icon" title="מסך מלא">
+            <i class="fas fa-expand"></i>
+            מסך מלא
+        </button>
+    </div>
+    <div class="search-bar code-search-bar" id="code-search">
+        <input id="codeSearchInput" type="text" class="code-search-input" placeholder="🔍 חפש בקוד...">
+        <span id="codeSearchCount" class="result-count code-search-count"></span>
+        <button id="codeSearchNext" type="button" class="btn btn-secondary btn-icon code-search-btn" title="הבא">◀</button>
+        <button id="codeSearchPrev" type="button" class="btn btn-secondary btn-icon code-search-btn" title="קודם">▶</button>
+        <button id="codeSearchClear" type="button" class="btn btn-secondary btn-icon code-search-btn" title="נקה">✕</button>
     </div>
     <div class="code-container">
         {{ highlighted_code|safe }}
