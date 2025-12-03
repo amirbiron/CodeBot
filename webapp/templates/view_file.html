@@ -1109,11 +1109,27 @@ document.addEventListener('keydown', function(e) {
     }
 
     function updateButton(){
-        const icon = btn.querySelector('i');
+        let spans = btn.querySelectorAll('span');
+        if (spans.length < 2) {
+            btn.replaceChildren();
+            const iconSpan = document.createElement('span');
+            iconSpan.setAttribute('aria-hidden', 'true');
+            const textSpan = document.createElement('span');
+            btn.appendChild(iconSpan);
+            btn.appendChild(textSpan);
+            spans = btn.querySelectorAll('span');
+        }
+
+        const iconSpan = spans[0];
+        const textSpan = spans[1];
+        if (!iconSpan || !textSpan) return;
+
         if (isFullscreen()) {
-            btn.innerHTML = '<i class="fas fa-compress"></i> יציאה ממסך מלא';
+            iconSpan.textContent = '✕';
+            textSpan.textContent = 'יציאה';
         } else {
-            btn.innerHTML = '<i class="fas fa-expand"></i> מסך מלא';
+            iconSpan.textContent = '⛶';
+            textSpan.textContent = 'מסך מלא';
         }
     }
 
