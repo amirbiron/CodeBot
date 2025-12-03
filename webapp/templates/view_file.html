@@ -389,6 +389,102 @@ body.telegram-mini-app .main-content > .container { padding-left: 10px !importan
 /* Mini App: הקטנת הכותרת והאייקון ומניעת גלישה */
 body.telegram-mini-app .file-icon { font-size: 1.9rem; }
 body.telegram-mini-app .file-title { font-size: 1.125rem; }
+
+.markdown-images-card {
+    margin: 2rem 0;
+}
+
+.markdown-attachments-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+    gap: 1rem;
+    margin-top: 1rem;
+}
+
+.markdown-attachment {
+    position: relative;
+    border-radius: 12px;
+    overflow: hidden;
+    border: 1px solid rgba(255,255,255,0.1);
+    background: rgba(255,255,255,0.03);
+}
+
+.markdown-attachment-open {
+    border: none;
+    padding: 0;
+    width: 100%;
+    cursor: pointer;
+    background: transparent;
+}
+
+.markdown-attachment img {
+    width: 100%;
+    height: 110px;
+    object-fit: cover;
+    display: block;
+}
+
+.markdown-attachment figcaption {
+    padding: 0.5rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+    font-size: 0.85rem;
+    color: var(--text-secondary, rgba(255,255,255,0.8));
+}
+
+.markdown-attachment-name {
+    font-weight: 600;
+    color: var(--text-primary, #ffffff);
+    overflow-wrap: anywhere;
+}
+
+.markdown-attachment-size {
+    font-size: 0.8rem;
+    opacity: 0.7;
+}
+
+.markdown-image-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.9);
+    display: none;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 2rem;
+    z-index: 10000;
+}
+
+.markdown-image-overlay.is-open {
+    display: flex;
+}
+
+.markdown-image-overlay img {
+    max-width: 90vw;
+    max-height: 80vh;
+    border-radius: 14px;
+    box-shadow: 0 30px 90px rgba(0,0,0,0.45);
+}
+
+.markdown-image-overlay button {
+    align-self: flex-end;
+    margin-bottom: 1rem;
+    border: none;
+    background: rgba(255,255,255,0.2);
+    color: white;
+    padding: 0.35rem 0.9rem;
+    border-radius: 999px;
+    cursor: pointer;
+}
+
+.markdown-image-overlay-caption {
+    margin-top: 1rem;
+    font-size: 1rem;
+    color: rgba(255,255,255,0.85);
+    text-align: center;
+    max-width: 80vw;
+}
 </style>
 {% endblock %}
 
@@ -495,6 +591,35 @@ body.telegram-mini-app .file-title { font-size: 1.125rem; }
     </div>
 </div>
 
+{% if file.markdown_images %}
+<div class="glass-card markdown-images-card" aria-label="תמונות מצורפות">
+    <div class="section-header">
+        <h2 class="section-title" style="margin:0;">
+            <i class="fas fa-image"></i>
+            תמונות מצורפות
+        </h2>
+        <span class="badge">{{ file.markdown_images|length }} תמונות</span>
+    </div>
+    <div class="markdown-attachments-grid">
+        {% for image in file.markdown_images %}
+        <figure class="markdown-attachment">
+            <button type="button"
+                    class="markdown-attachment-open"
+                    data-image-url="{{ image.url }}"
+                    data-image-name="{{ image.file_name }}"
+                    aria-label="פתח את {{ image.file_name }}">
+                <img src="{{ image.url }}" alt="{{ image.file_name }}">
+            </button>
+            <figcaption>
+                <span class="markdown-attachment-name">{{ image.file_name }}</span>
+                <span class="markdown-attachment-size">{{ image.size }}</span>
+            </figcaption>
+        </figure>
+        {% endfor %}
+    </div>
+</div>
+{% endif %}
+
 <div class="glass-card" id="codeCard">
     <div class="section-header">
         <h2 class="section-title" style="margin: 0;">
@@ -523,6 +648,12 @@ body.telegram-mini-app .file-title { font-size: 1.125rem; }
 
 {# Bookmarks snippet: כפתור ופאנל סימניות #}
 {% include 'bookmarks_snippet.html' %}
+
+<div class="markdown-image-overlay" id="markdownImageOverlay" aria-hidden="true">
+    <button type="button" id="markdownImageOverlayClose">✕ סגירה</button>
+    <img id="markdownImageOverlayImg" alt="תמונה מצורפת">
+    <div class="markdown-image-overlay-caption" id="markdownImageOverlayCaption"></div>
+</div>
 
 <div class="glass-card" style="margin-top: 2rem;">
     <h2 class="section-title">
@@ -785,6 +916,59 @@ async function shareToTelegram() {
     const telegramUrl = `https://t.me/share/url?url=${encodeURIComponent(url)}&text=${encodeURIComponent(text)}`;
     window.open(telegramUrl, '_blank');
 }
+
+(function initMarkdownAttachments(){
+    const overlay = document.getElementById('markdownImageOverlay');
+    const overlayImg = document.getElementById('markdownImageOverlayImg');
+    const overlayCaption = document.getElementById('markdownImageOverlayCaption');
+    const overlayClose = document.getElementById('markdownImageOverlayClose');
+    const triggers = document.querySelectorAll('.markdown-attachment-open');
+    if (!overlay || !overlayImg || !overlayCaption || !triggers.length) {
+        return;
+    }
+
+    const closeOverlay = () => {
+        overlay.classList.remove('is-open');
+        overlay.setAttribute('aria-hidden', 'true');
+        overlayImg.src = '';
+        overlayImg.alt = '';
+        overlayCaption.textContent = '';
+    };
+
+    const openOverlay = (url, name) => {
+        overlayImg.src = url;
+        overlayImg.alt = name;
+        overlayCaption.textContent = name;
+        overlay.classList.add('is-open');
+        overlay.setAttribute('aria-hidden', 'false');
+    };
+
+    triggers.forEach((btn) => {
+        btn.addEventListener('click', () => {
+            const url = btn.getAttribute('data-image-url');
+            const name = btn.getAttribute('data-image-name') || 'תמונה';
+            if (url) {
+                openOverlay(url, name);
+            }
+        });
+    });
+
+    if (overlayClose) {
+        overlayClose.addEventListener('click', closeOverlay);
+    }
+
+    overlay.addEventListener('click', (event) => {
+        if (event.target === overlay) {
+            closeOverlay();
+        }
+    });
+
+    document.addEventListener('keydown', (event) => {
+        if (event.key === 'Escape' && overlay.classList.contains('is-open')) {
+            closeOverlay();
+        }
+    });
+})();
 
 async function toggleFavorite(){
     try {
