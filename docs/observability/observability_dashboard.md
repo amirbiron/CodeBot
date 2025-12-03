@@ -21,6 +21,8 @@
   - זמני תגובה ממוצעים ומקסימליים (`response_time`).
 - **טבלת נקודות קצה איטיות** – Top N (ברירת מחדל 5) עם `avg_duration`, `max_duration`, `count` ונתיב/שיטה.
 - **היסטוריית התראות** – טבלה עם עד 200 רשומות אחרונות+פג'ינציה. כל שורה כוללת timestamp, שם, חומרה, סיכום ומטא־דאטה שנשלף מה־payload.
+- **Incident Replay** – כפתור ייעודי שמוביל למסך `/admin/observability/replay` עם ציר זמן משולב (התראות, דיפלוימנטים ופעולות ChatOps שנרשמו דרך Quick Fix). אפשר לשתף טווח ספציפי באמצעות פרמטרים (`timerange`, `start`, `end`, `focus_ts`).
+- **Quick Fix** – עמודת פעולות סמוך לכל התראה שמציעה פעולות נפוצות (לינקים ל‑Playbook, העתקת פקודות ChatOps, קפיצה לציר הזמן). המיפוי מגיע מהקובץ `config/alert_quick_fixes.json` ונטען דינמית.
 
 ### יכולות סינון
 
@@ -136,6 +138,24 @@ curl -H 'Accept: application/json' \
 ```
 
 **הערה:** עבור `metric=response_time` האובייקטים מכילים `avg_duration`, `max_duration`, `count`. עבור `alerts_count` תוחזר חלוקה לפי חומרה (`critical`, `anomaly`, `warning`, `info`, `total`).
+
+### `GET /api/observability/replay`
+
+- **מטרה:** ציר זמן מאוחד (התראות, דיפלוימנטים ופעולות ChatOps/Quick Fix) לטובת Incident Replay.
+- **פרמטרים:** זהים לפילטרי הזמן (`timerange`, `start_time`, `end_time`) + `limit` (ברירת מחדל 200).
+- **תשובה:** `{ "ok": true, "events": [...], "counts": {"alerts": n, "deployments": m, "chatops": k} }`.
+
+### `GET /api/observability/export`
+
+- **מטרה:** הורדת Snapshot JSON מלא (קלפים, טבלאות, Time Series והיסטוריית התראות) לצורך שילוב ב-BI חיצוני.
+- **פרמטרים:** `timerange` או `start_time`/`end_time`, אופציונלי `alerts_limit`.
+- **הערך:** מחזיר אובייקט עם `summary`, `top_slow_endpoints`, שלושה Timeseries ובלוק `alerts`. מומלץ לשמור את הקובץ כפי שנשלח ולצרף למיילים/Slack.
+
+### `POST /api/observability/quickfix/track`
+
+- **מטרה:** טלמטריה של Quick Fix (משמשת גם לציר הזמן וגם ללוגים).
+- **קלט:** `{ "action_id": "...", "action_label": "...", "alert": {"alert_uid": "...", "alert_type": "...", "timestamp": "..."} }`.
+- **הערה:** הנתיב מחייב Admin ונסמך על המיפוי ב-`config/alert_quick_fixes.json`.
 
 ## 🔐 אבטחה, Rate Limiting וקאש
 

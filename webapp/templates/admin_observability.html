@@ -24,6 +24,24 @@
   align-items: center;
   justify-content: space-between;
 }
+.toolbar-actions {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+.toolbar-actions button {
+  border: none;
+  border-radius: 999px;
+  padding: 0.35rem 0.9rem;
+  background: rgba(255,255,255,0.08);
+  color: #fff;
+  cursor: pointer;
+  font-size: 0.9rem;
+  transition: background 0.2s ease;
+}
+.toolbar-actions button:hover {
+  background: rgba(255,255,255,0.18);
+}
 .obs-toolbar .range-buttons {
   display: flex;
   gap: 0.5rem;
@@ -197,6 +215,36 @@
   border-radius: 8px;
   padding: 0.15rem 0.5rem;
 }
+.quick-fix-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+}
+.quick-fix-action {
+  border: none;
+  border-radius: 999px;
+  padding: 0.25rem 0.7rem;
+  font-size: 0.8rem;
+  background: rgba(100,255,218,0.12);
+  color: #64ffda;
+  cursor: pointer;
+}
+.quick-fix-action.safety-caution {
+  background: rgba(255, 206, 86, 0.2);
+  color: #fdd65c;
+}
+.quick-fix-action.safety-danger {
+  background: rgba(255, 99, 132, 0.2);
+  color: #ff627c;
+}
+.quick-fix-action:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.highlight-row {
+  background: rgba(255,255,255,0.05);
+  box-shadow: inset 0 0 0 1px rgba(255,255,255,0.12);
+}
 @media (max-width: 720px) {
   .obs-toolbar {
     flex-direction: column;
@@ -226,6 +274,10 @@
     <div class="last-updated">
       <span>עודכן לאחרונה:</span>
       <span id="lastUpdated">—</span>
+    </div>
+    <div class="toolbar-actions">
+      <button id="exportJsonBtn">📥 ייצוא JSON</button>
+      <button id="openReplayBtn">⏪ Incident Replay</button>
     </div>
   </div>
 
@@ -313,10 +365,11 @@
             <th>חומרה</th>
             <th>סיכום</th>
             <th>Meta</th>
+            <th>Quick Fix</th>
           </tr>
         </thead>
         <tbody>
-          <tr><td colspan="5">טוען נתונים…</td></tr>
+          <tr><td colspan="6">טוען נתונים…</td></tr>
         </tbody>
       </table>
     </div>
@@ -331,6 +384,7 @@
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 <script>
 (function(){
+  const initialParams = new URLSearchParams(window.location.search || '');
   const state = {
     range: '1h',
     severity: 'all',
@@ -340,6 +394,7 @@
     page: 1,
     perPage: 25,
     lastUpdatedEl: document.getElementById('lastUpdated'),
+    focusTs: initialParams.get('focus_ts') || '',
   };
   let alertsChart;
   let responseChart;
@@ -474,7 +529,7 @@
     const body = document.querySelector('#alertsTable tbody');
     if (!body) return;
     if (!alerts || !alerts.length) {
-      body.innerHTML = '<tr><td colspan="5">לא נמצאו התראות בטווח שנבחר</td></tr>';
+      body.innerHTML = '<tr><td colspan="6">לא נמצאו התראות בטווח שנבחר</td></tr>';
       return;
     }
     body.innerHTML = alerts.map(alert => {
@@ -484,12 +539,13 @@
         .map(key => `<span>${key}: ${meta[key]}</span>`)
         .join('');
       return `
-        <tr>
+        <tr data-timestamp="${alert.timestamp || ''}" data-alert-uid="${alert.alert_uid || ''}">
           <td>${formatTimestamp(alert.timestamp)}</td>
           <td>${alert.name || '-'}</td>
           <td><span class="status-pill ${severityClass(alert.severity)}">${alert.severity || '-'}</span></td>
           <td>${alert.summary || '-'}</td>
           <td><div class="meta-list">${metaItems || ''}</div></td>
+          <td>${renderQuickFixCell(alert)}</td>
         </tr>
       `;
     }).join('');
@@ -501,6 +557,136 @@
     const nextBtn = document.getElementById('nextPageBtn');
     if (prevBtn) prevBtn.disabled = page <= 1;
     if (nextBtn) nextBtn.disabled = page >= totalPages;
+    initQuickFixHandlers();
+    highlightFocusedRow();
+  }
+
+  function renderQuickFixCell(alert) {
+    const fixes = alert.quick_fixes || [];
+    if (!fixes.length) {
+      return '<span style="opacity:0.5;">—</span>';
+    }
+    return `
+      <div class="quick-fix-list">
+        ${fixes.map(fix => {
+          const payload = encodeURIComponent(JSON.stringify({
+            action: {
+              id: fix.id,
+              type: fix.type,
+              label: fix.label,
+              href: fix.href,
+              payload: fix.payload,
+              safety: fix.safety,
+              description: fix.description,
+            },
+            alert: {
+              alert_uid: alert.alert_uid,
+              alert_type: alert.alert_type,
+              severity: alert.severity,
+              timestamp: alert.timestamp,
+              summary: alert.summary,
+            }
+          }));
+          const safetyClass = fix.safety ? `safety-${fix.safety}` : '';
+          return `<button class="quick-fix-action ${safetyClass}" data-qf="${payload}">${fix.label || 'פעולה'}</button>`;
+        }).join('')}
+      </div>
+    `;
+  }
+
+  function initQuickFixHandlers() {
+    document.querySelectorAll('.quick-fix-action').forEach(btn => {
+      if (btn.dataset.qfBound === '1') return;
+      btn.dataset.qfBound = '1';
+      btn.addEventListener('click', async () => {
+        const payload = btn.dataset.qf;
+        if (!payload) return;
+        let meta;
+        try {
+          meta = JSON.parse(decodeURIComponent(payload));
+        } catch (err) {
+          console.warn('quick fix parse failed', err);
+          return;
+        }
+        await handleQuickFixAction(meta.action || {}, meta.alert || {}, btn);
+      });
+    });
+  }
+
+  async function handleQuickFixAction(action, alertMeta, btn) {
+    if (!action || !action.id) return;
+    try {
+      if (btn) btn.disabled = true;
+      const kind = (action.type || '').toLowerCase();
+      if (kind === 'copy' && action.payload) {
+        await navigator.clipboard.writeText(action.payload);
+        showToast('הפקודה הועתקה ללוח');
+      } else if (action.href) {
+        window.open(action.href, '_blank', 'noopener');
+      }
+      await trackQuickFixAction(action, alertMeta);
+    } catch (err) {
+      console.error('quick fix failed', err);
+      showToast('שגיאה בביצוע הפעולה');
+    } finally {
+      if (btn) btn.disabled = false;
+    }
+  }
+
+  async function trackQuickFixAction(action, alertMeta) {
+    try {
+      await fetch('/api/observability/quickfix/track', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({
+          action_id: action.id,
+          action_label: action.label,
+          alert: alertMeta,
+        }),
+      });
+    } catch (err) {
+      console.debug('quick fix telemetry skipped', err);
+    }
+  }
+
+  function showToast(text) {
+    const toast = document.createElement('div');
+    toast.textContent = text;
+    toast.style.position = 'fixed';
+    toast.style.bottom = '24px';
+    toast.style.left = '50%';
+    toast.style.transform = 'translateX(-50%)';
+    toast.style.background = 'rgba(0,0,0,0.75)';
+    toast.style.color = '#fff';
+    toast.style.padding = '0.5rem 1rem';
+    toast.style.borderRadius = '999px';
+    toast.style.zIndex = '999';
+    document.body.appendChild(toast);
+    setTimeout(() => toast.remove(), 2000);
+  }
+
+  function highlightFocusedRow() {
+    if (!state.focusTs) return;
+    const rows = document.querySelectorAll('#alertsTable tbody tr');
+    let target = null;
+    const focusMs = Date.parse(state.focusTs);
+    rows.forEach(row => {
+      const ts = row.dataset.timestamp;
+      if (!ts) return;
+      const rowMs = Date.parse(ts);
+      if (!Number.isNaN(focusMs) && !Number.isNaN(rowMs)) {
+        if (Math.abs(rowMs - focusMs) <= 5 * 60 * 1000 && !target) {
+          target = row;
+        }
+      } else if (!target && ts.startsWith(state.focusTs)) {
+        target = row;
+      }
+    });
+    if (target) {
+      target.classList.add('highlight-row');
+      target.scrollIntoView({behavior: 'smooth', block: 'center'});
+      state.focusTs = '';
+    }
   }
 
   async function refreshAggregations() {
@@ -593,8 +779,50 @@
     });
   }
 
+  function initExportButton() {
+    const btn = document.getElementById('exportJsonBtn');
+    if (!btn) return;
+    btn.addEventListener('click', async () => {
+      btn.disabled = true;
+      try {
+        const params = new URLSearchParams({timerange: state.range});
+        const res = await fetch(`/api/observability/export?${params.toString()}`, {headers: {'Accept': 'application/json'}});
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        const payload = await res.json();
+        payload.requested_range = state.range;
+        const blob = new Blob([JSON.stringify(payload, null, 2)], {type: 'application/json'});
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        const ts = new Date().toISOString().replace(/[:.]/g, '-');
+        link.href = url;
+        link.download = `observability_snapshot_${ts}.json`;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        URL.revokeObjectURL(url);
+        showToast('קובץ JSON ירד בהצלחה');
+      } catch (err) {
+        console.error('export failed', err);
+        showToast('שגיאה ביצוא');
+      } finally {
+        btn.disabled = false;
+      }
+    });
+  }
+
+  function initReplayButton() {
+    const btn = document.getElementById('openReplayBtn');
+    if (!btn) return;
+    btn.addEventListener('click', () => {
+      const params = new URLSearchParams({timerange: state.range});
+      window.open(`/admin/observability/replay?${params.toString()}`, '_blank', 'noopener');
+    });
+  }
+
   initRangeButtons();
   initFilters();
+  initExportButton();
+  initReplayButton();
   refreshAll();
 })();
 </script>
