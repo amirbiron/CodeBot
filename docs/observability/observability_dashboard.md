@@ -24,6 +24,23 @@
 - **Incident Replay** – כפתור ייעודי שמוביל למסך `/admin/observability/replay` עם ציר זמן משולב (התראות, דיפלוימנטים ופעולות ChatOps שנרשמו דרך Quick Fix). אפשר לשתף טווח ספציפי באמצעות פרמטרים (`timerange`, `start`, `end`, `focus_ts`).
 - **Quick Fix** – עמודת פעולות סמוך לכל התראה שמציעה פעולות נפוצות (לינקים ל‑Playbook, העתקת פקודות ChatOps, קפיצה לציר הזמן). המיפוי מגיע מהקובץ `config/alert_quick_fixes.json` ונטען דינמית.
 
+### גרפים היסטוריים בכל התראה
+
+- בכל שורת התראה מופיע כפתור `📈 הצג גרף` שמרחיב גרף Chart.js ישירות בתוך הטבלה. הגרף מתיישר אוטומטית לאזור הזמן של ההתראה ומוכן גם במובייל.
+- המערכת בוחרת טווח זמן חכם (± סביב מועד ההתראה) בהתאם לסוג המטריקה:
+
+  | סוג המטריקה | טווח ברירת מחדל | למה זה מתאים? |
+  |-------------|-----------------|---------------|
+  | CPU Spike / Timeout | ±15 דקות | איתור אירוע ספייק קצר ומהיר |
+  | API Latency / Slow Response | ±30-60 דקות | לראות תחילת הידרדרות וההתאוששות |
+  | Error Rate | ±1-2 שעות | להבין את עומק ההשפעה ואת הקורלציה לדיפלוימנטים |
+  | Memory Leak / DB Slow | ±2-6 שעות | דליפות זיכרון או הידרדרות איטית |
+  | Disk Space / Capacity | ±24-48 שעות | מגמת התמלאות ארוכת טווח |
+  | Traffic Surge | ±1-3 שעות | השוואה לנורמת תנועה יומית |
+
+- המשתמש יכול לשנות את הטווח ידנית בעזרת Zoom In/Out או Presets קבועים (`15m`, `30m`, `1h`, `2h`, `4h`, `6h`, `24h`, `48h`, `7d`). כל שינוי טווח מבצע בקשת `/api/observability/timeseries` עם `start_time`/`end_time` מדויקים.
+- אם למטריקה אין מקור נתונים פנימי, מוצג המסר *"No visual data available for this metric"* וניתן להשלים את המידע דרך Graph URL Template חיצוני (פירוט בהמשך).
+
 ### יכולות סינון
 
 - **חומרה** – `critical | anomaly | warning | info` (או "כל החומרות").
@@ -118,7 +135,7 @@ curl -H 'Accept: application/json' \
 - **מטרה:** הזנת הגרפים ומשיכת טבלאות Time Series לכל Metric נתמך.
 - **פרמטרים נוספים:**
   - `granularity` – דגימה בפורמט `5m`, `1h`, `6h`, `12h` (ברירת מחדל `1h`). הערך מומר אוטומטית לשניות ומוחזר בשדה `granularity_seconds`.
-  - `metric` – אחד מ-`alerts_count`, `response_time`, `error_rate` (ברירת מחדל `alerts_count`).
+  - `metric` – אחד מ-`alerts_count`, `response_time`, `error_rate`, `memory_usage_percent`, `cpu_usage_percent`, `disk_usage_percent`, `requests_per_minute` או כל מטריקה שמוגדרת בקובץ `config/alert_graph_sources.json` (ברירת מחדל `alerts_count`).
 
 ```bash
 curl -H 'Accept: application/json' \
@@ -137,7 +154,7 @@ curl -H 'Accept: application/json' \
 }
 ```
 
-**הערה:** עבור `metric=response_time` האובייקטים מכילים `avg_duration`, `max_duration`, `count`. עבור `alerts_count` תוחזר חלוקה לפי חומרה (`critical`, `anomaly`, `warning`, `info`, `total`).
+**הערה:** עבור `metric=response_time`/`latency_seconds` האובייקטים מכילים `avg_duration`, `max_duration`, `count`. עבור מטריקות חיזוי (`memory_usage_percent`, `cpu_usage_percent`, `disk_usage_percent`) יוחזר שדה יחיד `value`. עבור `alerts_count` תוחזר חלוקה לפי חומרה (`critical`, `anomaly`, `warning`, `info`, `total`). מטריקות שמוגדרות דרך Graph URL Template צריכות להחזיר מערך של `{ "timestamp": "...", "value": ... }`.
 
 ### `GET /api/observability/replay`
 
@@ -156,6 +173,36 @@ curl -H 'Accept: application/json' \
 - **מטרה:** טלמטריה של Quick Fix (משמשת גם לציר הזמן וגם ללוגים).
 - **קלט:** `{ "action_id": "...", "action_label": "...", "alert": {"alert_uid": "...", "alert_type": "...", "timestamp": "..."} }`.
 - **הערה:** הנתיב מחייב Admin ונסמך על המיפוי ב-`config/alert_quick_fixes.json`.
+
+### Graph URL Template למקורות חדשים
+
+- הקובץ `config/alert_graph_sources.json` מאפשר לרשום מקורות נתונים חיצוניים לגרפי ההקשר. כל ערך במילון `sources` מגדיר `graph_url_template` ופרטי פענוח:
+
+```json
+{
+  "version": 1,
+  "sources": {
+    "custom_metric": {
+      "label": "External CPU %",
+      "unit": "%",
+      "category": "spike",
+      "default_range": "1h",
+      "graph_url_template": "https://grafana.example/api/series?metric={{metric_name}}&from={{start_ts_ms}}&to={{end_ts_ms}}",
+      "allowed_hosts": ["grafana.example"],
+      "timestamp_key": "ts",
+      "value_key": "value",
+      "headers": {"Authorization": "Bearer ..."},
+      "timeout": 5
+    }
+  }
+}
+```
+
+- משתנים נתמכים בטמפלייט: `{{metric_name}}`, `{{start_time}}`, `{{end_time}}`, `{{granularity_seconds}}`, `{{start_ts_ms}}`, `{{end_ts_ms}}`.
+- ה-API החיצוני צריך להחזיר מערך של רשומות או אובייקט עם `data` המכיל רשומות. ברירת המחדל היא לחפש שדות בשם `timestamp` ו-`value`, אך ניתן לעדכן בעזרת `timestamp_key`/`value_key`.
+- לכל מקור חובה להגדיר `allowed_hosts` – רשימת שמות דומיין מאושרים. לפני כל קריאה נוודא שה-URL הסופי משתמש ב-HTTP/S ושם המארח נמצא ברשימה, אחרת הקריאה תיחסם כדי למנוע SSRF.
+- שמות המטריקות עצמם משמשים כ־Allowlist. מערכת ה-WebApp תבצע קריאה חיצונית רק אם המטריקה הוגדרה בקובץ הזה; ניסיון לבקש מטריקה שלא קיימת פשוט ייחסם.
+- כך ניתן לחבר Grafana/DataDog/Prometheus JSON API בלי שינוי קוד: אם אין מטריקה פנימית, המשתמש יראה את ההודעה *"No visual data available for this metric"* עד שיוגדר Template מתאים.
 
 ## 🔐 אבטחה, Rate Limiting וקאש
 

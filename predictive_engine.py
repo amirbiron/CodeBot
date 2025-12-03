@@ -1,7 +1,8 @@
 """
 Predictive Health Engine (Observability v7)
 
-- Maintains sliding window for metrics: error_rate_percent, latency_seconds, memory_usage_percent
+- Maintains sliding window for metrics: error_rate_percent, latency_seconds,
+  memory_usage_percent, cpu_usage_percent, disk_usage_percent
 - Exponential smoothing (EW-Regression) for trend estimation, fallback to linear regression
 - Adaptive Feedback Loop: compare predictions vs actuals and adjust smoothing reactiveness
 - If forecast crosses adaptive threshold within horizon (default 15 minutes), logs a predictive incident
@@ -82,6 +83,9 @@ _MEMORY_THRESHOLD_PCT = float(os.getenv("MEMORY_USAGE_THRESHOLD_PERCENT", "85") 
 _values_error_rate: Deque[Tuple[float, float]] = deque(maxlen=240)  # roughly 1/min for 4h
 _values_latency: Deque[Tuple[float, float]] = deque(maxlen=240)
 _values_memory: Deque[Tuple[float, float]] = deque(maxlen=240)
+_values_cpu: Deque[Tuple[float, float]] = deque(maxlen=240)
+_values_disk: Deque[Tuple[float, float]] = deque(maxlen=240)
+_DISK_USAGE_PATH = os.getenv("PREDICTIVE_DISK_PATH", "/") or "/"
 
 _last_recompute_ts: float = 0.0
 
@@ -198,6 +202,43 @@ def _evict_old(points: Deque[Tuple[float, float]], min_ts: float) -> None:
         return
 
 
+def _buffer_for_metric(metric: str) -> Optional[Deque[Tuple[float, float]]]:
+    key = (metric or "").strip().lower()
+    if key in {"error_rate_percent", "error_rate"}:
+        return _values_error_rate
+    if key in {"latency_seconds", "latency"}:
+        return _values_latency
+    if key in {"memory_usage_percent", "memory_percent"}:
+        return _values_memory
+    if key in {"cpu_usage_percent", "cpu_percent"}:
+        return _values_cpu
+    if key in {"disk_usage_percent", "disk_percent", "disk_fill_percent"}:
+        return _values_disk
+    return None
+
+
+def get_observations(
+    metric: str,
+    *,
+    start_ts: Optional[float] = None,
+    end_ts: Optional[float] = None,
+) -> List[Tuple[float, float]]:
+    """Return raw (ts, value) observations for the requested metric."""
+    buf = _buffer_for_metric(metric)
+    if buf is None:
+        raise ValueError("unsupported_metric")
+    start_bound = float(start_ts) if start_ts is not None else None
+    end_bound = float(end_ts) if end_ts is not None else None
+    data: List[Tuple[float, float]] = []
+    for ts, value in list(buf):
+        if start_bound is not None and ts < start_bound:
+            continue
+        if end_bound is not None and ts > end_bound:
+            continue
+        data.append((ts, float(value)))
+    return data
+
+
 def _get_thresholds() -> Dict[str, float]:
     """Fetch adaptive thresholds for error_rate_percent and latency_seconds.
 
@@ -236,6 +277,22 @@ def _get_current_values() -> Tuple[float, float, float]:
     return err, lat, mem
 
 
+def _get_cpu_and_disk_percent() -> Tuple[float, float]:
+    cpu_pct = 0.0
+    disk_pct = 0.0
+    if psutil is None:  # pragma: no cover - psutil optional
+        return cpu_pct, disk_pct
+    try:
+        cpu_pct = float(psutil.cpu_percent(interval=None))
+    except Exception:
+        cpu_pct = 0.0
+    try:
+        disk_pct = float(psutil.disk_usage(_DISK_USAGE_PATH).percent)
+    except Exception:
+        disk_pct = 0.0
+    return cpu_pct, disk_pct
+
+
 def note_observation(
     *,
     error_rate_percent: Optional[float] = None,
@@ -254,14 +311,19 @@ def note_observation(
             error_rate_percent = cur_err if error_rate_percent is None else error_rate_percent
             latency_seconds = cur_lat if latency_seconds is None else latency_seconds
             memory_usage_percent = cur_mem if memory_usage_percent is None else memory_usage_percent
+        cpu_pct, disk_pct = _get_cpu_and_disk_percent()
         _values_error_rate.append((t, float(error_rate_percent)))
         _values_latency.append((t, float(latency_seconds)))
         _values_memory.append((t, float(memory_usage_percent)))
+        _values_cpu.append((t, float(cpu_pct)))
+        _values_disk.append((t, float(disk_pct)))
         # Evict old
         min_ts = t - _MAX_WINDOW_SEC
         _evict_old(_values_error_rate, min_ts)
         _evict_old(_values_latency, min_ts)
         _evict_old(_values_memory, min_ts)
+        _evict_old(_values_cpu, min_ts)
+        _evict_old(_values_disk, min_ts)
     except Exception:
         return
 
@@ -421,6 +483,8 @@ def reset_state_for_tests() -> None:
         _values_error_rate.clear()
         _values_latency.clear()
         _values_memory.clear()
+        _values_cpu.clear()
+        _values_disk.clear()
         global _last_recompute_ts, _last_feedback_ts, _last_cleanup_ts
         _last_recompute_ts = 0.0
         _last_feedback_ts = 0.0

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import os
 import threading
 import time
@@ -9,7 +10,7 @@ from collections import deque
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
-from urllib.parse import urlencode
+from urllib.parse import urlencode, urlparse
 
 try:
     import internal_alerts as _internal_alerts  # type: ignore
@@ -35,6 +36,137 @@ _QUICK_FIX_PATH = Path(os.getenv("ALERT_QUICK_FIX_PATH", "config/alert_quick_fix
 _QUICK_FIX_CACHE: Dict[str, Any] = {}
 _QUICK_FIX_MTIME: float = 0.0
 _QUICK_FIX_ACTIONS: deque[Dict[str, Any]] = deque(maxlen=200)
+
+logger = logging.getLogger(__name__)
+
+_RANGE_TO_MINUTES = {
+    "15m": 15,
+    "30m": 30,
+    "1h": 60,
+    "2h": 120,
+    "3h": 180,
+    "4h": 240,
+    "6h": 360,
+    "24h": 1440,
+    "48h": 2880,
+    "7d": 10080,
+}
+
+_TIMEFRAME_DEFAULTS = {
+    "spike": "30m",
+    "degradation": "2h",
+    "trend": "48h",
+    "pattern": "7d",
+}
+
+_METRIC_DEFINITIONS: Dict[str, Dict[str, Any]] = {
+    "error_rate_percent": {
+        "label": "שיעור שגיאות (%)",
+        "unit": "%",
+        "source": "request_error_rate",
+        "category": "degradation",
+        "default_range": "2h",
+    },
+    "latency_seconds": {
+        "label": "זמן תגובה (ש׳׳)",
+        "unit": "sec",
+        "source": "request_latency",
+        "category": "spike",
+        "default_range": "1h",
+    },
+    "memory_usage_percent": {
+        "label": "ניצול זיכרון (%)",
+        "unit": "%",
+        "source": "predictive",
+        "category": "trend",
+        "default_range": "6h",
+    },
+    "cpu_usage_percent": {
+        "label": "ניצול CPU (%)",
+        "unit": "%",
+        "source": "predictive",
+        "category": "spike",
+        "default_range": "30m",
+    },
+    "disk_usage_percent": {
+        "label": "ניצול דיסק (%)",
+        "unit": "%",
+        "source": "predictive",
+        "category": "trend",
+        "default_range": "48h",
+    },
+    "requests_per_minute": {
+        "label": "בקשות לדקה",
+        "unit": "rpm",
+        "source": "request_volume",
+        "category": "pattern",
+        "default_range": "3h",
+    },
+}
+
+_METRIC_ALIASES = {
+    "error_rate": "error_rate_percent",
+    "error_rate_percent": "error_rate_percent",
+    "errors": "error_rate_percent",
+    "latency": "latency_seconds",
+    "latency_seconds": "latency_seconds",
+    "response_time": "latency_seconds",
+    "memory": "memory_usage_percent",
+    "memory_percent": "memory_usage_percent",
+    "memory_usage": "memory_usage_percent",
+    "cpu": "cpu_usage_percent",
+    "cpu_percent": "cpu_usage_percent",
+    "disk": "disk_usage_percent",
+    "disk_usage": "disk_usage_percent",
+    "disk_percent": "disk_usage_percent",
+    "traffic": "requests_per_minute",
+    "qps": "requests_per_minute",
+    "rpm": "requests_per_minute",
+}
+
+_ALERT_GRAPH_RULES: List[Dict[str, Any]] = [
+    {
+        "metric": "cpu_usage_percent",
+        "category": "spike",
+        "keywords": ("cpu", "burst", "timeout", "spike"),
+        "type_matches": ("cpu_spike", "api_timeout"),
+    },
+    {
+        "metric": "latency_seconds",
+        "category": "degradation",
+        "keywords": ("latency", "slow response", "p95", "timeout"),
+        "type_matches": ("slow_response", "api_latency"),
+    },
+    {
+        "metric": "error_rate_percent",
+        "category": "degradation",
+        "keywords": ("error rate", "errors", "5xx"),
+        "type_matches": ("high_error_rate", "error_spike"),
+    },
+    {
+        "metric": "memory_usage_percent",
+        "category": "trend",
+        "keywords": ("memory", "leak", "heap"),
+        "type_matches": ("memory_leak",),
+    },
+    {
+        "metric": "disk_usage_percent",
+        "category": "trend",
+        "keywords": ("disk", "storage", "capacity"),
+        "type_matches": ("disk_full", "disk_usage"),
+    },
+    {
+        "metric": "requests_per_minute",
+        "category": "pattern",
+        "keywords": ("traffic", "surge", "throughput", "qps"),
+        "type_matches": ("traffic_surge",),
+    },
+]
+
+_ALERT_GRAPH_SOURCES_PATH = Path(os.getenv("ALERT_GRAPH_SOURCES_PATH", "config/alert_graph_sources.json"))
+_GRAPH_SOURCES_CACHE: Dict[str, Any] = {}
+_GRAPH_SOURCES_MTIME: float = 0.0
+_EXTERNAL_ALLOWED_METRICS: set[str] = set()
 
 
 def _cache_get(kind: str, key: Any, ttl: float) -> Any:
@@ -159,6 +291,167 @@ def get_quick_fix_actions(alert: Dict[str, Any]) -> List[Dict[str, Any]]:
         return _collect_quick_fix_actions(alert)
     except Exception:
         return []
+
+
+def _load_graph_sources_config() -> Dict[str, Any]:
+    global _GRAPH_SOURCES_CACHE, _GRAPH_SOURCES_MTIME, _EXTERNAL_ALLOWED_METRICS
+    path = _ALERT_GRAPH_SOURCES_PATH
+    if not path:
+        return _GRAPH_SOURCES_CACHE
+    try:
+        stat = path.stat()
+    except FileNotFoundError:
+        _GRAPH_SOURCES_CACHE = {}
+        _GRAPH_SOURCES_MTIME = 0.0
+        return _GRAPH_SOURCES_CACHE
+    except Exception:
+        return _GRAPH_SOURCES_CACHE
+    if stat.st_mtime <= _GRAPH_SOURCES_MTIME and _GRAPH_SOURCES_CACHE:
+        return _GRAPH_SOURCES_CACHE
+    try:
+        text = path.read_text(encoding="utf-8")
+        data = json.loads(text or "{}")
+    except Exception:
+        _GRAPH_SOURCES_CACHE = {}
+        _GRAPH_SOURCES_MTIME = stat.st_mtime
+        return _GRAPH_SOURCES_CACHE
+    sources = data.get("sources") if isinstance(data, dict) else {}
+    if isinstance(sources, dict):
+        normalized: Dict[str, Any] = {}
+        for key, value in sources.items():
+            if not isinstance(value, dict):
+                continue
+            norm_key = str(key).lower()
+            normalized[norm_key] = value
+        _GRAPH_SOURCES_CACHE = normalized
+        _EXTERNAL_ALLOWED_METRICS = set(normalized.keys())
+    else:
+        _GRAPH_SOURCES_CACHE = {}
+        _EXTERNAL_ALLOWED_METRICS = set()
+    _GRAPH_SOURCES_MTIME = stat.st_mtime
+    return _GRAPH_SOURCES_CACHE
+
+
+def _get_external_metric_sources() -> Dict[str, Any]:
+    return _load_graph_sources_config()
+
+
+def _normalize_metric_name(metric: Optional[str]) -> Optional[str]:
+    if not metric:
+        return None
+    key = str(metric).strip().lower()
+    if not key:
+        return None
+    return _METRIC_ALIASES.get(key, key)
+
+
+def _get_metric_definition(metric: Optional[str]) -> Optional[Dict[str, Any]]:
+    if not metric:
+        return None
+    key = _normalize_metric_name(metric)
+    if not key:
+        return None
+    base = _METRIC_DEFINITIONS.get(key)
+    if base:
+        definition = dict(base)
+        definition["metric"] = key
+        return definition
+    external = _get_external_metric_sources().get(key)
+    if external:
+        category = str(external.get("category") or "degradation").strip().lower() or "degradation"
+        default_range = external.get("default_range") or _TIMEFRAME_DEFAULTS.get(category, "2h")
+        allowed_hosts = external.get("allowed_hosts")
+        if isinstance(allowed_hosts, str):
+            allowed_hosts = [allowed_hosts]
+        if isinstance(allowed_hosts, list):
+            normalized_hosts = []
+            for host in allowed_hosts:
+                if not host:
+                    continue
+                normalized_hosts.append(str(host).strip().lower())
+            allowed_hosts = normalized_hosts
+        else:
+            allowed_hosts = None
+        definition = {
+            "metric": key,
+            "label": external.get("label") or key,
+            "unit": external.get("unit") or "",
+            "category": category,
+            "default_range": default_range,
+            "source": "external",
+            "external_config": external,
+            "allowed_hosts": allowed_hosts,
+        }
+        return definition
+    return None
+
+
+def _minutes_for_range(label: Optional[str]) -> int:
+    if not label:
+        return _RANGE_TO_MINUTES.get("2h", 120)
+    return _RANGE_TO_MINUTES.get(str(label), _RANGE_TO_MINUTES.get("2h", 120))
+
+
+def _alert_metric_from_metadata(alert: Dict[str, Any]) -> Optional[str]:
+    metadata = alert.get("metadata")
+    if not isinstance(metadata, dict):
+        return None
+    for key in ("metric", "metric_name", "graph_metric", "graph_metric_name"):
+        value = metadata.get(key)
+        normalized = _normalize_metric_name(value)
+        if normalized:
+            return normalized
+    return None
+
+
+def _match_graph_rule(alert: Dict[str, Any]) -> Tuple[Optional[str], Optional[str], Optional[str]]:
+    name = str(alert.get("name") or "").lower()
+    alert_type = str(alert.get("alert_type") or "").lower()
+    summary = str(alert.get("summary") or "").lower()
+    haystack = " ".join(filter(None, [name, alert_type, summary]))
+    for rule in _ALERT_GRAPH_RULES:
+        metric = rule.get("metric")
+        if not metric:
+            continue
+        keywords = rule.get("keywords") or ()
+        type_matches = tuple(str(t).lower() for t in (rule.get("type_matches") or ()))
+        matched = False
+        if alert_type and type_matches:
+            if alert_type in type_matches or any(alert_type.startswith(t) for t in type_matches):
+                matched = True
+        if not matched and keywords:
+            for kw in keywords:
+                if kw and str(kw).lower() in haystack:
+                    matched = True
+                    break
+        if matched:
+            return _normalize_metric_name(metric), rule.get("category"), f"rule:{metric}"
+    return None, None, None
+
+
+def _describe_alert_graph(alert: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    metric = _alert_metric_from_metadata(alert)
+    reason = "metadata" if metric else None
+    category = None
+    if not metric:
+        metric, category, reason = _match_graph_rule(alert)
+    if not metric:
+        return None
+    definition = _get_metric_definition(metric)
+    category = (definition or {}).get("category") or category
+    default_range = (definition or {}).get("default_range") or _TIMEFRAME_DEFAULTS.get(category or "", "2h")
+    minutes = _minutes_for_range(default_range)
+    return {
+        "metric": (definition or {}).get("metric") or metric,
+        "label": (definition or {}).get("label") or metric or "metric",
+        "unit": (definition or {}).get("unit") or "",
+        "category": category,
+        "default_range": default_range,
+        "default_minutes": minutes,
+        "source": (definition or {}).get("source"),
+        "available": bool(definition),
+        "reason": reason or ("rule" if metric else "unknown"),
+    }
 
 
 def _build_alert_uid(alert: Dict[str, Any]) -> str:
@@ -344,6 +637,9 @@ def fetch_alerts(
             uid = _hash_identifier(alert)
         alert["alert_uid"] = uid
         alert["quick_fixes"] = get_quick_fix_actions(alert)
+        graph = _describe_alert_graph(alert)
+        if graph:
+            alert["graph"] = graph
 
     payload = {
         "alerts": alerts,
@@ -557,6 +853,180 @@ def _fallback_alert_timeseries(
     return result
 
 
+def _predictive_metric_series(
+    metric: str,
+    *,
+    start_dt: Optional[datetime],
+    end_dt: Optional[datetime],
+    granularity_seconds: int,
+) -> List[Dict[str, Any]]:
+    start_ts = start_dt.timestamp() if start_dt else None
+    end_ts = end_dt.timestamp() if end_dt else None
+    try:
+        from predictive_engine import get_observations  # type: ignore
+    except Exception:
+        return []
+    try:
+        rows = get_observations(metric, start_ts=start_ts, end_ts=end_ts)
+    except ValueError:
+        return []
+    except Exception:
+        logger.debug("predictive_metric_series_failed", exc_info=True)
+        return []
+    if not rows:
+        return []
+    bucket = max(60, int(granularity_seconds or 60))
+    buckets: Dict[int, List[float]] = {}
+    for ts, value in rows:
+        if start_ts is not None and ts < start_ts:
+            continue
+        if end_ts is not None and ts > end_ts:
+            continue
+        key = int(ts // bucket) * bucket
+        buckets.setdefault(key, []).append(float(value))
+    data: List[Dict[str, Any]] = []
+    for key in sorted(buckets.keys()):
+        bucket_values = buckets[key]
+        if not bucket_values:
+            continue
+        avg_value = sum(bucket_values) / float(len(bucket_values))
+        ts_iso = datetime.fromtimestamp(key, tz=timezone.utc).isoformat()
+        data.append({"timestamp": ts_iso, "value": avg_value})
+    return data
+
+
+def _http_get_json(
+    url: str,
+    *,
+    headers: Optional[Dict[str, str]] = None,
+    timeout: float = 5.0,
+    allowed_hosts: Optional[List[str]] = None,
+) -> Any:
+    response_text = None
+    request_fn = None
+    allowed_hosts = [str(h).strip().lower() for h in (allowed_hosts or []) if h]
+    if not allowed_hosts:
+        raise RuntimeError("allowed_hosts_required")
+    parsed = urlparse(url)
+    host = (parsed.hostname or "").lower()
+    scheme = (parsed.scheme or "").lower()
+    if scheme not in {"http", "https"} or host not in allowed_hosts:
+        raise RuntimeError("http_host_not_allowed")
+
+    try:
+        from http_sync import request as http_request  # type: ignore
+
+        request_fn = http_request
+    except Exception:
+        request_fn = None
+    if request_fn is not None:
+        resp = request_fn("GET", url, headers=headers or {}, timeout=timeout)
+        try:
+            raise_fn = getattr(resp, "raise_for_status", None)
+            if callable(raise_fn):
+                raise_fn()
+            else:
+                status_code = getattr(resp, "status_code", None)
+                if status_code is not None and int(status_code) >= 400:
+                    raise RuntimeError(f"http_error_status_{status_code}")
+        except Exception:
+            raise
+        response_text = getattr(resp, "text", None)
+        if response_text is None:
+            try:
+                response_text = resp.content.decode("utf-8")  # type: ignore[attr-defined]
+            except Exception:
+                response_text = None
+    else:
+        try:
+            import requests  # type: ignore
+        except Exception as exc:  # pragma: no cover
+            raise RuntimeError("http_client_unavailable") from exc
+        resp = requests.get(url, headers=headers, timeout=timeout)  # type: ignore[attr-defined]
+        resp.raise_for_status()
+        response_text = resp.text
+    return json.loads(response_text or "null")
+
+
+def _fetch_external_metric_series(
+    metric: str,
+    definition: Dict[str, Any],
+    *,
+    start_dt: Optional[datetime],
+    end_dt: Optional[datetime],
+    granularity_seconds: int,
+) -> List[Dict[str, Any]]:
+    import re
+    if definition.get("source") != "external":
+        raise ValueError("unsupported_external_metric")
+    if metric not in _EXTERNAL_ALLOWED_METRICS:
+        logger.warning("external_metric_not_allowlisted", extra={"metric": metric})
+        raise ValueError("invalid_metric")
+    # Only allow safe metric names for template substitution
+    safe_metric = metric
+    if not re.fullmatch(r"[A-Za-z0-9_-]+", safe_metric):
+        logger.warning("external_metric_invalid_name", extra={"metric": safe_metric})
+        raise ValueError("invalid_metric_name")
+    config = definition.get("external_config") or {}
+    template = config.get("graph_url_template")
+    if not template:
+        raise ValueError("missing_graph_url_template")
+    replacements = {
+        "{{metric_name}}": safe_metric,
+        "{{start_time}}": start_dt.isoformat() if start_dt else "",
+        "{{end_time}}": end_dt.isoformat() if end_dt else "",
+        "{{granularity_seconds}}": str(granularity_seconds),
+        "{{start_ts_ms}}": str(int(start_dt.timestamp() * 1000)) if start_dt else "",
+        "{{end_ts_ms}}": str(int(end_dt.timestamp() * 1000)) if end_dt else "",
+    }
+    url = template
+    for token, value in replacements.items():
+        url = url.replace(token, value)
+    headers = config.get("headers") if isinstance(config.get("headers"), dict) else None
+    timeout = float(config.get("timeout", 5.0) or 5.0)
+    parsed = urlparse(url)
+    scheme = (parsed.scheme or "").lower()
+    host = (parsed.hostname or "").lower()
+    if scheme not in {"http", "https"} or not host:
+        logger.warning("external_metric_invalid_url", extra={"metric": safe_metric, "url": url})
+        return []
+    allowed_hosts = definition.get("allowed_hosts") or []
+    if not allowed_hosts:
+        logger.warning("external_metric_missing_allowlist", extra={"metric": safe_metric, "url": url})
+        return []
+    if host not in allowed_hosts:
+        logger.warning("external_metric_blocked_host", extra={"metric": safe_metric, "host": host})
+        return []
+    try:
+        payload = _http_get_json(url, headers=headers, timeout=timeout, allowed_hosts=allowed_hosts)
+    except Exception as exc:
+        logger.warning("external_metric_fetch_failed", extra={"metric": safe_metric, "url": url, "error": str(exc)})
+        return []
+    data_block = payload.get("data") if isinstance(payload, dict) else payload
+    if not isinstance(data_block, list):
+        return []
+    rows: List[Dict[str, Any]] = []
+    value_key = config.get("value_key") or "value"
+    ts_key = config.get("timestamp_key") or "timestamp"
+    for item in data_block:
+        if not isinstance(item, dict):
+            continue
+        ts = item.get(ts_key)
+        value = item.get(value_key)
+        if ts is None or value is None:
+            continue
+        try:
+            value_num = float(value)
+        except Exception:
+            logger.warning(
+                "external_metric_invalid_value",
+                extra={"metric": metric, "value": value, "timestamp": ts},
+            )
+            continue
+        rows.append({"timestamp": str(ts), "value": value_num})
+    return rows
+
+
 def fetch_timeseries(
     *,
     start_dt: Optional[datetime],
@@ -574,10 +1044,12 @@ def fetch_timeseries(
     if cached is not None:
         return cached
 
-    metric_key = (metric or "alerts_count").lower()
+    requested_metric = (metric or "alerts_count") or "alerts_count"
+    metric_key = str(requested_metric).strip().lower() or "alerts_count"
+    normalized_metric = _normalize_metric_name(metric_key) or metric_key
     data: List[Dict[str, Any]] = []
 
-    if metric_key == "alerts_count":
+    if normalized_metric == "alerts_count":
         buckets = alerts_storage.aggregate_alert_timeseries(
             start_dt=start_dt,
             end_dt=end_dt,
@@ -600,7 +1072,7 @@ def fetch_timeseries(
                     "total": entry.get("total", 0),
                 }
             )
-    elif metric_key == "response_time":
+    elif normalized_metric in {"response_time", "latency_seconds"}:
         buckets = metrics_storage.aggregate_request_timeseries(
             start_dt=start_dt,
             end_dt=end_dt,
@@ -615,7 +1087,7 @@ def fetch_timeseries(
                     "count": entry.get("count", 0),
                 }
             )
-    elif metric_key == "error_rate":
+    elif normalized_metric in {"error_rate", "error_rate_percent"}:
         buckets = metrics_storage.aggregate_request_timeseries(
             start_dt=start_dt,
             end_dt=end_dt,
@@ -632,10 +1104,45 @@ def fetch_timeseries(
                     "errors": errors,
                 }
             )
+    elif normalized_metric in {"memory_usage_percent", "cpu_usage_percent", "disk_usage_percent"}:
+        data = _predictive_metric_series(
+            normalized_metric,
+            start_dt=start_dt,
+            end_dt=end_dt,
+            granularity_seconds=granularity_seconds,
+        )
+    elif normalized_metric == "requests_per_minute":
+        buckets = metrics_storage.aggregate_request_timeseries(
+            start_dt=start_dt,
+            end_dt=end_dt,
+            granularity_seconds=granularity_seconds,
+        )
+        minutes = max(1.0, float(granularity_seconds or 60) / 60.0)
+        for entry in buckets:
+            count_val = int(entry.get("count", 0) or 0)
+            rpm = float(count_val) / minutes
+            data.append(
+                {
+                    "timestamp": entry.get("timestamp"),
+                    "requests_per_minute": rpm,
+                    "count": count_val,
+                }
+            )
     else:
-        raise ValueError("invalid_metric")
+        definition = _get_metric_definition(normalized_metric)
+        if definition and definition.get("source") == "external":
+            data = _fetch_external_metric_series(
+                normalized_metric,
+                definition,
+                start_dt=start_dt,
+                end_dt=end_dt,
+                granularity_seconds=granularity_seconds,
+            )
+        else:
+            raise ValueError("invalid_metric")
 
-    payload = {"metric": metric_key, "data": data}
+    payload_metric = metric_key if metric else normalized_metric
+    payload = {"metric": payload_metric, "data": data}
     _cache_set("timeseries", cache_key, payload)
     return payload
 
