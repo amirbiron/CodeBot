@@ -1,13 +1,27 @@
 /* Custom CSS for Code Keeper Bot Documentation */
 
 /* RTL Support for Hebrew */
-.rst-content {
-    direction: ltr;
+.wy-nav-content {
+    direction: rtl;
 }
 
-.rst-content .hebrew {
+.rst-content {
     direction: rtl;
+    unicode-bidi: plaintext;
     text-align: right;
+}
+
+.rst-content .hebrew,
+.rst-content .bidi-rtl {
+    direction: rtl;
+    unicode-bidi: plaintext;
+    text-align: right;
+}
+
+.rst-content .bidi-ltr {
+    direction: ltr;
+    unicode-bidi: embed;
+    text-align: left;
 }
 
 /* Code blocks styling */
@@ -16,6 +30,8 @@
     border: 1px solid #e1e4e8;
     border-radius: 6px;
     margin: 1em 0;
+    direction: ltr;
+    text-align: left;
 }
 
 .highlight pre {
@@ -112,6 +128,8 @@ table.docutils td {
     border-radius: 6px;
     padding: 1em;
     margin: 1em 0;
+    direction: ltr;
+    text-align: left;
 }
 
 /* Search results */
