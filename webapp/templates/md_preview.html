@@ -47,6 +47,11 @@
   --hljs-addition-bg: rgba(26, 127, 55, 0.12);
   --hljs-deletion-text: #cf222e;
   --hljs-deletion-bg: rgba(207, 34, 46, 0.15);
+  --md-blockquote-bg: #eef2f7;
+  --md-blockquote-border: #cbd5e1;
+  --md-blockquote-color: #0f172a;
+  --md-table-border: #e5e7eb;
+  --md-table-header-bg: #f8fafc;
 }
 
 /* Dark/Dim theme support */
@@ -87,6 +92,11 @@
   --hljs-addition-bg: rgba(152, 195, 121, 0.18);
   --hljs-deletion-text: #e06c75;
   --hljs-deletion-bg: rgba(224, 108, 117, 0.22);
+  --md-blockquote-bg: color-mix(in srgb, var(--bg-tertiary) 70%, rgba(255, 255, 255, 0.05));
+  --md-blockquote-border: var(--glass-border);
+  --md-blockquote-color: var(--text-secondary);
+  --md-table-border: var(--glass-border);
+  --md-table-header-bg: color-mix(in srgb, var(--bg-tertiary) 80%, rgba(255,255,255,0.08));
 }
 
 [data-theme="dim"] #md-content {
@@ -119,6 +129,11 @@
   --hljs-addition-bg: rgba(163, 190, 140, 0.2);
   --hljs-deletion-text: #d08770;
   --hljs-deletion-bg: rgba(208, 135, 112, 0.25);
+  --md-blockquote-bg: color-mix(in srgb, var(--bg-tertiary) 70%, rgba(255, 255, 255, 0.04));
+  --md-blockquote-border: color-mix(in srgb, var(--glass-border) 80%, rgba(255,255,255,0.05));
+  --md-blockquote-color: var(--text-secondary);
+  --md-table-border: color-mix(in srgb, var(--glass-border) 90%, rgba(255,255,255,0.05));
+  --md-table-header-bg: color-mix(in srgb, var(--bg-tertiary) 80%, rgba(255,255,255,0.07));
 }
 
 [data-theme="nebula"] #md-content {
@@ -151,6 +166,11 @@
   --hljs-addition-bg: rgba(80, 250, 123, 0.18);
   --hljs-deletion-text: #ff5555;
   --hljs-deletion-bg: rgba(255, 85, 85, 0.2);
+  --md-blockquote-bg: color-mix(in srgb, var(--bg-tertiary) 65%, rgba(255,255,255,0.04));
+  --md-blockquote-border: color-mix(in srgb, var(--glass-border) 80%, rgba(255,255,255,0.05));
+  --md-blockquote-color: var(--text-secondary);
+  --md-table-border: color-mix(in srgb, var(--glass-border) 90%, rgba(255,255,255,0.05));
+  --md-table-header-bg: color-mix(in srgb, var(--bg-tertiary) 78%, rgba(255,255,255,0.08));
 }
 
 :root[data-theme="rose-pine-dawn"] #md-content {
@@ -183,6 +203,11 @@
   --hljs-addition-bg: rgba(86, 148, 159, 0.18);
   --hljs-deletion-text: #b4637a;
   --hljs-deletion-bg: rgba(180, 99, 122, 0.2);
+  --md-blockquote-bg: color-mix(in srgb, var(--bg-secondary) 85%, rgba(255,255,255,0.2));
+  --md-blockquote-border: color-mix(in srgb, var(--glass-border) 80%, rgba(180,99,122,0.2));
+  --md-blockquote-color: #4a2c2a;
+  --md-table-border: color-mix(in srgb, var(--glass-border) 90%, rgba(180,99,122,0.2));
+  --md-table-header-bg: color-mix(in srgb, var(--bg-secondary) 80%, rgba(255,255,255,0.3));
 }
 
 [data-theme="dark"] #md-content code:not(pre code),
@@ -449,6 +474,23 @@
   background: var(--md-search-input-focus-bg, #ffffff);
 }
 
+:root[data-theme="classic"] #md-search input {
+  color: #ffffff;
+  background: linear-gradient(135deg, rgba(102, 126, 234, 0.9) 0%, rgba(118, 99, 255, 0.95) 100%);
+  border-color: rgba(255, 255, 255, 0.5);
+  box-shadow: 0 6px 18px rgba(20, 0, 61, 0.35);
+}
+
+:root[data-theme="classic"] #md-search input::placeholder {
+  color: rgba(255, 255, 255, 0.85);
+}
+
+:root[data-theme="classic"] #md-search input:focus {
+  border-color: rgba(255, 255, 255, 0.9);
+  box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.35);
+  background: linear-gradient(135deg, rgba(118, 99, 255, 0.95) 0%, rgba(150, 115, 255, 0.98) 100%);
+}
+
 #md-search .result-count {
   color: var(--text-secondary, var(--text-primary, #1f2933));
   font-size: 0.85rem;
@@ -519,11 +561,11 @@
   display: block;
 }
 #md-content table th, #md-content table td {
-  border: 1px solid #e5e7eb;
+  border: 1px solid var(--md-table-border, #e5e7eb);
   padding: 0.5rem 0.75rem;
 }
 #md-content table thead {
-  background: #f8fafc;
+  background: var(--md-table-header-bg, #f8fafc);
 }
 /* קוד (fenced) */
 #md-content pre code,
@@ -786,8 +828,9 @@
 #md-content blockquote {
   margin: 0.75rem 0;
   padding: 0.5rem 0.75rem;
-  background: #eef2f7; /* מעט כהה יותר לניגודיות טובה על לבן */
-  border-inline-start: 4px solid #cbd5e1; /* קו צד כהה במקצת */
+  background: var(--md-blockquote-bg);
+  border-inline-start: 4px solid var(--md-blockquote-border);
+  color: var(--md-blockquote-color, inherit);
 }
 /* שם קובץ ארוך – מניעת חריגה במסגרת הכותרת */
 #md-file-name-wrap { min-width: 0; }
@@ -959,6 +1002,48 @@ input.md-task-checkbox {
   --md-toc-mini-hover-bg: var(--bg-tertiary, var(--glass-hover, rgba(255, 255, 255, 0.98)));
   --md-toc-mini-border: var(--card-border, var(--glass-border, rgba(0, 0, 0, 0.12)));
   --md-toc-mini-shadow: 0 4px 14px rgba(15, 23, 42, 0.15);
+  --md-toc-surface: var(--toc-bg-light);
+  --md-toc-border: rgba(255, 255, 255, 0.3);
+  --md-toc-text: var(--toc-text-light);
+  --md-toc-hover: var(--toc-hover-light);
+  --md-toc-active: var(--toc-active-light);
+  --md-toc-control-bg: var(--glass, rgba(255,255,255,0.2));
+  --md-toc-shadow:
+    0 10px 40px rgba(0,0,0,0.12),
+    0 2px 10px rgba(0,0,0,0.06),
+    inset 0 1px 0 rgba(255,255,255,0.5);
+}
+
+:root[data-theme="dark"],
+:root[data-theme="dim"],
+:root[data-theme="nebula"] {
+  --md-toc-surface: var(--toc-bg-dark);
+  --md-toc-border: rgba(255, 255, 255, 0.1);
+  --md-toc-text: var(--toc-text-dark);
+  --md-toc-hover: var(--toc-hover-dark);
+  --md-toc-active: var(--toc-active-dark);
+  --md-toc-control-bg: rgba(255, 255, 255, 0.12);
+  --md-toc-mini-bg: var(--card-bg);
+  --md-toc-mini-border: var(--card-border);
+  --md-toc-mini-shadow: 0 12px 32px rgba(0, 0, 0, 0.45);
+  --md-toc-shadow:
+    0 10px 40px rgba(0,0,0,0.5),
+    0 2px 10px rgba(0,0,0,0.3);
+}
+
+:root[data-theme="rose-pine-dawn"] {
+  --md-toc-surface: var(--card-bg);
+  --md-toc-border: var(--card-border);
+  --md-toc-text: var(--text-primary);
+  --md-toc-hover: color-mix(in srgb, var(--bg-tertiary) 70%, rgba(0,0,0,0.04));
+  --md-toc-active: color-mix(in srgb, var(--bg-secondary) 65%, rgba(0,0,0,0.08));
+  --md-toc-control-bg: var(--bg-secondary);
+  --md-toc-mini-bg: var(--card-bg);
+  --md-toc-mini-border: var(--card-border);
+  --md-toc-mini-shadow: 0 6px 20px rgba(149, 121, 166, 0.25);
+  --md-toc-shadow:
+    0 8px 24px rgba(149, 121, 166, 0.3),
+    inset 0 1px 0 rgba(255,255,255,0.6);
 }
 
 .md-toc {
@@ -968,29 +1053,15 @@ input.md-task-checkbox {
   max-width: 320px;
   min-width: 250px;
   max-height: calc(100vh - 140px);
-  background: var(--toc-bg-light);
+  background: var(--md-toc-surface);
   backdrop-filter: blur(16px);
   -webkit-backdrop-filter: blur(16px);
   border-radius: 16px;
-  box-shadow:
-    0 10px 40px rgba(0,0,0,0.12),
-    0 2px 10px rgba(0,0,0,0.06),
-    inset 0 1px 0 rgba(255,255,255,0.5);
-  border: 1px solid rgba(255,255,255,0.3);
+  box-shadow: var(--md-toc-shadow);
+  border: 1px solid var(--md-toc-border);
   z-index: 970;
   overflow: hidden;
   transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-}
-
-/* Dark Mode Support */
-@media (prefers-color-scheme: dark) {
-  .md-toc {
-    background: var(--toc-bg-dark);
-    box-shadow:
-      0 10px 40px rgba(0,0,0,0.5),
-      0 2px 10px rgba(0,0,0,0.3);
-    border: 1px solid rgba(255,255,255,0.1);
-  }
 }
 
 /* כותרת עם gradient */
@@ -1044,35 +1115,18 @@ input.md-task-checkbox {
 
 .md-toc-toggle,
 .md-toc-search-btn {
-  background: var(--glass, rgba(255,255,255,0.2));
-  border: 1px solid var(--glass-border, rgba(255,255,255,0.3));
+  background: var(--md-toc-control-bg);
+  border: 1px solid color-mix(in srgb, var(--md-toc-border) 60%, rgba(255,255,255,0.25));
   border-radius: 8px;
   padding: 0.4rem 0.6rem;
   cursor: pointer;
-  color: var(--text-primary, white);
+  color: var(--md-toc-text);
   transition: all 0.2s ease;
-}
-
-/* Theme overrides for TOC */
-:root[data-theme="rose-pine-dawn"] .md-toc {
-  background: var(--card-bg);
-  border-color: var(--card-border);
-}
-:root[data-theme="rose-pine-dawn"] .md-toc-header {
-  background: var(--bg-tertiary);
-  color: var(--text-primary);
-  border-bottom: 1px solid var(--glass-border);
-}
-:root[data-theme="rose-pine-dawn"] .md-toc-toggle,
-:root[data-theme="rose-pine-dawn"] .md-toc-search-btn {
-  background: var(--bg-secondary);
-  color: var(--text-primary);
-  border-color: var(--glass-border);
 }
 
 .md-toc-toggle:hover,
 .md-toc-search-btn:hover {
-  background: var(--glass-hover, rgba(255,255,255,0.3));
+  background: color-mix(in srgb, var(--md-toc-control-bg) 70%, rgba(255,255,255,0.2));
   transform: scale(1.05);
 }
 
@@ -1099,9 +1153,10 @@ input.md-task-checkbox {
 .md-toc-search-input {
   width: 100%;
   padding: 0.5rem;
-  border: 1px solid var(--accent-30);
+  border: 1px solid color-mix(in srgb, var(--md-toc-border) 65%, var(--accent-30));
   border-radius: 8px;
-  background: white;
+  background: color-mix(in srgb, var(--md-toc-surface) 70%, rgba(255,255,255,0.25));
+  color: var(--md-toc-text);
   font-size: 0.9rem;
   transition: all 0.2s ease;
 }
@@ -1110,14 +1165,6 @@ input.md-task-checkbox {
   outline: none;
   border-color: var(--primary);
   box-shadow: 0 0 0 3px var(--accent-10);
-}
-
-@media (prefers-color-scheme: dark) {
-  .md-toc-search-input {
-    background: rgba(255,255,255,0.1);
-    color: white;
-    border-color: rgba(255,255,255,0.2);
-  }
 }
 
 .md-toc-search-results {
@@ -1155,7 +1202,7 @@ input.md-task-checkbox {
 .md-toc-item {
   padding: 0.6rem 1rem;
   cursor: pointer;
-  color: var(--toc-text-light);
+  color: var(--md-toc-text);
   transition: all 0.2s ease;
   border-right: 3px solid transparent;
   font-size: 0.9rem;
@@ -1163,12 +1210,6 @@ input.md-task-checkbox {
   text-decoration: none;
   position: relative;
   overflow: hidden;
-}
-
-@media (prefers-color-scheme: dark) {
-  .md-toc-item {
-    color: var(--toc-text-dark);
-  }
 }
 
 /* אפקט hover מתקדם */
@@ -1185,14 +1226,8 @@ input.md-task-checkbox {
 }
 
 .md-toc-item:hover {
-  background: var(--toc-hover-light);
+  background: var(--md-toc-hover);
   padding-right: 1.25rem;
-}
-
-@media (prefers-color-scheme: dark) {
-  .md-toc-item:hover {
-    background: var(--toc-hover-dark);
-  }
 }
 
 .md-toc-item:hover::before,
@@ -1201,15 +1236,9 @@ input.md-task-checkbox {
 }
 
 .md-toc-item.active {
-  background: var(--toc-active-light);
+  background: var(--md-toc-active);
   color: var(--primary);
   font-weight: 600;
-}
-
-@media (prefers-color-scheme: dark) {
-  .md-toc-item.active {
-    background: var(--toc-active-dark);
-  }
 }
 
 /* הדגשת חיפוש */
