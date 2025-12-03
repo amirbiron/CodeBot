@@ -299,12 +299,11 @@
 
 .file-actions {
     display: flex;
-    gap: 0.75rem;
+    gap: 1rem;
     flex-wrap: wrap;
-    width: 100%;
 }
 
-.file-actions .btn {
+.file-actions .btn-primary.btn-icon {
     background: rgba(255, 255, 255, 0.95) !important;
     color: #667eea !important;
     border: 1px solid rgba(102, 126, 234, 0.35) !important;
@@ -312,7 +311,6 @@
     padding: 12px 20px !important;
     display: inline-flex !important;
     align-items: center;
-    justify-content: center;
     gap: 8px;
     font-size: 15px;
     font-weight: 500;
@@ -321,49 +319,20 @@
     transition: all 0.2s ease;
 }
 
-.file-actions .btn:hover {
+.file-actions .btn-primary.btn-icon:hover {
     background: rgba(255, 255, 255, 1) !important;
     transform: translateY(-2px);
     box-shadow: 0 4px 12px rgba(0, 0, 0, 0.18);
 }
 
-.file-actions .btn:active {
+.file-actions .btn-primary.btn-icon:active {
     transform: translateY(0);
 }
 
-.file-actions .btn .fas,
-.file-actions .btn i,
-.file-actions .btn svg {
+.file-actions .btn-primary.btn-icon .fas,
+.file-actions .btn-primary.btn-icon i,
+.file-actions .btn-primary.btn-icon svg {
     color: #667eea;
-}
-
-#favoriteBtn {
-    background: rgba(255, 215, 0, 0.2) !important;
-    border-color: rgba(255, 215, 0, 0.4) !important;
-    color: #5c4ac7 !important;
-}
-
-#favoriteBtn span,
-#favoriteBtn i {
-    color: inherit;
-}
-
-.file-actions .btn.btn-secondary {
-    background: rgba(255, 255, 255, 0.9) !important;
-    color: #667eea !important;
-}
-
-@media (max-width: 768px) {
-    .file-actions .btn {
-        flex: 1 1 calc(50% - 0.5rem);
-        justify-content: center;
-    }
-}
-
-@media (max-width: 480px) {
-    .file-actions .btn {
-        flex: 1 1 100%;
-    }
 }
 
 .file-meta {
