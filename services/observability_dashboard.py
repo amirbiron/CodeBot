@@ -17,6 +17,7 @@ except Exception:  # pragma: no cover
     _internal_alerts = None  # type: ignore
 
 from monitoring import alerts_storage, metrics_storage  # type: ignore
+from services.observability_http import SecurityError, fetch_graph_securely
 
 try:  # Best-effort fallback for slow endpoint summaries
     from metrics import get_top_slow_endpoints  # type: ignore
@@ -35,6 +36,8 @@ _QUICK_FIX_PATH = Path(os.getenv("ALERT_QUICK_FIX_PATH", "config/alert_quick_fix
 _QUICK_FIX_CACHE: Dict[str, Any] = {}
 _QUICK_FIX_MTIME: float = 0.0
 _QUICK_FIX_ACTIONS: deque[Dict[str, Any]] = deque(maxlen=200)
+
+_HTTP_FETCH_TIMEOUT = 10
 
 
 def _cache_get(kind: str, key: Any, ttl: float) -> Any:
@@ -96,6 +99,36 @@ def _load_quick_fix_config() -> Dict[str, Any]:
         _QUICK_FIX_CACHE = {}
     _QUICK_FIX_MTIME = stat.st_mtime
     return _QUICK_FIX_CACHE
+
+
+def _http_get_json(url_template: str, *, timeout: Optional[int] = None, **url_params) -> Any:
+    """
+    Securely fetch JSON payloads for Visual Context graphs.
+
+    Uses fetch_graph_securely to protect against SSRF/DNS rebinding and decodes the
+    response as UTF-8 JSON. Raises SecurityError on unsafe targets and ValueError on
+    malformed payloads.
+    """
+
+    fetch_timeout = timeout or _HTTP_FETCH_TIMEOUT
+    try:
+        raw_bytes = fetch_graph_securely(
+            url_template,
+            timeout=fetch_timeout,
+            **url_params,
+        )
+    except SecurityError as exc:
+        raise SecurityError(f"visual_context_fetch_blocked: {exc}") from exc
+
+    try:
+        text = raw_bytes.decode("utf-8")
+    except UnicodeDecodeError as exc:
+        raise ValueError("Invalid UTF-8 payload from visual context endpoint") from exc
+
+    try:
+        return json.loads(text or "{}")
+    except json.JSONDecodeError as exc:
+        raise ValueError("Invalid JSON payload from visual context endpoint") from exc
 
 
 def _expand_quick_fix_action(cfg: Dict[str, Any], alert: Dict[str, Any]) -> Dict[str, Any]:
