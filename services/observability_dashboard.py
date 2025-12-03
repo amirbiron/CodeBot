@@ -9,6 +9,7 @@ import socket
 import threading
 import time
 from collections import deque
+from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
@@ -62,6 +63,9 @@ def is_public_ip(ip_addr: str) -> bool:
         return False
 
     return True
+
+
+AddrInfo = Tuple[int, int, int, str, Tuple[Any, ...]]
 
 
 _CACHE: Dict[str, Dict[Any, Tuple[float, Any]]] = {}
@@ -937,6 +941,117 @@ def _predictive_metric_series(
     return data
 
 
+def _determine_port(scheme: str, explicit_port: Optional[int]) -> int:
+    """
+    Normalize the destination port for outbound HTTP calls.
+    """
+    if explicit_port is not None:
+        return int(explicit_port)
+    return 443 if scheme == "https" else 80
+
+
+def _replace_sockaddr_port(sockaddr: Tuple[Any, ...], port: Optional[int]) -> Tuple[Any, ...]:
+    """
+    Replace the port inside a sockaddr tuple while keeping IPv4/IPv6 structure intact.
+    """
+    if port is None or not isinstance(sockaddr, tuple) or not sockaddr:
+        return sockaddr
+    if len(sockaddr) >= 4:
+        return (sockaddr[0], port, sockaddr[2], sockaddr[3])
+    if len(sockaddr) >= 2:
+        return (sockaddr[0], port)
+    return sockaddr
+
+
+def _extract_first_ip(addr_info: List[AddrInfo]) -> Optional[str]:
+    for _, _, _, _, sockaddr in addr_info:
+        if isinstance(sockaddr, tuple) and sockaddr:
+            candidate = sockaddr[0]
+            if isinstance(candidate, str):
+                return candidate
+    return None
+
+
+@contextmanager
+def _pin_dns_resolution(host: str, addr_info: List[AddrInfo]) -> Any:
+    """
+    Temporarily override socket DNS helpers so clients reuse validated IPs.
+    Mitigates TOCTOU DNS rebinding between validation and the actual HTTP call.
+    """
+    normalized_host = (host or "").lower()
+    stored_info: List[AddrInfo] = list(addr_info)
+    default_port: Optional[int] = None
+    if stored_info:
+        sockaddr = stored_info[0][4]
+        if isinstance(sockaddr, tuple) and len(sockaddr) >= 2 and isinstance(sockaddr[1], int):
+            default_port = sockaddr[1]
+    preferred_ip = _extract_first_ip(stored_info)
+
+    original_getaddrinfo = socket.getaddrinfo
+    original_gethostbyname = getattr(socket, "gethostbyname", None)
+    original_gethostbyname_ex = getattr(socket, "gethostbyname_ex", None)
+
+    def _matches(target: Any) -> bool:
+        return isinstance(target, str) and target.lower() == normalized_host
+
+    def _normalize_port(raw: Any) -> Optional[int]:
+        if raw is None:
+            return default_port
+        if isinstance(raw, int):
+            return raw
+        try:
+            return int(raw)
+        except (TypeError, ValueError):
+            return default_port
+
+    def _build_results(target_port: Any) -> List[AddrInfo]:
+        port_value = _normalize_port(target_port)
+        results: List[AddrInfo] = []
+        for family, socktype, proto, canonname, sockaddr in stored_info:
+            updated = _replace_sockaddr_port(sockaddr, port_value)
+            results.append((family, socktype, proto, canonname, updated))
+        return results
+
+    def _patched_getaddrinfo(
+        target_host: Any, target_port: Any, *args: Any, **kwargs: Any
+    ) -> List[AddrInfo]:
+        if _matches(target_host):
+            return _build_results(target_port)
+        return original_getaddrinfo(target_host, target_port, *args, **kwargs)
+
+    def _patched_gethostbyname(target_host: Any) -> str:
+        if _matches(target_host):
+            if preferred_ip:
+                return preferred_ip
+            raise socket.gaierror(socket.EAI_NONAME, f"{target_host}")
+        assert original_gethostbyname is not None
+        return original_gethostbyname(target_host)  # type: ignore[misc]
+
+    def _patched_gethostbyname_ex(target_host: Any) -> Tuple[str, List[str], List[str]]:
+        if _matches(target_host):
+            if preferred_ip:
+                return (target_host, [], [preferred_ip])
+            raise socket.gaierror(socket.EAI_NONAME, f"{target_host}")
+        assert original_gethostbyname_ex is not None
+        return original_gethostbyname_ex(target_host)  # type: ignore[misc]
+
+    socket.getaddrinfo = _patched_getaddrinfo  # type: ignore[assignment]
+    need_restore_hostbyname = original_gethostbyname is not None
+    need_restore_hostbyname_ex = original_gethostbyname_ex is not None
+    if need_restore_hostbyname:
+        socket.gethostbyname = _patched_gethostbyname  # type: ignore[assignment]
+    if need_restore_hostbyname_ex:
+        socket.gethostbyname_ex = _patched_gethostbyname_ex  # type: ignore[assignment]
+    try:
+        yield
+    finally:
+        socket.getaddrinfo = original_getaddrinfo  # type: ignore[assignment]
+        if need_restore_hostbyname:
+            socket.gethostbyname = original_gethostbyname  # type: ignore[assignment]
+        if need_restore_hostbyname_ex:
+            socket.gethostbyname_ex = original_gethostbyname_ex  # type: ignore[assignment]
+
+
 def _http_get_json(
     url: str,
     *,
@@ -954,11 +1069,12 @@ def _http_get_json(
     scheme = (parsed.scheme or "").lower()
     if scheme not in {"http", "https"} or host not in allowed_hosts:
         raise RuntimeError("http_host_not_allowed")
+    port = _determine_port(scheme, parsed.port)
 
     # SSRF Protection: Resolve hostname to IP and verify it's not in private ranges
     try:
-        # Resolve the hostname to IP addresses (use port 0 for generic resolution)
-        addr_info = socket.getaddrinfo(host, 0, socket.AF_UNSPEC, socket.SOCK_STREAM)
+        # Resolve the hostname to IP addresses for the actual outbound port
+        addr_info = socket.getaddrinfo(host, port, socket.AF_UNSPEC, socket.SOCK_STREAM)
         if not addr_info:
             raise RuntimeError("hostname_resolution_failed")
 
@@ -988,32 +1104,33 @@ def _http_get_json(
         request_fn = http_request
     except Exception:
         request_fn = None
-    if request_fn is not None:
-        resp = request_fn("GET", url, headers=headers or {}, timeout=timeout)
-        try:
-            raise_fn = getattr(resp, "raise_for_status", None)
-            if callable(raise_fn):
-                raise_fn()
-            else:
-                status_code = getattr(resp, "status_code", None)
-                if status_code is not None and int(status_code) >= 400:
-                    raise RuntimeError(f"http_error_status_{status_code}")
-        except Exception:
-            raise
-        response_text = getattr(resp, "text", None)
-        if response_text is None:
+    with _pin_dns_resolution(host, addr_info):
+        if request_fn is not None:
+            resp = request_fn("GET", url, headers=headers or {}, timeout=timeout)
             try:
-                response_text = resp.content.decode("utf-8")  # type: ignore[attr-defined]
+                raise_fn = getattr(resp, "raise_for_status", None)
+                if callable(raise_fn):
+                    raise_fn()
+                else:
+                    status_code = getattr(resp, "status_code", None)
+                    if status_code is not None and int(status_code) >= 400:
+                        raise RuntimeError(f"http_error_status_{status_code}")
             except Exception:
-                response_text = None
-    else:
-        try:
-            import requests  # type: ignore
-        except Exception as exc:  # pragma: no cover
-            raise RuntimeError("http_client_unavailable") from exc
-        resp = requests.get(url, headers=headers, timeout=timeout)  # type: ignore[attr-defined]
-        resp.raise_for_status()
-        response_text = resp.text
+                raise
+            response_text = getattr(resp, "text", None)
+            if response_text is None:
+                try:
+                    response_text = resp.content.decode("utf-8")  # type: ignore[attr-defined]
+                except Exception:
+                    response_text = None
+        else:
+            try:
+                import requests  # type: ignore
+            except Exception as exc:  # pragma: no cover
+                raise RuntimeError("http_client_unavailable") from exc
+            resp = requests.get(url, headers=headers, timeout=timeout)  # type: ignore[attr-defined]
+            resp.raise_for_status()
+            response_text = resp.text
     return json.loads(response_text or "null")
 
 

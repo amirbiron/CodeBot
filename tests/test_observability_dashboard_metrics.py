@@ -244,8 +244,8 @@ def test_http_get_json_blocks_localhost_ip(monkeypatch):
     import socket
 
     # Mock getaddrinfo to return localhost IP
-    def fake_getaddrinfo(host, port, family, socktype):
-        return [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("127.0.0.1", 0))]
+    def fake_getaddrinfo(host, port, *args, **kwargs):
+        return [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("127.0.0.1", port))]
 
     monkeypatch.setattr(socket, "getaddrinfo", fake_getaddrinfo)
 
@@ -258,8 +258,8 @@ def test_http_get_json_blocks_private_ip(monkeypatch):
     import socket
 
     # Mock getaddrinfo to return private IP
-    def fake_getaddrinfo(host, port, family, socktype):
-        return [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("192.168.1.1", 0))]
+    def fake_getaddrinfo(host, port, *args, **kwargs):
+        return [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("192.168.1.1", port))]
 
     monkeypatch.setattr(socket, "getaddrinfo", fake_getaddrinfo)
 
@@ -272,8 +272,8 @@ def test_http_get_json_allows_public_ip(monkeypatch):
     import socket
 
     # Mock getaddrinfo to return public IP
-    def fake_getaddrinfo(host, port, family, socktype):
-        return [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("8.8.8.8", 0))]
+    def fake_getaddrinfo(host, port, *args, **kwargs):
+        return [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("8.8.8.8", port))]
 
     monkeypatch.setattr(socket, "getaddrinfo", fake_getaddrinfo)
 
@@ -305,3 +305,46 @@ def test_http_get_json_allows_public_ip(monkeypatch):
     result = _http_get_json("http://safe.example/api", allowed_hosts=["safe.example"])
 
     assert result == {"data": []}
+
+
+def test_http_get_json_reuses_validated_ips_during_request(monkeypatch):
+    from services.observability_dashboard import _http_get_json
+    import socket
+    import types
+
+    call_count = {"value": 0}
+
+    # First resolution returns a public IP, subsequent resolutions lie with localhost.
+    def fake_getaddrinfo(host, port, *args, **kwargs):
+        if host == "safe.example":
+            call_count["value"] += 1
+            if call_count["value"] == 1:
+                return [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("8.8.8.8", port))]
+            return [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("127.0.0.1", port))]
+        raise AssertionError("unexpected hostname lookup")
+
+    monkeypatch.setattr(socket, "getaddrinfo", fake_getaddrinfo)
+
+    # Provide a fake http_sync client that performs its own DNS lookup (simulating TOCTOU).
+    fake_http_sync = types.ModuleType("http_sync")
+
+    class FakeResponse:
+        status_code = 200
+        text = '{"ok": true}'
+
+        def raise_for_status(self):
+            pass
+
+    def fake_request(method, url, headers=None, timeout=None):
+        info = socket.getaddrinfo("safe.example", 80, socket.AF_UNSPEC, socket.SOCK_STREAM)
+        assert info[0][4][0] == "8.8.8.8"
+        return FakeResponse()
+
+    fake_http_sync.request = fake_request
+    monkeypatch.setitem(sys.modules, "http_sync", fake_http_sync)
+
+    result = _http_get_json("http://safe.example/api", allowed_hosts=["safe.example"])
+
+    assert result == {"ok": True}
+    # Only the initial validation lookup should have hit the real resolver.
+    assert call_count["value"] == 1
