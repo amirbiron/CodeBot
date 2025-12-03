@@ -188,6 +188,7 @@ curl -H 'Accept: application/json' \
       "category": "spike",
       "default_range": "1h",
       "graph_url_template": "https://grafana.example/api/series?metric={{metric_name}}&from={{start_ts_ms}}&to={{end_ts_ms}}",
+      "allowed_hosts": ["grafana.example"],
       "timestamp_key": "ts",
       "value_key": "value",
       "headers": {"Authorization": "Bearer ..."},
@@ -199,6 +200,7 @@ curl -H 'Accept: application/json' \
 
 - משתנים נתמכים בטמפלייט: `{{metric_name}}`, `{{start_time}}`, `{{end_time}}`, `{{granularity_seconds}}`, `{{start_ts_ms}}`, `{{end_ts_ms}}`.
 - ה-API החיצוני צריך להחזיר מערך של רשומות או אובייקט עם `data` המכיל רשומות. ברירת המחדל היא לחפש שדות בשם `timestamp` ו-`value`, אך ניתן לעדכן בעזרת `timestamp_key`/`value_key`.
+- לכל מקור חובה להגדיר `allowed_hosts` – רשימת שמות דומיין מאושרים. לפני כל קריאה נוודא שה-URL הסופי משתמש ב-HTTP/S ושם המארח נמצא ברשימה, אחרת הקריאה תיחסם כדי למנוע SSRF.
 - כך ניתן לחבר Grafana/DataDog/Prometheus JSON API בלי שינוי קוד: אם אין מטריקה פנימית, המשתמש יראה את ההודעה *"No visual data available for this metric"* עד שיוגדר Template מתאים.
 
 ## 🔐 אבטחה, Rate Limiting וקאש

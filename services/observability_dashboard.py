@@ -10,7 +10,7 @@ from collections import deque
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
-from urllib.parse import urlencode
+from urllib.parse import urlencode, urlparse
 
 try:
     import internal_alerts as _internal_alerts  # type: ignore
@@ -355,6 +355,18 @@ def _get_metric_definition(metric: Optional[str]) -> Optional[Dict[str, Any]]:
     if external:
         category = str(external.get("category") or "degradation").strip().lower() or "degradation"
         default_range = external.get("default_range") or _TIMEFRAME_DEFAULTS.get(category, "2h")
+        allowed_hosts = external.get("allowed_hosts")
+        if isinstance(allowed_hosts, str):
+            allowed_hosts = [allowed_hosts]
+        if isinstance(allowed_hosts, list):
+            normalized_hosts = []
+            for host in allowed_hosts:
+                if not host:
+                    continue
+                normalized_hosts.append(str(host).strip().lower())
+            allowed_hosts = normalized_hosts
+        else:
+            allowed_hosts = None
         definition = {
             "metric": key,
             "label": external.get("label") or key,
@@ -363,6 +375,7 @@ def _get_metric_definition(metric: Optional[str]) -> Optional[Dict[str, Any]]:
             "default_range": default_range,
             "source": "external",
             "external_config": external,
+            "allowed_hosts": allowed_hosts,
         }
         return definition
     return None
@@ -907,13 +920,13 @@ def _http_get_json(url: str, *, headers: Optional[Dict[str, str]] = None, timeou
 
 def _fetch_external_metric_series(
     metric: str,
+    definition: Dict[str, Any],
     *,
     start_dt: Optional[datetime],
     end_dt: Optional[datetime],
     granularity_seconds: int,
 ) -> List[Dict[str, Any]]:
-    definition = _get_metric_definition(metric)
-    if not definition or definition.get("source") != "external":
+    if definition.get("source") != "external":
         raise ValueError("unsupported_external_metric")
     config = definition.get("external_config") or {}
     template = config.get("graph_url_template")
@@ -932,6 +945,19 @@ def _fetch_external_metric_series(
         url = url.replace(token, value)
     headers = config.get("headers") if isinstance(config.get("headers"), dict) else None
     timeout = float(config.get("timeout", 5.0) or 5.0)
+    parsed = urlparse(url)
+    scheme = (parsed.scheme or "").lower()
+    host = (parsed.hostname or "").lower()
+    if scheme not in {"http", "https"} or not host:
+        logger.warning("external_metric_invalid_url", extra={"metric": metric, "url": url})
+        return []
+    allowed_hosts = definition.get("allowed_hosts") or []
+    if not allowed_hosts:
+        logger.warning("external_metric_missing_allowlist", extra={"metric": metric, "url": url})
+        return []
+    if host not in allowed_hosts:
+        logger.warning("external_metric_blocked_host", extra={"metric": metric, "host": host})
+        return []
     try:
         payload = _http_get_json(url, headers=headers, timeout=timeout)
     except Exception as exc:
@@ -1060,6 +1086,7 @@ def fetch_timeseries(
         if definition and definition.get("source") == "external":
             data = _fetch_external_metric_series(
                 normalized_metric,
+                definition,
                 start_dt=start_dt,
                 end_dt=end_dt,
                 granularity_seconds=granularity_seconds,

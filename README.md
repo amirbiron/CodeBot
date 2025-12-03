@@ -84,7 +84,7 @@
 - **בדיקת תחביר** - זיהוי שגיאות
 - **מדדי מורכבות** - הערכת איכות הקוד
 - **חילוץ פונקציות** - רשימת הפונקציות בקוד
-- **Observability Dashboard** - מסך אדמין חדש עם זמני תגובה, סיכומים, פילטרים היסטוריים וגרפים בזמן אמת, כולל גרף היסטורי לכל התראה עם טווחים דינמיים ופקדי Zoom/Preset. ניתן להרחיב מקורות נתונים דרך קובץ `config/alert_graph_sources.json` המגדיר Graph URL Template לכל מטריקה ([מדריך מלא](https://amirbiron.github.io/CodeBot/observability/observability_dashboard.html))
+- **Observability Dashboard** - מסך אדמין חדש עם זמני תגובה, סיכומים, פילטרים היסטוריים וגרפים בזמן אמת, כולל גרף היסטורי לכל התראה עם טווחים דינמיים ופקדי Zoom/Preset. ניתן להרחיב מקורות נתונים דרך קובץ `config/alert_graph_sources.json` המגדיר Graph URL Template ו-`allowed_hosts` מאושרים לכל מטריקה ([מדריך מלא](https://amirbiron.github.io/CodeBot/observability/observability_dashboard.html))
 
 ### 💾 גיבוי ושחזור
 - **גיבויים אוטומטיים** - שמירה תקופתית
