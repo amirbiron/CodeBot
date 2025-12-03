@@ -75,6 +75,7 @@ def _default_generate_request_id() -> str:
         return ""
 
 
+
 def _observability_attr(name: str, default):
     if _observability is None:
         return default
@@ -123,6 +124,7 @@ from conversation_handlers import set_activity_reporter as set_ch_activity_repor
 from github_menu_handler import GitHubMenuHandler
 from backup_menu_handler import BackupMenuHandler
 from handlers.drive.menu import GoogleDriveMenuHandler
+from handlers.drive.utils import extract_schedule_key as drive_extract_schedule_key
 from handlers.documents import DocumentHandler
 from file_manager import backup_manager
 from large_files_handler import large_files_handler
@@ -3740,22 +3742,6 @@ async def setup_bot_data(application: Application) -> None:  # noqa: D401
     except Exception as e:
         logger.warning(f"Reminders init skipped: {e}")
 
-    def _drive_rescheduler_extract_key(prefs: Any) -> Optional[str]:
-        if not isinstance(prefs, dict):
-            return None
-        candidate = prefs.get("schedule")
-        if isinstance(candidate, str) and candidate.strip():
-            return candidate.strip()
-        if isinstance(candidate, dict):
-            for field in ("key", "value", "name"):
-                val = candidate.get(field)
-                if isinstance(val, str) and val.strip():
-                    return val.strip()
-        alt = prefs.get("schedule_key") or prefs.get("scheduleKey")
-        if isinstance(alt, str) and alt.strip():
-            return alt.strip()
-        return None
-
     # Reschedule Google Drive backup jobs for all users with an active schedule
     try:
         async def _reschedule_drive_jobs(context: ContextTypes.DEFAULT_TYPE):
@@ -3816,7 +3802,7 @@ async def setup_bot_data(application: Application) -> None:  # noqa: D401
                             continue
                         stats["scanned"] += 1
                         prefs = doc.get("drive_prefs") or {}
-                        key = _drive_rescheduler_extract_key(prefs)
+                        key = drive_extract_schedule_key(prefs)
                         if not key:
                             stats["skipped"] += 1
                             continue

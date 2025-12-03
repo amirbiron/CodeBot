@@ -18,6 +18,6 @@ import pytest
     ],
 )
 def test_drive_rescheduler_extract_key_variants(prefs, expected):
-    import main as mod  # noqa: WPS433 - used for accessing helper
+    from handlers.drive.utils import extract_schedule_key  # noqa: WPS433
 
-    assert mod._drive_rescheduler_extract_key(prefs) == expected
+    assert extract_schedule_key(prefs) == expected
