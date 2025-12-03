@@ -1,0 +1,261 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+  <head>
+    <meta charset="utf-8" />
+    <title>דמו: העלאת תמונות ל-Markdown</title>
+    <style>
+      :root {
+        color-scheme: light dark;
+        font-family: "Assistant", Arial, sans-serif;
+      }
+
+      body {
+        margin: 0;
+        padding: 2rem;
+        background: #f4f5f7;
+        color: #1f2430;
+      }
+
+      main {
+        max-width: 480px;
+        margin: 0 auto;
+        padding: 2rem;
+        border-radius: 16px;
+        background: white;
+        box-shadow: 0 20px 60px rgba(26, 32, 44, 0.2);
+      }
+
+      h1 {
+        margin-top: 0;
+        font-size: 1.5rem;
+        font-weight: 600;
+      }
+
+      .filename-field {
+        display: flex;
+        flex-direction: column;
+        gap: 0.5rem;
+        font-size: 0.95rem;
+        margin-bottom: 1rem;
+      }
+
+      .input-wrapper {
+        position: relative;
+      }
+
+      .input-wrapper input[type="text"] {
+        width: 100%;
+        padding: 0.65rem 2.75rem 0.65rem 0.75rem;
+        border-radius: 10px;
+        border: 1px solid #ced3de;
+        font-size: 1rem;
+        background: #fefefe;
+      }
+
+      #image-upload-trigger {
+        position: absolute;
+        inset-inline-end: 0.35rem;
+        inset-block-start: 50%;
+        transform: translateY(-50%);
+        border: none;
+        background: #edf2ff;
+        color: #1d3fd8;
+        width: 36px;
+        height: 36px;
+        border-radius: 10px;
+        font-size: 1.1rem;
+        cursor: pointer;
+        display: none;
+        align-items: center;
+        justify-content: center;
+        transition: background 0.2s ease;
+      }
+
+      #image-upload-trigger.visible {
+        display: inline-flex;
+      }
+
+      #image-upload-trigger:active {
+        background: #d7e3ff;
+      }
+
+      .helper {
+        font-size: 0.85rem;
+        color: #586276;
+        margin-bottom: 1.5rem;
+      }
+
+      .preview {
+        display: flex;
+        flex-direction: column;
+        gap: 0.35rem;
+      }
+
+      .preview.hidden {
+        display: none;
+      }
+
+      .preview img {
+        width: 80px;
+        height: 80px;
+        object-fit: cover;
+        border-radius: 8px;
+        border: 2px solid #dbe1f1;
+        cursor: zoom-in;
+        box-shadow: 0 8px 24px rgba(15, 23, 42, 0.18);
+      }
+
+      .preview figcaption {
+        font-size: 0.85rem;
+        color: #4a5264;
+      }
+
+      .fullscreen-backdrop {
+        position: fixed;
+        inset: 0;
+        background: rgba(0, 0, 0, 0.85);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        opacity: 0;
+        pointer-events: none;
+        transition: opacity 0.25s ease;
+      }
+
+      .fullscreen-backdrop.visible {
+        opacity: 1;
+        pointer-events: auto;
+      }
+
+      .fullscreen-backdrop img {
+        max-width: 90vw;
+        max-height: 90vh;
+        border-radius: 16px;
+        box-shadow: 0 20px 80px rgba(0, 0, 0, 0.35);
+      }
+
+      .close-hint {
+        position: absolute;
+        inset-block-start: 32px;
+        inset-inline-start: 50%;
+        transform: translateX(-50%);
+        color: white;
+        font-size: 0.95rem;
+        opacity: 0.8;
+      }
+
+      @media (max-width: 420px) {
+        #image-upload-trigger {
+          width: 32px;
+          height: 32px;
+          font-size: 1rem;
+        }
+
+        .input-wrapper input[type="text"] {
+          padding-inline-end: 2.5rem;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>דמו: העלאת תמונה רק ל־Markdown</h1>
+      <p class="helper">
+        כתוב שם קובץ עם סיומת <code>.md</code> והאייקון יופיע. בחר תמונה לראות
+        תצוגה ממוזערת ולחיצה תפתח למסך מלא.
+      </p>
+      <label class="filename-field" for="filename">
+        <span>שם הקובץ</span>
+        <div class="input-wrapper">
+          <input
+            id="filename"
+            type="text"
+            placeholder="notes.md"
+            value="notes.md"
+            autocomplete="off"
+          />
+          <button
+            id="image-upload-trigger"
+            type="button"
+            aria-label="העלאת תמונה"
+            title="העלאת תמונה"
+          >
+            📷
+          </button>
+        </div>
+      </label>
+      <input id="image-upload-input" type="file" accept="image/*" hidden />
+
+      <figure id="preview" class="preview hidden">
+        <img id="preview-image" alt="תצוגה מקדימה" />
+        <figcaption>לחץ על התמונה לפתיחה במסך מלא</figcaption>
+      </figure>
+    </main>
+
+    <div id="fullscreen" class="fullscreen-backdrop" role="dialog" aria-modal="true">
+      <div class="close-hint">הקש בכל מקום כדי לסגור</div>
+      <img id="fullscreen-image" alt="תמונה מוגדלת" />
+    </div>
+
+    <script>
+      const filenameInput = document.getElementById("filename");
+      const triggerButton = document.getElementById("image-upload-trigger");
+      const fileInput = document.getElementById("image-upload-input");
+      const preview = document.getElementById("preview");
+      const previewImage = document.getElementById("preview-image");
+      const fullscreen = document.getElementById("fullscreen");
+      const fullscreenImage = document.getElementById("fullscreen-image");
+
+      let currentObjectUrl = null;
+
+      const toggleTrigger = () => {
+        const isMarkdown = /\.md$/i.test(filenameInput.value.trim());
+        triggerButton.classList.toggle("visible", isMarkdown);
+        if (!isMarkdown) {
+          fileInput.value = "";
+          preview.classList.add("hidden");
+        }
+      };
+
+      const openPreview = (url) => {
+        previewImage.src = url;
+        preview.classList.remove("hidden");
+      };
+
+      const openFullscreen = () => {
+        if (!previewImage.src) return;
+        fullscreenImage.src = previewImage.src;
+        fullscreen.classList.add("visible");
+      };
+
+      const closeFullscreen = () => {
+        fullscreen.classList.remove("visible");
+      };
+
+      triggerButton.addEventListener("click", () => fileInput.click());
+
+      fileInput.addEventListener("change", (event) => {
+        const [file] = event.target.files || [];
+        if (!file) return;
+
+        if (currentObjectUrl) {
+          URL.revokeObjectURL(currentObjectUrl);
+        }
+
+        currentObjectUrl = URL.createObjectURL(file);
+        openPreview(currentObjectUrl);
+      });
+
+      preview.addEventListener("click", openFullscreen);
+      fullscreen.addEventListener("click", closeFullscreen);
+      window.addEventListener("keyup", (event) => {
+        if (event.key === "Escape") {
+          closeFullscreen();
+        }
+      });
+
+      toggleTrigger();
+      filenameInput.addEventListener("input", toggleTrigger);
+    </script>
+  </body>
+</html>
