@@ -957,8 +957,8 @@ def _http_get_json(
 
     # SSRF Protection: Resolve hostname to IP and verify it's not in private ranges
     try:
-        # Resolve the hostname to IP addresses
-        addr_info = socket.getaddrinfo(host, None, socket.AF_UNSPEC, socket.SOCK_STREAM)
+        # Resolve the hostname to IP addresses (use port 0 for generic resolution)
+        addr_info = socket.getaddrinfo(host, 0, socket.AF_UNSPEC, socket.SOCK_STREAM)
         if not addr_info:
             raise RuntimeError("hostname_resolution_failed")
 
@@ -970,14 +970,14 @@ def _http_get_json(
                     "ssrf_blocked_private_ip", extra={"host": host, "ip": ip_addr, "url": url}
                 )
                 raise RuntimeError("private_ip_blocked")
+    except RuntimeError:
+        # Re-raise our own RuntimeError exceptions (private_ip_blocked, etc.)
+        raise
     except socket.gaierror as exc:
         logger.warning(
             "hostname_resolution_failed", extra={"host": host, "url": url, "error": str(exc)}
         )
         raise RuntimeError("hostname_resolution_failed") from exc
-    except RuntimeError:
-        # Re-raise our own RuntimeError exceptions (private_ip_blocked, etc.)
-        raise
     except Exception as exc:
         logger.warning("ip_validation_failed", extra={"host": host, "url": url, "error": str(exc)})
         raise RuntimeError("ip_validation_failed") from exc
