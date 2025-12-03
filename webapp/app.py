@@ -10,6 +10,7 @@ import hashlib
 import hmac
 import json
 import time
+import mimetypes
 from datetime import datetime, timezone
 from functools import wraps, lru_cache
 from typing import Optional, Dict, Any, List, Tuple
@@ -19,10 +20,11 @@ import threading
 import atexit
 import time as _time
 from werkzeug.http import http_date, parse_date
+from werkzeug.utils import secure_filename
 from urllib.parse import urlparse, urlunparse
 from werkzeug.exceptions import HTTPException
 from flask_compress import Compress
-from pymongo import MongoClient, DESCENDING
+from pymongo import MongoClient, DESCENDING, ASCENDING
 from pymongo.errors import PyMongoError
 from pygments import highlight
 from pygments.lexers import get_lexer_by_name, guess_lexer
@@ -30,6 +32,7 @@ from pygments.util import ClassNotFound
 from pygments.formatters import HtmlFormatter
 from pygments.styles import get_style_by_name
 from bson import ObjectId
+from bson.binary import Binary
 from bson.errors import InvalidId
 from datetime import timedelta
 import re
@@ -348,6 +351,22 @@ try:
     logger.info("[static-version] using=%s source=%s", _STATIC_VERSION, _STATIC_VERSION_SOURCE)
 except Exception:
     pass
+
+def _env_int(name: str, default: int) -> int:
+    try:
+        raw = os.getenv(name)
+        if raw is None or raw.strip() == '':
+            return default
+        value = int(raw)
+        if value <= 0:
+            return default
+        return value
+    except Exception:
+        return default
+
+MARKDOWN_IMAGE_LIMIT = _env_int('MARKDOWN_IMAGE_LIMIT', 6)
+MARKDOWN_IMAGE_MAX_BYTES = _env_int('MARKDOWN_IMAGE_MAX_BYTES', 2 * 1024 * 1024)
+ALLOWED_MARKDOWN_IMAGE_TYPES = {'image/png', 'image/jpeg', 'image/webp', 'image/gif'}
 
 # מזהי המדריכים המשותפים לזרימת ה-Onboarding בווב
 WELCOME_GUIDE_PRIMARY_SHARE_ID = "JjvpJFTXZO0oHtoC"
@@ -6238,6 +6257,23 @@ def view_file(file_id):
         'source_url': file.get('source_url') or '',
         'source_url_host': _extract_source_hostname(file.get('source_url')),
     }
+    markdown_images = []
+    try:
+        cursor = db.markdown_images.find(
+            {'snippet_id': file['_id'], 'user_id': user_id}
+        ).sort('order', ASCENDING)
+        for img in cursor:
+            markdown_images.append({
+                'id': str(img.get('_id')),
+                'file_name': img.get('file_name') or 'image',
+                'size': format_file_size(int(img.get('size') or 0)),
+                'content_type': img.get('content_type') or '',
+                'url': url_for('get_markdown_image', file_id=file_id, image_id=str(img.get('_id')))
+            })
+    except Exception:
+        markdown_images = []
+    if markdown_images:
+        file_data['markdown_images'] = markdown_images
     
     html = render_template('view_file.html',
                          user=session['user_data'],
@@ -6248,6 +6284,49 @@ def view_file(file_id):
     resp = Response(html, mimetype='text/html; charset=utf-8')
     resp.headers['ETag'] = etag
     resp.headers['Last-Modified'] = last_modified_str
+    return resp
+
+
+@app.route('/file/<file_id>/images/<image_id>')
+@login_required
+def get_markdown_image(file_id, image_id):
+    db = get_db()
+    user_id = session['user_id']
+    try:
+        snippet_id = ObjectId(file_id)
+        image_obj_id = ObjectId(image_id)
+    except (InvalidId, TypeError):
+        abort(404)
+
+    try:
+        image_doc = db.markdown_images.find_one({
+            '_id': image_obj_id,
+            'snippet_id': snippet_id,
+            'user_id': user_id,
+        })
+    except PyMongoError:
+        image_doc = None
+
+    if not image_doc:
+        abort(404)
+
+    data = image_doc.get('data')
+    if data is None:
+        abort(404)
+
+    try:
+        payload = bytes(data)
+    except Exception:
+        abort(404)
+
+    content_type = image_doc.get('content_type') or 'application/octet-stream'
+    resp = Response(payload, mimetype=content_type)
+    resp.headers['Cache-Control'] = 'private, max-age=86400'
+    filename = image_doc.get('file_name') or 'image'
+    try:
+        resp.headers['Content-Disposition'] = f'inline; filename="{filename}"'
+    except Exception:
+        pass
     return resp
 
 
@@ -7263,6 +7342,37 @@ def api_save_shared_file():
 _UPLOAD_CLEAR_DRAFT_SESSION_KEY = 'upload_should_clear_draft'
 
 
+def _save_markdown_images(db, user_id, snippet_id, images_payload):
+    if not images_payload:
+        return
+    docs = []
+    now = datetime.now(timezone.utc)
+    for idx, payload in enumerate(images_payload):
+        data = payload.get('data')
+        if not data:
+            continue
+        docs.append({
+            'user_id': user_id,
+            'snippet_id': snippet_id,
+            'file_name': payload.get('filename'),
+            'content_type': payload.get('content_type') or 'application/octet-stream',
+            'size': payload.get('size') or len(data),
+            'order': idx,
+            'created_at': now,
+            'data': Binary(data),
+        })
+    if not docs:
+        return
+    try:
+        db.markdown_images.insert_many(docs)
+    except Exception as exc:
+        logger.exception("Failed to save markdown images", extra={
+            'snippet_id': str(snippet_id),
+            'user_id': user_id,
+            'error': str(exc),
+        })
+
+
 @app.route('/upload', methods=['GET', 'POST'])
 @login_required
 @traced("files.upload_web")
@@ -7294,6 +7404,7 @@ def upload_file_web():
             source_url_was_edited = source_url_state == 'edited'
             clean_source_url = None
             source_url_removed = False
+            markdown_image_payloads: List[Dict[str, Any]] = []
             if source_url_value:
                 clean_source_url, source_url_err = _normalize_source_url_value(source_url_value)
                 if source_url_err:
@@ -7483,6 +7594,46 @@ def upload_file_web():
                 except Exception:
                     pass
                 # שמירה ישירה במסד (להימנע מתלות ב-BOT_TOKEN של שכבת הבוט)
+                should_collect_images = isinstance(file_name, str) and file_name.lower().endswith('.md')
+                if not error and should_collect_images:
+                    try:
+                        incoming_images = request.files.getlist('md_images')
+                    except Exception:
+                        incoming_images = []
+                    valid_images = [img for img in incoming_images if getattr(img, 'filename', '').strip()]
+                    if valid_images:
+                        if len(valid_images) > MARKDOWN_IMAGE_LIMIT:
+                            error = f'ניתן לצרף עד {MARKDOWN_IMAGE_LIMIT} תמונות'
+                        else:
+                            for img in valid_images:
+                                if error:
+                                    break
+                                try:
+                                    data = img.read()
+                                except Exception:
+                                    data = b''
+                                if not data:
+                                    continue
+                                if len(data) > MARKDOWN_IMAGE_MAX_BYTES:
+                                    max_mb = max(1, MARKDOWN_IMAGE_MAX_BYTES // (1024 * 1024))
+                                    error = f'כל תמונה מוגבלת ל-{max_mb}MB'
+                                    break
+                                safe_name = secure_filename(img.filename or '') or f'image_{len(markdown_image_payloads) + 1}.png'
+                                content_type = (img.mimetype or '').lower()
+                                if content_type not in ALLOWED_MARKDOWN_IMAGE_TYPES:
+                                    guessed_type = mimetypes.guess_type(safe_name)[0] or ''
+                                    content_type = guessed_type.lower() if guessed_type else content_type
+                                if content_type not in ALLOWED_MARKDOWN_IMAGE_TYPES:
+                                    error = 'ניתן להעלות רק תמונות PNG, JPG, WEBP או GIF'
+                                    break
+                                markdown_image_payloads.append({
+                                    'filename': safe_name,
+                                    'content_type': content_type,
+                                    'size': len(data),
+                                    'data': data,
+                                })
+                            if error:
+                                markdown_image_payloads = []
                 try:
                     # קבע גרסה חדשה על בסיס האחרונה הפעילה
                     prev = db.code_snippets.find_one(
@@ -7537,6 +7688,11 @@ def upload_file_web():
                 except Exception as _e:
                     res = None
                 if res and getattr(res, 'inserted_id', None):
+                    if markdown_image_payloads:
+                        try:
+                            _save_markdown_images(db, user_id, res.inserted_id, markdown_image_payloads)
+                        except Exception:
+                            pass
                     session[_UPLOAD_CLEAR_DRAFT_SESSION_KEY] = True
                     if _log_webapp_user_activity():
                         session['_skip_view_activity_once'] = True

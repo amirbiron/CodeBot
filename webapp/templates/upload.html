@@ -1,3 +1,173 @@
+      const isMarkdownFilename = (value) => {
+        if (!value) {
+          return false;
+        }
+        return /\.md$/i.test(String(value).trim());
+      };
+
+      const setMarkdownImageError = (message) => {
+        if (!markdownImageError) {
+          return;
+        }
+        markdownImageError.textContent = message || '';
+      };
+
+      const updateMarkdownImageStatus = () => {
+        if (!markdownImageStatus) {
+          return;
+        }
+        if (!markdownSelectedImages.length) {
+          markdownImageStatus.textContent = '';
+          return;
+        }
+        markdownImageStatus.textContent = `${markdownSelectedImages.length}/${MARKDOWN_IMAGE_LIMIT} תמונות`;
+      };
+
+      const revokeAllMarkdownUrls = () => {
+        markdownSelectedImages.forEach((item) => {
+          if (item?.url) {
+            try {
+              URL.revokeObjectURL(item.url);
+            } catch (_) {}
+          }
+        });
+      };
+
+      const syncMarkdownImageInputFiles = () => {
+        if (!markdownImageInput) {
+          return;
+        }
+        const dt = new DataTransfer();
+        markdownSelectedImages.forEach(({ file }) => {
+          try {
+            dt.items.add(file);
+          } catch (_) {}
+        });
+        markdownImageInput.files = dt.files;
+      };
+
+      const renderMarkdownImagePreviews = () => {
+        if (!markdownImagesPreview) {
+          return;
+        }
+        markdownImagesPreview.innerHTML = '';
+        if (!markdownSelectedImages.length) {
+          markdownImagesPreview.classList.add('is-empty');
+          updateMarkdownImageStatus();
+          return;
+        }
+        markdownImagesPreview.classList.remove('is-empty');
+        const frag = document.createDocumentFragment();
+        markdownSelectedImages.forEach((item) => {
+          const figure = document.createElement('figure');
+          figure.className = 'markdown-image-thumb';
+          figure.dataset.imageId = item.id;
+          figure.innerHTML = `
+            <button type="button" class="markdown-image-remove" data-image-id="${item.id}" aria-label="הסר תמונה">
+              <span aria-hidden="true">✕</span>
+            </button>
+            <img src="${item.url}" alt="${item.file.name}" data-image-id="${item.id}">
+            <figcaption>${item.file.name}</figcaption>
+          `;
+          frag.appendChild(figure);
+        });
+        markdownImagesPreview.appendChild(frag);
+        updateMarkdownImageStatus();
+      };
+
+      const removeMarkdownImage = (id) => {
+        if (!id) {
+          return;
+        }
+        const idx = markdownSelectedImages.findIndex((img) => img.id === id);
+        if (idx === -1) {
+          return;
+        }
+        const [removed] = markdownSelectedImages.splice(idx, 1);
+        if (removed?.url) {
+          try {
+            URL.revokeObjectURL(removed.url);
+          } catch (_) {}
+        }
+        syncMarkdownImageInputFiles();
+        renderMarkdownImagePreviews();
+      };
+
+      const toggleImageTriggerVisibility = () => {
+        if (!imageUploadTrigger) {
+          return;
+        }
+        const shouldShow = isMarkdownFilename(fileNameInput ? fileNameInput.value : '');
+        imageUploadTrigger.classList.toggle('is-visible', shouldShow);
+        imageUploadTrigger.setAttribute('aria-hidden', shouldShow ? 'false' : 'true');
+        if (!shouldShow && markdownSelectedImages.length) {
+          revokeAllMarkdownUrls();
+          markdownSelectedImages = [];
+          syncMarkdownImageInputFiles();
+          renderMarkdownImagePreviews();
+        }
+      };
+
+      const handleMarkdownImageFiles = (fileList) => {
+        if (!fileList || !fileList.length) {
+          return;
+        }
+        let errorMessage = '';
+        const currentCount = markdownSelectedImages.length;
+        const availableSlots = MARKDOWN_IMAGE_LIMIT - currentCount;
+        const files = Array.from(fileList).slice(0, availableSlots);
+
+        files.forEach((file) => {
+          if (!file) {
+            return;
+          }
+          if (markdownSelectedImages.length >= MARKDOWN_IMAGE_LIMIT) {
+            errorMessage = `ניתן לצרף עד ${MARKDOWN_IMAGE_LIMIT} תמונות.`;
+            return;
+          }
+          if (!MARKDOWN_ALLOWED_TYPES.includes(file.type)) {
+            errorMessage = 'ניתן לצרף רק תמונות מסוג PNG, JPG, WEBP או GIF.';
+            return;
+          }
+          if (file.size > MARKDOWN_IMAGE_MAX_BYTES) {
+            errorMessage = 'תמונה אחת או יותר עולות על הגבלה של ‎2MB‎.';
+            return;
+          }
+          const hasCrypto = typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function';
+          const id = hasCrypto ? crypto.randomUUID() : `img-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+          let objectUrl = '';
+          try {
+            objectUrl = URL.createObjectURL(file);
+          } catch (_) {}
+          markdownSelectedImages.push({ id, file, url: objectUrl });
+        });
+
+        syncMarkdownImageInputFiles();
+        renderMarkdownImagePreviews();
+        setMarkdownImageError(errorMessage);
+      };
+
+      const openMarkdownImageFullscreen = (imageItem) => {
+        if (!markdownImageFullscreen || !markdownImageFullscreenImg) {
+          return;
+        }
+        markdownImageFullscreenImg.src = imageItem.url;
+        markdownImageFullscreenImg.alt = imageItem.file.name;
+        if (markdownImageFullscreenCaption) {
+          markdownImageFullscreenCaption.textContent = imageItem.file.name;
+        }
+        markdownImageFullscreen.classList.add('is-open');
+        markdownImageFullscreen.setAttribute('aria-hidden', 'false');
+      };
+
+      const closeMarkdownImageFullscreen = () => {
+        if (!markdownImageFullscreen || !markdownImageFullscreenImg) {
+          return;
+        }
+        markdownImageFullscreen.classList.remove('is-open');
+        markdownImageFullscreen.setAttribute('aria-hidden', 'true');
+        markdownImageFullscreenImg.src = '';
+      };
 {% extends "base.html" %}
 
 {% block title %}העלה קובץ חדש - Code Keeper Bot{% endblock %}
@@ -118,6 +288,203 @@
     opacity: 0.5;
     cursor: not-allowed;
   }
+
+/* --- Markdown image upload controls --- */
+.filename-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.filename-field-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.filename-input-wrapper {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.filename-input-wrapper input[name="file_name"] {
+  flex: 1;
+  min-width: 0;
+}
+
+.image-upload-trigger {
+  display: none;
+  align-items: center;
+  justify-content: center;
+  width: 42px;
+  height: 42px;
+  border-radius: 10px;
+  border: 1px solid var(--glass-border, rgba(255,255,255,0.25));
+  background: var(--glass, rgba(255,255,255,0.12));
+  font-size: 1.25rem;
+  cursor: pointer;
+  color: var(--text-primary, #ffffff);
+  transition: transform 0.2s ease, background 0.2s ease, border-color 0.2s ease;
+}
+
+.image-upload-trigger.is-visible {
+  display: inline-flex;
+}
+
+.image-upload-trigger:focus-visible {
+  outline: 2px solid var(--primary, #9775fa);
+  outline-offset: 2px;
+}
+
+.image-upload-trigger:hover {
+  background: var(--glass-hover, rgba(255,255,255,0.2));
+  border-color: var(--primary, rgba(151,117,250,0.6));
+}
+
+.image-upload-trigger:active {
+  transform: scale(0.94);
+}
+
+.image-upload-status {
+  font-size: 0.9rem;
+  color: var(--text-secondary, rgba(255,255,255,0.8));
+}
+
+.markdown-image-hint {
+  font-size: 0.85rem;
+  color: var(--text-secondary, rgba(255,255,255,0.75));
+}
+
+.markdown-image-error {
+  margin-top: 0.35rem;
+  font-size: 0.9rem;
+  color: #ff8a8a;
+}
+
+.markdown-images-preview {
+  margin-top: 0.25rem;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(90px, 1fr));
+  gap: 0.75rem;
+  padding: 0.75rem;
+  border-radius: 12px;
+  border: 1px dashed rgba(255,255,255,0.25);
+  background: rgba(255,255,255,0.04);
+}
+
+.markdown-images-preview.is-empty {
+  display: none;
+}
+
+.markdown-images-empty {
+  margin: 0;
+  font-size: 0.9rem;
+  text-align: center;
+  color: var(--text-secondary, rgba(255,255,255,0.7));
+}
+
+.markdown-image-thumb {
+  position: relative;
+  border-radius: 10px;
+  overflow: hidden;
+  border: 1px solid rgba(255,255,255,0.25);
+  background: rgba(0,0,0,0.2);
+  cursor: pointer;
+}
+
+.markdown-image-thumb img {
+  width: 100%;
+  height: 80px;
+  object-fit: cover;
+  display: block;
+}
+
+.markdown-image-thumb figcaption {
+  font-size: 0.75rem;
+  padding: 0.35rem 0.4rem;
+  text-align: center;
+  color: var(--text-secondary, rgba(255,255,255,0.85));
+  background: rgba(0,0,0,0.25);
+}
+
+.markdown-image-remove {
+  position: absolute;
+  top: 6px;
+  left: 6px;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  border: none;
+  background: rgba(0,0,0,0.55);
+  color: #fff;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.9rem;
+  opacity: 0;
+  transition: opacity 0.2s ease;
+}
+
+.markdown-image-thumb:hover .markdown-image-remove {
+  opacity: 1;
+}
+
+.markdown-image-fullscreen {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.9);
+  display: none;
+  align-items: center;
+  justify-content: center;
+  flex-direction: column;
+  padding: 1.5rem;
+  z-index: 9999;
+}
+
+.markdown-image-fullscreen.is-open {
+  display: flex;
+}
+
+.markdown-image-fullscreen img {
+  max-width: 90vw;
+  max-height: 80vh;
+  border-radius: 12px;
+  box-shadow: 0 25px 90px rgba(0,0,0,0.45);
+}
+
+.markdown-image-fullscreen button {
+  align-self: flex-end;
+  margin-bottom: 1rem;
+  border: none;
+  background: rgba(255,255,255,0.15);
+  color: white;
+  padding: 0.4rem 0.75rem;
+  border-radius: 999px;
+  cursor: pointer;
+  font-size: 0.95rem;
+}
+
+.markdown-image-fullscreen-caption {
+  margin-top: 1rem;
+  color: rgba(255,255,255,0.85);
+  font-size: 0.95rem;
+  text-align: center;
+}
+
+@media (max-width: 520px) {
+  .image-upload-trigger {
+    width: 38px;
+    height: 38px;
+    font-size: 1.05rem;
+  }
+
+  .markdown-image-thumb img {
+    height: 70px;
+  }
+}
 </style>
 
 <div class="glass-card">
@@ -129,9 +496,35 @@
   {% endif %}
 
   <form id="uploadForm" method="post" enctype="multipart/form-data" data-upload-success="{{ '1' if success else '0' }}" data-reset-draft="{{ '1' if clear_local_draft else '0' }}" style="display: grid; gap: 1rem;">
-    <div>
-      <label>שם קובץ</label>
-      <input type="text" name="file_name" placeholder="example.py" value="{{ file_name_value or '' }}" style="width: 100%; padding: .75rem; border-radius: 10px; border: 1px solid rgba(255,255,255,0.2); background: rgba(255,255,255,0.1); color: white;">
+    <div class="filename-field">
+      <div class="filename-field-header">
+        <label for="fileNameInput">שם קובץ</label>
+        <span class="image-upload-status" id="markdownImageStatus"></span>
+      </div>
+      <div class="filename-input-wrapper">
+        <input id="fileNameInput" type="text" name="file_name" placeholder="example.py" value="{{ file_name_value or '' }}" style="width: 100%; padding: .75rem; border-radius: 10px; border: 1px solid rgba(255,255,255,0.2); background: rgba(255,255,255,0.1); color: white;">
+        <button type="button"
+                id="imageUploadTrigger"
+                class="image-upload-trigger"
+                aria-label="הוספת תמונה ל-Markdown"
+                title="צרף תמונה"
+                data-visible="false">
+          📷
+        </button>
+      </div>
+      <small class="markdown-image-hint" id="markdownImageHint">
+        ניתן לצרף עד 6 תמונות (PNG/JPG/WEBP, עד ‎2MB‎ לכל תמונה). הכפתור יופיע רק כשתבחרו קובץ ‎.md‎.
+      </small>
+      <div class="markdown-image-error" id="markdownImageError" role="alert"></div>
+      <div class="markdown-images-preview is-empty" id="markdownImagesPreview">
+        <p class="markdown-images-empty">אין תמונות מצורפות עדיין.</p>
+      </div>
+      <input type="file"
+             id="markdownImageInput"
+             name="md_images"
+             accept="image/*"
+             multiple
+             hidden>
     </div>
     <div>
       <label>שפה</label>
@@ -196,6 +589,11 @@
     </div>
   </form>
 </div>
+<div class="markdown-image-fullscreen" id="markdownImageFullscreen" aria-hidden="true">
+  <button type="button" id="markdownImageFullscreenClose">✕ סגירה</button>
+  <img id="markdownImageFullscreenImg" alt="תמונה במלוא הגודל">
+  <div class="markdown-image-fullscreen-caption" id="markdownImageFullscreenCaption"></div>
+</div>
 {% endblock %}
 {% block extra_js %}
 <script>
@@ -211,6 +609,20 @@
       const sourceUrlInput = document.getElementById('sourceUrlInput');
       const sourceUrlField = document.getElementById('sourceUrlField');
       const sourceUrlToggle = document.getElementById('sourceUrlToggle');
+      const imageUploadTrigger = document.getElementById('imageUploadTrigger');
+      const markdownImageInput = document.getElementById('markdownImageInput');
+      const markdownImagesPreview = document.getElementById('markdownImagesPreview');
+      const markdownImageError = document.getElementById('markdownImageError');
+      const markdownImageStatus = document.getElementById('markdownImageStatus');
+      const markdownImageFullscreen = document.getElementById('markdownImageFullscreen');
+      const markdownImageFullscreenImg = document.getElementById('markdownImageFullscreenImg');
+      const markdownImageFullscreenCaption = document.getElementById('markdownImageFullscreenCaption');
+      const markdownImageFullscreenClose = document.getElementById('markdownImageFullscreenClose');
+
+      const MARKDOWN_IMAGE_LIMIT = 6;
+      const MARKDOWN_IMAGE_MAX_BYTES = 2 * 1024 * 1024;
+      const MARKDOWN_ALLOWED_TYPES = ['image/png', 'image/jpeg', 'image/webp', 'image/gif'];
+      let markdownSelectedImages = [];
 
       // Poll for editorManager
       let attempts = 0;
@@ -272,11 +684,73 @@
       }
 
       if (fileNameInput) {
-        fileNameInput.addEventListener('input', () => autoSetLanguageFromFilename('input'));
-        fileNameInput.addEventListener('blur', () => autoSetLanguageFromFilename('blur'));
+        fileNameInput.addEventListener('input', () => {
+          autoSetLanguageFromFilename('input');
+          toggleImageTriggerVisibility();
+        });
+        fileNameInput.addEventListener('blur', () => {
+          autoSetLanguageFromFilename('blur');
+          toggleImageTriggerVisibility();
+        });
       }
 
       autoSetLanguageFromFilename('initial');
+      toggleImageTriggerVisibility();
+
+      if (imageUploadTrigger && markdownImageInput) {
+        imageUploadTrigger.addEventListener('click', () => {
+          markdownImageInput.click();
+        });
+      }
+
+      if (markdownImageInput) {
+        markdownImageInput.addEventListener('change', (event) => {
+          handleMarkdownImageFiles(event.target.files);
+          try {
+            event.target.value = '';
+          } catch (_) {}
+        });
+      }
+
+      if (markdownImagesPreview) {
+        markdownImagesPreview.addEventListener('click', (event) => {
+          const removeBtn = event.target.closest('.markdown-image-remove');
+          if (removeBtn) {
+            const id = removeBtn.getAttribute('data-image-id');
+            removeMarkdownImage(id);
+            return;
+          }
+          const imgEl = event.target.closest('img[data-image-id]');
+          if (!imgEl) {
+            return;
+          }
+          const targetId = imgEl.getAttribute('data-image-id');
+          const imageItem = markdownSelectedImages.find((img) => img.id === targetId);
+          if (imageItem) {
+            openMarkdownImageFullscreen(imageItem);
+          }
+        });
+      }
+
+      if (markdownImageFullscreenClose) {
+        markdownImageFullscreenClose.addEventListener('click', () => {
+          closeMarkdownImageFullscreen();
+        });
+      }
+
+      if (markdownImageFullscreen) {
+        markdownImageFullscreen.addEventListener('click', (event) => {
+          if (event.target === markdownImageFullscreen) {
+            closeMarkdownImageFullscreen();
+          }
+        });
+      }
+
+      document.addEventListener('keydown', (event) => {
+        if (event.key === 'Escape' && markdownImageFullscreen?.classList.contains('is-open')) {
+          closeMarkdownImageFullscreen();
+        }
+      });
 
       // אישור דריסה אם שם הקובץ כבר קיים
       if (form && fileNameInput) {
