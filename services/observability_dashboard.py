@@ -941,17 +941,23 @@ def _fetch_external_metric_series(
     end_dt: Optional[datetime],
     granularity_seconds: int,
 ) -> List[Dict[str, Any]]:
+    import re
     if definition.get("source") != "external":
         raise ValueError("unsupported_external_metric")
     if metric not in _EXTERNAL_ALLOWED_METRICS:
         logger.warning("external_metric_not_allowlisted", extra={"metric": metric})
         raise ValueError("invalid_metric")
+    # Only allow safe metric names for template substitution
+    safe_metric = metric
+    if not re.fullmatch(r"[A-Za-z0-9_-]+", safe_metric):
+        logger.warning("external_metric_invalid_name", extra={"metric": safe_metric})
+        raise ValueError("invalid_metric_name")
     config = definition.get("external_config") or {}
     template = config.get("graph_url_template")
     if not template:
         raise ValueError("missing_graph_url_template")
     replacements = {
-        "{{metric_name}}": metric,
+        "{{metric_name}}": safe_metric,
         "{{start_time}}": start_dt.isoformat() if start_dt else "",
         "{{end_time}}": end_dt.isoformat() if end_dt else "",
         "{{granularity_seconds}}": str(granularity_seconds),
@@ -967,19 +973,19 @@ def _fetch_external_metric_series(
     scheme = (parsed.scheme or "").lower()
     host = (parsed.hostname or "").lower()
     if scheme not in {"http", "https"} or not host:
-        logger.warning("external_metric_invalid_url", extra={"metric": metric, "url": url})
+        logger.warning("external_metric_invalid_url", extra={"metric": safe_metric, "url": url})
         return []
     allowed_hosts = definition.get("allowed_hosts") or []
     if not allowed_hosts:
-        logger.warning("external_metric_missing_allowlist", extra={"metric": metric, "url": url})
+        logger.warning("external_metric_missing_allowlist", extra={"metric": safe_metric, "url": url})
         return []
     if host not in allowed_hosts:
-        logger.warning("external_metric_blocked_host", extra={"metric": metric, "host": host})
+        logger.warning("external_metric_blocked_host", extra={"metric": safe_metric, "host": host})
         return []
     try:
         payload = _http_get_json(url, headers=headers, timeout=timeout)
     except Exception as exc:
-        logger.warning("external_metric_fetch_failed", extra={"metric": metric, "url": url, "error": str(exc)})
+        logger.warning("external_metric_fetch_failed", extra={"metric": safe_metric, "url": url, "error": str(exc)})
         return []
     data_block = payload.get("data") if isinstance(payload, dict) else payload
     if not isinstance(data_block, list):
