@@ -6,7 +6,7 @@ from services import observability_dashboard as obs_dash
 
 def test_is_private_ip_detects_loopback():
     assert obs_http.is_private_ip("127.0.0.1") is True
-    assert obs_http.is_private_ip("203.0.113.10") is False
+    assert obs_http.is_private_ip("8.8.8.8") is False
 
 
 def test_resolve_and_validate_domain_rejects_private(monkeypatch):
@@ -19,8 +19,10 @@ def test_resolve_and_validate_domain_rejects_private(monkeypatch):
 
 
 def test_fetch_graph_securely_rewrites_host(monkeypatch):
+    locked_ip = "93.184.216.34"
+
     def fake_getaddrinfo(*_args, **_kwargs):
-        return [(None, None, None, None, ("203.0.113.5", 0))]
+        return [(None, None, None, None, (locked_ip, 0))]
 
     monkeypatch.setattr(obs_http.socket, "getaddrinfo", fake_getaddrinfo)
 
@@ -64,7 +66,7 @@ def test_fetch_graph_securely_rewrites_host(monkeypatch):
     )
 
     assert payload == b'{"ok": true}'
-    assert dummy_session.called["url"].startswith("https://203.0.113.5")
+    assert dummy_session.called["url"].startswith(f"https://{locked_ip}")
     assert dummy_session.called["headers"]["Host"] == "grafana.example.com"
     assert dummy_session.called["allow_redirects"] is False
 
