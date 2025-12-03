@@ -997,7 +997,7 @@ def _fetch_external_metric_series(
         logger.warning("external_metric_blocked_host", extra={"metric": safe_metric, "host": host})
         return []
     try:
-        payload = _http_get_json(url, headers=headers, timeout=timeout)
+        payload = _http_get_json(url, headers=headers, timeout=timeout, allowed_hosts=allowed_hosts)
     except Exception as exc:
         logger.warning("external_metric_fetch_failed", extra={"metric": safe_metric, "url": url, "error": str(exc)})
         return []
