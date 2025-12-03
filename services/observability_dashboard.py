@@ -44,6 +44,7 @@ _RANGE_TO_MINUTES = {
     "30m": 30,
     "1h": 60,
     "2h": 120,
+    "3h": 180,
     "4h": 240,
     "6h": 360,
     "24h": 1440,
@@ -901,6 +902,16 @@ def _http_get_json(url: str, *, headers: Optional[Dict[str, str]] = None, timeou
         request_fn = None
     if request_fn is not None:
         resp = request_fn("GET", url, headers=headers or {}, timeout=timeout)
+        try:
+            raise_fn = getattr(resp, "raise_for_status", None)
+            if callable(raise_fn):
+                raise_fn()
+            else:
+                status_code = getattr(resp, "status_code", None)
+                if status_code is not None and int(status_code) >= 400:
+                    raise RuntimeError(f"http_error_status_{status_code}")
+        except Exception:
+            raise
         response_text = getattr(resp, "text", None)
         if response_text is None:
             try:
@@ -976,7 +987,15 @@ def _fetch_external_metric_series(
         value = item.get(value_key)
         if ts is None or value is None:
             continue
-        rows.append({"timestamp": str(ts), "value": float(value)})
+        try:
+            value_num = float(value)
+        except Exception:
+            logger.warning(
+                "external_metric_invalid_value",
+                extra={"metric": metric, "value": value, "timestamp": ts},
+            )
+            continue
+        rows.append({"timestamp": str(ts), "value": value_num})
     return rows
 
 
