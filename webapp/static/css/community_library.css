@@ -4,10 +4,14 @@
 .community-header .subtitle{margin:4px 0 0;color:rgba(255,255,255,0.88)}
 .community-header .btn{padding:10px 14px;border-radius:8px;text-decoration:none}
 .btn.primary{background:#2b6cb0;color:#fff}
+:root[data-theme="rose-pine-dawn"] .community-header .subtitle{color:var(--text-secondary)}
+:root[data-theme="rose-pine-dawn"] .community-grid .card .desc{color:var(--text-secondary)}
 
 .community-controls{display:flex;gap:8px;align-items:center;margin:12px 0;flex-wrap:wrap}
 .community-controls input{flex:1 1 220px;min-width:0;padding:10px;border:1px solid #ddd;border-radius:8px}
 .community-controls select{padding:10px;border:1px solid #ddd;border-radius:8px}
+:root[data-theme="rose-pine-dawn"] .community-controls input,
+:root[data-theme="rose-pine-dawn"] .community-controls select{background:color-mix(in srgb,var(--bg-secondary) 80%,#fff 20%);border:1px solid var(--glass-border);color:var(--text-primary)}
 .community-controls button{flex:0 0 auto}
 
 .community-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:16px}

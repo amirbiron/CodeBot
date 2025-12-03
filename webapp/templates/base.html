@@ -56,6 +56,12 @@
             --glass-border: rgba(255, 255, 255, 0.2);
             --glass-hover: rgba(255, 255, 255, 0.15);
             --ui-font-scale: 1;
+            --btn-primary-bg: #ffffff;
+            --btn-primary-color: var(--primary);
+            --btn-primary-border: transparent;
+            --btn-primary-shadow: none;
+            --btn-primary-hover-bg: #ffffff;
+            --btn-primary-hover-shadow: 0 10px 20px rgba(0,0,0,0.2);
         }
 
         /* Theme palettes */
@@ -71,6 +77,12 @@
             --bg-tertiary: rgba(255, 255, 255, 0.25);
             --card-bg: rgba(255, 255, 255, 0.12);
             --card-border: rgba(255, 255, 255, 0.25);
+            --btn-primary-bg: rgba(255, 255, 255, 0.94);
+            --btn-primary-color: #1c1f3a;
+            --btn-primary-border: rgba(255, 255, 255, 0.65);
+            --btn-primary-shadow: 0 4px 14px rgba(7, 7, 31, 0.25);
+            --btn-primary-hover-bg: #ffffff;
+            --btn-primary-hover-shadow: 0 14px 28px rgba(18, 20, 43, 0.45);
         }
         :root[data-theme="ocean"] {
             --primary: #3182ce;
@@ -133,6 +145,12 @@
             --danger: #b4637a;
             --warning: #ea9d34;
             --info: #907aa9;
+            --btn-primary-bg: color-mix(in srgb, var(--bg-secondary) 80%, #ffffff 20%);
+            --btn-primary-color: #4a2c2a;
+            --btn-primary-border: var(--glass-border);
+            --btn-primary-shadow: 0 6px 18px rgba(149, 121, 166, 0.25);
+            --btn-primary-hover-bg: color-mix(in srgb, var(--bg-secondary) 60%, #ffffff 40%);
+            --btn-primary-hover-shadow: 0 10px 24px rgba(149, 121, 166, 0.3);
         }
 
         /* Theme palettes - Dark & Dim */
@@ -171,6 +189,12 @@
             --code-bg: #1e1e1e;
             --code-text: #d4d4d4;
             --code-border: rgba(255, 255, 255, 0.1);
+            --btn-primary-bg: color-mix(in srgb, var(--bg-tertiary) 75%, var(--primary) 25%);
+            --btn-primary-color: var(--text-primary);
+            --btn-primary-border: var(--glass-border);
+            --btn-primary-shadow: 0 8px 22px rgba(0, 0, 0, 0.45);
+            --btn-primary-hover-bg: color-mix(in srgb, var(--bg-tertiary) 55%, var(--primary) 45%);
+            --btn-primary-hover-shadow: 0 14px 32px rgba(0, 0, 0, 0.55);
         }
 
         /* מצב Dim - ביניים */
@@ -188,6 +212,12 @@
             --glass-hover: rgba(255, 255, 255, 0.12);
             --card-bg: rgba(40, 40, 40, 0.8);
             --code-bg: #2a2a2a;
+            --btn-primary-bg: color-mix(in srgb, var(--bg-tertiary) 78%, var(--primary) 22%);
+            --btn-primary-color: var(--text-primary);
+            --btn-primary-border: var(--glass-border);
+            --btn-primary-shadow: 0 6px 18px rgba(0, 0, 0, 0.45);
+            --btn-primary-hover-bg: color-mix(in srgb, var(--bg-tertiary) 60%, var(--primary) 40%);
+            --btn-primary-hover-shadow: 0 12px 28px rgba(0, 0, 0, 0.55);
         }
 
         /* Nebula – גווני כחול/סגול קוסמיים */
@@ -213,6 +243,12 @@
             --code-bg: #12192c;
             --code-text: #ecf0ff;
             --code-border: rgba(119, 122, 188, 0.4);
+            --btn-primary-bg: color-mix(in srgb, var(--card-bg) 60%, var(--primary) 40%);
+            --btn-primary-color: var(--text-primary);
+            --btn-primary-border: var(--glass-border);
+            --btn-primary-shadow: 0 10px 30px rgba(21, 27, 44, 0.65);
+            --btn-primary-hover-bg: color-mix(in srgb, var(--card-bg) 45%, var(--primary) 55%);
+            --btn-primary-hover-shadow: 0 16px 36px rgba(21, 27, 44, 0.7);
         }
 
         * {
@@ -286,7 +322,23 @@
         :root[data-theme="rose-pine-dawn"] body::before {
             background: url('data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1440 320"><path fill="%23f2e9e1" fill-opacity="0.4" d="M0,96L48,112C96,128,192,160,288,160C384,160,480,128,576,122.7C672,117,768,139,864,138.7C960,139,1056,117,1152,101.3C1248,85,1344,75,1392,69.3L1440,64L1440,320L1392,320C1344,320,1248,320,1152,320C1056,320,960,320,864,320C768,320,672,320,576,320C480,320,384,320,288,320C192,320,96,320,48,320L0,320Z"/></svg>') no-repeat bottom center;
         }
-
+        :root[data-theme="rose-pine-dawn"] input:not([type="checkbox"]):not([type="radio"]),
+        :root[data-theme="rose-pine-dawn"] textarea,
+        :root[data-theme="rose-pine-dawn"] select {
+            background: color-mix(in srgb, var(--bg-secondary) 80%, #ffffff 20%);
+            border: 1px solid var(--glass-border);
+            color: var(--text-primary);
+            box-shadow: inset 0 1px 3px rgba(87, 82, 121, 0.12);
+        }
+        :root[data-theme="rose-pine-dawn"] input::placeholder,
+        :root[data-theme="rose-pine-dawn"] textarea::placeholder {
+            color: color-mix(in srgb, var(--text-muted) 70%, #ffffff 30%);
+        }
+        :root[data-theme="rose-pine-dawn"] .btn,
+        :root[data-theme="rose-pine-dawn"] .editor-switcher {
+            color: var(--text-primary);
+        }
+        
         
 
         /* מונע חריגת תוכן לרוחב שיוצרת גלילה אופקית */
@@ -448,13 +500,16 @@
         }
         
         .btn-primary {
-            background: white;
-            color: var(--primary);
+            background: var(--btn-primary-bg, white);
+            color: var(--btn-primary-color, var(--primary));
+            border: 1px solid var(--btn-primary-border, transparent);
+            box-shadow: var(--btn-primary-shadow, none);
         }
         
         .btn-primary:hover {
             transform: translateY(-2px);
-            box-shadow: 0 10px 20px rgba(0,0,0,0.2);
+            background: var(--btn-primary-hover-bg, var(--btn-primary-bg, white));
+            box-shadow: var(--btn-primary-hover-shadow, 0 10px 20px rgba(0,0,0,0.2));
         }
         
         .btn-secondary {
