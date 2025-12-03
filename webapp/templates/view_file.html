@@ -96,25 +96,26 @@
 
 /* Code search toolbar */
 .code-search-bar {
-    width: 100%;
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: 12px;
-    padding: 0;
-    margin: 0 0 1rem;
-    background: transparent;
-    border: none;
-    box-shadow: none;
-    position: sticky;
-    top: 0;
-    z-index: 5;
+    width: 100% !important;
+    display: flex !important;
+    flex-wrap: wrap !important;
+    align-items: center !important;
+    gap: 12px !important;
+    padding: 0 !important;
+    margin: 0 0 1rem !important;
+    background: transparent !important;
+    border: none !important;
+    box-shadow: none !important;
+    position: sticky !important;
+    top: 0 !important;
+    z-index: 5 !important;
 }
 
 .code-search-input {
     flex: 1 1 100% !important;
     width: 100% !important;
     min-width: 0 !important;
+    order: 1 !important;
     background: rgba(255, 255, 255, 0.15);
     border: 1px solid rgba(255, 255, 255, 0.35);
     border-radius: 12px;
@@ -143,7 +144,9 @@
 
 .code-search-count {
     flex: 1 1 100%;
-    order: 5;
+    width: 100% !important;
+    min-width: 200px !important;
+    order: 5 !important;
     display: inline-flex;
     align-items: center;
     justify-content: center;
@@ -189,51 +192,43 @@
     transform: translateY(0);
 }
 
-#codeSearchInput {
-    order: 1;
-}
-
-#codeSearchCount {
-    order: 5;
-}
-
 #codeSearchNext,
 #codeSearchPrev,
 #codeSearchClear {
-    order: 2;
+    order: 2 !important;
 }
 
 #codeSearchPrev {
-    order: 3;
+    order: 3 !important;
 }
 
 #codeSearchClear {
-    order: 4;
+    order: 4 !important;
 }
 
 @media (max-width: 768px) {
     #fullscreenBtn {
-        width: 100%;
-        justify-content: center;
+        width: 100% !important;
+        justify-content: center !important;
     }
     .code-search-btn {
-        width: 44px;
-        height: 44px;
-        min-width: 44px;
-        font-size: 16px;
+        width: 44px !important;
+        height: 44px !important;
+        min-width: 44px !important;
+        font-size: 16px !important;
     }
     .code-search-input {
-        padding: 12px 16px;
-        padding-inline-start: 40px;
+        padding: 12px 16px !important;
+        padding-inline-start: 40px !important;
     }
 }
 
 @media (max-width: 480px) {
     .code-search-bar {
-        gap: 10px;
+        gap: 10px !important;
     }
     .code-search-input {
-        font-size: 14px;
+        font-size: 14px !important;
     }
 }
 
