@@ -125,6 +125,33 @@ from github_menu_handler import GitHubMenuHandler
 from backup_menu_handler import BackupMenuHandler
 from handlers.drive.menu import GoogleDriveMenuHandler
 from handlers.drive.utils import extract_schedule_key as drive_extract_schedule_key
+def get_drive_handler_from_application(application: Application) -> tuple[Any, bool]:
+    """
+    החזר את מופע GoogleDriveMenuHandler מתוך application.
+
+    Returns (handler, restored_flag). restored_flag מציין אם נאלצנו לשחזר את
+    ההפניה דרך המאפיין `_drive_handler` לאחר ש-bot_data איבד את המפתח.
+    """
+    handler = None
+    restored = False
+    try:
+        bot_data = getattr(application, "bot_data", None)
+    except Exception:
+        bot_data = None
+    if isinstance(bot_data, dict):
+        handler = bot_data.get("drive_handler")
+    if handler:
+        return handler, restored
+    fallback = getattr(application, "_drive_handler", None)
+    if fallback:
+        if isinstance(bot_data, dict):
+            try:
+                bot_data["drive_handler"] = fallback
+            except Exception:
+                pass
+        handler = fallback
+        restored = True
+    return handler, restored
 from handlers.documents import DocumentHandler
 from file_manager import backup_manager
 from large_files_handler import large_files_handler
@@ -2101,6 +2128,11 @@ class CodeKeeperBot:
         # יצירת GoogleDriveMenuHandler ושמירה
         drive_handler = GoogleDriveMenuHandler()
         self.application.bot_data['drive_handler'] = drive_handler
+        # שמור גם עותק ישיר על ה-application כדי להתגבר על מצבים שבהם bot_data מתאפס (Persistence/Reload)
+        try:
+            setattr(self.application, "_drive_handler", drive_handler)
+        except Exception:
+            pass
         logger.info("✅ GoogleDriveMenuHandler instance created and stored in bot_data")
         try:
             emit_event("drive_handler_ready", severity="info")
@@ -3748,10 +3780,19 @@ async def setup_bot_data(application: Application) -> None:  # noqa: D401
             stats = {"total": 0, "recreated": 0, "scanned": 0, "skipped": 0}
 
             try:
-                drive_handler = context.application.bot_data.get('drive_handler')
+                drive_handler, handler_restored = get_drive_handler_from_application(context.application)
                 if not drive_handler:
                     logger.warning("drive_reschedule_jobs_skip reason=no_drive_handler")
                     return
+                if handler_restored:
+                    try:
+                        logger.warning("drive_reschedule_handler_restored source=application_attr")
+                    except Exception:
+                        pass
+                    try:
+                        emit_event("drive_reschedule_handler_restored", severity="info", source="application_attr")
+                    except Exception:
+                        pass
                 # אתר את מנהל ה-DB: עדיפות למנהל שנשמר ב-bot_data, אחר כך ייבוא ישיר
                 db_manager = context.application.bot_data.get('db_manager')
                 if not db_manager:
