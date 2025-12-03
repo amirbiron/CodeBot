@@ -1,4 +1,5 @@
 import time
+import pytest
 
 def test_predictive_engine_detects_rising_trends(monkeypatch):
     import importlib
@@ -106,3 +107,44 @@ def test_adaptive_feedback_accuracy_and_halflife_tuning(monkeypatch, tmp_path):
     lat_trend = [t for t in trends if t.metric == "latency_seconds"][0]
     assert lat_trend.slope_per_minute < 0
     assert lat_trend.predicted_cross_ts is None
+
+
+def test_get_observations_supports_cpu_and_filters(monkeypatch):
+    import importlib
+    pe = importlib.import_module('predictive_engine')
+    importlib.reload(pe)
+    pe.reset_state_for_tests()
+
+    fixed_cpu_disk = [(55.0, 70.0), (60.0, 72.0), (65.0, 73.5)]
+    call_idx = {"i": 0}
+
+    def _fake_cpu_disk():
+        idx = min(call_idx["i"], len(fixed_cpu_disk) - 1)
+        call_idx["i"] += 1
+        return fixed_cpu_disk[idx]
+
+    monkeypatch.setattr(pe, "_get_cpu_and_disk_percent", _fake_cpu_disk)
+
+    base = time.time()
+    for i in range(3):
+        pe.note_observation(
+            error_rate_percent=1.0 + i,
+            latency_seconds=0.5,
+            memory_usage_percent=10.0 + i,
+            ts=base + i * 60,
+        )
+
+    # No bounds -> returns all points
+    cpu_points = pe.get_observations("cpu_usage_percent")
+    assert len(cpu_points) == 3
+    assert cpu_points[-1][1] == fixed_cpu_disk[-1][0]
+
+    # Filter by range to keep only middle sample
+    start = base + 30
+    end = base + 70
+    filtered = pe.get_observations("memory_usage_percent", start_ts=start, end_ts=end)
+    assert len(filtered) == 1
+    assert abs(filtered[0][0] - (base + 60)) < 1
+
+    with pytest.raises(ValueError):
+        pe.get_observations("not_a_metric")

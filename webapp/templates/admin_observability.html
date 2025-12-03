@@ -245,6 +245,98 @@
   background: rgba(255,255,255,0.05);
   box-shadow: inset 0 0 0 1px rgba(255,255,255,0.12);
 }
+.graph-toggle-btn {
+  border: none;
+  background: transparent;
+  color: #64ffda;
+  font-size: 1rem;
+  cursor: pointer;
+  transition: opacity 0.2s;
+}
+.graph-toggle-btn:hover {
+  opacity: 0.8;
+}
+.graph-toggle-btn.unavailable {
+  opacity: 0.5;
+}
+.graph-toggle-btn.active {
+  color: #ffa34f;
+}
+.alert-graph-row td {
+  background: rgba(13,18,30,0.95);
+  padding: 0.75rem 0.5rem 1rem;
+  border-bottom: 1px solid rgba(255,255,255,0.05);
+}
+.alert-graph-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+}
+.graph-controls {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 0.5rem;
+  align-items: center;
+}
+.graph-info-line {
+  font-size: 0.85rem;
+  opacity: 0.8;
+}
+.graph-zoom-group {
+  display: inline-flex;
+  gap: 0.35rem;
+}
+.graph-zoom-group button,
+.graph-presets button {
+  border: none;
+  border-radius: 999px;
+  padding: 0.25rem 0.65rem;
+  background: rgba(255,255,255,0.08);
+  color: #fff;
+  cursor: pointer;
+  font-size: 0.8rem;
+  transition: background 0.2s;
+}
+.graph-zoom-group button:hover,
+.graph-presets button:hover {
+  background: rgba(255,255,255,0.16);
+}
+.graph-presets {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+  align-items: center;
+}
+.graph-presets button.active {
+  background: linear-gradient(135deg,#64ffda,#ffa34f);
+  color: #121826;
+  font-weight: 600;
+}
+.graph-view {
+  position: relative;
+  min-height: 220px;
+}
+.graph-canvas {
+  width: 100%;
+  overflow-x: auto;
+}
+.graph-loading,
+.graph-empty {
+  display: none;
+  font-size: 0.9rem;
+  opacity: 0.75;
+  text-align: center;
+  padding: 1rem 0;
+}
+.graph-loading.active,
+.graph-empty.active {
+  display: block;
+}
+.graph-empty strong {
+  display: block;
+  margin-bottom: 0.25rem;
+}
 @media (max-width: 720px) {
   .obs-toolbar {
     flex-direction: column;
@@ -366,10 +458,11 @@
             <th>סיכום</th>
             <th>Meta</th>
             <th>Quick Fix</th>
+            <th>גרף</th>
           </tr>
         </thead>
         <tbody>
-          <tr><td colspan="6">טוען נתונים…</td></tr>
+          <tr><td colspan="7">טוען נתונים…</td></tr>
         </tbody>
       </table>
     </div>
@@ -395,9 +488,28 @@
     perPage: 25,
     lastUpdatedEl: document.getElementById('lastUpdated'),
     focusTs: initialParams.get('focus_ts') || '',
+    alertMap: {},
+    graphs: {},
   };
   let alertsChart;
   let responseChart;
+  const GRAPH_RANGE_PRESETS = ['15m','30m','1h','2h','4h','6h','24h','48h','7d'];
+  const RANGE_LABELS = {
+    '15m': '15 דק׳',
+    '30m': '30 דק׳',
+    '1h': '1 שעה',
+    '2h': '2 שעות',
+    '4h': '4 שעות',
+    '6h': '6 שעות',
+    '24h': '24 שעות',
+    '48h': '48 שעות',
+    '7d': '7 ימים',
+  };
+  const GRAPH_COLORS = {
+    primary: '#64ffda',
+    secondary: '#ff79c6',
+    accent: '#ffa34f',
+  };
 
   function formatTimestamp(ts){
     if (!ts) return '—';
@@ -406,6 +518,432 @@
       return date.toLocaleString('he-IL', { hour12: false });
     } catch (e) {
       return ts;
+    }
+  }
+
+  function rangeMinutes(label) {
+    const map = {
+      '15m': 15,
+      '30m': 30,
+      '1h': 60,
+      '2h': 120,
+      '4h': 240,
+      '6h': 360,
+      '24h': 1440,
+      '48h': 2880,
+      '7d': 10080,
+    };
+    return map[label] || 120;
+  }
+
+  function formatRangeLabel(label) {
+    return RANGE_LABELS[label] || label;
+  }
+
+  function computeRangeWindow(tsText, label) {
+    const minutes = rangeMinutes(label);
+    const halfMs = (minutes * 60 * 1000) / 2;
+    const ts = Date.parse(tsText);
+    if (Number.isNaN(ts)) {
+      return null;
+    }
+    const start = new Date(ts - halfMs).toISOString();
+    const end = new Date(ts + halfMs).toISOString();
+    return { start, end, minutes };
+  }
+
+  function pickGranularityForRange(label) {
+    const minutes = rangeMinutes(label);
+    if (minutes <= 60) return '5m';
+    if (minutes <= 120) return '10m';
+    if (minutes <= 360) return '15m';
+    if (minutes <= 1440) return '1h';
+    if (minutes <= 2880) return '3h';
+    return '6h';
+  }
+
+  function getGraphState(uid) {
+    if (!uid) return null;
+    state.graphs = state.graphs || {};
+    if (!state.graphs[uid]) {
+      state.graphs[uid] = {
+        range: null,
+        datasetCache: {},
+        chart: null,
+        expanded: false,
+      };
+    }
+    return state.graphs[uid];
+  }
+
+  function destroyGraph(uid) {
+    const g = getGraphState(uid);
+    if (g && g.chart) {
+      try {
+        g.chart.destroy();
+      } catch (err) {
+        console.debug('graph destroy failed', err);
+      }
+      g.chart = null;
+    }
+  }
+
+  function rememberAlerts(alerts) {
+    state.alertMap = state.alertMap || {};
+    alerts.forEach(alert => {
+      if (alert && alert.alert_uid) {
+        state.alertMap[alert.alert_uid] = alert;
+      }
+    });
+  }
+
+  function renderGraphToggleCell(alert) {
+    const graph = alert.graph;
+    if (!graph) {
+      return '<span style="opacity:0.4;">—</span>';
+    }
+    if (graph.available === false) {
+      return `<button class="graph-toggle-btn unavailable" aria-label="אין נתוני גרף פנימיים" data-alert-uid="${alert.alert_uid}" type="button">📈</button>`;
+    }
+    return `<button class="graph-toggle-btn" aria-label="הצג גרף" data-alert-uid="${alert.alert_uid}" type="button">📈</button>`;
+  }
+
+  function renderGraphPanel(alert) {
+    const graph = alert.graph || {};
+    const uid = alert.alert_uid || '';
+    const label = graph.label || 'גרף';
+    const unit = graph.unit ? ` (${graph.unit})` : '';
+    const defaultRange = graph.default_range || '2h';
+    const presets = GRAPH_RANGE_PRESETS.map(range => {
+      const active = range === defaultRange ? 'active' : '';
+      return `<button type="button" class="graph-preset-btn ${active}" data-alert-uid="${uid}" data-range="${range}">${formatRangeLabel(range)}</button>`;
+    }).join('');
+    return `
+      <div class="alert-graph-panel" id="alertGraphPanel-${uid}" data-alert-uid="${uid}" data-default-range="${defaultRange}" data-available="${graph.available === false ? '0' : '1'}">
+        <div class="graph-controls">
+          <div>
+            <div><strong>${label}</strong>${unit}</div>
+            <div class="graph-info-line" data-range-label="${uid}">${formatRangeLabel(defaultRange)}</div>
+          </div>
+          <div class="graph-zoom-group">
+            <button type="button" class="graph-zoom" data-alert-uid="${uid}" data-zoom="in">🔍−</button>
+            <button type="button" class="graph-zoom" data-alert-uid="${uid}" data-zoom="out">🔍+</button>
+          </div>
+        </div>
+        <div class="graph-presets">
+          ${presets}
+        </div>
+        <div class="graph-view">
+          <div class="graph-loading" id="alertGraphLoading-${uid}">טוען גרף…</div>
+          <div class="graph-empty" id="alertGraphEmpty-${uid}">
+            <strong>אין נתונים להצגה</strong>
+            <span>נסה טווח אחר או בדוק את מקור המטריקה</span>
+          </div>
+          <div class="graph-canvas">
+            <canvas id="alertGraphCanvas-${uid}" height="220"></canvas>
+          </div>
+        </div>
+      </div>
+    `;
+  }
+
+  function initGraphToggles() {
+    document.querySelectorAll('.graph-toggle-btn').forEach(btn => {
+      if (btn.dataset.graphBound === '1') return;
+      btn.dataset.graphBound = '1';
+      btn.addEventListener('click', () => {
+        const uid = btn.dataset.alertUid;
+        const row = document.querySelector(`tr.alert-graph-row[data-alert-uid="${uid}"]`);
+        const isOpen = row && row.dataset.open === '1';
+        setGraphRowState(uid, !isOpen);
+      });
+    });
+    document.querySelectorAll('.graph-preset-btn').forEach(btn => {
+      if (btn.dataset.graphBound === '1') return;
+      btn.dataset.graphBound = '1';
+      btn.addEventListener('click', () => {
+        const uid = btn.dataset.alertUid;
+        const range = btn.dataset.range;
+        if (!uid || !range) return;
+        const stateEntry = getGraphState(uid);
+        stateEntry.range = range;
+        updatePresetButtons(uid, range);
+        updateRangeLabel(uid, range);
+        loadAlertGraph(uid, range);
+      });
+    });
+    document.querySelectorAll('.graph-zoom').forEach(btn => {
+      if (btn.dataset.graphBound === '1') return;
+      btn.dataset.graphBound = '1';
+      btn.addEventListener('click', () => {
+        const uid = btn.dataset.alertUid;
+        const dir = btn.dataset.zoom;
+        if (!uid || !dir) return;
+        const next = selectNextRange(getGraphState(uid).range, dir);
+        if (!next) return;
+        const stateEntry = getGraphState(uid);
+        stateEntry.range = next;
+        updatePresetButtons(uid, next);
+        updateRangeLabel(uid, next);
+        loadAlertGraph(uid, next);
+      });
+    });
+    Object.entries(state.graphs || {}).forEach(([uid, info]) => {
+      if (info && info.expanded) {
+        setGraphRowState(uid, true, true);
+        loadAlertGraph(uid, info.range || (state.alertMap?.[uid]?.graph?.default_range) || '2h');
+      }
+    });
+  }
+
+  function selectNextRange(current, direction) {
+    const list = GRAPH_RANGE_PRESETS;
+    const idx = list.indexOf(current || '');
+    if (idx === -1) {
+      return direction === 'in' ? '1h' : '6h';
+    }
+    if (direction === 'in' && idx > 0) {
+      return list[idx - 1];
+    }
+    if (direction === 'out' && idx < list.length - 1) {
+      return list[idx + 1];
+    }
+    return list[idx];
+  }
+
+  function setGraphRowState(uid, shouldOpen, skipFetch = false) {
+    if (!uid) return;
+    const row = document.querySelector(`tr.alert-graph-row[data-alert-uid="${uid}"]`);
+    const toggle = document.querySelector(`.graph-toggle-btn[data-alert-uid="${uid}"]`);
+    if (!row) return;
+    const stateEntry = getGraphState(uid);
+    if (shouldOpen) {
+      row.style.display = 'table-row';
+      row.dataset.open = '1';
+      toggle?.classList.add('active');
+      stateEntry.expanded = true;
+      if (!skipFetch) {
+        loadAlertGraph(uid);
+      }
+    } else {
+      row.style.display = 'none';
+      row.dataset.open = '0';
+      toggle?.classList.remove('active');
+      stateEntry.expanded = false;
+      destroyGraph(uid);
+    }
+  }
+
+  async function loadAlertGraph(uid, rangeOverride) {
+    const alert = state.alertMap?.[uid];
+    if (!alert || !alert.graph) return;
+    const panel = document.getElementById(`alertGraphPanel-${uid}`);
+    if (!panel) return;
+    const available = panel.dataset.available !== '0' && alert.graph.available !== false && alert.graph.metric;
+    if (!available) {
+      showGraphEmpty(uid, 'No visual data available for this metric');
+      return;
+    }
+    const graphMeta = alert.graph;
+    const stateEntry = getGraphState(uid);
+    const range = rangeOverride || stateEntry.range || graphMeta.default_range || '2h';
+    stateEntry.range = range;
+    updatePresetButtons(uid, range);
+    updateRangeLabel(uid, range);
+    const cacheKey = range;
+    if (stateEntry.datasetCache[cacheKey]) {
+      renderAlertGraph(uid, alert, stateEntry.datasetCache[cacheKey], { range });
+      return;
+    }
+    setGraphLoading(uid, true);
+    try {
+      const payload = await fetchAlertGraph(alert, range);
+      stateEntry.datasetCache[cacheKey] = payload;
+      renderAlertGraph(uid, alert, payload, { range });
+    } catch (err) {
+      console.error('graph load failed', err);
+      showGraphEmpty(uid, 'טעינת הגרף נכשלה');
+    } finally {
+      setGraphLoading(uid, false);
+    }
+  }
+
+  async function fetchAlertGraph(alert, range) {
+    const win = computeRangeWindow(alert.timestamp, range);
+    if (!win) throw new Error('invalid_timestamp');
+    const granularity = pickGranularityForRange(range);
+    const params = new URLSearchParams({
+      metric: alert.graph.metric,
+      granularity,
+      start_time: win.start,
+      end_time: win.end,
+    });
+    const res = await fetch(`/api/observability/timeseries?${params.toString()}`, { headers: {'Accept': 'application/json'} });
+    const payload = await res.json();
+    if (!res.ok || payload.ok === false) {
+      throw new Error(payload.error || 'timeseries_error');
+    }
+    return {
+      points: payload.data || [],
+      granularity: payload.granularity_seconds || null,
+      rangeLabel: range,
+    };
+  }
+
+  function buildGraphDatasets(graphMeta, points) {
+    const metric = (graphMeta?.metric || '').toLowerCase();
+    const labels = points.map(p => formatTimestamp(p.timestamp || p.ts));
+    if (metric === 'latency_seconds' || metric === 'response_time') {
+      return {
+        labels,
+        datasets: [
+          {
+            label: 'ממוצע (ש׳׳)',
+            data: points.map(p => Number(p.avg_duration || p.value || 0)),
+            borderColor: GRAPH_COLORS.primary,
+            backgroundColor: 'rgba(100,255,218,0.2)',
+            tension: 0.3,
+            pointRadius: 0,
+          },
+          {
+            label: 'מקסימום (ש׳׳)',
+            data: points.map(p => Number(p.max_duration || p.value || 0)),
+            borderColor: GRAPH_COLORS.secondary,
+            backgroundColor: 'rgba(255,121,198,0.2)',
+            tension: 0.3,
+            pointRadius: 0,
+          },
+        ],
+        unit: graphMeta?.unit || 'ש׳׳',
+      };
+    }
+    if (metric === 'error_rate_percent') {
+      return {
+        labels,
+        datasets: [
+          {
+            label: 'שיעור שגיאות (%)',
+            data: points.map(p => Number(p.error_rate ?? p.value ?? 0)),
+            borderColor: GRAPH_COLORS.primary,
+            backgroundColor: 'rgba(100,255,218,0.2)',
+            tension: 0.25,
+            pointRadius: 0,
+          },
+        ],
+        unit: graphMeta?.unit || '%',
+      };
+    }
+    if (metric === 'requests_per_minute') {
+      return {
+        labels,
+        datasets: [
+          {
+            label: 'בקשות לדקה',
+            data: points.map(p => Number(p.requests_per_minute ?? p.value ?? 0)),
+            borderColor: GRAPH_COLORS.accent,
+            backgroundColor: 'rgba(255,163,79,0.2)',
+            tension: 0.25,
+            pointRadius: 0,
+          },
+        ],
+        unit: graphMeta?.unit || '',
+      };
+    }
+    return {
+      labels,
+      datasets: [
+        {
+          label: graphMeta?.label || 'מטריקה',
+          data: points.map(p => Number(p.value ?? p.avg_duration ?? 0)),
+          borderColor: GRAPH_COLORS.primary,
+          backgroundColor: 'rgba(100,255,218,0.2)',
+          tension: 0.25,
+          pointRadius: 0,
+        },
+      ],
+      unit: graphMeta?.unit || '',
+    };
+  }
+
+  function renderAlertGraph(uid, alert, payload, opts) {
+    const canvas = document.getElementById(`alertGraphCanvas-${uid}`);
+    if (!canvas) return;
+    const points = payload.points || [];
+    if (!points.length) {
+      showGraphEmpty(uid, 'אין נתונים בטווח הזה');
+      return;
+    }
+    hideGraphEmpty(uid);
+    const datasets = buildGraphDatasets(alert.graph, points);
+    destroyGraph(uid);
+    const ctx = canvas.getContext('2d');
+    const chart = new Chart(ctx, {
+      type: 'line',
+      data: {
+        labels: datasets.labels,
+        datasets: datasets.datasets,
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        interaction: { intersect: false, mode: 'index' },
+        plugins: {
+          legend: { labels: { color: '#fff' } },
+          tooltip: { mode: 'index', intersect: false },
+        },
+        scales: {
+          x: {
+            ticks: { color: '#b5bfd0', maxRotation: 45, minRotation: 45 },
+            grid: { color: 'rgba(255,255,255,0.08)' },
+          },
+          y: {
+            ticks: { color: '#b5bfd0' },
+            grid: { color: 'rgba(255,255,255,0.05)' },
+            beginAtZero: false,
+            title: datasets.unit ? { display: true, text: datasets.unit, color: '#b5bfd0' } : undefined,
+          },
+        },
+      },
+    });
+    const stateEntry = getGraphState(uid);
+    stateEntry.chart = chart;
+  }
+
+  function setGraphLoading(uid, isLoading) {
+    const loadingEl = document.getElementById(`alertGraphLoading-${uid}`);
+    if (loadingEl) {
+      loadingEl.classList.toggle('active', Boolean(isLoading));
+    }
+  }
+
+  function showGraphEmpty(uid, message) {
+    const emptyEl = document.getElementById(`alertGraphEmpty-${uid}`);
+    if (emptyEl) {
+      emptyEl.classList.add('active');
+      if (message) {
+        emptyEl.querySelector('span')?.textContent = message;
+      }
+    }
+    destroyGraph(uid);
+  }
+
+  function hideGraphEmpty(uid) {
+    const emptyEl = document.getElementById(`alertGraphEmpty-${uid}`);
+    if (emptyEl) {
+      emptyEl.classList.remove('active');
+    }
+  }
+
+  function updatePresetButtons(uid, activeRange) {
+    document.querySelectorAll(`.graph-preset-btn[data-alert-uid="${uid}"]`).forEach(btn => {
+      btn.classList.toggle('active', btn.dataset.range === activeRange);
+    });
+  }
+
+  function updateRangeLabel(uid, range) {
+    const labelEl = document.querySelector(`.graph-info-line[data-range-label="${uid}"]`);
+    if (labelEl) {
+      labelEl.textContent = formatRangeLabel(range);
     }
   }
 
@@ -528,16 +1066,29 @@
   function renderAlertsTable(alerts, total, page, perPage) {
     const body = document.querySelector('#alertsTable tbody');
     if (!body) return;
+    state.alertMap = {};
     if (!alerts || !alerts.length) {
-      body.innerHTML = '<tr><td colspan="6">לא נמצאו התראות בטווח שנבחר</td></tr>';
+      body.innerHTML = '<tr><td colspan="7">לא נמצאו התראות בטווח שנבחר</td></tr>';
       return;
     }
+    state.graphs = state.graphs || {};
+    Object.keys(state.graphs).forEach(uid => {
+      if (!alerts.find(alert => alert.alert_uid === uid)) {
+        destroyGraph(uid);
+        delete state.graphs[uid];
+      }
+    });
     body.innerHTML = alerts.map(alert => {
       const meta = alert.metadata || {};
       const metaItems = Object.keys(meta)
         .slice(0, 3)
         .map(key => `<span>${key}: ${meta[key]}</span>`)
         .join('');
+      const graphRow = `
+        <tr class="alert-graph-row" data-alert-uid="${alert.alert_uid || ''}" style="display:none;">
+          <td colspan="7">${renderGraphPanel(alert)}</td>
+        </tr>
+      `;
       return `
         <tr data-timestamp="${alert.timestamp || ''}" data-alert-uid="${alert.alert_uid || ''}">
           <td>${formatTimestamp(alert.timestamp)}</td>
@@ -546,7 +1097,9 @@
           <td>${alert.summary || '-'}</td>
           <td><div class="meta-list">${metaItems || ''}</div></td>
           <td>${renderQuickFixCell(alert)}</td>
+          <td>${renderGraphToggleCell(alert)}</td>
         </tr>
+        ${graphRow}
       `;
     }).join('');
 
@@ -558,6 +1111,8 @@
     if (prevBtn) prevBtn.disabled = page <= 1;
     if (nextBtn) nextBtn.disabled = page >= totalPages;
     initQuickFixHandlers();
+    rememberAlerts(alerts);
+    initGraphToggles();
     highlightFocusedRow();
   }
 
