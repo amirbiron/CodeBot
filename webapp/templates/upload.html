@@ -552,11 +552,9 @@
       if (markdownImageInput) {
         markdownImageInput.addEventListener('change', (event) => {
           handleMarkdownImageFiles(event.target.files);
-          if (supportsDataTransfer) {
-            try {
-              event.target.value = '';
-            } catch (_) {}
-          }
+          try {
+            event.target.value = '';
+          } catch (_) {}
         });
       }
 
@@ -636,6 +634,21 @@
             try { form.dataset.skipConfirm = '1'; } catch (_) {}
             try { form.submit(); } catch (_) {}
           }
+        });
+      }
+
+      if (form) {
+        form.addEventListener('formdata', (event) => {
+          if (!event || !event.formData) {
+            return;
+          }
+          if (!isMarkdownFilename((fileNameInput && fileNameInput.value) || '')) {
+            try {
+              event.formData.delete('md_images');
+            } catch (_) {}
+            return;
+          }
+          appendMarkdownImagesToFormData(event.formData);
         });
       }
 
@@ -1022,8 +1035,10 @@
         let added = 0;
         const errors = [];
 
+        const nextImages = [...markdownSelectedImages];
+
         for (const file of incoming) {
-          if (markdownSelectedImages.length >= MARKDOWN_IMAGE_LIMIT) {
+          if (nextImages.length >= MARKDOWN_IMAGE_LIMIT) {
             errors.push(`ניתן לצרף עד ${MARKDOWN_IMAGE_LIMIT} תמונות בלבד.`);
             break;
           }
@@ -1035,7 +1050,7 @@
             errors.push(`${file.name} גדול מדי (מקסימום ${humanFileSize(MARKDOWN_IMAGE_MAX_BYTES)}).`);
             continue;
           }
-          const duplicate = markdownSelectedImages.some((item) => {
+          const duplicate = nextImages.some((item) => {
             return item.file.name === file.name && item.file.size === file.size;
           });
           if (duplicate) {
@@ -1044,7 +1059,7 @@
           }
           const id = `md-img-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`;
           const url = URL.createObjectURL(file);
-          markdownSelectedImages.push({ id, file, url });
+          nextImages.push({ id, file, url });
           added++;
         }
 
@@ -1054,11 +1069,19 @@
           setMarkdownImageError('');
         }
 
-        if (added > 0) {
+        if (!added) {
+          if (!supportsDataTransfer && errors.length) {
+            try { markdownImageInput.value = ''; } catch (_) {}
+          }
           renderMarkdownImages();
-          syncMarkdownImageInput();
           updateMarkdownImageStatus();
+          return;
         }
+
+        markdownSelectedImages = nextImages;
+        renderMarkdownImages();
+        syncMarkdownImageInput();
+        updateMarkdownImageStatus();
       }
 
       function removeMarkdownImage(imageId) {
@@ -1094,6 +1117,7 @@
           return;
         }
         revokeAllMarkdownImageUrls();
+        closeMarkdownImageFullscreen();
         markdownSelectedImages = [];
         syncMarkdownImageInput();
         renderMarkdownImages();
@@ -1148,9 +1172,7 @@
           return;
         }
         if (!supportsDataTransfer) {
-          if (!markdownSelectedImages.length) {
-            try { markdownImageInput.value = ''; } catch (_) {}
-          }
+          try { markdownImageInput.value = ''; } catch (_) {}
           return;
         }
         const transfer = new DataTransfer();
@@ -1230,6 +1252,25 @@
         markdownSelectedImages.forEach((item) => {
           if (item && item.url) {
             try { URL.revokeObjectURL(item.url); } catch (_) {}
+          }
+        });
+      }
+
+      function appendMarkdownImagesToFormData(targetFormData) {
+        if (!targetFormData) {
+          return;
+        }
+        try {
+          targetFormData.delete('md_images');
+        } catch (_) {}
+        markdownSelectedImages.forEach((item) => {
+          try {
+            targetFormData.append('md_images', item.file, item.file.name);
+          } catch (_) {
+            // חלק מהדפדפנים דורשים רק קובץ ללא שם
+            try {
+              targetFormData.append('md_images', item.file);
+            } catch (_) {}
           }
         });
       }
