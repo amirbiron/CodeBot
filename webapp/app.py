@@ -7634,70 +7634,71 @@ def upload_file_web():
                                 })
                             if error:
                                 markdown_image_payloads = []
-                try:
-                    # קבע גרסה חדשה על בסיס האחרונה הפעילה
-                    prev = db.code_snippets.find_one(
-                        {
-                            'user_id': user_id,
-                            'file_name': file_name,
-                            '$or': [
-                                {'is_active': True},
-                                {'is_active': {'$exists': False}}
-                            ]
-                        },
-                        sort=[('version', -1)]
-                    )
-                except Exception:
-                    prev = None
-                version = int((prev or {}).get('version', 0) or 0) + 1
-                if not description:
+                if not error:
                     try:
-                        description = (prev or {}).get('description') or ''
+                        # קבע גרסה חדשה על בסיס האחרונה הפעילה
+                        prev = db.code_snippets.find_one(
+                            {
+                                'user_id': user_id,
+                                'file_name': file_name,
+                                '$or': [
+                                    {'is_active': True},
+                                    {'is_active': {'$exists': False}}
+                                ]
+                            },
+                            sort=[('version', -1)]
+                        )
                     except Exception:
-                        description = ''
-                prev_tags = []
-                try:
-                    prev_tags = list((prev or {}).get('tags') or [])
-                except Exception:
-                    prev_tags = []
-                # אל תוסיף תגיות repo:* כברירת מחדל בעת העלאה חדשה; שמור רק תגיות רגילות אם המשתמש לא הקליד
-                safe_prev_tags = [t for t in prev_tags if not (isinstance(t, str) and t.strip().lower().startswith('repo:'))]
-                final_tags = tags if tags else safe_prev_tags
-
-                now = datetime.now(timezone.utc)
-                doc = {
-                    'user_id': user_id,
-                    'file_name': file_name,
-                    'code': code,
-                    'programming_language': language,
-                    'description': description,
-                    'tags': final_tags,
-                    'version': version,
-                    'created_at': now,
-                    'updated_at': now,
-                    'is_active': True,
-                }
-                if clean_source_url:
-                    doc['source_url'] = clean_source_url
-                elif not source_url_removed:
-                    prev_source = (prev or {}).get('source_url')
-                    if prev_source:
-                        doc['source_url'] = prev_source
-                try:
-                    res = db.code_snippets.insert_one(doc)
-                except Exception as _e:
-                    res = None
-                if res and getattr(res, 'inserted_id', None):
-                    if markdown_image_payloads:
+                        prev = None
+                    version = int((prev or {}).get('version', 0) or 0) + 1
+                    if not description:
                         try:
-                            _save_markdown_images(db, user_id, res.inserted_id, markdown_image_payloads)
+                            description = (prev or {}).get('description') or ''
                         except Exception:
-                            pass
-                    session[_UPLOAD_CLEAR_DRAFT_SESSION_KEY] = True
-                    if _log_webapp_user_activity():
-                        session['_skip_view_activity_once'] = True
-                    return redirect(url_for('view_file', file_id=str(res.inserted_id)))
-                error = 'שמירת הקובץ נכשלה'
+                            description = ''
+                    prev_tags = []
+                    try:
+                        prev_tags = list((prev or {}).get('tags') or [])
+                    except Exception:
+                        prev_tags = []
+                    # אל תוסיף תגיות repo:* כברירת מחדל בעת העלאה חדשה; שמור רק תגיות רגילות אם המשתמש לא הקליד
+                    safe_prev_tags = [t for t in prev_tags if not (isinstance(t, str) and t.strip().lower().startswith('repo:'))]
+                    final_tags = tags if tags else safe_prev_tags
+
+                    now = datetime.now(timezone.utc)
+                    doc = {
+                        'user_id': user_id,
+                        'file_name': file_name,
+                        'code': code,
+                        'programming_language': language,
+                        'description': description,
+                        'tags': final_tags,
+                        'version': version,
+                        'created_at': now,
+                        'updated_at': now,
+                        'is_active': True,
+                    }
+                    if clean_source_url:
+                        doc['source_url'] = clean_source_url
+                    elif not source_url_removed:
+                        prev_source = (prev or {}).get('source_url')
+                        if prev_source:
+                            doc['source_url'] = prev_source
+                    try:
+                        res = db.code_snippets.insert_one(doc)
+                    except Exception as _e:
+                        res = None
+                    if res and getattr(res, 'inserted_id', None):
+                        if markdown_image_payloads:
+                            try:
+                                _save_markdown_images(db, user_id, res.inserted_id, markdown_image_payloads)
+                            except Exception:
+                                pass
+                        session[_UPLOAD_CLEAR_DRAFT_SESSION_KEY] = True
+                        if _log_webapp_user_activity():
+                            session['_skip_view_activity_once'] = True
+                        return redirect(url_for('view_file', file_id=str(res.inserted_id)))
+                    error = 'שמירת הקובץ נכשלה'
         except Exception as e:
             error = f'שגיאה בהעלאה: {e}'
     # שליפת שפות קיימות + השלמה לברירת מחדל
