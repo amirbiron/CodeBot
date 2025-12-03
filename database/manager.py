@@ -813,6 +813,10 @@ class DatabaseManager:
     def get_drive_prefs(self, user_id: int) -> Optional[Dict[str, Any]]:
         return self._get_repo().get_drive_prefs(user_id)
 
+    def get_users_with_active_drive_schedule(self) -> List[Dict[str, Any]]:
+        """Return all users who have an active drive backup schedule."""
+        return self._get_repo().get_users_with_active_drive_schedule()
+
     # Image generation preferences (Telegram /image)
     def save_image_prefs(self, user_id: int, prefs: Dict[str, Any]) -> bool:
         return self._get_repo().save_image_prefs(user_id, prefs)
