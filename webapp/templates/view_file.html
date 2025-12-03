@@ -69,113 +69,240 @@
 }
 
 /* Code search toolbar */
-.code-search-bar {
-    position: sticky;
-    top: 0;
-    z-index: 5;
-    display: flex;
-    flex-wrap: wrap;
-    gap: 0.5rem;
-    align-items: center;
-    padding: 0.25rem 0;
-    margin: 0 0 0.75rem;
-    border-radius: 0;
-    background: transparent;
-    border: none;
-    box-shadow: none;
-    backdrop-filter: none;
-    color: var(--text-primary, #1f2933);
+.code-viewer-header,
+.search-header-container {
+    display: flex !important;
+    flex-direction: column !important;
+    gap: 12px !important;
+    width: 100% !important;
+    padding: 0 !important;
+    margin-bottom: 1rem;
 }
 
-.code-search-input {
-    flex: 1 1 220px;
-    min-width: 0;
-    background: var(--code-search-input-bg, var(--bg-tertiary, rgba(255, 255, 255, 0.85)));
-    border: 1px solid var(--code-search-input-border, var(--glass-border, rgba(0, 0, 0, 0.1)));
-    border-radius: 8px;
-    padding: 0.6rem 0.8rem;
-    font-size: 0.95rem;
-    color: var(--text-primary, #1f2933);
-    outline: none;
-    transition: border-color 0.2s ease, box-shadow 0.2s ease, background 0.2s ease;
+.header-top-row {
+    display: flex !important;
+    justify-content: space-between !important;
+    align-items: center !important;
+    width: 100% !important;
+    gap: 12px !important;
+    flex-wrap: wrap !important;
 }
 
-.code-search-input::placeholder {
-    color: var(--text-muted, rgba(15, 23, 42, 0.55));
+.source-code-title,
+.code-title {
+    color: white !important;
+    font-size: 18px !important;
+    font-weight: 600 !important;
+    display: flex !important;
+    align-items: center !important;
+    gap: 8px !important;
+    margin: 0;
 }
 
-.code-search-input:focus {
-    border-color: var(--primary, #9775fa);
-    box-shadow: 0 0 0 3px var(--glass-border, rgba(151, 117, 250, 0.25));
-    background: var(--code-search-input-focus-bg, #ffffff);
+.source-code-title .icon,
+.code-title .icon,
+.source-code-title i,
+.code-title i {
+    color: rgba(255, 255, 255, 0.8) !important;
+    font-size: 18px !important;
 }
 
-.code-search-count {
-    color: var(--text-secondary, var(--text-primary, #1f2933));
-    font-size: 0.85rem;
-    padding: 0.35rem 0.6rem;
-    background: var(--code-search-pill-bg, var(--glass, rgba(0, 0, 0, 0.04)));
-    border-radius: 6px;
-    min-width: 60px;
-    text-align: center;
-    border: 1px solid var(--glass-border, rgba(0, 0, 0, 0.08));
-    flex: 0 0 auto;
+.code-viewer-header .fullscreen-btn {
+    background: rgba(255, 255, 255, 0.1) !important;
+    backdrop-filter: blur(10px) !important;
+    -webkit-backdrop-filter: blur(10px) !important;
+    border: 1px solid rgba(255, 255, 255, 0.25) !important;
+    border-radius: 10px !important;
+    color: white !important;
+    padding: 10px 18px !important;
+    font-size: 14px !important;
+    display: flex !important;
+    align-items: center !important;
+    gap: 8px !important;
+    cursor: pointer !important;
+    transition: all 0.2s ease !important;
+    white-space: nowrap !important;
 }
 
-.code-search-btn {
-    background: var(
-        --code-search-btn-bg,
-        var(--bg-tertiary, var(--glass, rgba(0, 0, 0, 0.05)))
-    ) !important;
-    border: 1px solid var(--code-search-btn-border, var(--glass-border, rgba(0, 0, 0, 0.12))) !important;
-    color: var(--code-search-btn-color, var(--text-primary, #1f2933)) !important;
-    flex: 0 0 auto;
-    min-width: 0;
-    border-radius: 8px;
-    transition: background 0.2s ease, border-color 0.2s ease, color 0.2s ease;
+.code-viewer-header .fullscreen-btn:hover {
+    background: rgba(255, 255, 255, 0.2) !important;
+    border-color: rgba(255, 255, 255, 0.4) !important;
+    transform: scale(1.05) !important;
 }
 
-.code-search-btn:hover,
-.code-search-btn:focus-visible {
-    background: var(--glass-hover, rgba(0, 0, 0, 0.08)) !important;
-    border-color: var(--primary, rgba(151, 117, 250, 0.5)) !important;
-    color: var(--primary, #9775fa) !important;
+.search-row {
+    display: flex !important;
+    width: 100% !important;
+    gap: 12px !important;
+    align-items: center !important;
 }
 
-:root[data-theme="classic"] .code-search-input {
-    color: #ffffff;
-    background: linear-gradient(135deg, rgba(102, 126, 234, 0.92) 0%, rgba(118, 99, 255, 0.96) 100%);
-    border-color: rgba(255, 255, 255, 0.45);
-    box-shadow: 0 6px 20px rgba(20, 0, 61, 0.35);
+.code-viewer-header .search-input-container,
+.code-viewer-header .code-search-bar {
+    position: relative !important;
+    flex: 1 !important;
+    width: 100% !important;
+    min-width: 0 !important;
 }
 
-:root[data-theme="classic"] .code-search-input::placeholder {
-    color: rgba(255, 255, 255, 0.85);
+.code-viewer-header .search-icon {
+    position: absolute !important;
+    left: 16px !important;
+    top: 50% !important;
+    transform: translateY(-50%);
+    color: rgba(255, 255, 255, 0.7) !important;
+    font-size: 18px !important;
+    pointer-events: none !important;
 }
 
-:root[data-theme="classic"] .code-search-input:focus {
-    color: #ffffff;
-    border-color: rgba(255, 255, 255, 0.85);
-    box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.3);
-    background: linear-gradient(135deg, rgba(118, 99, 255, 0.96) 0%, rgba(150, 115, 255, 0.98) 100%);
+.code-viewer-header .code-search-input {
+    flex: 1 !important;
+    width: 100% !important;
+    min-width: 0 !important;
+    background: rgba(255, 255, 255, 0.15) !important;
+    backdrop-filter: blur(10px) !important;
+    -webkit-backdrop-filter: blur(10px) !important;
+    border: 1px solid rgba(255, 255, 255, 0.3) !important;
+    border-radius: 12px !important;
+    color: white !important;
+    font-size: 15px !important;
+    padding: 14px 20px !important;
+    padding-inline-start: 45px !important;
+    padding-inline-end: 16px !important;
+    padding-left: 45px !important;
+    padding-right: 16px !important;
+    transition: all 0.2s ease !important;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1) !important;
 }
 
-:root[data-theme="classic"] .code-search-count {
-    color: #ffffff;
-    background: rgba(0, 0, 0, 0.25);
-    border-color: rgba(255, 255, 255, 0.4);
+.code-viewer-header .code-search-input::placeholder {
+    color: rgba(255, 255, 255, 0.6) !important;
 }
 
-:root[data-theme="classic"] .code-search-btn {
-    color: #ffffff !important;
-    background: rgba(0, 0, 0, 0.25) !important;
-    border-color: rgba(255, 255, 255, 0.45) !important;
+.code-viewer-header .code-search-input:focus {
+    outline: none !important;
+    background: rgba(255, 255, 255, 0.2) !important;
+    border-color: rgba(255, 255, 255, 0.5) !important;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15) !important;
 }
 
-:root[data-theme="classic"] .code-search-btn:hover,
-:root[data-theme="classic"] .code-search-btn:focus-visible {
-    background: rgba(0, 0, 0, 0.35) !important;
-    border-color: rgba(255, 255, 255, 0.75) !important;
+.code-viewer-header .nav-controls,
+.code-viewer-header .code-editor-controls,
+.code-viewer-header .search-controls {
+    display: flex !important;
+    gap: 10px !important;
+    align-items: center !important;
+    flex: 0 0 auto !important;
+}
+
+.code-viewer-header .nav-button,
+.code-viewer-header .code-nav-btn,
+.code-viewer-header .close-btn,
+.code-viewer-header .next-btn,
+.code-viewer-header .prev-btn {
+    background: rgba(255, 255, 255, 0.1) !important;
+    backdrop-filter: blur(10px) !important;
+    -webkit-backdrop-filter: blur(10px) !important;
+    border: 1px solid rgba(255, 255, 255, 0.25) !important;
+    border-radius: 10px !important;
+    color: white !important;
+    width: 48px !important;
+    height: 48px !important;
+    min-width: 48px !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    font-size: 20px !important;
+    cursor: pointer !important;
+    transition: all 0.2s ease !important;
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.1) !important;
+}
+
+.code-viewer-header .nav-button:hover,
+.code-viewer-header .code-nav-btn:hover,
+.code-viewer-header .close-btn:hover,
+.code-viewer-header .next-btn:hover,
+.code-viewer-header .prev-btn:hover {
+    background: rgba(255, 255, 255, 0.2) !important;
+    border-color: rgba(255, 255, 255, 0.4) !important;
+    transform: scale(1.05) !important;
+    box-shadow: 0 4px 10px rgba(0, 0, 0, 0.15) !important;
+}
+
+.code-viewer-header .close-btn {
+    background: rgba(255, 68, 68, 0.15) !important;
+    border-color: rgba(255, 68, 68, 0.3) !important;
+}
+
+.code-viewer-header .close-btn:hover {
+    background: rgba(255, 68, 68, 0.25) !important;
+    border-color: rgba(255, 68, 68, 0.5) !important;
+}
+
+.search-status-row {
+    width: 100% !important;
+}
+
+.code-viewer-header .code-search-count,
+.code-viewer-header .search-progress,
+.code-viewer-header .search-results-count {
+    width: 100% !important;
+    display: inline-flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    padding: 12px 16px !important;
+    background: rgba(255, 255, 255, 0.15) !important;
+    border: 1px solid rgba(255, 255, 255, 0.3) !important;
+    border-radius: 12px !important;
+    color: rgba(255, 255, 255, 0.9) !important;
+    font-size: 14px !important;
+    font-weight: 500 !important;
+    min-height: 48px !important;
+    text-align: center !important;
+    transition: all 0.2s ease !important;
+}
+
+@media (max-width: 768px) {
+    .code-viewer-header .fullscreen-btn {
+        padding: 10px 16px !important;
+        font-size: 13px !important;
+    }
+    .search-row {
+        flex-direction: column !important;
+        align-items: stretch !important;
+    }
+    .code-viewer-header .nav-controls {
+        width: 100% !important;
+        justify-content: space-between !important;
+    }
+    .code-viewer-header .nav-button,
+    .code-viewer-header .code-nav-btn,
+    .code-viewer-header .close-btn,
+    .code-viewer-header .next-btn,
+    .code-viewer-header .prev-btn {
+        width: 44px !important;
+        height: 44px !important;
+        min-width: 44px !important;
+        font-size: 18px !important;
+    }
+    .code-viewer-header .code-search-input {
+        padding: 12px 16px !important;
+        padding-inline-start: 42px !important;
+        padding-left: 42px !important;
+    }
+}
+
+@media (max-width: 480px) {
+    .code-viewer-header .fullscreen-btn {
+        width: 100% !important;
+        justify-content: center !important;
+    }
+    .code-viewer-header .nav-controls {
+        gap: 8px !important;
+    }
+    .code-viewer-header .code-search-input {
+        font-size: 13px !important;
+    }
 }
 
 /* כאשר הכרטיס במסך מלא – הקוד יתפוס כמעט את כל הגובה */
@@ -243,6 +370,145 @@
     display: flex;
     gap: 1rem;
     flex-wrap: wrap;
+}
+
+.action-btn,
+.file-action-btn,
+.primary-action-btn {
+    background: rgba(255, 255, 255, 0.95) !important;
+    color: #667eea !important;
+    width: auto !important;
+    min-width: auto !important;
+    max-width: none !important;
+    display: inline-flex !important;
+    padding: 12px 20px !important;
+    margin: 0 !important;
+    border: 1px solid rgba(102, 126, 234, 0.3) !important;
+    border-radius: 12px !important;
+    font-size: 15px !important;
+    font-weight: 500 !important;
+    white-space: nowrap !important;
+    align-items: center !important;
+    justify-content: center !important;
+    gap: 8px !important;
+    cursor: pointer !important;
+    transition: all 0.2s ease !important;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1) !important;
+}
+
+.action-btn:hover,
+.file-action-btn:hover,
+.primary-action-btn:hover {
+    background: rgba(255, 255, 255, 1) !important;
+    transform: translateY(-2px) !important;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15) !important;
+}
+
+.action-btn:active,
+.file-action-btn:active,
+.primary-action-btn:active {
+    transform: translateY(0) !important;
+}
+
+.action-btn .icon,
+.action-btn svg,
+.file-action-btn .icon,
+.file-action-btn svg {
+    width: 18px !important;
+    height: 18px !important;
+    color: #667eea !important;
+}
+
+.copy-code-btn,
+[data-action="copy"],
+button[onclick*="copy"] {
+    background: rgba(255, 255, 255, 0.95) !important;
+    color: #667eea !important;
+    width: auto !important;
+    display: inline-flex !important;
+    padding: 12px 20px !important;
+}
+
+.edit-btn,
+[data-action="edit"],
+button[onclick*="edit"] {
+    background: rgba(255, 255, 255, 0.95) !important;
+    color: #667eea !important;
+    width: auto !important;
+    display: inline-flex !important;
+    padding: 12px 20px !important;
+}
+
+.action-btn.secondary,
+.file-action-btn.secondary {
+    background: rgba(255, 255, 255, 0.1) !important;
+    color: white !important;
+    border: 1px solid rgba(255, 255, 255, 0.3) !important;
+}
+
+.action-btn.secondary:hover,
+.file-action-btn.secondary:hover {
+    background: rgba(255, 255, 255, 0.2) !important;
+}
+
+.action-btn.starred,
+.favorite-btn {
+    background: rgba(255, 215, 0, 0.2) !important;
+    border-color: rgba(255, 215, 0, 0.4) !important;
+    color: #667eea !important;
+}
+
+.action-buttons,
+.file-actions,
+.button-group {
+    display: flex !important;
+    flex-wrap: wrap !important;
+    gap: 12px !important;
+    align-items: center !important;
+}
+
+@media (max-width: 768px) {
+    .action-btn,
+    .file-action-btn,
+    .primary-action-btn {
+        padding: 10px 16px !important;
+        font-size: 14px !important;
+    }
+
+    .action-buttons,
+    .file-actions,
+    .button-group {
+        gap: 8px !important;
+    }
+}
+
+@media (max-width: 480px) {
+    .action-btn,
+    .file-action-btn,
+    .primary-action-btn {
+        padding: 10px 14px !important;
+        font-size: 13px !important;
+    }
+
+    .action-buttons,
+    .file-actions,
+    .button-group {
+        gap: 6px !important;
+    }
+}
+
+.btn-block,
+.btn-full-width,
+.w-100,
+.full-width {
+    width: auto !important;
+    display: inline-flex !important;
+}
+
+.text-dark,
+.text-black,
+[class*="text-gray"] {
+    color: #667eea !important;
 }
 
 .file-meta {
@@ -533,16 +799,16 @@ body.telegram-mini-app .file-title { font-size: 1.125rem; }
         {% endif %}
     </div>
 
-    <div class="file-actions">
+    <div class="file-actions action-buttons">
         <button id="favoriteBtn" class="btn btn-secondary btn-icon" onclick="toggleFavorite()" aria-pressed="{{ 'true' if file.is_favorite else 'false' }}" title="{{ 'הסר ממועדפים' if file.is_favorite else 'הוסף למועדפים' }}" aria-label="{{ 'הסר ממועדפים' if file.is_favorite else 'הוסף למועדפים' }}">
             <span id="favoriteIcon">{{ '💔' if file.is_favorite else '⭐' }}</span>
             <span id="favoriteLabel">{{ 'הסר ממועדפים' if file.is_favorite else 'הוסף למועדפים' }}</span>
         </button>
-        <a href="/edit/{{ file.id }}" class="btn btn-primary btn-icon">
+        <a href="/edit/{{ file.id }}" class="btn btn-primary btn-icon action-btn primary-action-btn file-action-btn edit-btn">
             <i class="fas fa-edit"></i>
             ערוך
         </a>
-        <button onclick="copyCode()" class="btn btn-primary btn-icon copy-button">
+        <button onclick="copyCode()" class="btn btn-primary btn-icon action-btn primary-action-btn file-action-btn copy-button copy-code-btn">
             <i class="fas fa-copy"></i>
             העתק קוד
             <div class="copy-feedback" id="copyFeedback">הועתק!</div>
@@ -621,22 +887,31 @@ body.telegram-mini-app .file-title { font-size: 1.125rem; }
 {% endif %}
 
 <div class="glass-card" id="codeCard">
-    <div class="section-header">
-        <h2 class="section-title" style="margin: 0;">
-            <i class="fas fa-code"></i>
-            קוד מקור
-        </h2>
-        <button id="fullscreenBtn" class="btn btn-secondary btn-icon" title="מסך מלא">
-            <i class="fas fa-expand"></i>
-            מסך מלא
-        </button>
-    </div>
-    <div class="search-bar code-search-bar" id="code-search">
-        <input id="codeSearchInput" type="text" class="code-search-input" placeholder="🔍 חפש בקוד...">
-        <span id="codeSearchCount" class="result-count code-search-count"></span>
-        <button id="codeSearchNext" type="button" class="btn btn-secondary btn-icon code-search-btn" title="הבא">◀</button>
-        <button id="codeSearchPrev" type="button" class="btn btn-secondary btn-icon code-search-btn" title="קודם">▶</button>
-        <button id="codeSearchClear" type="button" class="btn btn-secondary btn-icon code-search-btn" title="נקה">✕</button>
+    <div class="code-viewer-header search-header-container">
+        <div class="header-top-row">
+            <h2 class="section-title source-code-title">
+                <i class="fas fa-code" aria-hidden="true"></i>
+                קוד מקור
+            </h2>
+            <button id="fullscreenBtn" class="btn btn-secondary btn-icon fullscreen-btn" title="מסך מלא">
+                <i class="fas fa-expand" aria-hidden="true"></i>
+                מסך מלא
+            </button>
+        </div>
+        <div class="search-row" id="code-search">
+            <div class="search-input-container code-search-bar">
+                <span class="search-icon" aria-hidden="true">🔍</span>
+                <input id="codeSearchInput" type="text" class="code-search-input" placeholder="🔍 חפש בקוד...">
+            </div>
+            <div class="nav-controls">
+                <button id="codeSearchClear" type="button" class="btn btn-secondary btn-icon code-search-btn nav-button code-nav-btn close-btn" title="נקה">✕</button>
+                <button id="codeSearchNext" type="button" class="btn btn-secondary btn-icon code-search-btn nav-button code-nav-btn next-btn" title="הבא">◀</button>
+                <button id="codeSearchPrev" type="button" class="btn btn-secondary btn-icon code-search-btn nav-button code-nav-btn prev-btn" title="קודם">▶</button>
+            </div>
+        </div>
+        <div class="search-status-row">
+            <span id="codeSearchCount" class="result-count code-search-count search-progress"></span>
+        </div>
     </div>
     <div class="code-container">
         {{ highlighted_code|safe }}
