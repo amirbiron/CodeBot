@@ -442,6 +442,7 @@
       const imageUploadTrigger = document.getElementById('imageUploadTrigger');
       const markdownImageInput = document.getElementById('markdownImageInput');
       const markdownImagesPreview = document.getElementById('markdownImagesPreview');
+      const markdownImagesEmptyState = markdownImagesPreview ? markdownImagesPreview.querySelector('.markdown-images-empty') : null;
       const markdownImageError = document.getElementById('markdownImageError');
       const markdownImageStatus = document.getElementById('markdownImageStatus');
       const markdownImageFullscreen = document.getElementById('markdownImageFullscreen');
@@ -453,6 +454,9 @@
       const MARKDOWN_IMAGE_MAX_BYTES = 2 * 1024 * 1024;
       const MARKDOWN_ALLOWED_TYPES = ['image/png', 'image/jpeg', 'image/webp', 'image/gif'];
       let markdownSelectedImages = [];
+      const supportsDataTransfer = typeof DataTransfer !== 'undefined';
+      let previousBodyOverflow = '';
+      window.addEventListener('beforeunload', revokeAllMarkdownImageUrls);
 
       // Poll for editorManager
       let attempts = 0;
@@ -526,6 +530,7 @@
 
       autoSetLanguageFromFilename('initial');
       toggleImageTriggerVisibility();
+      updateMarkdownImageStatus();
 
       if (imageUploadTrigger && markdownImageInput) {
         imageUploadTrigger.addEventListener('click', () => {
@@ -536,9 +541,11 @@
       if (markdownImageInput) {
         markdownImageInput.addEventListener('change', (event) => {
           handleMarkdownImageFiles(event.target.files);
-          try {
-            event.target.value = '';
-          } catch (_) {}
+          if (supportsDataTransfer) {
+            try {
+              event.target.value = '';
+            } catch (_) {}
+          }
         });
       }
 
@@ -963,6 +970,257 @@
             timeout = setTimeout(() => fn(...args), wait);
           };
         }
+      }
+
+      function toggleImageTriggerVisibility() {
+        if (!imageUploadTrigger) {
+          return;
+        }
+        const isMarkdown = isMarkdownFilename((fileNameInput && fileNameInput.value) || '');
+        imageUploadTrigger.classList.toggle('is-visible', isMarkdown);
+        imageUploadTrigger.dataset.visible = isMarkdown ? 'true' : 'false';
+        imageUploadTrigger.setAttribute('aria-hidden', isMarkdown ? 'false' : 'true');
+        if (markdownImageInput) {
+          markdownImageInput.disabled = !isMarkdown;
+        }
+        if (!isMarkdown) {
+          resetMarkdownImages();
+          setMarkdownImageError('');
+        }
+        updateMarkdownImageStatus();
+      }
+
+      function isMarkdownFilename(value) {
+        if (typeof value !== 'string') {
+          return false;
+        }
+        return /\.md$/i.test(value.trim());
+      }
+
+      function handleMarkdownImageFiles(fileList) {
+        if (!fileList || !fileList.length) {
+          return;
+        }
+        const isMarkdown = isMarkdownFilename((fileNameInput && fileNameInput.value) || '');
+        if (!isMarkdown) {
+          setMarkdownImageError('כדי לצרף תמונות יש לבחור שם קובץ שמסתיים ב-.md');
+          return;
+        }
+
+        const incoming = Array.from(fileList);
+        let added = 0;
+        const errors = [];
+
+        for (const file of incoming) {
+          if (markdownSelectedImages.length >= MARKDOWN_IMAGE_LIMIT) {
+            errors.push(`ניתן לצרף עד ${MARKDOWN_IMAGE_LIMIT} תמונות בלבד.`);
+            break;
+          }
+          if (!MARKDOWN_ALLOWED_TYPES.includes(file.type)) {
+            errors.push(`${file.name} אינו בפורמט תמונה נתמך.`);
+            continue;
+          }
+          if (file.size > MARKDOWN_IMAGE_MAX_BYTES) {
+            errors.push(`${file.name} גדול מדי (מקסימום ${humanFileSize(MARKDOWN_IMAGE_MAX_BYTES)}).`);
+            continue;
+          }
+          const duplicate = markdownSelectedImages.some((item) => {
+            return item.file.name === file.name && item.file.size === file.size;
+          });
+          if (duplicate) {
+            errors.push(`${file.name} כבר נבחרה.`);
+            continue;
+          }
+          const id = `md-img-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`;
+          const url = URL.createObjectURL(file);
+          markdownSelectedImages.push({ id, file, url });
+          added++;
+        }
+
+        if (errors.length) {
+          setMarkdownImageError(errors.join(' '));
+        } else {
+          setMarkdownImageError('');
+        }
+
+        if (added > 0) {
+          renderMarkdownImages();
+          syncMarkdownImageInput();
+          updateMarkdownImageStatus();
+        }
+      }
+
+      function removeMarkdownImage(imageId) {
+        if (!imageId) {
+          return;
+        }
+        const index = markdownSelectedImages.findIndex((item) => item.id === imageId);
+        if (index === -1) {
+          return;
+        }
+        const [removed] = markdownSelectedImages.splice(index, 1);
+        if (removed && removed.url) {
+          try { URL.revokeObjectURL(removed.url); } catch (_) {}
+        }
+        syncMarkdownImageInput();
+        renderMarkdownImages();
+        updateMarkdownImageStatus();
+        if (markdownImageFullscreen?.dataset?.activeImageId === imageId) {
+          closeMarkdownImageFullscreen();
+        }
+        if (!markdownSelectedImages.length) {
+          setMarkdownImageError('');
+        }
+      }
+
+      function resetMarkdownImages() {
+        if (!markdownSelectedImages.length) {
+          if (markdownImageInput) {
+            try { markdownImageInput.value = ''; } catch (_) {}
+          }
+          renderMarkdownImages();
+          updateMarkdownImageStatus();
+          return;
+        }
+        revokeAllMarkdownImageUrls();
+        markdownSelectedImages = [];
+        syncMarkdownImageInput();
+        renderMarkdownImages();
+        updateMarkdownImageStatus();
+      }
+
+      function renderMarkdownImages() {
+        if (!markdownImagesPreview) {
+          return;
+        }
+        markdownImagesPreview.querySelectorAll('.markdown-image-thumb').forEach((node) => node.remove());
+        if (!markdownSelectedImages.length) {
+          markdownImagesPreview.classList.add('is-empty');
+          if (markdownImagesEmptyState) {
+            markdownImagesEmptyState.hidden = false;
+          }
+          return;
+        }
+        markdownImagesPreview.classList.remove('is-empty');
+        if (markdownImagesEmptyState) {
+          markdownImagesEmptyState.hidden = true;
+        }
+        markdownSelectedImages.forEach((item) => {
+          const figure = document.createElement('figure');
+          figure.className = 'markdown-image-thumb';
+
+          const removeBtn = document.createElement('button');
+          removeBtn.type = 'button';
+          removeBtn.className = 'markdown-image-remove';
+          removeBtn.dataset.imageId = item.id;
+          removeBtn.setAttribute('aria-label', `הסר את ${item.file.name}`);
+          removeBtn.textContent = '✕';
+
+          const imageEl = document.createElement('img');
+          imageEl.src = item.url;
+          imageEl.alt = item.file.name;
+          imageEl.loading = 'lazy';
+          imageEl.dataset.imageId = item.id;
+
+          const caption = document.createElement('figcaption');
+          caption.textContent = item.file.name;
+
+          figure.appendChild(removeBtn);
+          figure.appendChild(imageEl);
+          figure.appendChild(caption);
+          markdownImagesPreview.appendChild(figure);
+        });
+      }
+
+      function syncMarkdownImageInput() {
+        if (!markdownImageInput) {
+          return;
+        }
+        if (!supportsDataTransfer) {
+          if (!markdownSelectedImages.length) {
+            try { markdownImageInput.value = ''; } catch (_) {}
+          }
+          return;
+        }
+        const transfer = new DataTransfer();
+        markdownSelectedImages.forEach((item) => {
+          try { transfer.items.add(item.file); } catch (_) {}
+        });
+        markdownImageInput.files = transfer.files;
+      }
+
+      function updateMarkdownImageStatus() {
+        if (!markdownImageStatus) {
+          return;
+        }
+        const isMarkdown = isMarkdownFilename((fileNameInput && fileNameInput.value) || '');
+        if (!isMarkdown) {
+          markdownImageStatus.textContent = 'כפתור התמונות פעיל רק לקבצי ‎.md‎';
+          return;
+        }
+        const count = markdownSelectedImages.length;
+        if (!count) {
+          markdownImageStatus.textContent = 'לא נבחרו תמונות';
+          return;
+        }
+        markdownImageStatus.textContent = `${count}/${MARKDOWN_IMAGE_LIMIT} תמונות מצורפות`;
+      }
+
+      function setMarkdownImageError(message) {
+        if (!markdownImageError) {
+          return;
+        }
+        markdownImageError.textContent = message || '';
+      }
+
+      function humanFileSize(bytes) {
+        const units = ['B', 'KB', 'MB'];
+        let size = bytes;
+        let unit = 0;
+        while (size >= 1024 && unit < units.length - 1) {
+          size /= 1024;
+          unit++;
+        }
+        return `${Math.round(size * 10) / 10}${units[unit]}`;
+      }
+
+      function openMarkdownImageFullscreen(imageItem) {
+        if (!markdownImageFullscreen || !markdownImageFullscreenImg) {
+          return;
+        }
+        markdownImageFullscreenImg.src = imageItem.url;
+        markdownImageFullscreenImg.alt = imageItem.file.name;
+        if (markdownImageFullscreenCaption) {
+          markdownImageFullscreenCaption.textContent = imageItem.file.name;
+        }
+        markdownImageFullscreen.dataset.activeImageId = imageItem.id;
+        markdownImageFullscreen.classList.add('is-open');
+        markdownImageFullscreen.setAttribute('aria-hidden', 'false');
+        previousBodyOverflow = document.body.style.overflow || '';
+        document.body.style.overflow = 'hidden';
+      }
+
+      function closeMarkdownImageFullscreen() {
+        if (!markdownImageFullscreen || !markdownImageFullscreenImg) {
+          return;
+        }
+        markdownImageFullscreen.classList.remove('is-open');
+        markdownImageFullscreen.setAttribute('aria-hidden', 'true');
+        markdownImageFullscreenImg.removeAttribute('src');
+        markdownImageFullscreenImg.removeAttribute('alt');
+        if (markdownImageFullscreenCaption) {
+          markdownImageFullscreenCaption.textContent = '';
+        }
+        delete markdownImageFullscreen.dataset.activeImageId;
+        document.body.style.overflow = previousBodyOverflow || '';
+      }
+
+      function revokeAllMarkdownImageUrls() {
+        markdownSelectedImages.forEach((item) => {
+          if (item && item.url) {
+            try { URL.revokeObjectURL(item.url); } catch (_) {}
+          }
+        });
       }
   });
 </script>
