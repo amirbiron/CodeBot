@@ -1,12 +1,15 @@
 from __future__ import annotations
 
 import hashlib
+import ipaddress
 import json
 import logging
 import os
+import socket
 import threading
 import time
 from collections import deque
+from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
@@ -22,8 +25,47 @@ from monitoring import alerts_storage, metrics_storage  # type: ignore
 try:  # Best-effort fallback for slow endpoint summaries
     from metrics import get_top_slow_endpoints  # type: ignore
 except Exception:  # pragma: no cover
+
     def get_top_slow_endpoints(limit: int = 5, window_seconds: Optional[int] = None):  # type: ignore
         return []
+
+
+def is_public_ip(ip_addr: str) -> bool:
+    """
+    Check if the given IP address is public (not private/loopback/link-local).
+
+    Returns True if the IP is public and safe to contact.
+    Returns False if the IP is in a private range and should be blocked.
+    """
+    try:
+        ip = ipaddress.ip_address(ip_addr)
+    except ValueError:
+        # Invalid IP address
+        return False
+
+    # Check if IP is in any private/restricted range
+    # This includes:
+    # - Loopback: 127.0.0.0/8, ::1/128
+    # - Private: 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16, fc00::/7
+    # - Link-local: 169.254.0.0/16, fe80::/10
+    # - Multicast and other reserved ranges
+    if ip.is_loopback:
+        return False
+    if ip.is_private:
+        return False
+    if ip.is_link_local:
+        return False
+    if ip.is_multicast:
+        return False
+    if ip.is_reserved:
+        return False
+    if ip.is_unspecified:
+        return False
+
+    return True
+
+
+AddrInfo = Tuple[int, int, int, str, Tuple[Any, ...]]
 
 
 _CACHE: Dict[str, Dict[Any, Tuple[float, Any]]] = {}
@@ -163,7 +205,9 @@ _ALERT_GRAPH_RULES: List[Dict[str, Any]] = [
     },
 ]
 
-_ALERT_GRAPH_SOURCES_PATH = Path(os.getenv("ALERT_GRAPH_SOURCES_PATH", "config/alert_graph_sources.json"))
+_ALERT_GRAPH_SOURCES_PATH = Path(
+    os.getenv("ALERT_GRAPH_SOURCES_PATH", "config/alert_graph_sources.json")
+)
 _GRAPH_SOURCES_CACHE: Dict[str, Any] = {}
 _GRAPH_SOURCES_MTIME: float = 0.0
 _EXTERNAL_ALLOWED_METRICS: set[str] = set()
@@ -249,7 +293,9 @@ def _expand_quick_fix_action(cfg: Dict[str, Any], alert: Dict[str, Any]) -> Dict
         else:
             expanded[key] = value
     if not expanded.get("id"):
-        expanded["id"] = _hash_identifier(f"{expanded.get('label')}-{expanded.get('type')}-{alert_type}-{severity}")
+        expanded["id"] = _hash_identifier(
+            f"{expanded.get('label')}-{expanded.get('type')}-{alert_type}-{severity}"
+        )
     return expanded
 
 
@@ -439,7 +485,9 @@ def _describe_alert_graph(alert: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         return None
     definition = _get_metric_definition(metric)
     category = (definition or {}).get("category") or category
-    default_range = (definition or {}).get("default_range") or _TIMEFRAME_DEFAULTS.get(category or "", "2h")
+    default_range = (definition or {}).get("default_range") or _TIMEFRAME_DEFAULTS.get(
+        category or "", "2h"
+    )
     minutes = _minutes_for_range(default_range)
     return {
         "metric": (definition or {}).get("metric") or metric,
@@ -762,7 +810,7 @@ def fetch_aggregations(
     if not anomalies and _internal_alerts is not None:
         anomaly_total = 0
         anomalies = []
-        for rec in (_internal_alerts.get_recent_alerts(limit=200) or []):  # type: ignore[attr-defined]
+        for rec in _internal_alerts.get_recent_alerts(limit=200) or []:  # type: ignore[attr-defined]
             ts = _parse_iso_dt(rec.get("ts"))
             if ts is None:
                 continue
@@ -790,11 +838,9 @@ def fetch_aggregations(
 
     correlation = {
         "avg_spike_during_deployment": round(avg_spike, 3) if avg_spike else 0.0,
-        "anomalies_not_related_to_deployment_percent": round(
-            _percent(anomalies_outside, anomaly_total), 1
-        )
-        if anomaly_total
-        else 0.0,
+        "anomalies_not_related_to_deployment_percent": (
+            round(_percent(anomalies_outside, anomaly_total), 1) if anomaly_total else 0.0
+        ),
     }
 
     payload = {
@@ -895,6 +941,117 @@ def _predictive_metric_series(
     return data
 
 
+def _determine_port(scheme: str, explicit_port: Optional[int]) -> int:
+    """
+    Normalize the destination port for outbound HTTP calls.
+    """
+    if explicit_port is not None:
+        return int(explicit_port)
+    return 443 if scheme == "https" else 80
+
+
+def _replace_sockaddr_port(sockaddr: Tuple[Any, ...], port: Optional[int]) -> Tuple[Any, ...]:
+    """
+    Replace the port inside a sockaddr tuple while keeping IPv4/IPv6 structure intact.
+    """
+    if port is None or not isinstance(sockaddr, tuple) or not sockaddr:
+        return sockaddr
+    if len(sockaddr) >= 4:
+        return (sockaddr[0], port, sockaddr[2], sockaddr[3])
+    if len(sockaddr) >= 2:
+        return (sockaddr[0], port)
+    return sockaddr
+
+
+def _extract_first_ip(addr_info: List[AddrInfo]) -> Optional[str]:
+    for _, _, _, _, sockaddr in addr_info:
+        if isinstance(sockaddr, tuple) and sockaddr:
+            candidate = sockaddr[0]
+            if isinstance(candidate, str):
+                return candidate
+    return None
+
+
+@contextmanager
+def _pin_dns_resolution(host: str, addr_info: List[AddrInfo]) -> Any:
+    """
+    Temporarily override socket DNS helpers so clients reuse validated IPs.
+    Mitigates TOCTOU DNS rebinding between validation and the actual HTTP call.
+    """
+    normalized_host = (host or "").lower()
+    stored_info: List[AddrInfo] = list(addr_info)
+    default_port: Optional[int] = None
+    if stored_info:
+        sockaddr = stored_info[0][4]
+        if isinstance(sockaddr, tuple) and len(sockaddr) >= 2 and isinstance(sockaddr[1], int):
+            default_port = sockaddr[1]
+    preferred_ip = _extract_first_ip(stored_info)
+
+    original_getaddrinfo = socket.getaddrinfo
+    original_gethostbyname = getattr(socket, "gethostbyname", None)
+    original_gethostbyname_ex = getattr(socket, "gethostbyname_ex", None)
+
+    def _matches(target: Any) -> bool:
+        return isinstance(target, str) and target.lower() == normalized_host
+
+    def _normalize_port(raw: Any) -> Optional[int]:
+        if raw is None:
+            return default_port
+        if isinstance(raw, int):
+            return raw
+        try:
+            return int(raw)
+        except (TypeError, ValueError):
+            return default_port
+
+    def _build_results(target_port: Any) -> List[AddrInfo]:
+        port_value = _normalize_port(target_port)
+        results: List[AddrInfo] = []
+        for family, socktype, proto, canonname, sockaddr in stored_info:
+            updated = _replace_sockaddr_port(sockaddr, port_value)
+            results.append((family, socktype, proto, canonname, updated))
+        return results
+
+    def _patched_getaddrinfo(
+        target_host: Any, target_port: Any, *args: Any, **kwargs: Any
+    ) -> List[AddrInfo]:
+        if _matches(target_host):
+            return _build_results(target_port)
+        return original_getaddrinfo(target_host, target_port, *args, **kwargs)
+
+    def _patched_gethostbyname(target_host: Any) -> str:
+        if _matches(target_host):
+            if preferred_ip:
+                return preferred_ip
+            raise socket.gaierror(socket.EAI_NONAME, f"{target_host}")
+        assert original_gethostbyname is not None
+        return original_gethostbyname(target_host)  # type: ignore[misc]
+
+    def _patched_gethostbyname_ex(target_host: Any) -> Tuple[str, List[str], List[str]]:
+        if _matches(target_host):
+            if preferred_ip:
+                return (target_host, [], [preferred_ip])
+            raise socket.gaierror(socket.EAI_NONAME, f"{target_host}")
+        assert original_gethostbyname_ex is not None
+        return original_gethostbyname_ex(target_host)  # type: ignore[misc]
+
+    socket.getaddrinfo = _patched_getaddrinfo  # type: ignore[assignment]
+    need_restore_hostbyname = original_gethostbyname is not None
+    need_restore_hostbyname_ex = original_gethostbyname_ex is not None
+    if need_restore_hostbyname:
+        socket.gethostbyname = _patched_gethostbyname  # type: ignore[assignment]
+    if need_restore_hostbyname_ex:
+        socket.gethostbyname_ex = _patched_gethostbyname_ex  # type: ignore[assignment]
+    try:
+        yield
+    finally:
+        socket.getaddrinfo = original_getaddrinfo  # type: ignore[assignment]
+        if need_restore_hostbyname:
+            socket.gethostbyname = original_gethostbyname  # type: ignore[assignment]
+        if need_restore_hostbyname_ex:
+            socket.gethostbyname_ex = original_gethostbyname_ex  # type: ignore[assignment]
+
+
 def _http_get_json(
     url: str,
     *,
@@ -912,6 +1069,34 @@ def _http_get_json(
     scheme = (parsed.scheme or "").lower()
     if scheme not in {"http", "https"} or host not in allowed_hosts:
         raise RuntimeError("http_host_not_allowed")
+    port = _determine_port(scheme, parsed.port)
+
+    # SSRF Protection: Resolve hostname to IP and verify it's not in private ranges
+    try:
+        # Resolve the hostname to IP addresses for the actual outbound port
+        addr_info = socket.getaddrinfo(host, port, socket.AF_UNSPEC, socket.SOCK_STREAM)
+        if not addr_info:
+            raise RuntimeError("hostname_resolution_failed")
+
+        # Check all resolved IPs - all must be public
+        for family, socktype, proto, canonname, sockaddr in addr_info:
+            ip_addr = str(sockaddr[0])  # First element is the IP address
+            if not is_public_ip(ip_addr):
+                logger.warning(
+                    "ssrf_blocked_private_ip", extra={"host": host, "ip": ip_addr, "url": url}
+                )
+                raise RuntimeError("private_ip_blocked")
+    except RuntimeError:
+        # Re-raise our own RuntimeError exceptions (private_ip_blocked, etc.)
+        raise
+    except socket.gaierror as exc:
+        logger.warning(
+            "hostname_resolution_failed", extra={"host": host, "url": url, "error": str(exc)}
+        )
+        raise RuntimeError("hostname_resolution_failed") from exc
+    except Exception as exc:
+        logger.warning("ip_validation_failed", extra={"host": host, "url": url, "error": str(exc)})
+        raise RuntimeError("ip_validation_failed") from exc
 
     try:
         from http_sync import request as http_request  # type: ignore
@@ -919,32 +1104,33 @@ def _http_get_json(
         request_fn = http_request
     except Exception:
         request_fn = None
-    if request_fn is not None:
-        resp = request_fn("GET", url, headers=headers or {}, timeout=timeout)
-        try:
-            raise_fn = getattr(resp, "raise_for_status", None)
-            if callable(raise_fn):
-                raise_fn()
-            else:
-                status_code = getattr(resp, "status_code", None)
-                if status_code is not None and int(status_code) >= 400:
-                    raise RuntimeError(f"http_error_status_{status_code}")
-        except Exception:
-            raise
-        response_text = getattr(resp, "text", None)
-        if response_text is None:
+    with _pin_dns_resolution(host, addr_info):
+        if request_fn is not None:
+            resp = request_fn("GET", url, headers=headers or {}, timeout=timeout)
             try:
-                response_text = resp.content.decode("utf-8")  # type: ignore[attr-defined]
+                raise_fn = getattr(resp, "raise_for_status", None)
+                if callable(raise_fn):
+                    raise_fn()
+                else:
+                    status_code = getattr(resp, "status_code", None)
+                    if status_code is not None and int(status_code) >= 400:
+                        raise RuntimeError(f"http_error_status_{status_code}")
             except Exception:
-                response_text = None
-    else:
-        try:
-            import requests  # type: ignore
-        except Exception as exc:  # pragma: no cover
-            raise RuntimeError("http_client_unavailable") from exc
-        resp = requests.get(url, headers=headers, timeout=timeout)  # type: ignore[attr-defined]
-        resp.raise_for_status()
-        response_text = resp.text
+                raise
+            response_text = getattr(resp, "text", None)
+            if response_text is None:
+                try:
+                    response_text = resp.content.decode("utf-8")  # type: ignore[attr-defined]
+                except Exception:
+                    response_text = None
+        else:
+            try:
+                import requests  # type: ignore
+            except Exception as exc:  # pragma: no cover
+                raise RuntimeError("http_client_unavailable") from exc
+            resp = requests.get(url, headers=headers, timeout=timeout)  # type: ignore[attr-defined]
+            resp.raise_for_status()
+            response_text = resp.text
     return json.loads(response_text or "null")
 
 
@@ -957,6 +1143,7 @@ def _fetch_external_metric_series(
     granularity_seconds: int,
 ) -> List[Dict[str, Any]]:
     import re
+
     if definition.get("source") != "external":
         raise ValueError("unsupported_external_metric")
     if metric not in _EXTERNAL_ALLOWED_METRICS:
@@ -992,7 +1179,9 @@ def _fetch_external_metric_series(
         return []
     allowed_hosts = definition.get("allowed_hosts") or []
     if not allowed_hosts:
-        logger.warning("external_metric_missing_allowlist", extra={"metric": safe_metric, "url": url})
+        logger.warning(
+            "external_metric_missing_allowlist", extra={"metric": safe_metric, "url": url}
+        )
         return []
     if host not in allowed_hosts:
         logger.warning("external_metric_blocked_host", extra={"metric": safe_metric, "host": host})
@@ -1000,7 +1189,10 @@ def _fetch_external_metric_series(
     try:
         payload = _http_get_json(url, headers=headers, timeout=timeout, allowed_hosts=allowed_hosts)
     except Exception as exc:
-        logger.warning("external_metric_fetch_failed", extra={"metric": safe_metric, "url": url, "error": str(exc)})
+        logger.warning(
+            "external_metric_fetch_failed",
+            extra={"metric": safe_metric, "url": url, "error": str(exc)},
+        )
         return []
     data_block = payload.get("data") if isinstance(payload, dict) else payload
     if not isinstance(data_block, list):
@@ -1157,7 +1349,9 @@ def _build_focus_link(timestamp: Optional[str], *, anchor: str = "history") -> s
     return base
 
 
-def _is_within_window(ts: datetime, start_dt: Optional[datetime], end_dt: Optional[datetime]) -> bool:
+def _is_within_window(
+    ts: datetime, start_dt: Optional[datetime], end_dt: Optional[datetime]
+) -> bool:
     if start_dt and ts < start_dt:
         return False
     if end_dt and ts > end_dt:
