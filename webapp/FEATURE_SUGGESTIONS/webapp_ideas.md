@@ -1,718 +1,696 @@
-# 🌟 רעיונות חדשניים לשיפור WebApp - Code Keeper Bot
-## פיצ'רים ממוקדי משתמש ויעילות - נובמבר 2025
+# 🎯 רעיונות חדשים לשיפור WebApp - CodeBot
+## פיצ'רים ממוקדים ויעילים - דצמבר 2025
 
-תאריך: 22/11/2025  
-מטרה: הצעות פיצ'רים ייחודיים שלא הוצעו במסמכים קיימים  
-דגש: יעילות, פרקטיות, וערך אמיתי למשתמשים
+תאריך: 03/12/2025  
+מטרה: הצעות ייחודיות שלא הוצעו במסמכים קיימים  
+דגש: שימושיות אמיתית, פשטות יישום, ערך מיידי למשתמשים
 
 ---
 
 ## 📋 תוכן עניינים
 
-1. [עדיפות גבוהה - פיצ'רים מהפכניים](#עדיפות-גבוהה---פיצ'רים-מהפכניים)
-2. [עדיפות בינונית - שיפורי פרודוקטיביות](#עדיפות-בינונית---שיפורי-פרודוקטיביות)  
+1. [עדיפות גבוהה - ערך מיידי](#עדיפות-גבוהה---ערך-מיידי)
+2. [עדיפות בינונית - שיפורי UX](#עדיפות-בינונית---שיפורי-ux)
 3. [עדיפות נמוכה - תוספות נחמדות](#עדיפות-נמוכה---תוספות-נחמדות)
-4. [תכנית יישום מוצעת](#תכנית-יישום-מוצעת)
+4. [סיכום ותעדוף](#סיכום-ותעדוף)
 
 ---
 
-## 🔥 עדיפות גבוהה - פיצ'רים מהפכניים
+## 🔥 עדיפות גבוהה - ערך מיידי
 
-### 1. 🎮 Code Playground - הרצת קוד בדפדפן
+### 1. 📌 File Pinning - הצמדת קבצים חשובים
 
 **מה זה:**
-סביבת הרצה מובנית לקוד ישירות בדפדפן, ללא צורך בשרת נפרד.
+הצמדת קבצים חשובים לראש הרשימה/דשבורד לגישה מהירה.
 
 **איך זה עובד:**
-- **JavaScript/TypeScript**: ריצה ישירה בדפדפן עם console output
-- **Python**: Pyodide (Python ב-WebAssembly)
-- **HTML/CSS**: iframe עם live preview
-- **SQL**: sql.js (SQLite ב-WASM)
-- **Go/Rust**: WebAssembly compilation
-- פאנל פלט עם console, errors, ותוצאות
-- שמירת סשנים ותוצאות ריצה
+- כפתור "📌" ליד כל קובץ בעמוד הקבצים
+- קבצים מוצמדים מופיעים תמיד למעלה (לפני מיון)
+- אפשרות להצמיד עד 10 קבצים
+- סדר ההצמדה ניתן לשינוי עם גרירה
+- שמירה לפי משתמש ב-DB
 
-**למה זה מהפכני:**
-- הופך את האפליקציה ל-IDE קל משקל
-- לומדים יכולים לנסות קוד מיד
-- בדיקות מהירות ללא סביבת פיתוח
-- שיתוף קוד רץ עם אחרים
+**למה זה חשוב:**
+- גישה מהירה לקבצים שמשתמשים בהם לעתים קרובות
+- לא צריך לחפש כל פעם את אותם קבצים
+- מתאים לפרויקטים פעילים
 
 **דוגמת מימוש:**
 ```html
-<div class="playground-container">
-    <div class="playground-editor">
-        <!-- CodeMirror editor -->
+<button class="pin-btn" onclick="togglePin('{{ file.id }}')" 
+        title="{{ 'בטל הצמדה' if file.is_pinned else 'הצמד לראש' }}">
+    {{ '📌' if file.is_pinned else '📍' }}
+</button>
+```
+
+```javascript
+async function togglePin(fileId) {
+    const resp = await fetch(`/api/file/${fileId}/pin`, { method: 'POST' });
+    const data = await resp.json();
+    if (data.ok) {
+        location.reload(); // או עדכון DOM ישיר
+    }
+}
+```
+
+**מורכבות:** נמוכה | **ROI:** גבוה מאוד | **זמן:** 2-3 שעות
+
+---
+
+### 2. 🔗 Import from URL - ייבוא קוד מקישור
+
+**מה זה:**
+ייבוא ישיר של קוד מ-GitHub Gist, Raw URL, או Pastebin.
+
+**איך זה עובד:**
+- כפתור "ייבוא מקישור" בעמוד העלאה
+- זיהוי אוטומטי של סוג הקישור
+- המרת GitHub URL ל-raw content
+- שמירה עם שם קובץ ושפה מזוהים אוטומטית
+- שמירת קישור המקור ב-`source_url`
+
+**למה זה חשוב:**
+- חוסך העתק-הדבק ידני
+- שומר על הקשר למקור
+- שילוב טבעי עם זרימות עבודה קיימות
+
+**דוגמת מימוש:**
+```python
+@app.route('/api/import-url', methods=['POST'])
+async def import_from_url():
+    url = request.json.get('url', '').strip()
+    
+    # המרת GitHub URL ל-raw
+    if 'github.com' in url and '/blob/' in url:
+        url = url.replace('github.com', 'raw.githubusercontent.com')
+        url = url.replace('/blob/', '/')
+    
+    # הורדת התוכן
+    async with aiohttp.ClientSession() as session:
+        async with session.get(url, timeout=10) as resp:
+            if resp.status != 200:
+                return jsonify({'ok': False, 'error': 'fetch_failed'})
+            content = await resp.text()
+    
+    # זיהוי שם וסיומת
+    file_name = url.split('/')[-1] or 'imported_file'
+    language = detect_language(file_name, content)
+    
+    return jsonify({
+        'ok': True,
+        'content': content,
+        'file_name': file_name,
+        'language': language,
+        'source_url': url
+    })
+```
+
+**מורכבות:** בינונית | **ROI:** גבוה | **זמן:** 3-4 שעות
+
+---
+
+### 3. 📊 Quick Stats Widget - ווידג'ט סטטיסטיקות מהיר
+
+**מה זה:**
+ווידג'ט קטן עם סטטיסטיקות שימושיות בדשבורד.
+
+**איך זה עובד:**
+- קבצים שהוספת השבוע
+- כמה פעמים נכנסת החודש
+- השפה שבה אתה כותב הכי הרבה
+- גודל הספרייה שלך
+- תגיות פופולריות
+- גרף מיני של פעילות
+
+**למה זה חשוב:**
+- מוטיבציה לשימוש מתמשך
+- תמונת מצב מהירה
+- מעודד ארגון טוב יותר
+
+**דוגמת מימוש:**
+```html
+<div class="quick-stats-widget glass-card">
+    <h3>📊 הפעילות שלך</h3>
+    <div class="stats-row">
+        <div class="stat">
+            <span class="stat-value">{{ weekly_files }}</span>
+            <span class="stat-label">קבצים השבוע</span>
+        </div>
+        <div class="stat">
+            <span class="stat-value">{{ streak_days }}</span>
+            <span class="stat-label">ימים רצופים</span>
+        </div>
+        <div class="stat">
+            <span class="stat-value">{{ top_language.icon }}</span>
+            <span class="stat-label">{{ top_language.name }}</span>
+        </div>
     </div>
-    <div class="playground-controls">
-        <button onclick="runCode()">▶️ הרץ</button>
-        <select id="runtime">
-            <option value="js">JavaScript</option>
-            <option value="python">Python</option>
-            <option value="html">HTML/CSS</option>
-        </select>
-    </div>
-    <div class="playground-output">
-        <div class="console-output"></div>
-        <div class="preview-frame"></div>
+    <canvas id="activityMiniChart" height="40"></canvas>
+</div>
+```
+
+**מורכבות:** נמוכה-בינונית | **ROI:** גבוה | **זמן:** 4-5 שעות
+
+---
+
+### 4. 🔍 Smart Search with Operators - חיפוש מתקדם עם אופרטורים
+
+**מה זה:**
+חיפוש עם תחביר מתקדם כמו `lang:python tag:api created:7d`.
+
+**איך זה עובד:**
+- פענוח אופרטורים מהקלט
+- תמיכה ב: `lang:`, `tag:`, `created:`, `size:`, `has:`, `is:`
+- השלמה אוטומטית לאופרטורים
+- שמירת חיפושים אחרונים
+- כפתור "מסננים מתקדמים" לממשק ויזואלי
+
+**אופרטורים נתמכים:**
+```
+lang:python          # שפת תכנות
+tag:utils           # תגית ספציפית
+created:7d          # נוצר בשבוע האחרון
+created:2023-01     # נוצר בינואר 2023
+size:>100kb         # גדול מ-100KB
+has:description     # יש תיאור
+has:source_url      # יש קישור למקור
+is:favorite         # מועדפים
+is:pinned           # מוצמדים
+```
+
+**דוגמת מימוש:**
+```javascript
+function parseSearchQuery(query) {
+    const operators = {};
+    const freeText = [];
+    
+    const regex = /(\w+):(\S+)/g;
+    let match;
+    let remaining = query;
+    
+    while ((match = regex.exec(query)) !== null) {
+        operators[match[1]] = match[2];
+        remaining = remaining.replace(match[0], '');
+    }
+    
+    return {
+        operators,
+        text: remaining.trim()
+    };
+}
+
+// שימוש
+const parsed = parseSearchQuery('lang:python api handler created:7d');
+// { operators: { lang: 'python', created: '7d' }, text: 'api handler' }
+```
+
+**מורכבות:** בינונית | **ROI:** גבוה מאוד | **זמן:** 6-8 שעות
+
+---
+
+### 5. 📝 Quick Note Modal - הערה מהירה על קובץ
+
+**מה זה:**
+הוספת הערה מהירה לקובץ ללא כניסה לעריכה מלאה.
+
+**איך זה עובד:**
+- כפתור "הוסף הערה" בכרטיס קובץ
+- מודל קטן עם textarea
+- ההערות נשמרות כרשימה עם timestamp
+- תצוגה של הערות אחרונות בכרטיס
+- אפשרות לסמן הערה כ"פתורה"
+
+**למה זה חשוב:**
+- תיעוד מהיר של רעיונות
+- מעקב אחר TODO's
+- שיפור ההקשר לקוד שמור
+
+**דוגמת מימוש:**
+```html
+<div id="quickNoteModal" class="modal" hidden>
+    <div class="modal-content glass-card">
+        <h3>📝 הערה מהירה</h3>
+        <textarea id="quickNoteText" rows="3" placeholder="מה רצית לזכור על הקובץ הזה?"></textarea>
+        <div class="modal-actions">
+            <button onclick="saveQuickNote()" class="btn btn-primary">שמור</button>
+            <button onclick="closeQuickNote()" class="btn btn-secondary">ביטול</button>
+        </div>
     </div>
 </div>
 ```
 
-```javascript
-// JavaScript runtime
-async function runJavaScript(code) {
-    const iframe = document.createElement('iframe');
-    iframe.style.display = 'none';
-    document.body.appendChild(iframe);
+```python
+@app.route('/api/file/<file_id>/notes', methods=['POST'])
+async def add_quick_note(file_id):
+    note_text = request.json.get('text', '').strip()
+    if not note_text:
+        return jsonify({'ok': False, 'error': 'empty_note'})
     
-    // Override console methods
-    const output = [];
-    iframe.contentWindow.console.log = (...args) => {
-        output.push(args.join(' '));
+    note = {
+        'id': str(uuid.uuid4())[:8],
+        'text': note_text,
+        'created_at': datetime.utcnow(),
+        'resolved': False
+    }
+    
+    await db.files.update_one(
+        {'_id': ObjectId(file_id)},
+        {'$push': {'quick_notes': note}}
+    )
+    
+    return jsonify({'ok': True, 'note': note})
+```
+
+**מורכבות:** נמוכה | **ROI:** גבוה | **זמן:** 3-4 שעות
+
+---
+
+## 📈 עדיפות בינונית - שיפורי UX
+
+### 6. 🎨 Code Folding in View - קיפול קוד בצפייה
+
+**מה זה:**
+קיפול פונקציות/בלוקים בתצוגת קוד (לא רק בעריכה).
+
+**איך זה עובד:**
+- זיהוי אוטומטי של בלוקי קוד (פונקציות, classes, if/else)
+- חצים ליד מספרי שורות
+- קיפול/פתיחה בלחיצה
+- "קפל הכל" / "פתח הכל"
+- שמירת מצב קיפול ב-localStorage
+
+**למה זה חשוב:**
+- קריאה טובה יותר של קבצים ארוכים
+- התמקדות בחלק הרלוונטי
+- ניווט מהיר יותר
+
+**מורכבות:** בינונית-גבוהה | **ROI:** בינוני-גבוה | **זמן:** 8-10 שעות
+
+---
+
+### 7. 🔄 Duplicate Detection - זיהוי כפילויות
+
+**מה זה:**
+זיהוי אוטומטי של קבצים כפולים או דומים מאוד.
+
+**איך זה עובד:**
+- חישוב hash לכל קובץ בעת שמירה
+- בדיקה אם כבר קיים קובץ עם אותו hash
+- התראה למשתמש לפני שמירת כפילות
+- דף "כפילויות" להצגת כל הכפילויות
+- אפשרות למחוק/למזג כפילויות
+
+**למה זה חשוב:**
+- חוסך נפח
+- מונע בלבול
+- שומר על ספרייה נקייה
+
+**דוגמת מימוש:**
+```python
+import hashlib
+
+def compute_file_hash(content: str) -> str:
+    return hashlib.sha256(content.encode('utf-8')).hexdigest()[:16]
+
+async def check_duplicate(user_id: int, content: str):
+    content_hash = compute_file_hash(content)
+    existing = await db.files.find_one({
+        'user_id': user_id,
+        'content_hash': content_hash
+    })
+    return existing
+```
+
+**מורכבות:** בינונית | **ROI:** בינוני | **זמן:** 4-5 שעות
+
+---
+
+### 8. 📍 Reading Position Sync - שמירת מיקום קריאה
+
+**מה זה:**
+שמירה ושחזור של מיקום הגלילה בקבצים ארוכים.
+
+**איך זה עובד:**
+- שמירת scroll position בעת יציאה מקובץ
+- שחזור המיקום בכניסה חוזרת
+- חיווי ויזואלי "המשך מאיפה שהפסקת"
+- אופציה לאפס מיקום
+- שמירה ב-localStorage (מהירות) + DB (סנכרון)
+
+**למה זה חשוב:**
+- נוח לקבצים ארוכים
+- חוסך זמן בחיפוש המקום
+- חוויה רציפה בין סשנים
+
+**דוגמת מימוש:**
+```javascript
+const POSITION_KEY = 'reading_positions';
+
+function saveReadingPosition(fileId, position) {
+    const positions = JSON.parse(localStorage.getItem(POSITION_KEY) || '{}');
+    positions[fileId] = {
+        scrollY: position,
+        timestamp: Date.now()
     };
-    
-    try {
-        iframe.contentWindow.eval(code);
-        return { success: true, output };
-    } catch (error) {
-        return { success: false, error: error.toString() };
+    // שמור רק 50 האחרונים
+    const sorted = Object.entries(positions)
+        .sort((a, b) => b[1].timestamp - a[1].timestamp)
+        .slice(0, 50);
+    localStorage.setItem(POSITION_KEY, JSON.stringify(Object.fromEntries(sorted)));
+}
+
+function restoreReadingPosition(fileId) {
+    const positions = JSON.parse(localStorage.getItem(POSITION_KEY) || '{}');
+    const saved = positions[fileId];
+    if (saved && saved.scrollY > 100) {
+        setTimeout(() => {
+            window.scrollTo({ top: saved.scrollY, behavior: 'smooth' });
+            showToast('📍 המשכת מאיפה שהפסקת');
+        }, 300);
     }
 }
 
-// Python runtime with Pyodide
-async function runPython(code) {
-    if (!window.pyodide) {
-        window.pyodide = await loadPyodide();
-    }
-    
-    try {
-        pyodide.runPython(`
-            import sys
-            from io import StringIO
-            sys.stdout = StringIO()
-        `);
-        pyodide.runPython(code);
-        const output = pyodide.runPython("sys.stdout.getvalue()");
-        return { success: true, output };
-    } catch (error) {
-        return { success: false, error: error.toString() };
-    }
-}
+// שמירה בעת יציאה
+window.addEventListener('beforeunload', () => {
+    const fileId = document.body.dataset.fileId;
+    if (fileId) saveReadingPosition(fileId, window.scrollY);
+});
 ```
 
-**מורכבות:** גבוהה | **ROI:** גבוה מאוד | **זמן משוער:** 3-4 שבועות
+**מורכבות:** נמוכה | **ROI:** בינוני-גבוה | **זמן:** 2-3 שעות
 
 ---
 
-### 2. 🎨 Visual Git Timeline - ציר זמן ויזואלי לקוד
+### 9. 🏷️ Inline Tag Editor - עריכת תגיות מהירה
 
 **מה זה:**
-תצוגה ויזואלית אינטראקטיבית של היסטוריית השינויים בקוד.
+עריכת תגיות ישירות מכרטיס הקובץ בלי לפתוח עמוד עריכה.
 
 **איך זה עובד:**
-- ציר זמן אופקי/אנכי עם נקודות לכל גרסה
-- תצוגת diff ויזואלית בין גרסאות
-- אנימציה של התפתחות הקוד
-- הדגשת שינויים חמים (hotspots)
-- פילטר לפי תאריך/תגית/גודל שינוי
-- מיני-מפה של כל הקובץ עם אינדיקציה לשינויים
+- לחיצה על תגית פותחת מצב עריכה
+- הוספת תגית חדשה עם "+"
+- הסרת תגית עם "×"
+- השלמה אוטומטית מתגיות קיימות
+- שמירה אוטומטית (debounced)
 
-**למה זה מהפכני:**
-- הבנה מיידית של התפתחות הקוד
-- זיהוי מהיר של באגים שהוכנסו
-- למידה מהיסטוריה
-- ויזואליזציה יפה ומרשימה
+**למה זה חשוב:**
+- חוסך כניסות לעמוד עריכה
+- ארגון מהיר יותר
+- עידוד שימוש בתגיות
+
+**דוגמת מימוש:**
+```html
+<div class="inline-tags" data-file-id="{{ file.id }}">
+    {% for tag in file.tags %}
+    <span class="inline-tag">
+        #{{ tag }}
+        <button onclick="removeTag('{{ file.id }}', '{{ tag }}')" class="tag-remove">×</button>
+    </span>
+    {% endfor %}
+    <button onclick="showAddTag('{{ file.id }}')" class="add-tag-btn">+</button>
+    <input type="text" class="add-tag-input" hidden 
+           onkeydown="handleTagInput(event, '{{ file.id }}')"
+           placeholder="תגית חדשה...">
+</div>
+```
+
+**מורכבות:** נמוכה-בינונית | **ROI:** בינוני-גבוה | **זמן:** 3-4 שעות
+
+---
+
+### 10. 📱 QR Code Share - שיתוף עם QR
+
+**מה זה:**
+יצירת QR code לשיתוף קל של קישור לקובץ.
+
+**איך זה עובד:**
+- כפתור "שתף עם QR" ליד כל קובץ
+- יצירת QR בצד לקוח (qrcode.js)
+- הצגה במודל עם אופציה להורדה
+- QR כולל לוגו קטן של CodeBot
+- אפשרות לקישור זמני או קבוע
+
+**למה זה חשוב:**
+- שיתוף מהיר במפגשים פיזיים
+- נוח להעברה בין מכשירים
+- מרשים ומקצועי
 
 **דוגמת מימוש:**
 ```javascript
-class GitTimeline {
-    constructor(container, versions) {
-        this.container = container;
-        this.versions = versions;
-        this.currentIndex = versions.length - 1;
-    }
+async function showQrShare(fileId) {
+    // יצירת קישור שיתוף
+    const resp = await fetch(`/api/share/${fileId}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ type: 'temporary' })
+    });
+    const { url } = await resp.json();
     
-    render() {
-        const timeline = document.createElement('div');
-        timeline.className = 'git-timeline';
-        
-        // Create timeline points
-        this.versions.forEach((version, index) => {
-            const point = document.createElement('div');
-            point.className = 'timeline-point';
-            point.dataset.index = index;
-            
-            // Size based on change magnitude
-            const changeSize = this.calculateChangeSize(version);
-            point.style.width = `${10 + changeSize * 2}px`;
-            point.style.height = `${10 + changeSize * 2}px`;
-            
-            // Color based on change type
-            point.style.background = this.getChangeColor(version);
-            
-            // Tooltip with details
-            point.title = `${version.date} - ${version.message}`;
-            
-            point.addEventListener('click', () => this.showVersion(index));
-            timeline.appendChild(point);
-        });
-        
-        this.container.appendChild(timeline);
-    }
+    // יצירת QR
+    const qr = await QRCode.toDataURL(url, {
+        width: 256,
+        margin: 2,
+        color: { dark: '#1a1a2e', light: '#ffffff' }
+    });
     
-    showVersion(index) {
-        const version = this.versions[index];
-        const previousVersion = index > 0 ? this.versions[index - 1] : null;
-        
-        // Animate transition
-        this.animateTransition(previousVersion, version);
-        
-        // Show diff
-        this.showDiff(previousVersion, version);
-    }
-    
-    animateTransition(from, to) {
-        // Smooth animation between versions
-        const lines = this.container.querySelectorAll('.code-line');
-        lines.forEach(line => {
-            if (line.dataset.changed) {
-                line.classList.add('highlight-change');
-                setTimeout(() => line.classList.remove('highlight-change'), 1000);
-            }
-        });
-    }
+    // הצגה במודל
+    const modal = document.getElementById('qrModal');
+    modal.querySelector('.qr-image').src = qr;
+    modal.querySelector('.share-url').textContent = url;
+    modal.hidden = false;
 }
 ```
 
-**מורכבות:** גבוהה | **ROI:** גבוה | **זמן משוער:** 2-3 שבועות
+**מורכבות:** נמוכה | **ROI:** בינוני | **זמן:** 2-3 שעות
 
 ---
 
-### 3. 🎙️ Voice Code Commands - פקודות קוליות לקוד
+### 11. ⌨️ Vim/Emacs Mode - מצב מקלדת מתקדם
 
 **מה זה:**
-שליטה קולית על העורך והניווט בקוד.
+תמיכה בקיצורי מקלדת בסגנון Vim או Emacs בעורך.
 
 **איך זה עובד:**
-- Web Speech API לזיהוי קול
-- פקודות טבעיות: "גלול למטה", "חפש פונקציה main", "סמן שורה 42"
-- פקודות עריכה: "מחק שורה", "הוסף הערה", "שנה שם משתנה"
-- פקודות ניווט: "עבור לקובץ", "פתח מועדפים"
-- משוב קולי (TTS) אופציונלי
-- תמיכה בעברית ואנגלית
+- הגדרה בעמוד Settings
+- שלושה מצבים: Normal / Vim / Emacs
+- CodeMirror כבר תומך ב-keymaps אלה
+- שמירה להעדפות משתמש
+- tooltip עם קיצורי מקשים נפוצים
 
-**למה זה מהפכני:**
-- נגישות למשתמשים עם מוגבלויות
-- עבודה hands-free
-- מהירות בפעולות נפוצות
-- חדשנות וייחודיות
+**למה זה חשוב:**
+- מפתחים מנוסים רגילים ל-Vim
+- מגביר פרודוקטיביות
+- מבדל מעורכים אחרים
 
 **דוגמת מימוש:**
 ```javascript
-class VoiceCommands {
-    constructor() {
-        this.recognition = new webkitSpeechRecognition();
-        this.recognition.lang = 'he-IL';
-        this.recognition.continuous = true;
-        this.recognition.interimResults = true;
-        
-        this.commands = {
-            'גלול למטה': () => window.scrollBy(0, 200),
-            'גלול למעלה': () => window.scrollBy(0, -200),
-            'חפש': (query) => this.search(query),
-            'עבור לשורה': (lineNum) => this.goToLine(lineNum),
-            'סמן שורה': (lineNum) => this.selectLine(lineNum),
-            'מחק שורה': () => this.deleteLine(),
-            'שמור': () => this.saveFile(),
-            'ביטול': () => this.undo(),
-            'חזור': () => this.redo()
-        };
+// בתוך editor-manager.js
+async function initEditor(container, options) {
+    const keymap = await getUserPreference('editor_keymap') || 'normal';
+    
+    const extensions = [basicSetup, langExtension];
+    
+    if (keymap === 'vim') {
+        const { vim } = await import('@replit/codemirror-vim');
+        extensions.push(vim());
+    } else if (keymap === 'emacs') {
+        const { emacs } = await import('@replit/codemirror-emacs');
+        extensions.push(emacs());
     }
     
-    start() {
-        this.recognition.onresult = (event) => {
-            const transcript = event.results[event.results.length - 1][0].transcript;
-            this.processCommand(transcript);
-        };
-        
-        this.recognition.start();
-        this.showListening();
-    }
-    
-    processCommand(transcript) {
-        // Natural language processing
-        const normalized = transcript.toLowerCase().trim();
-        
-        // Match commands
-        for (const [pattern, handler] of Object.entries(this.commands)) {
-            const regex = new RegExp(pattern + '\\s*(\\d+)?');
-            const match = normalized.match(regex);
-            
-            if (match) {
-                handler(match[1]);
-                this.showFeedback(`✓ ${pattern}`);
-                break;
-            }
-        }
-    }
-    
-    showListening() {
-        const indicator = document.createElement('div');
-        indicator.className = 'voice-indicator';
-        indicator.innerHTML = '🎙️ מאזין...';
-        document.body.appendChild(indicator);
-    }
+    editor = new EditorView({ /* ... */ });
 }
 ```
 
-**מורכבות:** בינונית | **ROI:** גבוה | **זמן משוער:** 1-2 שבועות
-
----
-
-### 4. 📊 Code Metrics Dashboard - לוח מדדי קוד חכם
-
-**מה זה:**
-דשבורד אנליטי מתקדם למדידת איכות ומורכבות הקוד.
-
-**איך זה עובד:**
-- **מדדי מורכבות**: Cyclomatic complexity, nesting depth
-- **מדדי איכות**: Code coverage, duplication percentage
-- **מדדי תחזוקה**: Technical debt, maintainability index
-- **טרנדים**: גרפים של שיפור/הרעה לאורך זמן
-- **השוואות**: בין קבצים, פרויקטים, תקופות
-- **המלצות**: הצעות אוטומטיות לשיפור
-- **Heatmap**: ויזואליזציה של אזורים בעייתיים
-
-**למה זה מהפכני:**
-- תובנות עמוקות על איכות הקוד
-- מניעת באגים מראש
-- שיפור מתמיד
-- מדדים אובייקטיביים
-
-**דוגמת מימוש:**
-```javascript
-class CodeMetricsAnalyzer {
-    analyzeComplexity(code) {
-        const metrics = {
-            cyclomaticComplexity: 0,
-            nestingDepth: 0,
-            linesOfCode: 0,
-            functions: [],
-            duplicates: []
-        };
-        
-        // Parse AST
-        const ast = parseCode(code);
-        
-        // Calculate cyclomatic complexity
-        ast.traverse({
-            IfStatement: () => metrics.cyclomaticComplexity++,
-            ForStatement: () => metrics.cyclomaticComplexity++,
-            WhileStatement: () => metrics.cyclomaticComplexity++,
-            CaseStatement: () => metrics.cyclomaticComplexity++,
-            CatchClause: () => metrics.cyclomaticComplexity++,
-            LogicalExpression: (node) => {
-                if (node.operator === '&&' || node.operator === '||') {
-                    metrics.cyclomaticComplexity++;
-                }
-            }
-        });
-        
-        // Find duplicates
-        metrics.duplicates = this.findDuplicates(ast);
-        
-        // Calculate maintainability index
-        metrics.maintainabilityIndex = this.calculateMaintainability(metrics);
-        
-        return metrics;
-    }
-    
-    renderDashboard(metrics) {
-        return `
-            <div class="metrics-dashboard">
-                <div class="metric-card complexity">
-                    <div class="metric-value">${metrics.cyclomaticComplexity}</div>
-                    <div class="metric-label">מורכבות ציקלומטית</div>
-                    <div class="metric-status ${this.getStatus(metrics.cyclomaticComplexity)}">
-                        ${this.getRecommendation(metrics.cyclomaticComplexity)}
-                    </div>
-                </div>
-                
-                <div class="metric-chart">
-                    <canvas id="complexityTrend"></canvas>
-                </div>
-                
-                <div class="code-heatmap">
-                    ${this.generateHeatmap(metrics)}
-                </div>
-            </div>
-        `;
-    }
-}
-```
-
-**מורכבות:** גבוהה | **ROI:** גבוה מאוד | **זמן משוער:** 3-4 שבועות
-
----
-
-## 📈 עדיפות בינונית - שיפורי פרודוקטיביות
-
-### 5. ⚡ Live Preview for Web - תצוגה חיה של HTML/CSS/JS
-
-**מה זה:**
-תצוגה מיידית של שינויים בקוד web בזמן אמת.
-
-**איך זה עובד:**
-- iframe מובנה עם auto-refresh
-- Hot reload בעת שינוי קוד
-- פיצול מסך עורך/תצוגה
-- DevTools מובנים (console, network)
-- Responsive preview (מובייל/טאבלט/דסקטופ)
-- שיתוף URL לתצוגה חיה
-
-**למה זה חשוב:**
-- פיתוח web מהיר יותר
-- פידבק מיידי על שינויים
-- לא צריך לעבור בין חלונות
-- מושלם ללמידה
-
-**מורכבות:** בינונית | **ROI:** גבוה | **זמן משוער:** 1-2 שבועות
-
----
-
-### 6. 🔍 Smart Code Search with AI - חיפוש חכם עם AI
-
-**מה זה:**
-חיפוש סמנטי חכם שמבין את הכוונה, לא רק מילות מפתח.
-
-**איך זה עובד:**
-- חיפוש לפי משמעות: "פונקציה שמחשבת ממוצע"
-- חיפוש דמיון קוד: "קוד שדומה לזה"
-- חיפוש לפי באגים: "קוד שעלול לגרום ל-null pointer"
-- Vector embeddings של הקוד
-- שימוש ב-Sentence Transformers
-- תוצאות מדורגות לפי רלוונטיות
-
-**למה זה חשוב:**
-- מציאת קוד רלוונטי במהירות
-- גילוי patterns ובעיות
-- חיפוש אינטואיטיבי
-- למידה מקוד קיים
-
-**מורכבות:** גבוהה | **ROI:** גבוה | **זמן משוער:** 2-3 שבועות
-
----
-
-### 7. 🎯 Code Intentions - כוונות קוד
-
-**מה זה:**
-הוספת "כוונות" לקטעי קוד - מה הקוד אמור לעשות.
-
-**איך זה עובד:**
-- הגדרת כוונה לפני כתיבת הקוד
-- בדיקה אוטומטית האם הקוד מממש את הכוונה
-- TODO שהופך לקוד
-- תיעוד אוטומטי מכוונות
-- בדיקות יחידה אוטומטיות מכוונות
-
-**למה זה חשוב:**
-- TDD טבעי
-- תיעוד טוב יותר
-- פחות באגים
-- בהירות בקוד
-
-**מורכבות:** בינונית | **ROI:** בינוני-גבוה | **זמן משוער:** 2 שבועות
-
----
-
-### 8. 🔗 Dependency Graph - גרף תלויות אינטראקטיבי
-
-**מה זה:**
-ויזואליזציה של תלויות בין קבצים ומודולים.
-
-**איך זה עובד:**
-- גרף אינטראקטיבי (D3.js או vis.js)
-- זיהוי imports/requires
-- הדגשת circular dependencies
-- זום וניווט בגרף
-- פילטר לפי סוג תלות
-- ניתוח impact של שינויים
-
-**למה זה חשוב:**
-- הבנת ארכיטקטורה
-- זיהוי בעיות עיצוב
-- תכנון refactoring
-- תיעוד ויזואלי
-
-**מורכבות:** בינונית-גבוהה | **ROI:** בינוני-גבוה | **זמן משוער:** 2 שבועות
-
----
-
-### 9. 🤝 Code Review Mode - מצב ביקורת קוד
-
-**מה זה:**
-מצב מיוחד לביקורת קוד עם כלים ייעודיים.
-
-**איך זה עובד:**
-- הערות inline על שורות
-- סימון בעיות (bug/security/style)
-- checklist לביקורת
-- השוואת גרסאות side-by-side
-- אישור/דחיית שינויים
-- דוח ביקורת מסכם
-
-**למה זה חשוב:**
-- שיפור איכות הקוד
-- למידה הדדית
-- תיעוד החלטות
-- מניעת באגים
-
-**מורכבות:** בינונית | **ROI:** גבוה | **זמן משוער:** 2 שבועות
-
----
-
-### 10. 📐 Code Formatter - פורמטר קוד אוטומטי
-
-**מה זה:**
-פרמוט אוטומטי של קוד לפי סטנדרטים.
-
-**איך זה עובד:**
-- תמיכה בכל השפות הנפוצות
-- Prettier ל-JS/TS/HTML/CSS
-- Black ל-Python
-- gofmt ל-Go
-- הגדרות מותאמות אישית
-- Format on save
-- Diff לפני/אחרי
-
-**למה זה חשוב:**
-- קוד אחיד ונקי
-- פחות ויכוחים על סגנון
-- קריאות משופרת
-- מקצועיות
-
-**מורכבות:** נמוכה-בינונית | **ROI:** גבוה | **זמן משוער:** 1 שבוע
+**מורכבות:** נמוכה (CM תומך) | **ROI:** בינוני | **זמן:** 2-3 שעות
 
 ---
 
 ## 🎁 עדיפות נמוכה - תוספות נחמדות
 
-### 11. 🏅 Achievements & Badges - הישגים ותגי הוקרה
+### 12. 🖼️ Custom File Icons - אייקונים מותאמים
 
 **מה זה:**
-מערכת gamification עם הישגים על פעילות.
+בחירת אייקון מותאם אישית לכל קובץ.
 
 **איך זה עובד:**
-- תגים על מאות פעולות
-- רמות משתמש
-- לוח תוצאות
-- אתגרים יומיים/שבועיים
-- פרסים וירטואליים
+- לחיצה על האייקון פותחת בורר
+- בחירה מתוך אימוג'ים או אייקונים מוכנים
+- אפשרות להעלות אייקון קטן (PNG/SVG)
+- ברירת מחדל: אייקון לפי שפה
 
-**מורכבות:** נמוכה | **ROI:** בינוני | **זמן משוער:** 1 שבוע
+**מורכבות:** נמוכה | **ROI:** נמוך | **זמן:** 2-3 שעות
 
 ---
 
-### 12. 🌈 Code Themes Marketplace - חנות ערכות נושא
+### 13. 🎵 Ambient Sound Mode - מצב עבודה עם רקע קולי
 
 **מה זה:**
-מאגר ערכות נושא להתאמה אישית.
+רעשי רקע עדינים לריכוז (גשם, קפה, טבע).
 
 **איך זה עובד:**
-- עשרות themes מוכנות
-- יצירת theme מותאם אישית
-- שיתוף themes
-- דירוג ופופולריות
-- preview לפני התקנה
+- כפתור 🎵 בפינה
+- בחירת סאונד מרשימה
+- שליטה על ווליום
+- שמירת העדפה
 
-**מורכבות:** נמוכה | **ROI:** נמוך-בינוני | **זמן משוער:** 1 שבוע
+**מורכבות:** נמוכה | **ROI:** נמוך | **זמן:** 1-2 שעות
 
 ---
 
-### 13. 📸 Code Screenshots - צילומי מסך יפים לקוד
+### 14. 📅 File Age Indicator - אינדיקטור גיל קובץ
 
 **מה זה:**
-יצירת תמונות יפות של קוד לשיתוף.
+חיווי ויזואלי לגיל הקובץ (חדש/ישן).
 
 **איך זה עובד:**
-- רקעים ומסגרות יפות
-- לוגו/watermark אופציונלי
-- בחירת שורות ספציפיות
-- יצוא ל-PNG/SVG
-- שיתוף ישיר לרשתות
+- צבע/אייקון לפי גיל: 🟢 חדש, 🟡 שבוע, 🟠 חודש, 🔴 ישן
+- tooltip עם תאריך מדויק
+- אפשרות לסנן לפי גיל
 
-**מורכבות:** נמוכה | **ROI:** נמוך-בינוני | **זמן משוער:** 3-5 ימים
+**מורכבות:** נמוכה | **ROI:** נמוך-בינוני | **זמן:** 1-2 שעות
 
 ---
 
-### 14. 🎬 Code Replay - הקלטת סשן קידוד
+### 15. 📤 Export to Gist - יצוא ל-GitHub Gist
 
 **מה זה:**
-הקלטה והשמעה של סשן עבודה על קוד.
+יצוא קובץ ישירות ל-GitHub Gist (אם מחובר).
 
 **איך זה עובד:**
-- הקלטת כל השינויים
-- השמעה עם בקרת מהירות
-- קפיצה לנקודות זמן
-- הוספת הערות לרגעים
-- יצוא כ-video
+- כפתור "שתף ל-Gist"
+- אם אין חיבור GitHub - הפניה לאימות
+- יצירת Gist ציבורי/פרטי
+- שמירת קישור ה-Gist כ-source_url
 
-**מורכבות:** בינונית-גבוהה | **ROI:** נמוך-בינוני | **זמן משוער:** 2-3 שבועות
+**מורכבות:** בינונית | **ROI:** נמוך-בינוני | **זמן:** 4-5 שעות
 
 ---
 
-### 15. 💬 Code Comments Thread - דיונים על קוד
+### 16. 🔔 File Update Alerts - התראות על עדכוני קבצים
 
 **מה זה:**
-מערכת תגובות ודיונים על קטעי קוד.
+התראה כשקובץ משותף עודכן.
 
 **איך זה עובד:**
-- threads על שורות ספציפיות
-- mentions (@username)
-- reactions (👍❤️🎉)
-- נוטיפיקציות
-- היסטוריית דיונים
+- "עקוב אחרי קובץ" בקבצים משותפים
+- התראת Web Push כשהקובץ מתעדכן
+- סיכום שבועי של עדכונים
 
-**מורכבות:** בינונית | **ROI:** בינוני | **זמן משוער:** 1-2 שבועות
+**מורכבות:** בינונית | **ROI:** נמוך | **זמן:** 5-6 שעות
 
 ---
 
-## 🚀 תכנית יישום מוצעת
+### 17. 🎭 Anonymous Share Mode - שיתוף אנונימי
 
-### Phase 1: Quick Wins (חודש 1)
-**מטרה:** שיפורים מהירים עם השפעה גדולה
+**מה זה:**
+שיתוף קובץ ללא חשיפת שם המשתמש.
 
-1. **Code Formatter** - 1 שבוע
-2. **Voice Commands (בסיסי)** - 1 שבוע  
-3. **Live Preview for Web** - 2 שבועות
+**איך זה עובד:**
+- אופציה "שתף בעילום שם"
+- הסתרת פרטי היוצר בקישור המשותף
+- שימושי לשאלות בפורומים
 
-**תוצאה צפויה:** שיפור משמעותי בחוויית המשתמש
-
----
-
-### Phase 2: Game Changers (חודשים 2-3)
-**מטרה:** פיצ'רים מהפכניים שמבדילים את המוצר
-
-1. **Code Playground** - 3-4 שבועות
-2. **Visual Git Timeline** - 2-3 שבועות
-3. **Code Metrics Dashboard** - 3-4 שבועות
-
-**תוצאה צפויה:** ייחודיות ויתרון תחרותי
+**מורכבות:** נמוכה | **ROI:** נמוך | **זמן:** 1-2 שעות
 
 ---
 
-### Phase 3: Advanced Features (חודשים 4-5)
-**מטרה:** העמקת היכולות והערך
+### 18. 📊 Code Complexity Indicator - אינדיקטור מורכבות
 
-1. **Smart Code Search with AI** - 2-3 שבועות
-2. **Dependency Graph** - 2 שבועות
-3. **Code Review Mode** - 2 שבועות
-4. **Code Intentions** - 2 שבועות
+**מה זה:**
+הערכת מורכבות קוד בסיסית (שורות, עומק קינון).
 
-**תוצאה צפויה:** פלטפורמה מקצועית ומתקדמת
+**איך זה עובד:**
+- חישוב בצד לקוח
+- תצוגה: "פשוט / בינוני / מורכב"
+- tooltip עם פירוט
 
----
-
-### Phase 4: Polish & Delight (חודש 6+)
-**מטרה:** שיפורי UX ו-engagement
-
-1. **Achievements & Badges** - 1 שבוע
-2. **Code Screenshots** - 3-5 ימים
-3. **Themes Marketplace** - 1 שבוע
-4. **Comments Thread** - 1-2 שבועות
-5. **Code Replay** - 2-3 שבועות
-
-**תוצאה צפויה:** חוויית משתמש מושלמת
+**מורכבות:** בינונית | **ROI:** נמוך | **זמן:** 3-4 שעות
 
 ---
 
-## 📊 מטריצת השפעה-מאמץ
+## 🚀 סיכום ותעדוף
 
-| פיצ'ר | השפעה | מאמץ | עדיפות | ROI |
-|-------|--------|-------|---------|-----|
-| Code Playground | 🔥🔥🔥 | גבוה | 1 | מעולה |
-| Visual Git Timeline | 🔥🔥🔥 | בינוני-גבוה | 2 | מעולה |
-| Voice Commands | 🔥🔥🔥 | בינוני | 3 | מעולה |
-| Code Metrics Dashboard | 🔥🔥🔥 | גבוה | 4 | מעולה |
-| Live Preview | 🔥🔥 | בינוני | 5 | טוב מאוד |
-| Smart Search AI | 🔥🔥 | גבוה | 6 | טוב |
-| Code Formatter | 🔥🔥 | נמוך | 7 | מעולה |
-| Dependency Graph | 🔥 | בינוני | 8 | טוב |
-| Code Review Mode | 🔥 | בינוני | 9 | טוב |
-| Code Intentions | 🔥 | בינוני | 10 | בינוני |
+### מטריצת עדיפות
+
+| # | פיצ'ר | השפעה | מאמץ | ROI | עדיפות |
+|---|-------|--------|------|-----|---------|
+| 1 | File Pinning | 🔥🔥🔥 | נמוך | מעולה | ⭐⭐⭐ |
+| 2 | Import from URL | 🔥🔥🔥 | בינוני | מעולה | ⭐⭐⭐ |
+| 3 | Quick Stats Widget | 🔥🔥 | נמוך | טוב | ⭐⭐⭐ |
+| 4 | Smart Search Operators | 🔥🔥🔥 | בינוני | מעולה | ⭐⭐⭐ |
+| 5 | Quick Note Modal | 🔥🔥 | נמוך | טוב מאוד | ⭐⭐⭐ |
+| 6 | Code Folding | 🔥🔥 | גבוה | בינוני | ⭐⭐ |
+| 7 | Duplicate Detection | 🔥 | בינוני | בינוני | ⭐⭐ |
+| 8 | Reading Position | 🔥🔥 | נמוך | טוב | ⭐⭐ |
+| 9 | Inline Tag Editor | 🔥🔥 | נמוך | טוב | ⭐⭐ |
+| 10 | QR Share | 🔥 | נמוך | בינוני | ⭐⭐ |
+| 11 | Vim/Emacs Mode | 🔥 | נמוך | בינוני | ⭐ |
+| 12-18 | שאר הפיצ'רים | 🔥 | משתנה | נמוך-בינוני | ⭐ |
 
 ---
 
-## 💡 המלצות טכניות
+### תוכנית יישום מוצעת
+
+#### Sprint 1 (שבוע 1)
+1. **File Pinning** - 2-3 שעות
+2. **Quick Note Modal** - 3-4 שעות
+3. **Reading Position Sync** - 2-3 שעות
+
+**סה"כ:** ~8-10 שעות
+
+#### Sprint 2 (שבוע 2)
+1. **Import from URL** - 3-4 שעות
+2. **Inline Tag Editor** - 3-4 שעות
+3. **Quick Stats Widget** - 4-5 שעות
+
+**סה"כ:** ~10-13 שעות
+
+#### Sprint 3 (שבוע 3)
+1. **Smart Search Operators** - 6-8 שעות
+2. **QR Share** - 2-3 שעות
+
+**סה"כ:** ~8-11 שעות
+
+#### Sprint 4+ (בהמשך)
+- Code Folding
+- Duplicate Detection
+- Vim/Emacs Mode
+- שאר הפיצ'רים לפי דרישה
+
+---
+
+## 💡 הערות טכניות
 
 ### ארכיטקטורה
-- **Microservices**: פיצול לשירותים קטנים
-- **WebAssembly**: לביצועים מהירים
-- **Web Workers**: לעיבוד ברקע
-- **IndexedDB**: לשמירה מקומית
-- **WebSockets**: לעדכונים בזמן אמת
-
-### טכנולוגיות מומלצות
-- **Pyodide**: Python בדפדפן
-- **Monaco Editor**: עורך מתקדם (או CodeMirror 6)
-- **D3.js / vis.js**: ויזואליזציות
-- **Workbox**: Service Worker מתקדם
-- **TensorFlow.js**: ML בדפדפן
+- כל הפיצ'רים משתלבים עם Flask + MongoDB + Redis הקיימים
+- שימוש ב-localStorage לשמירה מקומית מהירה
+- סנכרון ל-DB בעת הצורך
+- Progressive Enhancement - עובד גם ללא JS
 
 ### ביצועים
-- Code splitting אגרסיבי
-- Lazy loading לכל פיצ'ר
-- Virtual scrolling לרשימות
-- Web Assembly לחישובים כבדים
-- SharedArrayBuffer לעיבוד מקבילי
+- פיצ'רים מהירים שלא מכבידים על הטעינה
+- Lazy loading לפי הצורך
+- שימוש ב-IndexedDB לנתונים גדולים
 
 ### נגישות
-- ARIA labels מלאים
-- Keyboard navigation
-- Screen reader support
-- High contrast mode
+- כל הפיצ'רים תומכים במקלדת
+- ARIA labels מתאימים
 - RTL מלא
 
 ---
 
-## 🎯 KPIs להצלחה
+## 🎯 סיכום
 
-1. **Engagement**
-   - זמן שהייה ממוצע +40%
-   - פעולות למשתמש +60%
-   - חזרה יומית +30%
+המסמך מציע 18 פיצ'רים חדשים שלא הוצעו במסמכים הקיימים. הדגש הוא על:
 
-2. **Performance**
-   - Time to Interactive < 2s
-   - First Contentful Paint < 1s
-   - Lighthouse score > 95
+✅ **פשטות יישום** - רוב הפיצ'רים ניתנים למימוש ב-2-8 שעות  
+✅ **ערך מיידי** - שיפורים שהמשתמשים ירגישו מיד  
+✅ **שימושיות** - פתרון בעיות אמיתיות  
+✅ **התאמה לארכיטקטורה** - עובד עם הקוד הקיים
 
-3. **User Satisfaction**
-   - NPS > 50
-   - דירוג 4.5+ כוכבים
-   - המלצות משתמשים +50%
-
-4. **Technical**
-   - Code coverage > 80%
-   - Zero critical bugs
-   - 99.9% uptime
+**ההמלצה:** להתחיל עם File Pinning, Quick Notes ו-Import from URL - שלושה פיצ'רים קטנים עם השפעה גדולה.
 
 ---
 
-## 🌟 סיכום
-
-הרעיונות המוצעים כאן ממוקדים ביצירת ערך אמיתי למשתמשים תוך שמירה על פשטות ויעילות. כל פיצ'ר נבחר בקפידה כדי לענות על צורך אמיתי ולהוסיף ערך ייחודי שמבדיל את Code Keeper Bot מהמתחרים.
-
-הדגש הוא על:
-- ✅ חדשנות טכנולוגית
-- ✅ חוויית משתמש מעולה
-- ✅ פרקטיות ושימושיות
-- ✅ ביצועים מהירים
-- ✅ נגישות מלאה
-
-**המלצה:** להתחיל עם Code Playground ו-Visual Git Timeline - אלו הפיצ'רים עם ה-WOW factor הגבוה ביותר שיבדילו מיידית את המוצר בשוק.
-
----
-
-נוצר עבור Code Keeper Bot | נובמבר 2025 | גרסה 2.0
+נוצר עבור Code Keeper Bot | דצמבר 2025 | גרסה 1.0
