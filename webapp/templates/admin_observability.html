@@ -701,10 +701,6 @@
   function renderAlertsTable(alerts, total, page, perPage) {
     const body = document.querySelector('#alertsTable tbody');
     if (!body) return;
-    if (!alerts || !alerts.length) {
-      body.innerHTML = '<tr><td colspan="7">לא נמצאו התראות בטווח שנבחר</td></tr>';
-      return;
-    }
     Object.values(visualContextStore).forEach(entry => {
       if (entry && entry.chart && typeof entry.chart.destroy === 'function') {
         try {
@@ -715,6 +711,10 @@
       }
     });
     Object.keys(visualContextStore).forEach(key => delete visualContextStore[key]);
+    if (!alerts || !alerts.length) {
+      body.innerHTML = '<tr><td colspan="7">לא נמצאו התראות בטווח שנבחר</td></tr>';
+      return;
+    }
     const rows = [];
     alerts.forEach(alert => {
       const meta = alert.metadata || {};
