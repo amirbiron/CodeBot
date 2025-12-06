@@ -264,6 +264,9 @@
     align-items: center;
     flex-wrap: wrap;
 }
+.file-actions .btn {
+    white-space: nowrap;
+}
 .file-actions-overflow {
     position: relative;
     flex: 0 0 auto;
@@ -330,12 +333,6 @@
 .overflow-item.danger:focus-visible {
     background: rgba(255, 95, 109, 0.12);
 }
-.overflow-divider {
-    height: 1px;
-    background: rgba(255, 255, 255, 0.12);
-    margin: 0.25rem 0;
-}
-
 .file-actions .btn-primary.btn-icon {
     background: rgba(255, 255, 255, 0.95) !important;
     color: #667eea !important;
@@ -1343,11 +1340,6 @@ async function toggleFavorite(){
         if (icon) icon.textContent = state ? '💔' : '⭐';
         if (label) label.textContent = state ? 'הסר ממועדפים' : 'הוסף למועדפים';
         showToast(state ? '⭐ הקובץ נוסף למועדפים' : '💔 הקובץ הוסר מהמועדפים', state ? 'success' : 'info');
-        try {
-            if (typeof window.__fileActionBarRefresh === 'function') {
-                window.__fileActionBarRefresh();
-            }
-        } catch (_) {}
     } catch (e) {
         console.error('favorite toggle failed', e);
         showToast('שגיאה בעדכון מועדפים', 'error');
@@ -1460,130 +1452,39 @@ function goBack(ev){
     return false;
 }
 
-(function initResponsiveFileActions(){
-    const actionBar = document.querySelector('[data-file-actions]');
+(function initFileActionsMenu(){
+    const actionBar = document.querySelector('.file-actions[data-file-id]');
     if (!actionBar) return;
-    const primary = actionBar.querySelector('.file-actions__primary');
-    const overflowWrapper = actionBar.querySelector('.file-actions__overflow');
-    const overflowBtn = overflowWrapper?.querySelector('.file-actions__overflow-btn');
-    const menu = overflowWrapper?.querySelector('.file-actions__overflow-menu');
-    const dynamicContainer = menu?.querySelector('[data-overflow-dynamic]');
-    const divider = menu?.querySelector('[data-overflow-divider]');
     const fileId = actionBar.getAttribute('data-file-id');
-    const candidateButtons = primary ? Array.from(primary.querySelectorAll('.file-action-btn[data-action-id]')) : [];
-    const overflowable = candidateButtons.filter((btn) => btn.dataset.overflowLocked !== 'true');
+    const overflowWrapper = actionBar.querySelector('.file-actions-overflow');
+    const trigger = overflowWrapper?.querySelector('[data-overflow-trigger]');
+    const menu = overflowWrapper?.querySelector('.file-actions-overflow__menu');
     let menuOpen = false;
-    let evaluationScheduled = false;
     let historyLoaded = false;
     let historyLoading = false;
 
-    function clearDynamicMenu(){
-        if (dynamicContainer) dynamicContainer.innerHTML = '';
-        divider?.setAttribute('hidden', 'true');
-    }
-
-    function setDynamicState(hasDynamic){
-        if (!overflowWrapper) return;
-        overflowWrapper.setAttribute('data-menu-has-dynamic', hasDynamic ? '1' : '0');
-    }
-
-    function addDynamicMenuItem(btn){
-        if (!dynamicContainer) return;
-        const label = (btn.getAttribute('data-overflow-label') || btn.textContent || '').trim();
-        if (!label) return;
-        const item = document.createElement('button');
-        item.type = 'button';
-        item.className = 'overflow-item';
-        item.textContent = label;
-        item.dataset.actionRef = btn.dataset.actionId || '';
-        item.addEventListener('click', (event) => {
-            event.preventDefault();
-            closeMenu();
-            try { btn.click(); } catch (_) {}
-        });
-        dynamicContainer.appendChild(item);
-        divider?.removeAttribute('hidden');
-    }
-
-    function findNextCandidate(){
-        const sorted = overflowable
-            .filter((btn) => !btn.classList.contains('is-overflowed'))
-            .sort((a, b) => {
-                const ap = parseInt(a.dataset.overflowPriority || '100', 10);
-                const bp = parseInt(b.dataset.overflowPriority || '100', 10);
-                return bp - ap;
-            });
-        if (window.matchMedia && window.matchMedia('(max-width: 640px)').matches) {
-            const mobile = sorted.find((btn) => btn.dataset.mobilePriority === 'secondary');
-            if (mobile) {
-                return mobile;
-            }
-        }
-        return sorted[0];
-    }
-
-    function evaluateOverflow(){
-        if (!primary) return;
-        clearDynamicMenu();
-        candidateButtons.forEach((btn) => btn.classList.remove('is-overflowed'));
-        setDynamicState(false);
-        if (primary.scrollWidth <= (primary.clientWidth + 2)) {
-            return;
-        }
-        const guard = overflowable.length + 2;
-        let iterations = 0;
-        while (primary.scrollWidth > (primary.clientWidth + 2) && iterations < guard) {
-            const next = findNextCandidate();
-            if (!next) break;
-            next.classList.add('is-overflowed');
-            addDynamicMenuItem(next);
-            setDynamicState(true);
-            iterations += 1;
-        }
-    }
-
-    function scheduleOverflowEvaluation(){
-        if (evaluationScheduled) return;
-        evaluationScheduled = true;
-        requestAnimationFrame(() => {
-            evaluationScheduled = false;
-            evaluateOverflow();
-        });
-    }
-
-    scheduleOverflowEvaluation();
-    window.addEventListener('resize', scheduleOverflowEvaluation);
-    if (window.ResizeObserver && primary) {
-        try {
-            const ro = new ResizeObserver(() => scheduleOverflowEvaluation());
-            ro.observe(primary);
-        } catch (_) {}
-    }
-    window.__fileActionBarRefresh = scheduleOverflowEvaluation;
-
     function closeMenu(){
-        if (!overflowWrapper || !overflowBtn) return;
+        if (!overflowWrapper || !trigger) return;
         overflowWrapper.classList.remove('is-open');
-        overflowBtn.setAttribute('aria-expanded', 'false');
+        trigger.setAttribute('aria-expanded', 'false');
         menuOpen = false;
     }
 
-    function toggleMenu(force){
-        if (!overflowWrapper || !overflowBtn) return;
-        const shouldOpen = typeof force === 'boolean' ? force : !menuOpen;
-        menuOpen = shouldOpen;
-        overflowWrapper.classList.toggle('is-open', shouldOpen);
-        overflowBtn.setAttribute('aria-expanded', shouldOpen ? 'true' : 'false');
+    function toggleMenu(){
+        if (!overflowWrapper || !trigger) return;
+        menuOpen = !menuOpen;
+        overflowWrapper.classList.toggle('is-open', menuOpen);
+        trigger.setAttribute('aria-expanded', menuOpen ? 'true' : 'false');
     }
 
-    overflowBtn?.addEventListener('click', (event) => {
+    trigger?.addEventListener('click', (event) => {
         event.preventDefault();
         toggleMenu();
     });
 
     document.addEventListener('click', (event) => {
-        if (!menuOpen || !overflowWrapper) return;
-        if (!overflowWrapper.contains(event.target)) {
+        if (!menuOpen) return;
+        if (overflowWrapper && !overflowWrapper.contains(event.target)) {
             closeMenu();
         }
     });
