@@ -5879,10 +5879,6 @@ def files():
                 'created_at': format_datetime_display(latest.get('created_at')),
                 'updated_at': format_datetime_display(latest.get('updated_at')),
                 'last_opened_at': format_datetime_display(recent_map.get(fname)),
-                'version': int(latest.get('version', 1) or 1),
-                'source_url': latest.get('source_url') or '',
-                'source_url_host': _extract_source_hostname(latest.get('source_url')),
-                'is_favorite': bool(latest.get('is_favorite', False)),
             })
 
         # רשימת שפות לפילטר - רק מקבצים פעילים
@@ -6033,11 +6029,7 @@ def files():
             'size': format_file_size(len(code_str.encode('utf-8'))),
             'lines': len(code_str.splitlines()),
             'created_at': format_datetime_display(file.get('created_at')),
-            'updated_at': format_datetime_display(file.get('updated_at')),
-            'version': int(file.get('version', 1) or 1),
-            'source_url': file.get('source_url') or '',
-            'source_url_host': _extract_source_hostname(file.get('source_url')),
-            'is_favorite': bool(file.get('is_favorite', False)),
+            'updated_at': format_datetime_display(file.get('updated_at'))
         })
     
     # רשימת שפות לפילטר - רק מקבצים פעילים
@@ -6444,147 +6436,6 @@ def file_preview(file_id):
         'language': language,
         'has_more': total_lines > preview_lines,
     })
-
-
-@app.route('/api/file/<file_id>/history')
-@login_required
-def api_file_history(file_id):
-    """החזרת רשימת גרסאות עבור קובץ נתון (לפי file_name ולפי סדר יורד)."""
-    db = get_db()
-    user_id = session['user_id']
-    try:
-        file_oid = ObjectId(file_id)
-    except (InvalidId, TypeError):
-        return jsonify({'ok': False, 'error': 'invalid_id'}), 400
-
-    base_doc = db.code_snippets.find_one({'_id': file_oid, 'user_id': user_id})
-    if not base_doc:
-        return jsonify({'ok': False, 'error': 'not_found'}), 404
-
-    file_name = base_doc.get('file_name')
-    if not file_name:
-        return jsonify({'ok': False, 'error': 'missing_name'}), 400
-
-    history_limit = 25
-    try:
-        cursor = db.code_snippets.find(
-            {
-                'user_id': user_id,
-                'file_name': file_name,
-            }
-        ).sort([
-            ('version', DESCENDING),
-            ('updated_at', DESCENDING),
-            ('_id', DESCENDING),
-        ]).limit(history_limit)
-    except Exception:
-        cursor = []
-
-    history = []
-    for doc in cursor:
-        code_str = doc.get('code') or ''
-        try:
-            size_bytes = len(code_str.encode('utf-8'))
-        except Exception:
-            size_bytes = len(code_str)
-        history.append({
-            'id': str(doc.get('_id')),
-            'version': int(doc.get('version', 1) or 1),
-            'created_at': format_datetime_display(doc.get('created_at')),
-            'updated_at': format_datetime_display(doc.get('updated_at')),
-            'size': format_file_size(size_bytes),
-            'lines': len(code_str.splitlines()),
-            'is_active': bool(doc.get('is_active', True)),
-        })
-
-    return jsonify({
-        'ok': True,
-        'file_name': file_name,
-        'history': history,
-    })
-
-
-@app.route('/api/file/<file_id>/history/<version_id>/restore', methods=['POST'])
-@login_required
-def api_restore_file_version(file_id, version_id):
-    """שחזור גרסה קודמת של קובץ – יוצר גרסה חדשה המבוססת על התוכן ההיסטורי."""
-    db = get_db()
-    user_id = session['user_id']
-    try:
-        base_oid = ObjectId(file_id)
-        version_oid = ObjectId(version_id)
-    except (InvalidId, TypeError):
-        return jsonify({'ok': False, 'error': 'invalid_id'}), 400
-
-    base_doc = db.code_snippets.find_one({'_id': base_oid, 'user_id': user_id})
-    if not base_doc:
-        return jsonify({'ok': False, 'error': 'not_found'}), 404
-
-    target_doc = db.code_snippets.find_one({'_id': version_oid, 'user_id': user_id})
-    if not target_doc:
-        return jsonify({'ok': False, 'error': 'version_not_found'}), 404
-
-    base_name = str(base_doc.get('file_name') or '').strip()
-    target_name = str(target_doc.get('file_name') or '').strip()
-    if not base_name or base_name != target_name:
-        return jsonify({'ok': False, 'error': 'mismatch'}), 400
-
-    try:
-        latest = db.code_snippets.find_one(
-            {
-                'user_id': user_id,
-                'file_name': base_name,
-                '$or': [
-                    {'is_active': True},
-                    {'is_active': {'$exists': False}},
-                ],
-            },
-            sort=[('version', DESCENDING), ('updated_at', DESCENDING), ('_id', DESCENDING)],
-        )
-    except Exception:
-        latest = None
-    new_version = int((latest or {}).get('version', 0) or 0) + 1
-
-    now = datetime.now(timezone.utc)
-    new_doc = {
-        'user_id': user_id,
-        'file_name': base_name,
-        'code': target_doc.get('code') or '',
-        'programming_language': target_doc.get('programming_language') or 'text',
-        'description': target_doc.get('description') or '',
-        'tags': list(target_doc.get('tags') or []),
-        'version': new_version,
-        'created_at': now,
-        'updated_at': now,
-        'is_active': True,
-    }
-    if target_doc.get('source_url'):
-        new_doc['source_url'] = target_doc.get('source_url')
-    if target_doc.get('is_favorite'):
-        new_doc['is_favorite'] = True
-        if target_doc.get('favorited_at'):
-            new_doc['favorited_at'] = target_doc.get('favorited_at')
-
-    try:
-        res = db.code_snippets.insert_one(new_doc)
-    except Exception as exc:
-        logger.exception("failed to restore version", extra={
-            'file_name': base_name,
-            'user_id': user_id,
-            'version_id': str(version_id),
-            'error': str(exc),
-        })
-        return jsonify({'ok': False, 'error': 'restore_failed'}), 500
-
-    inserted_id = str(getattr(res, 'inserted_id', '') or '')
-    try:
-        cache.invalidate_user_cache(user_id)
-        cache.invalidate_file_related(file_id=base_name, user_id=user_id)
-    except Exception:
-        pass
-    _log_webapp_user_activity()
-
-    return jsonify({'ok': True, 'file_id': inserted_id, 'version': new_version})
 
 @app.route('/api/files/recent')
 @login_required
