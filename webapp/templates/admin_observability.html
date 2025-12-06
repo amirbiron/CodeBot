@@ -241,6 +241,98 @@
   opacity: 0.5;
   cursor: not-allowed;
 }
+.graph-toggle-btn {
+  border: none;
+  border-radius: 999px;
+  padding: 0.3rem 0.8rem;
+  background: rgba(255,255,255,0.08);
+  color: #64ffda;
+  cursor: pointer;
+  font-size: 0.85rem;
+  transition: background 0.2s ease;
+}
+.graph-toggle-btn:hover {
+  background: rgba(100,255,218,0.2);
+}
+.graph-toggle-btn.active {
+  background: rgba(255,255,255,0.15);
+  color: #121826;
+  font-weight: 600;
+}
+.visual-context-row {
+  display: none;
+}
+.visual-context-row.open {
+  display: table-row;
+}
+.visual-context-panel {
+  background: rgba(10,16,26,0.92);
+  border: 1px solid rgba(100,255,218,0.2);
+  border-radius: 18px;
+  padding: 1rem 1.2rem 1.4rem;
+  box-shadow: 0 20px 40px rgba(0,0,0,0.45);
+}
+.visual-context-header {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 0.8rem;
+  align-items: center;
+  margin-bottom: 0.6rem;
+}
+.visual-context-title {
+  font-size: 1.1rem;
+  font-weight: 600;
+}
+.visual-context-subtitle {
+  font-size: 0.85rem;
+  opacity: 0.65;
+}
+.vc-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  align-items: center;
+}
+.vc-controls span {
+  font-size: 0.85rem;
+  opacity: 0.7;
+}
+.vc-range-btn,
+.vc-zoom-btn {
+  border: none;
+  border-radius: 999px;
+  padding: 0.25rem 0.7rem;
+  background: rgba(255,255,255,0.08);
+  color: #fff;
+  cursor: pointer;
+  font-size: 0.8rem;
+}
+.vc-range-btn.active {
+  background: linear-gradient(135deg,#64ffda,#4dd0e1);
+  color: #0c1725;
+  font-weight: 600;
+}
+.vc-zoom-btn {
+  font-weight: 600;
+  min-width: 2rem;
+}
+.visual-context-status {
+  font-size: 0.85rem;
+  opacity: 0.8;
+  margin-bottom: 0.5rem;
+}
+.visual-context-status.error {
+  color: #ff627c;
+  opacity: 1;
+}
+.vc-chart-wrapper {
+  width: 100%;
+  overflow: hidden;
+}
+.vc-chart-wrapper canvas {
+  width: 100%;
+}
 .highlight-row {
   background: rgba(255,255,255,0.05);
   box-shadow: inset 0 0 0 1px rgba(255,255,255,0.12);
@@ -365,11 +457,12 @@
             <th>חומרה</th>
             <th>סיכום</th>
             <th>Meta</th>
+            <th>גרף</th>
             <th>Quick Fix</th>
           </tr>
         </thead>
         <tbody>
-          <tr><td colspan="6">טוען נתונים…</td></tr>
+          <tr><td colspan="7">טוען נתונים…</td></tr>
         </tbody>
       </table>
     </div>
@@ -396,6 +489,9 @@
     lastUpdatedEl: document.getElementById('lastUpdated'),
     focusTs: initialParams.get('focus_ts') || '',
   };
+  const VISUAL_PRESETS = ['15m', '30m', '1h', '6h', '24h', '7d'];
+  const visualContextStore = {};
+  const visualContextCache = {};
   let alertsChart;
   let responseChart;
 
@@ -525,30 +621,124 @@
     return 'status-info';
   }
 
+  function hasVisualGraph(alert) {
+    return Boolean(
+      alert &&
+      alert.graph &&
+      alert.graph.available &&
+      alert.graph.metric &&
+      alert.alert_uid &&
+      alert.timestamp
+    );
+  }
+
+  function buildGraphMeta(alert) {
+    const graph = alert.graph || {};
+    return {
+      uid: alert.alert_uid || '',
+      metric: graph.metric,
+      label: graph.label || graph.metric || 'גרף',
+      unit: graph.unit || '',
+      defaultRange: String(graph.default_range || '').toLowerCase(),
+      defaultMinutes: Number(graph.default_minutes || 60),
+      timestamp: alert.timestamp,
+      category: graph.category || '',
+    };
+  }
+
+  function renderGraphCell(alert) {
+    if (!hasVisualGraph(alert)) {
+      return '<span style="opacity:0.4;">—</span>';
+    }
+    const meta = buildGraphMeta(alert);
+    if (!meta.uid || !meta.metric || !meta.timestamp) {
+      return '<span style="opacity:0.4;">—</span>';
+    }
+    const payload = encodeURIComponent(JSON.stringify(meta));
+    return `<button class="graph-toggle-btn" data-graph="${payload}" data-alert-uid="${meta.uid}" aria-expanded="false">📈 הקשר</button>`;
+  }
+
+  function renderGraphRow(alert) {
+    if (!hasVisualGraph(alert)) {
+      return '';
+    }
+    const meta = buildGraphMeta(alert);
+    if (!meta.uid) {
+      return '';
+    }
+    const payload = encodeURIComponent(JSON.stringify(meta));
+    const presetButtons = VISUAL_PRESETS
+      .map(label => `<button class="vc-range-btn" data-range="${label}">${label}</button>`)
+      .join('');
+    return `
+      <tr class="visual-context-row" id="visual-row-${meta.uid}" data-alert-uid="${meta.uid}" hidden>
+        <td colspan="7">
+          <div class="visual-context-panel" data-graph="${payload}">
+            <div class="visual-context-header">
+              <div>
+                <div class="visual-context-title">${meta.label}</div>
+                <div class="visual-context-subtitle">${meta.unit || ''}</div>
+              </div>
+              <div class="vc-controls">
+                <span>טווח:</span>
+                ${presetButtons}
+                <div class="vc-zoom">
+                  <button class="vc-zoom-btn" data-zoom="out" title="Zoom Out">−</button>
+                  <button class="vc-zoom-btn" data-zoom="in" title="Zoom In">+</button>
+                </div>
+              </div>
+            </div>
+            <div class="visual-context-status" id="vc-status-${meta.uid}">לחץ על הכפתור כדי לטעון את הגרף.</div>
+            <div class="vc-chart-wrapper">
+              <canvas id="vc-canvas-${meta.uid}" height="180"></canvas>
+            </div>
+          </div>
+        </td>
+      </tr>
+    `;
+  }
+
   function renderAlertsTable(alerts, total, page, perPage) {
     const body = document.querySelector('#alertsTable tbody');
     if (!body) return;
     if (!alerts || !alerts.length) {
-      body.innerHTML = '<tr><td colspan="6">לא נמצאו התראות בטווח שנבחר</td></tr>';
+      body.innerHTML = '<tr><td colspan="7">לא נמצאו התראות בטווח שנבחר</td></tr>';
       return;
     }
-    body.innerHTML = alerts.map(alert => {
+    Object.values(visualContextStore).forEach(entry => {
+      if (entry && entry.chart && typeof entry.chart.destroy === 'function') {
+        try {
+          entry.chart.destroy();
+        } catch (err) {
+          console.debug('visual_context_chart_destroy_failed', err);
+        }
+      }
+    });
+    Object.keys(visualContextStore).forEach(key => delete visualContextStore[key]);
+    const rows = [];
+    alerts.forEach(alert => {
       const meta = alert.metadata || {};
       const metaItems = Object.keys(meta)
         .slice(0, 3)
         .map(key => `<span>${key}: ${meta[key]}</span>`)
         .join('');
-      return `
-        <tr data-timestamp="${alert.timestamp || ''}" data-alert-uid="${alert.alert_uid || ''}">
+      rows.push(`
+        <tr data-timestamp="${alert.timestamp || ''}" data-alert-uid="${alert.alert_uid || ''}" class="alert-row">
           <td>${formatTimestamp(alert.timestamp)}</td>
           <td>${alert.name || '-'}</td>
           <td><span class="status-pill ${severityClass(alert.severity)}">${alert.severity || '-'}</span></td>
           <td>${alert.summary || '-'}</td>
           <td><div class="meta-list">${metaItems || ''}</div></td>
+          <td>${renderGraphCell(alert)}</td>
           <td>${renderQuickFixCell(alert)}</td>
         </tr>
-      `;
-    }).join('');
+      `);
+      const graphRow = renderGraphRow(alert);
+      if (graphRow) {
+        rows.push(graphRow);
+      }
+    });
+    body.innerHTML = rows.join('');
 
     const totalPages = Math.max(1, Math.ceil((total || 0) / perPage));
     const label = document.getElementById('pageLabel');
@@ -558,6 +748,7 @@
     if (prevBtn) prevBtn.disabled = page <= 1;
     if (nextBtn) nextBtn.disabled = page >= totalPages;
     initQuickFixHandlers();
+    initVisualContextHandlers();
     highlightFocusedRow();
   }
 
@@ -592,6 +783,334 @@
         }).join('')}
       </div>
     `;
+  }
+
+  function initVisualContextHandlers() {
+    document.querySelectorAll('.graph-toggle-btn').forEach(btn => {
+      if (btn.dataset.graphBound === '1') return;
+      btn.dataset.graphBound = '1';
+      btn.addEventListener('click', () => {
+        const meta = parseGraphMeta(btn.dataset.graph);
+        if (!meta) return;
+        toggleVisualContext(meta);
+      });
+    });
+    document.querySelectorAll('.visual-context-panel').forEach(panel => {
+      if (panel.dataset.vcBound === '1') return;
+      panel.dataset.vcBound = '1';
+      const meta = parseGraphMeta(panel.dataset.graph);
+      if (!meta) return;
+      const rangeButtons = panel.querySelectorAll('.vc-range-btn');
+      rangeButtons.forEach(btn => {
+        btn.addEventListener('click', () => {
+          rangeButtons.forEach(b => b.classList.remove('active'));
+          btn.classList.add('active');
+          const minutes = minutesFromPreset(btn.dataset.range);
+          loadVisualContext(meta, { minutes });
+        });
+      });
+      panel.querySelectorAll('.vc-zoom-btn').forEach(btn => {
+        btn.addEventListener('click', () => handleVisualZoom(meta, btn.dataset.zoom));
+      });
+    });
+  }
+
+  function parseGraphMeta(payload) {
+    if (!payload) return null;
+    try {
+      return JSON.parse(decodeURIComponent(payload));
+    } catch (err) {
+      console.warn('visual context parse failed', err);
+      return null;
+    }
+  }
+
+  function toggleVisualContext(meta) {
+    if (!meta || !meta.uid) return;
+    const row = document.getElementById(`visual-row-${meta.uid}`);
+    if (!row) return;
+    const isOpen = row.classList.contains('open');
+    if (isOpen) {
+      row.classList.remove('open');
+      row.hidden = true;
+      setToggleActive(meta.uid, false);
+      return;
+    }
+    ensureVisualState(meta);
+    row.hidden = false;
+    row.classList.add('open');
+    setToggleActive(meta.uid, true);
+    if (!row.dataset.loaded) {
+      row.dataset.loaded = '1';
+      selectDefaultPreset(meta);
+    }
+  }
+
+  function setToggleActive(uid, isOpen) {
+    document.querySelectorAll(`.graph-toggle-btn[data-alert-uid="${uid}"]`).forEach(btn => {
+      btn.classList.toggle('active', isOpen);
+      btn.setAttribute('aria-expanded', isOpen ? 'true' : 'false');
+      btn.textContent = isOpen ? 'הסתר גרף' : '📈 הקשר';
+    });
+  }
+
+  function ensureVisualState(meta) {
+    if (!meta || !meta.uid) return null;
+    const defaultMinutes = Math.max(5, Number(meta.defaultMinutes || 60));
+    if (!visualContextStore[meta.uid]) {
+      visualContextStore[meta.uid] = {
+        meta,
+        minutes: defaultMinutes,
+        chart: null,
+      };
+    } else {
+      visualContextStore[meta.uid].meta = meta;
+      if (!visualContextStore[meta.uid].minutes) {
+        visualContextStore[meta.uid].minutes = defaultMinutes;
+      }
+    }
+    return visualContextStore[meta.uid];
+  }
+
+  function selectDefaultPreset(meta) {
+    const row = document.getElementById(`visual-row-${meta.uid}`);
+    if (!row) return;
+    const panel = row.querySelector('.visual-context-panel');
+    if (!panel) return;
+    const rangeButtons = panel.querySelectorAll('.vc-range-btn');
+    let matched = false;
+    const targetRange = (meta.defaultRange || '').toLowerCase();
+    rangeButtons.forEach(btn => {
+      const isMatch = btn.dataset.range && btn.dataset.range.toLowerCase() === targetRange;
+      btn.classList.toggle('active', isMatch);
+      if (isMatch && !matched) {
+        matched = true;
+        loadVisualContext(meta, { minutes: minutesFromPreset(btn.dataset.range) });
+      }
+    });
+    if (!matched) {
+      rangeButtons.forEach(btn => btn.classList.remove('active'));
+      loadVisualContext(meta, { minutes: meta.defaultMinutes || 60 });
+    }
+  }
+
+  function minutesFromPreset(label) {
+    if (!label) return 60;
+    const text = String(label).trim().toLowerCase();
+    const match = text.match(/^(\d+)([mhd])$/);
+    if (!match) return 60;
+    const value = Number(match[1]);
+    const unit = match[2];
+    if (unit === 'm') return value;
+    if (unit === 'h') return value * 60;
+    if (unit === 'd') return value * 1440;
+    return value;
+  }
+
+  function handleVisualZoom(meta, direction) {
+    const entry = ensureVisualState(meta);
+    if (!entry) return;
+    const factor = direction === 'in' ? 0.5 : 2;
+    entry.minutes = clampMinutes(entry.minutes * factor);
+    clearPresetSelection(meta.uid);
+    loadVisualContext(meta, { minutes: entry.minutes });
+  }
+
+  function clampMinutes(value) {
+    return Math.min(14 * 24 * 60, Math.max(5, Math.round(value)));
+  }
+
+  function clearPresetSelection(uid) {
+    const row = document.getElementById(`visual-row-${uid}`);
+    if (!row) return;
+    row.querySelectorAll('.vc-range-btn').forEach(btn => btn.classList.remove('active'));
+  }
+
+  function buildWindowAroundAlert(meta, minutes) {
+    const ts = Date.parse(meta.timestamp || '');
+    if (Number.isNaN(ts)) {
+      return null;
+    }
+    const totalMinutes = Math.max(5, Number(minutes || meta.defaultMinutes || 60));
+    const halfMs = (totalMinutes * 60000) / 2;
+    return {
+      start: new Date(ts - halfMs),
+      end: new Date(ts + halfMs),
+      totalMinutes,
+    };
+  }
+
+  function pickGranularityLabel(totalMinutes) {
+    if (totalMinutes <= 30) return '1m';
+    if (totalMinutes <= 120) return '5m';
+    if (totalMinutes <= 360) return '15m';
+    if (totalMinutes <= 720) return '30m';
+    if (totalMinutes <= 1440) return '1h';
+    if (totalMinutes <= 2880) return '2h';
+    if (totalMinutes <= 4320) return '3h';
+    if (totalMinutes <= 10080) return '6h';
+    return '12h';
+  }
+
+  function setVisualStatus(uid, text, isError = false) {
+    const statusEl = document.getElementById(`vc-status-${uid}`);
+    if (!statusEl) return;
+    statusEl.textContent = text;
+    statusEl.classList.toggle('error', Boolean(isError));
+  }
+
+  async function loadVisualContext(meta, options = {}) {
+    const entry = ensureVisualState(meta);
+    if (!entry) return;
+    if (options.minutes) {
+      entry.minutes = clampMinutes(options.minutes);
+    }
+    const windowInfo = buildWindowAroundAlert(meta, entry.minutes);
+    if (!windowInfo) {
+      setVisualStatus(meta.uid, 'לא ניתן לחשב טווח זמן עבור ההתראה', true);
+      return;
+    }
+    const granularity = pickGranularityLabel(windowInfo.totalMinutes);
+    const params = new URLSearchParams({
+      metric: meta.metric,
+      granularity,
+      timerange: 'custom',
+      start_time: windowInfo.start.toISOString(),
+      end_time: windowInfo.end.toISOString(),
+    });
+    const cacheKey = `${meta.uid}|${meta.metric}|${granularity}|${windowInfo.start.toISOString()}|${windowInfo.end.toISOString()}`;
+    try {
+      setVisualStatus(meta.uid, 'טוען נתונים…');
+      let payload = visualContextCache[cacheKey];
+      if (!payload) {
+        payload = await fetchJson(`/api/observability/timeseries?${params.toString()}`);
+        if (!payload || payload.ok === false) {
+          throw new Error(payload?.error || 'visual_context_error');
+        }
+        visualContextCache[cacheKey] = payload;
+      }
+      const rendered = renderVisualChart(meta, payload.data || []);
+      if (rendered) {
+        const label = formatVisualWindowLabel(windowInfo.start, windowInfo.end);
+        setVisualStatus(meta.uid, `טווח ${label}`);
+      }
+    } catch (err) {
+      console.error('visual_context_load_failed', err);
+      setVisualStatus(meta.uid, 'לא נמצאו נתונים לגרף הזה', true);
+    }
+  }
+
+  function formatVisualWindowLabel(start, end) {
+    const opts = { hour12: false };
+    try {
+      return `${start.toLocaleString('he-IL', opts)} → ${end.toLocaleString('he-IL', opts)}`;
+    } catch (err) {
+      return `${start?.toISOString?.() || ''} → ${end?.toISOString?.() || ''}`;
+    }
+  }
+
+  function renderVisualChart(meta, rows) {
+    const entry = ensureVisualState(meta);
+    if (!entry) return false;
+    const canvas = document.getElementById(`vc-canvas-${meta.uid}`);
+    if (!canvas) return false;
+    const points = (rows || [])
+      .map(row => {
+        const ts = row.timestamp || row.time || row.ts;
+        const value = resolveSeriesValue(meta.metric, row);
+        return {
+          ts,
+          value,
+        };
+      })
+      .filter(pt => pt.ts && Number.isFinite(pt.value));
+    if (!points.length) {
+      setVisualStatus(meta.uid, 'אין נתונים זמינים בחלון הנבחר', true);
+      if (entry.chart) {
+        entry.chart.destroy();
+        entry.chart = null;
+      }
+      return false;
+    }
+    const labels = points.map(point => {
+      try {
+        return new Date(point.ts).toLocaleString('he-IL', { hour12: false });
+      } catch (err) {
+        return point.ts;
+      }
+    });
+    const values = points.map(point => Number(point.value));
+    if (entry.chart) {
+      entry.chart.destroy();
+    }
+    entry.chart = new Chart(canvas, {
+      type: 'line',
+      data: {
+        labels,
+        datasets: [
+          {
+            label: meta.label || meta.metric,
+            data: values,
+            borderColor: getVisualColor(meta.metric),
+            backgroundColor: 'rgba(100,255,218,0.15)',
+            pointRadius: 0,
+            tension: 0.25,
+            fill: false,
+          },
+        ],
+      },
+      options: {
+        plugins: {
+          legend: { labels: { color: '#fff' } },
+        },
+        scales: {
+          x: { ticks: { color: '#ccc' }, grid: { color: 'rgba(255,255,255,0.08)' } },
+          y: {
+            ticks: { color: '#ccc' },
+            grid: { color: 'rgba(255,255,255,0.08)' },
+            beginAtZero: false,
+          },
+        },
+      },
+    });
+    return true;
+  }
+
+  function getVisualColor(metric) {
+    const key = String(metric || '').toLowerCase();
+    if (key.includes('cpu')) return '#ffa34f';
+    if (key.includes('memory')) return '#64ffda';
+    if (key.includes('latency') || key.includes('response')) return '#36a2eb';
+    if (key.includes('error')) return '#ff6384';
+    if (key.includes('disk')) return '#a78bfa';
+    if (key.includes('request')) return '#fcd177';
+    return '#4dd0e1';
+  }
+
+  function resolveSeriesValue(metric, row) {
+    if (!row || typeof row !== 'object') return 0;
+    if (row.value != null && row.value !== '') return Number(row.value);
+    const metricKey = String(metric || '').toLowerCase();
+    if ((metricKey.includes('latency') || metricKey.includes('response')) && row.avg_duration != null) {
+      return Number(row.avg_duration);
+    }
+    if (metricKey.includes('error')) {
+      if (row.error_rate != null) return Number(row.error_rate);
+      if (row.errors != null && row.count) {
+        const count = Number(row.count) || 1;
+        return (Number(row.errors) / count) * 100;
+      }
+    }
+    if (metricKey.includes('request')) {
+      if (row.requests_per_minute != null) return Number(row.requests_per_minute);
+      if (row.count != null) return Number(row.count);
+    }
+    if (row.avg_duration != null) return Number(row.avg_duration);
+    if (row.max_duration != null) return Number(row.max_duration);
+    if (row.total != null) return Number(row.total);
+    if (row.count != null) return Number(row.count);
+    const firstNumeric = Object.values(row).find(val => typeof val === 'number');
+    return Number(firstNumeric || 0);
   }
 
   function initQuickFixHandlers() {
