@@ -6437,6 +6437,156 @@ def file_preview(file_id):
         'has_more': total_lines > preview_lines,
     })
 
+@app.route('/api/file/<file_id>/history')
+@login_required
+def api_file_history(file_id):
+    """מחזיר רשימת גרסאות של קובץ מסוים (לפי השם שלו) למשתמש הנוכחי."""
+    db = get_db()
+    user_id = session['user_id']
+    try:
+        current_id = ObjectId(file_id)
+    except (InvalidId, TypeError):
+        return jsonify({'ok': False, 'error': 'קובץ לא נמצא'}), 404
+    try:
+        file_doc = db.code_snippets.find_one({'_id': current_id, 'user_id': user_id})
+    except PyMongoError:
+        return jsonify({'ok': False, 'error': 'שגיאה במסד הנתונים'}), 500
+    if not file_doc:
+        return jsonify({'ok': False, 'error': 'קובץ לא נמצא'}), 404
+
+    file_name = file_doc.get('file_name')
+    if not file_name:
+        return jsonify({'ok': True, 'file_name': '', 'active_file_id': str(current_id), 'versions': []})
+
+    try:
+        cursor = db.code_snippets.find(
+            {'user_id': user_id, 'file_name': file_name},
+            sort=[('version', DESCENDING), ('updated_at', DESCENDING)],
+            limit=40,
+        )
+        versions_docs = list(cursor)
+    except PyMongoError:
+        return jsonify({'ok': False, 'error': 'שגיאה בטעינת היסטוריה'}), 500
+
+    active_id = str(file_doc.get('_id'))
+    versions_payload = []
+    for doc in versions_docs:
+        dt = _safe_dt_from_doc(doc.get('updated_at') or doc.get('created_at'))
+        if isinstance(dt, datetime):
+            display_ts = format_datetime_display(dt)
+            iso_ts = dt.isoformat()
+        else:
+            try:
+                display_ts = format_datetime_display(dt)
+            except Exception:
+                display_ts = str(dt or '')
+            iso_ts = ''
+        versions_payload.append({
+            'id': str(doc.get('_id')),
+            'version': int(doc.get('version', 1) or 1),
+            'updated_at_display': display_ts,
+            'updated_at_iso': iso_ts,
+            'is_current': str(doc.get('_id')) == active_id,
+            'is_active': bool(doc.get('is_active', True)),
+        })
+
+    return jsonify({
+        'ok': True,
+        'file_name': file_name,
+        'active_file_id': active_id,
+        'versions': versions_payload,
+    })
+
+
+@app.route('/api/file/<file_id>/restore', methods=['POST'])
+@login_required
+def api_restore_file_version(file_id):
+    """יוצר גרסה חדשה מתוך גרסה ישנה ומחזיר את ה-ID החדש."""
+    db = get_db()
+    user_id = session['user_id']
+    payload = request.get_json(silent=True) or {}
+    version_id = str(payload.get('version_id') or '').strip()
+    if not version_id:
+        return jsonify({'ok': False, 'error': 'version_id נדרש'}), 400
+    try:
+        current_obj_id = ObjectId(file_id)
+    except (InvalidId, TypeError):
+        return jsonify({'ok': False, 'error': 'קובץ לא נמצא'}), 404
+    try:
+        current_doc = db.code_snippets.find_one({'_id': current_obj_id, 'user_id': user_id})
+    except PyMongoError:
+        return jsonify({'ok': False, 'error': 'שגיאה במסד הנתונים'}), 500
+    if not current_doc:
+        return jsonify({'ok': False, 'error': 'קובץ לא נמצא'}), 404
+    file_name = current_doc.get('file_name')
+    if not file_name:
+        return jsonify({'ok': False, 'error': 'קובץ לא חוקי'}), 400
+    try:
+        target_doc = db.code_snippets.find_one({
+            '_id': ObjectId(version_id),
+            'user_id': user_id,
+            'file_name': file_name,
+        })
+    except (InvalidId, TypeError):
+        return jsonify({'ok': False, 'error': 'הגרסה לא נמצאה'}), 404
+    except PyMongoError:
+        return jsonify({'ok': False, 'error': 'שגיאה במסד הנתונים'}), 500
+    if not target_doc:
+        return jsonify({'ok': False, 'error': 'הגרסה לא נמצאה'}), 404
+
+    try:
+        latest_doc = db.code_snippets.find_one(
+            {'user_id': user_id, 'file_name': file_name},
+            sort=[('version', DESCENDING)]
+        )
+    except PyMongoError:
+        latest_doc = None
+    next_version = int((latest_doc or {}).get('version', 0) or 0) + 1
+    now = datetime.now(timezone.utc)
+    try:
+        tags = list(target_doc.get('tags') or [])
+    except Exception:
+        tags = []
+
+    new_doc = {
+        'user_id': user_id,
+        'file_name': file_name,
+        'code': target_doc.get('code', ''),
+        'programming_language': target_doc.get('programming_language') or current_doc.get('programming_language') or 'text',
+        'description': target_doc.get('description') or '',
+        'tags': tags,
+        'version': next_version,
+        'created_at': now,
+        'updated_at': now,
+        'is_active': True,
+        'source_url': target_doc.get('source_url') or current_doc.get('source_url') or '',
+        'is_favorite': bool(current_doc.get('is_favorite', False)),
+    }
+    favorited_at = current_doc.get('favorited_at')
+    if new_doc['is_favorite'] and favorited_at:
+        new_doc['favorited_at'] = favorited_at
+
+    try:
+        result = db.code_snippets.insert_one(new_doc)
+    except PyMongoError:
+        return jsonify({'ok': False, 'error': 'שגיאה בשחזור הקובץ'}), 500
+
+    new_id = str(result.inserted_id)
+    try:
+        cache.invalidate_user_cache(int(user_id))
+    except Exception:
+        pass
+    try:
+        cache.invalidate_file_related(file_id=new_id, user_id=user_id)
+    except Exception:
+        pass
+    try:
+        emit_event("webapp_file_restore", severity="info", user_id=user_id, file_name=file_name, version=next_version)
+    except Exception:
+        pass
+
+    return jsonify({'ok': True, 'new_file_id': new_id, 'version': next_version})
+
 @app.route('/api/files/recent')
 @login_required
 def api_recent_files():
