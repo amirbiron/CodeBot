@@ -2794,6 +2794,7 @@ try { if (typeof window !== 'undefined') { window.attachColorSwatches = attachCo
   const COLORS = {
     sepia: '#FFFBF5'
   };
+  const COLOR_CLASSES = ['bg-sepia', 'bg-light', 'bg-medium', 'bg-dark'];
   
   const STORAGE_KEY = 'md_bg_color_preference';
   
@@ -2817,22 +2818,28 @@ try { if (typeof window !== 'undefined') { window.attachColorSwatches = attachCo
     } catch(_) {}
   }
   
+  function isValidColorValue(value) {
+    return typeof value === 'string' && Object.prototype.hasOwnProperty.call(COLORS, value);
+  }
+
   // החלת צבע רקע
-  function applyBackgroundColor(color) {
+  function applyBackgroundColor(color, options = {}) {
+    const remember = options.remember !== false;
     const mdContent = document.getElementById('md-content');
     if (!mdContent) return;
     
     // הסרת כל המחלקות הקודמות
-    mdContent.classList.remove('bg-sepia', 'bg-light', 'bg-medium', 'bg-dark');
+    mdContent.classList.remove(...COLOR_CLASSES);
     
+    const normalizedColor = isValidColorValue(color) ? color : null;
     // החלת צבע חדש אם נבחר
-    if (color && COLORS[color]) {
-      mdContent.classList.add(`bg-${color}`);
+    if (normalizedColor) {
+      mdContent.classList.add(`bg-${normalizedColor}`);
       
       // עדכון הכפתור הראשי
       const indicator = document.querySelector('#bgColorBtn span');
       if (indicator) {
-        indicator.style.background = COLORS[color];
+        indicator.style.background = COLORS[normalizedColor];
       }
     } else {
       // חזרה לצבע ברירת המחדל (לבן)
@@ -2846,15 +2853,17 @@ try { if (typeof window !== 'undefined') { window.attachColorSwatches = attachCo
     document.querySelectorAll('.bg-color-option').forEach(btn => {
       btn.classList.remove('active');
       // השוואה גם לערך ריק עבור ברירת המחדל
-      if ((color === null || color === '') && (btn.dataset.color === '' || btn.dataset.color === 'default')) {
+      if ((normalizedColor === null || normalizedColor === '') && (btn.dataset.color === '' || btn.dataset.color === 'default')) {
         btn.classList.add('active');
-      } else if (btn.dataset.color === color) {
+      } else if (btn.dataset.color === normalizedColor) {
         btn.classList.add('active');
       }
     });
     
     // שמירת ההעדפה
-    saveColorPreference(color);
+    if (remember) {
+      saveColorPreference(normalizedColor);
+    }
   }
   
   // אתחול המערכת
@@ -2866,8 +2875,11 @@ try { if (typeof window !== 'undefined') { window.attachColorSwatches = attachCo
     
     // טעינת העדפה שמורה
     const savedColor = getSavedColorPreference();
-    if (savedColor) {
-      applyBackgroundColor(savedColor);
+    if (savedColor && !isValidColorValue(savedColor)) {
+      saveColorPreference(null);
+      applyBackgroundColor(null, { remember: false });
+    } else {
+      applyBackgroundColor(savedColor || null, { remember: false });
     }
     
     // פתיחה/סגירה של התפריט
