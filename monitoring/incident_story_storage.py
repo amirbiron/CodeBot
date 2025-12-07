@@ -219,7 +219,7 @@ def save_story(story: Dict[str, Any]) -> Dict[str, Any]:
             updated = []
             replaced = False
             merged: Optional[Dict[str, Any]] = None
-            for entry in entries:
+            for idx, entry in enumerate(entries):
                 entry_id = entry.get("story_id")
                 if entry_id == doc["story_id"] or entry.get("alert_uid") == doc.get("alert_uid"):
                     merged = dict(entry)
@@ -228,6 +228,9 @@ def save_story(story: Dict[str, Any]) -> Dict[str, Any]:
                     merged.setdefault("created_at", entry.get("created_at") or _isoformat(now))
                     updated.append(merged)
                     replaced = True
+                    # שמור את שאר הרשומות כפי שהן והפסק לולאה
+                    updated.extend(entries[idx + 1 :])
+                    break
                 else:
                     updated.append(entry)
             if not replaced:

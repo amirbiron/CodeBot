@@ -1489,7 +1489,7 @@ def fetch_incident_replay(
                 "severity": "info",
                 "title": story.get("alert_name") or "Incident Story",
                 "summary": (story.get("what_we_saw") or {}).get("description") or "",
-                "link": f"/admin/observability?story_id={story.get('story_id')}&focus_ts={ts}",
+                "link": f"/admin/observability?{urlencode({'story_id': story.get('story_id'), 'focus_ts': ts})}",
                 "metadata": {
                     "alert_uid": story.get("alert_uid"),
                     "story_id": story.get("story_id"),
