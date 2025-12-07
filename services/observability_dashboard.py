@@ -55,10 +55,11 @@ _MAX_AI_LOG_LINES = 40
 _MAX_AI_TEXT_CHARS = 4000
 _MAX_MASK_INPUT = 20000
 
-_EMAIL_RE = re.compile(r"[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}", re.IGNORECASE)
 _HEX_TOKEN_RE = re.compile(r"\b[0-9a-f]{16,}\b", re.IGNORECASE)
 _LONG_DIGIT_RE = re.compile(r"\b\d{8,}\b")
 _SECRET_RE = re.compile(r"(?i)(token|secret|password|api[_-]?key)\s*[:=]\s*([^\s,;]+)")
+_EMAIL_LOCAL_CHARS = frozenset("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._%+-")
+_EMAIL_DOMAIN_CHARS = frozenset("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789.-")
 
 _QUICK_FIX_PATH = Path(os.getenv("ALERT_QUICK_FIX_PATH", "config/alert_quick_fixes.json"))
 _QUICK_FIX_CACHE: Dict[str, Any] = {}
@@ -1310,10 +1311,43 @@ def _mask_text(value: Any) -> str:
         return f"{key}=<redacted>"
 
     masked = _SECRET_RE.sub(_replace_secret, text)
-    masked = _EMAIL_RE.sub("[email]", masked)
+    masked = _mask_email_like(masked)
     masked = _HEX_TOKEN_RE.sub("<token>", masked)
     masked = _LONG_DIGIT_RE.sub("<id>", masked)
     return masked + suffix
+
+
+def _mask_email_like(text: str) -> str:
+    if "@" not in text:
+        return text
+    parts: List[str] = []
+    idx = 0
+    length = len(text)
+    while idx < length:
+        at_pos = text.find("@", idx)
+        if at_pos == -1:
+            parts.append(text[idx:])
+            break
+        local_start = at_pos - 1
+        while local_start >= idx and text[local_start] in _EMAIL_LOCAL_CHARS:
+            local_start -= 1
+        local_start += 1
+        domain_end = at_pos + 1
+        dot_seen = False
+        while domain_end < length and text[domain_end] in _EMAIL_DOMAIN_CHARS:
+            if text[domain_end] == ".":
+                dot_seen = True
+            domain_end += 1
+        has_local = local_start < at_pos
+        has_domain = domain_end > at_pos + 1
+        if has_local and has_domain and dot_seen:
+            parts.append(text[idx:local_start])
+            parts.append("[email]")
+            idx = domain_end
+        else:
+            parts.append(text[idx:domain_end])
+            idx = domain_end
+    return "".join(parts)
 
 
 def _truncate_text(text: str, limit: int) -> str:
