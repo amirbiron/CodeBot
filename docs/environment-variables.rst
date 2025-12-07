@@ -896,6 +896,30 @@
      - ``config/alert_quick_fixes.json``
      - ``config/custom_fixes.json``
      - Bot/WebApp
+   * - ``OBS_AI_EXPLAIN_URL``
+     - Endpoint לשירות ההסבר החכם של הדשבורד (מקבל ``POST`` עם ``context`` ומחזיר ``root_cause``/``actions``/``signals``).
+     - לא
+     - "" (ריק)
+     - ``https://ai.example.com/explain``
+     - WebApp/Observability
+   * - ``OBS_AI_EXPLAIN_TOKEN``
+     - אסימון Bearer שנשלח ב-Header ``Authorization`` כאשר השירות מוגן (אופציונלי).
+     - לא
+     - "" (ריק)
+     - ``sk-live-123`` / ``bearer-xyz``
+     - WebApp/Observability
+   * - ``OBS_AI_EXPLAIN_TIMEOUT``
+     - Timeout (שניות) לפנייה לשירות ה-AI לפני נפילה לניתוח היוריסטי.
+     - לא
+     - ``12``
+     - ``20``
+     - WebApp/Observability
+   * - ``OBS_AI_EXPLAIN_CACHE_TTL``
+     - חיי המטמון (שניות) לתוצאות AI לפי ``alert_uid`` ב-Observability.
+     - לא
+     - ``600``
+     - ``900``
+     - WebApp/Observability
    * - ``SILENCE_MAX_DAYS``
      - מגבלת ימים לסיילנס יחיד שנוצר דרך ChatOps.
      - לא
