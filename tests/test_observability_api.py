@@ -131,6 +131,8 @@ def test_story_template_requires_admin(monkeypatch):
     monkeypatch.setenv('ADMIN_USER_IDS', '10')
     app = _build_app()
     with app.test_client() as client:
+        with client.session_transaction() as sess:
+            sess['user_id'] = 99  # משתמש מחובר אך לא אדמין
         resp = client.post('/api/observability/story/template', json={'alert': {}})
     assert resp.status_code == 403
 
