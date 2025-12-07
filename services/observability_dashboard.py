@@ -1715,6 +1715,18 @@ def export_story_markdown(story_id: str) -> Optional[str]:
     story = fetch_story(story_id)
     if not story:
         return None
+    return render_story_markdown_inline(story)
+
+
+def render_story_markdown_inline(story: Dict[str, Any]) -> str:
+    """
+    מייצר טקסט Markdown עבור סיפור אירוע קיים או טיוטה זמנית.
+
+    הפונקציה אחראית רק להרכבת התוכן, ללא שליפת הנתונים מהמסד – ולכן ניתן
+    לעשות בה שימוש גם עבור סיפורים שטרם נשמרו.
+    """
+    if not isinstance(story, dict):
+        raise ValueError("invalid_story_payload")
     return _render_story_markdown(story)
 
 
