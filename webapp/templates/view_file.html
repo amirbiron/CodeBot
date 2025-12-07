@@ -279,12 +279,18 @@
 .file-actions__menu {
     position: relative;
     flex: 0 0 auto;
+    display: flex;
+    align-items: stretch;
 }
 
 .file-actions__menu-button {
     min-width: 48px;
     padding-inline: 16px;
     font-size: 1.5rem;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex: 0 0 auto;
 }
 
 .file-actions__dropdown {
@@ -358,6 +364,9 @@
     .file-actions__list {
         flex-wrap: wrap;
         overflow: visible;
+    }
+    .file-actions__menu-button {
+        flex: 0 0 auto !important;
     }
 }
 
@@ -520,7 +529,7 @@
         justify-content: stretch;
     }
 
-    .file-actions .btn {
+    .file-actions__list .btn {
         flex: 1;
     }
 
@@ -1797,6 +1806,68 @@ function goBack(ev){
         };
     }).filter(Boolean);
     const proxies = new Map();
+    const viewportPadding = 16;
+    let dropdownRaf = null;
+
+    function getViewportSize() {
+        const docEl = document.documentElement;
+        const width = (window.visualViewport && window.visualViewport.width) ||
+            (docEl && docEl.clientWidth) ||
+            window.innerWidth ||
+            0;
+        const height = (window.visualViewport && window.visualViewport.height) ||
+            (docEl && docEl.clientHeight) ||
+            window.innerHeight ||
+            0;
+        return { width, height };
+    }
+
+    function resetDropdownBounds() {
+        dropdown.style.removeProperty('transform');
+        dropdown.style.removeProperty('max-width');
+        dropdown.style.removeProperty('max-height');
+        dropdown.style.overflowY = '';
+    }
+
+    function clampDropdownToViewport() {
+        if (!dropdown || dropdown.hidden) {
+            return;
+        }
+        if (dropdownRaf) {
+            cancelAnimationFrame(dropdownRaf);
+            dropdownRaf = null;
+        }
+        const { width: viewportWidth, height: viewportHeight } = getViewportSize();
+        const availableWidth = Math.max(160, viewportWidth - viewportPadding * 2);
+        const maxWidth = Math.min(320, availableWidth, viewportWidth);
+        dropdown.style.maxWidth = maxWidth ? `${maxWidth}px` : '';
+        dropdown.style.removeProperty('transform');
+        dropdown.style.removeProperty('max-height');
+        dropdown.style.overflowY = '';
+        dropdownRaf = requestAnimationFrame(() => {
+            dropdownRaf = null;
+            if (dropdown.hidden) {
+                return;
+            }
+            const rect = dropdown.getBoundingClientRect();
+            const overflowRight = Math.max(0, rect.right - (viewportWidth - viewportPadding));
+            const overflowLeft = Math.max(0, viewportPadding - rect.left);
+            const shift = overflowRight ? -overflowRight : (overflowLeft ? overflowLeft : 0);
+            if (shift) {
+                dropdown.style.transform = `translateX(${shift}px)`;
+            } else {
+                dropdown.style.removeProperty('transform');
+            }
+            const availableHeight = viewportHeight - rect.top - viewportPadding;
+            if (availableHeight > 0 && availableHeight < rect.height) {
+                dropdown.style.maxHeight = `${Math.max(160, availableHeight)}px`;
+                dropdown.style.overflowY = 'auto';
+            } else {
+                dropdown.style.removeProperty('max-height');
+                dropdown.style.overflowY = '';
+            }
+        });
+    }
 
     function updateDividerVisibility() {
         if (!dividerEl) {
@@ -1887,8 +1958,22 @@ function goBack(ev){
         if (resizeTimer) {
             clearTimeout(resizeTimer);
         }
-        resizeTimer = setTimeout(applyOverflow, 120);
+        resizeTimer = setTimeout(() => {
+            applyOverflow();
+            clampDropdownToViewport();
+        }, 120);
     });
+    try {
+        window.addEventListener('scroll', clampDropdownToViewport, { passive: true });
+    } catch (_) {
+        window.addEventListener('scroll', clampDropdownToViewport);
+    }
+    if (window.visualViewport) {
+        try {
+            window.visualViewport.addEventListener('resize', clampDropdownToViewport);
+            window.visualViewport.addEventListener('scroll', clampDropdownToViewport);
+        } catch (_) {}
+    }
     const mobileMatch = window.matchMedia && window.matchMedia('(max-width: 768px)');
     if (mobileMatch) {
         const handler = () => setTimeout(applyOverflow, 80);
@@ -1904,10 +1989,12 @@ function goBack(ev){
     function openMenu() {
         dropdown.hidden = false;
         menuButton.setAttribute('aria-expanded', 'true');
+        clampDropdownToViewport();
     }
     function closeMenu() {
         dropdown.hidden = true;
         menuButton.setAttribute('aria-expanded', 'false');
+        resetDropdownBounds();
     }
 
     menuButton.addEventListener('click', (event) => {
