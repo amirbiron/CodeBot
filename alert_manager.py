@@ -19,7 +19,7 @@ Environment variables used (optional; fail-open if missing):
 """
 from __future__ import annotations
 
-from collections import defaultdict, deque
+from collections import Counter, defaultdict, deque
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any, Deque, Dict, List, Tuple, Optional
@@ -97,6 +97,8 @@ _MIN_SAMPLE_REQUIREMENTS = {
 }
 
 _samples: Deque[Tuple[float, bool, float]] = deque(maxlen=200_000)  # (ts, is_error, latency_s)
+_error_contexts: Deque[Tuple[float, Dict[str, Any]]] = deque(maxlen=5_000)
+_ERROR_CONTEXT_WINDOW_SEC = 5 * 60
 _last_recompute_ts: float = 0.0
 
 
@@ -133,13 +135,20 @@ def reset_state_for_tests() -> None:
         _thresholds[k] = _MetricThreshold()
     _dispatch_log.clear()
     _last_alert_ts.clear()
+    _error_contexts.clear()
 
 
 def _now() -> float:
     return time.time()
 
 
-def note_request(status_code: int, duration_seconds: float, ts: Optional[float] = None) -> None:
+def note_request(
+    status_code: int,
+    duration_seconds: float,
+    ts: Optional[float] = None,
+    *,
+    context: Optional[Dict[str, Any]] = None,
+) -> None:
     """Record a single request sample into the 3h rolling window.
 
     ts: optional epoch seconds (for tests). Defaults to current time.
@@ -148,6 +157,8 @@ def note_request(status_code: int, duration_seconds: float, ts: Optional[float] 
         t = float(ts if ts is not None else _now())
         is_error = int(status_code) >= 500
         _samples.append((t, bool(is_error), max(0.0, float(duration_seconds))))
+        if is_error and context:
+            _record_error_context(t, context)
         _evict_older_than(t - _WINDOW_SEC)
         _recompute_if_due(t)
     except Exception:
@@ -276,6 +287,170 @@ def _collect_recent_samples(window_sec: int) -> Tuple[int, int, float]:
         return 0, 0, 0.0
 
 
+def _sanitize_error_context(context: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+    if not isinstance(context, dict):
+        return None
+    allowed_keys = ("command", "handler", "path", "method", "request_id", "user_id", "source")
+    sanitized: Dict[str, str] = {}
+    for key in allowed_keys:
+        try:
+            value = context.get(key)
+        except Exception:
+            continue
+        if value in (None, ""):
+            continue
+        try:
+            text = str(value).strip()
+        except Exception:
+            continue
+        if not text:
+            continue
+        limit = 64 if key in {"request_id", "user_id"} else 200
+        sanitized[key] = text[:limit]
+    return sanitized or None
+
+
+def _record_error_context(ts: float, context: Optional[Dict[str, Any]]) -> None:
+    sanitized = _sanitize_error_context(context)
+    if not sanitized:
+        return
+    try:
+        _error_contexts.append((ts, sanitized))
+    except Exception:
+        pass
+
+
+def _recent_error_contexts(now_ts: float, window_sec: int = _ERROR_CONTEXT_WINDOW_SEC) -> List[Dict[str, Any]]:
+    cutoff = now_ts - max(1, int(window_sec))
+    while _error_contexts and _error_contexts[0][0] < cutoff:
+        try:
+            _error_contexts.popleft()
+        except Exception:
+            break
+    return [ctx for _, ctx in list(_error_contexts)]
+
+
+def _derive_feature_from_command(command: Optional[str]) -> Optional[str]:
+    if not command:
+        return None
+    try:
+        text = str(command).strip()
+    except Exception:
+        return None
+    if not text:
+        return None
+    if ":" in text:
+        candidate = text.split(":")[-1]
+    else:
+        candidate = text
+    candidate = candidate.strip()
+    return candidate or None
+
+
+def _format_error_rate_meta_summary(
+    label: Optional[str],
+    current_pct: float,
+    threshold_pct: float,
+    request_id: Optional[str],
+) -> str:
+    parts: List[str] = []
+    if label:
+        parts.append(label)
+    parts.append(f"error_rate {current_pct:.2f}% > {max(threshold_pct, 0.0):.2f}%")
+    if request_id:
+        short = request_id[:8]
+        parts.append(f"request {short}")
+    return " · ".join(parts)
+
+
+def _build_high_error_rate_meta(
+    current_pct: float,
+    threshold_pct: float,
+    sample_count: int,
+    now_ts: float,
+    window_sec: int,
+) -> Dict[str, Any]:
+    contexts = _recent_error_contexts(now_ts, window_sec)
+    meta: Dict[str, Any] = {
+        "alert_type": "high_error_rate",
+        "metric": "error_rate_percent",
+        "metric_name": "error_rate_percent",
+        "graph_metric": "error_rate_percent",
+        "error_rate_percent": round(current_pct, 4),
+        "threshold_percent": round(threshold_pct, 4),
+        "sample_count": int(sample_count),
+        "window_seconds": int(window_sec),
+        "recent_error_context_count": len(contexts),
+    }
+    dominant_label = None
+    if contexts:
+        commands = [ctx.get("command") for ctx in contexts if ctx.get("command")]
+        dominant_command = None
+        if commands:
+            counts = Counter(commands)
+            dominant_command = counts.most_common(1)[0][0]
+            if dominant_command:
+                meta["command"] = dominant_command
+                feature = _derive_feature_from_command(dominant_command)
+                if feature:
+                    meta["feature"] = feature
+                    dominant_label = feature
+                else:
+                    dominant_label = dominant_command
+        latest = contexts[-1]
+        endpoint = latest.get("path") or latest.get("handler")
+        if endpoint:
+            meta["endpoint"] = endpoint
+            if dominant_label is None:
+                dominant_label = endpoint
+        method = latest.get("method")
+        if method:
+            meta["method"] = method
+        source = latest.get("source")
+        if source:
+            meta["source"] = source
+        request_id = latest.get("request_id")
+        if request_id:
+            meta["request_id"] = request_id
+        user_id = latest.get("user_id")
+        if user_id:
+            meta["user_id"] = user_id
+    else:
+        request_id = None
+
+    if "request_id" not in meta:
+        request_id = None
+    else:
+        request_id = str(meta["request_id"])
+    label = dominant_label or "high_error_rate"
+    meta["meta_summary"] = _format_error_rate_meta_summary(label, current_pct, threshold_pct, request_id)
+    return meta
+
+
+def _enrich_alert_details(key: str, details: Dict[str, Any], now_ts: float) -> Dict[str, Any]:
+    if str(key) != "error_rate_percent":
+        return details
+    try:
+        current_pct = float(details.get("current_percent") or details.get("error_rate_percent") or 0.0)
+    except Exception:
+        current_pct = 0.0
+    try:
+        threshold_pct = float(details.get("threshold_percent") or _thresholds.get("error_rate_percent", _MetricThreshold()).threshold or 0.0)
+    except Exception:
+        threshold_pct = 0.0
+    try:
+        sample_count = int(details.get("sample_count") or 0)
+    except Exception:
+        sample_count = 0
+    try:
+        window_sec = int(details.get("window_seconds") or _ERROR_CONTEXT_WINDOW_SEC)
+    except Exception:
+        window_sec = _ERROR_CONTEXT_WINDOW_SEC
+    meta = _build_high_error_rate_meta(current_pct, threshold_pct, sample_count, now_ts, window_sec)
+    details.update(meta)
+    return details
+
+
 def get_current_error_rate_percent(window_sec: int = 300) -> float:
     """Return error rate percent for the last window (default 5 minutes)."""
     try:
@@ -367,6 +542,10 @@ def check_and_emit_alerts(now_ts: Optional[float] = None) -> None:
 
         # Error rate
         cur_err_pct = (float(error_samples) / float(total_samples) * 100.0) if total_samples > 0 else 0.0
+        try:
+            err_threshold = float(_thresholds.get("error_rate_percent", _MetricThreshold()).threshold or 0.0)
+        except Exception:
+            err_threshold = 0.0
         if _should_fire("error_rate_percent", cur_err_pct, total_samples):
             _emit_critical_once(
                 key="error_rate_percent",
@@ -375,6 +554,11 @@ def check_and_emit_alerts(now_ts: Optional[float] = None) -> None:
                 details={
                     "current_percent": round(cur_err_pct, 4),
                     "sample_count": int(total_samples),
+                    "error_count": int(error_samples),
+                    "threshold_percent": round(err_threshold, 4),
+                    "window_seconds": int(window_sec),
+                    "metric": "error_rate_percent",
+                    "graph_metric": "error_rate_percent",
                 },
                 now_ts=t,
             )
@@ -397,6 +581,14 @@ def check_and_emit_alerts(now_ts: Optional[float] = None) -> None:
 
 
 def _emit_critical_once(key: str, name: str, summary: str, details: Dict[str, Any], now_ts: float) -> None:
+    try:
+        details = dict(details or {})
+    except Exception:
+        details = {}
+    try:
+        details = _enrich_alert_details(key, details, now_ts)
+    except Exception:
+        pass
     last = _last_alert_ts.get(key, 0.0)
     if (now_ts - last) < _COOLDOWN_SEC:
         return
