@@ -9021,6 +9021,38 @@ def api_observability_quickfix_track():
     return jsonify({'ok': True})
 
 
+@app.route('/api/observability/alerts/ai_explain', methods=['POST'])
+@login_required
+def api_observability_alert_ai_explain():
+    if not _require_admin_user():
+        return jsonify({'ok': False, 'error': 'admin_only'}), 403
+    payload = request.get_json(silent=True) or {}
+    alert_snapshot = payload.get('alert')
+    force_refresh = bool(payload.get('force') or payload.get('refresh'))
+    if not isinstance(alert_snapshot, dict):
+        return jsonify({'ok': False, 'error': 'missing_alert'}), 400
+    try:
+        explanation = observability_service.explain_alert_with_ai(
+            alert_snapshot,
+            force_refresh=force_refresh,
+        )
+        return jsonify({'ok': True, 'explanation': explanation})
+    except ValueError as exc:
+        logger.warning("observability_ai_explain_bad_request", extra={'error': str(exc)})
+        return jsonify({
+            'ok': False,
+            'error': 'bad_request',
+            'message': 'Invalid request data',
+        }), 400
+    except Exception:
+        logger.exception("observability_ai_explain_failed")
+        return jsonify({
+            'ok': False,
+            'error': 'internal_error',
+            'message': 'הפקת הסבר נכשלה, נסה שוב מאוחר יותר',
+        }), 500
+
+
 @app.route('/api/observability/story/template', methods=['POST'])
 @login_required
 def api_observability_story_template():

@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import copy
 import hashlib
 import json
 import logging
 import os
+import re
 import threading
 import time
 from collections import deque
@@ -11,6 +13,8 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 from urllib.parse import urlencode, urlparse
+
+import requests
 
 try:
     import internal_alerts as _internal_alerts  # type: ignore
@@ -32,6 +36,30 @@ _CACHE_LOCK = threading.Lock()
 _ALERTS_CACHE_TTL = 120.0
 _AGG_CACHE_TTL = 150.0
 _TS_CACHE_TTL = 150.0
+try:
+    _AI_EXPLAIN_CACHE_TTL = float(os.getenv("OBS_AI_EXPLAIN_CACHE_TTL", "600"))
+except ValueError:  # pragma: no cover - env misconfig fallback
+    _AI_EXPLAIN_CACHE_TTL = 600.0
+
+_AI_EXPLAIN_URL = os.getenv("OBS_AI_EXPLAIN_URL") or os.getenv("AI_EXPLAIN_URL") or ""
+_AI_EXPLAIN_TOKEN = os.getenv("OBS_AI_EXPLAIN_TOKEN") or os.getenv("AI_EXPLAIN_TOKEN") or ""
+try:
+    _AI_EXPLAIN_TIMEOUT = float(os.getenv("OBS_AI_EXPLAIN_TIMEOUT", "12"))
+except ValueError:  # pragma: no cover - env misconfig fallback
+    _AI_EXPLAIN_TIMEOUT = 12.0
+
+_MAX_AI_METADATA_ITEMS = 25
+_MAX_AI_METADATA_CHILD_ITEMS = 5
+_MAX_AI_METADATA_STRING = 512
+_MAX_AI_LOG_LINES = 40
+_MAX_AI_TEXT_CHARS = 4000
+_MAX_MASK_INPUT = 20000
+
+_HEX_TOKEN_RE = re.compile(r"\b[0-9a-f]{16,}\b", re.IGNORECASE)
+_LONG_DIGIT_RE = re.compile(r"\b\d{8,}\b")
+_SECRET_RE = re.compile(r"(?i)(token|secret|password|api[_-]?key)\s*[:=]\s*([^\s,;]+)")
+_EMAIL_LOCAL_CHARS = frozenset("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._%+-")
+_EMAIL_DOMAIN_CHARS = frozenset("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789.-")
 
 _QUICK_FIX_PATH = Path(os.getenv("ALERT_QUICK_FIX_PATH", "config/alert_quick_fixes.json"))
 _QUICK_FIX_CACHE: Dict[str, Any] = {}
@@ -1266,6 +1294,450 @@ def _collect_story_actions(alert_uid: str) -> List[Dict[str, Any]]:
             }
         )
     return actions
+
+
+def _mask_text(value: Any) -> str:
+    original = str(value or "")
+    if not original:
+        return ""
+    suffix = ""
+    text = original
+    if len(text) > _MAX_MASK_INPUT:
+        text = text[:_MAX_MASK_INPUT]
+        suffix = "…"
+
+    def _replace_secret(match: re.Match[str]) -> str:
+        key = match.group(1)
+        return f"{key}=<redacted>"
+
+    masked = _SECRET_RE.sub(_replace_secret, text)
+    masked = _mask_email_like(masked)
+    masked = _HEX_TOKEN_RE.sub("<token>", masked)
+    masked = _LONG_DIGIT_RE.sub("<id>", masked)
+    return masked + suffix
+
+
+def _mask_email_like(text: str) -> str:
+    if "@" not in text:
+        return text
+    parts: List[str] = []
+    idx = 0
+    length = len(text)
+    while idx < length:
+        at_pos = text.find("@", idx)
+        if at_pos == -1:
+            parts.append(text[idx:])
+            break
+        local_start = at_pos - 1
+        while local_start >= idx and text[local_start] in _EMAIL_LOCAL_CHARS:
+            local_start -= 1
+        local_start += 1
+        domain_end = at_pos + 1
+        dot_seen = False
+        while domain_end < length and text[domain_end] in _EMAIL_DOMAIN_CHARS:
+            if text[domain_end] == ".":
+                dot_seen = True
+            domain_end += 1
+        has_local = local_start < at_pos
+        has_domain = domain_end > at_pos + 1
+        if has_local and has_domain and dot_seen:
+            parts.append(text[idx:local_start])
+            parts.append("[email]")
+            idx = domain_end
+        else:
+            parts.append(text[idx:domain_end])
+            idx = domain_end
+    return "".join(parts)
+
+
+def _truncate_text(text: str, limit: int) -> str:
+    if limit <= 0 or len(text) <= limit:
+        return text
+    head = max(32, limit // 2)
+    tail = max(32, limit - head - 1)
+    if tail <= 0:
+        return text[:limit]
+    return f"{text[:head]}…{text[-tail:]}"
+
+
+def _mask_value(value: Any, depth: int = 0) -> Any:
+    if depth > 3:
+        return "…"
+    if isinstance(value, dict):
+        sanitized: Dict[str, Any] = {}
+        for idx, (key, val) in enumerate(value.items()):
+            if idx >= _MAX_AI_METADATA_CHILD_ITEMS:
+                break
+            sanitized[str(key)] = _mask_value(val, depth + 1)
+        return sanitized
+    if isinstance(value, list):
+        out: List[Any] = []
+        for item in value[:_MAX_AI_METADATA_CHILD_ITEMS]:
+            out.append(_mask_value(item, depth + 1))
+        return out
+    if isinstance(value, (int, float, bool)) or value is None:
+        return value
+    truncated = _truncate_text(_mask_text(value), _MAX_AI_METADATA_STRING if depth else _MAX_AI_TEXT_CHARS)
+    return truncated.strip()
+
+
+def _sanitize_metadata(metadata: Any) -> Dict[str, Any]:
+    if not isinstance(metadata, dict):
+        return {}
+    sanitized: Dict[str, Any] = {}
+    for idx, (key, value) in enumerate(metadata.items()):
+        if idx >= _MAX_AI_METADATA_ITEMS:
+            break
+        sanitized[str(key)] = _mask_value(value)
+    return sanitized
+
+
+def _flatten_log_value(value: Any) -> List[str]:
+    if value is None:
+        return []
+    if isinstance(value, str):
+        return [value]
+    if isinstance(value, (int, float)):
+        return [str(value)]
+    if isinstance(value, list):
+        lines: List[str] = []
+        for item in value:
+            lines.extend(_flatten_log_value(item))
+        return lines
+    if isinstance(value, dict):
+        lines: List[str] = []
+        for key, val in list(value.items())[:_MAX_AI_METADATA_CHILD_ITEMS]:
+            if isinstance(val, (dict, list)):
+                lines.append(f"{key}: {json.dumps(val, ensure_ascii=False)[:160]}")
+            else:
+                lines.append(f"{key}: {val}")
+        return lines
+    return [str(value)]
+
+
+def _collect_log_lines(metadata: Any) -> List[str]:
+    if not isinstance(metadata, dict):
+        return []
+    lines: List[str] = []
+    candidate_keys = (
+        "logs",
+        "recent_logs",
+        "log_excerpt",
+        "log_lines",
+        "messages",
+        "errors",
+        "events",
+        "samples",
+    )
+    for key in candidate_keys:
+        value = metadata.get(key)
+        if not value:
+            continue
+        lines.extend(_flatten_log_value(value))
+    return lines
+
+
+def _slice_log_lines(lines: List[str]) -> List[str]:
+    if not lines:
+        return []
+    sanitized: List[str] = []
+    for line in lines:
+        clean = _mask_text(line).strip()
+        if not clean:
+            continue
+        sanitized.append(_truncate_text(clean, 320))
+    if len(sanitized) <= _MAX_AI_LOG_LINES:
+        return sanitized
+    remaining = max(1, _MAX_AI_LOG_LINES - 1)
+    head = remaining // 2
+    tail = remaining - head
+    return sanitized[:head] + ["…"] + sanitized[-tail:]
+
+
+def _summarize_quick_fixes(alert: Dict[str, Any]) -> List[Dict[str, Any]]:
+    fixes_summary: List[Dict[str, Any]] = []
+    quick_fixes = alert.get("quick_fixes")
+    if not isinstance(quick_fixes, list):
+        return fixes_summary
+    for fix in quick_fixes[:3]:
+        if not isinstance(fix, dict):
+            continue
+        fixes_summary.append(
+            {
+                "label": _truncate_text(_mask_text(fix.get("label") or "פעולה"), 160),
+                "type": fix.get("type"),
+                "safety": fix.get("safety"),
+            }
+        )
+    return fixes_summary
+
+
+def _summarize_graph_meta(graph_meta: Any) -> Optional[Dict[str, Any]]:
+    if not isinstance(graph_meta, dict):
+        return None
+    summary = {
+        "metric": graph_meta.get("metric"),
+        "label": graph_meta.get("label"),
+        "unit": graph_meta.get("unit"),
+        "default_range": graph_meta.get("default_range"),
+        "default_minutes": graph_meta.get("default_minutes"),
+    }
+    if not summary["metric"] and not summary["label"]:
+        return None
+    return summary
+
+
+def _build_ai_context(alert: Dict[str, Any]) -> Dict[str, Any]:
+    metadata = alert.get("metadata") if isinstance(alert.get("metadata"), dict) else {}
+    sanitized_metadata = _sanitize_metadata(metadata)
+    log_lines = _collect_log_lines(metadata)
+    log_excerpt = "\n".join(_slice_log_lines(log_lines))
+    alert_uid = alert.get("alert_uid")
+    auto_actions = _collect_story_actions(alert_uid or "")
+    safe_actions: List[Dict[str, Any]] = []
+    for action in auto_actions[:4]:
+        safe_actions.append(
+            {
+                "label": _truncate_text(_mask_text(action.get("label")), 160),
+                "summary": _truncate_text(_mask_text(action.get("summary")), 200),
+                "timestamp": action.get("timestamp"),
+            }
+        )
+    context = {
+        "alert_uid": alert_uid,
+        "alert_name": alert.get("name") or alert.get("alert_type") or "Alert",
+        "severity": alert.get("severity"),
+        "summary": alert.get("summary"),
+        "timestamp": alert.get("timestamp"),
+        "endpoint": alert.get("endpoint") or sanitized_metadata.get("endpoint"),
+        "metadata": sanitized_metadata,
+        "log_excerpt": log_excerpt,
+        "auto_actions": safe_actions,
+        "quick_fixes": _summarize_quick_fixes(alert),
+        "graph": _summarize_graph_meta(alert.get("graph")),
+    }
+    return context
+
+
+def _ensure_list_of_strings(value: Any) -> List[str]:
+    if isinstance(value, str):
+        value = value.strip()
+        return [value] if value else []
+    if isinstance(value, (int, float)):
+        return [str(value)]
+    if isinstance(value, list):
+        out: List[str] = []
+        for item in value:
+            text = str(item).strip()
+            if text:
+                out.append(text)
+        return out
+    return []
+
+
+def _fallback_root_cause(alert: Dict[str, Any], context: Dict[str, Any]) -> str:
+    severity = str(alert.get("severity") or "").upper() or "INFO"
+    name = context.get("alert_name") or "התראה"
+    summary = context.get("summary") or alert.get("summary") or ""
+    endpoint = context.get("endpoint")
+    parts = [f"התראה ברמת {severity} בשם {name}"]
+    if endpoint:
+        parts.append(f"בנקודת הקצה {endpoint}")
+    if summary:
+        parts.append(f"— {summary}")
+    return " ".join(part for part in parts if part).strip()
+
+
+def _fallback_actions(alert: Dict[str, Any], context: Dict[str, Any]) -> List[str]:
+    actions: List[str] = []
+    endpoint = context.get("endpoint")
+    severity = str(alert.get("severity") or "").lower()
+    if endpoint:
+        actions.append(f"בדוק לוגים ומדדי עומס עבור {endpoint} סביב זמן ההתראה.")
+    if severity == "critical":
+        actions.append("אם התרחש דיפלוימנט סמוך, שקול ביצוע rollback או ביטול הפיצ׳ר האחרון.")
+    if context.get("auto_actions"):
+        for action in context["auto_actions"][:2]:
+            label = action.get("label") or action.get("summary")
+            if label:
+                actions.append(f"בחן את תוצאת פעולת ה-ChatOps: {label}.")
+    if context.get("quick_fixes"):
+        actions.append("הרץ Quick Fix רלוונטי רק לאחר אימות הנתונים והערכת הסיכון.")
+    if not actions:
+        actions.append("נתח את נתוני המטה והגרפים כדי לאמת האם מדובר באירוע אמיתי או רעש בלבד.")
+    if len(actions) < 2:
+        actions.append("עדכן את צוות ה-SRE בממצאים והוסף סיכום ל-Incident Story בעת הצורך.")
+    return actions[:4]
+
+
+def _fallback_signals(context: Dict[str, Any]) -> List[str]:
+    signals: List[str] = []
+    severity = context.get("severity")
+    if severity:
+        signals.append(f"חומרה: {severity}")
+    metadata = context.get("metadata") or {}
+    for key in ("endpoint", "error_code", "host", "deployment_id"):
+        value = metadata.get(key)
+        if value:
+            signals.append(f"{key}: {value}")
+    graph = context.get("graph")
+    if graph:
+        label = graph.get("label") or graph.get("metric")
+        default_range = graph.get("default_range") or "1h"
+        if label:
+            signals.append(f"גרף זמין: {label} ({default_range})")
+    log_excerpt = context.get("log_excerpt")
+    if log_excerpt:
+        first_line = log_excerpt.splitlines()[0]
+        if first_line:
+            signals.append(f"מדגמי לוגים: {first_line}")
+    deduped: List[str] = []
+    seen: set[str] = set()
+    for sig in signals:
+        text = str(sig).strip()
+        if not text or text in seen:
+            continue
+        seen.add(text)
+        deduped.append(text)
+    if not deduped:
+        deduped.append("לא זוהו אותות חריגים נוספים מעבר לנתונים שסופקו.")
+    return deduped[:4]
+
+
+def _normalize_ai_payload(
+    raw_payload: Dict[str, Any],
+    alert: Dict[str, Any],
+    context: Dict[str, Any],
+    *,
+    provider: str,
+) -> Dict[str, Any]:
+    generated_at = datetime.now(timezone.utc)
+    root = raw_payload.get("root_cause") or raw_payload.get("rootCause") or ""
+    actions = raw_payload.get("actions") or raw_payload.get("recommendations") or []
+    signals = raw_payload.get("signals") or raw_payload.get("notable_signals") or []
+    root_text = _truncate_text(_mask_text(root), _MAX_AI_TEXT_CHARS).strip()
+    if not root_text:
+        root_text = _fallback_root_cause(alert, context)
+    actions_list = _ensure_list_of_strings(actions) or _fallback_actions(alert, context)
+    signals_list = _ensure_list_of_strings(signals) or _fallback_signals(context)
+    explanation = {
+        "alert_uid": context.get("alert_uid"),
+        "alert_name": context.get("alert_name"),
+        "severity": context.get("severity"),
+        "root_cause": root_text,
+        "actions": [_truncate_text(_mask_text(item), 400) for item in actions_list],
+        "signals": [_truncate_text(_mask_text(item), 300) for item in signals_list],
+        "provider": provider,
+        "generated_at": generated_at.isoformat(),
+        "cached": False,
+    }
+    ttl_seconds = int(_AI_EXPLAIN_CACHE_TTL) if _AI_EXPLAIN_CACHE_TTL > 0 else 0
+    if ttl_seconds:
+        explanation["cache_expires_at"] = (generated_at + timedelta(seconds=ttl_seconds)).isoformat()
+    return explanation
+
+
+def _heuristic_ai_payload(alert: Dict[str, Any], context: Dict[str, Any]) -> Dict[str, Any]:
+    fallback = {
+        "root_cause": _fallback_root_cause(alert, context),
+        "actions": _fallback_actions(alert, context),
+        "signals": _fallback_signals(context),
+    }
+    return _normalize_ai_payload(fallback, alert, context, provider="heuristic")
+
+
+def _call_ai_provider(context: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    """
+    Invoke the externally configured AI endpoint.
+
+    Expected contract (so whoever מגדיר את השירות יודע מה להחזיר):
+
+    Request:
+        POST ${OBS_AI_EXPLAIN_URL}
+        Authorization: Bearer ${OBS_AI_EXPLAIN_TOKEN}  (רשות בלבד, אם הוגדר)
+        Content-Type: application/json
+
+        {
+            "context": { ... }  # כל נתוני ההתראה אחרי Masking (ראה _build_ai_context)
+            "expected_sections": ["root_cause", "actions", "signals"]
+        }
+
+    Response (דוגמה):
+        {
+            "root_cause": "ה־error_rate קפץ אחרי דיפלוימנט 12:05",
+            "actions": [
+                "בצע rollback ל־service@1.4.2",
+                "בדוק את לוגי auth-service על request_id=abc"
+            ],
+            "signals": [
+                "error_rate 12% מול ממוצע 1%",
+                "deployment_id deploy-2025-12-07-12-00"
+            ],
+            "provider": "gpt-4o-mini",
+            "generated_at": "2025-12-07T09:32:11Z",
+            "cached": false
+        }
+
+    כל שדה אופציונלי למעט שלושת המקטעים: root_cause, actions, signals.
+    """
+    if not _AI_EXPLAIN_URL:
+        return None
+    headers = {
+        "Content-Type": "application/json",
+        "User-Agent": "CodeBot/ObservabilityDashboard",
+    }
+    if _AI_EXPLAIN_TOKEN:
+        headers["Authorization"] = f"Bearer {_AI_EXPLAIN_TOKEN}"
+    payload = {
+        "context": context,
+        "expected_sections": ["root_cause", "actions", "signals"],
+    }
+    try:
+        response = requests.post(
+            _AI_EXPLAIN_URL,
+            json=payload,
+            headers=headers,
+            timeout=_AI_EXPLAIN_TIMEOUT,
+        )
+        response.raise_for_status()
+        data = response.json()
+        if isinstance(data, dict):
+            return data
+    except Exception as exc:  # pragma: no cover - network issues
+        logger.warning("observability_ai_request_failed", exc_info=True, extra={"error": str(exc)})
+    return None
+
+
+def explain_alert_with_ai(alert_snapshot: Dict[str, Any], *, force_refresh: bool = False) -> Dict[str, Any]:
+    if not isinstance(alert_snapshot, dict):
+        raise ValueError("invalid_alert_snapshot")
+    alert = dict(alert_snapshot)
+    alert_uid = alert.get("alert_uid") or _build_alert_uid(alert)
+    if not alert_uid:
+        raise ValueError("missing_alert_uid")
+    alert["alert_uid"] = alert_uid
+
+    if not force_refresh and _AI_EXPLAIN_CACHE_TTL > 0:
+        cached = _cache_get("ai_explain", alert_uid, _AI_EXPLAIN_CACHE_TTL)
+        if cached:
+            payload = copy.deepcopy(cached)
+            payload["cached"] = True
+            return payload
+
+    context = _build_ai_context(alert)
+    raw_response = _call_ai_provider(context)
+    if raw_response:
+        explanation = _normalize_ai_payload(raw_response, alert, context, provider="ai_service")
+    else:
+        explanation = _heuristic_ai_payload(alert, context)
+
+    if _AI_EXPLAIN_CACHE_TTL > 0:
+        cached_copy = copy.deepcopy(explanation)
+        cached_copy["cached"] = False
+        _cache_set("ai_explain", alert_uid, cached_copy)
+
+    explanation["cached"] = False
+    return explanation
 
 
 def _build_story_description(alert: Dict[str, Any]) -> str:

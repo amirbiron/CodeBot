@@ -266,6 +266,94 @@
   color: #9efff0;
   opacity: 0.85;
 }
+.ai-explain-btn {
+  border: none;
+  border-radius: 10px;
+  padding: 0.25rem 0.7rem;
+  font-size: 0.8rem;
+  background: rgba(129,140,248,0.16);
+  color: #c7d2fe;
+  cursor: pointer;
+  transition: background 0.2s ease;
+}
+.ai-explain-btn:hover {
+  background: rgba(129,140,248,0.32);
+}
+.ai-explain-btn.active {
+  background: linear-gradient(135deg,#c7d2fe,#a5b4fc);
+  color: #0f172a;
+  font-weight: 600;
+}
+.ai-explain-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+.ai-explain-row td {
+  padding: 0;
+  background: rgba(15,23,42,0.65);
+}
+.ai-panel {
+  padding: 0.9rem 1rem 1rem;
+  border-top: 1px solid rgba(255,255,255,0.05);
+}
+.ai-panel-body {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+.ai-panel-placeholder,
+.ai-panel-error,
+.ai-panel-loading {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  font-size: 0.9rem;
+  color: #cbd5f5;
+}
+.ai-panel-error {
+  color: #ff9bb6;
+}
+.ai-section {
+  background: rgba(255,255,255,0.02);
+  border: 1px solid rgba(255,255,255,0.04);
+  border-radius: 12px;
+  padding: 0.6rem 0.85rem;
+}
+.ai-section-title {
+  font-weight: 600;
+  font-size: 0.85rem;
+  color: #cbd5f5;
+  margin-bottom: 0.35rem;
+}
+.ai-section-body {
+  font-size: 0.9rem;
+  line-height: 1.5;
+  color: #f5f5ff;
+}
+.ai-section-body ul {
+  margin: 0.2rem 0 0;
+  padding-inline-start: 1.1rem;
+}
+.ai-section-body li {
+  margin-bottom: 0.2rem;
+}
+.ai-panel-meta {
+  margin-top: 0.35rem;
+  font-size: 0.75rem;
+  color: rgba(255,255,255,0.65);
+}
+.ai-spinner {
+  width: 16px;
+  height: 16px;
+  border: 2px solid rgba(199,210,254,0.45);
+  border-top-color: #c7d2fe;
+  border-radius: 50%;
+  animation: ai-spin 0.8s linear infinite;
+}
+@keyframes ai-spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
 .story-modal {
   position: fixed;
   inset: 0;
@@ -585,11 +673,12 @@
             <th>Meta</th>
             <th>גרף</th>
             <th>Quick Fix</th>
+            <th>הסבר AI</th>
             <th>סיפור אירוע</th>
           </tr>
         </thead>
         <tbody>
-          <tr><td colspan="8">טוען נתונים…</td></tr>
+          <tr><td colspan="9">טוען נתונים…</td></tr>
         </tbody>
       </table>
     </div>
@@ -715,6 +804,7 @@
   const VISUAL_PRESETS = ['15m', '30m', '1h', '6h', '24h', '7d'];
   const visualContextStore = {};
   const visualContextCache = {};
+  const aiExplainStore = {};
   let alertsChart;
   let responseChart;
 
@@ -726,6 +816,16 @@
     if (!ts) return '—';
     const label = formatJerusalemDate(ts, { hour: '2-digit', minute: '2-digit' });
     return label === '—' ? '—' : label;
+  }
+
+  function escapeHtml(input) {
+    if (input == null) return '';
+    return String(input)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
   }
 
   function getGranularity() {
@@ -901,7 +1001,7 @@
       .join('');
     return `
       <tr class="visual-context-row" id="visual-row-${meta.uid}" data-alert-uid="${meta.uid}" hidden>
-        <td colspan="8">
+        <td colspan="9">
           <div class="visual-context-panel" data-graph="${payload}">
             <div class="visual-context-header">
               <div>
@@ -941,7 +1041,7 @@
     });
     Object.keys(visualContextStore).forEach(key => delete visualContextStore[key]);
     if (!alerts || !alerts.length) {
-      body.innerHTML = '<tr><td colspan="8">לא נמצאו התראות בטווח שנבחר</td></tr>';
+      body.innerHTML = '<tr><td colspan="9">לא נמצאו התראות בטווח שנבחר</td></tr>';
       return;
     }
     const rows = [];
@@ -960,9 +1060,14 @@
           <td><div class="meta-list">${metaItems || ''}</div></td>
           <td>${renderGraphCell(alert)}</td>
           <td>${renderQuickFixCell(alert)}</td>
+          <td>${renderAiExplainCell(alert)}</td>
           <td>${renderStoryCell(alert)}</td>
         </tr>
       `);
+      const explainRow = renderAiExplainRow(alert);
+      if (explainRow) {
+        rows.push(explainRow);
+      }
       const graphRow = renderGraphRow(alert);
       if (graphRow) {
         rows.push(graphRow);
@@ -980,6 +1085,7 @@
     initQuickFixHandlers();
     initStoryHandlers();
     initVisualContextHandlers();
+    initAiExplainHandlers();
     highlightFocusedRow();
   }
 
@@ -1038,6 +1144,41 @@
         <button class="${btnClass}" data-story="${payload}">${btnLabel}</button>
         <span class="story-badge">${badgeText}</span>
       </div>
+    `;
+  }
+
+  function renderAiExplainCell(alert) {
+    const uid = alert.alert_uid || '';
+    const payload = encodeURIComponent(JSON.stringify({
+      alert_uid: uid,
+      name: alert.name,
+      severity: alert.severity,
+      summary: alert.summary,
+      timestamp: alert.timestamp,
+      metadata: alert.metadata || {},
+      graph: alert.graph || null,
+      quick_fixes: alert.quick_fixes || [],
+      endpoint: alert.endpoint,
+      alert_type: alert.alert_type,
+    }));
+    const disabledAttr = uid ? '' : ' disabled';
+    return `<button class="ai-explain-btn" data-ai="${payload}" data-alert-uid="${uid}" aria-expanded="false" title="לחץ לקבלת הסבר חכם"${disabledAttr}>🤖 הסבר AI</button>`;
+  }
+
+  function renderAiExplainRow(alert) {
+    const uid = alert.alert_uid;
+    if (!uid) return '';
+    return `
+      <tr class="ai-explain-row" id="ai-row-${uid}" data-alert-uid="${uid}" hidden>
+        <td colspan="9">
+          <div class="ai-panel">
+            <div class="ai-panel-body" id="ai-body-${uid}">
+              <div class="ai-panel-placeholder">לחץ על הכפתור לקבלת הסבר חכם.</div>
+            </div>
+            <div class="ai-panel-meta" id="ai-meta-${uid}" hidden></div>
+          </div>
+        </td>
+      </tr>
     `;
   }
 
@@ -1401,6 +1542,166 @@
       });
     });
   }
+
+  function initAiExplainHandlers() {
+    document.querySelectorAll('.ai-explain-btn').forEach(btn => {
+      if (btn.dataset.aiBound === '1') return;
+      btn.dataset.aiBound = '1';
+      btn.addEventListener('click', () => handleAiExplainToggle(btn));
+    });
+  }
+
+  function handleAiExplainToggle(btn) {
+    if (!btn || btn.disabled) return;
+    let meta;
+    try {
+      meta = JSON.parse(decodeURIComponent(btn.dataset.ai || ''));
+    } catch (err) {
+      console.warn('ai payload parse failed', err);
+      return;
+    }
+    const uid = meta?.alert_uid;
+    if (!uid) return;
+    const row = document.getElementById(`ai-row-${uid}`);
+    if (!row) return;
+    const isOpen = row.classList.contains('open');
+    if (isOpen) {
+      row.classList.remove('open');
+      row.hidden = true;
+      updateAiToggleState(uid, false);
+      return;
+    }
+    row.hidden = false;
+    row.classList.add('open');
+    updateAiToggleState(uid, true);
+    const store = aiExplainStore[uid];
+    if (store?.status === 'ready' && store.data) {
+      renderAiExplanation(uid, store.data);
+      return;
+    }
+    if (store?.status === 'loading') {
+      setAiLoading(uid);
+      return;
+    }
+    if (store?.status === 'error' && store.error) {
+      showAiError(uid, store.error);
+      return;
+    }
+    showAiPlaceholder(uid);
+    fetchAiExplanation(uid, meta);
+  }
+
+  function updateAiToggleState(uid, isOpen) {
+    document.querySelectorAll(`.ai-explain-btn[data-alert-uid="${uid}"]`).forEach(button => {
+      button.classList.toggle('active', isOpen);
+      button.setAttribute('aria-expanded', isOpen ? 'true' : 'false');
+      button.textContent = isOpen ? 'הסתר הסבר' : '🤖 הסבר AI';
+    });
+  }
+
+  function showAiPlaceholder(uid) {
+    const body = document.getElementById(`ai-body-${uid}`);
+    if (!body) return;
+    body.innerHTML = '<div class="ai-panel-placeholder">מתכונן להפיק הסבר…</div>';
+    const metaEl = document.getElementById(`ai-meta-${uid}`);
+    if (metaEl) metaEl.hidden = true;
+  }
+
+  function setAiLoading(uid) {
+    const body = document.getElementById(`ai-body-${uid}`);
+    if (!body) return;
+    body.innerHTML = `
+      <div class="ai-panel-loading">
+        <span class="ai-spinner" aria-hidden="true"></span>
+        <span>מנתח נתונים…</span>
+      </div>
+    `;
+    const metaEl = document.getElementById(`ai-meta-${uid}`);
+    if (metaEl) metaEl.hidden = true;
+  }
+
+  async function fetchAiExplanation(uid, alertMeta) {
+    try {
+      setAiLoading(uid);
+      aiExplainStore[uid] = {status: 'loading'};
+      const res = await fetch('/api/observability/alerts/ai_explain', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json', 'Accept': 'application/json'},
+        body: JSON.stringify({alert: alertMeta}),
+      });
+      const payload = await res.json().catch(() => ({}));
+      if (!res.ok || payload.ok === false) {
+        const code = payload?.message || payload?.error || 'ai_explain_failed';
+        throw new Error(code);
+      }
+      const explanation = payload.explanation || {};
+      aiExplainStore[uid] = {status: 'ready', data: explanation};
+      renderAiExplanation(uid, explanation);
+    } catch (err) {
+      console.error('ai_explain_failed', err);
+      aiExplainStore[uid] = {status: 'error', error: err?.message || 'failed'};
+      const message = err?.message === 'missing_alert'
+        ? 'הנתונים שסופקו להתראה חסרים.'
+        : 'לא ניתן להפיק הסבר כעת, נסה שוב מאוחר יותר.';
+      showAiError(uid, message);
+    }
+  }
+
+  function normalizeAiList(value) {
+    if (!value) return [];
+    if (Array.isArray(value)) {
+      return value.map(item => String(item || '').trim()).filter(Boolean);
+    }
+    const single = String(value || '').trim();
+    return single ? [single] : [];
+  }
+
+  function formatAiListHtml(items) {
+    const list = normalizeAiList(items);
+    if (!list.length) {
+      return '<div class="ai-panel-placeholder">אין נתונים זמינים.</div>';
+    }
+    return `<ul>${list.map(item => `<li>${escapeHtml(item)}</li>`).join('')}</ul>`;
+  }
+
+  function renderAiExplanation(uid, explanation = {}) {
+    const body = document.getElementById(`ai-body-${uid}`);
+    if (!body) return;
+    const root = explanation.root_cause || 'לא התקבל ניתוח.';
+    body.innerHTML = `
+      <div class="ai-section">
+        <div class="ai-section-title">🔍 שורש התקלה</div>
+        <div class="ai-section-body">${escapeHtml(root).replace(/\n/g, '<br>')}</div>
+      </div>
+      <div class="ai-section">
+        <div class="ai-section-title">🛠️ פעולות מוצעות</div>
+        <div class="ai-section-body">${formatAiListHtml(explanation.actions)}</div>
+      </div>
+      <div class="ai-section">
+        <div class="ai-section-title">📡 אותות חריגים</div>
+        <div class="ai-section-body">${formatAiListHtml(explanation.signals)}</div>
+      </div>
+    `;
+    const metaEl = document.getElementById(`ai-meta-${uid}`);
+    if (metaEl) {
+      const ts = explanation.generated_at ? formatShortTimestamp(explanation.generated_at) : '';
+      const provider = explanation.provider === 'ai_service' ? 'AI' : 'Heuristic';
+      const cacheLabel = explanation.cached ? ' · מטמון' : '';
+      const tsLabel = ts ? ` · עודכן ${ts}` : '';
+      metaEl.hidden = false;
+      metaEl.textContent = `מקור: ${provider}${cacheLabel}${tsLabel}`;
+    }
+    aiExplainStore[uid] = {status: 'ready', data: explanation};
+  }
+
+  function showAiError(uid, message) {
+    const body = document.getElementById(`ai-body-${uid}`);
+    if (!body) return;
+    body.innerHTML = `<div class="ai-panel-error">⚠️ ${escapeHtml(message)}</div>`;
+    const metaEl = document.getElementById(`ai-meta-${uid}`);
+    if (metaEl) metaEl.hidden = true;
+  }
+
 
   async function openStoryModal(alertMeta, options = {}) {
     if (!alertMeta) return;

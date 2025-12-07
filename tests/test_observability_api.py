@@ -60,6 +60,58 @@ def test_observability_alerts_returns_data(monkeypatch):
     assert captured['end_dt'] >= captured['start_dt']
 
 
+def test_observability_ai_explain_requires_admin(monkeypatch):
+    monkeypatch.setenv('ADMIN_USER_IDS', '10')
+    app = _build_app()
+    with app.test_client() as client:
+        with client.session_transaction() as sess:
+            sess['user_id'] = 99
+        resp = client.post('/api/observability/alerts/ai_explain', json={'alert': {}})
+        assert resp.status_code == 403
+        payload = resp.get_json()
+        assert payload['error'] == 'admin_only'
+
+
+def test_observability_ai_explain_returns_payload(monkeypatch):
+    admin_id = 5
+    monkeypatch.setenv('ADMIN_USER_IDS', str(admin_id))
+    captured = {}
+
+    def _fake_explain(alert_snapshot, *, force_refresh=False):
+        captured['alert'] = alert_snapshot
+        captured['force'] = force_refresh
+        return {
+            'alert_uid': 'u1',
+            'root_cause': 'test root',
+            'actions': ['a'],
+            'signals': ['b'],
+            'provider': 'heuristic',
+            'generated_at': '2025-01-01T00:00:00Z',
+            'cached': False,
+        }
+
+    monkeypatch.setattr(
+        'webapp.app.observability_service.explain_alert_with_ai',
+        _fake_explain,
+    )
+
+    app = _build_app()
+    with app.test_client() as client:
+        with client.session_transaction() as sess:
+            sess['user_id'] = admin_id
+        resp = client.post(
+            '/api/observability/alerts/ai_explain',
+            json={'alert': {'alert_uid': 'A1'}, 'force': True},
+        )
+        assert resp.status_code == 200
+        data = resp.get_json()
+        assert data['ok'] is True
+        assert data['explanation']['root_cause'] == 'test root'
+
+    assert captured['alert']['alert_uid'] == 'A1'
+    assert captured['force'] is True
+
+
 def test_observability_aggregations_passes_limit(monkeypatch):
     admin_id = 42
     monkeypatch.setenv('ADMIN_USER_IDS', str(admin_id))
