@@ -1787,7 +1787,8 @@ async def show_regular_files_callback(update: Update, context: ContextTypes.DEFA
     
     try:
         # עימוד אמיתי בצד ה-DB + ללא החזרת תוכן קוד
-        files, total_files = db.get_regular_files_paginated(user_id, page=1, per_page=FILES_PAGE_SIZE)
+        first_page = _call_files_api("get_regular_files_paginated", user_id, page=1, per_page=FILES_PAGE_SIZE)
+        files, total_files = first_page if isinstance(first_page, tuple) else ([], 0)
         if not files:
             await query.edit_message_text(
                 "📂 אין לך קבצים שמורים עדיין.\n"
