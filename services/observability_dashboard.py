@@ -605,7 +605,13 @@ def _fallback_alerts(
         ts = item.get("ts")
         ts_dt = None
         if isinstance(ts, datetime):
-            ts_dt = ts if ts.tzinfo else ts.replace(tzinfo=timezone.utc)
+            if ts.tzinfo is None:
+                ts_dt = ts.replace(tzinfo=timezone.utc)
+            else:
+                try:
+                    ts_dt = ts.astimezone(timezone.utc)
+                except Exception:
+                    ts_dt = ts
         else:
             ts_dt = _parse_iso_dt(str(ts)) if ts else None
         ts_value = ts_dt.isoformat() if ts_dt else (ts if isinstance(ts, str) else None)
