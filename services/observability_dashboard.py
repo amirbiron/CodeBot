@@ -36,7 +36,10 @@ _CACHE_LOCK = threading.Lock()
 _ALERTS_CACHE_TTL = 120.0
 _AGG_CACHE_TTL = 150.0
 _TS_CACHE_TTL = 150.0
-_AI_EXPLAIN_CACHE_TTL = float(os.getenv("OBS_AI_EXPLAIN_CACHE_TTL", "600"))
+try:
+    _AI_EXPLAIN_CACHE_TTL = float(os.getenv("OBS_AI_EXPLAIN_CACHE_TTL", "600"))
+except ValueError:  # pragma: no cover - env misconfig fallback
+    _AI_EXPLAIN_CACHE_TTL = 600.0
 
 _AI_EXPLAIN_URL = os.getenv("OBS_AI_EXPLAIN_URL") or os.getenv("AI_EXPLAIN_URL") or ""
 _AI_EXPLAIN_TOKEN = os.getenv("OBS_AI_EXPLAIN_TOKEN") or os.getenv("AI_EXPLAIN_TOKEN") or ""
