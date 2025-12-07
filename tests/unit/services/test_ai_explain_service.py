@@ -1,4 +1,6 @@
 import json
+
+import httpx
 import pytest
 
 from services import ai_explain_service as svc
@@ -10,7 +12,7 @@ async def test_generate_ai_explanation_normalizes_and_respects_sanitization(monk
 
     captured_prompt: dict = {}
 
-    async def fake_call(prompt: str, *, timeout: float) -> dict:
+    async def fake_call(prompt: str, *, timeout: float):
         captured_prompt["text"] = prompt
         payload = {
             "content": [
@@ -26,7 +28,7 @@ async def test_generate_ai_explanation_normalizes_and_respects_sanitization(monk
                 }
             ]
         }
-        return payload
+        return payload, "claude-test"
 
     monkeypatch.setattr(svc, "_call_anthropic", fake_call)
 
@@ -57,8 +59,8 @@ async def test_generate_ai_explanation_normalizes_and_respects_sanitization(monk
 async def test_generate_ai_explanation_fallback_when_provider_returns_empty(monkeypatch):
     monkeypatch.setattr(svc, "_ANTHROPIC_API_KEY", "test-key")
 
-    async def fake_call(prompt: str, *, timeout: float) -> dict:  # noqa: ARG001
-        return {"content": [{"type": "text", "text": "{}"}]}
+    async def fake_call(prompt: str, *, timeout: float):  # noqa: ARG001
+        return {"content": [{"type": "text", "text": "{}"}]}, "claude-default"
 
     monkeypatch.setattr(svc, "_call_anthropic", fake_call)
 
@@ -80,7 +82,7 @@ async def test_generate_ai_explanation_fallback_when_provider_returns_empty(monk
 async def test_generate_ai_explanation_handles_dict_sections(monkeypatch):
     monkeypatch.setattr(svc, "_ANTHROPIC_API_KEY", "test-key")
 
-    async def fake_call(prompt: str, *, timeout: float) -> dict:  # noqa: ARG001
+    async def fake_call(prompt: str, *, timeout: float):  # noqa: ARG001
         payload = {
             "content": [
                 {
@@ -95,7 +97,7 @@ async def test_generate_ai_explanation_handles_dict_sections(monkeypatch):
                 }
             ]
         }
-        return payload
+        return payload, "claude-dict"
 
     monkeypatch.setattr(svc, "_call_anthropic", fake_call)
 
@@ -116,10 +118,66 @@ async def test_generate_ai_explanation_handles_dict_sections(monkeypatch):
 async def test_generate_ai_explanation_requires_context_dict(monkeypatch):
     monkeypatch.setattr(svc, "_ANTHROPIC_API_KEY", "test-key")
 
-    async def fake_call(prompt: str, *, timeout: float) -> dict:  # noqa: ARG001
-        return {"content": [{"type": "text", "text": "{}"}]}
+    async def fake_call(prompt: str, *, timeout: float):  # noqa: ARG001
+        return {"content": [{"type": "text", "text": "{}"}]}, "claude-error"
 
     monkeypatch.setattr(svc, "_call_anthropic", fake_call)
 
     with pytest.raises(svc.AiExplainError):
         await svc.generate_ai_explanation("not-a-dict")  # type: ignore[arg-type]
+
+
+class _FakeResponse:
+    def __init__(self, status_code: int, payload: dict, text: str):
+        self.status_code = status_code
+        self._payload = payload
+        self._text = text
+
+    @property
+    def text(self) -> str:
+        return self._text
+
+    def json(self) -> dict:
+        return self._payload
+
+    def raise_for_status(self) -> None:
+        if self.status_code >= 400:
+            request = httpx.Request("POST", "https://api.anthropic.com/v1/messages")
+            raise httpx.HTTPStatusError("error", request=request, response=self)
+
+
+@pytest.mark.asyncio
+async def test_call_anthropic_falls_back_on_404(monkeypatch):
+    monkeypatch.setattr(svc, "_ANTHROPIC_API_KEY", "test-key")
+    monkeypatch.setattr(svc, "_MODEL_CANDIDATES", ("primary-model", "fallback-model"))
+
+    responses = [
+        _FakeResponse(404, {}, '{"error":"model_not_found"}'),
+        _FakeResponse(200, {"content": [{"type": "text", "text": "{}"}]}, "{}"),
+    ]
+
+    def fake_async_client_factory(*args, **kwargs):  # noqa: ARG001
+        class _Client:
+            def __init__(self):
+                self._iter = iter(responses)
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, exc_type, exc, tb):
+                return False
+
+            async def post(self, *args, **kwargs):  # noqa: ARG001
+                try:
+                    return next(self._iter)
+                except StopIteration:  # pragma: no cover - defensive
+                    raise AssertionError("no more responses")
+
+        return _Client()
+
+    monkeypatch.setattr(svc.httpx, "AsyncClient", fake_async_client_factory)
+
+    payload, model_used = await svc._call_anthropic("{}", timeout=5.0)
+
+    assert model_used == "fallback-model"
+    assert payload["content"][0]["text"] == "{}"
