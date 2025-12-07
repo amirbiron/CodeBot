@@ -762,13 +762,26 @@ def record_request_outcome(
         _update_ewma(float(duration_seconds))
         _maybe_trigger_anomaly()
         # Dual-write: enqueue request metrics to DB (best-effort, batched)
+        ctx_dict: Dict[str, Any] = {}
+        rid: Optional[str] = None
+        command_label = ""
+        handler_text = ""
+        method_text = ""
+        path_text = ""
+        source_label = ""
         try:
-            ctx = _get_structlog_ctx() or {}
-            req_id = ctx.get("request_id") if isinstance(ctx, dict) else None
+            ctx_raw = _get_structlog_ctx() or {}
+            ctx_dict = ctx_raw if isinstance(ctx_raw, dict) else {}
+            req_id = ctx_dict.get("request_id")
             rid = str(req_id) if req_id else None
             extra_fields: Dict[str, Any] = {}
             if source:
-                extra_fields["source"] = str(source)
+                try:
+                    source_label = str(source).strip()
+                except Exception:
+                    source_label = ""
+            if source_label:
+                extra_fields["source"] = source_label
             if handler:
                 try:
                     handler_text = str(handler).strip()
@@ -778,11 +791,18 @@ def record_request_outcome(
                     extra_fields["handler"] = handler_text[:200]
             if command:
                 try:
-                    cmd_text = str(command).strip()
+                    command_label = str(command).strip()
                 except Exception:
-                    cmd_text = ""
-                if cmd_text:
-                    extra_fields["command"] = cmd_text[:120]
+                    command_label = ""
+            if not command_label and ctx_dict:
+                ctx_command = ctx_dict.get("command")
+                if ctx_command:
+                    try:
+                        command_label = str(ctx_command).strip()
+                    except Exception:
+                        command_label = ""
+            if command_label:
+                extra_fields["command"] = command_label[:120]
             if method:
                 try:
                     method_text = str(method).upper()
@@ -808,10 +828,24 @@ def record_request_outcome(
             )
         except Exception:
             pass
+        note_context = {
+            "source": source_label or None,
+            "handler": handler_text or None,
+            "path": path_text or None,
+            "method": method_text or None,
+            "command": command_label or None,
+            "request_id": rid,
+            "user_id": (
+                str(ctx_dict.get("user_id") or "").strip()
+                if ctx_dict and ctx_dict.get("user_id")
+                else None
+            ),
+        }
+        note_context = {k: v for k, v in note_context.items() if v}
         # Feed adaptive thresholds module (best-effort)
         try:
             from alert_manager import note_request, check_and_emit_alerts  # type: ignore
-            note_request(int(status_code), float(duration_seconds))
+            note_request(int(status_code), float(duration_seconds), context=note_context or None)
             # Evaluate breaches occasionally (cheap; internal cooldowns apply)
             check_and_emit_alerts()
         except Exception:
