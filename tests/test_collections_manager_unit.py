@@ -286,9 +286,11 @@ def test_workspace_state_update_invalidates_cache(monkeypatch):
     add = local_mgr.add_items(77, workspace["id"], [{"source": "regular", "file_name": "task.py"}])
     assert add["ok"]
     raw_item = next(d for d in local_mgr.items.docs if d.get("file_name") == "task.py")  # type: ignore[attr-defined]
+    patterns.clear()
     res = local_mgr.update_workspace_item_state(77, str(raw_item["_id"]), "in_progress")
     assert res["ok"]
-    assert any(p.startswith("collections_items:77:") for p in patterns)
+    expected_prefix = f"collections_items:77:-api-collections-{workspace['id']}-items"
+    assert any(p.startswith(expected_prefix) for p in patterns)
 
 
 def test_get_collection_invalid_id(mgr: CollectionsManager):
