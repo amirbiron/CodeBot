@@ -34,3 +34,29 @@
 
 .empty-state{display:flex;flex-direction:column;align-items:center;gap:10px;margin:48px 0}
 .empty-state .icon{font-size:42px}
+
+:root[data-theme="rose-pine-dawn"] .btn.primary{
+  background:linear-gradient(120deg,#e6d4e2,#f2d8d4);
+  color:#4a2c2a;
+  border:1px solid rgba(144,122,169,0.35);
+  box-shadow:0 8px 18px rgba(144,122,169,0.2);
+}
+:root[data-theme="rose-pine-dawn"] .community-grid .card{
+  background:color-mix(in srgb,var(--bg-secondary) 75%,#ffffff 25%);
+  border:1px solid var(--glass-border);
+  box-shadow:0 12px 28px rgba(144,122,169,0.18);
+  color:var(--text-primary);
+}
+:root[data-theme="rose-pine-dawn"] .community-grid .card .actions .btn{
+  background:color-mix(in srgb,#ffffff 65%,var(--bg-secondary) 35%);
+  border:1px solid rgba(87,82,121,0.25);
+  color:var(--text-primary);
+}
+:root[data-theme="rose-pine-dawn"] .community-grid .card .actions .btn:hover{
+  background:color-mix(in srgb,#ffffff 80%,var(--bg-secondary) 20%);
+  border-color:rgba(144,122,169,0.4);
+}
+:root[data-theme="rose-pine-dawn"] .community-controls input,
+:root[data-theme="rose-pine-dawn"] .community-controls select{
+  box-shadow:0 6px 16px rgba(144,122,169,0.12);
+}

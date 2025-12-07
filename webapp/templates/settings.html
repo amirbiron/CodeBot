@@ -981,6 +981,41 @@
       font-weight: 600;
       color: #93c5fd;
     }
+    :root[data-theme="rose-pine-dawn"] .config-radar-card {
+      background: color-mix(in srgb, #ffffff 78%, var(--bg-secondary) 22%);
+      border: 1px solid var(--glass-border);
+      box-shadow: 0 16px 34px rgba(144,122,169,0.16);
+      color: var(--text-primary);
+    }
+    :root[data-theme="rose-pine-dawn"] .radar-tab {
+      background: color-mix(in srgb, var(--bg-secondary) 70%, #ffffff 30%);
+      border: 1px solid var(--glass-border);
+      color: var(--text-primary);
+    }
+    :root[data-theme="rose-pine-dawn"] .radar-tab.active {
+      background: linear-gradient(135deg, #d7827e, #907aa9);
+      color: #fff;
+      border: none;
+      box-shadow: 0 10px 20px rgba(144,122,169,0.25);
+    }
+    :root[data-theme="rose-pine-dawn"] .radar-empty-state,
+    :root[data-theme="rose-pine-dawn"] .radar-kpi,
+    :root[data-theme="rose-pine-dawn"] .radar-accordion,
+    :root[data-theme="rose-pine-dawn"] .radar-chip {
+      background: color-mix(in srgb, #ffffff 80%, var(--bg-secondary) 20%);
+      border: 1px solid var(--glass-border);
+      color: var(--text-primary);
+    }
+    :root[data-theme="rose-pine-dawn"] .radar-table th,
+    :root[data-theme="rose-pine-dawn"] .radar-table td,
+    :root[data-theme="rose-pine-dawn"] .radar-signature {
+      border-color: rgba(87,82,121,0.25);
+    }
+    :root[data-theme="rose-pine-dawn"] .config-radar-status,
+    :root[data-theme="rose-pine-dawn"] .config-radar-lead,
+    :root[data-theme="rose-pine-dawn"] .config-radar-timestamp {
+      color: var(--text-secondary);
+    }
   </style>
 
   {% block extra_js %}

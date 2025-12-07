@@ -166,7 +166,7 @@
     border-radius: 10px;
     border: 1px solid rgba(255, 255, 255, 0.25);
     background: rgba(255, 255, 255, 0.12);
-    color: #ffffff;
+    color: var(--text-primary, #ffffff);
     font-size: 14px;
     cursor: pointer;
     transition: background 0.2s ease, border-color 0.2s ease;
@@ -180,6 +180,16 @@
 .fullscreen-btn:focus-visible {
     background: rgba(255, 255, 255, 0.22);
     border-color: rgba(255, 255, 255, 0.4);
+}
+:root[data-theme="rose-pine-dawn"] .fullscreen-btn {
+    background: color-mix(in srgb, var(--bg-secondary) 65%, #ffffff 35%);
+    border-color: var(--glass-border);
+    color: var(--text-primary);
+}
+:root[data-theme="rose-pine-dawn"] .fullscreen-btn:hover,
+:root[data-theme="rose-pine-dawn"] .fullscreen-btn:focus-visible {
+    background: color-mix(in srgb, var(--bg-secondary) 45%, #ffffff 55%);
+    border-color: rgba(144, 122, 169, 0.5);
 }
 
 @media (max-width: 500px) {
