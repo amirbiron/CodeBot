@@ -125,3 +125,100 @@ def test_observability_timeseries_custom_granularity(monkeypatch):
 
     assert captured['granularity_seconds'] == 900
     assert captured['metric'] == 'alerts_count'
+
+
+def test_story_template_requires_admin(monkeypatch):
+    monkeypatch.setenv('ADMIN_USER_IDS', '10')
+    app = _build_app()
+    with app.test_client() as client:
+        with client.session_transaction() as sess:
+            sess['user_id'] = 99  # משתמש מחובר אך לא אדמין
+        resp = client.post('/api/observability/story/template', json={'alert': {}})
+    assert resp.status_code == 403
+
+
+def test_story_template_returns_payload(monkeypatch):
+    admin_id = 91
+    monkeypatch.setenv('ADMIN_USER_IDS', str(admin_id))
+    captured = {}
+
+    def _fake_template(alert_snapshot, timerange_label=None):
+        captured['alert'] = alert_snapshot
+        captured['timerange'] = timerange_label
+        return {'alert_uid': 'a1'}
+
+    monkeypatch.setattr('webapp.app.observability_service.build_story_template', _fake_template)
+    app = _build_app()
+    with app.test_client() as client:
+        with client.session_transaction() as sess:
+            sess['user_id'] = admin_id
+        resp = client.post('/api/observability/story/template', json={'alert': {'alert_uid': 'x'}, 'timerange': '1h'})
+        assert resp.status_code == 200
+        data = resp.get_json()
+        assert data['ok'] is True
+        assert data['story']['alert_uid'] == 'a1'
+    assert captured['alert']['alert_uid'] == 'x'
+    assert captured['timerange'] == '1h'
+
+
+def test_story_save_calls_service(monkeypatch):
+    admin_id = 55
+    monkeypatch.setenv('ADMIN_USER_IDS', str(admin_id))
+    captured = {}
+
+    def _fake_save(payload, user_id=None):
+        captured['payload'] = payload
+        captured['user_id'] = user_id
+        return {**payload, 'story_id': 's-1'}
+
+    monkeypatch.setattr('webapp.app.observability_service.save_incident_story', _fake_save)
+    app = _build_app()
+    body = {
+        'alert_uid': 'alert-1',
+        'time_window': {'start': '2025-01-01T00:00:00Z', 'end': '2025-01-01T01:00:00Z'},
+        'what_we_saw': {'description': 'desc'},
+    }
+    with app.test_client() as client:
+        with client.session_transaction() as sess:
+            sess['user_id'] = admin_id
+        resp = client.post('/api/observability/stories', json=body)
+        assert resp.status_code == 200
+        data = resp.get_json()
+        assert data['story']['story_id'] == 's-1'
+    assert captured['payload']['alert_uid'] == 'alert-1'
+    assert captured['user_id'] == admin_id
+
+
+def test_story_get_endpoint(monkeypatch):
+    admin_id = 33
+    monkeypatch.setenv('ADMIN_USER_IDS', str(admin_id))
+
+    def _fake_fetch(story_id):
+        return {'story_id': story_id}
+
+    monkeypatch.setattr('webapp.app.observability_service.fetch_story', _fake_fetch)
+    app = _build_app()
+    with app.test_client() as client:
+        with client.session_transaction() as sess:
+            sess['user_id'] = admin_id
+        resp = client.get('/api/observability/stories/demo')
+        assert resp.status_code == 200
+        assert resp.get_json()['story']['story_id'] == 'demo'
+
+
+def test_story_export_markdown(monkeypatch):
+    admin_id = 22
+    monkeypatch.setenv('ADMIN_USER_IDS', str(admin_id))
+
+    def _fake_export(story_id):
+        return f"# Story {story_id}\n"
+
+    monkeypatch.setattr('webapp.app.observability_service.export_story_markdown', _fake_export)
+    app = _build_app()
+    with app.test_client() as client:
+        with client.session_transaction() as sess:
+            sess['user_id'] = admin_id
+        resp = client.get('/api/observability/stories/demo/export')
+        assert resp.status_code == 200
+        assert resp.mimetype == 'text/markdown'
+        assert b'Story demo' in resp.data

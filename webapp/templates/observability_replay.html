@@ -325,7 +325,7 @@
   }
 
   function renderTimeline(events, counts, windowInfo) {
-    timelineSummaryEl.textContent = `סה"כ ${counts.alerts || 0} התראות, ${counts.deployments || 0} דיפלוימנטים, ${counts.chatops || 0} פעולות ChatOps`;
+    timelineSummaryEl.textContent = `סה"כ ${counts.alerts || 0} התראות, ${counts.deployments || 0} דיפלוימנטים, ${counts.chatops || 0} פעולות ChatOps, ${counts.stories || 0} סיפורים`;
     const list = timelineListEl;
     if (!events.length) {
       list.innerHTML = '<li class="empty-state">לא נמצאו אירועים בטווח הנבחר.</li>';
@@ -336,6 +336,8 @@
       if (evt.type === 'deployment') metaParts.push('Deployment');
       if (evt.metadata && evt.metadata.alert_type) metaParts.push(evt.metadata.alert_type);
       if (evt.metadata && evt.metadata.endpoint) metaParts.push(evt.metadata.endpoint);
+      if (evt.type === 'story') metaParts.push('Incident Story');
+      const actionLabel = evt.type === 'story' ? 'פתח סיפור' : 'פתח הקשר';
       return `
         <li class="timeline-item" data-type="${evt.type}">
           <div class="event-time">${formatTime(evt.timestamp)}</div>
@@ -344,7 +346,7 @@
             <div class="event-meta">${metaParts.join(' • ')}</div>
             <div class="event-summary">${evt.summary || ''}</div>
             <div class="event-actions">
-              <a href="${evt.link || '/admin/observability'}" target="_blank" rel="noopener">פתח הקשר</a>
+              <a href="${evt.link || '/admin/observability'}" target="_blank" rel="noopener">${actionLabel}</a>
             </div>
           </div>
         </li>

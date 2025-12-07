@@ -9021,6 +9021,85 @@ def api_observability_quickfix_track():
     return jsonify({'ok': True})
 
 
+@app.route('/api/observability/story/template', methods=['POST'])
+@login_required
+def api_observability_story_template():
+    if not _require_admin_user():
+        return jsonify({'ok': False, 'error': 'admin_only'}), 403
+    payload = request.get_json(silent=True) or {}
+    alert_snapshot = payload.get('alert')
+    if not isinstance(alert_snapshot, dict):
+        return jsonify({'ok': False, 'error': 'missing_alert'}), 400
+    timerange = payload.get('timerange')
+    try:
+        template = observability_service.build_story_template(
+            alert_snapshot=alert_snapshot,
+            timerange_label=timerange,
+        )
+        return jsonify({'ok': True, 'story': template})
+    except ValueError:
+        return jsonify({'ok': False, 'error': 'bad_request'}), 400
+    except Exception:
+        logger.exception("observability_story_template_failed")
+        return jsonify({'ok': False, 'error': 'internal_error'}), 500
+
+
+@app.route('/api/observability/stories', methods=['POST'])
+@login_required
+def api_observability_story_save():
+    user_id = _require_admin_user()
+    if not user_id:
+        return jsonify({'ok': False, 'error': 'admin_only'}), 403
+    payload = request.get_json(silent=True) or {}
+    story_payload = payload.get('story') if isinstance(payload.get('story'), dict) else payload
+    if not isinstance(story_payload, dict):
+        return jsonify({'ok': False, 'error': 'missing_story'}), 400
+    try:
+        stored = observability_service.save_incident_story(story_payload, user_id=user_id)
+        return jsonify({'ok': True, 'story': stored})
+    except ValueError as exc:
+        logger.exception("observability_story_save_bad_request: %s", exc)
+        return jsonify({'ok': False, 'error': 'bad_request'}), 400
+    except Exception:
+        logger.exception("observability_story_save_failed")
+        return jsonify({'ok': False, 'error': 'internal_error'}), 500
+
+
+@app.route('/api/observability/stories/<story_id>', methods=['GET'])
+@login_required
+def api_observability_story_get(story_id: str):
+    if not _require_admin_user():
+        return jsonify({'ok': False, 'error': 'admin_only'}), 403
+    story = observability_service.fetch_story(story_id)
+    if not story:
+        return jsonify({'ok': False, 'error': 'not_found'}), 404
+    return jsonify({'ok': True, 'story': story})
+
+
+@app.route('/api/observability/stories/<story_id>/export', methods=['GET'])
+@login_required
+def api_observability_story_export(story_id: str):
+    if not _require_admin_user():
+        return jsonify({'ok': False, 'error': 'admin_only'}), 403
+    export_format = (request.args.get('format') or 'markdown').lower()
+    if export_format not in {'md', 'markdown'}:
+        return jsonify({'ok': False, 'error': 'unsupported_format'}), 400
+    try:
+        markdown = observability_service.export_story_markdown(story_id)
+    except Exception:
+        logger.exception("observability_story_export_failed")
+        return jsonify({'ok': False, 'error': 'internal_error'}), 500
+    if markdown is None:
+        return jsonify({'ok': False, 'error': 'not_found'}), 404
+    safe_story_id = "".join(ch for ch in story_id if ch.isalnum() or ch in {'-', '_', '.'})
+    if not safe_story_id:
+        safe_story_id = "story"
+    filename = f"incident_story_{safe_story_id}.md"
+    resp = Response(markdown, mimetype='text/markdown')
+    resp.headers['Content-Disposition'] = f'attachment; filename=\"{filename}\"'
+    return resp
+
+
 @app.route('/api/welcome/ack', methods=['POST'])
 @login_required
 def api_welcome_ack():
