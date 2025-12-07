@@ -270,6 +270,27 @@ def test_workspace_state_flow(mgr: CollectionsManager):
     assert not missing["ok"]
 
 
+def test_workspace_state_update_invalidates_cache(monkeypatch):
+    patterns: list[str] = []
+
+    class DummyCache:
+        def delete_pattern(self, pattern):
+            patterns.append(pattern)
+            return 1
+
+    monkeypatch.setattr("database.collections_manager.cache", DummyCache())
+    local_mgr = CollectionsManager(FakeDB())
+    local_mgr.ensure_default_collections(77)
+    cols = local_mgr.list_collections(77)
+    workspace = next(col for col in cols["collections"] if col["name"] == "שולחן עבודה")
+    add = local_mgr.add_items(77, workspace["id"], [{"source": "regular", "file_name": "task.py"}])
+    assert add["ok"]
+    raw_item = next(d for d in local_mgr.items.docs if d.get("file_name") == "task.py")  # type: ignore[attr-defined]
+    res = local_mgr.update_workspace_item_state(77, str(raw_item["_id"]), "in_progress")
+    assert res["ok"]
+    assert any(p.startswith("collections_items:77:") for p in patterns)
+
+
 def test_get_collection_invalid_id(mgr: CollectionsManager):
     bad = mgr.get_collection(99, "not-an-id")
     assert not bad["ok"]

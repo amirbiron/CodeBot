@@ -205,6 +205,24 @@ class CollectionsManager:
         except Exception:
             return False
 
+    def _invalidate_collection_items_cache(self, user_id: int | str, collection_id: Any) -> None:
+        cache_obj = cache
+        if cache_obj is None:
+            return
+        try:
+            uid = str(user_id).strip()
+            cid = str(collection_id).strip()
+        except Exception:
+            return
+        if not uid or not cid:
+            return
+        try:
+            delete_pattern = getattr(cache_obj, "delete_pattern", None)
+            if callable(delete_pattern):
+                delete_pattern(f"collections_items:{uid}:-api-collections-{cid}-items*")
+        except Exception:
+            pass
+
     # --- Collections CRUD ---
     def create_collection(
         self,
@@ -846,6 +864,7 @@ class CollectionsManager:
                 error=str(e),
             )
             return {"ok": False, "error": "workspace_state_update_failed"}
+        self._invalidate_collection_items_cache(uid, collection_id)
         emit_event("workspace_state_update", user_id=uid, item_id=str(item_id), state=next_state)
         return {"ok": True, "item_id": str(iid), "state": next_state}
 
