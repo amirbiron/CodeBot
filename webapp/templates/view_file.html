@@ -264,6 +264,7 @@
     flex-wrap: nowrap;
     width: 100%;
     align-items: stretch;
+    direction: ltr;
 }
 
 .file-actions__list {
@@ -274,6 +275,7 @@
     overflow: hidden;
     align-items: stretch;
     min-width: 0;
+    direction: ltr;
 }
 
 .file-actions__menu {
@@ -364,17 +366,15 @@
     .file-actions__list {
         flex-wrap: wrap;
         overflow: visible;
-        display: contents;
+        width: 100%;
     }
     .file-actions__menu {
         flex: 0 0 auto;
-        align-self: flex-start;
+        align-self: stretch;
     }
     .file-actions__menu-button {
         flex: 0 0 auto !important;
-    }
-    .file-actions__menu-button {
-        flex: 0 0 auto !important;
+        min-height: 48px;
     }
 }
 
@@ -416,6 +416,11 @@
 
 .file-actions__menu-button .fas {
     color: inherit;
+}
+
+.file-actions__list .btn {
+    direction: rtl;
+    text-align: center;
 }
 
 .file-meta {
@@ -1887,6 +1892,14 @@ function goBack(ev){
         });
     }
 
+    function setToolbarVisibility(item, visible) {
+        if (!item || !item.el) {
+            return;
+        }
+        item.el.hidden = !visible;
+        item.el.classList.toggle('file-action--hidden', !visible);
+    }
+
     function updateDividerVisibility() {
         if (!dividerEl) {
             return;
@@ -1949,7 +1962,7 @@ function goBack(ev){
 
     function resetOverflowState() {
         overflowItems.forEach((item) => {
-            item.el.classList.remove('file-action--hidden');
+            setToolbarVisibility(item, true);
             showProxy(item, false);
         });
     }
@@ -1965,7 +1978,7 @@ function goBack(ev){
         while (actionsList.scrollWidth > actionsList.clientWidth + 4 && sorted.length && guard < overflowItems.length + 3) {
             const candidate = sorted.pop();
             if (!candidate) break;
-            candidate.el.classList.add('file-action--hidden');
+            setToolbarVisibility(candidate, false);
             showProxy(candidate, true);
             guard += 1;
         }
