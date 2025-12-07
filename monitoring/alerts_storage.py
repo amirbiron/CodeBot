@@ -229,6 +229,20 @@ def _get_collection():  # pragma: no cover - exercised indirectly
         return None
 
 
+def _isoformat_utc(value: Optional[datetime]) -> Optional[str]:
+    """Return ISO string with UTC tzinfo for Mongo datetimes."""
+    if not isinstance(value, datetime):
+        return None
+    if value.tzinfo is None:
+        dt = value.replace(tzinfo=timezone.utc)
+    else:
+        try:
+            dt = value.astimezone(timezone.utc)
+        except Exception:
+            dt = value.replace(tzinfo=timezone.utc)
+    return dt.isoformat()
+
+
 def _build_key(alert_id: Optional[str], name: str, severity: str, summary: str, ts_dt: datetime) -> str:
     if alert_id:
         return f"id:{alert_id}"
@@ -436,7 +450,7 @@ def fetch_alerts(
     alerts: List[Dict[str, Any]] = []
     for doc in cursor:
         ts = doc.get("ts_dt")
-        ts_iso = ts.isoformat() if isinstance(ts, datetime) else None
+        ts_iso = _isoformat_utc(ts)
         alerts.append(
             {
                 "timestamp": ts_iso,
@@ -611,7 +625,7 @@ def aggregate_alert_timeseries(
     result: List[Dict[str, Any]] = []
     for row in rows:
         bucket = row.get("_id")
-        ts_iso = bucket.isoformat() if isinstance(bucket, datetime) else None
+        ts_iso = _isoformat_utc(bucket)
         counts = {"critical": 0, "anomaly": 0, "warning": 0, "info": 0}
         for entry in row.get("counts", []):
             severity = str(entry.get("severity") or "info").lower()
