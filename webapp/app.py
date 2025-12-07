@@ -9039,7 +9039,11 @@ def api_observability_alert_ai_explain():
         return jsonify({'ok': True, 'explanation': explanation})
     except ValueError as exc:
         logger.warning("observability_ai_explain_bad_request", extra={'error': str(exc)})
-        return jsonify({'ok': False, 'error': 'bad_request', 'message': str(exc)}), 400
+        return jsonify({
+            'ok': False,
+            'error': 'bad_request',
+            'message': 'Invalid request data',
+        }), 400
     except Exception:
         logger.exception("observability_ai_explain_failed")
         return jsonify({
