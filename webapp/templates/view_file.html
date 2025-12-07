@@ -364,6 +364,14 @@
     .file-actions__list {
         flex-wrap: wrap;
         overflow: visible;
+        display: contents;
+    }
+    .file-actions__menu {
+        flex: 0 0 auto;
+        align-self: flex-start;
+    }
+    .file-actions__menu-button {
+        flex: 0 0 auto !important;
     }
     .file-actions__menu-button {
         flex: 0 0 auto !important;
@@ -400,6 +408,10 @@
 .file-actions .btn-primary.btn-icon i,
 .file-actions .btn-primary.btn-icon svg {
     color: #667eea;
+}
+
+.file-actions__list .btn.file-action--hidden {
+    display: none !important;
 }
 
 .file-actions__menu-button .fas {
