@@ -1940,37 +1940,11 @@ function goBack(ev){
         return !desktopMatch || desktopMatch.matches;
     }
 
-    function isElementVisible(el) {
-        if (!el) {
+    function isOverflowCandidate(item) {
+        if (!item || !item.el) {
             return false;
         }
-        if (typeof el.offsetParent !== 'undefined' && el.offsetParent !== null) {
-            return true;
-        }
-        const rects = typeof el.getClientRects === 'function' ? el.getClientRects() : [];
-        if (rects && rects.length) {
-            const rect = rects[0];
-            if (rect.width > 0 && rect.height > 0) {
-                return true;
-            }
-        }
-        if (typeof window.getComputedStyle === 'function') {
-            const computed = window.getComputedStyle(el);
-            if (computed.display === 'none' || computed.visibility === 'hidden' || Number(computed.opacity) === 0) {
-                return false;
-            }
-        }
-        return false;
-    }
-
-    function isActionHidden(item) {
-        if (!item || !item.el) {
-            return true;
-        }
-        if (item.el.classList.contains('file-action--hidden')) {
-            return true;
-        }
-        return !isElementVisible(item.el);
+        return item.el.classList.contains('file-action--hidden');
     }
 
     function setActionHidden(item, hidden) {
@@ -1983,9 +1957,10 @@ function goBack(ev){
     }
 
     function refreshMenuState() {
+        const desktopView = isDesktopLayout();
         overflowItems.forEach((item) => {
-            const hidden = isActionHidden(item);
-            showProxy(item, hidden && isDesktopLayout());
+            const shouldShow = desktopView && isOverflowCandidate(item);
+            showProxy(item, shouldShow);
         });
         updateDividerVisibility();
     }
