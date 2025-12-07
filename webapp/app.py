@@ -9237,7 +9237,7 @@ def api_observability_story_save_markdown_file():
         return jsonify({'ok': True, **result})
     except ValueError as exc:
         logger.warning("story_markdown_save_bad_request", extra={'error': str(exc)})
-        return jsonify({'ok': False, 'error': 'bad_request', 'detail': str(exc)}), 400
+        return jsonify({'ok': False, 'error': 'bad_request'}), 400
     except Exception:
         logger.exception("story_markdown_save_failed")
         return jsonify({'ok': False, 'error': 'internal_error'}), 500
