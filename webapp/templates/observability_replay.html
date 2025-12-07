@@ -289,7 +289,7 @@
   function formatTime(ts) {
     if (!ts) return '—';
     try {
-      return new Date(ts).toLocaleString('he-IL', {hour12: false});
+      return new Date(ts).toLocaleString('he-IL', { hour12: false, timeZone: 'Asia/Jerusalem' });
     } catch (err) {
       return ts;
     }

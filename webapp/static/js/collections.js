@@ -68,6 +68,7 @@
   ];
 
   const resolvedFileIdCache = new Map();
+  const RECYCLE_BIN_ALERT = 'הקובץ הועבר לסל מיחזור, ניתן לשחזר דרך סל מיחזור דרך הבוט';
   let currentCollectionId = '';
   let initialCollectionIdConsumed = false;
   const WORKSPACE_STATE_META = {
@@ -1176,7 +1177,9 @@
         }
       } catch (err) {
         const code = (err && (err.code || err.message)) || 'error';
-        if (code === 'not_found') {
+        if (code === 'in_recycle_bin') {
+          alert(RECYCLE_BIN_ALERT);
+        } else if (code === 'not_found') {
           alert('הקובץ לא נמצא להצגה מקדימה');
         } else if (code === 'missing_name') {
           alert('שם הקובץ חסר');
@@ -1209,7 +1212,9 @@
       }
     } catch (err) {
       const code = (err && (err.code || err.message)) || 'error';
-      if (code === 'not_found') {
+      if (code === 'in_recycle_bin') {
+        alert(RECYCLE_BIN_ALERT);
+      } else if (code === 'not_found') {
         alert('הקובץ לא נמצא לצפייה');
       } else if (code !== 'missing_name') {
         alert('שגיאה בפתיחת הקובץ');

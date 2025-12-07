@@ -489,6 +489,25 @@
     lastUpdatedEl: document.getElementById('lastUpdated'),
     focusTs: initialParams.get('focus_ts') || '',
   };
+  const OBS_LOCALE = 'he-IL';
+  const OBS_TIMEZONE = 'Asia/Jerusalem';
+
+  function formatJerusalemDate(value, overrides = {}) {
+    if (value == null || value === '') return '—';
+    try {
+      const date = value instanceof Date ? value : new Date(value);
+      if (Number.isNaN(date.getTime())) {
+        return typeof value === 'string' ? value : '—';
+      }
+      return date.toLocaleString(OBS_LOCALE, {
+        hour12: false,
+        timeZone: OBS_TIMEZONE,
+        ...overrides,
+      });
+    } catch (err) {
+      return typeof value === 'string' ? value : '—';
+    }
+  }
   const VISUAL_PRESETS = ['15m', '30m', '1h', '6h', '24h', '7d'];
   const visualContextStore = {};
   const visualContextCache = {};
@@ -496,13 +515,7 @@
   let responseChart;
 
   function formatTimestamp(ts){
-    if (!ts) return '—';
-    try {
-      const date = new Date(ts);
-      return date.toLocaleString('he-IL', { hour12: false });
-    } catch (e) {
-      return ts;
-    }
+    return formatJerusalemDate(ts);
   }
 
   function getGranularity() {
@@ -531,7 +544,7 @@
 
   function updateLastUpdated() {
     if (state.lastUpdatedEl) {
-      state.lastUpdatedEl.textContent = new Date().toLocaleString('he-IL', { hour12: false });
+      state.lastUpdatedEl.textContent = formatJerusalemDate(new Date());
     }
   }
 
@@ -565,7 +578,10 @@
   }
 
   function renderAlertsChart(data) {
-    const labels = data.map(d => d.timestamp ? new Date(d.timestamp).toLocaleString('he-IL', { hour12: false }) : '');
+    const labels = data.map(d => {
+      const label = formatJerusalemDate(d.timestamp);
+      return label === '—' ? '' : label;
+    });
     const critical = data.map(d => d.critical || 0);
     const anomaly = data.map(d => d.anomaly || 0);
     const info = data.map(d => d.info || 0);
@@ -590,7 +606,10 @@
   }
 
   function renderResponseChart(data) {
-    const labels = data.map(d => d.timestamp ? new Date(d.timestamp).toLocaleString('he-IL', { hour12: false }) : '');
+    const labels = data.map(d => {
+      const label = formatJerusalemDate(d.timestamp);
+      return label === '—' ? '' : label;
+    });
     const avg = data.map(d => d.avg_duration || 0);
     const max = data.map(d => d.max_duration || 0);
     ensureChart('responseChart', {
@@ -1001,12 +1020,12 @@
   }
 
   function formatVisualWindowLabel(start, end) {
-    const opts = { hour12: false };
-    try {
-      return `${start.toLocaleString('he-IL', opts)} → ${end.toLocaleString('he-IL', opts)}`;
-    } catch (err) {
+    const startLabel = formatJerusalemDate(start);
+    const endLabel = formatJerusalemDate(end);
+    if (startLabel === '—' || endLabel === '—') {
       return `${start?.toISOString?.() || ''} → ${end?.toISOString?.() || ''}`;
     }
+    return `${startLabel} → ${endLabel}`;
   }
 
   function renderVisualChart(meta, rows) {
@@ -1033,11 +1052,8 @@
       return false;
     }
     const labels = points.map(point => {
-      try {
-        return new Date(point.ts).toLocaleString('he-IL', { hour12: false });
-      } catch (err) {
-        return point.ts;
-      }
+      const label = formatJerusalemDate(point.ts);
+      return label === '—' ? String(point.ts ?? '') : label;
     });
     const values = points.map(point => Number(point.value));
     if (entry.chart) {
