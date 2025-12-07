@@ -323,35 +323,35 @@
 }
 
 #md-content.bg-sepia {
-  background: #fffbf5;
-  color: #5c4b43;
-  --md-inline-code-bg: #fffdf7;
-  --md-inline-code-border: rgba(92, 75, 67, 0.18);
-  --md-inline-code-color: #5c4b43;
-  --md-code-border: rgba(92, 75, 67, 0.18);
-  --md-code-shell-bg: #fff7ed;
-  --md-code-header-bg: #ffeede;
-  --md-code-header-text: #5c4b43;
-  --md-code-bg: #fff7ed;
-  --md-code-text: #4a3b34;
-  --md-code-copy-bg: #ffe7cf;
-  --md-code-copy-border: rgba(92, 75, 67, 0.2);
-  --md-code-copy-color: #4a3b34;
-  --md-code-copy-hover-bg: #ffeddc;
-  --md-code-lang-bg: #f8dac4;
-  --md-code-lang-text: #4a3b34;
-  --md-code-shadow: 0 14px 28px rgba(138, 108, 73, 0.2);
-  --hljs-text: #4a3b34;
-  --hljs-keyword: #b4637a;
-  --hljs-string: #286983;
-  --hljs-function: #907aa9;
-  --hljs-comment: #9b8a7f;
-  --hljs-number: #ea9d34;
-  --hljs-operator: #5c4b43;
-  --hljs-addition-text: #286983;
-  --hljs-addition-bg: rgba(40, 105, 131, 0.15);
-  --hljs-deletion-text: #b4637a;
-  --hljs-deletion-bg: rgba(180, 99, 122, 0.2);
+  background: #fdf6e3;
+  color: #586e75;
+  --md-inline-code-bg: rgba(255, 255, 255, 0.45);
+  --md-inline-code-border: rgba(0, 0, 0, 0.08);
+  --md-inline-code-color: #2c2520;
+  --md-code-border: #d3cbb7;
+  --md-code-shell-bg: #eee8d5;
+  --md-code-header-bg: #e4dfc9;
+  --md-code-header-text: #586e75;
+  --md-code-bg: #eee8d5;
+  --md-code-text: #657b83;
+  --md-code-copy-bg: #faf2da;
+  --md-code-copy-border: #d1c7ab;
+  --md-code-copy-color: #5a4c3a;
+  --md-code-copy-hover-bg: #eadfca;
+  --md-code-lang-bg: #d9cfb6;
+  --md-code-lang-text: #4f4a3a;
+  --md-code-shadow: 0 14px 28px rgba(90, 66, 33, 0.16);
+  --hljs-text: #657b83;
+  --hljs-keyword: #859900;
+  --hljs-string: #2aa198;
+  --hljs-function: #268bd2;
+  --hljs-comment: #93a1a1;
+  --hljs-number: #b58900;
+  --hljs-operator: #b58900;
+  --hljs-addition-text: #2aa198;
+  --hljs-addition-bg: rgba(42, 161, 152, 0.2);
+  --hljs-deletion-text: #dc322f;
+  --hljs-deletion-bg: rgba(220, 50, 47, 0.2);
 }
 
 /* קיפול H3 (admin) – צבע רקע נעים לעיניים בהתאם לצבע הכללי */
@@ -359,7 +359,7 @@
 #md-content.bg-light { --md-fold-bg: #fbf2e6; --md-fold-border: rgba(0,0,0,0.08); }
 #md-content.bg-medium { --md-fold-bg: #f2e2c8; --md-fold-border: rgba(0,0,0,0.09); }
 #md-content.bg-dark { --md-fold-bg: #e8d2b4; --md-fold-border: rgba(0,0,0,0.10); }
-#md-content.bg-sepia { --md-fold-bg: #fff6eb; --md-fold-border: rgba(92,75,67,0.18); }
+#md-content.bg-sepia { --md-fold-bg: #fff3dc; --md-fold-border: rgba(0,0,0,0.07); }
 
 #md-content details.md-section-collapse {
   background: transparent;
@@ -1420,14 +1420,26 @@ input.md-task-checkbox {
         </h2>
         <!-- כפתור החלפת צבעי רקע הועבר לכותרת כדי למנוע חפיפה בטאבלט -->
         <div id="bgColorSwitcher">
-          <button id="bgColorBtn" class="btn btn-secondary btn-icon" style="background:linear-gradient(135deg,#FFFDF7,#FFFBF5);color:#4a2c2a;border:1px solid #f3ddc6;box-shadow:0 4px 12px rgba(144,122,169,0.18);padding:8px 16px;border-radius:10px;font-size:14px;cursor:pointer;transition:all 0.2s ease;" title="החלף צבע רקע">
-            <span style="display:inline-block;width:16px;height:16px;border-radius:50%;background:#FFFBF5;border:2px solid #d6bfa5;vertical-align:middle;margin-left:6px;"></span>
+          <button id="bgColorBtn" class="btn btn-secondary btn-icon" style="background:rgba(255,255,255,0.95);color:#333;border:1px solid #ddd;box-shadow:0 2px 8px rgba(0,0,0,0.15);padding:8px 16px;border-radius:8px;font-size:14px;cursor:pointer;transition:all 0.2s ease;" title="החלף צבע רקע">
+            <span style="display:inline-block;width:16px;height:16px;border-radius:50%;background:#ffffff;border:2px solid #333;vertical-align:middle;margin-left:6px;"></span>
             צבע רקע
           </button>
-          <div id="bgColorOptions" style="display:none;position:absolute;top:100%;left:50%;transform:translateX(-50%);margin-top:5px;background:var(--card-bg,#ffffff);color:var(--text-primary,#333);border:1px solid var(--glass-border,#ddd);border-radius:8px;box-shadow:0 4px 12px rgba(0,0,0,0.2);padding:10px;white-space:nowrap;">
-            <button class="bg-color-option" data-color="sepia" style="display:block;width:100%;padding:8px 12px;margin:4px 0;border:1px solid #d6bfa5;border-radius:8px;background:linear-gradient(135deg,#FFFDF7,#FFFBF5);color:#4a2c2a;cursor:pointer;font-size:14px;transition:all 0.2s ease;">
-              <span style="display:inline-block;width:20px;height:20px;border-radius:4px;background:#FFFBF5;border:1px solid #d6bfa5;vertical-align:middle;margin-left:8px;"></span>
+          <div id="bgColorOptions" style="display:none;position:absolute;top:100%;left:50%;transform:translateX(-50%);margin-top:5px;background:white;border-radius:8px;box-shadow:0 4px 12px rgba(0,0,0,0.2);padding:10px;white-space:nowrap;">
+            <button class="bg-color-option" data-color="sepia" style="display:block;width:100%;padding:8px 12px;margin:4px 0;border:1px solid #ddd;border-radius:6px;background:#fdf6e3;color:#333;cursor:pointer;font-size:14px;transition:all 0.2s ease;">
+              <span style="display:inline-block;width:20px;height:20px;border-radius:4px;background:#fdf6e3;border:1px solid #999;vertical-align:middle;margin-left:8px;"></span>
               נייר חם
+            </button>
+            <button class="bg-color-option" data-color="light" style="display:block;width:100%;padding:8px 12px;margin:4px 0;border:1px solid #ddd;border-radius:6px;background:#f7eadb;color:#333;cursor:pointer;font-size:14px;transition:all 0.2s ease;">
+              <span style="display:inline-block;width:20px;height:20px;border-radius:4px;background:#f7eadb;border:1px solid #999;vertical-align:middle;margin-left:8px;"></span>
+              חום בהיר
+            </button>
+            <button class="bg-color-option" data-color="medium" style="display:block;width:100%;padding:8px 12px;margin:4px 0;border:1px solid #ddd;border-radius:6px;background:#ecd9bd;color:#333;cursor:pointer;font-size:14px;transition:all 0.2s ease;">
+              <span style="display:inline-block;width:20px;height:20px;border-radius:4px;background:#ecd9bd;border:1px solid #999;vertical-align:middle;margin-left:8px;"></span>
+              חום בינוני
+            </button>
+            <button class="bg-color-option" data-color="dark" style="display:block;width:100%;padding:8px 12px;margin:4px 0;border:1px solid #ddd;border-radius:6px;background:#dec4a3;color:#333;cursor:pointer;font-size:14px;transition:all 0.2s ease;">
+              <span style="display:inline-block;width:20px;height:20px;border-radius:4px;background:#dec4a3;border:1px solid #999;vertical-align:middle;margin-left:8px;"></span>
+              חום כהה
             </button>
           </div>
         </div>
@@ -2792,9 +2804,11 @@ try { if (typeof window !== 'undefined') { window.attachColorSwatches = attachCo
   'use strict';
   
   const COLORS = {
-    sepia: '#FFFBF5'
+    sepia: '#fdf6e3',
+    light: '#f5e6d3',
+    medium: '#e8d4b0',
+    dark: '#d4b896'
   };
-  const COLOR_CLASSES = ['bg-sepia', 'bg-light', 'bg-medium', 'bg-dark'];
   
   const STORAGE_KEY = 'md_bg_color_preference';
   
@@ -2818,28 +2832,22 @@ try { if (typeof window !== 'undefined') { window.attachColorSwatches = attachCo
     } catch(_) {}
   }
   
-  function isValidColorValue(value) {
-    return typeof value === 'string' && Object.prototype.hasOwnProperty.call(COLORS, value);
-  }
-
   // החלת צבע רקע
-  function applyBackgroundColor(color, options = {}) {
-    const remember = options.remember !== false;
+  function applyBackgroundColor(color) {
     const mdContent = document.getElementById('md-content');
     if (!mdContent) return;
     
     // הסרת כל המחלקות הקודמות
-    mdContent.classList.remove(...COLOR_CLASSES);
+    mdContent.classList.remove('bg-sepia', 'bg-light', 'bg-medium', 'bg-dark');
     
-    const normalizedColor = isValidColorValue(color) ? color : null;
     // החלת צבע חדש אם נבחר
-    if (normalizedColor) {
-      mdContent.classList.add(`bg-${normalizedColor}`);
+    if (color && COLORS[color]) {
+      mdContent.classList.add(`bg-${color}`);
       
       // עדכון הכפתור הראשי
       const indicator = document.querySelector('#bgColorBtn span');
       if (indicator) {
-        indicator.style.background = COLORS[normalizedColor];
+        indicator.style.background = COLORS[color];
       }
     } else {
       // חזרה לצבע ברירת המחדל (לבן)
@@ -2853,17 +2861,15 @@ try { if (typeof window !== 'undefined') { window.attachColorSwatches = attachCo
     document.querySelectorAll('.bg-color-option').forEach(btn => {
       btn.classList.remove('active');
       // השוואה גם לערך ריק עבור ברירת המחדל
-      if ((normalizedColor === null || normalizedColor === '') && (btn.dataset.color === '' || btn.dataset.color === 'default')) {
+      if ((color === null || color === '') && (btn.dataset.color === '' || btn.dataset.color === 'default')) {
         btn.classList.add('active');
-      } else if (btn.dataset.color === normalizedColor) {
+      } else if (btn.dataset.color === color) {
         btn.classList.add('active');
       }
     });
     
     // שמירת ההעדפה
-    if (remember) {
-      saveColorPreference(normalizedColor);
-    }
+    saveColorPreference(color);
   }
   
   // אתחול המערכת
@@ -2875,11 +2881,8 @@ try { if (typeof window !== 'undefined') { window.attachColorSwatches = attachCo
     
     // טעינת העדפה שמורה
     const savedColor = getSavedColorPreference();
-    if (savedColor && !isValidColorValue(savedColor)) {
-      saveColorPreference(null);
-      applyBackgroundColor(null, { remember: false });
-    } else {
-      applyBackgroundColor(savedColor || null, { remember: false });
+    if (savedColor) {
+      applyBackgroundColor(savedColor);
     }
     
     // פתיחה/סגירה של התפריט
