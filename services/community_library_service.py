@@ -221,3 +221,15 @@ def list_public(q: Optional[str] = None, page: int = 1, per_page: int = 30, tags
         except Exception:
             continue
     return out, total
+
+
+def get_item_by_id(item_id: str) -> Optional[Dict[str, Any]]:
+    """Return raw community library document by id (or None)."""
+    coll = _coll()
+    if coll is None:
+        return None
+    try:
+        query = {"_id": ObjectId(item_id)} if item_id else {"_id": None}
+        return coll.find_one(query)
+    except Exception:
+        return None

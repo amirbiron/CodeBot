@@ -4,10 +4,13 @@ import re
 import asyncio
 import inspect
 import hashlib
+import importlib
 import secrets
 import time
 from io import BytesIO
 from datetime import datetime, timezone, timedelta
+from typing import List, Optional, Dict, Type, cast
+
 from telegram import Update, ReplyKeyboardMarkup, ReplyKeyboardRemove, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.constants import ParseMode
 import telegram.error
@@ -19,11 +22,10 @@ from telegram.ext import (
     CallbackQueryHandler,
     filters,
 )
-try:
-    from database import DatabaseManager
-except Exception:
-    class DatabaseManager:  # type: ignore
-        ...
+
+class DatabaseManager:  # type: ignore
+    ...
+
 from file_manager import backup_manager
 # Reporter מוזרק בזמן ריצה כדי להימנע מפתיחת חיבור בעת import
 class _NoopReporter:
@@ -37,7 +39,6 @@ def set_activity_reporter(new_reporter):
     reporter = new_reporter or _NoopReporter()
 from utils import get_language_emoji as get_file_emoji
 from user_stats import user_stats
-from typing import List, Optional, Dict, Type, cast
 from html import escape as html_escape
 from utils import TelegramUtils, TextUtils, ValidationUtils
 from services import code_service
@@ -106,6 +107,84 @@ def _get_files_facade_or_none():
         return None
 
 
+def _get_legacy_db():
+    """Lazy access to the legacy DatabaseManager for fallback paths."""
+    try:
+        module = importlib.import_module("database")
+        return getattr(module, "db", None)
+    except Exception:
+        return None
+
+
+def _call_files_api(method_name: str, *args, **kwargs):
+    """Invoke FilesFacade (or legacy db) method by name, best-effort."""
+    facade = _get_files_facade_or_none()
+    if facade is not None:
+        method = getattr(facade, method_name, None)
+        if callable(method):
+            try:
+                return method(*args, **kwargs)
+            except Exception:
+                pass
+    legacy = _get_legacy_db()
+    if legacy is None:
+        return None
+    method = getattr(legacy, method_name, None)
+    if callable(method):
+        try:
+            return method(*args, **kwargs)
+        except Exception:
+            return None
+    return None
+
+
+def _call_repo_api(method_name: str, *args, **kwargs):
+    """Invoke repository-level APIs (e.g. recycle bin helpers)."""
+    result = _call_files_api(method_name, *args, **kwargs)
+    if result is not None:
+        return result
+    legacy = _get_legacy_db()
+    if legacy is None:
+        return None
+    repo_getter = getattr(legacy, "_get_repo", None)
+    if not callable(repo_getter):
+        return None
+    try:
+        repo = repo_getter()
+    except Exception:
+        return None
+    method = getattr(repo, method_name, None)
+    if callable(method):
+        try:
+            return method(*args, **kwargs)
+        except Exception:
+            return None
+    return None
+
+
+def _get_owned_document_by_id(user_id: int, file_id: str):
+    """Return (document, is_large_file) for a file owned by user."""
+    result = _call_files_api("get_user_document_by_id", user_id=user_id, file_id=file_id)
+    if isinstance(result, tuple) and len(result) == 2:
+        return result
+    legacy = _get_legacy_db()
+    if legacy is None:
+        return None, False
+    try:
+        doc = legacy.get_file_by_id(file_id)
+    except Exception:
+        doc = None
+    if isinstance(doc, dict) and str(doc.get("user_id")) == str(user_id):
+        return doc, False
+    try:
+        large_doc = legacy.get_large_file_by_id(file_id)
+    except Exception:
+        large_doc = None
+    if isinstance(large_doc, dict) and str(large_doc.get("user_id")) == str(user_id):
+        return large_doc, True
+    return None, False
+
+
 def _load_favorites(user_id: int, limit: int = 1000, facade=None) -> List[Dict[str, object]]:
     """Fetch favorites via facade when available, fallback to legacy db."""
     if facade is None:
@@ -117,11 +196,8 @@ def _load_favorites(user_id: int, limit: int = 1000, facade=None) -> List[Dict[s
                 return docs
         except Exception:
             pass
-    try:
-        from database import db  # type: ignore
-        return list(db.get_favorites(user_id, limit=limit) or [])
-    except Exception:
-        return []
+    legacy_docs = _call_files_api("get_favorites", user_id, limit=limit)
+    return list(legacy_docs or [])
 
 
 def _resolve_is_favorite(
@@ -146,11 +222,10 @@ def _resolve_is_favorite(
                 return True
         except Exception:
             pass
-    try:
-        from database import db as _db  # type: ignore
-        return bool(_db.is_favorite(user_id, file_name))
-    except Exception:
+    legacy_state = _call_files_api("is_favorite", user_id, file_name)
+    if legacy_state is None:
         return default
+    return bool(legacy_state)
 
 
 def _coerce_command_args(raw_args) -> List[str]:
@@ -388,13 +463,13 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
     user_id = update.effective_user.id
     user_name = update.effective_user.first_name
     username = update.effective_user.username
-    from database import db
-    db.save_user(user_id, username)
+    _call_files_api("save_user", user_id, username)
+    db_manager = _get_legacy_db()
     user_stats.log_user(user_id, username)
     # אם המשתמש הגיע עם פרמטר webapp_login — צור ושלח קישור התחברות אישי ל-Web App
     if _is_webapp_login_requested(update, context):
         try:
-            payload = _build_webapp_login_payload(db, user_id, username)
+            payload = _build_webapp_login_payload(db_manager, user_id, username)
             if payload is not None:
                 message = getattr(update, "message", None)
                 reply_fn = getattr(message, "reply_text", None) if message is not None else None
@@ -806,10 +881,8 @@ async def start_zip_create_flow(update: Update, context: ContextTypes.DEFAULT_TY
 
 async def show_by_repo_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """מציג תפריט קבוצות לפי תגיות ריפו ומאפשר בחירה."""
-    from database import db
     user_id = update.effective_user.id
-    # שימוש באגרגציה מהירה ב-DB כדי לקבל תגיות ריפו עם ספירה
-    tags_with_counts = db.get_repo_tags_with_counts(user_id, max_tags=20)
+    tags_with_counts = _call_files_api("get_repo_tags_with_counts", user_id, max_tags=20) or []
     if not tags_with_counts:
         await update.message.reply_text("ℹ️ אין קבצים עם תגית ריפו.")
         return ConversationHandler.END
@@ -833,12 +906,10 @@ async def show_by_repo_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) 
 
 async def show_by_repo_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """גרסת callback להצגת תפריט ריפו (עריכת ההודעה הנוכחית)."""
-    from database import db
     query = update.callback_query
     await query.answer()
     user_id = update.effective_user.id
-    # שימוש באגרגציה מהירה ב-DB כדי לקבל תגיות ריפו עם ספירה
-    tags_with_counts = db.get_repo_tags_with_counts(user_id, max_tags=20)
+    tags_with_counts = _call_files_api("get_repo_tags_with_counts", user_id, max_tags=20) or []
     if not tags_with_counts:
         await TelegramUtils.safe_edit_message_text(query, "ℹ️ אין קבצים עם תגית ריפו.")
         return ConversationHandler.END
@@ -864,7 +935,6 @@ async def show_all_files(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     user_id = update.effective_user.id
     # רישום פעילות למעקב סטטיסטיקות ב-MongoDB
     user_stats.log_user(user_id, update.effective_user.username)
-    from database import db
     # הקשר: חזרה מתצוגת ZIP תחזור ל"📚" ותבטל סינון לפי ריפו
     try:
         context.user_data['zip_back_to'] = 'files'
@@ -990,6 +1060,15 @@ from handlers.states import (
 from services.community_library_service import submit_item as _cl_submit, ObjectId as _CLObjectId
 from chatops.permissions import get_admin_user_ids as _get_admin_user_ids
 from chatops.permissions import admin_required as _admin_required
+
+
+def _get_community_item_doc(item_id: str) -> Optional[Dict[str, Any]]:
+    """Fetch community library item for notifications."""
+    try:
+        from services.community_library_service import get_item_by_id as _get_cl_item
+        return _get_cl_item(item_id)
+    except Exception:
+        return None
 
 async def community_submit_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     query = update.callback_query
@@ -1131,28 +1210,20 @@ async def community_inline_approve(update: Update, context: ContextTypes.DEFAULT
         ok = _approve(item_id, int(update.effective_user.id))
     except Exception:
         ok = False
-    # Notify submitter best-effort
     if ok:
-        try:
-            from database import db as _db
-            coll = getattr(_db, 'community_library_collection', None)
-            if coll is None:
-                coll = getattr(_db.db, 'community_library_items')
-            doc = coll.find_one({'_id': _CLObjectId(item_id)}) if coll is not None else None
-            if isinstance(doc, dict):
-                uid = doc.get('user_id')
-                if uid:
-                    try:
-                        base = _resolve_webapp_base_url() or DEFAULT_WEBAPP_URL
-                        msg = (
-                            "🎉 איזה כיף! הבקשה שלך אושרה ונוספה לאוסף הקהילה.\n"
-                            f"אפשר לצפות כאן: {base}/community-library"
-                        )
-                        await context.bot.send_message(chat_id=int(uid), text=msg)
-                    except Exception:
-                        pass
-        except Exception:
-            pass
+        doc = _get_community_item_doc(item_id)
+        if isinstance(doc, dict):
+            uid = doc.get('user_id')
+            if uid:
+                try:
+                    base = _resolve_webapp_base_url() or DEFAULT_WEBAPP_URL
+                    msg = (
+                        "🎉 איזה כיף! הבקשה שלך אושרה ונוספה לאוסף הקהילה.\n"
+                        f"אפשר לצפות כאן: {base}/community-library"
+                    )
+                    await context.bot.send_message(chat_id=int(uid), text=msg)
+                except Exception:
+                    pass
     await TelegramUtils.safe_edit_message_text(query, "✅ אושר" if ok else "❌ שגיאה באישור")
     return ConversationHandler.END
 
@@ -1188,14 +1259,7 @@ async def community_collect_reject_reason(update: Update, context: ContextTypes.
         ok = False
     # הודע למגיש/ה
     if ok:
-        try:
-            from database import db as _db
-            coll = getattr(_db, 'community_library_collection', None)
-            if coll is None:
-                coll = getattr(_db.db, 'community_library_items')
-            doc = coll.find_one({'_id': _CLObjectId(item_id)}) if coll is not None else None
-        except Exception:
-            doc = None
+        doc = _get_community_item_doc(item_id)
         if isinstance(doc, dict):
             uid = doc.get('user_id')
             if uid:
@@ -1221,7 +1285,6 @@ async def community_collect_reject_reason(update: Update, context: ContextTypes.
 async def community_queue_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         from services.community_library_service import list_pending
-        from database import db as _db
         items = list_pending(limit=20)
         if not items:
             await update.message.reply_text("ℹ️ אין פריטים בהמתנה")
@@ -1253,26 +1316,19 @@ async def community_approve_command(update: Update, context: ContextTypes.DEFAUL
         await update.message.reply_text("✅ אושר" if ok else "❌ כשל באישור")
         # Notify submitter
         if ok:
-            try:
-                from database import db as _db
-                coll = getattr(_db, 'community_library_collection', None)
-                if coll is None:
-                    coll = getattr(_db.db, 'community_library_items')
-                doc = coll.find_one({'_id': _CLObjectId(iid)}) if coll is not None else None
-                if isinstance(doc, dict):
-                    uid = doc.get('user_id')
-                    if uid:
-                        try:
-                            base = _resolve_webapp_base_url() or DEFAULT_WEBAPP_URL
-                            msg = (
-                                "🎉 איזה כיף! הבקשה שלך אושרה ונוספה לאוסף הקהילה.\n"
-                                f"אפשר לצפות כאן: {base}/community-library"
-                            )
-                            await context.bot.send_message(chat_id=int(uid), text=msg)
-                        except Exception:
-                            pass
-            except Exception:
-                pass
+            doc = _get_community_item_doc(iid)
+            if isinstance(doc, dict):
+                uid = doc.get('user_id')
+                if uid:
+                    try:
+                        base = _resolve_webapp_base_url() or DEFAULT_WEBAPP_URL
+                        msg = (
+                            "🎉 איזה כיף! הבקשה שלך אושרה ונוספה לאוסף הקהילה.\n"
+                            f"אפשר לצפות כאן: {base}/community-library"
+                        )
+                        await context.bot.send_message(chat_id=int(uid), text=msg)
+                    except Exception:
+                        pass
     except Exception as e:
         await update.message.reply_text(f"❌ שגיאה: {e}")
 
@@ -1728,7 +1784,6 @@ async def show_regular_files_callback(update: Update, context: ContextTypes.DEFA
     # Instead of creating a fake update, adapt show_all_files logic for callback queries
     user_id = update.effective_user.id
     files_facade = _get_files_facade_or_none()
-    from database import db
     
     try:
         # עימוד אמיתי בצד ה-DB + ללא החזרת תוכן קוד
@@ -1959,7 +2014,13 @@ async def show_regular_files_page_callback(update: Update, context: ContextTypes
         except Exception:
             requested_page = context.user_data.get('files_last_page') or 1
         requested_page = max(1, requested_page)
-        files, total_files = db.get_regular_files_paginated(user_id, page=requested_page, per_page=FILES_PAGE_SIZE)
+        page_data = _call_files_api(
+            "get_regular_files_paginated",
+            user_id,
+            page=requested_page,
+            per_page=FILES_PAGE_SIZE,
+        )
+        files, total_files = page_data if isinstance(page_data, tuple) else ([], 0)
         if total_files == 0:
             # אם אין קבצים, הצג הודעה וכפתור חזרה לתת־התפריט של הקבצים
             await query.edit_message_text(
@@ -2071,9 +2132,9 @@ async def show_recycle_bin(update: Update, context: ContextTypes.DEFAULT_TYPE) -
             page = int(str(data).split("_")[-1]) if str(data).startswith("recycle_page_") else 1
         except Exception:
             page = 1
-        from database import db
         page = max(1, page)
-        items, total = db._get_repo().list_deleted_files(user_id, page=page, per_page=RECYCLE_PAGE_SIZE)
+        result = _call_repo_api("list_deleted_files", user_id, page=page, per_page=RECYCLE_PAGE_SIZE)
+        items, total = result if isinstance(result, tuple) else ([], 0)
         total_pages = (total + RECYCLE_PAGE_SIZE - 1) // RECYCLE_PAGE_SIZE if total > 0 else 1
         keyboard = []
         for it in items:
@@ -2114,8 +2175,7 @@ async def recycle_restore(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         if not fid:
             await _maybe_await(_safe_answer(query, "בקשה לא תקפה", show_alert=True))
             return ConversationHandler.END
-        from database import db
-        ok = db._get_repo().restore_file_by_id(user_id, fid)
+        ok = bool(_call_repo_api("restore_file_by_id", user_id, fid))
         if ok:
             await _maybe_await(_safe_answer(query, "♻️ שוחזר", show_alert=False))
         else:
@@ -2138,8 +2198,7 @@ async def recycle_purge(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
         if not fid:
             await _maybe_await(_safe_answer(query, "בקשה לא תקפה", show_alert=True))
             return ConversationHandler.END
-        from database import db
-        ok = db._get_repo().purge_file_by_id(user_id, fid)
+        ok = bool(_call_repo_api("purge_file_by_id", user_id, fid))
         if ok:
             await _maybe_await(_safe_answer(query, "🧨 נמחק לצמיתות", show_alert=False))
         else:
@@ -2154,19 +2213,9 @@ async def share_single_by_id(update: Update, context: ContextTypes.DEFAULT_TYPE,
     query = update.callback_query
     await query.answer()
     try:
-        from database import db
-        from bson import ObjectId
         user_id = update.effective_user.id
-        # ודא שהקובץ שייך למשתמש
-        doc = db.collection.find_one({"_id": ObjectId(file_id), "user_id": user_id})
-        # אם לא נמצא בקולקשן הרגיל, נסה בקבצים גדולים
-        is_large = False
+        doc, is_large = _get_owned_document_by_id(user_id, file_id)
         if not doc:
-            doc = db.large_files_collection.find_one({"_id": ObjectId(file_id), "user_id": user_id})
-            if doc:
-                is_large = True
-        if not doc:
-            # במקום להציג שגיאה שגויה ואז הצלחה, נציג התראה קצרה בלבד ונפסיק
             await query.answer("קובץ לא נמצא", show_alert=False)
             return ConversationHandler.END
         file_name = doc.get('file_name') or 'file.txt'
