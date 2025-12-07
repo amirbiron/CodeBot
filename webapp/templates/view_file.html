@@ -279,12 +279,18 @@
 .file-actions__menu {
     position: relative;
     flex: 0 0 auto;
+    display: flex;
+    align-items: stretch;
 }
 
 .file-actions__menu-button {
     min-width: 48px;
     padding-inline: 16px;
     font-size: 1.5rem;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex: 0 0 auto;
 }
 
 .file-actions__dropdown {
@@ -363,6 +369,9 @@
     .file-actions__menu {
         flex: 0 0 auto;
         align-self: flex-start;
+    }
+    .file-actions__menu-button {
+        flex: 0 0 auto !important;
     }
     .file-actions__menu-button {
         flex: 0 0 auto !important;
