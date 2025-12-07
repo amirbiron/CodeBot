@@ -222,3 +222,53 @@ def test_story_export_markdown(monkeypatch):
         assert resp.status_code == 200
         assert resp.mimetype == 'text/markdown'
         assert b'Story demo' in resp.data
+
+
+def test_story_save_markdown_requires_admin(monkeypatch):
+    monkeypatch.setenv('ADMIN_USER_IDS', '42')
+    app = _build_app()
+    with app.test_client() as client:
+        with client.session_transaction() as sess:
+            sess['user_id'] = 7
+        resp = client.post('/api/observability/stories/save_markdown', json={'file_name': 'demo', 'story': {}})
+    assert resp.status_code == 403
+
+
+def test_story_save_markdown_calls_helpers(monkeypatch):
+    admin_id = 77
+    monkeypatch.setenv('ADMIN_USER_IDS', str(admin_id))
+    captured = {}
+
+    def _fake_render(story_payload):
+        captured['story'] = story_payload
+        return '# story markdown'
+
+    def _fake_persist(**kwargs):
+        captured['persist'] = kwargs
+        fname = kwargs['file_name']
+        if not fname.endswith('.md'):
+            fname = f'{fname}.md'
+        return {'file_id': 'abc', 'file_name': fname, 'version': 1}
+
+    monkeypatch.setattr('webapp.app.observability_service.render_story_markdown_inline', _fake_render)
+    monkeypatch.setattr('webapp.app._persist_story_markdown_file', _fake_persist)
+
+    payload = {
+        'alert_uid': 'alert-55',
+        'what_we_saw': {'description': 'desc'},
+        'time_window': {'start': '2025-01-01T00:00:00Z', 'end': '2025-01-01T01:00:00Z'}
+    }
+
+    app = _build_app()
+    with app.test_client() as client:
+        with client.session_transaction() as sess:
+            sess['user_id'] = admin_id
+        resp = client.post('/api/observability/stories/save_markdown', json={'file_name': 'incident_story', 'story': payload})
+        assert resp.status_code == 200
+        data = resp.get_json()
+        assert data['ok'] is True
+        assert data['file_name'].endswith('.md')
+
+    assert captured['story']['alert_uid'] == 'alert-55'
+    assert captured['persist']['markdown'] == '# story markdown'
+    assert captured['persist']['file_name'] == 'incident_story'

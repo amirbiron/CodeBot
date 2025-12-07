@@ -256,9 +256,10 @@
   cursor: pointer;
 }
 .story-btn.has-story {
-  background: rgba(255,255,255,0.2);
+  background: linear-gradient(135deg,#64ffda,#36c2ff);
   color: #08111d;
   font-weight: 600;
+  box-shadow: 0 10px 18px rgba(54,194,255,0.25);
 }
 .story-badge {
   font-size: 0.75rem;
@@ -644,7 +645,7 @@
       <div id="storyStatus" style="font-size:0.85rem; opacity:0.85; margin-top:0.6rem;"></div>
       <div class="story-modal__actions">
         <button type="button" class="story-save-btn" id="storySaveBtn">💾 שמור סיפור</button>
-        <button type="button" class="story-download-btn" id="storyDownloadMarkdown">⬇️ ייצוא Markdown</button>
+        <button type="button" class="story-download-btn" id="storySaveMarkdown">📁 שמירה כ-Markdown</button>
         <button type="button" class="story-secondary-btn" id="storyDownloadPdf">🖨️ ייצוא PDF</button>
         <button type="button" class="story-secondary-btn" data-story-close>סגור</button>
       </div>
@@ -689,7 +690,7 @@
   };
   const storyButtons = {
     save: document.getElementById('storySaveBtn'),
-    downloadMarkdown: document.getElementById('storyDownloadMarkdown'),
+    saveMarkdown: document.getElementById('storySaveMarkdown'),
     downloadPdf: document.getElementById('storyDownloadPdf'),
   };
   const OBS_LOCALE = 'he-IL';
@@ -1458,6 +1459,10 @@
     }
     if (storyFormEls.start) storyFormEls.start.value = toLocalInput(windowData.start || template.time_window?.start);
     if (storyFormEls.end) storyFormEls.end.value = toLocalInput(windowData.end || template.time_window?.end);
+    const alertTimestamp = storyState.alert?.timestamp;
+    if (storyFormEls.start && !storyFormEls.start.value && alertTimestamp) {
+      storyFormEls.start.value = toLocalInput(alertTimestamp);
+    }
     const whatSaw = existing.what_we_saw || template.what_we_saw || {};
     if (storyFormEls.whatSaw) storyFormEls.whatSaw.value = whatSaw.description || '';
     const whatDid = existing.what_we_did || template.what_we_did || {};
@@ -1582,43 +1587,55 @@
     }
   }
 
-  function downloadStoryMarkdown() {
+  function suggestStoryFileName(payload) {
+    const base =
+      payload.alert_name ||
+      payload.alert_uid ||
+      storyState.alert?.name ||
+      storyState.alert?.alert_uid ||
+      'incident_story';
+    const normalized = String(base || 'incident_story').trim().replace(/\s+/g, '_');
+    const sanitized = normalized.replace(/[^A-Za-z0-9_\-.\u0590-\u05FF]/g, '') || 'incident_story';
+    const suffix = storyState.story?.story_id || storyState.alert?.alert_uid || Date.now().toString();
+    const candidate = `${sanitized}_${suffix}`.replace(/__+/g, '_');
+    return candidate.toLowerCase().endsWith('.md') ? candidate : `${candidate}.md`;
+  }
+
+  async function saveStoryMarkdownToWebapp() {
+    const payload = buildStoryPayload({ allowPartial: true });
+    const suggestedName = suggestStoryFileName(payload);
+    const userInput = window.prompt('שם קובץ לשמירת Markdown', suggestedName);
+    if (userInput === null) {
+      setStoryStatus('שמירת Markdown בוטלה', false);
+      return;
+    }
+    const trimmed = userInput.trim();
+    if (!trimmed) {
+      setStoryStatus('יש להזין שם קובץ לשמירה', true);
+      showToast('שם קובץ אינו תקין');
+      return;
+    }
+    const finalName = trimmed.toLowerCase().endsWith('.md') ? trimmed : `${trimmed}.md`;
     try {
-      const payload = buildStoryPayload({ allowPartial: true });
-      const markdownLines = [
-        `# Incident Story – ${payload.alert_name || payload.alert_uid}`,
-        '',
-        `- Alert UID: ${payload.alert_uid}`,
-        `- Time Window: ${payload.time_window.label || payload.time_window.start || ''} → ${payload.time_window.end || ''}`,
-        `- Severity: ${payload.severity || 'n/a'}`,
-        `- Summary: ${payload.summary || ''}`,
-        '',
-        '## 👀 מה ראינו',
-        payload.what_we_saw.description || '',
-        '',
-        '## 🛠️ מה עשינו',
-        payload.what_we_did.manual_notes || '—',
-        '',
-        '## 💻 לוגים / פקודות',
-        ...(payload.logs.length ? payload.logs.map(log => `- ${log.source || 'log'}: ${log.content || ''}`) : ['- —']),
-        '',
-        '## 💡 תובנות',
-        payload.insights || '—',
-        '',
-      ];
-      const blob = new Blob([markdownLines.join('\n')], { type: 'text/markdown' });
-      const url = URL.createObjectURL(blob);
-      const link = document.createElement('a');
-      link.href = url;
-      const storyId = storyState.story?.story_id || 'draft';
-      link.download = `incident_story_${storyId}.md`;
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-      URL.revokeObjectURL(url);
+      if (storyButtons.saveMarkdown) storyButtons.saveMarkdown.disabled = true;
+      setStoryStatus('שומר קובץ Markdown...', false);
+      const res = await fetch('/api/observability/stories/save_markdown', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ file_name: finalName, story: payload }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || data.ok === false) {
+        throw new Error(data.error || data.detail || 'save_failed');
+      }
+      setStoryStatus(`קובץ נשמר בשם ${data.file_name}`, false);
+      showToast('הקובץ נשמר בספריית הקבצים');
     } catch (err) {
-      console.error('markdown_export_failed', err);
-      showToast('ייצוא Markdown נכשל');
+      console.error('story_markdown_save_failed', err);
+      setStoryStatus('שמירת קובץ Markdown נכשלה', true);
+      showToast('שמירת Markdown נכשלה');
+    } finally {
+      if (storyButtons.saveMarkdown) storyButtons.saveMarkdown.disabled = false;
     }
   }
 
@@ -1926,7 +1943,7 @@
   }
 
   if (storyButtons.save) storyButtons.save.addEventListener('click', () => saveStoryFromModal());
-  if (storyButtons.downloadMarkdown) storyButtons.downloadMarkdown.addEventListener('click', () => downloadStoryMarkdown());
+  if (storyButtons.saveMarkdown) storyButtons.saveMarkdown.addEventListener('click', () => saveStoryMarkdownToWebapp());
   if (storyButtons.downloadPdf) storyButtons.downloadPdf.addEventListener('click', () => downloadStoryPdf());
   if (storyModal) {
     storyModal.addEventListener('click', event => {

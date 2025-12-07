@@ -155,6 +155,101 @@
 .timeline-item[data-type="chatops"] {
   border-color: rgba(100,255,218,0.35);
 }
+.story-view-btn {
+  border: none;
+  border-radius: 999px;
+  padding: 0.35rem 0.9rem;
+  background: linear-gradient(135deg,#64ffda,#36c2ff);
+  color: #0b1224;
+  font-weight: 600;
+  cursor: pointer;
+  margin-inline-end: 0.4rem;
+  box-shadow: 0 12px 28px rgba(12,18,32,0.45);
+}
+.story-view-btn:hover {
+  opacity: 0.95;
+}
+.story-viewer-modal {
+  position: fixed;
+  inset: 0;
+  background: rgba(3,6,12,0.85);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 3200;
+}
+.story-viewer-modal[hidden] {
+  display: none;
+}
+.story-viewer {
+  width: min(700px, 95vw);
+  max-height: 92vh;
+  overflow-y: auto;
+  background: rgba(12,18,32,0.96);
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 20px;
+  padding: 1.4rem;
+  box-shadow: 0 30px 60px rgba(0,0,0,0.6);
+}
+.story-viewer__header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 1rem;
+  margin-bottom: 1rem;
+}
+.story-viewer__header h3 {
+  margin: 0;
+}
+.story-viewer__meta {
+  font-size: 0.85rem;
+  opacity: 0.75;
+  margin-top: 0.2rem;
+}
+.story-viewer__close {
+  background: transparent;
+  border: none;
+  color: #fff;
+  font-size: 1.2rem;
+  cursor: pointer;
+}
+.story-viewer__row {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  font-size: 0.9rem;
+}
+.story-viewer__label {
+  opacity: 0.7;
+}
+.story-viewer__value {
+  font-weight: 500;
+}
+.story-viewer__section {
+  margin-top: 1rem;
+}
+.story-viewer__section h4 {
+  margin: 0 0 0.3rem;
+  font-size: 1rem;
+}
+.story-viewer__list {
+  list-style: disc;
+  padding-inline-start: 1.2rem;
+  margin: 0.4rem 0;
+}
+.story-viewer__muted {
+  opacity: 0.65;
+}
+.story-viewer__footer {
+  margin-top: 1.2rem;
+  display: flex;
+  justify-content: flex-end;
+}
+.story-viewer__footer a {
+  color: #64ffda;
+  text-decoration: none;
+  font-weight: 500;
+}
 .empty-state {
   text-align: center;
   padding: 2rem 0;
@@ -211,6 +306,45 @@
   </div>
 </div>
 
+<div id="storyViewerModal" class="story-viewer-modal" hidden>
+  <div class="story-viewer" role="dialog" aria-modal="true" aria-labelledby="storyViewerTitle">
+    <div class="story-viewer__header">
+      <div>
+        <h3 id="storyViewerTitle">סיפור אירוע</h3>
+        <div class="story-viewer__meta" id="storyViewerMeta">—</div>
+      </div>
+      <button type="button" class="story-viewer__close" data-story-viewer-close aria-label="סגור">✕</button>
+    </div>
+    <div class="story-viewer__row">
+      <span class="story-viewer__label">טווח זמן</span>
+      <span class="story-viewer__value" id="storyViewerWindow">—</span>
+    </div>
+    <div class="story-viewer__row">
+      <span class="story-viewer__label">מדד גרפי</span>
+      <span class="story-viewer__value" id="storyViewerGraph">—</span>
+    </div>
+    <div class="story-viewer__section">
+      <h4>👀 מה ראינו</h4>
+      <p id="storyViewerWhatSaw" class="story-viewer__value">—</p>
+    </div>
+    <div class="story-viewer__section">
+      <h4>🛠️ מה עשינו</h4>
+      <ul id="storyViewerActions" class="story-viewer__list story-viewer__muted"></ul>
+    </div>
+    <div class="story-viewer__section">
+      <h4>💻 לוגים / פקודות</h4>
+      <ul id="storyViewerLogs" class="story-viewer__list story-viewer__muted"></ul>
+    </div>
+    <div class="story-viewer__section">
+      <h4>💡 תובנות</h4>
+      <p id="storyViewerInsights" class="story-viewer__value">—</p>
+    </div>
+    <div class="story-viewer__footer">
+      <a id="storyViewerEditLink" target="_blank" rel="noopener">פתח בלוח</a>
+    </div>
+  </div>
+</div>
+
 <script>
 (() => {
   const state = {
@@ -223,6 +357,7 @@
   const timelineSummaryEl = document.getElementById('timelineSummary');
   const timelineListEl = document.getElementById('timelineList');
   const rangeButtons = document.querySelectorAll('#replayRangeButtons button');
+  const storyViewer = createStoryViewer();
 
   function markActiveRange(rangeValue) {
     rangeButtons.forEach(b => {
@@ -286,6 +421,136 @@
     setTimeout(() => toast.remove(), 2200);
   }
 
+  function createStoryViewer() {
+    const modal = document.getElementById('storyViewerModal');
+    if (!modal) return null;
+    const els = {
+      modal,
+      title: document.getElementById('storyViewerTitle'),
+      meta: document.getElementById('storyViewerMeta'),
+      window: document.getElementById('storyViewerWindow'),
+      graph: document.getElementById('storyViewerGraph'),
+      whatSaw: document.getElementById('storyViewerWhatSaw'),
+      actions: document.getElementById('storyViewerActions'),
+      logs: document.getElementById('storyViewerLogs'),
+      insights: document.getElementById('storyViewerInsights'),
+      editLink: document.getElementById('storyViewerEditLink'),
+    };
+
+    function closeViewer() {
+      modal.hidden = true;
+    }
+
+    modal.addEventListener('click', evt => {
+      if (evt.target === modal) {
+        closeViewer();
+      }
+    });
+    modal.querySelectorAll('[data-story-viewer-close]').forEach(btn => {
+      btn.addEventListener('click', closeViewer);
+    });
+    document.addEventListener('keydown', evt => {
+      if (evt.key === 'Escape' && !modal.hidden) {
+        closeViewer();
+      }
+    });
+
+    function setViewerLoading() {
+      if (els.title) els.title.textContent = 'טוען סיפור...';
+      if (els.meta) els.meta.textContent = '';
+      if (els.window) els.window.textContent = '...';
+      if (els.graph) els.graph.textContent = '...';
+      if (els.whatSaw) els.whatSaw.textContent = '';
+      if (els.actions) els.actions.innerHTML = '<li class="story-viewer__muted">טוען...</li>';
+      if (els.logs) els.logs.innerHTML = '';
+      if (els.insights) els.insights.textContent = '';
+    }
+
+    function setViewerError() {
+      if (els.title) els.title.textContent = 'שגיאה בטעינת הסיפור';
+      if (els.meta) els.meta.textContent = '';
+      if (els.window) els.window.textContent = '—';
+      if (els.graph) els.graph.textContent = '—';
+      if (els.actions) els.actions.innerHTML = '<li class="story-viewer__muted">לא ניתן לטעון את הסיפור</li>';
+      if (els.logs) els.logs.innerHTML = '';
+      if (els.insights) els.insights.textContent = '';
+    }
+
+    function renderList(target, items, emptyText) {
+      if (!target) return;
+      if (!items.length) {
+        target.innerHTML = `<li class="story-viewer__muted">${emptyText}</li>`;
+        return;
+      }
+      target.innerHTML = items.join('');
+    }
+
+    function renderStory(story) {
+      const data = story || {};
+      if (els.title) els.title.textContent = data.alert_name || data.summary || 'סיפור אירוע';
+      const severity = (data.severity || 'info').toUpperCase();
+      const uid = data.alert_uid || data.story_id || '';
+      if (els.meta) els.meta.textContent = uid ? `[${severity}] ${uid}` : `[${severity}]`;
+      if (els.window) els.window.textContent = formatWindowLabel(
+        (data.time_window || {}).start,
+        (data.time_window || {}).end
+      );
+      const graph = (data.what_we_saw || {}).graph_snapshot;
+      if (els.graph) {
+        if (graph && (graph.metric || graph.label)) {
+          const points = Array.isArray(graph.series) ? graph.series.length : 0;
+          const range = graph.range_minutes != null ? graph.range_minutes : '—';
+          els.graph.textContent = `${graph.label || graph.metric} · ${points} נקודות · ${range} דק'`;
+        } else {
+          els.graph.textContent = '—';
+        }
+      }
+      if (els.whatSaw) {
+        els.whatSaw.textContent = (data.what_we_saw || {}).description || '—';
+      }
+      const autoActions = ((data.what_we_did || {}).auto_actions || []).map(action => {
+        const ts = action.timestamp ? formatTime(action.timestamp) : '';
+        const suffix = ts ? ` (${ts})` : '';
+        return `<li>${action.label || 'פעולה'}${suffix}</li>`;
+      });
+      if ((data.what_we_did || {}).manual_notes) {
+        autoActions.push(`<li>${data.what_we_did.manual_notes}</li>`);
+      }
+      renderList(els.actions, autoActions, 'לא תועדו פעולות');
+      const logs = (data.logs || []).map(log => `<li><strong>${log.source || 'log'}:</strong> ${log.content || ''}</li>`);
+      renderList(els.logs, logs, 'אין לוגים זמינים');
+      if (els.insights) els.insights.textContent = data.insights || '—';
+      if (els.editLink) {
+        if (data.story_id) {
+          const params = new URLSearchParams({ story_id: data.story_id });
+          if (data.alert_timestamp) params.set('focus_ts', data.alert_timestamp);
+          els.editLink.href = `/admin/observability?${params.toString()}`;
+          els.editLink.style.display = 'inline-flex';
+        } else {
+          els.editLink.style.display = 'none';
+        }
+      }
+    }
+
+    return {
+      async open(storyId) {
+        if (!storyId) return;
+        modal.hidden = false;
+        setViewerLoading();
+        try {
+          const res = await fetch(`/api/observability/stories/${storyId}`);
+          if (!res.ok) throw new Error('fetch_failed');
+          const payload = await res.json();
+          if (payload.ok === false) throw new Error(payload.error || 'fetch_failed');
+          renderStory(payload.story || {});
+        } catch (err) {
+          console.error('story_viewer_load_failed', err);
+          setViewerError();
+        }
+      },
+    };
+  }
+
   function formatTime(ts) {
     if (!ts) return '—';
     try {
@@ -293,6 +558,15 @@
     } catch (err) {
       return ts;
     }
+  }
+
+  function formatWindowLabel(start, end) {
+    const startLabel = start ? formatTime(start) : '';
+    const endLabel = end ? formatTime(end) : '';
+    if (startLabel && endLabel) {
+      return `${startLabel} → ${endLabel}`;
+    }
+    return startLabel || endLabel || '—';
   }
 
   function buildQuery() {
@@ -338,6 +612,13 @@
       if (evt.metadata && evt.metadata.endpoint) metaParts.push(evt.metadata.endpoint);
       if (evt.type === 'story') metaParts.push('Incident Story');
       const actionLabel = evt.type === 'story' ? 'פתח סיפור' : 'פתח הקשר';
+      const hasStory = evt.type === 'story' && evt.metadata && evt.metadata.story_id;
+      const actionMarkup = hasStory
+        ? `
+            <button type="button" class="story-view-btn" data-story-id="${evt.metadata.story_id}">פתח סיפור</button>
+            <a href="${evt.link || '/admin/observability'}" target="_blank" rel="noopener">ערוך בלוח</a>
+          `
+        : `<a href="${evt.link || '/admin/observability'}" target="_blank" rel="noopener">${actionLabel}</a>`;
       return `
         <li class="timeline-item" data-type="${evt.type}">
           <div class="event-time">${formatTime(evt.timestamp)}</div>
@@ -346,12 +627,27 @@
             <div class="event-meta">${metaParts.join(' • ')}</div>
             <div class="event-summary">${evt.summary || ''}</div>
             <div class="event-actions">
-              <a href="${evt.link || '/admin/observability'}" target="_blank" rel="noopener">${actionLabel}</a>
+              ${actionMarkup}
             </div>
           </div>
         </li>
       `;
     }).join('');
+    bindStoryButtons();
+  }
+
+  function bindStoryButtons() {
+    if (!storyViewer) return;
+    document.querySelectorAll('.story-view-btn').forEach(btn => {
+      if (btn.dataset.storyBound === '1') return;
+      btn.dataset.storyBound = '1';
+      btn.addEventListener('click', () => {
+        const storyId = btn.dataset.storyId;
+        if (storyId) {
+          storyViewer.open(storyId);
+        }
+      });
+    });
   }
 
   function loadTimelineWithGuard() {

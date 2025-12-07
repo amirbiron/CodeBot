@@ -9100,6 +9100,149 @@ def api_observability_story_export(story_id: str):
     return resp
 
 
+def _persist_story_markdown_file(
+    *,
+    user_id: int,
+    file_name: str,
+    markdown: str,
+    alert_name: Optional[str] = None,
+    alert_uid: Optional[str] = None,
+    story_id: Optional[str] = None,
+    extra_tags: Optional[List[str]] = None,
+) -> Dict[str, Any]:
+    if not isinstance(user_id, int) or user_id <= 0:
+        raise ValueError("invalid_user")
+    safe_name = (file_name or "").strip()
+    if not safe_name:
+        raise ValueError("missing_file_name")
+    if len(safe_name) > 255:
+        raise ValueError("file_name_too_long")
+    if any(ch in safe_name for ch in {'/', '\\', '\n', '\r'}):
+        raise ValueError("invalid_file_name")
+    if not safe_name.lower().endswith('.md'):
+        safe_name = f"{safe_name}.md"
+    normalized_markdown = normalize_code(markdown or "")
+    if not normalized_markdown:
+        raise ValueError("empty_markdown")
+    db_ref = get_db()
+    if db_ref is None:
+        raise RuntimeError("db_unavailable")
+    try:
+        prev = db_ref.code_snippets.find_one(
+            {
+                'user_id': user_id,
+                'file_name': safe_name,
+                '$or': [
+                    {'is_active': True},
+                    {'is_active': {'$exists': False}},
+                ],
+            },
+            sort=[('version', -1)],
+        )
+    except Exception:
+        prev = None
+    version = int((prev or {}).get('version', 0) or 0) + 1
+    now = datetime.now(timezone.utc)
+    description = (alert_name or '').strip() or 'Incident Story'
+    tag_sources: List[str] = ['incident-story']
+    if extra_tags:
+        tag_sources.extend(extra_tags)
+    dedup_tags: List[str] = []
+    seen_tags: set[str] = set()
+    for tag in tag_sources:
+        if not tag:
+            continue
+        text = str(tag).strip()
+        if not text:
+            continue
+        key = text.lower()
+        if key in seen_tags:
+            continue
+        seen_tags.add(key)
+        dedup_tags.append(text)
+    doc: Dict[str, Any] = {
+        'user_id': user_id,
+        'file_name': safe_name,
+        'code': normalized_markdown,
+        'programming_language': 'markdown',
+        'description': description[:400],
+        'tags': dedup_tags,
+        'version': version,
+        'created_at': now,
+        'updated_at': now,
+        'is_active': True,
+    }
+    story_context: Dict[str, Any] = {}
+    if alert_uid:
+        story_context['alert_uid'] = alert_uid
+    if story_id:
+        story_context['story_id'] = story_id
+    if story_context:
+        doc['story_context'] = story_context
+    try:
+        res = db_ref.code_snippets.insert_one(doc)
+    except Exception as exc:
+        logger.exception(
+            "story_markdown_file_insert_failed",
+            extra={'user_id': user_id, 'file_name': safe_name, 'error': str(exc)},
+        )
+        raise
+    inserted_id = getattr(res, 'inserted_id', None)
+    if not inserted_id:
+        raise RuntimeError("file_insert_failed")
+    try:
+        cache.invalidate_user_cache(user_id)
+    except Exception:
+        pass
+    try:
+        cache.invalidate_file_related(file_id=safe_name, user_id=user_id)
+    except Exception:
+        pass
+    return {
+        'file_id': str(inserted_id),
+        'file_name': safe_name,
+        'version': version,
+    }
+
+
+@app.route('/api/observability/stories/save_markdown', methods=['POST'])
+@login_required
+def api_observability_story_save_markdown_file():
+    user_id = _require_admin_user()
+    if not user_id:
+        return jsonify({'ok': False, 'error': 'admin_only'}), 403
+    payload = request.get_json(silent=True) or {}
+    story_payload = payload.get('story') if isinstance(payload.get('story'), dict) else payload.get('story_payload')
+    file_name = (payload.get('file_name') or '').strip()
+    if not file_name or not isinstance(story_payload, dict):
+        return jsonify({'ok': False, 'error': 'missing_fields'}), 400
+    try:
+        markdown = observability_service.render_story_markdown_inline(story_payload)
+        tags = []
+        severity = (story_payload.get('severity') or '').strip()
+        if severity:
+            tags.append(f"severity:{severity}")
+        alert_uid = story_payload.get('alert_uid')
+        if alert_uid:
+            tags.append(f"alert:{alert_uid}")
+        result = _persist_story_markdown_file(
+            user_id=user_id,
+            file_name=file_name,
+            markdown=markdown,
+            alert_name=story_payload.get('alert_name') or story_payload.get('alert_uid'),
+            alert_uid=alert_uid,
+            story_id=story_payload.get('story_id'),
+            extra_tags=tags,
+        )
+        return jsonify({'ok': True, **result})
+    except ValueError as exc:
+        logger.warning("story_markdown_save_bad_request", extra={'error': str(exc)})
+        return jsonify({'ok': False, 'error': 'bad_request'}), 400
+    except Exception:
+        logger.exception("story_markdown_save_failed")
+        return jsonify({'ok': False, 'error': 'internal_error'}), 500
+
+
 @app.route('/api/welcome/ack', methods=['POST'])
 @login_required
 def api_welcome_ack():
