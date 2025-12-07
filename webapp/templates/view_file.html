@@ -2105,7 +2105,12 @@ function goBack(ev){
             }
             showToast('הגרסה שוחזרה בהצלחה', 'success');
             closeHistoryModal();
-            setTimeout(() => window.location.reload(), 1000);
+            const nextId = data.file_id || data.id;
+            if (nextId) {
+                window.location.href = `/file/${nextId}`;
+            } else {
+                window.location.reload();
+            }
         } catch (err) {
             showToast(err.message || 'שגיאה בשחזור הגרסה', 'error');
             button.disabled = false;

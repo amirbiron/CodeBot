@@ -6471,7 +6471,7 @@ def api_file_history(file_id):
         return jsonify({'ok': False, 'error': 'שם קובץ חסר'}), 400
 
     try:
-        cursor = db.code_snippets.find(
+        docs = list(db.code_snippets.find(
             {
                 'user_id': user_id,
                 'file_name': file_name,
@@ -6481,13 +6481,18 @@ def api_file_history(file_id):
                 ],
             },
             sort=[('version', DESCENDING)],
-        ).limit(FILE_HISTORY_MAX_VERSIONS)
+        ).limit(FILE_HISTORY_MAX_VERSIONS))
     except Exception:
         return jsonify({'ok': False, 'error': 'שגיאה בטעינת היסטוריה'}), 500
 
     versions: List[Dict[str, Any]] = []
-    latest_version = int(file_doc.get('version') or 0)
-    for doc in cursor:
+    latest_version = 0
+    if docs:
+        try:
+            latest_version = int(docs[0].get('version') or 0)
+        except Exception:
+            latest_version = 0
+    for doc in docs:
         code_value = doc.get('code') or ''
         if not isinstance(code_value, str):
             code_value = str(code_value or '')
@@ -6648,6 +6653,10 @@ def api_file_move_to_trash(file_id):
     if not file_doc:
         return jsonify({'ok': False, 'error': 'קובץ לא נמצא'}), 404
 
+    file_name = (file_doc.get('file_name') or '').strip()
+    if not file_name:
+        return jsonify({'ok': False, 'error': 'שם קובץ חסר'}), 400
+
     if not bool(file_doc.get('is_active', True)):
         return jsonify({'ok': False, 'error': 'הקובץ כבר הועבר לסל'}), 409
 
@@ -6656,10 +6665,10 @@ def api_file_move_to_trash(file_id):
     expires_at = now + timedelta(days=ttl_days)
 
     try:
-        res = db.code_snippets.update_one(
+        res = db.code_snippets.update_many(
             {
-                '_id': file_doc['_id'],
                 'user_id': user_id,
+                'file_name': file_name,
                 '$or': [
                     {'is_active': True},
                     {'is_active': {'$exists': False}},
@@ -6675,7 +6684,8 @@ def api_file_move_to_trash(file_id):
     except Exception:
         return jsonify({'ok': False, 'error': 'שגיאה בהעברה לסל'}), 500
 
-    if not getattr(res, 'modified_count', 0):
+    modified_count = int(getattr(res, 'modified_count', 0) or 0)
+    if not modified_count:
         return jsonify({'ok': False, 'error': 'לא נמצאה גרסה פעילה'}), 409
 
     try:
@@ -6689,7 +6699,7 @@ def api_file_move_to_trash(file_id):
         pass
 
     message = f'הקובץ הועבר לסל המיחזור ל-{ttl_days} ימים'
-    return jsonify({'ok': True, 'message': message})
+    return jsonify({'ok': True, 'message': message, 'affected': modified_count})
 
 @app.route('/api/files/recent')
 @login_required
