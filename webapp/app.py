@@ -991,6 +991,10 @@ try:
 except Exception:
     RECYCLE_TTL_DAYS_DEFAULT = 7
 
+# עמוד הקובץ מציג שהות של 30 יום בסל המחזור (issue #1937)
+WEBAPP_SINGLE_DELETE_TTL_DAYS = 30
+FILE_HISTORY_MAX_VERSIONS = 25
+
 # הגדרת חיבור קבוע (Remember Me)
 try:
     PERSISTENT_LOGIN_DAYS = max(30, int(os.getenv('PERSISTENT_LOGIN_DAYS', '180')))
@@ -6330,6 +6334,20 @@ def get_markdown_image(file_id, image_id):
     return resp
 
 
+def _get_user_file_by_id(db_ref, user_id: int, file_id: str) -> Optional[Dict[str, Any]]:
+    """שליפת קובץ לפי ObjectId תוך וידוא בעלות משתמש."""
+    if not file_id:
+        return None
+    try:
+        obj_id = ObjectId(file_id)
+    except (InvalidId, TypeError):
+        return None
+    try:
+        return db_ref.code_snippets.find_one({'_id': obj_id, 'user_id': user_id})
+    except Exception:
+        return None
+
+
 @app.route('/api/file/<file_id>/preview')
 @login_required
 @traced("file.preview")
@@ -6436,6 +6454,242 @@ def file_preview(file_id):
         'language': language,
         'has_more': total_lines > preview_lines,
     })
+
+
+@app.route('/api/file/<file_id>/history', methods=['GET'])
+@login_required
+def api_file_history(file_id):
+    """היסטוריית גרסאות עבור קובץ ספציפי."""
+    db = get_db()
+    user_id = session['user_id']
+    file_doc = _get_user_file_by_id(db, user_id, file_id)
+    if not file_doc:
+        return jsonify({'ok': False, 'error': 'קובץ לא נמצא'}), 404
+
+    file_name = (file_doc.get('file_name') or '').strip()
+    if not file_name:
+        return jsonify({'ok': False, 'error': 'שם קובץ חסר'}), 400
+
+    try:
+        cursor = db.code_snippets.find(
+            {
+                'user_id': user_id,
+                'file_name': file_name,
+                '$or': [
+                    {'is_active': True},
+                    {'is_active': {'$exists': False}},
+                ],
+            },
+            sort=[('version', DESCENDING)],
+        ).limit(FILE_HISTORY_MAX_VERSIONS)
+    except Exception:
+        return jsonify({'ok': False, 'error': 'שגיאה בטעינת היסטוריה'}), 500
+
+    versions: List[Dict[str, Any]] = []
+    latest_version = int(file_doc.get('version') or 0)
+    for doc in cursor:
+        code_value = doc.get('code') or ''
+        if not isinstance(code_value, str):
+            code_value = str(code_value or '')
+        try:
+            size_bytes = len(code_value.encode('utf-8', errors='ignore'))
+        except Exception:
+            size_bytes = len(code_value)
+        version_number = int(doc.get('version') or 0)
+        versions.append({
+            'id': str(doc.get('_id')),
+            'version': version_number,
+            'is_current': version_number == latest_version,
+            'created_at': format_datetime_display(doc.get('created_at')),
+            'updated_at': format_datetime_display(doc.get('updated_at')),
+            'iso_created': safe_iso(doc.get('created_at'), 'created_at'),
+            'iso_updated': safe_iso(doc.get('updated_at'), 'updated_at'),
+            'line_count': len(code_value.splitlines()),
+            'size': format_file_size(size_bytes),
+            'description': (doc.get('description') or '').strip(),
+        })
+
+    return jsonify({
+        'ok': True,
+        'file_name': file_name,
+        'versions': versions,
+        'latest_version': latest_version,
+    })
+
+
+@app.route('/api/file/<file_id>/restore', methods=['POST'])
+@login_required
+def api_restore_file_version(file_id):
+    """שחזור גרסה: מוסיף גרסה חדשה המבוססת על גרסה קודמת."""
+    db = get_db()
+    user_id = session['user_id']
+    payload = request.get_json(silent=True) or {}
+    try:
+        version_num = int(payload.get('version') or 0)
+    except Exception:
+        version_num = 0
+    if version_num < 1:
+        return jsonify({'ok': False, 'error': 'מספר גרסה לא חוקי'}), 400
+
+    file_doc = _get_user_file_by_id(db, user_id, file_id)
+    if not file_doc:
+        return jsonify({'ok': False, 'error': 'קובץ לא נמצא'}), 404
+
+    file_name = (file_doc.get('file_name') or '').strip()
+    if not file_name:
+        return jsonify({'ok': False, 'error': 'שם קובץ חסר'}), 400
+
+    try:
+        version_doc = db.code_snippets.find_one({
+            'user_id': user_id,
+            'file_name': file_name,
+            'version': version_num,
+        })
+    except Exception:
+        version_doc = None
+    if not version_doc:
+        return jsonify({'ok': False, 'error': 'הגרסה לא נמצאה'}), 404
+
+    try:
+        latest_doc = db.code_snippets.find_one(
+            {
+                'user_id': user_id,
+                'file_name': file_name,
+                '$or': [
+                    {'is_active': True},
+                    {'is_active': {'$exists': False}},
+                ],
+            },
+            sort=[('version', DESCENDING)],
+        )
+    except Exception:
+        latest_doc = None
+
+    latest_version = int((latest_doc or {}).get('version') or 0)
+    next_version = latest_version + 1
+
+    code_value = version_doc.get('code') or ''
+    if not isinstance(code_value, str):
+        code_value = str(code_value or '')
+
+    language = (
+        version_doc.get('programming_language')
+        or (latest_doc or {}).get('programming_language')
+        or file_doc.get('programming_language')
+        or 'text'
+    )
+    description = version_doc.get('description')
+    if description is None:
+        description = (latest_doc or {}).get('description') or file_doc.get('description') or ''
+
+    tags = version_doc.get('tags')
+    if not isinstance(tags, list):
+        try:
+            tags = list(tags or [])
+        except Exception:
+            tags = []
+    if not tags:
+        try:
+            tags = list((latest_doc or {}).get('tags') or [])
+        except Exception:
+            tags = []
+
+    now = datetime.now(timezone.utc)
+    new_doc: Dict[str, Any] = {
+        'user_id': user_id,
+        'file_name': file_name,
+        'code': code_value,
+        'programming_language': language,
+        'description': description,
+        'tags': tags,
+        'version': next_version,
+        'created_at': now,
+        'updated_at': now,
+        'is_active': True,
+        'is_favorite': bool((latest_doc or {}).get('is_favorite', file_doc.get('is_favorite', False))),
+        'favorited_at': (latest_doc or {}).get('favorited_at'),
+    }
+    source_url = version_doc.get('source_url') or file_doc.get('source_url')
+    if source_url:
+        new_doc['source_url'] = source_url
+
+    try:
+        res = db.code_snippets.insert_one(new_doc)
+    except Exception:
+        return jsonify({'ok': False, 'error': 'שמירת הגרסה נכשלה'}), 500
+
+    inserted_id = str(getattr(res, 'inserted_id', '') or '')
+    try:
+        cache.invalidate_user_cache(int(user_id))
+        cache.invalidate_file_related(file_id=file_name, user_id=user_id)
+    except Exception:
+        pass
+
+    try:
+        _log_webapp_user_activity()
+        session['_skip_view_activity_once'] = True
+    except Exception:
+        pass
+
+    return jsonify({
+        'ok': True,
+        'file_id': inserted_id,
+        'version': next_version,
+    })
+
+
+@app.route('/api/file/<file_id>/trash', methods=['POST'])
+@login_required
+def api_file_move_to_trash(file_id):
+    """העברה רכה לסל המיחזור מתוך עמוד הקובץ."""
+    db = get_db()
+    user_id = session['user_id']
+    file_doc = _get_user_file_by_id(db, user_id, file_id)
+    if not file_doc:
+        return jsonify({'ok': False, 'error': 'קובץ לא נמצא'}), 404
+
+    if not bool(file_doc.get('is_active', True)):
+        return jsonify({'ok': False, 'error': 'הקובץ כבר הועבר לסל'}), 409
+
+    now = datetime.now(timezone.utc)
+    ttl_days = WEBAPP_SINGLE_DELETE_TTL_DAYS
+    expires_at = now + timedelta(days=ttl_days)
+
+    try:
+        res = db.code_snippets.update_one(
+            {
+                '_id': file_doc['_id'],
+                'user_id': user_id,
+                '$or': [
+                    {'is_active': True},
+                    {'is_active': {'$exists': False}},
+                ],
+            },
+            {'$set': {
+                'is_active': False,
+                'updated_at': now,
+                'deleted_at': now,
+                'deleted_expires_at': expires_at,
+            }},
+        )
+    except Exception:
+        return jsonify({'ok': False, 'error': 'שגיאה בהעברה לסל'}), 500
+
+    if not getattr(res, 'modified_count', 0):
+        return jsonify({'ok': False, 'error': 'לא נמצאה גרסה פעילה'}), 409
+
+    try:
+        cache.invalidate_user_cache(int(user_id))
+        cache.delete_pattern(f"collections_*:{int(user_id)}:*")
+    except Exception:
+        pass
+    try:
+        _log_webapp_user_activity()
+    except Exception:
+        pass
+
+    message = f'הקובץ הועבר לסל המיחזור ל-{ttl_days} ימים'
+    return jsonify({'ok': True, 'message': message})
 
 @app.route('/api/files/recent')
 @login_required
