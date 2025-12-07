@@ -2,6 +2,7 @@ import asyncio
 import atexit
 import logging
 import os
+import secrets
 from typing import Optional
 
 # Configure structured logging and Sentry as early as possible,
@@ -319,7 +320,12 @@ def create_app() -> web.Application:
 
         if _AI_ROUTE_TOKEN:
             auth_header = request.headers.get("Authorization", "").strip()
-            if auth_header != f"Bearer {_AI_ROUTE_TOKEN}":
+            expected_header = f"Bearer {_AI_ROUTE_TOKEN}"
+            try:
+                valid_token = secrets.compare_digest(auth_header, expected_header)
+            except Exception:
+                valid_token = False
+            if not valid_token:
                 return web.json_response(
                     {
                         "error": "unauthorized",

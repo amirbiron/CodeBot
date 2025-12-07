@@ -276,17 +276,26 @@ def _parse_json_payload(raw_text: str) -> Dict[str, Any]:
 
 
 def _ensure_list_of_strings(values: Any, limit: int = 4) -> List[str]:
-    result: List[str] = []
+    if values is None:
+        return []
+
     if isinstance(values, str):
-        values = [values]
-    if isinstance(values, Iterable) and not isinstance(values, (bytes, bytearray)):
-        for item in values:
-            text = str(item).strip()
-            if not text:
-                continue
-            result.append(_truncate(_mask_sensitive(text), _MAX_STRING // 2))
-            if len(result) >= limit:
-                break
+        iterable: Iterable[Any] = [values]
+    elif isinstance(values, dict):
+        iterable = values.values()
+    elif isinstance(values, Iterable) and not isinstance(values, (bytes, bytearray)):
+        iterable = values
+    else:
+        iterable = [values]
+
+    result: List[str] = []
+    for item in iterable:
+        text = str(item).strip()
+        if not text:
+            continue
+        result.append(_truncate(_mask_sensitive(text), _MAX_STRING // 2))
+        if len(result) >= limit:
+            break
     return result
 
 

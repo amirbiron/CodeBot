@@ -77,6 +77,42 @@ async def test_generate_ai_explanation_fallback_when_provider_returns_empty(monk
 
 
 @pytest.mark.asyncio
+async def test_generate_ai_explanation_handles_dict_sections(monkeypatch):
+    monkeypatch.setattr(svc, "_ANTHROPIC_API_KEY", "test-key")
+
+    async def fake_call(prompt: str, *, timeout: float) -> dict:  # noqa: ARG001
+        payload = {
+            "content": [
+                {
+                    "type": "text",
+                    "text": json.dumps(
+                        {
+                            "root_cause": "dict input",
+                            "actions": {"step1": "do X", "step2": "do Y"},
+                            "signals": {"hint1": "signal A"},
+                        }
+                    ),
+                }
+            ]
+        }
+        return payload
+
+    monkeypatch.setattr(svc, "_call_anthropic", fake_call)
+
+    context = {
+        "alert_uid": "uid-3",
+        "alert_name": "Dict Alert",
+        "severity": "info",
+    }
+
+    result = await svc.generate_ai_explanation(context)
+
+    assert result["root_cause"] == "dict input"
+    assert result["actions"] == ["do X", "do Y"]
+    assert result["signals"] == ["signal A"]
+
+
+@pytest.mark.asyncio
 async def test_generate_ai_explanation_requires_context_dict(monkeypatch):
     monkeypatch.setattr(svc, "_ANTHROPIC_API_KEY", "test-key")
 
