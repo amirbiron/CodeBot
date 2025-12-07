@@ -268,6 +268,8 @@ def test_story_save_markdown_calls_helpers(monkeypatch):
         data = resp.get_json()
         assert data['ok'] is True
         assert data['file_name'].endswith('.md')
+        assert data['md_preview_url'].startswith('/md/')
+        assert data['view_url'].startswith('/file/')
 
     assert captured['story']['alert_uid'] == 'alert-55'
     assert captured['persist']['markdown'] == '# story markdown'
