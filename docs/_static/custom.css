@@ -136,9 +136,14 @@ table.docutils td {
 .doc-copy-page {
     display: flex;
     align-items: center;
-    gap: 0.75rem;
-    margin-bottom: 1rem;
+    gap: 0.85rem;
     flex-wrap: wrap;
+    margin-bottom: 1.25rem;
+    padding: 0.75rem 1rem;
+    border: 1px solid #e1e4e8;
+    border-radius: 8px;
+    background: #ffffff;
+    box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
 }
 
 .doc-copy-page__button {
@@ -146,20 +151,28 @@ table.docutils td {
     color: #fff;
     border: none;
     border-radius: 6px;
-    padding: 0.5rem 1rem;
+    padding: 0.55rem 1.2rem;
     font-size: 0.95rem;
+    font-weight: 600;
     cursor: pointer;
-    transition: background-color 0.2s ease, transform 0.1s ease;
+    transition: background-color 0.18s ease, transform 0.12s ease, box-shadow 0.12s ease;
+    box-shadow: 0 2px 4px rgba(15, 23, 42, 0.16);
 }
 
 .doc-copy-page__button:hover,
-.doc-copy-page__button:focus {
+.doc-copy-page__button:focus-visible {
     background-color: #1a242f;
+    outline: none;
+}
+
+.doc-copy-page__button:focus-visible {
+    box-shadow: 0 0 0 3px rgba(46, 134, 222, 0.3);
 }
 
 .doc-copy-page__button:disabled {
-    opacity: 0.6;
+    opacity: 0.65;
     cursor: default;
+    box-shadow: none;
 }
 
 .doc-copy-page__button--active {
@@ -170,10 +183,32 @@ table.docutils td {
 .doc-copy-page__status {
     font-size: 0.9rem;
     color: #1e8449;
+    min-height: 1.1rem;
 }
 
 .doc-copy-page__status--error {
     color: #c0392b;
+}
+
+@media (max-width: 640px) {
+    .doc-copy-page {
+        padding: 0.75rem;
+    }
+
+    .doc-copy-page__button {
+        width: 100%;
+        text-align: center;
+    }
+
+    .doc-copy-page__status {
+        width: 100%;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .doc-copy-page__button {
+        transition: none;
+    }
 }
 
 /* Search results */

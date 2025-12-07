@@ -1,22 +1,40 @@
 (function () {
-  const COPY_BUTTON_CLASS = 'doc-copy-page__button';
+  const ARTICLE_SELECTOR = '.wy-nav-content .document';
   const ACTIVE_CLASS = 'doc-copy-page__button--active';
+  const ERROR_CLASS = 'doc-copy-page__status--error';
+  const RESET_DELAY_MS = 2800;
+  const BUTTON_TEXT = {
+    idle: 'העתק תוכן הדף',
+    busy: 'מעתיק...',
+    success: 'הועתק ✔',
+  };
+  const STATUS_TEXT = {
+    success: 'הטקסט הועתק ללוח',
+    error: 'שגיאה בהעתקה',
+  };
+  const CLEANUP_SELECTORS = [
+    '.doc-copy-page',
+    '.wy-breadcrumbs',
+    '.rst-breadcrumbs-buttons',
+    'script',
+    'style',
+  ];
 
-  const buildControls = () => {
+  const createControls = () => {
     const container = document.createElement('div');
     container.className = 'doc-copy-page';
 
     const button = document.createElement('button');
     button.type = 'button';
-    button.className = COPY_BUTTON_CLASS;
+    button.className = 'doc-copy-page__button';
     button.setAttribute('aria-live', 'polite');
-    button.setAttribute('aria-label', 'העתק את תוכן הדף');
-    button.textContent = 'העתק תוכן הדף';
+    button.setAttribute('data-copy-state', 'idle');
+    button.textContent = BUTTON_TEXT.idle;
 
     const status = document.createElement('span');
     status.className = 'doc-copy-page__status';
+    status.setAttribute('role', 'status');
     status.setAttribute('aria-live', 'assertive');
-    status.textContent = '';
 
     container.appendChild(button);
     container.appendChild(status);
@@ -33,7 +51,6 @@
       return;
     }
 
-    // Fallback ל- execCommand עבור דפדפנים ישנים
     const textarea = document.createElement('textarea');
     textarea.value = text;
     textarea.style.position = 'fixed';
@@ -42,69 +59,74 @@
     textarea.setAttribute('readonly', 'readonly');
     document.body.appendChild(textarea);
     textarea.select();
+
     const success = document.execCommand('copy');
     document.body.removeChild(textarea);
-
     if (!success) {
       throw new Error('execCommand failed');
     }
   };
 
+  const normalizeText = (text) =>
+    text.replace(/\u00a0/g, ' ').replace(/\n{3,}/g, '\n\n').trim();
+
   const extractArticleText = (articleNode) => {
     const clone = articleNode.cloneNode(true);
-    const uiElements = clone.querySelectorAll('.doc-copy-page');
-    uiElements.forEach((el) => el.remove());
-    return clone.innerText.trim();
+    CLEANUP_SELECTORS.forEach((selector) => {
+      clone.querySelectorAll(selector).forEach((el) => el.remove());
+    });
+    const rawText = clone.innerText || clone.textContent || '';
+    return normalizeText(rawText);
+  };
+
+  const setState = (button, statusEl, state, statusMessage, isError) => {
+    button.dataset.copyState = state;
+    button.textContent = BUTTON_TEXT[state];
+    button.disabled = state === 'busy';
+    button.classList.toggle(ACTIVE_CLASS, state === 'success');
+    statusEl.textContent = statusMessage || '';
+    statusEl.classList.toggle(ERROR_CLASS, Boolean(isError));
   };
 
   const attachHandler = (article) => {
-    const { container, button, status } = buildControls();
+    if (article.dataset.copyPageAttached === 'true') {
+      return;
+    }
+    article.dataset.copyPageAttached = 'true';
+
+    const { container, button, status } = createControls();
     article.insertBefore(container, article.firstChild);
 
     let resetHandle = null;
-
-    const setStatus = (message, isError = false) => {
-      status.textContent = message || '';
-      status.classList.toggle('doc-copy-page__status--error', Boolean(isError));
-    };
-
-    const resetButton = () => {
-      button.classList.remove(ACTIVE_CLASS);
-      button.disabled = false;
-      button.textContent = 'העתק תוכן הדף';
-      button.removeAttribute('data-state');
-      setStatus('');
+    const resetState = () => {
+      setState(button, status, 'idle', '');
       resetHandle = null;
     };
 
     button.addEventListener('click', async () => {
-      if (button.getAttribute('data-state') === 'busy') {
+      if (button.dataset.copyState === 'busy') {
         return;
       }
 
       try {
-        button.setAttribute('data-state', 'busy');
-        button.disabled = true;
-        setStatus('מעתיק...');
+        setState(button, status, 'busy', 'מעתיק...');
         const text = extractArticleText(article);
         await copyTextToClipboard(text);
-        button.classList.add(ACTIVE_CLASS);
-        button.textContent = 'הועתק ✔';
-        setStatus('הטקסט הועתק ללוח');
-      } catch (err) {
-        console.error('copy page failed', err);
-        setStatus('שגיאה בהעתקה', true);
+        setState(button, status, 'success', STATUS_TEXT.success);
+      } catch (error) {
+        console.error('copy page failed', error);
+        setState(button, status, 'idle', STATUS_TEXT.error, true);
       } finally {
         if (resetHandle) {
           clearTimeout(resetHandle);
         }
-        resetHandle = window.setTimeout(resetButton, 2500);
+        resetHandle = window.setTimeout(resetState, RESET_DELAY_MS);
       }
     });
   };
 
   const init = () => {
-    const article = document.querySelector('.wy-nav-content .document');
+    const article = document.querySelector(ARTICLE_SELECTOR);
     if (!article) {
       return;
     }

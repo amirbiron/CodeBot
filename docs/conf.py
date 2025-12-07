@@ -165,5 +165,6 @@ latex_elements = {
 # -- Extension configuration -------------------------------------------------
 def setup(app):
     app.add_css_file('custom.css')
+    # כפתור העתקת דף מלא (ראו docs/_static/copy-page.js)
     app.add_js_file('copy-page.js')
 
