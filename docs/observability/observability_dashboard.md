@@ -89,6 +89,13 @@ curl -H 'Accept: application/json' \
 }
 ```
 
+#### Meta מועשר להתראות High Error Rate
+
+- התראות `High Error Rate` שמקורן ב־`internal_alerts` כוללות כעת שדות Meta עשירים: `feature` (למשל `push_api.subscribe`), ערך `command` מלא (`webapp:post:push_api.subscribe`), נתיב `endpoint`, `method`, `request_id` ו־`user_id` (מנורמל/מגושר).
+- מוצגים גם מדדי סף (`threshold_percent`) והמדד שחורג (`error_rate_percent`, `sample_count`, `window_seconds`) כדי להבין את גודל החריגה בלי לפתוח Grafana.
+- השדה `meta_summary` מספק תצוגה קולעת בעמודת ה־Meta (לדוגמה: `push_api.subscribe · error_rate 5.63% > 5.00% · request req-meta`), ונצרב גם ב־Quick Fix.
+- כל המפתחות נמשכים עד לממשק ההיסטוריה, ל־Quick Fix ול־API, כך שניתן להתייחס אליהם בסקריפטים חיצוניים.
+
 ### `GET /api/observability/aggregations`
 
 - **מטרה:** קבלת אגרגציות מהירות עבור הקלפים והטבלאות בפאנל.
