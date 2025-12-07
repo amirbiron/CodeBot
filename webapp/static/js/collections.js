@@ -543,7 +543,8 @@
 
   function clearActiveDragContext(){
     const ctx = activeDragContext;
-    clearActiveDragContext();
+    activeDragContext = null;
+    resetDragUi();
     if (ctx && ctx.origin === 'workspace') {
       stopWorkspacePointerTracking(ctx.workspacePointerToken);
     }
