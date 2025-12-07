@@ -1967,6 +1967,21 @@ function goBack(ev){
         });
     }
 
+    function hasOverflow() {
+        if (!actionsList) {
+            return false;
+        }
+        const containerRect = actionsList.getBoundingClientRect();
+        const slack = 1;
+        return overflowItems.some((item) => {
+            if (!item || !item.el || item.el.hidden) {
+                return false;
+            }
+            const rect = item.el.getBoundingClientRect();
+            return rect.right > containerRect.right + slack;
+        });
+    }
+
     function applyOverflow() {
         resetOverflowState();
         const desktopMatch = window.matchMedia && window.matchMedia('(min-width: 769px)');
@@ -1974,10 +1989,13 @@ function goBack(ev){
             return;
         }
         const sorted = overflowItems.slice().sort((a, b) => (a.priority || 0) - (b.priority || 0));
+        const guardLimit = overflowItems.length + 3;
         let guard = 0;
-        while (actionsList.scrollWidth > actionsList.clientWidth + 4 && sorted.length && guard < overflowItems.length + 3) {
+        while (hasOverflow() && sorted.length && guard < guardLimit) {
             const candidate = sorted.pop();
-            if (!candidate) break;
+            if (!candidate) {
+                break;
+            }
             setToolbarVisibility(candidate, false);
             showProxy(candidate, true);
             guard += 1;
