@@ -260,11 +260,10 @@
 
 .file-actions {
     display: flex;
-    gap: 0;
+    gap: 0.75rem;
     flex-wrap: nowrap;
     width: 100%;
     align-items: stretch;
-    direction: ltr;
 }
 
 .file-actions__list {
@@ -282,7 +281,6 @@
     flex: 0 0 auto;
     display: flex;
     align-items: stretch;
-    margin-inline-start: 0.75rem;
 }
 
 .file-actions__menu-button {
@@ -361,23 +359,22 @@
 
 @media (max-width: 768px) {
     .file-actions {
-        display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
-        gap: 0.75rem;
-        align-items: stretch;
-        direction: ltr;
+        flex-wrap: wrap;
     }
     .file-actions__list {
-        display: contents;
+        flex-wrap: wrap;
         overflow: visible;
-        min-width: 0;
+        display: contents;
     }
     .file-actions__menu {
-        display: contents;
-        margin-inline-start: 0;
+        flex: 0 0 auto;
+        align-self: flex-start;
     }
     .file-actions__menu-button {
-        width: 100%;
+        flex: 0 0 auto !important;
+    }
+    .file-actions__menu-button {
+        flex: 0 0 auto !important;
     }
 }
 
@@ -1806,8 +1803,6 @@ function goBack(ev){
     if (!actionsList || !menuButton || !dropdown) {
         return;
     }
-    const desktopMatch = window.matchMedia ? window.matchMedia('(min-width: 769px)') : null;
-    const mobileMatch = window.matchMedia ? window.matchMedia('(max-width: 768px)') : null;
     const dynamicList = dropdown.querySelector('[data-dynamic-actions]');
     const dividerEl = dropdown.querySelector('[data-dynamic-divider]');
     const overflowItems = Array.from(actionsList.querySelectorAll('[data-overflow-id]')).map((el) => {
@@ -1936,35 +1931,6 @@ function goBack(ev){
         updateDividerVisibility();
     }
 
-    function isDesktopLayout() {
-        return !desktopMatch || desktopMatch.matches;
-    }
-
-    function isOverflowCandidate(item) {
-        if (!item || !item.el) {
-            return false;
-        }
-        return item.el.classList.contains('file-action--hidden');
-    }
-
-    function setActionHidden(item, hidden) {
-        if (!item || !item.el) {
-            return;
-        }
-        item.el.classList.toggle('file-action--hidden', hidden);
-        const shouldShow = hidden && isDesktopLayout();
-        showProxy(item, shouldShow);
-    }
-
-    function refreshMenuState() {
-        const desktopView = isDesktopLayout();
-        overflowItems.forEach((item) => {
-            const shouldShow = desktopView && isOverflowCandidate(item);
-            showProxy(item, shouldShow);
-        });
-        updateDividerVisibility();
-    }
-
     function triggerAction(el) {
         if (!el) return;
         if (el.tagName === 'A' && el.href) {
@@ -1982,12 +1948,16 @@ function goBack(ev){
     }
 
     function resetOverflowState() {
-        overflowItems.forEach((item) => setActionHidden(item, false));
+        overflowItems.forEach((item) => {
+            item.el.classList.remove('file-action--hidden');
+            showProxy(item, false);
+        });
     }
 
     function applyOverflow() {
         resetOverflowState();
-        if (!isDesktopLayout()) {
+        const desktopMatch = window.matchMedia && window.matchMedia('(min-width: 769px)');
+        if (!desktopMatch || !desktopMatch.matches) {
             return;
         }
         const sorted = overflowItems.slice().sort((a, b) => (a.priority || 0) - (b.priority || 0));
@@ -1995,7 +1965,8 @@ function goBack(ev){
         while (actionsList.scrollWidth > actionsList.clientWidth + 4 && sorted.length && guard < overflowItems.length + 3) {
             const candidate = sorted.pop();
             if (!candidate) break;
-            setActionHidden(candidate, true);
+            candidate.el.classList.add('file-action--hidden');
+            showProxy(candidate, true);
             guard += 1;
         }
     }
@@ -2021,6 +1992,7 @@ function goBack(ev){
             window.visualViewport.addEventListener('scroll', clampDropdownToViewport);
         } catch (_) {}
     }
+    const mobileMatch = window.matchMedia && window.matchMedia('(max-width: 768px)');
     if (mobileMatch) {
         const handler = () => setTimeout(applyOverflow, 80);
         if (typeof mobileMatch.addEventListener === 'function') {
@@ -2029,25 +2001,10 @@ function goBack(ev){
             mobileMatch.addListener(handler);
         }
     }
-    if (desktopMatch) {
-        const desktopHandler = () => setTimeout(applyOverflow, 60);
-        if (typeof desktopMatch.addEventListener === 'function') {
-            desktopMatch.addEventListener('change', desktopHandler);
-        } else if (typeof desktopMatch.addListener === 'function') {
-            desktopMatch.addListener(desktopHandler);
-        }
-    }
     setTimeout(applyOverflow, 80);
     setTimeout(applyOverflow, 350);
-    if (window.ResizeObserver) {
-        try {
-            const actionsObserver = new ResizeObserver(() => applyOverflow());
-            actionsObserver.observe(actionsList);
-        } catch (_) {}
-    }
 
     function openMenu() {
-        refreshMenuState();
         dropdown.hidden = false;
         menuButton.setAttribute('aria-expanded', 'true');
         clampDropdownToViewport();
