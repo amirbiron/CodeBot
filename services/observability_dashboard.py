@@ -1602,6 +1602,39 @@ def _heuristic_ai_payload(alert: Dict[str, Any], context: Dict[str, Any]) -> Dic
 
 
 def _call_ai_provider(context: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    """
+    Invoke the externally configured AI endpoint.
+
+    Expected contract (so whoever מגדיר את השירות יודע מה להחזיר):
+
+    Request:
+        POST ${OBS_AI_EXPLAIN_URL}
+        Authorization: Bearer ${OBS_AI_EXPLAIN_TOKEN}  (רשות בלבד, אם הוגדר)
+        Content-Type: application/json
+
+        {
+            "context": { ... }  # כל נתוני ההתראה אחרי Masking (ראה _build_ai_context)
+            "expected_sections": ["root_cause", "actions", "signals"]
+        }
+
+    Response (דוגמה):
+        {
+            "root_cause": "ה־error_rate קפץ אחרי דיפלוימנט 12:05",
+            "actions": [
+                "בצע rollback ל־service@1.4.2",
+                "בדוק את לוגי auth-service על request_id=abc"
+            ],
+            "signals": [
+                "error_rate 12% מול ממוצע 1%",
+                "deployment_id deploy-2025-12-07-12-00"
+            ],
+            "provider": "gpt-4o-mini",
+            "generated_at": "2025-12-07T09:32:11Z",
+            "cached": false
+        }
+
+    כל שדה אופציונלי למעט שלושת המקטעים: root_cause, actions, signals.
+    """
     if not _AI_EXPLAIN_URL:
         return None
     headers = {
