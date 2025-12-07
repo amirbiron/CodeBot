@@ -701,6 +701,24 @@ docs/
 
 כל endpoint מחזיר JSON עם המפתחות `ok`, `data` ושדות עזר נוספים, כך שקל להרחיב את הדשבורד או לחבר אותו למערכות ניטור כגון Grafana, Slack bots או CLI מותאם.
 
+#### 🤖 AI Explain Service
+
+- **Endpoint:** `POST /api/ai/explain` (מוגש מתוך `services.webserver`)
+- **תיעוד מלא:** [`docs/api/ai_explain.md`](docs/api/ai_explain.md)
+- **קלט:** `{ "context": {...}, "expected_sections": ["root_cause","actions","signals"] }`
+- **פלט:** JSON עם `root_cause`, `actions`, `signals`, `provider`, `generated_at`, `cached`
+- **אימות (אופציונלי):** `Authorization: Bearer ${OBS_AI_EXPLAIN_TOKEN}`
+- **תצורה נדרשת:**
+  ```env
+  ANTHROPIC_API_KEY=sk-...
+  OBS_AI_EXPLAIN_URL=http://observability:10000/api/ai/explain
+  OBS_AI_EXPLAIN_TOKEN=super-secret-token
+  OBS_AI_EXPLAIN_TIMEOUT=10
+  OBS_AI_EXPLAIN_MODEL=claude-3-5-sonnet-20241022  # אופציונלי
+  ```
+
+השירות דואג ל-Masking נוסף (סיסמאות/טוקנים), שומר על SLA < 10 שניות, ומדווח אירועים `ai_explain_request_success|failure` לצורך ניטור. אם הקריאה נכשלת – הדשבורד חוזר אוטומטית לפתרון היוריסטי הקיים, כך שהממשק נשאר זמין תמיד.
+
 ### 🌐 תיעוד אונליין
 
 התיעוד זמין גם באופן מקוון:

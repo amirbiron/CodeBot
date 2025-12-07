@@ -1,6 +1,8 @@
+import asyncio
 import atexit
 import logging
 import os
+import secrets
 from typing import Optional
 
 # Configure structured logging and Sentry as early as possible,
@@ -68,6 +70,7 @@ except Exception:  # pragma: no cover
     def note_deployment_shutdown(_summary: str = "Service shutting down") -> None:  # type: ignore
         return None
 from html import escape as html_escape
+from services import ai_explain_service
 
 # הערה: לא נייבא את code_sharing כ-reference קבוע כדי לאפשר monkeypatch דינמי בטסטים.
 # במקום זאת נפתור את ה-service בזמן ריצה בתוך ה-handler.
@@ -82,6 +85,12 @@ try:
     from metrics import errors_total  # type: ignore
 except Exception:  # pragma: no cover
     errors_total = None  # type: ignore
+
+try:
+    _AI_REQUEST_TIMEOUT = max(5.0, min(20.0, float(os.getenv("OBS_AI_EXPLAIN_TIMEOUT", "10"))))
+except ValueError:
+    _AI_REQUEST_TIMEOUT = 10.0
+_AI_ROUTE_TOKEN = os.getenv("OBS_AI_EXPLAIN_TOKEN") or os.getenv("AI_EXPLAIN_TOKEN") or ""
 
 logger = logging.getLogger(__name__)
 
@@ -305,6 +314,128 @@ def create_app() -> web.Application:
             items = []
         return web.json_response({"incidents": items})
 
+    async def ai_explain_view(request: web.Request) -> web.Response:
+        start = time.perf_counter()
+        req_id = request.headers.get("X-Request-ID") or ""
+
+        if _AI_ROUTE_TOKEN:
+            auth_header = request.headers.get("Authorization", "").strip()
+            expected_header = f"Bearer {_AI_ROUTE_TOKEN}"
+            try:
+                valid_token = secrets.compare_digest(auth_header, expected_header)
+            except Exception:
+                valid_token = False
+            if not valid_token:
+                return web.json_response(
+                    {
+                        "error": "unauthorized",
+                        "message": "missing or invalid bearer token",
+                    },
+                    status=401,
+                )
+        try:
+            payload = await request.json()
+        except json.JSONDecodeError:
+            return web.json_response({"error": "bad_request", "message": "invalid json"}, status=400)
+        except Exception:
+            return web.json_response({"error": "bad_request", "message": "invalid body"}, status=400)
+
+        context = payload.get("context")
+        expected_sections = payload.get("expected_sections")
+        if not isinstance(context, dict):
+            return web.json_response(
+                {"error": "invalid_context", "message": "context must be an object"},
+                status=400,
+            )
+        if expected_sections is not None and not isinstance(expected_sections, list):
+            expected_sections = None
+
+        alert_uid = str(context.get("alert_uid") or "")
+        try:
+            explanation = await asyncio.wait_for(
+                ai_explain_service.generate_ai_explanation(
+                    context,
+                    expected_sections=expected_sections,
+                    request_id=req_id,
+                ),
+                timeout=_AI_REQUEST_TIMEOUT,
+            )
+        except asyncio.TimeoutError:
+            duration = time.perf_counter() - start
+            try:
+                emit_event(
+                    "ai_explain_request_failure",
+                    severity="error",
+                    alert_uid=alert_uid,
+                    duration_ms=int(duration * 1000),
+                    error_code="handler_timeout",
+                    handled=True,
+                )
+            except Exception:
+                pass
+            return web.json_response(
+                {
+                    "error": "timeout",
+                    "message": "פניית ה-AI חרגה מחלון הזמן",
+                },
+                status=504,
+            )
+        except ai_explain_service.AiExplainError as exc:
+            duration = time.perf_counter() - start
+            error_code = str(exc) or "provider_error"
+            if error_code == "invalid_context":
+                status = 400
+                message = "מבנה ההקשר אינו תקין"
+            elif error_code == "anthropic_api_key_missing":
+                status = 503
+                message = "השירות לא הוגדר (חסר מפתח Anthropic)"
+            else:
+                status = 502
+                message = "ספק ה-AI לא הצליח להחזיר תשובה"
+            try:
+                emit_event(
+                    "ai_explain_request_failure",
+                    severity="error",
+                    alert_uid=alert_uid,
+                    duration_ms=int(duration * 1000),
+                    error_code=error_code,
+                    handled=status < 500,
+                )
+            except Exception:
+                pass
+            return web.json_response({"error": error_code, "message": message}, status=status)
+        except Exception as exc:
+            duration = time.perf_counter() - start
+            try:
+                emit_event(
+                    "ai_explain_request_failure",
+                    severity="error",
+                    alert_uid=alert_uid,
+                    duration_ms=int(duration * 1000),
+                    error=str(exc),
+                    handled=False,
+                )
+            except Exception:
+                pass
+            logger.exception("ai_explain_handler_failed")
+            return web.json_response(
+                {"error": "internal_error", "message": "שגיאה בשירות ההסבר"},
+                status=500,
+            )
+
+        duration = time.perf_counter() - start
+        try:
+            emit_event(
+                "ai_explain_request_success",
+                severity="info",
+                alert_uid=alert_uid,
+                duration_ms=int(duration * 1000),
+                provider=explanation.get("provider"),
+            )
+        except Exception:
+            pass
+        return web.json_response(explanation)
+
     async def share_view(request: web.Request) -> web.Response:
         share_id = request.match_info.get("share_id", "")
         try:
@@ -393,6 +524,7 @@ def create_app() -> web.Application:
     app.router.add_post("/alerts", alerts_view)
     app.router.add_get("/alerts", alerts_get_view)
     app.router.add_get("/incidents", incidents_get_view)
+    app.router.add_post("/api/ai/explain", ai_explain_view)
     app.router.add_get("/share/{share_id}", share_view)
 
     return app
