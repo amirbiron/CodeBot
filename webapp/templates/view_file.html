@@ -271,7 +271,7 @@
     display: flex;
     gap: 0.75rem;
     flex-wrap: nowrap;
-    flex: 1;
+    flex: 0 1 auto;
     overflow: hidden;
     align-items: stretch;
     min-width: 0;
@@ -1926,17 +1926,7 @@ function goBack(ev){
 
     function getMenuWidth() {
         const btnRect = menuButton.getBoundingClientRect();
-        const buttonWidth = menuButton.offsetWidth || (btnRect && btnRect.width) || 0;
-        if (buttonWidth) {
-            return buttonWidth;
-        }
-        if (menuWrapper) {
-            const rect = menuWrapper.getBoundingClientRect();
-            if (rect && rect.width) {
-                return rect.width;
-            }
-        }
-        return 0;
+        return (btnRect && btnRect.width) ? btnRect.width : 48;
     }
 
     function getAvailableWidth() {
@@ -1980,11 +1970,7 @@ function goBack(ev){
         if (!(limit > 0)) {
             return true;
         }
-        const scrollWidth = actionsList.scrollWidth || 0;
-        if (scrollWidth - limit > 2) {
-            return true;
-        }
-        return measureContentWidth() > limit + 2;
+        return measureContentWidth() > limit;
     }
 
     function updateDividerVisibility() {
