@@ -714,7 +714,7 @@ docs/
   OBS_AI_EXPLAIN_URL=http://observability:10000/api/ai/explain
   OBS_AI_EXPLAIN_TOKEN=super-secret-token
   OBS_AI_EXPLAIN_TIMEOUT=10
-  OBS_AI_EXPLAIN_MODEL=claude-3-5-sonnet-20241022  # אופציונלי
+  OBS_AI_EXPLAIN_MODEL=claude-sonnet-4-5-20250929  # אופציונלי
   ```
 
 השירות דואג ל-Masking נוסף (סיסמאות/טוקנים), שומר על SLA < 10 שניות, ומדווח אירועים `ai_explain_request_success|failure` לצורך ניטור. אם הקריאה נכשלת – הדשבורד חוזר אוטומטית לפתרון היוריסטי הקיים, כך שהממשק נשאר זמין תמיד.

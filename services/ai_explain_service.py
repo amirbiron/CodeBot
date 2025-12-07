@@ -16,14 +16,19 @@ _ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY") or os.getenv("CLAUDE_API_KEY
 _PROVIDER_MODEL = (
     os.getenv("OBS_AI_EXPLAIN_MODEL")
     or os.getenv("CLAUDE_MODEL")
-    or "claude-3-5-sonnet-20241022"
+    or "claude-sonnet-4-5-20250929"
 )
 _PROVIDER_LABEL = os.getenv("OBS_AI_PROVIDER_LABEL") or "claude-sonnet-4.5"
 
 _DEFAULT_MODEL_FALLBACKS: Sequence[str] = (
-    "claude-3-5-sonnet-20240620",
-    "claude-3-opus-20240229",
-    "claude-2.1",
+    "claude-opus-4-5-20251101",
+    "claude-haiku-4-5-20251001",
+    "claude-opus-4-1-20250805",
+    "claude-opus-4-20250514",
+    "claude-sonnet-4-20250514",
+    "claude-3-7-sonnet-20250229",
+    "claude-3-5-haiku-20241022",
+    "claude-3-haiku-20240307",
 )
 _ENV_MODEL_FALLBACKS: Sequence[str] = tuple(
     item.strip()
@@ -412,6 +417,10 @@ async def generate_ai_explanation(
 
     try:
         provider_response, model_used = await _call_anthropic(prompt, timeout=_REQUEST_TIMEOUT)
+        logger.info(
+            "ai_explain_model_selected",
+            extra={"model": model_used, "request_id": request_id},
+        )
     except httpx.TimeoutException as exc:  # pragma: no cover - network behavior
         logger.warning(
             "ai_explain_provider_timeout",

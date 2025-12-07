@@ -63,7 +63,7 @@
     "חריגה של 3 שניות לאורך 5 דקות"
   ],
   "provider": "claude-sonnet-4.5",
-  "model": "claude-3-5-sonnet-20241022",
+  "model": "claude-sonnet-4-5-20250929",
   "generated_at": "2025-12-07T09:32:11Z",
   "cached": false
 }
@@ -95,7 +95,7 @@
 | `OBS_AI_EXPLAIN_URL` | כתובת השירות (בדרך כלל `http://<host>:10000/api/ai/explain`) | ריק (מבטל AI) |
 | `OBS_AI_EXPLAIN_TOKEN` | Bearer token הדדי בין Dashboard ↔︎ שירות | ריק (ללא אימות) |
 | `OBS_AI_EXPLAIN_TIMEOUT` | Timeout גם ללקוח וגם לשירות | `10` שניות |
-| `OBS_AI_EXPLAIN_MODEL` *(אופציונלי)* | שם הדגם המדויק (למשל `claude-3-5-sonnet-20241022`) | Sonnet יציב |
+| `OBS_AI_EXPLAIN_MODEL` *(אופציונלי)* | שם הדגם המדויק (למשל `claude-sonnet-4-5-20250929`) | Sonnet 4.5 יציב |
 | `OBS_AI_EXPLAIN_MAX_TOKENS` *(אופציונלי)* | מגבלת טוקנים לתשובת Claude | `800` |
 
 > חשוב: אם החיבור לשירות נפל, הדשבורד ימשיך לספק הסבר יוריסטי כך שה-UX לא נשבר.
