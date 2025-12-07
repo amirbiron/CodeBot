@@ -1574,8 +1574,17 @@
     row.hidden = false;
     row.classList.add('open');
     updateAiToggleState(uid, true);
-    if (aiExplainStore[uid]?.status === 'ready' && aiExplainStore[uid].data) {
-      renderAiExplanation(uid, aiExplainStore[uid].data);
+    const store = aiExplainStore[uid];
+    if (store?.status === 'ready' && store.data) {
+      renderAiExplanation(uid, store.data);
+      return;
+    }
+    if (store?.status === 'loading') {
+      setAiLoading(uid);
+      return;
+    }
+    if (store?.status === 'error' && store.error) {
+      showAiError(uid, store.error);
       return;
     }
     showAiPlaceholder(uid);
