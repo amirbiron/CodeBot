@@ -264,7 +264,6 @@
     flex-wrap: nowrap;
     width: 100%;
     align-items: stretch;
-    column-gap: 0;
 }
 
 .file-actions__list {
@@ -540,8 +539,6 @@
     .file-actions {
         width: 100%;
         justify-content: stretch;
-        column-gap: 0.75rem;
-        row-gap: 0.75rem;
     }
 
     .file-actions__list .btn {
@@ -1825,14 +1822,6 @@ function goBack(ev){
     const requestFrame = window.requestAnimationFrame || window.webkitRequestAnimationFrame || ((cb) => setTimeout(cb, 16));
     const cancelFrame = window.cancelAnimationFrame || window.webkitCancelAnimationFrame || window.clearTimeout;
     let dropdownRaf = null;
-    const container = actionsList.closest('[data-file-actions]') || actionsList.parentElement;
-    const menuWrapper = menuButton.closest('.file-actions__menu') || menuButton.parentElement || menuButton;
-    const DESKTOP_QUERY = '(min-width: 769px)';
-    const MOBILE_QUERY = '(max-width: 768px)';
-    const desktopMatch = window.matchMedia ? window.matchMedia(DESKTOP_QUERY) : null;
-    const mobileMatch = window.matchMedia ? window.matchMedia(MOBILE_QUERY) : null;
-    const WIDTH_GUARD = 12;
-    let overflowTimer = null;
 
     function getViewportSize() {
         const docEl = document.documentElement;
@@ -1898,153 +1887,48 @@ function goBack(ev){
         });
     }
 
-    function isDesktopView() {
-        if (desktopMatch) {
-            return desktopMatch.matches;
-        }
-        const width = (window.visualViewport && window.visualViewport.width) ||
-            (document.documentElement && document.documentElement.clientWidth) ||
-            window.innerWidth ||
-            0;
-        return width >= 769;
-    }
-
-    function getContainerWidth() {
-        if (container) {
-            const client = container.clientWidth;
-            if (client) {
-                return client;
-            }
-            const rect = container.getBoundingClientRect();
-            if (rect && rect.width) {
-                return rect.width;
-            }
-        }
-        const rect = actionsList.getBoundingClientRect();
-        return actionsList.clientWidth || (rect && rect.width) || 0;
-    }
-
-    function getMenuWidth() {
-        const btnRect = menuButton.getBoundingClientRect();
-        const buttonWidth = menuButton.offsetWidth || (btnRect && btnRect.width) || 0;
-        if (buttonWidth) {
-            return buttonWidth;
-        }
-        if (menuWrapper) {
-            const rect = menuWrapper.getBoundingClientRect();
-            if (rect && rect.width) {
-                return rect.width;
-            }
-        }
-        return 0;
-    }
-
-    function getAvailableWidth() {
-        const containerWidth = getContainerWidth();
-        if (!containerWidth) {
-            return 0;
-        }
-        return Math.max(0, containerWidth - getMenuWidth() - WIDTH_GUARD);
-    }
-
-    function getVisibleItems() {
-        return overflowItems.filter((item) => item.el && !item.el.classList.contains('file-action--hidden') && item.el.offsetParent !== null);
-    }
-
-    function measureContentWidth() {
-        const visible = getVisibleItems();
-        if (!visible.length) {
-            return actionsList.scrollWidth || 0;
-        }
-        let minStart = Infinity;
-        let maxEnd = -Infinity;
-        visible.forEach((item) => {
-            try {
-                const rect = item.el.getBoundingClientRect();
-                if (!rect) {
-                    return;
-                }
-                const start = Math.min(rect.left, rect.right);
-                const end = Math.max(rect.left, rect.right);
-                minStart = Math.min(minStart, start);
-                maxEnd = Math.max(maxEnd, end);
-            } catch (_) {}
-        });
-        if (!Number.isFinite(minStart) || !Number.isFinite(maxEnd)) {
-            return actionsList.scrollWidth || 0;
-        }
-        return Math.max(0, maxEnd - minStart);
-    }
-
-    function hasOverflow(limit) {
-        if (!(limit > 0)) {
-            return true;
-        }
-        const scrollWidth = actionsList.scrollWidth || 0;
-        if (scrollWidth - limit > 2) {
-            return true;
-        }
-        return measureContentWidth() > limit + 2;
-    }
-
     function updateDividerVisibility() {
         if (!dividerEl) {
             return;
         }
-        if (!dynamicList) {
-            dividerEl.hidden = true;
-            return;
-        }
-        dividerEl.hidden = dynamicList.childElementCount === 0;
+        const anyVisible = Array.from(proxies.values()).some((proxy) => proxy && !proxy.hidden);
+        dividerEl.hidden = !anyVisible;
     }
 
     function ensureProxy(item) {
         if (!dynamicList) {
             return null;
         }
-        let btn = proxies.get(item.id);
-        if (!btn) {
-            btn = document.createElement('button');
-            btn.type = 'button';
-            btn.className = 'file-actions__menu-item';
-            btn.dataset.proxyFor = item.id;
-            const textSpan = document.createElement('span');
-            textSpan.dataset.menuItemLabel = '1';
-            textSpan.textContent = item.label;
-            btn.appendChild(textSpan);
-            btn.addEventListener('click', (event) => {
-                event.preventDefault();
-                closeMenu();
-                triggerAction(item.el);
-            });
-            proxies.set(item.id, btn);
-        } else {
-            const labelEl = btn.querySelector('[data-menu-item-label]') || btn;
-            labelEl.textContent = item.label;
+        if (proxies.has(item.id)) {
+            return proxies.get(item.id);
         }
-        if (!dynamicList.contains(btn)) {
-            dynamicList.appendChild(btn);
-        }
-        btn.hidden = false;
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'file-actions__menu-item';
+        btn.dataset.proxyFor = item.id;
+        const textSpan = document.createElement('span');
+        textSpan.dataset.menuItemLabel = '1';
+        textSpan.textContent = item.label;
+        btn.appendChild(textSpan);
+        btn.hidden = true;
+        btn.addEventListener('click', (event) => {
+            event.preventDefault();
+            closeMenu();
+            triggerAction(item.el);
+        });
+        dynamicList.appendChild(btn);
+        proxies.set(item.id, btn);
         updateDividerVisibility();
         return btn;
     }
 
     function showProxy(item, visible) {
-        if (!visible) {
-            const existing = proxies.get(item.id);
-            if (existing) {
-                if (typeof existing.remove === 'function') {
-                    existing.remove();
-                } else if (existing.parentElement) {
-                    existing.parentElement.removeChild(existing);
-                }
-                proxies.delete(item.id);
-            }
-            updateDividerVisibility();
+        const proxy = ensureProxy(item);
+        if (!proxy) {
             return;
         }
-        ensureProxy(item);
+        proxy.hidden = !visible;
+        updateDividerVisibility();
     }
 
     function triggerAction(el) {
@@ -2072,40 +1956,31 @@ function goBack(ev){
 
     function applyOverflow() {
         resetOverflowState();
-        if (!isDesktopView()) {
-            updateDividerVisibility();
+        const desktopMatch = window.matchMedia && window.matchMedia('(min-width: 769px)');
+        if (!desktopMatch || !desktopMatch.matches) {
             return;
         }
-        const availableWidth = getAvailableWidth();
         const sorted = overflowItems.slice().sort((a, b) => (a.priority || 0) - (b.priority || 0));
         let guard = 0;
-        const guardLimit = overflowItems.length + 3;
-        while (sorted.length && hasOverflow(availableWidth) && guard < guardLimit) {
+        while (actionsList.scrollWidth > actionsList.clientWidth + 4 && sorted.length && guard < overflowItems.length + 3) {
             const candidate = sorted.pop();
             if (!candidate) break;
             candidate.el.classList.add('file-action--hidden');
             showProxy(candidate, true);
             guard += 1;
         }
-        updateDividerVisibility();
     }
 
-    function runOverflowCycle() {
-        applyOverflow();
-        clampDropdownToViewport();
-    }
-
-    function scheduleOverflowCycle(delay) {
-        if (overflowTimer) {
-            clearTimeout(overflowTimer);
+    let resizeTimer = null;
+    window.addEventListener('resize', () => {
+        if (resizeTimer) {
+            clearTimeout(resizeTimer);
         }
-        overflowTimer = setTimeout(() => {
-            overflowTimer = null;
-            runOverflowCycle();
-        }, typeof delay === 'number' ? delay : 120);
-    }
-
-    window.addEventListener('resize', () => scheduleOverflowCycle());
+        resizeTimer = setTimeout(() => {
+            applyOverflow();
+            clampDropdownToViewport();
+        }, 120);
+    });
     try {
         window.addEventListener('scroll', clampDropdownToViewport, { passive: true });
     } catch (_) {
@@ -2117,33 +1992,17 @@ function goBack(ev){
             window.visualViewport.addEventListener('scroll', clampDropdownToViewport);
         } catch (_) {}
     }
+    const mobileMatch = window.matchMedia && window.matchMedia('(max-width: 768px)');
     if (mobileMatch) {
-        const mobileHandler = () => scheduleOverflowCycle(80);
+        const handler = () => setTimeout(applyOverflow, 80);
         if (typeof mobileMatch.addEventListener === 'function') {
-            mobileMatch.addEventListener('change', mobileHandler);
+            mobileMatch.addEventListener('change', handler);
         } else if (typeof mobileMatch.addListener === 'function') {
-            mobileMatch.addListener(mobileHandler);
+            mobileMatch.addListener(handler);
         }
     }
-    if (desktopMatch) {
-        const desktopHandler = () => scheduleOverflowCycle(80);
-        if (typeof desktopMatch.addEventListener === 'function') {
-            desktopMatch.addEventListener('change', desktopHandler);
-        } else if (typeof desktopMatch.addListener === 'function') {
-            desktopMatch.addListener(desktopHandler);
-        }
-    }
-    if (window.ResizeObserver) {
-        try {
-            const resizeObserver = new ResizeObserver(() => scheduleOverflowCycle(60));
-            resizeObserver.observe(actionsList);
-            if (container && container !== actionsList) {
-                resizeObserver.observe(container);
-            }
-        } catch (_) {}
-    }
-    setTimeout(runOverflowCycle, 80);
-    setTimeout(runOverflowCycle, 350);
+    setTimeout(applyOverflow, 80);
+    setTimeout(applyOverflow, 350);
 
     function openMenu() {
         dropdown.hidden = false;
