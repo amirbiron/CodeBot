@@ -279,18 +279,12 @@
 .file-actions__menu {
     position: relative;
     flex: 0 0 auto;
-    display: flex;
-    align-items: stretch;
 }
 
 .file-actions__menu-button {
     min-width: 48px;
     padding-inline: 16px;
     font-size: 1.5rem;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    flex: 0 0 auto;
 }
 
 .file-actions__dropdown {
@@ -364,6 +358,11 @@
     .file-actions__list {
         flex-wrap: wrap;
         overflow: visible;
+        display: contents;
+    }
+    .file-actions__menu {
+        flex: 0 0 auto;
+        align-self: flex-start;
     }
     .file-actions__menu-button {
         flex: 0 0 auto !important;
@@ -400,6 +399,10 @@
 .file-actions .btn-primary.btn-icon i,
 .file-actions .btn-primary.btn-icon svg {
     color: #667eea;
+}
+
+.file-actions__list .btn.file-action--hidden {
+    display: none !important;
 }
 
 .file-actions__menu-button .fas {
