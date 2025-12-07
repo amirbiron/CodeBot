@@ -131,6 +131,7 @@
 
     <div class="activity-cards" data-activity-cards data-active-filter="all">
         <article class="activity-card timeline-card glass-card" data-card="timeline" data-expanded="false">
+            {% set files_group = (activity_timeline.groups | selectattr('id', 'equalto', 'files') | list | first) %}
             <header class="timeline-card-header">
                 <div>
                     <h3>פיד אחרון</h3>
@@ -168,6 +169,14 @@
                         </article>
                         {% endif %}
                     {% endfor %}
+                    {% if files_group and files_group.has_more and files_group.more_href %}
+                    <div class="timeline-more mobile-only">
+                        <a class="timeline-more-link" href="{{ files_group.more_href }}">
+                            <span>{{ files_group.more_label or 'הצג עוד' }}</span>
+                            <i class="fas fa-chevron-left"></i>
+                        </a>
+                    </div>
+                    {% endif %}
                 {% else %}
                     <p class="timeline-empty">עוד לא שמרת קבצים, פתקים או תזכורות. כל פעולה חדשה תופיע כאן.</p>
                 {% endif %}
@@ -211,6 +220,14 @@
                                 </div>
                             </article>
                             {% endfor %}
+                            {% if group.has_more and group.more_href %}
+                            <div class="timeline-more">
+                                <a class="timeline-more-link" href="{{ group.more_href }}">
+                                    <span>{{ group.more_label or 'הצג עוד' }}</span>
+                                    <i class="fas fa-chevron-left"></i>
+                                </a>
+                            </div>
+                            {% endif %}
                         </div>
                     </div>
                     {% endfor %}
@@ -522,6 +539,24 @@
     color: #a5b4fc;
     font-weight: 600;
     font-size: 0.85rem;
+}
+
+.timeline-more {
+    text-align: center;
+}
+
+.timeline-more-link {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.35rem;
+    color: #a5b4fc;
+    font-weight: 600;
+    font-size: 0.9rem;
+}
+
+.timeline-more-link .fas {
+    font-size: 0.8rem;
 }
 
 .timeline-empty {

@@ -22,6 +22,9 @@ class StubCollection:
     def find(self, *args, **kwargs):
         return StubCursor([doc.copy() for doc in self._docs])
 
+    def count_documents(self, *args, **kwargs):
+        return len(self._docs)
+
 
 def test_build_activity_timeline_groups(monkeypatch):
     now = datetime(2025, 1, 1, 12, 0, tzinfo=timezone.utc)

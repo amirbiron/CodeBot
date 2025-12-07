@@ -4853,8 +4853,8 @@ def logout():
     return resp
 
 
-_TIMELINE_GROUP_META: Dict[str, Dict[str, str]] = {
-    'files': {'title': 'קבצים', 'icon': '📁', 'accent': 'timeline-accent-code'},
+_TIMELINE_GROUP_META: Dict[str, Dict[str, Any]] = {
+    'files': {'title': 'קבצים', 'icon': '📁', 'accent': 'timeline-accent-code', 'more_href': '/files', 'more_label': 'הצג עוד'},
     'push': {'title': 'התראות פוש', 'icon': '📣', 'accent': 'timeline-accent-push'},
 }
 _TIMELINE_LIMITS = {'files': 12, 'push': 8}
@@ -5020,6 +5020,7 @@ def _build_activity_timeline(db, user_id: int, active_query: Optional[Dict[str, 
     recent_cutoff = now - timedelta(days=7)
     events: Dict[str, List[Dict[str, Any]]] = {k: [] for k in _TIMELINE_GROUP_META}
     errors: List[str] = []
+    group_counts: Dict[str, Dict[str, int]] = {}
 
     # Files activity
     try:
@@ -5127,33 +5128,94 @@ def _build_activity_timeline(db, user_id: int, active_query: Optional[Dict[str, 
             )
         )
 
+    # Collect accurate counts (total + recent) for summaries
+    file_recent_fallback = sum(1 for ev in events['files'] if isinstance(ev.get('_dt'), datetime) and ev['_dt'] >= recent_cutoff)
+    try:
+        file_total_count = db.code_snippets.count_documents(dict(file_query))
+    except Exception:
+        file_total_count = len(events['files'])
+    try:
+        file_recent_query = {
+            '$and': [
+                dict(file_query),
+                {
+                    '$or': [
+                        {'updated_at': {'$gte': recent_cutoff}},
+                        {'created_at': {'$gte': recent_cutoff}},
+                    ]
+                },
+            ]
+        }
+        file_recent_count = db.code_snippets.count_documents(file_recent_query)
+    except Exception:
+        file_recent_count = file_recent_fallback
+    group_counts['files'] = {'total': file_total_count, 'recent': file_recent_count}
+
+    push_recent_fallback = sum(1 for ev in events['push'] if isinstance(ev.get('_dt'), datetime) and ev['_dt'] >= recent_cutoff)
+    push_query = {'user_id': user_id}
+    try:
+        push_total_count = db.note_reminders.count_documents(dict(push_query))
+    except Exception:
+        push_total_count = len(events['push'])
+    try:
+        push_recent_query = {
+            '$and': [
+                dict(push_query),
+                {
+                    '$or': [
+                        {'updated_at': {'$gte': recent_cutoff}},
+                        {'remind_at': {'$gte': recent_cutoff}},
+                        {'last_push_success_at': {'$gte': recent_cutoff}},
+                        {'ack_at': {'$gte': recent_cutoff}},
+                    ]
+                },
+            ]
+        }
+        push_recent_count = db.note_reminders.count_documents(push_recent_query)
+    except Exception:
+        push_recent_count = push_recent_fallback
+    group_counts['push'] = {'total': push_total_count, 'recent': push_recent_count}
+
     # Sort groups and build summaries
     feed: List[Dict[str, Any]] = []
     filters: List[Dict[str, Any]] = [{'id': 'all', 'label': 'הכול', 'count': 0}]
     groups_payload: List[Dict[str, Any]] = []
+    overall_total = 0
     for group_id, meta in _TIMELINE_GROUP_META.items():
         sorted_items = sorted(events[group_id], key=lambda ev: ev.get('_dt') or _MIN_DT, reverse=True)
         events[group_id] = sorted_items
         feed.extend(sorted_items)
         recent_count = sum(1 for ev in sorted_items if isinstance(ev.get('_dt'), datetime) and ev['_dt'] >= recent_cutoff)
+        counts_meta = group_counts.get(group_id) or {}
+        total_count = counts_meta.get('total', len(sorted_items))
+        recent_total = counts_meta.get('recent', recent_count)
+        overall_total += total_count
+        limit = _TIMELINE_LIMITS.get(group_id)
+        has_more = bool(limit and total_count > len(sorted_items))
         groups_payload.append({
             'id': group_id,
             'title': meta['title'],
             'icon': meta['icon'],
-            'summary': _summarize_group(meta['title'], len(sorted_items), recent_count),
+            'summary': _summarize_group(meta['title'], total_count, recent_total),
             'events': _finalize_events(sorted_items),
+            'total_count': total_count,
+            'recent_count': recent_total,
+            'has_more': has_more,
+            'more_href': meta.get('more_href'),
+            'more_label': meta.get('more_label', 'הצג עוד'),
+            'limit': limit,
         })
-        filters.append({'id': group_id, 'label': meta['title'], 'count': len(sorted_items)})
+        filters.append({'id': group_id, 'label': meta['title'], 'count': total_count})
 
     feed_sorted = sorted(feed, key=lambda ev: ev.get('_dt') or _MIN_DT, reverse=True)
-    filters[0]['count'] = len(feed_sorted)
+    filters[0]['count'] = overall_total
 
     return {
         'groups': groups_payload,
         'feed': _finalize_events(feed_sorted[:30]),
         'filters': filters,
         'compact_limit': 5,
-        'has_events': any(events[group] for group in events),
+        'has_events': overall_total > 0,
         'updated_at': now.isoformat(),
         'errors': errors,
     }
