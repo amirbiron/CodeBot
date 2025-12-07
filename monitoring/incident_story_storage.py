@@ -149,7 +149,10 @@ def _serialize_doc(doc: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
 
 def _normalize_story_doc(story: Dict[str, Any]) -> Dict[str, Any]:
     doc = dict(story or {})
-    doc.setdefault("story_id", doc.get("id") or uuid.uuid4().hex)
+    story_id = doc.get("story_id") or doc.get("id")
+    if not story_id:
+        story_id = uuid.uuid4().hex
+    doc["story_id"] = str(story_id)
     doc.setdefault("created_at", _isoformat(datetime.now(timezone.utc)))
     doc.setdefault("updated_at", _isoformat(datetime.now(timezone.utc)))
     doc.setdefault("logs", [])
