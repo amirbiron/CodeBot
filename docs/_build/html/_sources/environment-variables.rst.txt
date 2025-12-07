@@ -115,6 +115,48 @@
      - -
      - ``https://my.app``
      - WebApp
+   * - ``WEBAPP_ENABLE_WARMUP``
+     - הפעלת שלב warmup אוטומטי אחרי עליית Gunicorn (``1``/``0``)
+     - לא
+     - ``1``
+     - ``0``
+     - WebApp
+   * - ``WEBAPP_WARMUP_URL``
+     - יעד curl לבדיקת הבריאות הראשונית (ברירת מחדל ``http://127.0.0.1:$PORT/healthz``)
+     - לא
+     - ``http://127.0.0.1:$PORT/healthz``
+     - ``https://internal.lb/healthz``
+     - WebApp
+   * - ``WEBAPP_WARMUP_MAX_ATTEMPTS``
+     - מספר ניסיונות curl עבור בדיקת הבריאות
+     - לא
+     - ``15``
+     - ``10``
+     - WebApp
+   * - ``WEBAPP_WARMUP_DELAY_SECONDS``
+     - השהיה בין ניסיונות ה-warmup הראשיים (שניות)
+     - לא
+     - ``2``
+     - ``5``
+     - WebApp
+   * - ``WEBAPP_WARMUP_PATHS``
+     - רשימת מסלולי Frontend (CSV) לחימום לאחר שה-Healthz הצליח
+     - לא
+     - "" (ריק)
+     - ``/dashboard,/collections,/settings``
+     - WebApp
+   * - ``WEBAPP_WARMUP_BASE_URL``
+     - בסיס ה-URL לבקשות ה-Frontend Warmup
+     - לא
+     - ``http://127.0.0.1:$PORT``
+     - ``https://code-keeper-webapp.onrender.com``
+     - WebApp
+   * - ``WEBAPP_WARMUP_REQUEST_TIMEOUT``
+     - Timeout בשניות לכל בקשת Frontend Warmup
+     - לא
+     - ``2``
+     - ``4``
+     - WebApp
    * - ``PUBLIC_BASE_URL``
      - כתובת בסיס ציבורית ליצירת קישורי שיתוף
      - לא
@@ -685,6 +727,772 @@
      - ``0.0``
      - ``0.1``
      - Bot/WebApp
+
+התראות וניטור (הרחבה)
+----------------------
+
+.. list-table:: Alerts & Observability
+   :header-rows: 1
+
+   * - משתנה
+     - תיאור
+     - חובה
+     - ברירת מחדל
+     - דוגמה
+     - רכיב
+   * - ``ALERTMANAGER_WEBHOOK_SECRET``
+     - טוקן שצריך להופיע בכותרת ``X-Alertmanager-Token`` או בפרמטר ``token`` כדי לאמת קריאות ל־``/alertmanager/webhook``.
+     - לא
+     - "" (ריק)
+     - ``secret123``
+     - WebApp
+   * - ``ALERTMANAGER_IP_ALLOWLIST``
+     - רשימת IPs (מופרדים בפסיק) שמורשים לצרוך את ה-webhook; נבדק מול ``X-Forwarded-For``/``remote_addr``.
+     - לא
+     - "" (ריק)
+     - ``10.0.0.5,10.0.0.6``
+     - WebApp
+   * - ``SLACK_WEBHOOK_URL``
+     - כתובת Incoming Webhook של Slack לשליחת התראות.
+     - לא
+     - "" (ריק)
+     - ``https://hooks.slack.com/services/...``
+     - Bot
+   * - ``ALERT_TELEGRAM_BOT_TOKEN``
+     - טוקן בוט ייעודי לשליחת התראות לטלגרם (נפרד מהבוט הראשי אם רוצים).
+     - לא
+     - -
+     - ``123456:ABC-DEF...``
+     - Bot
+   * - ``ALERT_TELEGRAM_CHAT_ID``
+     - Chat ID/Channel שאליו נשלחות התראות (לדוגמה ``-100123`` או ``@myteam``).
+     - לא
+     - -
+     - ``-1001234567890``
+     - Bot
+   * - ``ALERT_TELEGRAM_MIN_SEVERITY``
+     - דרגת החומרה המינימלית שתישלח לטלגרם (``info``/``warning``/``error``/``critical``).
+     - לא
+     - ``info``
+     - ``warning``
+     - Bot
+   * - ``GRAFANA_URL``
+     - בסיס ה-URL של Grafana לכתיבת annotations על התראות.
+     - לא
+     - "" (ריק)
+     - ``https://grafana.example.com``
+     - Bot
+   * - ``GRAFANA_API_TOKEN``
+     - אסימון Bearer ל-Grafana כשמוסיפים annotations דרך ה-API.
+     - לא
+     - "" (ריק)
+     - ``glsa_xxx``
+     - Bot
+   * - ``ALERTS_DB_ENABLED``
+     - מפעיל כתיבה/קריאה ל-MongoDB עבור לוג התראות וסיילנסים.
+     - לא
+     - ``false``
+     - ``true``
+     - Bot/Observability
+   * - ``ALERTS_COLLECTION``
+     - שם הקולקשן שבו נשמרות התראות מנורמלות.
+     - לא
+     - ``alerts_log``
+     - ``alerts_log_prod``
+     - Bot/Observability
+   * - ``ALERTS_SILENCES_COLLECTION``
+     - שם הקולקשן לסיילנסים (pattern + TTL).
+     - לא
+     - ``alerts_silences``
+     - ``alerts_silences_eu``
+     - Bot/Observability
+   * - ``ALERTS_TTL_DAYS``
+     - כמה ימים נשמרת התראה לפני מחיקה אוטומטית (TTL index).
+     - לא
+     - ``30``
+     - ``14``
+     - Bot/Observability
+   * - ``ALERTS_GROUPING_CONFIG``
+     - נתיב ל־YAML שמגדיר איך לאגד אירועים לקטגוריות התראה (log aggregator).
+     - לא
+     - ``config/alerts.yml``
+     - ``config/custom_alerts.yml``
+     - Bot/Observability
+   * - ``ALERTS_USE_POOLED_HTTP``
+     - כאשר ערכו ``true``/``1`` משתמשים ב-``http_sync`` המאוחד בעת שליחת Slack/Telegram.
+     - לא
+     - ``false``
+     - ``true``
+     - Bot
+   * - ``ALERT_ANOMALY_BATCH_WINDOW_SECONDS``
+     - חלון זמן (שניות) לאיגוד התראות anomaly דומות לפני הודעה מרוכזת.
+     - לא
+     - ``180``
+     - ``120``
+     - Bot
+   * - ``ALERT_ERRORS_PER_MINUTE``
+     - סף כמות שגיאות לדקה שמעורר ``anomaly_detected`` מהמודול metrics.
+     - לא
+     - ``20``
+     - ``40``
+     - Bot
+   * - ``ALERT_AVG_RESPONSE_TIME``
+     - רף ה-EWMA של זמן תגובה (שניות) שמעורר התראת latency (``0`` מנטרל).
+     - לא
+     - ``3.0``
+     - ``2.5``
+     - Bot
+   * - ``ALERT_AVG_RESPONSE_TIME_DEPLOY``
+     - רף חלופי לאותה התראה בזמן חלון חסד לאחר Deploy.
+     - לא
+     - ``10.0``
+     - ``6.0``
+     - Bot
+   * - ``DEPLOY_GRACE_PERIOD_SECONDS``
+     - אורך חלון החסד (שניות) שבו משתמשים ברף Deploy.
+     - לא
+     - ``120``
+     - ``180``
+     - Bot
+   * - ``ALERT_COOLDOWN_SECONDS``
+     - קירור מינימלי בין שתי התראות מאותו סוג.
+     - לא
+     - ``300``
+     - ``600``
+     - Bot
+   * - ``ALERT_DISPATCH_LOG_MAX``
+     - מספר הרשומות שנשמרות בזיכרון עבור מעקב שליחות.
+     - לא
+     - ``500``
+     - ``200``
+     - Bot
+   * - ``ALERT_EACH_ERROR``
+     - מפעיל fallback שמוציא התראה נפרדת עבור כל שגיאה (עם קירור קשיח).
+     - לא
+     - ``false``
+     - ``true``
+     - Bot
+   * - ``ALERT_EACH_ERROR_COOLDOWN_SECONDS``
+     - קירור בין התראות fallback מאותה חתימת שגיאה.
+     - לא
+     - ``120``
+     - ``60``
+     - Bot
+   * - ``ALERT_EACH_ERROR_TTL_SECONDS``
+     - TTL לחתימות במאגר הדה-דופליקציה (ברירת המחדל: שעה או פי 10 מהקירור).
+     - לא
+     - ``3600``
+     - ``7200``
+     - Bot
+   * - ``ALERT_EACH_ERROR_MAX_KEYS``
+     - כמות החתימות שנשמרות במקביל לפני שמסירים את הוותיקות.
+     - לא
+     - ``1000``
+     - ``2000``
+     - Bot
+   * - ``ALERT_QUICK_FIX_PATH``
+     - קובץ JSON עם פתרונות/צעדים קצרים שמוצמדים להתראות בצ'אט.
+     - לא
+     - ``config/alert_quick_fixes.json``
+     - ``config/custom_fixes.json``
+     - Bot/WebApp
+   * - ``OBS_AI_EXPLAIN_URL``
+     - Endpoint לשירות ההסבר החכם של הדשבורד (מקבל ``POST`` עם ``context`` ומחזיר ``root_cause``/``actions``/``signals``).
+     - לא
+     - "" (ריק)
+     - ``https://ai.example.com/explain``
+     - WebApp/Observability
+   * - ``OBS_AI_EXPLAIN_TOKEN``
+     - אסימון Bearer שנשלח ב-Header ``Authorization`` כאשר השירות מוגן (אופציונלי).
+     - לא
+     - "" (ריק)
+     - ``sk-live-123`` / ``bearer-xyz``
+     - WebApp/Observability
+   * - ``OBS_AI_EXPLAIN_TIMEOUT``
+     - Timeout (שניות) לפנייה לשירות ה-AI לפני נפילה לניתוח היוריסטי.
+     - לא
+     - ``12``
+     - ``20``
+     - WebApp/Observability
+   * - ``OBS_AI_EXPLAIN_CACHE_TTL``
+     - חיי המטמון (שניות) לתוצאות AI לפי ``alert_uid`` ב-Observability.
+     - לא
+     - ``600``
+     - ``900``
+     - WebApp/Observability
+   * - ``SILENCE_MAX_DAYS``
+     - מגבלת ימים לסיילנס יחיד שנוצר דרך ChatOps.
+     - לא
+     - ``7``
+     - ``3``
+     - Bot
+   * - ``SILENCES_MAX_ACTIVE``
+     - מספר הסיילנסים הפעילים המקסימלי לפני שיצירת חדשים נחסמת.
+     - לא
+     - ``50``
+     - ``100``
+     - Bot
+   * - ``SENSITIVE_COMMAND_COOLDOWN_SEC``
+     - קירור ברירת מחדל (שניות) לפקודות אדמין רגישות בצ'אט.
+     - לא
+     - ``5``
+     - ``10``
+     - Bot/ChatOps
+   * - ``ALLOWED_CHAT_IDS``
+     - CSV של Chats/Channels שמורשים להשתמש ביכולות אדמין (לדוגמה ערוצי ניהול).
+     - לא
+     - "" (ריק = אין הגבלה)
+     - ``-1001,-1002``
+     - Bot/ChatOps
+   * - ``INTERNAL_ALERTS_BUFFER``
+     - כמות ההתראות הפנימיות שנשמרות בזיכרון לבקרה.
+     - לא
+     - ``200``
+     - ``500``
+     - Bot
+   * - ``SENTRY_API_URL``
+     - בסיס ה-API של Sentry (אם משתמשים ב-self-hosted).
+     - לא
+     - ``https://sentry.io/api/0``
+     - ``https://sentry.example.com/api/0``
+     - Bot/ChatOps
+   * - ``SENTRY_AUTH_TOKEN``
+     - אסימון Bearer לקריאות API (נדרש ל-ChatOps / integrations).
+     - לא
+     - "" (ריק)
+     - ``sentry_pat_xxx``
+     - Bot/ChatOps
+   * - ``SENTRY_DASHBOARD_URL``
+     - URL מלא לאזור ה-Issues בסקופ ארגוני; גובר על לינקים שנבנים מה-DSN.
+     - לא
+     - "" (ריק)
+     - ``https://sentry.io/organizations/acme/issues``
+     - Bot/WebApp
+   * - ``SENTRY_ORG``/``SENTRY_ORG_SLUG``
+     - ה-slug של הארגון ב-Sentry (משמש לבניית URLs וקריאות API).
+     - לא
+     - "" (ריק)
+     - ``codebot``
+     - Bot/ChatOps
+   * - ``SENTRY_PROJECT``/``SENTRY_PROJECT_SLUG``
+     - פרויקט ברירת מחדל לסינון Issues/Events.
+     - לא
+     - "" (ריק)
+     - ``codebot-web``
+     - Bot/ChatOps
+   * - ``SENTRY_PROJECT_URL``
+     - URL ישיר לפרויקט ספציפי במקרה שאין Dashboard ארגוני.
+     - לא
+     - "" (ריק)
+     - ``https://sentry.io/organizations/acme/projects/codebot``
+     - Bot/ChatOps
+   * - ``SENTRY_TEST_NOTIFICATIONS_JOB``
+     - 1/``true`` מפעיל Job מדמה ששולח אירוע בדיקה ל-Sentry לצורכי ניטור.
+     - לא
+     - ``false``
+     - ``true``
+     - Bot/ChatOps
+
+מדדים, OTEL וחיזוי
+-------------------
+
+.. list-table:: Metrics & Predictive Controls
+   :header-rows: 1
+
+   * - משתנה
+     - תיאור
+     - חובה
+     - ברירת מחדל
+     - דוגמה
+     - רכיב
+   * - ``ENABLE_METRICS``
+     - מפעיל/מכבה יצוא Metrics (Prometheus/OTEL). שימושי בסביבות שאין בהן endpoints חיצוניים.
+     - לא
+     - ``false``
+     - ``true``
+     - Bot/WebApp
+   * - ``METRICS_DB_ENABLED``
+     - Dual-write של metrics ל-MongoDB (לצד Prometheus).
+     - לא
+     - ``false``
+     - ``true``
+     - Bot/Observability
+   * - ``METRICS_COLLECTION``
+     - שם הקולקשן לכתיבת metrics כש-DB מופעל.
+     - לא
+     - ``service_metrics``
+     - ``service_metrics_eu``
+     - Bot/Observability
+   * - ``METRICS_BATCH_SIZE``
+     - גודל הבאצ' (מספר דגימות) שנשלחות בכל flush.
+     - לא
+     - ``50``
+     - ``200``
+     - Bot/Observability
+   * - ``METRICS_FLUSH_INTERVAL_SEC``
+     - כל כמה שניות לרוקן את הבאפר של metrics.
+     - לא
+     - ``5``
+     - ``10``
+     - Bot/Observability
+   * - ``METRICS_EWMA_ALPHA``
+     - מקדם EWMA (0-1) לחישוב אנומליות latency/error-rate.
+     - לא
+     - ``0.2``
+     - ``0.1``
+     - Bot
+   * - ``METRICS_MAX_BUFFER``
+     - מספר הדגימות המקסימלי שנשמר בזיכרון לפני שמתחילים לדלג.
+     - לא
+     - ``5000``
+     - ``10000``
+     - Bot
+   * - ``ERROR_HISTORY_SECONDS``
+     - חלון זמן (בשניות) לשמירת errors לצורך תרשימי חום.
+     - לא
+     - ``600``
+     - ``900``
+     - Bot
+   * - ``ERROR_HISTORY_MAX_SAMPLES``
+     - מספר מקסימלי של רשומות שגיאה שנשמרות בחלון.
+     - לא
+     - ``2000``
+     - ``5000``
+     - Bot
+   * - ``ERROR_SIGNATURES_PATH``
+     - נתיב לקובץ החתימות (YAML) שמשמש את log aggregator לסיווג שגיאות.
+     - לא
+     - ``config/error_signatures.yml``
+     - ``config/custom_error_signatures.yml``
+     - Bot
+   * - ``HTTP_SAMPLE_BUFFER``
+     - כמות דגימות HTTP שנשמרות ב־deque לצורך סטטיסטיקות.
+     - לא
+     - ``2000``
+     - ``4000``
+     - Bot/WebApp
+   * - ``HTTP_SAMPLE_RETENTION_SECONDS``
+     - זמן שמירת הדגימות (שניות) לפני שמנקים אותן.
+     - לא
+     - ``600``
+     - ``1200``
+     - Bot/WebApp
+   * - ``RECENT_ERRORS_BUFFER``
+     - מספר השגיאות האחרונות שמוצגות ב-ChatOps (Deque).
+     - לא
+     - ``200``
+     - ``400``
+     - Bot/ChatOps
+   * - ``MEMORY_USAGE_THRESHOLD_PERCENT``
+     - אחוז שימוש בזיכרון שמפעיל התראות חיזוי (למשל 85%).
+     - לא
+     - ``85``
+     - ``90``
+     - Bot
+   * - ``OTEL_EXPORTER_INSECURE``
+     - כאשר ``true`` מאפשר שימוש ב-OTLP gRPC ללא TLS (למטרות לוקאליות).
+     - לא
+     - ``false``
+     - ``true``
+     - Bot/WebApp
+   * - ``OTEL_EXPORTER_OTLP_ENDPOINT``
+     - כתובת OTLP כללית (gRPC/HTTP) לייצוא traces/metrics אם אין חלוקה.
+     - לא
+     - "" (ריק)
+     - ``https://otel-collector:4317``
+     - Bot/WebApp
+   * - ``OTEL_EXPORTER_OTLP_METRICS_ENDPOINT``
+     - כתובת ייעודית למטריקות OTLP (אם שונה מה-endpoint הראשי).
+     - לא
+     - "" (ריק)
+     - ``https://otel-collector:4318/v1/metrics``
+     - Bot/WebApp
+   * - ``OTEL_EXPORTER_OTLP_TRACES_ENDPOINT``
+     - כתובת ייעודית ל-traces OTLP.
+     - לא
+     - "" (ריק)
+     - ``https://otel-collector:4318/v1/traces``
+     - Bot/WebApp
+   * - ``PREDICTION_MAX_AGE_SECONDS``
+     - כמה זמן לשמור קבצי חיזוי/תקריות לפני ניקוי (ברירת מחדל 24 שעות).
+     - לא
+     - ``86400``
+     - ``43200``
+     - Bot
+   * - ``PREDICTIVE_MODEL``
+     - סוג המודל לחיזוי (``exp_smoothing`` או ``linear``).
+     - לא
+     - ``exp_smoothing``
+     - ``linear``
+     - Bot
+   * - ``PREDICTIVE_HALFLIFE_MINUTES``
+     - זמן מחצית החיים בדקות ל-weighting של EW regression.
+     - לא
+     - ``30``
+     - ``15``
+     - Bot
+   * - ``PREDICTIVE_HORIZON_SECONDS``
+     - טווח החיזוי (שניות קדימה) לפני שמכריזים על סכנה קרובה.
+     - לא
+     - ``900``
+     - ``600``
+     - Bot
+   * - ``PREDICTIVE_FEEDBACK_INTERVAL_SEC``
+     - כל כמה שניות נמדדת דיוק ההחיזוי (feedback loop).
+     - לא
+     - ``300``
+     - ``120``
+     - Bot
+   * - ``PREDICTIVE_CLEANUP_INTERVAL_SEC``
+     - כל כמה זמן לנקות חיזויים ו-incidents ישנים.
+     - לא
+     - ``3600``
+     - ``900``
+     - Bot
+   * - ``PREDICTIVE_SAMPLER_ENABLED``
+     - מפעיל את ה-sampler שרץ ברקע ואוסף מדידות לטובת החיזוי.
+     - לא
+     - ``true``
+     - ``false``
+     - Bot
+   * - ``PREDICTIVE_SAMPLER_METRICS_URL``
+     - בסיס ה-URL שממנו הסמפולר קורא סטטיסטיקות (ברירת מחדל: ``WEBAPP_URL``/``PUBLIC_BASE_URL``).
+     - לא
+     - "" (auto)
+     - ``https://internal-observability/api``
+     - Bot
+   * - ``PREDICTIVE_SAMPLER_INTERVAL_SECS``
+     - תדירות ריצה של הסמפולר (שניות).
+     - לא
+     - ``60``
+     - ``30``
+     - Bot
+   * - ``PREDICTIVE_SAMPLER_FIRST_SECS``
+     - דילי לפני ריצת הסמפולר הראשונה.
+     - לא
+     - ``10``
+     - ``5``
+     - Bot
+   * - ``PREDICTIVE_SAMPLER_RUN_IN_TESTS``
+     - כאשר ``true`` הסמפולר רץ גם במהלך Pytest (ברירת מחדל כבוי כדי לא להאריך טסטים).
+     - לא
+     - ``false``
+     - ``true``
+     - Bot
+
+תפעול, אינטגרציות ופיצ'רים
+---------------------------
+
+.. list-table:: Operations & Feature Flags
+   :header-rows: 1
+
+   * - משתנה
+     - תיאור
+     - חובה
+     - ברירת מחדל
+     - דוגמה
+     - רכיב
+   * - ``BACKUPS_STORAGE``
+     - בחירת מנגנון גיבוי: ``mongo`` (GridFS) או ``fs`` (מערכת קבצים מקומית).
+     - לא
+     - ``mongo``
+     - ``fs``
+     - Bot/WebApp
+   * - ``BACKUPS_DIR``
+     - נתיב גיבויים בלוקאל (אם ``BACKUPS_STORAGE=fs``); אחרת נבחר אוטומטית.
+     - לא
+     - נתיב ברירת מחדל (``/app/backups``)
+     - ``/var/lib/codebot/backups``
+     - Bot/WebApp
+   * - ``BACKUPS_SHOW_ALL_IF_EMPTY``
+     - כאשר ``true`` מאפשר לממשק להציג את כל הקבצים גם כשאין פילטר (שימושי ל-ops).
+     - לא
+     - ``false``
+     - ``true``
+     - Bot
+   * - ``CACHE_WARMING_ENABLED``
+     - מפעיל חימום קאש מתוזמן לאחר אתחול.
+     - לא
+     - ``true``
+     - ``false``
+     - Bot
+   * - ``CACHE_WARMING_BUDGET_SECONDS``
+     - תקציב הזמן המרבי ללופ החימום (מונע עיכובים ארוכים).
+     - לא
+     - ``1.0``
+     - ``0.2``
+     - Bot
+   * - ``CACHE_WARMING_INTERVAL_SECS``
+     - כל כמה זמן (שניות) להריץ warming job.
+     - לא
+     - ``900``
+     - ``300``
+     - Bot
+   * - ``CACHE_WARMING_FIRST_SECS``
+     - דילי לפני ריצת ה-warming הראשונה אחרי עלייה.
+     - לא
+     - ``45``
+     - ``5``
+     - Bot
+   * - ``DISABLE_ACTIVITY_REPORTER``
+     - 1/``true`` מדליק קצר את דיווחי activity (שימושי בטסטים/לוקאל).
+     - לא
+     - ``0``
+     - ``1``
+     - Bot
+   * - ``DISABLE_DB``
+     - עוקף כל אינטראקציה עם MongoDB (בדרך כלל לטסטים).
+     - לא
+     - ``false``
+     - ``true``
+     - Bot/WebApp
+   * - ``DISABLE_WEEKLY_REPORTS``
+     - מדליק/מכבה שליחת דו"חות שבועיים (reminders).
+     - לא
+     - ``false``
+     - ``true``
+     - Bot
+   * - ``DUMMY_BOT_TOKEN``
+     - טוקן בדיקה שמשמש סביבות שבהן אין צורך להתחבר לטלגרם (למשל docs build).
+     - לא
+     - ``dummy_token``
+     - ``test_token``
+     - Bot/WebApp
+   * - ``DRIVE_RESCHEDULE_BOOTSTRAP_DELAY``
+     - כמה שניות להמתין לפני תחילת משימות ה-Drive rescheduler.
+     - לא
+     - ``5``
+     - ``1``
+     - Bot
+   * - ``DRIVE_RESCHEDULE_FIRST_DELAY``
+     - דילי לכל משימת שמירה/Keepalive הראשונה.
+     - לא
+     - ``60``
+     - ``10``
+     - Bot
+   * - ``DRIVE_RESCHEDULE_INTERVAL``
+     - הפרש זמנים בין הריצות הבאות של ה-Drive rescheduler.
+     - לא
+     - ``900``
+     - ``300``
+     - Bot
+   * - ``APSCHEDULER_COLLECTION``
+     - שם קולקשן ברירת המחדל עבור משימות APScheduler כאשר נשמרות ב-MongoDB.
+     - לא
+     - ``scheduler_jobs``
+     - ``scheduler_jobs_eu``
+     - Bot
+   * - ``WEEKLY_REPORT_DELAY_SECS``
+     - כמה זמן להמתין אחרי עלייה לפני הפעלת job הדו"חות השבועיים.
+     - לא
+     - ``3600``
+     - ``600``
+     - Bot
+   * - ``RATE_LIMIT_SHADOW_MODE``
+     - במצב ``true`` המגביל רק סופר חריגות ולא חוסם משתמשים (לבדיקות/דרג).
+     - לא
+     - ``false``
+     - ``true``
+     - Bot/WebApp
+   * - ``ALLOW_SEED_NON_LOCAL``
+     - מאפשר לסקריפט ה-seed לרוץ גם כשכתובת ה-Mongo אינה לוקאלית (לברירת מחדל אסור).
+     - לא
+     - ``false``
+     - ``true``
+     - Scripts
+   * - ``CHATOPS_ALLOW_ALL_IF_NO_ADMINS``
+     - כאשר ``true`` ואם ``ADMIN_USER_IDS`` ריק, כל משתמש נחשב אדמין (מתאים לסביבות dev).
+     - לא
+     - ``false``
+     - ``true``
+     - Bot/ChatOps
+   * - ``USE_NEW_SAVE_FLOW``
+     - מפעיל את מסלול השמירה המחודש (ניסיוני) בהנדלרים של save.
+     - לא
+     - ``false``
+     - ``true``
+     - Bot
+   * - ``REFACTOR_LAYERED_MODE``
+     - 1/``true`` מחייב את מנוע הרה-פקטור לפעול במצב IA Layered (בדיקות/POC).
+     - לא
+     - ``false``
+     - ``true``
+     - Bot
+   * - ``PASTEBIN_API_KEY``
+     - מפתח API עבור Pastebin ליצירת לינקים שיתופיים.
+     - לא
+     - "" (ריק)
+     - ``pastebin_key``
+     - Bot/WebApp
+   * - ``WEBAPP_LOGIN_SECRET``
+     - סוד משותף בין הבוט לוובאפ לטובת אימות single-sign-on.
+     - לא
+     - "" (ריק)
+     - ``super-shared-secret``
+     - WebApp/Bot
+   * - ``SUPPORT_EMAIL``
+     - כתובת דוא"ל שמוצגת בהודעות ומספקת fallback ל-``VAPID_SUB_EMAIL``.
+     - לא
+     - "" (ריק)
+     - ``support@example.com``
+     - Bot/WebApp
+   * - ``TOKEN_ENC_KEY``
+     - מפתח Fernet (Base64) להצפנת טוקנים רגישים במסד (ראה ``docs/SECURITY_TOKENS``).
+     - לא
+     - "" (ריק)
+     - ``Cr4ZEXxx...``
+     - Bot
+   * - ``PUSH_CLAIM_TTL_SECONDS``
+     - משך הזמן שבו claim של תזכורת push נחשב בתוקף לפני שמשחררים אותו.
+     - לא
+     - ``60``
+     - ``120``
+     - Bot/WebApp
+   * - ``PUSH_DELIVERY_URGENCY``
+     - Urgency header לברירת מחדל ב-Web Push (``very-low``/``low``/``normal``/``high``).
+     - לא
+     - ``high``
+     - ``low``
+     - WebApp
+   * - ``PUSH_SEND_INTERVAL_SECONDS``
+     - מרווח ההמתנה בין סריקות מתוזמנות של תזכורות push.
+     - לא
+     - ``60`` (מינימום 20)
+     - ``30``
+     - WebApp
+   * - ``GITHUB_API_BASE_DELAY``
+     - דילי בסיסי בין בקשות GitHub כדי להישאר מתחת לרף rate-limit.
+     - לא
+     - ``2.0``
+     - ``1.0``
+     - Bot/ChatOps
+   * - ``GITHUB_BACKOFF_DELAY``
+     - מקדם backoff (שניות) שמתווסף בכל ניסיון כושל לקריאות GitHub.
+     - לא
+     - ``5.0``
+     - ``3.0``
+     - Bot/ChatOps
+   * - ``GITHUB_NOTIFICATIONS_PR_MIN_COOLDOWN``
+     - קירור (דקות) בין שליחת התראות PR באותו ערוץ כדי למנוע הצפה.
+     - לא
+     - ``30``
+     - ``10``
+     - Bot/ChatOps
+   * - ``LOG_AGG_ECHO``
+     - כאשר ``true`` סקריפט ``run_log_aggregator`` ידפיס לשגיאה כל שורה שנקלטה כ-match (לדיבוג).
+     - לא
+     - ``0``
+     - ``1``
+     - Scripts
+   * - ``LOG_AGG_RELOAD_SECONDS``
+     - כל כמה שניות סקריפט הלוג-אגגרטור יטען מחדש את קבצי החתימות.
+     - לא
+     - ``60``
+     - ``10``
+     - Scripts
+   * - ``LOCK_MAX_WAIT_SECONDS``
+     - כמה זמן לחכות ללוק לפני שמתייאשים (``0`` = המתנה אינסופית).
+     - לא
+     - ``0``
+     - ``15``
+     - Bot
+   * - ``LOCK_RETRY_INTERVAL_SECONDS``
+     - זמן המתנה בין ניסיונות נעילה חוזרים.
+     - לא
+     - ``5``
+     - ``1``
+     - Bot
+   * - ``APP_VERSION``
+     - מחרוזת גרסה שמוזנת מהפלטפורמה (Render/Heroku) לצורכי Telemetry.
+     - לא
+     - "" (ריק)
+     - ``2025.12.1``
+     - Bot/WebApp
+   * - ``ASSET_VERSION``
+     - מזהה לצורך cache-busting של קבצי סטטיק (נוסף ל-query param).
+     - לא
+     - "" (ריק)
+     - ``78f3dea``
+     - WebApp
+   * - ``DEPLOYMENT_TYPE``
+     - מחרוזת תיאור (למשל ``render``, ``kubernetes``) שמופיעה בלוגים/טופס סטטוס.
+     - לא
+     - "" (ריק)
+     - ``kubernetes``
+     - Bot/WebApp
+   * - ``ENV``
+     - שם סביבת הריצה (fallback כאשר ``ENVIRONMENT`` לא מוגדר).
+     - לא
+     - ``production``
+     - ``staging``
+     - Bot/WebApp
+   * - ``GIT_COMMIT`` / ``RENDER_GIT_COMMIT`` / ``HEROKU_SLUG_COMMIT`` / ``SOURCE_VERSION``
+     - מזהי הקומיט כפי שמוזנים ע"י הפלטפורמה; מופיעים בדוחות גרסה.
+     - לא
+     - "" (ריק)
+     - ``cafe123``
+     - Bot/WebApp
+   * - ``HOSTNAME``
+     - שם המכונה המדווח בלוגים / ב-claim של push (לרוב מוזן ע"י התשתית, אבל ניתן לעקוף).
+     - לא
+     - ערך מערכת
+     - ``codebot-worker-1``
+     - Bot/WebApp
+   * - ``MONGODB_COMPRESSORS``
+     - רשימת הקומפרסורים שהקליינט יבקש מ-Mongo (למשל ``zstd,snappy``).
+     - לא
+     - "" (Auto)
+     - ``zstd,snappy``
+     - Bot/WebApp
+   * - ``MONGO_URI`` / ``MONGO_DB_NAME``
+     - אליאסים המשמשים סקריפטי עזר (כמו setup_bookmarks) כאשר אין ``MONGODB_URL``/``DATABASE_NAME``.
+     - לא
+     - ``""`` / ``code_keeper_bot``
+     - ``mongodb://localhost:27017`` / ``my_db``
+     - Scripts
+
+דגלי בדיקות ופיתוח
+-------------------
+
+.. list-table:: Dev & Testing Flags
+   :header-rows: 1
+
+   * - משתנה
+     - תיאור
+     - חובה
+     - ברירת מחדל
+     - דוגמה
+     - רכיב
+   * - ``ONLY_LIGHT_PERF``
+     - כאשר ``1`` תוסף הביצועים מריץ רק טסטים מסומנים כ"קלים" ומדלג על כבדים.
+     - לא
+     - ``0``
+     - ``1``
+     - Tests
+   * - ``PERF_HEAVY_PERCENTILE``
+     - אחוזון שמפריד בין טסטים "כבדים" ל"קלים" (ברירת מחדל 90).
+     - לא
+     - ``90``
+     - ``75``
+     - Tests
+   * - ``PYTEST`` / ``PYTEST_CURRENT_TEST`` / ``PYTEST_RUNNING``
+     - דגלים שמאותתים לקוד שאנו בתוך Pytest (למשל כדי לנטרל Jobs). Pytest מגדיר אותם אוטומטית.
+     - לא
+     - "" (ריק)
+     - ``1``
+     - Bot/WebApp
+   * - ``SPHINX_MOCK_IMPORTS``
+     - 1/``true`` גורם ל-build של התיעוד למקם מודולים בעזרת mocks במקום לייבא בפועל.
+     - לא
+     - ``false``
+     - ``true``
+     - Docs
+   * - ``PIP_NO_SETUPTOOLS`` / ``PIP_NO_WHEEL``
+     - דגלים של סקריפט ``get-pip.py`` בלבד; השאירו כבויים אלא אם מריצים את הסקריפט כחלק מאוטומציה.
+     - לא
+     - "" (ריק)
+     - ``1``
+     - Tooling
 
 דוגמאות קונפיגורציה
 --------------------

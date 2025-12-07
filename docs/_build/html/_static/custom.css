@@ -1,13 +1,27 @@
 /* Custom CSS for Code Keeper Bot Documentation */
 
 /* RTL Support for Hebrew */
-.rst-content {
-    direction: ltr;
+.wy-nav-content {
+    direction: rtl;
 }
 
-.rst-content .hebrew {
+.rst-content {
     direction: rtl;
+    unicode-bidi: plaintext;
     text-align: right;
+}
+
+.rst-content .hebrew,
+.rst-content .bidi-rtl {
+    direction: rtl;
+    unicode-bidi: plaintext;
+    text-align: right;
+}
+
+.rst-content .bidi-ltr {
+    direction: ltr;
+    unicode-bidi: embed;
+    text-align: left;
 }
 
 /* Code blocks styling */
@@ -16,6 +30,8 @@
     border: 1px solid #e1e4e8;
     border-radius: 6px;
     margin: 1em 0;
+    direction: ltr;
+    text-align: left;
 }
 
 .highlight pre {
@@ -112,6 +128,52 @@ table.docutils td {
     border-radius: 6px;
     padding: 1em;
     margin: 1em 0;
+    direction: ltr;
+    text-align: left;
+}
+
+/* Copy page button */
+.doc-copy-page {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    margin-bottom: 1rem;
+    flex-wrap: wrap;
+}
+
+.doc-copy-page__button {
+    background-color: #2c3e50;
+    color: #fff;
+    border: none;
+    border-radius: 6px;
+    padding: 0.5rem 1rem;
+    font-size: 0.95rem;
+    cursor: pointer;
+    transition: background-color 0.2s ease, transform 0.1s ease;
+}
+
+.doc-copy-page__button:hover,
+.doc-copy-page__button:focus {
+    background-color: #1a242f;
+}
+
+.doc-copy-page__button:disabled {
+    opacity: 0.6;
+    cursor: default;
+}
+
+.doc-copy-page__button--active {
+    background-color: #1e8449;
+    transform: translateY(-1px);
+}
+
+.doc-copy-page__status {
+    font-size: 0.9rem;
+    color: #1e8449;
+}
+
+.doc-copy-page__status--error {
+    color: #c0392b;
 }
 
 /* Search results */

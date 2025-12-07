@@ -165,3 +165,5 @@ latex_elements = {
 # -- Extension configuration -------------------------------------------------
 def setup(app):
     app.add_css_file('custom.css')
+    app.add_js_file('copy-page.js')
+
