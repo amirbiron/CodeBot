@@ -541,10 +541,11 @@ def run(host: str = "0.0.0.0", port: int = 10000) -> None:
 
 
 if __name__ == "__main__":  # pragma: no cover - used by Render/CLI entrypoint
-    host = os.getenv("WEB_HOST", "0.0.0.0")
+    host = os.getenv("WEB_HOST") or os.getenv("HOST") or "0.0.0.0"
+    port_env = os.getenv("PORT") or os.getenv("WEB_PORT") or "10000"
     try:
-        port = int(os.getenv("WEB_PORT", "10000"))
-    except ValueError:
+        port = int(port_env)
+    except (TypeError, ValueError):
         port = 10000
     run(host=host, port=port)
 
