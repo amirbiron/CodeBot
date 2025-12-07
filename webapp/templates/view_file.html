@@ -1807,6 +1807,8 @@ function goBack(ev){
     }).filter(Boolean);
     const proxies = new Map();
     const viewportPadding = 16;
+    const requestFrame = window.requestAnimationFrame || window.webkitRequestAnimationFrame || ((cb) => setTimeout(cb, 16));
+    const cancelFrame = window.cancelAnimationFrame || window.webkitCancelAnimationFrame || window.clearTimeout;
     let dropdownRaf = null;
 
     function getViewportSize() {
@@ -1834,21 +1836,25 @@ function goBack(ev){
             return;
         }
         if (dropdownRaf) {
-            cancelAnimationFrame(dropdownRaf);
+            cancelFrame(dropdownRaf);
             dropdownRaf = null;
         }
-        const { width: viewportWidth, height: viewportHeight } = getViewportSize();
-        const availableWidth = Math.max(160, viewportWidth - viewportPadding * 2);
-        const maxWidth = Math.min(320, availableWidth, viewportWidth);
-        dropdown.style.maxWidth = maxWidth ? `${maxWidth}px` : '';
-        dropdown.style.removeProperty('transform');
-        dropdown.style.removeProperty('max-height');
-        dropdown.style.overflowY = '';
-        dropdownRaf = requestAnimationFrame(() => {
+        dropdownRaf = requestFrame(() => {
             dropdownRaf = null;
-            if (dropdown.hidden) {
+            if (!dropdown || dropdown.hidden) {
                 return;
             }
+            const { width: viewportWidth, height: viewportHeight } = getViewportSize();
+            const availableWidth = Math.max(160, viewportWidth - viewportPadding * 2);
+            const maxWidth = Math.min(320, availableWidth, viewportWidth);
+            if (maxWidth && Number.isFinite(maxWidth)) {
+                dropdown.style.maxWidth = `${maxWidth}px`;
+            } else {
+                dropdown.style.removeProperty('max-width');
+            }
+            dropdown.style.removeProperty('max-height');
+            dropdown.style.overflowY = '';
+            dropdown.style.transform = '';
             const rect = dropdown.getBoundingClientRect();
             const overflowRight = Math.max(0, rect.right - (viewportWidth - viewportPadding));
             const overflowLeft = Math.max(0, viewportPadding - rect.left);
