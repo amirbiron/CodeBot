@@ -260,8 +260,105 @@
 
 .file-actions {
     display: flex;
-    gap: 1rem;
-    flex-wrap: wrap;
+    gap: 0.75rem;
+    flex-wrap: nowrap;
+    width: 100%;
+    align-items: stretch;
+}
+
+.file-actions__list {
+    display: flex;
+    gap: 0.75rem;
+    flex-wrap: nowrap;
+    flex: 1;
+    overflow: hidden;
+    align-items: stretch;
+    min-width: 0;
+}
+
+.file-actions__menu {
+    position: relative;
+    flex: 0 0 auto;
+}
+
+.file-actions__menu-button {
+    min-width: 48px;
+    padding-inline: 16px;
+    font-size: 1.5rem;
+}
+
+.file-actions__dropdown {
+    position: absolute;
+    inset-inline-start: 0;
+    top: calc(100% + 8px);
+    min-width: 240px;
+    background: rgba(17, 23, 41, 0.98);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 12px;
+    padding: 12px;
+    box-shadow: 0 16px 40px rgba(0, 0, 0, 0.35);
+    backdrop-filter: blur(18px);
+    z-index: 20;
+}
+
+.file-actions__dropdown[hidden] {
+    display: none;
+}
+
+.file-actions__menu-section {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.file-actions__menu-divider {
+    height: 1px;
+    background: rgba(255, 255, 255, 0.08);
+    margin: 10px 0;
+}
+
+.file-actions__menu-item {
+    background: transparent;
+    border: none;
+    color: rgba(255, 255, 255, 0.9);
+    padding: 10px;
+    border-radius: 8px;
+    cursor: pointer;
+    text-align: right;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 0.5rem;
+    font-size: 0.95rem;
+    transition: background 0.2s ease, color 0.2s ease;
+}
+
+.file-actions__menu-item:hover,
+.file-actions__menu-item:focus-visible {
+    background: rgba(255, 255, 255, 0.12);
+}
+
+.file-actions__menu-item.danger {
+    color: #ff9f9f;
+}
+
+.file-actions__menu-item.danger:hover,
+.file-actions__menu-item.danger:focus-visible {
+    background: rgba(255, 99, 99, 0.15);
+}
+
+.file-action--hidden {
+    display: none !important;
+}
+
+@media (max-width: 768px) {
+    .file-actions {
+        flex-wrap: wrap;
+    }
+    .file-actions__list {
+        flex-wrap: wrap;
+        overflow: visible;
+    }
 }
 
 .file-actions .btn-primary.btn-icon {
@@ -294,6 +391,10 @@
 .file-actions .btn-primary.btn-icon i,
 .file-actions .btn-primary.btn-icon svg {
     color: #667eea;
+}
+
+.file-actions__menu-button .fas {
+    color: inherit;
 }
 
 .file-meta {
@@ -541,7 +642,11 @@ body.telegram-mini-app .file-title { font-size: 1.125rem; }
 
 {% block content %}
 <script type="application/json" id="pygmentsCssData">{{ syntax_css|tojson|safe }}</script>
-<div id="fileMeta" data-file-name="{{ file.file_name }}" style="display:none"></div>
+<div id="fileMeta"
+     data-file-name="{{ file.file_name }}"
+     data-file-id="{{ file.id }}"
+     data-source-url="{{ file.source_url|default('', true) }}"
+     style="display:none"></div>
 <script>
 // הזרקת CSS של Pygments בבטחה לתוך style#syntax-css, ללא Jinja בתוך JS
 (function(){
@@ -584,42 +689,107 @@ body.telegram-mini-app .file-title { font-size: 1.125rem; }
         {% endif %}
     </div>
 
-    <div class="file-actions">
-        <button id="favoriteBtn" class="btn btn-secondary btn-icon" onclick="toggleFavorite()" aria-pressed="{{ 'true' if file.is_favorite else 'false' }}" title="{{ 'הסר ממועדפים' if file.is_favorite else 'הוסף למועדפים' }}" aria-label="{{ 'הסר ממועדפים' if file.is_favorite else 'הוסף למועדפים' }}">
-            <span id="favoriteIcon">{{ '💔' if file.is_favorite else '⭐' }}</span>
-            <span id="favoriteLabel">{{ 'הסר ממועדפים' if file.is_favorite else 'הוסף למועדפים' }}</span>
-        </button>
-        <a href="/edit/{{ file.id }}" class="btn btn-primary btn-icon">
-            <i class="fas fa-edit"></i>
-            ערוך
-        </a>
-        <button onclick="copyCode()" class="btn btn-primary btn-icon copy-button">
-            <i class="fas fa-copy"></i>
-            העתק קוד
-            <div class="copy-feedback" id="copyFeedback">הועתק!</div>
-        </button>
-        {% if file.source_url %}
-        <a href="{{ file.source_url }}" class="btn btn-secondary btn-icon" target="_blank" rel="noopener noreferrer" title="פתח את המקור{% if file.source_url_host %} ({{ file.source_url_host }}){% endif %}">
-            🔗 למקור
-        </a>
-        {% endif %}
-        {% if file.language|lower == 'html' or (file.file_name|lower).endswith('.html') or (file.file_name|lower).endswith('.htm') %}
-        <a href="/html/{{ file.id }}" class="btn btn-secondary btn-icon">🌐 תצוגת דפדפן</a>
-        {% endif %}
-        {% if file.language|lower == 'markdown' or (file.file_name|lower).endswith('.md') %}
-        <a href="/md/{{ file.id }}" class="btn btn-secondary btn-icon">🌐 תצוגת Markdown</a>
-        {% endif %}
-        <a href="/download/{{ file.id }}" class="btn btn-secondary btn-icon">
-            <i class="fas fa-download" aria-hidden="true"></i>
-            <span class="btn-text">הורד</span>
-        </a>
-        <button class="btn btn-secondary btn-icon" onclick="openAddToCollectionModal('{{ file.file_name|escape }}')">
-            📁+ הוסף לאוסף
-        </button>
-        <a href="#" onclick="return goBack(event)" class="btn btn-secondary btn-icon">
-            <i class="fas fa-arrow-right" aria-hidden="true"></i>
-            <span class="btn-text">חזור</span>
-        </a>
+    <div class="file-actions" data-file-actions>
+        <div class="file-actions__list" data-actions-list>
+            <button id="favoriteBtn"
+                    class="btn btn-secondary btn-icon"
+                    data-overflow-id="favorite"
+                    data-overflow-priority="1"
+                    data-menu-label="{{ '💔 הסר ממועדפים' if file.is_favorite else '⭐ הוסף למועדפים' }}"
+                    onclick="toggleFavorite()"
+                    aria-pressed="{{ 'true' if file.is_favorite else 'false' }}"
+                    title="{{ 'הסר ממועדפים' if file.is_favorite else 'הוסף למועדפים' }}"
+                    aria-label="{{ 'הסר ממועדפים' if file.is_favorite else 'הוסף למועדפים' }}">
+                <span id="favoriteIcon">{{ '💔' if file.is_favorite else '⭐' }}</span>
+                <span id="favoriteLabel">{{ 'הסר ממועדפים' if file.is_favorite else 'הוסף למועדפים' }}</span>
+            </button>
+            <a href="/edit/{{ file.id }}" class="btn btn-primary btn-icon"
+               data-overflow-id="edit"
+               data-overflow-priority="2"
+               data-menu-label="✏️ ערוך">
+                <i class="fas fa-edit"></i>
+                ערוך
+            </a>
+            <button onclick="copyCode()" class="btn btn-primary btn-icon copy-button"
+                    data-overflow-id="copy"
+                    data-overflow-priority="3"
+                    data-menu-label="📋 העתק קוד">
+                <i class="fas fa-copy"></i>
+                העתק קוד
+                <div class="copy-feedback" id="copyFeedback">הועתק!</div>
+            </button>
+            {% if file.language|lower == 'html' or (file.file_name|lower).endswith('.html') or (file.file_name|lower).endswith('.htm') %}
+            <a href="/html/{{ file.id }}" class="btn btn-secondary btn-icon"
+               data-overflow-id="html"
+               data-overflow-priority="5"
+               data-menu-label="🌐 תצוגת דפדפן">
+                🌐 תצוגת דפדפן
+            </a>
+            {% endif %}
+            {% if file.language|lower == 'markdown' or (file.file_name|lower).endswith('.md') %}
+            <a href="/md/{{ file.id }}" class="btn btn-secondary btn-icon"
+               data-overflow-id="markdown"
+               data-overflow-priority="5"
+               data-menu-label="🌐 תצוגת Markdown">
+                🌐 תצוגת Markdown
+            </a>
+            {% endif %}
+            <a href="/download/{{ file.id }}" class="btn btn-secondary btn-icon"
+               data-overflow-id="download"
+               data-overflow-priority="6"
+               data-menu-label="⬇️ הורד">
+                <i class="fas fa-download" aria-hidden="true"></i>
+                <span class="btn-text">הורד</span>
+            </a>
+            <button class="btn btn-secondary btn-icon"
+                    data-overflow-id="collection"
+                    data-overflow-priority="7"
+                    data-menu-label="📁 הוסף לאוסף"
+                    onclick="openAddToCollectionModal('{{ file.file_name|escape }}')">
+                📁+ הוסף לאוסף
+            </button>
+            <a href="#" onclick="return goBack(event)" class="btn btn-secondary btn-icon"
+               data-overflow-id="back"
+               data-overflow-priority="8"
+               data-menu-label="↩️ חזור">
+                <i class="fas fa-arrow-right" aria-hidden="true"></i>
+                <span class="btn-text">חזור</span>
+            </a>
+        </div>
+        <div class="file-actions__menu">
+            <button type="button"
+                    id="fileActionsMenuButton"
+                    class="btn btn-secondary btn-icon file-actions__menu-button"
+                    aria-haspopup="true"
+                    aria-expanded="false"
+                    aria-label="עוד פעולות">
+                ⋮
+            </button>
+            <div class="file-actions__dropdown" id="fileActionsMenu" role="menu" hidden>
+                <div class="file-actions__menu-section">
+                    <button type="button" class="file-actions__menu-item" data-menu-action="share">
+                        <span>📤 שתף קובץ</span>
+                    </button>
+                    {% if file.source_url %}
+                    <button type="button"
+                            class="file-actions__menu-item"
+                            data-menu-action="source"
+                            data-source-url="{{ file.source_url|e }}"
+                            {% if file.source_url_host %}data-source-host="{{ file.source_url_host|e }}"{% endif %}>
+                        <span>🔗 למקור{% if file.source_url_host %} ({{ file.source_url_host }}){% endif %}</span>
+                    </button>
+                    {% endif %}
+                    <button type="button" class="file-actions__menu-item" data-menu-action="history">
+                        <span>🕐 היסטוריה</span>
+                    </button>
+                    <button type="button" class="file-actions__menu-item danger" data-menu-action="trash">
+                        <span>🗑️ העבר לסל</span>
+                    </button>
+                </div>
+                <div class="file-actions__menu-divider" data-dynamic-divider hidden></div>
+                <div class="file-actions__menu-section" data-dynamic-actions></div>
+            </div>
+        </div>
     </div>
 </div>
 
@@ -764,6 +934,32 @@ body.telegram-mini-app .file-title { font-size: 1.125rem; }
     </div>
 </div>
 
+<div id="historyModal" class="glass-modal" role="dialog" aria-modal="true" aria-labelledby="historyModalTitle" hidden>
+    <div class="glass-modal__surface">
+        <div class="glass-modal__header">
+            <h3 id="historyModalTitle">📚 היסטוריית גרסאות</h3>
+            <button type="button" class="glass-modal__close" data-history-close aria-label="סגור">✕</button>
+        </div>
+        <div id="historyModalBody" class="history-modal__body">
+            <div class="history-modal__loading">טוען היסטוריה...</div>
+        </div>
+    </div>
+</div>
+
+<div id="trashConfirmModal" class="glass-modal" role="dialog" aria-modal="true" aria-labelledby="trashModalTitle" hidden>
+    <div class="glass-modal__surface">
+        <div class="glass-modal__header">
+            <h3 id="trashModalTitle">🗑️ העבר לסל</h3>
+            <button type="button" class="glass-modal__close" data-trash-close aria-label="סגור">✕</button>
+        </div>
+        <p class="trash-modal__text">הקובץ זמין למשך 30 יום בסל המיחזור דרך הבוט.</p>
+        <div class="trash-modal__actions">
+            <button type="button" class="btn btn-danger" data-trash-confirm>כן, העבר לסל</button>
+            <button type="button" class="btn btn-secondary" data-trash-close>ביטול</button>
+        </div>
+    </div>
+</div>
+
 <style>
 .share-link-modal {
     position: fixed;
@@ -815,6 +1011,145 @@ body.telegram-mini-app .file-title { font-size: 1.125rem; }
 }
 .share-link-modal__close:hover,
 .share-link-modal__close:focus {
+    color: #fff;
+}
+
+.glass-modal {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.6);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 10000;
+    padding: 1.5rem;
+}
+
+.glass-modal[hidden] {
+    display: none;
+}
+
+.glass-modal__surface {
+    background: rgba(18, 26, 48, 0.96);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: 16px;
+    width: min(520px, 100%);
+    max-height: 90vh;
+    padding: 1.25rem;
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+    box-shadow: 0 20px 40px rgba(0, 0, 0, 0.4);
+}
+
+.glass-modal__header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+}
+
+.glass-modal__header h3 {
+    margin: 0;
+    font-size: 1.25rem;
+}
+
+.glass-modal__close {
+    border: none;
+    background: transparent;
+    color: rgba(255, 255, 255, 0.7);
+    font-size: 1.1rem;
+    cursor: pointer;
+}
+
+.glass-modal__close:hover,
+.glass-modal__close:focus-visible {
+    color: #fff;
+}
+
+.history-modal__body {
+    overflow-y: auto;
+    max-height: 65vh;
+}
+
+.history-modal__list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+}
+
+.history-modal__item {
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 12px;
+    padding: 0.9rem;
+    display: flex;
+    gap: 0.75rem;
+    flex-wrap: wrap;
+    background: rgba(255, 255, 255, 0.02);
+}
+
+.history-modal__item.is-current {
+    border-color: rgba(102, 126, 234, 0.5);
+    background: rgba(102, 126, 234, 0.08);
+}
+
+.history-modal__info {
+    flex: 1;
+    min-width: 0;
+}
+
+.history-modal__title {
+    font-weight: 600;
+    margin-bottom: 0.25rem;
+}
+
+.history-modal__meta {
+    font-size: 0.9rem;
+    opacity: 0.8;
+}
+
+.history-modal__description {
+    margin-top: 0.35rem;
+    font-size: 0.95rem;
+    opacity: 0.9;
+}
+
+.history-modal__actions {
+    display: flex;
+    gap: 0.5rem;
+    align-items: center;
+}
+
+.history-modal__empty,
+.history-modal__loading {
+    text-align: center;
+    padding: 1.5rem 0;
+    opacity: 0.85;
+}
+
+.trash-modal__text {
+    margin: 0;
+    font-size: 1rem;
+    line-height: 1.6;
+}
+
+.trash-modal__actions {
+    display: flex;
+    gap: 0.75rem;
+    flex-wrap: wrap;
+    justify-content: flex-start;
+    margin-top: 1rem;
+}
+
+.btn.btn-danger {
+    background: rgba(255, 99, 99, 0.2);
+    border: 1px solid rgba(255, 99, 99, 0.4);
+    color: #ffb3b3;
+}
+
+.btn.btn-danger:hover,
+.btn.btn-danger:focus-visible {
+    background: rgba(255, 99, 99, 0.35);
     color: #fff;
 }
 </style>
@@ -1052,10 +1387,15 @@ async function toggleFavorite(){
         const icon = document.getElementById('favoriteIcon');
         const label = document.getElementById('favoriteLabel');
         if (btn) {
+            const textLabel = state ? 'הסר ממועדפים' : 'הוסף למועדפים';
+            const menuLabel = state ? '💔 הסר ממועדפים' : '⭐ הוסף למועדפים';
             btn.setAttribute('aria-pressed', state ? 'true' : 'false');
-            const tt = state ? 'הסר ממועדפים' : 'הוסף למועדפים';
-            btn.setAttribute('title', tt);
-            btn.setAttribute('aria-label', tt);
+            btn.setAttribute('title', textLabel);
+            btn.setAttribute('aria-label', textLabel);
+            btn.setAttribute('data-menu-label', menuLabel);
+            if (window.fileActionsOverflow && typeof window.fileActionsOverflow.refreshLabel === 'function') {
+                window.fileActionsOverflow.refreshLabel('favorite', menuLabel);
+            }
         }
         if (icon) icon.textContent = state ? '💔' : '⭐';
         if (label) label.textContent = state ? 'הסר ממועדפים' : 'הוסף למועדפים';
@@ -1429,6 +1769,444 @@ function goBack(ev){
       el.style.maxHeight = Math.round(lh * 2) + 'px';
     }
     } catch(_) {}
+})();
+</script>
+
+<script>
+(function initFileActionsOverflow(){
+    const actionsList = document.querySelector('[data-actions-list]');
+    const menuButton = document.getElementById('fileActionsMenuButton');
+    const dropdown = document.getElementById('fileActionsMenu');
+    const metaEl = document.getElementById('fileMeta');
+    const fallbackSourceUrl = metaEl ? (metaEl.getAttribute('data-source-url') || '') : '';
+    if (!actionsList || !menuButton || !dropdown) {
+        return;
+    }
+    const dynamicList = dropdown.querySelector('[data-dynamic-actions]');
+    const dividerEl = dropdown.querySelector('[data-dynamic-divider]');
+    const overflowItems = Array.from(actionsList.querySelectorAll('[data-overflow-id]')).map((el) => {
+        const id = el.getAttribute('data-overflow-id');
+        if (!id) {
+            return null;
+        }
+        return {
+            el,
+            id,
+            priority: Number(el.getAttribute('data-overflow-priority') || 0),
+            label: el.getAttribute('data-menu-label') || (el.textContent || '').trim(),
+        };
+    }).filter(Boolean);
+    const proxies = new Map();
+
+    function updateDividerVisibility() {
+        if (!dividerEl) {
+            return;
+        }
+        const anyVisible = Array.from(proxies.values()).some((proxy) => proxy && !proxy.hidden);
+        dividerEl.hidden = !anyVisible;
+    }
+
+    function ensureProxy(item) {
+        if (!dynamicList) {
+            return null;
+        }
+        if (proxies.has(item.id)) {
+            return proxies.get(item.id);
+        }
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'file-actions__menu-item';
+        btn.dataset.proxyFor = item.id;
+        const textSpan = document.createElement('span');
+        textSpan.dataset.menuItemLabel = '1';
+        textSpan.textContent = item.label;
+        btn.appendChild(textSpan);
+        btn.hidden = true;
+        btn.addEventListener('click', (event) => {
+            event.preventDefault();
+            closeMenu();
+            triggerAction(item.el);
+        });
+        dynamicList.appendChild(btn);
+        proxies.set(item.id, btn);
+        updateDividerVisibility();
+        return btn;
+    }
+
+    function showProxy(item, visible) {
+        const proxy = ensureProxy(item);
+        if (!proxy) {
+            return;
+        }
+        proxy.hidden = !visible;
+        updateDividerVisibility();
+    }
+
+    function triggerAction(el) {
+        if (!el) return;
+        if (el.tagName === 'A' && el.href) {
+            const target = el.getAttribute('target');
+            if (target === '_blank') {
+                window.open(el.href, '_blank', 'noopener');
+            } else {
+                window.location.href = el.href;
+            }
+            return;
+        }
+        try {
+            el.click();
+        } catch (_) {}
+    }
+
+    function resetOverflowState() {
+        overflowItems.forEach((item) => {
+            item.el.classList.remove('file-action--hidden');
+            showProxy(item, false);
+        });
+    }
+
+    function applyOverflow() {
+        resetOverflowState();
+        const desktopMatch = window.matchMedia && window.matchMedia('(min-width: 769px)');
+        if (!desktopMatch || !desktopMatch.matches) {
+            return;
+        }
+        const sorted = overflowItems.slice().sort((a, b) => (a.priority || 0) - (b.priority || 0));
+        let guard = 0;
+        while (actionsList.scrollWidth > actionsList.clientWidth + 4 && sorted.length && guard < overflowItems.length + 3) {
+            const candidate = sorted.pop();
+            if (!candidate) break;
+            candidate.el.classList.add('file-action--hidden');
+            showProxy(candidate, true);
+            guard += 1;
+        }
+    }
+
+    let resizeTimer = null;
+    window.addEventListener('resize', () => {
+        if (resizeTimer) {
+            clearTimeout(resizeTimer);
+        }
+        resizeTimer = setTimeout(applyOverflow, 120);
+    });
+    const mobileMatch = window.matchMedia && window.matchMedia('(max-width: 768px)');
+    if (mobileMatch) {
+        const handler = () => setTimeout(applyOverflow, 80);
+        if (typeof mobileMatch.addEventListener === 'function') {
+            mobileMatch.addEventListener('change', handler);
+        } else if (typeof mobileMatch.addListener === 'function') {
+            mobileMatch.addListener(handler);
+        }
+    }
+    setTimeout(applyOverflow, 80);
+    setTimeout(applyOverflow, 350);
+
+    function openMenu() {
+        dropdown.hidden = false;
+        menuButton.setAttribute('aria-expanded', 'true');
+    }
+    function closeMenu() {
+        dropdown.hidden = true;
+        menuButton.setAttribute('aria-expanded', 'false');
+    }
+
+    menuButton.addEventListener('click', (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        if (dropdown.hidden) {
+            openMenu();
+        } else {
+            closeMenu();
+        }
+    });
+
+    document.addEventListener('click', (event) => {
+        if (!dropdown.contains(event.target) && event.target !== menuButton) {
+            closeMenu();
+        }
+    });
+    document.addEventListener('keydown', (event) => {
+        if (event.key === 'Escape') {
+            closeMenu();
+        }
+    });
+
+    dropdown.querySelectorAll('[data-menu-action]').forEach((btn) => {
+        btn.addEventListener('click', (event) => {
+            event.preventDefault();
+            const action = btn.getAttribute('data-menu-action');
+            closeMenu();
+            if (action === 'share') {
+                openShareLinkModal();
+                return;
+            }
+            if (action === 'history' && typeof window.openHistoryModal === 'function') {
+                window.openHistoryModal();
+                return;
+            }
+            if (action === 'trash' && typeof window.openTrashConfirmModal === 'function') {
+                window.openTrashConfirmModal();
+                return;
+            }
+            if (action === 'source') {
+                const href = btn.getAttribute('data-source-url') || fallbackSourceUrl;
+                if (href) {
+                    window.open(href, '_blank', 'noopener');
+                }
+            }
+        });
+    });
+
+    window.fileActionsOverflow = {
+        refreshLabel(id, newLabel) {
+            const entry = overflowItems.find((item) => item.id === id);
+            if (!entry) return;
+            if (newLabel) {
+                entry.label = newLabel;
+            } else {
+                entry.label = entry.el.getAttribute('data-menu-label') || entry.label;
+            }
+            entry.el.setAttribute('data-menu-label', entry.label);
+            const proxy = proxies.get(id);
+            if (proxy) {
+                const labelEl = proxy.querySelector('[data-menu-item-label]') || proxy;
+                labelEl.textContent = entry.label;
+            }
+        }
+    };
+})();
+</script>
+
+<script>
+(function initHistoryAndTrash(){
+    const metaEl = document.getElementById('fileMeta');
+    const fileId = metaEl ? (metaEl.getAttribute('data-file-id') || '') : '';
+    const historyModal = document.getElementById('historyModal');
+    const historyBody = document.getElementById('historyModalBody');
+    const trashModal = document.getElementById('trashConfirmModal');
+    let historyCache = [];
+    let historyLoaded = false;
+    let historyLoading = false;
+    let trashPending = false;
+
+    function createMessage(text, className) {
+        const div = document.createElement('div');
+        div.className = className || 'history-modal__empty';
+        div.textContent = text;
+        return div;
+    }
+
+    function setHistoryContent(node) {
+        if (!historyBody) return;
+        historyBody.innerHTML = '';
+        historyBody.appendChild(node);
+    }
+
+    function renderHistory(entries) {
+        if (!historyBody) return;
+        if (!entries.length) {
+            setHistoryContent(createMessage('אין היסטוריית גרסאות זמינה', 'history-modal__empty'));
+            return;
+        }
+        const list = document.createElement('div');
+        list.className = 'history-modal__list';
+        entries.forEach((entry) => {
+            const item = document.createElement('div');
+            item.className = 'history-modal__item';
+            if (entry.is_current) {
+                item.classList.add('is-current');
+            }
+            const info = document.createElement('div');
+            info.className = 'history-modal__info';
+            const title = document.createElement('div');
+            title.className = 'history-modal__title';
+            title.textContent = `גרסה ${entry.version || ''}`;
+            info.appendChild(title);
+            const meta = document.createElement('div');
+            meta.className = 'history-modal__meta';
+            const timestamp = entry.updated_at || entry.created_at || '';
+            const lines = typeof entry.line_count === 'number' ? entry.line_count : '-';
+            const size = entry.size || '';
+            meta.textContent = `${timestamp} · ${lines} שורות · ${size}`;
+            info.appendChild(meta);
+            if (entry.description) {
+                const desc = document.createElement('div');
+                desc.className = 'history-modal__description';
+                desc.textContent = entry.description;
+                info.appendChild(desc);
+            }
+            const actions = document.createElement('div');
+            actions.className = 'history-modal__actions';
+            const restoreBtn = document.createElement('button');
+            restoreBtn.type = 'button';
+            restoreBtn.className = 'btn btn-secondary';
+            if (entry.is_current) {
+                restoreBtn.disabled = true;
+                restoreBtn.textContent = 'גרסה נוכחית';
+            } else {
+                restoreBtn.textContent = 'שחזר';
+                restoreBtn.addEventListener('click', () => handleRestore(entry.version, restoreBtn));
+            }
+            actions.appendChild(restoreBtn);
+            item.appendChild(info);
+            item.appendChild(actions);
+            list.appendChild(item);
+        });
+        setHistoryContent(list);
+    }
+
+    async function fetchHistory() {
+        if (!fileId || !historyModal || !historyBody) {
+            return;
+        }
+        if (historyLoaded) {
+            renderHistory(historyCache);
+            return;
+        }
+        if (historyLoading) {
+            return;
+        }
+        historyLoading = true;
+        setHistoryContent(createMessage('טוען היסטוריה...', 'history-modal__loading'));
+        try {
+            const resp = await fetch(`/api/file/${fileId}/history`);
+            const data = await resp.json().catch(() => ({}));
+            if (!resp.ok || !data.ok) {
+                throw new Error(data.error || 'שגיאה בטעינת היסטוריה');
+            }
+            historyCache = Array.isArray(data.versions) ? data.versions : [];
+            historyLoaded = true;
+            renderHistory(historyCache);
+        } catch (err) {
+            historyLoaded = false;
+            setHistoryContent(createMessage(err.message || 'שגיאה בהצגת היסטוריה', 'history-modal__empty'));
+            throw err;
+        } finally {
+            historyLoading = false;
+        }
+    }
+
+    async function handleRestore(version, button) {
+        if (!fileId || !version || !button) {
+            return;
+        }
+        button.disabled = true;
+        const originalText = button.textContent;
+        button.textContent = 'משחזר...';
+        try {
+            const resp = await fetch(`/api/file/${fileId}/restore`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ version }),
+            });
+            const data = await resp.json().catch(() => ({}));
+            if (!resp.ok || !data.ok) {
+                throw new Error(data.error || 'שגיאה בשחזור הגרסה');
+            }
+            showToast('הגרסה שוחזרה בהצלחה', 'success');
+            closeHistoryModal();
+            const nextId = data.file_id || data.id;
+            if (nextId) {
+                window.location.href = `/file/${nextId}`;
+            } else {
+                window.location.reload();
+            }
+        } catch (err) {
+            showToast(err.message || 'שגיאה בשחזור הגרסה', 'error');
+            button.disabled = false;
+            button.textContent = originalText || 'שחזר';
+        }
+    }
+
+    function openHistoryModal() {
+        if (!historyModal) {
+            return;
+        }
+        historyModal.hidden = false;
+        fetchHistory().catch(() => {});
+    }
+
+    function closeHistoryModal() {
+        if (!historyModal) {
+            return;
+        }
+        historyModal.hidden = true;
+    }
+
+    if (historyModal) {
+        historyModal.addEventListener('click', (event) => {
+            if (event.target === historyModal) {
+                closeHistoryModal();
+            }
+        });
+        historyModal.querySelectorAll('[data-history-close]').forEach((btn) => {
+            btn.addEventListener('click', closeHistoryModal);
+        });
+    }
+
+    window.openHistoryModal = openHistoryModal;
+
+    function openTrashConfirmModal() {
+        if (!trashModal) return;
+        trashModal.hidden = false;
+    }
+
+    function closeTrashConfirmModal() {
+        if (!trashModal) return;
+        trashModal.hidden = true;
+        const confirmBtn = trashModal.querySelector('[data-trash-confirm]');
+        if (confirmBtn) {
+            confirmBtn.disabled = false;
+        }
+        trashPending = false;
+    }
+
+    async function confirmTrash() {
+        if (!trashModal || !fileId || trashPending) {
+            return;
+        }
+        const confirmBtn = trashModal.querySelector('[data-trash-confirm]');
+        trashPending = true;
+        if (confirmBtn) {
+            confirmBtn.disabled = true;
+        }
+        try {
+            const resp = await fetch(`/api/file/${fileId}/trash`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+            });
+            const data = await resp.json().catch(() => ({}));
+            if (!resp.ok || !data.ok) {
+                throw new Error(data.error || 'שגיאה בהעברה לסל');
+            }
+            showToast(data.message || 'הקובץ הועבר לסל המיחזור', 'success');
+            closeTrashConfirmModal();
+            setTimeout(() => { window.location.href = '/files'; }, 1100);
+        } catch (err) {
+            showToast(err.message || 'שגיאה בהעברה לסל', 'error');
+            trashPending = false;
+            if (confirmBtn) {
+                confirmBtn.disabled = false;
+            }
+        }
+    }
+
+    if (trashModal) {
+        trashModal.addEventListener('click', (event) => {
+            if (event.target === trashModal) {
+                closeTrashConfirmModal();
+            }
+        });
+        trashModal.querySelectorAll('[data-trash-close]').forEach((btn) => {
+            btn.addEventListener('click', closeTrashConfirmModal);
+        });
+        const confirmBtn = trashModal.querySelector('[data-trash-confirm]');
+        if (confirmBtn) {
+            confirmBtn.addEventListener('click', confirmTrash);
+        }
+    }
+
+    window.openTrashConfirmModal = openTrashConfirmModal;
 })();
 </script>
 {% endblock %}
