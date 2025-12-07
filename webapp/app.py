@@ -6827,6 +6827,31 @@ def api_resolve_file_by_name():
             doc = None
 
         if not doc:
+            trashed_doc = None
+            try:
+                trashed_doc = db.code_snippets.find_one(
+                    {
+                        'user_id': user_id,
+                        'file_name': name,
+                        '$or': [
+                            {'is_active': False},
+                            {'deleted_at': {'$exists': True}},
+                            {'deleted_expires_at': {'$exists': True}},
+                        ],
+                    },
+                    sort=[('version', DESCENDING), ('updated_at', DESCENDING), ('_id', DESCENDING)],
+                )
+            except Exception:
+                trashed_doc = None
+
+            if trashed_doc:
+                return jsonify({
+                    'ok': False,
+                    'error': 'in_recycle_bin',
+                    'file_name': trashed_doc.get('file_name'),
+                    'deleted_at': safe_iso(trashed_doc.get('deleted_at'), 'deleted_at'),
+                    'recycle_expires_at': safe_iso(trashed_doc.get('deleted_expires_at'), 'deleted_expires_at'),
+                })
             return jsonify({'ok': False, 'error': 'not_found'})
 
         lang = (doc.get('programming_language') or 'text').lower()
