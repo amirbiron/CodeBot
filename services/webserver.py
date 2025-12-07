@@ -539,3 +539,13 @@ def run(host: str = "0.0.0.0", port: int = 10000) -> None:
     app = create_app()
     web.run_app(app, host=host, port=port)
 
+
+if __name__ == "__main__":  # pragma: no cover - used by Render/CLI entrypoint
+    host = os.getenv("WEB_HOST") or os.getenv("HOST") or "0.0.0.0"
+    port_env = os.getenv("PORT") or os.getenv("WEB_PORT") or "10000"
+    try:
+        port = int(port_env)
+    except (TypeError, ValueError):
+        port = 10000
+    run(host=host, port=port)
+
