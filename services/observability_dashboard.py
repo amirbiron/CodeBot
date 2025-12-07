@@ -603,6 +603,12 @@ def _fallback_alerts(
     normalized: List[Dict[str, Any]] = []
     for item in reversed(raw):
         ts = item.get("ts")
+        ts_dt = None
+        if isinstance(ts, datetime):
+            ts_dt = ts if ts.tzinfo else ts.replace(tzinfo=timezone.utc)
+        else:
+            ts_dt = _parse_iso_dt(str(ts)) if ts else None
+        ts_value = ts_dt.isoformat() if ts_dt else (ts if isinstance(ts, str) else None)
         severity_value = str(item.get("severity") or "").lower()
         metadata = item.get("details") if isinstance(item.get("details"), dict) else {}
         endpoint_hint = (
@@ -614,7 +620,7 @@ def _fallback_alerts(
         alert_type_value = str(metadata.get("alert_type") or item.get("name") or "").lower() or None
         normalized.append(
             {
-                "timestamp": ts,
+                "timestamp": ts_value,
                 "name": item.get("name"),
                 "severity": severity_value,
                 "summary": item.get("summary"),
