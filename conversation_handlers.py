@@ -116,32 +116,54 @@ def _get_legacy_db():
         return None
 
 
+_FACADE_SENTINEL = object()
+
+
+def _should_retry_with_legacy(value) -> bool:
+    if value is _FACADE_SENTINEL:
+        return True
+    if value in (None, False):
+        return True
+    if isinstance(value, (list, dict)) and not value:
+        return True
+    if isinstance(value, tuple) and not any(value):
+        return True
+    return False
+
+
 def _call_files_api(method_name: str, *args, **kwargs):
-    """Invoke FilesFacade (or legacy db) method by name, best-effort."""
+    """Invoke FilesFacade (or legacy db) method by name, best-effort with legacy fallback."""
+    facade_result = _FACADE_SENTINEL
     facade = _get_files_facade_or_none()
     if facade is not None:
         method = getattr(facade, method_name, None)
         if callable(method):
             try:
-                return method(*args, **kwargs)
+                facade_result = method(*args, **kwargs)
             except Exception:
-                pass
-    legacy = _get_legacy_db()
-    if legacy is None:
+                facade_result = _FACADE_SENTINEL
+
+    if _should_retry_with_legacy(facade_result):
+        legacy = _get_legacy_db()
+        if legacy is not None:
+            method = getattr(legacy, method_name, None)
+            if callable(method):
+                try:
+                    legacy_result = method(*args, **kwargs)
+                    if legacy_result is not None:
+                        return legacy_result
+                except Exception:
+                    pass
+
+    if facade_result is _FACADE_SENTINEL:
         return None
-    method = getattr(legacy, method_name, None)
-    if callable(method):
-        try:
-            return method(*args, **kwargs)
-        except Exception:
-            return None
-    return None
+    return facade_result
 
 
 def _call_repo_api(method_name: str, *args, **kwargs):
     """Invoke repository-level APIs (e.g. recycle bin helpers)."""
     result = _call_files_api(method_name, *args, **kwargs)
-    if result is not None:
+    if not _should_retry_with_legacy(result):
         return result
     legacy = _get_legacy_db()
     if legacy is None:
