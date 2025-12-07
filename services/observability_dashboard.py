@@ -17,7 +17,7 @@ try:
 except Exception:  # pragma: no cover
     _internal_alerts = None  # type: ignore
 
-from monitoring import alerts_storage, metrics_storage  # type: ignore
+from monitoring import alerts_storage, metrics_storage, incident_story_storage  # type: ignore
 from services.observability_http import SecurityError, fetch_graph_securely
 
 try:  # Best-effort fallback for slow endpoint summaries
@@ -715,6 +715,22 @@ def fetch_alerts(
         if graph:
             alert["graph"] = graph
 
+    alert_uids = [alert.get("alert_uid") for alert in alerts if alert.get("alert_uid")]
+    if alert_uids:
+        story_map = incident_story_storage.get_stories_by_alert_uids(alert_uids)
+        for alert in alerts:
+            uid = alert.get("alert_uid")
+            if not uid:
+                continue
+            story = story_map.get(uid)
+            if not story:
+                continue
+            alert["story"] = {
+                "story_id": story.get("story_id"),
+                "updated_at": story.get("updated_at"),
+                "summary": (story.get("what_we_saw") or {}).get("description"),
+            }
+
     payload = {
         "alerts": alerts,
         "total": total,
@@ -1183,6 +1199,149 @@ def _build_focus_link(timestamp: Optional[str], *, anchor: str = "history") -> s
     return base
 
 
+def _minutes_from_label(label: Optional[str]) -> Optional[int]:
+    if not label:
+        return None
+    text = str(label).strip().lower()
+    if not text:
+        return None
+    if text.endswith("m"):
+        try:
+            return max(5, int(text[:-1]))
+        except Exception:
+            return None
+    if text.endswith("h"):
+        try:
+            return max(5, int(text[:-1]) * 60)
+        except Exception:
+            return None
+    if text.endswith("d"):
+        try:
+            return max(5, int(text[:-1]) * 1440)
+        except Exception:
+            return None
+    try:
+        return max(5, int(text))
+    except Exception:
+        return None
+
+
+def _pick_granularity_seconds_from_minutes(total_minutes: int) -> int:
+    if total_minutes <= 30:
+        return 60
+    if total_minutes <= 120:
+        return 300
+    if total_minutes <= 360:
+        return 900
+    if total_minutes <= 720:
+        return 1800
+    if total_minutes <= 1440:
+        return 3600
+    if total_minutes <= 4320:
+        return 10800
+    return 21600
+
+
+def _window_around_timestamp(ts: datetime, *, minutes: int) -> Tuple[datetime, datetime]:
+    minutes = max(10, minutes)
+    half_delta = timedelta(minutes=minutes / 2.0)
+    start_dt = ts - half_delta
+    end_dt = ts + half_delta
+    return start_dt, end_dt
+
+
+def _collect_story_actions(alert_uid: str) -> List[Dict[str, Any]]:
+    actions: List[Dict[str, Any]] = []
+    if not alert_uid:
+        return actions
+    for action in _iter_quick_fix_actions():
+        if str(action.get("alert_uid") or "") != alert_uid:
+            continue
+        actions.append(
+            {
+                "label": action.get("action_label") or action.get("summary") or "Quick Fix",
+                "summary": action.get("summary") or "",
+                "timestamp": action.get("timestamp"),
+                "alert_type": action.get("alert_type"),
+            }
+        )
+    return actions
+
+
+def _build_story_description(alert: Dict[str, Any]) -> str:
+    parts: List[str] = []
+    name = alert.get("name") or alert.get("alert_type") or "Alert"
+    severity = str(alert.get("severity") or "").upper()
+    summary = alert.get("summary") or ""
+    if severity:
+        parts.append(f"[{severity}]")
+    parts.append(str(name))
+    if summary:
+        parts.append(f"— {summary}")
+    metadata = alert.get("metadata") if isinstance(alert.get("metadata"), dict) else {}
+    endpoint = metadata.get("endpoint") or alert.get("endpoint")
+    if endpoint:
+        parts.append(f"(endpoint: {endpoint})")
+    return " ".join(part for part in parts if part)
+
+
+def _build_graph_snapshot(
+    graph_meta: Optional[Dict[str, Any]],
+    *,
+    start_dt: Optional[datetime],
+    end_dt: Optional[datetime],
+) -> Optional[Dict[str, Any]]:
+    if not graph_meta:
+        return None
+    metric = graph_meta.get("metric")
+    if not metric:
+        return None
+    label = graph_meta.get("label") or metric
+    unit = graph_meta.get("unit")
+    total_minutes = 60
+    if start_dt and end_dt:
+        total_minutes = max(5, int((end_dt - start_dt).total_seconds() / 60.0))
+    granularity_seconds = _pick_granularity_seconds_from_minutes(total_minutes)
+    try:
+        payload = fetch_timeseries(
+            start_dt=start_dt,
+            end_dt=end_dt,
+            granularity_seconds=granularity_seconds,
+            metric=metric,
+        )
+    except Exception:
+        payload = {}
+    series = payload.get("data") if isinstance(payload, dict) else []
+    if not isinstance(series, list):
+        series = []
+    trimmed = series[:250]
+    return {
+        "metric": metric,
+        "label": label,
+        "unit": unit,
+        "series": trimmed,
+        "granularity_seconds": granularity_seconds,
+        "range_minutes": total_minutes,
+        "meta": {
+            "default_range": graph_meta.get("default_range"),
+            "category": graph_meta.get("category"),
+        },
+    }
+
+
+def _logs_from_actions(actions: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    logs: List[Dict[str, Any]] = []
+    for action in actions:
+        logs.append(
+            {
+                "source": "chatops",
+                "timestamp": action.get("timestamp"),
+                "content": action.get("summary") or action.get("label"),
+            }
+        )
+    return logs
+
+
 def _is_within_window(ts: datetime, start_dt: Optional[datetime], end_dt: Optional[datetime]) -> bool:
     if start_dt and ts < start_dt:
         return False
@@ -1255,6 +1414,7 @@ def fetch_incident_replay(
     alert_count = 0
     deployment_count = 0
     chatops_count = 0
+    story_count = 0
 
     for alert in alerts:
         ts = alert.get("timestamp")
@@ -1310,6 +1470,33 @@ def fetch_incident_replay(
             }
         )
 
+    stories = incident_story_storage.list_stories(
+        start_dt=start_dt,
+        end_dt=end_dt,
+        limit=limit // 2,
+    )
+    for story in stories:
+        ts = (story.get("time_window") or {}).get("start") or story.get("alert_timestamp")
+        ts_dt = _parse_iso_dt(ts)
+        if ts_dt is None or not _is_within_window(ts_dt, start_dt, end_dt):
+            continue
+        story_count += 1
+        events.append(
+            {
+                "id": story.get("story_id"),
+                "timestamp": ts,
+                "type": "story",
+                "severity": "info",
+                "title": story.get("alert_name") or "Incident Story",
+                "summary": (story.get("what_we_saw") or {}).get("description") or "",
+                "link": f"/admin/observability?story_id={story.get('story_id')}&focus_ts={ts}",
+                "metadata": {
+                    "alert_uid": story.get("alert_uid"),
+                    "story_id": story.get("story_id"),
+                },
+            }
+        )
+
     events.sort(key=lambda e: e.get("timestamp") or "")
     payload = {
         "generated_at": datetime.now(timezone.utc).isoformat(),
@@ -1321,6 +1508,7 @@ def fetch_incident_replay(
             "alerts": alert_count,
             "deployments": deployment_count,
             "chatops": chatops_count,
+            "stories": story_count,
         },
         "events": events,
     }
@@ -1390,3 +1578,194 @@ def build_dashboard_snapshot(
         },
     }
     return snapshot
+
+
+def _normalize_iso_timestamp(value: Optional[str]) -> Optional[str]:
+    dt = _parse_iso_dt(value)
+    if dt is None:
+        return None
+    return dt.isoformat()
+
+
+def _format_window_label(start_dt: Optional[datetime], end_dt: Optional[datetime]) -> str:
+    if not start_dt or not end_dt:
+        return ""
+    start_txt = start_dt.astimezone(timezone.utc).strftime("%Y-%m-%d %H:%MZ")
+    end_txt = end_dt.astimezone(timezone.utc).strftime("%Y-%m-%d %H:%MZ")
+    return f"{start_txt} → {end_txt}"
+
+
+def _invalidate_alert_cache() -> None:
+    with _CACHE_LOCK:
+        if "alerts" in _CACHE:
+            _CACHE.pop("alerts", None)
+
+
+def build_story_template(
+    alert_snapshot: Dict[str, Any],
+    *,
+    timerange_label: Optional[str] = None,
+) -> Dict[str, Any]:
+    if not isinstance(alert_snapshot, dict):
+        raise ValueError("invalid_alert")
+    alert = dict(alert_snapshot)
+    alert_uid = alert.get("alert_uid") or _build_alert_uid(alert)
+    alert["alert_uid"] = alert_uid
+    alert_ts = _parse_iso_dt(alert.get("timestamp")) or datetime.now(timezone.utc)
+    minutes = (
+        _minutes_from_label(timerange_label)
+        or _minutes_from_label((alert.get("graph") or {}).get("default_range"))
+        or int((alert.get("graph") or {}).get("default_minutes") or 60)
+    )
+    start_dt, end_dt = _window_around_timestamp(alert_ts, minutes=minutes or 60)
+    graph_snapshot = _build_graph_snapshot(alert.get("graph"), start_dt=start_dt, end_dt=end_dt)
+    auto_actions = _collect_story_actions(alert_uid)
+    logs = _logs_from_actions(auto_actions)
+    template = {
+        "alert_uid": alert_uid,
+        "alert_name": alert.get("name") or alert.get("alert_type") or "Alert",
+        "alert_timestamp": alert_ts.isoformat(),
+        "summary": alert.get("summary"),
+        "severity": alert.get("severity"),
+        "metadata": alert.get("metadata") or {},
+        "time_window": {
+            "start": start_dt.isoformat(),
+            "end": end_dt.isoformat(),
+            "label": _format_window_label(start_dt, end_dt),
+        },
+        "what_we_saw": {
+            "description": _build_story_description(alert),
+            "graph_snapshot": graph_snapshot,
+        },
+        "what_we_did": {
+            "auto_actions": auto_actions,
+            "manual_notes": "",
+        },
+        "logs": logs,
+        "insights": "",
+    }
+    return template
+
+
+def save_incident_story(story_payload: Dict[str, Any], *, user_id: Optional[int]) -> Dict[str, Any]:
+    if not isinstance(story_payload, dict):
+        raise ValueError("invalid_story")
+    alert_uid = str(story_payload.get("alert_uid") or "").strip()
+    if not alert_uid:
+        raise ValueError("missing_alert_uid")
+    time_window = story_payload.get("time_window") or {}
+    start_iso = _normalize_iso_timestamp(time_window.get("start"))
+    end_iso = _normalize_iso_timestamp(time_window.get("end"))
+    if not start_iso or not end_iso:
+        raise ValueError("missing_time_window")
+    start_dt = _parse_iso_dt(start_iso)
+    end_dt = _parse_iso_dt(end_iso)
+    what_we_saw = story_payload.get("what_we_saw") or {}
+    description = str(what_we_saw.get("description") or "").strip()
+    if not description:
+        raise ValueError("missing_description")
+    graph_snapshot = what_we_saw.get("graph_snapshot")
+    what_we_did = story_payload.get("what_we_did") or {}
+    auto_actions = what_we_did.get("auto_actions") or []
+    if not isinstance(auto_actions, list):
+        auto_actions = []
+    manual_notes = str(what_we_did.get("manual_notes") or "").strip()
+    logs = story_payload.get("logs") or []
+    if not isinstance(logs, list):
+        logs = []
+    insights = str(story_payload.get("insights") or "").strip()
+    alert_name = story_payload.get("alert_name") or story_payload.get("title") or "Alert"
+    doc = {
+        "story_id": story_payload.get("story_id"),
+        "alert_uid": alert_uid,
+        "alert_name": alert_name,
+        "alert_timestamp": story_payload.get("alert_timestamp") or start_iso,
+        "time_window": {
+            "start": start_iso,
+            "end": end_iso,
+            "label": time_window.get("label") or _format_window_label(start_dt, end_dt),
+        },
+        "what_we_saw": {
+            "description": description,
+            "graph_snapshot": graph_snapshot,
+        },
+        "what_we_did": {
+            "auto_actions": auto_actions,
+            "manual_notes": manual_notes,
+        },
+        "logs": logs,
+        "insights": insights,
+        "metadata": story_payload.get("metadata") or {},
+        "summary": story_payload.get("summary") or "",
+        "severity": story_payload.get("severity"),
+        "author_hash": _hash_identifier(user_id),
+    }
+    stored = incident_story_storage.save_story(doc)
+    _invalidate_alert_cache()
+    return stored
+
+
+def fetch_story(story_id: str) -> Optional[Dict[str, Any]]:
+    if not story_id:
+        return None
+    return incident_story_storage.get_story(story_id)
+
+
+def export_story_markdown(story_id: str) -> Optional[str]:
+    story = fetch_story(story_id)
+    if not story:
+        return None
+    return _render_story_markdown(story)
+
+
+def _render_story_markdown(story: Dict[str, Any]) -> str:
+    lines: List[str] = []
+    title = story.get("alert_name") or story.get("alert_uid") or "Incident Story"
+    lines.append(f"# Incident Story – {title}")
+    lines.append("")
+    lines.append(f"- Alert UID: `{story.get('alert_uid')}`")
+    lines.append(f"- Time Window: {((story.get('time_window') or {}).get('label')) or ''}")
+    lines.append(f"- Severity: {story.get('severity') or 'n/a'}")
+    lines.append(f"- Summary: {story.get('summary') or ''}")
+    lines.append("")
+    lines.append("## 👀 מה ראינו")
+    lines.append(story.get("what_we_saw", {}).get("description") or "")
+    graph_snapshot = (story.get("what_we_saw") or {}).get("graph_snapshot") or {}
+    series = graph_snapshot.get("series") or []
+    if series:
+        lines.append("")
+        lines.append("**Graph Snapshot:**")
+        sample = series[:10]
+        lines.append("")
+        lines.append("| Timestamp | Value |")
+        lines.append("| --- | --- |")
+        for point in sample:
+            lines.append(f"| {point.get('timestamp')} | {point.get('value') or point.get('avg_duration') or point.get('count')} |")
+        if len(series) > len(sample):
+            lines.append(f"| … | ({len(series) - len(sample)} more points) |")
+    lines.append("")
+    lines.append("## 🛠️ מה עשינו")
+    auto_actions = (story.get("what_we_did") or {}).get("auto_actions") or []
+    manual_notes = (story.get("what_we_did") or {}).get("manual_notes")
+    if auto_actions:
+        for action in auto_actions:
+            label = action.get("label") or "Action"
+            ts = action.get("timestamp") or ""
+            lines.append(f"- {label} ({ts})")
+    if manual_notes:
+        lines.append("")
+        lines.append(manual_notes)
+    lines.append("")
+    logs = story.get("logs") or []
+    if logs:
+        lines.append("## 💻 לוגים / פקודות")
+        for log in logs:
+            source = log.get("source") or "log"
+            content = log.get("content") or ""
+            lines.append(f"- **{source}:** {content}")
+        lines.append("")
+    insights = story.get("insights")
+    if insights:
+        lines.append("## 💡 תובנות")
+        lines.append(insights)
+    return "\n".join(lines).strip() + "\n"

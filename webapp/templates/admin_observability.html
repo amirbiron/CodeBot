@@ -241,6 +241,131 @@
   opacity: 0.5;
   cursor: not-allowed;
 }
+.story-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+.story-btn {
+  border: none;
+  border-radius: 10px;
+  padding: 0.25rem 0.7rem;
+  font-size: 0.8rem;
+  background: rgba(100,255,218,0.12);
+  color: #64ffda;
+  cursor: pointer;
+}
+.story-btn.has-story {
+  background: rgba(255,255,255,0.2);
+  color: #08111d;
+  font-weight: 600;
+}
+.story-badge {
+  font-size: 0.75rem;
+  color: #9efff0;
+  opacity: 0.85;
+}
+.story-modal {
+  position: fixed;
+  inset: 0;
+  background: rgba(4,6,12,0.8);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 3000;
+}
+.story-modal[hidden] {
+  display: none;
+}
+.story-modal__dialog {
+  background: rgba(18,24,38,0.95);
+  border-radius: 18px;
+  border: 1px solid rgba(255,255,255,0.08);
+  width: min(720px, 95vw);
+  max-height: 92vh;
+  overflow-y: auto;
+  padding: 1.5rem;
+  box-shadow: 0 20px 60px rgba(0,0,0,0.6);
+}
+.story-modal__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 1rem;
+}
+.story-modal__header h3 {
+  margin: 0;
+}
+.story-modal__close {
+  background: transparent;
+  border: none;
+  color: #fff;
+  font-size: 1.25rem;
+  cursor: pointer;
+}
+.story-form {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+.story-form label {
+  font-size: 0.85rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  opacity: 0.85;
+}
+.story-form input,
+.story-form textarea {
+  border: 1px solid rgba(255,255,255,0.12);
+  background: rgba(255,255,255,0.05);
+  color: #fff;
+  border-radius: 12px;
+  padding: 0.45rem 0.6rem;
+  font-size: 0.9rem;
+  width: 100%;
+}
+.story-form textarea {
+  min-height: 90px;
+}
+.story-form__row {
+  display: grid;
+  gap: 0.75rem;
+  grid-template-columns: repeat(auto-fit,minmax(180px,1fr));
+}
+.story-modal__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+  margin-top: 0.5rem;
+}
+.story-modal__actions button {
+  border: none;
+  border-radius: 12px;
+  padding: 0.45rem 1rem;
+  cursor: pointer;
+  font-weight: 600;
+}
+.story-save-btn {
+  background: linear-gradient(135deg,#64ffda,#36c2ff);
+  color: #08111d;
+}
+.story-download-btn {
+  background: rgba(255,255,255,0.15);
+  color: #fff;
+}
+.story-secondary-btn {
+  background: rgba(255,255,255,0.08);
+  color: #fff;
+}
+.story-meta-box {
+  background: rgba(255,255,255,0.04);
+  border: 1px solid rgba(255,255,255,0.06);
+  border-radius: 12px;
+  padding: 0.75rem;
+  font-size: 0.85rem;
+}
 .graph-toggle-btn {
   border: none;
   border-radius: 999px;
@@ -459,10 +584,11 @@
             <th>Meta</th>
             <th>גרף</th>
             <th>Quick Fix</th>
+            <th>סיפור אירוע</th>
           </tr>
         </thead>
         <tbody>
-          <tr><td colspan="7">טוען נתונים…</td></tr>
+          <tr><td colspan="8">טוען נתונים…</td></tr>
         </tbody>
       </table>
     </div>
@@ -470,6 +596,58 @@
       <button id="prevPageBtn">&larr; קודם</button>
       <div id="pageLabel">עמוד 1</div>
       <button id="nextPageBtn">הבא &rarr;</button>
+    </div>
+  </div>
+</div>
+
+<div id="storyModal" class="story-modal" hidden>
+  <div class="story-modal__dialog" role="dialog" aria-modal="true" aria-labelledby="storyModalTitle">
+    <div class="story-modal__header">
+      <h3 id="storyModalTitle">📖 סיפור אירוע</h3>
+      <button class="story-modal__close" type="button" data-story-close aria-label="סגור">✕</button>
+    </div>
+    <div id="storyModalBody">
+      <form class="story-form" onsubmit="return false;">
+        <div class="story-form__row">
+          <label>
+            התחלה
+            <input type="datetime-local" id="storyWindowStart">
+          </label>
+          <label>
+            סיום
+            <input type="datetime-local" id="storyWindowEnd">
+          </label>
+        </div>
+        <label>
+          👀 מה ראינו
+          <textarea id="storyWhatSaw"></textarea>
+        </label>
+        <label>
+          🛠️ מה עשינו (הערות ידניות)
+          <textarea id="storyWhatDid"></textarea>
+        </label>
+        <label>
+          💻 לוגים / פקודות
+          <textarea id="storyLogs" placeholder="אפשר להזין כל שורה כערך נפרד"></textarea>
+        </label>
+        <label>
+          💡 תובנות
+          <textarea id="storyInsights"></textarea>
+        </label>
+        <div class="story-meta-box" id="storyAutoSection">
+          <div><strong>פעולות שנרשמו:</strong></div>
+          <ul id="storyAutoActions"></ul>
+          <div style="margin-top:0.5rem;"><strong>מידע גרפי:</strong></div>
+          <div id="storyGraphMeta" style="opacity:0.85;"></div>
+        </div>
+      </form>
+      <div id="storyStatus" style="font-size:0.85rem; opacity:0.85; margin-top:0.6rem;"></div>
+      <div class="story-modal__actions">
+        <button type="button" class="story-save-btn" id="storySaveBtn">💾 שמור סיפור</button>
+        <button type="button" class="story-download-btn" id="storyDownloadMarkdown">⬇️ ייצוא Markdown</button>
+        <button type="button" class="story-secondary-btn" id="storyDownloadPdf">🖨️ ייצוא PDF</button>
+        <button type="button" class="story-secondary-btn" data-story-close>סגור</button>
+      </div>
     </div>
   </div>
 </div>
@@ -488,6 +666,31 @@
     perPage: 25,
     lastUpdatedEl: document.getElementById('lastUpdated'),
     focusTs: initialParams.get('focus_ts') || '',
+    alerts: [],
+    pendingStoryId: initialParams.get('story_id') || '',
+  };
+  const storyState = {
+    alert: null,
+    template: null,
+    story: null,
+  };
+  const storyModal = document.getElementById('storyModal');
+  const storyFormEls = {
+    start: document.getElementById('storyWindowStart'),
+    end: document.getElementById('storyWindowEnd'),
+    whatSaw: document.getElementById('storyWhatSaw'),
+    whatDid: document.getElementById('storyWhatDid'),
+    logs: document.getElementById('storyLogs'),
+    insights: document.getElementById('storyInsights'),
+    autoList: document.getElementById('storyAutoActions'),
+    graphMeta: document.getElementById('storyGraphMeta'),
+    status: document.getElementById('storyStatus'),
+    title: document.getElementById('storyModalTitle'),
+  };
+  const storyButtons = {
+    save: document.getElementById('storySaveBtn'),
+    downloadMarkdown: document.getElementById('storyDownloadMarkdown'),
+    downloadPdf: document.getElementById('storyDownloadPdf'),
   };
   const OBS_LOCALE = 'he-IL';
   const OBS_TIMEZONE = 'Asia/Jerusalem';
@@ -516,6 +719,12 @@
 
   function formatTimestamp(ts){
     return formatJerusalemDate(ts);
+  }
+
+  function formatShortTimestamp(ts) {
+    if (!ts) return '—';
+    const label = formatJerusalemDate(ts, { hour: '2-digit', minute: '2-digit' });
+    return label === '—' ? '—' : label;
   }
 
   function getGranularity() {
@@ -691,7 +900,7 @@
       .join('');
     return `
       <tr class="visual-context-row" id="visual-row-${meta.uid}" data-alert-uid="${meta.uid}" hidden>
-        <td colspan="7">
+        <td colspan="8">
           <div class="visual-context-panel" data-graph="${payload}">
             <div class="visual-context-header">
               <div>
@@ -731,7 +940,7 @@
     });
     Object.keys(visualContextStore).forEach(key => delete visualContextStore[key]);
     if (!alerts || !alerts.length) {
-      body.innerHTML = '<tr><td colspan="7">לא נמצאו התראות בטווח שנבחר</td></tr>';
+      body.innerHTML = '<tr><td colspan="8">לא נמצאו התראות בטווח שנבחר</td></tr>';
       return;
     }
     const rows = [];
@@ -750,6 +959,7 @@
           <td><div class="meta-list">${metaItems || ''}</div></td>
           <td>${renderGraphCell(alert)}</td>
           <td>${renderQuickFixCell(alert)}</td>
+          <td>${renderStoryCell(alert)}</td>
         </tr>
       `);
       const graphRow = renderGraphRow(alert);
@@ -767,6 +977,7 @@
     if (prevBtn) prevBtn.disabled = page <= 1;
     if (nextBtn) nextBtn.disabled = page >= totalPages;
     initQuickFixHandlers();
+    initStoryHandlers();
     initVisualContextHandlers();
     highlightFocusedRow();
   }
@@ -800,6 +1011,31 @@
           const safetyClass = fix.safety ? `safety-${fix.safety}` : '';
           return `<button class="quick-fix-action ${safetyClass}" data-qf="${payload}">${fix.label || 'פעולה'}</button>`;
         }).join('')}
+      </div>
+    `;
+  }
+
+  function renderStoryCell(alert) {
+    const payload = encodeURIComponent(JSON.stringify({
+      alert_uid: alert.alert_uid,
+      name: alert.name,
+      severity: alert.severity,
+      summary: alert.summary,
+      timestamp: alert.timestamp,
+      metadata: alert.metadata || {},
+      graph: alert.graph || null,
+      story: alert.story || null,
+    }));
+    const hasStory = Boolean(alert.story && alert.story.story_id);
+    const badgeText = hasStory
+      ? `עודכן ${formatShortTimestamp(alert.story?.updated_at)}`
+      : 'טרם נשמר';
+    const btnLabel = hasStory ? 'ערוך סיפור' : 'שמור סיפור';
+    const btnClass = hasStory ? 'story-btn has-story' : 'story-btn';
+    return `
+      <div class="story-cell">
+        <button class="${btnClass}" data-story="${payload}">${btnLabel}</button>
+        <span class="story-badge">${badgeText}</span>
       </div>
     `;
   }
@@ -1148,6 +1384,339 @@
     });
   }
 
+  function initStoryHandlers() {
+    document.querySelectorAll('.story-btn').forEach(btn => {
+      if (btn.dataset.storyBound === '1') return;
+      btn.dataset.storyBound = '1';
+      btn.addEventListener('click', () => {
+        const payload = btn.dataset.story;
+        if (!payload) return;
+        try {
+          const meta = JSON.parse(decodeURIComponent(payload));
+          openStoryModal(meta);
+        } catch (err) {
+          console.warn('story payload parse failed', err);
+        }
+      });
+    });
+  }
+
+  async function openStoryModal(alertMeta, options = {}) {
+    if (!alertMeta) return;
+    storyState.alert = alertMeta;
+    storyState.template = null;
+    storyState.story = options.prefetchedStory || null;
+    setStoryStatus('טוען נתונים…', false);
+    if (storyModal) storyModal.hidden = false;
+    try {
+      if (!storyState.story && alertMeta.story && alertMeta.story.story_id) {
+        storyState.story = await fetchStoryById(alertMeta.story.story_id);
+      }
+      if (!options.template) {
+        const templatePayload = await fetch('/api/observability/story/template', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({
+            alert: alertMeta,
+            timerange: state.range,
+          }),
+        });
+        if (!templatePayload.ok) throw new Error('template_failed');
+        const templateJson = await templatePayload.json();
+        if (templateJson.ok === false) throw new Error(templateJson.error || 'template_failed');
+        storyState.template = templateJson.story || null;
+      } else {
+        storyState.template = options.template;
+      }
+      populateStoryForm();
+      setStoryStatus(storyState.story ? 'נערך סיפור קיים' : 'טיוטה חדשה', false);
+    } catch (err) {
+      console.error('story_template_failed', err);
+      setStoryStatus('שגיאה בטעינת הסיפור', true);
+    }
+  }
+
+  function closeStoryModal() {
+    if (storyModal) storyModal.hidden = true;
+    storyState.alert = null;
+  }
+
+  async function fetchStoryById(storyId) {
+    const res = await fetch(`/api/observability/stories/${storyId}`);
+    if (!res.ok) return null;
+    const data = await res.json();
+    if (data.ok === false) return null;
+    return data.story || null;
+  }
+
+  function populateStoryForm() {
+    const template = storyState.template || {};
+    const existing = storyState.story || {};
+    const windowData = existing.time_window || template.time_window || {};
+    if (storyFormEls.title) {
+      storyFormEls.title.textContent = `📖 סיפור: ${template.alert_name || existing.alert_name || storyState.alert?.name || 'אירוע'}`;
+    }
+    if (storyFormEls.start) storyFormEls.start.value = toLocalInput(windowData.start || template.time_window?.start);
+    if (storyFormEls.end) storyFormEls.end.value = toLocalInput(windowData.end || template.time_window?.end);
+    const whatSaw = existing.what_we_saw || template.what_we_saw || {};
+    if (storyFormEls.whatSaw) storyFormEls.whatSaw.value = whatSaw.description || '';
+    const whatDid = existing.what_we_did || template.what_we_did || {};
+    if (storyFormEls.whatDid) storyFormEls.whatDid.value = whatDid.manual_notes || '';
+    const logs = existing.logs || template.logs || [];
+    if (storyFormEls.logs) storyFormEls.logs.value = logs.map(entry => {
+      const prefix = entry.source ? `${entry.source}: ` : '';
+      return `${prefix}${entry.content || ''}`.trim();
+    }).filter(Boolean).join('\n');
+    if (storyFormEls.insights) storyFormEls.insights.value = existing.insights || template.insights || '';
+    const autoActions = template.what_we_did?.auto_actions || [];
+    if (storyFormEls.autoList) {
+      storyFormEls.autoList.innerHTML = autoActions.length
+        ? autoActions.map(action => `<li>${action.label || 'פעולה'} (${formatShortTimestamp(action.timestamp)})</li>`).join('')
+        : '<li style="opacity:0.6;">לא נמצאו פעולות אוטומטיות</li>';
+    }
+    const graphMeta = template.what_we_saw?.graph_snapshot || {};
+    if (storyFormEls.graphMeta) {
+      if (graphMeta.metric) {
+        storyFormEls.graphMeta.innerHTML = `
+          מדד: <strong>${graphMeta.label || graphMeta.metric}</strong><br>
+          דגימות: ${Array.isArray(graphMeta.series) ? graphMeta.series.length : 0}<br>
+          טווח (דקות): ${graphMeta.range_minutes || '—'}
+        `;
+      } else {
+        storyFormEls.graphMeta.textContent = 'לא זמין snapshot עבור גרף זה';
+      }
+    }
+  }
+
+  function toLocalInput(isoValue) {
+    if (!isoValue) return '';
+    const date = new Date(isoValue);
+    if (Number.isNaN(date.getTime())) return '';
+    const pad = (num) => String(num).padStart(2, '0');
+    return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
+  }
+
+  function fromLocalInput(value) {
+    if (!value) return null;
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return null;
+    return date.toISOString();
+  }
+
+  function buildLogsFromText(text) {
+    if (!text) return [];
+    return text.split('\n').map(line => line.trim()).filter(Boolean).map(line => {
+      const parts = line.split(':');
+      if (parts.length > 1) {
+        const source = parts.shift();
+        return { source: source?.trim() || 'log', content: parts.join(':').trim() };
+      }
+      return { source: 'log', content: line };
+    });
+  }
+
+  function setStoryStatus(text, isError) {
+    if (!storyFormEls.status) return;
+    storyFormEls.status.textContent = text || '';
+    storyFormEls.status.style.color = isError ? '#ff627c' : '#9efff0';
+  }
+
+  function buildStoryPayload(options = {}) {
+    const template = storyState.template || {};
+    const alertMeta = storyState.alert || {};
+    const startIso = fromLocalInput(storyFormEls.start?.value);
+    const endIso = fromLocalInput(storyFormEls.end?.value);
+    if (!options.allowPartial && (!startIso || !endIso)) {
+      throw new Error('יש להזין טווח זמן לסיפור');
+    }
+    const payload = {
+      story_id: storyState.story?.story_id,
+      alert_uid: template.alert_uid || alertMeta.alert_uid,
+      alert_name: template.alert_name || alertMeta.name,
+      alert_timestamp: template.alert_timestamp || alertMeta.timestamp,
+      summary: template.summary || alertMeta.summary,
+      metadata: template.metadata || alertMeta.metadata || {},
+      severity: template.severity || alertMeta.severity,
+      time_window: {
+        start: startIso,
+        end: endIso,
+        label: template.time_window?.label || '',
+      },
+      what_we_saw: {
+        description: storyFormEls.whatSaw?.value?.trim() || '',
+        graph_snapshot: template.what_we_saw?.graph_snapshot || storyState.story?.what_we_saw?.graph_snapshot || null,
+      },
+      what_we_did: {
+        auto_actions: template.what_we_did?.auto_actions || [],
+        manual_notes: storyFormEls.whatDid?.value?.trim() || '',
+      },
+      logs: buildLogsFromText(storyFormEls.logs?.value || ''),
+      insights: storyFormEls.insights?.value?.trim() || '',
+    };
+    return payload;
+  }
+
+  async function saveStoryFromModal() {
+    try {
+      if (storyButtons.save) storyButtons.save.disabled = true;
+      setStoryStatus('שומר…', false);
+      const payload = buildStoryPayload();
+      const res = await fetch('/api/observability/stories', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(payload),
+      });
+      if (!res.ok) throw new Error('save_failed');
+      const data = await res.json();
+      if (data.ok === false) throw new Error(data.error || data.detail || 'save_failed');
+      storyState.story = data.story;
+      setStoryStatus('נשמר בהצלחה', false);
+      showToast('הסיפור נשמר');
+      refreshHistory().catch(() => {});
+    } catch (err) {
+      console.error('story_save_failed', err);
+      setStoryStatus('שגיאה בשמירת הסיפור', true);
+      showToast('שמירה נכשלה');
+    } finally {
+      if (storyButtons.save) storyButtons.save.disabled = false;
+    }
+  }
+
+  function downloadStoryMarkdown() {
+    try {
+      const payload = buildStoryPayload({ allowPartial: true });
+      const markdownLines = [
+        `# Incident Story – ${payload.alert_name || payload.alert_uid}`,
+        '',
+        `- Alert UID: ${payload.alert_uid}`,
+        `- Time Window: ${payload.time_window.label || payload.time_window.start || ''} → ${payload.time_window.end || ''}`,
+        `- Severity: ${payload.severity || 'n/a'}`,
+        `- Summary: ${payload.summary || ''}`,
+        '',
+        '## 👀 מה ראינו',
+        payload.what_we_saw.description || '',
+        '',
+        '## 🛠️ מה עשינו',
+        payload.what_we_did.manual_notes || '—',
+        '',
+        '## 💻 לוגים / פקודות',
+        ...(payload.logs.length ? payload.logs.map(log => `- ${log.source || 'log'}: ${log.content || ''}`) : ['- —']),
+        '',
+        '## 💡 תובנות',
+        payload.insights || '—',
+        '',
+      ];
+      const blob = new Blob([markdownLines.join('\n')], { type: 'text/markdown' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      const storyId = storyState.story?.story_id || 'draft';
+      link.download = `incident_story_${storyId}.md`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      console.error('markdown_export_failed', err);
+      showToast('ייצוא Markdown נכשל');
+    }
+  }
+
+  function downloadStoryPdf() {
+    try {
+      const payload = buildStoryPayload({ allowPartial: true });
+      const html = `
+        <html>
+          <head>
+            <title>Incident Story</title>
+            <style>
+              body { font-family: sans-serif; padding: 1.5rem; }
+              h1 { border-bottom: 1px solid #ccc; padding-bottom: 0.5rem; }
+              section { margin-bottom: 1rem; }
+            </style>
+          </head>
+          <body>
+            <h1>${payload.alert_name || payload.alert_uid}</h1>
+            <section><strong>Alert UID:</strong> ${payload.alert_uid}</section>
+            <section><strong>Time Window:</strong> ${payload.time_window.start || ''} → ${payload.time_window.end || ''}</section>
+            <section><strong>Severity:</strong> ${payload.severity || 'n/a'}</section>
+            <section>
+              <h3>מה ראינו</h3>
+              <p>${payload.what_we_saw.description || ''}</p>
+            </section>
+            <section>
+              <h3>מה עשינו</h3>
+              <p>${payload.what_we_did.manual_notes || '—'}</p>
+            </section>
+            <section>
+              <h3>לוגים</h3>
+              <ul>${payload.logs.map(log => `<li>${log.source || 'log'}: ${log.content || ''}</li>`).join('')}</ul>
+            </section>
+            <section>
+              <h3>תובנות</h3>
+              <p>${payload.insights || '—'}</p>
+            </section>
+          </body>
+        </html>
+      `;
+      const win = window.open('', '_blank');
+      if (!win) {
+        showToast('פתח חלון פופאפ לצורך PDF');
+        return;
+      }
+      win.document.write(html);
+      win.document.close();
+      setTimeout(() => {
+        try {
+          win.print();
+        } catch (err) {
+          console.error('pdf_print_failed', err);
+        }
+      }, 400);
+    } catch (err) {
+      console.error('pdf_export_failed', err);
+      showToast('ייצוא PDF נכשל');
+    }
+  }
+
+  async function maybeOpenPendingStory() {
+    if (!state.pendingStoryId) return;
+    const targetId = state.pendingStoryId;
+    const match = (state.alerts || []).find(alert => alert.story && alert.story.story_id === targetId);
+    state.pendingStoryId = '';
+    if (match) {
+      openStoryModal(match, { prefetchedStory: match.story });
+      return;
+    }
+    try {
+      const existing = await fetchStoryById(targetId);
+      if (!existing) return;
+      const graphMeta = existing.what_we_saw?.graph_snapshot;
+      const fallbackAlert = {
+        alert_uid: existing.alert_uid,
+        name: existing.alert_name,
+        severity: existing.severity,
+        summary: existing.summary,
+        timestamp: existing.alert_timestamp,
+        metadata: existing.metadata || {},
+        graph: graphMeta
+          ? {
+              metric: graphMeta.metric,
+              label: graphMeta.label,
+              unit: graphMeta.unit,
+              default_range: graphMeta.meta?.default_range,
+              default_minutes: graphMeta.range_minutes,
+              category: graphMeta.meta?.category,
+            }
+          : null,
+        story: existing,
+      };
+      openStoryModal(fallbackAlert, { prefetchedStory: existing });
+    } catch (err) {
+      console.error('pending_story_load_failed', err);
+    }
+  }
+
   async function handleQuickFixAction(action, alertMeta, btn) {
     if (!action || !action.id) return;
     try {
@@ -1257,7 +1826,9 @@
     });
     const data = await fetchJson('/api/observability/alerts?' + params.toString());
     if (!data.ok) throw new Error(data.error || 'alerts_error');
-    renderAlertsTable(data.alerts || [], data.total || 0, data.page || 1, data.per_page || state.perPage);
+    state.alerts = data.alerts || [];
+    renderAlertsTable(state.alerts, data.total || 0, data.page || 1, data.per_page || state.perPage);
+    await maybeOpenPendingStory();
   }
 
   async function refreshAll() {
@@ -1351,6 +1922,20 @@
     btn.addEventListener('click', () => {
       const params = new URLSearchParams({timerange: state.range});
       window.open(`/admin/observability/replay?${params.toString()}`, '_blank', 'noopener');
+    });
+  }
+
+  if (storyButtons.save) storyButtons.save.addEventListener('click', () => saveStoryFromModal());
+  if (storyButtons.downloadMarkdown) storyButtons.downloadMarkdown.addEventListener('click', () => downloadStoryMarkdown());
+  if (storyButtons.downloadPdf) storyButtons.downloadPdf.addEventListener('click', () => downloadStoryPdf());
+  if (storyModal) {
+    storyModal.addEventListener('click', event => {
+      if (event.target === storyModal) {
+        closeStoryModal();
+      }
+    });
+    storyModal.querySelectorAll('[data-story-close]').forEach(btn => {
+      btn.addEventListener('click', closeStoryModal);
     });
   }
 
