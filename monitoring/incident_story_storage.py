@@ -27,6 +27,7 @@ _FILE_PATH = Path(os.getenv("INCIDENT_STORY_FILE", "tmp/incident_stories.json"))
 _FILE_LOCK = threading.Lock()
 
 _TRUTHY = {"1", "true", "yes", "on"}
+_FALLBACK_TS = datetime.min.replace(tzinfo=timezone.utc)
 
 
 def _is_true(value: Optional[str]) -> bool:
@@ -51,26 +52,40 @@ def _ensure_file_store() -> None:
         _FILE_PATH.write_text("[]", encoding="utf-8")
 
 
-def _load_file_store() -> List[Dict[str, Any]]:
+def _read_file_store_unlocked() -> List[Dict[str, Any]]:
     _ensure_file_store()
-    with _FILE_LOCK:
-        try:
-            text = _FILE_PATH.read_text(encoding="utf-8")
-            data = json.loads(text or "[]")
-            if isinstance(data, list):
-                return [d for d in data if isinstance(d, dict)]
-        except Exception:
-            pass
+    try:
+        text = _FILE_PATH.read_text(encoding="utf-8")
+        data = json.loads(text or "[]")
+        if isinstance(data, list):
+            return [d for d in data if isinstance(d, dict)]
+    except Exception:
+        pass
     return []
 
 
-def _write_file_store(entries: Iterable[Dict[str, Any]]) -> None:
-    _ensure_file_store()
+def _load_file_store() -> List[Dict[str, Any]]:
     with _FILE_LOCK:
-        try:
-            _FILE_PATH.write_text(json.dumps(list(entries), ensure_ascii=False, indent=2), encoding="utf-8")
-        except Exception:
-            pass
+        return _read_file_store_unlocked()
+
+
+def _write_file_store_unlocked(entries: Iterable[Dict[str, Any]]) -> None:
+    _ensure_file_store()
+    try:
+        _FILE_PATH.write_text(json.dumps(list(entries), ensure_ascii=False, indent=2), encoding="utf-8")
+    except Exception:
+        pass
+
+
+def _write_file_store(entries: Iterable[Dict[str, Any]]) -> None:
+    with _FILE_LOCK:
+        _write_file_store_unlocked(entries)
+
+
+def _story_sort_key(entry: Dict[str, Any]) -> datetime:
+    window = entry.get("time_window") or {}
+    ts = _parse_iso(window.get("start")) or _parse_iso(entry.get("alert_timestamp"))
+    return ts or _FALLBACK_TS
 
 
 def _parse_iso(value: Optional[str]) -> Optional[datetime]:
@@ -199,26 +214,29 @@ def save_story(story: Dict[str, Any]) -> Dict[str, Any]:
     now = datetime.now(timezone.utc)
     doc["updated_at"] = now
     if collection is None:
-        entries = _load_file_store()
-        updated = []
-        replaced = False
-        for entry in entries:
-            entry_id = entry.get("story_id")
-            if entry_id == doc["story_id"] or entry.get("alert_uid") == doc.get("alert_uid"):
-                merged = dict(entry)
-                merged.update(doc)
-                merged["updated_at"] = _isoformat(now)
-                merged.setdefault("created_at", entry.get("created_at") or _isoformat(now))
-                updated.append(merged)
-                replaced = True
-            else:
-                updated.append(entry)
-        if not replaced:
-            doc["created_at"] = _isoformat(now)
-            doc["updated_at"] = _isoformat(now)
-            updated.append(doc)
-        _write_file_store(updated)
-        return doc
+        with _FILE_LOCK:
+            entries = _read_file_store_unlocked()
+            updated = []
+            replaced = False
+            merged: Optional[Dict[str, Any]] = None
+            for entry in entries:
+                entry_id = entry.get("story_id")
+                if entry_id == doc["story_id"] or entry.get("alert_uid") == doc.get("alert_uid"):
+                    merged = dict(entry)
+                    merged.update(doc)
+                    merged["updated_at"] = _isoformat(now)
+                    merged.setdefault("created_at", entry.get("created_at") or _isoformat(now))
+                    updated.append(merged)
+                    replaced = True
+                else:
+                    updated.append(entry)
+            if not replaced:
+                doc["created_at"] = _isoformat(now)
+                doc["updated_at"] = _isoformat(now)
+                updated.append(doc)
+            _write_file_store_unlocked(updated)
+            saved_doc = merged if replaced and merged is not None else doc
+        return saved_doc
 
     lookup_filter: Dict[str, Any] = {"alert_uid": doc.get("alert_uid")}
     if doc.get("story_id"):
@@ -322,7 +340,7 @@ def list_stories(
             if end_dt and ts and ts > end_dt:
                 continue
             filtered.append(entry)
-        filtered.sort(key=lambda e: e.get("updated_at") or "", reverse=True)
+        filtered.sort(key=_story_sort_key, reverse=True)
         return filtered[:limit]
     query: Dict[str, Any] = {}
     if start_dt or end_dt:

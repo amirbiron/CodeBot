@@ -9091,7 +9091,10 @@ def api_observability_story_export(story_id: str):
         return jsonify({'ok': False, 'error': 'internal_error'}), 500
     if markdown is None:
         return jsonify({'ok': False, 'error': 'not_found'}), 404
-    filename = f"incident_story_{story_id}.md"
+    safe_story_id = "".join(ch for ch in story_id if ch.isalnum() or ch in {'-', '_', '.'})
+    if not safe_story_id:
+        safe_story_id = "story"
+    filename = f"incident_story_{safe_story_id}.md"
     resp = Response(markdown, mimetype='text/markdown')
     resp.headers['Content-Disposition'] = f'attachment; filename=\"{filename}\"'
     return resp
