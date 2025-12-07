@@ -1630,6 +1630,14 @@
       }
       setStoryStatus(`קובץ נשמר בשם ${data.file_name}`, false);
       showToast('הקובץ נשמר בספריית הקבצים');
+      const targetUrl =
+        data.md_preview_url ||
+        (data.file_id ? `/md/${data.file_id}` : '') ||
+        data.view_url ||
+        '';
+      if (targetUrl) {
+        window.location.assign(targetUrl);
+      }
     } catch (err) {
       console.error('story_markdown_save_failed', err);
       setStoryStatus('שמירת קובץ Markdown נכשלה', true);

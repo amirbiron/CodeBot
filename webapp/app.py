@@ -9234,7 +9234,15 @@ def api_observability_story_save_markdown_file():
             story_id=story_payload.get('story_id'),
             extra_tags=tags,
         )
-        return jsonify({'ok': True, **result})
+        file_id = result.get('file_id')
+        view_url = url_for('view_file', file_id=file_id) if file_id else None
+        md_preview_url = url_for('md_preview', file_id=file_id) if file_id else None
+        payload = {'ok': True, **result}
+        if view_url:
+            payload['view_url'] = view_url
+        if md_preview_url:
+            payload['md_preview_url'] = md_preview_url
+        return jsonify(payload)
     except ValueError as exc:
         logger.warning("story_markdown_save_bad_request", extra={'error': str(exc)})
         return jsonify({'ok': False, 'error': 'bad_request'}), 400
