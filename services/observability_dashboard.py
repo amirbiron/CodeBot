@@ -1411,8 +1411,10 @@ def _slice_log_lines(lines: List[str]) -> List[str]:
         sanitized.append(_truncate_text(clean, 320))
     if len(sanitized) <= _MAX_AI_LOG_LINES:
         return sanitized
-    half = max(1, _MAX_AI_LOG_LINES // 2)
-    return sanitized[:half] + ["…"] + sanitized[-half:]
+    remaining = max(1, _MAX_AI_LOG_LINES - 1)
+    head = remaining // 2
+    tail = remaining - head
+    return sanitized[:head] + ["…"] + sanitized[-tail:]
 
 
 def _summarize_quick_fixes(alert: Dict[str, Any]) -> List[Dict[str, Any]]:
