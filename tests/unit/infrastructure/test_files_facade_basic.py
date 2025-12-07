@@ -10,6 +10,14 @@ class DummyDB:
         self.saved_large = []
         self.saved_prefs = {}
         self.tokens = {"access_token": "t"}
+        self.regular_files = [
+            {"file_name": "a.py", "programming_language": "python"},
+            {"file_name": "b.py", "programming_language": "text"},
+        ]
+        self.repo_files = [{"file_name": "repo_file.py", "tag": "repo:me/app"}]
+        self.search_results = [{"file_name": "search.py"}]
+        self.deleted_rows = [{"_id": "del1", "file_name": "old.py"}]
+        self._repo = DummyRepo(self.deleted_rows)
 
     # Snippet/file API
     def save_file(self, user_id, file_name, code, programming_language, extra_tags=None):
@@ -46,13 +54,38 @@ class DummyDB:
         return {"_id": "L1", "file_name": file_name, "content": "data", "programming_language": "text"}
 
     def get_user_files(self, user_id, limit=50, *, skip=0, projection=None):
-        return [{"file_name": "a.py", "programming_language": "python"}]
+        return self.regular_files[skip: skip + limit]
+
+    def get_regular_files_paginated(self, user_id, page=1, per_page=10):
+        total = len(self.regular_files)
+        start = (page - 1) * per_page
+        return (self.regular_files[start:start + per_page], total)
 
     def get_user_large_files(self, user_id, page=1, per_page=8):
         return ([{"file_name": "big"}], 1)
 
     def get_user_file_names(self, user_id, limit=1000):
         return ["a.py", "b.py"]
+
+    def get_user_files_by_repo(self, user_id, repo_tag, page=1, per_page=50):
+        return (self.repo_files, len(self.repo_files))
+
+    def search_code(self, user_id, query, programming_language=None, tags=None, limit=20):
+        return list(self.search_results)
+
+    def get_version(self, user_id, file_name, version):
+        return {"version": version, "file_name": file_name}
+
+    def get_backup_rating(self, user_id, backup_id):
+        return "👍"
+
+    def save_user(self, user_id, username=None):
+        self.saved_prefs["user_info"] = (user_id, username)
+        return True
+
+    def delete_file_by_id(self, file_id):
+        self.saved_prefs["last_deleted_id"] = file_id
+        return True
 
     # Drive/Repo prefs API
     def save_selected_repo(self, user_id, repo_full):
@@ -71,6 +104,27 @@ class DummyDB:
 
     def delete_drive_tokens(self, user_id):
         self.tokens = {}
+        return True
+
+    def _get_repo(self):
+        return self._repo
+
+
+class DummyRepo:
+    def __init__(self, rows):
+        self.rows = rows
+        self.restore_calls = []
+        self.purge_calls = []
+
+    def list_deleted_files(self, user_id, page=1, per_page=10):
+        return (self.rows, len(self.rows))
+
+    def restore_file_by_id(self, user_id, fid):
+        self.restore_calls.append((user_id, fid))
+        return True
+
+    def purge_file_by_id(self, user_id, fid):
+        self.purge_calls.append((user_id, fid))
         return True
 
 
@@ -135,3 +189,33 @@ def test_files_facade_basic_wrappers(monkeypatch):
     assert prefs.get("selected_repo") == "me/repo"
     assert fac.save_drive_prefs(1, {"schedule": "daily"})
     assert fac.delete_drive_tokens(1) is True
+
+
+def test_files_facade_pagination_and_recycle(monkeypatch):
+    dummy_db = _install_dummy_database(monkeypatch)
+    fac = FilesFacade()
+
+    rows, total = fac.get_regular_files_paginated(1, page=1, per_page=10)
+    assert total == len(dummy_db.regular_files)
+    assert rows and rows[0]["file_name"] == "a.py"
+
+    repo_rows, repo_total = fac.get_user_files_by_repo(1, "repo:me/app")
+    assert repo_total == len(dummy_db.repo_files)
+
+    search = fac.search_code(1, query="print")
+    assert search == dummy_db.search_results
+
+    version = fac.get_version(1, "a.py", 2)
+    assert version["version"] == 2
+    assert fac.get_backup_rating(1, "backup1") == "👍"
+    assert fac.save_user(7, "tester")
+    assert fac.delete_file_by_id("OID2")
+
+    deleted_rows, deleted_total = fac.list_deleted_files(1, page=1, per_page=10)
+    assert deleted_total == len(dummy_db.deleted_rows)
+    assert fac.restore_file_by_id(1, "del1")
+    assert fac.purge_file_by_id(1, "del1")
+    assert dummy_db._repo.restore_calls and dummy_db._repo.purge_calls
+
+    doc, is_large = fac.get_user_document_by_id(1, "OID1")
+    assert doc and is_large is False
