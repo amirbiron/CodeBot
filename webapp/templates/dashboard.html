@@ -52,7 +52,7 @@
         {% if stats.top_languages %}
         <div class="languages-list">
             {% for lang in stats.top_languages %}
-            <div class="language-item" style="display: flex; justify-content: space-between; align-items: center; padding: 0.75rem; background: rgba(255,255,255,0.05); border-radius: 10px; margin-bottom: 0.5rem;">
+            <div class="language-item">
                 <div style="display: flex; align-items: center; gap: 1rem;">
                     <span style="font-size: 1.5rem;">{{ lang.icon }}</span>
                     <span style="font-weight: 500;">{{ lang.name }}</span>
@@ -74,7 +74,7 @@
         {% if stats.recent_files %}
         <div class="recent-files-list">
             {% for file in stats.recent_files %}
-            <div class="file-item" style="display: flex; justify-content: space-between; align-items: center; padding: 0.75rem; background: rgba(255,255,255,0.05); border-radius: 10px; margin-bottom: 0.5rem;">
+            <div class="file-item">
                 <div style="display: flex; align-items: center; gap: 1rem;">
                     <span style="font-size: 1.5rem;">{{ file.icon }}</span>
                     <div>
@@ -325,9 +325,32 @@
     transform: translateY(-5px);
 }
 
+.language-item,
+.file-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 0.75rem;
+    background: rgba(255,255,255,0.05);
+    border-radius: 10px;
+    margin-bottom: 0.5rem;
+    border: 1px solid rgba(255,255,255,0.08);
+    transition: border-color 0.2s ease, box-shadow 0.2s ease, background 0.2s ease;
+}
+:root[data-theme="rose-pine-dawn"] .language-item,
+:root[data-theme="rose-pine-dawn"] .file-item {
+    background: color-mix(in srgb, var(--bg-secondary) 75%, #ffffff 25%);
+    border: 1px solid rgba(87,82,121,0.25);
+    box-shadow: 0 8px 18px rgba(144,122,169,0.12);
+}
+
 .language-item:hover,
 .file-item:hover {
     background: rgba(255,255,255,0.1) !important;
+}
+:root[data-theme="rose-pine-dawn"] .language-item:hover,
+:root[data-theme="rose-pine-dawn"] .file-item:hover {
+    background: color-mix(in srgb, var(--bg-secondary) 65%, #ffffff 35%) !important;
 }
 
 @media (max-width: 768px) {

@@ -6,6 +6,37 @@
 <h1 class="page-title">העלה קובץ חדש</h1>
 
 <style>
+  .form-field {
+    width: 100%;
+    padding: .75rem;
+    border-radius: 10px;
+    border: 1px solid rgba(255,255,255,0.2);
+    background: rgba(255,255,255,0.08);
+    color: var(--text-primary, #ffffff);
+    font: inherit;
+    transition: border-color 0.2s ease, box-shadow 0.2s ease, background 0.2s ease;
+  }
+  .form-field:focus {
+    outline: none;
+    border-color: rgba(255,255,255,0.5);
+    box-shadow: 0 0 0 2px rgba(255,255,255,0.08);
+  }
+  .form-field::placeholder {
+    color: var(--text-muted, rgba(255,255,255,0.65));
+  }
+  .code-field {
+    font-family: 'Fira Code', 'Consolas', monospace;
+  }
+  :root[data-theme="rose-pine-dawn"] .form-field {
+    background: color-mix(in srgb, var(--bg-secondary) 70%, #ffffff 30%);
+    border: 1px solid var(--glass-border);
+    color: var(--text-primary);
+    box-shadow: inset 0 1px 3px rgba(87, 82, 121, 0.12);
+  }
+  :root[data-theme="rose-pine-dawn"] .form-field:focus {
+    border-color: rgba(144,122,169,0.7);
+    box-shadow: 0 0 0 2px rgba(144,122,169,0.15);
+  }
   .source-url-block {
     border: 1px solid var(--glass-border, rgba(255,255,255,0.2));
     border-radius: 12px;
@@ -332,7 +363,7 @@
         <span class="image-upload-status" id="markdownImageStatus"></span>
       </div>
       <div class="filename-input-wrapper">
-        <input id="fileNameInput" type="text" name="file_name" placeholder="example.py" value="{{ file_name_value or '' }}" style="width: 100%; padding: .75rem; border-radius: 10px; border: 1px solid rgba(255,255,255,0.2); background: rgba(255,255,255,0.1); color: white;">
+        <input id="fileNameInput" type="text" name="file_name" placeholder="example.py" value="{{ file_name_value or '' }}" class="form-field">
         <button type="button"
                 id="imageUploadTrigger"
                 class="image-upload-trigger"
@@ -358,7 +389,7 @@
     </div>
     <div>
       <label>שפה</label>
-      <select id="languageSelect" name="language" style="width: 100%; padding: .75rem; border-radius: 10px; border: 1px solid rgba(255,255,255,0.2); background: rgba(255,255,255,0.1); color: white;">
+      <select id="languageSelect" name="language" class="form-field">
         <option value="text" {% if (language_value or 'text') == 'text' %}selected{% endif %}>זהה לפי סיומת</option>
         {% for lang in languages %}
         <option value="{{ lang }}" {% if lang == language_value %}selected{% endif %}>{{ lang }}</option>
@@ -367,15 +398,15 @@
     </div>
     <div>
       <label>תיאור</label>
-      <input type="text" name="description" placeholder="תיאור קצר" value="{{ description_value or '' }}" style="width: 100%; padding: .75rem; border-radius: 10px; border: 1px solid rgba(255,255,255,0.2); background: rgba(255,255,255,0.1); color: white;">
+      <input type="text" name="description" placeholder="תיאור קצר" value="{{ description_value or '' }}" class="form-field">
     </div>
     <div>
       <label>תגיות</label>
-      <input type="text" name="tags" placeholder="#utils, #repo:owner/name" value="{{ tags_value or '' }}" style="width: 100%; padding: .75rem; border-radius: 10px; border: 1px solid rgba(255,255,255,0.2); background: rgba(255,255,255,0.1); color: white;">
+      <input type="text" name="tags" placeholder="#utils, #repo:owner/name" value="{{ tags_value or '' }}" class="form-field">
     </div>
     <div id="editorContainer">
       <label>קוד</label>
-      <textarea name="code" rows="14" placeholder="# הדבק כאן את הקוד" style="width: 100%; padding: .75rem; border-radius: 10px; border: 1px solid rgba(255,255,255,0.2); background: rgba(255,255,255,0.1); color: white; font-family: 'Fira Code', 'Consolas', monospace;">{{ code_value or '' }}</textarea>
+      <textarea name="code" rows="14" placeholder="# הדבק כאן את הקוד" class="form-field code-field">{{ code_value or '' }}</textarea>
     </div>
     <div class="source-url-block">
       <button type="button"

@@ -191,6 +191,46 @@
   opacity: 0.4;
   cursor: not-allowed;
 }
+:root[data-theme="rose-pine-dawn"] .obs-page {
+    color: var(--text-primary);
+}
+:root[data-theme="rose-pine-dawn"] .obs-page .page-title,
+:root[data-theme="rose-pine-dawn"] .obs-page h2,
+:root[data-theme="rose-pine-dawn"] .obs-page h3 {
+    color: var(--text-primary);
+}
+:root[data-theme="rose-pine-dawn"] .toolbar-actions button,
+:root[data-theme="rose-pine-dawn"] .obs-toolbar button.range-btn,
+:root[data-theme="rose-pine-dawn"] .pagination-controls button {
+    background: color-mix(in srgb, var(--bg-secondary) 65%, #ffffff 35%);
+    border: 1px solid var(--glass-border);
+    color: var(--text-primary);
+}
+:root[data-theme="rose-pine-dawn"] .obs-toolbar button.range-btn.active {
+    background: linear-gradient(135deg, #d7827e, #907aa9);
+    color: #fff;
+    border: none;
+    box-shadow: 0 8px 18px rgba(144, 122, 169, 0.25);
+}
+:root[data-theme="rose-pine-dawn"] .obs-card,
+:root[data-theme="rose-pine-dawn"] .obs-graph,
+:root[data-theme="rose-pine-dawn"] .obs-section,
+:root[data-theme="rose-pine-dawn"] .obs-history-card {
+    background: color-mix(in srgb, #ffffff 75%, var(--bg-secondary) 25%);
+    border: 1px solid var(--glass-border);
+    box-shadow: 0 12px 28px rgba(144, 122, 169, 0.15);
+    color: var(--text-primary);
+}
+:root[data-theme="rose-pine-dawn"] .obs-table thead th,
+:root[data-theme="rose-pine-dawn"] .obs-table tbody td {
+    border-bottom: 1px solid rgba(87, 82, 121, 0.25);
+}
+:root[data-theme="rose-pine-dawn"] .history-filters select,
+:root[data-theme="rose-pine-dawn"] .history-filters input {
+    background: color-mix(in srgb, var(--bg-secondary) 75%, #ffffff 25%);
+    border: 1px solid var(--glass-border);
+    color: var(--text-primary);
+}
 .status-pill {
   display: inline-flex;
   align-items: center;
