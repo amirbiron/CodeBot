@@ -2157,7 +2157,9 @@ async def show_recycle_bin(update: Update, context: ContextTypes.DEFAULT_TYPE) -
             page = 1
         page = max(1, page)
         result = _call_repo_api("list_deleted_files", user_id, page=page, per_page=RECYCLE_PAGE_SIZE)
-        items, total = result if isinstance(result, tuple) else ([], 0)
+        if not isinstance(result, tuple):
+            raise RuntimeError("list_deleted_files_failed")
+        items, total = result
         total_pages = (total + RECYCLE_PAGE_SIZE - 1) // RECYCLE_PAGE_SIZE if total > 0 else 1
         keyboard = []
         for it in items:
