@@ -9058,7 +9058,8 @@ def api_observability_story_save():
         stored = observability_service.save_incident_story(story_payload, user_id=user_id)
         return jsonify({'ok': True, 'story': stored})
     except ValueError as exc:
-        return jsonify({'ok': False, 'error': 'bad_request', 'detail': str(exc)}), 400
+        logger.exception("observability_story_save_bad_request: %s", exc)
+        return jsonify({'ok': False, 'error': 'bad_request'}), 400
     except Exception:
         logger.exception("observability_story_save_failed")
         return jsonify({'ok': False, 'error': 'internal_error'}), 500
