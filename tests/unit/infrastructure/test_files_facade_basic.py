@@ -45,10 +45,22 @@ class DummyDB:
         return True
 
     def get_file_by_id(self, file_id):
-        return {"_id": file_id, "file_name": "a.py", "code": "print(1)", "programming_language": "python"}
+        return {
+            "_id": file_id,
+            "file_name": "a.py",
+            "code": "print(1)",
+            "programming_language": "python",
+            "user_id": 1,
+        }
 
     def get_large_file_by_id(self, file_id):
-        return {"_id": file_id, "file_name": "big", "content": "data", "programming_language": "text"}
+        return {
+            "_id": file_id,
+            "file_name": "big",
+            "content": "data",
+            "programming_language": "text",
+            "user_id": 1,
+        }
 
     def get_large_file(self, user_id, file_name):
         return {"_id": "L1", "file_name": file_name, "content": "data", "programming_language": "text"}
