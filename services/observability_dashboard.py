@@ -50,6 +50,7 @@ _MAX_AI_METADATA_CHILD_ITEMS = 5
 _MAX_AI_METADATA_STRING = 512
 _MAX_AI_LOG_LINES = 40
 _MAX_AI_TEXT_CHARS = 4000
+_MAX_MASK_INPUT = 20000
 
 _EMAIL_RE = re.compile(r"[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}", re.IGNORECASE)
 _HEX_TOKEN_RE = re.compile(r"\b[0-9a-f]{16,}\b", re.IGNORECASE)
@@ -1292,9 +1293,14 @@ def _collect_story_actions(alert_uid: str) -> List[Dict[str, Any]]:
 
 
 def _mask_text(value: Any) -> str:
-    text = str(value or "")
-    if not text:
+    original = str(value or "")
+    if not original:
         return ""
+    suffix = ""
+    text = original
+    if len(text) > _MAX_MASK_INPUT:
+        text = text[:_MAX_MASK_INPUT]
+        suffix = "…"
 
     def _replace_secret(match: re.Match[str]) -> str:
         key = match.group(1)
@@ -1304,7 +1310,7 @@ def _mask_text(value: Any) -> str:
     masked = _EMAIL_RE.sub("[email]", masked)
     masked = _HEX_TOKEN_RE.sub("<token>", masked)
     masked = _LONG_DIGIT_RE.sub("<id>", masked)
-    return masked
+    return masked + suffix
 
 
 def _truncate_text(text: str, limit: int) -> str:
