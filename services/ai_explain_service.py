@@ -5,7 +5,7 @@ import logging
 import os
 import re
 from datetime import datetime, timezone
-from typing import Any, Dict, Iterable, List, Optional, Sequence
+from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
 
 import httpx
 
@@ -19,6 +19,31 @@ _PROVIDER_MODEL = (
     or "claude-3-5-sonnet-20241022"
 )
 _PROVIDER_LABEL = os.getenv("OBS_AI_PROVIDER_LABEL") or "claude-sonnet-4.5"
+
+_DEFAULT_MODEL_FALLBACKS: Sequence[str] = (
+    "claude-3-5-sonnet-20240620",
+    "claude-3-opus-20240229",
+    "claude-2.1",
+)
+_ENV_MODEL_FALLBACKS: Sequence[str] = tuple(
+    item.strip()
+    for item in os.getenv("OBS_AI_EXPLAIN_MODEL_FALLBACKS", "").split(",")
+    if item.strip()
+)
+
+
+def _build_model_candidates() -> List[str]:
+    seen = set()
+    ordered: List[str] = []
+    for name in [_PROVIDER_MODEL, *_ENV_MODEL_FALLBACKS, *_DEFAULT_MODEL_FALLBACKS]:
+        if not name or name in seen:
+            continue
+        ordered.append(name)
+        seen.add(name)
+    return ordered
+
+
+_MODEL_CANDIDATES: Sequence[str] = _build_model_candidates() or (_PROVIDER_MODEL,)
 
 try:
     _MAX_OUTPUT_TOKENS = max(200, min(2000, int(os.getenv("OBS_AI_EXPLAIN_MAX_TOKENS", "800"))))
@@ -36,6 +61,7 @@ except ValueError:
     _REQUEST_TIMEOUT = 10.0
 
 _DEFAULT_SECTIONS: Sequence[str] = ("root_cause", "actions", "signals")
+_MAX_ERROR_BODY = 1600
 _SECRET_KEY_VALUE_RE = re.compile(
     r"(?i)(password|secret|token|api[_-]?key|session|authorization)\s*[:=]\s*([^\s,;]+)"
 )
@@ -219,31 +245,58 @@ def _build_prompt(context: Dict[str, Any], sections: Sequence[str]) -> str:
     )
 
 
-async def _call_anthropic(prompt: str, *, timeout: float) -> Dict[str, Any]:
+async def _call_anthropic(prompt: str, *, timeout: float) -> Tuple[Dict[str, Any], str]:
     if not _ANTHROPIC_API_KEY:
         raise AiExplainError("anthropic_api_key_missing")
+    if not _MODEL_CANDIDATES:
+        raise AiExplainError("model_not_configured")
     headers = {
         "x-api-key": _ANTHROPIC_API_KEY,
         "anthropic-version": "2023-06-01",
         "content-type": "application/json",
     }
-    payload = {
-        "model": _PROVIDER_MODEL,
-        "max_tokens": _MAX_OUTPUT_TOKENS,
-        "temperature": _TEMPERATURE,
-        "system": _SYSTEM_PROMPT,
-        "messages": [
-            {
-                "role": "user",
-                "content": prompt,
-            }
-        ],
-    }
     http_timeout = httpx.Timeout(timeout, connect=min(3.0, timeout / 2), read=timeout, write=timeout / 2)
     async with httpx.AsyncClient(timeout=http_timeout) as client:
-        response = await client.post(_ANTHROPIC_API_URL, headers=headers, json=payload)
-        response.raise_for_status()
-        return response.json()
+        last_exc: Optional[httpx.HTTPStatusError] = None
+        for idx, model_name in enumerate(_MODEL_CANDIDATES):
+            payload = {
+                "model": model_name,
+                "max_tokens": _MAX_OUTPUT_TOKENS,
+                "temperature": _TEMPERATURE,
+                "system": _SYSTEM_PROMPT,
+                "messages": [
+                    {
+                        "role": "user",
+                        "content": prompt,
+                    }
+                ],
+            }
+            try:
+                response = await client.post(_ANTHROPIC_API_URL, headers=headers, json=payload)
+                response.raise_for_status()
+                return response.json(), model_name
+            except httpx.HTTPStatusError as exc:
+                body_snippet = _truncate(exc.response.text or "", _MAX_ERROR_BODY)
+                logger.warning(
+                    "ai_explain_provider_http_error_detail",
+                    extra={
+                        "status_code": exc.response.status_code,
+                        "model": model_name,
+                        "body": body_snippet,
+                    },
+                )
+                last_exc = exc
+                if exc.response.status_code == 404 and idx < len(_MODEL_CANDIDATES) - 1:
+                    next_model = _MODEL_CANDIDATES[idx + 1]
+                    logger.info(
+                        "ai_explain_model_fallback",
+                        extra={"failed_model": model_name, "next_model": next_model},
+                    )
+                    continue
+                raise
+        if last_exc is not None:
+            raise last_exc
+        raise AiExplainError("provider_http_error")
 
 
 def _extract_text_block(provider_response: Dict[str, Any]) -> str:
@@ -303,6 +356,7 @@ def _normalize_payload(
     provider_payload: Dict[str, Any],
     context: Dict[str, Any],
     sections: Sequence[str],
+    model_name: str,
 ) -> Dict[str, Any]:
     normalized: Dict[str, Any] = {}
     raw_root = str(provider_payload.get("root_cause") or provider_payload.get("rootCause") or "").strip()
@@ -323,8 +377,8 @@ def _normalize_payload(
     normalized["signals"] = signals
 
     now = datetime.now(timezone.utc).isoformat()
-    normalized["provider"] = _PROVIDER_LABEL or _PROVIDER_MODEL
-    normalized["model"] = _PROVIDER_MODEL
+    normalized["provider"] = _PROVIDER_LABEL or model_name or _PROVIDER_MODEL
+    normalized["model"] = model_name or _PROVIDER_MODEL
     normalized["generated_at"] = now
     normalized["cached"] = False
 
@@ -357,7 +411,7 @@ async def generate_ai_explanation(
     prompt = _build_prompt(sanitized_context, sections)
 
     try:
-        provider_response = await _call_anthropic(prompt, timeout=_REQUEST_TIMEOUT)
+        provider_response, model_used = await _call_anthropic(prompt, timeout=_REQUEST_TIMEOUT)
     except httpx.TimeoutException as exc:  # pragma: no cover - network behavior
         logger.warning(
             "ai_explain_provider_timeout",
@@ -383,7 +437,7 @@ async def generate_ai_explanation(
 
     text_block = _extract_text_block(provider_response)
     payload = _parse_json_payload(text_block)
-    normalized = _normalize_payload(payload, sanitized_context, sections)
+    normalized = _normalize_payload(payload, sanitized_context, sections, model_used)
     normalized.update(
         {
             "alert_uid": sanitized_context.get("alert_uid"),
