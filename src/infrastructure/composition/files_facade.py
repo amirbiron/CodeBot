@@ -25,8 +25,17 @@ class FilesFacade:
     def get_all_versions(self, user_id: int, file_name: str) -> List[Dict[str, Any]]:
         return list(self._db.get_all_versions(user_id, file_name) or [])
 
-    def get_user_files(self, user_id: int, limit: int = 50, *, skip: int = 0) -> List[Dict[str, Any]]:
-        return list(self._db.get_user_files(user_id, limit=limit, skip=skip) or [])
+    def get_user_files(
+        self,
+        user_id: int,
+        limit: int = 50,
+        *,
+        skip: int = 0,
+        projection: Optional[Dict[str, int]] = None,
+    ) -> List[Dict[str, Any]]:
+        return list(
+            self._db.get_user_files(user_id, limit=limit, skip=skip, projection=projection) or []
+        )
     def get_user_large_files(self, user_id: int, page: int = 1, per_page: int = 8) -> Tuple[List[Dict[str, Any]], int]:
         try:
             return self._db.get_user_large_files(user_id, page=page, per_page=per_page)
@@ -155,4 +164,145 @@ class FilesFacade:
             return bool(self._db.delete_drive_tokens(user_id))
         except Exception:
             return False
+
+    # ---- Additional helpers used by legacy handlers -------------------------
+    def save_user(self, user_id: int, username: Optional[str] = None) -> bool:
+        try:
+            return bool(self._db.save_user(user_id, username))
+        except Exception:
+            return False
+
+    def get_repo_tags_with_counts(self, user_id: int, max_tags: int = 100) -> List[Dict[str, Any]]:
+        try:
+            return list(self._db.get_repo_tags_with_counts(user_id, max_tags=max_tags) or [])
+        except Exception:
+            return []
+
+    def get_regular_files_paginated(
+        self,
+        user_id: int,
+        page: int = 1,
+        per_page: int = 10,
+    ) -> Tuple[List[Dict[str, Any]], int]:
+        try:
+            return self._db.get_regular_files_paginated(user_id, page=page, per_page=per_page)
+        except Exception:
+            return ([], 0)
+
+    def _repo(self):
+        repo_getter = getattr(self._db, "_get_repo", None)
+        if callable(repo_getter):
+            try:
+                return repo_getter()
+            except Exception:
+                return None
+        return None
+
+    def list_deleted_files(self, user_id: int, page: int = 1, per_page: int = 10) -> Tuple[List[Dict[str, Any]], int]:
+        repo = self._repo()
+        if repo is None:
+            return ([], 0)
+        try:
+            return repo.list_deleted_files(user_id, page=page, per_page=per_page)
+        except Exception:
+            return ([], 0)
+
+    def restore_file_by_id(self, user_id: int, file_id: str) -> bool:
+        repo = self._repo()
+        if repo is None:
+            return False
+        try:
+            return bool(repo.restore_file_by_id(user_id, file_id))
+        except Exception:
+            return False
+
+    def purge_file_by_id(self, user_id: int, file_id: str) -> bool:
+        repo = self._repo()
+        if repo is None:
+            return False
+        try:
+            return bool(repo.purge_file_by_id(user_id, file_id))
+        except Exception:
+            return False
+
+    def delete_file_by_id(self, file_id: str) -> bool:
+        try:
+            return bool(self._db.delete_file_by_id(file_id))
+        except Exception:
+            return False
+
+    def get_user_files_by_repo(
+        self,
+        user_id: int,
+        repo_tag: str,
+        page: int = 1,
+        per_page: int = 50,
+    ) -> Tuple[List[Dict[str, Any]], int]:
+        try:
+            return self._db.get_user_files_by_repo(user_id, repo_tag, page=page, per_page=per_page)
+        except Exception:
+            return ([], 0)
+
+    def search_code(
+        self,
+        user_id: int,
+        query: str,
+        *,
+        programming_language: Optional[str] = None,
+        tags: Optional[List[str]] = None,
+        limit: int = 20,
+    ) -> List[Dict[str, Any]]:
+        try:
+            return list(
+                self._db.search_code(
+                    user_id,
+                    query,
+                    programming_language=programming_language,
+                    tags=tags,
+                    limit=limit,
+                )
+                or []
+            )
+        except Exception:
+            return []
+
+    def get_version(self, user_id: int, file_name: str, version: int) -> Optional[Dict[str, Any]]:
+        try:
+            return self._db.get_version(user_id, file_name, version)
+        except Exception:
+            return None
+
+    def get_backup_rating(self, user_id: int, backup_id: str) -> Optional[str]:
+        try:
+            return self._db.get_backup_rating(user_id, backup_id)
+        except Exception:
+            return None
+
+    @staticmethod
+    def _doc_belongs_to_user(doc: Dict[str, Any], user_id: int) -> bool:
+        try:
+            return int(doc.get("user_id")) == int(user_id)
+        except Exception:
+            try:
+                return str(doc.get("user_id")) == str(user_id)
+            except Exception:
+                return False
+
+    def get_user_document_by_id(self, user_id: int, file_id: str) -> Tuple[Optional[Dict[str, Any]], bool]:
+        """
+        Return (document, is_large_file) ensuring the file belongs to the user.
+        """
+        try:
+            doc = self._db.get_file_by_id(file_id)
+        except Exception:
+            doc = None
+        if isinstance(doc, dict) and self._doc_belongs_to_user(doc, user_id):
+            return doc, False
+        try:
+            large_doc = self._db.get_large_file_by_id(file_id)
+        except Exception:
+            large_doc = None
+        if isinstance(large_doc, dict) and self._doc_belongs_to_user(large_doc, user_id):
+            return large_doc, True
+        return None, False
 
