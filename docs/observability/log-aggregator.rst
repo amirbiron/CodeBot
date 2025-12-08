@@ -21,7 +21,7 @@
 קונפיגורציה וקבצים
 -------------------
 
-- ``config/error_signatures.yml`` – מנהל קטגוריות (config/retryable/third_party/...) ורשימת חתימות בעלות ``pattern``. עדכון הקובץ משפיע ישירות על הדירוג והתיאור שנשלח למפעיל. מומלץ לקרוא את :ref:`קבצי קונפיגורציה ייעודיים <config-error-signatures>` ב-:doc:`configuration`.
+- ``config/error_signatures.yml`` – מנהל קטגוריות (config/retryable/third_party/...) ורשימת חתימות בעלות ``pattern``. עדכון הקובץ משפיע ישירות על הדירוג והתיאור שנשלח למפעיל. מומלץ לקרוא את :ref:`קבצי קונפיגורציה ייעודיים <config-error-signatures>` ב-:doc:`/configuration`.
 - ``config/alerts.yml`` – קובע את חלונות הזמן, ספי הספירה וקטגוריות שחייבות לעבור גם בזמן cooldown. מודגם בפרק "alerts.yml" בעמוד הקונפיגורציה.
 - ``config/alert_quick_fixes.json`` + ``config/alert_graph_sources.json`` – משמשים את ה-Observability Dashboard להצגת Quick Fixes וגרפים בהקשר של ההתראה שהופקה מהלוגים.
 

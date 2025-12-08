@@ -32,8 +32,8 @@
    # עבודה מול DB מקומי
    MONGODB_URL="mongodb://localhost:27017/code_keeper_bot" python scripts/dev_seed.py
 
-``scripts/import_snippets_from_markdown.py``
--------------------------------------------
+scripts/import_snippets_from_markdown.py
+----------------------------------------
 
 - מייבא סניפטים מקובץ או URL (כולל GitHub/Gist) באמצעות ניתוח Markdown.
 - ניתן לבצע ``--dry-run`` כדי לראות כמה סניפטים ייווצרו ללא כתיבה.
@@ -43,8 +43,8 @@
 
    scripts/import_snippets_from_markdown.py --source docs/new-snippets.md --user-id 42 --username "Ops Bot"
 
-``scripts/migrate_workspace_collections.py``
--------------------------------------------
+scripts/migrate_workspace_collections.py
+----------------------------------------
 
 - מייצר אוסף "שולחן עבודה" לכל משתמש שחסר לו אחד כזה (idempotent).
 - נשען על ``CollectionsManager`` ומייבא ``get_db`` בזמן ריצה כדי למנוע תלות מעגלית.
