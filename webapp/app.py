@@ -369,8 +369,19 @@ MARKDOWN_IMAGE_MAX_BYTES = _env_int('MARKDOWN_IMAGE_MAX_BYTES', 2 * 1024 * 1024)
 ALLOWED_MARKDOWN_IMAGE_TYPES = {'image/png', 'image/jpeg', 'image/webp', 'image/gif'}
 
 # מזהי המדריכים המשותפים לזרימת ה-Onboarding בווב
-WELCOME_GUIDE_PRIMARY_SHARE_ID = "JjvpJFTXZO0oHtoC"
-WELCOME_GUIDE_SECONDARY_SHARE_ID = "sdVOAx6hUGsH4Anr"
+# הערכים ההיסטוריים נשמרים כאליאסים כדי שקישורים ישנים ימשיכו לעבוד – בפועל נטען את המדריך
+# המעודכן מקובץ USER_GUIDE.md בכל בקשה.
+WELCOME_GUIDE_PRIMARY_SHARE_ID = "welcome"
+WELCOME_GUIDE_SECONDARY_SHARE_ID = "welcome-quickstart"
+WELCOME_GUIDE_SHARE_ALIASES = {
+    WELCOME_GUIDE_PRIMARY_SHARE_ID,
+    WELCOME_GUIDE_SECONDARY_SHARE_ID,
+    "JjvpJFTXZO0oHtoC",
+    "sdVOAx6hUGsH4Anr",
+}
+USER_GUIDE_PATH = Path(__file__).parent / 'USER_GUIDE.md'
+WELCOME_GUIDE_FILE_NAME = "CodeKeeper-WebApp-Guide-v2.md"
+WELCOME_GUIDE_DESCRIPTION = "מדריך משתמש מעודכן ל-Code Keeper WebApp (גרסה 2.0)"
 
 # Weekly Tip feature flag (env/config override)
 def _to_bool(val, default: bool = True) -> bool:
@@ -1734,8 +1745,57 @@ def fetch_external_uptime() -> Optional[Dict[str, Any]]:
         _set_uptime_cache(result)
     return result
 
+
+@lru_cache(maxsize=1)
+def _load_user_guide_markdown() -> Optional[Tuple[str, datetime]]:
+    """טוען את קובץ המדריך המקומי ומחזיר את התוכן והזמן האחרון שבו עודכן."""
+    try:
+        content = USER_GUIDE_PATH.read_text(encoding='utf-8')
+    except FileNotFoundError:
+        try:
+            logger.warning("USER_GUIDE markdown file missing", extra={'path': str(USER_GUIDE_PATH)})
+        except Exception:
+            pass
+        return None
+    except Exception:
+        try:
+            logger.exception("Failed reading USER_GUIDE markdown", extra={'path': str(USER_GUIDE_PATH)})
+        except Exception:
+            pass
+        return None
+    try:
+        updated_at = datetime.fromtimestamp(USER_GUIDE_PATH.stat().st_mtime, timezone.utc)
+    except Exception:
+        updated_at = datetime.now(timezone.utc)
+    return content, updated_at
+
+
+def _get_builtin_share_doc(share_id: str) -> Optional[Dict[str, Any]]:
+    """בניית מסמך שיתוף מובנה מהמדריך המקומי (למזהי welcome)."""
+    if not share_id or share_id not in WELCOME_GUIDE_SHARE_ALIASES:
+        return None
+    loaded = _load_user_guide_markdown()
+    if not loaded:
+        return None
+    code, updated_at = loaded
+    return {
+        'share_id': share_id,
+        'file_name': WELCOME_GUIDE_FILE_NAME,
+        'code': code,
+        'language': 'markdown',
+        'description': WELCOME_GUIDE_DESCRIPTION,
+        'created_at': updated_at,
+        'updated_at': updated_at,
+        'views': 0,
+        'is_builtin': True,
+    }
+
+
 def get_internal_share(share_id: str) -> Optional[Dict[str, Any]]:
     """שליפת שיתוף פנימי מה-DB (internal_shares) עם בדיקת תוקף."""
+    builtin_doc = _get_builtin_share_doc(share_id)
+    if builtin_doc:
+        return builtin_doc
     try:
         db = get_db()
         coll = db.internal_shares

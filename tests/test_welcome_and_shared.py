@@ -108,3 +108,34 @@ def test_save_shared_file_creates_snippet(monkeypatch):
         assert saved['user_id'] == 7
         assert saved['programming_language'] == 'markdown'
         assert saved['file_name'].lower().endswith('.md')
+
+
+def test_builtin_welcome_share_uses_user_guide(monkeypatch, tmp_path):
+    import webapp.app as app_mod
+
+    guide_file = tmp_path / "USER_GUIDE.md"
+    guide_file.write_text("# Guide 2.0\nתיאור חדש", encoding='utf-8')
+
+    monkeypatch.setattr(app_mod, 'USER_GUIDE_PATH', guide_file)
+
+    app_mod._load_user_guide_markdown.cache_clear()
+
+    def _fail_get_db():
+        raise AssertionError("get_db should not be called for builtin share")
+
+    monkeypatch.setattr(app_mod, 'get_db', _fail_get_db)
+
+    try:
+        primary_doc = app_mod.get_internal_share(app_mod.WELCOME_GUIDE_PRIMARY_SHARE_ID)
+        assert primary_doc
+        assert '# Guide 2.0' in primary_doc['code']
+        assert primary_doc['language'] == 'markdown'
+        assert primary_doc['file_name'].endswith('.md')
+        assert primary_doc['share_id'] == app_mod.WELCOME_GUIDE_PRIMARY_SHARE_ID
+
+        alias_doc = app_mod.get_internal_share("JjvpJFTXZO0oHtoC")
+        assert alias_doc
+        assert alias_doc['share_id'] == "JjvpJFTXZO0oHtoC"
+        assert alias_doc['code'] == primary_doc['code']
+    finally:
+        app_mod._load_user_guide_markdown.cache_clear()
