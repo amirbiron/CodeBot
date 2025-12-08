@@ -68,9 +68,16 @@
   flex-direction:column;
   gap:1.25rem;
   width:100%;
-  max-width:1400px;
-  margin:0 auto;
   padding:0;
+}
+
+.results-container{
+  display:flex;
+  flex-direction:column;
+  gap:20px;
+  max-width:800px;
+  margin:0 auto;
+  width:100%;
 }
 
 /* כרטיס תוצאת חיפוש */
@@ -133,6 +140,12 @@
 
 .search-result-card .global-search-lang-badge{
   flex-shrink:0;
+  order:1;
+}
+
+.result-card-header .file-info{
+  order:2;
+  text-align:left;
 }
 
 .result-card-snippet{
@@ -171,6 +184,9 @@
   padding-top:0.9rem;
   font-size:0.9rem;
   color: var(--search-meta-text);
+  direction:ltr;
+  justify-content:flex-start;
+  text-align:left;
 }
 
 .meta-item{
@@ -385,7 +401,7 @@
 }
 
 /* ============================================
-   🎨 Global Search Language Badges
+   📱 Language Badge Colors (All Themes)
    ============================================ */
 :root{
   /* Global search card tokens */
@@ -403,21 +419,23 @@
   --search-code-text: var(--code-text, var(--text-primary, #ffffff));
   --search-code-border: var(--code-border, rgba(255,255,255,0.12));
 
-  /* Hue & Saturation per language */
+  /* Hue & Saturation Base */
+  --rust-h:22; --rust-s:75%;
+  --python-h:210; --python-s:50%;
   --js-h:48; --js-s:90%;
   --ts-h:211; --ts-s:60%;
-  --python-h:210; --python-s:50%;
+  --csharp-h:145; --csharp-s:60%;
+  --go-h:190; --go-s:100%;
+  --ruby-h:4; --ruby-s:85%;
+  --cpp-h:340; --cpp-s:88%;
+  --java-h:35; --java-s:85%;
+  --php-h:230; --php-s:35%;
+
+  /* Extended palette */
   --react-h:190; --react-s:100%;
   --vue-h:145; --vue-s:60%;
   --html-h:15; --html-s:80%;
   --css-h:207; --css-s:73%;
-  --java-h:35; --java-s:85%;
-  --csharp-h:145; --csharp-s:60%;
-  --cpp-h:340; --cpp-s:88%;
-  --go-h:190; --go-s:100%;
-  --php-h:230; --php-s:35%;
-  --ruby-h:4; --ruby-s:85%;
-  --rust-h:22; --rust-s:75%;
   --json-h:48; --json-s:90%;
   --sql-h:30; --sql-s:100%;
   --yaml-h:338; --yaml-s:70%;
@@ -529,6 +547,7 @@
   --search-card-shadow: 0 25px 55px rgba(4,7,18,0.65);
   --search-card-shadow-hover: 0 32px 72px rgba(4,7,18,0.75);
   --search-highlight-text: #ffffff;
+  --search-highlight-bg: rgba(124,138,255,0.6);
   --lang-js: hsl(var(--js-h), var(--js-s), 65%);
   --lang-ts: hsl(var(--ts-h), var(--ts-s), 60%);
   --lang-python: hsl(var(--python-h), var(--python-s), 70%);
@@ -548,6 +567,10 @@
   --lang-yaml: hsl(var(--yaml-h), var(--yaml-s), 65%);
   --lang-markdown: hsl(var(--markdown-h), var(--markdown-s), 60%);
   --lang-shell: hsl(var(--shell-h), var(--shell-s), 60%);
+}
+
+::root[data-theme="nebula"]{
+  --search-highlight-bg: rgba(119,122,188,0.8);
 }
 
 :root[data-theme="high-contrast"]{

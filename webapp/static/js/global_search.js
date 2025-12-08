@@ -12,6 +12,49 @@
     time: '<svg fill="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path d="M11.99 2C6.47 2 2 6.48 2 12s4.47 10 9.99 10C17.52 22 22 17.52 22 12S17.52 2 11.99 2zM12 20c-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8-3.58 8-8 8zm.5-13H11v6l5.25 3.15.75-1.23-4.5-2.67z"/></svg>'
   };
 
+  const LANGUAGE_BADGE_MAP = {
+    javascript: { className: 'lang-js', label: 'JavaScript' },
+    js: { className: 'lang-js', label: 'JavaScript' },
+    typescript: { className: 'lang-ts', label: 'TypeScript' },
+    ts: { className: 'lang-ts', label: 'TypeScript' },
+    python: { className: 'lang-python', label: 'Python' },
+    py: { className: 'lang-python', label: 'Python' },
+    react: { className: 'lang-react', label: 'React (JSX)' },
+    'react (jsx)': { className: 'lang-react', label: 'React (JSX)' },
+    jsx: { className: 'lang-react', label: 'React (JSX)' },
+    'react.js': { className: 'lang-react', label: 'React (JSX)' },
+    'react js': { className: 'lang-react', label: 'React (JSX)' },
+    vue: { className: 'lang-vue', label: 'Vue' },
+    'vue.js': { className: 'lang-vue', label: 'Vue' },
+    'vue js': { className: 'lang-vue', label: 'Vue' },
+    html: { className: 'lang-html', label: 'HTML' },
+    htm: { className: 'lang-html', label: 'HTML' },
+    css: { className: 'lang-css', label: 'CSS' },
+    java: { className: 'lang-java', label: 'Java' },
+    csharp: { className: 'lang-csharp', label: 'C#' },
+    'c#': { className: 'lang-csharp', label: 'C#' },
+    cpp: { className: 'lang-cpp', label: 'C++' },
+    'c++': { className: 'lang-cpp', label: 'C++' },
+    go: { className: 'lang-go', label: 'Go' },
+    golang: { className: 'lang-go', label: 'Go' },
+    php: { className: 'lang-php', label: 'PHP' },
+    ruby: { className: 'lang-ruby', label: 'Ruby' },
+    rb: { className: 'lang-ruby', label: 'Ruby' },
+    rust: { className: 'lang-rust', label: 'Rust' },
+    json: { className: 'lang-json', label: 'JSON' },
+    sql: { className: 'lang-sql', label: 'SQL' },
+    yaml: { className: 'lang-yaml', label: 'YAML' },
+    yml: { className: 'lang-yaml', label: 'YAML' },
+    markdown: { className: 'lang-markdown', label: 'Markdown' },
+    md: { className: 'lang-markdown', label: 'Markdown' },
+    shell: { className: 'lang-shell', label: 'Shell' },
+    bash: { className: 'lang-shell', label: 'Shell' },
+    sh: { className: 'lang-shell', label: 'Shell' },
+    text: { className: 'lang-unknown', label: 'Text' }
+  };
+
+  const MARKDOWN_EXTENSIONS = new Set(['md','markdown']);
+
   function $(id){ return document.getElementById(id); }
 
   document.addEventListener('DOMContentLoaded', function(){
@@ -201,7 +244,7 @@
       results.innerHTML = '<p class="text-muted">לא נמצאו תוצאות</p>';
     } else {
       const cardsHtml = data.results.map(renderCard).join('');
-      results.innerHTML = '<div class="global-search-results" role="list">' + cardsHtml + '</div>';
+      results.innerHTML = '<div class="results-container"><div class="global-search-results" role="list">' + cardsHtml + '</div></div>';
     }
 
     renderPagination(pagination, data);
@@ -212,9 +255,8 @@
   function renderCard(r) {
     const highlighted = highlightSnippet(r.snippet, r.highlights);
     const icon = fileIcon(r.language || '');
-    const badgeClass = languageBadgeClass(r.language);
-    const langLabel = String(r.language || 'לא ידוע');
-    const badgeHtml = '<span class="global-search-lang-badge badge ' + badgeClass + '" title="שפת הקובץ">' + escapeHtml(langLabel.toUpperCase()) + '</span>';
+    const badgeMeta = languageBadgeMeta(r.language, r.file_name);
+    const badgeHtml = '<span class="global-search-lang-badge badge ' + badgeMeta.className + '" title="שפת הקובץ">' + escapeHtml(badgeMeta.label.toUpperCase()) + '</span>';
     const scoreValue = typeof r.score === 'number' ? r.score.toFixed(2) : '—';
     const sizeValue = humanSize(r.size || 0);
     const updatedValue = formatDate(r.updated_at) || '—';
@@ -349,49 +391,25 @@
     return map[m] || '📄';
   }
 
-  function languageBadgeClass(lang){
+  function languageBadgeMeta(lang, fileName){
     const normalized = String(lang || '').trim().toLowerCase();
-    if (!normalized) return 'lang-unknown';
-    const map = {
-      javascript: 'lang-js',
-      js: 'lang-js',
-      typescript: 'lang-ts',
-      ts: 'lang-ts',
-      python: 'lang-python',
-      py: 'lang-python',
-      react: 'lang-react',
-      'react (jsx)': 'lang-react',
-      jsx: 'lang-react',
-      'react.js': 'lang-react',
-      'react js': 'lang-react',
-      vue: 'lang-vue',
-      'vue.js': 'lang-vue',
-      'vue js': 'lang-vue',
-      html: 'lang-html',
-      htm: 'lang-html',
-      css: 'lang-css',
-      java: 'lang-java',
-      csharp: 'lang-csharp',
-      'c#': 'lang-csharp',
-      cpp: 'lang-cpp',
-      'c++': 'lang-cpp',
-      go: 'lang-go',
-      golang: 'lang-go',
-      php: 'lang-php',
-      ruby: 'lang-ruby',
-      rb: 'lang-ruby',
-      rust: 'lang-rust',
-      json: 'lang-json',
-      sql: 'lang-sql',
-      yaml: 'lang-yaml',
-      yml: 'lang-yaml',
-      markdown: 'lang-markdown',
-      md: 'lang-markdown',
-      shell: 'lang-shell',
-      bash: 'lang-shell',
-      sh: 'lang-shell'
-    };
-    return map[normalized] || 'lang-unknown';
+    const extension = getFileExtension(fileName);
+    if (normalized === 'text' && MARKDOWN_EXTENSIONS.has(extension)) {
+      return LANGUAGE_BADGE_MAP.markdown;
+    }
+    const direct = normalized ? LANGUAGE_BADGE_MAP[normalized] : null;
+    if (direct) return direct;
+    if (extension && LANGUAGE_BADGE_MAP[extension]) {
+      return LANGUAGE_BADGE_MAP[extension];
+    }
+    return { className: 'lang-unknown', label: lang ? String(lang) : 'לא ידוע' };
+  }
+
+  function getFileExtension(name){
+    if (!name || typeof name !== 'string') return '';
+    const lastDot = name.lastIndexOf('.');
+    if (lastDot === -1) return '';
+    return name.slice(lastDot + 1).toLowerCase();
   }
   function humanSize(bytes){ if (bytes < 1024) return bytes + ' B'; if (bytes < 1024*1024) return (bytes/1024).toFixed(1)+' KB'; return (bytes/(1024*1024)).toFixed(1)+' MB'; }
   function formatDate(s){ try{ const d=new Date(s); return d.toLocaleString('he-IL'); }catch(e){ return ''; } }
