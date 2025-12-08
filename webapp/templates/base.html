@@ -2339,7 +2339,39 @@
         }
         return window.driver.js.driver;
     }
+    function isElementTourVisible(element){
+        if (!element) {
+            return false;
+        }
+        try {
+            const rect = element.getBoundingClientRect();
+            if (rect.width <= 2 || rect.height <= 2) {
+                return false;
+            }
+            const styles = window.getComputedStyle(element);
+            if (!styles) {
+                return true;
+            }
+            if (styles.visibility === 'hidden' || styles.display === 'none') {
+                return false;
+            }
+            const opacity = parseFloat(styles.opacity || '1');
+            if (Number.isFinite(opacity) && opacity < 0.05) {
+                return false;
+            }
+            return true;
+        } catch (_) {
+            return false;
+        }
+    }
     function buildSteps(){
+        const isMobileViewport = (() => {
+            try {
+                return window.matchMedia && window.matchMedia('(max-width: 768px)').matches;
+            } catch (_) {
+                return false;
+            }
+        })();
         const steps = [];
         steps.push({
             popover: {
@@ -2372,7 +2404,7 @@
             });
         }
         const collectionsLink = document.getElementById('tourCollectionsNav');
-        if (collectionsLink) {
+        if (collectionsLink && !isMobileViewport && isElementTourVisible(collectionsLink)) {
             steps.push({
                 element: collectionsLink,
                 popover: {
