@@ -27,10 +27,12 @@ from flask_compress import Compress
 from pymongo import MongoClient, DESCENDING, ASCENDING
 from pymongo.errors import PyMongoError
 from pygments import highlight
-from pygments.lexers import get_lexer_by_name, guess_lexer
+from pygments.lexers import TextLexer, get_lexer_by_name, guess_lexer
 from pygments.util import ClassNotFound
 from pygments.formatters import HtmlFormatter
 from pygments.styles import get_style_by_name
+from bs4 import BeautifulSoup
+from markdown import Markdown
 from bson import ObjectId
 from bson.binary import Binary
 from bson.errors import InvalidId
@@ -6406,6 +6408,342 @@ def _get_user_file_by_id(db_ref, user_id: int, file_id: str) -> Optional[Dict[st
         return db_ref.code_snippets.find_one({'_id': obj_id, 'user_id': user_id})
     except Exception:
         return None
+
+
+_LIVE_PREVIEW_MAX_BYTES = 200 * 1024  # 200KB כדי למנוע תקיעות ברינדור
+_LIVE_PREVIEW_ALLOWED_SCHEMES = {"http", "https", "mailto", "tel"}
+_LIVE_PREVIEW_ALLOWED_DATA_PREFIXES = ("data:image/",)
+_LIVE_PREVIEW_BASE_ALLOWED_TAGS = {
+    "p",
+    "strong",
+    "em",
+    "ul",
+    "ol",
+    "li",
+    "pre",
+    "code",
+    "blockquote",
+    "h1",
+    "h2",
+    "h3",
+    "h4",
+    "h5",
+    "h6",
+    "table",
+    "thead",
+    "tbody",
+    "tfoot",
+    "tr",
+    "td",
+    "th",
+    "hr",
+    "br",
+    "span",
+    "div",
+    "img",
+    "a",
+    "kbd",
+    "mark",
+    "del",
+    "ins",
+    "code",
+}
+_LIVE_PREVIEW_HTML_ALLOWED_TAGS = _LIVE_PREVIEW_BASE_ALLOWED_TAGS.union(
+    {
+        "section",
+        "article",
+        "header",
+        "footer",
+        "nav",
+        "main",
+        "figure",
+        "figcaption",
+        "video",
+        "audio",
+        "source",
+        "canvas",
+        "svg",
+        "path",
+        "circle",
+        "g",
+        "small",
+        "sup",
+        "sub",
+        "label",
+        "input",
+        "textarea",
+        "button",
+        "select",
+        "option",
+        "form",
+        "fieldset",
+        "legend",
+        "details",
+        "summary",
+        "dl",
+        "dt",
+        "dd",
+        "style",
+    }
+)
+_LIVE_PREVIEW_GLOBAL_ATTRS = {
+    "class",
+    "id",
+    "dir",
+    "lang",
+    "title",
+    "role",
+    "tabindex",
+    "aria-label",
+    "aria-hidden",
+    "aria-expanded",
+    "aria-controls",
+    "aria-describedby",
+    "aria-live",
+}
+_LIVE_PREVIEW_ELEMENT_ATTRS = {
+    "a": {"href", "target", "rel"},
+    "img": {"src", "alt", "title", "width", "height", "loading"},
+    "code": {"class"},
+    "pre": {"class"},
+    "table": {"class"},
+    "td": {"colspan", "rowspan"},
+    "th": {"colspan", "rowspan", "scope"},
+    "video": {"controls", "autoplay", "loop", "muted", "poster"},
+    "audio": {"controls", "autoplay", "loop", "muted"},
+    "source": {"src", "type"},
+    "button": {"type", "disabled"},
+    "input": {"type", "name", "value", "placeholder", "checked", "disabled"},
+    "textarea": {"name", "rows", "cols", "placeholder", "disabled"},
+    "select": {"name", "multiple", "size", "disabled"},
+    "option": {"value", "selected", "disabled"},
+    "form": {"method", "action"},
+}
+_LIVE_PREVIEW_BLOCKED_TAGS = {"script", "iframe", "embed", "object", "base", "link"}
+_LIVE_PREVIEW_URL_ATTRS = {
+    "href": False,
+    "src": True,
+    "poster": True,
+    "action": False,
+}
+_PYGMENTS_PREVIEW_FORMATTER = HtmlFormatter(style="friendly", cssclass="codehilite", wrapcode=True)
+_PYGMENTS_PREVIEW_CSS = _PYGMENTS_PREVIEW_FORMATTER.get_style_defs(".codehilite")
+
+
+def _is_safe_preview_url(value: str, *, allow_data_uri: bool) -> bool:
+    val = (value or "").strip()
+    if not val:
+        return False
+    lowered = val.lower()
+    if lowered.startswith("javascript:"):
+        return False
+    if lowered.startswith("//"):
+        return False
+    if lowered.startswith("data:"):
+        if not allow_data_uri:
+            return False
+        return any(lowered.startswith(prefix) for prefix in _LIVE_PREVIEW_ALLOWED_DATA_PREFIXES)
+    if lowered.startswith(("#", "./", "../")):
+        return True
+    if lowered.startswith("/"):
+        return True
+    parsed = urlparse(val)
+    if parsed.scheme:
+        return parsed.scheme.lower() in _LIVE_PREVIEW_ALLOWED_SCHEMES
+    return True
+
+
+def _sanitize_preview_html(
+    raw_html: str,
+    *,
+    profile: str,
+) -> str:
+    """
+    Sanitizes HTML שמוחזר לתצוגה חיה.
+
+    profile:
+        - "markdown": מכלול תגיות בסיסי, ללא style.
+        - "html": מאפשר תגיות מבניות ו-attribs נוספים.
+        - "code": זהה ל-markdown אך אוכף div/span עם class.
+    """
+    if not raw_html:
+        return ""
+    allowed_tags = _LIVE_PREVIEW_BASE_ALLOWED_TAGS if profile in {"markdown", "code"} else _LIVE_PREVIEW_HTML_ALLOWED_TAGS
+    allow_inline_styles = profile == "html"
+    soup = BeautifulSoup(raw_html, "html.parser")
+    for blocked in _LIVE_PREVIEW_BLOCKED_TAGS:
+        for element in soup.find_all(blocked):
+            element.decompose()
+    for tag in soup.find_all(True):
+        name = (tag.name or "").lower()
+        if name not in allowed_tags:
+            tag.unwrap()
+            continue
+        cleaned_attrs: Dict[str, Any] = {}
+        tag_attrs = dict(tag.attrs or {})
+        allowed_for_tag = _LIVE_PREVIEW_ELEMENT_ATTRS.get(name, set())
+        for attr_name, attr_value in tag_attrs.items():
+            attr_lower = attr_name.lower()
+            if attr_lower.startswith("on"):
+                continue
+            if attr_lower == "style" and not allow_inline_styles:
+                continue
+            if attr_lower not in allowed_for_tag and attr_lower not in _LIVE_PREVIEW_GLOBAL_ATTRS:
+                if attr_lower.startswith("aria-") or attr_lower.startswith("data-"):
+                    pass
+                elif not (allow_inline_styles and attr_lower == "style"):
+                    continue
+            value = attr_value
+            if isinstance(value, list):
+                value = value[0]
+            value_str = str(value)
+            if attr_lower in _LIVE_PREVIEW_URL_ATTRS:
+                allow_data = _LIVE_PREVIEW_URL_ATTRS[attr_lower]
+                if not _is_safe_preview_url(value_str, allow_data_uri=allow_data):
+                    continue
+            cleaned_attrs[attr_lower] = value_str
+        tag.attrs = cleaned_attrs
+    return soup.decode()
+
+
+def _render_markdown_preview(text: str) -> Tuple[str, str]:
+    md = Markdown(
+        extensions=[
+            "extra",
+            "codehilite",
+            "tables",
+            "sane_lists",
+            "toc",
+            "admonition",
+        ],
+        output_format="html5",
+    )
+    try:
+        md.preprocessors.deregister("html_block")
+    except Exception:
+        pass
+    try:
+        md.inlinePatterns.deregister("html")
+    except Exception:
+        try:
+            md.inlinePatterns.deregister("inlinehtml")
+        except Exception:
+            pass
+    rendered = md.convert(text or "")
+    sanitized = _sanitize_preview_html(rendered, profile="markdown")
+    return sanitized, _PYGMENTS_PREVIEW_CSS
+
+
+def _render_code_preview(text: str, language: str) -> Tuple[str, str]:
+    code = text or ""
+    lexer = None
+    try:
+        if language:
+            lexer = get_lexer_by_name(language, stripall=False)
+    except ClassNotFound:
+        lexer = None
+    if lexer is None:
+        try:
+            lexer = guess_lexer(code)
+        except Exception:
+            lexer = TextLexer()
+    highlighted = highlight(code, lexer, _PYGMENTS_PREVIEW_FORMATTER)
+    sanitized = _sanitize_preview_html(highlighted, profile="code")
+    return sanitized, _PYGMENTS_PREVIEW_CSS
+
+
+def _render_html_preview(text: str) -> str:
+    return _sanitize_preview_html(text or "", profile="html")
+
+
+def _resolve_preview_mode(language: str, mode_hint: str) -> str:
+    normalized_hint = (mode_hint or "").strip().lower()
+    if normalized_hint in {"markdown", "html", "code"}:
+        return normalized_hint
+    if language in {"markdown", "md"}:
+        return "markdown"
+    if language in {"html", "htm"}:
+        return "html"
+    return "code"
+
+
+def _normalize_preview_language(language: Optional[str], file_name: Optional[str]) -> str:
+    lang = (language or "").strip().lower()
+    if not lang or lang == "text":
+        try:
+            detected = detect_language_from_filename(file_name or "")
+        except Exception:
+            detected = None
+        if detected:
+            lang = detected.lower()
+    return lang or "text"
+
+
+@app.route('/api/preview/live', methods=['POST'])
+@login_required
+@traced("preview.live")
+def api_live_preview():
+    """
+    רינדור לייב של תוכן העורך עבור מצב Split View.
+
+    התגובה מחזירה HTML מסונן + מידע עזר (CSS ל-Pygments וכו').
+    """
+    start = time.perf_counter()
+    payload = request.get_json(silent=True) or {}
+    if not isinstance(payload, dict):
+        payload = {}
+    content = payload.get('content')
+    if not isinstance(content, str):
+        return jsonify({'ok': False, 'error': 'missing_content'}), 400
+    normalized_content = content.replace('\r\n', '\n')
+    if not normalized_content.strip():
+        return jsonify({'ok': False, 'error': 'empty_content'}), 400
+    try:
+        payload_size = len(normalized_content.encode('utf-8'))
+    except Exception:
+        payload_size = len(normalized_content)
+    if payload_size > _LIVE_PREVIEW_MAX_BYTES:
+        return jsonify({'ok': False, 'error': 'content_too_large', 'limit': _LIVE_PREVIEW_MAX_BYTES}), 413
+    language = _normalize_preview_language(payload.get('language'), payload.get('file_name'))
+    resolved_mode = _resolve_preview_mode(language, payload.get('mode'))
+    html = ''
+    css_bundle: List[str] = []
+    presentation = 'fragment'
+    try:
+        if resolved_mode == 'markdown':
+            html, css = _render_markdown_preview(normalized_content)
+            if css:
+                css_bundle.append(css)
+        elif resolved_mode == 'html':
+            html = _render_html_preview(normalized_content)
+            presentation = 'iframe'
+        else:
+            html, css = _render_code_preview(normalized_content, language)
+            if css:
+                css_bundle.append(css)
+    except Exception as exc:
+        try:
+            logger.exception("live_preview_render_failed", extra={'mode': resolved_mode, 'error': str(exc)})
+        except Exception:
+            pass
+        return jsonify({'ok': False, 'error': 'render_failed'}), 500
+    duration_ms = int((time.perf_counter() - start) * 1000)
+    meta: Dict[str, Any] = {
+        'language': language,
+        'mode': resolved_mode,
+        'bytes': payload_size,
+        'characters': len(normalized_content),
+        'duration_ms': duration_ms,
+    }
+    if css_bundle:
+        meta['styles'] = css_bundle
+    return jsonify({
+        'ok': True,
+        'mode': resolved_mode,
+        'presentation': presentation,
+        'html': html,
+        'meta': meta,
+    })
 
 
 @app.route('/api/file/<file_id>/preview')
