@@ -82,3 +82,12 @@ Statistics Operations
 - דוחות וטבלאות פעילות מסודרות לפי זמן פעילות אחרון
 
 ראו גם: :doc:`indexing` למדריך מפורט והסברים על ``explain()``.
+
+מדריכי מודולים ייעודיים
+------------------------
+
+.. toctree::
+   :maxdepth: 1
+
+   bookmarks-manager
+   collections-manager
