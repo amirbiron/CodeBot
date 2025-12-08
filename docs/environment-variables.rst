@@ -46,25 +46,25 @@
    * - ``MONGODB_WAIT_QUEUE_TIMEOUT_MS``
      - זמן המתנה בתור ה‑Pool לפני כישלון (waitQueueTimeoutMS)
      - לא
-     - ``5000``
-     - ``5000``
+     - ``8000``
+     - ``10000``
      - Bot/WebApp
    * - ``MONGODB_SERVER_SELECTION_TIMEOUT_MS``
      - זמן בחירת שרת (serverSelectionTimeoutMS)
      - לא
-     - ``3000``
+     - ``5000``
      - ``5000``
      - Bot/WebApp
    * - ``MONGODB_SOCKET_TIMEOUT_MS``
      - זמן קצוב לקריאת/כתיבת שקע (socketTimeoutMS)
      - לא
-     - ``20000``
-     - ``30000``
+     - ``45000``
+     - ``45000``
      - Bot/WebApp
    * - ``MONGODB_CONNECT_TIMEOUT_MS``
      - זמן קצוב להתחברות (connectTimeoutMS)
      - לא
-     - ``10000``
+     - ``5000``
      - ``10000``
      - Bot/WebApp
    * - ``MONGODB_RETRY_WRITES``

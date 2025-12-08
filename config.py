@@ -49,25 +49,25 @@ class BotConfig(BaseSettings):
         description="MongoDB max idle time in ms (maxIdleTimeMS)",
     )
     MONGODB_WAIT_QUEUE_TIMEOUT_MS: int = Field(
-        default=5_000,
+        default=8_000,
         ge=0,
         le=86_400_000,
         description="MongoDB wait queue timeout in ms (waitQueueTimeoutMS)",
     )
     MONGODB_SERVER_SELECTION_TIMEOUT_MS: int = Field(
-        default=3_000,
+        default=5_000,
         ge=100,
         le=600_000,
         description="MongoDB server selection timeout in ms (serverSelectionTimeoutMS)",
     )
     MONGODB_SOCKET_TIMEOUT_MS: int = Field(
-        default=20_000,
+        default=45_000,
         ge=0,
         le=3_600_000,
         description="MongoDB socket timeout in ms (socketTimeoutMS)",
     )
     MONGODB_CONNECT_TIMEOUT_MS: int = Field(
-        default=10_000,
+        default=5_000,
         ge=0,
         le=3_600_000,
         description="MongoDB connect timeout in ms (connectTimeoutMS)",
