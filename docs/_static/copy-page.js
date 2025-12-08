@@ -134,6 +134,189 @@
         service.use(turndownPluginGfm.gfm);
       }
 
+      const inlineMarkdownFromNode = (node) => {
+        if (!node) {
+          return '';
+        }
+        const html = node.innerHTML || '';
+        if (html.trim()) {
+          try {
+            const markdown = service.turndown(html).trim();
+            if (markdown) {
+              return markdown;
+            }
+          } catch (error) {
+            /* noop */
+          }
+        }
+        return (node.textContent || '').trim();
+      };
+
+      const formatTableCell = (cell) => {
+        if (!cell) {
+          return ' ';
+        }
+        const inline = inlineMarkdownFromNode(cell);
+        if (!inline) {
+          return ' ';
+        }
+        return inline
+          .replace(/\u00a0/g, ' ')
+          .replace(/\r?\n/g, '\n')
+          .split('\n')
+          .map((line) => line.trim())
+          .filter((line, index, lines) => line || lines.length === 1)
+          .join('<br />')
+          .replace(/\|/g, '\\|');
+      };
+
+      const collectRowCells = (row) => {
+        if (!row) {
+          return [];
+        }
+        const cells = [];
+        Array.from(row.cells || []).forEach((cell) => {
+          const span = Number(cell.getAttribute('colspan') || 1);
+          const repeats = Number.isNaN(span) || span < 1 ? 1 : span;
+          const value = formatTableCell(cell);
+          for (let i = 0; i < repeats; i += 1) {
+            cells.push(value);
+          }
+        });
+        return cells;
+      };
+
+      const renderDocutilsTable = (tableNode, fallbackContent) => {
+        if (!tableNode || typeof tableNode.querySelector !== 'function') {
+          return fallbackContent;
+        }
+
+        const headerRows = tableNode.tHead
+          ? Array.from(tableNode.tHead.rows || [])
+          : [];
+        const bodyRows =
+          tableNode.tBodies && tableNode.tBodies.length
+            ? Array.from(tableNode.tBodies).reduce((acc, tbody) => {
+                const rows = Array.from(tbody.rows || []);
+                return acc.concat(rows);
+              }, [])
+            : Array.from(tableNode.rows || []).filter(
+                (row) => !headerRows.includes(row)
+              );
+
+        let headers = headerRows.length ? collectRowCells(headerRows[0]) : [];
+        let dataRows = bodyRows;
+
+        if (!headers.length && dataRows.length) {
+          headers = collectRowCells(dataRows[0]);
+          dataRows = dataRows.slice(1);
+        }
+
+        if (!headers.length) {
+          return fallbackContent;
+        }
+
+        const headerLine = `| ${headers.join(' | ')} |`;
+        const separatorLine = `| ${headers.map(() => '---').join(' | ')} |`;
+        const bodyLines = dataRows.map((row) => {
+          const rowCells = collectRowCells(row);
+          const filled = [...rowCells];
+          while (filled.length < headers.length) {
+            filled.push(' ');
+          }
+          return `| ${filled.join(' | ')} |`;
+        });
+
+        const captionNode =
+          (tableNode.caption &&
+            tableNode.caption.querySelector('.caption-text')) ||
+          tableNode.caption ||
+          null;
+        const captionText = inlineMarkdownFromNode(captionNode);
+
+        let tableMarkdown = [headerLine, separatorLine, ...bodyLines]
+          .filter((line) => Boolean(line))
+          .join('\n');
+
+        if (captionText) {
+          tableMarkdown = `**${captionText}**\n\n${tableMarkdown}`;
+        }
+
+        return `\n\n${tableMarkdown}\n\n`;
+      };
+
+      service.addRule('docutilsTables', {
+        filter(node) {
+          if (!node || node.nodeName !== 'TABLE') {
+            return false;
+          }
+          if (node.classList && node.classList.contains('docutils')) {
+            return true;
+          }
+          const className = node.className || '';
+          return /docutils|longtable|colwidths-auto/.test(className);
+        },
+        replacement(content, node) {
+          return renderDocutilsTable(node, content);
+        },
+      });
+
+      const extractMermaidContent = (node) => {
+        if (!node) {
+          return '';
+        }
+        const raw = (node.textContent || '')
+          .replace(/\u00a0/g, ' ')
+          .replace(/\t/g, '  ')
+          .replace(/\r\n/g, '\n');
+        const lines = raw.split('\n');
+        while (lines.length && !lines[0].trim()) {
+          lines.shift();
+        }
+        while (lines.length && !lines[lines.length - 1].trim()) {
+          lines.pop();
+        }
+        if (!lines.length) {
+          return '';
+        }
+        let indent = null;
+        lines.forEach((line) => {
+          if (!line.trim()) {
+            return;
+          }
+          const match = line.match(/^(\s+)/);
+          const leading = match ? match[0].length : 0;
+          indent = indent === null ? leading : Math.min(indent, leading);
+        });
+        if (indent && indent > 0) {
+          const indentPattern = new RegExp(`^\\s{0,${indent}}`);
+          for (let i = 0; i < lines.length; i += 1) {
+            lines[i] = lines[i].replace(indentPattern, '');
+          }
+        }
+        return lines.join('\n');
+      };
+
+      service.addRule('mermaidBlocks', {
+        filter(node) {
+          if (!node || !node.classList) {
+            return false;
+          }
+          const hasMermaidClass = node.classList.contains('mermaid');
+          if (!hasMermaidClass) {
+            return false;
+          }
+          return node.nodeName === 'PRE' || node.nodeName === 'DIV' || node.nodeName === 'CODE';
+        },
+        replacement(content, node) {
+          const mermaidContent = extractMermaidContent(node);
+          if (!mermaidContent) {
+            return '\n\n```mermaid\n```\n\n';
+          }
+          return `\n\n\`\`\`mermaid\n${mermaidContent}\n\`\`\`\n\n`;
+        },
+      });
+
       service.addRule('sphinxHighlightBlocks', {
         filter(node) {
           if (node.nodeName !== 'DIV') {
