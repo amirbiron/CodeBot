@@ -165,6 +165,7 @@ Code Keeper Bot - תיעוד API
    chatops/overview
    chatops/commands
    chatops/observe
+   chatops/ratelimit
    chatops/playbooks
    chatops/permissions
    chatops/troubleshooting
