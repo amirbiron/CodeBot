@@ -499,9 +499,19 @@
     textarea.style.position = 'fixed';
     textarea.style.opacity = '0';
     document.body.appendChild(textarea);
+    textarea.focus();
     textarea.select();
-    try { document.execCommand('copy'); } catch(_) {}
-    document.body.removeChild(textarea);
+    let success = false;
+    try {
+      success = document.execCommand('copy');
+    } catch (err){
+      throw err || new Error('document.execCommand(copy) failed');
+    } finally {
+      document.body.removeChild(textarea);
+    }
+    if (!success){
+      throw new Error('document.execCommand(copy) returned false');
+    }
   }
 
   function showCopyFeedback(btn, originalHtml){
