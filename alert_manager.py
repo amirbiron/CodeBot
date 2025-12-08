@@ -95,8 +95,11 @@ _MIN_SAMPLE_REQUIREMENTS = {
     "error_rate_percent": _ERROR_MIN_SAMPLE_COUNT,
     "latency_seconds": _LATENCY_MIN_SAMPLE_COUNT,
 }
+_EXTERNAL_WARNING_THRESHOLD = max(0.0, _parse_float_env("ALERT_EXTERNAL_ERROR_RATE_THRESHOLD", 20.0))
+_EXTERNAL_WARNING_MIN_SAMPLE_COUNT = max(1, _get_non_negative_int("ALERT_EXTERNAL_MIN_SAMPLE_COUNT", 5))
 
-_samples: Deque[Tuple[float, bool, float]] = deque(maxlen=200_000)  # (ts, is_error, latency_s)
+_Sample = Tuple[float, bool, float, str]
+_samples: Deque[_Sample] = deque(maxlen=200_000)  # (ts, is_error, latency_s, source)
 _error_contexts: Deque[Tuple[float, Dict[str, Any]]] = deque(maxlen=5_000)
 _ERROR_CONTEXT_WINDOW_SEC = 5 * 60
 _last_recompute_ts: float = 0.0
@@ -142,12 +145,23 @@ def _now() -> float:
     return time.time()
 
 
+def _normalize_sample_source(source: Optional[str]) -> str:
+    try:
+        text = str(source or "").strip().lower()
+    except Exception:
+        text = ""
+    if text.startswith("external"):
+        return "external"
+    return "internal"
+
+
 def note_request(
     status_code: int,
     duration_seconds: float,
     ts: Optional[float] = None,
     *,
     context: Optional[Dict[str, Any]] = None,
+    source: Optional[str] = None,
 ) -> None:
     """Record a single request sample into the 3h rolling window.
 
@@ -156,7 +170,8 @@ def note_request(
     try:
         t = float(ts if ts is not None else _now())
         is_error = int(status_code) >= 500
-        _samples.append((t, bool(is_error), max(0.0, float(duration_seconds))))
+        normalized_source = _normalize_sample_source(source)
+        _samples.append((t, bool(is_error), max(0.0, float(duration_seconds)), normalized_source))
         if is_error and context:
             _record_error_context(t, context)
         _evict_older_than(t - _WINDOW_SEC)
@@ -189,8 +204,10 @@ def _recompute_thresholds(now_ts: float) -> None:
     # Build per-minute buckets for last 3 hours
     start_ts = now_ts - _WINDOW_SEC
     per_minute: Dict[int, Dict[str, float]] = defaultdict(lambda: {"count": 0.0, "errors": 0.0, "lat_sum": 0.0})
-    for ts, is_err, lat in list(_samples):
+    for ts, is_err, lat, sample_source in list(_samples):
         if ts < start_ts:
+            continue
+        if sample_source != "internal":
             continue
         minute = int(ts // 60)
         b = per_minute[minute]
@@ -268,16 +285,31 @@ def _update_gauges(
         return
 
 
-def _collect_recent_samples(window_sec: int) -> Tuple[int, int, float]:
+def _update_external_error_rate_gauge(value: Optional[float]) -> None:
+    try:
+        from metrics import set_external_error_rate_percent  # type: ignore
+        set_external_error_rate_percent(value)
+    except Exception:
+        return
+
+
+def _collect_recent_samples(window_sec: int, source_filter: Optional[str] = None) -> Tuple[int, int, float]:
     try:
         now_ts = _now()
         start = now_ts - max(1, int(window_sec))
         total = 0
         errors = 0
         sum_lat = 0.0
-        for ts, is_err, lat in reversed(_samples):
+        target_source = None
+        if source_filter:
+            lowered = str(source_filter).strip().lower()
+            if lowered in {"internal", "external"}:
+                target_source = lowered
+        for ts, is_err, lat, sample_source in reversed(_samples):
             if ts < start:
                 break
+            if target_source is not None and sample_source != target_source:
+                continue
             total += 1
             if is_err:
                 errors += 1
@@ -290,7 +322,7 @@ def _collect_recent_samples(window_sec: int) -> Tuple[int, int, float]:
 def _sanitize_error_context(context: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
     if not isinstance(context, dict):
         return None
-    allowed_keys = ("command", "handler", "path", "method", "request_id", "user_id", "source")
+    allowed_keys = ("command", "handler", "path", "method", "request_id", "user_id", "source", "component")
     sanitized: Dict[str, str] = {}
     for key in allowed_keys:
         try:
@@ -369,8 +401,14 @@ def _build_high_error_rate_meta(
     sample_count: int,
     now_ts: float,
     window_sec: int,
+    preferred_source: Optional[str] = None,
 ) -> Dict[str, Any]:
     contexts = _recent_error_contexts(now_ts, window_sec)
+    normalized_pref = (preferred_source or "").strip().lower() or None
+    if normalized_pref:
+        filtered = [ctx for ctx in contexts if (ctx.get("source") or "internal").lower() == normalized_pref]
+        if filtered:
+            contexts = filtered
     meta: Dict[str, Any] = {
         "alert_type": "high_error_rate",
         "metric": "error_rate_percent",
@@ -407,8 +445,11 @@ def _build_high_error_rate_meta(
         if method:
             meta["method"] = method
         source = latest.get("source")
-        if source:
+        if source and "source" not in meta:
             meta["source"] = source
+        component = latest.get("component")
+        if component:
+            meta["component"] = component
         request_id = latest.get("request_id")
         if request_id:
             meta["request_id"] = request_id
@@ -446,15 +487,32 @@ def _enrich_alert_details(key: str, details: Dict[str, Any], now_ts: float) -> D
         window_sec = int(details.get("window_seconds") or _ERROR_CONTEXT_WINDOW_SEC)
     except Exception:
         window_sec = _ERROR_CONTEXT_WINDOW_SEC
-    meta = _build_high_error_rate_meta(current_pct, threshold_pct, sample_count, now_ts, window_sec)
+    preferred_source = None
+    try:
+        src = details.get("source")
+        if src:
+            preferred_source = str(src).strip().lower() or None
+    except Exception:
+        preferred_source = None
+    meta = _build_high_error_rate_meta(
+        current_pct,
+        threshold_pct,
+        sample_count,
+        now_ts,
+        window_sec,
+        preferred_source=preferred_source,
+    )
+    existing_source = details.get("source")
     details.update(meta)
+    if existing_source is not None:
+        details["source"] = existing_source
     return details
 
 
-def get_current_error_rate_percent(window_sec: int = 300) -> float:
+def get_current_error_rate_percent(window_sec: int = 300, *, source: Optional[str] = None) -> float:
     """Return error rate percent for the last window (default 5 minutes)."""
     try:
-        total, errors, _ = _collect_recent_samples(window_sec)
+        total, errors, _ = _collect_recent_samples(window_sec, source_filter=source)
         if total <= 0:
             return 0.0
         return (float(errors) / float(total)) * 100.0
@@ -462,10 +520,10 @@ def get_current_error_rate_percent(window_sec: int = 300) -> float:
         return 0.0
 
 
-def get_current_avg_latency_seconds(window_sec: int = 300) -> float:
+def get_current_avg_latency_seconds(window_sec: int = 300, *, source: Optional[str] = None) -> float:
     """Return average latency in seconds for the last window (default 5 minutes)."""
     try:
-        total, _errors, sum_lat = _collect_recent_samples(window_sec)
+        total, _errors, sum_lat = _collect_recent_samples(window_sec, source_filter=source)
         if total <= 0:
             return 0.0
         return float(sum_lat) / float(total)
@@ -485,8 +543,8 @@ def bump_threshold(kind: str, factor: float = 1.2) -> None:
         thr.threshold = current * float(factor)
         thr.updated_at_ts = _now()
         try:
-            cur_err = get_current_error_rate_percent(window_sec=5 * 60)
-            cur_lat = get_current_avg_latency_seconds(window_sec=5 * 60)
+            cur_err = get_current_error_rate_percent(window_sec=5 * 60, source="internal")
+            cur_lat = get_current_avg_latency_seconds(window_sec=5 * 60, source="internal")
         except Exception:
             cur_err = None
             cur_lat = None
@@ -528,6 +586,25 @@ def _should_fire(kind: str, value: float, sample_count: Optional[int] = None) ->
     return value > max(0.0, float(thr.threshold or 0.0))
 
 
+def _emit_warning_once(key: str, name: str, summary: str, details: Dict[str, Any], now_ts: float) -> None:
+    try:
+        details = dict(details or {})
+    except Exception:
+        details = {}
+    last = _last_alert_ts.get(key, 0.0)
+    if (now_ts - last) < _COOLDOWN_SEC:
+        return
+    _last_alert_ts[key] = now_ts
+    try:
+        from internal_alerts import emit_internal_alert  # type: ignore
+        emit_internal_alert(name=name, severity="warning", summary=summary, **details)
+    except Exception:
+        try:
+            emit_event("external_warning", severity="warning", name=name, summary=summary, **details)
+        except Exception:
+            pass
+
+
 def check_and_emit_alerts(now_ts: Optional[float] = None) -> None:
     """Evaluate current stats vs adaptive thresholds and emit critical alerts when breached.
 
@@ -538,42 +615,72 @@ def check_and_emit_alerts(now_ts: Optional[float] = None) -> None:
         _recompute_if_due(t)
 
         window_sec = 5 * 60
-        total_samples, error_samples, latency_sum = _collect_recent_samples(window_sec)
+        internal_total, internal_errors, internal_latency_sum = _collect_recent_samples(window_sec, source_filter="internal")
+        external_total, external_errors, _ = _collect_recent_samples(window_sec, source_filter="external")
 
-        # Error rate
-        cur_err_pct = (float(error_samples) / float(total_samples) * 100.0) if total_samples > 0 else 0.0
+        # Error rate (internal only)
+        cur_err_pct = (float(internal_errors) / float(internal_total) * 100.0) if internal_total > 0 else 0.0
         try:
             err_threshold = float(_thresholds.get("error_rate_percent", _MetricThreshold()).threshold or 0.0)
         except Exception:
             err_threshold = 0.0
-        if _should_fire("error_rate_percent", cur_err_pct, total_samples):
+        if internal_total > 0 and _should_fire("error_rate_percent", cur_err_pct, internal_total):
+            details = {
+                "current_percent": round(cur_err_pct, 4),
+                "sample_count": int(internal_total),
+                "error_count": int(internal_errors),
+                "threshold_percent": round(err_threshold, 4),
+                "window_seconds": int(window_sec),
+                "metric": "error_rate_percent",
+                "graph_metric": "error_rate_percent",
+                "source": "internal",
+            }
+            if external_total:
+                details["external_sample_count"] = int(external_total)
+                details["external_error_count"] = int(external_errors)
             _emit_critical_once(
                 key="error_rate_percent",
                 name="High Error Rate",
                 summary=f"error_rate={cur_err_pct:.2f}% > threshold={_thresholds['error_rate_percent'].threshold:.2f}%",
-                details={
-                    "current_percent": round(cur_err_pct, 4),
-                    "sample_count": int(total_samples),
-                    "error_count": int(error_samples),
-                    "threshold_percent": round(err_threshold, 4),
-                    "window_seconds": int(window_sec),
-                    "metric": "error_rate_percent",
-                    "graph_metric": "error_rate_percent",
-                },
+                details=details,
                 now_ts=t,
             )
 
         # Latency
-        cur_lat = (float(latency_sum) / float(total_samples)) if total_samples > 0 else 0.0
-        if _should_fire("latency_seconds", cur_lat, total_samples):
+        cur_lat = (float(internal_latency_sum) / float(internal_total)) if internal_total > 0 else 0.0
+        if internal_total > 0 and _should_fire("latency_seconds", cur_lat, internal_total):
             _emit_critical_once(
                 key="latency_seconds",
                 name="High Latency",
                 summary=f"avg_latency={cur_lat:.3f}s > threshold={_thresholds['latency_seconds'].threshold:.3f}s",
                 details={
                     "current_seconds": round(cur_lat, 4),
-                    "sample_count": int(total_samples),
+                    "sample_count": int(internal_total),
+                    "source": "internal",
                 },
+                now_ts=t,
+            )
+
+        # External tracking (warning only)
+        external_err_pct = (float(external_errors) / float(external_total) * 100.0) if external_total > 0 else 0.0
+        _update_external_error_rate_gauge(external_err_pct if external_total > 0 else 0.0)
+        if (
+            external_total >= _EXTERNAL_WARNING_MIN_SAMPLE_COUNT
+            and external_err_pct >= _EXTERNAL_WARNING_THRESHOLD
+        ):
+            warning_details = {
+                "current_percent": round(external_err_pct, 4),
+                "sample_count": int(external_total),
+                "error_count": int(external_errors),
+                "window_seconds": int(window_sec),
+                "threshold_percent": round(_EXTERNAL_WARNING_THRESHOLD, 4),
+                "source": "external",
+            }
+            _emit_warning_once(
+                key="external_error_rate_percent",
+                name="External Service Degraded",
+                summary=f"external_error_rate={external_err_pct:.2f}% > threshold={_EXTERNAL_WARNING_THRESHOLD:.2f}%",
+                details=warning_details,
                 now_ts=t,
             )
     except Exception:
