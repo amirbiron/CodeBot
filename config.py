@@ -49,7 +49,7 @@ class BotConfig(BaseSettings):
         description="MongoDB max idle time in ms (maxIdleTimeMS)",
     )
     MONGODB_WAIT_QUEUE_TIMEOUT_MS: int = Field(
-        default=5_000,
+        default=8_000,
         ge=0,
         le=86_400_000,
         description="MongoDB wait queue timeout in ms (waitQueueTimeoutMS)",
