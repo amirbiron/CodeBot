@@ -1,30 +1,223 @@
 [
   {
+    "name": "/status",
+    "type": "chatops",
+    "description": "בדיקת בריאות כללית",
+    "arguments": [],
+    "doc_link": "https://amirbiron.github.io/CodeBot/chatops/commands.html"
+  },
+  {
+    "name": "/health",
+    "type": "chatops",
+    "description": "כמו /status בדיוק",
+    "arguments": [],
+    "doc_link": "https://amirbiron.github.io/CodeBot/chatops/commands.html"
+  },
+  {
+    "name": "/uptime",
+    "type": "chatops",
+    "description": "אחוז זמינות וזמן פעילות",
+    "arguments": [],
+    "doc_link": "https://amirbiron.github.io/CodeBot/chatops/commands.html"
+  },
+  {
+    "name": "/metrics",
+    "type": "chatops",
+    "description": "קובץ מטריקות מלא (Prometheus)",
+    "arguments": [],
+    "doc_link": "https://amirbiron.github.io/CodeBot/chatops/commands.html"
+  },
+  {
+    "name": "/observe",
+    "type": "chatops",
+    "description": "סקירה מהירה של ביצועים",
+    "arguments": [
+      "--source=<db|memory|all>",
+      "--window=<5m|1h|24h>"
+    ],
+    "doc_link": "https://amirbiron.github.io/CodeBot/chatops/commands.html"
+  },
+  {
+    "name": "/observe -v",
+    "type": "chatops",
+    "description": "נתוני ביצועים מפורטים",
+    "arguments": [
+      "--source=<db|memory|all>",
+      "--window=<5m|1h|24h>"
+    ],
+    "doc_link": "https://amirbiron.github.io/CodeBot/chatops/commands.html"
+  },
+  {
+    "name": "/observe -vv",
+    "type": "chatops",
+    "description": "פירוט מלא עם מזהים",
+    "arguments": [
+      "--source=<db|memory|all>",
+      "--window=<5m|1h|24h>"
+    ],
+    "doc_link": "https://amirbiron.github.io/CodeBot/chatops/commands.html"
+  },
+  {
+    "name": "/system_info",
+    "type": "chatops",
+    "description": "מצב CPU/זיכרון/סביבה",
+    "arguments": [],
+    "doc_link": "https://amirbiron.github.io/CodeBot/chatops/commands.html"
+  },
+  {
+    "name": "/errors",
+    "type": "chatops",
+    "description": "10 השגיאות האחרונות",
+    "arguments": [
+      "--service=<שם>",
+      "--limit=<10>"
+    ],
+    "doc_link": "https://amirbiron.github.io/CodeBot/chatops/commands.html"
+  },
+  {
+    "name": "/alerts",
+    "type": "chatops",
+    "description": "5 ההתראות האחרונות",
+    "arguments": [
+      "--limit=<5>"
+    ],
+    "doc_link": "https://amirbiron.github.io/CodeBot/chatops/commands.html"
+  },
+  {
+    "name": "/incidents",
+    "type": "chatops",
+    "description": "יומן תקלות אחרונות",
+    "arguments": [],
+    "doc_link": "https://amirbiron.github.io/CodeBot/chatops/commands.html"
+  },
+  {
     "name": "/triage",
     "type": "chatops",
-    "description": "פותח סשן חקירה מהיר ומציג חריגות פעילות",
+    "description": "חקירה לפי request ID",
     "arguments": [
-      "--service=<שם שירות>",
-      "--severity=<low|high>"
+      "request_id=<ID>"
     ],
-    "doc_link": "https://amirbiron.github.io/CodeBot/chatops/commands/#triage"
+    "doc_link": "https://amirbiron.github.io/CodeBot/chatops/commands.html"
   },
   {
     "name": "/predict",
     "type": "chatops",
-    "description": "מעריך את הסבירות לתקלה קרובה לפי טלמטריה",
+    "description": "חיזוי תקלות עתידיות",
     "arguments": [
       "--env=<prod|staging>",
       "--window=<minutes>"
     ],
-    "doc_link": "https://amirbiron.github.io/CodeBot/chatops/commands/#predict"
+    "doc_link": "https://amirbiron.github.io/CodeBot/chatops/commands.html"
   },
   {
-    "name": "/status",
+    "name": "/accuracy",
     "type": "chatops",
-    "description": "מציג בריף מערכת עדכני עם זמינות שירותים",
+    "description": "דיוק החיזויים עד היום",
     "arguments": [],
-    "doc_link": "https://amirbiron.github.io/CodeBot/chatops/commands/#status"
+    "doc_link": "https://amirbiron.github.io/CodeBot/chatops/commands.html"
+  },
+  {
+    "name": "/rate_limit",
+    "type": "chatops",
+    "description": "מצב מכסת GitHub API",
+    "arguments": [],
+    "doc_link": "https://amirbiron.github.io/CodeBot/chatops/commands.html"
+  },
+  {
+    "name": "/enable_backoff",
+    "type": "chatops",
+    "description": "הפעלת מצב חיסכון API",
+    "arguments": [],
+    "doc_link": "https://amirbiron.github.io/CodeBot/chatops/commands.html"
+  },
+  {
+    "name": "/disable_backoff",
+    "type": "chatops",
+    "description": "ביטול מצב חסכון",
+    "arguments": [],
+    "doc_link": "https://amirbiron.github.io/CodeBot/chatops/commands.html"
+  },
+  {
+    "name": "/sen",
+    "type": "chatops",
+    "description": "קישור מהיר ל-Sentry",
+    "arguments": [],
+    "doc_link": "https://amirbiron.github.io/CodeBot/chatops/commands.html"
+  },
+  {
+    "name": "/silence",
+    "type": "chatops",
+    "description": "השתקת התראות לזמן קצוב",
+    "arguments": [
+      "<משך>",
+      "[reason]"
+    ],
+    "doc_link": "https://amirbiron.github.io/CodeBot/chatops/commands.html"
+  },
+  {
+    "name": "/unsilence",
+    "type": "chatops",
+    "description": "ביטול השתקה קיימת",
+    "arguments": [
+      "<id|all>"
+    ],
+    "doc_link": "https://amirbiron.github.io/CodeBot/chatops/commands.html"
+  },
+  {
+    "name": "/silences",
+    "type": "chatops",
+    "description": "רשימת השתקות פעילות",
+    "arguments": [],
+    "doc_link": "https://amirbiron.github.io/CodeBot/chatops/commands.html"
+  },
+  {
+    "name": "/cache_stats",
+    "type": "chatops",
+    "description": "סטטיסטיקות cache מלאות",
+    "arguments": [],
+    "doc_link": "https://amirbiron.github.io/CodeBot/chatops/commands.html"
+  },
+  {
+    "name": "/clear_cache",
+    "type": "chatops",
+    "description": "ניקוי ה-cache של המשתמש",
+    "arguments": [],
+    "doc_link": "https://amirbiron.github.io/CodeBot/chatops/commands.html"
+  },
+  {
+    "name": "/cache_warm",
+    "type": "chatops",
+    "description": "חימום cache לנתונים נפוצים",
+    "arguments": [],
+    "doc_link": "https://amirbiron.github.io/CodeBot/chatops/commands.html"
+  },
+  {
+    "name": "/lang",
+    "type": "chatops",
+    "description": "קובע במהירות את שפת הקובץ/הקוד שנשלח לבוט",
+    "arguments": [
+      "<file_name>"
+    ],
+    "doc_link": "https://amirbiron.github.io/CodeBot/chatops/commands.html"
+  },
+  {
+    "name": "/lang_debug",
+    "type": "chatops",
+    "description": "מציג נימוק מפורט לבחירת הזיהוי של /lang ואותות שאותרו",
+    "arguments": [
+      "<file_name>"
+    ],
+    "doc_link": "https://amirbiron.github.io/CodeBot/chatops/commands.html"
+  },
+  {
+    "name": "/dm",
+    "type": "chatops",
+    "description": "שליחת הודעה פרטית למשתמש ספציפי לצורכי תמיכה או הודעה",
+    "arguments": [
+      "<user_id|@username>",
+      "<message>"
+    ],
+    "doc_link": "https://amirbiron.github.io/CodeBot/chatops/commands.html"
   },
   {
     "name": "./scripts/deploy.sh",
@@ -33,15 +226,13 @@
     "arguments": [
       "--env=<prod|staging>",
       "--no-tests"
-    ],
-    "doc_link": "https://amirbiron.github.io/CodeBot/cli/deploy/"
+    ]
   },
   {
     "name": "./scripts/sync_docs.sh",
     "type": "cli",
     "description": "דחיפת עדכוני תיעוד ידניים ל-RTD ול-Docs CDN",
-    "arguments": [],
-    "doc_link": "https://amirbiron.github.io/CodeBot/cli/docs-sync/"
+    "arguments": []
   },
   {
     "name": "playbooks/restart-search.yml",
@@ -50,8 +241,7 @@
     "arguments": [
       "--dry-run",
       "--region=<eu|us>"
-    ],
-    "doc_link": "https://amirbiron.github.io/CodeBot/playbooks/restart-search/"
+    ]
   },
   {
     "name": "./scripts/db/backup.sh",
@@ -60,17 +250,6 @@
     "arguments": [
       "--output=/tmp/backups",
       "--compress"
-    ],
-    "doc_link": "https://amirbiron.github.io/CodeBot/cli/db-backup/"
-  },
-  {
-    "name": "/errors",
-    "type": "chatops",
-    "description": "מציג רשימת תקלות רצות עם פרטי alert רלוונטיים",
-    "arguments": [
-      "--service=<שם>",
-      "--limit=<10>"
-    ],
-    "doc_link": "https://amirbiron.github.io/CodeBot/chatops/commands/#errors"
+    ]
   }
 ]
