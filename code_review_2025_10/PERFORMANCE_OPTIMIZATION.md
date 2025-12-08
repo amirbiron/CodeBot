@@ -28,6 +28,20 @@ def get_user_files(self, user_id: int):
 
 ## 🔍 בעיות ביצועים שזוהו
 
+### Sticky Notes Warmup – Gunicorn Timeout + חימום אינדקסים
+
+- **הסימפטום:** `/api/sticky-notes/reminders/summary` קפץ ל־timeouts משום ש-`_ensure_indexes()` ננעל על `_db_lock` בכל בקשה ולא בוצע warmup בעת עליית השירות.
+- **הפתרון הבסיסי שהוכיח את עצמו בשטח:** העלאת ה-timeout של Gunicorn ל־180 שניות מיד בלמה את התקיעות והחזירה את חוויית המשתמש לרספונסיבית בכל הקלקה:
+
+  ```bash
+  export GUNICORN_CMD_ARGS="--timeout 180 --graceful-timeout 180"
+  ```
+
+- **שיפור קוד מבני (כעת בהרצה מבוקרת):** הוספת routine של warmup לפני שהworker מקבל תעבורה. הוא מפעיל פעם אחת את `_ensure_indexes()`, שומר דגל גלובלי/Redis בשם `sticky_notes_indexes_ready_v1`, ומונע ריצות חוזרות של בניית אינדקסים בכל request.
+- **איפוס הדגל בעת שינוי אינדקסים:** אחרי שינוי סכימה/אינדקסים חובה למחוק את המפתח `sticky_notes_indexes_ready_v1` (לדוגמה: `redis-cli DEL sticky_notes_indexes_ready_v1`) או לעדכן את הגרסה בדגל כדי לאלץ warmup מחדש.
+- **מה לאמת לפני rollout מלא:** להריץ rollout קטן או Staging smoke, לוודא שהלוג `sticky_indexes_warmup` מופיע פעם אחת בלבד ושזמני התגובה נשארים נמוכים לפני שמסתמכים רק על החימום.
+- **מדיניות המשך:** גם לאחר שהחימום יוכרז יציב, מומלץ להשאיר timeout נדיב ב-Gunicorn כדי לכסות cold start איטי או rebuild חריג.
+
 ### 1. MongoDB Queries לא מאופטמות
 
 ```python
