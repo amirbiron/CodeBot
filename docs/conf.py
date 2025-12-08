@@ -166,5 +166,7 @@ latex_elements = {
 def setup(app):
     app.add_css_file('custom.css')
     # כפתור העתקת דף מלא (ראו docs/_static/copy-page.js)
+    app.add_js_file('vendor/turndown.umd.js')
+    app.add_js_file('vendor/turndown-plugin-gfm.js')
     app.add_js_file('copy-page.js')
 
