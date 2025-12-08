@@ -1,0 +1,29 @@
+<svg width="760" height="260" viewBox="0 0 760 260" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="title desc">
+  <title id="title">WebApp onboarding flow</title>
+  <desc id="desc">ﬁ·—ŸË –Í ·”Ë ‘‰‚‹Í Welcome Modal, Interactive Tour ’-Theme Wizard</desc>
+  <defs>
+    <marker id="arrow" markerWidth="12" markerHeight="12" refX="6" refY="6" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L12,6 L0,12 z" fill="#4c82ff" />
+    </marker>
+  </defs>
+  <rect width="760" height="260" rx="24" fill="#0f172a" />
+  <rect x="40" y="70" width="180" height="120" rx="18" fill="#1f2937" stroke="#4c82ff" stroke-width="2" />
+  <text x="130" y="115" text-anchor="middle" fill="#f8fafc" font-family="'Assistant','Heebo',sans-serif" font-size="20" font-weight="600">Welcome Modal</text>
+  <text x="130" y="140" text-anchor="middle" fill="#cbd5f5" font-family="'Assistant','Heebo',sans-serif" font-size="14">ﬁÁ’Ë: webapp/templates/base.html</text>
+  <text x="130" y="164" text-anchor="middle" fill="#94a3b8" font-family="'Assistant','Heebo',sans-serif" font-size="14">”“‹: has_seen_welcome_modal</text>
+  <rect x="290" y="40" width="210" height="180" rx="18" fill="#1f2937" stroke="#f59e0b" stroke-width="2" />
+  <text x="395" y="95" text-anchor="middle" fill="#fdf4e7" font-family="'Assistant','Heebo',sans-serif" font-size="20" font-weight="600">Interactive Tour</text>
+  <text x="395" y="120" text-anchor="middle" fill="#fde68a" font-family="'Assistant','Heebo',sans-serif" font-size="14">Driver.js + localStorage: codekeeper_walkthrough_v1</text>
+  <text x="395" y="144" text-anchor="middle" fill="#fcd34d" font-family="'Assistant','Heebo',sans-serif" font-size="14">Console API: window.CodeKeeperTour</text>
+  <rect x="540" y="70" width="180" height="120" rx="18" fill="#1f2937" stroke="#34d399" stroke-width="2" />
+  <text x="630" y="110" text-anchor="middle" fill="#d1fae5" font-family="'Assistant','Heebo',sans-serif" font-size="20" font-weight="600">Theme Wizard</text>
+  <text x="630" y="135" text-anchor="middle" fill="#a7f3d0" font-family="'Assistant','Heebo',sans-serif" font-size="14">ﬁ‰Í◊: theme_wizard_seen</text>
+  <text x="630" y="159" text-anchor="middle" fill="#6ee7b7" font-family="'Assistant','Heebo',sans-serif" font-size="14">API: POST /api/ui_prefs</text>
+  <path d="M220 130 L290 130" stroke="#4c82ff" stroke-width="4" marker-end="url(#arrow)" />
+  <path d="M500 130 L540 130" stroke="#4c82ff" stroke-width="4" marker-end="url(#arrow)" />
+  <text x="255" y="118" text-anchor="middle" fill="#cbd5f5" font-family="'Assistant','Heebo',sans-serif" font-size="13">MutationObserver</text>
+  <text x="255" y="140" text-anchor="middle" fill="#94a3b8" font-family="'Assistant','Heebo',sans-serif" font-size="13">waitForWelcomeModal()</text>
+  <text x="520" y="118" text-anchor="middle" fill="#cbd5f5" font-family="'Assistant','Heebo',sans-serif" font-size="13">ThemeWizard.watchDriver()</text>
+  <text x="520" y="140" text-anchor="middle" fill="#94a3b8" font-family="'Assistant','Heebo',sans-serif" font-size="13">‰ÍŸ◊‘ –◊ËŸ È‘·Ÿ’Ë ‡·“Ë</text>
+  <text x="380" y="215" text-anchor="middle" fill="#7dd3fc" font-family="'Assistant','Heebo',sans-serif" font-size="14">Fallback: ?tour=restart / ?theme_wizard=restart</text>
+</svg>
