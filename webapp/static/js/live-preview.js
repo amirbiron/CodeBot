@@ -411,7 +411,12 @@
       }
       if (this.fileNameInput) {
         ['input', 'change', 'blur'].forEach((evt) => {
-          this.fileNameInput.addEventListener(evt, () => this.updatePreviewAvailability());
+          this.fileNameInput.addEventListener(evt, () => {
+            this.updatePreviewAvailability();
+            if (this.state.enabled) {
+              this.scheduleUpdate(true);
+            }
+          });
         });
       }
       this.setupTabs();
