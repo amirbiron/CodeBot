@@ -206,6 +206,8 @@
   function renderCard(r) {
     const highlighted = highlightSnippet(r.snippet, r.highlights);
     const icon = fileIcon(r.language || '');
+    const badgeClass = languageBadgeClass(r.language);
+    const badgeHtml = '<span class="global-search-lang-badge badge ' + badgeClass + '">' + escapeHtml(r.language || 'לא ידוע') + '</span>';
 
     // מבנה כרטיס מעודכן – ממורכז ורספונסיבי, עם טיפול בגלישת טקסט
     return (
@@ -217,7 +219,7 @@
                 icon + ' <a href="/file/' + r.file_id + '" target="_blank" class="text-truncate d-inline-block" style="max-width: calc(100% - 50px);">' +
                 escapeHtml(r.file_name || '') +
                 '</a>' +
-                ' <span class="badge badge-secondary ml-2">' + escapeHtml(r.language || '') + '</span>' +
+                ' ' + badgeHtml +
               '</h6>' +
               '<div class="code-snippet-wrapper">' +
                 '<div class="code-snippet bg-light p-3 rounded">' +
@@ -316,8 +318,76 @@
 
   function fileIcon(lang){
     const m = String(lang||'').toLowerCase();
-    const map = { python:'🐍', javascript:'📜', java:'☕', cpp:'⚙️', html:'🌐', css:'🎨', sql:'🗄️', json:'📋', xml:'📄', markdown:'📝' };
+    const map = {
+      python:'🐍',
+      javascript:'📜',
+      typescript:'📘',
+      java:'☕',
+      cpp:'⚙️',
+      'c++':'⚙️',
+      csharp:'💠',
+      'c#':'💠',
+      go:'💎',
+      golang:'💎',
+      html:'🌐',
+      css:'🎨',
+      sql:'🗄️',
+      json:'📋',
+      xml:'📄',
+      markdown:'📝',
+      md:'📝',
+      ruby:'💎',
+      php:'🐘',
+      rust:'🦀',
+      shell:'💻',
+      bash:'💻'
+    };
     return map[m] || '📄';
+  }
+
+  function languageBadgeClass(lang){
+    const normalized = String(lang || '').trim().toLowerCase();
+    if (!normalized) return 'lang-unknown';
+    const map = {
+      javascript: 'lang-js',
+      js: 'lang-js',
+      typescript: 'lang-ts',
+      ts: 'lang-ts',
+      python: 'lang-python',
+      py: 'lang-python',
+      react: 'lang-react',
+      'react (jsx)': 'lang-react',
+      jsx: 'lang-react',
+      'react.js': 'lang-react',
+      'react js': 'lang-react',
+      vue: 'lang-vue',
+      'vue.js': 'lang-vue',
+      'vue js': 'lang-vue',
+      html: 'lang-html',
+      htm: 'lang-html',
+      css: 'lang-css',
+      java: 'lang-java',
+      csharp: 'lang-csharp',
+      'c#': 'lang-csharp',
+      cpp: 'lang-cpp',
+      'c++': 'lang-cpp',
+      go: 'lang-go',
+      golang: 'lang-go',
+      php: 'lang-php',
+      ruby: 'lang-ruby',
+      rb: 'lang-ruby',
+      rust: 'lang-rust',
+      json: 'lang-json',
+      sql: 'lang-sql',
+      yaml: 'lang-yaml',
+      yml: 'lang-yaml',
+      markdown: 'lang-markdown',
+      md: 'lang-markdown',
+      shell: 'lang-shell',
+      bash: 'lang-shell',
+      sh: 'lang-shell'
+    };
+    return map[normalized] || 'lang-unknown';
   }
   function humanSize(bytes){ if (bytes < 1024) return bytes + ' B'; if (bytes < 1024*1024) return (bytes/1024).toFixed(1)+' KB'; return (bytes/(1024*1024)).toFixed(1)+' MB'; }
   function formatDate(s){ try{ const d=new Date(s); return d.toLocaleString('he-IL'); }catch(e){ return ''; } }

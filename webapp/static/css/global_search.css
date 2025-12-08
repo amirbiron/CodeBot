@@ -298,3 +298,204 @@
   .search-and-filters{ padding:1rem 1.5rem; }
   .search-result-card{ width:92%; }
 }
+
+/* ============================================
+   🎨 Global Search Language Badges
+   ============================================ */
+:root{
+  /* Hue & Saturation per language */
+  --js-h:48; --js-s:90%;
+  --ts-h:211; --ts-s:60%;
+  --python-h:210; --python-s:50%;
+  --react-h:190; --react-s:100%;
+  --vue-h:145; --vue-s:60%;
+  --html-h:15; --html-s:80%;
+  --css-h:207; --css-s:73%;
+  --java-h:35; --java-s:85%;
+  --csharp-h:145; --csharp-s:60%;
+  --cpp-h:340; --cpp-s:88%;
+  --go-h:190; --go-s:100%;
+  --php-h:230; --php-s:35%;
+  --ruby-h:4; --ruby-s:85%;
+  --rust-h:22; --rust-s:75%;
+  --json-h:48; --json-s:90%;
+  --sql-h:30; --sql-s:100%;
+  --yaml-h:338; --yaml-s:70%;
+  --markdown-h:220; --markdown-s:85%;
+  --shell-h:130; --shell-s:50%;
+
+  /* Default (fallback) lightness */
+  --lang-js: hsl(var(--js-h), var(--js-s), 60%);
+  --lang-ts: hsl(var(--ts-h), var(--ts-s), 50%);
+  --lang-python: hsl(var(--python-h), var(--python-s), 50%);
+  --lang-react: hsl(var(--react-h), var(--react-s), 55%);
+  --lang-vue: hsl(var(--vue-h), var(--vue-s), 55%);
+  --lang-html: hsl(var(--html-h), var(--html-s), 60%);
+  --lang-css: hsl(var(--css-h), var(--css-s), 55%);
+  --lang-java: hsl(var(--java-h), var(--java-s), 55%);
+  --lang-csharp: hsl(var(--csharp-h), var(--csharp-s), 55%);
+  --lang-cpp: hsl(var(--cpp-h), var(--cpp-s), 60%);
+  --lang-go: hsl(var(--go-h), var(--go-s), 55%);
+  --lang-php: hsl(var(--php-h), var(--php-s), 55%);
+  --lang-ruby: hsl(var(--ruby-h), var(--ruby-s), 55%);
+  --lang-rust: hsl(var(--rust-h), var(--rust-s), 60%);
+  --lang-json: hsl(var(--json-h), var(--json-s), 60%);
+  --lang-sql: hsl(var(--sql-h), var(--sql-s), 55%);
+  --lang-yaml: hsl(var(--yaml-h), var(--yaml-s), 55%);
+  --lang-markdown: hsl(var(--markdown-h), var(--markdown-s), 55%);
+  --lang-shell: hsl(var(--shell-h), var(--shell-s), 55%);
+}
+
+:root[data-theme="classic"]{
+  --lang-js: hsl(var(--js-h), var(--js-s), 75%);
+  --lang-ts: hsl(45, 85%, 70%);
+  --lang-python: hsl(45, 90%, 75%);
+  --lang-react: hsl(320, 70%, 70%);
+  --lang-vue: hsl(var(--vue-h), var(--vue-s), 65%);
+  --lang-html: hsl(var(--html-h), var(--html-s), 70%);
+  --lang-css: hsl(280, 65%, 75%);
+  --lang-java: hsl(var(--java-h), var(--java-s), 65%);
+  --lang-csharp: hsl(var(--csharp-h), var(--csharp-s), 65%);
+  --lang-cpp: hsl(var(--cpp-h), var(--cpp-s), 70%);
+  --lang-go: hsl(320, 70%, 70%);
+  --lang-php: hsl(280, 65%, 75%);
+  --lang-ruby: hsl(var(--ruby-h), var(--ruby-s), 65%);
+  --lang-rust: hsl(var(--rust-h), var(--rust-s), 70%);
+  --lang-json: hsl(var(--json-h), var(--json-s), 75%);
+  --lang-sql: hsl(var(--sql-h), var(--sql-s), 65%);
+  --lang-yaml: hsl(var(--yaml-h), var(--yaml-s), 70%);
+  --lang-markdown: hsl(280, 70%, 75%);
+  --lang-shell: hsl(48, 100%, 70%);
+}
+
+:root[data-theme="ocean"],
+:root[data-theme="rose-pine-dawn"]{
+  --lang-js: hsl(var(--js-h), var(--js-s), 40%);
+  --lang-ts: hsl(var(--ts-h), var(--ts-s), 40%);
+  --lang-python: hsl(var(--python-h), var(--python-s), 35%);
+  --lang-react: hsl(var(--react-h), var(--react-s), 40%);
+  --lang-vue: hsl(var(--vue-h), var(--vue-s), 35%);
+  --lang-html: hsl(var(--html-h), var(--html-s), 45%);
+  --lang-css: hsl(var(--css-h), var(--css-s), 45%);
+  --lang-java: hsl(var(--java-h), var(--java-s), 40%);
+  --lang-csharp: hsl(var(--csharp-h), var(--csharp-s), 35%);
+  --lang-cpp: hsl(var(--cpp-h), var(--cpp-s), 50%);
+  --lang-go: hsl(var(--go-h), var(--go-s), 40%);
+  --lang-php: hsl(var(--php-h), var(--php-s), 35%);
+  --lang-ruby: hsl(var(--ruby-h), var(--ruby-s), 35%);
+  --lang-rust: hsl(var(--rust-h), var(--rust-s), 35%);
+  --lang-json: hsl(var(--json-h), var(--json-s), 40%);
+  --lang-sql: hsl(var(--sql-h), var(--sql-s), 40%);
+  --lang-yaml: hsl(var(--yaml-h), var(--yaml-s), 40%);
+  --lang-markdown: hsl(var(--markdown-h), var(--markdown-s), 35%);
+  --lang-shell: hsl(var(--shell-h), var(--shell-s), 35%);
+}
+
+:root[data-theme="forest"]{
+  --lang-js: hsl(var(--js-h), var(--js-s), 40%);
+  --lang-ts: hsl(var(--ts-h), var(--ts-s), 40%);
+  --lang-python: hsl(var(--python-h), var(--python-s), 35%);
+  --lang-react: hsl(var(--react-h), var(--react-s), 40%);
+  --lang-vue: hsl(280, 70%, 65%);
+  --lang-html: hsl(var(--html-h), var(--html-s), 45%);
+  --lang-css: hsl(var(--css-h), var(--css-s), 45%);
+  --lang-java: hsl(var(--java-h), var(--java-s), 40%);
+  --lang-csharp: hsl(280, 70%, 65%);
+  --lang-cpp: hsl(var(--cpp-h), var(--cpp-s), 50%);
+  --lang-go: hsl(var(--go-h), var(--go-s), 40%);
+  --lang-php: hsl(var(--php-h), var(--php-s), 35%);
+  --lang-ruby: hsl(var(--ruby-h), var(--ruby-s), 35%);
+  --lang-rust: hsl(var(--rust-h), var(--rust-s), 35%);
+  --lang-json: hsl(var(--json-h), var(--json-s), 40%);
+  --lang-sql: hsl(var(--sql-h), var(--sql-s), 40%);
+  --lang-yaml: hsl(var(--yaml-h), var(--yaml-s), 40%);
+  --lang-markdown: hsl(var(--markdown-h), var(--markdown-s), 35%);
+  --lang-shell: hsl(48, 100%, 60%);
+}
+
+:root[data-theme="dark"],
+:root[data-theme="dim"],
+:root[data-theme="nebula"]{
+  --lang-js: hsl(var(--js-h), var(--js-s), 65%);
+  --lang-ts: hsl(var(--ts-h), var(--ts-s), 60%);
+  --lang-python: hsl(var(--python-h), var(--python-s), 70%);
+  --lang-react: hsl(var(--react-h), var(--react-s), 55%);
+  --lang-vue: hsl(var(--vue-h), var(--vue-s), 60%);
+  --lang-html: hsl(var(--html-h), var(--html-s), 65%);
+  --lang-css: hsl(var(--css-h), var(--css-s), 60%);
+  --lang-java: hsl(var(--java-h), var(--java-s), 60%);
+  --lang-csharp: hsl(var(--csharp-h), var(--csharp-s), 60%);
+  --lang-cpp: hsl(var(--cpp-h), var(--cpp-s), 65%);
+  --lang-go: hsl(var(--go-h), var(--go-s), 55%);
+  --lang-php: hsl(var(--php-h), var(--php-s), 60%);
+  --lang-ruby: hsl(var(--ruby-h), var(--ruby-s), 60%);
+  --lang-rust: hsl(var(--rust-h), var(--rust-s), 65%);
+  --lang-json: hsl(var(--json-h), var(--json-s), 65%);
+  --lang-sql: hsl(var(--sql-h), var(--sql-s), 60%);
+  --lang-yaml: hsl(var(--yaml-h), var(--yaml-s), 65%);
+  --lang-markdown: hsl(var(--markdown-h), var(--markdown-s), 60%);
+  --lang-shell: hsl(var(--shell-h), var(--shell-s), 60%);
+}
+
+:root[data-theme="high-contrast"]{
+  --lang-js:#ffff00;
+  --lang-ts:#00ffff;
+  --lang-python:#00ff00;
+  --lang-react:#00ffff;
+  --lang-vue:#00ff00;
+  --lang-html:#ff6600;
+  --lang-css:#00ffff;
+  --lang-java:#ffff00;
+  --lang-csharp:#00ff00;
+  --lang-cpp:#ff00ff;
+  --lang-go:#00ffff;
+  --lang-php:#ff00ff;
+  --lang-ruby:#ff0000;
+  --lang-rust:#ff6600;
+  --lang-json:#ffff00;
+  --lang-sql:#ffff00;
+  --lang-yaml:#ff00ff;
+  --lang-markdown:#00ffff;
+  --lang-shell:#00ff00;
+}
+
+.global-search-lang-badge{
+  font-size:0.75rem;
+  padding:4px 8px;
+  border-radius:6px;
+  font-weight:700;
+  text-transform:uppercase;
+  letter-spacing:0.5px;
+  display:inline-flex;
+  align-items:center;
+  gap:0.25rem;
+  line-height:1;
+  transition:background .2s ease, color .2s ease, border-color .2s ease;
+}
+
+.global-search-lang-badge:empty{display:none;}
+
+.global-search-lang-badge.lang-js{ background: color-mix(in srgb, var(--lang-js) 15%, transparent); color: var(--lang-js); border: 1px solid color-mix(in srgb, var(--lang-js) 30%, transparent); }
+.global-search-lang-badge.lang-ts{ background: color-mix(in srgb, var(--lang-ts) 15%, transparent); color: var(--lang-ts); border: 1px solid color-mix(in srgb, var(--lang-ts) 30%, transparent); }
+.global-search-lang-badge.lang-python{ background: color-mix(in srgb, var(--lang-python) 15%, transparent); color: var(--lang-python); border: 1px solid color-mix(in srgb, var(--lang-python) 30%, transparent); }
+.global-search-lang-badge.lang-react{ background: color-mix(in srgb, var(--lang-react) 15%, transparent); color: var(--lang-react); border: 1px solid color-mix(in srgb, var(--lang-react) 30%, transparent); }
+.global-search-lang-badge.lang-vue{ background: color-mix(in srgb, var(--lang-vue) 15%, transparent); color: var(--lang-vue); border: 1px solid color-mix(in srgb, var(--lang-vue) 30%, transparent); }
+.global-search-lang-badge.lang-html{ background: color-mix(in srgb, var(--lang-html) 15%, transparent); color: var(--lang-html); border: 1px solid color-mix(in srgb, var(--lang-html) 30%, transparent); }
+.global-search-lang-badge.lang-css{ background: color-mix(in srgb, var(--lang-css) 15%, transparent); color: var(--lang-css); border: 1px solid color-mix(in srgb, var(--lang-css) 30%, transparent); }
+.global-search-lang-badge.lang-java{ background: color-mix(in srgb, var(--lang-java) 15%, transparent); color: var(--lang-java); border: 1px solid color-mix(in srgb, var(--lang-java) 30%, transparent); }
+.global-search-lang-badge.lang-csharp{ background: color-mix(in srgb, var(--lang-csharp) 15%, transparent); color: var(--lang-csharp); border: 1px solid color-mix(in srgb, var(--lang-csharp) 30%, transparent); }
+.global-search-lang-badge.lang-cpp{ background: color-mix(in srgb, var(--lang-cpp) 15%, transparent); color: var(--lang-cpp); border: 1px solid color-mix(in srgb, var(--lang-cpp) 30%, transparent); }
+.global-search-lang-badge.lang-go{ background: color-mix(in srgb, var(--lang-go) 15%, transparent); color: var(--lang-go); border: 1px solid color-mix(in srgb, var(--lang-go) 30%, transparent); }
+.global-search-lang-badge.lang-php{ background: color-mix(in srgb, var(--lang-php) 15%, transparent); color: var(--lang-php); border: 1px solid color-mix(in srgb, var(--lang-php) 30%, transparent); }
+.global-search-lang-badge.lang-ruby{ background: color-mix(in srgb, var(--lang-ruby) 15%, transparent); color: var(--lang-ruby); border: 1px solid color-mix(in srgb, var(--lang-ruby) 30%, transparent); }
+.global-search-lang-badge.lang-rust{ background: color-mix(in srgb, var(--lang-rust) 15%, transparent); color: var(--lang-rust); border: 1px solid color-mix(in srgb, var(--lang-rust) 30%, transparent); }
+.global-search-lang-badge.lang-json{ background: color-mix(in srgb, var(--lang-json) 15%, transparent); color: var(--lang-json); border: 1px solid color-mix(in srgb, var(--lang-json) 30%, transparent); }
+.global-search-lang-badge.lang-sql{ background: color-mix(in srgb, var(--lang-sql) 15%, transparent); color: var(--lang-sql); border: 1px solid color-mix(in srgb, var(--lang-sql) 30%, transparent); }
+.global-search-lang-badge.lang-yaml{ background: color-mix(in srgb, var(--lang-yaml) 15%, transparent); color: var(--lang-yaml); border: 1px solid color-mix(in srgb, var(--lang-yaml) 30%, transparent); }
+.global-search-lang-badge.lang-markdown{ background: color-mix(in srgb, var(--lang-markdown) 15%, transparent); color: var(--lang-markdown); border: 1px solid color-mix(in srgb, var(--lang-markdown) 30%, transparent); }
+.global-search-lang-badge.lang-shell{ background: color-mix(in srgb, var(--lang-shell) 15%, transparent); color: var(--lang-shell); border: 1px solid color-mix(in srgb, var(--lang-shell) 30%, transparent); }
+.global-search-lang-badge.lang-unknown{
+  background:color-mix(in srgb, var(--text-muted, #999) 15%, transparent);
+  color:var(--text-muted, #999);
+  border:1px solid color-mix(in srgb, var(--text-muted, #999) 35%, transparent);
+}
