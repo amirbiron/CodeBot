@@ -68,5 +68,50 @@
       "--limit=<10>"
     ],
     "doc_link": "https://amirbiron.github.io/CodeBot/chatops/commands.html"
+  },
+  {
+    "name": "/observe",
+    "type": "chatops",
+    "description": "צילום מצב מפורט של בריאות המערכת כולל חלונות זמן ומקורות",
+    "arguments": [
+      "--source=<db|memory|all>",
+      "--window=<5m|1h|24h>"
+    ],
+    "doc_link": "https://amirbiron.github.io/CodeBot/chatops/commands.html"
+  },
+  {
+    "name": "/rate_limit",
+    "type": "chatops",
+    "description": "בדיקת מגבלות קצב פעילות ועדכון המלצות דילול",
+    "arguments": [],
+    "doc_link": "https://amirbiron.github.io/CodeBot/chatops/commands.html"
+  },
+  {
+    "name": "/lang",
+    "type": "chatops",
+    "description": "קובע במהירות את שפת הקובץ/הקוד שנשלח לבוט",
+    "arguments": [
+      "<file_name>"
+    ],
+    "doc_link": "https://amirbiron.github.io/CodeBot/chatops/commands.html"
+  },
+  {
+    "name": "/lang_debug",
+    "type": "chatops",
+    "description": "מציג נימוק מפורט לבחירת הזיהוי של /lang ואותות שאותרו",
+    "arguments": [
+      "<file_name>"
+    ],
+    "doc_link": "https://amirbiron.github.io/CodeBot/chatops/commands.html"
+  },
+  {
+    "name": "/dm",
+    "type": "chatops",
+    "description": "שליחת הודעה פרטית למשתמש ספציפי לצורכי תמיכה או הודעה",
+    "arguments": [
+      "<user_id|@username>",
+      "<message>"
+    ],
+    "doc_link": "https://amirbiron.github.io/CodeBot/chatops/commands.html"
   }
 ]
