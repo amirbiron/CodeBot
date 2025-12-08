@@ -18,7 +18,11 @@
     '.rst-breadcrumbs-buttons',
     'script',
     'style',
+    '.headerlink',
+    '.toc-backref',
+    '.viewcode-block',
   ];
+  const MARKDOWN_NEWLINE_REGEX = /\n{3,}/g;
 
   const createControls = () => {
     const container = document.createElement('div');
@@ -70,11 +74,128 @@
   const normalizeText = (text) =>
     text.replace(/\u00a0/g, ' ').replace(/\n{3,}/g, '\n\n').trim();
 
-  const extractArticleText = (articleNode) => {
-    const clone = articleNode.cloneNode(true);
+  const detectCodeLanguage = (node) => {
+    if (!node) {
+      return '';
+    }
+    if (node.dataset && node.dataset.lang) {
+      return node.dataset.lang;
+    }
+    const dataLanguage =
+      typeof node.getAttribute === 'function'
+        ? node.getAttribute('data-language')
+        : '';
+    if (dataLanguage) {
+      return dataLanguage;
+    }
+    const className = node.className || '';
+    if (className) {
+      const classList = className.split(/\s+/);
+      for (const token of classList) {
+        if (token.startsWith('language-')) {
+          return token.replace('language-', '');
+        }
+        if (token.startsWith('highlight-')) {
+          const value = token.replace('highlight-', '');
+          if (value && value !== 'default' && value !== 'text') {
+            return value;
+          }
+        }
+      }
+    }
+    return detectCodeLanguage(node.parentElement);
+  };
+
+  const createMarkdownService = () => {
+    if (typeof TurndownService !== 'function') {
+      return null;
+    }
+    try {
+      const service = new TurndownService({
+        headingStyle: 'atx',
+        codeBlockStyle: 'fenced',
+        fence: '```',
+        bulletListMarker: '-',
+        hr: '---',
+        emDelimiter: '*',
+        strongDelimiter: '**',
+        blankReplacement(_, node) {
+          if (node && node.nodeName === 'BR') {
+            return '  \n';
+          }
+          return '';
+        },
+      });
+
+      if (
+        typeof turndownPluginGfm !== 'undefined' &&
+        typeof turndownPluginGfm.gfm === 'function'
+      ) {
+        service.use(turndownPluginGfm.gfm);
+      }
+
+      service.addRule('sphinxHighlightBlocks', {
+        filter(node) {
+          if (node.nodeName !== 'DIV') {
+            return false;
+          }
+          const className = node.className || '';
+          return /highlight-|literal-block/.test(className) && node.querySelector('pre');
+        },
+        replacement(content, node) {
+          const pre = node.querySelector('pre');
+          if (!pre) {
+            return content;
+          }
+          const language = detectCodeLanguage(node);
+          const code = (pre.textContent || '').replace(/\u00a0/g, ' ');
+          const fence = '```';
+          return `\n\n${fence}${language || ''}\n${code.trimEnd()}\n${fence}\n\n`;
+        },
+      });
+
+      return service;
+    } catch (error) {
+      console.warn('doc copy page: markdown converter unavailable', error);
+      return null;
+    }
+  };
+
+  const markdownService = createMarkdownService();
+
+  const cleanupArticleClone = (articleNode) => {
     CLEANUP_SELECTORS.forEach((selector) => {
-      clone.querySelectorAll(selector).forEach((el) => el.remove());
+      articleNode.querySelectorAll(selector).forEach((el) => el.remove());
     });
+    return articleNode;
+  };
+
+  const normalizeMarkdown = (markdown) => {
+    if (!markdown) {
+      return '';
+    }
+    const normalized = markdown
+      .replace(/\u00a0/g, ' ')
+      .replace(/\r\n/g, '\n')
+      .replace(MARKDOWN_NEWLINE_REGEX, '\n\n')
+      .trim();
+    return normalized ? `${normalized}\n` : '';
+  };
+
+  const extractArticleContent = (articleNode) => {
+    const clone = cleanupArticleClone(articleNode.cloneNode(true));
+    if (markdownService) {
+      try {
+        const markdown = normalizeMarkdown(
+          markdownService.turndown(clone.innerHTML)
+        );
+        if (markdown) {
+          return markdown;
+        }
+      } catch (error) {
+        console.warn('doc copy page: markdown conversion failed, using text', error);
+      }
+    }
     const rawText = clone.innerText || clone.textContent || '';
     return normalizeText(rawText);
   };
@@ -110,7 +231,7 @@
 
       try {
         setState(button, status, 'busy', 'מעתיק...');
-        const text = extractArticleText(article);
+        const text = extractArticleContent(article);
         await copyTextToClipboard(text);
         setState(button, status, 'success', STATUS_TEXT.success);
       } catch (error) {
