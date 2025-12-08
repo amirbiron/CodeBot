@@ -186,8 +186,10 @@
         return tokens.find((token) => token && token !== 'admonition') || 'note';
       };
 
-      const escapeQuotes = (text) =>
-        (text || '').replace(/"/g, '\\"').replace(/\s+/g, ' ').trim();
+      const escapeQuotes = (text) => {
+        const normalized = (text || '').replace(/\s+/g, ' ').trim();
+        return normalized.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+      };
 
       const indentMarkdown = (markdown) => {
         if (!markdown) {
