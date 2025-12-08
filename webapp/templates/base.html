@@ -87,41 +87,11 @@
         }
         :root[data-theme="ocean"] {
             --primary: #3182ce;
-            --primary-dark: #2b6cb0;
             --secondary: #2c5282;
-            --bg-primary: #0b1728;
-            --bg-secondary: #0f2238;
-            --bg-tertiary: #163152;
-            --text-primary: #cfe8ff;
-            --text-secondary: #7db3ff;
-            --text-muted: #6b9bd1;
-            --glass: rgba(24, 45, 78, 0.75);
-            --glass-border: rgba(59, 130, 246, 0.35);
-            --glass-hover: rgba(37, 76, 122, 0.9);
-            --card-bg: rgba(14, 26, 45, 0.92);
-            --card-border: rgba(59, 130, 246, 0.35);
-            --code-bg: #0a1322;
-            --code-text: #e2f2ff;
-            --code-border: rgba(59, 130, 246, 0.45);
         }
         :root[data-theme="forest"] {
             --primary: #2f855a;
-            --primary-dark: #276749;
             --secondary: #22543d;
-            --bg-primary: #09170f;
-            --bg-secondary: #0f2417;
-            --bg-tertiary: #163322;
-            --text-primary: #d5ffe7;
-            --text-secondary: #7ae2aa;
-            --text-muted: #5cb886;
-            --glass: rgba(18, 46, 32, 0.78);
-            --glass-border: rgba(74, 174, 121, 0.4);
-            --glass-hover: rgba(26, 64, 44, 0.92);
-            --card-bg: rgba(11, 29, 20, 0.9);
-            --card-border: rgba(74, 174, 121, 0.4);
-            --code-bg: #06140d;
-            --code-text: #e5fff4;
-            --code-border: rgba(84, 196, 140, 0.45);
         }
         /* Rose Pine Dawn (light) */
         :root[data-theme="rose-pine-dawn"] {
@@ -273,9 +243,7 @@
         /* עדכון body למצב חשוך/מעומעם */
         :root[data-theme="dark"] body,
         :root[data-theme="dim"] body,
-        :root[data-theme="nebula"] body,
-        :root[data-theme="ocean"] body,
-        :root[data-theme="forest"] body {
+        :root[data-theme="nebula"] body {
             background: linear-gradient(135deg, var(--bg-primary) 0%, var(--bg-secondary) 100%);
             color: var(--text-primary);
         }
@@ -312,13 +280,6 @@
             background: url('data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1440 320"><path fill="%2324324a" fill-opacity="0.22" d="M0,96L48,112C96,128,192,160,288,160C384,160,480,128,576,122.7C672,117,768,139,864,138.7C960,139,1056,117,1152,101.3C1248,85,1344,75,1392,69.3L1440,64L1440,320L1392,320C1344,320,1248,320,1152,320C1056,320,960,320,864,320C768,320,672,320,576,320C480,320,384,320,288,320C192,320,96,320,48,320L0,320Z"/></svg>') no-repeat bottom center;
         }
 
-        :root[data-theme="ocean"] body::before {
-            background: url('data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1440 320"><path fill="%231a3a5c" fill-opacity="0.35" d="M0,96L48,112C96,128,192,160,288,160C384,160,480,128,576,122.7C672,117,768,139,864,138.7C960,139,1056,117,1152,101.3C1248,85,1344,75,1392,69.3L1440,64L1440,320L1392,320C1344,320,1248,320,1152,320C1056,320,960,320,864,320C768,320,672,320,576,320C480,320,384,320,288,320C192,320,96,320,48,320L0,320Z"/></svg>') no-repeat bottom center;
-        }
-
-        :root[data-theme="forest"] body::before {
-            background: url('data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1440 320"><path fill="%231a4d30" fill-opacity="0.35" d="M0,96L48,112C96,128,192,160,288,160C384,160,480,128,576,122.7C672,117,768,139,864,138.7C960,139,1056,117,1152,101.3C1248,85,1344,75,1392,69.3L1440,64L1440,320L1392,320C1344,320,1248,320,1152,320C1056,320,960,320,864,320C768,320,672,320,576,320C480,320,384,320,288,320C192,320,96,320,48,320L0,320Z"/></svg>') no-repeat bottom center;
-        }
 
         :root[data-theme="rose-pine-dawn"] body::before {
             background: url('data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1440 320"><path fill="%23f2e9e1" fill-opacity="0.4" d="M0,96L48,112C96,128,192,160,288,160C384,160,480,128,576,122.7C672,117,768,139,864,138.7C960,139,1056,117,1152,101.3C1248,85,1344,75,1392,69.3L1440,64L1440,320L1392,320C1344,320,1248,320,1152,320C1056,320,960,320,864,320C768,320,672,320,576,320C480,320,384,320,288,320C192,320,96,320,48,320L0,320Z"/></svg>') no-repeat bottom center;
