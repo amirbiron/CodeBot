@@ -258,15 +258,22 @@ def handle_critical_incident(name: str, metric: str, value: float, threshold: fl
         action = "none"
         name_l = (name or "").lower()
         metric_l = (metric or "").lower()
-        if "error rate" in name_l or metric_l == "error_rate_percent":
+        try:
+            source_label = str((details or {}).get("source") or "").strip().lower()
+        except Exception:
+            source_label = ""
+        skip_remediation = source_label == "external"
+        if not skip_remediation and ("error rate" in name_l or metric_l == "error_rate_percent"):
             action = "restart_service:webapp"
             _restart_service("webapp")
-        elif "latency" in name_l or metric_l == "latency_seconds":
+        elif not skip_remediation and ("latency" in name_l or metric_l == "latency_seconds"):
             action = "clear_cache"
             _clear_internal_cache()
-        elif "db" in name_l or "mongo" in name_l or metric_l == "db_connection_errors":
+        elif not skip_remediation and ("db" in name_l or "mongo" in name_l or metric_l == "db_connection_errors"):
             action = "reconnect_mongodb"
             _reconnect_mongodb()
+        elif skip_remediation:
+            action = "skipped_external"
 
         record: Dict[str, Any] = {
             "incident_id": incident_id,
@@ -279,6 +286,7 @@ def handle_critical_incident(name: str, metric: str, value: float, threshold: fl
             "response_action": action,
             "recurring_issue": bool(recurring),
             "kind_key": kind_key,
+            "source": source_label or None,
         }
 
         _write_incident(record)
@@ -289,13 +297,15 @@ def handle_critical_incident(name: str, metric: str, value: float, threshold: fl
                 actual_incidents_total.labels(metric=str(metric)).inc()
         except Exception:
             pass
-        _emit_event(
-            "AUTO_REMEDIATION_EXECUTED",
-            severity="anomaly",
-            incident_id=incident_id,
-            name=str(name),
-            handled=True,
-        )
+        event_name = "AUTO_REMEDIATION_SKIPPED" if skip_remediation else "AUTO_REMEDIATION_EXECUTED"
+        event_fields = {
+            "incident_id": incident_id,
+            "name": str(name),
+            "handled": (not skip_remediation),
+        }
+        if skip_remediation:
+            event_fields["reason"] = "external_source"
+        _emit_event(event_name, severity="anomaly", **event_fields)
 
         try:
             _grafana_annotate(f"{name} — action={action} recurring={recurring}")

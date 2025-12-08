@@ -168,6 +168,14 @@ codebot_active_requests_total = Gauge("codebot_active_requests_total", "Number o
 
 # Internal helper: total requests for uptime calculation (not externally required but useful)
 codebot_requests_total = Counter("codebot_requests_total", "Total HTTP requests processed") if Counter else None
+codebot_external_error_rate_percent = (
+    Gauge(
+        "codebot_external_error_rate_percent",
+        "Rolling 5m error rate percent for traffic attributed to external services",
+    )
+    if Gauge
+    else None
+)
 
 # Rate limiting metrics (used by both Flask and Telegram bot)
 rate_limit_hits = (
@@ -726,6 +734,79 @@ def _attach_source(name: str | None, source: str | None, *, default: str) -> str
         return base
 
 
+def _load_external_service_keywords() -> set[str]:
+    defaults = {
+        "uptime",
+        "uptimerobot",
+        "uptime_robot",
+        "betteruptime",
+        "statuscake",
+        "pingdom",
+        "external_monitor",
+        "github api",
+        "github_api",
+    }
+    extra = os.getenv("ALERT_EXTERNAL_SERVICES", "")
+    extra_tokens = {token.strip().lower() for token in str(extra or "").split(",") if token.strip()}
+    return {token for token in defaults.union(extra_tokens) if token}
+
+
+_EXTERNAL_SERVICE_KEYWORDS = _load_external_service_keywords()
+
+
+def _matches_external_service_keyword(value: Optional[str]) -> bool:
+    try:
+        text = str(value or "").strip().lower()
+    except Exception:
+        text = ""
+    if not text:
+        return False
+    for keyword in _EXTERNAL_SERVICE_KEYWORDS:
+        if keyword in text:
+            return True
+    return False
+
+
+def _classify_request_source(
+    raw_source: Optional[str],
+    handler: Optional[str],
+    command: Optional[str],
+    path: Optional[str],
+) -> tuple[str, Optional[str]]:
+    try:
+        source_text = str(raw_source or "").strip()
+    except Exception:
+        source_text = ""
+    component: Optional[str] = None
+    origin: Optional[str] = None
+    lowered = source_text.lower()
+    if lowered in {"internal", "external"}:
+        origin = lowered
+    elif ":" in source_text:
+        prefix, suffix = source_text.split(":", 1)
+        prefix_clean = prefix.strip().lower()
+        if prefix_clean in {"internal", "external"}:
+            origin = prefix_clean
+            component = suffix.strip() or None
+        else:
+            component = source_text or None
+    elif source_text:
+        component = source_text
+
+    if origin != "external":
+        for candidate in (component, handler, command, path):
+            if _matches_external_service_keyword(candidate):
+                origin = "external"
+                if not component and candidate:
+                    candidate_text = str(candidate).strip()
+                    component = candidate_text or component
+                break
+
+    if origin not in {"internal", "external"}:
+        origin = "internal"
+    return origin, (component or None)
+
+
 def record_request_outcome(
     status_code: int,
     duration_seconds: float,
@@ -751,6 +832,9 @@ def record_request_outcome(
         status_int = 0
     cache_label = _cache_hit_label(cache_hit)
     status_bucket = _status_label_from_code(status_int, status_label)
+    source_origin = "internal"
+    component_label: Optional[str] = None
+    source_raw_text = ""
 
     try:
         if codebot_requests_total is not None:
@@ -768,20 +852,17 @@ def record_request_outcome(
         handler_text = ""
         method_text = ""
         path_text = ""
-        source_label = ""
         try:
             ctx_raw = _get_structlog_ctx() or {}
             ctx_dict = ctx_raw if isinstance(ctx_raw, dict) else {}
             req_id = ctx_dict.get("request_id")
             rid = str(req_id) if req_id else None
             extra_fields: Dict[str, Any] = {}
-            if source:
+            if source is not None:
                 try:
-                    source_label = str(source).strip()
+                    source_raw_text = str(source).strip()
                 except Exception:
-                    source_label = ""
-            if source_label:
-                extra_fields["source"] = source_label
+                    source_raw_text = ""
             if handler:
                 try:
                     handler_text = str(handler).strip()
@@ -820,6 +901,17 @@ def record_request_outcome(
             extra_fields["status_bucket"] = status_bucket
             if cache_label:
                 extra_fields["cache_hit"] = cache_label
+            source_origin, component_label = _classify_request_source(
+                source_raw_text or None,
+                handler_text or None,
+                command_label or None,
+                path_text or None,
+            )
+            if source_origin:
+                extra_fields["source"] = source_origin
+            if component_label:
+                limited_component = component_label[:200]
+                extra_fields["component"] = limited_component
             _db_enqueue_request_metric(
                 int(status_code),
                 float(duration_seconds),
@@ -829,7 +921,8 @@ def record_request_outcome(
         except Exception:
             pass
         note_context = {
-            "source": source_label or None,
+            "source": source_origin or None,
+            "component": component_label or None,
             "handler": handler_text or None,
             "path": path_text or None,
             "method": method_text or None,
@@ -845,7 +938,12 @@ def record_request_outcome(
         # Feed adaptive thresholds module (best-effort)
         try:
             from alert_manager import note_request, check_and_emit_alerts  # type: ignore
-            note_request(int(status_code), float(duration_seconds), context=note_context or None)
+            note_request(
+                int(status_code),
+                float(duration_seconds),
+                context=note_context or None,
+                source=source_origin,
+            )
             # Evaluate breaches occasionally (cheap; internal cooldowns apply)
             check_and_emit_alerts()
         except Exception:
@@ -1295,6 +1393,16 @@ def set_adaptive_observability_gauges(
             adaptive_current_error_rate_percent.set(max(0.0, float(current_error_rate_percent)))
         if adaptive_current_latency_avg_seconds is not None and current_latency_avg_seconds is not None:
             adaptive_current_latency_avg_seconds.set(max(0.0, float(current_latency_avg_seconds)))
+    except Exception:
+        return
+
+
+def set_external_error_rate_percent(value: Optional[float]) -> None:
+    """Update the external error rate gauge (best-effort)."""
+    try:
+        if codebot_external_error_rate_percent is None or value is None:
+            return
+        codebot_external_error_rate_percent.set(max(0.0, float(value)))
     except Exception:
         return
 

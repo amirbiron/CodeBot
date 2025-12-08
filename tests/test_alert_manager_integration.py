@@ -6,6 +6,19 @@ import importlib
 import pytest
 
 
+def _load_alert_manager(tmp_path, monkeypatch):
+    data_dir = tmp_path / "data"
+    data_dir.mkdir(exist_ok=True)
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setitem(sys.modules, 'observability', types.SimpleNamespace(emit_event=lambda *a, **k: None))
+    if 'alert_manager' in sys.modules:
+        am = importlib.reload(sys.modules['alert_manager'])
+    else:
+        am = importlib.import_module('alert_manager')
+    am.reset_state_for_tests()
+    return am
+
+
 def test_alert_manager_emits_remediation_and_bump(tmp_path, monkeypatch):
     (tmp_path / "data").mkdir()
     monkeypatch.chdir(tmp_path)
@@ -93,3 +106,91 @@ def test_high_error_rate_alert_carries_meta(tmp_path, monkeypatch):
     assert payload.get("request_id") == "req-meta-123456"
     assert payload.get("error_rate_percent") == pytest.approx(5.63, rel=1e-3)
     assert "meta_summary" in payload and "push_api.subscribe" in payload["meta_summary"]
+
+
+def test_external_errors_emit_warning_only(tmp_path, monkeypatch):
+    am = _load_alert_manager(tmp_path, monkeypatch)
+
+    warnings: list[tuple[str, str, str, dict]] = []
+
+    def _fake_alert(name, severity="info", summary="", **details):
+        warnings.append((name, severity, summary, details))
+
+    monkeypatch.setitem(sys.modules, 'internal_alerts', types.SimpleNamespace(emit_internal_alert=_fake_alert))
+
+    import metrics  # noqa: WPS433
+
+    gauge_values: list[float] = []
+    monkeypatch.setattr(metrics, "set_external_error_rate_percent", lambda value=None: gauge_values.append(value or 0.0))
+
+    critical_calls: list[tuple] = []
+    monkeypatch.setattr(am, "_emit_critical_once", lambda *a, **k: critical_calls.append((a, k)))
+
+    now = time.time()
+    for i in range(30):
+        am.note_request(503, 0.2, ts=now - 60 + i, source="external")
+
+    am._thresholds['error_rate_percent'].threshold = 1.0  # type: ignore[attr-defined]
+    am.check_and_emit_alerts(now_ts=now)
+
+    assert not critical_calls
+    assert any(name == "External Service Degraded" and severity == "warning" for name, severity, *_ in warnings)
+    assert gauge_values and gauge_values[-1] > 0.0
+
+
+def test_internal_errors_trigger_high_error_rate(tmp_path, monkeypatch):
+    am = _load_alert_manager(tmp_path, monkeypatch)
+
+    criticals: list[tuple[str, str, dict]] = []
+
+    def _fake_alert(name, severity="info", summary="", **details):
+        criticals.append((name, severity, details))
+
+    monkeypatch.setitem(sys.modules, 'internal_alerts', types.SimpleNamespace(emit_internal_alert=_fake_alert))
+
+    import remediation_manager as rm  # noqa: WPS433
+
+    incidents: list[tuple[str, str, dict]] = []
+
+    def _fake_handle(name, metric, value, threshold, details=None):
+        incidents.append((name, metric, details or {}))
+        return "incident-1"
+
+    monkeypatch.setattr(rm, "handle_critical_incident", _fake_handle)
+
+    now = time.time()
+    for i in range(30):
+        status = 500 if i % 2 == 0 else 200
+        am.note_request(status, 0.2, ts=now - 60 + i, source="internal")
+
+    am._thresholds['error_rate_percent'].threshold = 10.0  # type: ignore[attr-defined]
+    am.check_and_emit_alerts(now_ts=now)
+
+    assert incidents, "expected remediation to be triggered for internal errors"
+    assert incidents[-1][0] == "High Error Rate"
+    assert incidents[-1][2].get("source") == "internal"
+    assert any(severity == "critical" for _, severity, _ in criticals)
+
+
+def test_mixed_samples_only_internal_counted(tmp_path, monkeypatch):
+    am = _load_alert_manager(tmp_path, monkeypatch)
+
+    monkeypatch.setitem(sys.modules, 'internal_alerts', types.SimpleNamespace(emit_internal_alert=lambda *a, **k: None))
+
+    import remediation_manager as rm  # noqa: WPS433
+
+    monkeypatch.setattr(rm, "handle_critical_incident", lambda *a, **k: None)
+
+    critical_calls: list[tuple] = []
+    monkeypatch.setattr(am, "_emit_critical_once", lambda *a, **k: critical_calls.append((a, k)))
+
+    now = time.time()
+    for i in range(20):
+        am.note_request(200, 0.1, ts=now - 60 + i, source="internal")
+    for i in range(20):
+        am.note_request(502, 0.1, ts=now - 60 + i, source="external")
+
+    am._thresholds['error_rate_percent'].threshold = 5.0  # type: ignore[attr-defined]
+    am.check_and_emit_alerts(now_ts=now)
+
+    assert not critical_calls, "external errors should not trigger high error rate without internal breaches"
