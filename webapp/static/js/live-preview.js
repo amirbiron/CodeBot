@@ -267,6 +267,7 @@
       }
       let counter = 0;
       for (const block of blocks) {
+        const code = block.textContent || '';
         const parent = block.closest('pre') || block.parentElement;
         const wrapper = document.createElement('div');
         wrapper.className = 'mermaid-diagram';
@@ -277,7 +278,6 @@
         } else {
           block.replaceWith(wrapper);
         }
-        const code = block.textContent || '';
         try {
           const { svg } = await window.mermaid.render(`mmd_live_${Date.now()}_${counter++}`, code);
           wrapper.innerHTML = svg;
@@ -526,7 +526,7 @@
         this.applyPreviewTheme('markdown');
         this.updateMeta({ language: 'markdown', mode: 'markdown', bytes: 0, characters: 0, duration_ms: 0 });
         this.setStatus(STATUS.EMPTY, 'אין טקסט להצגה.');
-        this.state.lastRenderedHash = null;
+        this.state.lastRenderedHash = payloadHash;
         return;
       }
       const started = typeof performance !== 'undefined' && typeof performance.now === 'function' ? performance.now() : Date.now();
