@@ -59,6 +59,26 @@
     return parts.pop();
   }
 
+  const isMarkdownLanguage = (value = '') => {
+    const normalized = value.toString().trim().toLowerCase();
+    return normalized === 'markdown' || normalized === 'md';
+  };
+
+  const isHtmlLanguage = (value = '') => {
+    const normalized = value.toString().trim().toLowerCase();
+    return normalized === 'html' || normalized === 'htm';
+  };
+
+  const isMarkdownExtension = (value = '') => {
+    const ext = getFileExtension(value);
+    return ext === 'md' || ext === 'markdown';
+  };
+
+  const isHtmlExtension = (value = '') => {
+    const ext = getFileExtension(value);
+    return ext === 'html' || ext === 'htm';
+  };
+
   function resolvePreviewMode(language, fileName) {
     const lang = (language || '').trim().toLowerCase();
     if (lang === 'markdown' || lang === 'md') {
@@ -112,6 +132,27 @@
           return '';
         },
       });
+      const defaultInlineCode = md.renderer.rules.code_inline;
+      const escapeHtml = (str) => {
+        if (md.utils && typeof md.utils.escapeHtml === 'function') {
+          return md.utils.escapeHtml(str);
+        }
+        return (str || '')
+          .replace(/&/g, '&amp;')
+          .replace(/</g, '&lt;')
+          .replace(/>/g, '&gt;')
+          .replace(/"/g, '&quot;')
+          .replace(/'/g, '&#39;');
+      };
+      md.renderer.rules.code_inline = (tokens, idx, options, env, slf) => {
+        try {
+          const content = tokens[idx] && typeof tokens[idx].content === 'string' ? tokens[idx].content : '';
+          const escaped = escapeHtml(content);
+          return `<code class="inline-code">${escaped}</code>`;
+        } catch (_) {
+          return defaultInlineCode ? defaultInlineCode(tokens, idx, options, env, slf) : '';
+        }
+      };
       if (window.markdownitEmoji) {
         md.use(window.markdownitEmoji);
       }
@@ -315,6 +356,7 @@
     constructor(root) {
       this.root = root;
       this.toggleBtn = root ? root.querySelector('[data-action="toggle-live-preview"]') : null;
+      this.shortcutHint = root ? root.querySelector('.split-toolbar-hint') : null;
       this.textarea = document.querySelector('textarea[name="code"]');
       this.languageSelect = document.getElementById('languageSelect');
       this.fileNameInput = document.querySelector('input[name="file_name"]');
@@ -330,6 +372,7 @@
         debounceTimer: null,
         lastRenderedHash: null,
         inflightHash: null,
+        previewAllowed: false,
       };
       this.init();
     }
@@ -338,6 +381,11 @@
       if (!this.root || !this.toggleBtn || !this.textarea || !this.previewContent || !this.previewCanvas) {
         return;
       }
+      this.root.classList.remove('is-active');
+      if (this.toggleBtn) {
+        this.toggleBtn.setAttribute('aria-pressed', 'false');
+      }
+
       this.toggleBtn.addEventListener('click', () => this.toggle());
       document.addEventListener('keydown', (event) => {
         const key = (event.key || '').toLowerCase();
@@ -358,41 +406,32 @@
           if (this.state.enabled) {
             this.scheduleUpdate();
           }
+          this.updatePreviewAvailability();
         });
       }
       if (this.fileNameInput) {
-        this.fileNameInput.addEventListener('blur', () => {
-          if (this.state.enabled) {
-            this.scheduleUpdate();
-          }
+        ['input', 'change', 'blur'].forEach((evt) => {
+          this.fileNameInput.addEventListener(evt, () => this.updatePreviewAvailability());
         });
       }
       this.setupTabs();
       this.setupResizer();
+      this.updatePreviewAvailability({ silentDisable: true });
       this.setStatus(STATUS.IDLE);
     }
 
     toggle() {
-      this.state.enabled = !this.state.enabled;
-      this.toggleBtn.setAttribute('aria-pressed', this.state.enabled ? 'true' : 'false');
-      this.root.classList.toggle('is-active', this.state.enabled);
-      if (this.state.enabled) {
-        this.scheduleUpdate(true);
-      } else {
-        this.cancelPending();
-        this.state.lastRenderedHash = null;
-        this.state.inflightHash = null;
-        this.setStatus(STATUS.IDLE, 'תצוגה חיה כבויה');
-        this.previewCanvas.innerHTML = '';
-        this.previewMeta.textContent = '';
-        this.setMarkdownContext(false);
-        if (this.previewContent) {
-          this.previewContent.removeAttribute('data-theme');
-        }
-        if (this.styleEl) {
-          this.styleEl.textContent = '';
-        }
+      const nextState = !this.state.enabled;
+      if (nextState && !this.isPreviewEligible()) {
+        this.disablePreview('Live Preview זמין רק לקבצי Markdown/HTML');
+        return;
       }
+      if (nextState) {
+        this.enablePreview();
+        this.scheduleUpdate(true);
+        return;
+      }
+      this.disablePreview('תצוגה חיה כבויה');
     }
 
     scheduleUpdate(immediate = false) {
@@ -688,6 +727,67 @@
         document.addEventListener('pointerup', upHandler, { once: true });
       };
       resizer.addEventListener('pointerdown', startDrag);
+    }
+
+    isPreviewEligible() {
+      const language = this.languageSelect ? this.languageSelect.value : '';
+      const fileName = this.fileNameInput ? this.fileNameInput.value : '';
+      return (
+        isMarkdownLanguage(language) ||
+        isHtmlLanguage(language) ||
+        isMarkdownExtension(fileName) ||
+        isHtmlExtension(fileName)
+      );
+    }
+
+    updatePreviewAvailability(options = {}) {
+      const allowed = this.isPreviewEligible();
+      this.state.previewAllowed = allowed;
+      this.root.classList.toggle('preview-enabled', allowed);
+      if (this.toggleBtn) {
+        this.toggleBtn.hidden = !allowed;
+        this.toggleBtn.tabIndex = allowed ? 0 : -1;
+        this.toggleBtn.setAttribute('aria-disabled', allowed ? 'false' : 'true');
+      }
+      if (this.shortcutHint) {
+        this.shortcutHint.hidden = !allowed;
+      }
+      if (!allowed && this.state.enabled) {
+        this.disablePreview(options.silentDisable ? undefined : 'Live Preview זמין רק לקבצי Markdown/HTML');
+      }
+    }
+
+    enablePreview() {
+      this.state.enabled = true;
+      if (this.toggleBtn) {
+        this.toggleBtn.setAttribute('aria-pressed', 'true');
+      }
+      this.root.classList.add('is-active');
+    }
+
+    disablePreview(message) {
+      this.state.enabled = false;
+      this.cancelPending();
+      this.state.lastRenderedHash = null;
+      this.state.inflightHash = null;
+      if (this.toggleBtn) {
+        this.toggleBtn.setAttribute('aria-pressed', 'false');
+      }
+      this.root.classList.remove('is-active');
+      this.setStatus(STATUS.IDLE, message || this.defaultMessage(STATUS.IDLE));
+      if (this.previewCanvas) {
+        this.previewCanvas.innerHTML = '<div class="split-preview-placeholder"><p>תצוגה חיה תופיע כאן</p><small>הפעל את Live Preview כדי לרענן בזמן אמת</small></div>';
+      }
+      if (this.previewMeta) {
+        this.previewMeta.textContent = '';
+      }
+      this.setMarkdownContext(false);
+      if (this.previewContent) {
+        this.previewContent.removeAttribute('data-theme');
+      }
+      if (this.styleEl) {
+        this.styleEl.textContent = '';
+      }
     }
   }
 
