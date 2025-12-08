@@ -1083,6 +1083,39 @@
             .announcement-banner__scroller { height: 56px; }
             .announcement-banner__content { font-size: 0.9rem; }
         }
+
+        /* התאמות RTL ל-Driver.js */
+        .driver-popover {
+            direction: rtl;
+            text-align: right;
+            font-family: 'Heebo', sans-serif;
+            border-radius: 16px;
+            background: var(--card-bg, rgba(255,255,255,0.98));
+            color: var(--text-primary, #1f2937);
+            box-shadow: 0 18px 40px rgba(0, 0, 0, 0.35);
+        }
+        :root[data-theme="dark"] .driver-popover,
+        :root[data-theme="dim"] .driver-popover,
+        :root[data-theme="nebula"] .driver-popover {
+            background: rgba(26, 32, 44, 0.98);
+            color: var(--text-primary, #f7fafc);
+        }
+        .driver-popover .driver-popover-title {
+            font-size: 1.1rem;
+            font-weight: 600;
+            margin-bottom: 0.35rem;
+        }
+        .driver-popover .driver-popover-description {
+            font-size: 0.95rem;
+            line-height: 1.6;
+        }
+        .driver-popover .driver-popover-navigation {
+            flex-direction: row-reverse;
+            gap: 0.25rem;
+        }
+        .driver-popover button {
+            font-family: inherit;
+        }
 .welcome-modal { position: fixed; inset: 0; display: none; align-items: center; justify-content: center; z-index: 11000; }
 .welcome-modal.active { display: flex; }
 .welcome-modal__backdrop { position: absolute; inset: 0; background: rgba(0, 0, 0, 0.55); backdrop-filter: blur(6px); }
@@ -1129,6 +1162,8 @@
     <link rel="stylesheet" href="{{ url_for('static', filename='css/high-contrast.css') }}?v={{ static_version }}">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/dark-mode.css') }}?v={{ static_version }}">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/smooth-scroll.css') }}?v={{ static_version }}">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/driver.js@1.3.1/dist/driver.css" crossorigin="anonymous">
+    <script src="https://cdn.jsdelivr.net/npm/driver.js@1.3.1/dist/driver.js.iife.js" defer></script>
 </head>
 <body>
     <script>
@@ -1207,7 +1242,7 @@
                     {% if session.user_id %}
                         <li><a href="/dashboard" class="nav-link"><i class="fas fa-chart-line"></i> דשבורד</a></li>
                         <li><a href="/files" class="nav-link"><i class="fas fa-folder"></i> הקבצים שלי</a></li>
-                        <li><a href="/collections" class="nav-link"><i class="fas fa-layer-group"></i> האוספים שלי</a></li>
+                        <li><a href="/collections" class="nav-link" id="tourCollectionsNav"><i class="fas fa-layer-group"></i> האוספים שלי</a></li>
                         <li><a href="#" class="nav-link" onclick="openCommunityChooser(event)"><i class="fas fa-puzzle-piece"></i> אוסף הקהילה</a></li>
                     {% endif %}
                     
@@ -2276,6 +2311,230 @@
         const settingsLink = document.querySelector('.nav-link[href="/settings"]');
         if (settingsLink) { attachDot(settingsLink, onActivate); }
     })();
+})();
+</script>
+
+<script>
+(function initInteractiveWalkthrough(){
+    const STORAGE_KEY = 'codekeeper_walkthrough_v1';
+    const AUTO_PATHS = ['/files'];
+    const MAX_RETRIES = 5;
+    const isLoggedIn = {{ 'true' if session.user_id else 'false' }};
+
+    function hasSeen(){
+        try { return localStorage.getItem(STORAGE_KEY) === '1'; }
+        catch (_) { return false; }
+    }
+    function markSeen(){
+        try { localStorage.setItem(STORAGE_KEY, '1'); }
+        catch (_) { /* ignore */ }
+    }
+    function resetSeen(){
+        try { localStorage.removeItem(STORAGE_KEY); }
+        catch (_) { /* ignore */ }
+    }
+    function getDriverFactory(){
+        if (!window.driver || !window.driver.js || typeof window.driver.js.driver !== 'function') {
+            return null;
+        }
+        return window.driver.js.driver;
+    }
+    function isElementTourVisible(element){
+        if (!element) {
+            return false;
+        }
+        try {
+            const rect = element.getBoundingClientRect();
+            if (rect.width <= 2 || rect.height <= 2) {
+                return false;
+            }
+            const styles = window.getComputedStyle(element);
+            if (!styles) {
+                return true;
+            }
+            if (styles.visibility === 'hidden' || styles.display === 'none') {
+                return false;
+            }
+            const opacity = parseFloat(styles.opacity || '1');
+            if (Number.isFinite(opacity) && opacity < 0.05) {
+                return false;
+            }
+            return true;
+        } catch (_) {
+            return false;
+        }
+    }
+    function buildSteps(){
+        const isMobileViewport = (() => {
+            try {
+                return window.matchMedia && window.matchMedia('(max-width: 768px)').matches;
+            } catch (_) {
+                return false;
+            }
+        })();
+        const steps = [];
+        steps.push({
+            popover: {
+                title: 'ברוכים הבאים 👋',
+                description: 'נעשה סיבוב זריז שיציג את הפעולות החשובות במסך הקבצים.',
+            }
+        });
+        const createBtn = document.getElementById('tourCreateButton');
+        if (createBtn) {
+            steps.push({
+                element: createBtn,
+                popover: {
+                    title: 'כאן יוצרים קובץ חדש',
+                    description: 'לחיצה תפתח את מסך ההעלאה ותאפשר להוסיף קובץ או קטע קוד בלחיצה אחת.',
+                    side: 'bottom',
+                    align: 'center',
+                }
+            });
+        }
+        const searchInput = document.getElementById('globalSearchInput');
+        if (searchInput) {
+            steps.push({
+                element: searchInput,
+                popover: {
+                    title: 'חיפוש על־כללי',
+                    description: 'הקלידו כל מונח ותוכלו למצוא קובץ לפי שם, תוכן, תגיות או שפה תוך שניות.',
+                    side: 'bottom',
+                    align: 'center',
+                }
+            });
+        }
+        const collectionsLink = document.getElementById('tourCollectionsNav');
+        if (collectionsLink && !isMobileViewport && isElementTourVisible(collectionsLink)) {
+            steps.push({
+                element: collectionsLink,
+                popover: {
+                    title: 'האוספים שלי',
+                    description: 'ארגנו קבצים לתיקיות נושאיות, שתפו עם הצוות או הפעילו תצוגות ממוקדות.',
+                    side: 'bottom',
+                    align: 'center',
+                }
+            });
+        }
+        steps.push({
+            popover: {
+                title: 'זהו, אתם מסודרים 🎉',
+                description: 'אם תרצו לחזור עליו, ניתן לאפס את ההדרכה בדפדפן ולהפעיל אותה מחדש בכל רגע.',
+            }
+        });
+        const hasAnchoredStep = steps.some((step) => step.element);
+        return hasAnchoredStep ? steps : null;
+    }
+    function startTour(options = {}, attempt = 0){
+        const driverFactory = getDriverFactory();
+        if (!driverFactory) {
+            if (attempt < MAX_RETRIES) {
+                setTimeout(() => startTour(options, attempt + 1), 400);
+            }
+            return false;
+        }
+        const steps = buildSteps();
+        if (!steps || !steps.length) {
+            return false;
+        }
+        const driver = driverFactory({
+            animate: true,
+            smoothScroll: true,
+            showProgress: true,
+            stageBackground: 'rgba(8, 16, 32, 0.78)',
+            nextBtnText: 'הבא',
+            prevBtnText: 'הקודם',
+            doneBtnText: 'סיימנו',
+            steps,
+        });
+        driver.drive();
+        if (options.auto || options.remember) {
+            markSeen();
+        }
+        return true;
+    }
+    function waitForWelcomeModal(callback){
+        const modal = document.getElementById('welcomeModal');
+        if (!modal) {
+            callback();
+            return;
+        }
+        const observer = new MutationObserver(() => {
+            if (!document.body.contains(modal)) {
+                observer.disconnect();
+                setTimeout(callback, 300);
+            }
+        });
+        observer.observe(document.body, { childList: true, subtree: true });
+    }
+    function shouldAutoStart(){
+        if (!isLoggedIn || hasSeen()) {
+            return false;
+        }
+        const path = (window.location && window.location.pathname) || '';
+        if (!AUTO_PATHS.includes(path)) {
+            return false;
+        }
+        return !!buildSteps();
+    }
+    function scheduleAutoStart(){
+        if (!shouldAutoStart()) {
+            return;
+        }
+        waitForWelcomeModal(() => {
+            setTimeout(() => { startTour({ auto: true }); }, 700);
+        });
+    }
+    function exposeControls(){
+        try {
+            window.CodeKeeperTour = {
+                start: () => startTour({ auto: false }),
+                reset: () => resetSeen(),
+                hasSeen: () => hasSeen(),
+            };
+        } catch (_) { /* ignore */ }
+    }
+    function handleUrlTrigger(){
+        let triggered = false;
+        try {
+            const params = new URLSearchParams(window.location.search || '');
+            const action = (params.get('tour') || '').toLowerCase();
+            if (!action) {
+                return false;
+            }
+            if (action === 'restart' || action === 'start') {
+                resetSeen();
+                triggered = true;
+                waitForWelcomeModal(() => {
+                    setTimeout(() => {
+                        startTour({ remember: true });
+                        try {
+                            const url = new URL(window.location.href);
+                            url.searchParams.delete('tour');
+                            const search = url.searchParams.toString();
+                            const clean = url.pathname + (search ? '?' + search : '') + url.hash;
+                            window.history.replaceState({}, document.title, clean);
+                        } catch (_) {}
+                    }, 400);
+                });
+            }
+        } catch (_) { /* ignore */ }
+        return triggered;
+    }
+    function ready(fn){
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', fn, { once: true });
+        } else {
+            fn();
+        }
+    }
+
+    ready(() => {
+        exposeControls();
+        const triggered = handleUrlTrigger();
+        if (!triggered) {
+            scheduleAutoStart();
+        }
+    });
 })();
 </script>
 
