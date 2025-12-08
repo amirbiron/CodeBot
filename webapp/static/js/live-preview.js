@@ -7,6 +7,310 @@
     ERROR: 'error',
   };
 
+  const MARKDOWN_DEFAULT_TITLES = {
+    note: 'הערה',
+    tip: 'טיפ',
+    warning: 'אזהרה',
+    danger: 'סכנה',
+    info: 'מידע',
+    success: 'הצלחה',
+    question: 'שאלה',
+    example: 'דוגמה',
+    quote: 'ציטוט',
+    experimental: 'ניסוי',
+    deprecated: 'לא מומלץ',
+    todo: 'לעשות',
+    abstract: 'תקציר',
+  };
+
+  function slugifyHeadingId(rawText) {
+    try {
+      let slug = (rawText || '')
+        .toString()
+        .trim()
+        .toLowerCase()
+        .normalize('NFKD')
+        .replace(/[\u200B-\u200D\uFEFF]/g, '')
+        .replace(/\p{M}+/gu, '')
+        .replace(/[^\p{L}\p{N}\s-]+/gu, '')
+        .replace(/\s+/g, '-')
+        .replace(/-{2,}/g, '-')
+        .replace(/^-+|-+$/g, '');
+      if (!slug) {
+        slug = 'section';
+      }
+      return slug;
+    } catch (_) {
+      const fallback = (rawText || '')
+        .toString()
+        .trim()
+        .toLowerCase()
+        .replace(/\s+/g, '-')
+        .replace(/[^a-z0-9-]/g, '');
+      return fallback || 'section';
+    }
+  }
+
+  function getFileExtension(name = '') {
+    const parts = (name || '').trim().toLowerCase().split('.');
+    if (parts.length < 2) {
+      return '';
+    }
+    return parts.pop();
+  }
+
+  function resolvePreviewMode(language, fileName) {
+    const lang = (language || '').trim().toLowerCase();
+    if (lang === 'markdown' || lang === 'md') {
+      return 'markdown';
+    }
+    if (lang === 'html' || lang === 'htm') {
+      return 'html';
+    }
+    const ext = getFileExtension(fileName || '');
+    if (ext === 'md' || ext === 'markdown') {
+      return 'markdown';
+    }
+    if (ext === 'html' || ext === 'htm') {
+      return 'html';
+    }
+    return 'code';
+  }
+
+  const MarkdownLiveRenderer = (() => {
+    let renderer = null;
+    const containerTypes = [
+      'details',
+      'note',
+      'tip',
+      'warning',
+      'danger',
+      'info',
+      'success',
+      'question',
+      'example',
+      'quote',
+      'experimental',
+      'deprecated',
+      'todo',
+      'abstract',
+    ];
+
+    function ensureRenderer() {
+      if (renderer) {
+        return renderer;
+      }
+      if (typeof window === 'undefined' || typeof window.markdownit !== 'function') {
+        return null;
+      }
+      const md = window.markdownit({
+        breaks: true,
+        linkify: true,
+        typographer: true,
+        html: false,
+        highlight: function () {
+          return '';
+        },
+      });
+      if (window.markdownitEmoji) {
+        md.use(window.markdownitEmoji);
+      }
+      if (window.markdownitTaskLists) {
+        md.use(window.markdownitTaskLists, { label: true, enabled: true });
+      }
+      if (window.markdownitAnchor) {
+        const anchorOptions = { permalink: true, permalinkSymbol: '¶', slugify: slugifyHeadingId };
+        try {
+          md.use(window.markdownitAnchor, anchorOptions);
+        } catch (_) {
+          try {
+            md.use(window.markdownitAnchor, { slugify: slugifyHeadingId });
+          } catch (err) {
+            console.warn('markdown-it-anchor failed', err);
+          }
+        }
+      }
+      if (window.markdownitFootnote) {
+        md.use(window.markdownitFootnote);
+      }
+      if (window.markdownitAdmonition) {
+        try {
+          md.use(window.markdownitAdmonition, { types: containerTypes.filter((t) => t !== 'details') });
+        } catch (err) {
+          console.warn('markdown-it-admonition failed', err);
+        }
+      }
+      if (window.markdownitContainer) {
+        const containerPlugin = window.markdownitContainer;
+        try {
+          md.use(containerPlugin, 'details', {
+            validate(params) {
+              return /^details\b/i.test((params || '').trim());
+            },
+            render(tokens, idx) {
+              const info = (tokens[idx].info || '').trim();
+              const match = info.match(/^details\s+(.*)$/i);
+              const title = (match && match[1] && match[1].trim()) || 'לחץ להצגה';
+              if (tokens[idx].nesting === 1) {
+                return `<details class="markdown-details"><summary class="markdown-summary">${md.utils.escapeHtml(
+                  title
+                )}</summary><div class="details-content">`;
+              }
+              return '</div></details>\n';
+            },
+          });
+          containerTypes
+            .filter((type) => type !== 'details')
+            .forEach((type) => {
+              const rxOpen = new RegExp(`^${type}\\b\\s*(.*)$`, 'i');
+              md.use(containerPlugin, type, {
+                validate(params) {
+                  return rxOpen.test((params || '').trim());
+                },
+                render(tokens, idx) {
+                  const info = (tokens[idx].info || '').trim();
+                  const match = info.match(rxOpen);
+                  const title = (match && match[1] && match[1].trim()) || MARKDOWN_DEFAULT_TITLES[type] || type;
+                  if (tokens[idx].nesting === 1) {
+                    return `<div class="admonition admonition-${type}"><div class="admonition-title">${md.utils.escapeHtml(
+                      title
+                    )}</div><div class="admonition-content">`;
+                  }
+                  return '</div></div>\n';
+                },
+              });
+            });
+        } catch (err) {
+          console.warn('markdown-it-container failed', err);
+        }
+      }
+      if (window.markdownitTocDoneRight) {
+        try {
+          md.use(window.markdownitTocDoneRight, { slugify: slugifyHeadingId });
+        } catch (err) {
+          console.warn('markdown-it-toc-done-right failed', err);
+        }
+      }
+      renderer = md;
+      return renderer;
+    }
+
+    function highlightBlocks(root) {
+      if (!root || typeof window === 'undefined' || !window.hljs) {
+        return;
+      }
+      root.querySelectorAll('pre code').forEach((block) => {
+        try {
+          window.hljs.highlightElement(block);
+          const parent = block.closest('pre');
+          if (parent) {
+            parent.style.direction = 'ltr';
+            parent.style.textAlign = 'left';
+          }
+        } catch (err) {
+          console.warn('hljs highlight failed', err);
+        }
+      });
+    }
+
+    function enhanceTaskLists(root) {
+      if (!root) {
+        return;
+      }
+      root.querySelectorAll('input[type="checkbox"]').forEach((input) => {
+        input.setAttribute('disabled', 'true');
+        input.setAttribute('role', 'checkbox');
+      });
+    }
+
+    function lazyLoadImages(root) {
+      if (!root) {
+        return;
+      }
+      root.querySelectorAll('img').forEach((img) => {
+        if (!img.hasAttribute('loading')) {
+          img.loading = 'lazy';
+        }
+        img.decoding = 'async';
+        img.referrerPolicy = img.referrerPolicy || 'no-referrer';
+      });
+    }
+
+    function renderMath(root) {
+      if (!root || typeof window === 'undefined' || typeof window.renderMathInElement !== 'function') {
+        return;
+      }
+      try {
+        window.renderMathInElement(root, {
+          delimiters: [
+            { left: '$$', right: '$$', display: true },
+            { left: '$', right: '$', display: false },
+          ],
+        });
+      } catch (err) {
+        console.warn('katex render failed', err);
+      }
+    }
+
+    async function renderMermaid(root) {
+      if (!root || typeof window === 'undefined' || typeof window.mermaid === 'undefined') {
+        return;
+      }
+      const blocks = root.querySelectorAll('code.language-mermaid, pre code.language-mermaid');
+      if (!blocks.length) {
+        return;
+      }
+      try {
+        window.mermaid.initialize({ startOnLoad: false, securityLevel: 'strict' });
+      } catch (err) {
+        console.warn('mermaid initialize failed', err);
+      }
+      let counter = 0;
+      for (const block of blocks) {
+        const parent = block.closest('pre') || block.parentElement;
+        const wrapper = document.createElement('div');
+        wrapper.className = 'mermaid-diagram';
+        if (parent && parent.parentNode) {
+          parent.parentNode.replaceChild(wrapper, parent);
+        } else if (parent) {
+          parent.replaceWith(wrapper);
+        } else {
+          block.replaceWith(wrapper);
+        }
+        const code = block.textContent || '';
+        try {
+          const { svg } = await window.mermaid.render(`mmd_live_${Date.now()}_${counter++}`, code);
+          wrapper.innerHTML = svg;
+        } catch (err) {
+          wrapper.innerHTML = '<div class="alert alert-warning">Mermaid render failed</div>';
+          console.warn('mermaid render failed', err);
+        }
+      }
+    }
+
+    async function enhance(root) {
+      highlightBlocks(root);
+      enhanceTaskLists(root);
+      lazyLoadImages(root);
+      renderMath(root);
+      await renderMermaid(root);
+    }
+
+    return {
+      isSupported() {
+        return !!ensureRenderer();
+      },
+      async render(text) {
+        const md = ensureRenderer();
+        if (!md) {
+          throw new Error('markdown_renderer_missing');
+        }
+        return md.render(text || '');
+      },
+      enhance,
+    };
+  })();
+
   class LivePreviewController {
     constructor(root) {
       this.root = root;
@@ -81,6 +385,10 @@
         this.setStatus(STATUS.IDLE, 'תצוגה חיה כבויה');
         this.previewCanvas.innerHTML = '';
         this.previewMeta.textContent = '';
+        this.setMarkdownContext(false);
+        if (this.previewContent) {
+          this.previewContent.removeAttribute('data-theme');
+        }
         if (this.styleEl) {
           this.styleEl.textContent = '';
         }
@@ -122,6 +430,7 @@
         language: this.languageSelect ? this.languageSelect.value : '',
         file_name: this.fileNameInput ? this.fileNameInput.value : '',
       };
+      payload.mode = resolvePreviewMode(payload.language, payload.file_name);
       const payloadHash = JSON.stringify(payload);
       this.cancelPending();
       if (
@@ -129,6 +438,15 @@
         payloadHash === this.state.inflightHash
       ) {
         return;
+      }
+      const preferClientMarkdown = payload.mode === 'markdown' && MarkdownLiveRenderer.isSupported();
+      if (preferClientMarkdown) {
+        try {
+          await this.renderClientMarkdown(payload, payloadHash);
+          return;
+        } catch (err) {
+          console.warn('Falling back to server preview after client Markdown failure', err);
+        }
       }
       this.state.inflightHash = payloadHash;
       this.abortController = new AbortController();
@@ -145,7 +463,7 @@
           const message = (data && data.error) || 'preview_failed';
           throw new Error(message);
         }
-        this.renderPreview(data);
+        this.renderPreview({ ...data, mode: data.mode || payload.mode });
         this.state.lastRenderedHash = payloadHash;
       } catch (err) {
         if (err.name === 'AbortError') {
@@ -168,6 +486,9 @@
       }
       const html = data.html || '';
       const presentation = data.presentation || 'fragment';
+      const mode = data.mode || 'code';
+      this.setMarkdownContext(mode === 'markdown' && presentation !== 'iframe');
+      this.applyPreviewTheme(mode);
       if (presentation === 'iframe') {
         const iframe = document.createElement('iframe');
         iframe.setAttribute('sandbox', '');
@@ -189,8 +510,91 @@
       } else if (this.styleEl) {
         this.styleEl.textContent = '';
       }
-      this.updateMeta(data.meta);
+      this.updateMeta({ ...data.meta, mode });
       this.setStatus(STATUS.READY);
+    }
+
+    async renderClientMarkdown(payload, payloadHash) {
+      if (!this.previewCanvas) {
+        return;
+      }
+      const content = payload.content || '';
+      const trimmed = content.trim();
+      if (!trimmed) {
+        this.setMarkdownContext(true);
+        this.previewCanvas.innerHTML = '<p>אין תוכן להצגה.</p>';
+        this.applyPreviewTheme('markdown');
+        this.updateMeta({ language: 'markdown', mode: 'markdown', bytes: 0, characters: 0, duration_ms: 0 });
+        this.setStatus(STATUS.EMPTY, 'אין טקסט להצגה.');
+        this.state.lastRenderedHash = null;
+        return;
+      }
+      const started = typeof performance !== 'undefined' && typeof performance.now === 'function' ? performance.now() : Date.now();
+      this.state.inflightHash = payloadHash;
+      this.setStatus(STATUS.LOADING);
+      try {
+        const html = await MarkdownLiveRenderer.render(content);
+        this.setMarkdownContext(true);
+        this.previewCanvas.innerHTML = html || '<p>אין תוכן להצגה.</p>';
+        if (this.styleEl) {
+          this.styleEl.textContent = '';
+        }
+        await MarkdownLiveRenderer.enhance(this.previewCanvas);
+        this.applyPreviewTheme('markdown');
+        const duration = typeof performance !== 'undefined' && typeof performance.now === 'function'
+          ? Math.max(1, Math.round(performance.now() - started))
+          : 0;
+        const meta = {
+          language: 'markdown',
+          mode: 'markdown',
+          bytes: this.bytesFromString(content),
+          characters: content.length,
+          duration_ms: duration,
+        };
+        this.updateMeta(meta);
+        this.setStatus(STATUS.READY);
+        this.state.lastRenderedHash = payloadHash;
+      } finally {
+        if (this.state.inflightHash === payloadHash) {
+          this.state.inflightHash = null;
+        }
+      }
+    }
+
+    applyPreviewTheme(mode) {
+      if (!this.previewContent) {
+        return;
+      }
+      if (mode === 'markdown') {
+        const docTheme = (document.documentElement && document.documentElement.dataset && document.documentElement.dataset.theme) || '';
+        const prefersLight = docTheme && docTheme.toLowerCase().includes('dawn');
+        this.previewContent.dataset.theme = prefersLight ? 'light' : 'dark';
+      } else {
+        this.previewContent.dataset.theme = 'light';
+      }
+    }
+
+    setMarkdownContext(isMarkdown) {
+      if (!this.previewCanvas) {
+        return;
+      }
+      if (isMarkdown) {
+        this.previewCanvas.setAttribute('id', 'md-content');
+        this.previewCanvas.dataset.mode = 'markdown';
+      } else {
+        if (this.previewCanvas.id === 'md-content') {
+          this.previewCanvas.removeAttribute('id');
+        }
+        this.previewCanvas.removeAttribute('data-mode');
+      }
+    }
+
+    bytesFromString(value) {
+      try {
+        return new TextEncoder().encode(value || '').length;
+      } catch (_) {
+        return (value || '').length;
+      }
     }
 
     updateMeta(meta = {}) {
@@ -208,6 +612,8 @@
           return 'אין טקסט להצגה.';
         case 'content_too_large':
           return 'התוכן גדול מדי לתצוגה חיה.';
+        case 'markdown_renderer_missing':
+          return 'ספריית Markdown טרם נטענה.';
         case 'render_failed':
         default:
           return 'שגיאה ברינדור התצוגה.';
@@ -231,6 +637,8 @@
           return 'שגיאה ברענון התצוגה.';
         case STATUS.READY:
           return 'התצוגה מעודכנת.';
+        case STATUS.EMPTY:
+          return 'אין טקסט להצגה.';
         case STATUS.IDLE:
         default:
           return 'הפעל את Live Preview כדי לראות עדכון בזמן אמת.';

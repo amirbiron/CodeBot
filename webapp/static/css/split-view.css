@@ -151,6 +151,19 @@
   color: #f0f0f0;
 }
 
+.split-preview-content pre,
+.split-preview-content code {
+  direction: ltr;
+  text-align: left;
+  font-family: 'JetBrains Mono', 'Fira Code', Consolas, monospace;
+}
+
+html[dir="rtl"] .split-preview-content pre,
+html[dir="rtl"] .split-preview-content code {
+  direction: ltr;
+  text-align: left;
+}
+
 .split-preview-placeholder {
   text-align: center;
   color: rgba(0, 0, 0, 0.6);
