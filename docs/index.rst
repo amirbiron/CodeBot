@@ -33,6 +33,7 @@ Code Keeper Bot - תיעוד API
    configuration
    environment-variables
    performance-scaling
+   performance-sticky-notes
    large-files-runbook
 
 .. toctree::

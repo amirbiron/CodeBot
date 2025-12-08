@@ -10,6 +10,15 @@
 - אין performance metrics
 - אין alerting על שגיאות קריטיות
 
+### Sticky Notes Warmup – Operational Notes
+
+- **סימפטום שהתגלה בפרודקשן:** נתיב `/api/sticky-notes/reminders/summary` חווה timeouts כאשר `_ensure_indexes()` רץ בכל בקשה וננעל על `_db_lock`.
+- **מה שעבד מידית ומגובה במדידה:** העלאת timeout של Gunicorn ל־180 שניות (`GUNICORN_CMD_ARGS="--timeout 180 --graceful-timeout 180"`) הפכה את ה-WebApp למהיר בכל לחיצה, ולכן נחשב כיום לקו ההגנה הראשון.
+- **שיפור קוד בתהליך אימות:** routine של warmup בפרה-סטארט שמריץ `_ensure_indexes()` פעם אחת, כותב את הדגל `sticky_notes_indexes_ready_v1` ב-Redis/Shared cache, ומדלג על בניית האינדקסים ב-requests הבאים. נכון לעכשיו הוא עדיין לא מגובה בנתוני פרודקשן ולכן חייב לרוץ בצמוד ל-timeout הנדיב.
+- **איפוס הדגל:** בכל שינוי אינדקסים (הוספה/שינוי שם) יש למחוק את `sticky_notes_indexes_ready_v1` או לעדכן את הגרסה שלו כדי שהחימום הבא ירוץ. בלי האיפוס, `_ensure_indexes()` לא יופעל מחדש.
+- **איך מנטרים שהחימום קרה:** חפש בלוגים אירוע `sticky_indexes_warmup` שמכיל `{"ready": true, "duration_ms": ...}`. אם האירוע לא קיים או חוזר שוב ושוב – יש להחזיר את ההרצה לחקירה לפני rollout מלא.
+- **דוחות Postmortem:** יש לתעד בכל RCA האם הסתמכנו על ה-timeout בלבד או גם על החימום, כדי שנדע מה הוכח ומה עדיין בתצפית.
+
 ---
 
 ## ⚠️ בעיות ספציפיות
