@@ -2073,6 +2073,7 @@
             maybeOpen: () => false,
             watchDriver: () => {},
             hasSeen: () => true,
+            resetSeen: () => {},
             scheduleFallback: () => {}
         };
     }
@@ -2251,10 +2252,14 @@
         state.focusBeforeOpen = null;
     }
     function maybeOpen(reason, opts = {}){
-        if (state.isOpen || hasSeen()) {
+        if (state.isOpen) {
             return false;
         }
-        if (!opts.force && !shouldAutoShow()) {
+        const forced = !!opts.force;
+        if (!forced && hasSeen()) {
+            return false;
+        }
+        if (!forced && !shouldAutoShow()) {
             return false;
         }
         waitForWelcome(() => { openWizard(reason, { force: true }); });
