@@ -569,7 +569,7 @@
   --lang-shell: hsl(var(--shell-h), var(--shell-s), 60%);
 }
 
-::root[data-theme="nebula"]{
+:root[data-theme="nebula"]{
   --search-highlight-bg: rgba(119,122,188,0.8);
 }
 
