@@ -2102,6 +2102,10 @@
     function markSeen(){
         lsSet(STORAGE_KEYS.seen, 'true');
     }
+    function resetSeen(){
+        try { localStorage.removeItem(STORAGE_KEYS.seen); }
+        catch (_) {}
+    }
     function availableThemes(){
         return optionButtons.map((btn) => btn.dataset.themeOption).filter(Boolean);
     }
@@ -2321,15 +2325,45 @@
         saveBtn.addEventListener('click', () => closeWizard({ persist: true }));
     }
 
+    function handleUrlTrigger(){
+        let triggered = false;
+        try {
+            const params = new URLSearchParams(window.location.search || '');
+            const action = (params.get('theme_wizard') || '').toLowerCase();
+            if (!action) {
+                return false;
+            }
+            if (action === 'restart' || action === 'start') {
+                resetSeen();
+                triggered = true;
+                waitForWelcome(() => {
+                    setTimeout(() => { openWizard('url-param', { force: true }); }, 200);
+                });
+                try {
+                    const url = new URL(window.location.href);
+                    url.searchParams.delete('theme_wizard');
+                    const search = url.searchParams.toString();
+                    const clean = url.pathname + (search ? '?' + search : '') + url.hash;
+                    window.history.replaceState({}, document.title, clean);
+                } catch (_) { /* ignore */ }
+            }
+        } catch (_) { /* ignore */ }
+        return triggered;
+    }
+
     window.ThemeWizard = {
         open: () => maybeOpen('manual', { force: true }),
         maybeOpen,
         watchDriver,
         hasSeen,
+        resetSeen,
         scheduleFallback
     };
 
-    scheduleFallback();
+    const triggered = handleUrlTrigger();
+    if (!triggered) {
+        scheduleFallback();
+    }
 })();
 </script>
 
