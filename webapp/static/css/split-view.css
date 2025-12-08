@@ -12,6 +12,18 @@
   margin-top: 1rem;
 }
 
+.split-view:not(.is-active) {
+  --split-editor-ratio: 1;
+}
+
+.split-view:not(.is-active) .split-panels {
+  display: block;
+}
+
+.split-view:not(.is-active) .split-panel--editor {
+  width: 100%;
+}
+
 .split-view:not(.preview-enabled) .split-toolbar {
   display: none;
 }
@@ -107,6 +119,7 @@
 
 .split-panel--editor {
   flex: var(--split-editor-ratio);
+  max-width: 100%;
   padding: 0 0.85rem 0.85rem 0.85rem;
 }
 
