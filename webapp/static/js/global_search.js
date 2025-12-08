@@ -3,6 +3,9 @@
   let currentSearchQuery = '';
   let currentSearchPage = 1;
   let suggestionsTimeout = null;
+  let shortcutCatalog = null;
+  let shortcutCatalogPromise = null;
+  let lastShortcutQuery = '';
 
   function $(id){ return document.getElementById(id); }
 
@@ -31,6 +34,13 @@
       const inSug = e.target.closest('#searchSuggestions');
       if (!inBox && !inSug) hideSuggestions();
     });
+    document.addEventListener('click', function(e){
+      const copyBtn = e.target.closest('button[data-command-copy]');
+      if (!copyBtn) return;
+      e.preventDefault();
+      const text = copyBtn.getAttribute('data-command-copy') || '';
+      copyCommandShortcut(text, copyBtn);
+    });
     // Initialize clear button visibility + behavior
     try { if (clearBtn) clearBtn.style.display = (input.value && input.value.trim().length) ? 'inline-flex' : 'none'; } catch(_) {}
     if (clearBtn) {
@@ -41,6 +51,7 @@
         try { clearBtn.style.display = 'none'; } catch(_) {}
       });
     }
+    ensureCommandCatalog().catch(()=>{});
   });
 
   // איפוס חיפוש גלובלי: שדות, פילטרים ותוצאות
@@ -179,6 +190,7 @@
     if (!container || !info || !results || !pagination) return;
 
     info.innerHTML = '<div class="alert alert-info">נמצאו <strong>' + (data.total_results||0) + '</strong> תוצאות עבור "' + escapeHtml(data.query||'') + '" (מציג ' + (data.results?.length||0) + ')</div>';
+    renderCommandShortcuts(data.query || currentSearchQuery || '');
 
     if (!data.results || data.results.length === 0){
       results.innerHTML = '<p class="text-muted">לא נמצאו תוצאות</p>';
@@ -310,4 +322,196 @@
   function humanSize(bytes){ if (bytes < 1024) return bytes + ' B'; if (bytes < 1024*1024) return (bytes/1024).toFixed(1)+' KB'; return (bytes/(1024*1024)).toFixed(1)+' MB'; }
   function formatDate(s){ try{ const d=new Date(s); return d.toLocaleString('he-IL'); }catch(e){ return ''; } }
   function escapeHtml(t){ const d=document.createElement('div'); d.textContent=String(t||''); return d.innerHTML; }
+
+  async function ensureCommandCatalog(){
+    if (shortcutCatalog) return shortcutCatalog;
+    if (shortcutCatalogPromise) return shortcutCatalogPromise;
+    shortcutCatalogPromise = fetch('/static/data/commands.json', {
+      headers: { 'Accept': 'application/json' },
+      cache: 'no-store',
+      credentials: 'same-origin'
+    })
+      .then(res => {
+        if (!res.ok) throw new Error('failed to load commands catalog');
+        return res.json();
+      })
+      .then(list => {
+        if (!Array.isArray(list)) return [];
+        shortcutCatalog = list
+          .filter(item => item && item.name && item.type)
+          .map(normalizeCommandRecord);
+        return shortcutCatalog;
+      })
+      .catch(err => {
+        try { console.warn('command shortcuts load failed', err); } catch(_) {}
+        shortcutCatalog = [];
+        return shortcutCatalog;
+      });
+    return shortcutCatalogPromise;
+  }
+
+  function normalizeCommandRecord(raw){
+    const name = String(raw.name || '').trim();
+    const type = String(raw.type || '').trim().toLowerCase();
+    const description = String(raw.description || '').trim();
+    const docLink = String(raw.doc_link || raw.docLink || '').trim();
+    const args = Array.isArray(raw.arguments) ? raw.arguments.map(a => String(a || '').trim()).filter(Boolean) : [];
+    return {
+      name,
+      type,
+      description,
+      doc_link: docLink,
+      arguments: args,
+      _nameLower: name.toLowerCase(),
+      _descriptionLower: description.toLowerCase()
+    };
+  }
+
+  function renderCommandShortcuts(query){
+    const wrapper = $('commandShortcuts');
+    if (!wrapper) return;
+    const trimmed = String(query || '').trim();
+    lastShortcutQuery = trimmed;
+    if (!trimmed){
+      wrapper.innerHTML = '';
+      wrapper.style.display = 'none';
+      return;
+    }
+    ensureCommandCatalog().then(() => {
+      if (lastShortcutQuery !== trimmed) return;
+      const matches = rankCommandShortcuts(trimmed);
+      if (!matches.length){
+        wrapper.innerHTML = '';
+        wrapper.style.display = 'none';
+        return;
+      }
+      wrapper.innerHTML = matches.map(renderShortcutCard).join('');
+      wrapper.style.display = 'grid';
+    }).catch(() => {
+      if (lastShortcutQuery === trimmed){
+        wrapper.innerHTML = '';
+        wrapper.style.display = 'none';
+      }
+    });
+  }
+
+  function rankCommandShortcuts(query){
+    if (!shortcutCatalog || !shortcutCatalog.length) return [];
+    const lowered = String(query || '').trim().toLowerCase();
+    if (!lowered) return [];
+    const tokens = lowered.split(/\s+/).filter(Boolean);
+    const hints = {
+      preferChatOps: query.trim().startsWith('/'),
+      preferCli: query.trim().startsWith('./') || query.includes('.sh'),
+      preferPlaybook: lowered.includes('playbook') || lowered.includes('runbook')
+    };
+    return shortcutCatalog
+      .map(cmd => ({ cmd, score: scoreCommandMatch(cmd, lowered, tokens, hints) }))
+      .filter(item => item.score > 0)
+      .sort((a, b) => b.score - a.score)
+      .slice(0, 3)
+      .map(item => item.cmd);
+  }
+
+  function scoreCommandMatch(cmd, loweredQuery, tokens, hints){
+    let score = 0;
+    if (!loweredQuery) return score;
+    if (cmd._nameLower === loweredQuery) score += 40;
+    else if (cmd._nameLower.startsWith(loweredQuery)) score += 25;
+    else if (cmd._nameLower.includes(loweredQuery)) score += 15;
+    if (cmd._descriptionLower.includes(loweredQuery)) score += 6;
+    tokens.forEach(token => {
+      if (!token) return;
+      if (cmd._nameLower.includes(token)) score += 6;
+      else if (cmd._descriptionLower.includes(token)) score += 2;
+    });
+    if (hints.preferChatOps && cmd.type === 'chatops') score += 8;
+    if (hints.preferCli && cmd.type === 'cli') score += 8;
+    if (hints.preferPlaybook && cmd.type === 'playbook') score += 8;
+    if (cmd.type === 'chatops' && cmd.name.startsWith('/')) score += 2;
+    if (cmd.type === 'cli' && cmd.name.startsWith('./')) score += 2;
+    return score;
+  }
+
+  function renderShortcutCard(cmd){
+    const meta = commandTypeMeta(cmd.type);
+    return (
+      '<div class="command-shortcut-card glass-card">' +
+        '<div class="shortcut-topline">' +
+          '<span class="shortcut-type badge badge-secondary">' + meta.icon + ' ' + meta.label + '</span>' +
+        '</div>' +
+        '<div class="shortcut-name">' + escapeHtml(cmd.name) + '</div>' +
+        '<p class="shortcut-description">' + escapeHtml(cmd.description || '') + '</p>' +
+        (cmd.arguments && cmd.arguments.length
+          ? '<div class="shortcut-arguments"><span class="shortcut-arguments-label">ארגומנטים:</span> ' +
+            cmd.arguments.map(a => '<code>' + escapeHtml(a) + '</code>').join(' ') +
+            '</div>'
+          : '') +
+        '<div class="shortcut-actions">' +
+          '<button type="button" class="btn btn-secondary btn-icon" data-command-copy="' + escapeHtml(cmd.name) + '">' +
+            '<i class="fas fa-copy"></i><span class="btn-text"> העתק</span>' +
+          '</button>' +
+          (cmd.doc_link
+            ? '<a class="btn btn-primary btn-icon" href="' + escapeHtml(cmd.doc_link) + '" target="_blank" rel="noopener">' +
+                '<i class="fas fa-book-open"></i><span class="btn-text"> פתח תיעוד</span>' +
+              '</a>'
+            : '') +
+        '</div>' +
+      '</div>'
+    );
+  }
+
+  function commandTypeMeta(type){
+    const t = String(type || '').toLowerCase();
+    const map = {
+      chatops: { label: 'ChatOps', icon: '🤖' },
+      cli: { label: 'CLI', icon: '💻' },
+      playbook: { label: 'Playbook', icon: '📘' }
+    };
+    return map[t] || { label: 'Command', icon: '⚡' };
+  }
+
+  async function copyCommandShortcut(text, btn){
+    const value = String(text || '').trim();
+    if (!value) return;
+    const previous = btn ? btn.innerHTML : '';
+    try {
+      if (navigator.clipboard && navigator.clipboard.writeText){
+        await navigator.clipboard.writeText(value);
+      } else {
+        fallbackCopy(value);
+      }
+      showCopyFeedback(btn, previous);
+    } catch (err){
+      try {
+        fallbackCopy(value);
+        showCopyFeedback(btn, previous);
+      } catch (copyErr){
+        alert('לא הצלחתי להעתיק את הפקודה ללוח');
+      }
+    }
+  }
+
+  function fallbackCopy(text){
+    const textarea = document.createElement('textarea');
+    textarea.value = text;
+    textarea.setAttribute('readonly', '');
+    textarea.style.position = 'fixed';
+    textarea.style.opacity = '0';
+    document.body.appendChild(textarea);
+    textarea.select();
+    try { document.execCommand('copy'); } catch(_) {}
+    document.body.removeChild(textarea);
+  }
+
+  function showCopyFeedback(btn, originalHtml){
+    if (!btn) return;
+    const previous = originalHtml || btn.innerHTML;
+    btn.disabled = true;
+    btn.innerHTML = '<i class="fas fa-check"></i><span class="btn-text"> הועתק</span>';
+    setTimeout(function(){
+      btn.disabled = false;
+      btn.innerHTML = previous;
+    }, 1600);
+  }
 })();
