@@ -96,6 +96,8 @@ RUN apt-get update -y && apt-get upgrade -y && \
         fonts-dejavu \
         fonts-jetbrains-mono \
         fonts-cascadia-code \
+        fonts-ubuntu \
+        fonts-unifont \
         tzdata \
         curl \
         ca-certificates \

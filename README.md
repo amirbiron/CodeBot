@@ -391,6 +391,11 @@ docker build -t code-keeper-bot .
 docker run -d --env-file .env code-keeper-bot
 ```
 
+#### פונטים בבניית Docker
+- הבילד מתקין את `fonts-unifont` ו-`fonts-ubuntu` (חבילות `fonts-*` העדכניות) כדי להבטיח Fallback מלא ליוניקוד בממשק ה-WebApp.
+- אין צורך להתקין עוד את החבילות הישנות `ttf-unifont` / `ttf-ubuntu-font-family`, מאחר שהן הוצאו ממאגרי Debian וההחלפה מתרחשת אוטומטית בבנייה.
+- אם אתם מריצים Docker מקומי, ודאו שהבנייה מסתיימת בלי הודעות `has no installation candidate`; אחרת עדכנו את Mirror/Cache המקומי.
+
 ## 📚 שימוש
 
 ### התחלת עבודה
