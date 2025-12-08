@@ -2,7 +2,18 @@ import os
 import json
 import logging
 from typing import Dict, List, Any, Optional
-from github import Github, GithubException
+try:
+    from github import Github, GithubException
+except ModuleNotFoundError:  # pragma: no cover - optional dependency for tests
+    class GithubException(Exception):  # type: ignore
+        """Placeholder when PyGithub is unavailable."""
+
+    class Github:  # type: ignore
+        def __init__(self, *args, **kwargs):
+            raise RuntimeError(
+                "PyGithub is required for repo analysis. "
+                "Install via 'pip install PyGithub' to enable this feature."
+            )
 import base64
 import re
 from datetime import datetime, timedelta

@@ -36,8 +36,25 @@ def http_request(method, url, **kwargs):
         return requests.get(url, **kwargs)
     return _http_sync_request(method, url, **kwargs)
 
-from github import Github, GithubException
-from github.InputGitTreeElement import InputGitTreeElement
+try:
+    from github import Github, GithubException
+    from github.InputGitTreeElement import InputGitTreeElement
+except ModuleNotFoundError:  # pragma: no cover - optional dependency in minimal/test envs
+    class GithubException(Exception):  # type: ignore
+        """Placeholder raised when PyGithub is missing."""
+
+    class Github:  # type: ignore
+        def __init__(self, *args, **kwargs):
+            raise RuntimeError(
+                "PyGithub is required for GitHub integrations. "
+                "Install via 'pip install PyGithub' or monkeypatch github_menu_handler.Github in tests."
+            )
+
+    class InputGitTreeElement:  # type: ignore
+        def __init__(self, *args, **kwargs):
+            raise RuntimeError(
+                "PyGithub InputGitTreeElement unavailable. Install PyGithub to enable tree operations."
+            )
 from telegram import (
     InlineKeyboardButton,
     InlineKeyboardMarkup,
