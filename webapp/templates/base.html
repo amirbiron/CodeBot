@@ -2382,7 +2382,7 @@
         steps.push({
             popover: {
                 title: 'זהו, אתם מסודרים 🎉',
-                description: 'תמיד אפשר להפעיל שוב את הסיור מכפתור "סיור מודרך" שמופיע מעל רשימת הקבצים.',
+                description: 'אם תרצו לחזור עליו, ניתן לאפס את ההדרכה בדפדפן ולהפעיל אותה מחדש בכל רגע.',
             }
         });
         const hasAnchoredStep = steps.some((step) => step.element);
@@ -2448,13 +2448,14 @@
             setTimeout(() => { startTour({ auto: true }); }, 700);
         });
     }
-    function bindRestartButtons(){
-        document.querySelectorAll('[data-tour-restart]').forEach((btn) => {
-            btn.addEventListener('click', (event) => {
-                event.preventDefault();
-                startTour({ auto: false });
-            });
-        });
+    function exposeControls(){
+        try {
+            window.CodeKeeperTour = {
+                start: () => startTour({ auto: false }),
+                reset: () => { try { localStorage.removeItem(STORAGE_KEY); } catch (_) {} },
+                hasSeen: () => hasSeen(),
+            };
+        } catch (_) { /* ignore */ }
     }
     function ready(fn){
         if (document.readyState === 'loading') {
@@ -2465,7 +2466,7 @@
     }
 
     ready(() => {
-        bindRestartButtons();
+        exposeControls();
         scheduleAutoStart();
     });
 })();
