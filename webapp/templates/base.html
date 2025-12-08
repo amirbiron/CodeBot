@@ -2329,6 +2329,10 @@
         try { localStorage.setItem(STORAGE_KEY, '1'); }
         catch (_) { /* ignore */ }
     }
+    function resetSeen(){
+        try { localStorage.removeItem(STORAGE_KEY); }
+        catch (_) { /* ignore */ }
+    }
     function getDriverFactory(){
         if (!window.driver || !window.driver.js || typeof window.driver.js.driver !== 'function') {
             return null;
@@ -2411,7 +2415,7 @@
             steps,
         });
         driver.drive();
-        if (options.auto) {
+        if (options.auto || options.remember) {
             markSeen();
         }
         return true;
@@ -2452,10 +2456,37 @@
         try {
             window.CodeKeeperTour = {
                 start: () => startTour({ auto: false }),
-                reset: () => { try { localStorage.removeItem(STORAGE_KEY); } catch (_) {} },
+                reset: () => resetSeen(),
                 hasSeen: () => hasSeen(),
             };
         } catch (_) { /* ignore */ }
+    }
+    function handleUrlTrigger(){
+        let triggered = false;
+        try {
+            const params = new URLSearchParams(window.location.search || '');
+            const action = (params.get('tour') || '').toLowerCase();
+            if (!action) {
+                return false;
+            }
+            if (action === 'restart' || action === 'start') {
+                resetSeen();
+                triggered = true;
+                waitForWelcomeModal(() => {
+                    setTimeout(() => {
+                        startTour({ remember: true });
+                        try {
+                            const url = new URL(window.location.href);
+                            url.searchParams.delete('tour');
+                            const search = url.searchParams.toString();
+                            const clean = url.pathname + (search ? '?' + search : '') + url.hash;
+                            window.history.replaceState({}, document.title, clean);
+                        } catch (_) {}
+                    }, 400);
+                });
+            }
+        } catch (_) { /* ignore */ }
+        return triggered;
     }
     function ready(fn){
         if (document.readyState === 'loading') {
@@ -2467,7 +2498,10 @@
 
     ready(() => {
         exposeControls();
-        scheduleAutoStart();
+        const triggered = handleUrlTrigger();
+        if (!triggered) {
+            scheduleAutoStart();
+        }
     });
 })();
 </script>
