@@ -7,7 +7,7 @@
       "--service=<שם שירות>",
       "--severity=<low|high>"
     ],
-    "doc_link": "https://amirbiron.github.io/CodeBot/chatops/commands.html#triage"
+    "doc_link": "https://amirbiron.github.io/CodeBot/chatops/commands.html"
   },
   {
     "name": "/predict",
@@ -17,14 +17,14 @@
       "--env=<prod|staging>",
       "--window=<minutes>"
     ],
-    "doc_link": "https://amirbiron.github.io/CodeBot/chatops/commands.html#predict"
+    "doc_link": "https://amirbiron.github.io/CodeBot/chatops/commands.html"
   },
   {
     "name": "/status",
     "type": "chatops",
     "description": "מציג בריף מערכת עדכני עם זמינות שירותים",
     "arguments": [],
-    "doc_link": "https://amirbiron.github.io/CodeBot/chatops/commands.html#status"
+    "doc_link": "https://amirbiron.github.io/CodeBot/chatops/commands.html"
   },
   {
     "name": "./scripts/deploy.sh",
@@ -67,6 +67,6 @@
       "--service=<שם>",
       "--limit=<10>"
     ],
-    "doc_link": "https://amirbiron.github.io/CodeBot/chatops/commands.html#errors"
+    "doc_link": "https://amirbiron.github.io/CodeBot/chatops/commands.html"
   }
 ]
