@@ -1408,10 +1408,115 @@
           test: document.getElementById('smoothScrollTestBtn'),
           reset: document.getElementById('smoothScrollResetBtn'),
         };
-        const disableUi = (message) => {
-          card.querySelectorAll('input, select, button').forEach((el) => { el.disabled = true; });
+        const disableUi = (message, options = {}) => {
+          const { keepTestButton = false } = options;
+          card.querySelectorAll('input, select, button').forEach((el) => {
+            if (keepTestButton && els.test && el === els.test) return;
+            el.disabled = true;
+          });
           if (noteEl && message) noteEl.textContent = message;
         };
+
+        let activeTestMarker = null;
+        let activeTestMarkerTimeout = null;
+
+        const clearActiveTestMarker = () => {
+          if (activeTestMarkerTimeout) {
+            clearTimeout(activeTestMarkerTimeout);
+            activeTestMarkerTimeout = null;
+          }
+          if (activeTestMarker) {
+            try { activeTestMarker.remove(); } catch (_) {}
+            activeTestMarker = null;
+          }
+        };
+
+        const createScrollTestMarker = () => {
+          if (!document?.body) return null;
+          const marker = document.createElement('div');
+          marker.id = 'smooth-scroll-test-target';
+          marker.style.position = 'absolute';
+          marker.style.left = '0';
+          marker.style.width = '1px';
+          marker.style.height = '1px';
+          marker.style.pointerEvents = 'none';
+          const docHeight = Math.max(
+            document.body?.scrollHeight || 0,
+            document.documentElement?.scrollHeight || 0,
+            window.innerHeight || 0,
+            800,
+          );
+          marker.style.top = `${Math.max(200, Math.floor(docHeight / 2))}px`;
+          document.body.appendChild(marker);
+          activeTestMarker = marker;
+          activeTestMarkerTimeout = setTimeout(() => clearActiveTestMarker(), 6000);
+          return marker;
+        };
+
+        const fallbackScrollTo = (targetY, onDone) => {
+          try {
+            window.scrollTo({ top: targetY, behavior: 'smooth' });
+          } catch (_) {
+            window.scrollTo(0, targetY);
+          }
+          setTimeout(() => {
+            if (typeof onDone === 'function') onDone();
+          }, 500);
+        };
+
+        const runNativeScrollTest = (marker) => {
+          if (!marker) return;
+          const absoluteTop = (() => {
+            try {
+              const rect = marker.getBoundingClientRect();
+              return Math.max(0, (window.scrollY || window.pageYOffset || 0) + rect.top);
+            } catch (_) {
+              return 0;
+            }
+          })();
+          fallbackScrollTo(absoluteTop, () => {
+            setTimeout(() => {
+              fallbackScrollTo(0, () => {
+                clearActiveTestMarker();
+              });
+            }, 300);
+          });
+        };
+
+        const runScrollTest = () => {
+          clearActiveTestMarker();
+          const marker = createScrollTestMarker();
+          if (!marker) return;
+          const manager = window.smoothScroll;
+          if (manager && typeof manager.smoothScrollTo === 'function') {
+            try {
+              manager.smoothScrollTo(marker, {
+                callback: () => {
+                  setTimeout(() => {
+                    try {
+                      manager.smoothScrollTo('body');
+                    } catch (_) {
+                      fallbackScrollTo(0, () => clearActiveTestMarker());
+                      return;
+                    }
+                    clearActiveTestMarker();
+                  }, 300);
+                },
+              });
+              return;
+            } catch (_) {
+              // fall through to native scroll fallback
+            }
+          }
+          runNativeScrollTest(marker);
+        };
+
+        if (els.test) {
+          els.test.addEventListener('click', (event) => {
+            event.preventDefault();
+            runScrollTest();
+          });
+        }
 
         const attach = (manager) => {
           const defaults = { ...(manager.defaultConfig || {}) };
@@ -1481,48 +1586,6 @@
             });
           }
 
-          let activeTestMarker = null;
-          let activeTestMarkerTimeout = null;
-          const clearActiveTestMarker = () => {
-            if (activeTestMarkerTimeout) {
-              clearTimeout(activeTestMarkerTimeout);
-              activeTestMarkerTimeout = null;
-            }
-            if (activeTestMarker) {
-              try { activeTestMarker.remove(); } catch (_) {}
-              activeTestMarker = null;
-            }
-          };
-
-          if (els.test) {
-            els.test.addEventListener('click', (event) => {
-              event.preventDefault();
-              clearActiveTestMarker();
-              try {
-                const marker = document.createElement('div');
-                marker.id = 'smooth-scroll-test-target';
-                marker.style.position = 'absolute';
-                marker.style.top = `${Math.max(200, Math.floor((document.body.scrollHeight || 4000) / 2))}px`;
-                marker.style.width = '1px';
-                marker.style.height = '1px';
-                marker.style.pointerEvents = 'none';
-                document.body.appendChild(marker);
-                activeTestMarker = marker;
-                activeTestMarkerTimeout = setTimeout(() => clearActiveTestMarker(), 5000);
-                manager.smoothScrollTo(marker, {
-                  callback: () => {
-                    setTimeout(() => {
-                      try { manager.smoothScrollTo('body'); } catch (_) {}
-                      clearActiveTestMarker();
-                    }, 300);
-                  },
-                });
-              } catch (_) {
-                clearActiveTestMarker();
-              }
-            });
-          }
-
           if (els.reset) {
             els.reset.addEventListener('click', (event) => {
               event.preventDefault();
@@ -1540,7 +1603,7 @@
             return;
           }
           if (attempt > 200) {
-            disableUi('מנוע הגלילה לא נטען — רענן את הדף ובדוק את הקונסול לדיווחי שגיאה.');
+            disableUi('מנוע הגלילה לא נטען — הכפתור יריץ גלילה רגילה מהדפדפן.', { keepTestButton: true });
             return;
           }
           setTimeout(() => waitForManager(attempt + 1), 50);
