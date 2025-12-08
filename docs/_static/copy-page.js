@@ -152,6 +152,88 @@
         return (node.textContent || '').trim();
       };
 
+      const ADMONITION_TYPES = new Set([
+        'note',
+        'warning',
+        'tip',
+        'important',
+        'caution',
+        'attention',
+        'danger',
+        'error',
+        'hint',
+        'seealso',
+        'success',
+        'info',
+        'admonition',
+      ]);
+
+      const detectAdmonitionType = (node) => {
+        if (!node) {
+          return 'note';
+        }
+        const tokens = node.classList
+          ? Array.from(node.classList)
+          : (node.className || '').split(/\s+/);
+        for (const token of tokens) {
+          if (!token || token === 'admonition') {
+            continue;
+          }
+          if (ADMONITION_TYPES.has(token)) {
+            return token;
+          }
+        }
+        return tokens.find((token) => token && token !== 'admonition') || 'note';
+      };
+
+      const escapeQuotes = (text) =>
+        (text || '').replace(/"/g, '\\"').replace(/\s+/g, ' ').trim();
+
+      const indentMarkdown = (markdown) => {
+        if (!markdown) {
+          return '    ';
+        }
+        return markdown
+          .split('\n')
+          .map((line) => (line ? `    ${line}` : ''))
+          .join('\n');
+      };
+
+      const renderAdmonitionBlock = (node, fallbackContent) => {
+        if (!node) {
+          return fallbackContent;
+        }
+        const titleNode = node.querySelector('.admonition-title');
+        const titleText = titleNode ? titleNode.textContent || '' : '';
+        const clone = node.cloneNode(true);
+        clone
+          .querySelectorAll('.admonition-title')
+          .forEach((title) => title.remove());
+
+        const innerHtml = clone.innerHTML || '';
+
+        let bodyMarkdown = '';
+        if (innerHtml.trim()) {
+          try {
+            bodyMarkdown = service.turndown(innerHtml).trim();
+          } catch (error) {
+            bodyMarkdown = '';
+          }
+        }
+        if (!bodyMarkdown && fallbackContent) {
+          bodyMarkdown = fallbackContent.trim();
+        }
+
+        const type = detectAdmonitionType(node);
+        const titlePart = escapeQuotes(titleText);
+        const headerLine = titlePart
+          ? `!!! ${type} "${titlePart}"`
+          : `!!! ${type}`;
+
+        const body = indentMarkdown(bodyMarkdown);
+        return `\n\n${headerLine}\n${body}\n\n`;
+      };
+
       const formatTableCell = (cell) => {
         if (!cell) {
           return ' ';
@@ -244,6 +326,19 @@
 
         return `\n\n${tableMarkdown}\n\n`;
       };
+
+      service.addRule('sphinxAdmonitions', {
+        filter(node) {
+          if (!node || node.nodeName !== 'DIV') {
+            return false;
+          }
+          const className = node.className || '';
+          return /\badmonition\b/.test(className);
+        },
+        replacement(content, node) {
+          return renderAdmonitionBlock(node, content);
+        },
+      });
 
       service.addRule('docutilsTables', {
         filter(node) {
