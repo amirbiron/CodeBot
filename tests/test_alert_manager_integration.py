@@ -172,6 +172,35 @@ def test_internal_errors_trigger_high_error_rate(tmp_path, monkeypatch):
     assert any(severity == "critical" for _, severity, _ in criticals)
 
 
+def test_high_latency_details_include_source(tmp_path, monkeypatch):
+    am = _load_alert_manager(tmp_path, monkeypatch)
+
+    captured: list[tuple[str, str, dict]] = []
+
+    def _fake_alert(name, severity="info", summary="", **details):
+        captured.append((name, severity, details))
+
+    monkeypatch.setitem(sys.modules, 'internal_alerts', types.SimpleNamespace(emit_internal_alert=_fake_alert))
+
+    import remediation_manager as rm  # noqa: WPS433
+
+    monkeypatch.setattr(rm, "handle_critical_incident", lambda *a, **k: None)
+
+    now = time.time()
+    for i in range(20):
+        am.note_request(200, 2.5, ts=now - 60 + i, source="internal")
+
+    am._thresholds['latency_seconds'].threshold = 1.0  # type: ignore[attr-defined]
+    am.check_and_emit_alerts(now_ts=now)
+
+    latency_details = next(
+        (details for name, _, details in captured if name == "High Latency"),
+        None,
+    )
+    assert latency_details is not None
+    assert latency_details.get("source") == "internal"
+
+
 def test_mixed_samples_only_internal_counted(tmp_path, monkeypatch):
     am = _load_alert_manager(tmp_path, monkeypatch)
 
@@ -194,3 +223,41 @@ def test_mixed_samples_only_internal_counted(tmp_path, monkeypatch):
     am.check_and_emit_alerts(now_ts=now)
 
     assert not critical_calls, "external errors should not trigger high error rate without internal breaches"
+
+
+def test_error_context_does_not_override_internal_source(tmp_path, monkeypatch):
+    am = _load_alert_manager(tmp_path, monkeypatch)
+
+    # Avoid side effects
+    monkeypatch.setitem(sys.modules, 'internal_alerts', types.SimpleNamespace(emit_internal_alert=lambda *a, **k: None))
+
+    import remediation_manager as rm  # noqa: WPS433
+
+    monkeypatch.setattr(rm, "handle_critical_incident", lambda *a, **k: None)
+
+    captured_details: list[dict] = []
+
+    def _capture(*args, **kwargs):
+        captured_details.append(kwargs.get("details", {}))
+
+    monkeypatch.setattr(am, "_emit_critical_once", _capture)
+
+    now = time.time()
+    # External error to seed contexts
+    am.note_request(
+        502,
+        0.2,
+        ts=now - 120,
+        source="external",
+        context={"command": "uptimerobot.check", "source": "external"},
+    )
+    # Internal traffic that should trigger the alert
+    for i in range(30):
+        status = 500 if i % 2 == 0 else 200
+        am.note_request(status, 0.2, ts=now - 60 + i, source="internal", context={"command": "webapp:ping"})
+
+    am._thresholds['error_rate_percent'].threshold = 5.0  # type: ignore[attr-defined]
+    am.check_and_emit_alerts(now_ts=now)
+
+    assert captured_details, "expected High Error Rate alert to be emitted"
+    assert captured_details[0].get("source") == "internal"

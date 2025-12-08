@@ -1,8 +1,15 @@
+import sys
 import types
 
 import pytest
 
 import metrics
+
+if 'bs4' not in sys.modules:
+    fake_bs4 = types.ModuleType("bs4")
+    fake_bs4.BeautifulSoup = lambda *args, **kwargs: None  # type: ignore
+    sys.modules['bs4'] = fake_bs4
+
 import main
 from database import repository
 from telegram.ext import ApplicationHandlerStop, CommandHandler
@@ -106,6 +113,28 @@ def test_instrument_db_decorator_covers_fail_and_error_states():
     assert _counter_value(metrics.codebot_db_requests_total, "db.decorated", "ok") == pytest.approx(1.0)
     assert _counter_value(metrics.codebot_db_requests_total, "db.decorated", "fail") == pytest.approx(1.0)
     assert _counter_value(metrics.codebot_db_requests_total, "db.decorated", "error") == pytest.approx(1.0)
+
+
+def test_classify_request_source_respects_explicit_internal():
+    origin, component = metrics._classify_request_source(
+        "internal",
+        handler="uptimerobot_status",
+        command=None,
+        path=None,
+    )
+    assert origin == "internal"
+    assert component is None
+
+
+def test_classify_request_source_detects_external_when_unspecified():
+    origin, component = metrics._classify_request_source(
+        None,
+        handler="check_uptimerobot",
+        command=None,
+        path=None,
+    )
+    assert origin == "external"
+    assert component == "check_uptimerobot"
 
 
 @pytest.mark.asyncio

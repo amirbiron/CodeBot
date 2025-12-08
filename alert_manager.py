@@ -401,8 +401,14 @@ def _build_high_error_rate_meta(
     sample_count: int,
     now_ts: float,
     window_sec: int,
+    preferred_source: Optional[str] = None,
 ) -> Dict[str, Any]:
     contexts = _recent_error_contexts(now_ts, window_sec)
+    normalized_pref = (preferred_source or "").strip().lower() or None
+    if normalized_pref:
+        filtered = [ctx for ctx in contexts if (ctx.get("source") or "internal").lower() == normalized_pref]
+        if filtered:
+            contexts = filtered
     meta: Dict[str, Any] = {
         "alert_type": "high_error_rate",
         "metric": "error_rate_percent",
@@ -439,7 +445,7 @@ def _build_high_error_rate_meta(
         if method:
             meta["method"] = method
         source = latest.get("source")
-        if source:
+        if source and "source" not in meta:
             meta["source"] = source
         component = latest.get("component")
         if component:
@@ -481,8 +487,25 @@ def _enrich_alert_details(key: str, details: Dict[str, Any], now_ts: float) -> D
         window_sec = int(details.get("window_seconds") or _ERROR_CONTEXT_WINDOW_SEC)
     except Exception:
         window_sec = _ERROR_CONTEXT_WINDOW_SEC
-    meta = _build_high_error_rate_meta(current_pct, threshold_pct, sample_count, now_ts, window_sec)
+    preferred_source = None
+    try:
+        src = details.get("source")
+        if src:
+            preferred_source = str(src).strip().lower() or None
+    except Exception:
+        preferred_source = None
+    meta = _build_high_error_rate_meta(
+        current_pct,
+        threshold_pct,
+        sample_count,
+        now_ts,
+        window_sec,
+        preferred_source=preferred_source,
+    )
+    existing_source = details.get("source")
     details.update(meta)
+    if existing_source is not None:
+        details["source"] = existing_source
     return details
 
 
@@ -633,6 +656,7 @@ def check_and_emit_alerts(now_ts: Optional[float] = None) -> None:
                 details={
                     "current_seconds": round(cur_lat, 4),
                     "sample_count": int(internal_total),
+                    "source": "internal",
                 },
                 now_ts=t,
             )

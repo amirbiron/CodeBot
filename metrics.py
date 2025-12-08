@@ -793,7 +793,7 @@ def _classify_request_source(
     elif source_text:
         component = source_text
 
-    if origin != "external":
+    if origin is None:
         for candidate in (component, handler, command, path):
             if _matches_external_service_keyword(candidate):
                 origin = "external"
