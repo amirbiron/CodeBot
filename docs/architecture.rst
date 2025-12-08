@@ -33,6 +33,14 @@
    tests/           → Unit/Integration tests
    docs/            → Sphinx documentation
 
+מקורות נוספים
+--------------
+
+.. toctree::
+   :maxdepth: 1
+
+   architecture/clean-architecture
+
 זרימות מרכזיות
 ---------------
 
