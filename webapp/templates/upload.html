@@ -600,6 +600,8 @@
             languageSelectTouched = true;
           }
           try { await window.editorManager.updateLanguage(e.target.value); } catch (_) {}
+          toggleImageTriggerVisibility();
+          updateMarkdownImageStatus();
         });
       }
 
@@ -717,7 +719,7 @@
           if (!event || !event.formData) {
             return;
           }
-          if (!isMarkdownFilename((fileNameInput && fileNameInput.value) || '')) {
+          if (!isMarkdownContext()) {
             try {
               event.formData.delete('md_images');
             } catch (_) {}
@@ -1075,7 +1077,7 @@
         if (!imageUploadTrigger) {
           return;
         }
-        const isMarkdown = isMarkdownFilename((fileNameInput && fileNameInput.value) || '');
+        const isMarkdown = isMarkdownContext();
         imageUploadTrigger.classList.toggle('is-visible', isMarkdown);
         imageUploadTrigger.dataset.visible = isMarkdown ? 'true' : 'false';
         imageUploadTrigger.setAttribute('aria-hidden', isMarkdown ? 'false' : 'true');
@@ -1089,20 +1091,21 @@
         updateMarkdownImageStatus();
       }
 
-      function isMarkdownFilename(value) {
-        if (typeof value !== 'string') {
-          return false;
-        }
-        return /\.md$/i.test(value.trim());
+      function isMarkdownContext() {
+        const lang = (languageSelect && languageSelect.value ? languageSelect.value : '').toLowerCase();
+        const name = ((fileNameInput && fileNameInput.value) || '').trim().toLowerCase();
+        const byLanguage = lang === 'markdown' || lang === 'md';
+        const byExtension = /\.(md|markdown)$/i.test(name);
+        return byLanguage || byExtension;
       }
 
       function handleMarkdownImageFiles(fileList) {
         if (!fileList || !fileList.length) {
           return;
         }
-        const isMarkdown = isMarkdownFilename((fileNameInput && fileNameInput.value) || '');
+        const isMarkdown = isMarkdownContext();
         if (!isMarkdown) {
-          setMarkdownImageError('כדי לצרף תמונות יש לבחור שם קובץ שמסתיים ב-.md');
+          setMarkdownImageError('כדי לצרף תמונות יש לבחור קובץ/שפה Markdown (.md)');
           return;
         }
 
@@ -1261,9 +1264,9 @@
         if (!markdownImageStatus) {
           return;
         }
-        const isMarkdown = isMarkdownFilename((fileNameInput && fileNameInput.value) || '');
+        const isMarkdown = isMarkdownContext();
         if (!isMarkdown) {
-          markdownImageStatus.textContent = 'כפתור התמונות פעיל רק לקבצי ‎.md‎';
+          markdownImageStatus.textContent = 'כפתור התמונות פעיל רק ל-Markdown (.md או בחירת שפה)';
           return;
         }
         const count = markdownSelectedImages.length;

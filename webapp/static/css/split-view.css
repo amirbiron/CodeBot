@@ -12,6 +12,10 @@
   margin-top: 1rem;
 }
 
+.split-view:not(.preview-enabled) .split-toolbar {
+  display: none;
+}
+
 .split-view:not(.is-active) .split-panel--preview,
 .split-view:not(.is-active) .split-resizer {
   display: none;
@@ -149,6 +153,23 @@
 .split-preview-content[data-theme="dark"] {
   background: #1b1e24;
   color: #f0f0f0;
+}
+
+.split-preview-content :not(pre) > code,
+.split-preview-content code.inline-code {
+  display: inline-block;
+  padding: 0.15em 0.35em;
+  border-radius: 6px;
+  font-size: 0.94em;
+  background: rgba(0, 0, 0, 0.06);
+  color: #1f2933;
+  word-break: break-word;
+}
+
+.split-preview-content[data-theme="dark"] :not(pre) > code,
+.split-preview-content[data-theme="dark"] code.inline-code {
+  background: rgba(255, 255, 255, 0.08);
+  color: #f5f5f5;
 }
 
 .split-preview-content pre,
