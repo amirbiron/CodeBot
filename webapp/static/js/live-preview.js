@@ -24,7 +24,8 @@
         enabled: false,
         layoutPanel: 'editor',
         debounceTimer: null,
-        lastPayloadHash: null,
+        lastRenderedHash: null,
+        inflightHash: null,
       };
       this.init();
     }
@@ -75,6 +76,8 @@
         this.scheduleUpdate(true);
       } else {
         this.cancelPending();
+        this.state.lastRenderedHash = null;
+        this.state.inflightHash = null;
         this.setStatus(STATUS.IDLE, 'תצוגה חיה כבויה');
         this.previewCanvas.innerHTML = '';
         this.previewMeta.textContent = '';
@@ -107,6 +110,7 @@
         clearTimeout(this.state.debounceTimer);
         this.state.debounceTimer = null;
       }
+      this.state.inflightHash = null;
     }
 
     async fetchPreview() {
@@ -119,11 +123,14 @@
         file_name: this.fileNameInput ? this.fileNameInput.value : '',
       };
       const payloadHash = JSON.stringify(payload);
-      if (payloadHash === this.state.lastPayloadHash) {
+      this.cancelPending();
+      if (
+        payloadHash === this.state.lastRenderedHash ||
+        payloadHash === this.state.inflightHash
+      ) {
         return;
       }
-      this.state.lastPayloadHash = payloadHash;
-      this.cancelPending();
+      this.state.inflightHash = payloadHash;
       this.abortController = new AbortController();
       this.setStatus(STATUS.LOADING);
       try {
@@ -139,6 +146,7 @@
           throw new Error(message);
         }
         this.renderPreview(data);
+        this.state.lastRenderedHash = payloadHash;
       } catch (err) {
         if (err.name === 'AbortError') {
           return;
@@ -147,6 +155,9 @@
         this.setStatus(STATUS.ERROR, this.translateError(err.message));
       } finally {
         this.abortController = null;
+        if (this.state.inflightHash === payloadHash) {
+          this.state.inflightHash = null;
+        }
       }
     }
 
