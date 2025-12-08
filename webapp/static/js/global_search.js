@@ -6,6 +6,11 @@
   let shortcutCatalog = null;
   let shortcutCatalogPromise = null;
   let lastShortcutQuery = '';
+  const META_ICONS = {
+    score: '<svg fill="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/></svg>',
+    size: '<svg fill="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path d="M14 2H6c-1.1 0-1.99.9-1.99 2L4 20c0 1.1.89 2 1.99 2H18c1.1 0 2-.9 2-2V8l-6-6zm2 16H8v-2h8v2zm0-4H8v-2h8v2zm-3-5V3.5L18.5 9H13z"/></svg>',
+    time: '<svg fill="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path d="M11.99 2C6.47 2 2 6.48 2 12s4.47 10 9.99 10C17.52 22 22 17.52 22 12S17.52 2 11.99 2zM12 20c-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8-3.58 8-8 8zm.5-13H11v6l5.25 3.15.75-1.23-4.5-2.67z"/></svg>'
+  };
 
   function $(id){ return document.getElementById(id); }
 
@@ -195,7 +200,8 @@
     if (!data.results || data.results.length === 0){
       results.innerHTML = '<p class="text-muted">לא נמצאו תוצאות</p>';
     } else {
-      results.innerHTML = data.results.map(renderCard).join('');
+      const cardsHtml = data.results.map(renderCard).join('');
+      results.innerHTML = '<div class="global-search-results" role="list">' + cardsHtml + '</div>';
     }
 
     renderPagination(pagination, data);
@@ -206,35 +212,33 @@
   function renderCard(r) {
     const highlighted = highlightSnippet(r.snippet, r.highlights);
     const icon = fileIcon(r.language || '');
+    const badgeClass = languageBadgeClass(r.language);
+    const langLabel = String(r.language || 'לא ידוע');
+    const badgeHtml = '<span class="global-search-lang-badge badge ' + badgeClass + '" title="שפת הקובץ">' + escapeHtml(langLabel.toUpperCase()) + '</span>';
+    const scoreValue = typeof r.score === 'number' ? r.score.toFixed(2) : '—';
+    const sizeValue = humanSize(r.size || 0);
+    const updatedValue = formatDate(r.updated_at) || '—';
 
-    // מבנה כרטיס מעודכן – ממורכז ורספונסיבי, עם טיפול בגלישת טקסט
     return (
-      '<div class="search-result-card glass-card">' +
-        '<div class="card-body">' +
-          '<div class="result-header d-flex justify-content-between align-items-start">' +
-            '<div class="result-content flex-grow-1" style="min-width: 0;">' +
-              '<h6 class="result-title mb-2">' +
-                icon + ' <a href="/file/' + r.file_id + '" target="_blank" class="text-truncate d-inline-block" style="max-width: calc(100% - 50px);">' +
-                escapeHtml(r.file_name || '') +
-                '</a>' +
-                ' <span class="badge badge-secondary ml-2">' + escapeHtml(r.language || '') + '</span>' +
-              '</h6>' +
-              '<div class="code-snippet-wrapper">' +
-                '<div class="code-snippet bg-light p-3 rounded">' +
-                  '<pre class="mb-0"><code>' + highlighted + '</code></pre>' +
-                '</div>' +
-              '</div>' +
-            '</div>' +
-            '<div class="result-meta text-right ml-3 flex-shrink-0">' +
-              '<div class="small text-muted">' +
-                '<div>ציון: ' + (r.score ?? 0).toFixed(2) + '</div>' +
-                '<div>גודל: ' + humanSize(r.size || 0) + '</div>' +
-                '<div>עדכון: ' + formatDate(r.updated_at) + '</div>' +
-              '</div>' +
-            '</div>' +
+      '<article class="search-result-card glass-card" role="listitem">' +
+        '<div class="result-card-header">' +
+          '<div class="file-info">' +
+            '<span class="file-icon" aria-hidden="true">' + icon + '</span>' +
+            '<a href="/file/' + r.file_id + '" target="_blank" class="file-name" title="' + escapeHtml(r.file_name || '') + '">' +
+              escapeHtml(r.file_name || '') +
+            '</a>' +
           '</div>' +
+          badgeHtml +
         '</div>' +
-      '</div>'
+        '<div class="result-card-snippet">' +
+          '<pre class="mb-0" dir="ltr"><code>' + highlighted + '</code></pre>' +
+        '</div>' +
+        '<div class="result-card-footer">' +
+          '<div class="meta-item">' + META_ICONS.score + '<span>ציון: ' + scoreValue + '</span></div>' +
+          '<div class="meta-item">' + META_ICONS.size + '<span>' + escapeHtml(sizeValue) + '</span></div>' +
+          '<div class="meta-item">' + META_ICONS.time + '<span>' + escapeHtml(updatedValue) + '</span></div>' +
+        '</div>' +
+      '</article>'
     );
   }
 
@@ -246,7 +250,7 @@
     for (const [s,e] of items){
       if (s < last) continue;
       out += escapeHtml(text.slice(last, s));
-      out += '<mark class="bg-warning">' + escapeHtml(text.slice(s, e)) + '</mark>';
+      out += '<span class="global-search-highlight">' + escapeHtml(text.slice(s, e)) + '</span>';
       last = e;
     }
     out += escapeHtml(text.slice(last));
@@ -316,8 +320,78 @@
 
   function fileIcon(lang){
     const m = String(lang||'').toLowerCase();
-    const map = { python:'🐍', javascript:'📜', java:'☕', cpp:'⚙️', html:'🌐', css:'🎨', sql:'🗄️', json:'📋', xml:'📄', markdown:'📝' };
+    const map = {
+      python:'🐍',
+      javascript:'📜',
+      typescript:'📘',
+      java:'☕',
+      cpp:'⚙️',
+      'c++':'⚙️',
+      csharp:'💠',
+      'c#':'💠',
+      go:'💎',
+      golang:'💎',
+      html:'🌐',
+      css:'🎨',
+      sql:'🗄️',
+      json:'📋',
+      xml:'📄',
+      markdown:'📝',
+      md:'📝',
+      ruby:'💎',
+      php:'🐘',
+      rust:'🦀',
+      yaml:'📘',
+      yml:'📘',
+      shell:'💻',
+      bash:'💻'
+    };
     return map[m] || '📄';
+  }
+
+  function languageBadgeClass(lang){
+    const normalized = String(lang || '').trim().toLowerCase();
+    if (!normalized) return 'lang-unknown';
+    const map = {
+      javascript: 'lang-js',
+      js: 'lang-js',
+      typescript: 'lang-ts',
+      ts: 'lang-ts',
+      python: 'lang-python',
+      py: 'lang-python',
+      react: 'lang-react',
+      'react (jsx)': 'lang-react',
+      jsx: 'lang-react',
+      'react.js': 'lang-react',
+      'react js': 'lang-react',
+      vue: 'lang-vue',
+      'vue.js': 'lang-vue',
+      'vue js': 'lang-vue',
+      html: 'lang-html',
+      htm: 'lang-html',
+      css: 'lang-css',
+      java: 'lang-java',
+      csharp: 'lang-csharp',
+      'c#': 'lang-csharp',
+      cpp: 'lang-cpp',
+      'c++': 'lang-cpp',
+      go: 'lang-go',
+      golang: 'lang-go',
+      php: 'lang-php',
+      ruby: 'lang-ruby',
+      rb: 'lang-ruby',
+      rust: 'lang-rust',
+      json: 'lang-json',
+      sql: 'lang-sql',
+      yaml: 'lang-yaml',
+      yml: 'lang-yaml',
+      markdown: 'lang-markdown',
+      md: 'lang-markdown',
+      shell: 'lang-shell',
+      bash: 'lang-shell',
+      sh: 'lang-shell'
+    };
+    return map[normalized] || 'lang-unknown';
   }
   function humanSize(bytes){ if (bytes < 1024) return bytes + ' B'; if (bytes < 1024*1024) return (bytes/1024).toFixed(1)+' KB'; return (bytes/(1024*1024)).toFixed(1)+' MB'; }
   function formatDate(s){ try{ const d=new Date(s); return d.toLocaleString('he-IL'); }catch(e){ return ''; } }
