@@ -414,20 +414,27 @@
   }
 
   function scoreCommandMatch(cmd, loweredQuery, tokens, hints){
+    if (!loweredQuery) return 0;
     let score = 0;
-    if (!loweredQuery) return score;
-    if (cmd._nameLower === loweredQuery) score += 40;
-    else if (cmd._nameLower.startsWith(loweredQuery)) score += 25;
-    else if (cmd._nameLower.includes(loweredQuery)) score += 15;
-    if (cmd._descriptionLower.includes(loweredQuery)) score += 6;
+    let matched = false;
+
+    if (cmd._nameLower === loweredQuery) { score += 40; matched = true; }
+    else if (cmd._nameLower.startsWith(loweredQuery)) { score += 25; matched = true; }
+    else if (cmd._nameLower.includes(loweredQuery)) { score += 15; matched = true; }
+
+    if (cmd._descriptionLower.includes(loweredQuery)) { score += 6; matched = true; }
+
     tokens.forEach(token => {
       if (!token) return;
-      if (cmd._nameLower.includes(token)) score += 6;
-      else if (cmd._descriptionLower.includes(token)) score += 2;
+      if (cmd._nameLower.includes(token)) { score += 6; matched = true; }
+      else if (cmd._descriptionLower.includes(token)) { score += 2; matched = true; }
     });
-    if (hints.preferChatOps && cmd.type === 'chatops') score += 8;
-    if (hints.preferCli && cmd.type === 'cli') score += 8;
-    if (hints.preferPlaybook && cmd.type === 'playbook') score += 8;
+
+    if (!matched) return 0;
+
+    if (hints.preferChatOps && cmd.type === 'chatops') score += 4;
+    if (hints.preferCli && cmd.type === 'cli') score += 4;
+    if (hints.preferPlaybook && cmd.type === 'playbook') score += 4;
     if (cmd.type === 'chatops' && cmd.name.startsWith('/')) score += 2;
     if (cmd.type === 'cli' && cmd.name.startsWith('./')) score += 2;
     return score;

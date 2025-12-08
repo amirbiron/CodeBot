@@ -7,7 +7,7 @@
       "--service=<שם שירות>",
       "--severity=<low|high>"
     ],
-    "doc_link": "https://amirbiron.github.io/CodeBot/chatops/commands/#triage"
+    "doc_link": "https://amirbiron.github.io/CodeBot/chatops/commands.html#triage"
   },
   {
     "name": "/predict",
@@ -17,14 +17,14 @@
       "--env=<prod|staging>",
       "--window=<minutes>"
     ],
-    "doc_link": "https://amirbiron.github.io/CodeBot/chatops/commands/#predict"
+    "doc_link": "https://amirbiron.github.io/CodeBot/chatops/commands.html#predict"
   },
   {
     "name": "/status",
     "type": "chatops",
     "description": "מציג בריף מערכת עדכני עם זמינות שירותים",
     "arguments": [],
-    "doc_link": "https://amirbiron.github.io/CodeBot/chatops/commands/#status"
+    "doc_link": "https://amirbiron.github.io/CodeBot/chatops/commands.html#status"
   },
   {
     "name": "./scripts/deploy.sh",
@@ -33,15 +33,13 @@
     "arguments": [
       "--env=<prod|staging>",
       "--no-tests"
-    ],
-    "doc_link": "https://amirbiron.github.io/CodeBot/cli/deploy/"
+    ]
   },
   {
     "name": "./scripts/sync_docs.sh",
     "type": "cli",
     "description": "דחיפת עדכוני תיעוד ידניים ל-RTD ול-Docs CDN",
-    "arguments": [],
-    "doc_link": "https://amirbiron.github.io/CodeBot/cli/docs-sync/"
+    "arguments": []
   },
   {
     "name": "playbooks/restart-search.yml",
@@ -50,8 +48,7 @@
     "arguments": [
       "--dry-run",
       "--region=<eu|us>"
-    ],
-    "doc_link": "https://amirbiron.github.io/CodeBot/playbooks/restart-search/"
+    ]
   },
   {
     "name": "./scripts/db/backup.sh",
@@ -60,8 +57,7 @@
     "arguments": [
       "--output=/tmp/backups",
       "--compress"
-    ],
-    "doc_link": "https://amirbiron.github.io/CodeBot/cli/db-backup/"
+    ]
   },
   {
     "name": "/errors",
@@ -71,6 +67,6 @@
       "--service=<שם>",
       "--limit=<10>"
     ],
-    "doc_link": "https://amirbiron.github.io/CodeBot/chatops/commands/#errors"
+    "doc_link": "https://amirbiron.github.io/CodeBot/chatops/commands.html#errors"
   }
 ]
