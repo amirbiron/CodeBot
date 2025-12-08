@@ -1,0 +1,76 @@
+[
+  {
+    "name": "/triage",
+    "type": "chatops",
+    "description": "פותח סשן חקירה מהיר ומציג חריגות פעילות",
+    "arguments": [
+      "--service=<שם שירות>",
+      "--severity=<low|high>"
+    ],
+    "doc_link": "https://amirbiron.github.io/CodeBot/chatops/commands/#triage"
+  },
+  {
+    "name": "/predict",
+    "type": "chatops",
+    "description": "מעריך את הסבירות לתקלה קרובה לפי טלמטריה",
+    "arguments": [
+      "--env=<prod|staging>",
+      "--window=<minutes>"
+    ],
+    "doc_link": "https://amirbiron.github.io/CodeBot/chatops/commands/#predict"
+  },
+  {
+    "name": "/status",
+    "type": "chatops",
+    "description": "מציג בריף מערכת עדכני עם זמינות שירותים",
+    "arguments": [],
+    "doc_link": "https://amirbiron.github.io/CodeBot/chatops/commands/#status"
+  },
+  {
+    "name": "./scripts/deploy.sh",
+    "type": "cli",
+    "description": "פריסה מלאה של הוובאפ והפושים עם בדיקות בסיס",
+    "arguments": [
+      "--env=<prod|staging>",
+      "--no-tests"
+    ],
+    "doc_link": "https://amirbiron.github.io/CodeBot/cli/deploy/"
+  },
+  {
+    "name": "./scripts/sync_docs.sh",
+    "type": "cli",
+    "description": "דחיפת עדכוני תיעוד ידניים ל-RTD ול-Docs CDN",
+    "arguments": [],
+    "doc_link": "https://amirbiron.github.io/CodeBot/cli/docs-sync/"
+  },
+  {
+    "name": "playbooks/restart-search.yml",
+    "type": "playbook",
+    "description": "ריסט לסטאק החיפוש (api+worker) כולל בדיקות חן",
+    "arguments": [
+      "--dry-run",
+      "--region=<eu|us>"
+    ],
+    "doc_link": "https://amirbiron.github.io/CodeBot/playbooks/restart-search/"
+  },
+  {
+    "name": "./scripts/db/backup.sh",
+    "type": "cli",
+    "description": "מייצא snapshot מוצפן של בסיס הנתונים הפעיל",
+    "arguments": [
+      "--output=/tmp/backups",
+      "--compress"
+    ],
+    "doc_link": "https://amirbiron.github.io/CodeBot/cli/db-backup/"
+  },
+  {
+    "name": "/errors",
+    "type": "chatops",
+    "description": "מציג רשימת תקלות רצות עם פרטי alert רלוונטיים",
+    "arguments": [
+      "--service=<שם>",
+      "--limit=<10>"
+    ],
+    "doc_link": "https://amirbiron.github.io/CodeBot/chatops/commands/#errors"
+  }
+]
