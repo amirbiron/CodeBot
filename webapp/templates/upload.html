@@ -2,6 +2,11 @@
 
 {% block title %}העלה קובץ חדש - Code Keeper Bot{% endblock %}
 
+{% block extra_css %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/split-view.css') }}?v={{ static_version }}">
+<link rel="stylesheet" href="{{ url_for('static', filename='css/md_preview.bundle.css') }}?v={{ static_version }}">
+{% endblock %}
+
 {% block content %}
 <h1 class="page-title">העלה קובץ חדש</h1>
 
@@ -404,9 +409,46 @@
       <label>תגיות</label>
       <input type="text" name="tags" placeholder="#utils, #repo:owner/name" value="{{ tags_value or '' }}" class="form-field">
     </div>
-    <div id="editorContainer">
-      <label>קוד</label>
-      <textarea name="code" rows="14" placeholder="# הדבק כאן את הקוד" class="form-field code-field">{{ code_value or '' }}</textarea>
+    <div id="livePreviewRoot" class="split-view" data-active-panel="editor">
+      <div class="split-toolbar">
+        <div class="split-toolbar-controls">
+          <button
+            type="button"
+            class="split-toggle"
+            data-action="toggle-live-preview"
+            aria-pressed="false"
+          >
+            <i class="fas fa-columns"></i>
+            <span class="split-toggle__text">Live Preview</span>
+          </button>
+          <span class="split-toolbar-hint">Ctrl+Shift+Enter</span>
+        </div>
+        <div class="split-tabs" role="tablist" aria-label="חלונות תצוגה">
+          <button type="button" role="tab" aria-selected="true" data-panel-target="editor">עורך</button>
+          <button type="button" role="tab" aria-selected="false" data-panel-target="preview">תצוגה</button>
+        </div>
+      </div>
+      <div class="split-panels">
+        <section class="split-panel split-panel--editor" aria-label="אזור עריכה">
+          <div id="editorContainer">
+            <label for="codeTextarea">קוד</label>
+            <textarea id="codeTextarea" name="code" rows="18" placeholder="# הדבק כאן את הקוד" class="form-field code-field">{{ code_value or '' }}</textarea>
+          </div>
+        </section>
+        <div class="split-resizer" role="separator" aria-label="שנה את רוחב הפאנלים"></div>
+        <section class="split-panel split-panel--preview" aria-label="תצוגה חיה">
+          <div class="split-preview-content" data-preview-content aria-live="polite">
+            <div class="split-preview-canvas" data-preview-canvas>
+              <div class="split-preview-placeholder">
+                <p>תצוגה חיה תופיע כאן</p>
+                <small>הפעל את Live Preview כדי לרענן בזמן אמת</small>
+              </div>
+            </div>
+            <div class="split-preview-meta" data-preview-meta></div>
+            <p class="split-preview-status" data-preview-status>הפעל את Live Preview כדי לראות עדכון בזמן אמת.</p>
+          </div>
+        </section>
+      </div>
     </div>
     <div class="source-url-block">
       <button type="button"
@@ -457,6 +499,8 @@
 </div>
 {% endblock %}
 {% block extra_js %}
+<script src="{{ url_for('static', filename='js/md_preview.bundle.js') }}?v={{ static_version }}" defer></script>
+<script src="{{ url_for('static', filename='js/live-preview.js') }}?v={{ static_version }}" defer></script>
 <script>
   document.addEventListener('DOMContentLoaded', async function () {
       const container = document.getElementById('editorContainer');
