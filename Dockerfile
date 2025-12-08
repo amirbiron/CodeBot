@@ -24,7 +24,12 @@ ENV PYTHONUNBUFFERED=1 \
     PATH="/root/.local/bin:$PATH"
 
 # כלים לבניית חבילות heavy (wheels)
-RUN apt-get update -y && apt-get upgrade -y && \
+RUN set -eux; \
+    . /etc/os-release; \
+    printf 'deb http://deb.debian.org/debian %s main contrib non-free non-free-firmware\n' "$VERSION_CODENAME" > /etc/apt/sources.list.d/non-free.list; \
+    printf 'deb http://deb.debian.org/debian %s-updates main contrib non-free non-free-firmware\n' "$VERSION_CODENAME" >> /etc/apt/sources.list.d/non-free.list; \
+    printf 'deb http://security.debian.org/debian-security %s-security main contrib non-free non-free-firmware\n' "$VERSION_CODENAME" >> /etc/apt/sources.list.d/non-free.list; \
+    apt-get update -y && apt-get upgrade -y && \
     apt-get install -y --no-install-recommends \
         build-essential \
         python3-dev \
@@ -72,7 +77,12 @@ ENV NODE_MAJOR=${NODE_MAJOR} \
     NODE_VERSION=${NODE_VERSION}
 
 # חבילות Runtime הנדרשות (כולל Playwright deps מלאים)
-RUN apt-get update -y && apt-get upgrade -y && \
+RUN set -eux; \
+    . /etc/os-release; \
+    printf 'deb http://deb.debian.org/debian %s main contrib non-free non-free-firmware\n' "$VERSION_CODENAME" > /etc/apt/sources.list.d/non-free.list; \
+    printf 'deb http://deb.debian.org/debian %s-updates main contrib non-free non-free-firmware\n' "$VERSION_CODENAME" >> /etc/apt/sources.list.d/non-free.list; \
+    printf 'deb http://security.debian.org/debian-security %s-security main contrib non-free non-free-firmware\n' "$VERSION_CODENAME" >> /etc/apt/sources.list.d/non-free.list; \
+    apt-get update -y && apt-get upgrade -y && \
     apt-get install -y --no-install-recommends \
         libasound2 \
         libatk-bridge2.0-0 \
