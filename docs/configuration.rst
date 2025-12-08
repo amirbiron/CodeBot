@@ -172,3 +172,100 @@ Config via Pydantic Settings
 - עמוד זה (:doc:`configuration`) מספק הסברים ו‑best‑practices.
 - עמוד :doc:`environment-variables` מכיל טבלת רפרנס מלאה עם דוגמאות.
 - מומלץ להתחיל מכאן ואז לעבור לרפרנס לפי צורך.
+
+קבצי קונפיגורציה ייעודיים
+==========================
+
+מעבר למשתני הסביבה ישנם קובצי JSON/YAML ב-``config/`` שמאפשרים שליטה במודולים מרכזיים. הטבלה הבאה מסכמת את העיקרון של כל קובץ, ובכל מקטע מוצגת דוגמה לשדות הנפוצים ולמודול הצורך אותם.
+
+``config/alert_graph_sources.json``
+-----------------------------------
+
+- משמש את :mod:`services.observability_dashboard` להוספת מקורות גרפים חיצוניים (Grafana, Prometheus, Datadog וכדומה) שמעושרים בתוך ה-Visual Context של ההתראות.
+- המבנה: מילון ``sources`` שממופה לפי שם מדד (למשל ``cpu_usage_percent``) עם מאפיינים כגון תווית, קטגוריה, טווח זמן ברירת מחדל ועוד.
+- חובה לספק allowlist של המארחים מהם מושכים את הגרף כדי למנוע SSRF (שדה ``allowed_hosts``).
+
+דוגמה::
+
+   {
+     "version": 1,
+     "sources": {
+       "requests_per_minute": {
+         "label": "API RPM (Grafana)",
+         "category": "pattern",
+         "default_range": "1h",
+         "unit": "req/min",
+         "graph_url_template": "https://grafana.example/api/render?panelId=3&from={{start_ts_ms}}&to={{end_ts_ms}}",
+         "allowed_hosts": ["grafana.example"],
+         "headers": {"Authorization": "Bearer ${GRAFANA_TOKEN}"},
+         "value_key": "value",
+         "timestamp_key": "timestamp"
+       }
+     }
+   }
+
+``config/alert_quick_fixes.json``
+---------------------------------
+
+- מוזן גם הוא על-ידי :mod:`services.observability_dashboard` כדי להציג כפתורי פעולה מהירים בממשק ניהול ההתראות.
+- תומך בשלוש שכבות התאמה: ``by_alert_type`` (לפי סוג ההתראה), ``by_severity`` ולבסוף ``fallback``.
+- כל פעולה מכילה מזהה ``id`` ייחודי, ``label`` להצגה, ``type`` (לינק, העתקת טקסט, פקודת ChatOps), ושדות ייעודיים כמו ``href`` או ``payload``. טוקנים כגון ``{{timestamp}}`` מוחלפים בזמן אמת.
+
+מקבץ מהקובץ הקיים::
+
+   {
+     "version": 1,
+     "by_alert_type": {
+       "high_error_rate": [
+         {
+           "id": "copy_triage_errors",
+           "label": "🧪 /triage errors",
+           "type": "copy",
+           "payload": "/triage errors",
+           "description": "העתק פקודת ChatOps לקבלת רמזים מהלוגים בזמן אמת.",
+           "safety": "safe"
+         }
+       ]
+     }
+   }
+
+``config/alerts.yml``
+---------------------
+
+- שולט ברגישות ברירת מחדל של מחולל ההתראות (חלונות זמן, מגבלות ספירה וקטגוריות שמדלגות על cooldown).
+- נצרך הן על-ידי `monitoring/log_analyzer.py` (לקביעת thresholds) והן ע"י ה-Observability Dashboard.
+- שדות מרכזיים:
+
+  - ``window_minutes`` – חלון הדגימה המינימלי (למשל 5 דקות).
+  - ``min_count_default`` – כמה מופעים צריכים להתרחש כדי להקים התראה.
+  - ``cooldown_minutes`` – פרק הזמן שבו התראה זהה תידחה כדי למנוע רעש.
+  - ``immediate_categories`` – רשימת קטגוריות שעדיין מחייבות התראה גם אם cooldown פעיל (למשל ``critical``/``config``).
+
+.. _config-error-signatures:
+
+``config/error_signatures.yml``
+-------------------------------
+
+- קובץ ה-reference למנוע חתימות השגיאות (:mod:`monitoring.error_signatures`). מכיל:
+
+  - ``noise_allowlist`` – regex-ים שמתארים שגיאות ידועות שאפשר להתעלם מהן.
+  - ``categories`` – לכל קטגוריה יש תיאור, חומרה ו-``default_policy`` (``retry`` / ``notify`` / ``escalate``) ועוד רשימת חתימות בעלות ``id``, תקציר ו-``pattern``.
+
+- עדכונים מומלצים:
+
+  1. הוסיפו חתימות חדשות תחת הקטגוריה המתאימה עם `pattern` מינימלי ובר שינוי.
+  2. שמרו על מזהה ייחודי כדי לאפשר קישור חוצה-מערכות (UI, runbooks, ChatOps).
+  3. הריצו ``scripts/run_log_aggregator.py`` מקומית כדי לוודא שה-Regex תקין ולא תופס אירועים שגויים.
+
+``config/image_settings.yaml``
+------------------------------
+
+- קובע את ברירות המחדל של שירות יצירת התמונות (:mod:`services.image_generator` וה-Bot handlers שמתבססים עליו).
+- סעיף ``image_generation`` כולל:
+
+  - ``default_theme`` / ``default_style`` – סט ה-colors וה-styles שייושמו אם המשתמש לא בחר.
+  - ``default_width`` / ``width_options`` – גדלי פלט בפיקסלים (נחוץ ל-Playwright/WeasyPrint).
+  - ``preview`` ו-``image_all`` – מגבלות בטיחות (מספר שורות, גודל כולל) כדי למנוע OOM בזמן רינדור סדרתי.
+  - ``supported_formats`` – רשימת פורמטים שמורשים להישלח חזרה (כיום ``png`` בלבד).
+
+בעת שינוי הערכים שמרו על עקביות בין ה-Bot ל-WebApp ובדקו שהתלותים (Pillow/Playwright) מותקנים עם הפונטים הדרושים.

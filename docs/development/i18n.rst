@@ -1,0 +1,86 @@
+בינאום ותמיכה בשפות
+====================
+
+מודול ``i18n/`` מספק שכבת תרגום פשוטה לבוט הטלגרם וה-WebApp. נכון לעכשיו קיימת חבילת מחרוזות בעברית (``strings_he.py``), אך המבנה מאפשר הוספת שפות חדשות ללא שינוי בלוגיקה העסקית.
+
+.. contents::
+   :local:
+   :depth: 2
+
+מבנה הקבצים
+-----------
+
+- ``i18n/strings_<lang>.py`` – מגדיר שני משתנים גלובליים:
+
+  - ``MAIN_MENU`` – מערך דו-ממדי של טקסטים עבור ``ReplyKeyboardMarkup``.
+  - ``MESSAGES`` – מילון מחרוזות לפי מזהה לוגי (למשל ``welcome``).
+
+- ``i18n/__init__.py`` – נשמר ריק כדי לאפשר ``from i18n.strings_he import ...`` בצורה ישירה. ניתן להוסיף בו בעתיד פונקציות עזר לבחירת שפה.
+
+דוגמה מקובץ קיים::
+
+   MAIN_MENU = [
+       ["🗜️ יצירת ZIP", "➕ הוסף קוד חדש"],
+       ["📚 הצג את כל הקבצים שלי", "🔧 GitHub"],
+       ["⚡ עיבוד Batch", "📥 ייבוא ZIP מריפו"],
+   ]
+
+   MESSAGES = {
+       "welcome": (
+           "🤖 שלום וברוך הבא לבוט שומר הקוד המתקדם!\n\n"
+           "🔹 שמור ונהל קטעי קוד בחכמה\n"
+           "🔹 העלאת קבצים ל-GitHub\n"
+           "🔧 תקלה בבוט? כתבו ל-@moominAmir\n"
+       ),
+       "choose_view": "בחר/י דרך להצגת הקבצים:",
+   }
+
+בחירת שפה בזמן ריצה
+-------------------
+
+הבוט משתמש בברירת המחדל העברית דרך יבוא ישיר בקובץ ``conversation_handlers.py``::
+
+   from i18n.strings_he import MAIN_MENU as MAIN_KEYBOARD
+   from i18n.strings_he import MESSAGES
+
+כדי להחליף שפה או להפעיל i18n דינמי:
+
+1. שמרו את העדפת המשתמש ב-DB (לדוגמה ``user_settings.language``).
+2. צרו פונקציה עוטפת (למשל ``load_strings(lang_code: str)``) שמחזירה מודול השפה הרלוונטי ע"י ``importlib``.
+3. החליפו את היבוא הישיר בהפניה דינמית:
+
+   .. code-block:: python
+
+      from importlib import import_module
+
+      def get_strings(lang: str):
+          module_name = f"i18n.strings_{lang}"
+          return import_module(module_name)
+
+      strings = get_strings(preferred_lang)
+      keyboard = ReplyKeyboardMarkup(strings.MAIN_MENU, resize_keyboard=True)
+      welcome_text = strings.MESSAGES["welcome"].format(name=user_name)
+
+4. הגדירו ערך ברירת מחדל (למשל ``lang="he"``) למקרה שהמשתמש לא הזין העדפה או שהמודול לא קיים.
+
+הוספת שפה חדשה
+--------------
+
+1. העתיקו את ``i18n/strings_he.py`` לקובץ חדש ``i18n/strings_<iso>.py`` (למשל ``strings_en.py``).
+2. הקפידו להשאיר את אותם keys ב-``MESSAGES`` כדי למנוע ``KeyError`` בקוד שקורא להם.
+3. שימרו על placeholders קיימים (למשל ``{name}`` או ``{count}``) – אחרת ``str.format`` ייכשל.
+4. הוסיפו את המודול החדש לטבלת המרה כלשהי (dictionary או Enum) כך שה-UI יוכל להציג בחירה למשתמש.
+5. בדקו ב-/start ובזרימות Telegram נוספות כדי לוודא שאין מחרוזות משולבות באנגלית שנותרו ללא תרגום.
+
+עקרונות כתיבה
+--------------
+
+- **RTL מול LTR** – השתמשו באותיות המכילות כיוון מובנה (בוט Telegram מסתדר עם שניהם, אבל WebApp עלול לדרוש מחלקות CSS).
+- **אמוג'ים וסמלים** – שמרו על אמוג׳ים קיימים כדי לשמור עקביות בין השפות; הם ממלאים תפקיד של אייקונים בתפריטים.
+- **יישור** – העדיפו משפטים קצרים, ללא שורות ארוכות מדי (Telegram עוטף טקסט אוטומטית אך עדיף להכניס שורות חדשות במקומות הגיוניים).
+
+בדיקות מהירות
+--------------
+
+- הפעלת ``pytest tests/test_bookmarks.py`` אינה נדרשת ל-i18n, אך מומלץ להריץ לפחות ``/start`` בסביבת sandbox כדי לראות שה-Keyboard והמחרוזות מוצגים כראוי.
+- כאשר מוסיפים שפה עם תווי Latin, ודאו שהפונטים ב-WebApp ואתרי ה-Markdown תומכים בה (למשל DejaVu Sans בגזירת התמונות).

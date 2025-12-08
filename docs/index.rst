@@ -63,6 +63,9 @@ Code Keeper Bot - תיעוד API
    troubleshooting
    development
    development/pre-commit
+   development/tools
+   development/scripts
+   development/i18n
    integrations
    repository-integrations
    security
@@ -125,6 +128,7 @@ Code Keeper Bot - תיעוד API
    webapp/editor
    webapp/markdown-folding
    webapp/smooth-scrolling
+   webapp/system-modules
 
 .. toctree::
    :maxdepth: 2
@@ -140,11 +144,18 @@ Code Keeper Bot - תיעוד API
    resilience
    alerts
    observability/log_based_alerts
+   observability/log-aggregator
    sentry
    runbooks/incident-checklist
    runbooks/logging-levels
    runbooks/github_backup_restore
    runbooks/slo
+
+.. toctree::
+   :maxdepth: 2
+   :caption: פריסה ו-Workers
+
+   deployment/workers
 
 .. toctree::
    :maxdepth: 2
