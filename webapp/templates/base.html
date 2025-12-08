@@ -2128,10 +2128,25 @@
         if (!theme) { return; }
         htmlEl.setAttribute('data-theme', theme);
     }
+    function mapDarkModePreference(theme){
+        if (theme === 'dark' || theme === 'dim') {
+            return theme;
+        }
+        if (theme === 'classic') {
+            return 'light';
+        }
+        return null;
+    }
     function persistTheme(theme){
         if (!theme) { return; }
         lsSet(STORAGE_KEYS.userTheme, theme);
-        lsSet(STORAGE_KEYS.preference, theme);
+        const darkModePref = mapDarkModePreference(theme);
+        if (darkModePref) {
+            lsSet(STORAGE_KEYS.preference, darkModePref);
+        } else {
+            try { localStorage.removeItem(STORAGE_KEYS.preference); }
+            catch (_) {}
+        }
         try {
             fetch('/api/ui_prefs', {
                 method: 'POST',
