@@ -87,41 +87,11 @@
         }
         :root[data-theme="ocean"] {
             --primary: #3182ce;
-            --primary-dark: #2b6cb0;
             --secondary: #2c5282;
-            --bg-primary: #e6f2ff;
-            --bg-secondary: #d7eefe;
-            --bg-tertiary: #cde4fb;
-            --text-primary: #0f172a;
-            --text-secondary: #1d3557;
-            --text-muted: #4a5568;
-            --glass: rgba(49, 130, 206, 0.15);
-            --glass-border: rgba(49, 130, 206, 0.3);
-            --glass-hover: rgba(49, 130, 206, 0.22);
-            --card-bg: rgba(236, 246, 255, 0.96);
-            --card-border: rgba(49, 130, 206, 0.25);
-            --code-bg: #0f172a;
-            --code-text: #e2e8f0;
-            --code-border: rgba(15, 23, 42, 0.4);
         }
         :root[data-theme="forest"] {
             --primary: #2f855a;
-            --primary-dark: #276749;
             --secondary: #22543d;
-            --bg-primary: #edf7f1;
-            --bg-secondary: #e0f2e2;
-            --bg-tertiary: #d3ebd7;
-            --text-primary: #1c3526;
-            --text-secondary: #2f855a;
-            --text-muted: #4a674f;
-            --glass: rgba(47, 133, 90, 0.15);
-            --glass-border: rgba(47, 133, 90, 0.28);
-            --glass-hover: rgba(47, 133, 90, 0.22);
-            --card-bg: rgba(237, 247, 241, 0.96);
-            --card-border: rgba(47, 133, 90, 0.3);
-            --code-bg: #142a1d;
-            --code-text: #e6fffa;
-            --code-border: rgba(34, 84, 61, 0.45);
         }
         /* Rose Pine Dawn (light) */
         :root[data-theme="rose-pine-dawn"] {
@@ -278,8 +248,6 @@
             color: var(--text-primary);
         }
 
-        :root[data-theme="ocean"] body,
-        :root[data-theme="forest"] body,
         :root[data-theme="rose-pine-dawn"] body {
             background: linear-gradient(135deg, var(--bg-primary) 0%, var(--bg-secondary) 100%);
             color: var(--text-primary);
@@ -312,13 +280,6 @@
             background: url('data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1440 320"><path fill="%2324324a" fill-opacity="0.22" d="M0,96L48,112C96,128,192,160,288,160C384,160,480,128,576,122.7C672,117,768,139,864,138.7C960,139,1056,117,1152,101.3C1248,85,1344,75,1392,69.3L1440,64L1440,320L1392,320C1344,320,1248,320,1152,320C1056,320,960,320,864,320C768,320,672,320,576,320C480,320,384,320,288,320C192,320,96,320,48,320L0,320Z"/></svg>') no-repeat bottom center;
         }
 
-        :root[data-theme="ocean"] body::before {
-            background: url('data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1440 320"><path fill="%233182ce" fill-opacity="0.12" d="M0,96L48,112C96,128,192,160,288,160C384,160,480,128,576,122.7C672,117,768,139,864,138.7C960,139,1056,117,1152,101.3C1248,85,1344,75,1392,69.3L1440,64L1440,320L1392,320C1344,320,1248,320,1152,320C1056,320,960,320,864,320C768,320,672,320,576,320C480,320,384,320,288,320C192,320,96,320,48,320L0,320Z"/></svg>') no-repeat bottom center;
-        }
-
-        :root[data-theme="forest"] body::before {
-            background: url('data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1440 320"><path fill="%232f855a" fill-opacity="0.12" d="M0,96L48,112C96,128,192,160,288,160C384,160,480,128,576,122.7C672,117,768,139,864,138.7C960,139,1056,117,1152,101.3C1248,85,1344,75,1392,69.3L1440,64L1440,320L1392,320C1344,320,1248,320,1152,320C1056,320,960,320,864,320C768,320,672,320,576,320C480,320,384,320,288,320C192,320,96,320,48,320L0,320Z"/></svg>') no-repeat bottom center;
-        }
 
         :root[data-theme="rose-pine-dawn"] body::before {
             background: url('data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1440 320"><path fill="%23f2e9e1" fill-opacity="0.4" d="M0,96L48,112C96,128,192,160,288,160C384,160,480,128,576,122.7C672,117,768,139,864,138.7C960,139,1056,117,1152,101.3C1248,85,1344,75,1392,69.3L1440,64L1440,320L1392,320C1344,320,1248,320,1152,320C1056,320,960,320,864,320C768,320,672,320,576,320C480,320,384,320,288,320C192,320,96,320,48,320L0,320Z"/></svg>') no-repeat bottom center;
