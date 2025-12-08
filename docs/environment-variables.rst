@@ -896,6 +896,12 @@
      - ``config/alert_quick_fixes.json``
      - ``config/custom_fixes.json``
      - Bot/WebApp
+   * - ``ALERT_EXTERNAL_SERVICES``
+     - רשימת מחרוזות (CSV) של שירותים חיצוניים שיזוהו כ-``external`` במדד High Error Rate (למשל ``uptimerobot``/``github api``); שגיאות מהמקורות האלה ייצרו רק התרעת Warning ולא יריצו Auto-Remediation.
+     - לא
+     - ``uptime,uptimerobot,uptime_robot,betteruptime,statuscake,pingdom,external_monitor,github api,github_api``
+     - ``uptimerobot,github api,statuspage``
+     - WebApp/Observability
    * - ``OBS_AI_EXPLAIN_URL``
      - Endpoint לשירות ההסבר החכם של הדשבורד (מקבל ``POST`` עם ``context`` ומחזיר ``root_cause``/``actions``/``signals``).
      - לא
