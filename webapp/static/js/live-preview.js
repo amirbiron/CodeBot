@@ -779,6 +779,17 @@
         this.toggleBtn.setAttribute('aria-pressed', 'false');
       }
       this.root.classList.remove('is-active');
+      this.root.dataset.activePanel = 'editor';
+      const tabs = this.root.querySelectorAll('[data-panel-target]');
+      if (tabs && tabs.length) {
+        tabs.forEach((el) => {
+          const target = el.dataset.panelTarget || 'editor';
+          el.setAttribute('aria-selected', target === 'editor' ? 'true' : 'false');
+        });
+      }
+      try {
+        this.root.style.removeProperty('--split-editor-ratio');
+      } catch (_) {}
       this.setStatus(STATUS.IDLE, message || this.defaultMessage(STATUS.IDLE));
       if (this.previewCanvas) {
         this.previewCanvas.innerHTML = '<div class="split-preview-placeholder"><p>תצוגה חיה תופיע כאן</p><small>הפעל את Live Preview כדי לרענן בזמן אמת</small></div>';
