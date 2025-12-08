@@ -60,3 +60,26 @@ def test_live_preview_highlights_code(client):
     assert data["mode"] == "code"
     assert "codehilite" in data["html"]
     assert any("codehilite" in css for css in data["meta"].get("styles", []))
+
+
+def test_live_preview_removes_dangerous_form_action(client):
+    payload = {
+        "content": '<form action="javascript:alert(1)"><button>send</button></form>',
+        "language": "html",
+    }
+    resp = client.post("/api/preview/live", json=payload)
+    assert resp.status_code == 200
+    html = resp.get_json()["html"]
+    assert "javascript:alert" not in html
+    assert "action" not in html or 'action="' not in html
+
+
+def test_live_preview_blocks_protocol_relative_urls(client):
+    payload = {
+        "content": "![tracker](//evil.example/track.png)",
+        "language": "markdown",
+    }
+    resp = client.post("/api/preview/live", json=payload)
+    assert resp.status_code == 200
+    html = resp.get_json()["html"]
+    assert "//evil.example" not in html

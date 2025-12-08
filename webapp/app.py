@@ -6520,19 +6520,33 @@ _LIVE_PREVIEW_ELEMENT_ATTRS = {
     "form": {"method", "action"},
 }
 _LIVE_PREVIEW_BLOCKED_TAGS = {"script", "iframe", "embed", "object", "base", "link"}
+_LIVE_PREVIEW_URL_ATTRS = {
+    "href": False,
+    "src": True,
+    "poster": True,
+    "action": False,
+}
 _PYGMENTS_PREVIEW_FORMATTER = HtmlFormatter(style="friendly", cssclass="codehilite", wrapcode=True)
 _PYGMENTS_PREVIEW_CSS = _PYGMENTS_PREVIEW_FORMATTER.get_style_defs(".codehilite")
 
 
-def _is_safe_preview_url(value: str, *, is_src: bool) -> bool:
+def _is_safe_preview_url(value: str, *, allow_data_uri: bool) -> bool:
     val = (value or "").strip()
     if not val:
         return False
     lowered = val.lower()
-    if lowered.startswith(("#", "/", "./", "../")):
-        return True
+    if lowered.startswith("javascript:"):
+        return False
+    if lowered.startswith("//"):
+        return False
     if lowered.startswith("data:"):
-        return any(lowered.startswith(prefix) for prefix in _LIVE_PREVIEW_ALLOWED_DATA_PREFIXES) and is_src
+        if not allow_data_uri:
+            return False
+        return any(lowered.startswith(prefix) for prefix in _LIVE_PREVIEW_ALLOWED_DATA_PREFIXES)
+    if lowered.startswith(("#", "./", "../")):
+        return True
+    if lowered.startswith("/"):
+        return True
     parsed = urlparse(val)
     if parsed.scheme:
         return parsed.scheme.lower() in _LIVE_PREVIEW_ALLOWED_SCHEMES
@@ -6583,8 +6597,10 @@ def _sanitize_preview_html(
             if isinstance(value, list):
                 value = value[0]
             value_str = str(value)
-            if attr_lower in {"href", "src"} and not _is_safe_preview_url(value_str, is_src=(attr_lower == "src")):
-                continue
+            if attr_lower in _LIVE_PREVIEW_URL_ATTRS:
+                allow_data = _LIVE_PREVIEW_URL_ATTRS[attr_lower]
+                if not _is_safe_preview_url(value_str, allow_data_uri=allow_data):
+                    continue
             cleaned_attrs[attr_lower] = value_str
         tag.attrs = cleaned_attrs
     return soup.decode()
