@@ -8,7 +8,16 @@
 {% endblock %}
 
 {% block content %}
-<h1 class="page-title">הקבצים שלי</h1>
+<div class="page-title-row" style="display:flex; align-items:center; justify-content:space-between; gap:1rem; flex-wrap:wrap;">
+    <h1 class="page-title" style="margin:0;">הקבצים שלי</h1>
+    <button type="button"
+            class="btn btn-secondary btn-icon"
+            data-tour-restart
+            title="הפעלת הסיור המודרך מחדש">
+        <i class="fas fa-person-walking" aria-hidden="true"></i>
+        <span class="btn-text">סיור מודרך</span>
+    </button>
+</div>
 
 <!-- חיפוש גלובלי בתוכן -->
 <div class="container-fluid px-3">
@@ -237,7 +246,7 @@
             {% endif %}
         </div>
         <div style="display:flex; gap:0.5rem; align-items:center; flex-wrap: wrap; min-width:0;">
-            <a href="/upload" class="btn btn-secondary btn-icon" style="padding: 0.5rem 1rem;">
+            <a href="/upload" class="btn btn-secondary btn-icon" id="tourCreateButton" style="padding: 0.5rem 1rem;">
                 <i class="fas fa-plus" aria-hidden="true"></i>
                 <span class="btn-text">הוסף קובץ חדש</span>
             </a>
