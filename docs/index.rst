@@ -70,6 +70,7 @@ Code Keeper Bot - תיעוד API
    git-lfs
    user/bookmarks
    user/sticky_notes
+   user/reminders
    user/my_collections
    user/share_code
    user/github_browse
