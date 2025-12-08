@@ -1,8 +1,8 @@
 # מסמך מסכם - כל הפיצ'רים של CodeBot
 
 > תיעוד מקיף של כל התכונות והיכולות של הבוט וה-Web App
-> תאריך עדכון: נובמבר 2025
-> גרסה: 1.0.0
+> תאריך עדכון: דצמבר 2025
+> גרסה: 2.0.0
 
 ---
 
@@ -11,7 +11,15 @@
 1. [סקירה כללית](#סקירה-כללית)
 2. [ארכיטקטורה ומבנה הפרויקט](#ארכיטכטורה-ומבנה-הפרויקט)
 3. [פיצ'רים של הבוט (Telegram)](#פיצרים-של-הבוט-telegram)
+   - 16. [מערכת AI מתקדמת](#1️⃣6️⃣-מערכת-ai-מתקדמת)
+   - 17. [פקודות ChatOps מורחבות](#1️⃣7️⃣-פקודות-chatops-מורחבות)
 4. [פיצ'רים של ה-Web App](#פיצרים-של-ה-web-app)
+   - 20. [מערכת Onboarding מקיפה](#2️⃣0️⃣-מערכת-onboarding-מקיפה-)
+   - 21. [Live Preview עם Split View](#2️⃣1️⃣-live-preview-עם-split-view)
+   - 22. [Incident Storyboard](#2️⃣2️⃣-incident-storyboard-ניהול-תקריות)
+   - 23. [Commands Catalog](#2️⃣3️⃣-commands-catalog-קטלוג-פקודות)
+   - 24. [Copy Page Button](#2️⃣4️⃣-copy-page-button-העתקת-דפי-תיעוד)
+   - 25. [תכונות נוספות](#2️⃣5️⃣-תכונות-נוספות)
 5. [טכנולוגיות ותשתית](#טכנולוגיות-ותשתית)
 6. [אבטחה ומעקב](#אבטחה-ומעקב)
 
@@ -608,7 +616,78 @@ CodeBot/
 - **שיתוף וייצוא:** 6+ שיטות
 - **ממשק משתמש:** 50+ כפתורים אינטראקטיביים
 
-**סה"כ:** 150+ תכונות ופקודות נפרדות!
+**סה"כ:** 170+ תכונות ופקודות נפרדות!
+
+---
+
+### 1️⃣6️⃣ מערכת AI מתקדמת
+
+#### AI Model עם Fallback אוטומטי
+- **מודל ראשי**: `claude-sonnet-4-5-20250929` (Claude Sonnet 4.5)
+- **מערכת Fallback חכמה** - מעבר אוטומטי בין 8 מודלים שונים
+- **זיהוי שפות** - תמיכה בעברית לצוותי SRE
+- **PII Sanitization** - הסרת מידע רגיש אוטומטית
+- **Timeout ניתן להתאמה** - ברירת מחדל 10 שניות
+- **Temperature Control** - שליטה ברמת היצירתיות
+- **מודלי Fallback** (לפי סדר):
+  1. claude-opus-4-5-20251101
+  2. claude-haiku-4-5-20251001
+  3. claude-opus-4-1-20250805
+  4. claude-opus-4-20250514
+  5. claude-sonnet-4-20250514
+  6. claude-3-7-sonnet-20250229
+  7. claude-3-5-haiku-20241022
+  8. claude-3-haiku-20240307
+
+#### הגדרות AI
+- `OBS_AI_EXPLAIN_MODEL` - בחירת מודל ראשי
+- `CLAUDE_MODEL` - מודל אלטרנטיבי
+- `OBS_AI_EXPLAIN_MODEL_FALLBACKS` - רשימת מודלי גיבוי
+- `OBS_AI_PROVIDER_LABEL` - תווית ספק
+- תגובות מובנות JSON (root_cause, actions, signals)
+- טיפול חכם בשגיאות 404
+
+---
+
+### 1️⃣7️⃣ פקודות ChatOps מורחבות
+
+#### פקודות בריאות ומצב
+- `/status` - בדיקת תקינות מערכת (כל המשתמשים)
+- `/health` - כינוי ל-status
+- `/uptime` - אחוז זמינות וזמן אתחול אחרון
+- `/system_info` - שימוש CPU/זיכרון/דיסק
+
+#### Observability
+- `/observe` - סיכום בריאות מהיר
+- `/observe -v` - מפורט עם התראות ושגיאות
+- `/observe -vv` - מפורט מאוד עם מזהי התראה
+- `/metrics` - dump מטריקות Prometheus
+- `/errors` - 10 השגיאות האחרונות
+- `/alerts` - 5 ההתראות האחרונות
+- `/incidents` - לוג תקריות (Incident Memory)
+
+#### Troubleshooting
+- `/triage` - חקירת תקריות מהירה
+- `/predict` - תחזית אנומליות ל-3 שעות הבאות
+- `/accuracy` - דוח דיוק חיזויים
+
+#### ניהול Rate Limiting
+- `/rate_limit` - בדיקת מכסת GitHub API
+- `/enable_backoff` - כפיית הגבלת קצב GitHub
+- `/disable_backoff` - חזרה לפעולה רגילה של GitHub
+
+#### ניהול התראות
+- `/silence <name> <duration>` - השתקת התראות
+- `/unsilence <id|pattern>` - הסרת השתקה
+- `/silences` - רשימת השתקות פעילות
+
+#### כלים נוספים
+- `/sen` - קישור ללוח בקרת Sentry
+- `/lang <file>` - זיהוי שפת תכנות
+- `/lang_debug <file>` - זיהוי שפה מפורט
+- `/cache_stats` - סטטיסטיקות Redis cache
+- `/clear_cache` - ניקוי cache משתמש
+- `/cache_warm` - חימום מקדים של cache
 
 ---
 
@@ -1268,7 +1347,326 @@ CodeBot/
 - **ביצועים:** 8+ אופטימיזציות
 - **API Endpoints:** 50+ נקודות קצה
 
-**סה"כ:** 130+ תכונות נפרדות ב-Web App!
+**סה"כ:** 160+ תכונות נפרדות ב-Web App!
+
+---
+
+### 2️⃣0️⃣ מערכת Onboarding מקיפה (`/`)
+
+**מערכת חניכה רב-שלבית למשתמשים חדשים:**
+
+#### 1. Welcome Modal
+- **מופיע בכניסה ראשונה** - הודעת ברוכים הבאים
+- **קישורים למדריכים** - Quick Start וקישורים שימושיים
+- **אישור בדיאלוג** - שמירת סטטוס ב-DB
+- **API**: `POST /api/welcome/ack`
+- **תוכן דינמי** - מתוך שיתופים פנימיים
+- **SessionStorage cache** - למהירות
+
+#### 2. Interactive Tour (Driver.js)
+- **סיור מודרך אינטראקטיבי** - 4 שלבים עיקריים
+- **תכונות מרכזיות**:
+  - כפתור יצירה (#tourCreateButton)
+  - חיפוש גלובלי (#globalSearchInput)
+  - ניווט אוספים (#tourCollectionsNav)
+  - הודעות פתיחה/סיום
+- **ניהול מצב**:
+  - localStorage: `codekeeper_walkthrough_v1`
+  - ניתן לדילוג בכל שלב
+  - תמיכה RTL מלאה
+  - Responsive למובייל
+- **Console API**:
+  - `window.CodeKeeperTour.start()` - התחלת סיור
+  - `window.CodeKeeperTour.reset()` - איפוס דגל
+  - `window.CodeKeeperTour.hasSeen()` - בדיקת סטטוס
+- **URL Trigger**: `?tour=restart` או `?tour=start`
+
+#### 3. Theme Wizard (אשף ערכות נושא)
+- **בחירת ערכת נושא** - עם תצוגה מקדימה חיה
+- **3 אפשרויות ברירת מחדל**:
+  1. **Nebula** (Classic) - גרדיינט סגול
+  2. **Rose Pine Dawn** - ערכת נושא ורודה בהירה
+  3. **Classic** - ערכת נושא קלאסית
+- **Live Preview**:
+  - החלפת ערכת נושא בזמן אמת
+  - חלונית תצוגה מקדימה עם אלמנטי UI
+  - דוגמאות קוד ותוכן
+- **זרימת עבודה**:
+  - נפתח אחרי סיום הסיור
+  - Timer גיבוי (9 שניות)
+  - MutationObserver להמתנה ל-Welcome Modal
+- **שמירה**:
+  - localStorage.user_theme
+  - localStorage.dark_mode_preference
+  - API: `POST /api/ui_prefs`
+- **Console API**:
+  - `window.ThemeWizard.open()` - פתיחת אשף
+  - `window.ThemeWizard.resetSeen()` - איפוס דגל
+  - `window.ThemeWizard.hasSeen()` - בדיקת סטטוס
+- **URL Trigger**: `?theme_wizard=restart`
+
+#### זרימת Onboarding מלאה
+```
+Welcome Modal → MutationObserver מאשר הסרה →
+Interactive Tour (אם ב-/files) → אירוע Driver.js 'destroyed' →
+Theme Wizard נפתח → שמירה/דילוג → סיום
+```
+
+#### תכונות מתקדמות
+- **Dependency Chain** - כל רכיב מחכה לקודמו
+- **הימנעות מקונפליקטים** - MutationObserver וזמנים
+- **טריגרים מרובים** - URL parameters, console API
+- **אחסון מקומי** - flags נפרדים לכל שלב
+- **תמיכה במובייל** - הסתרת שלבים לא רלוונטיים
+
+---
+
+### 2️⃣1️⃣ Live Preview עם Split View
+
+**עורך מפוצל עם רינדור בזמן אמת:**
+
+#### תכונות עיקריות
+
+**1. ממשק Split-Pane**
+- **לוחות ניתנים לשינוי גודל** - טווח 25%-75%
+- **טאבים למובייל** - Editor/Preview
+- **Resizer ניתן לגרירה** - תמיכה RTL
+- **שמירת העדפות** - localStorage
+
+**2. רינדור בזמן אמת**
+- **Client-Side Rendering** - Markdown מהיר ללא שרת
+- **עדכונים מתוזמנים** - Debounce של 500ms
+- **Server Fallback** - לתוכן מורכב
+- **Hash Deduplication** - מניעת רינדור כפול
+
+**3. שיפורי Markdown**
+- **Syntax Highlighting** - highlight.js
+- **דיאגרמות Mermaid** - כל סוגי הדיאגרמות
+- **נוסחאות מתמטיות** - KaTeX
+- **Task Lists** - תיבות סימון
+- **Footnotes & Anchors** - הערות שוליים ועוגנים
+- **Admonitions** - הערות (note, warning, tip, danger)
+- **Emoji Support** - תמיכה באמוג'י
+- **Table of Contents** - תוכן עניינים אוטומטי
+
+**4. בקרות תצוגה מקדימה**
+- **כפתור Toggle** - Shift+Ctrl+Enter (Win) / Shift+Cmd+Enter (Mac)
+- **אינדיקטורי סטטוס** - טוען, מוכן, שגיאה
+- **Meta Information** - שפה, גודל, זמן רינדור
+- **החלפת ערכת נושא** - בהירה/כהה
+
+**5. תכונות בטיחות**
+- **אימות תוכן** - בדיקות לפני רינדור
+- **Abort Controller** - ביטול בקשות תלויות
+- **טיפול בשגיאות** - Graceful fallbacks
+- **הגנת XSS** - Sanitization
+
+**6. תמיכה בדיאגרמות Mermaid**
+- **סוגי דיאגרמות נתמכים**:
+  - Flowcharts (תרשימי זרימה)
+  - Sequence diagrams (דיאגרמות רצף)
+  - Class diagrams (דיאגרמות מחלקה)
+  - State diagrams (דיאגרמות מצב)
+  - Entity-Relationship diagrams (ER)
+  - Gantt charts (תרשימי גאנט)
+  - Pie charts (תרשימי עוגה)
+  - Journey diagrams
+  - Git graphs
+  - ועוד...
+- **רינדור אסינכרוני** - טיפול בשגיאות
+- **רמת אבטחה: strict**
+- **ID ייחודי** - לכל דיאגרמה
+- **הודעות שגיאה** - Fallback messages
+
+**מימוש:**
+- `/home/user/CodeBot/webapp/static/js/live-preview.js` (816 שורות)
+- `/home/user/CodeBot/webapp/static/css/split-view.css`
+- אינטגרציה ב-`edit_file.html` ו-`upload.html`
+
+**API Endpoints:**
+- `POST /api/preview/live` - Server-side rendering fallback
+
+---
+
+### 2️⃣2️⃣ Incident Storyboard (ניהול תקריות)
+
+**מערכת תיעוד וניהול תקריות מקיפה לצוותי SRE:**
+
+#### תכונות מרכזיות
+
+**1. איסוף נתונים מובנה**
+- **מידע התראה**:
+  - alert_name - שם ההתראה
+  - alert_uid - מזהה ייחודי
+  - severity - רמת חומרה
+  - time_window - חלון זמן
+- **חלקים תיאוריים**:
+  - "What we saw" - מה ראינו
+  - "What we did" - מה עשינו
+- **איסוף לוגים**:
+  - מקורות מרובים
+  - חותמות זמן
+  - סינון וחיפוש
+- **Insights ומסקנות**:
+  - פעולות מונעות
+  - לקחים
+  - המלצות
+
+**2. ייצוא ושיתוף**
+- **ייצוא Markdown**:
+  - יצירת קובץ .md מובנה
+  - שיוך למשתמש
+  - Sanitization של שם קובץ
+  - חזרת `md_preview_url` ו-`view_url`
+- **ייצוא PDF**:
+  - תצוגת הדפסה
+  - פורמט מקצועי
+- **שמירה במערכת**:
+  - אינטגרציה עם ניהול קבצים
+  - תיוג אוטומטי
+  - מעקב גרסאות
+
+**3. ממשק משתמש**
+- **טופס מובנה** - איסוף נתונים שלב אחר שלב
+- **עריכה חיה** - Preview בזמן אמת
+- **תבניות** - תבניות מוכנות לסוגי תקריות
+- **היסטוריה** - גישה לתקריות קודמות
+
+**API Endpoints:**
+- `POST /api/observability/stories` - שמירת סיפור תקרית
+- `POST /api/observability/stories/save_markdown` - שמירה כ-Markdown
+
+**מימוש:**
+- `/home/user/CodeBot/webapp/templates/admin_observability.html` (שורות 1900-2049)
+- `/home/user/CodeBot/webapp/app.py` (Observability dashboard)
+
+**גישה:**
+- מנהלים בלבד
+- צוותי SRE
+- תפקידי On-Call
+
+---
+
+### 2️⃣3️⃣ Commands Catalog (קטלוג פקודות)
+
+**קטלוג מרכזי של כל הפקודות, סקריפטים ו-Playbooks:**
+
+#### מבנה הנתונים
+```json
+{
+  "name": "/triage",
+  "type": "chatops|cli|playbook",
+  "description": "תיאור קצר בעברית",
+  "arguments": ["--flag=<value>"],
+  "doc_link": "https://..."
+}
+```
+
+#### סוגי פקודות
+1. **ChatOps** - פקודות המתחילות ב-`/`
+   - פקודות Telegram Bot
+   - פקודות ניטור
+   - פקודות ניהול
+
+2. **CLI** - סקריפטים ובינאריים
+   - `./scripts/...`
+   - כלי שורת פקודה
+   - כלי פיתוח
+
+3. **Playbook** - קבצי Ansible/Runbook
+   - YAML playbooks
+   - תרחישי אוטומציה
+   - נהלי תפעול
+
+#### אינטגרציה
+- **חיפוש גלובלי** - Ctrl/Cmd+K
+- **סינון לפי סוג** - אייקונים מותאמים
+- **רמזי ארגומנטים** - הצגת פרמטרים
+- **קישורים לתיעוד** - גישה ישירה למסמכים
+- **ניהול גרסאות** - מעקב שינויים
+- **Asset Versioning** - Cache busting
+
+**קובץ נתונים:**
+- `/home/user/CodeBot/webapp/static/data/commands.json`
+
+**תיעוד:**
+- `/home/user/CodeBot/docs/webapp/commands-catalog.rst`
+
+**צורך API:**
+- גישה דרך global_search.js
+- טעינה סטטית
+- ללא authentication
+
+---
+
+### 2️⃣4️⃣ Copy Page Button (העתקת דפי תיעוד)
+
+**המרה והעתקה של דפי תיעוד Sphinx ל-Markdown:**
+
+#### תכונות המרה
+
+**1. אלמנטים נתמכים**
+- **Admonitions** - הערות (note, warning, tip, danger, etc.)
+- **טבלאות** - עם captions וכותרות
+- **בלוקי קוד** - עם זיהוי שפה
+- **Inline code** - קוד בתוך טקסט
+- **Formatting** - מודגש, נטוי, קישורים
+- **Mermaid blocks** - שימור דיאגרמות
+- **RTL/LTR** - תמיכה בטקסט דו-כיווני
+
+**2. עיבוד חכם**
+- **TurndownService** - עם GFM plugin
+- **Custom Rules** - לאלמנטי Sphinx
+- **ניקוי ניווט** - הסרת אלמנטים לא רלוונטיים
+- **Colspan Handling** - טיפול בתאי טבלה מאוחדים
+- **Quote Escaping** - בריחה נכונה של גרשיים
+- **Indentation** - שמירה על הזחה
+
+**3. ממשק משתמש**
+- **כפתור העתקה** - בכל דף תיעוד
+- **סטטוסים ויזואליים**:
+  - Idle - מוכן
+  - Busy - מעבד
+  - Success - הועתק בהצלחה
+  - Error - שגיאה
+- **Auto-Reset** - חזרה למצב idle אחרי 2.8 שניות
+- **ARIA Labels** - נגישות
+
+**מימוש:**
+- `/home/user/CodeBot/docs/_static/copy-page.js` (542 שורות)
+- `/home/user/CodeBot/docs/_static/custom.css`
+
+**תלויות:**
+- TurndownService
+- turndown-plugin-gfm
+- Font Awesome icons
+
+---
+
+### 2️⃣5️⃣ תכונות נוספות
+
+#### Split View CSS Architecture
+- **CSS Custom Properties** - גודל דינמי
+- **תמיכה RTL** - מימין לשמאל
+- **טאבים Responsive** - למובייל
+- **Resizer עם גרירה** - תמיכה מלאה
+- **State-based Visibility** - מצבים שונים
+- **קובץ**: `/home/user/CodeBot/webapp/static/css/split-view.css`
+
+#### AI Explanation Service
+- **תמיכה רב-לשונית** - עברית לצוותי SRE
+- **PII/Secret Masking** - הסרת מידע רגיש
+- **תגובות JSON מובנות** - root_cause, actions, signals
+- **Timeout ניתן להתאמה** - עד 10 שניות
+- **Fallback Responses** - אם AI לא זמין
+- **קובץ**: `/home/user/CodeBot/services/ai_explain_service.py`
+
+#### Story Save API Enhancement
+- **Enhanced Responses** - כולל URLs לניווט
+- **md_preview_url** - URL לתצוגה מקדימה
+- **view_url** - URL לצפייה בקובץ
+- **Auto-Redirect** - מעבר אוטומטי לקובץ
+- **UX Flow** - חווית משתמש משופרת
 
 ---
 
@@ -1727,8 +2125,8 @@ docker-compose up -d
 
 **CodeBot** הוא פתרון מקיף ברמת enterprise לניהול קוד עם:
 
-✅ **150+ תכונות בבוט Telegram**
-✅ **130+ תכונות ב-Web App**
+✅ **170+ תכונות בבוט Telegram**
+✅ **160+ תכונות ב-Web App**
 ✅ **100+ שפות תכנות נתמכות**
 ✅ **ניהול גרסאות מובנה**
 ✅ **אינטגרציות GitHub ו-Google Drive מלאות**
@@ -1739,12 +2137,30 @@ docker-compose up -d
 ✅ **DevOps מקצועי (Docker, CI/CD, Monitoring)**
 ✅ **תיעוד מקיף ובדיקות**
 
+### 🆕 תכונות חדשות בגרסה 2.0 (דצמבר 2025)
+
+#### תכונות בוט חדשות:
+- 🤖 **AI Model עם Fallback** - מערכת AI משופרת עם 8 מודלים גיבוי
+- 💬 **ChatOps מורחב** - 20+ פקודות ניטור ו-troubleshooting חדשות
+- 📊 **Incident Memory** - מעקב היסטורי אחר תקריות
+
+#### תכונות WebApp חדשות:
+- 🎓 **מערכת Onboarding מקיפה** - Welcome Modal + Interactive Tour + Theme Wizard
+- ⚡ **Live Preview עם Split View** - עורך מתקדם עם תצוגה מקדימה בזמן אמת
+- 📊 **Incident Storyboard** - תיעוד וניהול תקריות לצוותי SRE
+- 🎨 **Mermaid Diagrams** - תמיכה מלאה בדיאגרמות Mermaid
+- 📋 **Commands Catalog** - קטלוג מרכזי עם חיפוש מהיר (Ctrl+K)
+- 📄 **Copy Page to Markdown** - המרה והעתקה של דפי תיעוד
+- 🎨 **Theme Wizard** - בחירת ערכת נושא אינטראקטיבית
+- 🔍 **Global Search Enhancement** - חיפוש משופר עם הצעות אוטומטיות
+
 הארכיטקטורה תומכת באלפי משתמשים מקבילים עם זמן תגובה מהיר, אמינות גבוהה, ותחזוקה קלה.
 
 ---
 
 **נוצר ב-:** נובמבר 2025
-**גרסה:** 1.0.0
+**עודכן לאחרונה:** דצמבר 2025
+**גרסה:** 2.0.0
 **Repository:** [github.com/amirbiron/CodeBot](https://github.com/amirbiron/CodeBot)
 **רישיון:** MIT
 
