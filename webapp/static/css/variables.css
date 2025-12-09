@@ -121,6 +121,7 @@
   --bg-app: #1a2634;
   --bg-panel: #1e2e40;
   --bg-card: #253950;
+  --bg-overlay-strong: rgba(30, 46, 64, 0.95);
   --primary: #3182ce;
   --shadow-color: rgba(49, 130, 206, 0.25);
   --glass-border: rgba(49, 130, 206, 0.25);
@@ -131,6 +132,7 @@
   --bg-app: #1c2820;
   --bg-panel: #223226;
   --bg-card: #2a4030;
+  --bg-overlay-strong: rgba(34, 50, 38, 0.95);
   --primary: #2f855a;
   --shadow-color: rgba(23, 63, 46, 0.25);
   --glass-border: rgba(47, 133, 90, 0.3);
@@ -142,6 +144,7 @@
   --bg-panel: #000000;
   --bg-card: #000000;
   --bg-overlay: #000000;
+  --bg-overlay-strong: #000000;
   --text-main: #ffffff;
   --text-secondary: #f5f5f5;
   --glass-border: #ffffff;
