@@ -307,13 +307,13 @@
     position: absolute;
     inset-inline-start: 0;
     top: calc(100% + 8px);
-    width: min(260px, calc(100vw - 32px));
-    min-width: 220px;
-    background: #f8fafc;
+    width: min(240px, calc(100vw - 32px));
+    min-width: 200px;
+    background: rgba(255, 255, 255, 0.98);
     color: #1f2937;
-    border: 1px solid #e4e8f1;
+    border: 1px solid rgba(0, 0, 0, 0.1);
     border-radius: 14px;
-    padding: 8px 0;
+    padding: 8px;
     box-shadow: 0 14px 30px rgba(17, 23, 41, 0.16);
     z-index: 20;
 }
@@ -330,7 +330,7 @@
 
 .file-actions__menu-divider {
     height: 1px;
-    background: #e4e8f1;
+    background: rgba(0, 0, 0, 0.1);
     margin: 0;
 }
 
@@ -352,12 +352,12 @@
 
 .file-actions__menu-item:hover,
 .file-actions__menu-item:focus-visible {
-    background: #edf2fb;
+    background: rgba(102, 126, 234, 0.1);
     color: #111827;
 }
 
 .file-actions__menu-item + .file-actions__menu-item {
-    border-top: 1px solid #e7eaf3;
+    border-top: 1px solid rgba(0, 0, 0, 0.1);
 }
 
 .file-actions__menu-section .file-actions__menu-item:first-child {
