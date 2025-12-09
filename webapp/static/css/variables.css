@@ -31,6 +31,7 @@
   --bg-panel: #16213e;
   --bg-card: #252d48;
   --bg-overlay: rgba(20, 23, 30, 0.95);
+  --bg-overlay-strong: rgba(22, 33, 62, 0.95);
   
   /* Text */
   --text-main: #ffffff;

@@ -190,10 +190,15 @@ iframe .bookmarked {
 .bookmarks-panel {
     position: fixed;
     top: 0;
+    bottom: 0;
     right: -400px;
     width: 400px;
     height: 100vh;
-    background: var(--bg-panel);
+    min-height: 100%;
+    background: none !important;
+    background-color: var(--bg-overlay-strong, #16213e) !important;
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
     box-shadow: var(--shadow-overlay);
     transition: right 0.3s cubic-bezier(0.4, 0, 0.2, 1);
     z-index: 999;
