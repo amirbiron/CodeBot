@@ -1261,7 +1261,10 @@
     </style>
     
     {% block extra_css %}{% endblock %}
-    <link rel="stylesheet" href="{{ url_for('static', filename='css/variables.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/variables.css') }}?v={{ static_version }}">
+
+    {% block extra_css %}{% endblock %}
+    
     <link rel="stylesheet" href="{{ url_for('static', filename='css/collections.css') }}?v={{ static_version }}">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/codemirror-custom.css') }}?v={{ static_version }}">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/markdown-enhanced.css') }}?v={{ static_version }}">
