@@ -1,0 +1,149 @@
+/**
+ * variables.css
+ * Global CSS Variables System
+ * 
+ * Contains:
+ * 1. Base Colors & Typography
+ * 2. Semantic Backgrounds & Layout
+ * 3. Glassmorphism System
+ * 4. Shadows & Effects
+ * 5. Status & Brand Colors
+ * 6. Code & Syntax Highlighting
+ */
+
+:root {
+  /* ============================================
+     1. BASE COLORS
+     ============================================ */
+  --black: #000000;
+  --white: #ffffff;
+  
+  /* Brand Colors */
+  --primary: #667eea;
+  --primary-hover: #7c8fea;
+  --secondary: #e94560;
+  --accent: #2cb67d;
+
+  /* ============================================
+     2. SEMANTIC LAYOUT (Default: Dark Theme)
+     ============================================ */
+  --bg-app: #1a1a2e;
+  --bg-panel: #16213e;
+  --bg-card: #252d48;
+  --bg-overlay: rgba(20, 23, 30, 0.95);
+  
+  /* Text */
+  --text-main: #ffffff;
+  --text-secondary: #b0b3c1;
+  --text-muted: #6c7293;
+  --text-inverse: #1a1a2e;
+
+  /* ============================================
+     3. GLASSMORPHISM SYSTEM
+     ============================================ */
+  /* Level 1: Subtle (Hover states, secondary backgrounds) */
+  --glass-subtle: rgba(255, 255, 255, 0.05);
+  
+  /* Level 2: Normal (Cards, Panels - Most common) */
+  --glass-normal: rgba(255, 255, 255, 0.08);
+  
+  /* Level 3: Strong (Active states, Prominent elements) */
+  --glass-strong: rgba(255, 255, 255, 0.12);
+  
+  /* Borders & Blur */
+  --glass-border: rgba(255, 255, 255, 0.1);
+  --glass-blur: 10px;
+
+  /* ============================================
+     4. SHADOWS & EFFECTS
+     ============================================ */
+  /* Dynamic shadow color allows themes to tint shadows (e.g. blueish in Ocean) */
+  --shadow-color: rgba(0, 0, 0, 0.2);
+  
+  --shadow-sm: 0 2px 4px var(--shadow-color);
+  --shadow-card: 0 4px 12px var(--shadow-color);
+  --shadow-overlay: 0 20px 45px var(--shadow-color);
+
+  /* ============================================
+     5. STATUS COLORS
+     ============================================ */
+  --color-success: #2cb67d;
+  --color-error: #ef4444;
+  --color-warning: #f59e0b;
+  --color-info: #3b82f6;
+
+  /* ============================================
+     6. CODE & SYNTAX (Dracula-inspired)
+     ============================================ */
+  /* Editor/Code Block Backgrounds */
+  --code-bg: #0f0f23;
+  --code-text: #f8f8f2;
+  
+  /* Syntax Highlighting */
+  --syntax-keyword: #ff79c6;
+  --syntax-string: #50fa7b;
+  --syntax-function: #8be9fd;
+  --syntax-comment: #6272a4;
+  --syntax-number: #bd93f9;
+  --syntax-operator: #ff79c6;
+  --syntax-variable: #f8f8f2;
+
+  /* ============================================
+     7. LANGUAGE BRAND COLORS (UI Icons/Tags)
+     ============================================ */
+  --lang-js: #f7df1e;
+  --lang-ts: #007acc; /* VS Code Blue or standard TS Blue */
+  --lang-python: #3776ab;
+  --lang-html: #e34c26;
+  --lang-css: #264de4;
+  --lang-java: #b07219;
+  --lang-csharp: #178600;
+  --lang-cpp: #f34b7d;
+  --lang-go: #00add8;
+  --lang-php: #4f5d95;
+  --lang-ruby: #cc342d;
+  --lang-rust: #dea584;
+  --lang-sql: #e38c00;
+  --lang-json: #f7df1e; /* Same as JS usually */
+  --lang-yaml: #cb171e;
+  --lang-markdown: #000000; /* Often handled by theme text, but distinct if needed */
+  --lang-shell: #89e051;
+}
+
+/* ============================================
+   THEME SUPPORT (Example Base)
+   Themes should override these specific variables
+   ============================================ */
+
+/* Ocean Theme Overrides */
+:root[data-theme="ocean"] {
+  --bg-app: #1a2634;
+  --bg-panel: #1e2e40;
+  --bg-card: #253950;
+  --primary: #3182ce;
+  --shadow-color: rgba(49, 130, 206, 0.25);
+  --glass-border: rgba(49, 130, 206, 0.25);
+}
+
+/* Forest Theme Overrides */
+:root[data-theme="forest"] {
+  --bg-app: #1c2820;
+  --bg-panel: #223226;
+  --bg-card: #2a4030;
+  --primary: #2f855a;
+  --shadow-color: rgba(23, 63, 46, 0.25);
+  --glass-border: rgba(47, 133, 90, 0.3);
+}
+
+/* High Contrast Overrides */
+:root[data-theme="high-contrast"] {
+  --bg-app: #000000;
+  --bg-panel: #000000;
+  --bg-card: #000000;
+  --bg-overlay: #000000;
+  --text-main: #ffffff;
+  --text-secondary: #f5f5f5;
+  --glass-border: #ffffff;
+  --shadow-color: transparent;
+  --primary: #ffffff; /* Or yellow for links */
+}
