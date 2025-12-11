@@ -150,4 +150,23 @@
   --glass-border: #ffffff;
   --shadow-color: transparent;
   --primary: #ffffff; /* Or yellow for links */
+
+  /* Language Colors for High Contrast (High Visibility) */
+  --lang-js: #ffff00;        /* צהוב זרחני */
+  --lang-ts: #00ffff;        /* ציאן */
+  --lang-python: #00ff00;    /* ירוק זרחני */
+  --lang-html: #ff6600;      /* כתום בהיר */
+  --lang-css: #00ffff;       /* ציאן */
+  --lang-java: #ffff00;      /* צהוב */
+  --lang-csharp: #00ff00;    /* ירוק */
+  --lang-cpp: #ff00ff;       /* מגנטה */
+  --lang-go: #00ffff;        /* ציאן */
+  --lang-php: #ff00ff;       /* מגנטה */
+  --lang-ruby: #ff0000;      /* אדום זרחני */
+  --lang-rust: #ff6600;      /* כתום */
+  --lang-json: #ffff00;      /* צהוב */
+  --lang-sql: #ffff00;       /* צהוב */
+  --lang-yaml: #ff00ff;      /* מגנטה */
+  --lang-markdown: #00ffff;  /* ציאן */
+  --lang-shell: #00ff00;     /* ירוק */
 }
