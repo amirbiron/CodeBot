@@ -456,17 +456,6 @@ When adding new colors to High Contrast:
 }
 ```
 
-#### Alert & CTA Tokens
-
-| Token | Purpose | Default Definition | Notes |
-|-------|---------|--------------------|-------|
-| `--danger-bg` | Background for error/alert surfaces | `color-mix(var(--danger) 18%, transparent)` | Tuned per theme to match contrast requirements (e.g., Ocean/Forest tint toward deep blue/green, High Contrast uses `#330000`) |
-| `--danger-border` | Border color for error states | `color-mix(var(--danger) 45%, transparent)` | Prevents fallbacks to raw rgba values in inline styles |
-| `--text-on-warning` | Text color on `--warning` backgrounds | `#1c1f3a` | High Contrast overrides to `#000`, Rose Pine Dawn uses `#4a2c2a` |
-| `--text-on-primary` | Text color on `--primary` backgrounds | `#ffffff` | Rose Pine Dawn uses a dark ink, High Contrast sets it to black for yellow buttons |
-
-All eight themes (Dark, Dim, Nebula, Classic, Ocean, Forest, Rose Pine Dawn, High Contrast) now provide explicit overrides for these four tokens inside `variables.css`, so components like the login alert, sticky-note reminder CTA, and smooth-scroll debug panel no longer depend on brittle fallbacks.
-
 ### Level 3: Component Tokens (Only When Necessary)
 
 ```css
