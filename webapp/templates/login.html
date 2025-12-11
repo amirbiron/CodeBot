@@ -12,8 +12,8 @@
         </p>
 
         {% if error %}
-        <div class="alert alert-error" style="background: rgba(255, 59, 48, 0.1); border: 1px solid rgba(255, 59, 48, 0.3); border-radius: 10px; padding: 1rem; margin-bottom: 2rem;">
-            <i class="fas fa-exclamation-triangle" style="color: #ff3b30; margin-right: 0.5rem;"></i>
+        <div class="alert alert-error" style="background: var(--danger-bg, rgba(255, 59, 48, 0.1)); border: 1px solid var(--danger-border, rgba(255, 59, 48, 0.3)); border-radius: 10px; padding: 1rem; margin-bottom: 2rem;">
+            <i class="fas fa-exclamation-triangle" style="color: var(--danger, #ff3b30); margin-right: 0.5rem;"></i>
             {{ error }}
         </div>
         {% endif %}
