@@ -31,14 +31,14 @@
   --split-resizer-dragging: rgba(79, 70, 229, 0.35);
 
   /* Preview content */
-  --split-preview-bg: var(--md-surface, #ffffff);
-  --split-preview-text: var(--md-text, #1c1c1c);
-  --split-preview-code-bg: var(--md-code-surface, rgba(0, 0, 0, 0.06));
-  --split-preview-code-text: var(--md-code-foreground, #1f2933);
-  --split-preview-placeholder: color-mix(in srgb, var(--md-text, #1c1c1c) 65%, rgba(0, 0, 0, 0.25));
-  --split-preview-meta: color-mix(in srgb, var(--md-text, #1c1c1c) 55%, rgba(0, 0, 0, 0.35));
-  --split-preview-loading-bg: color-mix(in srgb, var(--md-surface, #ffffff) 92%, rgba(255, 255, 255, 0.85));
-  --split-preview-loading-text: var(--md-text, #222222);
+  --split-preview-bg: #ffffff;
+  --split-preview-text: #1c1c1c;
+  --split-preview-code-bg: rgba(0, 0, 0, 0.06);
+  --split-preview-code-text: #1f2933;
+  --split-preview-placeholder: rgba(0, 0, 0, 0.6);
+  --split-preview-meta: rgba(0, 0, 0, 0.55);
+  --split-preview-loading-bg: rgba(255, 255, 255, 0.85);
+  --split-preview-loading-text: #222222;
 
   /* Error */
   --split-error-bg: rgba(220, 38, 38, 0.1);
@@ -226,14 +226,14 @@
   --split-resizer-bg: rgba(0, 0, 0, 0.06);
   --split-resizer-handle: rgba(0, 0, 0, 0.25);
   --split-resizer-dragging: rgba(79, 70, 229, 0.35);
-  --split-preview-bg: var(--md-surface, #15141f);
-  --split-preview-text: var(--md-text, #ffffff);
-  --split-preview-code-bg: color-mix(in srgb, var(--md-code-surface, #1e1b2e) 90%, transparent);
-  --split-preview-code-text: var(--md-code-foreground, #f5f5ff);
-  --split-preview-placeholder: color-mix(in srgb, var(--md-text, #ffffff) 55%, rgba(255, 255, 255, 0.25));
-  --split-preview-meta: color-mix(in srgb, var(--md-text, #ffffff) 60%, rgba(255, 255, 255, 0.2));
-  --split-preview-loading-bg: color-mix(in srgb, var(--md-surface, #15141f) 85%, rgba(21, 20, 33, 0.85));
-  --split-preview-loading-text: var(--md-text, #ffffff);
+  --split-preview-bg: #ffffff;
+  --split-preview-text: #1c1c1c;
+  --split-preview-code-bg: rgba(0, 0, 0, 0.06);
+  --split-preview-code-text: #1f2933;
+  --split-preview-placeholder: rgba(0, 0, 0, 0.6);
+  --split-preview-meta: rgba(0, 0, 0, 0.55);
+  --split-preview-loading-bg: rgba(255, 255, 255, 0.85);
+  --split-preview-loading-text: #222222;
 }
 
 /* ==============================================

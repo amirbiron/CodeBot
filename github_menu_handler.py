@@ -152,40 +152,6 @@ VIEW_LINES_PER_PAGE = 80
 CALLBACK_BRANCH_FROM_COMMIT = "rcb"
 CALLBACK_REVERT_PR_FROM_COMMIT = "rcpr"
 
-# מגבלת אורך בטוחה להודעות HTML בטלגרם (קצת מתחת ל-4096 כדי להשאיר מרווח ביטחון)
-TELEGRAM_SAFE_TEXT_LIMIT = 4000
-TELEGRAM_TRUNCATION_NOTICE = "\n… ההודעה קוצרה כדי לעמוד במגבלת טלגרם (4096 תווים)."
-
-
-def _trim_html_preserving_entities(text: str, max_len: int) -> str:
-    """קיצור מחרוזת HTML מבלי לחתוך ישויות (&amp;) באמצע."""
-    if max_len <= 0:
-        return ""
-    if len(text) <= max_len:
-        return text
-    trimmed = text[:max_len]
-    amp_idx = trimmed.rfind("&")
-    if amp_idx != -1 and ";" not in trimmed[amp_idx:]:
-        trimmed = trimmed[:amp_idx]
-    return trimmed
-
-
-def _combine_with_telegram_limit(header: str, body: str) -> str:
-    """מאחד טקסט חוצץ+גוף תוך עמידה במגבלת 4K של טלגרם."""
-    header = header or ""
-    body = body or ""
-    total = header + body
-    if len(total) <= TELEGRAM_SAFE_TEXT_LIMIT:
-        return total
-    notice = TELEGRAM_TRUNCATION_NOTICE
-    available = TELEGRAM_SAFE_TEXT_LIMIT - len(header) - len(notice)
-    if available <= 0:
-        safe_header_limit = max(0, TELEGRAM_SAFE_TEXT_LIMIT - len(notice))
-        safe_header = _trim_html_preserving_entities(header, safe_header_limit)
-        return safe_header.rstrip() + notice
-    trimmed_body = _trim_html_preserving_entities(body, available).rstrip()
-    return header + trimmed_body + notice
-
 
 def _safe_rmtree_tmp(target_path: str) -> None:
     """מחיקה בטוחה של תיקייה תחת /tmp בלבד, עם סורגי בטיחות.
@@ -6841,13 +6807,12 @@ class GitHubMenuHandler:
                     date_str = aware.strftime("%d/%m/%Y %H:%M UTC")
             except Exception:
                 commit_msg = ""
-            header_text = (
+            text = (
                 f"🧱 קומיט נבחר: <code>{safe_html_escape(commit_sha[:12])}</code>\n"
                 f"מחבר: {safe_html_escape(author_name)}\n"
                 f"תאריך: {safe_html_escape(date_str)}\n\n"
+                f"{safe_html_escape(commit_msg or 'ללא הודעת commit')}"
             )
-            commit_section = safe_html_escape(commit_msg or "ללא הודעת commit")
-            text = _combine_with_telegram_limit(header_text, commit_section)
             branch_cb = f"{CALLBACK_BRANCH_FROM_COMMIT}:{commit_sha}"
             revert_cb = f"{CALLBACK_REVERT_PR_FROM_COMMIT}:{commit_sha}"
             kb = [

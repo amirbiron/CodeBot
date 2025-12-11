@@ -41,10 +41,272 @@
     <!-- iOS Home Screen Icon -->
     <link rel="apple-touch-icon" sizes="180x180" href="{{ url_for('static', filename='icons/apple-touch-icon-180.png') }}">
 
-    <link rel="stylesheet" href="{{ url_for('static', filename='css/variables.css') }}?v={{ static_version }}">
-
     <style>
-        /* Theme tokens are defined in webapp/static/css/variables.css */
+        :root {
+            --primary: #667eea;
+            --primary-dark: #5a67d8;
+            --secondary: #764ba2;
+            --success: #48bb78;
+            --danger: #f56565;
+            --warning: #ed8936;
+            --info: #4299e1;
+            --dark: #2d3748;
+            --light: #f7fafc;
+            --glass: rgba(255, 255, 255, 0.1);
+            --glass-border: rgba(255, 255, 255, 0.2);
+            --glass-hover: rgba(255, 255, 255, 0.15);
+            --ui-font-scale: 1;
+            --danger-bg: color-mix(in srgb, var(--danger) 18%, transparent);
+            --danger-border: color-mix(in srgb, var(--danger) 45%, transparent);
+            --text-on-warning: #1c1f3a;
+            --btn-primary-bg: #ffffff;
+            --btn-primary-color: var(--primary);
+            --btn-primary-border: transparent;
+            --btn-primary-shadow: none;
+            --btn-primary-hover-bg: #ffffff;
+            --btn-primary-hover-shadow: 0 10px 20px rgba(0,0,0,0.2);
+        }
+
+        /* Theme palettes */
+        :root[data-theme="classic"] {
+            --primary: #667eea;
+            --primary-dark: #5a67d8;
+            --secondary: #764ba2;
+            --text-primary: #ffffff;
+            --text-secondary: rgba(255, 255, 255, 0.82);
+            --text-muted: rgba(255, 255, 255, 0.65);
+            --bg-primary: #6b63ff;
+            --bg-secondary: #8e63ff;
+            --bg-tertiary: rgba(255, 255, 255, 0.25);
+            --card-bg: rgba(255, 255, 255, 0.12);
+            --code-bg: rgba(0, 0, 0, 0.3);
+            --card-border: rgba(255, 255, 255, 0.25);
+            --btn-primary-bg: rgba(255, 255, 255, 0.94);
+            --btn-primary-color: #1c1f3a;
+            --btn-primary-border: rgba(255, 255, 255, 0.65);
+            --btn-primary-shadow: 0 4px 14px rgba(7, 7, 31, 0.25);
+            --btn-primary-hover-bg: #ffffff;
+            --btn-primary-hover-shadow: 0 14px 28px rgba(18, 20, 43, 0.45);
+        }
+        /* Ocean – Bold blue gradient theme */
+        :root[data-theme="ocean"] {
+            /* Core identity */
+            --primary: #3182ce;
+            --primary-dark: #2b6cb0;
+            --secondary: #2c5282;
+
+            /* Backgrounds - deep ocean blues */
+            --bg-primary: #1a365d;
+            --bg-secondary: #2a4365;
+            --bg-tertiary: #2c5282;
+
+            /* Text - high contrast on dark blue */
+            --text-primary: #ffffff;
+            --text-secondary: rgba(255, 255, 255, 0.85);
+            --text-muted: rgba(255, 255, 255, 0.65);
+
+            /* Glass morphism - ocean-tinted */
+            --glass: rgba(49, 130, 206, 0.15);
+            --glass-border: rgba(49, 130, 206, 0.35);
+            --glass-hover: rgba(49, 130, 206, 0.25);
+
+            /* Cards */
+            --card-bg: rgba(26, 54, 93, 0.85);
+            --card-border: rgba(49, 130, 206, 0.35);
+
+            /* Code blocks */
+            --code-bg: #1a365d;
+            --code-text: #e2e8f0;
+            --code-border: rgba(49, 130, 206, 0.4);
+
+            /* Status colors - adjusted for blue context */
+            --success: #68d391;
+            --danger: #fc8181;
+            --warning: #f6ad55;
+            --info: #63b3ed;
+
+            /* Primary button */
+            --btn-primary-bg: rgba(255, 255, 255, 0.95);
+            --btn-primary-color: #1a365d;
+            --btn-primary-border: rgba(255, 255, 255, 0.65);
+            --btn-primary-shadow: 0 4px 14px rgba(26, 54, 93, 0.35);
+            --btn-primary-hover-bg: #ffffff;
+            --btn-primary-hover-shadow: 0 12px 28px rgba(26, 54, 93, 0.45);
+        }
+
+        /* Forest – Bold green gradient theme */
+        :root[data-theme="forest"] {
+            /* Core identity */
+            --primary: #2f855a;
+            --primary-dark: #276749;
+            --secondary: #22543d;
+
+            /* Backgrounds - deep forest greens */
+            --bg-primary: #1a4731;
+            --bg-secondary: #22543d;
+            --bg-tertiary: #276749;
+
+            /* Text - high contrast on dark green */
+            --text-primary: #ffffff;
+            --text-secondary: rgba(255, 255, 255, 0.85);
+            --text-muted: rgba(255, 255, 255, 0.65);
+
+            /* Glass morphism - forest-tinted */
+            --glass: rgba(47, 133, 90, 0.15);
+            --glass-border: rgba(47, 133, 90, 0.35);
+            --glass-hover: rgba(47, 133, 90, 0.25);
+
+            /* Cards */
+            --card-bg: rgba(26, 71, 49, 0.85);
+            --card-border: rgba(47, 133, 90, 0.35);
+
+            /* Code blocks */
+            --code-bg: #1a4731;
+            --code-text: #e2e8f0;
+            --code-border: rgba(47, 133, 90, 0.4);
+
+            /* Status colors - adjusted for green context */
+            --success: #9ae6b4;
+            --danger: #fc8181;
+            --warning: #f6ad55;
+            --info: #63b3ed;
+
+            /* Primary button */
+            --btn-primary-bg: rgba(255, 255, 255, 0.95);
+            --btn-primary-color: #1a4731;
+            --btn-primary-border: rgba(255, 255, 255, 0.65);
+            --btn-primary-shadow: 0 4px 14px rgba(26, 71, 49, 0.35);
+            --btn-primary-hover-bg: #ffffff;
+            --btn-primary-hover-shadow: 0 12px 28px rgba(26, 71, 49, 0.45);
+        }
+        /* Rose Pine Dawn (light) */
+        :root[data-theme="rose-pine-dawn"] {
+            --primary: #907aa9; /* iris */
+            --primary-dark: #7b6f9a;
+            --secondary: #d7827e; /* rose */
+            --bg-primary: #faf4ed;
+            --bg-secondary: #f2e9e1;
+            --bg-tertiary: #eaddd5;
+            --text-primary: #575279;
+            --text-secondary: #6e6a86;
+            --text-muted: #797593;
+            --glass: rgba(250, 244, 237, 0.9);
+            --glass-border: rgba(144, 122, 169, 0.35);
+            --glass-hover: rgba(144, 122, 169, 0.25);
+            --card-bg: rgba(250, 244, 237, 0.96);
+            --card-border: rgba(144, 122, 169, 0.35);
+            --code-bg: #f2e9e1;
+            --code-text: #433c59;
+            --code-border: rgba(87, 82, 121, 0.25);
+            --success: #56949f;
+            --danger: #b4637a;
+            --warning: #ea9d34;
+            --info: #907aa9;
+            --btn-primary-bg: color-mix(in srgb, var(--bg-secondary) 80%, #ffffff 20%);
+            --btn-primary-color: #4a2c2a;
+            --btn-primary-border: var(--glass-border);
+            --btn-primary-shadow: 0 6px 18px rgba(149, 121, 166, 0.25);
+            --btn-primary-hover-bg: color-mix(in srgb, var(--bg-secondary) 60%, #ffffff 40%);
+            --btn-primary-hover-shadow: 0 10px 24px rgba(149, 121, 166, 0.3);
+        }
+
+        /* Theme palettes - Dark & Dim */
+        :root[data-theme="dark"] {
+            /* צבעי רקע - כהה ונוח לעיניים */
+            --bg-primary: #1a1a1a;
+            --bg-secondary: #252525;
+            --bg-tertiary: #2d2d2d;
+
+            /* צבעי טקסט - ניגודיות מאוזנת */
+            --text-primary: #e0e0e0;
+            --text-secondary: #b0b0b0;
+            --text-muted: #808080;
+
+            /* צבעי אקסנט - מותאמים למצב חשוך */
+            --primary: #7c8aff;
+            --primary-dark: #6b7aff;
+            --secondary: #9d7aff;
+
+            /* צבעי מערכת */
+            --success: #4ade80;
+            --danger: #f87171;
+            --warning: #fbbf24;
+            --info: #60a5fa;
+
+            /* Glass morphism - מותאם למצב חשוך */
+            --glass: rgba(255, 255, 255, 0.05);
+            --glass-border: rgba(255, 255, 255, 0.1);
+            --glass-hover: rgba(255, 255, 255, 0.08);
+
+            /* צבעי רקע לכרטיסים */
+            --card-bg: rgba(30, 30, 30, 0.8);
+            --card-border: rgba(255, 255, 255, 0.1);
+
+            /* צבעי קוד */
+            --code-bg: #1e1e1e;
+            --code-text: #d4d4d4;
+            --code-border: rgba(255, 255, 255, 0.1);
+            --btn-primary-bg: color-mix(in srgb, var(--bg-tertiary) 75%, var(--primary) 25%);
+            --btn-primary-color: var(--text-primary);
+            --btn-primary-border: var(--glass-border);
+            --btn-primary-shadow: 0 8px 22px rgba(0, 0, 0, 0.45);
+            --btn-primary-hover-bg: color-mix(in srgb, var(--bg-tertiary) 55%, var(--primary) 45%);
+            --btn-primary-hover-shadow: 0 14px 32px rgba(0, 0, 0, 0.55);
+        }
+
+        /* מצב Dim - ביניים */
+        :root[data-theme="dim"] {
+            --bg-primary: #2a2a2a;
+            --bg-secondary: #333333;
+            --bg-tertiary: #3a3a3a;
+            --text-primary: #d0d0d0;
+            --text-secondary: #a0a0a0;
+            --text-muted: #707070;
+            --primary: #7c8aff;
+            --secondary: #9d7aff;
+            --glass: rgba(255, 255, 255, 0.08);
+            --glass-border: rgba(255, 255, 255, 0.15);
+            --glass-hover: rgba(255, 255, 255, 0.12);
+            --card-bg: rgba(40, 40, 40, 0.8);
+            --code-bg: #2a2a2a;
+            --btn-primary-bg: color-mix(in srgb, var(--bg-tertiary) 78%, var(--primary) 22%);
+            --btn-primary-color: var(--text-primary);
+            --btn-primary-border: var(--glass-border);
+            --btn-primary-shadow: 0 6px 18px rgba(0, 0, 0, 0.45);
+            --btn-primary-hover-bg: color-mix(in srgb, var(--bg-tertiary) 60%, var(--primary) 40%);
+            --btn-primary-hover-shadow: 0 12px 28px rgba(0, 0, 0, 0.55);
+        }
+
+        /* Nebula – גווני כחול/סגול קוסמיים */
+        :root[data-theme="nebula"] {
+            --bg-primary: #151a2c;
+            --bg-secondary: #1f263a;
+            --bg-tertiary: #28324a;
+            --text-primary: #e6e9f8;
+            --text-secondary: #c5c9de;
+            --text-muted: #8d93ad;
+            --primary: #777abc;
+            --primary-dark: #5f63d3;
+            --secondary: #4d6bb6;
+            --success: #7fe7c4;
+            --danger: #f598b2;
+            --warning: #f6b37b;
+            --info: #7cc4ff;
+            --glass: rgba(119, 122, 188, 0.15);
+            --glass-border: rgba(119, 122, 188, 0.35);
+            --glass-hover: rgba(119, 122, 188, 0.22);
+            --card-bg: rgba(21, 27, 44, 0.85);
+            --card-border: rgba(119, 122, 188, 0.35);
+            --code-bg: #12192c;
+            --code-text: #ecf0ff;
+            --code-border: rgba(119, 122, 188, 0.4);
+            --btn-primary-bg: color-mix(in srgb, var(--card-bg) 60%, var(--primary) 40%);
+            --btn-primary-color: var(--text-primary);
+            --btn-primary-border: var(--glass-border);
+            --btn-primary-shadow: 0 10px 30px rgba(21, 27, 44, 0.65);
+            --btn-primary-hover-bg: color-mix(in srgb, var(--card-bg) 45%, var(--primary) 55%);
+            --btn-primary-hover-shadow: 0 16px 36px rgba(21, 27, 44, 0.7);
+        }
 
         * {
             margin: 0;
