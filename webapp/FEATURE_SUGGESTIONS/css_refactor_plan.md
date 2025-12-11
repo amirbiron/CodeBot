@@ -1079,3 +1079,10 @@ Guidelines לכל שינוי עתידי נוספו למסמך (שימוש רק �
 ---
 
 **This document now captures the full pre-coding plan plus verification against the provided implementation. Once approved, we can either adopt the existing gists or reproduce them following this blueprint.**
+
+---
+
+## 📚 קישורים לתיעוד
+
+- **תיעוד המערכת המלא**: [מערכת ערכות נושא וטוקני CSS](https://amirbiron.github.io/CodeBot/webapp/theming-and-css.html)
+- **פלטות צבעים**: `webapp/FEATURE_SUGGESTIONS/webapp_theme_palettes.md`

@@ -109,3 +109,10 @@
 - תצוגת Markdown (Split Preview) נשענת על `--md-surface` ו-`--md-text`. לטוקנים הללו יש ערכים ייעודיים ב-`:root`, Classic, Ocean ו-Forest כדי לשמור רקע כהה גם כאשר התמה בהירה.
 - קובץ `webapp/static/css/dark-mode.css` משתמש במשתנים האלה עבור כל הרכיבים (כפתורים, קלטים, כרטיסים, מודלים, גלילה ועוד), כך ששינוי בפלטה משתקף אוטומטית בממשק.
 - אם נדרש להוסיף ערכת נושא חדשה, מומלץ לעדכן קודם את הטבלה כאן ורק אז את המשתנים ב-`base.html`, כדי לשמור על תיעוד מסודר.
+
+---
+
+## 📚 קישורים לתיעוד
+
+- **מדריך מלא למפתחים**: [מערכת ערכות נושא וטוקני CSS](https://amirbiron.github.io/CodeBot/webapp/theming-and-css.html)
+- **תכנית הריפקטור**: `webapp/FEATURE_SUGGESTIONS/css_refactor_plan.md`

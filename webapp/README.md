@@ -80,6 +80,7 @@
 - **תמיכה RTL/LTR** - מותאם למובייל וטאבלט
 - **אנימציות** - מעברי עמודים חלקים
 - **PWA** - התקנה למסך הבית, מצב אפליקציה עצמאית
+- **מערכת ערכות נושא** - 8 תמות כולל High Contrast לנגישות (ראה [תיעוד מלא](https://amirbiron.github.io/CodeBot/webapp/theming-and-css.html))
 
 ## התקנה מקומית 💻
 

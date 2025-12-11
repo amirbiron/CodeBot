@@ -53,3 +53,4 @@ Development Workflow
 - :doc:`architecture`
 - :doc:`conversation-handlers`
 - :doc:`testing`
+- :doc:`webapp/theming-and-css` - מדריך ערכות נושא וטוקני CSS
