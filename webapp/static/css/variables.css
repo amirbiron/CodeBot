@@ -48,6 +48,10 @@
   --btn-primary-shadow: 0 4px 14px rgba(7, 7, 31, 0.25);
   --btn-primary-hover-bg: #ffffff;
   --btn-primary-hover-shadow: 0 14px 28px rgba(18, 20, 43, 0.45);
+  --danger-bg: color-mix(in srgb, var(--danger, #f56565) 18%, transparent);
+  --danger-border: color-mix(in srgb, var(--danger, #f56565) 45%, transparent);
+  --text-on-warning: #1c1f3a;
+  --text-on-primary: #ffffff;
 }
 
 /* Ocean – Bold blue gradient theme */
@@ -79,6 +83,10 @@
   --btn-primary-shadow: 0 4px 14px rgba(26, 54, 93, 0.35);
   --btn-primary-hover-bg: #ffffff;
   --btn-primary-hover-shadow: 0 12px 28px rgba(26, 54, 93, 0.45);
+  --danger-bg: color-mix(in srgb, var(--danger, #fc8181) 24%, transparent);
+  --danger-border: color-mix(in srgb, var(--danger, #fc8181) 55%, transparent);
+  --text-on-warning: #0f172a;
+  --text-on-primary: #ffffff;
 }
 
 /* Forest – Bold green gradient theme */
@@ -110,6 +118,10 @@
   --btn-primary-shadow: 0 4px 14px rgba(26, 71, 49, 0.35);
   --btn-primary-hover-bg: #ffffff;
   --btn-primary-hover-shadow: 0 12px 28px rgba(26, 71, 49, 0.45);
+  --danger-bg: color-mix(in srgb, var(--danger, #fc8181) 24%, transparent);
+  --danger-border: color-mix(in srgb, var(--danger, #fc8181) 55%, transparent);
+  --text-on-warning: #0a2416;
+  --text-on-primary: #ffffff;
 }
 
 /* Rose Pine Dawn (light) */
@@ -141,6 +153,10 @@
   --btn-primary-shadow: 0 6px 18px rgba(149, 121, 166, 0.25);
   --btn-primary-hover-bg: color-mix(in srgb, var(--bg-secondary) 60%, #ffffff 40%);
   --btn-primary-hover-shadow: 0 10px 24px rgba(149, 121, 166, 0.3);
+  --danger-bg: color-mix(in srgb, var(--danger, #b4637a) 15%, transparent);
+  --danger-border: color-mix(in srgb, var(--danger, #b4637a) 40%, transparent);
+  --text-on-warning: #4a2c2a;
+  --text-on-primary: #4a2c2a;
 }
 
 /* Theme palettes - Dark & Dim */
@@ -172,6 +188,10 @@
   --btn-primary-shadow: 0 8px 22px rgba(0, 0, 0, 0.45);
   --btn-primary-hover-bg: color-mix(in srgb, var(--bg-tertiary) 55%, var(--primary) 45%);
   --btn-primary-hover-shadow: 0 14px 32px rgba(0, 0, 0, 0.55);
+  --danger-bg: color-mix(in srgb, var(--danger, #f87171) 32%, transparent);
+  --danger-border: color-mix(in srgb, var(--danger, #f87171) 65%, transparent);
+  --text-on-warning: #1c1f3a;
+  --text-on-primary: #ffffff;
 }
 
 :root[data-theme="dim"] {
@@ -194,6 +214,10 @@
   --btn-primary-shadow: 0 6px 18px rgba(0, 0, 0, 0.45);
   --btn-primary-hover-bg: color-mix(in srgb, var(--bg-tertiary) 60%, var(--primary) 40%);
   --btn-primary-hover-shadow: 0 12px 28px rgba(0, 0, 0, 0.55);
+  --danger-bg: color-mix(in srgb, var(--danger, #f56565) 28%, transparent);
+  --danger-border: color-mix(in srgb, var(--danger, #f56565) 60%, transparent);
+  --text-on-warning: #1c1f3a;
+  --text-on-primary: #ffffff;
 }
 
 :root[data-theme="nebula"] {
@@ -224,6 +248,43 @@
   --btn-primary-shadow: 0 10px 30px rgba(21, 27, 44, 0.65);
   --btn-primary-hover-bg: color-mix(in srgb, var(--card-bg) 45%, var(--primary) 55%);
   --btn-primary-hover-shadow: 0 16px 36px rgba(21, 27, 44, 0.7);
+  --danger-bg: color-mix(in srgb, var(--danger, #f598b2) 30%, transparent);
+  --danger-border: color-mix(in srgb, var(--danger, #f598b2) 60%, transparent);
+  --text-on-warning: #1c1f3a;
+  --text-on-primary: #ffffff;
+}
+
+:root[data-theme="high-contrast"] {
+  --primary: #ffff00;
+  --secondary: #ffffff;
+  --bg-primary: #000000;
+  --bg-secondary: #000000;
+  --bg-tertiary: #111111;
+  --text-primary: #ffffff;
+  --text-secondary: #ffff00;
+  --text-muted: #d9d9d9;
+  --glass: rgba(255, 255, 255, 0.02);
+  --glass-border: #ffffff;
+  --glass-hover: rgba(255, 255, 255, 0.1);
+  --card-bg: #000000;
+  --card-border: #ffffff;
+  --code-bg: #000000;
+  --code-text: #ffffff;
+  --code-border: #ffffff;
+  --success: #00ff00;
+  --danger: #ff0000;
+  --warning: #ffff00;
+  --info: #00ffff;
+  --btn-primary-bg: #ffff00;
+  --btn-primary-color: #000000;
+  --btn-primary-border: #ffffff;
+  --btn-primary-shadow: none;
+  --btn-primary-hover-bg: #ffcc00;
+  --btn-primary-hover-shadow: none;
+  --danger-bg: #330000;
+  --danger-border: #ff0000;
+  --text-on-warning: #000000;
+  --text-on-primary: #000000;
 }
 
 /* ============================================
