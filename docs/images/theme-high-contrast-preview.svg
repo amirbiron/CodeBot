@@ -3,10 +3,10 @@
   <rect x="24" y="24" width="592" height="312" rx="28" stroke="#ffff00" stroke-width="2" fill="none" stroke-dasharray="14 10"/>
 
   <text x="48" y="80" fill="#ffffff" font-size="30" font-weight="700" font-family="Heebo, 'Segoe UI', sans-serif">
-    High Contrast  data-theme="high-contrast"
+    High Contrast - data-theme="high-contrast"
   </text>
   <text x="48" y="120" fill="#ffff00" font-size="18" font-family="Heebo, 'Segoe UI', sans-serif">
-    WCAG 2.1 AA: ичси 21:1 З чйщешйн 19.5:1 З Focus outline цдеб
+    WCAG 2.1 AA: ???? 21:1 | ??????? 19.5:1 | Focus outline ????
   </text>
 
   <g transform="translate(48,150)">

@@ -96,7 +96,7 @@
      - CodeMirror, כרטיסי קוד, Split View
      - ``:root[data-theme]`` + קבצי Markdown (`markdown-enhanced.css`)
 
-רשימת הטוקנים המורחבת זמינה ב‑:download:`webapp/FEATURE_SUGGESTIONS/css_refactor_plan.md <../webapp/FEATURE_SUGGESTIONS/css_refactor_plan.md>` ובטבלת הפלטות :download:`webapp_theme_palettes.md <../webapp/FEATURE_SUGGESTIONS/webapp_theme_palettes.md>`.
+רשימת הטוקנים המורחבת זמינה בקובץ ``webapp/FEATURE_SUGGESTIONS/css_refactor_plan.md`` ובטבלת הפלטות ``webapp/FEATURE_SUGGESTIONS/webapp_theme_palettes.md``.
 
 מפת ערכות הנושא (Theme Reference)
 ----------------------------------
@@ -178,7 +178,7 @@ Markdown Viewer ו‑Split View
 - ``[data-theme="..."]`` הוא הסלקטור היחיד לשינוי Theme. אין להשתמש שוב ב‑``prefers-color-scheme`` מלבד בקוד Legacy שכבר קיים ב‑``markdown-enhanced.css`` (TODO לעדכן).
 
 דוגמת קוד – לא תקין לעומת תקין
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 .. code-block:: css
 
@@ -245,10 +245,10 @@ Component Tokens ו‑Theme Builder
 
 .. seealso::
 
-   - :download:`css_refactor_plan.md (גרסת WebApp) <../webapp/FEATURE_SUGGESTIONS/css_refactor_plan.md>`
-   - :download:`css_refactor_plan.md (תיקיית FEATURE_SUGGESTIONS) <../FEATURE_SUGGESTIONS/css_refactor_plan.md>` – סיכום הדרישות העסקיות וה‑QA.
-   - :download:`theme_matrix.md <../FEATURE_SUGGESTIONS/theme_matrix.md>` – טבלת כיסוי טוקנים מקוצרת.
-   - :download:`webapp_theme_palettes.md <../webapp/FEATURE_SUGGESTIONS/webapp_theme_palettes.md>`
+   - ``webapp/FEATURE_SUGGESTIONS/css_refactor_plan.md`` – רשימות טוקנים מלאות לפי קובץ.
+   - ``FEATURE_SUGGESTIONS/css_refactor_plan.md`` – תקציר עסקי ובדיקות QA.
+   - ``FEATURE_SUGGESTIONS/theme_matrix.md`` – טבלת כיסוי טוקנים מקוצרת.
+   - ``webapp/FEATURE_SUGGESTIONS/webapp_theme_palettes.md`` – פירוט צבעים וערכי Markdown.
    - ``webapp/templates/base.html`` – הגדרת ``:root`` וה‑Theme Wizard.
    - ``webapp/static/css/dark-mode.css`` – שימוש בטוקנים עבור רכיבי Dark/Dim/Nebula.
    - ``webapp/static/css/high-contrast.css`` – חריגי High Contrast.
