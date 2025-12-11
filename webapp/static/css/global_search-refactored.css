@@ -426,7 +426,7 @@
   margin-left: 0.25rem;
 }
 .shortcut-arguments code {
-  background: rgba(255,255,255,0.08);
+  background: var(--glass-normal);
   border-radius: 6px;
   padding: 0.1rem 0.4rem;
   font-size: 0.85rem;
@@ -470,8 +470,8 @@
 .global-search-lang-badge.lang-js { background: color-mix(in srgb, var(--lang-js) 15%, transparent); color: var(--lang-js); border: 1px solid color-mix(in srgb, var(--lang-js) 30%, transparent); }
 .global-search-lang-badge.lang-ts { background: color-mix(in srgb, var(--lang-ts) 15%, transparent); color: var(--lang-ts); border: 1px solid color-mix(in srgb, var(--lang-ts) 30%, transparent); }
 .global-search-lang-badge.lang-python { background: color-mix(in srgb, var(--lang-python) 15%, transparent); color: var(--lang-python); border: 1px solid color-mix(in srgb, var(--lang-python) 30%, transparent); }
-.global-search-lang-badge.lang-react { background: color-mix(in srgb, var(--lang-react) 15%, transparent); color: var(--lang-react); border: 1px solid color-mix(in srgb, var(--lang-react) 30%, transparent); }
-.global-search-lang-badge.lang-vue { background: color-mix(in srgb, var(--lang-vue) 15%, transparent); color: var(--lang-vue); border: 1px solid color-mix(in srgb, var(--lang-vue) 30%, transparent); }
+.global-search-lang-badge.lang-react { background: color-mix(in srgb, var(--lang-js) 15%, transparent); color: var(--lang-js); border: 1px solid color-mix(in srgb, var(--lang-js) 30%, transparent); }
+.global-search-lang-badge.lang-vue { --vue-color: #42b883; background: color-mix(in srgb, var(--vue-color) 15%, transparent); color: var(--vue-color); border: 1px solid color-mix(in srgb, var(--vue-color) 30%, transparent); }
 .global-search-lang-badge.lang-html { background: color-mix(in srgb, var(--lang-html) 15%, transparent); color: var(--lang-html); border: 1px solid color-mix(in srgb, var(--lang-html) 30%, transparent); }
 .global-search-lang-badge.lang-css { background: color-mix(in srgb, var(--lang-css) 15%, transparent); color: var(--lang-css); border: 1px solid color-mix(in srgb, var(--lang-css) 30%, transparent); }
 .global-search-lang-badge.lang-java { background: color-mix(in srgb, var(--lang-java) 15%, transparent); color: var(--lang-java); border: 1px solid color-mix(in srgb, var(--lang-java) 30%, transparent); }
