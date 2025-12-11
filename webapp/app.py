@@ -7465,8 +7465,16 @@ def edit_file_page(file_id):
 
                 should_collect_images = False
                 try:
+                    normalized_name = (file_name or '')
+                    if isinstance(normalized_name, str):
+                        normalized_name = normalized_name.lower()
+                    else:
+                        normalized_name = ''
+                except Exception:
+                    normalized_name = ''
+                try:
                     should_collect_images = (
-                        (isinstance(file_name, str) and file_name.lower().endswith('.md')) or
+                        (normalized_name.endswith('.md') or normalized_name.endswith('.markdown')) or
                         (isinstance(language, str) and language.lower() in {'markdown', 'md'})
                     )
                 except Exception:

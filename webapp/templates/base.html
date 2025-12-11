@@ -1971,12 +1971,31 @@
         const STORAGE_KEY = 'has_seen_welcome_modal';
         const modal = document.getElementById('welcomeModal');
         if (!modal) { return; }
-        const markClientSeen = () => {
-            try { sessionStorage.setItem(STORAGE_KEY, '1'); }
-            catch (_) {}
+
+        const getSeenFlag = () => {
+            try { return localStorage.getItem(STORAGE_KEY); }
+            catch (_) {
+                try { return sessionStorage.getItem(STORAGE_KEY); }
+                catch (_) { return null; }
+            }
         };
+
+        const setSeenFlag = () => {
+            let stored = false;
+            try { localStorage.setItem(STORAGE_KEY, '1'); stored = true; }
+            catch (_) {}
+            if (!stored) {
+                try { sessionStorage.setItem(STORAGE_KEY, '1'); }
+                catch (_) {}
+            }
+        };
+
+        const markClientSeen = () => {
+            setSeenFlag();
+        };
+
         try {
-            if (sessionStorage.getItem(STORAGE_KEY) === '1') {
+            if (getSeenFlag() === '1') {
                 fetch('/api/welcome/ack', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
