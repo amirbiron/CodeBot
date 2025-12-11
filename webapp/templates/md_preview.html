@@ -12,31 +12,31 @@
   padding: 0.5rem 0; /* את הריווח הצדדי ניתן דרך הכרטיס הפנימי */
 }
 #md-content {
-  background: #ffffff;
-  color: #111111;
+  background: var(--md-surface, #ffffff);
+  color: var(--md-text, #111111);
   border-radius: 12px;
-  border: none; /* ביטול מסגרת (שנתפסה כ"סגולה") */
+  border: 1px solid color-mix(in srgb, var(--md-border, rgba(0, 0, 0, 0.08)) 100%, transparent);
   padding: 14px; /* ריווח אחיד ועדין – לא מרחיק את הבלוק מהגבול */
-  transition: background-color 0.3s ease, color 0.3s ease;
-  --md-inline-code-bg: #f6f8fa;
-  --md-inline-code-border: #d0d7de;
-  --md-inline-code-color: #1f2328;
-  --md-code-border: #d0d7de;
-  --md-code-shell-bg: #e6edf4;
-  --md-code-header-bg: #e6edf4;
-  --md-code-header-text: #57606a;
-  --md-code-bg: #f6f8fa;
-  --md-code-text: #24292f;
+  transition: background-color 0.3s ease, color 0.3s ease, border-color 0.3s ease;
+  --md-inline-code-bg: color-mix(in srgb, var(--md-surface, #ffffff) 90%, rgba(0, 0, 0, 0.05));
+  --md-inline-code-border: color-mix(in srgb, var(--md-border, rgba(0, 0, 0, 0.08)) 80%, transparent);
+  --md-inline-code-color: var(--md-text, #1f2328);
+  --md-code-border: color-mix(in srgb, var(--md-border, #d0d7de) 85%, transparent);
+  --md-code-shell-bg: color-mix(in srgb, var(--md-surface, #ffffff) 85%, rgba(0, 0, 0, 0.04));
+  --md-code-header-bg: color-mix(in srgb, var(--md-surface, #ffffff) 90%, rgba(0, 0, 0, 0.03));
+  --md-code-header-text: color-mix(in srgb, var(--md-text, #57606a) 90%, rgba(0, 0, 0, 0.1));
+  --md-code-bg: var(--md-code-surface, #f6f8fa);
+  --md-code-text: var(--md-code-foreground, #24292f);
   --md-code-shadow: 0 12px 24px rgba(15, 23, 42, 0.08);
-  --md-code-copy-bg: #ffffff;
-  --md-code-copy-border: #d0d7de;
-  --md-code-copy-color: #57606a;
-  --md-code-copy-hover-bg: #e6ebf1;
+  --md-code-copy-bg: color-mix(in srgb, var(--md-surface, #ffffff) 92%, rgba(255, 255, 255, 0.2));
+  --md-code-copy-border: color-mix(in srgb, var(--md-border, #d0d7de) 85%, transparent);
+  --md-code-copy-color: color-mix(in srgb, var(--md-text, #57606a) 90%, rgba(0, 0, 0, 0.05));
+  --md-code-copy-hover-bg: color-mix(in srgb, var(--md-surface, #ffffff) 88%, rgba(0, 0, 0, 0.05));
   --md-code-copy-success-color: #1a7f37;
   --md-code-copy-error-color: #b42318;
-  --md-code-lang-bg: #dce3eb;
-  --md-code-lang-text: #24292f;
-  --hljs-text: #24292f;
+  --md-code-lang-bg: color-mix(in srgb, var(--md-surface, #ffffff) 92%, rgba(0, 0, 0, 0.05));
+  --md-code-lang-text: var(--md-text, #24292f);
+  --hljs-text: var(--md-code-foreground, #24292f);
   --hljs-keyword: #cf222e;
   --hljs-string: #0a3069;
   --hljs-function: #8250df;
@@ -47,19 +47,20 @@
   --hljs-addition-bg: rgba(26, 127, 55, 0.12);
   --hljs-deletion-text: #cf222e;
   --hljs-deletion-bg: rgba(207, 34, 46, 0.15);
-  --md-blockquote-bg: #eef2f7;
-  --md-blockquote-border: #cbd5e1;
-  --md-blockquote-color: #0f172a;
-  --md-table-border: #e5e7eb;
-  --md-table-header-bg: #f8fafc;
+  --md-blockquote-bg: color-mix(in srgb, var(--md-surface, #ffffff) 90%, rgba(0, 0, 0, 0.04));
+  --md-blockquote-border: var(--md-blockquote-accent, #cbd5e1);
+  --md-blockquote-color: var(--md-text, #0f172a);
+  --md-table-border: var(--md-border, #e5e7eb);
+  --md-table-header-bg: color-mix(in srgb, var(--md-surface, #ffffff) 92%, rgba(0, 0, 0, 0.03));
 }
 
 /* Dark/Dim theme support */
 [data-theme="dark"] #md-content,
 [data-theme="dim"] #md-content,
 [data-theme="nebula"] #md-content {
-  background: var(--bg-primary);
-  color: var(--text-primary);
+  background: var(--md-surface, var(--bg-primary));
+  color: var(--md-text, var(--text-primary));
+  border-color: color-mix(in srgb, var(--md-border, rgba(255, 255, 255, 0.2)) 100%, transparent);
 }
 
 [data-theme="dark"] #md-content {
@@ -92,11 +93,11 @@
   --hljs-addition-bg: rgba(152, 195, 121, 0.18);
   --hljs-deletion-text: #e06c75;
   --hljs-deletion-bg: rgba(224, 108, 117, 0.22);
-  --md-blockquote-bg: color-mix(in srgb, var(--bg-tertiary) 70%, rgba(255, 255, 255, 0.05));
-  --md-blockquote-border: var(--glass-border);
-  --md-blockquote-color: var(--text-secondary);
-  --md-table-border: var(--glass-border);
-  --md-table-header-bg: color-mix(in srgb, var(--bg-tertiary) 80%, rgba(255,255,255,0.08));
+  --md-blockquote-bg: color-mix(in srgb, var(--md-surface, #1a1a1a) 70%, rgba(255, 255, 255, 0.05));
+  --md-blockquote-border: var(--md-border, rgba(255, 255, 255, 0.2));
+  --md-blockquote-color: color-mix(in srgb, var(--md-text, #e0e0e0) 85%, rgba(255, 255, 255, 0.2));
+  --md-table-border: var(--md-border, rgba(255, 255, 255, 0.18));
+  --md-table-header-bg: color-mix(in srgb, var(--md-surface, #1a1a1a) 80%, rgba(255,255,255,0.08));
 }
 
 [data-theme="dim"] #md-content {
@@ -129,11 +130,11 @@
   --hljs-addition-bg: rgba(163, 190, 140, 0.2);
   --hljs-deletion-text: #d08770;
   --hljs-deletion-bg: rgba(208, 135, 112, 0.25);
-  --md-blockquote-bg: color-mix(in srgb, var(--bg-tertiary) 70%, rgba(255, 255, 255, 0.04));
-  --md-blockquote-border: color-mix(in srgb, var(--glass-border) 80%, rgba(255,255,255,0.05));
-  --md-blockquote-color: var(--text-secondary);
-  --md-table-border: color-mix(in srgb, var(--glass-border) 90%, rgba(255,255,255,0.05));
-  --md-table-header-bg: color-mix(in srgb, var(--bg-tertiary) 80%, rgba(255,255,255,0.07));
+  --md-blockquote-bg: color-mix(in srgb, var(--md-surface, #2a2a2a) 70%, rgba(255, 255, 255, 0.04));
+  --md-blockquote-border: color-mix(in srgb, var(--md-border, rgba(255,255,255,0.15)) 80%, transparent);
+  --md-blockquote-color: color-mix(in srgb, var(--md-text, #d0d0d0) 85%, rgba(255, 255, 255, 0.15));
+  --md-table-border: color-mix(in srgb, var(--md-border, rgba(255,255,255,0.15)) 90%, transparent);
+  --md-table-header-bg: color-mix(in srgb, var(--md-surface, #2a2a2a) 80%, rgba(255,255,255,0.07));
 }
 
 [data-theme="nebula"] #md-content {
@@ -166,11 +167,11 @@
   --hljs-addition-bg: rgba(80, 250, 123, 0.18);
   --hljs-deletion-text: #ff5555;
   --hljs-deletion-bg: rgba(255, 85, 85, 0.2);
-  --md-blockquote-bg: color-mix(in srgb, var(--bg-tertiary) 65%, rgba(255,255,255,0.04));
-  --md-blockquote-border: color-mix(in srgb, var(--glass-border) 80%, rgba(255,255,255,0.05));
-  --md-blockquote-color: var(--text-secondary);
-  --md-table-border: color-mix(in srgb, var(--glass-border) 90%, rgba(255,255,255,0.05));
-  --md-table-header-bg: color-mix(in srgb, var(--bg-tertiary) 78%, rgba(255,255,255,0.08));
+  --md-blockquote-bg: color-mix(in srgb, var(--md-surface, #151a2c) 65%, rgba(255,255,255,0.04));
+  --md-blockquote-border: color-mix(in srgb, var(--md-border, rgba(119,122,188,0.35)) 80%, transparent);
+  --md-blockquote-color: color-mix(in srgb, var(--md-text, #e6e9f8) 85%, rgba(255,255,255,0.15));
+  --md-table-border: color-mix(in srgb, var(--md-border, rgba(119,122,188,0.35)) 90%, transparent);
+  --md-table-header-bg: color-mix(in srgb, var(--md-surface, #151a2c) 78%, rgba(255,255,255,0.08));
 }
 
 :root[data-theme="rose-pine-dawn"] #md-content {
@@ -213,16 +214,16 @@
 [data-theme="dark"] #md-content code:not(pre code),
 [data-theme="dim"] #md-content code:not(pre code),
 [data-theme="nebula"] #md-content code:not(pre code) {
-  background: var(--bg-tertiary);
-  color: var(--code-text);
-  border: 1px solid var(--code-border);
+  background: var(--md-code-bg, var(--code-bg));
+  color: var(--md-code-text, var(--code-text));
+  border: 1px solid color-mix(in srgb, var(--md-border, var(--code-border, rgba(255, 255, 255, 0.2))) 100%, transparent);
 }
 
 [data-theme="dark"] #md-content pre,
 [data-theme="dim"] #md-content pre,
 [data-theme="nebula"] #md-content pre {
-  background: var(--code-bg);
-  border: 1px solid var(--code-border);
+  background: var(--md-code-bg, var(--code-bg));
+  border: 1px solid color-mix(in srgb, var(--md-border, var(--code-border, rgba(255, 255, 255, 0.2))) 100%, transparent);
 }
 
 /* צבעי רקע חומים לתצוגת מארקדאון — גוונים בהירים ונעימים */
