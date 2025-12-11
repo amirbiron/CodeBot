@@ -19,6 +19,7 @@
   --danger-bg: color-mix(in srgb, var(--danger) 18%, transparent);
   --danger-border: color-mix(in srgb, var(--danger) 45%, transparent);
   --text-on-warning: #1c1f3a;
+  --text-on-primary: #ffffff;
   --btn-primary-bg: #ffffff;
   --btn-primary-color: var(--primary);
   --btn-primary-border: transparent;
