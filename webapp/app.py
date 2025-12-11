@@ -118,6 +118,13 @@ def _build_language_choices(user_langs: Optional[List[str]] = None) -> List[str]
     return [dedup[key] for key in sorted(dedup.keys())]
 
 
+def _is_markdown_filename(file_name: Optional[str]) -> bool:
+    try:
+        return isinstance(file_name, str) and file_name.strip().lower().endswith(('.md', '.markdown'))
+    except Exception:
+        return False
+
+
 def _cfg_or_env(attr: str, default: Any = None, *, env_name: str | None = None) -> Any:
     """משיג ערך מהקונפיג או מהסביבה, כולל תמיכה ב-Stubs פשוטים בטסטים."""
     env_key = env_name or attr
@@ -1147,6 +1154,12 @@ def inject_globals():
     except Exception:
         static_ver = _STATIC_VERSION
 
+    theme_wizard_seen = False
+    try:
+        theme_wizard_seen = bool((user_doc.get('ui_prefs') or {}).get('theme_wizard_seen'))
+    except Exception:
+        theme_wizard_seen = False
+
     return {
         'bot_username': BOT_USERNAME_CLEAN,
         'ui_font_scale': font_scale,
@@ -1169,6 +1182,7 @@ def inject_globals():
         'show_welcome_modal': show_welcome_modal,
         'welcome_primary_guide_url': primary_guide_url,
         'welcome_secondary_guide_url': secondary_guide_url,
+        'theme_wizard_seen': theme_wizard_seen,
     }
 
     
@@ -6783,11 +6797,8 @@ def file_preview(file_id):
         return jsonify({'ok': False, 'error': 'File is empty'}), 400
 
     # אם נשמר כ-text אבל הסיומת .md – תייג כ-markdown לתצוגה נכונה
-    try:
-        if (not language or language == 'text') and str(file.get('file_name') or '').lower().endswith('.md'):
-            language = 'markdown'
-    except Exception:
-        pass
+    if (not language or language == 'text') and _is_markdown_filename(file.get('file_name')):
+        language = 'markdown'
 
     # הגבלת גודל עבור preview כדי להגן על הלקוח (נמדד בבייטים)
     MAX_PREVIEW_SIZE = 100 * 1024  # 100KB
@@ -7308,6 +7319,7 @@ def edit_file_page(file_id):
     original_file_name = str(file.get('file_name') or '')
     error = None
     success = None
+    markdown_image_payloads = []
 
     if request.method == 'POST':
         try:
@@ -7413,11 +7425,8 @@ def edit_file_page(file_id):
                         pass
 
                 # חיזוק מיפוי: אם הסיומת .md והשפה עדיין לא זוהתה כ-markdown – תיוג כ-markdown
-                try:
-                    if isinstance(file_name, str) and file_name.lower().endswith('.md') and (not language or language.lower() == 'text'):
-                        language = 'markdown'
-                except Exception:
-                    pass
+                if _is_markdown_filename(file_name) and (not language or language.lower() == 'text'):
+                    language = 'markdown'
 
                 # עדכון שם קובץ לפי השפה (אם אין סיומת או .txt)
                 try:
@@ -7461,6 +7470,47 @@ def edit_file_page(file_id):
                                 file_name = f"{base}{wanted_dot_ext}"
                 except Exception:
                     pass
+
+                # הקצאת תמונות נלוות ל-Markdown
+                if not error and _is_markdown_filename(file_name):
+                    try:
+                        incoming_images = request.files.getlist('md_images')
+                    except Exception:
+                        incoming_images = []
+                    valid_images = [img for img in incoming_images if getattr(img, 'filename', '').strip()]
+                    if valid_images:
+                        if len(valid_images) > MARKDOWN_IMAGE_LIMIT:
+                            error = f'ניתן לצרף עד {MARKDOWN_IMAGE_LIMIT} תמונות'
+                        else:
+                            for img in valid_images:
+                                if error:
+                                    break
+                                try:
+                                    data = img.read()
+                                except Exception:
+                                    data = b''
+                                if not data:
+                                    continue
+                                if len(data) > MARKDOWN_IMAGE_MAX_BYTES:
+                                    max_mb = max(1, MARKDOWN_IMAGE_MAX_BYTES // (1024 * 1024))
+                                    error = f'כל תמונה מוגבלת ל-{max_mb}MB'
+                                    break
+                                safe_name = secure_filename(img.filename or '') or f'image_{len(markdown_image_payloads) + 1}.png'
+                                content_type = (img.mimetype or '').lower()
+                                if content_type not in ALLOWED_MARKDOWN_IMAGE_TYPES:
+                                    guessed_type = mimetypes.guess_type(safe_name)[0] or ''
+                                    content_type = guessed_type.lower() if guessed_type else content_type
+                                if content_type not in ALLOWED_MARKDOWN_IMAGE_TYPES:
+                                    error = 'ניתן להעלות רק תמונות PNG, JPG, WEBP או GIF'
+                                    break
+                                markdown_image_payloads.append({
+                                    'filename': safe_name,
+                                    'content_type': content_type,
+                                    'size': len(data),
+                                    'data': data,
+                                })
+                            if error:
+                                markdown_image_payloads = []
 
                 # קבע גרסה חדשה על סמך שם הקובץ לאחר העדכון
                 try:
@@ -7516,6 +7566,11 @@ def edit_file_page(file_id):
                     if res and getattr(res, 'inserted_id', None):
                         if original_file_name and original_file_name != file_name:
                             _sync_collection_items_after_web_rename(db, user_id, original_file_name, file_name)
+                        if markdown_image_payloads:
+                            try:
+                                _save_markdown_images(db, user_id, res.inserted_id, markdown_image_payloads)
+                            except Exception:
+                                pass
                         if _log_webapp_user_activity():
                             session['_skip_view_activity_once'] = True
                         return redirect(url_for('view_file', file_id=str(res.inserted_id)))
@@ -7728,7 +7783,7 @@ def md_preview(file_id):
     file_name = (file.get('file_name') or '').strip()
     language = (file.get('programming_language') or '').strip().lower()
     # אם סומן כ-text אך הסיומת .md – התייחס אליו כ-markdown
-    if (not language or language == 'text') and file_name.lower().endswith('.md'):
+    if (not language or language == 'text') and _is_markdown_filename(file_name):
         language = 'markdown'
     code = file.get('code') or ''
 
@@ -7784,7 +7839,7 @@ def md_preview(file_id):
             md_cache_key = f"web:md_preview:user:{user_id}:{file_id}:fallback"
 
     # הצג תצוגת Markdown רק אם זה אכן Markdown
-    is_md = language == 'markdown' or file_name.lower().endswith('.md')
+    is_md = language == 'markdown' or _is_markdown_filename(file_name)
     if not is_md:
         return redirect(url_for('view_file', file_id=file_id))
 
@@ -8228,11 +8283,8 @@ def upload_file_web():
                         pass
 
                 # חיזוק מיפוי: אם הסיומת .md והשפה עדיין לא זוהתה כ-markdown – תיוג כ-markdown
-                try:
-                    if isinstance(file_name, str) and file_name.lower().endswith('.md') and (not language or language.lower() == 'text'):
-                        language = 'markdown'
-                except Exception:
-                    pass
+                if _is_markdown_filename(file_name) and (not language or language.lower() == 'text'):
+                    language = 'markdown'
 
                 # עדכון שם קובץ כך שיתאם את השפה (סיומת מתאימה)
                 try:
@@ -8281,7 +8333,7 @@ def upload_file_web():
                 except Exception:
                     pass
                 # שמירה ישירה במסד (להימנע מתלות ב-BOT_TOKEN של שכבת הבוט)
-                should_collect_images = isinstance(file_name, str) and file_name.lower().endswith('.md')
+                should_collect_images = _is_markdown_filename(file_name)
                 if not error and should_collect_images:
                     try:
                         incoming_images = request.files.getlist('md_images')
@@ -9113,6 +9165,7 @@ def api_ui_prefs():
     קלט JSON נתמך:
     - font_scale: float בין 0.85 ל-1.6 (אופציונלי)
     - theme: אחד מ-{"classic","ocean","forest","high-contrast","dark","dim","rose-pine-dawn","nebula"} (אופציונלי)
+    - theme_wizard_seen: bool (אופציונלי)
     - editor: "simple" | "codemirror" (אופציונלי)
     - work_state: אובייקט עם מצב עבודה נוכחי (last_url, scroll_y, timestamp)
     """
@@ -9150,6 +9203,11 @@ def api_ui_prefs():
                 update_fields['ui_prefs.theme'] = theme
                 resp_payload['theme'] = theme
                 theme_cookie_value = theme
+
+        if 'theme_wizard_seen' in payload:
+            seen_val = bool(payload.get('theme_wizard_seen'))
+            update_fields['ui_prefs.theme_wizard_seen'] = seen_val
+            resp_payload['theme_wizard_seen'] = seen_val
 
         # עדכון סוג העורך במידת הצורך (שיקוף גם ל-session)
         if 'editor' in payload:
@@ -9549,7 +9607,7 @@ def _persist_story_markdown_file(
         raise ValueError("file_name_too_long")
     if any(ch in safe_name for ch in {'/', '\\', '\n', '\r'}):
         raise ValueError("invalid_file_name")
-    if not safe_name.lower().endswith('.md'):
+    if not _is_markdown_filename(safe_name):
         safe_name = f"{safe_name}.md"
     normalized_markdown = normalize_code(markdown or "")
     if not normalized_markdown:
@@ -9906,7 +9964,7 @@ def public_share(share_id):
         view = (request.args.get('view') or '').strip().lower()
     except Exception:
         view = ''
-    is_markdown = (language == 'markdown') or (isinstance(file_name, str) and file_name.lower().endswith('.md'))
+    is_markdown = (language == 'markdown') or _is_markdown_filename(file_name)
     if view == 'md' and is_markdown:
         file_data = {
             'id': share_id,

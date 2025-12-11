@@ -430,6 +430,8 @@
             border: 1px solid var(--glass-border);
             padding: 2rem;
             margin-bottom: 2rem;
+            box-sizing: border-box;
+            max-width: 100%;
         }
         /* מניעת חיתוך כרטיסים בשוליים בכל המסכים (כולל RTL) */
         .main-content .glass-card,
@@ -1973,18 +1975,33 @@
     (function welcomeModalInit(){
         const modal = document.getElementById('welcomeModal');
         if (!modal) { return; }
+        const STORAGE_KEY = 'welcome_modal_seen_v2';
         const backdrop = modal.querySelector('.welcome-modal__backdrop');
         const closeBtn = modal.querySelector('.welcome-modal__close');
         const skipBtn = document.getElementById('welcomeSkipBtn');
         const primaryBtn = document.getElementById('welcomePrimaryCta');
+        let ackInFlight = false;
+        const hasLocalSeen = () => {
+            try { return localStorage.getItem(STORAGE_KEY) === 'true'; }
+            catch (_) { return false; }
+        };
+        const markLocalSeen = () => {
+            try { localStorage.setItem(STORAGE_KEY, 'true'); }
+            catch (_) {}
+        };
         const sendAck = () => {
+            if (ackInFlight) { return; }
+            ackInFlight = true;
             try {
                 fetch('/api/welcome/ack', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: '{}'
-                }).catch(() => {});
-            } catch (_) {}
+                    body: '{}',
+                    credentials: 'same-origin'
+                }).catch(() => {}).finally(() => { ackInFlight = false; });
+            } catch (_) {
+                ackInFlight = false;
+            }
         };
         const removeModal = () => {
             modal.classList.remove('active');
@@ -1992,7 +2009,13 @@
                 try { modal.remove(); } catch (_) {}
             }, 250);
         };
+        if (hasLocalSeen()) {
+            sendAck();
+            removeModal();
+            return;
+        }
         const dismiss = (targetUrl) => {
+            markLocalSeen();
             sendAck();
             removeModal();
             if (targetUrl) {
@@ -2018,6 +2041,7 @@
     const htmlEl = document.documentElement;
     const bodyEl = document.body;
     const isLoggedIn = {{ 'true' if session.user_id else 'false' }};
+    let serverHasSeenThemeWizard = {{ 'true' if theme_wizard_seen else 'false' }};
     const ALLOWED_PATHS = ['/files'];
     const STORAGE_KEYS = {
         seen: 'theme_wizard_seen',
@@ -2062,15 +2086,53 @@
         try { localStorage.setItem(key, value); }
         catch (_) {}
     }
+    if (serverHasSeenThemeWizard) {
+        lsSet(STORAGE_KEYS.seen, 'true');
+    }
+    let themeWizardSyncInFlight = false;
     function hasSeen(){
+        if (serverHasSeenThemeWizard) {
+            return true;
+        }
         return lsGet(STORAGE_KEYS.seen) === 'true';
     }
     function markSeen(){
         lsSet(STORAGE_KEYS.seen, 'true');
+        ensureServerSeen();
     }
     function resetSeen(){
         try { localStorage.removeItem(STORAGE_KEYS.seen); }
         catch (_) {}
+        serverHasSeenThemeWizard = false;
+        if (isLoggedIn) {
+            try {
+                fetch('/api/ui_prefs', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ theme_wizard_seen: false }),
+                    credentials: 'same-origin'
+                }).catch(() => {});
+            } catch (_) { /* ignore */ }
+        }
+    }
+    function ensureServerSeen(){
+        if (!isLoggedIn || serverHasSeenThemeWizard || themeWizardSyncInFlight) {
+            return;
+        }
+        themeWizardSyncInFlight = true;
+        try {
+            fetch('/api/ui_prefs', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ theme_wizard_seen: true }),
+                credentials: 'same-origin'
+            }).catch(() => {}).finally(() => {
+                serverHasSeenThemeWizard = true;
+                themeWizardSyncInFlight = false;
+            });
+        } catch (_) {
+            themeWizardSyncInFlight = false;
+        }
     }
     function availableThemes(){
         return optionButtons.map((btn) => btn.dataset.themeOption).filter(Boolean);
@@ -2116,9 +2178,13 @@
             fetch('/api/ui_prefs', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ theme })
-            }).catch(() => {});
+                body: JSON.stringify({ theme, theme_wizard_seen: true }),
+                credentials: 'same-origin'
+            }).catch(() => {}).finally(() => {
+                serverHasSeenThemeWizard = true;
+            });
         } catch (_) { /* ignore */ }
+        ensureServerSeen();
     }
     function shouldAutoShow(){
         if (!isLoggedIn || hasSeen()) {
