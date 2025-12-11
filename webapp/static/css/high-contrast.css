@@ -6,6 +6,8 @@
   --secondary: #000000;
   --glass: rgba(255, 255, 255, 0.02);
   --glass-border: #ffffff;
+  --md-surface: #000000;
+  --md-text: #ffffff;
 }
 
 /* Base */
