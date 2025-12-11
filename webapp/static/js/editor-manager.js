@@ -261,9 +261,7 @@
       const toggleBtn = switcher.querySelector('.btn-switch-editor');
       toggleBtn.addEventListener('click', async () => {
         const prev = this.currentEditor;
-        const selectionBeforeSwitch = this.captureSelection();
         this.currentEditor = prev === 'simple' ? 'codemirror' : 'simple';
-        let restoreNeeded = !!selectionBeforeSwitch;
         if (this.currentEditor === 'codemirror') {
           const lang = this.getSelectedLanguage() || 'text';
           try {
@@ -271,13 +269,9 @@
           } catch (e) {
             this.currentEditor = 'simple';
             this.initSimpleEditor(container, { value: this.textarea.value });
-            restoreNeeded = restoreNeeded && !!selectionBeforeSwitch;
           }
         } else {
           this.initSimpleEditor(container, { value: this.cmInstance ? this.cmInstance.state.doc.toString() : this.textarea.value });
-        }
-        if (restoreNeeded) {
-          this.restoreSelection(selectionBeforeSwitch);
         }
         this.savePreference(this.currentEditor);
         try {
@@ -442,8 +436,8 @@
         this.showClipboardNotice(switcher, usedPrompt ? 'לא הוזן טקסט' : 'הלוח ריק');
         return;
       }
-      const inserted = this.insertTextAtCursor(text);
-      this.showClipboardNotice(switcher, inserted ? 'הטקסט הודבק' : 'נכשלה ההדבקה');
+      this.setEditorContent(text);
+      this.showClipboardNotice(switcher, 'הטקסט הודבק');
     }
 
     showClipboardNotice(switcher, message) {
@@ -806,108 +800,6 @@
         clearTimeout(t);
         t = setTimeout(() => fn(...args), wait);
       };
-    }
-
-    captureSelection() {
-      try {
-        if (this.cmInstance && this.cmInstance.state) {
-          const main = this.cmInstance.state.selection.main;
-          return {
-            anchor: main.anchor,
-            head: main.head,
-            scrollTop: this.cmInstance?.scrollDOM ? this.cmInstance.scrollDOM.scrollTop : 0
-          };
-        }
-        if (this.textarea) {
-          const value = this.textarea.value || '';
-          const start = typeof this.textarea.selectionStart === 'number' ? this.textarea.selectionStart : value.length;
-          const end = typeof this.textarea.selectionEnd === 'number' ? this.textarea.selectionEnd : start;
-          return {
-            anchor: start,
-            head: end,
-            scrollTop: this.textarea.scrollTop || 0
-          };
-        }
-      } catch(_) {}
-      return null;
-    }
-
-    restoreSelection(selection) {
-      if (!selection) return;
-      try {
-        if (this.cmInstance && this.cmInstance.state) {
-          const view = this.cmInstance;
-          const docLength = view.state.doc.length;
-          const anchor = this._clampPos(selection.anchor, docLength);
-          const head = this._clampPos(typeof selection.head === 'number' ? selection.head : anchor, docLength);
-          view.dispatch({ selection: { anchor, head }, scrollIntoView: true });
-          if (view.scrollDOM && typeof selection.scrollTop === 'number') {
-            view.scrollDOM.scrollTop = selection.scrollTop;
-          }
-          try { view.focus(); } catch(_) {}
-          return;
-        }
-        if (this.textarea) {
-          const value = this.textarea.value || '';
-          const len = value.length;
-          const anchor = this._clampPos(selection.anchor, len);
-          const head = this._clampPos(typeof selection.head === 'number' ? selection.head : anchor, len);
-          if (typeof this.textarea.setSelectionRange === 'function') {
-            const startPos = Math.min(anchor, head);
-            const endPos = Math.max(anchor, head);
-            this.textarea.setSelectionRange(startPos, endPos);
-          }
-          if (typeof selection.scrollTop === 'number') {
-            try { this.textarea.scrollTop = selection.scrollTop; } catch(_) {}
-          }
-          try { this.textarea.focus(); } catch(_) {}
-        }
-      } catch(_) {}
-    }
-
-    insertTextAtCursor(text) {
-      if (!text) return false;
-      try {
-        if (this.cmInstance && this.cmInstance.state) {
-          const view = this.cmInstance;
-          const main = view.state.selection.main;
-          const from = main.from;
-          const to = main.to;
-          view.dispatch({
-            changes: { from, to, insert: text },
-            selection: { anchor: from + text.length },
-            scrollIntoView: true
-          });
-          try { view.focus(); } catch(_) {}
-          return true;
-        }
-        if (this.textarea) {
-          const el = this.textarea;
-          const value = el.value || '';
-          const start = typeof el.selectionStart === 'number' ? el.selectionStart : value.length;
-          const end = typeof el.selectionEnd === 'number' ? el.selectionEnd : start;
-          const nextValue = value.slice(0, start) + text + value.slice(end);
-          el.value = nextValue;
-          const cursor = start + text.length;
-          if (typeof el.setSelectionRange === 'function') {
-            el.setSelectionRange(cursor, cursor);
-          }
-          el.dispatchEvent(new Event('input', { bubbles: true }));
-          try { el.focus(); } catch(_) {}
-          return true;
-        }
-      } catch(_) {}
-      return false;
-    }
-
-    _clampPos(pos, max) {
-      const safeMax = typeof max === 'number' && max >= 0 ? max : 0;
-      if (typeof pos !== 'number' || Number.isNaN(pos)) {
-        return safeMax;
-      }
-      if (pos < 0) return 0;
-      if (pos > safeMax) return safeMax;
-      return pos;
     }
 
     // מגן כללי ל-async שמונע תקיעות שקטות ומדווח הקשר לשגיאה
