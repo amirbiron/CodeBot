@@ -1,3 +1,239 @@
+/* ==============================================
+   Split View CSS Variables
+   ============================================== */
+:root {
+  /* Container */
+  --split-container-bg: rgba(0, 0, 0, 0.02);
+  --split-container-border: rgba(0, 0, 0, 0.08);
+
+  /* Toolbar */
+  --split-toolbar-bg: rgba(0, 0, 0, 0.04);
+  --split-toolbar-border: rgba(0, 0, 0, 0.08);
+
+  /* Toggle button */
+  --split-toggle-bg: rgba(79, 70, 229, 0.15);
+  --split-toggle-border: rgba(79, 70, 229, 0.4);
+  --split-toggle-active-bg: rgba(34, 197, 94, 0.2);
+  --split-toggle-active-border: rgba(34, 197, 94, 0.5);
+
+  /* Tabs */
+  --split-tabs-bg: rgba(0, 0, 0, 0.04);
+  --split-tabs-selected-bg: rgba(0, 0, 0, 0.08);
+
+  /* Panels */
+  --split-preview-panel-bg: rgba(0, 0, 0, 0.02);
+  --split-preview-panel-border: rgba(0, 0, 0, 0.08);
+
+  /* Resizer */
+  --split-resizer-bg: rgba(0, 0, 0, 0.06);
+  --split-resizer-handle: rgba(0, 0, 0, 0.25);
+  --split-resizer-dragging: rgba(79, 70, 229, 0.35);
+
+  /* Preview content */
+  --split-preview-bg: #ffffff;
+  --split-preview-text: #1c1c1c;
+  --split-preview-code-bg: rgba(0, 0, 0, 0.06);
+  --split-preview-code-text: #1f2933;
+  --split-preview-placeholder: rgba(0, 0, 0, 0.6);
+  --split-preview-meta: rgba(0, 0, 0, 0.55);
+  --split-preview-loading-bg: rgba(255, 255, 255, 0.85);
+  --split-preview-loading-text: #222222;
+
+  /* Error */
+  --split-error-bg: rgba(220, 38, 38, 0.1);
+  --split-error-border: rgba(220, 38, 38, 0.35);
+  --split-error-text: #b91c1c;
+
+  /* Codehilite */
+  --split-codehilite-bg: #272822;
+  --split-codehilite-text: #f8f8f2;
+}
+
+/* Dark themes override */
+:root[data-theme="dark"],
+:root[data-theme="dim"],
+:root[data-theme="nebula"] {
+  --split-container-bg: rgba(255, 255, 255, 0.04);
+  --split-container-border: rgba(255, 255, 255, 0.08);
+  --split-toolbar-bg: rgba(0, 0, 0, 0.08);
+  --split-toolbar-border: rgba(255, 255, 255, 0.08);
+  --split-toggle-bg: rgba(100, 100, 255, 0.2);
+  --split-toggle-border: rgba(100, 100, 255, 0.6);
+  --split-toggle-active-bg: rgba(56, 176, 0, 0.25);
+  --split-toggle-active-border: rgba(74, 193, 23, 0.6);
+  --split-tabs-bg: rgba(255, 255, 255, 0.08);
+  --split-tabs-selected-bg: rgba(255, 255, 255, 0.15);
+  --split-preview-panel-bg: rgba(255, 255, 255, 0.02);
+  --split-preview-panel-border: rgba(255, 255, 255, 0.08);
+  --split-resizer-bg: rgba(255, 255, 255, 0.08);
+  --split-resizer-handle: rgba(255, 255, 255, 0.4);
+  --split-resizer-dragging: rgba(100, 149, 237, 0.35);
+  --split-preview-bg: #1b1e24;
+  --split-preview-text: #f0f0f0;
+  --split-preview-code-bg: rgba(255, 255, 255, 0.08);
+  --split-preview-code-text: #f5f5f5;
+  --split-preview-placeholder: rgba(255, 255, 255, 0.6);
+  --split-preview-meta: rgba(255, 255, 255, 0.55);
+  --split-preview-loading-bg: rgba(27, 30, 36, 0.85);
+  --split-preview-loading-text: #f0f0f0;
+  --split-error-bg: rgba(248, 113, 113, 0.15);
+  --split-error-border: rgba(248, 113, 113, 0.4);
+  --split-error-text: #fca5a5;
+}
+
+/* Ocean theme override */
+:root[data-theme="ocean"] {
+  --split-container-bg: rgba(49, 130, 206, 0.08);
+  --split-container-border: rgba(49, 130, 206, 0.25);
+  --split-toolbar-bg: rgba(26, 54, 93, 0.4);
+  --split-toolbar-border: rgba(49, 130, 206, 0.25);
+  --split-toggle-bg: rgba(49, 130, 206, 0.25);
+  --split-toggle-border: rgba(49, 130, 206, 0.5);
+  --split-toggle-active-bg: rgba(104, 211, 145, 0.25);
+  --split-toggle-active-border: rgba(104, 211, 145, 0.5);
+  --split-tabs-bg: rgba(49, 130, 206, 0.15);
+  --split-tabs-selected-bg: rgba(49, 130, 206, 0.3);
+  --split-preview-panel-bg: rgba(26, 54, 93, 0.4);
+  --split-preview-panel-border: rgba(49, 130, 206, 0.25);
+  --split-resizer-bg: rgba(49, 130, 206, 0.2);
+  --split-resizer-handle: rgba(255, 255, 255, 0.5);
+  --split-resizer-dragging: rgba(99, 179, 237, 0.4);
+  --split-preview-bg: rgba(26, 54, 93, 0.9);
+  --split-preview-text: #e2e8f0;
+  --split-preview-code-bg: rgba(255, 255, 255, 0.1);
+  --split-preview-code-text: #e2e8f0;
+  --split-preview-placeholder: rgba(255, 255, 255, 0.65);
+  --split-preview-meta: rgba(255, 255, 255, 0.55);
+  --split-preview-loading-bg: rgba(26, 54, 93, 0.9);
+  --split-preview-loading-text: #ffffff;
+  --split-codehilite-bg: #1a365d;
+  --split-codehilite-text: #e2e8f0;
+}
+
+/* Forest theme override */
+:root[data-theme="forest"] {
+  --split-container-bg: rgba(72, 187, 120, 0.08);
+  --split-container-border: rgba(72, 187, 120, 0.25);
+  --split-toolbar-bg: rgba(20, 83, 45, 0.4);
+  --split-toolbar-border: rgba(72, 187, 120, 0.25);
+  --split-toggle-bg: rgba(72, 187, 120, 0.25);
+  --split-toggle-border: rgba(72, 187, 120, 0.5);
+  --split-toggle-active-bg: rgba(56, 189, 248, 0.25);
+  --split-toggle-active-border: rgba(56, 189, 248, 0.5);
+  --split-tabs-bg: rgba(72, 187, 120, 0.15);
+  --split-tabs-selected-bg: rgba(72, 187, 120, 0.3);
+  --split-preview-panel-bg: rgba(20, 83, 45, 0.4);
+  --split-preview-panel-border: rgba(72, 187, 120, 0.25);
+  --split-resizer-bg: rgba(72, 187, 120, 0.2);
+  --split-resizer-handle: rgba(255, 255, 255, 0.5);
+  --split-resizer-dragging: rgba(104, 211, 145, 0.4);
+  --split-preview-bg: rgba(20, 83, 45, 0.9);
+  --split-preview-text: #e2e8f0;
+  --split-preview-code-bg: rgba(255, 255, 255, 0.1);
+  --split-preview-code-text: #e2e8f0;
+  --split-preview-placeholder: rgba(255, 255, 255, 0.65);
+  --split-preview-meta: rgba(255, 255, 255, 0.55);
+  --split-preview-loading-bg: rgba(20, 83, 45, 0.9);
+  --split-preview-loading-text: #ffffff;
+  --split-codehilite-bg: #14532d;
+  --split-codehilite-text: #e2e8f0;
+}
+
+/* Rose Pine Dawn theme override */
+:root[data-theme="rose-pine-dawn"] {
+  --split-container-bg: rgba(87, 82, 121, 0.06);
+  --split-container-border: rgba(87, 82, 121, 0.15);
+  --split-toolbar-bg: rgba(242, 233, 225, 0.6);
+  --split-toolbar-border: rgba(87, 82, 121, 0.15);
+  --split-toggle-bg: rgba(144, 122, 169, 0.2);
+  --split-toggle-border: rgba(144, 122, 169, 0.4);
+  --split-toggle-active-bg: rgba(40, 105, 131, 0.2);
+  --split-toggle-active-border: rgba(40, 105, 131, 0.4);
+  --split-tabs-bg: rgba(87, 82, 121, 0.08);
+  --split-tabs-selected-bg: rgba(87, 82, 121, 0.15);
+  --split-preview-panel-bg: rgba(242, 233, 225, 0.5);
+  --split-preview-panel-border: rgba(87, 82, 121, 0.15);
+  --split-resizer-bg: rgba(87, 82, 121, 0.1);
+  --split-resizer-handle: rgba(87, 82, 121, 0.4);
+  --split-resizer-dragging: rgba(144, 122, 169, 0.35);
+  --split-preview-bg: #faf4ed;
+  --split-preview-text: #575279;
+  --split-preview-code-bg: rgba(87, 82, 121, 0.08);
+  --split-preview-code-text: #575279;
+  --split-preview-placeholder: rgba(87, 82, 121, 0.6);
+  --split-preview-meta: rgba(87, 82, 121, 0.55);
+  --split-preview-loading-bg: rgba(250, 244, 237, 0.9);
+  --split-preview-loading-text: #575279;
+  --split-error-bg: rgba(180, 99, 122, 0.15);
+  --split-error-border: rgba(180, 99, 122, 0.35);
+  --split-error-text: #b4637a;
+  --split-codehilite-bg: #f2e9e1;
+  --split-codehilite-text: #575279;
+}
+
+/* High Contrast theme override */
+:root[data-theme="high-contrast"] {
+  --split-container-bg: transparent;
+  --split-container-border: #ffffff;
+  --split-toolbar-bg: #000000;
+  --split-toolbar-border: #ffffff;
+  --split-toggle-bg: transparent;
+  --split-toggle-border: #ffffff;
+  --split-toggle-active-bg: #ffff00;
+  --split-toggle-active-border: #ffff00;
+  --split-tabs-bg: transparent;
+  --split-tabs-selected-bg: #ffffff;
+  --split-preview-panel-bg: #000000;
+  --split-preview-panel-border: #ffffff;
+  --split-resizer-bg: #ffffff;
+  --split-resizer-handle: #ffffff;
+  --split-resizer-dragging: #ffff00;
+  --split-preview-bg: #000000;
+  --split-preview-text: #ffffff;
+  --split-preview-code-bg: #1a1a1a;
+  --split-preview-code-text: #ffffff;
+  --split-preview-placeholder: #ffffff;
+  --split-preview-meta: #ffffff;
+  --split-preview-loading-bg: #000000;
+  --split-preview-loading-text: #ffffff;
+  --split-error-bg: #330000;
+  --split-error-border: #ff0000;
+  --split-error-text: #ff6666;
+  --split-codehilite-bg: #1a1a1a;
+  --split-codehilite-text: #ffffff;
+}
+
+/* Classic theme (light) override */
+:root[data-theme="classic"] {
+  --split-container-bg: rgba(0, 0, 0, 0.02);
+  --split-container-border: rgba(0, 0, 0, 0.08);
+  --split-toolbar-bg: rgba(0, 0, 0, 0.04);
+  --split-toolbar-border: rgba(0, 0, 0, 0.08);
+  --split-toggle-bg: rgba(79, 70, 229, 0.15);
+  --split-toggle-border: rgba(79, 70, 229, 0.4);
+  --split-toggle-active-bg: rgba(34, 197, 94, 0.2);
+  --split-toggle-active-border: rgba(34, 197, 94, 0.5);
+  --split-tabs-bg: rgba(0, 0, 0, 0.04);
+  --split-tabs-selected-bg: rgba(0, 0, 0, 0.08);
+  --split-preview-panel-bg: rgba(0, 0, 0, 0.02);
+  --split-preview-panel-border: rgba(0, 0, 0, 0.08);
+  --split-resizer-bg: rgba(0, 0, 0, 0.06);
+  --split-resizer-handle: rgba(0, 0, 0, 0.25);
+  --split-resizer-dragging: rgba(79, 70, 229, 0.35);
+  --split-preview-bg: #ffffff;
+  --split-preview-text: #1c1c1c;
+  --split-preview-code-bg: rgba(0, 0, 0, 0.06);
+  --split-preview-code-text: #1f2933;
+  --split-preview-placeholder: rgba(0, 0, 0, 0.6);
+  --split-preview-meta: rgba(0, 0, 0, 0.55);
+  --split-preview-loading-bg: rgba(255, 255, 255, 0.85);
+  --split-preview-loading-text: #222222;
+}
+
+/* ==============================================
+   Split View Styles
+   ============================================== */
+
 .split-view {
   --split-editor-ratio: 0.5;
   --split-resizer-width: 10px;
@@ -6,8 +242,8 @@
   flex-direction: column;
   gap: 0;
   border-radius: 12px;
-  background: rgba(255, 255, 255, 0.04);
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: var(--split-container-bg);
+  border: 1px solid var(--split-container-border);
   overflow: hidden;
   margin-top: 1rem;
 }
@@ -39,8 +275,8 @@
   justify-content: space-between;
   gap: 0.75rem;
   padding: 0.65rem 0.85rem;
-  background: rgba(0, 0, 0, 0.08);
-  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  background: var(--split-toolbar-bg);
+  border-bottom: 1px solid var(--split-toolbar-border);
 }
 
 .split-toolbar-controls {
@@ -56,16 +292,16 @@
   padding: 0.5rem 0.95rem;
   font-size: 0.95rem;
   border-radius: 8px;
-  background: rgba(100, 100, 255, 0.2);
-  border: 1px solid rgba(100, 100, 255, 0.6);
+  background: var(--split-toggle-bg);
+  border: 1px solid var(--split-toggle-border);
   color: inherit;
   cursor: pointer;
   transition: background 0.2s ease, transform 0.15s ease;
 }
 
 .split-toggle[aria-pressed="true"] {
-  background: rgba(56, 176, 0, 0.25);
-  border-color: rgba(74, 193, 23, 0.6);
+  background: var(--split-toggle-active-bg);
+  border-color: var(--split-toggle-active-border);
 }
 
 .split-toggle:active {
@@ -82,7 +318,7 @@
 .split-tabs {
   display: none;
   gap: 0.15rem;
-  background: rgba(255, 255, 255, 0.08);
+  background: var(--split-tabs-bg);
   border-radius: 8px;
   padding: 0.2rem;
 }
@@ -99,7 +335,7 @@
 }
 
 .split-tabs button[aria-selected="true"] {
-  background: rgba(255, 255, 255, 0.15);
+  background: var(--split-tabs-selected-bg);
   font-weight: 600;
 }
 
@@ -125,15 +361,15 @@
 
 .split-panel--preview {
   flex: calc(1 - var(--split-editor-ratio));
-  background: rgba(255, 255, 255, 0.02);
-  border-inline-start: 1px solid rgba(255, 255, 255, 0.08);
+  background: var(--split-preview-panel-bg);
+  border-inline-start: 1px solid var(--split-preview-panel-border);
   padding: 0.85rem;
 }
 
 .split-resizer {
   width: var(--split-resizer-width);
   cursor: col-resize;
-  background: rgba(255, 255, 255, 0.08);
+  background: var(--split-resizer-bg);
   position: relative;
 }
 
@@ -145,27 +381,22 @@
   left: 50%;
   width: 2px;
   transform: translateX(-50%);
-  background: rgba(255, 255, 255, 0.4);
+  background: var(--split-resizer-handle);
   border-radius: 2px;
 }
 
 .split-resizer.is-dragging {
-  background: rgba(100, 149, 237, 0.35);
+  background: var(--split-resizer-dragging);
 }
 
 .split-preview-content {
   flex: 1;
   overflow: auto;
-  background: #ffffff;
-  color: #1c1c1c;
+  background: var(--split-preview-bg);
+  color: var(--split-preview-text);
   border-radius: 8px;
   padding: 1.25rem;
   position: relative;
-}
-
-.split-preview-content[data-theme="dark"] {
-  background: #1b1e24;
-  color: #f0f0f0;
 }
 
 .split-preview-content :not(pre) > code,
@@ -174,15 +405,9 @@
   padding: 0.15em 0.35em;
   border-radius: 6px;
   font-size: 0.94em;
-  background: rgba(0, 0, 0, 0.06);
-  color: #1f2933;
+  background: var(--split-preview-code-bg);
+  color: var(--split-preview-code-text);
   word-break: break-word;
-}
-
-.split-preview-content[data-theme="dark"] :not(pre) > code,
-.split-preview-content[data-theme="dark"] code.inline-code {
-  background: rgba(255, 255, 255, 0.08);
-  color: #f5f5f5;
 }
 
 .split-preview-content pre,
@@ -200,7 +425,7 @@ html[dir="rtl"] .split-preview-content code {
 
 .split-preview-placeholder {
   text-align: center;
-  color: rgba(0, 0, 0, 0.6);
+  color: var(--split-preview-placeholder);
   font-size: 0.95rem;
 }
 
@@ -218,17 +443,17 @@ html[dir="rtl"] .split-preview-content code {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: rgba(255, 255, 255, 0.75);
-  color: #222;
+  background: var(--split-preview-loading-bg);
+  color: var(--split-preview-loading-text);
   font-weight: 600;
 }
 
 .split-preview-error {
-  background: rgba(255, 0, 0, 0.08);
-  border: 1px solid rgba(255, 0, 0, 0.3);
+  background: var(--split-error-bg);
+  border: 1px solid var(--split-error-border);
   padding: 0.75rem;
   border-radius: 8px;
-  color: #a40000;
+  color: var(--split-error-text);
 }
 
 .split-preview-canvas {
@@ -239,13 +464,13 @@ html[dir="rtl"] .split-preview-content code {
   width: 100%;
   height: 100%;
   border: none;
-  background: #ffffff;
+  background: var(--split-preview-bg);
 }
 
 .split-preview-meta {
   margin-top: 0.75rem;
   font-size: 0.75rem;
-  color: rgba(0, 0, 0, 0.55);
+  color: var(--split-preview-meta);
 }
 
 .split-view[data-active-panel="preview"] .split-panel--editor {
@@ -316,8 +541,8 @@ html[dir="rtl"] .split-preview-content {
 }
 
 .codehilite {
-  background: #272822;
-  color: #f8f8f2;
+  background: var(--split-codehilite-bg);
+  color: var(--split-codehilite-text);
   padding: 1rem;
   border-radius: 8px;
   overflow: auto;
