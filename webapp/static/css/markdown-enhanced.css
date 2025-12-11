@@ -8,8 +8,114 @@
   --details-bg: #ffffff;
   --details-hover: #f6f8fa;
   --summary-color: #24292e;
+  --summary-bg: linear-gradient(to right, #f8f9fa, transparent);
+  --summary-arrow-color: #586069;
   --admonition-radius: 8px;
   --animation-speed: 0.3s;
+  --admonition-content-bg: rgba(255, 255, 255, 0.8);
+  --admonition-content-text: inherit;
+  --header-anchor-color: #6c757d;
+  --header-anchor-hover: #0366d6;
+  --tooltip-bg: rgba(0, 0, 0, 0.8);
+  --tooltip-text: white;
+}
+
+/* === Dark themes override === */
+:root[data-theme="dark"],
+:root[data-theme="dim"],
+:root[data-theme="nebula"] {
+  --details-border: #30363d;
+  --details-bg: #0d1117;
+  --details-hover: #161b22;
+  --summary-color: #c9d1d9;
+  --summary-bg: linear-gradient(to right, rgba(22, 27, 34, 0.8), transparent);
+  --summary-arrow-color: #8b949e;
+  --admonition-content-bg: rgba(0, 0, 0, 0.3);
+  --admonition-content-text: #c9d1d9;
+  --header-anchor-color: #8b949e;
+  --header-anchor-hover: #58a6ff;
+  --tooltip-bg: rgba(255, 255, 255, 0.9);
+  --tooltip-text: #000;
+}
+
+/* === Ocean theme override === */
+:root[data-theme="ocean"] {
+  --details-border: rgba(49, 130, 206, 0.35);
+  --details-bg: rgba(26, 54, 93, 0.85);
+  --details-hover: rgba(42, 67, 101, 0.9);
+  --summary-color: #ffffff;
+  --summary-bg: linear-gradient(to right, rgba(49, 130, 206, 0.15), transparent);
+  --summary-arrow-color: rgba(255, 255, 255, 0.65);
+  --admonition-content-bg: rgba(26, 54, 93, 0.5);
+  --admonition-content-text: #e2e8f0;
+  --header-anchor-color: rgba(255, 255, 255, 0.65);
+  --header-anchor-hover: #63b3ed;
+  --tooltip-bg: rgba(26, 54, 93, 0.95);
+  --tooltip-text: #ffffff;
+}
+
+/* === Forest theme override === */
+:root[data-theme="forest"] {
+  --details-border: rgba(72, 187, 120, 0.35);
+  --details-bg: rgba(20, 83, 45, 0.85);
+  --details-hover: rgba(22, 101, 52, 0.9);
+  --summary-color: #ffffff;
+  --summary-bg: linear-gradient(to right, rgba(72, 187, 120, 0.15), transparent);
+  --summary-arrow-color: rgba(255, 255, 255, 0.65);
+  --admonition-content-bg: rgba(20, 83, 45, 0.5);
+  --admonition-content-text: #e2e8f0;
+  --header-anchor-color: rgba(255, 255, 255, 0.65);
+  --header-anchor-hover: #68d391;
+  --tooltip-bg: rgba(20, 83, 45, 0.95);
+  --tooltip-text: #ffffff;
+}
+
+/* === Rose Pine Dawn theme override === */
+:root[data-theme="rose-pine-dawn"] {
+  --details-border: #dfdad9;
+  --details-bg: #faf4ed;
+  --details-hover: #f2e9e1;
+  --summary-color: #575279;
+  --summary-bg: linear-gradient(to right, rgba(242, 233, 225, 0.8), transparent);
+  --summary-arrow-color: #9893a5;
+  --admonition-content-bg: rgba(250, 244, 237, 0.8);
+  --admonition-content-text: #575279;
+  --header-anchor-color: #9893a5;
+  --header-anchor-hover: #907aa9;
+  --tooltip-bg: rgba(87, 82, 121, 0.9);
+  --tooltip-text: #faf4ed;
+}
+
+/* === High Contrast theme override === */
+:root[data-theme="high-contrast"] {
+  --details-border: #ffffff;
+  --details-bg: #000000;
+  --details-hover: #1a1a1a;
+  --summary-color: #ffffff;
+  --summary-bg: linear-gradient(to right, rgba(255, 255, 255, 0.1), transparent);
+  --summary-arrow-color: #ffffff;
+  --admonition-content-bg: rgba(0, 0, 0, 0.8);
+  --admonition-content-text: #ffffff;
+  --header-anchor-color: #ffffff;
+  --header-anchor-hover: #ffff00;
+  --tooltip-bg: #ffffff;
+  --tooltip-text: #000000;
+}
+
+/* === Classic theme override === */
+:root[data-theme="classic"] {
+  --details-border: #e1e4e8;
+  --details-bg: #ffffff;
+  --details-hover: #f6f8fa;
+  --summary-color: #24292e;
+  --summary-bg: linear-gradient(to right, #f8f9fa, transparent);
+  --summary-arrow-color: #586069;
+  --admonition-content-bg: rgba(255, 255, 255, 0.8);
+  --admonition-content-text: inherit;
+  --header-anchor-color: #6c757d;
+  --header-anchor-hover: #0366d6;
+  --tooltip-bg: rgba(0, 0, 0, 0.8);
+  --tooltip-text: white;
 }
 
 /* === קטעים מתקפלים === */
@@ -28,7 +134,7 @@
 
 .markdown-summary {
   padding: 0.75rem 1rem;
-  background: linear-gradient(to right, #f8f9fa, transparent);
+  background: var(--summary-bg);
   cursor: pointer;
   user-select: none;
   font-weight: 600;
@@ -49,7 +155,7 @@
   margin-left: 0.5rem;
   font-size: 0.8em;
   transition: transform var(--animation-speed) ease;
-  color: #586069;
+  color: var(--summary-arrow-color);
 }
 
 .markdown-details[open] .markdown-summary::before {
@@ -83,7 +189,8 @@
 
 .admonition-content {
   padding: 1rem;
-  background: rgba(255, 255, 255, 0.8);
+  background: var(--admonition-content-bg);
+  color: var(--admonition-content-text);
 }
 
 .admonition-content > *:first-child { margin-top: 0; }
@@ -146,24 +253,14 @@
   .admonition-content, .details-content { padding: 0.75rem; }
 }
 
-/* === מצב כהה === */
-@media (prefers-color-scheme: dark) {
-  :root {
-    --details-border: #30363d;
-    --details-bg: #0d1117;
-    --details-hover: #161b22;
-    --summary-color: #c9d1d9;
-  }
-  .markdown-details { background: var(--details-bg); }
-  .admonition-content { background: rgba(0, 0, 0, 0.3); color: #c9d1d9; }
-}
+/* === מצב כהה מוגדר כעת ב-data-theme למעלה === */
 
 /* === Header anchors & copy buttons accessibility additions === */
 /* קישור עוגן (סמל בלבד) שמתווסף אחרי הכותרת; לא מסתיר טקסט הכותרת */
 .header-anchor {
   margin-left: 0.5em;
   opacity: 0;
-  color: #6c757d;
+  color: var(--header-anchor-color);
   text-decoration: none;
   font-size: 0.9em;
   transition: opacity 0.2s ease, color 0.2s ease;
@@ -171,7 +268,7 @@
 }
 .header-anchor:focus {
   opacity: 1;
-  outline: 2px solid #0366d6;
+  outline: 2px solid var(--header-anchor-hover);
   outline-offset: 2px;
   border-radius: 3px;
 }
@@ -181,11 +278,11 @@ h3:hover .header-anchor,
 h4:hover .header-anchor,
 h5:hover .header-anchor,
 h6:hover .header-anchor { opacity: 1; }
-.header-anchor:hover { color: #0366d6; transform: scale(1.05); }
+.header-anchor:hover { color: var(--header-anchor-hover); transform: scale(1.05); }
 
 .permalink-tooltip {
-  background: rgba(0, 0, 0, 0.8);
-  color: white;
+  background: var(--tooltip-bg);
+  color: var(--tooltip-text);
   padding: 5px 10px;
   border-radius: 4px;
   font-size: 12px;
@@ -208,11 +305,8 @@ h6:hover .header-anchor { opacity: 1; }
   border: 0;
 }
 
-/* Dark/contrast/reduced motion adjustments */
-@media (prefers-color-scheme: dark) {
-  .header-anchor { color: #8b949e; }
-  .permalink-tooltip { background: rgba(255, 255, 255, 0.9); color: #000; }
-}
+/* Contrast/reduced motion adjustments */
+/* Dark mode colors now handled via data-theme above */
 @media (prefers-contrast: high) {
   .header-anchor:focus { outline-width: 3px; }
 }
