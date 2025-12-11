@@ -112,61 +112,127 @@
 }
 
 /* ============================================
-   THEME SUPPORT (Example Base)
-   Themes should override these specific variables
+   THEME OVERRIDES (Restored from Backup)
    ============================================ */
 
-/* Ocean Theme Overrides */
+/* 🌊 Ocean Theme (Light) */
 :root[data-theme="ocean"] {
-  --bg-app: #1a2634;
-  --bg-panel: #1e2e40;
-  --bg-card: #253950;
-  --bg-overlay-strong: rgba(30, 46, 64, 0.95);
+  /* Backgrounds: Light Blueish */
+  --bg-app: #e6f2ff;
+  --bg-panel: #d7eefe;
+  --bg-card: rgba(236, 246, 255, 0.96);
+  --bg-overlay: rgba(236, 246, 255, 0.95);
+  --bg-overlay-strong: rgba(236, 246, 255, 0.98);
+  
+  /* Text & Brand */
+  --text-main: #0f172a;
+  --text-secondary: #334155;
   --primary: #3182ce;
-  --shadow-color: rgba(49, 130, 206, 0.25);
-  --glass-border: rgba(49, 130, 206, 0.25);
+  
+  /* Search Specifics (From Backup) */
+  --shadow-color: rgba(15, 23, 42, 0.18);
+  --glass-border: rgba(15, 23, 42, 0.15);
+  --search-highlight-text: #0f172a;
 }
 
-/* Forest Theme Overrides */
+/* 🌲 Forest Theme (Light) */
 :root[data-theme="forest"] {
-  --bg-app: #1c2820;
-  --bg-panel: #223226;
-  --bg-card: #2a4030;
-  --bg-overlay-strong: rgba(34, 50, 38, 0.95);
+  /* Backgrounds: Light Greenish */
+  --bg-app: #edf7f1;
+  --bg-panel: #e0f2e2;
+  --bg-card: rgba(237, 247, 241, 0.96);
+  --bg-overlay: rgba(237, 247, 241, 0.95);
+  --bg-overlay-strong: rgba(237, 247, 241, 0.98);
+  
+  /* Text & Brand */
+  --text-main: #1c3526;
+  --text-secondary: #2d4a35;
   --primary: #2f855a;
-  --shadow-color: rgba(23, 63, 46, 0.25);
-  --glass-border: rgba(47, 133, 90, 0.3);
+  
+  /* Search Specifics (From Backup) */
+  --shadow-color: rgba(34, 84, 61, 0.22);
+  --glass-border: rgba(34, 84, 61, 0.2);
+  --search-highlight-text: #1c3526;
 }
 
-/* High Contrast Overrides */
+/* 🔮 Classic Theme (The Purple One) */
+:root[data-theme="classic"] {
+  /* Backgrounds: Deep Purple */
+  --bg-app: #13111c;
+  --bg-panel: #1e1b2e;
+  --bg-card: #2d2b55;
+  --bg-overlay: rgba(19, 17, 28, 0.95);
+  --bg-overlay-strong: rgba(30, 27, 46, 0.95);
+  
+  /* Text & Brand */
+  --primary: #8250df;
+  --text-main: #ffffff;
+  
+  /* Search Specifics (From Backup) */
+  --shadow-color: rgba(7, 7, 31, 0.35);
+  --glass-border: rgba(130, 80, 223, 0.2);
+  /* Gold highlight from backup */
+  --search-highlight-bg: rgba(255, 215, 0, 0.85); 
+  --search-highlight-text: #1c1f3a;
+}
+
+/* 🌌 Nebula Theme */
+:root[data-theme="nebula"] {
+  --bg-app: #232136;
+  --bg-panel: #2a273f;
+  --bg-card: #393552;
+  --bg-overlay: rgba(35, 33, 54, 0.95);
+  --bg-overlay-strong: rgba(42, 39, 63, 0.95);
+  --primary: #eb6f92;
+  
+  /* Specific highlight from backup */
+  --search-highlight-bg: rgba(119, 122, 188, 0.8);
+  --shadow-color: rgba(4, 7, 18, 0.65);
+}
+
+/* 🌑 Dim / Dark Themes */
+:root[data-theme="dim"],
+:root[data-theme="dark"] {
+  /* Default fallbacks usually work, but setting shadows explicitly */
+  --shadow-color: rgba(4, 7, 18, 0.65);
+  --search-highlight-text: #ffffff;
+  --search-highlight-bg: rgba(124, 138, 255, 0.6);
+}
+
+/* 👁️ High Contrast (The Big One) */
 :root[data-theme="high-contrast"] {
   --bg-app: #000000;
   --bg-panel: #000000;
   --bg-card: #000000;
   --bg-overlay: #000000;
   --bg-overlay-strong: #000000;
+  
   --text-main: #ffffff;
-  --text-secondary: #f5f5f5;
+  --text-secondary: #ffffff;
+  --text-muted: #ffffff;
+  
+  --primary: #ffff00;
   --glass-border: #ffffff;
   --shadow-color: transparent;
-  --primary: #ffffff; /* Or yellow for links */
-
-  /* Language Colors for High Contrast (High Visibility) */
-  --lang-js: #ffff00;        /* צהוב זרחני */
-  --lang-ts: #00ffff;        /* ציאן */
-  --lang-python: #00ff00;    /* ירוק זרחני */
-  --lang-html: #ff6600;      /* כתום בהיר */
-  --lang-css: #00ffff;       /* ציאן */
-  --lang-java: #ffff00;      /* צהוב */
-  --lang-csharp: #00ff00;    /* ירוק */
-  --lang-cpp: #ff00ff;       /* מגנטה */
-  --lang-go: #00ffff;        /* ציאן */
-  --lang-php: #ff00ff;       /* מגנטה */
-  --lang-ruby: #ff0000;      /* אדום זרחני */
-  --lang-rust: #ff6600;      /* כתום */
-  --lang-json: #ffff00;      /* צהוב */
-  --lang-sql: #ffff00;       /* צהוב */
-  --lang-yaml: #ff00ff;      /* מגנטה */
-  --lang-markdown: #00ffff;  /* ציאן */
-  --lang-shell: #00ff00;     /* ירוק */
+  
+  /* Language Colors - HARDCODED for visibility */
+  --lang-js: #ffff00;
+  --lang-ts: #00ffff;
+  --lang-python: #00ff00;
+  --lang-react: #00ffff;
+  --lang-vue: #00ff00;
+  --lang-html: #ff6600;
+  --lang-css: #00ffff;
+  --lang-java: #ffff00;
+  --lang-csharp: #00ff00;
+  --lang-cpp: #ff00ff;
+  --lang-go: #00ffff;
+  --lang-php: #ff00ff;
+  --lang-ruby: #ff0000;
+  --lang-rust: #ff6600;
+  --lang-json: #ffff00;
+  --lang-sql: #ffff00;
+  --lang-yaml: #ff00ff;
+  --lang-markdown: #00ffff;
+  --lang-shell: #00ff00;
 }
