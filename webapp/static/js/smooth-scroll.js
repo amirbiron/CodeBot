@@ -847,8 +847,8 @@
         panel.style.bottom = "16px";
         panel.style.left = "16px";
         panel.style.zIndex = "9999";
-        panel.style.background = "rgba(0,0,0,0.85)";
-        panel.style.color = "#fff";
+        panel.style.background = "var(--card-bg, rgba(0,0,0,0.85))";
+        panel.style.color = "var(--text-primary, #fff)";
         panel.style.padding = "12px";
         panel.style.borderRadius = "8px";
         panel.style.fontSize = "14px";
@@ -878,8 +878,8 @@
         const toggleBtn = document.createElement("button");
         toggleBtn.type = "button";
         toggleBtn.style.flex = "1 1 auto";
-        toggleBtn.style.background = "#3b82f6";
-        toggleBtn.style.color = "#fff";
+        toggleBtn.style.background = "var(--primary, #3b82f6)";
+        toggleBtn.style.color = "var(--btn-primary-color, #fff)";
         toggleBtn.style.border = "none";
         toggleBtn.style.padding = "6px 8px";
         toggleBtn.style.borderRadius = "4px";
@@ -894,8 +894,8 @@
         resetBtn.type = "button";
         resetBtn.textContent = "נקה העדפה";
         resetBtn.style.flex = "1 1 auto";
-        resetBtn.style.background = "#f97316";
-        resetBtn.style.color = "#000";
+        resetBtn.style.background = "var(--warning, #f97316)";
+        resetBtn.style.color = "var(--text-on-warning, #000)";
         resetBtn.style.border = "none";
         resetBtn.style.padding = "6px 8px";
         resetBtn.style.borderRadius = "4px";
@@ -911,8 +911,8 @@
         closeBtn.type = "button";
         closeBtn.textContent = "סגור";
         closeBtn.style.flex = "0 0 auto";
-        closeBtn.style.background = "#4b5563";
-        closeBtn.style.color = "#fff";
+        closeBtn.style.background = "var(--bg-tertiary, #4b5563)";
+        closeBtn.style.color = "var(--text-primary, #fff)";
         closeBtn.style.border = "none";
         closeBtn.style.padding = "6px 8px";
         closeBtn.style.borderRadius = "4px";

@@ -1413,8 +1413,8 @@ class BookmarkUI {
         menu = document.createElement('div');
         menu.id = id;
         menu.style.position = 'absolute';
-        menu.style.background = 'white';
-        menu.style.border = '1px solid #ddd';
+        menu.style.background = 'var(--card-bg, rgba(255,255,255,0.95))';
+        menu.style.border = '1px solid var(--glass-border, #ddd)';
         menu.style.borderRadius = '6px';
         menu.style.boxShadow = '0 4px 12px rgba(0,0,0,0.15)';
         menu.style.padding = '6px';
