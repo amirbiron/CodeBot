@@ -7308,6 +7308,7 @@ def edit_file_page(file_id):
     original_file_name = str(file.get('file_name') or '')
     error = None
     success = None
+    markdown_image_payloads = []
 
     if request.method == 'POST':
         try:
@@ -7462,6 +7463,47 @@ def edit_file_page(file_id):
                 except Exception:
                     pass
 
+                # הקצאת תמונות נלוות ל-Markdown
+                if not error and isinstance(file_name, str) and file_name.lower().endswith('.md'):
+                    try:
+                        incoming_images = request.files.getlist('md_images')
+                    except Exception:
+                        incoming_images = []
+                    valid_images = [img for img in incoming_images if getattr(img, 'filename', '').strip()]
+                    if valid_images:
+                        if len(valid_images) > MARKDOWN_IMAGE_LIMIT:
+                            error = f'ניתן לצרף עד {MARKDOWN_IMAGE_LIMIT} תמונות'
+                        else:
+                            for img in valid_images:
+                                if error:
+                                    break
+                                try:
+                                    data = img.read()
+                                except Exception:
+                                    data = b''
+                                if not data:
+                                    continue
+                                if len(data) > MARKDOWN_IMAGE_MAX_BYTES:
+                                    max_mb = max(1, MARKDOWN_IMAGE_MAX_BYTES // (1024 * 1024))
+                                    error = f'כל תמונה מוגבלת ל-{max_mb}MB'
+                                    break
+                                safe_name = secure_filename(img.filename or '') or f'image_{len(markdown_image_payloads) + 1}.png'
+                                content_type = (img.mimetype or '').lower()
+                                if content_type not in ALLOWED_MARKDOWN_IMAGE_TYPES:
+                                    guessed_type = mimetypes.guess_type(safe_name)[0] or ''
+                                    content_type = guessed_type.lower() if guessed_type else content_type
+                                if content_type not in ALLOWED_MARKDOWN_IMAGE_TYPES:
+                                    error = 'ניתן להעלות רק תמונות PNG, JPG, WEBP או GIF'
+                                    break
+                                markdown_image_payloads.append({
+                                    'filename': safe_name,
+                                    'content_type': content_type,
+                                    'size': len(data),
+                                    'data': data,
+                                })
+                            if error:
+                                markdown_image_payloads = []
+
                 # קבע גרסה חדשה על סמך שם הקובץ לאחר העדכון
                 try:
                     prev = db.code_snippets.find_one(
@@ -7516,6 +7558,11 @@ def edit_file_page(file_id):
                     if res and getattr(res, 'inserted_id', None):
                         if original_file_name and original_file_name != file_name:
                             _sync_collection_items_after_web_rename(db, user_id, original_file_name, file_name)
+                        if markdown_image_payloads:
+                            try:
+                                _save_markdown_images(db, user_id, res.inserted_id, markdown_image_payloads)
+                            except Exception:
+                                pass
                         if _log_webapp_user_activity():
                             session['_skip_view_activity_once'] = True
                         return redirect(url_for('view_file', file_id=str(res.inserted_id)))
