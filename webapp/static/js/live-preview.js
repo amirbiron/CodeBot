@@ -81,17 +81,20 @@
 
   function resolvePreviewMode(language, fileName) {
     const lang = (language || '').trim().toLowerCase();
-    if (lang === 'markdown' || lang === 'md') {
+    const hasExplicitLanguage = lang && lang !== 'text';
+    if (hasExplicitLanguage) {
+      if (isMarkdownLanguage(lang)) {
+        return 'markdown';
+      }
+      if (isHtmlLanguage(lang)) {
+        return 'html';
+      }
+      return 'code';
+    }
+    if (isMarkdownExtension(fileName || '')) {
       return 'markdown';
     }
-    if (lang === 'html' || lang === 'htm') {
-      return 'html';
-    }
-    const ext = getFileExtension(fileName || '');
-    if (ext === 'md' || ext === 'markdown') {
-      return 'markdown';
-    }
-    if (ext === 'html' || ext === 'htm') {
+    if (isHtmlExtension(fileName || '')) {
       return 'html';
     }
     return 'code';
@@ -431,12 +434,14 @@
         this.disablePreview('Live Preview זמין רק לקבצי Markdown/HTML');
         return;
       }
+      const caretState = this.captureEditorState();
       if (nextState) {
         this.enablePreview();
         this.scheduleUpdate(true);
-        return;
+      } else {
+        this.disablePreview('תצוגה חיה כבויה');
       }
-      this.disablePreview('תצוגה חיה כבויה');
+      this.deferRestoreEditorState(caretState);
     }
 
     scheduleUpdate(immediate = false) {
@@ -735,14 +740,17 @@
     }
 
     isPreviewEligible() {
-      const language = this.languageSelect ? this.languageSelect.value : '';
+      const languageRaw = this.languageSelect ? this.languageSelect.value : '';
+      const lang = (languageRaw || '').trim().toLowerCase();
+      const hasExplicitLanguage = lang && lang !== 'text';
+      if (hasExplicitLanguage) {
+        return isMarkdownLanguage(lang) || isHtmlLanguage(lang);
+      }
       const fileName = this.fileNameInput ? this.fileNameInput.value : '';
-      return (
-        isMarkdownLanguage(language) ||
-        isHtmlLanguage(language) ||
-        isMarkdownExtension(fileName) ||
-        isHtmlExtension(fileName)
-      );
+      if (!fileName) {
+        return false;
+      }
+      return isMarkdownExtension(fileName) || isHtmlExtension(fileName);
     }
 
     updatePreviewAvailability(options = {}) {
@@ -758,7 +766,9 @@
         this.shortcutHint.hidden = !allowed;
       }
       if (!allowed && this.state.enabled) {
+        const caretState = this.captureEditorState();
         this.disablePreview(options.silentDisable ? undefined : 'Live Preview זמין רק לקבצי Markdown/HTML');
+        this.deferRestoreEditorState(caretState);
       }
     }
 
@@ -803,6 +813,73 @@
       }
       if (this.styleEl) {
         this.styleEl.textContent = '';
+      }
+    }
+
+    captureEditorState() {
+      try {
+        if (window.editorManager && typeof window.editorManager.captureSelection === 'function') {
+          const snapshot = window.editorManager.captureSelection();
+          if (snapshot && typeof snapshot === 'object') {
+            return { ...snapshot };
+          }
+        }
+      } catch (_) {}
+      if (this.textarea) {
+        const el = this.textarea;
+        const valueLen = (el.value || '').length;
+        const anchor = typeof el.selectionStart === 'number' ? el.selectionStart : valueLen;
+        const head = typeof el.selectionEnd === 'number' ? el.selectionEnd : anchor;
+        return {
+          anchor,
+          head,
+          scrollTop: typeof el.scrollTop === 'number' ? el.scrollTop : 0,
+        };
+      }
+      return null;
+    }
+
+    restoreEditorState(state) {
+      if (!state) {
+        return;
+      }
+      try {
+        if (window.editorManager && typeof window.editorManager.restoreSelection === 'function') {
+          window.editorManager.restoreSelection(state);
+          return;
+        }
+      } catch (_) {}
+      if (this.textarea) {
+        const el = this.textarea;
+        const startRaw = typeof state.anchor === 'number' ? state.anchor : 0;
+        const endRaw = typeof state.head === 'number' ? state.head : startRaw;
+        const start = Math.max(0, Math.min(startRaw, endRaw));
+        const end = Math.max(start, Math.max(startRaw, endRaw));
+        if (typeof el.setSelectionRange === 'function') {
+          try {
+            el.setSelectionRange(start, end);
+          } catch (_) {}
+        }
+        if (typeof state.scrollTop === 'number') {
+          try {
+            el.scrollTop = state.scrollTop;
+          } catch (_) {}
+        }
+        try {
+          el.focus();
+        } catch (_) {}
+      }
+    }
+
+    deferRestoreEditorState(state) {
+      if (!state) {
+        return;
+      }
+      const restore = () => this.restoreEditorState(state);
+      if (typeof window !== 'undefined' && typeof window.requestAnimationFrame === 'function') {
+        window.requestAnimationFrame(restore);
+      } else {
+        setTimeout(restore, 0);
       }
     }
   }
