@@ -226,8 +226,8 @@
   border: 1px solid color-mix(in srgb, var(--md-border, var(--code-border, rgba(255, 255, 255, 0.2))) 100%, transparent);
 }
 
-/* מצב ברירת מחדל – כפתור "רקע לבן" */
-#md-content.bg-default {
+/* מצב ברירת מחדל – רקע לבן לערכות שמצריכות זאת */
+#md-content.bg-default-light {
   background: #ffffff;
   color: #1f2328;
   --md-surface: #ffffff;
@@ -1474,7 +1474,7 @@ input.md-task-checkbox {
       <button id="mdSearchNext" type="button" class="btn btn-secondary btn-icon" title="הבא">▶</button>
       <button id="mdSearchClear" type="button" class="btn btn-secondary btn-icon" title="נקה">✕</button>
     </div>
-    <div id="md-content" class="bg-default" style="margin-inline:-4px;width:calc(100% + 8px);"></div>
+    <div id="md-content" style="margin-inline:-4px;width:calc(100% + 8px);"></div>
   </div>
 
   <!-- תוכן עניינים צף מתקדם עם כל הפיצ'רים (ממוקם אחרי #mdCard כדי שכללי CSS של fullscreen יעבדו) -->
@@ -2845,13 +2845,26 @@ try { if (typeof window !== 'undefined') { window.attachColorSwatches = attachCo
     } catch(_) {}
   }
   
+  const WHITE_BG_THEMES = new Set(['dark', 'ocean', 'forest', 'rose-pine-dawn']);
+
+  function themeSurfaceColor(rootEl) {
+    try {
+      const value = getComputedStyle(rootEl || document.documentElement).getPropertyValue('--md-surface');
+      return (value && value.trim()) || '#1f1f1f';
+    } catch(_) {
+      return '#1f1f1f';
+    }
+  }
+
   // החלת צבע רקע
   function applyBackgroundColor(color) {
     const mdContent = document.getElementById('md-content');
     if (!mdContent) return;
+    const indicator = document.querySelector('#bgColorBtn span');
+    const rootEl = document.documentElement;
     
     // הסרת כל המחלקות הקודמות (כולל ברירת המחדל)
-    const COLOR_CLASSES = ['bg-default', 'bg-sepia', 'bg-light', 'bg-medium', 'bg-dark'];
+    const COLOR_CLASSES = ['bg-default-light', 'bg-sepia', 'bg-light', 'bg-medium', 'bg-dark'];
     COLOR_CLASSES.forEach(cls => mdContent.classList.remove(cls));
     
     // החלת צבע חדש אם נבחר
@@ -2859,16 +2872,20 @@ try { if (typeof window !== 'undefined') { window.attachColorSwatches = attachCo
       mdContent.classList.add(`bg-${color}`);
       
       // עדכון הכפתור הראשי
-      const indicator = document.querySelector('#bgColorBtn span');
       if (indicator) {
         indicator.style.background = COLORS[color];
       }
     } else {
-      // חזרה לצבע ברירת המחדל (לבן)
-      mdContent.classList.add('bg-default');
-      const indicator = document.querySelector('#bgColorBtn span');
-      if (indicator) {
-        indicator.style.background = '#ffffff';
+      const currentTheme = (rootEl && rootEl.getAttribute('data-theme')) || 'dark';
+      const wantsWhiteBackground = WHITE_BG_THEMES.has(currentTheme);
+      
+      if (wantsWhiteBackground) {
+        mdContent.classList.add('bg-default-light');
+        if (indicator) {
+          indicator.style.background = '#ffffff';
+        }
+      } else if (indicator) {
+        indicator.style.background = themeSurfaceColor(rootEl);
       }
     }
     
@@ -2922,7 +2939,7 @@ try { if (typeof window !== 'undefined') { window.attachColorSwatches = attachCo
       }
     });
     
-    // הוספת אפשרות לחזור לצבע הלבן המקורי
+    // הוספת אפשרות לחזור למצב ברירת המחדל (בהיר/כהה לפי ערכה)
     const defaultBtn = document.createElement('button');
     defaultBtn.className = 'bg-color-option';
     defaultBtn.dataset.color = ''; // ערך ריק לברירת מחדל
