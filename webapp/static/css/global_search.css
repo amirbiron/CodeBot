@@ -1,288 +1,244 @@
-/**
- * global_search-refactored.css
- * Refactored Global Search Styles
- * Uses variables.css for theming and consistency.
- */
-
-/* 
-   Structural Fixes for Main Panel 
-   Ensures full height, fixed position, and no legacy backgrounds.
-*/
-.search-panel {
-  position: fixed;
-  top: 0;
-  bottom: 0;
-  left: 0;
-  right: 0; /* RTL supported by direction */
-  height: 100vh;
-  z-index: 1050; /* Above most elements */
-  background-image: none !important; /* Prevent legacy gradients */
-  background-color: var(--bg-app); /* Fallback/Base */
-  overflow-y: auto;
-  padding: 1rem;
-}
-
-#searchSuggestions {
-  max-height: 300px;
-  overflow-y: auto;
-  position: absolute; /* עיגון לתיבת הקלט כדי שלא "יברח" שמאלה */
-  top: calc(100% + 6px);
-  left: 0; 
-  right: 0;
-  z-index: 1000;
-  background: var(--bg-card); /* Replaced #fff */
-  border: 1px solid var(--glass-border); /* Replaced rgba(0,0,0,0.1) */
-  border-radius: 8px;
-  box-shadow: var(--shadow-card); /* Replaced 0 4px 12px ... */
+#searchSuggestions{
+  max-height:300px;
+  overflow-y:auto;
+  position:absolute; /* עיגון לתיבת הקלט כדי שלא "יברח" שמאלה */
+  top:calc(100% + 6px);
+  left:0; right:0;
+  z-index:1000;
+  background:#fff;
+  border:1px solid rgba(0,0,0,0.1);
+  border-radius:8px;
+  box-shadow:0 4px 12px rgba(0,0,0,0.15);
 }
 
 /* --- תיבות חיפוש מעוצבות בסגנון "אוסף הקהילה" --- */
-.search-box-wrapper {
-  position: relative;
-  width: 100%;
+.search-box-wrapper{
+  position:relative;
+  width:100%;
 }
 
-.search-box {
-  width: 100%;
-  padding: 0.75rem 2.5rem 0.75rem 0.9rem; /* מרחב לאייקון מצד ימין (RTL) ולשוליים משמאל */
-  border-radius: 10px; /* יישור לעיצוב של תיבת החיפוש התחתונה */
-  border: 1px solid var(--glass-border);
-  background: var(--glass-normal); /* Replaced var(--bg-tertiary) */
-  color: var(--text-main); /* Replaced var(--text-primary) */
-  font-size: 1rem;
-  outline: none;
+.search-box{
+  width:100%;
+  padding:0.75rem 2.5rem 0.75rem 0.9rem; /* מרחב לאייקון מצד ימין (RTL) ולשוליים משמאל */
+  border-radius:10px; /* יישור לעיצוב של תיבת החיפוש התחתונה */
+  border:1px solid var(--glass-border);
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+  font-size:1rem;
+  outline:none;
   transition: background .2s ease, border-color .2s ease, box-shadow .2s ease;
   box-sizing: border-box;
 }
 
-.search-box::placeholder { 
-  color: var(--text-muted); 
-}
+.search-box::placeholder{ color: var(--text-muted); }
 
-.search-box:focus {
-  background: var(--glass-strong); /* Replaced var(--bg-secondary) */
+.search-box:focus{
+  background: var(--bg-secondary);
   border-color: var(--primary);
-  box-shadow: 0 0 0 3px var(--glass-subtle); /* Replaced var(--glass-hover) */
+  box-shadow: 0 0 0 3px var(--glass-hover);
 }
 
-.search-icon {
-  position: absolute;
-  right: 12px; /* RTL: אייקון בתחילת השורה */
-  top: 50%;
+.search-icon{
+  position:absolute;
+  right:12px; /* RTL: אייקון בתחילת השורה */
+  top:50%;
   transform: translateY(-50%);
   color: var(--text-muted);
-  pointer-events: none;
+  pointer-events:none;
 }
 
-.clear-search-btn {
-  position: absolute;
-  left: 10px; /* RTL: כפתור ניקוי בקצה שמאלי */
-  top: 50%;
+.clear-search-btn{
+  position:absolute;
+  left:10px; /* RTL: כפתור ניקוי בקצה שמאלי */
+  top:50%;
   transform: translateY(-50%);
-  width: 28px; 
-  height: 28px;
-  display: none; /* מוצג רק כשיש טקסט */
-  align-items: center; 
-  justify-content: center;
-  border: none; 
-  border-radius: 50%;
-  background: var(--glass-normal); /* Replaced var(--glass) */
-  color: var(--text-main); /* Replaced var(--text-primary) */
-  cursor: pointer;
+  width:28px; height:28px;
+  display:none; /* מוצג רק כשיש טקסט */
+  align-items:center; justify-content:center;
+  border:none; border-radius:50%;
+  background: var(--glass);
+  color: var(--text-primary); cursor:pointer;
   transition: background .2s ease;
 }
-
-.clear-search-btn:hover { 
-  background: var(--glass-subtle); /* Replaced var(--glass-hover) */
-}
+.clear-search-btn:hover{ background: var(--glass-hover); }
 
 /* רשימת תוצאות */
-.global-search-results {
-  display: flex;
-  flex-direction: column;
-  gap: 1.25rem;
-  width: 100%;
-  padding: 0;
+.global-search-results{
+  display:flex;
+  flex-direction:column;
+  gap:1.25rem;
+  width:100%;
+  padding:0;
 }
 
-.results-container {
-  display: flex;
-  flex-direction: column;
-  gap: 20px;
-  max-width: 800px;
-  margin: 0 auto;
-  width: 100%;
+.results-container{
+  display:flex;
+  flex-direction:column;
+  gap:20px;
+  max-width:800px;
+  margin:0 auto;
+  width:100%;
 }
 
 /* כרטיס תוצאת חיפוש */
-.search-result-card {
-  width: 100%;
-  margin: 0 auto;
-  padding: 1.5rem;
-  border-radius: 18px;
-  border: 1px solid var(--glass-border); /* Replaced var(--search-card-border) */
-  background: var(--bg-card); /* Replaced var(--search-card-bg) */
-  box-shadow: var(--shadow-card); /* Replaced var(--search-card-shadow) */
+.search-result-card{
+  width:100%;
+  margin:0 auto;
+  padding:1.5rem;
+  border-radius:18px;
+  border:1px solid var(--search-card-border);
+  background: var(--search-card-bg);
+  box-shadow: var(--search-card-shadow);
   backdrop-filter: blur(24px);
-  color: var(--text-main); /* Replaced var(--text-primary) */
+  color: var(--text-primary);
   transition: border-color .2s ease, box-shadow .2s ease, transform .2s ease;
-  overflow: hidden;
+  overflow:hidden;
 }
 
-.search-result-card:hover {
-  border-color: var(--primary); /* Replaced var(--search-card-hover-border) */
-  box-shadow: var(--shadow-overlay); /* Replaced var(--search-card-shadow-hover) */
+.search-result-card:hover{
+  border-color: var(--search-card-hover-border);
+  box-shadow: var(--search-card-shadow-hover);
   transform: translateY(-2px);
 }
 
-.result-card-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 1rem;
-  margin-bottom: 1.15rem;
-  flex-wrap: wrap;
+.result-card-header{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:1rem;
+  margin-bottom:1.15rem;
+  flex-wrap:wrap;
 }
 
-.file-info {
-  display: flex;
-  align-items: center;
-  gap: 0.85rem;
-  min-width: 0;
-  flex: 1;
+.file-info{
+  display:flex;
+  align-items:center;
+  gap:0.85rem;
+  min-width:0;
+  flex:1;
 }
 
-.file-icon {
-  font-size: 1.75rem;
-  flex-shrink: 0;
+.file-icon{
+  font-size:1.75rem;
+  flex-shrink:0;
 }
 
-.file-name {
-  color: var(--text-main); /* Replaced var(--text-primary) */
-  font-weight: 600;
-  font-size: 1.15rem;
-  text-decoration: none;
-  overflow-wrap: break-word;
-  word-break: break-word;
-  max-width: 100%;
+.file-name{
+  color: var(--text-primary);
+  font-weight:600;
+  font-size:1.15rem;
+  text-decoration:none;
+  overflow-wrap:break-word;
+  word-break:break-word;
+  max-width:100%;
 }
 
 .file-name:hover,
-.file-name:focus {
+.file-name:focus{
   color: var(--primary);
 }
 
-.search-result-card .global-search-lang-badge {
-  flex-shrink: 0;
-  order: 1;
+.search-result-card .global-search-lang-badge{
+  flex-shrink:0;
+  order:1;
 }
 
-.result-card-header .file-info {
-  order: 2;
-  text-align: left;
+.result-card-header .file-info{
+  order:2;
+  text-align:left;
 }
 
-.result-card-snippet {
-  background: var(--code-bg); /* Replaced var(--search-code-bg) */
-  border: 1px solid var(--glass-border); /* Replaced var(--search-code-border) */
-  border-radius: 12px;
-  padding: 1rem 1.15rem;
-  margin-bottom: 1.15rem;
-  overflow: auto;
+.result-card-snippet{
+  background: var(--search-code-bg);
+  border:1px solid var(--search-code-border);
+  border-radius:12px;
+  padding:1rem 1.15rem;
+  margin-bottom:1.15rem;
+  overflow:auto;
   box-shadow: inset 0 0 0 1px rgba(255,255,255,0.02);
 }
 
-.result-card-snippet pre {
-  margin: 0;
-  font-family: 'Fira Code', Consolas, Monaco, 'Courier New', monospace;
-  font-size: 0.95rem;
-  line-height: 1.55;
-  color: var(--code-text); /* Replaced var(--search-code-text) */
-  direction: ltr;
-  text-align: left;
-  white-space: pre-wrap;
-  word-break: break-word;
+.result-card-snippet pre{
+  margin:0;
+  font-family:'Fira Code',Consolas,Monaco,'Courier New',monospace;
+  font-size:0.95rem;
+  line-height:1.55;
+  color:var(--search-code-text);
+  direction:ltr;
+  text-align:left;
+  white-space:pre-wrap;
+  word-break:break-word;
+}
+.result-card-snippet code{
+  background:none;
+  color:inherit;
+  padding:0;
+  font-family:inherit;
 }
 
-.result-card-snippet code {
-  background: none;
-  color: inherit;
-  padding: 0;
-  font-family: inherit;
+.result-card-footer{
+  display:flex;
+  flex-wrap:wrap;
+  gap:0.85rem 1.5rem;
+  border-top:1px solid var(--search-card-border);
+  padding-top:0.9rem;
+  font-size:0.9rem;
+  color: var(--search-meta-text);
+  direction:ltr;
+  justify-content:flex-start;
+  text-align:left;
 }
 
-/* Syntax Highlighting using global variables */
-.result-card-snippet .keyword { color: var(--syntax-keyword); }
-.result-card-snippet .string { color: var(--syntax-string); }
-.result-card-snippet .function { color: var(--syntax-function); }
-.result-card-snippet .comment { color: var(--syntax-comment); }
-.result-card-snippet .number { color: var(--syntax-number); }
-.result-card-snippet .operator { color: var(--syntax-operator); }
-.result-card-snippet .variable { color: var(--syntax-variable); }
-
-.result-card-footer {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.85rem 1.5rem;
-  border-top: 1px solid var(--glass-border); /* Replaced var(--search-card-border) */
-  padding-top: 0.9rem;
-  font-size: 0.9rem;
-  color: var(--text-muted); /* Replaced var(--search-meta-text) */
-  direction: ltr;
-  justify-content: flex-start;
-  text-align: left;
+.meta-item{
+  display:flex;
+  align-items:center;
+  gap:0.5rem;
+  font-weight:500;
 }
 
-.meta-item {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  font-weight: 500;
+.meta-item svg{
+  width:16px;
+  height:16px;
+  opacity: var(--search-meta-icon-opacity);
 }
 
-.meta-item svg {
-  width: 16px;
-  height: 16px;
-  opacity: 0.78; /* Replaced var(--search-meta-icon-opacity) */
+.result-card-snippet ::-webkit-scrollbar{
+  height:8px;
+}
+.result-card-snippet ::-webkit-scrollbar-track{
+  background: color-mix(in srgb, var(--search-code-border) 35%, transparent);
+  border-radius:4px;
+}
+.result-card-snippet ::-webkit-scrollbar-thumb{
+  background: color-mix(in srgb, var(--search-code-text) 25%, transparent);
+  border-radius:4px;
 }
 
-.result-card-snippet ::-webkit-scrollbar {
-  height: 8px;
-}
-.result-card-snippet ::-webkit-scrollbar-track {
-  background: color-mix(in srgb, var(--glass-border) 35%, transparent); /* Replaced var(--search-code-border) */
-  border-radius: 4px;
-}
-.result-card-snippet ::-webkit-scrollbar-thumb {
-  background: color-mix(in srgb, var(--code-text) 25%, transparent); /* Replaced var(--search-code-text) */
-  border-radius: 4px;
-}
-
-.global-search-highlight {
-  background: color-mix(in srgb, var(--primary) 40%, transparent); /* Replaced var(--search-highlight-bg) - using primary with opacity */
-  color: var(--text-main); /* Replaced var(--search-highlight-text) */
-  padding: 0 2px;
-  border-radius: 3px;
-  font-weight: 600;
-  box-shadow: 0 0 6px color-mix(in srgb, var(--primary) 50%, transparent); /* Replaced var(--search-highlight-glow) */
+.global-search-highlight{
+  background: var(--search-highlight-bg);
+  color: var(--search-highlight-text);
+  padding:0 2px;
+  border-radius:3px;
+  font-weight:600;
+  box-shadow:0 0 6px var(--search-highlight-glow);
 }
 
 /* מיכל ראשי לחיפוש ופילטרים */
-.search-and-filters {
-  width: 100%;
-  max-width: 1400px;
-  margin: 0 auto 1rem auto;
-  padding: 1rem;
-  box-sizing: border-box;
+.search-and-filters{
+  width:100%;
+  max-width:1400px;
+  margin:0 auto 1rem auto;
+  padding:1rem;
+  box-sizing:border-box;
 }
 
 /* סלקטים בחיפוש הגלובלי – עיצוב זהה לסלקטים מתחת "שאר קבצים" */
-.search-and-filters select.form-control {
+.search-and-filters select.form-control{
   padding: 0.75rem;
   border-radius: 10px;
   border: 1px solid var(--glass-border);
-  background: var(--glass-normal); /* Replaced var(--bg-tertiary) */
-  color: var(--text-main); /* Replaced var(--text-primary) */
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
   font-size: 1rem;
   height: auto;
   /* מניעת גלישה של הסלקט מחוץ לכרטיס */
@@ -290,70 +246,67 @@
   max-width: 100%;
   box-sizing: border-box;
 }
-.search-and-filters select.form-control option { 
-  background: var(--bg-card); /* Replaced var(--card-bg) */
-  color: var(--text-main); /* Replaced var(--text-primary) */
-}
+.search-and-filters select.form-control option{ background: var(--card-bg); color: var(--text-primary); }
 
 /* ייצוב פריסת בקרי החיפוש */
-.search-and-filters .filters-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  flex-wrap: wrap;
-  gap: 1rem;
-  width: 100%;
+.search-and-filters .filters-row{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  flex-wrap:wrap;
+  gap:1rem;
+  width:100%;
   /* בלימה של גלילה אופקית במקרי קצה */
   overflow-x: hidden;
 }
 
 /* עיגון הסוגסטיות לאיזור תיבת החיפוש */
 .search-and-filters .col-lg-8,
-.search-and-filters .col-md-8 {
-  position: relative; /* כדי שה-#searchSuggestions יתמקם ביחס לעמודה */
-  flex: 1 1 65%;
-  min-width: 300px;
-  max-width: 100%;
+.search-and-filters .col-md-8{
+  position:relative; /* כדי שה-#searchSuggestions יתמקם ביחס לעמודה */
+  flex:1 1 65%;
+  min-width:300px;
+  max-width:100%;
 }
 /* גם עבור מבנה col-md-12 שבו משתמשים בפועל */
-.search-and-filters .col-md-12 { position: relative; }
+.search-and-filters .col-md-12{ position: relative; }
 
 .search-and-filters .col-lg-4,
-.search-and-filters .col-md-4 {
-  flex: 1 1 30%;
-  min-width: 220px; /* מאפשר שבירה מוקדמת מעט יותר כדי למנוע חריגה */
-  max-width: 100%;
+.search-and-filters .col-md-4{
+  flex:1 1 30%;
+  min-width:220px; /* מאפשר שבירה מוקדמת מעט יותר כדי למנוע חריגה */
+  max-width:100%;
   min-inline-size: 0; /* מאפשר להתכווץ בתוך flex */
 }
 
-.search-and-filters .input-group {
-  display: flex;
-  gap: 0.75rem; /* יותר מרווח בין התיבה לכפתור חפש */
-  align-items: center;
-  width: 100%;
+.search-and-filters .input-group{
+  display:flex;
+  gap:0.75rem; /* יותר מרווח בין התיבה לכפתור חפש */
+  align-items:center;
+  width:100%;
   margin-bottom: 0.5rem; /* רווח אנכי קטן מתחת לתיבת החיפוש */
 }
 
 /* הופך את ה-wrapper לילד ה-flex הראשי כך שהתיבה מילאה את הרוחב */
-.search-and-filters .input-group .search-box-wrapper {
-  flex: 1 1 auto;
-  min-width: 200px;
-  max-width: 100%;
+.search-and-filters .input-group .search-box-wrapper{
+  flex:1 1 auto;
+  min-width:200px;
+  max-width:100%;
 }
 
-#globalSearchInput {
-  flex: 1;
-  min-width: 200px;
-  max-width: 100%;
+#globalSearchInput{
+  flex:1;
+  min-width:200px;
+  max-width:100%;
 }
 
-#searchBtn {
-  white-space: nowrap;
-  flex-shrink: 0;
+#searchBtn{
+  white-space:nowrap;
+  flex-shrink:0;
 }
 
 /* קונטיינר הפילטרים הימני: רווחים נוחים יותר בין סלקטים ושורות */
-.filter-container {
+.filter-container{
   display: flex;
   gap: 0.75rem; /* רווח גדול יותר בין "תוכן" / "מספר תוצאות" / "רלוונטיות" */
   row-gap: 1rem; /* רווח אנכי בין שורות כשהפריטים נשברים לשורה נוספת (כולל "שפה") */
@@ -362,132 +315,336 @@
 
 /* עזור לבקרים לא "לברוח" שמאלה במסכים צרים */
 @media (max-width: 768px){
-  .search-and-filters .filters-row { flex-direction: column; align-items: stretch; }
+  .search-and-filters .filters-row{ flex-direction:column; align-items:stretch; }
   .search-and-filters .col-lg-8,
   .search-and-filters .col-lg-4,
   .search-and-filters .col-md-8,
-  .search-and-filters .col-md-4 { flex: 1 1 100%; width: 100%; max-width: 100%; min-width: 0; }
-  .search-and-filters .input-group { flex-wrap: nowrap; }
-  #globalSearchInput { min-width: 0; }
-  .search-and-filters .input-group .search-box-wrapper { min-width: 0; }
-  .filter-container { justify-content: center; margin-top: 0.5rem; }
+  .search-and-filters .col-md-4{ flex:1 1 100%; width:100%; max-width:100%; min-width:0; }
+  .search-and-filters .input-group{ flex-wrap:nowrap; }
+  #globalSearchInput{ min-width:0; }
+  .search-and-filters .input-group .search-box-wrapper{ min-width:0; }
+  .filter-container{ justify-content:center; margin-top:0.5rem; }
   /* תפריט שפות: להתאים לרוחב הזמין במסכים קטנים */
-  .lang-dropdown { max-width: calc(100vw - 2rem) !important; }
-  .search-result-card { padding: 1.25rem; }
-  .result-card-header { flex-direction: column; align-items: flex-start; }
-  .file-info { width: 100%; }
-  .result-card-footer { flex-direction: column; align-items: flex-start; }
+  .lang-dropdown{ max-width: calc(100vw - 2rem) !important; }
+  .search-result-card{ padding:1.25rem; }
+  .result-card-header{ flex-direction:column; align-items:flex-start; }
+  .file-info{ width:100%; }
+  .result-card-footer{ flex-direction:column; align-items:flex-start; }
 }
 
-.command-shortcuts-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
-  gap: 1rem;
-  margin-bottom: 1.5rem;
+.command-shortcuts-grid{
+  display:grid;
+  grid-template-columns:repeat(auto-fit, minmax(260px, 1fr));
+  gap:1rem;
+  margin-bottom:1.5rem;
 }
-.command-shortcut-card {
-  padding: 1rem 1.25rem;
-  border-radius: 12px;
-  border: 1px solid var(--glass-border);
-  background: var(--glass-strong); /* Replaced var(--bg-secondary) */
-  box-shadow: 0 4px 16px rgba(0,0,0,0.08);
-  display: flex;
-  flex-direction: column;
-  gap: 0.75rem;
-  min-height: 180px;
+.command-shortcut-card{
+  padding:1rem 1.25rem;
+  border-radius:12px;
+  border:1px solid var(--glass-border);
+  background: var(--bg-secondary);
+  box-shadow:0 4px 16px rgba(0,0,0,0.08);
+  display:flex;
+  flex-direction:column;
+  gap:0.75rem;
+  min-height:180px;
 }
-.shortcut-topline {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
+.shortcut-topline{
+  display:flex;
+  justify-content:space-between;
+  align-items:center;
 }
-.shortcut-name {
-  font-weight: 600;
-  font-size: 1.15rem;
-  margin: 0;
-  word-break: break-word;
-  color: var(--text-main); /* Replaced var(--text-primary) */
+.shortcut-name{
+  font-weight:600;
+  font-size:1.15rem;
+  margin:0;
+  word-break:break-word;
+  color:var(--text-primary);
 }
-.shortcut-description {
-  margin: 0;
-  color: var(--text-muted);
-  line-height: 1.4;
+.shortcut-description{
+  margin:0;
+  color:var(--text-muted);
+  line-height:1.4;
 }
-.shortcut-arguments {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.35rem;
-  align-items: center;
-  font-size: 0.9rem;
-  color: var(--text-main); /* Replaced var(--text-primary) */
+.shortcut-arguments{
+  display:flex;
+  flex-wrap:wrap;
+  gap:0.35rem;
+  align-items:center;
+  font-size:0.9rem;
+  color:var(--text-primary);
 }
-.shortcut-arguments-label {
-  font-weight: 600;
-  margin-left: 0.25rem;
+.shortcut-arguments-label{
+  font-weight:600;
+  margin-left:0.25rem;
 }
-.shortcut-arguments code {
-  background: var(--glass-normal);
-  border-radius: 6px;
-  padding: 0.1rem 0.4rem;
-  font-size: 0.85rem;
-  direction: ltr;
+.shortcut-arguments code{
+  background: rgba(255,255,255,0.08);
+  border-radius:6px;
+  padding:0.1rem 0.4rem;
+  font-size:0.85rem;
+  direction:ltr;
 }
-.shortcut-actions {
-  margin-top: auto;
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.5rem;
+.shortcut-actions{
+  margin-top:auto;
+  display:flex;
+  flex-wrap:wrap;
+  gap:0.5rem;
 }
-.command-shortcut-card .btn {
-  min-width: 120px;
-  justify-content: center;
+.command-shortcut-card .btn{
+  min-width:120px;
+  justify-content:center;
 }
 /* התאמות לטאבלט */
 @media (min-width: 769px) and (max-width: 1024px){
-  .search-and-filters { padding: 1rem 1.5rem; }
+  .search-and-filters{ padding:1rem 1.5rem; }
 }
 
 /* ============================================
-   📱 Language Badge Colors (Global Variables)
+   📱 Language Badge Colors (All Themes)
    ============================================ */
+:root{
+  /* Global search card tokens */
+  --search-card-bg: var(--card-bg, rgba(255,255,255,0.12));
+  --search-card-border: var(--card-border, rgba(255,255,255,0.25));
+  --search-card-hover-border: color-mix(in srgb, var(--primary, #667eea) 45%, var(--search-card-border) 55%);
+  --search-card-shadow: 0 20px 45px rgba(15,23,42,0.25);
+  --search-card-shadow-hover: 0 28px 60px rgba(15,23,42,0.35);
+  --search-meta-text: var(--text-muted, rgba(255,255,255,0.7));
+  --search-meta-icon-opacity: 0.78;
+  --search-highlight-bg: color-mix(in srgb, var(--primary, #f7df1e) 40%, #fff 60%);
+  --search-highlight-text: #1a202c;
+  --search-highlight-glow: color-mix(in srgb, var(--primary, #f7df1e) 35%, transparent);
+  --search-code-bg: var(--code-bg, rgba(15,23,42,0.9));
+  --search-code-text: var(--code-text, var(--text-primary, #ffffff));
+  --search-code-border: var(--code-border, rgba(255,255,255,0.12));
 
-.global-search-lang-badge {
-  font-size: 0.75rem;
-  padding: 4px 8px;
-  border-radius: 6px;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
-  display: inline-flex;
-  align-items: center;
-  gap: 0.25rem;
-  line-height: 1;
-  transition: background .2s ease, color .2s ease, border-color .2s ease;
+  /* Hue & Saturation Base */
+  --rust-h:22; --rust-s:75%;
+  --python-h:210; --python-s:50%;
+  --js-h:48; --js-s:90%;
+  --ts-h:211; --ts-s:60%;
+  --csharp-h:145; --csharp-s:60%;
+  --go-h:190; --go-s:100%;
+  --ruby-h:4; --ruby-s:85%;
+  --cpp-h:340; --cpp-s:88%;
+  --java-h:35; --java-s:85%;
+  --php-h:230; --php-s:35%;
+
+  /* Extended palette */
+  --react-h:190; --react-s:100%;
+  --vue-h:145; --vue-s:60%;
+  --html-h:15; --html-s:80%;
+  --css-h:207; --css-s:73%;
+  --json-h:48; --json-s:90%;
+  --sql-h:30; --sql-s:100%;
+  --yaml-h:338; --yaml-s:70%;
+  --markdown-h:220; --markdown-s:85%;
+  --shell-h:130; --shell-s:50%;
+
+  /* Default (fallback) lightness */
+  --lang-js: hsl(var(--js-h), var(--js-s), 60%);
+  --lang-ts: hsl(var(--ts-h), var(--ts-s), 50%);
+  --lang-python: hsl(var(--python-h), var(--python-s), 50%);
+  --lang-react: hsl(var(--react-h), var(--react-s), 55%);
+  --lang-vue: hsl(var(--vue-h), var(--vue-s), 55%);
+  --lang-html: hsl(var(--html-h), var(--html-s), 60%);
+  --lang-css: hsl(var(--css-h), var(--css-s), 55%);
+  --lang-java: hsl(var(--java-h), var(--java-s), 55%);
+  --lang-csharp: hsl(var(--csharp-h), var(--csharp-s), 55%);
+  --lang-cpp: hsl(var(--cpp-h), var(--cpp-s), 60%);
+  --lang-go: hsl(var(--go-h), var(--go-s), 55%);
+  --lang-php: hsl(var(--php-h), var(--php-s), 55%);
+  --lang-ruby: hsl(var(--ruby-h), var(--ruby-s), 55%);
+  --lang-rust: hsl(var(--rust-h), var(--rust-s), 60%);
+  --lang-json: hsl(var(--json-h), var(--json-s), 60%);
+  --lang-sql: hsl(var(--sql-h), var(--sql-s), 55%);
+  --lang-yaml: hsl(var(--yaml-h), var(--yaml-s), 55%);
+  --lang-markdown: hsl(var(--markdown-h), var(--markdown-s), 55%);
+  --lang-shell: hsl(var(--shell-h), var(--shell-s), 55%);
 }
 
-.global-search-lang-badge:empty { display: none; }
+:root[data-theme="classic"]{
+  --search-card-shadow: 0 30px 60px rgba(7,7,31,0.35);
+  --search-card-shadow-hover: 0 38px 76px rgba(7,7,31,0.45);
+  --search-highlight-bg: rgba(255,215,0,0.85);
+  --search-highlight-text: #1c1f3a;
+  --lang-js: hsl(var(--js-h), var(--js-s), 75%);
+  --lang-ts: hsl(45, 85%, 70%);
+  --lang-python: hsl(45, 90%, 75%);
+  --lang-react: hsl(320, 70%, 70%);
+  --lang-vue: hsl(var(--vue-h), var(--vue-s), 65%);
+  --lang-html: hsl(var(--html-h), var(--html-s), 70%);
+  --lang-css: hsl(280, 65%, 75%);
+  --lang-java: hsl(var(--java-h), var(--java-s), 65%);
+  --lang-csharp: hsl(var(--csharp-h), var(--csharp-s), 65%);
+  --lang-cpp: hsl(var(--cpp-h), var(--cpp-s), 70%);
+  --lang-go: hsl(320, 70%, 70%);
+  --lang-php: hsl(280, 65%, 75%);
+  --lang-ruby: hsl(var(--ruby-h), var(--ruby-s), 65%);
+  --lang-rust: hsl(var(--rust-h), var(--rust-s), 70%);
+  --lang-json: hsl(var(--json-h), var(--json-s), 75%);
+  --lang-sql: hsl(var(--sql-h), var(--sql-s), 65%);
+  --lang-yaml: hsl(var(--yaml-h), var(--yaml-s), 70%);
+  --lang-markdown: hsl(280, 70%, 75%);
+  --lang-shell: hsl(48, 100%, 70%);
+}
 
-.global-search-lang-badge.lang-js { background: color-mix(in srgb, var(--lang-js) 15%, transparent); color: var(--lang-js); border: 1px solid color-mix(in srgb, var(--lang-js) 30%, transparent); }
-.global-search-lang-badge.lang-ts { background: color-mix(in srgb, var(--lang-ts) 15%, transparent); color: var(--lang-ts); border: 1px solid color-mix(in srgb, var(--lang-ts) 30%, transparent); }
-.global-search-lang-badge.lang-python { background: color-mix(in srgb, var(--lang-python) 15%, transparent); color: var(--lang-python); border: 1px solid color-mix(in srgb, var(--lang-python) 30%, transparent); }
-.global-search-lang-badge.lang-react { background: color-mix(in srgb, var(--lang-js) 15%, transparent); color: var(--lang-js); border: 1px solid color-mix(in srgb, var(--lang-js) 30%, transparent); }
-.global-search-lang-badge.lang-vue { --vue-color: #42b883; background: color-mix(in srgb, var(--vue-color) 15%, transparent); color: var(--vue-color); border: 1px solid color-mix(in srgb, var(--vue-color) 30%, transparent); }
-.global-search-lang-badge.lang-html { background: color-mix(in srgb, var(--lang-html) 15%, transparent); color: var(--lang-html); border: 1px solid color-mix(in srgb, var(--lang-html) 30%, transparent); }
-.global-search-lang-badge.lang-css { background: color-mix(in srgb, var(--lang-css) 15%, transparent); color: var(--lang-css); border: 1px solid color-mix(in srgb, var(--lang-css) 30%, transparent); }
-.global-search-lang-badge.lang-java { background: color-mix(in srgb, var(--lang-java) 15%, transparent); color: var(--lang-java); border: 1px solid color-mix(in srgb, var(--lang-java) 30%, transparent); }
-.global-search-lang-badge.lang-csharp { background: color-mix(in srgb, var(--lang-csharp) 15%, transparent); color: var(--lang-csharp); border: 1px solid color-mix(in srgb, var(--lang-csharp) 30%, transparent); }
-.global-search-lang-badge.lang-cpp { background: color-mix(in srgb, var(--lang-cpp) 15%, transparent); color: var(--lang-cpp); border: 1px solid color-mix(in srgb, var(--lang-cpp) 30%, transparent); }
-.global-search-lang-badge.lang-go { background: color-mix(in srgb, var(--lang-go) 15%, transparent); color: var(--lang-go); border: 1px solid color-mix(in srgb, var(--lang-go) 30%, transparent); }
-.global-search-lang-badge.lang-php { background: color-mix(in srgb, var(--lang-php) 15%, transparent); color: var(--lang-php); border: 1px solid color-mix(in srgb, var(--lang-php) 30%, transparent); }
-.global-search-lang-badge.lang-ruby { background: color-mix(in srgb, var(--lang-ruby) 15%, transparent); color: var(--lang-ruby); border: 1px solid color-mix(in srgb, var(--lang-ruby) 30%, transparent); }
-.global-search-lang-badge.lang-rust { background: color-mix(in srgb, var(--lang-rust) 15%, transparent); color: var(--lang-rust); border: 1px solid color-mix(in srgb, var(--lang-rust) 30%, transparent); }
-.global-search-lang-badge.lang-json { background: color-mix(in srgb, var(--lang-json) 15%, transparent); color: var(--lang-json); border: 1px solid color-mix(in srgb, var(--lang-json) 30%, transparent); }
-.global-search-lang-badge.lang-sql { background: color-mix(in srgb, var(--lang-sql) 15%, transparent); color: var(--lang-sql); border: 1px solid color-mix(in srgb, var(--lang-sql) 30%, transparent); }
-.global-search-lang-badge.lang-yaml { background: color-mix(in srgb, var(--lang-yaml) 15%, transparent); color: var(--lang-yaml); border: 1px solid color-mix(in srgb, var(--lang-yaml) 30%, transparent); }
-.global-search-lang-badge.lang-markdown { background: color-mix(in srgb, var(--lang-markdown) 15%, transparent); color: var(--lang-markdown); border: 1px solid color-mix(in srgb, var(--lang-markdown) 30%, transparent); }
-.global-search-lang-badge.lang-shell { background: color-mix(in srgb, var(--lang-shell) 15%, transparent); color: var(--lang-shell); border: 1px solid color-mix(in srgb, var(--lang-shell) 30%, transparent); }
-.global-search-lang-badge.lang-unknown {
-  background: color-mix(in srgb, var(--text-muted) 15%, transparent);
-  color: var(--text-muted);
-  border: 1px solid color-mix(in srgb, var(--text-muted) 35%, transparent);
+:root[data-theme="ocean"],
+:root[data-theme="rose-pine-dawn"]{
+  --search-card-shadow: 0 16px 40px rgba(15,23,42,0.18);
+  --search-card-shadow-hover: 0 22px 52px rgba(15,23,42,0.25);
+  --search-highlight-text: #0f172a;
+  --lang-js: hsl(var(--js-h), var(--js-s), 40%);
+  --lang-ts: hsl(var(--ts-h), var(--ts-s), 40%);
+  --lang-python: hsl(var(--python-h), var(--python-s), 35%);
+  --lang-react: hsl(var(--react-h), var(--react-s), 40%);
+  --lang-vue: hsl(var(--vue-h), var(--vue-s), 35%);
+  --lang-html: hsl(var(--html-h), var(--html-s), 45%);
+  --lang-css: hsl(var(--css-h), var(--css-s), 45%);
+  --lang-java: hsl(var(--java-h), var(--java-s), 40%);
+  --lang-csharp: hsl(var(--csharp-h), var(--csharp-s), 35%);
+  --lang-cpp: hsl(var(--cpp-h), var(--cpp-s), 50%);
+  --lang-go: hsl(var(--go-h), var(--go-s), 40%);
+  --lang-php: hsl(var(--php-h), var(--php-s), 35%);
+  --lang-ruby: hsl(var(--ruby-h), var(--ruby-s), 35%);
+  --lang-rust: hsl(var(--rust-h), var(--rust-s), 35%);
+  --lang-json: hsl(var(--json-h), var(--json-s), 40%);
+  --lang-sql: hsl(var(--sql-h), var(--sql-s), 40%);
+  --lang-yaml: hsl(var(--yaml-h), var(--yaml-s), 40%);
+  --lang-markdown: hsl(var(--markdown-h), var(--markdown-s), 35%);
+  --lang-shell: hsl(var(--shell-h), var(--shell-s), 35%);
+}
+
+:root[data-theme="forest"]{
+  --search-card-shadow: 0 18px 40px rgba(34,84,61,0.22);
+  --search-card-shadow-hover: 0 24px 56px rgba(34,84,61,0.3);
+  --search-highlight-text: #1c3526;
+  --lang-js: hsl(var(--js-h), var(--js-s), 40%);
+  --lang-ts: hsl(var(--ts-h), var(--ts-s), 40%);
+  --lang-python: hsl(var(--python-h), var(--python-s), 35%);
+  --lang-react: hsl(var(--react-h), var(--react-s), 40%);
+  --lang-vue: hsl(280, 70%, 65%);
+  --lang-html: hsl(var(--html-h), var(--html-s), 45%);
+  --lang-css: hsl(var(--css-h), var(--css-s), 45%);
+  --lang-java: hsl(var(--java-h), var(--java-s), 40%);
+  --lang-csharp: hsl(280, 70%, 65%);
+  --lang-cpp: hsl(var(--cpp-h), var(--cpp-s), 50%);
+  --lang-go: hsl(var(--go-h), var(--go-s), 40%);
+  --lang-php: hsl(var(--php-h), var(--php-s), 35%);
+  --lang-ruby: hsl(var(--ruby-h), var(--ruby-s), 35%);
+  --lang-rust: hsl(var(--rust-h), var(--rust-s), 35%);
+  --lang-json: hsl(var(--json-h), var(--json-s), 40%);
+  --lang-sql: hsl(var(--sql-h), var(--sql-s), 40%);
+  --lang-yaml: hsl(var(--yaml-h), var(--yaml-s), 40%);
+  --lang-markdown: hsl(var(--markdown-h), var(--markdown-s), 35%);
+  --lang-shell: hsl(48, 100%, 60%);
+}
+
+:root[data-theme="dark"],
+:root[data-theme="dim"],
+:root[data-theme="nebula"]{
+  --search-card-shadow: 0 25px 55px rgba(4,7,18,0.65);
+  --search-card-shadow-hover: 0 32px 72px rgba(4,7,18,0.75);
+  --search-highlight-text: #ffffff;
+  --search-highlight-bg: rgba(124,138,255,0.6);
+  --lang-js: hsl(var(--js-h), var(--js-s), 65%);
+  --lang-ts: hsl(var(--ts-h), var(--ts-s), 60%);
+  --lang-python: hsl(var(--python-h), var(--python-s), 70%);
+  --lang-react: hsl(var(--react-h), var(--react-s), 55%);
+  --lang-vue: hsl(var(--vue-h), var(--vue-s), 60%);
+  --lang-html: hsl(var(--html-h), var(--html-s), 65%);
+  --lang-css: hsl(var(--css-h), var(--css-s), 60%);
+  --lang-java: hsl(var(--java-h), var(--java-s), 60%);
+  --lang-csharp: hsl(var(--csharp-h), var(--csharp-s), 60%);
+  --lang-cpp: hsl(var(--cpp-h), var(--cpp-s), 65%);
+  --lang-go: hsl(var(--go-h), var(--go-s), 55%);
+  --lang-php: hsl(var(--php-h), var(--php-s), 60%);
+  --lang-ruby: hsl(var(--ruby-h), var(--ruby-s), 60%);
+  --lang-rust: hsl(var(--rust-h), var(--rust-s), 65%);
+  --lang-json: hsl(var(--json-h), var(--json-s), 65%);
+  --lang-sql: hsl(var(--sql-h), var(--sql-s), 60%);
+  --lang-yaml: hsl(var(--yaml-h), var(--yaml-s), 65%);
+  --lang-markdown: hsl(var(--markdown-h), var(--markdown-s), 60%);
+  --lang-shell: hsl(var(--shell-h), var(--shell-s), 60%);
+}
+
+:root[data-theme="nebula"]{
+  --search-highlight-bg: rgba(119,122,188,0.8);
+}
+
+:root[data-theme="high-contrast"]{
+  --search-card-bg:#000000;
+  --search-card-border:#ffffff;
+  --search-card-hover-border:#ffff00;
+  --search-card-shadow:none;
+  --search-card-shadow-hover:none;
+  --search-code-bg:#000000;
+  --search-code-text:#ffffff;
+  --search-code-border:#ffffff;
+  --search-highlight-bg:#ffff00;
+  --search-highlight-text:#000000;
+  --search-highlight-glow:#ffff00;
+  --search-meta-text:#ffffff;
+  --search-meta-icon-opacity:1;
+  --lang-js:#ffff00;
+  --lang-ts:#00ffff;
+  --lang-python:#00ff00;
+  --lang-react:#00ffff;
+  --lang-vue:#00ff00;
+  --lang-html:#ff6600;
+  --lang-css:#00ffff;
+  --lang-java:#ffff00;
+  --lang-csharp:#00ff00;
+  --lang-cpp:#ff00ff;
+  --lang-go:#00ffff;
+  --lang-php:#ff00ff;
+  --lang-ruby:#ff0000;
+  --lang-rust:#ff6600;
+  --lang-json:#ffff00;
+  --lang-sql:#ffff00;
+  --lang-yaml:#ff00ff;
+  --lang-markdown:#00ffff;
+  --lang-shell:#00ff00;
+}
+
+.global-search-lang-badge{
+  font-size:0.75rem;
+  padding:4px 8px;
+  border-radius:6px;
+  font-weight:700;
+  text-transform:uppercase;
+  letter-spacing:0.5px;
+  display:inline-flex;
+  align-items:center;
+  gap:0.25rem;
+  line-height:1;
+  transition:background .2s ease, color .2s ease, border-color .2s ease;
+}
+
+.global-search-lang-badge:empty{display:none;}
+
+.global-search-lang-badge.lang-js{ background: color-mix(in srgb, var(--lang-js) 15%, transparent); color: var(--lang-js); border: 1px solid color-mix(in srgb, var(--lang-js) 30%, transparent); }
+.global-search-lang-badge.lang-ts{ background: color-mix(in srgb, var(--lang-ts) 15%, transparent); color: var(--lang-ts); border: 1px solid color-mix(in srgb, var(--lang-ts) 30%, transparent); }
+.global-search-lang-badge.lang-python{ background: color-mix(in srgb, var(--lang-python) 15%, transparent); color: var(--lang-python); border: 1px solid color-mix(in srgb, var(--lang-python) 30%, transparent); }
+.global-search-lang-badge.lang-react{ background: color-mix(in srgb, var(--lang-react) 15%, transparent); color: var(--lang-react); border: 1px solid color-mix(in srgb, var(--lang-react) 30%, transparent); }
+.global-search-lang-badge.lang-vue{ background: color-mix(in srgb, var(--lang-vue) 15%, transparent); color: var(--lang-vue); border: 1px solid color-mix(in srgb, var(--lang-vue) 30%, transparent); }
+.global-search-lang-badge.lang-html{ background: color-mix(in srgb, var(--lang-html) 15%, transparent); color: var(--lang-html); border: 1px solid color-mix(in srgb, var(--lang-html) 30%, transparent); }
+.global-search-lang-badge.lang-css{ background: color-mix(in srgb, var(--lang-css) 15%, transparent); color: var(--lang-css); border: 1px solid color-mix(in srgb, var(--lang-css) 30%, transparent); }
+.global-search-lang-badge.lang-java{ background: color-mix(in srgb, var(--lang-java) 15%, transparent); color: var(--lang-java); border: 1px solid color-mix(in srgb, var(--lang-java) 30%, transparent); }
+.global-search-lang-badge.lang-csharp{ background: color-mix(in srgb, var(--lang-csharp) 15%, transparent); color: var(--lang-csharp); border: 1px solid color-mix(in srgb, var(--lang-csharp) 30%, transparent); }
+.global-search-lang-badge.lang-cpp{ background: color-mix(in srgb, var(--lang-cpp) 15%, transparent); color: var(--lang-cpp); border: 1px solid color-mix(in srgb, var(--lang-cpp) 30%, transparent); }
+.global-search-lang-badge.lang-go{ background: color-mix(in srgb, var(--lang-go) 15%, transparent); color: var(--lang-go); border: 1px solid color-mix(in srgb, var(--lang-go) 30%, transparent); }
+.global-search-lang-badge.lang-php{ background: color-mix(in srgb, var(--lang-php) 15%, transparent); color: var(--lang-php); border: 1px solid color-mix(in srgb, var(--lang-php) 30%, transparent); }
+.global-search-lang-badge.lang-ruby{ background: color-mix(in srgb, var(--lang-ruby) 15%, transparent); color: var(--lang-ruby); border: 1px solid color-mix(in srgb, var(--lang-ruby) 30%, transparent); }
+.global-search-lang-badge.lang-rust{ background: color-mix(in srgb, var(--lang-rust) 15%, transparent); color: var(--lang-rust); border: 1px solid color-mix(in srgb, var(--lang-rust) 30%, transparent); }
+.global-search-lang-badge.lang-json{ background: color-mix(in srgb, var(--lang-json) 15%, transparent); color: var(--lang-json); border: 1px solid color-mix(in srgb, var(--lang-json) 30%, transparent); }
+.global-search-lang-badge.lang-sql{ background: color-mix(in srgb, var(--lang-sql) 15%, transparent); color: var(--lang-sql); border: 1px solid color-mix(in srgb, var(--lang-sql) 30%, transparent); }
+.global-search-lang-badge.lang-yaml{ background: color-mix(in srgb, var(--lang-yaml) 15%, transparent); color: var(--lang-yaml); border: 1px solid color-mix(in srgb, var(--lang-yaml) 30%, transparent); }
+.global-search-lang-badge.lang-markdown{ background: color-mix(in srgb, var(--lang-markdown) 15%, transparent); color: var(--lang-markdown); border: 1px solid color-mix(in srgb, var(--lang-markdown) 30%, transparent); }
+.global-search-lang-badge.lang-shell{ background: color-mix(in srgb, var(--lang-shell) 15%, transparent); color: var(--lang-shell); border: 1px solid color-mix(in srgb, var(--lang-shell) 30%, transparent); }
+.global-search-lang-badge.lang-unknown{
+  background:color-mix(in srgb, var(--text-muted, #999) 15%, transparent);
+  color:var(--text-muted, #999);
+  border:1px solid color-mix(in srgb, var(--text-muted, #999) 35%, transparent);
 }
