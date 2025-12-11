@@ -33,12 +33,12 @@
   /* Preview content */
   --split-preview-bg: var(--md-surface, #1b1e24);
   --split-preview-text: var(--md-text, #f0f0f0);
-  --split-preview-code-bg: rgba(0, 0, 0, 0.06);
-  --split-preview-code-text: #1f2933;
-  --split-preview-placeholder: rgba(0, 0, 0, 0.6);
-  --split-preview-meta: rgba(0, 0, 0, 0.55);
-  --split-preview-loading-bg: rgba(255, 255, 255, 0.85);
-  --split-preview-loading-text: #222222;
+  --split-preview-code-bg: rgba(255, 255, 255, 0.06);
+  --split-preview-code-text: var(--md-text, #f0f0f0);
+  --split-preview-placeholder: rgba(255, 255, 255, 0.6);
+  --split-preview-meta: rgba(255, 255, 255, 0.55);
+  --split-preview-loading-bg: rgba(27, 30, 36, 0.85);
+  --split-preview-loading-text: #f0f0f0;
 
   /* Error */
   --split-error-bg: rgba(220, 38, 38, 0.1);
@@ -163,17 +163,17 @@
   --split-resizer-dragging: rgba(144, 122, 169, 0.35);
   --split-preview-bg: var(--md-surface);
   --split-preview-text: var(--md-text);
-  --split-preview-code-bg: rgba(87, 82, 121, 0.08);
-  --split-preview-code-text: #575279;
-  --split-preview-placeholder: rgba(87, 82, 121, 0.6);
-  --split-preview-meta: rgba(87, 82, 121, 0.55);
-  --split-preview-loading-bg: rgba(250, 244, 237, 0.9);
-  --split-preview-loading-text: #575279;
+  --split-preview-code-bg: rgba(255, 255, 255, 0.08);
+  --split-preview-code-text: var(--md-text);
+  --split-preview-placeholder: rgba(255, 255, 255, 0.6);
+  --split-preview-meta: rgba(255, 255, 255, 0.55);
+  --split-preview-loading-bg: rgba(27, 30, 36, 0.85);
+  --split-preview-loading-text: #f0f0f0;
   --split-error-bg: rgba(180, 99, 122, 0.15);
   --split-error-border: rgba(180, 99, 122, 0.35);
   --split-error-text: #b4637a;
-  --split-codehilite-bg: #f2e9e1;
-  --split-codehilite-text: #575279;
+  --split-codehilite-bg: #1f1d2e;
+  --split-codehilite-text: #e0def4;
 }
 
 /* High Contrast theme override */
@@ -228,12 +228,7 @@
   --split-resizer-dragging: rgba(79, 70, 229, 0.35);
   --split-preview-bg: var(--md-surface);
   --split-preview-text: var(--md-text);
-  --split-preview-code-bg: rgba(0, 0, 0, 0.06);
-  --split-preview-code-text: #1f2933;
-  --split-preview-placeholder: rgba(0, 0, 0, 0.6);
-  --split-preview-meta: rgba(0, 0, 0, 0.55);
-  --split-preview-loading-bg: rgba(255, 255, 255, 0.85);
-  --split-preview-loading-text: #222222;
+  /* Use defaults for dark-friendly text values */
 }
 
 /* ==============================================
