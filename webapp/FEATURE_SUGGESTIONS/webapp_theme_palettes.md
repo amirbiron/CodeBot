@@ -2,6 +2,8 @@
 
 קובץ זה מרכז את כל משתני הצבע הרלוונטיים לערכות הנושא הזמינות ב-UI. המקור העיקרי הוא `webapp/templates/base.html` (הגדרות `:root[data-theme=...]`), ולמצב ניגודיות גבוהה גם `webapp/static/css/high-contrast.css`.
 
+> **להעמקה בארכיטקטורה, טוקנים ובדיקות:** ראו את [`docs/webapp/theming_and_css.rst`](../../docs/webapp/theming_and_css.rst).
+
 ## טבלה מרכזת
 
 | ערכת נושא | Primary / Secondary | טקסטים | רקעים וכרטיסים | דגשים נוספים |

@@ -1,0 +1,57 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="640" height="360" viewBox="0 0 640 360">
+  <defs>
+    <linearGradient id="classic-bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#6b63ff"/>
+      <stop offset="50%" stop-color="#8e63ff"/>
+      <stop offset="100%" stop-color="#a463ff"/>
+    </linearGradient>
+    <linearGradient id="classic-glass" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="rgba(255,255,255,0.22)"/>
+      <stop offset="100%" stop-color="rgba(255,255,255,0.08)"/>
+    </linearGradient>
+    <filter id="card-shadow" x="-20%" y="-20%" width="140%" height="160%">
+      <feDropShadow dx="0" dy="12" stdDeviation="18" flood-color="rgba(7,7,31,0.35)" />
+    </filter>
+  </defs>
+  <rect width="640" height="360" fill="url(#classic-bg)" rx="32"/>
+
+  <text x="40" y="70" fill="#ffffff" font-size="32" font-weight="700" font-family="Heebo, 'Segoe UI', sans-serif">
+    Classic  var(--bg-app)
+  </text>
+  <text x="40" y="110" fill="rgba(255,255,255,0.82)" font-size="18" font-family="Heebo, 'Segoe UI', sans-serif">
+    ‰ËŸﬁŸÿŸ—Ÿ›: --primary #667eea ∑ --secondary #764ba2
+  </text>
+  <text x="40" y="140" fill="rgba(255,255,255,0.8)" font-size="16" font-family="Heebo, 'Segoe UI', sans-serif">
+    Markdown Preview ‡È–Ë €‘‘ —‚÷ËÍ --md-surface #15141f
+  </text>
+
+  <g transform="translate(40,170)">
+    <rect width="240" height="150" rx="22" fill="rgba(255,255,255,0.15)" stroke="rgba(255,255,255,0.4)"
+          stroke-width="2" filter="url(#card-shadow)"/>
+    <text x="22" y="40" fill="#1c1f3a" font-size="18" font-family="Heebo, 'Segoe UI', sans-serif" font-weight="600">
+      var(--btn-primary-*)
+    </text>
+    <text x="22" y="68" fill="#1c1f3a" font-size="14" font-family="Heebo, 'Segoe UI', sans-serif">
+      bg: rgba(255,255,255,0.94)
+    </text>
+    <text x="22" y="92" fill="#1c1f3a" font-size="14" font-family="Heebo, 'Segoe UI', sans-serif">
+      border: rgba(255,255,255,0.65)
+    </text>
+    <text x="22" y="116" fill="#1c1f3a" font-size="14" font-family="Heebo, 'Segoe UI', sans-serif">
+      color: #1c1f3a
+    </text>
+  </g>
+
+  <g transform="translate(320,190)">
+    <rect width="260" height="130" rx="26" fill="url(#classic-glass)" stroke="rgba(255,255,255,0.35)" stroke-width="2"/>
+    <text x="24" y="46" fill="#ffffff" font-size="18" font-family="Heebo, 'Segoe UI', sans-serif" font-weight="600">
+      Glass Tokens
+    </text>
+    <text x="24" y="78" fill="#ffffff" font-size="14" font-family="Heebo, 'Segoe UI', sans-serif">
+      --glass: rgba(255,255,255,0.10)
+    </text>
+    <text x="24" y="104" fill="#ffffff" font-size="14" font-family="Heebo, 'Segoe UI', sans-serif">
+      --glass-hover: rgba(255,255,255,0.15)
+    </text>
+  </g>
+</svg>

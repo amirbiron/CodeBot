@@ -6,6 +6,8 @@
 
 ---
 
+> **ראו גם:** [מדריך ערכות הנושא והטוקנים](../../docs/webapp/theming_and_css.rst) – מקור האמת ליישום בפועל (טבלת טוקנים, בדיקות, חריגים). כל שינוי בקוד צריך להיות מתואם בין מסמך זה לבין התיעוד החדש.
+
 ## Table of Contents
 
 1. [Background & Problem Statement](#background--problem-statement)
