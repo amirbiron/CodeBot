@@ -1374,7 +1374,7 @@
       '.sr-btn:hover{background:var(--bg-tertiary,#edf2f7);}'+
       '.sticky-reminder-row{display:flex;gap:8px;align-items:center;}'+
       '.sr-dt{flex:1;min-width:0;padding:.5rem .6rem;border:1px solid var(--glass-border,#ddd);border-radius:8px;background:var(--bg-primary,#fff);color:var(--text-primary,inherit);}'+
-      '.sr-save{padding:.5rem .75rem;border-radius:10px;border:1px solid var(--glass-border,rgba(0,0,0,.12));background:var(--primary,#667eea);color:var(--btn-primary-color,#fff);cursor:pointer;}'
+      '.sr-save{padding:.5rem .75rem;border-radius:10px;border:1px solid var(--glass-border,rgba(0,0,0,.12));background:var(--primary,#667eea);color:var(--text-on-primary,#fff);cursor:pointer;}'
     );
     document.head.appendChild(style);
   } catch(_) {}

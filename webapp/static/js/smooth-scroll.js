@@ -879,7 +879,7 @@
         toggleBtn.type = "button";
         toggleBtn.style.flex = "1 1 auto";
         toggleBtn.style.background = "var(--primary, #3b82f6)";
-        toggleBtn.style.color = "var(--btn-primary-color, #fff)";
+        toggleBtn.style.color = "var(--text-on-primary, #fff)";
         toggleBtn.style.border = "none";
         toggleBtn.style.padding = "6px 8px";
         toggleBtn.style.borderRadius = "4px";
