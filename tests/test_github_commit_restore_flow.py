@@ -145,6 +145,45 @@ async def test_restore_commit_actions_show_details_and_link(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_restore_commit_actions_truncate_long_commit_message(monkeypatch):
+    import github_menu_handler as gh
+
+    handler = gh.GitHubMenuHandler()
+    update = DummyUpdate()
+    context = DummyContext()
+
+    session = handler.get_user_session(update.callback_query.from_user.id)
+    session["selected_repo"] = "owner/repo"
+    monkeypatch.setattr(handler, "get_user_token", lambda _uid: "token")
+
+    long_message = "שורה ארוכה מאוד " * 400
+    commit_obj = make_commit("abc123456789", long_message, url="https://example.com")
+
+    class FakeRepo:
+        def get_commit(self, sha):
+            assert sha == commit_obj.sha
+            return commit_obj
+
+    class FakeGithub:
+        def __init__(self, token):
+            pass
+
+        def get_repo(self, full):
+            assert full == "owner/repo"
+            return FakeRepo()
+
+    monkeypatch.setattr(gh, "Github", FakeGithub)
+    monkeypatch.setattr(gh, "InlineKeyboardButton", lambda *a, **k: (a, k))
+    monkeypatch.setattr(gh, "InlineKeyboardMarkup", lambda rows: rows)
+
+    await handler.show_commit_restore_actions(update, context, commit_obj.sha)
+
+    text = update.callback_query.edited_texts[-1][0]
+    assert len(text) <= gh.TELEGRAM_SAFE_TEXT_LIMIT
+    assert "קוצרה" in text
+    assert "שורה ארוכה מאוד" in text
+
+@pytest.mark.asyncio
 async def test_create_branch_from_commit_reports_branch_name(monkeypatch):
     import github_menu_handler as gh
 
