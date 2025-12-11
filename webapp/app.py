@@ -1147,6 +1147,12 @@ def inject_globals():
     except Exception:
         static_ver = _STATIC_VERSION
 
+    theme_wizard_seen = False
+    try:
+        theme_wizard_seen = bool((user_doc.get('ui_prefs') or {}).get('theme_wizard_seen'))
+    except Exception:
+        theme_wizard_seen = False
+
     return {
         'bot_username': BOT_USERNAME_CLEAN,
         'ui_font_scale': font_scale,
@@ -1169,6 +1175,7 @@ def inject_globals():
         'show_welcome_modal': show_welcome_modal,
         'welcome_primary_guide_url': primary_guide_url,
         'welcome_secondary_guide_url': secondary_guide_url,
+        'theme_wizard_seen': theme_wizard_seen,
     }
 
     
@@ -9160,6 +9167,7 @@ def api_ui_prefs():
     קלט JSON נתמך:
     - font_scale: float בין 0.85 ל-1.6 (אופציונלי)
     - theme: אחד מ-{"classic","ocean","forest","high-contrast","dark","dim","rose-pine-dawn","nebula"} (אופציונלי)
+    - theme_wizard_seen: bool (אופציונלי)
     - editor: "simple" | "codemirror" (אופציונלי)
     - work_state: אובייקט עם מצב עבודה נוכחי (last_url, scroll_y, timestamp)
     """
@@ -9197,6 +9205,11 @@ def api_ui_prefs():
                 update_fields['ui_prefs.theme'] = theme
                 resp_payload['theme'] = theme
                 theme_cookie_value = theme
+
+        if 'theme_wizard_seen' in payload:
+            seen_val = bool(payload.get('theme_wizard_seen'))
+            update_fields['ui_prefs.theme_wizard_seen'] = seen_val
+            resp_payload['theme_wizard_seen'] = seen_val
 
         # עדכון סוג העורך במידת הצורך (שיקוף גם ל-session)
         if 'editor' in payload:
