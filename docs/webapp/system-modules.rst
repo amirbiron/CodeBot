@@ -81,7 +81,7 @@
 ``config_radar.py`` – רנטגן קונפיגורציה
 ---------------------------------------
 
-- פונקציה ``build_config_radar_snapshot()`` מאחדת את ``config/alerts.yml``, ``config/error_signatures.yml`` ו-``config/image_settings.yaml``.
+- פונקציה ``build_config_radar_snapshot()`` מאחדת את ``config/alerts.yml``, ``config/error_signatures.yml``, ``config/image_settings.yaml``, ``config/alert_quick_fixes.json`` ו-``config/observability_runbooks.yml``.
 - חשופה דרך ``GET /api/config/radar`` (דורש אדמין) ומספקת:
 
   - סיכום ערכים לכל קובץ (כולל ``window_minutes``, ``default_theme`` וכו').

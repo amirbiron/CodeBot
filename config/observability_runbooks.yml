@@ -95,6 +95,73 @@ runbooks:
           type: link
           href: "/admin/observability/replay?timerange=1h&focus_ts={{timestamp}}"
           safety: safe
+  # 💾 1. בעיות משאבים (דיסק/זיכרון)
+  resource_exhaustion:
+    title: "צריכת משאבים קריטית (CPU/RAM/Disk)"
+    description: "השרת מתקרב לקצה גבול היכולת. סכנת קריסה מיידית."
+    aliases:
+      - high_cpu
+      - high_memory
+      - disk_full
+    steps:
+      - id: check_system_health
+        title: "הרץ /triage system"
+        description: "קבל תמונת מצב של Top Processes וניצול דיסק."
+        action:
+          label: "💻 /triage system"
+          type: copy
+          payload: "/triage system"
+          safety: safe
+      - id: clear_cache_suggestion
+        title: "שקול ניקוי Cache"
+        description: "אם הזיכרון מלא בגלל Redis, הרץ ניקוי Stale מבוקר דרך ChatOps."
+        action:
+          label: "🧹 /cache_clear_stale"
+          type: copy
+          payload: "/cache_clear_stale"
+          safety: caution
+  # ⚙️ 2. תורים ומשימות רקע
+  worker_lag:
+    title: "עיכוב בעיבוד משימות רקע"
+    description: "התור (Queue) עמוס או שה-Worker נתקע."
+    aliases:
+      - queue_spike
+      - worker_down
+      - job_failure
+    steps:
+      - id: check_worker_status
+        title: "סטטוס Sidecar Worker"
+        description: "בדוק האם ה-Worker מחובר ומחזיר /healthz תקין."
+        action:
+          label: "👷 /status_worker"
+          type: copy
+          payload: "/status_worker"
+          safety: safe
+      - id: check_queue_depth
+        title: "בדוק עומק תור"
+        description: "האם יש הצטברות חריגה של משימות?"
+        action:
+          label: "📊 /triage queues"
+          type: copy
+          payload: "/triage queues"
+          safety: safe
+  # ☁️ 3. תקלות צד ג' (ספקים)
+  external_outage:
+    title: "כשל בשירות חיצוני"
+    description: "שגיאות בחיבור ל-GitHub, AWS, או ספקים אחרים."
+    aliases:
+      - github_api_error
+      - s3_error
+      - external_api_timeout
+    steps:
+      - id: check_status_pages
+        title: "בדוק סטטוס ספקים"
+        description: "לפני דיבאג, בדוק אם יש תקלה עולמית ב-GitHub או אצל ספק הענן."
+        action:
+          label: "🌐 GitHub Status"
+          type: link
+          href: "https://www.githubstatus.com/"
+          safety: safe
   generic_incident_flow:
     title: "פלייבוק כללי להתראות"
     description: "Fallback בסיסי המתאים לכל alert_type ללא Runbook ייעודי."
@@ -115,6 +182,14 @@ runbooks:
           label: "🚨 /errors"
           type: copy
           payload: "/errors"
+          safety: safe
+      - id: check_recent_deploys
+        title: "בדוק גרסאות אחרונות"
+        description: "האם עלתה גרסה ב-30 הדקות האחרונות? שלוף את יומן הדפלויים."
+        action:
+          label: "🚀 /version_history"
+          type: copy
+          payload: "/version_history"
           safety: safe
       - id: review_replay
         title: "בדוק את Incident Replay"

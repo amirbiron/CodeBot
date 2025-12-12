@@ -1,6 +1,7 @@
 import asyncio
 import types
 import os
+from datetime import datetime, timezone
 import pytest
 
 from bot_handlers import AdvancedBotHandlers
@@ -23,6 +24,7 @@ class _Context:
     def __init__(self):
         self.user_data = {}
         self.application = types.SimpleNamespace(job_queue=types.SimpleNamespace(run_once=lambda *a, **k: None))
+        self.args = []
 
 
 class _App:
@@ -194,3 +196,97 @@ async def test_rate_limit_command_with_warning(monkeypatch):
     await adv.rate_limit_command(upd, ctx)
     out = "\n".join(upd.message.texts)
     assert "Usage:" in out and "⚠️" in out
+
+
+@pytest.mark.asyncio
+async def test_cache_clear_stale_command_runs_cleanup(monkeypatch):
+    app = _App()
+    adv = AdvancedBotHandlers(app)
+    upd = _Update()
+    ctx = _Context()
+    ctx.args = ["max=200", "ttl=45"]
+    os.environ["ADMIN_USER_IDS"] = str(upd.effective_user.id)
+
+    import cache_manager as cm
+    monkeypatch.setattr(cm.cache, "is_enabled", True, raising=False)
+
+    called = {}
+
+    async def _fake_to_thread(fn, *args, **kwargs):
+        called["fn"] = fn
+        called["kwargs"] = kwargs
+        return 7
+
+    monkeypatch.setattr(asyncio, "to_thread", _fake_to_thread, raising=False)
+
+    await adv.cache_clear_stale_command(upd, ctx)
+    out = "\n".join(upd.message.texts)
+    assert "7" in out
+    assert called["kwargs"]["max_scan"] == 200
+    assert called["kwargs"]["ttl_seconds_threshold"] == 45
+
+
+@pytest.mark.asyncio
+async def test_status_worker_command_reports_success(monkeypatch):
+    app = _App()
+    adv = AdvancedBotHandlers(app)
+    upd = _Update()
+    ctx = _Context()
+    os.environ["ADMIN_USER_IDS"] = str(upd.effective_user.id)
+    os.environ["PUSH_DELIVERY_URL"] = "https://worker.example"
+    os.environ["PUSH_REMOTE_DELIVERY_ENABLED"] = "true"
+
+    class _Resp:
+        status = 200
+
+        async def json(self):
+            return {"ok": True}
+
+        async def text(self):
+            return '{"ok": true}'
+
+        async def release(self):
+            return None
+
+    class _Ctx:
+        def __init__(self, resp):
+            self._resp = resp
+
+        async def __aenter__(self):
+            return self._resp
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+    import http_async as ha
+
+    monkeypatch.setattr(ha, "request", lambda *a, **k: _Ctx(_Resp()), raising=False)
+
+    await adv.status_worker_command(upd, ctx)
+    out = "\n".join(upd.message.texts)
+    assert "Healthz: 🟢" in out
+
+
+@pytest.mark.asyncio
+async def test_version_history_command_lists_deploys(monkeypatch):
+    app = _App()
+    adv = AdvancedBotHandlers(app)
+    upd = _Update()
+    ctx = _Context()
+    os.environ["ADMIN_USER_IDS"] = str(upd.effective_user.id)
+
+    now = datetime.now(timezone.utc).isoformat()
+
+    from monitoring import alerts_storage
+
+    monkeypatch.setattr(
+        alerts_storage,
+        "fetch_alerts",
+        lambda **kwargs: ([{"timestamp": now, "summary": "Render deploy", "metadata": {"actor": "deploy-bot"}}], 1),
+        raising=False,
+    )
+
+    await adv.version_history_command(upd, ctx)
+    out = "\n".join(upd.message.texts)
+    assert "Render deploy" in out
+    assert "deploy-bot" in out

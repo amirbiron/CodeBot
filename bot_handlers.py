@@ -202,6 +202,18 @@ class AdvancedBotHandlers:
             "rate_limit",
             chat_allowlist_required(admin_required(limit_sensitive("rate_limit")(self.rate_limit_command)))
         ))
+        self.application.add_handler(CommandHandler(
+            "cache_clear_stale",
+            chat_allowlist_required(admin_required(limit_sensitive("cache_clear_stale")(self.cache_clear_stale_command)))
+        ))
+        self.application.add_handler(CommandHandler(
+            "status_worker",
+            chat_allowlist_required(admin_required(limit_sensitive("status_worker")(self.status_worker_command)))
+        ))
+        self.application.add_handler(CommandHandler(
+            "version_history",
+            chat_allowlist_required(admin_required(self.version_history_command))
+        ))
         # GitHub Backoff controls (admins)
         self.application.add_handler(CommandHandler(
             "enable_backoff",
@@ -2488,6 +2500,260 @@ class AdvancedBotHandlers:
             await update.message.reply_text(msg)
         except Exception as e:
             await update.message.reply_text(f"❌ שגיאה ב-/rate_limit: {html.escape(str(e))}")
+
+    async def cache_clear_stale_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """/cache_clear_stale – ניקוי עדין של Redis מפתחות שפג תוקפם (מנהלים בלבד)"""
+        try:
+            try:
+                user_id = int(getattr(update.effective_user, 'id', 0) or 0)
+            except Exception:
+                user_id = 0
+            if not self._is_admin(user_id):
+                await update.message.reply_text("❌ פקודה זמינה למנהלים בלבד")
+                return
+
+            args = [str(a or "").strip() for a in getattr(context, "args", []) if str(a or "").strip()]
+            default_max = int(os.getenv("CACHE_MAINT_MAX_SCAN", "1000") or 1000)
+            default_ttl = int(os.getenv("CACHE_MAINT_TTL_THRESHOLD", "60") or 60)
+            max_scan = default_max
+            ttl_threshold = default_ttl
+
+            remaining: list[str] = []
+            for token in args:
+                lower = token.lower()
+                if lower.startswith("max="):
+                    try:
+                        max_scan = int(token.split("=", 1)[1])
+                    except Exception:
+                        pass
+                    continue
+                if lower.startswith("ttl="):
+                    try:
+                        ttl_threshold = int(token.split("=", 1)[1])
+                    except Exception:
+                        pass
+                    continue
+                remaining.append(token)
+            if remaining:
+                try:
+                    max_scan = int(remaining[0])
+                except Exception:
+                    pass
+            if len(remaining) > 1:
+                try:
+                    ttl_threshold = int(remaining[1])
+                except Exception:
+                    pass
+
+            max_scan = max(10, min(max_scan, 100000))
+            ttl_threshold = max(1, min(ttl_threshold, 3600))
+
+            safe_mode = str(os.getenv("SAFE_MODE", "")).strip().lower() in {"1", "true", "yes", "on"}
+            maint_disabled = str(os.getenv("DISABLE_CACHE_MAINTENANCE", "")).strip().lower() in {"1", "true", "yes", "on"}
+            if safe_mode or maint_disabled:
+                reason = "SAFE_MODE פעיל" if safe_mode else "DISABLE_CACHE_MAINTENANCE=on"
+                await update.message.reply_text(f"ℹ️ לא ניתן להריץ clear_stale כי {reason}.")
+                return
+
+            from cache_manager import cache as global_cache  # type: ignore
+
+            if not getattr(global_cache, "is_enabled", False):
+                await update.message.reply_text("ℹ️ Redis/Cache אינו פעיל בסביבה זו – אין מה לנקות.")
+                return
+
+            deleted = await asyncio.to_thread(
+                global_cache.clear_stale,
+                max_scan=max_scan,
+                ttl_seconds_threshold=ttl_threshold,
+            )
+            emoji = "🟢" if deleted else "ℹ️"
+            lines = [
+                f"{emoji} ניקוי cache עדין הושלם",
+                f"• max_scan={max_scan:,} | ttl≤{ttl_threshold}s",
+                f"• נמחקו בקירוב: {int(deleted):,} מפתחות",
+            ]
+            try:
+                from observability import emit_event as _emit_event  # type: ignore
+            except Exception:
+                _emit_event = None  # type: ignore
+            if callable(_emit_event):
+                try:
+                    _emit_event(
+                        "cache_clear_stale_manual",
+                        severity="info",
+                        deleted=int(deleted),
+                        max_scan=int(max_scan),
+                        ttl_seconds=int(ttl_threshold),
+                    )
+                except Exception:
+                    pass
+            await update.message.reply_text("\n".join(lines))
+        except Exception as e:
+            await update.message.reply_text(f"❌ שגיאה ב-/cache_clear_stale: {html.escape(str(e))}")
+
+    async def status_worker_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """/status_worker – בדיקת בריאות ל-Push Worker / לתור המשני"""
+        try:
+            try:
+                user_id = int(getattr(update.effective_user, 'id', 0) or 0)
+            except Exception:
+                user_id = 0
+            if not self._is_admin(user_id):
+                await update.message.reply_text("❌ פקודה זמינה למנהלים בלבד")
+                return
+
+            override_url = None
+            health_path = "/healthz"
+            for token in getattr(context, "args", []) or []:
+                text = str(token or "").strip()
+                lower = text.lower()
+                if lower.startswith("url="):
+                    override_url = text.split("=", 1)[1].strip()
+                elif lower.startswith("path="):
+                    health_path = "/" + text.split("=", 1)[1].strip().lstrip("/")
+
+            base_url = override_url or os.getenv("PUSH_DELIVERY_URL") or getattr(config, "PUSH_DELIVERY_URL", None)
+            if not base_url:
+                await update.message.reply_text("⚠️ PUSH_DELIVERY_URL לא מוגדר – לא ניתן לבדוק Worker.")
+                return
+            base_url = str(base_url).strip().rstrip("/")
+            health_url = f"{base_url}{health_path}"
+
+            remote_enabled = str(os.getenv("PUSH_REMOTE_DELIVERY_ENABLED", "")).strip().lower() in {"1", "true", "yes", "on"}
+            token_set = bool(os.getenv("PUSH_DELIVERY_TOKEN"))
+
+            try:
+                from http_async import request as async_request
+            except Exception:
+                await update.message.reply_text("⚠️ המודול http_async לא זמין – לא ניתן לבצע בדיקת HTTP.")
+                return
+
+            import time
+            start = time.perf_counter()
+            status_code = None
+            body_preview = ""
+            success = False
+            latency_ms = None
+            error_text = ""
+            try:
+                async with async_request(
+                    "GET",
+                    health_url,
+                    service="push-worker",
+                    endpoint="healthz",
+                    max_attempts=2,
+                ) as resp:
+                    status_code = int(getattr(resp, "status", 0) or 0)
+                    try:
+                        data = await resp.json()
+                        body_preview = json.dumps(data, ensure_ascii=False)[:160]
+                        success = bool(data.get("ok")) and status_code == 200
+                    except Exception:
+                        try:
+                            text = await resp.text()
+                        except Exception:
+                            text = ""
+                        body_preview = text[:160]
+                        success = status_code in {200, 204}
+            except Exception as exc:
+                error_text = str(exc)
+            finally:
+                latency_ms = round((time.perf_counter() - start) * 1000.0, 1)
+
+            lines = [
+                "👷 Worker Status",
+                f"• Remote delivery: {'🟢 פעיל' if remote_enabled else '⚪️ כבוי'}",
+                f"• URL: {health_url}",
+            ]
+            if success:
+                lines.append(f"• Healthz: 🟢 {status_code} ({latency_ms}ms)")
+            else:
+                reason = body_preview or error_text or "לא נמסר מידע"
+                lines.append(f"• Healthz: 🔴 {status_code or 'n/a'} – {reason}")
+            if remote_enabled and not token_set:
+                lines.append("⚠️ אין PUSH_DELIVERY_TOKEN – קריאות /send ייכשלו.")
+            if status_code == 404:
+                lines.append("ℹ️ ה-Worker החזיר 404 ל-/healthz. ודא שה-endpoint קיים או הגדר path=<...>.")
+            await update.message.reply_text("\n".join(lines))
+        except Exception as e:
+            await update.message.reply_text(f"❌ שגיאה ב-/status_worker: {html.escape(str(e))}")
+
+    async def version_history_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """/version_history – פירוט Deployment events אחרונים מתוך observability"""
+        try:
+            try:
+                user_id = int(getattr(update.effective_user, 'id', 0) or 0)
+            except Exception:
+                user_id = 0
+            if not self._is_admin(user_id):
+                await update.message.reply_text("❌ פקודה זמינה למנהלים בלבד")
+                return
+
+            limit = 5
+            lookback_hours = 6
+            for token in getattr(context, "args", []) or []:
+                text = str(token or "").strip()
+                lower = text.lower()
+                if lower.startswith("limit="):
+                    try:
+                        limit = int(lower.split("=", 1)[1])
+                    except Exception:
+                        pass
+                elif lower.startswith("hours="):
+                    try:
+                        lookback_hours = int(lower.split("=", 1)[1])
+                    except Exception:
+                        pass
+                elif text.isdigit():
+                    limit = int(text)
+            limit = max(1, min(limit, 20))
+            lookback_hours = max(1, min(lookback_hours, 168))
+
+            from monitoring import alerts_storage
+
+            end_dt = datetime.now(timezone.utc)
+            start_dt = end_dt - timedelta(hours=lookback_hours)
+            alerts, total = alerts_storage.fetch_alerts(
+                start_dt=start_dt,
+                end_dt=end_dt,
+                alert_type="deployment_event",
+                per_page=limit,
+                page=1,
+            )
+            if not alerts:
+                await update.message.reply_text("ℹ️ לא נמצאו Deployment events בחלון הזמן המבוקש.")
+                return
+
+            def _fmt_ts(raw: str | None) -> str:
+                if not raw:
+                    return "N/A"
+                iso = raw.replace("Z", "+00:00")
+                try:
+                    dt = datetime.fromisoformat(iso)
+                except Exception:
+                    return raw
+                return dt.strftime("%Y-%m-%d %H:%M UTC")
+
+            lines = [
+                f"🚀 Version History ({len(alerts)} מתוך {total} אחרונים, חלון {lookback_hours}h)"
+            ]
+            for entry in alerts:
+                ts_txt = _fmt_ts(entry.get("timestamp"))
+                summary = entry.get("summary") or entry.get("name") or "deployment_event"
+                metadata = entry.get("metadata") or {}
+                actor = metadata.get("actor")
+                request_id = metadata.get("request_id")
+                extra_parts = []
+                if actor:
+                    extra_parts.append(f"actor={actor}")
+                if request_id:
+                    extra_parts.append(f"request_id={request_id}")
+                extra = f" ({', '.join(extra_parts)})" if extra_parts else ""
+                lines.append(f"• {ts_txt} – {summary}{extra}")
+            lines.append("🔗 לאנליזה מלאה: /admin/observability?tab=deployments")
+            await update.message.reply_text("\n".join(lines))
+        except Exception as e:
+            await update.message.reply_text(f"❌ שגיאה ב-/version_history: {html.escape(str(e))}")
 
     async def enable_backoff_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """/enable_backoff – הפעלת Backoff גלובלי (מנהלים בלבד)"""

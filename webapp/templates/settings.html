@@ -215,7 +215,7 @@
         Config Radar – נראות קונפיגורציה
       </h2>
       <p class="config-radar-lead">
-        מבט מרוכז על alerts.yml, error_signatures.yml ו-image_settings.yaml כולל סטטוס ולידציה ו-Git.
+        מבט מרוכז על alerts.yml, error_signatures.yml, image_settings.yaml, alert_quick_fixes.json ו-observability_runbooks.yml כולל סטטוס ולידציה ו-Git.
       </p>
     </div>
     <div class="config-radar-actions">
@@ -237,6 +237,8 @@
     <button class="radar-tab active" data-panel="alerts" type="button">התראות</button>
     <button class="radar-tab" data-panel="errors" type="button">חתימות שגיאה</button>
     <button class="radar-tab" data-panel="images" type="button">הגדרות תמונה</button>
+    <button class="radar-tab" data-panel="quickfixes" type="button">Quick Fixes</button>
+    <button class="radar-tab" data-panel="runbooks" type="button">Runbooks</button>
   </div>
   <div class="radar-panel active" data-panel="alerts">
     <div class="radar-panel-body" id="configRadarAlerts" data-radar-panel="alerts">
@@ -251,6 +253,16 @@
   <div class="radar-panel" data-panel="images">
     <div class="radar-panel-body" id="configRadarImages" data-radar-panel="images">
       <div class="radar-empty-state">בקרוב יוצגו הגדרות התמונה</div>
+    </div>
+  </div>
+  <div class="radar-panel" data-panel="quickfixes">
+    <div class="radar-panel-body" id="configRadarQuickFixes" data-radar-panel="quickfixes">
+      <div class="radar-empty-state">בקרוב יוצגו נתוני quick fixes</div>
+    </div>
+  </div>
+  <div class="radar-panel" data-panel="runbooks">
+    <div class="radar-panel-body" id="configRadarRunbooks" data-radar-panel="runbooks">
+      <div class="radar-empty-state">בקרוב יוצגו Runbooks</div>
     </div>
   </div>
 </div>
@@ -1148,6 +1160,8 @@
           alerts: card.querySelector('#configRadarAlerts'),
           errors: card.querySelector('#configRadarErrors'),
           images: card.querySelector('#configRadarImages'),
+          quickfixes: card.querySelector('#configRadarQuickFixes'),
+          runbooks: card.querySelector('#configRadarRunbooks'),
         };
 
         let isLoading = false;
@@ -1342,6 +1356,134 @@
           `;
         };
 
+        const renderActionChips = (actions = []) => {
+          if (!Array.isArray(actions) || !actions.length) {
+            return '<span class="radar-chip">—</span>';
+          }
+          return actions.map((action) => {
+            const label = escapeHtml(action?.label || '');
+            const type = escapeHtml(action?.type || '');
+            return `<span class="radar-chip">
+              ${label || '—'}
+              ${type ? `<small style="display:block; opacity:0.7">${type}</small>` : ''}
+            </span>`;
+          }).join(' ');
+        };
+
+        const buildQuickFixPanel = (snapshot) => {
+          const quick = snapshot?.quick_fixes || {};
+          const kpis = [
+            { label: 'גרסה', value: quick.version },
+            { label: 'Alert types', value: quick.total_alert_types },
+            { label: 'Rules לפי חומרה', value: quick.total_severity_rules },
+            { label: 'Fallback actions', value: quick.total_fallback },
+          ];
+          const kpiHtml = kpis.map((kpi) => `
+            <div class="radar-kpi">
+              <strong>${escapeHtml(kpi.value ?? '—')}</strong>
+              <span>${escapeHtml(kpi.label)}</span>
+            </div>
+          `).join('');
+          const alertRows = (quick.alert_types || []).length
+            ? (quick.alert_types || []).map((entry) => `
+                <tr>
+                  <td>${escapeHtml(entry.name || '')}</td>
+                  <td>${escapeHtml(entry.actions_count ?? 0)}</td>
+                  <td>${renderActionChips(entry.sample_actions || [])}</td>
+                </tr>
+              `).join('')
+            : '<tr><td colspan="3">לא הוגדרו Quick Fixes לפי סוג התראה</td></tr>';
+          const severityRows = (quick.severity_rules || []).length
+            ? (quick.severity_rules || []).map((entry) => `
+                <tr>
+                  <td>${escapeHtml(entry.severity || '')}</td>
+                  <td>${escapeHtml(entry.actions_count ?? 0)}</td>
+                  <td>${renderActionChips(entry.sample_actions || [])}</td>
+                </tr>
+              `).join('')
+            : '<tr><td colspan="3">לא הוגדרו כללים לפי חומרה</td></tr>';
+          const fallbackHtml = renderActionChips(quick.fallback_actions || []);
+
+          return `
+            ${buildGitMeta(quick.git, quick.path)}
+            <div class="radar-grid">${kpiHtml}</div>
+            <h4>פעולות לפי Alert Type</h4>
+            <table class="radar-table">
+              <thead>
+                <tr>
+                  <th>Alert</th>
+                  <th>כמות פעולות</th>
+                  <th>דוגמאות</th>
+                </tr>
+              </thead>
+              <tbody>${alertRows}</tbody>
+            </table>
+            <h4>פעולות לפי Severity</h4>
+            <table class="radar-table">
+              <thead>
+                <tr>
+                  <th>חומרה</th>
+                  <th>כמות פעולות</th>
+                  <th>דוגמאות</th>
+                </tr>
+              </thead>
+              <tbody>${severityRows}</tbody>
+            </table>
+            <div>
+              <strong>Fallback:</strong>
+              ${fallbackHtml}
+            </div>
+          `;
+        };
+
+        const buildRunbooksPanel = (snapshot) => {
+          const runbooks = snapshot?.runbooks || {};
+          const kpis = [
+            { label: 'גרסה', value: runbooks.version },
+            { label: 'מספר Runbooks', value: runbooks.total_runbooks },
+            { label: 'Runbook ברירת מחדל', value: runbooks.default_runbook || '—' },
+          ];
+          const kpiHtml = kpis.map((kpi) => `
+            <div class="radar-kpi">
+              <strong>${escapeHtml(kpi.value ?? '—')}</strong>
+              <span>${escapeHtml(kpi.label)}</span>
+            </div>
+          `).join('');
+          const runbookItems = (runbooks.runbooks || []).length
+            ? (runbooks.runbooks || []).map((book) => {
+                const aliases = (book.aliases || []).map((alias) => `<span class="radar-chip">${escapeHtml(alias)}</span>`).join(' ') || '<span class="radar-chip">—</span>';
+                const steps = (book.steps || []).length
+                  ? (book.steps || []).map((step) => `
+                      <li>
+                        <strong>${escapeHtml(step.title || step.id || '')}</strong>
+                        ${step.action_label ? `<span class="radar-chip">${escapeHtml(step.action_label)}${step.action_type ? ` • ${escapeHtml(step.action_type)}` : ''}</span>` : ''}
+                      </li>
+                    `).join('')
+                  : '<li>לא הוגדרו צעדים לדוגמה</li>';
+                return `
+                  <details class="radar-accordion">
+                    <summary>
+                      <div>
+                        <strong>${escapeHtml(book.title || book.name || '')}</strong>
+                        <span class="radar-chip">${escapeHtml(book.steps_count ?? 0)} צעדים</span>
+                      </div>
+                      <div style="opacity:0.8">${escapeHtml(book.description || '')}</div>
+                    </summary>
+                    <div class="radar-accordion-body">
+                      <div><strong>Aliases:</strong> ${aliases}</div>
+                      <ol class="radar-list">${steps}</ol>
+                    </div>
+                  </details>
+                `;
+              }).join('')
+            : '<div class="radar-empty-state">לא קיימים Runbooks בקובץ</div>';
+          return `
+            ${buildGitMeta(runbooks.git, runbooks.path)}
+            <div class="radar-grid">${kpiHtml}</div>
+            ${runbookItems}
+          `;
+        };
+
         const renderSnapshot = (snapshot) => {
           const validation = snapshot?.validation;
           const ok = validation?.status === 'ok';
@@ -1361,6 +1503,8 @@
           if (slots.alerts) slots.alerts.innerHTML = buildAlertsPanel(snapshot);
           if (slots.errors) slots.errors.innerHTML = buildErrorsPanel(snapshot);
           if (slots.images) slots.images.innerHTML = buildImagesPanel(snapshot);
+          if (slots.quickfixes) slots.quickfixes.innerHTML = buildQuickFixPanel(snapshot);
+          if (slots.runbooks) slots.runbooks.innerHTML = buildRunbooksPanel(snapshot);
         };
 
         const fetchSnapshot = async (label) => {

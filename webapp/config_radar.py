@@ -20,6 +20,8 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_ALERTS_PATH = "config/alerts.yml"
 DEFAULT_ERROR_SIGNATURES_PATH = "config/error_signatures.yml"
 DEFAULT_IMAGE_SETTINGS_PATH = "config/image_settings.yaml"
+DEFAULT_ALERT_QUICK_FIXES_PATH = "config/alert_quick_fixes.json"
+DEFAULT_RUNBOOKS_PATH = "config/observability_runbooks.yml"
 
 
 @dataclass
@@ -33,19 +35,29 @@ def build_config_radar_snapshot() -> Dict[str, Any]:
     alerts_path = _resolve_path("ALERTS_GROUPING_CONFIG", DEFAULT_ALERTS_PATH)
     error_signatures_path = _resolve_path("ERROR_SIGNATURES_PATH", DEFAULT_ERROR_SIGNATURES_PATH)
     image_settings_path = _resolve_path("IMAGE_SETTINGS_PATH", DEFAULT_IMAGE_SETTINGS_PATH)
+    quick_fix_path = _resolve_path("ALERT_QUICK_FIX_PATH", DEFAULT_ALERT_QUICK_FIXES_PATH)
+    runbooks_path = _resolve_path("OBSERVABILITY_RUNBOOK_PATH", DEFAULT_RUNBOOKS_PATH)
 
     alerts_section, immediate_categories = _build_alerts_section(alerts_path)
     error_section = _build_error_signatures_section(error_signatures_path, immediate_categories)
     image_section = _build_image_settings_section(image_settings_path)
+    quick_fix_section = _build_quick_fixes_section(quick_fix_path)
+    runbook_section = _build_runbooks_section(runbooks_path)
 
     per_file_validation = {
         alerts_section.payload["path"]: _summarize_issues(alerts_section.issues),
         error_section.payload["path"]: _summarize_issues(error_section.issues),
         image_section.payload["path"]: _summarize_issues(image_section.issues),
+        quick_fix_section.payload["path"]: _summarize_issues(quick_fix_section.issues),
+        runbook_section.payload["path"]: _summarize_issues(runbook_section.issues),
     }
 
     all_issues: List[Dict[str, str]] = (
-        alerts_section.issues + error_section.issues + image_section.issues
+        alerts_section.issues
+        + error_section.issues
+        + image_section.issues
+        + quick_fix_section.issues
+        + runbook_section.issues
     )
     overall_status = "ok" if not any(_is_error(i) for i in all_issues) else "error"
 
@@ -55,6 +67,8 @@ def build_config_radar_snapshot() -> Dict[str, Any]:
         "alerts": alerts_section.payload,
         "error_signatures": error_section.payload,
         "image_settings": image_section.payload,
+        "quick_fixes": quick_fix_section.payload,
+        "runbooks": runbook_section.payload,
         "validation": {
             "status": overall_status,
             "issues": all_issues,
@@ -216,6 +230,187 @@ def _build_image_settings_section(path: Path) -> SectionResult:
                 )
 
     return SectionResult(summary, issues)
+
+
+def _build_quick_fixes_section(path: Path) -> SectionResult:
+    data, issues = _load_mapping(path, required_name="alert_quick_fixes.json")
+
+    version = data.get("version")
+    if not isinstance(version, int):
+        issues.append(_issue(path.name, "version", "יש להגדיר מספר גרסה (version) תקני"))
+
+    raw_by_alert = data.get("by_alert_type")
+    if not isinstance(raw_by_alert, dict):
+        issues.append(_issue(path.name, "by_alert_type", "חייב להיות מפתח מסוג אובייקט"))
+        raw_by_alert = {}
+
+    raw_by_severity = data.get("by_severity")
+    if not isinstance(raw_by_severity, dict):
+        raw_by_severity = {}
+
+    fallback_actions = data.get("fallback")
+    if not isinstance(fallback_actions, list):
+        fallback_actions = []
+
+    alert_types_summary: List[Dict[str, Any]] = []
+    for name, actions in raw_by_alert.items():
+        if not isinstance(actions, list):
+            issues.append(_issue(path.name, f"by_alert_type.{name}", "חייב להיות מערך פעולות"))
+            continue
+        action_summaries: List[Dict[str, Any]] = []
+        for idx, action in enumerate(actions[:3]):
+            action_summaries.append(_summarize_quick_fix_action(path.name, f"by_alert_type.{name}[{idx}]", action, issues))
+        alert_types_summary.append(
+            {
+                "name": str(name),
+                "actions_count": len(actions),
+                "sample_actions": [a for a in action_summaries if a],
+            }
+        )
+
+    severity_summary: List[Dict[str, Any]] = []
+    for severity, actions in raw_by_severity.items():
+        if not isinstance(actions, list):
+            issues.append(_issue(path.name, f"by_severity.{severity}", "חייב להיות מערך פעולות"))
+            continue
+        action_summaries: List[Dict[str, Any]] = []
+        for idx, action in enumerate(actions[:3]):
+            action_summaries.append(_summarize_quick_fix_action(path.name, f"by_severity.{severity}[{idx}]", action, issues))
+        severity_summary.append(
+            {
+                "severity": str(severity),
+                "actions_count": len(actions),
+                "sample_actions": [a for a in action_summaries if a],
+            }
+        )
+
+    fallback_summary = [
+        _summarize_quick_fix_action(path.name, f"fallback[{idx}]", action, issues)
+        for idx, action in enumerate(fallback_actions[:3])
+    ]
+
+    summary = {
+        "path": _relative_path(path),
+        "version": version,
+        "total_alert_types": len(alert_types_summary),
+        "total_severity_rules": len(severity_summary),
+        "total_fallback": len(fallback_actions),
+        "alert_types": alert_types_summary,
+        "severity_rules": severity_summary,
+        "fallback_actions": [a for a in fallback_summary if a],
+        "git": _git_metadata(path),
+    }
+    return SectionResult(summary, issues)
+
+
+def _summarize_quick_fix_action(
+    file_name: str,
+    scope: str,
+    action: Any,
+    issues: List[Dict[str, str]],
+) -> Dict[str, Any]:
+    if not isinstance(action, dict):
+        issues.append(_issue(file_name, scope, "כל פעולה חייבת להיות אובייקט עם label/type"))
+        return {}
+    label = str(action.get("label") or action.get("id") or "").strip()
+    if not label:
+        issues.append(_issue(file_name, scope, "label חסר"))
+    action_type = str(action.get("type") or "link").lower()
+    payload = ""
+    if action_type == "link":
+        payload = str(action.get("href") or "")
+        if not payload:
+            issues.append(_issue(file_name, scope, "href חסר לפעולת לינק"))
+    elif action_type == "copy":
+        payload = str(action.get("payload") or "")
+        if not payload:
+            issues.append(_issue(file_name, scope, "payload חסר לפעולת copy"))
+    else:
+        issues.append(_issue(file_name, scope, f"סוג פעולה לא נתמך: {action_type}"))
+    return {
+        "label": label or "—",
+        "type": action_type,
+        "value": payload or "—",
+        "safety": action.get("safety") or "safe",
+    }
+
+
+def _build_runbooks_section(path: Path) -> SectionResult:
+    data, issues = _load_mapping(path, required_name="observability_runbooks.yml")
+
+    version = data.get("version")
+    if not isinstance(version, int):
+        issues.append(_issue(path.name, "version", "יש להגדיר מספר גרסה (version) תקני"))
+
+    default_flow = data.get("default")
+    runbooks_raw = data.get("runbooks")
+    if not isinstance(runbooks_raw, dict):
+        issues.append(_issue(path.name, "runbooks", "השורש runbooks חייב להיות מפה של אובייקטים"))
+        runbooks_raw = {}
+
+    runbooks_summary: List[Dict[str, Any]] = []
+    for key, cfg in runbooks_raw.items():
+        if not isinstance(cfg, dict):
+            issues.append(_issue(path.name, f"runbooks.{key}", "ערך חייב להיות אובייקט Runbook"))
+            continue
+        steps = cfg.get("steps")
+        if not isinstance(steps, list):
+            issues.append(_issue(path.name, f"runbooks.{key}.steps", "steps חייב להיות מערך"))
+            steps = []
+        aliases_raw = cfg.get("aliases")
+        if aliases_raw is not None and not isinstance(aliases_raw, list):
+            issues.append(_issue(path.name, f"runbooks.{key}.aliases", "aliases חייב להיות מערך מחרוזות"))
+            aliases_raw = []
+        runbooks_summary.append(
+            {
+                "name": str(key),
+                "title": cfg.get("title"),
+                "description": cfg.get("description"),
+                "aliases": [str(alias) for alias in (aliases_raw or []) if isinstance(alias, str)],
+                "steps_count": len(steps),
+                "steps": _summarize_runbook_steps(path.name, key, steps, issues),
+            }
+        )
+
+    summary = {
+        "path": _relative_path(path),
+        "version": version,
+        "default_runbook": default_flow,
+        "total_runbooks": len(runbooks_summary),
+        "runbooks": runbooks_summary,
+        "git": _git_metadata(path),
+    }
+    if not default_flow:
+        issues.append(_issue(path.name, "default", "הגדרת ברירת המחדל (default) חסרה"))
+    return SectionResult(summary, issues)
+
+
+def _summarize_runbook_steps(
+    file_name: str,
+    book_name: str,
+    steps: Sequence[Any],
+    issues: List[Dict[str, str]],
+) -> List[Dict[str, Any]]:
+    summaries: List[Dict[str, Any]] = []
+    for idx, step in enumerate(steps[:6]):
+        if not isinstance(step, dict):
+            issues.append(_issue(file_name, f"runbooks.{book_name}.steps[{idx}]", "כל צעד חייב להיות אובייקט"))
+            continue
+        action = step.get("action")
+        action_label = ""
+        action_type = ""
+        if isinstance(action, dict):
+            action_label = str(action.get("label") or "")
+            action_type = str(action.get("type") or "")
+        summaries.append(
+            {
+                "id": step.get("id"),
+                "title": step.get("title"),
+                "action_label": action_label,
+                "action_type": action_type,
+            }
+        )
+    return summaries
 
 
 def _summarize_signatures(
