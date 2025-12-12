@@ -4,6 +4,25 @@
     border-radius: 16px;
 }
 
+.compare-header .form-select,
+.compare-header .form-control {
+    background: rgba(255, 255, 255, 0.08);
+    border: 1px solid rgba(255, 255, 255, 0.18);
+    color: var(--text-primary, rgba(255, 255, 255, 0.92));
+}
+
+.compare-header .form-select:focus,
+.compare-header .form-control:focus {
+    background: rgba(255, 255, 255, 0.1);
+    border-color: rgba(255, 255, 255, 0.28);
+    box-shadow: 0 0 0 0.2rem rgba(102, 126, 234, 0.2);
+}
+
+/* ב-RTL, לפעמים option יורש צבע לא נכון */
+.compare-header .form-select option {
+    color: #111;
+}
+
 .diff-card {
     border-radius: 16px;
     background: var(--card-bg, rgba(0, 0, 0, 0.35));
@@ -11,6 +30,11 @@
 
 .diff-card .btn-group .btn {
     min-width: 130px;
+}
+
+/* Action bar (כמו במדריך) */
+.action-bar {
+    border-radius: 16px;
 }
 
 /* סטטיסטיקות */
