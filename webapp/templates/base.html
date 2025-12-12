@@ -2069,6 +2069,72 @@
     <script src="{{ url_for('static', filename='js/smooth-scroll.js') }}?v={{ static_version }}" defer></script>
     <script type="module" src="{{ url_for('static', filename='js/editor-manager.js') }}?v={{ static_version }}" defer></script>
     <script src="{{ url_for('static', filename='js/collections.js') }}?v={{ static_version }}" defer></script>
+    <script>
+    (function bootstrapModalPolyfill(){
+        if (window.__ck_bootstrap_modal_polyfill) return;
+        window.__ck_bootstrap_modal_polyfill = true;
+
+        function closeModal(modalEl) {
+            if (!modalEl) return;
+            try { modalEl.classList.remove('show'); } catch (_) {}
+            try { modalEl.style.display = 'none'; } catch (_) {}
+            try { modalEl.setAttribute('aria-hidden', 'true'); } catch (_) {}
+            try { document.body.classList.remove('modal-open'); } catch (_) {}
+        }
+
+        function openModal(modalEl) {
+            if (!modalEl) return;
+            try { modalEl.style.display = 'block'; } catch (_) {}
+            try { modalEl.classList.add('show'); } catch (_) {}
+            try { modalEl.removeAttribute('aria-hidden'); } catch (_) {}
+            try { modalEl.setAttribute('aria-modal', 'true'); } catch (_) {}
+            try { modalEl.setAttribute('role', 'dialog'); } catch (_) {}
+            try { document.body.classList.add('modal-open'); } catch (_) {}
+        }
+
+        // Minimal bootstrap.Modal API used by compare.js
+        window.bootstrap = window.bootstrap || {};
+        window.bootstrap.Modal = window.bootstrap.Modal || {};
+        if (typeof window.bootstrap.Modal.getInstance !== 'function') {
+            window.bootstrap.Modal.getInstance = function(el){
+                return { hide: function(){ closeModal(el); } };
+            };
+        }
+
+        document.addEventListener('click', function(e){
+            try {
+                const opener = e.target.closest('[data-bs-toggle="modal"][data-bs-target]');
+                if (opener) {
+                    e.preventDefault();
+                    const sel = opener.getAttribute('data-bs-target');
+                    if (sel) openModal(document.querySelector(sel));
+                    return;
+                }
+
+                const dismiss = e.target.closest('[data-bs-dismiss="modal"]');
+                if (dismiss) {
+                    e.preventDefault();
+                    closeModal(dismiss.closest('.modal'));
+                    return;
+                }
+
+                // Click outside dialog closes
+                const modalEl = e.target.classList && e.target.classList.contains('modal') ? e.target : null;
+                if (modalEl && modalEl.classList.contains('show')) {
+                    closeModal(modalEl);
+                }
+            } catch (_) {}
+        }, true);
+
+        document.addEventListener('keydown', function(e){
+            try {
+                if (e.key !== 'Escape') return;
+                const openEl = document.querySelector('.modal.show');
+                if (openEl) closeModal(openEl);
+            } catch (_) {}
+        });
+    })();
+    </script>
 <script>
     (function welcomeModalInit(){
         const modal = document.getElementById('welcomeModal');

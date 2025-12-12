@@ -50,3 +50,23 @@ html {
 .diff-container .inline-content {
   min-height: 0;
 }
+
+/* Bootstrap-like modal fallback (used by compare.html) */
+.modal {
+  display: none;
+}
+.modal.show {
+  display: block;
+}
+.modal {
+  position: fixed;
+  inset: 0;
+  z-index: 1050;
+  overflow: auto;
+  background: rgba(0, 0, 0, 0.5);
+  padding: 1rem;
+}
+.modal .modal-dialog {
+  max-width: 560px;
+  margin: 10vh auto 0;
+}
