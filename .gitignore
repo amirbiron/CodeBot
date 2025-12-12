@@ -45,5 +45,8 @@ Thumbs.db
 htmlcov/
 coverage.xml
 
+# Runtime tmp directory
+tmp/
+
 # Cursor/agent artifacts (local only)
 .cursor/

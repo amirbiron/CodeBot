@@ -9444,12 +9444,15 @@ def api_observability_runbook_status(event_id: str):
     if not step_id:
         return jsonify({'ok': False, 'error': 'missing_step_id'}), 400
     completed = bool(payload.get('completed'))
+    fallback_event = payload.get('event')
+    fallback_metadata = fallback_event if isinstance(fallback_event, dict) else None
     try:
         snapshot = observability_service.update_runbook_step_status(
             event_id=event_id,
             step_id=step_id,
             completed=completed,
             user_id=user_id,
+            fallback_metadata=fallback_metadata,
         )
     except ValueError as exc:
         return jsonify({'ok': False, 'error': 'bad_request', 'message': str(exc)}), 400

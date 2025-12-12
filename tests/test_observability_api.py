@@ -109,6 +109,7 @@ def test_observability_runbook_status_updates(monkeypatch):
             'step_id': step_id,
             'completed': completed,
             'user_id': user_id,
+            'fallback': fallback_metadata,
         })
         return {'event': {'id': event_id}, 'runbook': {'title': 'Demo', 'steps': [{'id': step_id, 'completed': completed}]}, 'actions': [], 'status': {'completed_steps': [step_id]}}
 
@@ -121,13 +122,30 @@ def test_observability_runbook_status_updates(monkeypatch):
     with app.test_client() as client:
         with client.session_transaction() as sess:
             sess['user_id'] = admin_id
-        resp = client.post('/api/observability/runbook/evt/status', json={'step_id': 'check', 'completed': True})
+        resp = client.post('/api/observability/runbook/evt/status', json={
+            'step_id': 'check',
+            'completed': True,
+            'event': {
+                'id': 'evt',
+                'alert_type': 'demo_alert',
+                'type': 'alert',
+                'severity': 'critical',
+                'summary': 'demo',
+                'title': 'Demo',
+                'timestamp': '2025-01-01T00:00:00Z',
+                'metadata': {
+                    'alert_type': 'demo_alert',
+                    'endpoint': '/healthz',
+                },
+            },
+        })
     assert resp.status_code == 200
     payload = resp.get_json()
     assert payload['ok'] is True
     assert payload['status']['completed_steps'] == ['check']
     assert captured['step_id'] == 'check'
     assert captured['completed'] is True
+    assert captured['fallback']['alert_type'] == 'demo_alert'
 
 
 def test_observability_ai_explain_requires_admin(monkeypatch):

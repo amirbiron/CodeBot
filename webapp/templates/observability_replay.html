@@ -608,11 +608,12 @@
 
   function renderRunbookActionButton(action, eventMeta) {
     if (!action || !action.id) return '';
+    const eventAlertType = (eventMeta && (eventMeta.alert_type || (eventMeta.metadata && eventMeta.metadata.alert_type))) || '';
     const payload = encodeURIComponent(JSON.stringify({
       action,
       alert: {
         alert_uid: eventMeta.id,
-        alert_type: eventMeta.alert_type,
+        alert_type: eventAlertType,
         severity: eventMeta.severity,
         timestamp: eventMeta.timestamp,
         summary: eventMeta.summary,
@@ -683,12 +684,45 @@
         ${actionsMarkup}
       </div>
     `;
-    bindRunbookStepToggles(eventMeta.id, steps);
+    const targetEventId = eventMeta.id || state.selectedEventId || '';
+    bindRunbookStepToggles(targetEventId, steps, eventMeta);
     bindRunbookActionButtons();
   }
 
-  function bindRunbookStepToggles(eventId, steps) {
+  function serializeEventForApi(evt) {
+    if (!evt) return null;
+    const meta = Object.assign({}, evt.metadata || {});
+    const eventId = evt.id || evt.alert_uid || '';
+    if (!eventId) {
+      return null;
+    }
+    if (!meta.alert_type && evt.alert_type) {
+      meta.alert_type = evt.alert_type;
+    }
+    if (evt.endpoint && !meta.endpoint) {
+      meta.endpoint = evt.endpoint;
+    }
+    if (evt.source && !meta.source) {
+      meta.source = evt.source;
+    }
+    return {
+      id: eventId,
+      type: evt.type,
+      severity: evt.severity,
+      title: evt.title,
+      summary: evt.summary,
+      timestamp: evt.timestamp,
+      alert_type: evt.alert_type || meta.alert_type,
+      endpoint: evt.endpoint || meta.endpoint,
+      source: evt.source || meta.source,
+      link: evt.link,
+      metadata: meta,
+    };
+  }
+
+  function bindRunbookStepToggles(eventId, steps, eventMeta) {
     if (!runbookPanel || !eventId || !Array.isArray(steps)) return;
+    const meta = eventMeta || state.eventsMap[eventId];
     const validSteps = new Set(steps.map(step => step.id).filter(Boolean));
     runbookPanel.querySelectorAll('.runbook-step input[type="checkbox"]').forEach(input => {
       const container = input.closest('.runbook-step');
@@ -698,7 +732,7 @@
         return;
       }
       input.addEventListener('change', () => {
-        updateRunbookStatus(eventId, stepId, input.checked);
+        updateRunbookStatus(eventId, stepId, input.checked, meta);
       });
     });
   }
@@ -757,12 +791,17 @@
     }
   }
 
-  async function updateRunbookStatus(eventId, stepId, completed) {
+  async function updateRunbookStatus(eventId, stepId, completed, eventMeta) {
     try {
+      const eventPayload = serializeEventForApi(eventMeta || state.eventsMap[eventId]);
       const res = await fetch(`/api/observability/runbook/${encodeURIComponent(eventId)}/status`, {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({step_id: stepId, completed}),
+        body: JSON.stringify({
+          step_id: stepId,
+          completed,
+          event: eventPayload,
+        }),
       });
       if (!res.ok) throw new Error('HTTP ' + res.status);
       const payload = await res.json();

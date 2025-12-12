@@ -182,3 +182,45 @@ runbooks:
     )
     assert payload["status"]["completed_steps"] == ["check"]
     assert payload["runbook"]["steps"][0]["completed"] is True
+
+
+def test_update_runbook_step_status_uses_fallback_metadata(monkeypatch, tmp_path):
+    yaml_text = """
+runbooks:
+  demo_alert:
+    title: Demo Runbook
+    steps:
+      - id: check
+        title: Check status
+        action:
+          label: Copy Cmd
+          type: copy
+          payload: "/triage demo"
+"""
+    path = tmp_path / "runbook.yml"
+    path.write_text(yaml_text, encoding="utf-8")
+    monkeypatch.setattr(obs, "_RUNBOOK_PATH", path)
+    monkeypatch.setattr(obs, "_RUNBOOK_CACHE", {})
+    monkeypatch.setattr(obs, "_RUNBOOK_ALIAS_MAP", {})
+    monkeypatch.setattr(obs, "_RUNBOOK_MTIME", 0.0)
+    obs._RUNBOOK_EVENT_CACHE.clear()
+    obs._RUNBOOK_STATE.clear()
+
+    payload = obs.update_runbook_step_status(
+        event_id="evt-3",
+        step_id="check",
+        completed=True,
+        user_id=9,
+        fallback_metadata={
+            "id": "evt-3",
+            "alert_type": "demo_alert",
+            "type": "alert",
+            "title": "Demo Alert",
+            "summary": "S",
+            "timestamp": "2025-01-01T02:00:00+00:00",
+            "severity": "critical",
+            "metadata": {"alert_type": "demo_alert"},
+        },
+    )
+    assert payload["status"]["completed_steps"] == ["check"]
+    assert payload["runbook"]["steps"][0]["completed"] is True

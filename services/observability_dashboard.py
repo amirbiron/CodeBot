@@ -84,6 +84,7 @@ except ValueError:  # pragma: no cover - env misconfig fallback
     _RUNBOOK_EVENT_CACHE_TTL = 900.0
 _RUNBOOK_STATE: Dict[str, Dict[str, Any]] = {}
 _RUNBOOK_EVENT_CACHE: Dict[str, Tuple[float, Dict[str, Any]]] = {}
+_RUNBOOK_STATE_LOCK = threading.Lock()
 
 logger = logging.getLogger(__name__)
 
@@ -2065,17 +2066,24 @@ def _lookup_replay_event(event_id: str) -> Optional[Dict[str, Any]]:
 
 def _get_runbook_state(alert_uid: str) -> Dict[str, Any]:
     uid = str(alert_uid or "").strip()
+    default_state = {"completed": set(), "updated_at": None, "user_hash": None, "ts": 0.0}
     if not uid:
-        return {"completed": set(), "updated_at": None, "user_hash": None, "ts": 0.0}
+        return default_state
     now = time.time()
-    entry = _RUNBOOK_STATE.get(uid)
-    if not entry:
-        return {"completed": set(), "updated_at": None, "user_hash": None, "ts": 0.0}
-    if (now - entry.get("ts", 0.0)) > _RUNBOOK_STATE_TTL:
-        _RUNBOOK_STATE.pop(uid, None)
-        return {"completed": set(), "updated_at": None, "user_hash": None, "ts": 0.0}
-    entry["completed"] = set(entry.get("completed") or set())
-    return entry
+    with _RUNBOOK_STATE_LOCK:
+        entry = _RUNBOOK_STATE.get(uid)
+        if entry and (now - entry.get("ts", 0.0)) > _RUNBOOK_STATE_TTL:
+            _RUNBOOK_STATE.pop(uid, None)
+            entry = None
+        if not entry:
+            return default_state
+        completed = set(entry.get("completed") or set())
+        return {
+            "completed": completed,
+            "updated_at": entry.get("updated_at"),
+            "user_hash": entry.get("user_hash"),
+            "ts": entry.get("ts", now),
+        }
 
 
 def _set_runbook_step_state(
@@ -2090,20 +2098,30 @@ def _set_runbook_step_state(
     step = str(step_id or "").strip()
     if not step:
         raise ValueError("missing_step_id")
-    state = _get_runbook_state(uid)
-    completed_steps: set[str] = set(state.get("completed") or set())
-    if completed:
-        completed_steps.add(step)
-    else:
-        completed_steps.discard(step)
-    entry = {
-        "completed": completed_steps,
-        "updated_at": datetime.now(timezone.utc).isoformat(),
-        "user_hash": _hash_identifier(user_id),
-        "ts": time.time(),
-    }
-    _RUNBOOK_STATE[uid] = entry
-    return entry
+    now = time.time()
+    with _RUNBOOK_STATE_LOCK:
+        state = _RUNBOOK_STATE.get(uid)
+        if state and (now - state.get("ts", 0.0)) > _RUNBOOK_STATE_TTL:
+            state = None
+            _RUNBOOK_STATE.pop(uid, None)
+        completed_steps: set[str] = set(state.get("completed") or set()) if state else set()
+        if completed:
+            completed_steps.add(step)
+        else:
+            completed_steps.discard(step)
+        entry = {
+            "completed": completed_steps,
+            "updated_at": datetime.now(timezone.utc).isoformat(),
+            "user_hash": _hash_identifier(user_id),
+            "ts": time.time(),
+        }
+        _RUNBOOK_STATE[uid] = entry
+        return {
+            "completed": set(entry["completed"]),
+            "updated_at": entry["updated_at"],
+            "user_hash": entry["user_hash"],
+            "ts": entry["ts"],
+        }
 
 
 def _build_runbook_snapshot(
