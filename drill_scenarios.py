@@ -5,6 +5,11 @@
 - כל תרגול חייב לכלול metadata.is_drill = True
 - הכותרת צריכה להתחיל ב-🎭 כדי לבלוט בכל UI/טלגרם
 - ניתן להשתמש ב-Templating פשוט בשדות metadata (למשל {{current_timestamp}})
+
+הערה חשובה:
+בעבר הקובץ היה תחת `config/drill_scenarios.py`, אבל בפרויקט יש גם `config.py`.
+בפייתון זה גורם להתנגשות בשם `config` (מודול) ולכן `config.*` לא עובד כ-package.
+לכן הקובץ נמצא ברוט כמודול `drill_scenarios`.
 """
 
 from __future__ import annotations
@@ -135,4 +140,3 @@ DRILL_SCENARIOS = {
         },
     },
 }
-
