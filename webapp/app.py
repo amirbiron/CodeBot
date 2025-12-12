@@ -5649,6 +5649,7 @@ def dashboard():
                              bot_username=BOT_USERNAME_CLEAN)
 
 @app.route('/files')
+@app.route('/files', endpoint='files_page')
 @login_required
 @traced("files.list")
 def files():

@@ -31,3 +31,44 @@ html {
   backface-visibility: hidden;
   will-change: transform;
 }
+
+/* =================================================================
+   Diff Viewer (Compare) - RTL + Scrolling Fixes
+   =================================================================
+   Notes:
+   - Keep the app RTL globally, but force the diff area itself to LTR so the
+     "left/right" panes match their labels.
+   - Ensure nested flex containers can scroll (min-height: 0 is required).
+*/
+.diff-container {
+  direction: ltr;
+}
+.diff-container .diff-view,
+.diff-container .diff-pane,
+.diff-container .pane-content,
+.diff-container .unified-content,
+.diff-container .inline-content {
+  min-height: 0;
+}
+
+/* Bootstrap-like modal fallback (used by compare.html) */
+.modal,
+.modal.fade {
+  display: none !important;
+}
+.modal.show,
+.modal.fade.show {
+  display: block !important;
+}
+.modal {
+  position: fixed;
+  inset: 0;
+  z-index: 1050;
+  overflow: auto;
+  background: rgba(0, 0, 0, 0.5);
+  padding: 1rem;
+}
+.modal .modal-dialog {
+  max-width: 560px;
+  margin: 10vh auto 0;
+}
