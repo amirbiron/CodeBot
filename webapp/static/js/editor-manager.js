@@ -115,7 +115,7 @@
       }
     }
 
-    initSimpleEditor(container, { value, cursor } = {}) {
+    initSimpleEditor(container, { value }) {
       try {
         if (this.cmInstance) {
           // העתקת התוכן חזרה ל-textarea והרס העורך
@@ -130,13 +130,10 @@
         if (typeof value === 'string' && value && this.textarea.value !== value) {
           this.textarea.value = value;
         }
-        if (cursor) {
-          this.restoreCursorInTextarea(cursor);
-        }
       } catch(_) {}
     }
 
-    async initCodeMirror(container, { language, value, theme, cursor }) {
+    async initCodeMirror(container, { language, value, theme }) {
       // אם יש כבר טעינה פעילה, נחכה שתסתיים כדי למנוע מצב ביניים
       if (this.isLoading && this.loadingPromise) {
         await this.loadingPromise;
@@ -202,13 +199,10 @@
           this.cmInstance = new EditorView({ state, parent: cmWrapper });
           try { console.log('[EditorManager] CodeMirror editor instance created'); } catch(_) {}
           this.registerSelectionFix();
-          if (cursor) {
-            this.restoreCursorInCodeMirror(cursor);
-          }
         } catch (e) {
           console.error('CodeMirror init failed', e);
           this.currentEditor = 'simple';
-          this.initSimpleEditor(container, { value, cursor });
+          this.initSimpleEditor(container, { value });
           try {
             // הסרת באנרי שגיאה קודמים כדי למנוע הצטברות
             container.querySelectorAll('.editor-error-banner').forEach(el => el.remove());
@@ -267,21 +261,17 @@
       const toggleBtn = switcher.querySelector('.btn-switch-editor');
       toggleBtn.addEventListener('click', async () => {
         const prev = this.currentEditor;
-        const cursor = this.getCursorPosition();
         this.currentEditor = prev === 'simple' ? 'codemirror' : 'simple';
         if (this.currentEditor === 'codemirror') {
           const lang = this.getSelectedLanguage() || 'text';
           try {
-            await this.initCodeMirror(container, { language: lang, value: this.textarea.value, theme: 'dark', cursor });
+            await this.initCodeMirror(container, { language: lang, value: this.textarea.value, theme: 'dark' });
           } catch (e) {
             this.currentEditor = 'simple';
-            this.initSimpleEditor(container, { value: this.textarea.value, cursor });
+            this.initSimpleEditor(container, { value: this.textarea.value });
           }
         } else {
-          this.initSimpleEditor(container, {
-            value: this.cmInstance ? this.cmInstance.state.doc.toString() : this.textarea.value,
-            cursor
-          });
+          this.initSimpleEditor(container, { value: this.cmInstance ? this.cmInstance.state.doc.toString() : this.textarea.value });
         }
         this.savePreference(this.currentEditor);
         try {
@@ -446,137 +436,8 @@
         this.showClipboardNotice(switcher, usedPrompt ? 'לא הוזן טקסט' : 'הלוח ריק');
         return;
       }
-      this.insertTextAtCursor(text);
+      this.setEditorContent(text);
       this.showClipboardNotice(switcher, 'הטקסט הודבק');
-    }
-
-    getCursorPosition() {
-      try {
-        if (this.cmInstance && this.cmInstance.state) {
-          const sel = this.cmInstance.state.selection.main;
-          return { from: sel.from, to: sel.to };
-        }
-      } catch(_) {}
-      try {
-        if (this.textarea) {
-          const start = typeof this.textarea.selectionStart === 'number'
-            ? this.textarea.selectionStart
-            : (this.textarea.value || '').length;
-          const end = typeof this.textarea.selectionEnd === 'number'
-            ? this.textarea.selectionEnd
-            : start;
-          return { from: start, to: end };
-        }
-      } catch(_) {}
-      return null;
-    }
-
-    normalizeCursor(cursor, maxLength) {
-      if (!cursor || typeof maxLength !== 'number') {
-        return null;
-      }
-      const clamp = (val) => {
-        if (!Number.isFinite(val)) {
-          return 0;
-        }
-        return Math.min(Math.max(val, 0), maxLength);
-      };
-      const rawStart = Number(
-        cursor.from ??
-        cursor.anchor ??
-        cursor.head ??
-        cursor.to ??
-        0
-      );
-      const rawEnd = Number(cursor.to ?? cursor.head ?? cursor.from ?? cursor.anchor ?? rawStart);
-      let start = clamp(rawStart);
-      let end = clamp(rawEnd);
-      if (start > end) {
-        const tmp = start;
-        start = end;
-        end = tmp;
-      }
-      return { from: start, to: end };
-    }
-
-    restoreCursorInCodeMirror(cursor) {
-      if (!cursor || !this.cmInstance || !this.cmInstance.state) {
-        return;
-      }
-      const docLength = this.cmInstance.state.doc.length;
-      const normalized = this.normalizeCursor(cursor, docLength);
-      if (!normalized) {
-        return;
-      }
-      this.cmInstance.dispatch({
-        selection: { anchor: normalized.from, head: normalized.to },
-        scrollIntoView: true
-      });
-      try { this.cmInstance.focus(); } catch(_) {}
-    }
-
-    restoreCursorInTextarea(cursor) {
-      if (!cursor || !this.textarea) {
-        return;
-      }
-      const length = (this.textarea.value || '').length;
-      const normalized = this.normalizeCursor(cursor, length);
-      if (!normalized) {
-        return;
-      }
-      const apply = () => {
-        try {
-          this.textarea.focus();
-          this.textarea.setSelectionRange(normalized.from, normalized.to);
-        } catch(_) {}
-      };
-      if (typeof requestAnimationFrame === 'function') {
-        requestAnimationFrame(apply);
-      } else {
-        setTimeout(apply, 0);
-      }
-    }
-
-    insertTextAtCursor(text) {
-      const value = typeof text === 'string' ? text : '';
-      if (!value) {
-        return;
-      }
-      try {
-        if (this.cmInstance && this.cmInstance.state) {
-          const sel = this.cmInstance.state.selection.main;
-          const start = sel.from;
-          const end = sel.to;
-          this.cmInstance.dispatch({
-            changes: { from: start, to: end, insert: value },
-            selection: { anchor: start + value.length },
-            scrollIntoView: true
-          });
-          return;
-        }
-      } catch(_) {}
-      if (this.textarea) {
-        const target = this.textarea;
-        const start = typeof target.selectionStart === 'number'
-          ? target.selectionStart
-          : (target.value || '').length;
-        const end = typeof target.selectionEnd === 'number' ? target.selectionEnd : start;
-        try {
-          if (typeof target.setRangeText === 'function') {
-            target.setRangeText(value, start, end, 'end');
-          } else {
-            const current = target.value || '';
-            target.value = current.slice(0, start) + value + current.slice(end);
-            const nextPos = start + value.length;
-            target.setSelectionRange(nextPos, nextPos);
-          }
-        } catch(_) {
-          target.value = (target.value || '') + value;
-        }
-        try { target.dispatchEvent(new Event('input', { bubbles: true })); } catch(_) {}
-        return;
-      }
-      this.setEditorContent(value);
     }
 
     showClipboardNotice(switcher, message) {
