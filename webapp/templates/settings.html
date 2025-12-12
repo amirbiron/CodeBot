@@ -1204,11 +1204,9 @@
         let coverageLoading = false;
         let coverageCache = null;
         const coverageState = {
-          timerange: (urlParams.get('timerange') || urlParams.get('range') || '24h').toLowerCase(),
           minCount: Number(urlParams.get('min_count') || '1') || 1,
           search: (urlParams.get('alert_type') || urlParams.get('q') || '').trim().toLowerCase(),
         };
-        if (!['1h','24h','7d','30d'].includes(coverageState.timerange)) coverageState.timerange = '24h';
         coverageState.minCount = Math.max(1, Math.min(10_000, Math.floor(coverageState.minCount || 1)));
 
         const setStatus = (message, variant = 'muted', extraHtml = '') => {
@@ -1533,28 +1531,14 @@
         };
 
         const buildCoverageControls = () => {
-          const options = [
-            { value: '1h', label: '1 שעה' },
-            { value: '24h', label: '24 שעות' },
-            { value: '7d', label: '7 ימים' },
-            { value: '30d', label: '30 יום' },
-          ];
-          const optionsHtml = options.map(opt => {
-            const selected = opt.value === coverageState.timerange ? ' selected' : '';
-            return `<option value="${opt.value}"${selected}>${opt.label}</option>`;
-          }).join('');
           return `
             <div class="radar-controls">
               <label>
-                טווח זמן
-                <select id="configRadarCoverageRange">${optionsHtml}</select>
-              </label>
-              <label>
-                מינימום הופעות
+                מינימום הופעות (All-time)
                 <input id="configRadarCoverageMinCount" type="number" min="1" step="1" value="${escapeHtml(String(coverageState.minCount))}" />
               </label>
               <label style="flex:1; min-width: 220px;">
-                חיפוש (alert_type)
+                חיפוש (alert_type / runbook)
                 <input id="configRadarCoverageSearch" type="search" placeholder="למשל: high_error_rate" value="${escapeHtml(coverageState.search)}" />
               </label>
               <button class="btn btn-secondary" id="configRadarCoverageRefreshBtn" type="button">רענן</button>
@@ -1575,8 +1559,8 @@
               const count = escapeHtml(String(r.count ?? 0));
               const lastSeen = escapeHtml(formatDateTime(r.last_seen_ts));
               const sample = escapeHtml(r.sample_title || '');
-              const obsHref = `/admin/observability?timerange=${encodeURIComponent(coverageState.timerange)}&alert_type=${encodeURIComponent(r.alert_type || '')}`;
-              const selfHref = `/settings?config_radar_tab=coverage&timerange=${encodeURIComponent(coverageState.timerange)}&min_count=${encodeURIComponent(String(coverageState.minCount))}&alert_type=${encodeURIComponent(r.alert_type || '')}#configRadarCard`;
+              const obsHref = `/admin/observability?timerange=24h&alert_type=${encodeURIComponent(r.alert_type || '')}`;
+              const selfHref = `/settings?config_radar_tab=coverage&min_count=${encodeURIComponent(String(coverageState.minCount))}&alert_type=${encodeURIComponent(r.alert_type || '')}#configRadarCard`;
               return `
                 <tr>
                   <td><code dir="ltr">${alertType}</code></td>
@@ -1667,8 +1651,9 @@
           const meta = payload?.meta || {};
           const metaHtml = `
             <div class="radar-meta" style="margin-top:0.25rem;">
-              <span>חלון: ${escapeHtml(formatDateTime(meta.window_start))} → ${escapeHtml(formatDateTime(meta.window_end))}</span>
-              <span>נוצר: ${escapeHtml(formatDateTime(meta.generated_at))}</span>
+              <span><strong>מצב:</strong> ${escapeHtml(meta.mode || 'catalog')}</span>
+              <span><strong>Catalog:</strong> ${escapeHtml(String(meta.catalog_total ?? '—'))} alert_types</span>
+              <span><strong>נוצר:</strong> ${escapeHtml(formatDateTime(meta.generated_at))}</span>
             </div>
           `;
           slots.coverage.innerHTML = `
@@ -1682,14 +1667,9 @@
             </div>
           `;
 
-          const rangeEl = document.getElementById('configRadarCoverageRange');
           const minEl = document.getElementById('configRadarCoverageMinCount');
           const searchEl = document.getElementById('configRadarCoverageSearch');
           const refreshEl = document.getElementById('configRadarCoverageRefreshBtn');
-          if (rangeEl) rangeEl.addEventListener('change', () => {
-            coverageState.timerange = (rangeEl.value || '24h').toLowerCase();
-            fetchCoverage().catch(() => {});
-          });
           if (minEl) minEl.addEventListener('change', () => {
             const v = Number(minEl.value || '1') || 1;
             coverageState.minCount = Math.max(1, Math.min(10_000, Math.floor(v)));
@@ -1713,7 +1693,6 @@
           if (!slots.coverage || coverageLoading) return;
           coverageLoading = true;
           const params = new URLSearchParams({
-            timerange: coverageState.timerange,
             min_count: String(coverageState.minCount),
           });
           slots.coverage.innerHTML = '<div class="radar-empty-state">טוען דוח כיסוי…</div>';

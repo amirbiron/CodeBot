@@ -2566,27 +2566,27 @@ def build_coverage_report(
     now = datetime.now(timezone.utc)
     generated_at = now.isoformat()
 
-    # 1) Active alert types (source of truth)
-    active_rows: List[Dict[str, Any]] = []
+    # 1) Catalog alert types (source of truth, all-time)
+    catalog_rows: List[Dict[str, Any]] = []
     try:
-        active_rows = alerts_storage.aggregate_alert_type_stats(
-            start_dt=start_dt,
-            end_dt=end_dt,
-            min_count=min_count,
-            limit=2000,
+        catalog_rows = alerts_storage.fetch_alert_type_catalog(
+            min_total_count=min_count,
+            limit=50_000,
         )
     except Exception:
-        active_rows = []
+        catalog_rows = []
 
-    if not active_rows:
-        active_rows = _fallback_aggregate_alert_types(start_dt=start_dt, end_dt=end_dt, min_count=min_count)
+    # Best-effort fallback when catalog is unavailable: fall back to in-memory alerts in the requested window.
+    # Note: this fallback is NOT persistent, but avoids returning an empty report in minimal setups.
+    if not catalog_rows:
+        catalog_rows = _fallback_aggregate_alert_types(start_dt=start_dt, end_dt=end_dt, min_count=min_count)
 
-    active_types: set[str] = set()
-    for row in active_rows:
+    catalog_types: set[str] = set()
+    for row in catalog_rows:
         try:
             key = _normalize_alert_type(row.get("alert_type"))
             if key:
-                active_types.add(key)
+                catalog_types.add(key)
         except Exception:
             continue
 
@@ -2600,11 +2600,11 @@ def build_coverage_report(
     if not isinstance(quick_by_type, dict):
         quick_by_type = {}
 
-    # 3) Missing runbooks / quick fixes
+    # 3) Missing runbooks / quick fixes (catalog-based)
     missing_runbooks: List[Dict[str, Any]] = []
     missing_quick_fixes: List[Dict[str, Any]] = []
 
-    for row in active_rows:
+    for row in catalog_rows:
         alert_type = _normalize_alert_type(row.get("alert_type"))
         if not alert_type:
             continue
@@ -2670,13 +2670,13 @@ def build_coverage_report(
 
     # 4) Orphans
     orphan_runbooks = _find_orphan_runbooks(
-        active_types=active_types,
+        active_types=catalog_types,
         default_runbook_key=default_runbook_key,
     )
     orphan_quick_fixes: List[Dict[str, Any]] = []
     try:
         for key in sorted({str(k).strip().lower() for k in quick_by_type.keys() if k}):
-            if key and key not in active_types:
+            if key and key not in catalog_types:
                 orphan_quick_fixes.append({"alert_type": key})
     except Exception:
         orphan_quick_fixes = []
@@ -2687,9 +2687,12 @@ def build_coverage_report(
         "orphan_runbooks": orphan_runbooks,
         "orphan_quick_fixes": orphan_quick_fixes,
         "meta": {
+            # Keep window for context/links, but the report itself is catalog-based by default.
             "window_start": start_dt.isoformat() if start_dt else None,
             "window_end": end_dt.isoformat() if end_dt else None,
             "generated_at": generated_at,
+            "mode": "catalog",
+            "catalog_total": len(catalog_rows),
         },
     }
 

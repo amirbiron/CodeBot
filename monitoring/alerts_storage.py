@@ -43,6 +43,7 @@ def _enabled() -> bool:
 
 _client = None  # type: ignore
 _collection = None  # type: ignore
+_catalog_collection = None  # type: ignore
 _init_failed = False
 
 _SENSITIVE_DETAIL_KEYS = {
@@ -229,6 +230,37 @@ def _get_collection():  # pragma: no cover - exercised indirectly
         return None
 
 
+def _get_catalog_collection():  # pragma: no cover - exercised indirectly
+    """Return (and lazily create) the alert types catalog collection."""
+    global _catalog_collection
+    if _catalog_collection is not None or _init_failed:
+        return _catalog_collection
+    # Ensure base client is initialized (same DB/cluster settings)
+    try:
+        coll = _get_collection()
+        if coll is None:
+            return None
+    except Exception:
+        return None
+    try:
+        # Reuse the same client/db, create a separate collection
+        db_name = os.getenv("DATABASE_NAME") or "code_keeper_bot"
+        catalog_name = os.getenv("ALERT_TYPES_CATALOG_COLLECTION") or "alert_types_catalog"
+        db = _client[db_name]  # type: ignore[index]
+        _catalog_collection = db[catalog_name]
+        # Best-effort indexes
+        try:
+            from pymongo import ASCENDING  # type: ignore
+
+            _catalog_collection.create_index([("alert_type", ASCENDING)], unique=True)  # type: ignore[attr-defined]
+            _catalog_collection.create_index([("last_seen_dt", ASCENDING)])  # type: ignore[attr-defined]
+        except Exception:
+            pass
+        return _catalog_collection
+    except Exception:
+        return None
+
+
 def _isoformat_utc(value: Optional[datetime]) -> Optional[str]:
     """Return ISO string with UTC tzinfo for Mongo datetimes."""
     if not isinstance(value, datetime):
@@ -315,8 +347,128 @@ def record_alert(
                 coll.insert_one(doc)  # type: ignore[attr-defined]
             except Exception:
                 pass
+
+        # --- Catalog (Registry): persist observed alert_type forever (best-effort) ---
+        try:
+            # Do not pollute catalog with drills
+            if clean_details and bool(clean_details.get("is_drill")):
+                return
+        except Exception:
+            pass
+        try:
+            if alert_type:
+                _upsert_alert_type_catalog(
+                    alert_type=alert_type,
+                    name=str(name or "alert"),
+                    summary=str(summary or ""),
+                    seen_dt=now,
+                )
+        except Exception:
+            pass
     except Exception:
         return
+
+
+def _upsert_alert_type_catalog(
+    *,
+    alert_type: str,
+    name: str,
+    summary: str,
+    seen_dt: datetime,
+) -> None:
+    coll = _get_catalog_collection()
+    if coll is None:
+        return
+    key = _safe_str(alert_type, limit=128).lower()
+    if not key:
+        return
+    now = seen_dt if isinstance(seen_dt, datetime) else datetime.now(timezone.utc)
+    payload = {
+        "alert_type": key,
+        "last_seen_dt": now,
+        "last_seen_name": _safe_str(name, limit=128),
+        "last_seen_summary": _safe_str(summary, limit=256),
+        "updated_at": now,
+    }
+    try:
+        coll.update_one(
+            {"alert_type": key},
+            {
+                "$setOnInsert": {"first_seen_dt": now, "created_at": now},
+                "$set": payload,
+                "$inc": {"total_count": 1},
+            },
+            upsert=True,
+        )  # type: ignore[attr-defined]
+    except Exception:
+        return
+
+
+def fetch_alert_type_catalog(
+    *,
+    min_total_count: int = 1,
+    limit: int = 5000,
+) -> List[Dict[str, Any]]:
+    """Return catalog of all observed alert types (fail-open).
+
+    Each row includes:
+      alert_type, total_count, first_seen_dt, last_seen_dt, sample_name, sample_title
+    """
+    coll = _get_catalog_collection()
+    if coll is None:
+        return []
+    try:
+        min_total = int(min_total_count)
+    except Exception:
+        min_total = 1
+    min_total = max(1, min_total)
+    try:
+        lim = int(limit)
+    except Exception:
+        lim = 5000
+    lim = max(1, min(50_000, lim))
+    try:
+        match: Dict[str, Any] = {"total_count": {"$gte": min_total}}
+        cursor = (
+            coll.find(
+                match,
+                {
+                    "_id": 0,
+                    "alert_type": 1,
+                    "total_count": 1,
+                    "first_seen_dt": 1,
+                    "last_seen_dt": 1,
+                    "last_seen_name": 1,
+                    "last_seen_summary": 1,
+                },
+            )  # type: ignore[attr-defined]
+            .sort([("last_seen_dt", -1)])  # type: ignore[attr-defined]
+            .limit(lim)  # type: ignore[attr-defined]
+        )
+    except Exception:
+        return []
+    out: List[Dict[str, Any]] = []
+    try:
+        for doc in cursor:
+            try:
+                a_type = _safe_str(doc.get("alert_type"), limit=128).lower()
+                if not a_type:
+                    continue
+                out.append(
+                    {
+                        "alert_type": a_type,
+                        "count": int(doc.get("total_count", 0) or 0),
+                        "first_seen_dt": doc.get("first_seen_dt"),
+                        "last_seen_dt": doc.get("last_seen_dt"),
+                        "sample_name": _safe_str(doc.get("last_seen_name"), limit=128),
+                        "sample_title": _safe_str(doc.get("last_seen_summary"), limit=256),
+                    }
+                )
+            except Exception:
+                continue
+    except Exception:
+        return []
+    return out
 
 
 def count_alerts_since(since_dt: datetime) -> tuple[int, int]:

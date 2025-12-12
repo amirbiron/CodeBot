@@ -524,16 +524,16 @@ runbooks:
     start_dt = now - timedelta(hours=24)
     end_dt = now
 
-    def _fake_agg(*, start_dt, end_dt, min_count=1, limit=2000):
-        # Respect min_count to mimic real aggregation behavior
+    def _fake_catalog(*, min_total_count=1, limit=50000):
+        # Respect min_total_count to mimic real catalog behavior
         base = [
             {"alert_type": "a", "count": 2, "last_seen_dt": end_dt, "sample_title": "A", "sample_name": "A"},
             {"alert_type": "alias_only", "count": 1, "last_seen_dt": end_dt, "sample_title": "B", "sample_name": "B"},
             {"alert_type": "unknown", "count": 5, "last_seen_dt": end_dt, "sample_title": "U", "sample_name": "U"},
         ]
-        return [row for row in base if int(row["count"]) >= int(min_count or 1)]
+        return [row for row in base if int(row["count"]) >= int(min_total_count or 1)]
 
-    monkeypatch.setattr(alerts_storage, 'aggregate_alert_type_stats', _fake_agg, raising=True)
+    monkeypatch.setattr(alerts_storage, 'fetch_alert_type_catalog', _fake_catalog, raising=True)
 
     report = svc.build_coverage_report(start_dt=start_dt, end_dt=end_dt, min_count=1)
     assert isinstance(report, dict)
@@ -546,6 +546,7 @@ runbooks:
     assert all(item['runbook_key'] != 'generic_incident_flow' for item in report['orphan_runbooks'])
     # Orphan quick fix key
     assert any(item['alert_type'] == 'dead_alert' for item in report['orphan_quick_fixes'])
+    assert report['meta']['mode'] == 'catalog'
 
     report_min = svc.build_coverage_report(start_dt=start_dt, end_dt=end_dt, min_count=2)
     # alias_only filtered out by min_count, so it shouldn't appear in missing quick fixes
