@@ -35,20 +35,27 @@
    Container & Layout
    ================================================================= */
 .diff-container {
+    /* 1. הקונטיינר הראשי - חייב גובה מוגדר כדי שהילדים ידעו מתי לגלול */
+    height: 75vh; /* תופס 75% גובה מסך באופן קשיח */
     min-height: 400px;
-    max-height: 70vh;
-    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden; /* מסתיר את מה שבורח החוצה */
+    border: 1px solid var(--glass-border);
     border-radius: 12px;
     position: relative;
 }
 
 .diff-view {
-    display: none;
+    /* 2. המעטפת של התצוגה - חייבת לתפוס את כל הגובה */
+    flex: 1;
     height: 100%;
+    min-height: 0; /* קריטי ל-Flexbox! */
+    display: none; /* מוסתר כברירת מחדל */
 }
 
 .diff-view.active {
-    display: flex;
+    display: flex; /* Flex כשהוא פעיל */
 }
 
 /* =================================================================
@@ -65,10 +72,14 @@
 }
 
 .diff-pane {
+    /* 3. הפאנלים הצדדיים - מעבירים את הגובה לתוכן */
     flex: 1;
     min-width: 0;
     display: flex;
     flex-direction: column;
+    height: 100%;
+    min-height: 0;
+    overflow: hidden; /* מונע גלילה כפולה */
     background: var(--glass-bg, rgba(30, 30, 30, 0.8));
     border: 1px solid var(--glass-border, rgba(255, 255, 255, 0.1));
 }
@@ -102,16 +113,16 @@
 
 /* Pane Content - Scrollable */
 .pane-content {
+    /* 4. התוכן עצמו - המקום היחיד שבו מותרת גלילה */
     flex: 1;
-    overflow: auto;
+    height: 100%;
+    overflow-y: auto; /* כאן הגלילה קורית בפועל */
+    overflow-x: auto;
     font-family: 'Fira Code', 'Consolas', 'Monaco', 'Menlo', monospace;
     font-size: 13px;
     line-height: 1.5;
     direction: ltr;
     text-align: left;
-    /* מניעת גלילה אופקית אוטומטית */
-    overflow-x: auto;
-    overflow-y: scroll;
 }
 
 /* =================================================================
