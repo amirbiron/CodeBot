@@ -743,6 +743,12 @@
      - ברירת מחדל
      - דוגמה
      - רכיב
+   * - ``DRILL_MODE_ENABLED``
+     - מפעיל Drill Mode (תרגולים) ב-WebApp/API. כאשר כבוי, ``/api/observability/drills/run`` יחזיר ``drill_disabled``.
+     - לא
+     - ``false``
+     - ``true``
+     - WebApp/Observability
    * - ``ALERTMANAGER_WEBHOOK_SECRET``
      - טוקן שצריך להופיע בכותרת ``X-Alertmanager-Token`` או בפרמטר ``token`` כדי לאמת קריאות ל־``/alertmanager/webhook``.
      - לא
@@ -766,19 +772,19 @@
      - לא
      - -
      - ``123456:ABC-DEF...``
-     - Bot
+     - Bot/WebApp
    * - ``ALERT_TELEGRAM_CHAT_ID``
      - Chat ID/Channel שאליו נשלחות התראות (לדוגמה ``-100123`` או ``@myteam``).
      - לא
      - -
      - ``-1001234567890``
-     - Bot
+     - Bot/WebApp
    * - ``ALERT_TELEGRAM_MIN_SEVERITY``
      - דרגת החומרה המינימלית שתישלח לטלגרם (``info``/``warning``/``error``/``critical``).
      - לא
      - ``info``
      - ``warning``
-     - Bot
+     - Bot/WebApp
    * - ``GRAFANA_URL``
      - בסיס ה-URL של Grafana לכתיבת annotations על התראות.
      - לא
@@ -797,12 +803,24 @@
      - ``false``
      - ``true``
      - Bot/Observability
+   * - ``DRILLS_DB_ENABLED``
+     - מפעיל שמירת היסטוריית Drill ב-MongoDB (ברירת מחדל נסמכת על ``ALERTS_DB_ENABLED``/``METRICS_DB_ENABLED``).
+     - לא
+     - "" (ריק = יורש מ-ALERTS_DB_ENABLED/METRICS_DB_ENABLED)
+     - ``true``
+     - WebApp/Observability
    * - ``ALERTS_COLLECTION``
      - שם הקולקשן שבו נשמרות התראות מנורמלות.
      - לא
      - ``alerts_log``
      - ``alerts_log_prod``
      - Bot/Observability
+   * - ``DRILLS_COLLECTION``
+     - שם הקולקשן שבו נשמרת היסטוריית Drill Mode (תרגולים).
+     - לא
+     - ``drill_history``
+     - ``drill_history_prod``
+     - WebApp/Observability
    * - ``ALERTS_SILENCES_COLLECTION``
      - שם הקולקשן לסיילנסים (pattern + TTL).
      - לא
@@ -815,6 +833,12 @@
      - ``30``
      - ``14``
      - Bot/Observability
+   * - ``DRILLS_TTL_DAYS``
+     - כמה ימים נשמרת היסטוריית Drill לפני מחיקה אוטומטית (TTL index).
+     - לא
+     - ``90``
+     - ``30``
+     - WebApp/Observability
    * - ``ALERTS_GROUPING_CONFIG``
      - נתיב ל־YAML שמגדיר איך לאגד אירועים לקטגוריות התראה (log aggregator).
      - לא
