@@ -1043,6 +1043,48 @@
      - "" (ריק)
      - ``https://sentry.io/organizations/acme/projects/codebot``
      - Bot/ChatOps
+   * - ``SENTRY_POLL_ENABLED``
+     - מפעיל Polling תקופתי ל-Sentry (חלופה כאשר אין אפשרות Webhook ב-Sentry). הבוט ימשוך Issues אחרונים וייצר ``internal_alerts`` מסוג ``alert_type=sentry_issue``.
+     - לא
+     - ``false``
+     - ``true``
+     - Bot
+   * - ``SENTRY_POLL_INTERVAL_SECS``
+     - כל כמה שניות לבצע Polling ל-Sentry (מינימום 30).
+     - לא
+     - ``300``
+     - ``120``
+     - Bot
+   * - ``SENTRY_POLL_FIRST_SECS``
+     - דיליי לפני ריצת ה-Poll הראשונה לאחר עלייה (שניות).
+     - לא
+     - ``20``
+     - ``5``
+     - Bot
+   * - ``SENTRY_POLL_LIMIT``
+     - כמה Issues למשוך בכל Poll (מינימום 1, מקסימום 100).
+     - לא
+     - ``10``
+     - ``25``
+     - Bot
+   * - ``SENTRY_POLL_SEVERITY``
+     - דרגת החומרה שתישלח כ-``internal_alerts`` עבור Sentry Poll (``info``/``warning``/``error``/``critical``).
+     - לא
+     - ``error``
+     - ``warning``
+     - Bot
+   * - ``SENTRY_POLL_SEED_SILENT``
+     - אם ``true`` ההרצה הראשונה רק "זורעת" מצב (Seed) ולא שולחת התראות על Issues קיימים; רק פעילות חדשה בהמשך תייצר התראה.
+     - לא
+     - ``true``
+     - ``false``
+     - Bot
+   * - ``SENTRY_POLL_DEDUP_SECONDS``
+     - חלון דה-דופליקציה (בשניות) לכל Issue כדי למנוע הצפה (``0`` מנטרל).
+     - לא
+     - ``900``
+     - ``300``
+     - Bot
    * - ``SENTRY_TEST_NOTIFICATIONS_JOB``
      - 1/``true`` מפעיל Job מדמה ששולח אירוע בדיקה ל-Sentry לצורכי ניטור.
      - לא
