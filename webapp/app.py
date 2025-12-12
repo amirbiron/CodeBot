@@ -6526,13 +6526,58 @@ def compare_files_page():
     db = _db
 
     # קבלת רשימת הקבצים לבחירה
-    user_files = db.get_user_files(user_id, limit=100)
+    user_files = db.get_user_files(
+        user_id,
+        limit=100,
+        projection={
+            "_id": 1,
+            "file_name": 1,
+            "programming_language": 1,
+            "updated_at": 1,
+            "file_size": 1,
+            "lines_count": 1,
+        },
+    )
+
+    # חישוב שפות מובילות לסינון מהיר (Top 5)
+    lang_counts: Dict[str, int] = {}
+    files: List[Dict[str, Any]] = []
+    for f in (user_files or []):
+        try:
+            lang = f.get("programming_language") or "other"
+        except Exception:
+            lang = "other"
+        try:
+            lang_counts[lang] = lang_counts.get(lang, 0) + 1
+        except Exception:
+            pass
+
+        # התאמה מינימלית כדי ש-{{ files | tojson }} יעבוד גם עם ObjectId/Datetime
+        ff: Dict[str, Any] = dict(f or {})
+        try:
+            ff["_id"] = str(ff.get("_id", ""))
+        except Exception:
+            ff["_id"] = str(getattr(f, "_id", "") or "")
+        updated_at = ff.get("updated_at")
+        try:
+            if hasattr(updated_at, "isoformat"):
+                ff["updated_at"] = updated_at.isoformat()
+            elif updated_at is None:
+                ff["updated_at"] = ""
+            else:
+                ff["updated_at"] = str(updated_at)
+        except Exception:
+            ff["updated_at"] = str(updated_at) if updated_at is not None else ""
+        files.append(ff)
+
+    top_languages = sorted(lang_counts.keys(), key=lambda x: -lang_counts[x])[:5]
 
     return render_template(
         'compare_files.html',
-        files=user_files,
+        files=files,
         selected_left=left_id,
         selected_right=right_id,
+        top_languages=top_languages,
     )
 
 
