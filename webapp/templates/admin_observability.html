@@ -624,6 +624,7 @@
     <div class="toolbar-actions">
       <button id="exportJsonBtn">📥 ייצוא JSON</button>
       <button id="openReplayBtn">⏪ Incident Replay</button>
+      <button id="openDrillsBtn">🧪 Drill Mode</button>
     </div>
   </div>
 
@@ -2291,6 +2292,14 @@
     });
   }
 
+  function initDrillsButton() {
+    const btn = document.getElementById('openDrillsBtn');
+    if (!btn) return;
+    btn.addEventListener('click', () => {
+      window.open('/admin/drills', '_blank', 'noopener');
+    });
+  }
+
   if (storyButtons.save) storyButtons.save.addEventListener('click', () => saveStoryFromModal());
   if (storyButtons.saveMarkdown) storyButtons.saveMarkdown.addEventListener('click', () => saveStoryMarkdownToWebapp());
   if (storyButtons.downloadPdf) storyButtons.downloadPdf.addEventListener('click', () => downloadStoryPdf());
@@ -2309,6 +2318,7 @@
   initFilters();
   initExportButton();
   initReplayButton();
+  initDrillsButton();
   refreshAll();
 })();
 </script>

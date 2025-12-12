@@ -327,9 +327,17 @@ def count_alerts_since(since_dt: datetime) -> tuple[int, int]:
         coll = _get_collection()
         if coll is None:
             return 0, 0
-        total = int(coll.count_documents({"ts_dt": {"$gte": since_dt}}))  # type: ignore[attr-defined]
+        match: Dict[str, Any] = {"ts_dt": {"$gte": since_dt}}
+        # Default: exclude Drill alerts from stats to prevent metric pollution
+        match["details.is_drill"] = {"$ne": True}
+        total = int(coll.count_documents(match))  # type: ignore[attr-defined]
         critical = int(
-            coll.count_documents({"ts_dt": {"$gte": since_dt}, "severity": {"$regex": "^critical$", "$options": "i"}})  # type: ignore[attr-defined]
+            coll.count_documents(
+                {
+                    **match,
+                    "severity": {"$regex": "^critical$", "$options": "i"},
+                }
+            )  # type: ignore[attr-defined]
         )
         return total, critical
     except Exception:
@@ -483,6 +491,8 @@ def aggregate_alert_summary(
     if coll is None:
         return {"total": 0, "critical": 0, "anomaly": 0, "deployment": 0}
     match = _build_time_filter(start_dt, end_dt)
+    # Default: exclude Drill alerts from summary/analytics
+    match["details.is_drill"] = {"$ne": True}
     pipeline = [
         {"$match": match},
         {
@@ -544,6 +554,8 @@ def fetch_alert_timestamps(
     if coll is None:
         return []
     match = _build_time_filter(start_dt, end_dt)
+    # Default: exclude Drill alerts from analytics helpers
+    match["details.is_drill"] = {"$ne": True}
     if severity:
         match["severity"] = str(severity).lower()
     if alert_type:
@@ -580,6 +592,8 @@ def aggregate_alert_timeseries(
         bucket_seconds = 3600
     bucket_ms = bucket_seconds * 1000
     match = _build_time_filter(start_dt, end_dt)
+    # Default: exclude Drill alerts from timeseries to prevent metric pollution
+    match["details.is_drill"] = {"$ne": True}
     pipeline = [
         {"$match": match},
         {

@@ -701,6 +701,14 @@ def _emit_critical_once(key: str, name: str, summary: str, details: Dict[str, An
         return
     _last_alert_ts[key] = now_ts
     # Auto-remediation & incident logging (best-effort)
+    # Safety switch: אל תפעיל remediation על Drill
+    try:
+        if bool(details.get("is_drill")) or bool((details.get("metadata") or {}).get("is_drill")):
+            raise RuntimeError("skip_remediation_for_drill")
+    except RuntimeError:
+        pass
+    except Exception:
+        pass
     try:
         from remediation_manager import handle_critical_incident  # type: ignore
         try:
@@ -752,6 +760,37 @@ def _notify_critical_external(name: str, summary: str, details: Dict[str, Any]) 
     - If a matching active silence exists (pattern on name, optional severity), do not send to sinks
       but still record the alert in DB with silenced=true for transparency.
     """
+    # Safety switch: Drill לא יוצא לסינקים, אבל כן נשמר ב-DB לצורך צפייה ב-Observability.
+    try:
+        is_drill = bool(details.get("is_drill")) or bool((details.get("metadata") or {}).get("is_drill"))
+    except Exception:
+        is_drill = False
+    if is_drill:
+        try:
+            from monitoring.alerts_storage import record_alert  # type: ignore
+
+            record_alert(
+                alert_id=str(uuid.uuid4()),
+                name=str(name),
+                severity="critical",
+                summary=str(summary),
+                source="drill",
+                silenced=True,
+                details=details if isinstance(details, dict) else None,
+            )
+        except Exception:
+            pass
+        try:
+            emit_event(
+                "drill_critical_blocked",
+                severity="anomaly",
+                handled=True,
+                name=str(name),
+            )
+        except Exception:
+            pass
+        return
+
     alert_id = str(uuid.uuid4())
     text = _format_text(name=name, severity="CRITICAL", summary=summary, details=details)
     # Silences check (best-effort)

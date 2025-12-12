@@ -852,6 +852,12 @@ def _fallback_alerts(
         ts_value = ts_dt.isoformat() if ts_dt else (ts if isinstance(ts, str) else None)
         severity_value = str(item.get("severity") or "").lower()
         metadata = item.get("details") if isinstance(item.get("details"), dict) else {}
+        # Metric pollution guard (fallback path): אל תערבב drills בנתונים "אמיתיים"
+        try:
+            if bool(metadata.get("is_drill")):
+                continue
+        except Exception:
+            pass
         endpoint_hint = (
             metadata.get("endpoint")
             or metadata.get("path")
@@ -985,6 +991,12 @@ def _fallback_summary() -> Dict[str, int]:
         data = []
     summary = {"total": 0, "critical": 0, "anomaly": 0, "deployment": 0}
     for entry in data:
+        try:
+            details = entry.get("details") if isinstance(entry, dict) else None
+            if isinstance(details, dict) and bool(details.get("is_drill")):
+                continue
+        except Exception:
+            pass
         severity = str(entry.get("severity") or "").lower()
         name = str(entry.get("name") or "").lower()
         summary["total"] += 1
@@ -1146,6 +1158,12 @@ def _fallback_alert_timeseries(
     bucket = max(60, granularity_seconds)
     counts: Dict[int, Dict[str, int]] = {}
     for rec in raw:
+        try:
+            details = rec.get("details") if isinstance(rec, dict) else None
+            if isinstance(details, dict) and bool(details.get("is_drill")):
+                continue
+        except Exception:
+            pass
         ts = _parse_iso_dt(rec.get("ts"))
         if ts is None:
             continue
