@@ -237,39 +237,61 @@ window.CompareView = (function() {
     // =================================================================
     
     /**
-     * הגדרת סנכרון גלילה עם יישור מושלם
+     * הגדרת סנכרון גלילה "חכם" (מונע רעידות, עובד גם במקלדת)
      */
     function setupSyncScroll() {
         const leftPane = elements.leftContent;
         const rightPane = elements.rightContent;
         
         if (!leftPane || !rightPane) return;
+        let activeSide = null;
+        let resetTimeout = null;
 
-        // Event handler עם debounce
-        function handleScroll(source, target) {
-            if (scrollSyncState.isScrolling) return;
-            
-            scrollSyncState.isScrolling = true;
-            
-            // סנכרון לפי אחוז גלילה (לתמיכה בגבהים שונים)
-            const scrollRatio = source.scrollTop / (source.scrollHeight - source.clientHeight || 1);
-            const targetScrollTop = scrollRatio * (target.scrollHeight - target.clientHeight);
-            
-            target.scrollTop = targetScrollTop;
-            
-            // איפוס הדגל אחרי frame אחד
-            requestAnimationFrame(() => {
-                scrollSyncState.isScrolling = false;
+        // 1. זיהוי צד אקטיבי לפי עכבר (אופציונלי, לשיפור תגובתיות)
+        const setActive = (side) => {
+            activeSide = side;
+        };
+        
+        leftPane.addEventListener('mouseenter', () => setActive('left'));
+        rightPane.addEventListener('mouseenter', () => setActive('right'));
+        leftPane.addEventListener('touchstart', () => setActive('left'), { passive: true });
+        rightPane.addEventListener('touchstart', () => setActive('right'), { passive: true });
+
+        // 2. פונקציית סנכרון ראשית
+        function sync(source, target, side) {
+            if (!state.syncScroll) {
+                return;
+            }
+
+            // הגנה: אם הצד השני הוא המפקד כרגע, תתעלם מהאירוע הזה (זה הד של הגלילה)
+            if (activeSide && activeSide !== side) {
+                return;
+            }
+
+            // אם אין מפקד (גלילת מקלדת), אני לוקח פיקוד
+            activeSide = side;
+
+            // חישוב יחסי (למקרה שהגבהים שונים במקצת)
+            const denom = (source.scrollHeight - source.clientHeight) || 1;
+            const percentage = source.scrollTop / denom;
+            const targetPos = percentage * (target.scrollHeight - target.clientHeight);
+
+            // ביצוע הגלילה בצד השני
+            window.requestAnimationFrame(() => {
+                target.scrollTop = targetPos;
             });
+
+            // שחרור הפיקוד כשמפסיקים לגלול (Debounce)
+            // זה מאפשר למשתמש לעבור צד עם המקלדת בלי שהצד הקודם "ינעל" אותו
+            clearTimeout(resetTimeout);
+            resetTimeout = setTimeout(() => {
+                activeSide = null;
+            }, 150);
         }
 
-        leftPane.addEventListener('scroll', () => {
-            if (state.syncScroll) handleScroll(leftPane, rightPane);
-        }, { passive: true });
-
-        rightPane.addEventListener('scroll', () => {
-            if (state.syncScroll) handleScroll(rightPane, leftPane);
-        }, { passive: true });
+        // 3. האזנה לאירועי גלילה
+        leftPane.addEventListener('scroll', () => sync(leftPane, rightPane, 'left'), { passive: true });
+        rightPane.addEventListener('scroll', () => sync(rightPane, leftPane, 'right'), { passive: true });
     }
 
     /**
