@@ -414,3 +414,142 @@ def test_story_save_markdown_calls_helpers(monkeypatch):
     assert captured['story']['alert_uid'] == 'alert-55'
     assert captured['persist']['markdown'] == '# story markdown'
     assert captured['persist']['file_name'] == 'incident_story'
+
+
+def test_observability_coverage_requires_admin(monkeypatch):
+    monkeypatch.setenv('ADMIN_USER_IDS', '10')
+    app = _build_app()
+    with app.test_client() as client:
+        with client.session_transaction() as sess:
+            sess['user_id'] = 99
+        resp = client.get('/api/observability/coverage')
+        assert resp.status_code == 403
+        payload = resp.get_json()
+        assert payload['error'] == 'admin_only'
+
+
+def test_observability_coverage_calls_service(monkeypatch):
+    admin_id = 77
+    monkeypatch.setenv('ADMIN_USER_IDS', str(admin_id))
+    captured = {}
+
+    def _fake_report(*, start_dt, end_dt, min_count=1):
+        captured['start_dt'] = start_dt
+        captured['end_dt'] = end_dt
+        captured['min_count'] = min_count
+        return {'missing_runbooks': [], 'missing_quick_fixes': [], 'orphan_runbooks': [], 'orphan_quick_fixes': [], 'meta': {}}
+
+    monkeypatch.setattr('webapp.app.observability_service.build_coverage_report', _fake_report)
+    app = _build_app()
+    with app.test_client() as client:
+        with client.session_transaction() as sess:
+            sess['user_id'] = admin_id
+        resp = client.get('/api/observability/coverage?timerange=24h&min_count=3')
+        assert resp.status_code == 200
+        data = resp.get_json()
+        assert data['ok'] is True
+        assert data['missing_runbooks'] == []
+
+    assert captured['min_count'] == 3
+    assert captured['end_dt'] >= captured['start_dt']
+
+
+def test_coverage_logic_missing_and_orphans(monkeypatch, tmp_path):
+    # Unit test for matching logic (runbook coverage, quick-fix coverage) and orphan detection.
+    from datetime import timedelta
+    import importlib
+
+    svc = importlib.import_module('services.observability_dashboard')
+    alerts_storage = importlib.import_module('monitoring.alerts_storage')
+
+    runbooks_yaml = """
+version: 1
+default: generic_incident_flow
+runbooks:
+  a:
+    title: "A"
+    aliases: ["a_alias"]
+    steps:
+      - id: s1
+        title: "step"
+        action:
+          label: "do"
+          type: copy
+          payload: "/do"
+  b:
+    title: "B"
+    aliases: ["alias_only"]
+    steps:
+      - id: s2
+        title: "no action"
+  orphaned_runbook:
+    title: "Orphan"
+    aliases: ["old_alias"]
+    steps: []
+  generic_incident_flow:
+    title: "Default"
+    default: true
+    steps:
+      - id: g1
+        title: "fallback"
+"""
+
+    quick_fixes_json = """
+{
+  "version": 1,
+  "by_alert_type": {
+    "a": [{"id":"x","label":"x","type":"copy","payload":"/x"}],
+    "dead_alert": [{"id":"y","label":"y","type":"copy","payload":"/y"}]
+  },
+  "by_severity": {},
+  "fallback": []
+}
+"""
+
+    rb_path = tmp_path / 'runbooks.yml'
+    qf_path = tmp_path / 'quickfix.json'
+    rb_path.write_text(runbooks_yaml, encoding='utf-8')
+    qf_path.write_text(quick_fixes_json, encoding='utf-8')
+
+    # Patch service module paths + reset caches
+    monkeypatch.setattr(svc, '_RUNBOOK_PATH', rb_path, raising=True)
+    monkeypatch.setattr(svc, '_QUICK_FIX_PATH', qf_path, raising=True)
+    monkeypatch.setattr(svc, '_RUNBOOK_CACHE', {}, raising=True)
+    monkeypatch.setattr(svc, '_RUNBOOK_ALIAS_MAP', {}, raising=True)
+    monkeypatch.setattr(svc, '_RUNBOOK_MTIME', 0.0, raising=True)
+    monkeypatch.setattr(svc, '_QUICK_FIX_CACHE', {}, raising=True)
+    monkeypatch.setattr(svc, '_QUICK_FIX_MTIME', 0.0, raising=True)
+
+    now = datetime.now(timezone.utc)
+    start_dt = now - timedelta(hours=24)
+    end_dt = now
+
+    def _fake_catalog(*, min_total_count=1, limit=50000):
+        # Respect min_total_count to mimic real catalog behavior
+        base = [
+            {"alert_type": "a", "count": 2, "last_seen_dt": end_dt, "sample_title": "A", "sample_name": "A"},
+            {"alert_type": "alias_only", "count": 1, "last_seen_dt": end_dt, "sample_title": "B", "sample_name": "B"},
+            {"alert_type": "unknown", "count": 5, "last_seen_dt": end_dt, "sample_title": "U", "sample_name": "U"},
+        ]
+        return [row for row in base if int(row["count"]) >= int(min_total_count or 1)]
+
+    # Patch the exact object used by the service module (avoid import aliasing issues)
+    monkeypatch.setattr(svc.alerts_storage, 'fetch_alert_type_catalog', _fake_catalog, raising=True)
+
+    report = svc.build_coverage_report(start_dt=start_dt, end_dt=end_dt, min_count=1)
+    assert isinstance(report, dict)
+    assert report['missing_runbooks']
+    assert len(report['missing_runbooks']) == 1
+    assert report['missing_runbooks'][0]['alert_type'] == 'unknown'
+    # alias_only has a runbook (via alias) but no per-alert quick fixes -> should be missing quick fixes
+    assert any(item['alert_type'] == 'alias_only' for item in report['missing_quick_fixes'])
+    # Orphan runbook should be detected; default should not appear
+    assert any(item['runbook_key'] == 'orphaned_runbook' for item in report['orphan_runbooks'])
+    assert all(item['runbook_key'] != 'generic_incident_flow' for item in report['orphan_runbooks'])
+    # Orphan quick fix key
+    assert any(item['alert_type'] == 'dead_alert' for item in report['orphan_quick_fixes'])
+    assert report['meta']['mode'] == 'catalog'
+
+    report_min = svc.build_coverage_report(start_dt=start_dt, end_dt=end_dt, min_count=2)
+    # alias_only filtered out by min_count, so it shouldn't appear in missing quick fixes
+    assert all(item['alert_type'] != 'alias_only' for item in report_min['missing_quick_fixes'])

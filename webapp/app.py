@@ -9606,6 +9606,33 @@ def api_observability_alerts():
         return jsonify({'ok': False, 'error': 'internal_error'}), 500
 
 
+@app.route('/api/observability/coverage', methods=['GET'])
+@login_required
+def api_observability_coverage():
+    if not _require_admin_user():
+        return jsonify({'ok': False, 'error': 'admin_only'}), 403
+    try:
+        start_dt, end_dt = _resolve_time_window(default_hours=24)
+        try:
+            min_count = int(request.args.get('min_count') or 1)
+        except Exception:
+            min_count = 1
+        min_count = max(1, min(10_000, min_count))
+        payload = observability_service.build_coverage_report(
+            start_dt=start_dt,
+            end_dt=end_dt,
+            min_count=min_count,
+        )
+        payload['ok'] = True
+        return jsonify(payload)
+    except ValueError as exc:
+        logger.warning("observability_coverage_bad_request: %s", exc)
+        return jsonify({'ok': False, 'error': 'bad_request'}), 400
+    except Exception:
+        logger.exception("observability_coverage_failed")
+        return jsonify({'ok': False, 'error': 'internal_error'}), 500
+
+
 @app.route('/api/observability/aggregations', methods=['GET'])
 @login_required
 def api_observability_aggregations():

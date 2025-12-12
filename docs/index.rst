@@ -143,6 +143,7 @@ Code Keeper Bot - תיעוד API
 
    observability
    observability/observability_dashboard
+   observability/coverage_report
    api/ai_explain
    rate-limiting
    observability/guidelines
