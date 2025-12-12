@@ -73,7 +73,7 @@ Statistics Operations
 האינדקסים מוגדרים אוטומטית בעת אתחול ``database.manager.DatabaseManager``:
 
 - ``user_id_unique`` – אינדקס ייחודי על ``user_id``
-- ``username_unique`` – אינדקס ייחודי, ``sparse`` על ``username`` (מאפשר ערכים חסרים)
+- ``username_unique`` – אינדקס ייחודי על ``username`` עם ``partialFilterExpression`` (מתעלם מ-null/חסר/ריק)
 - ``last_activity_desc`` – אינדקס מיון לפי פעילות אחרונה (``last_activity`` יורד)
 
 הדבר מאפשר:

@@ -411,12 +411,12 @@ class DatabaseManager:
         users_indexes = [
             # כל משתמש מזוהה ע"י user_id – אינדקס ייחודי לביצועים ועקביות
             IndexModel([("user_id", ASCENDING)], name="user_id_unique", unique=True),
-            # username ייחודי אם קיים (sparse/partial כדי לאפשר ערכים חסרים)
+            # username ייחודי אם קיים ובעל ערך (partial כדי להתעלם מ-null/חסר/ריק)
             IndexModel(
                 [("username", ASCENDING)],
                 name="username_unique",
                 unique=True,
-                sparse=True,
+                partialFilterExpression={"username": {"$type": "string", "$ne": ""}},
             ),
             # שימוש נפוץ לדוחות: מיון לפי פעילות אחרונה
             IndexModel([("last_activity", DESCENDING)], name="last_activity_desc"),
