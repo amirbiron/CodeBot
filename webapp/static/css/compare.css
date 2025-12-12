@@ -1,0 +1,301 @@
+/* =================================================================
+   Compare View Styles - סגנונות תצוגת השוואה
+   ================================================================= */
+
+/* Container */
+.diff-container {
+    min-height: 400px;
+    overflow: hidden;
+    border-radius: 12px;
+}
+
+/* Views */
+.diff-view {
+    display: none;
+}
+
+.diff-view.active {
+    display: flex;
+}
+
+/* Side by Side */
+#side-by-side-view {
+    display: none;
+}
+
+#side-by-side-view.active {
+    display: flex;
+    gap: 2px;
+}
+
+.diff-pane {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    background: var(--glass-bg, rgba(30, 30, 30, 0.8));
+}
+
+.pane-header {
+    padding: 0.75rem 1rem;
+    background: rgba(255, 255, 255, 0.05);
+    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+    font-weight: 600;
+}
+
+.left-pane .pane-header {
+    border-left: 3px solid var(--bs-danger);
+}
+
+.right-pane .pane-header {
+    border-left: 3px solid var(--bs-success);
+}
+
+.pane-content {
+    flex: 1;
+    overflow: auto;
+    font-family: 'Fira Code', 'Consolas', monospace;
+    font-size: 13px;
+    line-height: 1.6;
+    direction: ltr;
+    text-align: left;
+}
+
+/* Diff Lines */
+.diff-line {
+    display: flex;
+    min-height: 24px;
+    padding: 0 0.5rem;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.03);
+}
+
+.diff-line:hover {
+    background: rgba(255, 255, 255, 0.05);
+}
+
+.line-number {
+    width: 50px;
+    min-width: 50px;
+    padding-right: 0.5rem;
+    text-align: right;
+    color: rgba(255, 255, 255, 0.4);
+    user-select: none;
+    border-right: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.line-content {
+    flex: 1;
+    padding-left: 0.5rem;
+    white-space: pre-wrap;
+    word-break: break-all;
+}
+
+/* Change Types */
+.diff-line.added {
+    background: rgba(40, 167, 69, 0.15);
+}
+
+.diff-line.added .line-content::before {
+    content: '+';
+    color: var(--bs-success);
+    margin-right: 0.25rem;
+}
+
+.diff-line.removed {
+    background: rgba(220, 53, 69, 0.15);
+}
+
+.diff-line.removed .line-content::before {
+    content: '-';
+    color: var(--bs-danger);
+    margin-right: 0.25rem;
+}
+
+.diff-line.modified {
+    background: rgba(255, 193, 7, 0.1);
+}
+
+.diff-line.empty {
+    background: rgba(128, 128, 128, 0.1);
+}
+
+/* Unified View */
+#unified-view {
+    flex-direction: column;
+}
+
+.unified-content {
+    padding: 1rem;
+    font-family: 'Fira Code', 'Consolas', monospace;
+    font-size: 13px;
+    line-height: 1.6;
+    direction: ltr;
+    text-align: left;
+    overflow: auto;
+}
+
+.unified-line {
+    display: flex;
+    padding: 2px 0.5rem;
+}
+
+.unified-line .line-numbers {
+    width: 100px;
+    min-width: 100px;
+    display: flex;
+    gap: 0.5rem;
+    color: rgba(255, 255, 255, 0.4);
+    user-select: none;
+}
+
+.unified-line .line-numbers span {
+    width: 45px;
+    text-align: right;
+}
+
+/* Inline View */
+#inline-view {
+    flex-direction: column;
+}
+
+.inline-content {
+    padding: 1rem;
+    font-family: 'Fira Code', 'Consolas', monospace;
+    font-size: 13px;
+    line-height: 1.6;
+    direction: ltr;
+    text-align: left;
+    overflow: auto;
+}
+
+/* Inline highlights */
+.inline-added {
+    background: rgba(40, 167, 69, 0.3);
+    border-radius: 2px;
+    padding: 0 2px;
+}
+
+.inline-removed {
+    background: rgba(220, 53, 69, 0.3);
+    text-decoration: line-through;
+    border-radius: 2px;
+    padding: 0 2px;
+}
+
+/* Stats Bar */
+.stats-bar .badge {
+    min-width: 80px;
+}
+
+/* Modern Select (Glass) */
+.glass-card .form-select {
+    /* 1. ביטול הרקע הלבן הבוהק */
+    background-color: rgba(255, 255, 255, 0.1); /* שקוף-כהה עדין */
+    color: #fff; /* טקסט לבן */
+    border: 1px solid rgba(255, 255, 255, 0.3); /* מסגרת עדינה */
+
+    /* 2. עיצוב הצורה - שיהיה נעים לעין אבל לא ענק */
+    border-radius: 8px;  /* פינות מעוגלות בעדינות */
+    padding: 0.375rem 0.75rem; /* ריפוד סטנדרטי (לא גדול מדי) */
+
+    /* 3. טיפול באייקון החץ (Bootstrap לרוב מטפל בזה) */
+}
+
+/* כשהמשתמש לוחץ על התיבה */
+.glass-card .form-select:focus {
+    background-color: rgba(255, 255, 255, 0.2);
+    box-shadow: none; /* ביטול הזוהר הכחול הדיפולטיבי */
+    border-color: rgba(255, 255, 255, 0.5);
+}
+
+/* צבע האפשרויות ברשימה הנפתחת - כדי שיהיו קריאות */
+.glass-card .form-select option {
+    background-color: #333; /* או צבע כהה אחר שמתאים לרוב הערכות */
+    color: white;
+}
+
+/* Responsive */
+@media (max-width: 768px) {
+    #side-by-side-view.active {
+        flex-direction: column;
+    }
+    
+    .diff-pane {
+        max-height: 300px;
+    }
+    
+    .pane-content {
+        font-size: 11px;
+    }
+    
+    .line-number {
+        width: 35px;
+        min-width: 35px;
+        font-size: 10px;
+    }
+}
+
+/* Dark/Light Theme Support */
+[data-theme="light"] .diff-container,
+[data-theme="light"] .diff-pane {
+    background: rgba(255, 255, 255, 0.9);
+}
+
+[data-theme="light"] .line-number {
+    color: rgba(0, 0, 0, 0.4);
+    border-right-color: rgba(0, 0, 0, 0.1);
+}
+
+[data-theme="light"] .diff-line {
+    border-bottom-color: rgba(0, 0, 0, 0.05);
+}
+
+[data-theme="light"] .diff-line:hover {
+    background: rgba(0, 0, 0, 0.03);
+}
+
+/* Scrollbar sync indicator */
+.scroll-synced {
+    position: absolute;
+    top: 0.5rem;
+    right: 0.5rem;
+    font-size: 0.75rem;
+    color: var(--bs-success);
+    opacity: 0;
+    transition: opacity 0.3s;
+}
+
+.scroll-synced.active {
+    opacity: 1;
+}
+
+/* Mini-map (optional future feature) */
+.diff-minimap {
+    position: absolute;
+    right: 0;
+    top: 0;
+    bottom: 0;
+    width: 60px;
+    background: rgba(0, 0, 0, 0.2);
+    overflow: hidden;
+}
+
+.minimap-change {
+    position: absolute;
+    left: 0;
+    right: 0;
+    height: 2px;
+}
+
+.minimap-change.added {
+    background: var(--bs-success);
+}
+
+.minimap-change.removed {
+    background: var(--bs-danger);
+}
+
+.minimap-change.modified {
+    background: var(--bs-warning);
+}
+

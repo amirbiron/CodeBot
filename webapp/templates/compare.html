@@ -1,0 +1,182 @@
+{% extends "base.html" %}
+
+{% block title %}השוואת גרסאות - {{ file.file_name }}{% endblock %}
+
+{% block extra_css %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/compare.css') }}">
+{% endblock %}
+
+{% block content %}
+<div class="container-fluid py-4">
+    <!-- כותרת -->
+    <div class="compare-header glass-card p-4 mb-4">
+        <div class="d-flex justify-content-between align-items-center flex-wrap gap-3">
+            <div>
+                <h1 class="h3 mb-2">
+                    <i class="fas fa-code-compare me-2"></i>
+                    השוואת גרסאות: {{ file.file_name }}
+                </h1>
+                <p class="text-muted mb-0">בחר גרסאות להשוואה</p>
+            </div>
+            
+            <!-- בקרות תצוגה -->
+            <div class="btn-group" role="group" aria-label="מצב תצוגה">
+                <button type="button" class="btn btn-outline-primary active" data-mode="side-by-side">
+                    <i class="fas fa-columns"></i> צד לצד
+                </button>
+                <button type="button" class="btn btn-outline-primary" data-mode="unified">
+                    <i class="fas fa-align-left"></i> אחיד
+                </button>
+                <button type="button" class="btn btn-outline-primary" data-mode="inline">
+                    <i class="fas fa-highlighter"></i> Inline
+                </button>
+            </div>
+        </div>
+        
+        <!-- בחירת גרסאות -->
+        <div class="row mt-4">
+            <div class="col-md-5">
+                <label class="form-label">גרסה שמאלית (ישנה)</label>
+                <select id="version-left" class="form-select">
+                    {% for v in versions %}
+                    <option value="{{ v.version }}" 
+                            {% if v.version == current_version - 1 %}selected{% endif %}>
+                        גרסה {{ v.version }} - {{ v.updated_at | format_datetime }}
+                    </option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="col-md-2 d-flex align-items-end justify-content-center">
+                <button id="swap-versions" class="btn btn-secondary" title="החלף">
+                    <i class="fas fa-exchange-alt"></i>
+                </button>
+            </div>
+            <div class="col-md-5">
+                <label class="form-label">גרסה ימנית (חדשה)</label>
+                <select id="version-right" class="form-select">
+                    {% for v in versions %}
+                    <option value="{{ v.version }}"
+                            {% if v.version == current_version %}selected{% endif %}>
+                        גרסה {{ v.version }} - {{ v.updated_at | format_datetime }}
+                    </option>
+                    {% endfor %}
+                </select>
+            </div>
+        </div>
+    </div>
+    
+    <!-- סטטיסטיקות -->
+    <div class="stats-bar glass-card p-3 mb-4">
+        <div class="row text-center">
+            <div class="col">
+                <span class="badge bg-success fs-6" id="stat-added">
+                    <i class="fas fa-plus"></i> +<span>0</span>
+                </span>
+            </div>
+            <div class="col">
+                <span class="badge bg-danger fs-6" id="stat-removed">
+                    <i class="fas fa-minus"></i> -<span>0</span>
+                </span>
+            </div>
+            <div class="col">
+                <span class="badge bg-warning fs-6" id="stat-modified">
+                    <i class="fas fa-pen"></i> ~<span>0</span>
+                </span>
+            </div>
+            <div class="col">
+                <span class="badge bg-secondary fs-6" id="stat-unchanged">
+                    <i class="fas fa-equals"></i> =<span>0</span>
+                </span>
+            </div>
+        </div>
+    </div>
+    
+    <!-- אזור ההשוואה -->
+    <div id="diff-container" class="diff-container glass-card">
+        <!-- Side by Side View -->
+        <div id="side-by-side-view" class="diff-view active">
+            <div class="diff-pane left-pane">
+                <div class="pane-header">
+                    <span class="version-label">גרסה <span id="left-version-label"></span></span>
+                </div>
+                <div class="pane-content" id="left-content"></div>
+            </div>
+            <div class="diff-pane right-pane">
+                <div class="pane-header">
+                    <span class="version-label">גרסה <span id="right-version-label"></span></span>
+                </div>
+                <div class="pane-content" id="right-content"></div>
+            </div>
+        </div>
+        
+        <!-- Unified View -->
+        <div id="unified-view" class="diff-view">
+            <div class="unified-content" id="unified-content"></div>
+        </div>
+        
+        <!-- Inline View -->
+        <div id="inline-view" class="diff-view">
+            <div class="inline-content" id="inline-content"></div>
+        </div>
+    </div>
+    
+    <!-- כפתורי פעולה -->
+    <div class="action-bar glass-card p-3 mt-4">
+        <div class="d-flex justify-content-between align-items-center flex-wrap gap-2">
+            <a href="{{ url_for('view_file', file_id=file._id) }}" class="btn btn-secondary">
+                <i class="fas fa-arrow-left"></i> חזור לקובץ
+            </a>
+            <div class="d-flex gap-2">
+                <button id="btn-copy-diff" class="btn btn-outline-primary">
+                    <i class="fas fa-copy"></i> העתק Diff
+                </button>
+                <button id="btn-download-diff" class="btn btn-outline-primary">
+                    <i class="fas fa-download"></i> הורד Patch
+                </button>
+                <button id="btn-restore" class="btn btn-warning" data-bs-toggle="modal" data-bs-target="#restoreModal">
+                    <i class="fas fa-history"></i> שחזר גרסה
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Modal שחזור גרסה -->
+<div class="modal fade" id="restoreModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content glass-card">
+            <div class="modal-header">
+                <h5 class="modal-title">שחזור גרסה</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <p>האם לשחזר את הקובץ לגרסה <strong id="restore-version"></strong>?</p>
+                <p class="text-warning">
+                    <i class="fas fa-exclamation-triangle"></i>
+                    פעולה זו תיצור גרסה חדשה עם התוכן של הגרסה הנבחרת.
+                </p>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">ביטול</button>
+                <button type="button" class="btn btn-warning" id="confirm-restore">
+                    <i class="fas fa-check"></i> שחזר
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script src="{{ url_for('static', filename='js/compare.js') }}"></script>
+<script>
+    // אתחול עם נתוני הקובץ
+    window.CompareView.init({
+        fileId: '{{ file._id }}',
+        fileName: '{{ file.file_name }}',
+        language: '{{ file.programming_language }}',
+        currentVersion: {{ current_version }},
+    });
+</script>
+{% endblock %}
+
