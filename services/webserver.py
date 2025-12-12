@@ -3,7 +3,10 @@ import atexit
 import logging
 import os
 import secrets
-from typing import Optional
+from dataclasses import dataclass
+import hashlib
+import hmac
+from typing import Any, Dict, Optional
 
 # Configure structured logging and Sentry as early as possible,
 # and install sensitive data redaction on log handlers before Sentry hooks logging.
@@ -93,6 +96,241 @@ except ValueError:
 _AI_ROUTE_TOKEN = os.getenv("OBS_AI_EXPLAIN_TOKEN") or os.getenv("AI_EXPLAIN_TOKEN") or ""
 
 logger = logging.getLogger(__name__)
+
+# --- Sentry webhook: in-memory de-dup to avoid bursts ---
+_SENTRY_DEDUP: dict[str, float] = {}
+
+
+def _sentry_dedup_window_seconds() -> int:
+    try:
+        return max(0, int(float(os.getenv("SENTRY_WEBHOOK_DEDUP_WINDOW_SECONDS", "300") or 300)))
+    except Exception:
+        return 300
+
+
+def _sentry_secret() -> str:
+    # Prefer explicit Sentry webhook secret; fallback to generic webhook secret if set.
+    return str(os.getenv("SENTRY_WEBHOOK_SECRET") or os.getenv("WEBHOOK_SECRET") or "").strip()
+
+
+def _sha256_hmac_hex(secret: str, msg: bytes) -> str:
+    try:
+        return hmac.new(secret.encode("utf-8"), msg, hashlib.sha256).hexdigest()
+    except Exception:
+        return ""
+
+
+def _constant_time_equals(a: str, b: str) -> bool:
+    try:
+        return hmac.compare_digest(str(a or ""), str(b or ""))
+    except Exception:
+        return False
+
+
+def _verify_sentry_webhook(request: web.Request, body: bytes) -> bool:
+    """Best-effort verification for Sentry webhook calls.
+
+    Supported modes:
+    - HMAC signature headers (preferred when provided by Sentry)
+    - Bearer token / query param token fallback (for setups where headers are not configurable)
+    """
+    secret = _sentry_secret()
+    if not secret:
+        # Explicit opt-in: if no secret configured, allow (fail-open).
+        return True
+
+    # 1) Token fallback: Authorization: Bearer <secret> or ?token=<secret>
+    try:
+        auth = str(request.headers.get("Authorization") or "").strip()
+        if auth.lower().startswith("bearer "):
+            token = auth.split(" ", 1)[1].strip()
+            if token and _constant_time_equals(token, secret):
+                return True
+    except Exception:
+        pass
+    try:
+        token = str(request.query.get("token") or "").strip()
+        if token and _constant_time_equals(token, secret):
+            return True
+    except Exception:
+        pass
+
+    # 2) HMAC signature headers (Sentry varies between integrations)
+    # Common headers:
+    # - X-Sentry-Hook-Signature / X-Sentry-Signature
+    # - X-Sentry-Hook-Timestamp / X-Sentry-Timestamp
+    try:
+        sig = (
+            request.headers.get("X-Sentry-Hook-Signature")
+            or request.headers.get("X-Sentry-Signature")
+            or request.headers.get("Sentry-Hook-Signature")
+            or request.headers.get("Sentry-Signature")
+            or ""
+        )
+        sig = str(sig or "").strip()
+    except Exception:
+        sig = ""
+    try:
+        ts = (
+            request.headers.get("X-Sentry-Hook-Timestamp")
+            or request.headers.get("X-Sentry-Timestamp")
+            or request.headers.get("Sentry-Hook-Timestamp")
+            or request.headers.get("Sentry-Timestamp")
+            or ""
+        )
+        ts = str(ts or "").strip()
+    except Exception:
+        ts = ""
+
+    if not sig:
+        return False
+
+    # Accept both common signing shapes:
+    # - HMAC(secret, body)
+    # - HMAC(secret, f"{timestamp}.{body}")
+    try:
+        candidate_a = _sha256_hmac_hex(secret, body)
+        if candidate_a and _constant_time_equals(candidate_a, sig):
+            return True
+    except Exception:
+        pass
+    if ts:
+        try:
+            candidate_b = _sha256_hmac_hex(secret, ts.encode("utf-8") + b"." + body)
+            if candidate_b and _constant_time_equals(candidate_b, sig):
+                return True
+        except Exception:
+            pass
+    return False
+
+
+@dataclass
+class _SentryAlert:
+    name: str
+    summary: str
+    severity: str
+    dedup_key: str
+    details: Dict[str, Any]
+
+
+def _map_sentry_level_to_severity(level: str | None) -> str:
+    v = str(level or "").strip().lower()
+    if v in {"fatal", "critical"}:
+        return "critical"
+    if v in {"error", "err"}:
+        return "error"
+    if v in {"warning", "warn"}:
+        return "warning"
+    if v in {"info"}:
+        return "info"
+    # Unknown -> keep it visible but not noisy
+    return "warning"
+
+
+def _truncate(text: str, limit: int) -> str:
+    try:
+        s = str(text or "").strip()
+    except Exception:
+        s = ""
+    if limit and len(s) > limit:
+        return s[: max(0, limit - 1)] + "…"
+    return s
+
+
+def _extract_sentry_alert(payload: Any) -> _SentryAlert | None:
+    if not isinstance(payload, dict) or not payload:
+        return None
+
+    action = str(payload.get("action") or payload.get("trigger") or payload.get("status") or "").strip().lower()
+    data = payload.get("data") if isinstance(payload.get("data"), dict) else {}
+    issue = (
+        data.get("issue") if isinstance(data.get("issue"), dict)
+        else (payload.get("issue") if isinstance(payload.get("issue"), dict) else {})
+    )
+    event = (
+        data.get("event") if isinstance(data.get("event"), dict)
+        else (payload.get("event") if isinstance(payload.get("event"), dict) else {})
+    )
+    project = (
+        data.get("project") if isinstance(data.get("project"), dict)
+        else (payload.get("project") if isinstance(payload.get("project"), dict) else {})
+    )
+
+    title = (
+        payload.get("title")
+        or issue.get("title")
+        or event.get("title")
+        or event.get("message")
+        or payload.get("message")
+        or ""
+    )
+    title_s = _truncate(str(title), 220)
+
+    issue_id = str(issue.get("id") or payload.get("issue_id") or "").strip()
+    short_id = str(issue.get("shortId") or issue.get("short_id") or payload.get("shortId") or payload.get("short_id") or "").strip()
+    permalink = str(
+        issue.get("permalink")
+        or payload.get("permalink")
+        or event.get("permalink")
+        or payload.get("url")
+        or ""
+    ).strip()
+    project_slug = str(project.get("slug") or payload.get("project_slug") or payload.get("project") or "").strip()
+    level = str(event.get("level") or payload.get("level") or payload.get("level_name") or "").strip().lower() or None
+    severity = _map_sentry_level_to_severity(level)
+
+    # Drop resolved notifications by default (still record as info if they come through).
+    if action in {"resolved", "resolved_issue", "issue_resolved"}:
+        severity = "info"
+
+    # Stable identifiers for dedup
+    primary_id = issue_id or short_id or str(event.get("id") or event.get("event_id") or "").strip()
+    dedup_key = "|".join([x for x in [primary_id, project_slug, severity, action] if x])
+    if not dedup_key:
+        # Worst-case fallback: title bucket
+        dedup_key = f"title:{title_s[:80]}"
+
+    display_id = short_id or (issue_id[:8] if issue_id else "issue")
+    name = _truncate(f"Sentry: {display_id}", 128)
+
+    details: Dict[str, Any] = {
+        "alert_type": "sentry_issue",
+        "action": action or None,
+        "project": project_slug or None,
+        "level": level or None,
+        "sentry_issue_id": issue_id or None,
+        "sentry_short_id": short_id or None,
+        "sentry_permalink": permalink or None,
+        "sentry_event_id": str(event.get("id") or event.get("event_id") or "").strip() or None,
+        "logger": str(event.get("logger") or payload.get("logger") or "").strip() or None,
+        "culprit": str(issue.get("culprit") or event.get("culprit") or "").strip() or None,
+        "environment": str(event.get("environment") or payload.get("environment") or "").strip() or None,
+    }
+    # Remove None values to keep storage clean
+    details = {k: v for k, v in details.items() if v not in (None, "")}
+
+    summary = title_s or "Sentry alert"
+    return _SentryAlert(name=name, summary=summary, severity=severity, dedup_key=dedup_key, details=details)
+
+
+def _should_emit_sentry_alert(dedup_key: str) -> bool:
+    window = _sentry_dedup_window_seconds()
+    if window <= 0:
+        return True
+    now = time.time()
+    # Lazy cleanup of old entries (best-effort)
+    try:
+        cutoff = now - float(window)
+        for k, ts in list(_SENTRY_DEDUP.items()):
+            if ts < cutoff:
+                _SENTRY_DEDUP.pop(k, None)
+    except Exception:
+        pass
+    last = _SENTRY_DEDUP.get(dedup_key)
+    if last is not None and (now - float(last)) < float(window):
+        return False
+    _SENTRY_DEDUP[dedup_key] = now
+    return True
 
 
 def create_app() -> web.Application:
@@ -296,6 +534,86 @@ def create_app() -> web.Application:
         except Exception:
             items = []
         return web.json_response({"alerts": items})
+
+    async def sentry_webhook_view(request: web.Request) -> web.Response:
+        """Sentry webhook endpoint: converts Sentry alerts into internal alerts.
+
+        - Emits internal_alerts.emit_internal_alert(...) so Telegram forwarding works.
+        - Persists to Mongo via monitoring.alerts_storage through internal_alerts (best-effort).
+        """
+        try:
+            body = await request.read()
+        except Exception:
+            body = b""
+
+        if not _verify_sentry_webhook(request, body):
+            try:
+                emit_event("sentry_webhook_unauthorized", severity="warn", handled=True)  # type: ignore
+            except Exception:
+                pass
+            return web.json_response({"ok": False, "error": "unauthorized"}, status=401)
+
+        try:
+            raw_text = body.decode("utf-8", errors="replace") if body else ""
+            payload = json.loads(raw_text) if raw_text else {}
+        except Exception as e:
+            try:
+                emit_event(
+                    "sentry_webhook_parse_error",
+                    severity="warn",
+                    handled=True,
+                    error=str(e),
+                )  # type: ignore
+            except Exception:
+                pass
+            return web.json_response({"ok": False, "error": "invalid_json"}, status=400)
+
+        alert = _extract_sentry_alert(payload)
+        if alert is None:
+            try:
+                emit_event("sentry_webhook_ignored", severity="info", handled=True, reason="empty_payload")  # type: ignore
+            except Exception:
+                pass
+            return web.json_response({"ok": True, "ignored": True})
+
+        should_emit = _should_emit_sentry_alert(alert.dedup_key)
+        try:
+            emit_event(
+                "sentry_webhook_received",
+                severity="info",
+                handled=True,
+                dedup=not should_emit,
+                sentry_short_id=str(alert.details.get("sentry_short_id") or ""),
+                project=str(alert.details.get("project") or ""),
+                level=str(alert.details.get("level") or ""),
+                action=str(alert.details.get("action") or ""),
+            )  # type: ignore
+        except Exception:
+            pass
+
+        if should_emit:
+            try:
+                from internal_alerts import emit_internal_alert  # type: ignore
+
+                emit_internal_alert(
+                    name=alert.name,
+                    severity=str(alert.severity),
+                    summary=str(alert.summary),
+                    **(alert.details or {}),
+                )
+            except Exception as e:
+                try:
+                    emit_event(
+                        "sentry_webhook_emit_failed",
+                        severity="anomaly",
+                        handled=True,
+                        error=str(e),
+                    )  # type: ignore
+                except Exception:
+                    pass
+                return web.json_response({"ok": False, "error": "emit_failed"}, status=500)
+
+        return web.json_response({"ok": True, "deduped": (not should_emit)})
 
     async def incidents_get_view(request: web.Request) -> web.Response:
         """Return incident history as JSON.
@@ -523,6 +841,7 @@ def create_app() -> web.Application:
     app.router.add_get("/metrics", metrics_view)
     app.router.add_post("/alerts", alerts_view)
     app.router.add_get("/alerts", alerts_get_view)
+    app.router.add_post("/webhooks/sentry", sentry_webhook_view)
     app.router.add_get("/incidents", incidents_get_view)
     app.router.add_post("/api/ai/explain", ai_explain_view)
     app.router.add_get("/share/{share_id}", share_view)
