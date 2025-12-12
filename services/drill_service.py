@@ -16,7 +16,7 @@ try:
 except Exception:  # pragma: no cover
     _requests = None  # type: ignore
 
-from config.drill_scenarios import DRILL_SCENARIOS
+from drill_scenarios import DRILL_SCENARIOS
 
 try:
     from observability import emit_event  # type: ignore
