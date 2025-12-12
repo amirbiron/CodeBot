@@ -830,9 +830,6 @@ body.telegram-mini-app .file-title { font-size: 1.125rem; }
                         <span>🔗 למקור{% if file.source_url_host %} ({{ file.source_url_host }}){% endif %}</span>
                     </button>
                     {% endif %}
-                    <button type="button" class="file-actions__menu-item" data-menu-action="compare">
-                        <span>🔄 השווה גרסאות</span>
-                    </button>
                     <button type="button" class="file-actions__menu-item" data-menu-action="history">
                         <span>🕐 היסטוריה</span>
                     </button>
@@ -2216,12 +2213,6 @@ function goBack(ev){
                     window.open(href, '_blank', 'noopener');
                 }
                 return;
-            }
-            if (action === 'compare') {
-                const targetId = metaEl ? (metaEl.getAttribute('data-file-id') || '') : '';
-                if (targetId) {
-                    window.location.href = `/compare/${targetId}`;
-                }
             }
         });
     });
