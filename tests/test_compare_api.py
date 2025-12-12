@@ -31,10 +31,6 @@ def test_compare_versions_not_found_authenticated():
 def test_compare_versions_success(monkeypatch):
     app = _import_app()
 
-    # איפוס singleton כדי למנוע זליגת state בין טסטים
-    import services.diff_service as diff_mod
-    diff_mod._diff_service = None
-
     import database
 
     def _fake_get_file_by_id(file_id: str):
@@ -70,9 +66,6 @@ def test_compare_versions_success(monkeypatch):
 
 def test_compare_files_success(monkeypatch):
     app = _import_app()
-
-    import services.diff_service as diff_mod
-    diff_mod._diff_service = None
 
     import database
 

@@ -347,14 +347,7 @@ class DiffService:
         return header + "```diff\n" + "\n".join(changes) + "\n```"
 
 
-# Singleton instance
-_diff_service: Optional[DiffService] = None
-
-
 def get_diff_service(db_manager=None) -> DiffService:
-    """קבלת instance של שירות ההשוואה."""
-    global _diff_service
-    if _diff_service is None:
-        _diff_service = DiffService(db_manager)
-    return _diff_service
+    """יצירת מופע חדש של שירות ההשוואה (ללא Singleton כדי למנוע בעיות DB)."""
+    return DiffService(db_manager)
 
