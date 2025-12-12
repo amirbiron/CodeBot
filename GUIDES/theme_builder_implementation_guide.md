@@ -179,7 +179,17 @@ import re
 from datetime import datetime, timezone
 
 # קבועים לולידציה
-VALID_COLOR_REGEX = re.compile(r'^(#[0-9a-fA-F]{6}|rgba?\([^)]+\)|var\(--.+\)|color-mix\(.+\))$')
+# Regex for safe color validation - prevents CSS injection
+# Note: color-mix uses [^)]+ to prevent escaping the parentheses
+VALID_COLOR_REGEX = re.compile(
+    r'^('
+    r'#[0-9a-fA-F]{6}'                           # Hex: #rrggbb
+    r'|#[0-9a-fA-F]{8}'                          # Hex with alpha: #rrggbbaa
+    r'|rgba?\(\s*\d{1,3}\s*,\s*\d{1,3}\s*,\s*\d{1,3}\s*(,\s*[\d.]+\s*)?\)'  # rgb/rgba
+    r'|var\(--[a-zA-Z0-9_-]+\)'                  # CSS var reference
+    r'|color-mix\(in\s+srgb\s*,\s*[^)]+\)'      # color-mix (restricted)
+    r')$'
+)
 MAX_THEME_NAME_LENGTH = 50
 ALLOWED_VARIABLES = {
     '--bg-primary', '--bg-secondary', '--card-bg',
@@ -956,9 +966,14 @@ def _check_contrast_ratio(fg_hex: str, bg_hex: str) -> float:
         // Glass
         const opacitySlider = document.getElementById('glassOpacity');
         const blurSlider = document.getElementById('glassBlur');
-        variables['--glass'] = `rgba(255, 255, 255, ${(opacitySlider.value / 100).toFixed(2)})`;
-        variables['--glass-border'] = `rgba(255, 255, 255, ${((parseInt(opacitySlider.value) + 10) / 100).toFixed(2)})`;
-        variables['--glass-hover'] = `rgba(255, 255, 255, ${((parseInt(opacitySlider.value) + 5) / 100).toFixed(2)})`;
+        const opacityVal = parseInt(opacitySlider.value, 10);
+        // Clamp alpha values to valid 0-1 range
+        const glassAlpha = (opacityVal / 100).toFixed(2);
+        const borderAlpha = Math.min(1, (opacityVal + 10) / 100).toFixed(2);
+        const hoverAlpha = Math.min(1, (opacityVal + 5) / 100).toFixed(2);
+        variables['--glass'] = `rgba(255, 255, 255, ${glassAlpha})`;
+        variables['--glass-border'] = `rgba(255, 255, 255, ${borderAlpha})`;
+        variables['--glass-hover'] = `rgba(255, 255, 255, ${hoverAlpha})`;
         variables['--glass-blur'] = blurSlider.value + 'px';
         
         return variables;
