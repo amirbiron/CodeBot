@@ -121,6 +121,8 @@ REPO_SELECT, FILE_UPLOAD, FOLDER_SELECT = range(3)
 MAX_INLINE_FILE_BYTES = 5 * 1024 * 1024  # 5MB לשליחה ישירה בבוט
 MAX_ZIP_TOTAL_BYTES = 50 * 1024 * 1024  # 50MB לקובץ ZIP אחד
 MAX_ZIP_FILES = 500  # מקסימום קבצים ב-ZIP אחד
+TELEGRAM_SAFE_TEXT_LIMIT = 4000
+TELEGRAM_TRUNCATION_NOTICE = "\n\n(✂️ חלק מהטקסט קוצר כדי לעמוד במגבלת טלגרם)"
 
 # חלון קירור מינימלי להתראות PR "עודכן" (ניתן לכיול דרך ENV)
 try:
@@ -188,6 +190,21 @@ def safe_html_escape(text):
     # נקה תווי בקרה אך השאר \n, \r, \t
     s = re.sub(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f]", "", s)
     return s
+
+
+def _trim_html_preserving_entities(text: str, limit: int) -> str:
+    """מקצר טקסט HTML מבלי להשאיר ישויות שבורות בסוף המחרוזת."""
+    if not text:
+        return ""
+    if limit <= 0:
+        return ""
+    if len(text) <= limit:
+        return text
+    trimmed = text[:limit]
+    partial = re.search(r"&[A-Za-z0-9#]{0,32}$", trimmed)
+    if partial and ";" not in partial.group(0):
+        trimmed = trimmed[: partial.start()]
+    return trimmed
 
 
 def format_bytes(num: int) -> str:
@@ -274,6 +291,36 @@ class GitHubMenuHandler:
                     return None
             return self._to_utc_aware(parsed)
         return None
+
+    def _combine_with_telegram_limit(
+        self,
+        header: str,
+        body: Optional[str] = None,
+        *,
+        limit: Optional[int] = None,
+        notice: Optional[str] = None,
+    ) -> str:
+        """מאחד טקסטים ושומר על מגבלת טלגרם תוך הוספת הודעת קיצור במידת הצורך."""
+        max_length = TELEGRAM_SAFE_TEXT_LIMIT if limit is None else limit
+        notice_text = TELEGRAM_TRUNCATION_NOTICE if notice is None else notice
+        if max_length is None or max_length <= 0:
+            return ""
+        header = header or ""
+        body = body or ""
+        parts = [part for part in (header, body) if part]
+        combined = "\n\n".join(parts)
+        if not combined:
+            return ""
+        if len(combined) <= max_length:
+            return combined
+        notice_text = notice_text or ""
+        if notice_text and len(notice_text) >= max_length:
+            return _trim_html_preserving_entities(notice_text, max_length)
+        available = max_length - len(notice_text)
+        if available <= 0:
+            return notice_text
+        trimmed = _trim_html_preserving_entities(combined, available)
+        return f"{trimmed}{notice_text}"
 
     def _cache_recent_backup(
         self,
@@ -6807,12 +6854,13 @@ class GitHubMenuHandler:
                     date_str = aware.strftime("%d/%m/%Y %H:%M UTC")
             except Exception:
                 commit_msg = ""
-            text = (
+            header = (
                 f"🧱 קומיט נבחר: <code>{safe_html_escape(commit_sha[:12])}</code>\n"
                 f"מחבר: {safe_html_escape(author_name)}\n"
-                f"תאריך: {safe_html_escape(date_str)}\n\n"
-                f"{safe_html_escape(commit_msg or 'ללא הודעת commit')}"
+                f"תאריך: {safe_html_escape(date_str)}"
             )
+            body = safe_html_escape(commit_msg or "ללא הודעת commit")
+            text = self._combine_with_telegram_limit(header, body)
             branch_cb = f"{CALLBACK_BRANCH_FROM_COMMIT}:{commit_sha}"
             revert_cb = f"{CALLBACK_REVERT_PR_FROM_COMMIT}:{commit_sha}"
             kb = [
