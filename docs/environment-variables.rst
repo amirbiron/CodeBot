@@ -1,6 +1,9 @@
 משתני סביבה - רפרנס
 =====================
 
+.. note::
+   בכל פעם שמוסיפים או משנים משתני סביבה בקוד/Infra **חייבים** לעדכן עמוד זה (רפרנס משתני הסביבה) וכן לציין זאת ב-PR. בכך אנו מבטיחים שהמידע הופך ל-Single Source of Truth גם למפתחים וגם לאנשי DevOps.
+
 טבלה מרכזית
 ------------
 
@@ -896,6 +899,24 @@
      - ``config/alert_quick_fixes.json``
      - ``config/custom_fixes.json``
      - Bot/WebApp
+   * - ``OBSERVABILITY_RUNBOOK_PATH``
+     - נתיב חלופי ל-``observability_runbooks.yml`` שמזין את ה-Runbooks וה-Quick Fix הדינמי.
+     - לא
+     - ``config/observability_runbooks.yml``
+     - ``/etc/codebot/runbooks.yml``
+     - WebApp/Observability
+   * - ``OBS_RUNBOOK_STATE_TTL``
+     - משך (בשניות) לשמירת סטטוס הצעדים שסומנו כ"בוצעו" ב-Runbook.
+     - לא
+     - ``14400``
+     - ``7200``
+     - WebApp/Observability
+   * - ``OBS_RUNBOOK_EVENT_TTL``
+     - זמן שמירת אירועי ה-Replay במטמון צד שרת לצורך שליפות Runbook (שניות).
+     - לא
+     - ``900``
+     - ``1800``
+     - WebApp/Observability
    * - ``ALERT_EXTERNAL_SERVICES``
      - רשימת מחרוזות (CSV) של שירותים חיצוניים שיזוהו כ-``external`` במדד High Error Rate (למשל ``uptimerobot``/``github api``); שגיאות מהמקורות האלה ייצרו רק התרעת Warning ולא יריצו Auto-Remediation.
      - לא

@@ -23,7 +23,7 @@
 
 - ``config/error_signatures.yml`` – מנהל קטגוריות (config/retryable/third_party/...) ורשימת חתימות בעלות ``pattern``. עדכון הקובץ משפיע ישירות על הדירוג והתיאור שנשלח למפעיל. מומלץ לקרוא את :ref:`קבצי קונפיגורציה ייעודיים <config-error-signatures>` ב-:doc:`/configuration`.
 - ``config/alerts.yml`` – קובע את חלונות הזמן, ספי הספירה וקטגוריות שחייבות לעבור גם בזמן cooldown. מודגם בפרק "alerts.yml" בעמוד הקונפיגורציה.
-- ``config/alert_quick_fixes.json`` + ``config/alert_graph_sources.json`` – משמשים את ה-Observability Dashboard להצגת Quick Fixes וגרפים בהקשר של ההתראה שהופקה מהלוגים.
+- ``config/observability_runbooks.yml`` (ולצורך תאימות: ``config/alert_quick_fixes.json``) + ``config/alert_graph_sources.json`` – משמשים את ה-Observability Dashboard להצגת Quick Fixes וגרפים בהקשר של ההתראה שהופקה מהלוגים.
 
 הרצת CLI מקומית
 ----------------
@@ -46,7 +46,7 @@
 ------------
 
 - **Alert Storage** – התראות שמקורן בלוגים נשמרות יחד עם שאר ההתראות, ולכן מופיעות ב-Observability Dashboard, באינטגרציות Slack ובפקודות ChatOps כגון ``/triage``.
-- **Quick Fixes** – כל התראה מקבלת רשימת פעולות מבוססת ``alert_quick_fixes.json`` (לדוגמה: ``/triage errors``, מעבר ל-Playbook).
+- **Quick Fixes** – כל התראה מקבלת רשימת פעולות המבוססת על ה-Runbooks ב-``observability_runbooks.yml`` (ולצורך תאימות קיימת גם ``alert_quick_fixes.json``). לדוגמה: ``/triage errors``, מעבר ל-Playbook או פתיחת Incident Replay.
 - **Visual Context** – אם קיימת התאמה ל-``alert_graph_sources.json`` (לפי metric/category) יוצמד לגרף חיצוני מאושר.
 
 עבודה בטוחה

@@ -1,6 +1,7 @@
 from datetime import datetime, timezone
 import json
 import sys
+import time
 import types
 
 from services import observability_dashboard as obs
@@ -69,3 +70,157 @@ def test_fetch_incident_replay_includes_quick_fix(monkeypatch):
     payload = obs.fetch_incident_replay(start_dt=None, end_dt=None, limit=50)
     assert payload["counts"]["chatops"] == 1
     assert payload["events"]
+
+
+def test_get_quick_fix_actions_prefers_runbook(monkeypatch, tmp_path):
+    yaml_text = """
+runbooks:
+  demo_alert:
+    title: Demo
+    steps:
+      - id: check
+        title: Check
+        action:
+          label: Demo Action
+          type: copy
+          payload: "/triage demo"
+"""
+    path = tmp_path / "runbook.yml"
+    path.write_text(yaml_text, encoding="utf-8")
+    monkeypatch.setattr(obs, "_RUNBOOK_PATH", path)
+    monkeypatch.setattr(obs, "_RUNBOOK_CACHE", {})
+    monkeypatch.setattr(obs, "_RUNBOOK_ALIAS_MAP", {})
+    monkeypatch.setattr(obs, "_RUNBOOK_MTIME", 0.0)
+
+    alert = {"alert_type": "demo_alert", "timestamp": "2025-01-01T00:00:00+00:00"}
+    actions = obs.get_quick_fix_actions(alert)
+    assert actions and actions[0]["label"] == "Demo Action"
+
+
+def test_fetch_runbook_for_event_uses_cache(monkeypatch, tmp_path):
+    yaml_text = """
+runbooks:
+  demo_alert:
+    title: Demo Runbook
+    steps:
+      - id: check
+        title: Check status
+        action:
+          label: Copy Cmd
+          type: copy
+          payload: "/triage demo"
+"""
+    path = tmp_path / "runbook.yml"
+    path.write_text(yaml_text, encoding="utf-8")
+    monkeypatch.setattr(obs, "_RUNBOOK_PATH", path)
+    monkeypatch.setattr(obs, "_RUNBOOK_CACHE", {})
+    monkeypatch.setattr(obs, "_RUNBOOK_ALIAS_MAP", {})
+    monkeypatch.setattr(obs, "_RUNBOOK_MTIME", 0.0)
+    obs._RUNBOOK_EVENT_CACHE.clear()
+    obs._RUNBOOK_EVENT_CACHE["evt-1"] = (
+        time.time(),
+        {
+            "id": "evt-1",
+            "alert_uid": "evt-1",
+            "type": "alert",
+            "title": "Demo Alert",
+            "summary": "S",
+            "timestamp": "2025-01-01T00:00:00+00:00",
+            "severity": "critical",
+            "alert_type": "demo_alert",
+            "metadata": {},
+            "link": "/admin/observability",
+        },
+    )
+    payload = obs.fetch_runbook_for_event(event_id="evt-1")
+    assert payload
+    assert payload["runbook"]["title"] == "Demo Runbook"
+    assert payload["runbook"]["steps"][0]["title"] == "Check status"
+
+
+def test_update_runbook_step_status_tracks_completion(monkeypatch, tmp_path):
+    yaml_text = """
+runbooks:
+  demo_alert:
+    title: Demo Runbook
+    steps:
+      - id: check
+        title: Check status
+        action:
+          label: Copy Cmd
+          type: copy
+          payload: "/triage demo"
+"""
+    path = tmp_path / "runbook.yml"
+    path.write_text(yaml_text, encoding="utf-8")
+    monkeypatch.setattr(obs, "_RUNBOOK_PATH", path)
+    monkeypatch.setattr(obs, "_RUNBOOK_CACHE", {})
+    monkeypatch.setattr(obs, "_RUNBOOK_ALIAS_MAP", {})
+    monkeypatch.setattr(obs, "_RUNBOOK_MTIME", 0.0)
+    obs._RUNBOOK_EVENT_CACHE.clear()
+    obs._RUNBOOK_STATE.clear()
+    obs._RUNBOOK_EVENT_CACHE["evt-2"] = (
+        time.time(),
+        {
+            "id": "evt-2",
+            "alert_uid": "evt-2",
+            "type": "alert",
+            "title": "Demo Alert",
+            "summary": "S",
+            "timestamp": "2025-01-01T01:00:00+00:00",
+            "severity": "critical",
+            "alert_type": "demo_alert",
+            "metadata": {},
+            "link": "/admin/observability",
+        },
+    )
+    payload = obs.update_runbook_step_status(
+        event_id="evt-2",
+        step_id="check",
+        completed=True,
+        user_id=7,
+    )
+    assert payload["status"]["completed_steps"] == ["check"]
+    assert payload["runbook"]["steps"][0]["completed"] is True
+
+
+def test_update_runbook_step_status_uses_fallback_metadata(monkeypatch, tmp_path):
+    yaml_text = """
+runbooks:
+  demo_alert:
+    title: Demo Runbook
+    steps:
+      - id: check
+        title: Check status
+        action:
+          label: Copy Cmd
+          type: copy
+          payload: "/triage demo"
+"""
+    path = tmp_path / "runbook.yml"
+    path.write_text(yaml_text, encoding="utf-8")
+    monkeypatch.setattr(obs, "_RUNBOOK_PATH", path)
+    monkeypatch.setattr(obs, "_RUNBOOK_CACHE", {})
+    monkeypatch.setattr(obs, "_RUNBOOK_ALIAS_MAP", {})
+    monkeypatch.setattr(obs, "_RUNBOOK_MTIME", 0.0)
+    obs._RUNBOOK_EVENT_CACHE.clear()
+    obs._RUNBOOK_STATE.clear()
+
+    payload = obs.update_runbook_step_status(
+        event_id="evt-3",
+        step_id="check",
+        completed=True,
+        user_id=9,
+        fallback_metadata={
+            "id": "evt-3",
+            "alert_type": "demo_alert",
+            "type": "alert",
+            "title": "Demo Alert",
+            "summary": "S",
+            "timestamp": "2025-01-01T02:00:00+00:00",
+            "severity": "critical",
+            "metadata": {"alert_type": "demo_alert"},
+        },
+    )
+    assert payload["status"]["completed_steps"] == ["check"]
+    assert payload["runbook"]["steps"][0]["completed"] is True

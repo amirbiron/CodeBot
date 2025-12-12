@@ -70,6 +70,7 @@
 - [ ] הקוד עוקב אחרי הסגנון (Black/isort/flake8/mypy)
 - [ ] בדיקות רצות ועוברות
 - [ ] תיעוד עודכן (README/Docs)
+- [ ] אם נוספו/שונו משתני סביבה – עודכן `docs/environment-variables.rst` (עמוד רפרנס)
 - [ ] אם נוספו/השתנו טוקנים – עודכן גם `docs/webapp/theming_and_css.rst` + `FEATURE_SUGGESTIONS/theme_matrix.md`
 - [ ] אין סודות/מפתחות בקוד
 - [ ] אין מחיקות מסוכנות/פעולות על root (ראו .cursorrules)

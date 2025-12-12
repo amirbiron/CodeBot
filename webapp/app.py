@@ -9394,6 +9394,77 @@ def api_observability_replay():
         return jsonify({'ok': False, 'error': 'internal_error'}), 500
 
 
+@app.route('/api/observability/runbook/<event_id>', methods=['GET'])
+@login_required
+def api_observability_runbook(event_id: str):
+    if not _require_admin_user():
+        return jsonify({'ok': False, 'error': 'admin_only'}), 403
+    fallback = {
+        'alert_type': request.args.get('alert_type'),
+        'type': request.args.get('type'),
+        'severity': request.args.get('severity'),
+        'summary': request.args.get('summary'),
+        'title': request.args.get('title'),
+        'timestamp': request.args.get('timestamp'),
+        'endpoint': request.args.get('endpoint'),
+        'source': request.args.get('source'),
+        'link': request.args.get('link'),
+    }
+    metadata = {key: value for key, value in fallback.items() if value}
+    if metadata:
+        metadata['metadata'] = {
+            'alert_type': metadata.get('alert_type'),
+            'endpoint': metadata.get('endpoint'),
+            'source': metadata.get('source'),
+        }
+    try:
+        payload = observability_service.fetch_runbook_for_event(
+            event_id=event_id,
+            fallback_metadata=metadata or None,
+        )
+    except ValueError as exc:
+        logger.info("observability_runbook_invalid_request: event_id=%s error=%s", event_id, exc)
+        return jsonify({'ok': False, 'error': 'bad_request', 'message': 'Invalid request'}), 400
+    except Exception:
+        logger.exception("observability_runbook_fetch_failed")
+        return jsonify({'ok': False, 'error': 'internal_error'}), 500
+    if payload is None:
+        return jsonify({'ok': True, 'event': None, 'runbook': None, 'actions': [], 'status': {}})
+    payload['ok'] = True
+    return jsonify(payload)
+
+
+@app.route('/api/observability/runbook/<event_id>/status', methods=['POST'])
+@login_required
+def api_observability_runbook_status(event_id: str):
+    user_id = _require_admin_user()
+    if not user_id:
+        return jsonify({'ok': False, 'error': 'admin_only'}), 403
+    payload = request.get_json(silent=True) or {}
+    step_id = str(payload.get('step_id') or '').strip()
+    if not step_id:
+        return jsonify({'ok': False, 'error': 'missing_step_id'}), 400
+    completed = bool(payload.get('completed'))
+    fallback_event = payload.get('event')
+    fallback_metadata = fallback_event if isinstance(fallback_event, dict) else None
+    try:
+        snapshot = observability_service.update_runbook_step_status(
+            event_id=event_id,
+            step_id=step_id,
+            completed=completed,
+            user_id=user_id,
+            fallback_metadata=fallback_metadata,
+        )
+    except ValueError as exc:
+        logger.warning("observability_runbook_status_invalid_request: event_id=%s error=%s", event_id, exc)
+        return jsonify({'ok': False, 'error': 'bad_request', 'message': 'Invalid request'}), 400
+    except Exception:
+        logger.exception("observability_runbook_status_failed")
+        return jsonify({'ok': False, 'error': 'internal_error'}), 500
+    snapshot['ok'] = True
+    return jsonify(snapshot)
+
+
 @app.route('/api/observability/quickfix/track', methods=['POST'])
 @login_required
 def api_observability_quickfix_track():
