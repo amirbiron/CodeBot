@@ -52,11 +52,101 @@
 
             <div class="d-flex justify-content-end gap-2 mt-4">
                 <button type="submit" class="btn btn-primary">
-                    <i class="fas fa-code-compare"></i> בחר
+                    <i class="fas fa-code-compare"></i> השווה
                 </button>
             </div>
         </form>
     </div>
+
+    {% if selected_left and selected_right %}
+    <!-- בקרות תצוגה -->
+    <div class="glass-card p-4 mb-4">
+        <div class="d-flex justify-content-between align-items-center flex-wrap gap-3">
+            <div>
+                <h2 class="h5 mb-1">תוצאות השוואה</h2>
+                <p class="text-muted mb-0">{{ (left_file.file_name if left_file else '') }} ↔ {{ (right_file.file_name if right_file else '') }}</p>
+            </div>
+            <div class="btn-group" role="group" aria-label="מצב תצוגה">
+                <button type="button" class="btn btn-outline-primary active" data-mode="side-by-side">
+                    <i class="fas fa-columns"></i> צד לצד
+                </button>
+                <button type="button" class="btn btn-outline-primary" data-mode="unified">
+                    <i class="fas fa-align-left"></i> אחיד
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- סטטיסטיקות -->
+    <div class="stats-bar glass-card p-3 mb-4">
+        <div class="row text-center">
+            <div class="col">
+                <span class="badge bg-success fs-6" id="stat-added">
+                    <i class="fas fa-plus"></i> +<span>0</span>
+                </span>
+            </div>
+            <div class="col">
+                <span class="badge bg-danger fs-6" id="stat-removed">
+                    <i class="fas fa-minus"></i> -<span>0</span>
+                </span>
+            </div>
+            <div class="col">
+                <span class="badge bg-warning fs-6" id="stat-modified">
+                    <i class="fas fa-pen"></i> ~<span>0</span>
+                </span>
+            </div>
+            <div class="col">
+                <span class="badge bg-secondary fs-6" id="stat-unchanged">
+                    <i class="fas fa-equals"></i> =<span>0</span>
+                </span>
+            </div>
+        </div>
+    </div>
+
+    <!-- אזור ההשוואה -->
+    <div id="diff-container" class="diff-container glass-card">
+        <!-- Side by Side View -->
+        <div id="side-by-side-view" class="diff-view active">
+            <div class="diff-pane left-pane">
+                <div class="pane-header">
+                    <span class="version-label">קובץ <span id="left-version-label"></span></span>
+                </div>
+                <div class="pane-content" id="left-content"></div>
+            </div>
+            <div class="diff-pane right-pane">
+                <div class="pane-header">
+                    <span class="version-label">קובץ <span id="right-version-label"></span></span>
+                </div>
+                <div class="pane-content" id="right-content"></div>
+            </div>
+        </div>
+
+        <!-- Unified View -->
+        <div id="unified-view" class="diff-view">
+            <div class="unified-content" id="unified-content"></div>
+        </div>
+
+        <!-- Inline View (קיים כדי לא לשבור את compare.js; לא מוצג בדף זה) -->
+        <div id="inline-view" class="diff-view">
+            <div class="inline-content" id="inline-content"></div>
+        </div>
+    </div>
+    {% endif %}
 </div>
+{% endblock %}
+
+{% block extra_js %}
+{% if selected_left and selected_right %}
+<script src="{{ url_for('static', filename='js/compare.js') }}"></script>
+<script>
+    window.CompareView.init({
+        leftFileId: '{{ selected_left }}',
+        rightFileId: '{{ selected_right }}',
+        leftLabel: '{{ left_file.file_name if left_file else selected_left }}',
+        rightLabel: '{{ right_file.file_name if right_file else selected_right }}',
+        fileName: 'compare'
+    });
+</script>
+{% endif %}
 {% endblock %}
 

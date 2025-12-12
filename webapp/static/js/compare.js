@@ -13,6 +13,10 @@ window.CompareView = (function() {
         currentVersion: 1,
         leftVersion: null,
         rightVersion: null,
+        leftFileId: null,
+        rightFileId: null,
+        leftLabel: null,
+        rightLabel: null,
         diffData: null,
         viewMode: 'side-by-side', // side-by-side, unified, inline
         syncScroll: true,
@@ -26,8 +30,10 @@ window.CompareView = (function() {
      */
     function init(config) {
         Object.assign(state, config);
-        state.leftVersion = Math.max(1, state.currentVersion - 1);
-        state.rightVersion = state.currentVersion;
+        if (state.fileId) {
+            state.leftVersion = Math.max(1, state.currentVersion - 1);
+            state.rightVersion = state.currentVersion;
+        }
 
         cacheElements();
         bindEvents();
@@ -124,8 +130,22 @@ window.CompareView = (function() {
         try {
             showLoading();
 
-            const url = `/api/compare/versions/${state.fileId}?left=${state.leftVersion}&right=${state.rightVersion}`;
-            const response = await fetch(url);
+            let response;
+            if (state.fileId) {
+                const url = `/api/compare/versions/${state.fileId}?left=${state.leftVersion}&right=${state.rightVersion}`;
+                response = await fetch(url);
+            } else if (state.leftFileId && state.rightFileId) {
+                response = await fetch('/api/compare/files', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        left_file_id: state.leftFileId,
+                        right_file_id: state.rightFileId,
+                    }),
+                });
+            } else {
+                return;
+            }
             
             if (!response.ok) {
                 throw new Error(`HTTP ${response.status}`);
@@ -304,8 +324,12 @@ window.CompareView = (function() {
      * עדכון תוויות הגרסאות
      */
     function updateLabels() {
-        elements.leftVersionLabel.textContent = state.leftVersion;
-        elements.rightVersionLabel.textContent = state.rightVersion;
+        if (elements.leftVersionLabel) {
+            elements.leftVersionLabel.textContent = (state.leftLabel ?? state.leftVersion ?? '');
+        }
+        if (elements.rightVersionLabel) {
+            elements.rightVersionLabel.textContent = (state.rightLabel ?? state.rightVersion ?? '');
+        }
     }
 
     /**
@@ -334,9 +358,9 @@ window.CompareView = (function() {
         });
 
         // הצגת התצוגה המתאימה
-        elements.sideBySideView.classList.toggle('active', mode === 'side-by-side');
-        elements.unifiedView.classList.toggle('active', mode === 'unified');
-        elements.inlineView.classList.toggle('active', mode === 'inline');
+        elements.sideBySideView?.classList.toggle('active', mode === 'side-by-side');
+        elements.unifiedView?.classList.toggle('active', mode === 'unified');
+        elements.inlineView?.classList.toggle('active', mode === 'inline');
 
         renderDiff();
     }
@@ -362,7 +386,9 @@ window.CompareView = (function() {
      * יצירת טקסט diff בפורמט unified
      */
     function generateUnifiedDiffText() {
-        const lines = [`--- ${state.fileName} (v${state.leftVersion})`, `+++ ${state.fileName} (v${state.rightVersion})`];
+        const leftHeader = state.leftLabel ? `--- ${state.leftLabel}` : `--- ${state.fileName} (v${state.leftVersion})`;
+        const rightHeader = state.rightLabel ? `+++ ${state.rightLabel}` : `+++ ${state.fileName} (v${state.rightVersion})`;
+        const lines = [leftHeader, rightHeader];
 
         state.diffData.lines.forEach(line => {
             if (line.change_type === 'unchanged') {
@@ -390,7 +416,10 @@ window.CompareView = (function() {
         
         const a = document.createElement('a');
         a.href = url;
-        a.download = `${state.fileName}.v${state.leftVersion}-v${state.rightVersion}.patch`;
+        const safeName = (state.fileName || 'diff').replace(/[^\w.\-]+/g, '_');
+        a.download = state.leftLabel && state.rightLabel
+            ? `${safeName}.patch`
+            : `${safeName}.v${state.leftVersion}-v${state.rightVersion}.patch`;
         document.body.appendChild(a);
         a.click();
         document.body.removeChild(a);

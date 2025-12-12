@@ -6528,11 +6528,24 @@ def compare_files_page():
     # קבלת רשימת הקבצים לבחירה
     user_files = db.get_user_files(user_id, limit=100)
 
+    left_file = None
+    right_file = None
+    try:
+        if left_id:
+            left_file = next((f for f in (user_files or []) if str((f or {}).get('_id')) == str(left_id)), None)
+        if right_id:
+            right_file = next((f for f in (user_files or []) if str((f or {}).get('_id')) == str(right_id)), None)
+    except Exception:
+        left_file = None
+        right_file = None
+
     return render_template(
         'compare_files.html',
         files=user_files,
         selected_left=left_id,
         selected_right=right_id,
+        left_file=left_file,
+        right_file=right_file,
     )
 
 
