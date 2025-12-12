@@ -33,20 +33,35 @@
 תרשים זרימת היררכיית טוקנים
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-.. code-block:: text
+.. mermaid::
 
-   variables.css (:root)
-          │
-          ▼
-   :root[data-theme="…"]  ← Overrides עבור כל ערכה
-          │
-          ▼
-   CSS רכיבי ליבה (split-view.css, global_search.css, …)
-          │
-          ▼
-   רכיבים ייעודיים + <style id="user-custom-theme">
+   graph TD
+       subgraph "Global Scope (variables.css)"
+           L1["<b>Level 1: Primitives</b><br/>:root<br/>--primary, --danger, --glass"]
+           L2["<b>Level 2: Semantic Overrides</b><br/>:root[data-theme='...']<br/>--bg-app, --text-main, --card-bg"]
+       end
 
-התרשים מעגן את כל נקודות הדריסה: מתחילים ב‑Primitives, עוברים לטוקנים סמנטיים, ממשיכים לטוקני רכיב ורק אז ל‑inline styles או Overrides מותאמים אישית.
+       subgraph "Component Scope"
+           L3_A["<b>Level 3: Global Search</b><br/>--search-highlight-bg"]
+           L3_B["<b>Level 3: Split View</b><br/>--split-preview-bg"]
+           L3_C["<b>Level 3: Markdown</b><br/>--md-surface"]
+       end
+
+       L4["<b>User Custom Theme</b><br/>style id='user-custom-theme'<br/>Dynamic User Overrides"]
+
+       L1 --> L2
+       L2 --> L3_A
+       L2 --> L3_B
+       L2 --> L3_C
+       L3_A --> L4
+       L3_B --> L4
+       L3_C --> L4
+
+       style L1 fill:#f9f9f9,stroke:#333,stroke-width:2px
+       style L2 fill:#e1f5fe,stroke:#0277bd,stroke-width:2px
+       style L4 fill:#fff3e0,stroke:#ff9800,stroke-width:2px,stroke-dasharray: 5 5
+
+התרשים ממחיש את שרשרת ההורשה: מתחילים ב‑Primitives, עוברים לטוקנים סמנטיים לפי Theme, ממשיכים לטוקני רכיב ורק לבסוף ל‑Overrides דינמיים עבור Theme מותאם אישית.
 
 טבלת טוקנים עיקריים
 --------------------
