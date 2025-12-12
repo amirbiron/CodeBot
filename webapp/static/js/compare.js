@@ -237,40 +237,56 @@ window.CompareView = (function() {
     // =================================================================
     
     /**
-     * הגדרת סנכרון גלילה "חכם" (מונע רעידות ולולאות)
+     * הגדרת סנכרון גלילה "חכם" (מונע רעידות, עובד גם במקלדת)
      */
     function setupSyncScroll() {
         const leftPane = elements.leftContent;
         const rightPane = elements.rightContent;
         
         if (!leftPane || !rightPane) return;
-        let activeSide = null; // מי שולט כרגע?
+        let activeSide = null;
+        let resetTimeout = null;
 
-        // 1. זיהוי צד אקטיבי (לפי עכבר או מגע)
-        const setActive = (side) => { activeSide = side; };
+        // 1. זיהוי צד אקטיבי לפי עכבר (אופציונלי, לשיפור תגובתיות)
+        const setActive = (side) => {
+            activeSide = side;
+        };
         
-        // דסקטופ
         leftPane.addEventListener('mouseenter', () => setActive('left'));
         rightPane.addEventListener('mouseenter', () => setActive('right'));
-        
-        // מובייל
         leftPane.addEventListener('touchstart', () => setActive('left'), { passive: true });
         rightPane.addEventListener('touchstart', () => setActive('right'), { passive: true });
 
-        // 2. פונקציית סנכרון משופרת
+        // 2. פונקציית סנכרון ראשית
         function sync(source, target, side) {
-            if (!state.syncScroll) return;
-            if (activeSide !== side) return; // אם אני לא המפקד, אני לא פוקד
+            if (!state.syncScroll) {
+                return;
+            }
+
+            // הגנה: אם הצד השני הוא המפקד כרגע, תתעלם מהאירוע הזה (זה הד של הגלילה)
+            if (activeSide && activeSide !== side) {
+                return;
+            }
+
+            // אם אין מפקד (גלילת מקלדת), אני לוקח פיקוד
+            activeSide = side;
 
             // חישוב יחסי (למקרה שהגבהים שונים במקצת)
             const denom = (source.scrollHeight - source.clientHeight) || 1;
             const percentage = source.scrollTop / denom;
             const targetPos = percentage * (target.scrollHeight - target.clientHeight);
 
-            // שימוש ב-requestAnimationFrame לגלילה חלקה ב-60FPS
+            // ביצוע הגלילה בצד השני
             window.requestAnimationFrame(() => {
                 target.scrollTop = targetPos;
             });
+
+            // שחרור הפיקוד כשמפסיקים לגלול (Debounce)
+            // זה מאפשר למשתמש לעבור צד עם המקלדת בלי שהצד הקודם "ינעל" אותו
+            clearTimeout(resetTimeout);
+            resetTimeout = setTimeout(() => {
+                activeSide = null;
+            }, 150);
         }
 
         // 3. האזנה לאירועי גלילה
