@@ -97,7 +97,8 @@ def compare_versions(file_id: str):
             max(1, version_right - 1),
         ) or 1
     except BadRequest as err:
-        return jsonify({"error": str(err)}), 400
+        logger.warning("Invalid version parameter on compare_versions: %s", err, exc_info=True)
+        return jsonify({"error": "invalid_number"}), 400
 
     diff_service = _get_diff_service()
     result = diff_service.compare_versions(

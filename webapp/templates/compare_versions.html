@@ -54,11 +54,11 @@
 <script>
     window.FileCompareView && window.FileCompareView.init({
         mode: 'versions',
-        fileId: '{{ file.id }}',
-        fileName: '{{ file.file_name }}',
+        fileId: {{ file.id|tojson }},
+        fileName: {{ file.file_name|tojson }},
         leftVersion: {{ selected_left }},
         rightVersion: {{ selected_right }},
-        preload: {{ 'true' if preload_diff else 'false' }}
+        preload: {{ preload_diff|tojson }}
     });
 </script>
 {% endblock %}

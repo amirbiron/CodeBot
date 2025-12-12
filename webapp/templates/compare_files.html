@@ -70,9 +70,9 @@
 <script>
     window.FileCompareView && window.FileCompareView.init({
         mode: 'files',
-        leftFileId: '{{ selected_left }}',
-        rightFileId: '{{ selected_right }}',
-        preload: {{ 'true' if preload_diff else 'false' }}
+        leftFileId: {{ selected_left|tojson }},
+        rightFileId: {{ selected_right|tojson }},
+        preload: {{ preload_diff|tojson }}
     });
 </script>
 {% endblock %}
