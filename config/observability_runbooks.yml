@@ -114,11 +114,11 @@ runbooks:
           safety: safe
       - id: clear_cache_suggestion
         title: "שקול ניקוי Cache"
-        description: "אם הזיכרון מלא בגלל Redis, נקה מפתחות פגי תוקף."
+        description: "אם הזיכרון מלא בגלל Redis, פעל לפי המדריך להפעלת cache.clear_stale ידנית."
         action:
-          label: "🧹 ניקוי Cache (Safe)"
-          type: copy
-          payload: "/admin cache clear_stale"
+          label: "🧹 מדריך ניקוי Cache"
+          type: link
+          href: "/docs/monitoring.md#predictive-health-v7"
           safety: caution
   # ⚙️ 2. תורים ומשימות רקע
   worker_lag:
@@ -130,12 +130,12 @@ runbooks:
       - job_failure
     steps:
       - id: check_worker_status
-        title: "סטטוס Sidecar Worker"
-        description: "בדוק האם ה-Worker מחובר ומגיב."
+        title: "בדיקת בריאות כללית"
+        description: "הרץ /status כדי לוודא DB/Redis תקינים לפני שנוגעים ב-Worker."
         action:
-          label: "👷 /status worker"
+          label: "👷 /status"
           type: copy
-          payload: "/status worker"
+          payload: "/status"
           safety: safe
       - id: check_queue_depth
         title: "בדוק עומק תור"
@@ -185,11 +185,11 @@ runbooks:
           safety: safe
       - id: check_recent_deploys
         title: "בדוק גרסאות אחרונות"
-        description: "האם עלתה גרסה ב-30 הדקות האחרונות?"
+        description: "האם עלתה גרסה ב-30 הדקות האחרונות? בדוק את סעיף ה-Deployment בלוח."
         action:
-          label: "🚀 /version history"
-          type: copy
-          payload: "/version history"
+          label: "🚀 מדריך Deployment Events"
+          type: link
+          href: "/docs/observability/observability_dashboard.md#deployment-correlation"
           safety: safe
       - id: review_replay
         title: "בדוק את Incident Replay"
