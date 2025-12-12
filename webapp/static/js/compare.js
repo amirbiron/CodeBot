@@ -49,8 +49,6 @@
         elements.viewButtons = document.querySelectorAll('[data-view-mode]');
         elements.leftMeta = document.getElementById('diff-left-meta');
         elements.rightMeta = document.getElementById('diff-right-meta');
-        elements.leftHeader = document.getElementById('diff-left-header');
-        elements.rightHeader = document.getElementById('diff-right-header');
         elements.statAdded = document.getElementById('stat-added');
         elements.statRemoved = document.getElementById('stat-removed');
         elements.statModified = document.getElementById('stat-modified');
@@ -245,12 +243,8 @@
     function updateMeta() {
         const leftInfo = state.diffData.left_info || {};
         const rightInfo = state.diffData.right_info || {};
-        const leftLabel = buildMetaLabel(leftInfo);
-        const rightLabel = buildMetaLabel(rightInfo);
-        if (elements.leftMeta) elements.leftMeta.textContent = leftLabel;
-        if (elements.rightMeta) elements.rightMeta.textContent = rightLabel;
-        if (elements.leftHeader) elements.leftHeader.textContent = leftLabel;
-        if (elements.rightHeader) elements.rightHeader.textContent = rightLabel;
+        if (elements.leftMeta) elements.leftMeta.textContent = buildMetaLabel(leftInfo);
+        if (elements.rightMeta) elements.rightMeta.textContent = buildMetaLabel(rightInfo);
     }
 
     function buildMetaLabel(info) {
