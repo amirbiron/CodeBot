@@ -788,9 +788,9 @@
 (function(){
   const initialParams = new URLSearchParams(window.location.search || '');
   const state = {
-    range: '1h',
+    range: initialParams.get('timerange') || initialParams.get('range') || '1h',
     severity: 'all',
-    type: 'all',
+    type: initialParams.get('alert_type') || 'all',
     endpoint: '',
     search: '',
     page: 1,
@@ -2208,7 +2208,21 @@
   }
 
   function initRangeButtons() {
-    document.querySelectorAll('#rangeButtons .range-btn').forEach(btn => {
+    const buttons = Array.from(document.querySelectorAll('#rangeButtons .range-btn'));
+    const allowed = new Set(['1h','24h','7d','30d']);
+    if (!allowed.has(String(state.range || '').toLowerCase())) {
+      state.range = '1h';
+    } else {
+      state.range = String(state.range || '').toLowerCase();
+    }
+    buttons.forEach(btn => {
+      btn.classList.toggle('active', (btn.dataset.range || '').toLowerCase() === state.range);
+    });
+    if (!buttons.some(btn => btn.classList.contains('active')) && buttons.length) {
+      buttons[0].classList.add('active');
+      state.range = (buttons[0].dataset.range || '1h').toLowerCase();
+    }
+    buttons.forEach(btn => {
       btn.addEventListener('click', () => {
         document.querySelectorAll('#rangeButtons .range-btn').forEach(b => b.classList.remove('active'));
         btn.classList.add('active');
@@ -2225,7 +2239,25 @@
     const endpointInput = document.getElementById('endpointFilter');
     const searchInput = document.getElementById('searchFilter');
     if (severitySelect) severitySelect.addEventListener('change', () => { state.severity = severitySelect.value; state.page = 1; refreshHistory(); });
-    if (typeSelect) typeSelect.addEventListener('change', () => { state.type = typeSelect.value; state.page = 1; refreshHistory(); });
+    if (typeSelect) {
+      // Support deep-linking to a specific alert_type (even if not in the preset options list)
+      if (state.type && state.type !== 'all') {
+        const wanted = String(state.type).trim();
+        if (wanted) {
+          const hasOption = Array.from(typeSelect.options || []).some(opt => opt && opt.value === wanted);
+          if (!hasOption) {
+            const opt = document.createElement('option');
+            opt.value = wanted;
+            opt.textContent = wanted;
+            typeSelect.appendChild(opt);
+          }
+          try { typeSelect.value = wanted; } catch (_) {}
+        } else {
+          state.type = 'all';
+        }
+      }
+      typeSelect.addEventListener('change', () => { state.type = typeSelect.value; state.page = 1; refreshHistory(); });
+    }
     if (endpointInput) endpointInput.addEventListener('change', () => { state.endpoint = endpointInput.value.trim(); state.page = 1; refreshHistory(); });
     if (searchInput) {
       let timer;

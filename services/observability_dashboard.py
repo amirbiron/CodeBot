@@ -2545,6 +2545,275 @@ def build_dashboard_snapshot(
     return snapshot
 
 
+def build_coverage_report(
+    *,
+    start_dt: Optional[datetime],
+    end_dt: Optional[datetime],
+    min_count: int = 1,
+) -> Dict[str, Any]:
+    """Build a coverage report between active alert_types and config (runbooks/quick fixes).
+
+    Definitions:
+    - Missing runbook: active alert_type that doesn't match a specific runbook key/alias
+      (default runbook does NOT count as coverage).
+    - Missing quick fix: active alert_type that HAS a specific runbook but has no per-alert actions
+      (no actions in runbook steps AND no by_alert_type actions in alert_quick_fixes.json).
+    - Orphan runbook: runbook key + aliases that don't match any active alert_type in the window.
+      (default runbook is excluded from the orphan list).
+    - Orphan quick fix: by_alert_type entries in alert_quick_fixes.json that don't match any
+      active alert_type in the window.
+    """
+    now = datetime.now(timezone.utc)
+    generated_at = now.isoformat()
+
+    # 1) Active alert types (source of truth)
+    active_rows: List[Dict[str, Any]] = []
+    try:
+        active_rows = alerts_storage.aggregate_alert_type_stats(
+            start_dt=start_dt,
+            end_dt=end_dt,
+            min_count=min_count,
+            limit=2000,
+        )
+    except Exception:
+        active_rows = []
+
+    if not active_rows:
+        active_rows = _fallback_aggregate_alert_types(start_dt=start_dt, end_dt=end_dt, min_count=min_count)
+
+    active_types: set[str] = set()
+    for row in active_rows:
+        try:
+            key = _normalize_alert_type(row.get("alert_type"))
+            if key:
+                active_types.add(key)
+        except Exception:
+            continue
+
+    # 2) Load configs
+    runbook_cfg = _load_runbook_config() or {}
+    runbook_definitions = runbook_cfg.get("definitions") or {}
+    default_runbook_key = runbook_cfg.get("default")
+
+    quick_cfg = _load_quick_fix_config() or {}
+    quick_by_type = quick_cfg.get("by_alert_type") if isinstance(quick_cfg.get("by_alert_type"), dict) else {}
+    if not isinstance(quick_by_type, dict):
+        quick_by_type = {}
+
+    # 3) Missing runbooks / quick fixes
+    missing_runbooks: List[Dict[str, Any]] = []
+    missing_quick_fixes: List[Dict[str, Any]] = []
+
+    for row in active_rows:
+        alert_type = _normalize_alert_type(row.get("alert_type"))
+        if not alert_type:
+            continue
+
+        count = int(row.get("count") or 0)
+        last_seen_dt = row.get("last_seen_dt")
+        last_seen_ts = last_seen_dt.isoformat() if isinstance(last_seen_dt, datetime) else None
+        sample_title = str(row.get("sample_title") or "").strip() or str(row.get("sample_name") or "").strip()
+
+        # Runbook coverage: default does not count
+        runbook_key = _resolve_runbook_key(alert_type, allow_default=False)
+        if runbook_key and default_runbook_key and runbook_key == default_runbook_key:
+            runbook_key = None
+
+        if not runbook_key:
+            missing_runbooks.append(
+                {
+                    "alert_type": alert_type,
+                    "count": count,
+                    "last_seen_ts": last_seen_ts,
+                    "sample_title": sample_title,
+                }
+            )
+            continue
+
+        # Quick-fix coverage (per-alert only)
+        has_quick_fix = False
+
+        try:
+            rb = runbook_definitions.get(runbook_key) if isinstance(runbook_definitions, dict) else None
+            steps = (rb or {}).get("steps") if isinstance(rb, dict) else None
+            if isinstance(steps, list):
+                for step in steps:
+                    if not isinstance(step, dict):
+                        continue
+                    action = step.get("action")
+                    if isinstance(action, dict) and action:
+                        has_quick_fix = True
+                        break
+        except Exception:
+            pass
+
+        if not has_quick_fix:
+            try:
+                by_type_actions = quick_by_type.get(alert_type)
+                if isinstance(by_type_actions, list) and len(by_type_actions) > 0:
+                    has_quick_fix = True
+            except Exception:
+                pass
+
+        if not has_quick_fix:
+            missing_quick_fixes.append(
+                {
+                    "alert_type": alert_type,
+                    "count": count,
+                    "last_seen_ts": last_seen_ts,
+                    "sample_title": sample_title,
+                }
+            )
+
+    missing_runbooks.sort(key=lambda r: (-int(r.get("count") or 0), str(r.get("alert_type") or "")))
+    missing_quick_fixes.sort(key=lambda r: (-int(r.get("count") or 0), str(r.get("alert_type") or "")))
+
+    # 4) Orphans
+    orphan_runbooks = _find_orphan_runbooks(
+        active_types=active_types,
+        default_runbook_key=default_runbook_key,
+    )
+    orphan_quick_fixes: List[Dict[str, Any]] = []
+    try:
+        for key in sorted({str(k).strip().lower() for k in quick_by_type.keys() if k}):
+            if key and key not in active_types:
+                orphan_quick_fixes.append({"alert_type": key})
+    except Exception:
+        orphan_quick_fixes = []
+
+    return {
+        "missing_runbooks": missing_runbooks,
+        "missing_quick_fixes": missing_quick_fixes,
+        "orphan_runbooks": orphan_runbooks,
+        "orphan_quick_fixes": orphan_quick_fixes,
+        "meta": {
+            "window_start": start_dt.isoformat() if start_dt else None,
+            "window_end": end_dt.isoformat() if end_dt else None,
+            "generated_at": generated_at,
+        },
+    }
+
+
+def _fallback_aggregate_alert_types(
+    *,
+    start_dt: Optional[datetime],
+    end_dt: Optional[datetime],
+    min_count: int,
+) -> List[Dict[str, Any]]:
+    if _internal_alerts is None:
+        return []
+    try:
+        raw = _internal_alerts.get_recent_alerts(limit=600)  # type: ignore[attr-defined]
+    except Exception:
+        return []
+    if not isinstance(raw, list):
+        return []
+
+    counts: Dict[str, int] = {}
+    last_seen: Dict[str, datetime] = {}
+    sample_title: Dict[str, str] = {}
+
+    for rec in raw:
+        if not isinstance(rec, dict):
+            continue
+        ts_dt = _parse_iso_dt(rec.get("ts") or rec.get("timestamp"))
+        if ts_dt is None:
+            continue
+        if not _is_within_window(ts_dt, start_dt, end_dt):
+            continue
+        details = rec.get("details") if isinstance(rec.get("details"), dict) else rec.get("metadata")
+        if isinstance(details, dict) and bool(details.get("is_drill")):
+            continue
+        a_type = _normalize_alert_type(details.get("alert_type") if isinstance(details, dict) else rec.get("alert_type"))
+        if not a_type:
+            a_type = _normalize_alert_type(rec.get("name"))
+        if not a_type:
+            continue
+        counts[a_type] = counts.get(a_type, 0) + 1
+        if a_type not in last_seen or ts_dt > last_seen[a_type]:
+            last_seen[a_type] = ts_dt
+            sample_title[a_type] = str(rec.get("summary") or rec.get("title") or rec.get("name") or "").strip()
+
+    out: List[Dict[str, Any]] = []
+    for a_type, cnt in counts.items():
+        if cnt < max(1, int(min_count or 1)):
+            continue
+        out.append(
+            {
+                "alert_type": a_type,
+                "count": cnt,
+                "last_seen_dt": last_seen.get(a_type),
+                "sample_title": sample_title.get(a_type, ""),
+                "sample_name": a_type,
+            }
+        )
+    out.sort(key=lambda r: (-int(r.get("count") or 0), str(r.get("alert_type") or "")))
+    return out
+
+
+def _find_orphan_runbooks(
+    *,
+    active_types: set[str],
+    default_runbook_key: Optional[str],
+) -> List[Dict[str, Any]]:
+    if yaml is None:  # pragma: no cover - optional dependency missing
+        return []
+    path = _RUNBOOK_PATH
+    try:
+        raw = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+    except Exception:
+        return []
+    if not isinstance(raw, dict):
+        return []
+    runbooks_block = raw.get("runbooks") if isinstance(raw.get("runbooks"), dict) else raw
+    if not isinstance(runbooks_block, dict):
+        return []
+
+    cfg_default = str(raw.get("default") or "").strip().lower()
+    out: List[Dict[str, Any]] = []
+    for key, value in runbooks_block.items():
+        if key in {"version", "runbooks", "default"}:
+            continue
+        if not isinstance(value, dict):
+            continue
+        runbook_key = str(key or "").strip().lower()
+        if not runbook_key:
+            continue
+        is_default = False
+        try:
+            if cfg_default and cfg_default == runbook_key:
+                is_default = True
+        except Exception:
+            pass
+        try:
+            if str(value.get("default")).lower() in {"1", "true", "yes"}:
+                is_default = True
+        except Exception:
+            pass
+        if default_runbook_key and runbook_key == str(default_runbook_key).lower():
+            is_default = True
+        if is_default:
+            continue
+
+        aliases_raw = value.get("aliases") or []
+        aliases: List[str] = []
+        if isinstance(aliases_raw, list):
+            for item in aliases_raw:
+                if not isinstance(item, str):
+                    continue
+                alias = item.strip().lower()
+                if alias:
+                    aliases.append(alias)
+        aliases = sorted(set(aliases))
+
+        matches_active = runbook_key in active_types or any(a in active_types for a in aliases)
+        if not matches_active:
+            out.append({"runbook_key": runbook_key, "aliases": aliases})
+
+    out.sort(key=lambda r: str(r.get("runbook_key") or ""))
+    return out
+
+
 def _normalize_iso_timestamp(value: Optional[str]) -> Optional[str]:
     dt = _parse_iso_dt(value)
     if dt is None:

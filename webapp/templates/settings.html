@@ -239,6 +239,7 @@
     <button class="radar-tab" data-panel="images" type="button">הגדרות תמונה</button>
     <button class="radar-tab" data-panel="quickfixes" type="button">Quick Fixes</button>
     <button class="radar-tab" data-panel="runbooks" type="button">Runbooks</button>
+    <button class="radar-tab" data-panel="coverage" type="button">Coverage</button>
   </div>
   <div class="radar-panel active" data-panel="alerts">
     <div class="radar-panel-body" id="configRadarAlerts" data-radar-panel="alerts">
@@ -263,6 +264,11 @@
   <div class="radar-panel" data-panel="runbooks">
     <div class="radar-panel-body" id="configRadarRunbooks" data-radar-panel="runbooks">
       <div class="radar-empty-state">בקרוב יוצגו Runbooks</div>
+    </div>
+  </div>
+  <div class="radar-panel" data-panel="coverage">
+    <div class="radar-panel-body" id="configRadarCoverage" data-radar-panel="coverage">
+      <div class="radar-empty-state">בחר בלשונית Coverage כדי לטעון דוח כיסוי.</div>
     </div>
   </div>
 </div>
@@ -862,6 +868,34 @@
       grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
       gap: 1rem;
     }
+    .radar-controls {
+      display: flex;
+      gap: 0.75rem;
+      flex-wrap: wrap;
+      align-items: flex-end;
+      margin-top: 1rem;
+    }
+    .radar-controls label {
+      display: flex;
+      flex-direction: column;
+      gap: 0.25rem;
+      font-size: 0.85rem;
+      opacity: 0.9;
+      min-width: 160px;
+    }
+    .radar-controls input,
+    .radar-controls select {
+      background: rgba(255,255,255,0.05);
+      border: 1px solid rgba(255,255,255,0.12);
+      border-radius: 12px;
+      color: inherit;
+      padding: 0.45rem 0.6rem;
+      font-size: 0.9rem;
+    }
+    .radar-link {
+      color: inherit;
+      text-decoration: underline;
+    }
     .radar-kpi {
       padding: 1rem;
       border-radius: 12px;
@@ -1149,6 +1183,7 @@
       const initConfigRadar = () => {
         const card = document.getElementById('configRadarCard');
         if (!card) return;
+        const urlParams = new URLSearchParams(window.location.search || '');
 
         const statusEl = card.querySelector('[data-radar-status]');
         const timestampEl = card.querySelector('[data-radar-timestamp]');
@@ -1162,9 +1197,19 @@
           images: card.querySelector('#configRadarImages'),
           quickfixes: card.querySelector('#configRadarQuickFixes'),
           runbooks: card.querySelector('#configRadarRunbooks'),
+          coverage: card.querySelector('#configRadarCoverage'),
         };
 
         let isLoading = false;
+        let coverageLoading = false;
+        let coverageCache = null;
+        const coverageState = {
+          timerange: (urlParams.get('timerange') || urlParams.get('range') || '24h').toLowerCase(),
+          minCount: Number(urlParams.get('min_count') || '1') || 1,
+          search: (urlParams.get('alert_type') || urlParams.get('q') || '').trim().toLowerCase(),
+        };
+        if (!['1h','24h','7d','30d'].includes(coverageState.timerange)) coverageState.timerange = '24h';
+        coverageState.minCount = Math.max(1, Math.min(10_000, Math.floor(coverageState.minCount || 1)));
 
         const setStatus = (message, variant = 'muted', extraHtml = '') => {
           if (!statusEl) return;
@@ -1193,6 +1238,9 @@
           panels.forEach((panel) => {
             panel.classList.toggle('active', panel.dataset.panel === panelName);
           });
+          if (panelName === 'coverage') {
+            fetchCoverage().catch(() => {});
+          }
         };
 
         tabs.forEach((btn) => {
@@ -1484,6 +1532,205 @@
           `;
         };
 
+        const buildCoverageControls = () => {
+          const options = [
+            { value: '1h', label: '1 שעה' },
+            { value: '24h', label: '24 שעות' },
+            { value: '7d', label: '7 ימים' },
+            { value: '30d', label: '30 יום' },
+          ];
+          const optionsHtml = options.map(opt => {
+            const selected = opt.value === coverageState.timerange ? ' selected' : '';
+            return `<option value="${opt.value}"${selected}>${opt.label}</option>`;
+          }).join('');
+          return `
+            <div class="radar-controls">
+              <label>
+                טווח זמן
+                <select id="configRadarCoverageRange">${optionsHtml}</select>
+              </label>
+              <label>
+                מינימום הופעות
+                <input id="configRadarCoverageMinCount" type="number" min="1" step="1" value="${escapeHtml(String(coverageState.minCount))}" />
+              </label>
+              <label style="flex:1; min-width: 220px;">
+                חיפוש (alert_type)
+                <input id="configRadarCoverageSearch" type="search" placeholder="למשל: high_error_rate" value="${escapeHtml(coverageState.search)}" />
+              </label>
+              <button class="btn btn-secondary" id="configRadarCoverageRefreshBtn" type="button">רענן</button>
+            </div>
+          `;
+        };
+
+        const buildCoverageTable = (title, rows, kind) => {
+          const header = `
+            <h4 style="margin: 0.25rem 0 0.6rem;">${escapeHtml(title)} <span class="radar-chip">${escapeHtml(String(rows.length))}</span></h4>
+          `;
+          if (!rows.length) {
+            return `${header}<div class="radar-empty-state">אין פריטים להצגה</div>`;
+          }
+          if (kind === 'missing') {
+            const body = rows.map((r) => {
+              const alertType = escapeHtml(r.alert_type || '');
+              const count = escapeHtml(String(r.count ?? 0));
+              const lastSeen = escapeHtml(formatDateTime(r.last_seen_ts));
+              const sample = escapeHtml(r.sample_title || '');
+              const obsHref = `/admin/observability?timerange=${encodeURIComponent(coverageState.timerange)}&alert_type=${encodeURIComponent(r.alert_type || '')}`;
+              const selfHref = `/settings?config_radar_tab=coverage&timerange=${encodeURIComponent(coverageState.timerange)}&min_count=${encodeURIComponent(String(coverageState.minCount))}&alert_type=${encodeURIComponent(r.alert_type || '')}#configRadarCard`;
+              return `
+                <tr>
+                  <td><code dir="ltr">${alertType}</code></td>
+                  <td>${count}</td>
+                  <td>${lastSeen}</td>
+                  <td>${sample || '—'}</td>
+                  <td>
+                    <a class="radar-link" href="${selfHref}">פתח Config Radar</a>
+                    <span style="opacity:0.6;">|</span>
+                    <a class="radar-link" href="${obsHref}" target="_blank" rel="noopener">פתח Observability</a>
+                  </td>
+                </tr>
+              `;
+            }).join('');
+            return `
+              ${header}
+              <table class="radar-table">
+                <thead>
+                  <tr>
+                    <th>alert_type</th>
+                    <th>Count</th>
+                    <th>Last Seen</th>
+                    <th>דוגמה</th>
+                    <th>פעולות</th>
+                  </tr>
+                </thead>
+                <tbody>${body}</tbody>
+              </table>
+            `;
+          }
+          if (kind === 'orphan_runbooks') {
+            const body = rows.map((r) => {
+              const key = escapeHtml(r.runbook_key || '');
+              const aliases = (r.aliases || []).map(a => `<span class="radar-chip"><code dir="ltr">${escapeHtml(a)}</code></span>`).join(' ') || '<span class="radar-chip">—</span>';
+              return `
+                <tr>
+                  <td><code dir="ltr">${key}</code></td>
+                  <td>${aliases}</td>
+                </tr>
+              `;
+            }).join('');
+            return `
+              ${header}
+              <table class="radar-table">
+                <thead>
+                  <tr>
+                    <th>runbook_key</th>
+                    <th>aliases</th>
+                  </tr>
+                </thead>
+                <tbody>${body}</tbody>
+              </table>
+            `;
+          }
+          // orphan_quick_fixes
+          const body = rows.map((r) => {
+            const alertType = escapeHtml(r.alert_type || '');
+            return `<tr><td><code dir="ltr">${alertType}</code></td></tr>`;
+          }).join('');
+          return `
+            ${header}
+            <table class="radar-table">
+              <thead><tr><th>alert_type</th></tr></thead>
+              <tbody>${body}</tbody>
+            </table>
+          `;
+        };
+
+        const applyCoverageFilters = (payload) => {
+          const q = (coverageState.search || '').trim().toLowerCase();
+          if (!q) return payload;
+          const filterByType = (rows) => (rows || []).filter(r => String(r.alert_type || r.runbook_key || '').toLowerCase().includes(q));
+          const filtered = { ...payload };
+          filtered.missing_runbooks = filterByType(payload.missing_runbooks || []);
+          filtered.missing_quick_fixes = filterByType(payload.missing_quick_fixes || []);
+          filtered.orphan_quick_fixes = filterByType(payload.orphan_quick_fixes || []);
+          filtered.orphan_runbooks = (payload.orphan_runbooks || []).filter(r => {
+            const key = String(r.runbook_key || '').toLowerCase();
+            const aliases = Array.isArray(r.aliases) ? r.aliases.map(a => String(a || '').toLowerCase()) : [];
+            return key.includes(q) || aliases.some(a => a.includes(q));
+          });
+          return filtered;
+        };
+
+        const renderCoverage = (payload) => {
+          if (!slots.coverage) return;
+          const filtered = applyCoverageFilters(payload || {});
+          const meta = payload?.meta || {};
+          const metaHtml = `
+            <div class="radar-meta" style="margin-top:0.25rem;">
+              <span>חלון: ${escapeHtml(formatDateTime(meta.window_start))} → ${escapeHtml(formatDateTime(meta.window_end))}</span>
+              <span>נוצר: ${escapeHtml(formatDateTime(meta.generated_at))}</span>
+            </div>
+          `;
+          slots.coverage.innerHTML = `
+            ${buildCoverageControls()}
+            ${metaHtml}
+            <div style="display:flex; flex-direction:column; gap: 1.25rem; margin-top: 1rem;">
+              <div>${buildCoverageTable('🔴 Missing Runbooks', filtered.missing_runbooks || [], 'missing')}</div>
+              <div>${buildCoverageTable('🟠 Missing Quick Fixes (למרות Runbook)', filtered.missing_quick_fixes || [], 'missing')}</div>
+              <div>${buildCoverageTable('👻 Orphan Runbooks', filtered.orphan_runbooks || [], 'orphan_runbooks')}</div>
+              <div>${buildCoverageTable('👻 Orphan Quick Fixes', filtered.orphan_quick_fixes || [], 'orphan_quick_fixes')}</div>
+            </div>
+          `;
+
+          const rangeEl = document.getElementById('configRadarCoverageRange');
+          const minEl = document.getElementById('configRadarCoverageMinCount');
+          const searchEl = document.getElementById('configRadarCoverageSearch');
+          const refreshEl = document.getElementById('configRadarCoverageRefreshBtn');
+          if (rangeEl) rangeEl.addEventListener('change', () => {
+            coverageState.timerange = (rangeEl.value || '24h').toLowerCase();
+            fetchCoverage().catch(() => {});
+          });
+          if (minEl) minEl.addEventListener('change', () => {
+            const v = Number(minEl.value || '1') || 1;
+            coverageState.minCount = Math.max(1, Math.min(10_000, Math.floor(v)));
+            minEl.value = String(coverageState.minCount);
+            fetchCoverage().catch(() => {});
+          });
+          if (searchEl) {
+            let timer;
+            searchEl.addEventListener('input', () => {
+              clearTimeout(timer);
+              timer = setTimeout(() => {
+                coverageState.search = String(searchEl.value || '').trim().toLowerCase();
+                if (coverageCache) renderCoverage(coverageCache);
+              }, 200);
+            });
+          }
+          if (refreshEl) refreshEl.addEventListener('click', () => fetchCoverage().catch(() => {}));
+        };
+
+        const fetchCoverage = async () => {
+          if (!slots.coverage || coverageLoading) return;
+          coverageLoading = true;
+          const params = new URLSearchParams({
+            timerange: coverageState.timerange,
+            min_count: String(coverageState.minCount),
+          });
+          slots.coverage.innerHTML = '<div class="radar-empty-state">טוען דוח כיסוי…</div>';
+          try {
+            const res = await fetch('/api/observability/coverage?' + params.toString(), { cache: 'no-store', credentials: 'same-origin' });
+            if (!res.ok) throw new Error('request_failed');
+            const payload = await res.json();
+            if (!payload || payload.ok === false) throw new Error(payload?.error || 'coverage_failed');
+            coverageCache = payload;
+            renderCoverage(payload);
+          } catch (e) {
+            slots.coverage.innerHTML = '<div class="radar-empty-state">לא ניתן לטעון דוח כיסוי כרגע.</div>';
+          } finally {
+            coverageLoading = false;
+          }
+        };
+
         const renderSnapshot = (snapshot) => {
           const validation = snapshot?.validation;
           const ok = validation?.status === 'ok';
@@ -1532,6 +1779,12 @@
         validateBtn?.addEventListener('click', () => fetchSnapshot('מריץ ולידציה...'));
 
         fetchSnapshot();
+
+        // Optional deep-link to a specific tab (e.g. ?config_radar_tab=coverage)
+        const requestedTab = (urlParams.get('config_radar_tab') || urlParams.get('radar_tab') || '').toLowerCase();
+        if (requestedTab && ['alerts','errors','images','quickfixes','runbooks','coverage'].includes(requestedTab)) {
+          activatePanel(requestedTab);
+        }
       };
 
       const initSmoothScrollSettingsCard = () => {

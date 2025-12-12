@@ -481,6 +481,87 @@ def fetch_alerts(
     return alerts, total
 
 
+def aggregate_alert_type_stats(
+    *,
+    start_dt: Optional[datetime],
+    end_dt: Optional[datetime],
+    min_count: int = 1,
+    limit: int = 500,
+) -> List[Dict[str, Any]]:
+    """Aggregate active alert_types with counts and last_seen (exclude drills).
+
+    Returns a list of dicts:
+      { "alert_type": str, "count": int, "last_seen_dt": datetime, "sample_title": str, "sample_name": str }
+
+    Fail-open: returns [] on any error / when storage is unavailable.
+    """
+    coll = _get_collection()
+    if coll is None:
+        return []
+
+    try:
+        min_count_int = int(min_count)
+    except Exception:
+        min_count_int = 1
+    min_count_int = max(1, min_count_int)
+
+    try:
+        limit_int = int(limit)
+    except Exception:
+        limit_int = 500
+    limit_int = max(1, min(2000, limit_int))
+
+    match = _build_time_filter(start_dt, end_dt)
+    # Default: exclude Drill alerts from analytics helpers
+    match["details.is_drill"] = {"$ne": True}
+    # Only consider documents with a real alert_type (avoid grouping null/empty)
+    match["alert_type"] = {"$type": "string", "$ne": ""}
+
+    pipeline = [
+        {"$match": match},
+        {"$sort": {"ts_dt": -1}},
+        {
+            "$group": {
+                "_id": {"$toLower": "$alert_type"},
+                "count": {"$sum": 1},
+                "last_seen_dt": {"$first": "$ts_dt"},
+                "sample_title": {"$first": "$summary"},
+                "sample_name": {"$first": "$name"},
+            }
+        },
+        {"$match": {"count": {"$gte": min_count_int}}},
+        {"$sort": {"count": -1, "last_seen_dt": -1}},
+        {"$limit": limit_int},
+    ]
+
+    try:
+        rows = list(coll.aggregate(pipeline))  # type: ignore[attr-defined]
+    except Exception:
+        return []
+
+    out: List[Dict[str, Any]] = []
+    for row in rows:
+        try:
+            alert_type = _safe_str(row.get("_id"), limit=128).lower()
+            if not alert_type:
+                continue
+            last_seen_dt = row.get("last_seen_dt")
+            if not isinstance(last_seen_dt, datetime):
+                continue
+            out.append(
+                {
+                    "alert_type": alert_type,
+                    "count": int(row.get("count", 0) or 0),
+                    "last_seen_dt": last_seen_dt,
+                    "sample_title": _safe_str(row.get("sample_title"), limit=256),
+                    "sample_name": _safe_str(row.get("sample_name"), limit=128),
+                }
+            )
+        except Exception:
+            continue
+    return out
+
+
 def aggregate_alert_summary(
     *,
     start_dt: Optional[datetime],
