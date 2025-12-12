@@ -75,6 +75,12 @@
 - **Google Drive** - גיבויים אוטומטיים וידניים, שחזור מגיבויי Drive
 - **WebApp** - ממשק ווב מתקדם עם תכונות נוספות
 
+### 🎨 מערכת ערכות נושא וטוקנים
+- **8 ערכות נושא מלאות** – Classic, Ocean, Forest, Rose Pine Dawn, Dark, Dim, Nebula ו‑High Contrast חולקות את אותם טוקנים סמנטיים (`var(--bg-*)`, `var(--text-*)`, `--md-*`).
+- **Theme Builder** – המכשף שומר Overrides בטוחים לתוך ``<style id="user-custom-theme">`` ונותן שליטה על `data-theme`.
+- **Split View & Markdown Preview** – נשארים כהים גם בתמות בהירות בעזרת ``--md-surface`` ו‑``--split-preview-*``.
+- **מדריך מלא** – ראו [`docs/webapp/theming_and_css.rst`](docs/webapp/theming_and_css.rst) לטבלת טוקנים, בדיקות וקריטריונים לפני Merge.
+
 ### 🗃️ אוסף קהילה ו-📃 ספריית סניפטים
 - **📳 ממשקי משתמשים (Community Library)** – קטלוג ציבורי של מוצרים שהוגשו ואושרו
 - **📃 ספריית סניפטים** – צפייה בסניפטים מאושרים, חיפוש לפי כותרת/שפה, והגשת סניפט דרך הבוט

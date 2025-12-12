@@ -133,6 +133,12 @@ Code Keeper Bot - תיעוד API
 
 .. toctree::
    :maxdepth: 2
+   :caption: Frontend > Theming
+
+   webapp/theming_and_css
+
+.. toctree::
+   :maxdepth: 2
    :caption: Observability
 
    observability

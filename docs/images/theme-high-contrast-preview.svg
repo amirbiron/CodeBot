@@ -1,0 +1,43 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="640" height="360" viewBox="0 0 640 360">
+  <rect width="640" height="360" fill="#000000" rx="36"/>
+  <rect x="24" y="24" width="592" height="312" rx="28" stroke="#ffff00" stroke-width="2" fill="none" stroke-dasharray="14 10"/>
+
+  <text x="48" y="80" fill="#ffffff" font-size="30" font-weight="700" font-family="Heebo, 'Segoe UI', sans-serif">
+    High Contrast - data-theme="high-contrast"
+  </text>
+  <text x="48" y="120" fill="#ffff00" font-size="18" font-family="Heebo, 'Segoe UI', sans-serif">
+    WCAG 2.1 AA: ???? 21:1 | ??????? 19.5:1 | Focus outline ????
+  </text>
+
+  <g transform="translate(48,150)">
+    <rect width="220" height="150" rx="20" fill="#ffffff"/>
+    <text x="20" y="38" fill="#000000" font-size="18" font-family="Heebo, 'Segoe UI', sans-serif">
+      body / cards
+    </text>
+    <text x="20" y="68" fill="#000000" font-size="14" font-family="Heebo, 'Segoe UI', sans-serif">
+      --bg-primary: #000000
+    </text>
+    <text x="20" y="92" fill="#000000" font-size="14" font-family="Heebo, 'Segoe UI', sans-serif">
+      --text-primary: #ffffff
+    </text>
+    <text x="20" y="116" fill="#000000" font-size="14" font-family="Heebo, 'Segoe UI', sans-serif">
+      --glass-border: #ffffff
+    </text>
+  </g>
+
+  <g transform="translate(300,150)">
+    <rect width="280" height="150" rx="26" fill="#111111" stroke="#ffff00" stroke-width="2"/>
+    <text x="24" y="42" fill="#ffff00" font-size="18" font-family="Heebo, 'Segoe UI', sans-serif" font-weight="600">
+      var(--btn-primary-*)
+    </text>
+    <text x="24" y="74" fill="#ffffff" font-size="14" font-family="Heebo, 'Segoe UI', sans-serif">
+      bg: #000000
+    </text>
+    <text x="24" y="100" fill="#ffffff" font-size="14" font-family="Heebo, 'Segoe UI', sans-serif">
+      border: #ffffff
+    </text>
+    <text x="24" y="126" fill="#ffffff" font-size="14" font-family="Heebo, 'Segoe UI', sans-serif">
+      focus outline: #ffff00
+    </text>
+  </g>
+</svg>

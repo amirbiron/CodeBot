@@ -1,0 +1,257 @@
+מערכת ערכות הנושא והטוקנים החדשה
+=================================
+
+הדף מרכז את כל הידע המעשי על ארכיטקטורת הצבעים, משתני ה‑CSS והבדיקות שנדרשות לשימור חוויית הממשק בכל שמונה הערכות. זהו מקור האמת עבור כל שינוי עתידי ב‑CSS של ה‑WebApp.
+
+.. contents::
+   :depth: 2
+   :local:
+
+רקע ומוטיבציה
+-------------
+
+- בריפקטור האחרון הוסרו צבעים ייחודיים מקבצים כגון ``global_search.css`` והופיעו באגים של *black/white zebra*, איבוד גרדיאנטים ולבן מסנוור ב‑Live Preview.  
+- עדכוני Theme נקודתיים בעבר חזרו לצבעים קשיחים (HEX/RGB) ולכן נשברו ב‑Classic/Ocean/Forest שנוספו מאוחר יותר.  
+- מטרת המערכת החדשה: ריכוז כל המשתנים ב‑שלוש שכבות, צמצום FOUC (קביעת ``data-theme`` עוד לפני טעינת ה‑CSS), שימור נגישות וייחודיות, והגדרה ברורה של מה חייב Override בכל Theme.  
+- ההנחיות כאן מחליפות קוד קשיח ותלויות מערכת הפעלה (``prefers-color-scheme``) ומייצרות תשתית אחת עבור Theme Builder, Split View, Collections, Markdown Viewer ועוד.  
+
+שכבות משתנים וטעינת ``data-theme``
+-----------------------------------
+
+**Level 1 – Primitives (:root)**  
+קבועים לכולם ומוגדרים ב‑``base.html``: צבעי מותג (`--primary`, `--secondary`), צבעי מצב (`--success` וכו'), טוקני סכנה חדשים (`--danger-bg`, `--danger-border`, `--text-on-warning`), ערכי markdown (`--md-surface`, `--md-text`), הגדרות כפתור ברירת מחדל וערכי גלאס (`--glass*`). אין להשתמש ב‑HEX מחוץ לקטע זה.
+
+**Level 2 – Semantic Tokens per Theme**  
+בלוקים של ``:root[data-theme="..."]`` באותו `<style>` קובעים רקעים (`--bg-*`), טקסט (`--text-*`), כרטיסים (`--card-*`), צבעי קוד, כפתורים (`--btn-primary-*`) וטוקנים ל‑Split View (`--split-preview-*`). Ocean/Forest/Classic/Dim/Nebula/Rose Pine Dawn/High Contrast משתמשות בכל הטוקנים; Dark/Dim/Nebula גם בעבור קבצי CSS ב־``static/css/dark-mode.css``.
+
+**Level 3 – Component Tokens**  
+נוצר רק כשיש צורכי עיצוב ייחודיים: `--search-card-shadow` ב‑``global_search.css``, `--bookmarks-panel-bg` ב‑``bookmarks.css``, משפחת `--split-*` ב‑``split-view.css``. הטוקן מוגדר מקומית + Overrides לכל Theme רלוונטי. אם ורק אם רכיב קיים בכל הדפים (למשל Split View) - הגדירו ערכי ברירת מחדל ב‑`:root` כדי למנוע חזרה לצבעים קשיחים.
+
+**טעינת המערכת**  
+``base.html`` קובע ``data-theme`` על `<html>` מתוך `localStorage` כבר ב‑`<head>` כדי למנוע FOUC. לאחר מכן נטענים ``dark-mode.css`` / ``high-contrast.css`` / קבצי רכיבים. Theme Wizard ו‑Theme Builder מזריקים Overrides דינמיים ל‑``<style id="user-custom-theme">`` (נוצר בעת שמירת Theme מותאם) ומגדירים `data-theme="custom"` או Override ל‑Theme קיים. על כל סקריפט שמשנה Theme לעדכן גם את ``localStorage`` באותה צורה.
+
+טבלת טוקנים עיקריים
+--------------------
+
+הטבלה מציגה את הטוקנים שחובה למלא עבור כל Theme, השכבה האחראית והקובץ שבו מעדכנים.
+
+.. list-table::
+   :header-rows: 1
+   :widths: 22 12 36 30
+
+   * - טוקן
+     - שכבה
+     - תיאור
+     - מיקום / Override חובה
+   * - ``--primary`` / ``--secondary``
+     - Level 1
+     - צבעי מותג, משמשים גם לגרדיאנטים ו‑focus
+     - ``base.html`` + כל ``data-theme``
+   * - ``--bg-primary/secondary/tertiary``
+     - Level 2
+     - רקעים לגוף, למודלים ולכרטיסים
+     - חובה בכל Theme; Ocean/Forest מקבלים ערכי כחול/ירוק ייעודיים
+   * - ``--text-primary/secondary/muted``
+     - Level 2
+     - משפחת צבעי טקסט לכל הרכיבים
+     - ``:root[data-theme]`` + בדיקת ניגודיות ב‑High Contrast
+   * - ``--card-bg`` / ``--card-border``
+     - Level 2
+     - כרטיסים, מודלים, dropdowns
+     - ``base.html`` + רפרנס ב‑``dark-mode.css``
+   * - ``--glass`` / ``--glass-border`` / ``--glass-hover``
+     - Level 1
+     - בסיס ל‑Glassmorphism navbar, badges, מודלים
+     - ``base.html`` (ברירת מחדל) + Override בתמות בהירות
+   * - ``--btn-primary-bg`` / ``--btn-primary-color`` / ``--btn-primary-border`` / ``--btn-primary-shadow``
+     - Level 2
+     - כל כפתור ראשי, כולל מצבי hover (`--btn-primary-hover-*`)
+     - ``:root[data-theme]`` + הרחבה עבור Classic/Ocean/Forest/Rose
+   * - ``--danger-bg`` / ``--danger-border`` / ``--text-on-warning``
+     - Level 1
+     - שימשו לטיפול Banner Login, Inline Alerts, Sticky Notes
+     - ``base.html`` בלבד; אין לשנות בכל Theme
+   * - ``--md-surface`` / ``--md-text``
+     - Level 1 + Level 2
+     - Split View / Markdown Preview נשאר כהה גם בתמות בהירות
+     - ``base.html`` (ערך כהה) + Overrides ספציפיים ב‑Classic/Ocean/Forest לפי הטבלה
+   * - ``--split-tabs-selected-color`` / ``--split-preview-*`` / ``--split-error-*``
+     - Level 3
+     - רכיב Split View + Live Preview
+     - ``webapp/static/css/split-view.css`` (ברירת מחדל + בלוקים לכל Theme)
+   * - ``--search-card-shadow`` / ``--search-highlight-*``
+     - Level 3
+     - UI החיפוש הגלובלי
+     - ``webapp/static/css/global_search.css``
+   * - ``--glass-badge`` / ``--bookmarks-panel-bg`` / ``--bookmark-*``
+     - Level 3
+     - רכיבי Bookmarks ו‑Glass Badges
+     - ``bookmarks.css`` (כבר במצב מלא, שימרו על הפורמט)
+   * - ``--split-preview-placeholder`` / ``--split-preview-meta``
+     - Level 3
+     - טקסט משני בתצוגת Markdown
+     - ``split-view.css`` + קביעת ניגודיות
+   * - ``--code-bg`` / ``--code-text`` / ``--code-border``
+     - Level 2
+     - CodeMirror, כרטיסי קוד, Split View
+     - ``:root[data-theme]`` + קבצי Markdown (`markdown-enhanced.css`)
+
+רשימת הטוקנים המורחבת זמינה בקובץ ``webapp/FEATURE_SUGGESTIONS/css_refactor_plan.md`` ובטבלת הפלטות ``webapp/FEATURE_SUGGESTIONS/webapp_theme_palettes.md``.
+
+מפת ערכות הנושא (Theme Reference)
+----------------------------------
+
+.. list-table::
+   :header-rows: 1
+   :widths: 18 12 20 50
+
+   * - ערכה
+     - ``data-theme``
+     - בסיס צבע
+     - הערות / טוקנים ייחודיים
+   * - Dark
+     - ``dark``
+     - אפור/סגול כהה
+     - משמש כברירת מחדל עם ``localStorage``; חופף ל‑``dark-mode.css``
+   * - Dim
+     - ``dim``
+     - רך יותר מדארק
+     - אותם טוקנים כמו Dark עם ניגודיות נמוכה יותר
+   * - Nebula
+     - ``nebula``
+     - כחול‑סגול קוסמי
+     - ``--glass`` סגלגל, ``--btn-primary`` משתמש ב‑`color-mix`
+   * - Classic
+     - ``classic``
+     - גרדיאנט סגול‑כחול
+     - ``--btn-primary-*`` לבן, ``--md-surface`` כהה גם בערכת אור
+   * - Ocean
+     - ``ocean``
+     - כחול עמוק
+     - כל טוקן רקע/טקסט מוגדר ידנית; Split View מקבל ``--split-codehilite`` כחול
+   * - Forest
+     - ``forest``
+     - ירוק רווי
+     - חלוקת ``--success`` מותאמת, Markdown נשאר כהה
+   * - Rose Pine Dawn
+     - ``rose-pine-dawn``
+     - ורוד‑שמנת
+     - ערכת אור מלאה עם ``color-mix`` לכפתורים ו‑Split View בגווני חמרה
+   * - High Contrast
+     - ``high-contrast``
+     - שחור/לבן/צהוב
+     - טוקנים מ‑``static/css/high-contrast.css`` בלבד; אין גראדיאנטים
+
+.. figure:: ../images/theme-classic-preview.svg
+   :alt: סקיצה של ערכת Classic
+   :width: 640px
+
+   ערכת Classic מציגה כפתור ראשי לבן, רקע גרדיאנטי וטוקן ``--md-surface`` כהה עבור Split View.
+
+.. figure:: ../images/theme-high-contrast-preview.svg
+   :alt: סקיצה של ערכת High Contrast
+   :width: 640px
+
+   ערכת High Contrast משתמשת רק בשחור, לבן וצהוב לפי WCAG 2.1 AA. כל שינוי חייב לשמור על יחס ניגודיות 4.5:1 לטקסט רגיל.
+
+Markdown Viewer ו‑Split View
+----------------------------
+
+- גם כאשר הערכה בהירה (Classic / Rose Pine Dawn) המקדימה והעורך נשארים כהים עם ``--md-surface`` ו‑``--md-text``. לכן אסור לרוקן את הערכים הללו ב‑`:root`.
+- כפתור "רקע לבן" ב‑``md_preview.html`` פשוט מסיר מחלקות ``bg-sepia/light/medium/dark``. השתמשו בטוקנים כשהדבר מתאפשר, אך שמרו על Presets לפי `COLORS` בסקריפט – אלו חריגים שהוגדרו בכוונה.
+- Live Preview (`split-view.css`) משתמש ב‑``--split-preview-*``. הוספת preset חדש (למשל ``bg-sepia``) מחייבת:
+  1. הוספת המחלקה בקובץ התבנית.
+  2. יצירת טוקן חדש ברמת Level 3 (``--split-sepia-bg``) אם נדרש.
+  3. בדיקות ניגודיות ב‑High Contrast.
+- ``theme_preview.html`` ו‑Reader modes ב‑``md_preview.html`` נשארים Hardcoded לצורכי תצוגת פלטות – אין להמיר אותם ל‑`var()` כדי לשמור על נאמנות ל‑brand colors.
+
+הנחיות למפתחים (Best Practices)
+--------------------------------
+
+- ❌ אין לציין HEX בקבצי רכיבים (למעט חריגים מתועדים).  
+  ✅ תמיד להשתמש ב‑``var(--token-name)`` ולוודא שהטוקן עלה לטבלת הרפרנס.
+- כלל אצבע:  
+  - צריך צבע שחוזר בכמה קומפוננטות → טוקן סמנטי (Level 2).  
+  - צריך גוון שמזוהה עם רכיב מסוים (צלחמת חיפוש, טאב מסוים) → טוקן רכיב (Level 3) + Overrides.  
+- Inline styles ב‑HTML/JS: צרו מחלקה ב‑CSS שמפנה ל‑``var()``. אם חייבים Inject דינמי (למשל Sticky Notes) – חשבו צבעים דרך טוקנים קיימים (`--text-on-primary`, `--danger-bg`).
+- `color-mix()` עדיף על שקיפות ידנית; הצמידו אותו לטוקנים קיימים כדי להבטיח עקביות.
+- ``[data-theme="..."]`` הוא הסלקטור היחיד לשינוי Theme. אין להשתמש שוב ב‑``prefers-color-scheme`` מלבד בקוד Legacy שכבר קיים ב‑``markdown-enhanced.css`` (TODO לעדכן).
+
+דוגמת קוד – לא תקין לעומת תקין
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+.. code-block:: css
+
+   /* ❌ לא תקין – צבעים קשיחים */
+   .global-search-card {
+       background: #ffffff;
+       color: #1c1c1c;
+       box-shadow: 0 30px 60px rgba(7, 7, 31, 0.35);
+   }
+
+   /* ✅ תקין – מסתמך על טוקנים */
+   .global-search-card {
+       background: var(--card-bg);
+       color: var(--text-primary);
+       box-shadow: var(--search-card-shadow, 0 20px 40px rgba(0,0,0,0.25));
+   }
+
+Component Tokens ו‑Theme Builder
+--------------------------------
+
+- כאשר מוסיפים טוקן חדש:
+  1. הוסיפו ערך ברירת מחדל ל‑``:root`` בתוך ``base.html``.
+  2. הוסיפו Overrides בבלוקים של כל Theme שדורש התאמה.
+  3. אם הטוקן שייך לרכיב ספציפי, הגדירו אותו גם בקובץ הרכיב (למשל ``split-view.css``) כדי לא לאבד הקשר.
+- Theme Builder משתמש ב‑``<style id="user-custom-theme">`` שמוזרק בסוף ה‑``<head>``. על מנת לאפשר Overrides בטוחים:
+
+  .. code-block:: html
+
+     <style id="user-custom-theme">
+       :root[data-theme="custom"] {
+         --primary: #ff6f61;
+         --bg-primary: #0f1117;
+         --text-primary: #f5f5f5;
+         --btn-primary-bg: rgba(255,255,255,0.92);
+       }
+     </style>
+
+- כאשר משתמש מבצע Override לתמה קיימת (למשל Ocean), כתבו את הטוקנים בתוך ``:root[data-theme="ocean"]`` באותו `<style>` כך שהערכים הדינמיים יגברו על ברירת המחדל.
+- טוקנים חובה ל‑Theme מותאם אישית: `--primary`, `--secondary`, `--bg-primary`, `--bg-secondary`, `--text-primary`, `--text-secondary`, `--btn-primary-bg`, `--btn-primary-color`, `--glass`, `--md-surface`, `--md-text`.
+
+בדיקות חובה לפני Merge
+----------------------
+
+- מעבר ידני על כל 8 הערכות דרך Theme Wizard + בדיקה מהירה של `localStorage`.
+- בדיקת Split View + Markdown Preview (כולל לחצן "רקע לבן", מצבי Reader).
+- בדיקת Live Preview / Sticky Notes / Smooth Scroll Debug / Login alert / RTL.
+- בדיקת Collections, Bookmarks, אוספים משותפים וה‑Glass badges.
+- בדיקת נגישות ב‑High Contrast (יחס ניגודיות 4.5:1, focus outline, קישורים).
+- בדיקת שאין HEX קשיחים בקבצים שנגעתם בהם (`rg "#[0-9a-fA-F]{3,6}" webapp/static/css/<file>.css`).
+- בדיקת WCAG ל‑Markdown Viewer (``bg-sepia`` ועוד) + ווידוא ש‑`--md-surface` לא הוחלף בטעות.
+- מעבר בין Themes בזמן Live Preview כדי לוודא שאין FOUC (שימרו על setAttribute מוקדם).
+
+שימושים נוספים וחריגים
+----------------------
+
+- Collections (`webapp/static/css/collections.css`) עדיין מכיל צבעים קשיחים ישנים – כל שינוי חייב להמיר ל‑`var()` לפי טבלת הטוקנים.  
+- Split View ו‑Markdown Enhanced משתמשים ב‑``--split-*`` ו‑``--md-*`` בהתאמה – הוסיפו טוקן לפני שמוסיפים Class חדש.  
+- Sticky Notes, Reader Modes (`md_preview.html`) וה‑``theme_preview.html`` הם חריגים שנשארים Hardcoded כדי לשמור על תצוגת Preset.  
+- `global_search.css` הינו דוגמה מצוינת לרכיב Component Tokens – כאשר מוסיפים תכונה חדשה (למשל badge נוסף) המשיכו את התבנית שם.  
+- Collections / Split View / Markdown Enhanced מוזכרים בדף זה כדי שמפתחים ידעו להצליב בין הרכיבים ולזהות אילו טוקנים משותפים.
+
+קישורים ונספחים
+----------------
+
+.. seealso::
+
+   - ``webapp/FEATURE_SUGGESTIONS/css_refactor_plan.md`` – רשימות טוקנים מלאות לפי קובץ.
+   - ``FEATURE_SUGGESTIONS/css_refactor_plan.md`` – תקציר עסקי ובדיקות QA.
+   - ``FEATURE_SUGGESTIONS/theme_matrix.md`` – טבלת כיסוי טוקנים מקוצרת.
+   - ``webapp/FEATURE_SUGGESTIONS/webapp_theme_palettes.md`` – פירוט צבעים וערכי Markdown.
+   - ``webapp/templates/base.html`` – הגדרת ``:root`` וה‑Theme Wizard.
+   - ``webapp/static/css/dark-mode.css`` – שימוש בטוקנים עבור רכיבי Dark/Dim/Nebula.
+   - ``webapp/static/css/high-contrast.css`` – חריגי High Contrast.
+   - ``webapp/static/css/global_search.css``, ``split-view.css``, ``bookmarks.css``, ``collections.css`` – דוגמאות מעשיות לטוקנים.
+
+לשאלות תיעוד/Testing יש לפנות לערוץ Frontend או לפתוח Issue חדש עם קישור לדף זה. הקפידו לעיין גם ב‑`FEATURE_SUGGESTIONS/css_refactor_plan.md` לפני שינויים רוחביים בקוד.
