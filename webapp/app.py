@@ -2466,6 +2466,13 @@ def admin_observability_page():
     )
 
 
+@app.route('/admin/drills')
+@admin_required
+def admin_drills_page():
+    """מסך Drill Mode להרצת תרגולים והיסטוריה."""
+    return render_template('admin_drills.html')
+
+
 @app.route('/admin/observability/replay')
 @admin_required
 def admin_observability_replay_page():
@@ -9422,6 +9429,99 @@ def _require_admin_user() -> Optional[int]:
     if not user_id_int or not is_admin(user_id_int):
         return None
     return user_id_int
+
+
+@app.route('/api/observability/drills/scenarios', methods=['GET'])
+@login_required
+def api_observability_drills_scenarios():
+    if not _require_admin_user():
+        return jsonify({'ok': False, 'error': 'admin_only'}), 403
+    try:
+        from services import drill_service  # type: ignore
+
+        return jsonify({'ok': True, 'scenarios': drill_service.list_scenarios()})
+    except Exception:
+        logger.exception("drills_list_scenarios_failed")
+        return jsonify({'ok': False, 'error': 'internal_error'}), 500
+
+
+@app.route('/api/observability/drills/run', methods=['POST'])
+@login_required
+def api_observability_drills_run():
+    user_id = _require_admin_user()
+    if not user_id:
+        return jsonify({'ok': False, 'error': 'admin_only'}), 403
+    payload = request.get_json(silent=True) or {}
+    scenario_id = str(payload.get('scenario_id') or '').strip()
+    if not scenario_id:
+        return jsonify({'ok': False, 'error': 'missing_scenario_id'}), 400
+    try:
+        from services import drill_service  # type: ignore
+
+        result = drill_service.run_drill_scenario(scenario_id, requested_by=str(user_id))
+        return jsonify(
+            {
+                'ok': True,
+                'drill_id': result.drill_id,
+                'scenario_id': result.scenario_id,
+                'alert': result.alert,
+                'pipeline': result.pipeline,
+                'telegram_sent': bool(result.telegram_sent),
+            }
+        )
+    except Exception as exc:
+        # Map known errors to clearer codes
+        try:
+            from services.drill_service import DrillDisabledError, DrillScenarioNotFoundError  # type: ignore
+
+            if isinstance(exc, DrillDisabledError):
+                return jsonify({'ok': False, 'error': 'drill_disabled'}), 503
+            if isinstance(exc, DrillScenarioNotFoundError):
+                return jsonify({'ok': False, 'error': 'unknown_scenario'}), 400
+        except Exception:
+            pass
+        logger.exception("drills_run_failed")
+        return jsonify({'ok': False, 'error': 'internal_error'}), 500
+
+
+@app.route('/api/observability/drills/history', methods=['GET'])
+@login_required
+def api_observability_drills_history():
+    if not _require_admin_user():
+        return jsonify({'ok': False, 'error': 'admin_only'}), 403
+    try:
+        try:
+            limit = int(request.args.get('limit', 25))
+        except Exception:
+            limit = 25
+        limit = max(1, min(200, limit))
+        from monitoring.drills_storage import list_drills  # type: ignore
+
+        drills = list_drills(limit=limit) or []
+        return jsonify({'ok': True, 'drills': drills, 'total': len(drills)})
+    except Exception:
+        logger.exception("drills_history_failed")
+        return jsonify({'ok': False, 'error': 'internal_error'}), 500
+
+
+@app.route('/api/observability/drills/history/<drill_id>', methods=['GET'])
+@login_required
+def api_observability_drills_history_details(drill_id: str):
+    if not _require_admin_user():
+        return jsonify({'ok': False, 'error': 'admin_only'}), 403
+    key = str(drill_id or '').strip()
+    if not key:
+        return jsonify({'ok': False, 'error': 'missing_drill_id'}), 400
+    try:
+        from monitoring.drills_storage import get_drill  # type: ignore
+
+        doc = get_drill(key)
+        if not doc:
+            return jsonify({'ok': False, 'error': 'not_found'}), 404
+        return jsonify({'ok': True, 'drill': doc})
+    except Exception:
+        logger.exception("drills_history_details_failed")
+        return jsonify({'ok': False, 'error': 'internal_error'}), 500
 
 
 @app.route('/api/observability/alerts', methods=['GET'])

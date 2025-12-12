@@ -251,6 +251,22 @@ def emit_internal_alert(name: str, severity: str = "info", summary: str = "", **
     severity: "info" | "warn" | "error" | "critical" | "anomaly"
     """
     try:
+        def _is_drill(d: Any) -> bool:
+            if not isinstance(d, dict):
+                return False
+            try:
+                if bool(d.get("is_drill")):
+                    return True
+            except Exception:
+                pass
+            try:
+                meta = d.get("metadata")
+                if isinstance(meta, dict) and bool(meta.get("is_drill")):
+                    return True
+            except Exception:
+                pass
+            return False
+
         rec = {
             "ts": datetime.now(timezone.utc).isoformat(),
             "name": str(name),
@@ -260,6 +276,7 @@ def emit_internal_alert(name: str, severity: str = "info", summary: str = "", **
         if details:
             rec["details"] = {k: (str(v) if not isinstance(v, (int, float, bool)) else v) for k, v in details.items()}
         _ALERTS.append(rec)
+        is_drill = _is_drill(details)
         if internal_alerts_total is not None:
             try:
                 internal_alerts_total.labels(str(name or "InternalAlert"), str(severity or "info")).inc()
@@ -267,12 +284,34 @@ def emit_internal_alert(name: str, severity: str = "info", summary: str = "", **
                 pass
 
         # Emit structured log/event as well
-        emit_event("internal_alert", severity=str(severity), name=str(name), summary=str(summary))
+        emit_event(
+            "internal_alert",
+            severity=str(severity),
+            name=str(name),
+            summary=str(summary),
+            is_drill=bool(is_drill),
+            handled=True if is_drill else None,
+        )
 
         # Note: Do not persist here to avoid double counting with alert_manager.
 
         # For critical alerts – use alert_manager for Telegram + Grafana annotations with dispatch log
         if str(severity).lower() == "critical":
+            # Safety switch: תרגול לא יוצא לסינקים קריטיים (טלגרם/גרפנה/אוטומציות)
+            if is_drill:
+                try:
+                    from monitoring.alerts_storage import record_alert  # type: ignore
+                    record_alert(
+                        alert_id=None,
+                        name=str(name),
+                        severity="critical",
+                        summary=str(summary),
+                        source="internal_alerts",
+                        details=details if isinstance(details, dict) else None,
+                    )
+                except Exception:
+                    pass
+                return
             try:
                 from alert_manager import forward_critical_alert  # type: ignore
                 forward_critical_alert(name=str(name), summary=str(summary), **(details or {}))
@@ -297,6 +336,21 @@ def emit_internal_alert(name: str, severity: str = "info", summary: str = "", **
                     pass
         else:
             # Prefer alert_forwarder when available; otherwise Telegram fallback
+            # Safety switch: תרגול לא יוצא לסינקים
+            if is_drill:
+                try:
+                    from monitoring.alerts_storage import record_alert  # type: ignore
+                    record_alert(
+                        alert_id=None,
+                        name=str(name),
+                        severity=str(severity),
+                        summary=str(summary),
+                        source="internal_alerts",
+                        details=details if isinstance(details, dict) else None,
+                    )
+                except Exception:
+                    pass
+                return
             try:
                 if forward_alerts is not None:
                     alert = _build_forward_payload(name, severity, summary, details)
