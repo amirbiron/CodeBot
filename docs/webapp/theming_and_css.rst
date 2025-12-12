@@ -236,7 +236,18 @@ Markdown Viewer ו‑Split View
 Component Tokens ו‑Theme Builder
 --------------------------------
 
-- שימו לב: Theme Builder עדיין אינו בנוי במוצר. ההנחיות להלן מתארות את המפרט שנקבע לרגע שייבנה, וניתן להשתמש בו גם לצורך Overrides ידניים בזמן פיתוח/דיבוג.
+.. note::
+
+   המפרט הרשמי של Theme Builder מתועד ב‑Issue #2097. הפיצ׳ר טרם פותח, אך ההנחיות כאן משמשות כספציפיקציה מחייבת גם לפיתוח עתידי וגם לעבודה ידנית זמנית.
+
+- מטרות ה‑Builder (לפי Issue #2097):
+  - בונה ערכה ב‑`/settings/theme-builder` עם Live Preview מבודד שמצרוך `var(--token)` בלבד ולא משפיע על שאר ה‑UI עד לשמירה.
+  - שמירת Theme יחיד בשדה ``users.custom_theme`` + הזרקה אוטומטית דרך ``<style id="user-custom-theme">`` ב‑``base.html``.
+  - בקרה על קבוצות הטוקנים: רקעים (`--bg-primary`, `--bg-secondary`, `--card-bg`), אקסנטים (`--primary`, `--secondary`), טקסט (`--text-primary`, `--text-secondary`), Glass (`--glass`, `--glass-border`, `--glass-hover`, `--glass-blur` החדש) ו‑Markdown (`--md-surface`, `--md-text`).
+  - ממשק עם Pickr (RGBA + Opacity) וסליידר Blur שמעדכן את `--glass-blur` (ערך px).
+  - API לשמירה: ``POST /api/themes/save`` עם ולידציה (`VALID_COLOR_REGEX`, `MAX_THEME_NAME_LENGTH`) ושדה ``variables`` שמכיל רק את הטוקנים המאושרים; כפתור Reset מבצע ``DELETE /api/themes/custom``.
+  - נגישות: תיוגי `aria`, Toast לכשלי שמירה ובדיקת ניגודיות ≥ 4.5:1 לערכים שנשמרים.
+- שימו לב: עד שהפיצ׳ר יפותח, ניתן להשתמש בכללים הללו כ‑spec לעבודה ידנית עם Overrides.
 - כאשר מוסיפים טוקן חדש:
   1. הוסיפו ערך ברירת מחדל ל‑``:root`` בתוך ``webapp/static/css/variables.css``.
   2. הוסיפו Overrides בבלוקים של כל Theme שדורש התאמה.
@@ -296,5 +307,6 @@ Component Tokens ו‑Theme Builder
    - ``webapp/static/css/dark-mode.css`` – שימוש בטוקנים עבור רכיבי Dark/Dim/Nebula.
    - ``webapp/static/css/high-contrast.css`` – Legacy לפוקוס/Outline; הדריסות עצמן ב‑``variables.css``.
    - ``webapp/static/css/global_search.css``, ``split-view.css``, ``bookmarks.css``, ``collections.css`` – דוגמאות מעשיות לטוקנים.
+   - Issue #2097 – מפרט Theme Builder (טוקנים במיקוד, UI/Backend/API, נגישות ו‑Reset flow).
 
 לשאלות תיעוד/Testing יש לפנות לערוץ Frontend או לפתוח Issue חדש עם קישור לדף זה. הקפידו לעיין גם ב‑`FEATURE_SUGGESTIONS/css_refactor_plan.md` לפני שינויים רוחביים בקוד.
