@@ -13,7 +13,7 @@ import time
 import mimetypes
 from datetime import datetime, timezone
 from functools import wraps, lru_cache
-from typing import Optional, Dict, Any, List, Tuple
+from typing import Optional, Dict, Any, List, Tuple, Set
 
 from flask import Flask, render_template, jsonify, request, session, redirect, url_for, send_file, abort, Response, g
 import threading
@@ -650,6 +650,13 @@ try:
         pass
 except Exception:
     # סביבת דוקס/CI ללא תלויות לא צריכה להיכשל על ייבוא זה
+    pass
+
+# Diff / Compare API
+try:
+    from webapp.compare_api import compare_bp  # noqa: E402
+    app.register_blueprint(compare_bp)
+except Exception:
     pass
 
 # זיהוי הרצה תחת pytest בזמן import (גם בזמן איסוף טסטים)
@@ -6408,6 +6415,174 @@ def _get_user_file_by_id(db_ref, user_id: int, file_id: str) -> Optional[Dict[st
         return db_ref.code_snippets.find_one({'_id': obj_id, 'user_id': user_id})
     except Exception:
         return None
+
+
+def _fetch_compare_versions(db_ref, user_id: int, file_name: str) -> List[Dict[str, Any]]:
+    """מאסף רשימת גרסאות עבור מסך ההשוואה."""
+    if not file_name:
+        return []
+    try:
+        cursor = db_ref.code_snippets.find(
+            {
+                'user_id': user_id,
+                'file_name': file_name,
+                '$or': [
+                    {'is_active': True},
+                    {'is_active': {'$exists': False}},
+                ],
+            },
+            sort=[('version', DESCENDING)],
+        ).limit(FILE_HISTORY_MAX_VERSIONS)
+    except Exception:
+        return []
+
+    versions: List[Dict[str, Any]] = []
+    for doc in cursor:
+        version_number = int(doc.get('version') or 0)
+        versions.append({
+            'version': version_number,
+            'label': f"גרסה {version_number}",
+            'updated_at': format_datetime_display(doc.get('updated_at')),
+            'iso_updated': safe_iso(doc.get('updated_at'), 'updated_at'),
+            'id': str(doc.get('_id', '')),
+        })
+    return versions
+
+
+def _fetch_compare_file_choices(db_ref, user_id: int, limit: int = 200) -> List[Dict[str, Any]]:
+    """שליפת רשימת קבצים ייחודיים לבחירה."""
+    query = {
+        'user_id': user_id,
+        '$or': [
+            {'is_active': True},
+            {'is_active': {'$exists': False}},
+        ],
+    }
+    entries: List[Dict[str, Any]] = []
+    try:
+        pipeline = [
+            {'$match': query},
+            {'$sort': {'file_name': ASCENDING, 'version': DESCENDING}},
+            {'$group': {'_id': '$file_name', 'doc': {'$first': '$$ROOT'}}},
+            {'$sort': {'doc.updated_at': DESCENDING}},
+            {'$limit': limit},
+        ]
+        grouped = list(db_ref.code_snippets.aggregate(pipeline, allowDiskUse=True))
+        entries = [item.get('doc') or {} for item in grouped if isinstance(item, dict)]
+    except Exception:
+        try:
+            cursor = db_ref.code_snippets.find(query, sort=[('updated_at', DESCENDING)]).limit(limit * 2)
+        except Exception:
+            return []
+        seen_names: set[str] = set()
+        entries = []
+        for doc in cursor:
+            if not isinstance(doc, dict):
+                continue
+            name = (doc.get('file_name') or '').strip()
+            if not name or name in seen_names:
+                continue
+            seen_names.add(name)
+            entries.append(doc)
+            if len(entries) >= limit:
+                break
+
+    files: List[Dict[str, Any]] = []
+    for doc in entries:
+        files.append({
+            'id': str(doc.get('_id', '')),
+            'file_name': doc.get('file_name', ''),
+            'language': doc.get('programming_language') or '',
+            'updated_at': format_datetime_display(doc.get('updated_at')),
+            'updated_iso': safe_iso(doc.get('updated_at'), 'updated_at'),
+            'version': int(doc.get('version') or 0),
+        })
+    return files
+
+
+def _sanitize_selected_id(candidate: Optional[str], valid_ids: Set[str]) -> str:
+    value = (candidate or '').strip()
+    if value and value in valid_ids:
+        return value
+    return ''
+
+
+@app.route('/compare')
+@login_required
+def compare_files_page():
+    """דף בחירת קבצים להשוואה."""
+    db_ref = get_db()
+    user_id = session['user_id']
+    files = _fetch_compare_file_choices(db_ref, user_id)
+    valid_ids = {item['id'] for item in files if item.get('id')}
+
+    selected_left = _sanitize_selected_id(request.args.get('left'), valid_ids)
+    selected_right = _sanitize_selected_id(request.args.get('right'), valid_ids)
+    preload = bool(selected_left and selected_right)
+
+    return render_template(
+        'compare_files.html',
+        files=files,
+        selected_left=selected_left,
+        selected_right=selected_right,
+        preload_diff=preload,
+    )
+
+
+def _parse_version_param(raw_value: Optional[str], fallback: int) -> int:
+    try:
+        if raw_value in (None, '', '0'):
+            return fallback
+        parsed = int(raw_value)
+        return parsed if parsed > 0 else fallback
+    except (TypeError, ValueError):
+        return fallback
+
+
+@app.route('/compare/<file_id>')
+@login_required
+def compare_versions_page(file_id: str):
+    """דף השוואת גרסאות עבור קובץ יחיד."""
+    db_ref = get_db()
+    user_id = session['user_id']
+    file_doc = _get_user_file_by_id(db_ref, user_id, file_id)
+    if not file_doc:
+        abort(404)
+
+    file_name = (file_doc.get('file_name') or '').strip()
+    if not file_name:
+        abort(404)
+
+    versions = _fetch_compare_versions(db_ref, user_id, file_name)
+    current_version = int(file_doc.get('version') or 1)
+    if not versions:
+        versions = [{
+            'version': current_version,
+            'label': f"גרסה {current_version}",
+            'updated_at': format_datetime_display(file_doc.get('updated_at')),
+            'iso_updated': safe_iso(file_doc.get('updated_at'), 'updated_at'),
+            'id': str(file_doc.get('_id', '')),
+        }]
+
+    default_right = _parse_version_param(request.args.get('right'), current_version)
+    default_left = _parse_version_param(request.args.get('left'), max(1, default_right - 1))
+
+    file_context = {
+        'id': str(file_doc.get('_id', '')),
+        'file_name': file_name,
+        'language': file_doc.get('programming_language') or '',
+        'current_version': current_version,
+    }
+
+    return render_template(
+        'compare_versions.html',
+        file=file_context,
+        versions=versions,
+        selected_left=default_left,
+        selected_right=default_right,
+        has_multiple_versions=len(versions) > 1,
+        preload_diff=True,
+    )
 
 
 _LIVE_PREVIEW_MAX_BYTES = 200 * 1024  # 200KB כדי למנוע תקיעות ברינדור

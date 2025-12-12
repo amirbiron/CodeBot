@@ -1,0 +1,64 @@
+{% extends "base.html" %}
+
+{% block title %}השוואת גרסאות · {{ file.file_name }}{% endblock %}
+
+{% block extra_css %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/compare.css') }}?v={{ static_version }}">
+{% endblock %}
+
+{% block content %}
+<div class="container-fluid py-4">
+    <div class="glass-card p-4 mb-4 compare-header">
+        <div>
+            <p class="text-muted mb-1">השוואת גרסאות</p>
+            <h1 class="h3 mb-1">{{ file.file_name }}</h1>
+            <p class="text-muted mb-0">בחר שתי גרסאות להשוואה. ניתן להחליף בין הצדדים בלחיצת כפתור.</p>
+        </div>
+
+        <div class="row mt-4 g-3 align-items-end">
+            <div class="col-md-5">
+                <label class="form-label mb-1">גרסה שמאלית (ישנה)</label>
+                <select class="form-select" id="version-left"{% if not has_multiple_versions %} disabled{% endif %}>
+                    {% for version in versions %}
+                        <option value="{{ version.version }}" {% if version.version == selected_left %}selected{% endif %}>
+                            {{ version.label }} · {{ version.updated_at }}
+                        </option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="col-md-2 text-center">
+                <button class="btn btn-outline-secondary w-100" id="swap-versions"{% if not has_multiple_versions %} disabled{% endif %}>
+                    <i class="fas fa-exchange-alt me-1"></i>
+                    החלף
+                </button>
+            </div>
+            <div class="col-md-5">
+                <label class="form-label mb-1">גרסה ימנית (חדשה)</label>
+                <select class="form-select" id="version-right"{% if not has_multiple_versions %} disabled{% endif %}>
+                    {% for version in versions %}
+                        <option value="{{ version.version }}" {% if version.version == selected_right %}selected{% endif %}>
+                            {{ version.label }} · {{ version.updated_at }}
+                        </option>
+                    {% endfor %}
+                </select>
+            </div>
+        </div>
+    </div>
+
+    {% include 'compare/diff_view.html' %}
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script src="{{ url_for('static', filename='js/compare.js') }}?v={{ static_version }}"></script>
+<script>
+    window.FileCompareView && window.FileCompareView.init({
+        mode: 'versions',
+        fileId: '{{ file.id }}',
+        fileName: '{{ file.file_name }}',
+        leftVersion: {{ selected_left }},
+        rightVersion: {{ selected_right }},
+        preload: {{ 'true' if preload_diff else 'false' }}
+    });
+</script>
+{% endblock %}
