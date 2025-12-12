@@ -9423,7 +9423,8 @@ def api_observability_runbook(event_id: str):
             fallback_metadata=metadata or None,
         )
     except ValueError as exc:
-        return jsonify({'ok': False, 'error': 'bad_request', 'message': str(exc)}), 400
+        logger.info("observability_runbook_invalid_request: event_id=%s error=%s", event_id, exc)
+        return jsonify({'ok': False, 'error': 'bad_request', 'message': 'Invalid request'}), 400
     except Exception:
         logger.exception("observability_runbook_fetch_failed")
         return jsonify({'ok': False, 'error': 'internal_error'}), 500
@@ -9455,7 +9456,8 @@ def api_observability_runbook_status(event_id: str):
             fallback_metadata=fallback_metadata,
         )
     except ValueError as exc:
-        return jsonify({'ok': False, 'error': 'bad_request', 'message': str(exc)}), 400
+        logger.warning("observability_runbook_status_invalid_request: event_id=%s error=%s", event_id, exc)
+        return jsonify({'ok': False, 'error': 'bad_request', 'message': 'Invalid request'}), 400
     except Exception:
         logger.exception("observability_runbook_status_failed")
         return jsonify({'ok': False, 'error': 'internal_error'}), 500
