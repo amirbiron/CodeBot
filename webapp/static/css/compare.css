@@ -1,0 +1,678 @@
+/* =================================================================
+   Compare View Styles - סגנונות תצוגת השוואה
+   Version: 2.0.0 - עם תמיכה ביישור מושלם
+   ================================================================= */
+
+/* =================================================================
+   CSS Variables
+   ================================================================= */
+:root {
+    --diff-added-bg: rgba(40, 167, 69, 0.15);
+    --diff-added-border: rgba(40, 167, 69, 0.4);
+    --diff-removed-bg: rgba(220, 53, 69, 0.15);
+    --diff-removed-border: rgba(220, 53, 69, 0.4);
+    --diff-modified-bg: rgba(255, 193, 7, 0.1);
+    --diff-modified-border: rgba(255, 193, 7, 0.4);
+    --diff-empty-bg: rgba(128, 128, 128, 0.08);
+    --diff-line-border: rgba(255, 255, 255, 0.03);
+    --diff-line-hover: rgba(255, 255, 255, 0.05);
+    --diff-line-number-color: rgba(255, 255, 255, 0.4);
+    --diff-line-number-border: rgba(255, 255, 255, 0.1);
+}
+
+[data-theme="light"] {
+    --diff-added-bg: rgba(40, 167, 69, 0.12);
+    --diff-removed-bg: rgba(220, 53, 69, 0.12);
+    --diff-modified-bg: rgba(255, 193, 7, 0.15);
+    --diff-empty-bg: rgba(128, 128, 128, 0.05);
+    --diff-line-border: rgba(0, 0, 0, 0.05);
+    --diff-line-hover: rgba(0, 0, 0, 0.03);
+    --diff-line-number-color: rgba(0, 0, 0, 0.4);
+    --diff-line-number-border: rgba(0, 0, 0, 0.1);
+}
+
+/* =================================================================
+   Container & Layout
+   ================================================================= */
+.diff-container {
+    min-height: 400px;
+    max-height: 70vh;
+    overflow: hidden;
+    border-radius: 12px;
+    position: relative;
+}
+
+.diff-view {
+    display: none;
+    height: 100%;
+}
+
+.diff-view.active {
+    display: flex;
+}
+
+/* =================================================================
+   Side-by-Side View - Pixel Perfect Alignment
+   ================================================================= */
+#side-by-side-view {
+    display: none;
+    gap: 0;
+    height: 100%;
+}
+
+#side-by-side-view.active {
+    display: flex;
+}
+
+.diff-pane {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    background: var(--glass-bg, rgba(30, 30, 30, 0.8));
+    border: 1px solid var(--glass-border, rgba(255, 255, 255, 0.1));
+}
+
+.left-pane {
+    border-right: none;
+    border-radius: 12px 0 0 12px;
+}
+
+.right-pane {
+    border-radius: 0 12px 12px 0;
+}
+
+/* Pane Header */
+.pane-header {
+    padding: 0.75rem 1rem;
+    background: rgba(255, 255, 255, 0.05);
+    border-bottom: 1px solid var(--glass-border, rgba(255, 255, 255, 0.1));
+    font-weight: 600;
+    font-size: 0.9rem;
+    flex-shrink: 0;
+}
+
+.left-pane .pane-header {
+    border-left: 3px solid var(--bs-danger, #dc3545);
+}
+
+.right-pane .pane-header {
+    border-left: 3px solid var(--bs-success, #28a745);
+}
+
+/* Pane Content - Scrollable */
+.pane-content {
+    flex: 1;
+    overflow: auto;
+    font-family: 'Fira Code', 'Consolas', 'Monaco', 'Menlo', monospace;
+    font-size: 13px;
+    line-height: 1.5;
+    direction: ltr;
+    text-align: left;
+    /* מניעת גלילה אופקית אוטומטית */
+    overflow-x: auto;
+    overflow-y: scroll;
+}
+
+/* =================================================================
+   Diff Lines - With Pixel-Perfect Alignment Support
+   ================================================================= */
+.diff-line {
+    display: flex;
+    /* גובה מינימלי קבוע - יתעדכן ע"י JS לצורך יישור */
+    min-height: 24px;
+    padding: 0;
+    border-bottom: 1px solid var(--diff-line-border);
+    /* מניעת קריסה של שורות ריקות */
+    box-sizing: border-box;
+}
+
+.diff-line:hover {
+    background: var(--diff-line-hover);
+}
+
+/* Line Number Column */
+.line-number {
+    width: 50px;
+    min-width: 50px;
+    max-width: 50px;
+    padding: 2px 8px 2px 0;
+    text-align: right;
+    color: var(--diff-line-number-color);
+    user-select: none;
+    border-right: 1px solid var(--diff-line-number-border);
+    font-size: 12px;
+    flex-shrink: 0;
+    /* יישור אנכי למרכז */
+    display: flex;
+    align-items: flex-start;
+    justify-content: flex-end;
+    padding-top: 3px;
+}
+
+/* Line Content - עם תמיכה ב-wrap */
+.line-content {
+    flex: 1;
+    min-width: 0;
+    padding: 2px 8px 2px 12px;
+    /* מאפשר wrap של שורות ארוכות */
+    word-break: break-all;
+    white-space: pre-wrap;
+    overflow-wrap: break-word;
+}
+
+/* Pre inside line content - שומר על formatting */
+.line-content pre {
+    margin: 0;
+    padding: 0;
+    font-family: inherit;
+    font-size: inherit;
+    line-height: inherit;
+    white-space: pre-wrap;
+    word-break: break-all;
+    overflow-wrap: break-word;
+    background: transparent;
+    border: none;
+}
+
+/* =================================================================
+   Change Type Styling
+   ================================================================= */
+.diff-line.added {
+    background: var(--diff-added-bg);
+    border-right: 2px solid var(--diff-added-border);
+}
+
+.diff-line.removed {
+    background: var(--diff-removed-bg);
+    border-right: 2px solid var(--diff-removed-border);
+}
+
+.diff-line.modified {
+    background: var(--diff-modified-bg);
+    border-right: 2px solid var(--diff-modified-border);
+}
+
+.diff-line.empty {
+    background: var(--diff-empty-bg);
+}
+
+/* שורות ריקות חייבות לשמור על גובה */
+.diff-line.empty .line-content {
+    min-height: 1em;
+}
+
+/* =================================================================
+   Unified View
+   ================================================================= */
+#unified-view {
+    flex-direction: column;
+    overflow: auto;
+}
+
+.unified-content {
+    padding: 0;
+    font-family: 'Fira Code', 'Consolas', 'Monaco', monospace;
+    font-size: 13px;
+    line-height: 1.5;
+    direction: ltr;
+    text-align: left;
+    overflow: auto;
+}
+
+.unified-line {
+    display: flex;
+    padding: 2px 0;
+    min-height: 24px;
+    border-bottom: 1px solid var(--diff-line-border);
+}
+
+.unified-line:hover {
+    background: var(--diff-line-hover);
+}
+
+.unified-line .line-numbers {
+    width: 100px;
+    min-width: 100px;
+    display: flex;
+    gap: 0;
+    color: var(--diff-line-number-color);
+    user-select: none;
+    border-right: 1px solid var(--diff-line-number-border);
+    font-size: 12px;
+    flex-shrink: 0;
+}
+
+.unified-line .line-numbers span {
+    width: 50px;
+    text-align: right;
+    padding-right: 6px;
+}
+
+.unified-line .line-numbers span:first-child {
+    border-right: 1px solid var(--diff-line-number-border);
+}
+
+.unified-line .line-content {
+    flex: 1;
+    padding: 2px 8px 2px 12px;
+    white-space: pre-wrap;
+    word-break: break-all;
+}
+
+/* Unified change types */
+.unified-line.added {
+    background: var(--diff-added-bg);
+}
+
+.unified-line.removed {
+    background: var(--diff-removed-bg);
+}
+
+.unified-line.modified {
+    background: var(--diff-modified-bg);
+}
+
+/* =================================================================
+   Inline View
+   ================================================================= */
+#inline-view {
+    flex-direction: column;
+    overflow: auto;
+}
+
+.inline-content {
+    padding: 0;
+    font-family: 'Fira Code', 'Consolas', 'Monaco', monospace;
+    font-size: 13px;
+    line-height: 1.5;
+    direction: ltr;
+    text-align: left;
+    overflow: auto;
+}
+
+/* Inline character-level highlights */
+.inline-added {
+    background: rgba(40, 167, 69, 0.35);
+    border-radius: 2px;
+    padding: 0 1px;
+}
+
+.inline-removed {
+    background: rgba(220, 53, 69, 0.35);
+    text-decoration: line-through;
+    border-radius: 2px;
+    padding: 0 1px;
+    opacity: 0.8;
+}
+
+/* =================================================================
+   Stats Bar
+   ================================================================= */
+.stats-bar {
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+}
+
+.stats-bar .badge {
+    min-width: 70px;
+    font-size: 0.85rem;
+    padding: 0.5rem 0.75rem;
+}
+
+.stats-bar .badge i {
+    margin-left: 4px;
+}
+
+/* =================================================================
+   Action Bar
+   ================================================================= */
+.action-bar {
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+}
+
+/* =================================================================
+   Responsive Design
+   ================================================================= */
+@media (max-width: 992px) {
+    .diff-container {
+        max-height: 60vh;
+    }
+    
+    .pane-content {
+        font-size: 12px;
+    }
+    
+    .line-number {
+        width: 40px;
+        min-width: 40px;
+        max-width: 40px;
+        font-size: 11px;
+        padding-right: 6px;
+    }
+    
+    .line-content {
+        padding-left: 8px;
+    }
+}
+
+@media (max-width: 768px) {
+    /* במסכים קטנים, עובר לתצוגה אנכית */
+    #side-by-side-view.active {
+        flex-direction: column;
+    }
+    
+    .diff-pane {
+        max-height: 40vh;
+        border-radius: 12px;
+        margin-bottom: 0.5rem;
+    }
+    
+    .left-pane {
+        border-right: 1px solid var(--glass-border, rgba(255, 255, 255, 0.1));
+        border-radius: 12px;
+    }
+    
+    .right-pane {
+        border-radius: 12px;
+    }
+    
+    .pane-content {
+        font-size: 11px;
+        line-height: 1.4;
+    }
+    
+    .diff-line {
+        min-height: 20px;
+    }
+    
+    .line-number {
+        width: 35px;
+        min-width: 35px;
+        max-width: 35px;
+        font-size: 10px;
+    }
+    
+    /* הסתרת אחד מהמספרים ב-unified לחיסכון במקום */
+    .unified-line .line-numbers {
+        width: 70px;
+        min-width: 70px;
+    }
+    
+    .unified-line .line-numbers span {
+        width: 35px;
+    }
+}
+
+@media (max-width: 480px) {
+    .line-number {
+        width: 30px;
+        min-width: 30px;
+        max-width: 30px;
+        font-size: 9px;
+    }
+    
+    .pane-content,
+    .unified-content,
+    .inline-content {
+        font-size: 10px;
+    }
+}
+
+/* =================================================================
+   Dark/Light Theme Support
+   ================================================================= */
+[data-theme="light"] .diff-container,
+[data-theme="light"] .diff-pane {
+    background: rgba(255, 255, 255, 0.95);
+}
+
+[data-theme="light"] .pane-header {
+    background: rgba(0, 0, 0, 0.03);
+    border-bottom-color: rgba(0, 0, 0, 0.1);
+}
+
+[data-theme="light"] .diff-line:hover,
+[data-theme="light"] .unified-line:hover {
+    background: rgba(0, 0, 0, 0.02);
+}
+
+/* =================================================================
+   Scroll Sync Indicator
+   ================================================================= */
+.scroll-sync-indicator {
+    position: absolute;
+    top: 0.5rem;
+    left: 50%;
+    transform: translateX(-50%);
+    font-size: 0.7rem;
+    color: var(--text-muted, rgba(255, 255, 255, 0.5));
+    background: var(--glass-bg, rgba(0, 0, 0, 0.5));
+    padding: 2px 8px;
+    border-radius: 10px;
+    opacity: 0;
+    transition: opacity 0.3s ease;
+    pointer-events: none;
+    z-index: 10;
+}
+
+.scroll-sync-indicator.visible {
+    opacity: 1;
+}
+
+/* =================================================================
+   Mini-map (Optional - Future Feature)
+   ================================================================= */
+.diff-minimap {
+    position: absolute;
+    right: 0;
+    top: 0;
+    bottom: 0;
+    width: 50px;
+    background: rgba(0, 0, 0, 0.15);
+    border-left: 1px solid var(--glass-border, rgba(255, 255, 255, 0.1));
+    overflow: hidden;
+    display: none; /* להפעלה בעתיד */
+}
+
+.minimap-viewport {
+    position: absolute;
+    left: 0;
+    right: 0;
+    background: rgba(255, 255, 255, 0.1);
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    pointer-events: none;
+}
+
+.minimap-change {
+    position: absolute;
+    left: 2px;
+    right: 2px;
+    height: 2px;
+    border-radius: 1px;
+}
+
+.minimap-change.added {
+    background: var(--bs-success, #28a745);
+}
+
+.minimap-change.removed {
+    background: var(--bs-danger, #dc3545);
+}
+
+.minimap-change.modified {
+    background: var(--bs-warning, #ffc107);
+}
+
+/* =================================================================
+   Loading State
+   ================================================================= */
+.diff-loading {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    min-height: 200px;
+    color: var(--text-muted, rgba(255, 255, 255, 0.6));
+}
+
+.diff-loading .spinner {
+    width: 40px;
+    height: 40px;
+    border: 3px solid rgba(255, 255, 255, 0.1);
+    border-top-color: var(--accent-color, #6366f1);
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+    margin-bottom: 1rem;
+}
+
+@keyframes spin {
+    to { transform: rotate(360deg); }
+}
+
+/* =================================================================
+   Empty State
+   ================================================================= */
+.diff-empty {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    min-height: 200px;
+    color: var(--text-muted, rgba(255, 255, 255, 0.6));
+    text-align: center;
+    padding: 2rem;
+}
+
+.diff-empty i {
+    font-size: 3rem;
+    margin-bottom: 1rem;
+    opacity: 0.5;
+}
+
+.diff-empty p {
+    margin: 0;
+    font-size: 1.1rem;
+}
+
+/* =================================================================
+   Identical Files Message
+   ================================================================= */
+.diff-identical {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    min-height: 150px;
+    padding: 2rem;
+    text-align: center;
+    color: var(--bs-success, #28a745);
+}
+
+.diff-identical i {
+    font-size: 3rem;
+    margin-bottom: 1rem;
+}
+
+.diff-identical h4 {
+    margin: 0 0 0.5rem;
+    font-weight: 600;
+}
+
+.diff-identical p {
+    margin: 0;
+    color: var(--text-muted, rgba(255, 255, 255, 0.6));
+}
+
+/* =================================================================
+   Print Styles
+   ================================================================= */
+@media print {
+    .diff-container {
+        max-height: none;
+        overflow: visible;
+    }
+    
+    .pane-content,
+    .unified-content,
+    .inline-content {
+        overflow: visible;
+        font-size: 10px;
+    }
+    
+    .diff-line {
+        break-inside: avoid;
+    }
+    
+    .action-bar,
+    .stats-bar,
+    .compare-header .btn-group {
+        display: none !important;
+    }
+    
+    .diff-line.added {
+        background: #d4edda !important;
+        -webkit-print-color-adjust: exact;
+        print-color-adjust: exact;
+    }
+    
+    .diff-line.removed {
+        background: #f8d7da !important;
+        -webkit-print-color-adjust: exact;
+        print-color-adjust: exact;
+    }
+    
+    .diff-line.modified {
+        background: #fff3cd !important;
+        -webkit-print-color-adjust: exact;
+        print-color-adjust: exact;
+    }
+}
+
+/* =================================================================
+   High Contrast Mode
+   ================================================================= */
+@media (prefers-contrast: high),
+[data-theme="high-contrast"] {
+    .diff-line.added {
+        background: #0a5f1c;
+        border-right-color: #28a745;
+    }
+    
+    .diff-line.removed {
+        background: #721c24;
+        border-right-color: #dc3545;
+    }
+    
+    .diff-line.modified {
+        background: #856404;
+        border-right-color: #ffc107;
+    }
+    
+    .inline-added {
+        background: #28a745;
+        color: #fff;
+    }
+    
+    .inline-removed {
+        background: #dc3545;
+        color: #fff;
+    }
+}
+
+/* =================================================================
+   Reduced Motion
+   ================================================================= */
+@media (prefers-reduced-motion: reduce) {
+    .diff-line,
+    .unified-line,
+    .scroll-sync-indicator,
+    .btn-swap {
+        transition: none;
+    }
+    
+    .btn-swap:hover {
+        transform: none;
+    }
+}

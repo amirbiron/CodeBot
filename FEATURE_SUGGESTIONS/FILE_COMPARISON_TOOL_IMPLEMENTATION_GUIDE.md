@@ -2237,6 +2237,293 @@ class TestCompareAPI:
 
 ---
 
+---
+
+## נספח א': השלמות למימוש - השוואת קבצים וסנכרון גלילה
+
+### א.1 קובץ `compare_files.html` - מימוש מלא
+
+הקובץ `webapp/templates/compare_files.html` כולל:
+
+**מבנה Grid רספונסיבי:**
+```css
+.file-selection-grid {
+    display: grid;
+    grid-template-columns: 1fr auto 1fr;
+    gap: 1.5rem;
+    align-items: end;
+}
+
+@media (max-width: 768px) {
+    .file-selection-grid {
+        grid-template-columns: 1fr;
+    }
+}
+```
+
+**עיצוב Glassmorphism ל-Selects:**
+```css
+.file-select {
+    background: var(--glass-bg, rgba(255, 255, 255, 0.08));
+    border: 1px solid var(--glass-border, rgba(255, 255, 255, 0.18));
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    appearance: none;
+}
+```
+
+**כפתור השוואה עם אנימציית Loading:**
+```html
+<button type="submit" id="btn-compare" class="btn-compare">
+    <span class="spinner"></span>
+    <span class="btn-text">
+        <i class="fas fa-code-compare"></i> השווה קבצים
+    </span>
+</button>
+```
+
+### א.2 לוגיקה משותפת ב-`compare.js`
+
+ה-JavaScript מאוחד לשני המצבים:
+
+```javascript
+// אתחול לפי מצב
+window.CompareView.init(config);        // מצב גרסאות
+window.CompareView.initFilesMode(config); // מצב קבצים
+
+// State משותף
+const state = {
+    mode: 'versions', // או 'files'
+    viewMode: 'side-by-side',
+    diffData: null,
+    // ...
+};
+```
+
+**מבנה מודולרי:**
+1. `bindCommonEvents()` - אירועים משותפים (מצבי תצוגה, פעולות)
+2. `bindVersionsEvents()` - אירועים ייחודיים לגרסאות
+3. `bindFilesEvents()` - אירועים ייחודיים לקבצים
+4. `loadDiff()` / `loadFilesDiff()` - טעינה לפי מצב
+5. `generateUnifiedDiffText()` - יצירת patch (משותף)
+
+### א.3 סנכרון גלילה ויישור מושלם
+
+**הבעיה:** כאשר שורה אחת ארוכה וגולשת (wrap), או יש רצף שורות ריקות, השורות בשני הצדדים יוצאות מסנכרון.
+
+**הפתרון - שלושה רכיבים:**
+
+#### 1. סנכרון לפי אחוז גלילה
+
+```javascript
+function handleScroll(source, target) {
+    if (scrollSyncState.isScrolling) return;
+    scrollSyncState.isScrolling = true;
+    
+    // חישוב אחוז הגלילה
+    const scrollRatio = source.scrollTop / 
+        (source.scrollHeight - source.clientHeight || 1);
+    
+    // החלה על היעד
+    const targetScrollTop = scrollRatio * 
+        (target.scrollHeight - target.clientHeight);
+    target.scrollTop = targetScrollTop;
+    
+    requestAnimationFrame(() => {
+        scrollSyncState.isScrolling = false;
+    });
+}
+```
+
+#### 2. יישור גבהי שורות (Pixel-Perfect)
+
+```javascript
+function alignRowHeights() {
+    if (state.viewMode !== 'side-by-side') return;
+    
+    const leftRows = elements.leftContent?.querySelectorAll('.diff-line');
+    const rightRows = elements.rightContent?.querySelectorAll('.diff-line');
+    
+    const rowCount = Math.max(leftRows.length, rightRows.length);
+    
+    for (let i = 0; i < rowCount; i++) {
+        const leftRow = leftRows[i];
+        const rightRow = rightRows[i];
+        if (!leftRow || !rightRow) continue;
+        
+        // איפוס גובה קודם
+        leftRow.style.minHeight = '';
+        rightRow.style.minHeight = '';
+        
+        // חישוב הגובה הטבעי
+        const leftHeight = leftRow.getBoundingClientRect().height;
+        const rightHeight = rightRow.getBoundingClientRect().height;
+        
+        // קביעת הגובה המקסימלי לשתיהן
+        const maxHeight = Math.max(leftHeight, rightHeight);
+        
+        if (leftHeight !== rightHeight) {
+            leftRow.style.minHeight = `${maxHeight}px`;
+            rightRow.style.minHeight = `${maxHeight}px`;
+        }
+    }
+}
+```
+
+#### 3. CSS תומך
+
+```css
+.diff-line {
+    display: flex;
+    min-height: 24px;
+    box-sizing: border-box;
+}
+
+.line-content {
+    flex: 1;
+    min-width: 0;
+    word-break: break-all;
+    white-space: pre-wrap;
+    overflow-wrap: break-word;
+}
+
+.line-content pre {
+    margin: 0;
+    white-space: pre-wrap;
+    word-break: break-all;
+}
+
+/* שורות ריקות חייבות לשמור על גובה */
+.diff-line.empty .line-content {
+    min-height: 1em;
+}
+```
+
+### א.4 Character-Level Diff (Inline Mode)
+
+אלגוריתם LCS להדגשת הבדלים ברמת תווים:
+
+```javascript
+function highlightInlineDiff(oldText, newText) {
+    const lcs = computeLCS([...oldText], [...newText]);
+    const result = [];
+    
+    let oldIdx = 0, newIdx = 0, lcsIdx = 0;
+    
+    while (oldIdx < oldText.length || newIdx < newText.length) {
+        // תווים שנמחקו
+        while (oldIdx < oldText.length && 
+               (lcsIdx >= lcs.length || oldText[oldIdx] !== lcs[lcsIdx])) {
+            result.push(`<span class="inline-removed">${escape(oldText[oldIdx])}</span>`);
+            oldIdx++;
+        }
+        
+        // תווים שנוספו
+        while (newIdx < newText.length && 
+               (lcsIdx >= lcs.length || newText[newIdx] !== lcs[lcsIdx])) {
+            result.push(`<span class="inline-added">${escape(newText[newIdx])}</span>`);
+            newIdx++;
+        }
+        
+        // תו משותף
+        if (lcsIdx < lcs.length) {
+            result.push(escape(lcs[lcsIdx]));
+            oldIdx++; newIdx++; lcsIdx++;
+        }
+    }
+    
+    return result.join('');
+}
+```
+
+### א.5 תזכורת - רישום Routes
+
+הוסף ל-`webapp/app.py`:
+
+```python
+@app.route('/compare/<file_id>')
+@login_required
+def compare_versions_page(file_id: str):
+    # ... קוד מהמדריך המקורי ...
+
+@app.route('/compare')
+@login_required
+def compare_files_page():
+    user_id = get_current_user_id()
+    
+    left_id = request.args.get('left')
+    right_id = request.args.get('right')
+    
+    # קבלת רשימת הקבצים
+    user_files = db.get_user_files(user_id, limit=100)
+    
+    # חישוב שפות מובילות לסינון מהיר
+    lang_counts = {}
+    for f in user_files:
+        lang = f.get('programming_language', 'other')
+        lang_counts[lang] = lang_counts.get(lang, 0) + 1
+    top_languages = sorted(lang_counts.keys(), key=lambda x: -lang_counts[x])[:5]
+    
+    return render_template(
+        'compare_files.html',
+        files=user_files,
+        selected_left=left_id,
+        selected_right=right_id,
+        top_languages=top_languages,
+    )
+```
+
+---
+
+## נספח ב': בדיקות סנכרון גלילה
+
+```python
+# tests/test_compare_alignment.py
+
+import pytest
+from playwright.sync_api import Page
+
+class TestCompareAlignment:
+    """בדיקות E2E ליישור שורות."""
+    
+    def test_long_line_alignment(self, page: Page, auth):
+        """שורה ארוכה שגולשת נשארת מיושרת."""
+        # יצירת קבצים עם שורה ארוכה
+        # ...
+        
+        page.goto('/compare?left=X&right=Y')
+        page.click('#btn-compare')
+        page.wait_for_selector('.diff-line')
+        
+        # בדיקת גבהים
+        left_heights = page.eval_on_selector_all(
+            '#left-content .diff-line',
+            'els => els.map(e => e.getBoundingClientRect().height)'
+        )
+        right_heights = page.eval_on_selector_all(
+            '#right-content .diff-line',
+            'els => els.map(e => e.getBoundingClientRect().height)'
+        )
+        
+        assert left_heights == right_heights, "Row heights should match"
+    
+    def test_scroll_sync(self, page: Page, auth):
+        """גלילה בצד אחד מסנכרנת את הצד השני."""
+        page.goto('/compare/existing-file-id')
+        
+        # גלילה בצד שמאל
+        page.evaluate('document.getElementById("left-content").scrollTop = 500')
+        
+        # בדיקה שהצד הימני התעדכן
+        right_scroll = page.evaluate(
+            'document.getElementById("right-content").scrollTop'
+        )
+        
+        assert abs(right_scroll - 500) < 5, "Scroll should be synced"
+```
+
+---
+
 **נוצר ב:** דצמבר 2025  
 **מחבר:** CodeBot Team  
 **קישורים קשורים:**
