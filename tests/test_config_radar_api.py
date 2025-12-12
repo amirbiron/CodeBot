@@ -38,8 +38,12 @@ def test_config_radar_returns_snapshot(monkeypatch):
         assert isinstance(payload['alerts'], dict)
         assert isinstance(payload['error_signatures'], dict)
         assert isinstance(payload['image_settings'], dict)
+        assert isinstance(payload['quick_fixes'], dict)
+        assert isinstance(payload['runbooks'], dict)
         assert payload['alerts']['window_minutes'] == 5
         assert payload['error_signatures']['categories']
+        assert payload['quick_fixes']['total_alert_types'] >= 1
+        assert payload['runbooks']['total_runbooks'] >= 1
 
 
 def test_config_radar_reports_missing_yaml(monkeypatch):
