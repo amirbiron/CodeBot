@@ -815,6 +815,12 @@
      - ``alerts_log``
      - ``alerts_log_prod``
      - Bot/Observability
+   * - ``ALERT_TYPES_CATALOG_COLLECTION``
+     - שם הקולקשן שבו נשמר Catalog (Registry) של כל ``alert_type`` שנצפה אי פעם. משמש ל-Coverage Report כ-To-Do קבוע ל-Runbooks/Quick Fixes.
+     - לא
+     - ``alert_types_catalog``
+     - ``alert_types_catalog_prod``
+     - Bot/Observability
    * - ``DRILLS_COLLECTION``
      - שם הקולקשן שבו נשמרת היסטוריית Drill Mode (תרגולים).
      - לא
