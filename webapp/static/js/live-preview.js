@@ -735,15 +735,14 @@
     }
 
     isPreviewEligible() {
-      const languageValue = (this.languageSelect ? this.languageSelect.value : '').trim().toLowerCase();
+      const language = this.languageSelect ? this.languageSelect.value : '';
       const fileName = this.fileNameInput ? this.fileNameInput.value : '';
-      if (isMarkdownLanguage(languageValue) || isHtmlLanguage(languageValue)) {
-        return true;
-      }
-      if (languageValue && languageValue !== 'text') {
-        return false;
-      }
-      return isMarkdownExtension(fileName) || isHtmlExtension(fileName);
+      return (
+        isMarkdownLanguage(language) ||
+        isHtmlLanguage(language) ||
+        isMarkdownExtension(fileName) ||
+        isHtmlExtension(fileName)
+      );
     }
 
     updatePreviewAvailability(options = {}) {

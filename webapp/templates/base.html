@@ -2071,50 +2071,14 @@
     <script src="{{ url_for('static', filename='js/collections.js') }}?v={{ static_version }}" defer></script>
 <script>
     (function welcomeModalInit(){
-        const STORAGE_KEY = 'has_seen_welcome_modal';
         const modal = document.getElementById('welcomeModal');
         if (!modal) { return; }
-
-        const getSeenFlag = () => {
-            try { return localStorage.getItem(STORAGE_KEY); }
-            catch (_) {
-                try { return sessionStorage.getItem(STORAGE_KEY); }
-                catch (_) { return null; }
-            }
-        };
-
-        const setSeenFlag = () => {
-            let stored = false;
-            try { localStorage.setItem(STORAGE_KEY, '1'); stored = true; }
-            catch (_) {}
-            if (!stored) {
-                try { sessionStorage.setItem(STORAGE_KEY, '1'); }
-                catch (_) {}
-            }
-        };
-
-        const markClientSeen = () => {
-            setSeenFlag();
-        };
-
-        try {
-            if (getSeenFlag() === '1') {
-                fetch('/api/welcome/ack', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: '{}'
-                }).catch(() => {});
-                modal.remove();
-                return;
-            }
-        } catch (_) {}
         const backdrop = modal.querySelector('.welcome-modal__backdrop');
         const closeBtn = modal.querySelector('.welcome-modal__close');
         const skipBtn = document.getElementById('welcomeSkipBtn');
         const primaryBtn = document.getElementById('welcomePrimaryCta');
         const sendAck = () => {
             try {
-                markClientSeen();
                 fetch('/api/welcome/ack', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
@@ -2198,36 +2162,15 @@
         try { localStorage.setItem(key, value); }
         catch (_) {}
     }
-    function getThemeWizardSeenFlag(){
-        try { return localStorage.getItem(STORAGE_KEYS.seen); }
-        catch (_) {
-            try { return sessionStorage.getItem(STORAGE_KEYS.seen); }
-            catch (_) { return null; }
-        }
-    }
-    function setThemeWizardSeenFlag(value){
-        let saved = false;
-        try { localStorage.setItem(STORAGE_KEYS.seen, value); saved = true; }
-        catch (_) {}
-        if (!saved) {
-            try { sessionStorage.setItem(STORAGE_KEYS.seen, value); }
-            catch (_) {}
-        }
-    }
-    function clearThemeWizardSeenFlag(){
-        try { localStorage.removeItem(STORAGE_KEYS.seen); }
-        catch (_) {}
-        try { sessionStorage.removeItem(STORAGE_KEYS.seen); }
-        catch (_) {}
-    }
     function hasSeen(){
-        return getThemeWizardSeenFlag() === 'true';
+        return lsGet(STORAGE_KEYS.seen) === 'true';
     }
     function markSeen(){
-        setThemeWizardSeenFlag('true');
+        lsSet(STORAGE_KEYS.seen, 'true');
     }
     function resetSeen(){
-        clearThemeWizardSeenFlag();
+        try { localStorage.removeItem(STORAGE_KEYS.seen); }
+        catch (_) {}
     }
     function availableThemes(){
         return optionButtons.map((btn) => btn.dataset.themeOption).filter(Boolean);
@@ -2965,36 +2908,17 @@
     const MAX_RETRIES = 5;
     const isLoggedIn = {{ 'true' if session.user_id else 'false' }};
 
-    function getWalkthroughFlag(){
-        try { return localStorage.getItem(STORAGE_KEY); }
-        catch (_) {
-            try { return sessionStorage.getItem(STORAGE_KEY); }
-            catch (_) { return null; }
-        }
-    }
-    function setWalkthroughFlag(value){
-        let saved = false;
-        try { localStorage.setItem(STORAGE_KEY, value); saved = true; }
-        catch (_) {}
-        if (!saved) {
-            try { sessionStorage.setItem(STORAGE_KEY, value); }
-            catch (_) {}
-        }
-    }
-    function clearWalkthroughFlag(){
-        try { localStorage.removeItem(STORAGE_KEY); }
-        catch (_) {}
-        try { sessionStorage.removeItem(STORAGE_KEY); }
-        catch (_) {}
-    }
     function hasSeen(){
-        return getWalkthroughFlag() === '1';
+        try { return localStorage.getItem(STORAGE_KEY) === '1'; }
+        catch (_) { return false; }
     }
     function markSeen(){
-        setWalkthroughFlag('1');
+        try { localStorage.setItem(STORAGE_KEY, '1'); }
+        catch (_) { /* ignore */ }
     }
     function resetSeen(){
-        clearWalkthroughFlag();
+        try { localStorage.removeItem(STORAGE_KEY); }
+        catch (_) { /* ignore */ }
     }
     function getDriverFactory(){
         if (!window.driver || !window.driver.js || typeof window.driver.js.driver !== 'function') {

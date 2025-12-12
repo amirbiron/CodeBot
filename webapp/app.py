@@ -7325,7 +7325,6 @@ def edit_file_page(file_id):
             source_url_was_edited = source_url_state == 'edited'
             clean_source_url = None
             source_url_removed = False
-            markdown_image_payloads: List[Dict[str, Any]] = []
             if source_url_value:
                 clean_source_url, source_url_err = _normalize_source_url_value(source_url_value)
                 if source_url_err:
@@ -7463,129 +7462,66 @@ def edit_file_page(file_id):
                 except Exception:
                     pass
 
-                should_collect_images = False
+                # קבע גרסה חדשה על סמך שם הקובץ לאחר העדכון
                 try:
-                    normalized_name = (file_name or '')
-                    if isinstance(normalized_name, str):
-                        normalized_name = normalized_name.lower()
-                    else:
-                        normalized_name = ''
-                except Exception:
-                    normalized_name = ''
-                try:
-                    should_collect_images = (
-                        (normalized_name.endswith('.md') or normalized_name.endswith('.markdown')) or
-                        (isinstance(language, str) and language.lower() in {'markdown', 'md'})
+                    prev = db.code_snippets.find_one(
+                        {
+                            'user_id': user_id,
+                            'file_name': file_name,
+                            '$or': [
+                                {'is_active': True},
+                                {'is_active': {'$exists': False}}
+                            ]
+                        },
+                        sort=[('version', -1)]
                     )
                 except Exception:
-                    should_collect_images = False
-
-                if not error and should_collect_images:
+                    prev = None
+                version = int((prev or {}).get('version', 0) or 0) + 1
+                if not description:
                     try:
-                        incoming_images = request.files.getlist('md_images')
+                        description = (prev or file or {}).get('description') or ''
                     except Exception:
-                        incoming_images = []
-                    valid_images = [img for img in incoming_images if getattr(img, 'filename', '').strip()]
-                    if valid_images:
-                        if len(valid_images) > MARKDOWN_IMAGE_LIMIT:
-                            error = f'ניתן לצרף עד {MARKDOWN_IMAGE_LIMIT} תמונות'
-                        else:
-                            for img in valid_images:
-                                if error:
-                                    break
-                                try:
-                                    data = img.read()
-                                except Exception:
-                                    data = b''
-                                if not data:
-                                    continue
-                                if len(data) > MARKDOWN_IMAGE_MAX_BYTES:
-                                    max_mb = max(1, MARKDOWN_IMAGE_MAX_BYTES // (1024 * 1024))
-                                    error = f'כל תמונה מוגבלת ל-{max_mb}MB'
-                                    break
-                                safe_name = secure_filename(img.filename or '') or f'image_{len(markdown_image_payloads) + 1}.png'
-                                content_type = (img.mimetype or '').lower()
-                                if content_type not in ALLOWED_MARKDOWN_IMAGE_TYPES:
-                                    guessed_type = mimetypes.guess_type(safe_name)[0] or ''
-                                    content_type = guessed_type.lower() if guessed_type else content_type
-                                if content_type not in ALLOWED_MARKDOWN_IMAGE_TYPES:
-                                    error = 'ניתן להעלות רק תמונות PNG, JPG, WEBP או GIF'
-                                    break
-                                markdown_image_payloads.append({
-                                    'filename': safe_name,
-                                    'content_type': content_type,
-                                    'size': len(data),
-                                    'data': data,
-                                })
-                            if error:
-                                markdown_image_payloads = []
-
-                if not error:
-                    # קבע גרסה חדשה על סמך שם הקובץ לאחר העדכון
+                        description = ''
+                if not tags:
                     try:
-                        prev = db.code_snippets.find_one(
-                            {
-                                'user_id': user_id,
-                                'file_name': file_name,
-                                '$or': [
-                                    {'is_active': True},
-                                    {'is_active': {'$exists': False}}
-                                ]
-                            },
-                            sort=[('version', -1)]
-                        )
+                        tags = list((prev or file or {}).get('tags') or [])
                     except Exception:
-                        prev = None
-                    version = int((prev or {}).get('version', 0) or 0) + 1
-                    if not description:
-                        try:
-                            description = (prev or file or {}).get('description') or ''
-                        except Exception:
-                            description = ''
-                    if not tags:
-                        try:
-                            tags = list((prev or file or {}).get('tags') or [])
-                        except Exception:
-                            tags = []
+                        tags = []
 
-                    now = datetime.now(timezone.utc)
-                    new_doc = {
-                        'user_id': user_id,
-                        'file_name': file_name,
-                        'code': code,
-                        'programming_language': language,
-                        'description': description,
-                        'tags': tags,
-                        'version': version,
-                        'created_at': now,
-                        'updated_at': now,
-                        'is_active': True,
-                    }
+                now = datetime.now(timezone.utc)
+                new_doc = {
+                    'user_id': user_id,
+                    'file_name': file_name,
+                    'code': code,
+                    'programming_language': language,
+                    'description': description,
+                    'tags': tags,
+                    'version': version,
+                    'created_at': now,
+                    'updated_at': now,
+                    'is_active': True,
+                }
+                prev_source = None
+                try:
+                    prev_source = (prev or file or {}).get('source_url')
+                except Exception:
                     prev_source = None
-                    try:
-                        prev_source = (prev or file or {}).get('source_url')
-                    except Exception:
-                        prev_source = None
-                    if clean_source_url:
-                        new_doc['source_url'] = clean_source_url
-                    elif not source_url_removed and prev_source:
-                        new_doc['source_url'] = prev_source
-                    try:
-                        res = db.code_snippets.insert_one(new_doc)
-                        if res and getattr(res, 'inserted_id', None):
-                            if original_file_name and original_file_name != file_name:
-                                _sync_collection_items_after_web_rename(db, user_id, original_file_name, file_name)
-                            if markdown_image_payloads:
-                                try:
-                                    _save_markdown_images(db, user_id, res.inserted_id, markdown_image_payloads)
-                                except Exception:
-                                    pass
-                            if _log_webapp_user_activity():
-                                session['_skip_view_activity_once'] = True
-                            return redirect(url_for('view_file', file_id=str(res.inserted_id)))
-                        error = 'שמירת הקובץ נכשלה'
-                    except Exception as _e:
-                        error = f'שמירת הקובץ נכשלה: {_e}'
+                if clean_source_url:
+                    new_doc['source_url'] = clean_source_url
+                elif not source_url_removed and prev_source:
+                    new_doc['source_url'] = prev_source
+                try:
+                    res = db.code_snippets.insert_one(new_doc)
+                    if res and getattr(res, 'inserted_id', None):
+                        if original_file_name and original_file_name != file_name:
+                            _sync_collection_items_after_web_rename(db, user_id, original_file_name, file_name)
+                        if _log_webapp_user_activity():
+                            session['_skip_view_activity_once'] = True
+                        return redirect(url_for('view_file', file_id=str(res.inserted_id)))
+                    error = 'שמירת הקובץ נכשלה'
+                except Exception as _e:
+                    error = f'שמירת הקובץ נכשלה: {_e}'
         except Exception as e:
             error = f'שגיאה בעריכה: {e}'
 
