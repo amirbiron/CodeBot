@@ -1,0 +1,62 @@
+{% extends "base.html" %}
+
+{% block title %}השוואת קבצים{% endblock %}
+
+{% block extra_css %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/compare.css') }}">
+{% endblock %}
+
+{% block content %}
+<div class="container-fluid py-4">
+    <div class="compare-header glass-card p-4 mb-4">
+        <div class="d-flex justify-content-between align-items-center flex-wrap gap-3">
+            <div>
+                <h1 class="h3 mb-2">
+                    <i class="fas fa-code-compare me-2"></i>
+                    השוואת קבצים
+                </h1>
+                <p class="text-muted mb-0">בחר שני קבצים להשוואה</p>
+            </div>
+        </div>
+
+        <form method="get" action="{{ url_for('compare_files_page') }}">
+            <div class="row mt-4">
+                <div class="col-md-5">
+                    <label class="form-label">קובץ מקור</label>
+                    <select class="form-select" name="left">
+                        <option value="" {% if not selected_left %}selected{% endif %}>בחר קובץ</option>
+                        {% for f in files %}
+                        <option value="{{ f._id }}" {% if selected_left and (selected_left|string) == (f._id|string) %}selected{% endif %}>
+                            {{ f.file_name }}
+                        </option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="col-md-2 d-flex align-items-end justify-content-center">
+                    <button type="button" class="btn btn-secondary" onclick="(function(){var a=document.querySelector('select[name=left]');var b=document.querySelector('select[name=right]');if(a&&b){var t=a.value;a.value=b.value;b.value=t;}})();" title="החלף">
+                        <i class="fas fa-exchange-alt"></i>
+                    </button>
+                </div>
+                <div class="col-md-5">
+                    <label class="form-label">קובץ יעד</label>
+                    <select class="form-select" name="right">
+                        <option value="" {% if not selected_right %}selected{% endif %}>בחר קובץ</option>
+                        {% for f in files %}
+                        <option value="{{ f._id }}" {% if selected_right and (selected_right|string) == (f._id|string) %}selected{% endif %}>
+                            {{ f.file_name }}
+                        </option>
+                        {% endfor %}
+                    </select>
+                </div>
+            </div>
+
+            <div class="d-flex justify-content-end gap-2 mt-4">
+                <button type="submit" class="btn btn-primary">
+                    <i class="fas fa-code-compare"></i> בחר
+                </button>
+            </div>
+        </form>
+    </div>
+</div>
+{% endblock %}
+

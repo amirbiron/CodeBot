@@ -15,7 +15,7 @@ from datetime import datetime, timezone
 from functools import wraps, lru_cache
 from typing import Optional, Dict, Any, List, Tuple, Set
 
-from flask import Flask, render_template, jsonify, request, session, redirect, url_for, send_file, abort, Response, g
+from flask import Flask, Blueprint, render_template, jsonify, request, session, redirect, url_for, send_file, abort, Response, g
 import threading
 import atexit
 import time as _time
@@ -60,6 +60,7 @@ from user_stats import user_stats  # noqa: E402
 from webapp.activity_tracker import log_user_event  # noqa: E402
 from webapp.config_radar import build_config_radar_snapshot  # noqa: E402
 from services import observability_dashboard as observability_service  # noqa: E402
+from services.diff_service import get_diff_service, DiffMode  # noqa: E402
 
 # קונפיגורציה מרכזית (Pydantic Settings)
 try:  # שמירה על יציבות גם בסביבות דוקס/CI
@@ -1882,6 +1883,129 @@ def login_required(f):
             return redirect(url_for('login', next=next_url))
         return f(*args, **kwargs)
     return decorated_function
+
+
+def get_current_user_id() -> Optional[int]:
+    """פונקציה תואמת-מדריך להחזרת מזהה משתמש נוכחי (או None אם לא מחובר)."""
+    try:
+        uid = session.get('user_id')
+        if uid is None:
+            return None
+        return int(uid)
+    except Exception:
+        return None
+
+
+# --- Compare API - API להשוואת קבצים (לפי המדריך) ---
+compare_bp = Blueprint('compare', __name__, url_prefix='/api/compare')
+
+
+@compare_bp.route('/versions/<file_id>', methods=['GET'])
+def compare_versions(file_id: str):
+    """
+    השוואה בין גרסאות של קובץ.
+
+    Query params:
+        - left: מספר גרסה שמאלית (ברירת מחדל: גרסה אחרונה - 1)
+        - right: מספר גרסה ימנית (ברירת מחדל: גרסה אחרונה)
+
+    Returns:
+        JSON עם תוצאת ההשוואה
+    """
+    user_id = get_current_user_id()
+    if not user_id:
+        return jsonify({"error": "Unauthorized"}), 401
+
+    from database import db as _db
+    db = _db
+
+    # קבלת הקובץ לפי ID
+    file_doc = db.get_file_by_id(file_id)
+    if not file_doc:
+        return jsonify({"error": "File not found"}), 404
+
+    if file_doc.get("user_id") != user_id:
+        return jsonify({"error": "Forbidden"}), 403
+
+    file_name = file_doc.get("file_name")
+    current_version = file_doc.get("version", 1)
+
+    # קבלת פרמטרים
+    version_left = request.args.get('left', type=int, default=max(1, current_version - 1))
+    version_right = request.args.get('right', type=int, default=current_version)
+
+    # חישוב ההשוואה
+    diff_service = get_diff_service(db)
+    result = diff_service.compare_versions(user_id, file_name, version_left, version_right)
+
+    if not result:
+        return jsonify({"error": "Could not compare versions"}), 400
+
+    return jsonify(result.to_dict())
+
+
+@compare_bp.route('/files', methods=['POST'])
+def compare_files():
+    """
+    השוואה בין שני קבצים שונים.
+
+    Body (JSON):
+        - left_file_id: מזהה קובץ שמאלי
+        - right_file_id: מזהה קובץ ימני
+
+    Returns:
+        JSON עם תוצאת ההשוואה
+    """
+    user_id = get_current_user_id()
+    if not user_id:
+        return jsonify({"error": "Unauthorized"}), 401
+
+    data = request.get_json() or {}
+    left_id = data.get('left_file_id')
+    right_id = data.get('right_file_id')
+
+    if not left_id or not right_id:
+        return jsonify({"error": "Missing file IDs"}), 400
+
+    from database import db as _db
+    db = _db
+
+    diff_service = get_diff_service(db)
+    result = diff_service.compare_files(user_id, left_id, right_id)
+
+    if not result:
+        return jsonify({"error": "Could not compare files"}), 400
+
+    return jsonify(result.to_dict())
+
+
+@compare_bp.route('/diff', methods=['POST'])
+def compare_raw():
+    """
+    השוואה בין שני טקסטים גולמיים.
+
+    Body (JSON):
+        - left_content: תוכן שמאלי
+        - right_content: תוכן ימני
+
+    Returns:
+        JSON עם תוצאת ההשוואה
+    """
+    user_id = get_current_user_id()
+    if not user_id:
+        return jsonify({"error": "Unauthorized"}), 401
+
+    data = request.get_json() or {}
+    left_content = data.get('left_content', '')
+    right_content = data.get('right_content', '')
+
+    diff_service = get_diff_service()
+    result = diff_service.compute_diff(left_content, right_content)
+
+    return jsonify(result.to_dict())
+
+
+app.register_blueprint(compare_bp)
 
 # before_request: אם אין סשן אבל יש cookie "remember_me" תקף — נבצע התחברות שקופה
 @app.before_request
@@ -4703,6 +4827,11 @@ def format_time_hhmm(value) -> str:
 def jinja_datetime_display(value) -> str:
     return format_datetime_display(value)
 
+# מסנן Jinja לתאימות למדריכים/תבניות: alias ל-datetime_display
+@app.template_filter('format_datetime')
+def jinja_format_datetime(value) -> str:
+    return format_datetime_display(value)
+
 # מסנן Jinja חכם: אם היום – מציג HH:MM, אחרת DD/MM HH:MM
 @app.template_filter('day_hhmm')
 def format_day_hhmm(value) -> str:
@@ -6358,6 +6487,53 @@ def view_file(file_id):
     resp.headers['ETag'] = etag
     resp.headers['Last-Modified'] = last_modified_str
     return resp
+
+
+@app.route('/compare/<file_id>')
+@login_required
+def compare_versions_page(file_id: str):
+    """דף השוואת גרסאות של קובץ."""
+    user_id = get_current_user_id()
+
+    from database import db as _db
+    db = _db
+
+    file_doc = db.get_file_by_id(file_id)
+    if not file_doc or file_doc.get("user_id") != user_id:
+        abort(404)
+
+    # קבלת כל הגרסאות
+    all_versions = db.get_all_versions(user_id, file_doc.get("file_name"))
+
+    return render_template(
+        'compare.html',
+        file=file_doc,
+        versions=all_versions,
+        current_version=file_doc.get("version", 1),
+    )
+
+
+@app.route('/compare')
+@login_required
+def compare_files_page():
+    """דף השוואת קבצים שונים."""
+    user_id = get_current_user_id()
+
+    left_id = request.args.get('left')
+    right_id = request.args.get('right')
+
+    from database import db as _db
+    db = _db
+
+    # קבלת רשימת הקבצים לבחירה
+    user_files = db.get_user_files(user_id, limit=100)
+
+    return render_template(
+        'compare_files.html',
+        files=user_files,
+        selected_left=left_id,
+        selected_right=right_id,
+    )
 
 
 @app.route('/file/<file_id>/images/<image_id>')
