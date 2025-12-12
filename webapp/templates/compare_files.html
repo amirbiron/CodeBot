@@ -1,15 +1,312 @@
 {% extends "base.html" %}
 
-{% block title %}השוואת קבצים{% endblock %}
+{% block title %}השוואת קבצים - Code Keeper Bot{% endblock %}
 
 {% block extra_css %}
 <link rel="stylesheet" href="{{ url_for('static', filename='css/compare.css') }}">
+<style>
+/* =================================================================
+   Compare Files Page - Specific Styles
+   ================================================================= */
+
+/* File Selection Container */
+.file-selection-grid {
+    display: grid;
+    grid-template-columns: 1fr auto 1fr;
+    gap: 1.5rem;
+    align-items: end;
+}
+
+@media (max-width: 768px) {
+    .file-selection-grid {
+        grid-template-columns: 1fr;
+        gap: 1rem;
+    }
+    
+    .swap-column {
+        order: -1;
+        justify-self: center;
+    }
+}
+
+/* File Select Wrapper - Glassmorphism Select */
+.file-select-wrapper {
+    position: relative;
+    width: 100%;
+}
+
+.file-select-wrapper label {
+    display: block;
+    margin-bottom: 0.5rem;
+    font-weight: 600;
+    color: var(--text-primary, #fff);
+}
+
+.file-select-wrapper .file-select {
+    width: 100%;
+    padding: 0.875rem 2.5rem 0.875rem 1rem;
+    font-size: 0.95rem;
+    font-family: inherit;
+    color: var(--text-primary, #fff);
+    background: var(--glass-bg, rgba(255, 255, 255, 0.08));
+    border: 1px solid var(--glass-border, rgba(255, 255, 255, 0.18));
+    border-radius: 12px;
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    appearance: none;
+    -webkit-appearance: none;
+    -moz-appearance: none;
+    cursor: pointer;
+    transition: all 0.3s ease;
+}
+
+.file-select-wrapper .file-select:hover {
+    border-color: var(--accent-color, #6366f1);
+    background: rgba(255, 255, 255, 0.12);
+}
+
+.file-select-wrapper .file-select:focus {
+    outline: none;
+    border-color: var(--accent-color, #6366f1);
+    box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.25);
+}
+
+/* Custom dropdown arrow */
+.file-select-wrapper::after {
+    content: '';
+    position: absolute;
+    bottom: 1.1rem;
+    right: 1rem;
+    width: 0;
+    height: 0;
+    border-left: 6px solid transparent;
+    border-right: 6px solid transparent;
+    border-top: 6px solid var(--text-muted, rgba(255, 255, 255, 0.6));
+    pointer-events: none;
+    transition: transform 0.2s ease;
+}
+
+.file-select-wrapper:focus-within::after {
+    transform: rotate(180deg);
+}
+
+/* Select options styling (limited browser support) */
+.file-select-wrapper .file-select option {
+    background: var(--bg-primary, #1e1e2e);
+    color: var(--text-primary, #fff);
+    padding: 0.75rem;
+}
+
+/* File info badge inside option (simulated via optgroup) */
+.file-select-wrapper .file-select optgroup {
+    font-weight: 600;
+    color: var(--accent-color, #6366f1);
+}
+
+/* Swap Button Column */
+.swap-column {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding-bottom: 0.25rem;
+}
+
+.btn-swap {
+    width: 48px;
+    height: 48px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--glass-bg, rgba(255, 255, 255, 0.08));
+    border: 1px solid var(--glass-border, rgba(255, 255, 255, 0.18));
+    color: var(--text-primary, #fff);
+    transition: all 0.3s ease;
+}
+
+.btn-swap:hover {
+    background: var(--accent-color, #6366f1);
+    border-color: var(--accent-color, #6366f1);
+    transform: rotate(180deg);
+}
+
+/* Action Bar for Compare Button */
+.compare-action-bar {
+    display: flex;
+    justify-content: center;
+    gap: 1rem;
+    margin-top: 1.5rem;
+    padding-top: 1.5rem;
+    border-top: 1px solid var(--glass-border, rgba(255, 255, 255, 0.1));
+}
+
+.btn-compare {
+    min-width: 200px;
+    padding: 0.875rem 2rem;
+    font-size: 1rem;
+    font-weight: 600;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    background: linear-gradient(135deg, var(--accent-color, #6366f1), var(--accent-secondary, #8b5cf6));
+    border: none;
+    border-radius: 12px;
+    color: #fff;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    box-shadow: 0 4px 15px rgba(99, 102, 241, 0.3);
+}
+
+.btn-compare:hover:not(:disabled) {
+    transform: translateY(-2px);
+    box-shadow: 0 6px 20px rgba(99, 102, 241, 0.4);
+}
+
+.btn-compare:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+    transform: none;
+}
+
+.btn-compare .spinner {
+    display: none;
+    width: 18px;
+    height: 18px;
+    border: 2px solid rgba(255, 255, 255, 0.3);
+    border-top-color: #fff;
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+}
+
+.btn-compare.loading .spinner {
+    display: inline-block;
+}
+
+.btn-compare.loading .btn-text {
+    display: none;
+}
+
+@keyframes spin {
+    to { transform: rotate(360deg); }
+}
+
+/* File Preview Cards */
+.file-preview-card {
+    background: var(--glass-bg, rgba(255, 255, 255, 0.05));
+    border: 1px solid var(--glass-border, rgba(255, 255, 255, 0.1));
+    border-radius: 12px;
+    padding: 1rem;
+    margin-top: 0.75rem;
+    opacity: 0;
+    transform: translateY(-10px);
+    transition: all 0.3s ease;
+}
+
+.file-preview-card.visible {
+    opacity: 1;
+    transform: translateY(0);
+}
+
+.file-preview-card .file-meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 1rem;
+    font-size: 0.85rem;
+    color: var(--text-muted, rgba(255, 255, 255, 0.6));
+}
+
+.file-preview-card .file-meta span {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+}
+
+.file-preview-card .file-meta i {
+    color: var(--accent-color, #6366f1);
+}
+
+/* Quick filters */
+.quick-filters {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    margin-bottom: 1rem;
+}
+
+.filter-chip {
+    padding: 0.375rem 0.875rem;
+    font-size: 0.8rem;
+    background: var(--glass-bg, rgba(255, 255, 255, 0.05));
+    border: 1px solid var(--glass-border, rgba(255, 255, 255, 0.1));
+    border-radius: 20px;
+    color: var(--text-muted, rgba(255, 255, 255, 0.7));
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.filter-chip:hover,
+.filter-chip.active {
+    background: var(--accent-color, #6366f1);
+    border-color: var(--accent-color, #6366f1);
+    color: #fff;
+}
+
+/* Search within select */
+.select-search-wrapper {
+    position: relative;
+    margin-bottom: 0.5rem;
+}
+
+.select-search {
+    width: 100%;
+    padding: 0.625rem 1rem 0.625rem 2.25rem;
+    font-size: 0.875rem;
+    background: var(--glass-bg, rgba(255, 255, 255, 0.05));
+    border: 1px solid var(--glass-border, rgba(255, 255, 255, 0.1));
+    border-radius: 8px;
+    color: var(--text-primary, #fff);
+}
+
+.select-search::placeholder {
+    color: var(--text-muted, rgba(255, 255, 255, 0.4));
+}
+
+.select-search-wrapper i {
+    position: absolute;
+    left: 0.75rem;
+    top: 50%;
+    transform: translateY(-50%);
+    color: var(--text-muted, rgba(255, 255, 255, 0.4));
+}
+
+/* Light theme adjustments */
+[data-theme="light"] .file-select-wrapper .file-select,
+[data-theme="light"] .btn-swap,
+[data-theme="light"] .file-preview-card,
+[data-theme="light"] .filter-chip,
+[data-theme="light"] .select-search {
+    background: rgba(0, 0, 0, 0.03);
+    border-color: rgba(0, 0, 0, 0.1);
+    color: var(--text-primary, #1e1e2e);
+}
+
+[data-theme="light"] .file-select-wrapper .file-select option {
+    background: #fff;
+    color: #1e1e2e;
+}
+
+[data-theme="light"] .file-select-wrapper::after {
+    border-top-color: rgba(0, 0, 0, 0.5);
+}
+</style>
 {% endblock %}
 
 {% block content %}
 <div class="container-fluid py-4">
+    <!-- Header -->
     <div class="compare-header glass-card p-4 mb-4">
-        <div class="d-flex justify-content-between align-items-center flex-wrap gap-3">
+        <div class="d-flex justify-content-between align-items-start flex-wrap gap-3 mb-4">
             <div>
                 <h1 class="h3 mb-2">
                     <i class="fas fa-code-compare me-2"></i>
@@ -17,46 +314,215 @@
                 </h1>
                 <p class="text-muted mb-0">בחר שני קבצים להשוואה</p>
             </div>
+            
+            <!-- View Mode Toggle (shown after comparison) -->
+            <div id="view-mode-toggle" class="btn-group d-none" role="group" aria-label="מצב תצוגה">
+                <button type="button" class="btn btn-outline-primary active" data-mode="side-by-side">
+                    <i class="fas fa-columns"></i> צד לצד
+                </button>
+                <button type="button" class="btn btn-outline-primary" data-mode="unified">
+                    <i class="fas fa-align-left"></i> אחיד
+                </button>
+                <button type="button" class="btn btn-outline-primary" data-mode="inline">
+                    <i class="fas fa-highlighter"></i> Inline
+                </button>
+            </div>
         </div>
-
-        <form method="get" action="{{ url_for('compare_files_page') }}">
-            <div class="row mt-4">
-                <div class="col-md-5">
-                    <label class="form-label">קובץ מקור</label>
-                    <select class="form-select" name="left">
-                        <option value="" {% if not selected_left %}selected{% endif %}>בחר קובץ</option>
-                        {% for f in files %}
-                        <option value="{{ f._id }}" {% if selected_left and (selected_left|string) == (f._id|string) %}selected{% endif %}>
-                            {{ f.file_name }}
-                        </option>
-                        {% endfor %}
-                    </select>
+        
+        <!-- Quick Language Filters -->
+        <div class="quick-filters mb-3">
+            <span class="text-muted me-2" style="font-size: 0.85rem;">סינון מהיר:</span>
+            <button type="button" class="filter-chip active" data-filter="all">הכל</button>
+            {% for lang in top_languages %}
+            <button type="button" class="filter-chip" data-filter="{{ lang }}">{{ lang }}</button>
+            {% endfor %}
+        </div>
+        
+        <!-- File Selection Grid -->
+        <form id="compare-form">
+            <div class="file-selection-grid">
+                <!-- Left File -->
+                <div class="file-select-column">
+                    <div class="file-select-wrapper">
+                        <label for="file-left">
+                            <i class="fas fa-file-code me-1 text-danger"></i>
+                            קובץ שמאלי (בסיס)
+                        </label>
+                        <div class="select-search-wrapper">
+                            <i class="fas fa-search"></i>
+                            <input type="text" class="select-search" id="search-left" placeholder="חפש קובץ...">
+                        </div>
+                        <select id="file-left" name="left_file_id" class="file-select" required>
+                            <option value="">-- בחר קובץ --</option>
+                            {% for file in files %}
+                            <option value="{{ file._id }}" 
+                                    data-language="{{ file.programming_language }}"
+                                    data-size="{{ file.file_size|default(0) }}"
+                                    data-lines="{{ file.lines_count|default(0) }}"
+                                    data-updated="{{ file.updated_at }}"
+                                    {% if selected_left == file._id|string %}selected{% endif %}>
+                                {{ file.file_name }} ({{ file.programming_language }})
+                            </option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <!-- File Preview -->
+                    <div id="preview-left" class="file-preview-card">
+                        <div class="file-meta">
+                            <span><i class="fas fa-code"></i> <span class="lang-text">-</span></span>
+                            <span><i class="fas fa-weight-hanging"></i> <span class="size-text">-</span></span>
+                            <span><i class="fas fa-list-ol"></i> <span class="lines-text">-</span></span>
+                            <span><i class="fas fa-clock"></i> <span class="date-text">-</span></span>
+                        </div>
+                    </div>
                 </div>
-                <div class="col-md-2 d-flex align-items-end justify-content-center">
-                    <button type="button" class="btn btn-secondary" onclick="(function(){var a=document.querySelector('select[name=left]');var b=document.querySelector('select[name=right]');if(a&&b){var t=a.value;a.value=b.value;b.value=t;}})();" title="החלף">
+                
+                <!-- Swap Button -->
+                <div class="swap-column">
+                    <button type="button" id="swap-files" class="btn btn-swap" title="החלף קבצים">
                         <i class="fas fa-exchange-alt"></i>
                     </button>
                 </div>
-                <div class="col-md-5">
-                    <label class="form-label">קובץ יעד</label>
-                    <select class="form-select" name="right">
-                        <option value="" {% if not selected_right %}selected{% endif %}>בחר קובץ</option>
-                        {% for f in files %}
-                        <option value="{{ f._id }}" {% if selected_right and (selected_right|string) == (f._id|string) %}selected{% endif %}>
-                            {{ f.file_name }}
-                        </option>
-                        {% endfor %}
-                    </select>
+                
+                <!-- Right File -->
+                <div class="file-select-column">
+                    <div class="file-select-wrapper">
+                        <label for="file-right">
+                            <i class="fas fa-file-code me-1 text-success"></i>
+                            קובץ ימני (השוואה)
+                        </label>
+                        <div class="select-search-wrapper">
+                            <i class="fas fa-search"></i>
+                            <input type="text" class="select-search" id="search-right" placeholder="חפש קובץ...">
+                        </div>
+                        <select id="file-right" name="right_file_id" class="file-select" required>
+                            <option value="">-- בחר קובץ --</option>
+                            {% for file in files %}
+                            <option value="{{ file._id }}"
+                                    data-language="{{ file.programming_language }}"
+                                    data-size="{{ file.file_size|default(0) }}"
+                                    data-lines="{{ file.lines_count|default(0) }}"
+                                    data-updated="{{ file.updated_at }}"
+                                    {% if selected_right == file._id|string %}selected{% endif %}>
+                                {{ file.file_name }} ({{ file.programming_language }})
+                            </option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <!-- File Preview -->
+                    <div id="preview-right" class="file-preview-card">
+                        <div class="file-meta">
+                            <span><i class="fas fa-code"></i> <span class="lang-text">-</span></span>
+                            <span><i class="fas fa-weight-hanging"></i> <span class="size-text">-</span></span>
+                            <span><i class="fas fa-list-ol"></i> <span class="lines-text">-</span></span>
+                            <span><i class="fas fa-clock"></i> <span class="date-text">-</span></span>
+                        </div>
+                    </div>
                 </div>
             </div>
-
-            <div class="d-flex justify-content-end gap-2 mt-4">
-                <button type="submit" class="btn btn-primary">
-                    <i class="fas fa-code-compare"></i> בחר
+            
+            <!-- Compare Action Bar -->
+            <div class="compare-action-bar">
+                <a href="{{ url_for('files_page') }}" class="btn btn-secondary">
+                    <i class="fas fa-arrow-left"></i> חזור לקבצים
+                </a>
+                <button type="submit" id="btn-compare" class="btn-compare" disabled>
+                    <span class="spinner"></span>
+                    <span class="btn-text">
+                        <i class="fas fa-code-compare"></i>
+                        השווה קבצים
+                    </span>
                 </button>
             </div>
         </form>
     </div>
+    
+    <!-- Stats Bar (hidden until comparison) -->
+    <div id="stats-bar" class="stats-bar glass-card p-3 mb-4 d-none">
+        <div class="row text-center">
+            <div class="col">
+                <span class="badge bg-success fs-6" id="stat-added">
+                    <i class="fas fa-plus"></i> +<span>0</span>
+                </span>
+            </div>
+            <div class="col">
+                <span class="badge bg-danger fs-6" id="stat-removed">
+                    <i class="fas fa-minus"></i> -<span>0</span>
+                </span>
+            </div>
+            <div class="col">
+                <span class="badge bg-warning fs-6" id="stat-modified">
+                    <i class="fas fa-pen"></i> ~<span>0</span>
+                </span>
+            </div>
+            <div class="col">
+                <span class="badge bg-secondary fs-6" id="stat-unchanged">
+                    <i class="fas fa-equals"></i> =<span>0</span>
+                </span>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Diff Container (hidden until comparison) -->
+    <div id="diff-container" class="diff-container glass-card d-none">
+        <!-- Side by Side View -->
+        <div id="side-by-side-view" class="diff-view active">
+            <div class="diff-pane left-pane">
+                <div class="pane-header">
+                    <span class="file-label" id="left-file-label">קובץ שמאלי</span>
+                </div>
+                <div class="pane-content" id="left-content"></div>
+            </div>
+            <div class="diff-pane right-pane">
+                <div class="pane-header">
+                    <span class="file-label" id="right-file-label">קובץ ימני</span>
+                </div>
+                <div class="pane-content" id="right-content"></div>
+            </div>
+        </div>
+        
+        <!-- Unified View -->
+        <div id="unified-view" class="diff-view">
+            <div class="unified-content" id="unified-content"></div>
+        </div>
+        
+        <!-- Inline View -->
+        <div id="inline-view" class="diff-view">
+            <div class="inline-content" id="inline-content"></div>
+        </div>
+    </div>
+    
+    <!-- Action Bar (shown after comparison) -->
+    <div id="result-actions" class="action-bar glass-card p-3 mt-4 d-none">
+        <div class="d-flex justify-content-between align-items-center flex-wrap gap-2">
+            <button type="button" id="btn-new-compare" class="btn btn-secondary">
+                <i class="fas fa-redo"></i> השוואה חדשה
+            </button>
+            <div class="d-flex gap-2">
+                <button id="btn-copy-diff" class="btn btn-outline-primary">
+                    <i class="fas fa-copy"></i> העתק Diff
+                </button>
+                <button id="btn-download-diff" class="btn btn-outline-primary">
+                    <i class="fas fa-download"></i> הורד Patch
+                </button>
+            </div>
+        </div>
+    </div>
 </div>
 {% endblock %}
 
+{% block extra_js %}
+<script src="{{ url_for('static', filename='js/compare.js') }}"></script>
+<script>
+(function() {
+    'use strict';
+    
+    // Initialize CompareFiles mode
+    window.CompareView.initFilesMode({
+        files: {{ files | tojson | safe }},
+        selectedLeft: {{ (selected_left | tojson) if selected_left else 'null' }},
+        selectedRight: {{ (selected_right | tojson) if selected_right else 'null' }},
+    });
+})();
+</script>
+{% endblock %}
