@@ -192,6 +192,36 @@
     "doc_link": "https://amirbiron.github.io/CodeBot/chatops/commands.html"
   },
   {
+    "name": "/cache_clear_stale",
+    "type": "chatops",
+    "description": "ניקוי עדין של Redis (Stale keys)",
+    "arguments": [
+      "max=<סריקות>",
+      "ttl=<שניות>"
+    ],
+    "doc_link": "https://amirbiron.github.io/CodeBot/chatops/commands.html"
+  },
+  {
+    "name": "/status_worker",
+    "type": "chatops",
+    "description": "בדיקת בריאות ל-Push Worker",
+    "arguments": [
+      "url=<https://worker>",
+      "path=/healthz"
+    ],
+    "doc_link": "https://amirbiron.github.io/CodeBot/chatops/commands.html"
+  },
+  {
+    "name": "/version_history",
+    "type": "chatops",
+    "description": "רשימת Deployments אחרונים",
+    "arguments": [
+      "limit=<5>",
+      "hours=<6>"
+    ],
+    "doc_link": "https://amirbiron.github.io/CodeBot/chatops/commands.html"
+  },
+  {
     "name": "/lang",
     "type": "chatops",
     "description": "קובע במהירות את שפת הקובץ/הקוד שנשלח לבוט",

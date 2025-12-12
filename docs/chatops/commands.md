@@ -202,3 +202,21 @@ python main.py
 - פרמטרים: ללא
 - הרשאות: כולם (דורש חיבור DB תקין)
 - מה לחפש בפלט: "✅ קאש חומם" או הודעת שגיאה אם DB לא זמין.
+
+## /cache_clear_stale
+- מתי להשתמש: כשאחוז ה-RAM בשרת מזנק בגלל Redis וצריך ניקוי עדין של מפתחות שפג תוקפם.
+- פרמטרים: אופציונלי `max=<סריקות>` ו-`ttl=<שניות>` (ברירת מחדל 1000 / 60).
+- הרשאות: מנהלים בלבד (מכבד SAFE_MODE ו-`DISABLE_CACHE_MAINTENANCE`).
+- מה לחפש בפלט: מספר המפתחות שנמחקו, הערה אם SAFE_MODE חסם את ההרצה.
+
+## /status_worker
+- מתי להשתמש: בזמן חשד לעומס בתורים/Push Worker כדי לוודא שה-sidecar מגיב.
+- פרמטרים: אופציונלי `url=<https://worker>` או `path=/healthz`.
+- הרשאות: מנהלים בלבד.
+- מה לחפש בפלט: סטטוס HTTP ו-latency של `/healthz`, חיווי האם `PUSH_REMOTE_DELIVERY_ENABLED` ו-`PUSH_DELIVERY_TOKEN` מוגדרים.
+
+## /version_history
+- מתי להשתמש: לבדוק האם התרעה קרתה מיד אחרי Deployment ולצרף פרטי actor/request_id.
+- פרמטרים: אופציונלי `limit=<n>` (ברירת מחדל 5) ו-`hours=<חלון>` (ברירת מחדל 6h).
+- הרשאות: מנהלים בלבד.
+- מה לחפש בפלט: טבלת זמנים של Deployment events, כולל actor/request_id ולינק להמשך בדיקת observability.
