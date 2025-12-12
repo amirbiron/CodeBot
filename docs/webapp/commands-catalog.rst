@@ -118,4 +118,4 @@
 כרטיסיות חדשות (דצמ' 2025)
 ---------------------------
 - נוספו כרטיסים חדשים עבור פקודות ChatOps: ``/cache_clear_stale``, ``/status_worker`` ו-``/version_history``. כולם מצביעים ל-:doc:`/chatops/commands`.
-- ודאו שהפקודות מופיעות גם בפלייבוקים/Quick Fixes (ראו :doc:`/GUIDES/CONFIG_RADAR_GUIDE`) כך שהאון-קול יקבל את אותה פעולה גם מתוך Config Radar וגם מהחיפוש.
+- ודאו שהפקודות מופיעות גם בפלייבוקים/Quick Fixes (ראו `מדריך Config Radar <https://github.com/amirbiron/CodeBot/blob/main/GUIDES/CONFIG_RADAR_GUIDE.md>`_) כך שהאון-קול יקבל את אותה פעולה גם מתוך Config Radar וגם מהחיפוש.
