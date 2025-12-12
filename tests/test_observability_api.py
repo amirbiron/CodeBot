@@ -533,12 +533,14 @@ runbooks:
         ]
         return [row for row in base if int(row["count"]) >= int(min_total_count or 1)]
 
-    monkeypatch.setattr(alerts_storage, 'fetch_alert_type_catalog', _fake_catalog, raising=True)
+    # Patch the exact object used by the service module (avoid import aliasing issues)
+    monkeypatch.setattr(svc.alerts_storage, 'fetch_alert_type_catalog', _fake_catalog, raising=True)
 
     report = svc.build_coverage_report(start_dt=start_dt, end_dt=end_dt, min_count=1)
     assert isinstance(report, dict)
+    assert report['missing_runbooks']
+    assert len(report['missing_runbooks']) == 1
     assert report['missing_runbooks'][0]['alert_type'] == 'unknown'
-    assert all(item['alert_type'] != 'a' for item in report['missing_runbooks'])
     # alias_only has a runbook (via alias) but no per-alert quick fixes -> should be missing quick fixes
     assert any(item['alert_type'] == 'alias_only' for item in report['missing_quick_fixes'])
     # Orphan runbook should be detected; default should not appear
