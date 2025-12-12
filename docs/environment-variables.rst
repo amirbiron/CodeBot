@@ -755,6 +755,18 @@
      - "" (ריק)
      - ``secret123``
      - WebApp
+   * - ``SENTRY_WEBHOOK_SECRET``
+     - סוד לאימות קריאות ל־``/webhooks/sentry`` (אם ריק, השירות מאפשר קריאות ללא אימות – מומלץ להגדיר). נבדק כ-``Authorization: Bearer`` או ``?token=`` וגם תומך בחתימת HMAC כאשר קיימת.
+     - לא
+     - "" (ריק)
+     - ``secret123``
+     - WebApp
+   * - ``SENTRY_WEBHOOK_DEDUP_WINDOW_SECONDS``
+     - חלון דה-דופליקציה (בשניות) להתראות Sentry שמגיעות ב-Webhook כדי למנוע burst (``0`` מנטרל).
+     - לא
+     - ``300``
+     - ``600``
+     - WebApp
    * - ``ALERTMANAGER_IP_ALLOWLIST``
      - רשימת IPs (מופרדים בפסיק) שמורשים לצרוך את ה-webhook; נבדק מול ``X-Forwarded-For``/``remote_addr``.
      - לא
