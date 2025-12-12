@@ -2092,6 +2092,12 @@
             try { document.body.classList.add('modal-open'); } catch (_) {}
         }
 
+        function ensureClosedByDefault(modalEl) {
+            if (!modalEl) return;
+            // Make sure server-rendered modals don't appear as "cards"
+            closeModal(modalEl);
+        }
+
         // Minimal bootstrap.Modal API used by compare.js
         window.bootstrap = window.bootstrap || {};
         window.bootstrap.Modal = window.bootstrap.Modal || {};
@@ -2100,6 +2106,17 @@
                 return { hide: function(){ closeModal(el); } };
             };
         }
+
+        // Public helpers (useful for debugging)
+        window.__ck_modal = {
+            open: (selector) => openModal(document.querySelector(selector)),
+            close: (selector) => closeModal(document.querySelector(selector)),
+        };
+
+        // Close common modals by default if they exist
+        document.addEventListener('DOMContentLoaded', function(){
+            try { ensureClosedByDefault(document.getElementById('restoreModal')); } catch (_) {}
+        });
 
         document.addEventListener('click', function(e){
             try {

@@ -52,11 +52,13 @@ html {
 }
 
 /* Bootstrap-like modal fallback (used by compare.html) */
-.modal {
-  display: none;
+.modal,
+.modal.fade {
+  display: none !important;
 }
-.modal.show {
-  display: block;
+.modal.show,
+.modal.fade.show {
+  display: block !important;
 }
 .modal {
   position: fixed;
