@@ -105,6 +105,35 @@ def _get_collection():  # pragma: no cover - exercised indirectly
         return None
 
 
+def _isoformat_utc(value: Any) -> Optional[str]:
+    if not isinstance(value, datetime):
+        return None
+    if value.tzinfo is None:
+        dt = value.replace(tzinfo=timezone.utc)
+    else:
+        try:
+            dt = value.astimezone(timezone.utc)
+        except Exception:
+            dt = value.replace(tzinfo=timezone.utc)
+    return dt.isoformat()
+
+
+def _normalize_doc_for_json(doc: Dict[str, Any]) -> Dict[str, Any]:
+    """Convert non-JSON types (datetime) to serializable forms."""
+    out = dict(doc or {})
+    try:
+        if "ts_dt" in out:
+            ts_iso = _isoformat_utc(out.get("ts_dt"))
+            if ts_iso:
+                out["ts_dt"] = ts_iso
+            else:
+                # If something odd slips in, drop field to keep fail-open API behavior
+                out.pop("ts_dt", None)
+    except Exception:
+        out.pop("ts_dt", None)
+    return out
+
+
 def record_drill(
     *,
     drill_id: str,
@@ -157,7 +186,8 @@ def list_drills(limit: int = 20) -> List[Dict[str, Any]]:
             .sort([("ts_dt", -1)])  # type: ignore[attr-defined]
             .limit(lim)  # type: ignore[attr-defined]
         )
-        return list(cursor)
+        rows = list(cursor)
+        return [_normalize_doc_for_json(doc) for doc in rows if isinstance(doc, dict)]
     except Exception:
         return []
 
@@ -171,7 +201,9 @@ def get_drill(drill_id: str) -> Optional[Dict[str, Any]]:
         return None
     try:
         doc = coll.find_one({"drill_id": key}, {"_id": 0})  # type: ignore[attr-defined]
-        return dict(doc) if isinstance(doc, dict) else None
+        if not isinstance(doc, dict):
+            return None
+        return _normalize_doc_for_json(doc)
     except Exception:
         return None
 

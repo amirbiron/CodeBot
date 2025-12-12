@@ -702,31 +702,41 @@ def _emit_critical_once(key: str, name: str, summary: str, details: Dict[str, An
     _last_alert_ts[key] = now_ts
     # Auto-remediation & incident logging (best-effort)
     # Safety switch: אל תפעיל remediation על Drill
+    is_drill = False
     try:
-        if bool(details.get("is_drill")) or bool((details.get("metadata") or {}).get("is_drill")):
-            raise RuntimeError("skip_remediation_for_drill")
-    except RuntimeError:
-        pass
+        is_drill = bool(details.get("is_drill")) or bool((details.get("metadata") or {}).get("is_drill"))
     except Exception:
-        pass
-    try:
-        from remediation_manager import handle_critical_incident  # type: ignore
+        is_drill = False
+    if is_drill:
         try:
-            if key == "error_rate_percent":
-                current_val = float(details.get("current_percent", 0.0) or 0.0)
-            elif key == "latency_seconds":
-                current_val = float(details.get("current_seconds", 0.0) or 0.0)
-            else:
+            emit_event(
+                "drill_remediation_skipped",
+                severity="anomaly",
+                handled=True,
+                name=str(name),
+                metric=str(key),
+            )
+        except Exception:
+            pass
+    else:
+        try:
+            from remediation_manager import handle_critical_incident  # type: ignore
+            try:
+                if key == "error_rate_percent":
+                    current_val = float(details.get("current_percent", 0.0) or 0.0)
+                elif key == "latency_seconds":
+                    current_val = float(details.get("current_seconds", 0.0) or 0.0)
+                else:
+                    current_val = 0.0
+            except Exception:
                 current_val = 0.0
+            try:
+                thr_val = float(_thresholds.get(key, _MetricThreshold()).threshold or 0.0)
+            except Exception:
+                thr_val = 0.0
+            handle_critical_incident(name=name, metric=key, value=current_val, threshold=thr_val, details=details)
         except Exception:
-            current_val = 0.0
-        try:
-            thr_val = float(_thresholds.get(key, _MetricThreshold()).threshold or 0.0)
-        except Exception:
-            thr_val = 0.0
-        handle_critical_incident(name=name, metric=key, value=current_val, threshold=thr_val, details=details)
-    except Exception:
-        pass
+            pass
     try:
         from internal_alerts import emit_internal_alert  # type: ignore
     except Exception:
