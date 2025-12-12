@@ -1,3 +1,4 @@
+import re
 import types
 from datetime import datetime, timezone
 
@@ -142,6 +143,94 @@ async def test_restore_commit_actions_show_details_and_link(monkeypatch):
 
     assert buttons[0]["kwargs"]["url"] == commit_url
     assert "Fix bug" in update.callback_query.edited_texts[-1][0]
+
+
+@pytest.mark.asyncio
+async def test_restore_commit_actions_truncate_hebrew_with_notice(monkeypatch):
+    import github_menu_handler as gh
+
+    handler = gh.GitHubMenuHandler()
+    update = DummyUpdate()
+    context = DummyContext()
+
+    session = handler.get_user_session(update.callback_query.from_user.id)
+    session["selected_repo"] = "owner/repo"
+    monkeypatch.setattr(handler, "get_user_token", lambda _uid: "token")
+
+    long_text = " ".join(["טקסט עברי מאוד ארוך עם הרבה פרטים וסיכומים"] * 80)
+    commit_obj = make_commit("abc123456789", long_text, url="https://example.com/commit/abc123")
+
+    class FakeRepo:
+        def get_commit(self, sha):
+            assert sha == commit_obj.sha
+            return commit_obj
+
+    fake_repo = FakeRepo()
+
+    class FakeGithub:
+        def __init__(self, token):
+            pass
+
+        def get_repo(self, full):
+            assert full == "owner/repo"
+            return fake_repo
+
+    monkeypatch.setattr(gh, "Github", FakeGithub)
+    monkeypatch.setattr(gh, "InlineKeyboardButton", lambda *a, **k: (a, k))
+    monkeypatch.setattr(gh, "InlineKeyboardMarkup", lambda rows: rows)
+    monkeypatch.setattr(gh, "TELEGRAM_SAFE_TEXT_LIMIT", 180, raising=False)
+    monkeypatch.setattr(gh, "TELEGRAM_TRUNCATION_NOTICE", "\n\n(✂️ הודעה קוצרה)", raising=False)
+
+    await handler.show_commit_restore_actions(update, context, commit_obj.sha)
+
+    text = update.callback_query.edited_texts[-1][0]
+    assert text.endswith("(✂️ הודעה קוצרה)")
+    assert "טקסט עברי" in text
+    assert len(text) <= gh.TELEGRAM_SAFE_TEXT_LIMIT
+
+
+@pytest.mark.asyncio
+async def test_restore_commit_actions_preserve_entities_on_trim(monkeypatch):
+    import github_menu_handler as gh
+
+    handler = gh.GitHubMenuHandler()
+    update = DummyUpdate()
+    context = DummyContext()
+
+    session = handler.get_user_session(update.callback_query.from_user.id)
+    session["selected_repo"] = "owner/repo"
+    monkeypatch.setattr(handler, "get_user_token", lambda _uid: "token")
+
+    entity_text = " ".join(["<tag> עם מידע נוסף"] * 40)
+    commit_obj = make_commit("abc123456789", entity_text, url="https://example.com/commit/entities")
+
+    class FakeRepo:
+        def get_commit(self, sha):
+            assert sha == commit_obj.sha
+            return commit_obj
+
+    fake_repo = FakeRepo()
+
+    class FakeGithub:
+        def __init__(self, token):
+            pass
+
+        def get_repo(self, full):
+            assert full == "owner/repo"
+            return fake_repo
+
+    monkeypatch.setattr(gh, "Github", FakeGithub)
+    monkeypatch.setattr(gh, "InlineKeyboardButton", lambda *a, **k: (a, k))
+    monkeypatch.setattr(gh, "InlineKeyboardMarkup", lambda rows: rows)
+    monkeypatch.setattr(gh, "TELEGRAM_SAFE_TEXT_LIMIT", 160, raising=False)
+    monkeypatch.setattr(gh, "TELEGRAM_TRUNCATION_NOTICE", "\n\n(✂️ הודעה קוצרה)", raising=False)
+
+    await handler.show_commit_restore_actions(update, context, commit_obj.sha)
+
+    text = update.callback_query.edited_texts[-1][0]
+    assert text.endswith("(✂️ הודעה קוצרה)")
+    assert "&lt;" in text
+    assert not re.search(r"&[A-Za-z0-9#]+$", text)
 
 
 @pytest.mark.asyncio
