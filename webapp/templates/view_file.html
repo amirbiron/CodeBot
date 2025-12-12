@@ -830,6 +830,12 @@ body.telegram-mini-app .file-title { font-size: 1.125rem; }
                         <span>🔗 למקור{% if file.source_url_host %} ({{ file.source_url_host }}){% endif %}</span>
                     </button>
                     {% endif %}
+                    <button type="button"
+                            class="file-actions__menu-item"
+                            data-menu-action="compare"
+                            data-compare-href="/compare/{{ file.id }}">
+                        <span>🔀 השוואת גרסאות</span>
+                    </button>
                     <button type="button" class="file-actions__menu-item" data-menu-action="history">
                         <span>🕐 היסטוריה</span>
                     </button>
@@ -2211,6 +2217,13 @@ function goBack(ev){
                 const href = btn.getAttribute('data-source-url') || fallbackSourceUrl;
                 if (href) {
                     window.open(href, '_blank', 'noopener');
+                }
+                return;
+            }
+            if (action === 'compare') {
+                const href = btn.getAttribute('data-compare-href') || '';
+                if (href) {
+                    window.location.href = href;
                 }
                 return;
             }
