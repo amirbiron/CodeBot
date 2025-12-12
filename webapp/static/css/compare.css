@@ -348,7 +348,7 @@
    ================================================================= */
 @media (max-width: 992px) {
     .diff-container {
-        max-height: 60vh;
+        height: 60vh; /* שינוי מ-max-height ל-height כדי לשמור על עקביות */
     }
     
     .pane-content {
@@ -601,10 +601,21 @@
    ================================================================= */
 @media print {
     .diff-container {
-        max-height: none;
-        overflow: visible;
+        height: auto !important; /* קריטי! מבטל את ה-75vh כדי שהכל יודפס */
+        max-height: none !important;
+        overflow: visible !important;
+        display: block; /* ביטול Flex בהדפסה למניעת בעיות חיתוך */
     }
     
+    /* וידוא שהתוכן הפנימי נפתח */
+    .diff-view,
+    .diff-pane,
+    .pane-content {
+        height: auto !important;
+        overflow: visible !important;
+        display: block !important;
+    }
+
     .pane-content,
     .unified-content,
     .inline-content {
