@@ -125,6 +125,20 @@
     text-align: left;
 }
 
+/* נעילת גלילה בתוך הקופסה + מניעת "החלקה" שמפריעה לסנכרון */
+.pane-content,
+.unified-content,
+.inline-content {
+    /* מונע לחלוטין גלילה של דף האב */
+    overscroll-behavior: none; /* שינוי מ-contain ל-none */
+
+    /* גלילה מיידית (בלי אנימציה) כדי למנוע לאגים בסנכרון */
+    scroll-behavior: auto !important;
+
+    /* מומנטום גלילה במובייל */
+    -webkit-overflow-scrolling: touch;
+}
+
 /* =================================================================
    Diff Lines - With Pixel-Perfect Alignment Support
    ================================================================= */

@@ -237,39 +237,45 @@ window.CompareView = (function() {
     // =================================================================
     
     /**
-     * הגדרת סנכרון גלילה עם יישור מושלם
+     * הגדרת סנכרון גלילה "חכם" (מונע רעידות ולולאות)
      */
     function setupSyncScroll() {
         const leftPane = elements.leftContent;
         const rightPane = elements.rightContent;
         
         if (!leftPane || !rightPane) return;
+        let activeSide = null; // מי שולט כרגע?
 
-        // Event handler עם debounce
-        function handleScroll(source, target) {
-            if (scrollSyncState.isScrolling) return;
-            
-            scrollSyncState.isScrolling = true;
-            
-            // סנכרון לפי אחוז גלילה (לתמיכה בגבהים שונים)
-            const scrollRatio = source.scrollTop / (source.scrollHeight - source.clientHeight || 1);
-            const targetScrollTop = scrollRatio * (target.scrollHeight - target.clientHeight);
-            
-            target.scrollTop = targetScrollTop;
-            
-            // איפוס הדגל אחרי frame אחד
-            requestAnimationFrame(() => {
-                scrollSyncState.isScrolling = false;
+        // 1. זיהוי צד אקטיבי (לפי עכבר או מגע)
+        const setActive = (side) => { activeSide = side; };
+        
+        // דסקטופ
+        leftPane.addEventListener('mouseenter', () => setActive('left'));
+        rightPane.addEventListener('mouseenter', () => setActive('right'));
+        
+        // מובייל
+        leftPane.addEventListener('touchstart', () => setActive('left'), { passive: true });
+        rightPane.addEventListener('touchstart', () => setActive('right'), { passive: true });
+
+        // 2. פונקציית סנכרון משופרת
+        function sync(source, target, side) {
+            if (!state.syncScroll) return;
+            if (activeSide !== side) return; // אם אני לא המפקד, אני לא פוקד
+
+            // חישוב יחסי (למקרה שהגבהים שונים במקצת)
+            const denom = (source.scrollHeight - source.clientHeight) || 1;
+            const percentage = source.scrollTop / denom;
+            const targetPos = percentage * (target.scrollHeight - target.clientHeight);
+
+            // שימוש ב-requestAnimationFrame לגלילה חלקה ב-60FPS
+            window.requestAnimationFrame(() => {
+                target.scrollTop = targetPos;
             });
         }
 
-        leftPane.addEventListener('scroll', () => {
-            if (state.syncScroll) handleScroll(leftPane, rightPane);
-        }, { passive: true });
-
-        rightPane.addEventListener('scroll', () => {
-            if (state.syncScroll) handleScroll(rightPane, leftPane);
-        }, { passive: true });
+        // 3. האזנה לאירועי גלילה
+        leftPane.addEventListener('scroll', () => sync(leftPane, rightPane, 'left'), { passive: true });
+        rightPane.addEventListener('scroll', () => sync(rightPane, leftPane, 'right'), { passive: true });
     }
 
     /**
