@@ -236,11 +236,12 @@ Markdown Viewer ו‑Split View
 Component Tokens ו‑Theme Builder
 --------------------------------
 
+- שימו לב: Theme Builder עדיין אינו בנוי במוצר. ההנחיות להלן מתארות את המפרט שנקבע לרגע שייבנה, וניתן להשתמש בו גם לצורך Overrides ידניים בזמן פיתוח/דיבוג.
 - כאשר מוסיפים טוקן חדש:
   1. הוסיפו ערך ברירת מחדל ל‑``:root`` בתוך ``webapp/static/css/variables.css``.
   2. הוסיפו Overrides בבלוקים של כל Theme שדורש התאמה.
   3. אם הטוקן שייך לרכיב ספציפי, הגדירו אותו גם בקובץ הרכיב (למשל ``split-view.css``) כדי לא לאבד הקשר.
-- Theme Builder משתמש ב‑``<style id="user-custom-theme">`` שמוזרק בסוף ה‑``<head>``. על מנת לאפשר Overrides בטוחים:
+- בעתיד Theme Builder (או Override ידני) ייעשה באמצעות ``<style id="user-custom-theme">`` שמוזרק בסוף ה‑``<head>``. כך ניתן לאפשר Overrides בטוחים:
 
   .. code-block:: html
 
@@ -253,8 +254,8 @@ Component Tokens ו‑Theme Builder
        }
      </style>
 
-- כאשר משתמש מבצע Override לתמה קיימת (למשל Ocean), כתבו את הטוקנים בתוך ``:root[data-theme="ocean"]`` באותו `<style>` כך שהערכים הדינמיים יגברו על ברירת המחדל.
-- טוקנים חובה ל‑Theme מותאם אישית: `--primary`, `--secondary`, `--bg-primary`, `--bg-secondary`, `--text-primary`, `--text-secondary`, `--btn-primary-bg`, `--btn-primary-color`, `--glass`, `--md-surface`, `--md-text`.
+- כאשר מבצעים Override לתמה קיימת (בידיים היום או דרך Theme Builder בעתיד), כתבו את הטוקנים בתוך ``:root[data-theme="ocean"]`` באותו `<style>` כך שהערכים הדינמיים יגברו על ברירת המחדל.
+- טוקנים חובה ל‑Theme מותאם אישית (גם בעתיד כשה‑Builder יהיה פעיל): `--primary`, `--secondary`, `--bg-primary`, `--bg-secondary`, `--text-primary`, `--text-secondary`, `--btn-primary-bg`, `--btn-primary-color`, `--glass`, `--md-surface`, `--md-text`.
 
 בדיקות חובה לפני Merge
 ----------------------
