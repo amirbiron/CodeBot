@@ -148,6 +148,110 @@
   padding: 1.25rem;
   box-shadow: 0 15px 35px rgba(0,0,0,0.35);
 }
+.replay-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 2fr) minmax(320px, 1fr);
+  gap: 1.25rem;
+  align-items: flex-start;
+}
+.runbook-panel {
+  background: rgba(18,24,38,0.78);
+  border-radius: 18px;
+  border: 1px solid rgba(255,255,255,0.08);
+  padding: 1rem;
+  min-height: 260px;
+  box-shadow: 0 15px 35px rgba(0,0,0,0.35);
+}
+.runbook-card {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+.runbook-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+}
+.runbook-title {
+  font-size: 1.05rem;
+  font-weight: 600;
+  margin: 0;
+}
+.runbook-desc {
+  font-size: 0.85rem;
+  opacity: 0.75;
+  margin-top: 0.15rem;
+}
+.runbook-progress {
+  text-align: right;
+  font-size: 0.9rem;
+}
+.runbook-progress small {
+  display: block;
+  font-size: 0.75rem;
+  opacity: 0.7;
+}
+.runbook-steps {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+.runbook-step {
+  display: flex;
+  gap: 0.6rem;
+  border-radius: 12px;
+  background: rgba(255,255,255,0.04);
+  padding: 0.5rem 0.75rem;
+}
+.runbook-step input[type="checkbox"] {
+  width: 18px;
+  height: 18px;
+  margin-top: 0.35rem;
+}
+.runbook-step__title {
+  font-size: 0.95rem;
+  font-weight: 600;
+}
+.runbook-step__desc {
+  font-size: 0.85rem;
+  opacity: 0.8;
+  margin-top: 0.15rem;
+}
+.runbook-actions {
+  border-top: 1px solid rgba(255,255,255,0.08);
+  padding-top: 0.75rem;
+}
+.runbook-actions__title {
+  font-size: 0.9rem;
+  opacity: 0.8;
+  margin-bottom: 0.4rem;
+}
+.runbook-actions__list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+.runbook-action-btn {
+  border: none;
+  border-radius: 999px;
+  padding: 0.4rem 0.9rem;
+  background: linear-gradient(135deg,#64ffda,#36c2ff);
+  color: #0b1224;
+  font-weight: 600;
+  cursor: pointer;
+  box-shadow: 0 12px 24px rgba(12,18,32,0.45);
+}
+.runbook-empty,
+.runbook-error {
+  text-align: center;
+  opacity: 0.75;
+  font-size: 0.9rem;
+  padding: 1rem 0;
+}
+.timeline-item.selected {
+  background: rgba(255,255,255,0.05);
+  border-radius: 12px;
+}
 .timeline-list {
   list-style: none;
   margin: 0;
@@ -307,6 +411,11 @@
   padding: 2rem 0;
   opacity: 0.8;
 }
+@media (max-width: 1200px) {
+  .replay-layout {
+    grid-template-columns: 1fr;
+  }
+}
 @media (max-width: 768px) {
   .timeline-item {
     grid-template-columns: 1fr;
@@ -348,13 +457,18 @@
     </div>
   </div>
 
-  <div class="timeline-wrapper">
-    <div class="timeline-head">
-      <div id="timelineSummary" style="font-size:0.9rem; opacity:0.8; margin-bottom:0.8rem;">טוען נתונים…</div>
+  <div class="replay-layout">
+    <div class="timeline-wrapper">
+      <div class="timeline-head">
+        <div id="timelineSummary" style="font-size:0.9rem; opacity:0.8; margin-bottom:0.8rem;">טוען נתונים…</div>
+      </div>
+      <ul class="timeline-list" id="timelineList">
+        <li class="empty-state">טוען אירועים…</li>
+      </ul>
     </div>
-    <ul class="timeline-list" id="timelineList">
-      <li class="empty-state">טוען אירועים…</li>
-    </ul>
+    <div class="runbook-panel" id="runbookPanel">
+      <div class="runbook-empty">בחר אירוע כדי לטעון Runbook.</div>
+    </div>
   </div>
 </div>
 
@@ -403,13 +517,16 @@
     range: '{{ default_range|default("3h", true) }}',
     start: '{{ initial_start|default('', true) }}',
     end: '{{ initial_end|default('', true) }}',
-    focus: '{{ initial_focus|default('', true) }}'
+    focus: '{{ initial_focus|default('', true) }}',
+    selectedEventId: '',
+    eventsMap: {}
   };
 
   const timelineSummaryEl = document.getElementById('timelineSummary');
   const timelineListEl = document.getElementById('timelineList');
   const rangeButtons = document.querySelectorAll('#replayRangeButtons button');
   const storyViewer = createStoryViewer();
+  const runbookPanel = document.getElementById('runbookPanel');
 
   function markActiveRange(rangeValue) {
     rangeButtons.forEach(b => {
@@ -471,6 +588,190 @@
     toast.style.zIndex = '999';
     document.body.appendChild(toast);
     setTimeout(() => toast.remove(), 2200);
+  }
+
+  function setRunbookEmpty(message = 'בחר אירוע כדי לטעון Runbook.') {
+    if (!runbookPanel) return;
+    runbookPanel.dataset.loading = '0';
+    runbookPanel.innerHTML = `<div class="runbook-empty">${message}</div>`;
+  }
+
+  function setRunbookLoading() {
+    if (!runbookPanel) return;
+    runbookPanel.dataset.loading = '1';
+    runbookPanel.innerHTML = '<div class="runbook-empty">טוען Runbook…</div>';
+  }
+
+  function renderRunbookError() {
+    setRunbookEmpty('שגיאה בטעינת ה-Runbook. נסה שוב.');
+  }
+
+  function renderRunbookActionButton(action, eventMeta) {
+    if (!action || !action.id) return '';
+    const payload = encodeURIComponent(JSON.stringify({
+      action,
+      alert: {
+        alert_uid: eventMeta.id,
+        alert_type: eventMeta.alert_type,
+        severity: eventMeta.severity,
+        timestamp: eventMeta.timestamp,
+        summary: eventMeta.summary,
+      }
+    }));
+    return `<button type="button" class="runbook-action-btn" data-qf="${payload}">${action.label || 'פעולה'}</button>`;
+  }
+
+  function renderRunbookPanel(payload) {
+    if (!runbookPanel) return;
+    const eventMeta = payload.event || {};
+    if (eventMeta.id) {
+      state.eventsMap[eventMeta.id] = Object.assign({}, state.eventsMap[eventMeta.id], eventMeta);
+      state.selectedEventId = eventMeta.id;
+      runbookPanel.dataset.eventId = eventMeta.id;
+      highlightSelectedTimeline();
+    }
+    const runbook = payload.runbook;
+    if (!runbook) {
+      setRunbookEmpty('לא הוגדר Runbook ספציפי לאירוע הזה.');
+      return;
+    }
+    const progress = runbook.progress || {};
+    const steps = Array.isArray(runbook.steps) ? runbook.steps : [];
+    const stepsMarkup = steps.length
+      ? steps
+          .map(step => {
+            const stepId = step.id || '';
+            return `
+              <label class="runbook-step" data-step="${stepId}">
+                <input type="checkbox" ${step.completed ? 'checked' : ''} ${stepId ? '' : 'disabled'}>
+                <div>
+                  <div class="runbook-step__title">${step.title || 'צעד'}</div>
+                  <div class="runbook-step__desc">${step.description || ''}</div>
+                </div>
+              </label>
+            `;
+          })
+          .join('')
+      : '<div class="runbook-empty">אין צעדים מוגדרים.</div>';
+    const actions = Array.isArray(payload.actions) ? payload.actions : [];
+    const actionsMarkup = actions.length
+      ? `
+        <div class="runbook-actions">
+          <div class="runbook-actions__title">Quick Fix</div>
+          <div class="runbook-actions__list">
+            ${actions.map(action => renderRunbookActionButton(action, eventMeta)).join('')}
+          </div>
+        </div>
+      `
+      : '';
+    runbookPanel.dataset.loading = '0';
+    runbookPanel.innerHTML = `
+      <div class="runbook-card">
+        <div class="runbook-head">
+          <div>
+            <div class="runbook-title">${runbook.title || 'Runbook'}</div>
+            <div class="runbook-desc">${runbook.description || ''}</div>
+          </div>
+          <div class="runbook-progress">
+            <span>${progress.completed || 0}/${progress.total || 0}</span>
+            <small>${Math.round(progress.percent || 0)}%</small>
+          </div>
+        </div>
+        <div class="runbook-steps">
+          ${stepsMarkup}
+        </div>
+        ${actionsMarkup}
+      </div>
+    `;
+    bindRunbookStepToggles(eventMeta.id, steps);
+    bindRunbookActionButtons();
+  }
+
+  function bindRunbookStepToggles(eventId, steps) {
+    if (!runbookPanel || !eventId || !Array.isArray(steps)) return;
+    const validSteps = new Set(steps.map(step => step.id).filter(Boolean));
+    runbookPanel.querySelectorAll('.runbook-step input[type="checkbox"]').forEach(input => {
+      const container = input.closest('.runbook-step');
+      const stepId = container ? container.dataset.step : '';
+      if (!stepId || !validSteps.has(stepId)) {
+        input.disabled = true;
+        return;
+      }
+      input.addEventListener('change', () => {
+        updateRunbookStatus(eventId, stepId, input.checked);
+      });
+    });
+  }
+
+  function bindRunbookActionButtons() {
+    if (!runbookPanel) return;
+    runbookPanel.querySelectorAll('.runbook-action-btn').forEach(btn => {
+      if (btn.dataset.bound === '1') return;
+      btn.dataset.bound = '1';
+      btn.addEventListener('click', () => {
+        const payload = btn.dataset.qf;
+        if (!payload) return;
+        try {
+          const parsed = JSON.parse(decodeURIComponent(payload));
+          handleRunbookAction(parsed.action, parsed.alert, btn);
+        } catch (err) {
+          console.error('runbook_action_parse_failed', err);
+        }
+      });
+    });
+  }
+
+  async function handleRunbookAction(action, alertMeta, btn) {
+    if (!action || !action.id) return;
+    try {
+      if (btn) btn.disabled = true;
+      const kind = (action.type || '').toLowerCase();
+      if (kind === 'copy' && action.payload) {
+        await navigator.clipboard.writeText(action.payload);
+        showShareToast('הפקודה הועתקה ללוח');
+      } else if (action.href) {
+        window.open(action.href, '_blank', 'noopener');
+      }
+      await trackQuickFixAction(action, alertMeta);
+    } catch (err) {
+      console.error('runbook_action_failed', err);
+      showShareToast('שגיאה בביצוע הפעולה');
+    } finally {
+      if (btn) btn.disabled = false;
+    }
+  }
+
+  async function trackQuickFixAction(action, alertMeta) {
+    try {
+      await fetch('/api/observability/quickfix/track', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({
+          action_id: action.id,
+          action_label: action.label,
+          alert: alertMeta,
+        }),
+      });
+    } catch (err) {
+      console.debug('runbook_action_tracking_skipped', err);
+    }
+  }
+
+  async function updateRunbookStatus(eventId, stepId, completed) {
+    try {
+      const res = await fetch(`/api/observability/runbook/${encodeURIComponent(eventId)}/status`, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({step_id: stepId, completed}),
+      });
+      if (!res.ok) throw new Error('HTTP ' + res.status);
+      const payload = await res.json();
+      if (payload.ok === false) throw new Error(payload.error || 'status_failed');
+      renderRunbookPanel(payload);
+    } catch (err) {
+      console.error('runbook_status_failed', err);
+      showShareToast('שמירת Runbook נכשלה');
+    }
   }
 
   function createStoryViewer() {
@@ -655,16 +956,25 @@
     const list = timelineListEl;
     if (!events.length) {
       list.innerHTML = '<li class="empty-state">לא נמצאו אירועים בטווח הנבחר.</li>';
+      state.eventsMap = {};
+      state.selectedEventId = '';
+      setRunbookEmpty();
       return;
     }
+    state.eventsMap = {};
     list.innerHTML = events.map(evt => {
+      if (evt.id) {
+        state.eventsMap[evt.id] = evt;
+      }
       const metaParts = [];
       if (evt.type === 'deployment') metaParts.push('Deployment');
       if (evt.metadata && evt.metadata.alert_type) metaParts.push(evt.metadata.alert_type);
       if (evt.metadata && evt.metadata.endpoint) metaParts.push(evt.metadata.endpoint);
       if (evt.type === 'story') metaParts.push('Incident Story');
+      if (evt.metadata && evt.metadata.has_runbook) metaParts.push('Runbook');
       const actionLabel = evt.type === 'story' ? 'פתח סיפור' : 'פתח הקשר';
       const hasStory = evt.type === 'story' && evt.metadata && evt.metadata.story_id;
+      const eventId = evt.id || '';
       const actionMarkup = hasStory
         ? `
             <button type="button" class="story-view-btn" data-story-id="${evt.metadata.story_id}">פתח סיפור</button>
@@ -672,7 +982,7 @@
           `
         : `<a href="${evt.link || '/admin/observability'}" target="_blank" rel="noopener">${actionLabel}</a>`;
       return `
-        <li class="timeline-item" data-type="${evt.type}">
+        <li class="timeline-item" data-type="${evt.type}" data-event-id="${eventId}" tabindex="0">
           <div class="event-time">${formatTime(evt.timestamp)}</div>
           <div class="event-body">
             <div class="event-title">${evt.title || 'אירוע'}</div>
@@ -686,6 +996,78 @@
       `;
     }).join('');
     bindStoryButtons();
+    bindTimelineInteractions();
+    highlightSelectedTimeline();
+    if (!state.selectedEventId) {
+      setRunbookEmpty();
+    } else if (!state.eventsMap[state.selectedEventId]) {
+      state.selectedEventId = '';
+      setRunbookEmpty();
+    }
+  }
+
+  function bindTimelineInteractions() {
+    document.querySelectorAll('.timeline-item').forEach(item => {
+      if (item.dataset.timelineBound === '1') return;
+      item.dataset.timelineBound = '1';
+      item.addEventListener('click', () => {
+        if (item.dataset.eventId) {
+          selectTimelineEvent(item.dataset.eventId);
+        }
+      });
+      item.addEventListener('keydown', evt => {
+        if ((evt.key === 'Enter' || evt.key === ' ') && item.dataset.eventId) {
+          evt.preventDefault();
+          selectTimelineEvent(item.dataset.eventId);
+        }
+      });
+    });
+    document.querySelectorAll('.timeline-item .event-actions a').forEach(link => {
+      link.addEventListener('click', evt => evt.stopPropagation());
+    });
+  }
+
+  function highlightSelectedTimeline() {
+    document.querySelectorAll('.timeline-item').forEach(item => {
+      item.classList.toggle('selected', item.dataset.eventId === state.selectedEventId);
+    });
+  }
+
+  function selectTimelineEvent(eventId) {
+    const evt = state.eventsMap[eventId];
+    if (!evt) return;
+    state.selectedEventId = eventId;
+    state.focus = evt.timestamp || state.focus;
+    highlightSelectedTimeline();
+    loadRunbookForEvent(evt);
+  }
+
+  async function loadRunbookForEvent(evt) {
+    if (!evt || !evt.id || !runbookPanel) return;
+    runbookPanel.dataset.eventId = evt.id;
+    setRunbookLoading();
+    try {
+      const params = new URLSearchParams();
+      if (evt.metadata && evt.metadata.alert_type) params.set('alert_type', evt.metadata.alert_type);
+      if (evt.metadata && evt.metadata.endpoint) params.set('endpoint', evt.metadata.endpoint);
+      if (evt.metadata && evt.metadata.source) params.set('source', evt.metadata.source);
+      if (evt.severity) params.set('severity', evt.severity);
+      if (evt.summary) params.set('summary', evt.summary);
+      if (evt.title) params.set('title', evt.title);
+      if (evt.timestamp) params.set('timestamp', evt.timestamp);
+      if (evt.link) params.set('link', evt.link);
+      const qs = params.toString();
+      const res = await fetch(`/api/observability/runbook/${encodeURIComponent(evt.id)}${qs ? `?${qs}` : ''}`, {
+        headers: {'Accept': 'application/json'},
+      });
+      if (!res.ok) throw new Error('HTTP ' + res.status);
+      const payload = await res.json();
+      if (payload.ok === false) throw new Error(payload.error || 'runbook_error');
+      renderRunbookPanel(payload);
+    } catch (err) {
+      console.error('runbook_load_failed', err);
+      renderRunbookError();
+    }
   }
 
   function bindStoryButtons() {
@@ -693,7 +1075,8 @@
     document.querySelectorAll('.story-view-btn').forEach(btn => {
       if (btn.dataset.storyBound === '1') return;
       btn.dataset.storyBound = '1';
-      btn.addEventListener('click', () => {
+      btn.addEventListener('click', event => {
+        event.stopPropagation();
         const storyId = btn.dataset.storyId;
         if (storyId) {
           storyViewer.open(storyId);

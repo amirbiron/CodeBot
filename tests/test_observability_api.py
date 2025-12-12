@@ -60,6 +60,76 @@ def test_observability_alerts_returns_data(monkeypatch):
     assert captured['end_dt'] >= captured['start_dt']
 
 
+def test_observability_runbook_requires_admin(monkeypatch):
+    monkeypatch.setenv('ADMIN_USER_IDS', '10')
+    app = _build_app()
+    with app.test_client() as client:
+        with client.session_transaction() as sess:
+            sess['user_id'] = 4
+        resp = client.get('/api/observability/runbook/demo')
+    assert resp.status_code == 403
+
+
+def test_observability_runbook_returns_payload(monkeypatch):
+    admin_id = 11
+    monkeypatch.setenv('ADMIN_USER_IDS', str(admin_id))
+
+    captured = {}
+
+    def _fake_fetch(event_id, fallback_metadata=None):
+        captured['event_id'] = event_id
+        captured['fallback'] = fallback_metadata
+        return {'event': {'id': event_id}, 'runbook': {'title': 'Demo', 'steps': []}, 'actions': [], 'status': {}}
+
+    monkeypatch.setattr(
+        'webapp.app.observability_service.fetch_runbook_for_event',
+        _fake_fetch,
+    )
+
+    app = _build_app()
+    with app.test_client() as client:
+        with client.session_transaction() as sess:
+            sess['user_id'] = admin_id
+        resp = client.get('/api/observability/runbook/evt?alert_type=demo_alert')
+    assert resp.status_code == 200
+    data = resp.get_json()
+    assert data['ok'] is True
+    assert data['event']['id'] == 'evt'
+    assert captured['event_id'] == 'evt'
+
+
+def test_observability_runbook_status_updates(monkeypatch):
+    admin_id = 12
+    monkeypatch.setenv('ADMIN_USER_IDS', str(admin_id))
+    captured = {}
+
+    def _fake_update(event_id, step_id, completed, user_id, fallback_metadata=None):
+        captured.update({
+            'event_id': event_id,
+            'step_id': step_id,
+            'completed': completed,
+            'user_id': user_id,
+        })
+        return {'event': {'id': event_id}, 'runbook': {'title': 'Demo', 'steps': [{'id': step_id, 'completed': completed}]}, 'actions': [], 'status': {'completed_steps': [step_id]}}
+
+    monkeypatch.setattr(
+        'webapp.app.observability_service.update_runbook_step_status',
+        _fake_update,
+    )
+
+    app = _build_app()
+    with app.test_client() as client:
+        with client.session_transaction() as sess:
+            sess['user_id'] = admin_id
+        resp = client.post('/api/observability/runbook/evt/status', json={'step_id': 'check', 'completed': True})
+    assert resp.status_code == 200
+    payload = resp.get_json()
+    assert payload['ok'] is True
+    assert payload['status']['completed_steps'] == ['check']
+    assert captured['step_id'] == 'check'
+    assert captured['completed'] is True
+
+
 def test_observability_ai_explain_requires_admin(monkeypatch):
     monkeypatch.setenv('ADMIN_USER_IDS', '10')
     app = _build_app()

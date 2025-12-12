@@ -204,10 +204,31 @@ Config via Pydantic Settings
      }
    }
 
+``config/observability_runbooks.yml``
+-------------------------------------
+
+- קובץ ה-Runbooks הדינמי של Observability. לכל `alert_type` ניתן להגדיר כותרת, תיאור ורשימת צעדים (`steps`) שמזינים גם את Quick Fix וגם את רכיב ה-Runbook במסך `observability_replay.html`.
+- כל צעד כולל מזהה `id`, טקסט תיאורי ובלוק `action` במבנה זהה לקובץ ה-Quick Fix הקודם (שדות `label`, `type`, `href`/`payload`, `safety`). ניתן להשתמש בטוקנים `{{timestamp}}`, `{{alert_type}}`, `{{severity}}`.
+- אפשר לספק `aliases` לריצוי שמות ישנים ולסמן Runbook כ-`default: true` לצורך fallback גלובלי.
+
+דוגמה::
+
+   version: 1
+   runbooks:
+     high_error_rate:
+       title: "זינוק בשיעור השגיאות"
+       steps:
+         - id: focus_timeline
+           title: "בדוק Incident Replay"
+           action:
+             label: "⏪ Incident Replay"
+             type: link
+             href: "/admin/observability/replay?timerange=3h&focus_ts={{timestamp}}"
+
 ``config/alert_quick_fixes.json``
 ---------------------------------
 
-- מוזן גם הוא על-ידי :mod:`services.observability_dashboard` כדי להציג כפתורי פעולה מהירים בממשק ניהול ההתראות.
+- מוזן גם הוא על-ידי :mod:`services.observability_dashboard` כדי להציג כפתורי פעולה מהירים בממשק ניהול ההתראות ומשמש fallback במקרים שבהם לא הוגדר Runbook ב-``observability_runbooks.yml``.
 - תומך בשלוש שכבות התאמה: ``by_alert_type`` (לפי סוג ההתראה), ``by_severity`` ולבסוף ``fallback``.
 - כל פעולה מכילה מזהה ``id`` ייחודי, ``label`` להצגה, ``type`` (לינק, העתקת טקסט, פקודת ChatOps), ושדות ייעודיים כמו ``href`` או ``payload``. טוקנים כגון ``{{timestamp}}`` מוחלפים בזמן אמת.
 

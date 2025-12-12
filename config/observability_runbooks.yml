@@ -1,0 +1,126 @@
+version: 1
+default: generic_incident_flow
+runbooks:
+  high_error_rate:
+    title: "זינוק בשיעור השגיאות"
+    description: "Playbook מהיר לזיהוי וטיפול בהתראות error_rate גבוה."
+    aliases:
+      - error_rate_spike
+      - high_errors
+    steps:
+      - id: focus_timeline
+        title: "התמקד בחלון הזמן הנכון"
+        description: "פתח Incident Replay סביב מועד ההתראה כדי להבין מה הוביל לזינוק."
+        action:
+          label: "⏪ Incident Replay"
+          type: link
+          href: "/admin/observability/replay?timerange=3h&focus_ts={{timestamp}}"
+          safety: safe
+      - id: run_triage_errors
+        title: "משוך /triage errors"
+        description: "הרץ את פקודת ChatOps כדי לקבל דגימות שגיאה והקשרים מהלוגים."
+        action:
+          label: "🧪 /triage errors"
+          type: copy
+          payload: "/triage errors"
+          safety: safe
+      - id: open_error_playbook
+        title: "עיין בפלייבוק השגיאות"
+        description: "בדוק את סעיפי הניתוח ב-Logging Improvements לפני שינויים בקוד."
+        action:
+          label: "📘 Playbook שגיאות"
+          type: link
+          href: "/GUIDES/LOGGING_IMPROVEMENTS.md"
+          safety: safe
+  slow_response:
+    title: "Latency גבוה / שירות איטי"
+    description: "מסלול טיפול בביצועים איטיים או בזינוקי P95."
+    aliases:
+      - latency_spike
+      - slow_response_time
+    steps:
+      - id: replay_latency
+        title: "בדוק את ציר הזמן"
+        description: "חפש Deployment קרוב או אירועי ChatOps שמשפיעים על latency."
+        action:
+          label: "🔎 פתח Replay"
+          type: link
+          href: "/admin/observability/replay?timerange=6h&focus_ts={{timestamp}}"
+          safety: safe
+      - id: run_triage_latency
+        title: "הרץ /triage latency"
+        description: "הפקודה מושכת מדדי שרת וחוסכת חיבור ידני לגרפנה."
+        action:
+          label: "⚙️ /triage latency"
+          type: copy
+          payload: "/triage latency"
+          safety: safe
+      - id: review_connection_pooling
+        title: "וודא הגדרות Connection Pool"
+        description: "חזור לסעיף ה-Troubleshooting במדריך Connection Pooling."
+        action:
+          label: "🧭 מדריך Latency"
+          type: link
+          href: "/GUIDES/GUIDE_CONNECTION_POOLING.md"
+          safety: safe
+  db_connection_issue:
+    title: "כשלים מול בסיס הנתונים"
+    description: "צעדים לטיפול ב-DB connection issue לפני Escalation."
+    aliases:
+      - db_connection_error
+      - db_connection_issue
+      - db_conn_error
+    steps:
+      - id: copy_triage_db
+        title: "הרץ /triage db"
+        description: "מקבל את סטטוס ה-Pool ומספר החיבורים הפעילים."
+        action:
+          label: "🗄️ /triage db"
+          type: copy
+          payload: "/triage db"
+          safety: caution
+      - id: check_backup_runbook
+        title: "בדוק את Playbook ה-DB"
+        description: "וודא שהגיבוי האחרון והבדיקות האוטומטיות עברו."
+        action:
+          label: "🛠️ בדיקת DB"
+          type: link
+          href: "/GUIDES/BACKUP_RESTORE.md#db-health-check"
+          safety: caution
+      - id: open_incident_replay_db
+        title: "בדוק הקשרים נוספים"
+        description: "פתח שוב את Incident Replay כדי לבדוק אם יש התראות נוספות סביב אותה שעה."
+        action:
+          label: "⏱️ הקשר נוסף"
+          type: link
+          href: "/admin/observability/replay?timerange=1h&focus_ts={{timestamp}}"
+          safety: safe
+  generic_incident_flow:
+    title: "פלייבוק כללי להתראות"
+    description: "Fallback בסיסי המתאים לכל alert_type ללא Runbook ייעודי."
+    default: true
+    steps:
+      - id: open_focus_link
+        title: "פתח את האירוע בלוח"
+        description: "הקפץ את הלוח לטווח הזמן של ההתראה כדי לראות מדדים רלוונטיים."
+        action:
+          label: "📍 פתח בלוח"
+          type: link
+          href: "/admin/observability?focus_ts={{timestamp}}"
+          safety: safe
+      - id: run_errors_command
+        title: "משוך /errors"
+        description: "פקודת ברירת מחדל שמציפה 5 שגיאות אחרונות."
+        action:
+          label: "🚨 /errors"
+          type: copy
+          payload: "/errors"
+          safety: safe
+      - id: review_replay
+        title: "בדוק את Incident Replay"
+        description: "תמיד כדאי להציץ בציר הזמן כדי לראות אם יש Runbook יעודי אחר."
+        action:
+          label: "⏪ Incident Replay"
+          type: link
+          href: "/admin/observability/replay?timerange=6h"
+          safety: safe

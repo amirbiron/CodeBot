@@ -15,6 +15,10 @@ from typing import Any, Dict, List, Optional, Tuple
 from urllib.parse import urlencode, urlparse
 
 import requests
+try:
+    import yaml  # type: ignore
+except Exception:  # pragma: no cover - optional dependency
+    yaml = None  # type: ignore
 
 try:
     import internal_alerts as _internal_alerts  # type: ignore
@@ -65,6 +69,21 @@ _QUICK_FIX_PATH = Path(os.getenv("ALERT_QUICK_FIX_PATH", "config/alert_quick_fix
 _QUICK_FIX_CACHE: Dict[str, Any] = {}
 _QUICK_FIX_MTIME: float = 0.0
 _QUICK_FIX_ACTIONS: deque[Dict[str, Any]] = deque(maxlen=200)
+
+_RUNBOOK_PATH = Path(os.getenv("OBSERVABILITY_RUNBOOK_PATH", "config/observability_runbooks.yml"))
+_RUNBOOK_CACHE: Dict[str, Any] = {}
+_RUNBOOK_ALIAS_MAP: Dict[str, str] = {}
+_RUNBOOK_MTIME: float = 0.0
+try:
+    _RUNBOOK_STATE_TTL = float(os.getenv("OBS_RUNBOOK_STATE_TTL", "14400"))
+except ValueError:  # pragma: no cover - env misconfig fallback
+    _RUNBOOK_STATE_TTL = 14400.0
+try:
+    _RUNBOOK_EVENT_CACHE_TTL = float(os.getenv("OBS_RUNBOOK_EVENT_TTL", "900"))
+except ValueError:  # pragma: no cover - env misconfig fallback
+    _RUNBOOK_EVENT_CACHE_TTL = 900.0
+_RUNBOOK_STATE: Dict[str, Dict[str, Any]] = {}
+_RUNBOOK_EVENT_CACHE: Dict[str, Tuple[float, Dict[str, Any]]] = {}
 
 logger = logging.getLogger(__name__)
 
@@ -261,6 +280,147 @@ def _load_quick_fix_config() -> Dict[str, Any]:
     return _QUICK_FIX_CACHE
 
 
+def _slugify(value: str, fallback: str) -> str:
+    text = re.sub(r"[^a-z0-9]+", "_", (value or "").lower()).strip("_")
+    return text or fallback
+
+
+def _normalize_alert_type(value: Optional[str]) -> str:
+    try:
+        return str(value or "").strip().lower()
+    except Exception:
+        return ""
+
+
+def _normalize_runbook_config(raw: Any) -> Tuple[Dict[str, Any], Dict[str, str], Optional[str], Optional[int]]:
+    definitions: Dict[str, Any] = {}
+    aliases: Dict[str, str] = {}
+    default_key: Optional[str] = None
+    version: Optional[int] = None
+
+    if isinstance(raw, dict):
+        version = raw.get("version")
+        runbooks_block = raw.get("runbooks") if isinstance(raw.get("runbooks"), dict) else raw
+    else:
+        runbooks_block = {}
+
+    for key, value in runbooks_block.items():
+        if key in {"version", "runbooks", "default"}:
+            continue
+        if not isinstance(value, dict):
+            continue
+        slug = _slugify(str(value.get("id") or key), f"rb_{len(definitions)+1}")
+        runbook = {
+            "id": slug,
+            "title": value.get("title") or str(key).replace("_", " ").title(),
+            "description": value.get("description") or "",
+            "category": value.get("category") or "",
+            "steps": [],
+        }
+        steps = value.get("steps")
+        if isinstance(steps, list):
+            normalized_steps: List[Dict[str, Any]] = []
+            for idx, step in enumerate(steps):
+                if not isinstance(step, dict):
+                    continue
+                step_title = step.get("title") or f"Step {idx + 1}"
+                step_id = _slugify(str(step.get("id") or step_title), f"step_{idx + 1}")
+                normalized_steps.append(
+                    {
+                        "id": step_id,
+                        "title": step_title,
+                        "description": step.get("description") or "",
+                        "action": copy.deepcopy(step.get("action")) if isinstance(step.get("action"), dict) else None,
+                    }
+                )
+            runbook["steps"] = normalized_steps
+        definitions[slug] = runbook
+
+        aliases[_normalize_alert_type(key)] = slug
+        for alias in value.get("aliases") or []:
+            aliases[_normalize_alert_type(alias)] = slug
+        if str(value.get("default")).lower() in {"1", "true", "yes"}:
+            default_key = slug
+
+    cfg_default = raw.get("default") if isinstance(raw, dict) else None
+    if not default_key and isinstance(cfg_default, str):
+        candidate = _normalize_alert_type(cfg_default)
+        mapped = aliases.get(candidate) or candidate
+        if mapped in definitions:
+            default_key = mapped
+
+    return definitions, aliases, default_key, version
+
+
+def _load_runbook_config() -> Dict[str, Any]:
+    global _RUNBOOK_CACHE, _RUNBOOK_ALIAS_MAP, _RUNBOOK_MTIME
+    path = _RUNBOOK_PATH
+    try:
+        stat = path.stat()
+    except FileNotFoundError:
+        _RUNBOOK_CACHE = {}
+        _RUNBOOK_ALIAS_MAP = {}
+        _RUNBOOK_MTIME = 0.0
+        return {}
+    except Exception:
+        return _RUNBOOK_CACHE
+
+    if stat.st_mtime <= _RUNBOOK_MTIME and _RUNBOOK_CACHE:
+        return _RUNBOOK_CACHE
+
+    if yaml is None:  # pragma: no cover - optional dependency missing
+        logger.warning("observability_runbook_yaml_missing")
+        _RUNBOOK_CACHE = {}
+        _RUNBOOK_ALIAS_MAP = {}
+        _RUNBOOK_MTIME = stat.st_mtime
+        return _RUNBOOK_CACHE
+
+    try:
+        data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+    except Exception:
+        logger.warning("observability_runbook_parse_failed")
+        data = {}
+
+    definitions, aliases, default_key, version = _normalize_runbook_config(data)
+    _RUNBOOK_CACHE = {
+        "definitions": definitions,
+        "default": default_key,
+        "version": version,
+    }
+    _RUNBOOK_ALIAS_MAP = aliases
+    _RUNBOOK_MTIME = stat.st_mtime
+    return _RUNBOOK_CACHE
+
+
+def _resolve_runbook_key(alert_type: Optional[str], *, allow_default: bool = True) -> Optional[str]:
+    config = _load_runbook_config()
+    definitions = config.get("definitions") or {}
+    if not definitions:
+        return None
+    normalized = _normalize_alert_type(alert_type)
+    alias = _RUNBOOK_ALIAS_MAP.get(normalized)
+    if alias and alias in definitions:
+        return alias
+    if normalized and normalized in definitions:
+        return normalized
+    if allow_default:
+        default_key = config.get("default")
+        if default_key and default_key in definitions:
+            return default_key
+    return None
+
+
+def _resolve_runbook_entry(alert_type: Optional[str]) -> Optional[Dict[str, Any]]:
+    slug = _resolve_runbook_key(alert_type, allow_default=True)
+    if not slug:
+        return None
+    config = _load_runbook_config()
+    definition = (config.get("definitions") or {}).get(slug)
+    if not definition:
+        return None
+    return copy.deepcopy(definition)
+
+
 def _http_get_json(
     url_template: str,
     *,
@@ -375,9 +535,55 @@ def _collect_quick_fix_actions(alert: Dict[str, Any]) -> List[Dict[str, Any]]:
     return actions
 
 
+def _expand_runbook_steps(
+    runbook: Dict[str, Any],
+    alert: Dict[str, Any],
+) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
+    steps_payload: List[Dict[str, Any]] = []
+    actions: List[Dict[str, Any]] = []
+    steps = runbook.get("steps") or []
+    alert_uid = alert.get("alert_uid") or _build_alert_uid(alert)
+    alert["alert_uid"] = alert_uid
+
+    for step in steps:
+        if not isinstance(step, dict):
+            continue
+        step_id = step.get("id") or _slugify(step.get("title") or "", f"step_{len(steps_payload)+1}")
+        action_cfg = step.get("action")
+        expanded_action = None
+        if isinstance(action_cfg, dict):
+            cfg = dict(action_cfg)
+            if not cfg.get("id"):
+                cfg["id"] = f"{runbook.get('id', 'runbook')}-{step_id}"
+            expanded_action = _expand_quick_fix_action(cfg, alert)
+            if step.get("description") and not expanded_action.get("description"):
+                expanded_action["description"] = step.get("description")
+            actions.append(expanded_action)
+        steps_payload.append(
+            {
+                "id": step_id,
+                "title": step.get("title") or step_id,
+                "description": step.get("description") or "",
+                "action": expanded_action,
+            }
+        )
+    return steps_payload, actions
+
+
+def _runbook_quick_fix_actions(alert: Dict[str, Any]) -> List[Dict[str, Any]]:
+    runbook = _resolve_runbook_entry(alert.get("alert_type"))
+    if not runbook:
+        return []
+    _, actions = _expand_runbook_steps(runbook, alert)
+    return actions
+
+
 def get_quick_fix_actions(alert: Dict[str, Any]) -> List[Dict[str, Any]]:
     """Return applicable quick-fix actions for a given alert."""
     try:
+        actions = _runbook_quick_fix_actions(alert)
+        if actions:
+            return actions
         return _collect_quick_fix_actions(alert)
     except Exception:
         return []
@@ -1814,6 +2020,254 @@ def _logs_from_actions(actions: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     return logs
 
 
+def _seed_replay_event_cache(events: List[Dict[str, Any]]) -> None:
+    if not events:
+        return
+    now = time.time()
+    with _CACHE_LOCK:
+        for event in events:
+            event_id = str(event.get("id") or "")
+            if not event_id:
+                continue
+            metadata = copy.deepcopy(event.get("metadata") or {})
+            _RUNBOOK_EVENT_CACHE[event_id] = (
+                now,
+                {
+                    "id": event_id,
+                    "alert_uid": event_id,
+                    "type": event.get("type"),
+                    "title": event.get("title"),
+                    "summary": event.get("summary"),
+                    "timestamp": event.get("timestamp"),
+                    "severity": event.get("severity"),
+                    "alert_type": metadata.get("alert_type") or event.get("type"),
+                    "metadata": metadata,
+                    "link": event.get("link"),
+                },
+            )
+
+
+def _lookup_replay_event(event_id: str) -> Optional[Dict[str, Any]]:
+    key = str(event_id or "").strip()
+    if not key:
+        return None
+    now = time.time()
+    with _CACHE_LOCK:
+        entry = _RUNBOOK_EVENT_CACHE.get(key)
+        if not entry:
+            return None
+        ts, data = entry
+        if (now - ts) > _RUNBOOK_EVENT_CACHE_TTL:
+            _RUNBOOK_EVENT_CACHE.pop(key, None)
+            return None
+        return copy.deepcopy(data)
+
+
+def _get_runbook_state(alert_uid: str) -> Dict[str, Any]:
+    uid = str(alert_uid or "").strip()
+    if not uid:
+        return {"completed": set(), "updated_at": None, "user_hash": None, "ts": 0.0}
+    now = time.time()
+    entry = _RUNBOOK_STATE.get(uid)
+    if not entry:
+        return {"completed": set(), "updated_at": None, "user_hash": None, "ts": 0.0}
+    if (now - entry.get("ts", 0.0)) > _RUNBOOK_STATE_TTL:
+        _RUNBOOK_STATE.pop(uid, None)
+        return {"completed": set(), "updated_at": None, "user_hash": None, "ts": 0.0}
+    entry["completed"] = set(entry.get("completed") or set())
+    return entry
+
+
+def _set_runbook_step_state(
+    alert_uid: str,
+    step_id: str,
+    completed: bool,
+    user_id: Optional[int],
+) -> Dict[str, Any]:
+    uid = str(alert_uid or "").strip()
+    if not uid:
+        raise ValueError("missing_alert_uid")
+    step = str(step_id or "").strip()
+    if not step:
+        raise ValueError("missing_step_id")
+    state = _get_runbook_state(uid)
+    completed_steps: set[str] = set(state.get("completed") or set())
+    if completed:
+        completed_steps.add(step)
+    else:
+        completed_steps.discard(step)
+    entry = {
+        "completed": completed_steps,
+        "updated_at": datetime.now(timezone.utc).isoformat(),
+        "user_hash": _hash_identifier(user_id),
+        "ts": time.time(),
+    }
+    _RUNBOOK_STATE[uid] = entry
+    return entry
+
+
+def _build_runbook_snapshot(
+    alert_snapshot: Dict[str, Any],
+    *,
+    runbook: Optional[Dict[str, Any]] = None,
+) -> Optional[Dict[str, Any]]:
+    definition = copy.deepcopy(runbook) if runbook else _resolve_runbook_entry(alert_snapshot.get("alert_type"))
+    if not definition:
+        return None
+    steps, actions = _expand_runbook_steps(definition, alert_snapshot)
+    state = _get_runbook_state(alert_snapshot.get("alert_uid") or _build_alert_uid(alert_snapshot))
+    completed_ids = set(state.get("completed") or set())
+    completed_count = 0
+    for step in steps:
+        step_id = step.get("id")
+        is_completed = bool(step_id and step_id in completed_ids)
+        step["completed"] = is_completed
+        if step.get("action"):
+            step["action"] = copy.deepcopy(step["action"])
+        if is_completed:
+            completed_count += 1
+    total_steps = len(steps)
+    progress = {
+        "completed": completed_count,
+        "total": total_steps,
+        "percent": (completed_count / total_steps * 100.0) if total_steps else 0.0,
+    }
+    status = {
+        "completed_steps": sorted(completed_ids),
+        "updated_at": state.get("updated_at"),
+        "updated_by": state.get("user_hash"),
+    }
+    return {
+        "runbook": {
+            "id": definition.get("id"),
+            "title": definition.get("title"),
+            "description": definition.get("description") or "",
+            "steps": steps,
+            "progress": progress,
+        },
+        "actions": actions,
+        "status": status,
+    }
+
+
+def _build_event_context(
+    event_id: str,
+    fallback_metadata: Optional[Dict[str, Any]],
+) -> Optional[Dict[str, Any]]:
+    context = _lookup_replay_event(event_id)
+    if context:
+        return context
+    if fallback_metadata is None:
+        return None
+    normalized_type = _normalize_alert_type(
+        fallback_metadata.get("alert_type") or fallback_metadata.get("type")
+    )
+    if not normalized_type:
+        raise ValueError("missing_alert_type")
+    metadata = copy.deepcopy(fallback_metadata.get("metadata") or {})
+    metadata.setdefault("alert_type", normalized_type)
+    endpoint_hint = fallback_metadata.get("endpoint")
+    if endpoint_hint and "endpoint" not in metadata:
+        metadata["endpoint"] = endpoint_hint
+    source_hint = fallback_metadata.get("source")
+    if source_hint and "source" not in metadata:
+        metadata["source"] = source_hint
+    return {
+        "id": str(event_id),
+        "alert_uid": str(event_id),
+        "type": fallback_metadata.get("type") or "alert",
+        "title": fallback_metadata.get("title") or fallback_metadata.get("summary") or "Alert",
+        "summary": fallback_metadata.get("summary") or "",
+        "timestamp": fallback_metadata.get("timestamp"),
+        "severity": fallback_metadata.get("severity") or "info",
+        "alert_type": normalized_type,
+        "metadata": metadata,
+        "link": fallback_metadata.get("link"),
+    }
+
+
+def fetch_runbook_for_event(
+    *,
+    event_id: str,
+    fallback_metadata: Optional[Dict[str, Any]] = None,
+) -> Optional[Dict[str, Any]]:
+    key = str(event_id or "").strip()
+    if not key:
+        raise ValueError("missing_event_id")
+    context = _build_event_context(key, fallback_metadata)
+    if context is None:
+        return None
+    alert_snapshot = {
+        "alert_uid": context.get("alert_uid"),
+        "name": context.get("title"),
+        "summary": context.get("summary"),
+        "severity": context.get("severity"),
+        "timestamp": context.get("timestamp"),
+        "alert_type": context.get("alert_type"),
+        "metadata": context.get("metadata") or {},
+    }
+    snapshot = _build_runbook_snapshot(alert_snapshot)
+    payload = {
+        "event": context,
+        "runbook": None,
+        "actions": [],
+        "status": {
+            "completed_steps": [],
+            "updated_at": None,
+            "updated_by": None,
+        },
+    }
+    if snapshot:
+        payload["runbook"] = snapshot["runbook"]
+        payload["actions"] = snapshot["actions"]
+        payload["status"] = snapshot["status"]
+    return payload
+
+
+def update_runbook_step_status(
+    *,
+    event_id: str,
+    step_id: str,
+    completed: bool,
+    user_id: Optional[int],
+    fallback_metadata: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    key = str(event_id or "").strip()
+    if not key:
+        raise ValueError("missing_event_id")
+    step = str(step_id or "").strip()
+    if not step:
+        raise ValueError("missing_step_id")
+    context = _build_event_context(key, fallback_metadata)
+    if context is None:
+        raise ValueError("unknown_event")
+    alert_snapshot = {
+        "alert_uid": context.get("alert_uid"),
+        "name": context.get("title"),
+        "summary": context.get("summary"),
+        "severity": context.get("severity"),
+        "timestamp": context.get("timestamp"),
+        "alert_type": context.get("alert_type"),
+        "metadata": context.get("metadata") or {},
+    }
+    runbook = _resolve_runbook_entry(alert_snapshot.get("alert_type"))
+    if not runbook:
+        raise ValueError("runbook_missing")
+    valid_step_ids = {step_def.get("id") for step_def in runbook.get("steps") or []}
+    if step not in valid_step_ids:
+        raise ValueError("invalid_step")
+    _set_runbook_step_state(alert_snapshot.get("alert_uid"), step, completed, user_id)
+    snapshot = _build_runbook_snapshot(alert_snapshot, runbook=runbook)
+    if not snapshot:
+        raise ValueError("runbook_missing")
+    return {
+        "event": context,
+        "runbook": snapshot["runbook"],
+        "actions": snapshot["actions"],
+        "status": snapshot["status"],
+    }
+
+
 def _is_within_window(ts: datetime, start_dt: Optional[datetime], end_dt: Optional[datetime]) -> bool:
     if start_dt and ts < start_dt:
         return False
@@ -1903,6 +2357,12 @@ def fetch_incident_replay(
         else:
             alert_count += 1
         uid = alert.get("alert_uid") or _build_alert_uid(alert)
+        metadata = {
+            "endpoint": alert.get("endpoint"),
+            "alert_type": alert.get("alert_type"),
+            "source": alert.get("source"),
+            "has_runbook": bool(_resolve_runbook_key(alert.get("alert_type"), allow_default=False)),
+        }
         events.append(
             {
                 "id": uid,
@@ -1912,11 +2372,7 @@ def fetch_incident_replay(
                 "title": alert.get("name") or "Alert",
                 "summary": alert.get("summary") or "",
                 "link": _build_focus_link(ts, anchor="history"),
-                "metadata": {
-                    "endpoint": alert.get("endpoint"),
-                    "alert_type": alert.get("alert_type"),
-                    "source": alert.get("source"),
-                },
+                "metadata": metadata,
             }
         )
 
@@ -1970,6 +2426,7 @@ def fetch_incident_replay(
         )
 
     events.sort(key=lambda e: e.get("timestamp") or "")
+    _seed_replay_event_cache(events)
     payload = {
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "window": {

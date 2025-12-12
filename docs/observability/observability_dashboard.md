@@ -22,7 +22,7 @@
 - **טבלת נקודות קצה איטיות** – Top N (ברירת מחדל 5) עם `avg_duration`, `max_duration`, `count` ונתיב/שיטה.
 - **היסטוריית התראות** – טבלה עם עד 200 רשומות אחרונות+פג'ינציה. כל שורה כוללת timestamp, שם, חומרה, סיכום ומטא־דאטה שנשלף מה־payload.
 - **Incident Replay** – כפתור ייעודי שמוביל למסך `/admin/observability/replay` עם ציר זמן משולב (התראות, דיפלוימנטים ופעולות ChatOps שנרשמו דרך Quick Fix). אפשר לשתף טווח ספציפי באמצעות פרמטרים (`timerange`, `start`, `end`, `focus_ts`).
-- **Quick Fix** – עמודת פעולות סמוך לכל התראה שמציעה פעולות נפוצות (לינקים ל‑Playbook, העתקת פקודות ChatOps, קפיצה לציר הזמן). המיפוי מגיע מהקובץ `config/alert_quick_fixes.json` ונטען דינמית.
+- **Quick Fix** – עמודת פעולות סמוך לכל התראה שמציעה פעולות נפוצות (לינקים ל‑Playbook, העתקת פקודות ChatOps, קפיצה לציר הזמן). המיפוי נגזר מ־`config/observability_runbooks.yml` (ובמקרה הצורך נופל חזרה ל־`config/alert_quick_fixes.json` לצורך תאימות לאחור) ונטען דינמית.
 - **כפתור "הסבר AI"** – אייקון 🤖 חדש שמציג הסבר אינליין (שורש תקלה, פעולות מוצעות, אותות חריגים) ומנצל Cache של 10 דקות לכל `alert_uid`.
 
 ### יכולות סינון
@@ -164,6 +164,23 @@ curl -H 'Accept: application/json' \
 - **מטרה:** ציר זמן מאוחד (התראות, דיפלוימנטים ופעולות ChatOps/Quick Fix) לטובת Incident Replay.
 - **פרמטרים:** זהים לפילטרי הזמן (`timerange`, `start_time`, `end_time`) + `limit` (ברירת מחדל 200).
 - **תשובה:** `{ "ok": true, "events": [...], "counts": {"alerts": n, "deployments": m, "chatops": k} }`.
+- `metadata.has_runbook` – בשדות Alert מסמן אם יש Runbook ייעודי (מעבר ל־fallback הכללי) כדי שה-UI ידע להציג אינדיקציה.
+
+### Runbooks דינמיים + Quick Fix
+
+- **קובץ YAML חדש:** `config/observability_runbooks.yml`
+  - כולל `runbooks.<alert_type>.title/description/steps` עם `aliases` אופציונליים.
+  - כל צעד מחזיק `id`, תיאור ו־`action` זהה למבנה Quick Fix הישן (`type`, `href`, `payload`, `safety`).
+  - ניתן להגדיר Runbook כ־`default: true` שישמש fallback לכל alert_type שאין לו מיפוי ייעודי.
+- **Endpoints:**
+  - `GET /api/observability/runbook/<event_id>` – מחזיר את ה־Runbook, סטטוס הצעדים ו־Quick Fixים דינמיים עבור האירוע שבחר המשתמש בציר הזמן.
+  - `POST /api/observability/runbook/<event_id>/status` – עדכון סטטוס לצעד יחיד (`step_id`, `completed`). נשמר בזיכרון עם TTL (ברירת מחדל 4 שעות – `OBS_RUNBOOK_STATE_TTL`).
+- **תנהגות Quick Fix:** `get_quick_fix_actions` קודם מנסה להרכיב פעולות מה-Runbook ולאחר מכן נופל ל־`config/alert_quick_fixes.json` לטובת תאימות.
+- **טלמטריה:** כפתורי Runbook ממשיכים לדווח ל־`/api/observability/quickfix/track`, כך שהציר יכול להציג פעולות ChatOps שנשלחו דרך Quick Fix.
+- **ENV חדשים:**
+  - `OBSERVABILITY_RUNBOOK_PATH` – נתיב חלופי לקובץ ה-YAML.
+  - `OBS_RUNBOOK_STATE_TTL` – משך שמירת הסטטוס (ברירת מחדל 14400 שניות).
+  - `OBS_RUNBOOK_EVENT_TTL` – משך שמירת האירועים במטמון ה-Replay (ברירת מחדל 900 שניות).
 
 ### `GET /api/observability/export`
 
@@ -175,7 +192,7 @@ curl -H 'Accept: application/json' \
 
 - **מטרה:** טלמטריה של Quick Fix (משמשת גם לציר הזמן וגם ללוגים).
 - **קלט:** `{ "action_id": "...", "action_label": "...", "alert": {"alert_uid": "...", "alert_type": "...", "timestamp": "..."} }`.
-- **הערה:** הנתיב מחייב Admin ונסמך על המיפוי ב-`config/alert_quick_fixes.json`.
+- **הערה:** הנתיב מחייב Admin; הפעולות מגיעות הן מקובץ ה-Runbooks (`observability_runbooks.yml`) והן מה־fallback ההיסטורי (`alert_quick_fixes.json`).
 
 ### `POST /api/observability/alerts/ai_explain`
 
