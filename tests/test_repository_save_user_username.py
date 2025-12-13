@@ -59,6 +59,6 @@ def test_repository_save_user_sets_username_when_present():
 
     assert repo.save_user(7, "alice") is True
     _f, upd, _u = mgr.db.users.calls[-1]
-    assert (upd.get("$setOnInsert") or {}).get("username") == "alice"
+    assert "username" not in (upd.get("$setOnInsert") or {})
     assert (upd.get("$set") or {}).get("username") == "alice"
 
