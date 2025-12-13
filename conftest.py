@@ -33,6 +33,23 @@ def pytest_addoption(parser: pytest.Parser) -> None:
     )
 
 
+def _is_ui_validation_test_path(path_str: str) -> bool:
+    s = path_str.replace("\\", "/")
+    return "tests/ui_validation/tests/" in s or s.endswith("tests/ui_validation/tests")
+
+
+def _ui_validation_enabled(config: pytest.Config) -> bool:
+    # הפעלה מפורשת
+    if bool(config.getoption("--run-ui-validation")):
+        return True
+    if os.getenv("UI_TEST_RUN", "").lower() in ("1", "true", "yes"):
+        return True
+
+    # הפעלה דרך נתיב CLI (הדרך המומלצת): pytest ... tests/ui_validation/
+    args = [str(a).replace("\\", "/") for a in (getattr(config, "args", None) or [])]
+    return any(a.startswith("tests/ui_validation") or "/tests/ui_validation" in a for a in args)
+
+
 def pytest_ignore_collect(path, config: pytest.Config) -> bool:  # type: ignore[override]
     """מדלג על בדיקות UI validation כברירת מחדל.
 
@@ -45,20 +62,10 @@ def pytest_ignore_collect(path, config: pytest.Config) -> bool:  # type: ignore[
     - או עם הדגל: pytest --run-ui-validation tests/ui_validation/
     """
     path_str = str(path)
-    is_ui_validation_tests = (
-        "/tests/ui_validation/tests/" in path_str
-        or path_str.endswith("/tests/ui_validation/tests")
-    )
-    if not is_ui_validation_tests:
+    if not _is_ui_validation_test_path(path_str):
         return False
 
-    markexpr = (getattr(config.option, "markexpr", "") or "").lower()
-    selected_by_marker = ("smoke" in markexpr) or ("ui_full" in markexpr)
-    explicitly_enabled = bool(config.getoption("--run-ui-validation")) or (
-        os.getenv("UI_TEST_RUN", "").lower() in ("1", "true", "yes")
-    )
-
-    return not (selected_by_marker or explicitly_enabled)
+    return not _ui_validation_enabled(config)
 
 
 def _compute_percentile(values: List[float], percentile: float) -> Optional[float]:
@@ -114,6 +121,16 @@ def pytest_collection_modifyitems(config: pytest.Config, items: List[pytest.Item
         for item in items:
             if "performance" in item.keywords and "heavy" in item.keywords:
                 item.add_marker(skip_heavy)
+
+    # UI validation tests: לא חוסמים Unit Tests כברירת מחדל
+    if not _ui_validation_enabled(config):
+        skip_ui = pytest.mark.skip(
+            reason="UI validation disabled by default (run with tests/ui_validation/ or --run-ui-validation)"
+        )
+        for item in items:
+            nodeid = str(getattr(item, "nodeid", "")).replace("\\", "/")
+            if nodeid.startswith("tests/ui_validation/tests/"):
+                item.add_marker(skip_ui)
 
     # הפיקסצ'ר שמנקה את http_async רלוונטי רק לטסטים אסינכרוניים
     for item in items:
