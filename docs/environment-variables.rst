@@ -1351,6 +1351,18 @@
      - ``false``
      - ``FF_FORCE_UI_THEME=true``
      - WebApp
+   * - ``FFV_DISABLED_UI_THEMES``
+     - רשימת ערכות נושא מושבתות (CSV). ערכות מושבתות לא יופיעו בתפריט ההגדרות וגם ייחסמו בצד שרת (fallback ל-``classic``). לדוגמה כדי לכבות "יער": ``FFV_DISABLED_UI_THEMES=forest``.
+     - לא
+     - "" (ריק)
+     - ``FFV_DISABLED_UI_THEMES=forest``
+     - WebApp
+   * - ``FF_DISABLE_FOREST_THEME``
+     - קיצור דרך להשבתת ערכת "יער" בלבד (``true``/``false``). שקול להשתמש ב-``FFV_DISABLED_UI_THEMES`` אם תרצה לכבות כמה ערכות.
+     - לא
+     - ``false``
+     - ``FF_DISABLE_FOREST_THEME=true``
+     - WebApp
    * - ``BACKUPS_STORAGE``
      - בחירת מנגנון גיבוי: ``mongo`` (GridFS) או ``fs`` (מערכת קבצים מקומית).
      - לא
