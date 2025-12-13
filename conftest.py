@@ -21,6 +21,45 @@ def pytest_addoption(parser: pytest.Parser) -> None:
         help="אחוזון לסימון heavy אוטומטי (ברירת מחדל: 90)",
     )
 
+    ui_group = parser.getgroup("ui_validation")
+    ui_group.addoption(
+        "--run-ui-validation",
+        action="store_true",
+        default=False,
+        help=(
+            "מריץ את בדיקות ה-UI תחת tests/ui_validation/. "
+            "ברירת מחדל: מדלג עליהן כדי לא לחסום Unit Tests רגילים."
+        ),
+    )
+
+
+def pytest_ignore_collect(path, config: pytest.Config) -> bool:  # type: ignore[override]
+    """מדלג על בדיקות UI validation כברירת מחדל.
+
+    הסיבה: ה-Unit Tests ב-CI רצים בלי בחירת markers (pytest -v),
+    ובדיקות UI דורשות סביבת Playwright/URL ולעיתים גם browser install.
+
+    כדי להריץ את הסוויטה:
+    - Smoke: pytest -m smoke -n 4 tests/ui_validation/
+    - Full: pytest -m "ui_full and not flaky" -n 4 tests/ui_validation/
+    - או עם הדגל: pytest --run-ui-validation tests/ui_validation/
+    """
+    path_str = str(path)
+    is_ui_validation_tests = (
+        "/tests/ui_validation/tests/" in path_str
+        or path_str.endswith("/tests/ui_validation/tests")
+    )
+    if not is_ui_validation_tests:
+        return False
+
+    markexpr = (getattr(config.option, "markexpr", "") or "").lower()
+    selected_by_marker = ("smoke" in markexpr) or ("ui_full" in markexpr)
+    explicitly_enabled = bool(config.getoption("--run-ui-validation")) or (
+        os.getenv("UI_TEST_RUN", "").lower() in ("1", "true", "yes")
+    )
+
+    return not (selected_by_marker or explicitly_enabled)
+
 
 def _compute_percentile(values: List[float], percentile: float) -> Optional[float]:
     if not values:
