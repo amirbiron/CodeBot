@@ -933,3 +933,52 @@ def test_push():
         except Exception:
             pass
         return jsonify({"ok": False, "error": "internal_error"}), 500
+
+
+@push_bp.route("/sw-report", methods=["POST"])
+def sw_report():
+    """Receive diagnostic reports from Service Worker.
+    
+    This endpoint allows the SW to "phone home" when it receives a push,
+    so we can see in server logs whether the SW is getting the messages.
+    No auth required - we want this to work even if session expired.
+    """
+    try:
+        payload = request.get_json(silent=True) or {}
+        event_type = str(payload.get("event") or "unknown")
+        status = str(payload.get("status") or "unknown")
+        error_msg = str(payload.get("error") or "")
+        raw_data = str(payload.get("raw_data") or "")[:500]  # Truncate for safety
+        timestamp = str(payload.get("timestamp") or "")
+        
+        # Log with structlog if available, else standard logging
+        try:
+            from observability import emit_event
+            emit_event(
+                "sw_push_report",
+                severity="info",
+                event=event_type,
+                status=status,
+                error=error_msg,
+                raw_data_preview=raw_data[:100] if raw_data else "",
+                client_timestamp=timestamp,
+            )
+        except Exception:
+            try:
+                import structlog
+                log = structlog.get_logger()
+                log.info(
+                    "sw_push_report",
+                    event=event_type,
+                    status=status,
+                    error=error_msg,
+                    raw_data_preview=raw_data[:100] if raw_data else "",
+                    client_timestamp=timestamp,
+                )
+            except Exception:
+                import logging
+                logging.info(f"[SW-REPORT] event={event_type} status={status} error={error_msg}")
+        
+        return jsonify({"ok": True}), 200
+    except Exception:
+        return jsonify({"ok": True}), 200  # Always return OK to not break SW
