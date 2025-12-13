@@ -1303,6 +1303,66 @@
      - ברירת מחדל
      - דוגמה
      - רכיב
+   * - ``FLAGSMITH_ENV_KEY`` / ``FLAGSMITH_ENVIRONMENT_KEY``
+     - מפתח סביבה של Flagsmith. אם ריק, שכבת Feature Flags כבויה והמערכת מתנהגת כרגיל (אין תלות חיצונית).
+     - לא
+     - "" (ריק)
+     - ``ser.***************``
+     - Bot/WebApp
+   * - ``FLAGSMITH_API_URL``
+     - כתובת API עבור Flagsmith Self‑Hosted (למשל ``https://flags.example.com/api/v1/``). אם ריק – משתמשים בברירת המחדל של ה-SDK.
+     - לא
+     - "" (ריק)
+     - ``https://flags.example.com/api/v1/``
+     - Bot/WebApp
+   * - ``FLAGSMITH_FAIL_OPEN``
+     - כאשר ``true`` ובמקרה של תקלה בשיחה ל-Flagsmith (רשת/שגיאת SDK), נחזיר "דלוק" עבור ``is_enabled`` במקום לכבות. מומלץ להשאיר ``false`` ולהשתמש בדגלים רק לפיצ'רים לא קריטיים.
+     - לא
+     - ``false``
+     - ``true``
+     - Bot/WebApp
+   * - ``FLAGSMITH_IDENTITY_CACHE_TTL_SECONDS``
+     - TTL (בשניות) לקאש של identity flags לפי ``user_id`` כדי לצמצם קריאות רשת. ``0`` מנטרל קאש.
+     - לא
+     - ``60``
+     - ``120``
+     - Bot/WebApp
+   * - ``FF_<FLAG_NAME>``
+     - דגל פיצ'ר מקומי ללא תלות חיצונית. למשל ``FF_NEW_DASHBOARD=true``. שם הדגל בקוד הוא ``NEW_DASHBOARD`` (המערכת ממירה לאותיות גדולות ומחליפה תווים לא חוקיים ב-``_``).
+     - לא
+     - כבוי (אם לא מוגדר)
+     - ``FF_NEW_DASHBOARD=true``
+     - Bot/WebApp
+   * - ``FFV_<FLAG_NAME>``
+     - ערך פיצ'ר מקומי (מחרוזת) ללא תלות חיצונית. למשל ``FFV_FREE_TRIAL_LENGTH=14``.
+     - לא
+     - ריק (אם לא מוגדר)
+     - ``FFV_FREE_TRIAL_LENGTH=14``
+     - Bot/WebApp
+   * - ``FFV_UI_THEME``
+     - ברירת מחדל ל"ערכת נושא" של ה-WebApp, בלי התקנות ובלי Flagsmith. ערכים אפשריים: ``classic``, ``ocean``, ``forest`` (יער), ``dark``, ``dim``, ``nebula``, ``rose-pine-dawn``, ``high-contrast``.
+     - לא
+     - ``classic``
+     - ``FFV_UI_THEME=forest``
+     - WebApp
+   * - ``FF_FORCE_UI_THEME``
+     - אם ``true`` מכריח את ערך ``FFV_UI_THEME`` גם אם למשתמש יש cookie/העדפה ב-DB (שימושי ל-rollout גלובלי מהיר).
+     - לא
+     - ``false``
+     - ``FF_FORCE_UI_THEME=true``
+     - WebApp
+   * - ``FFV_DISABLED_UI_THEMES``
+     - רשימת ערכות נושא מושבתות (CSV). ערכות מושבתות לא יופיעו בתפריט ההגדרות וגם ייחסמו בצד שרת (fallback ל-``classic``). לדוגמה כדי לכבות "יער": ``FFV_DISABLED_UI_THEMES=forest``.
+     - לא
+     - "" (ריק)
+     - ``FFV_DISABLED_UI_THEMES=forest``
+     - WebApp
+   * - ``FF_DISABLE_FOREST_THEME``
+     - קיצור דרך להשבתת ערכת "יער" בלבד (``true``/``false``). שקול להשתמש ב-``FFV_DISABLED_UI_THEMES`` אם תרצה לכבות כמה ערכות.
+     - לא
+     - ``false``
+     - ``FF_DISABLE_FOREST_THEME=true``
+     - WebApp
    * - ``BACKUPS_STORAGE``
      - בחירת מנגנון גיבוי: ``mongo`` (GridFS) או ``fs`` (מערכת קבצים מקומית).
      - לא

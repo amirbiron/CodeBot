@@ -1093,21 +1093,23 @@ def inject_globals():
         pass
 
     # ערכת נושא
-    theme = 'classic'
+    theme = _get_env_default_ui_theme() or 'classic'
+    forced_theme = _should_force_env_ui_theme()
     try:
-        cookie_theme = (request.cookies.get('ui_theme') or '').strip().lower()
-        if cookie_theme:
-            theme = cookie_theme
-        if user_id and user_doc:
-            try:
-                t = ((user_doc.get('ui_prefs') or {}).get('theme') or '').strip().lower()
-                if t:
-                    theme = t
-            except Exception:
-                pass
+        if not forced_theme:
+            cookie_theme = (request.cookies.get('ui_theme') or '').strip().lower()
+            if cookie_theme:
+                theme = cookie_theme
+            if user_id and user_doc:
+                try:
+                    t = ((user_doc.get('ui_prefs') or {}).get('theme') or '').strip().lower()
+                    if t:
+                        theme = t
+                except Exception:
+                    pass
     except Exception:
         pass
-    if theme not in ALLOWED_UI_THEMES:
+    if not is_ui_theme_allowed(theme):
         theme = 'classic'
 
     show_welcome_modal = False
@@ -1152,6 +1154,7 @@ def inject_globals():
         'bot_username': BOT_USERNAME_CLEAN,
         'ui_font_scale': font_scale,
         'ui_theme': theme,
+        'ui_theme_options': get_ui_theme_options(),
         # Feature flags
         'announcement_enabled': WEEKLY_TIP_ENABLED,
         'weekly_tip_enabled': WEEKLY_TIP_ENABLED,
@@ -1185,17 +1188,104 @@ ALLOWED_UI_THEMES = {
     'nebula',
 }
 
+_UI_THEME_ORDER = (
+    'classic',
+    'ocean',
+    'forest',
+    'rose-pine-dawn',
+    'dark',
+    'dim',
+    'nebula',
+    'high-contrast',
+)
+
+try:
+    # Optional: shared feature flags service (supports ENV-only mode with no installs)
+    from services.feature_flags_service import feature_flags as _feature_flags  # type: ignore
+except Exception:  # pragma: no cover
+    _feature_flags = None  # type: ignore
+
+
+def _disabled_ui_themes() -> set[str]:
+    """רשימת ערכות נושא מושבתות (מוסתרות ונחסמות) דרך ENV.
+
+    - FFV_DISABLED_UI_THEMES: CSV, למשל "forest,nebula"
+    - FF_DISABLE_FOREST_THEME=true: קיצור דרך להשבתת forest
+    """
+    disabled: set[str] = set()
+    try:
+        raw = str(os.getenv("FFV_DISABLED_UI_THEMES") or "").strip()
+        if raw:
+            parts = [p.strip().lower() for p in raw.split(",")]
+            disabled.update({p for p in parts if p})
+    except Exception:
+        pass
+    try:
+        if str(os.getenv("FF_DISABLE_FOREST_THEME") or "").strip().lower() in {"1", "true", "yes", "y", "on", "enabled"}:
+            disabled.add("forest")
+    except Exception:
+        pass
+    # Keep only themes we actually know about
+    return {t for t in disabled if t in ALLOWED_UI_THEMES}
+
+
+def is_ui_theme_allowed(theme: str) -> bool:
+    t = (theme or "").strip().lower()
+    if t not in ALLOWED_UI_THEMES:
+        return False
+    return t not in _disabled_ui_themes()
+
+
+def get_ui_theme_options() -> list[str]:
+    disabled = _disabled_ui_themes()
+    # preserve stable UX order
+    return [t for t in _UI_THEME_ORDER if t in ALLOWED_UI_THEMES and t not in disabled]
+
+
+def _get_env_default_ui_theme() -> str | None:
+    """ברירת מחדל לערכת נושא דרך ENV בלבד.
+
+    שימוש מומלץ (ללא התקנות):
+    - FFV_UI_THEME=forest  (יער)
+    - FFV_UI_THEME=ocean   (אוקיינוס)
+    - FFV_UI_THEME=classic (קלאסי)
+    """
+    try:
+        if _feature_flags is not None:
+            v = _feature_flags.get_value("UI_THEME", default=None)  # type: ignore[attr-defined]
+        else:
+            v = os.getenv("FFV_UI_THEME") or None
+        t = str(v or "").strip().lower()
+        if t and is_ui_theme_allowed(t):
+            return t
+    except Exception:
+        return None
+    return None
+
+
+def _should_force_env_ui_theme() -> bool:
+    """אם true – מכריח ערכת נושא גלובלית ומדלג על cookie/DB."""
+    try:
+        if _feature_flags is not None:
+            return bool(_feature_flags.is_enabled("FORCE_UI_THEME"))  # type: ignore[attr-defined]
+        return str(os.getenv("FF_FORCE_UI_THEME") or "").strip().lower() in {"1", "true", "yes", "y", "on", "enabled"}
+    except Exception:
+        return False
+
+
 def get_current_theme() -> str:
     """קובע את ערכת הנושא הנוכחית לפי cookie ו/או העדפות משתמש (DB).
     נופל חזרה ל-classic אם הערך לא חוקי.
     """
-    t = 'classic'
+    t = _get_env_default_ui_theme() or 'classic'
+    forced = _should_force_env_ui_theme()
     try:
-        cookie_theme = (request.cookies.get('ui_theme') or '').strip().lower()
-        if cookie_theme:
-            t = cookie_theme
+        if not forced:
+            cookie_theme = (request.cookies.get('ui_theme') or '').strip().lower()
+            if cookie_theme:
+                t = cookie_theme
         uid = session.get('user_id')
-        if uid:
+        if uid and not forced:
             try:
                 dbref = get_db()
                 udoc = dbref.users.find_one({'user_id': uid}) or {}
@@ -1206,7 +1296,7 @@ def get_current_theme() -> str:
                 pass
     except Exception:
         pass
-    if t not in ALLOWED_UI_THEMES:
+    if not is_ui_theme_allowed(t):
         t = 'classic'
     return t
 
@@ -9374,7 +9464,7 @@ def api_ui_prefs():
         # עדכון ערכת צבעים במידת הצורך
         if 'theme' in payload:
             theme = (payload.get('theme') or '').strip().lower()
-            if theme in ALLOWED_UI_THEMES:
+            if is_ui_theme_allowed(theme):
                 update_fields['ui_prefs.theme'] = theme
                 resp_payload['theme'] = theme
                 theme_cookie_value = theme
