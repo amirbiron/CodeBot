@@ -10,15 +10,37 @@ self.addEventListener('activate', (event) => {
   })());
 });
 
+// Helper: report SW events back to server for debugging (no auth needed)
+function reportToServer(eventType, status, extra = {}) {
+  try {
+    const body = JSON.stringify({
+      event: eventType,
+      status: status,
+      timestamp: new Date().toISOString(),
+      ...extra
+    });
+    // Use fetch with keepalive to ensure it completes even if SW terminates
+    fetch('/api/push/sw-report', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: body,
+      keepalive: true
+    }).catch(() => {}); // Ignore errors - this is best-effort
+  } catch (_) {}
+}
+
 self.addEventListener('push', (event) => {
   // Debug: log that we received the push event
   console.log('[SW] Push event received at:', new Date().toISOString());
   
   const handlePush = async () => {
+    let rawData = null;
     try {
+      // Report: we received a push event
+      reportToServer('push_received', 'started');
+      
       // Parse payload with detailed logging
       let json = {};
-      let rawData = null;
       
       if (event.data) {
         try {
@@ -26,12 +48,15 @@ self.addEventListener('push', (event) => {
           console.log('[SW] Raw push data:', rawData);
           json = JSON.parse(rawData);
           console.log('[SW] Parsed JSON:', JSON.stringify(json));
+          reportToServer('push_parsed', 'success', { raw_data: rawData });
         } catch (parseErr) {
           console.error('[SW] JSON parse error:', parseErr, 'raw:', rawData);
+          reportToServer('push_parsed', 'error', { error: String(parseErr), raw_data: rawData });
           // Still continue with empty json - fallback title will be used
         }
       } else {
         console.log('[SW] No event.data present');
+        reportToServer('push_parsed', 'no_data');
       }
       
       // Robust extraction of title/body from various payload structures
@@ -70,15 +95,18 @@ self.addEventListener('push', (event) => {
       // Verify registration exists before showing notification
       if (!self.registration) {
         console.error('[SW] self.registration is undefined!');
+        reportToServer('show_notification', 'error', { error: 'no_registration' });
         throw new Error('No service worker registration');
       }
       
       await self.registration.showNotification(title, options);
       console.log('[SW] showNotification succeeded');
+      reportToServer('show_notification', 'success', { title: title });
       
     } catch (err) {
       // CRITICAL: Never let the push handler fail silently!
       console.error('[SW] Push handler error:', err);
+      reportToServer('push_handler', 'error', { error: String(err), raw_data: rawData });
       
       // Attempt to show a fallback notification so user knows something happened
       try {
@@ -89,9 +117,11 @@ self.addEventListener('push', (event) => {
             tag: 'codekeeper-fallback-' + Date.now()
           });
           console.log('[SW] Fallback notification shown');
+          reportToServer('fallback_notification', 'success');
         }
       } catch (fallbackErr) {
         console.error('[SW] Even fallback notification failed:', fallbackErr);
+        reportToServer('fallback_notification', 'error', { error: String(fallbackErr) });
       }
     }
   };
