@@ -1339,6 +1339,18 @@
      - ריק (אם לא מוגדר)
      - ``FFV_FREE_TRIAL_LENGTH=14``
      - Bot/WebApp
+   * - ``FFV_UI_THEME``
+     - ברירת מחדל ל"ערכת נושא" של ה-WebApp, בלי התקנות ובלי Flagsmith. ערכים אפשריים: ``classic``, ``ocean``, ``forest`` (יער), ``dark``, ``dim``, ``nebula``, ``rose-pine-dawn``, ``high-contrast``.
+     - לא
+     - ``classic``
+     - ``FFV_UI_THEME=forest``
+     - WebApp
+   * - ``FF_FORCE_UI_THEME``
+     - אם ``true`` מכריח את ערך ``FFV_UI_THEME`` גם אם למשתמש יש cookie/העדפה ב-DB (שימושי ל-rollout גלובלי מהיר).
+     - לא
+     - ``false``
+     - ``FF_FORCE_UI_THEME=true``
+     - WebApp
    * - ``BACKUPS_STORAGE``
      - בחירת מנגנון גיבוי: ``mongo`` (GridFS) או ``fs`` (מערכת קבצים מקומית).
      - לא

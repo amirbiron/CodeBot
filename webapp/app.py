@@ -1093,18 +1093,20 @@ def inject_globals():
         pass
 
     # ערכת נושא
-    theme = 'classic'
+    theme = _get_env_default_ui_theme() or 'classic'
+    forced_theme = _should_force_env_ui_theme()
     try:
-        cookie_theme = (request.cookies.get('ui_theme') or '').strip().lower()
-        if cookie_theme:
-            theme = cookie_theme
-        if user_id and user_doc:
-            try:
-                t = ((user_doc.get('ui_prefs') or {}).get('theme') or '').strip().lower()
-                if t:
-                    theme = t
-            except Exception:
-                pass
+        if not forced_theme:
+            cookie_theme = (request.cookies.get('ui_theme') or '').strip().lower()
+            if cookie_theme:
+                theme = cookie_theme
+            if user_id and user_doc:
+                try:
+                    t = ((user_doc.get('ui_prefs') or {}).get('theme') or '').strip().lower()
+                    if t:
+                        theme = t
+                except Exception:
+                    pass
     except Exception:
         pass
     if theme not in ALLOWED_UI_THEMES:
@@ -1185,17 +1187,57 @@ ALLOWED_UI_THEMES = {
     'nebula',
 }
 
+try:
+    # Optional: shared feature flags service (supports ENV-only mode with no installs)
+    from services.feature_flags_service import feature_flags as _feature_flags  # type: ignore
+except Exception:  # pragma: no cover
+    _feature_flags = None  # type: ignore
+
+
+def _get_env_default_ui_theme() -> str | None:
+    """ברירת מחדל לערכת נושא דרך ENV בלבד.
+
+    שימוש מומלץ (ללא התקנות):
+    - FFV_UI_THEME=forest  (יער)
+    - FFV_UI_THEME=ocean   (אוקיינוס)
+    - FFV_UI_THEME=classic (קלאסי)
+    """
+    try:
+        if _feature_flags is not None:
+            v = _feature_flags.get_value("UI_THEME", default=None)  # type: ignore[attr-defined]
+        else:
+            v = os.getenv("FFV_UI_THEME") or None
+        t = str(v or "").strip().lower()
+        if t and t in ALLOWED_UI_THEMES:
+            return t
+    except Exception:
+        return None
+    return None
+
+
+def _should_force_env_ui_theme() -> bool:
+    """אם true – מכריח ערכת נושא גלובלית ומדלג על cookie/DB."""
+    try:
+        if _feature_flags is not None:
+            return bool(_feature_flags.is_enabled("FORCE_UI_THEME"))  # type: ignore[attr-defined]
+        return str(os.getenv("FF_FORCE_UI_THEME") or "").strip().lower() in {"1", "true", "yes", "y", "on", "enabled"}
+    except Exception:
+        return False
+
+
 def get_current_theme() -> str:
     """קובע את ערכת הנושא הנוכחית לפי cookie ו/או העדפות משתמש (DB).
     נופל חזרה ל-classic אם הערך לא חוקי.
     """
-    t = 'classic'
+    t = _get_env_default_ui_theme() or 'classic'
+    forced = _should_force_env_ui_theme()
     try:
-        cookie_theme = (request.cookies.get('ui_theme') or '').strip().lower()
-        if cookie_theme:
-            t = cookie_theme
+        if not forced:
+            cookie_theme = (request.cookies.get('ui_theme') or '').strip().lower()
+            if cookie_theme:
+                t = cookie_theme
         uid = session.get('user_id')
-        if uid:
+        if uid and not forced:
             try:
                 dbref = get_db()
                 udoc = dbref.users.find_one({'user_id': uid}) or {}
