@@ -112,3 +112,6 @@ typer==0.20.0
 
 # Resilience utilities
 tenacity==9.1.2
+
+# Feature Flags (optional; used when FLAGSMITH_ENV_KEY is set)
+flagsmith>=3.0,<4

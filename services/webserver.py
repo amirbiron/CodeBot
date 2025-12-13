@@ -74,6 +74,10 @@ except Exception:  # pragma: no cover
         return None
 from html import escape as html_escape
 from services import ai_explain_service
+from services.feature_flags_service import feature_flags as _feature_flags
+
+# aiohttp recommends using AppKey for app["..."] keys.
+FEATURE_FLAGS_KEY = web.AppKey("feature_flags")
 
 # הערה: לא נייבא את code_sharing כ-reference קבוע כדי לאפשר monkeypatch דינמי בטסטים.
 # במקום זאת נפתור את ה-service בזמן ריצה בתוך ה-handler.
@@ -424,6 +428,12 @@ def create_app() -> web.Application:
         return response
 
     app = web.Application(middlewares=[_request_id_mw])
+    # Feature flags (Flagsmith) – best-effort, לא חובה.
+    # שימוש: request.app[FEATURE_FLAGS_KEY].is_enabled("FLAG", user_id="123")
+    try:
+        app[FEATURE_FLAGS_KEY] = _feature_flags
+    except Exception:
+        pass
 
     async def health(request: web.Request) -> web.Response:
         return web.json_response({"status": "ok"})

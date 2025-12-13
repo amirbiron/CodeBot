@@ -1303,6 +1303,30 @@
      - ברירת מחדל
      - דוגמה
      - רכיב
+   * - ``FLAGSMITH_ENV_KEY`` / ``FLAGSMITH_ENVIRONMENT_KEY``
+     - מפתח סביבה של Flagsmith. אם ריק, שכבת Feature Flags כבויה והמערכת מתנהגת כרגיל (אין תלות חיצונית).
+     - לא
+     - "" (ריק)
+     - ``ser.***************``
+     - Bot/WebApp
+   * - ``FLAGSMITH_API_URL``
+     - כתובת API עבור Flagsmith Self‑Hosted (למשל ``https://flags.example.com/api/v1/``). אם ריק – משתמשים בברירת המחדל של ה-SDK.
+     - לא
+     - "" (ריק)
+     - ``https://flags.example.com/api/v1/``
+     - Bot/WebApp
+   * - ``FLAGSMITH_FAIL_OPEN``
+     - כאשר ``true`` ובמקרה של תקלה בשיחה ל-Flagsmith (רשת/שגיאת SDK), נחזיר "דלוק" עבור ``is_enabled`` במקום לכבות. מומלץ להשאיר ``false`` ולהשתמש בדגלים רק לפיצ'רים לא קריטיים.
+     - לא
+     - ``false``
+     - ``true``
+     - Bot/WebApp
+   * - ``FLAGSMITH_IDENTITY_CACHE_TTL_SECONDS``
+     - TTL (בשניות) לקאש של identity flags לפי ``user_id`` כדי לצמצם קריאות רשת. ``0`` מנטרל קאש.
+     - לא
+     - ``60``
+     - ``120``
+     - Bot/WebApp
    * - ``BACKUPS_STORAGE``
      - בחירת מנגנון גיבוי: ``mongo`` (GridFS) או ``fs`` (מערכת קבצים מקומית).
      - לא
