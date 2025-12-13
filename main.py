@@ -4306,6 +4306,51 @@ async def setup_bot_data(application: Application) -> None:  # noqa: D401
     except Exception:
         pass
 
+    # --- Background job: Sentry polling (fallback when webhooks are unavailable) ---
+    try:
+        from services.sentry_polling import SentryPoller, SentryPollerConfig  # type: ignore
+
+        poller_cfg = SentryPoller.from_env()
+        poller = SentryPoller(poller_cfg)
+
+        async def _sentry_poll_job(_context: ContextTypes.DEFAULT_TYPE):  # noqa: ARG001
+            try:
+                res = await poller.tick()
+                try:
+                    from observability import emit_event as _emit  # type: ignore
+                except Exception:  # pragma: no cover
+                    _emit = lambda *a, **k: None
+                if isinstance(res, dict) and res.get("enabled"):
+                    _emit(
+                        "sentry_poll_tick",
+                        severity="info",
+                        polled=int(res.get("polled", 0) or 0),
+                        emitted=int(res.get("emitted", 0) or 0),
+                        configured=bool(res.get("configured", True)),
+                    )
+            except Exception:
+                try:
+                    from observability import emit_event as _emit  # type: ignore
+                except Exception:  # pragma: no cover
+                    _emit = lambda *a, **k: None
+                _emit("sentry_poll_error", severity="anomaly", handled=True)
+
+        try:
+            if bool(getattr(poller_cfg, "enabled", False)):
+                interval_secs = int(getattr(poller_cfg, "interval_seconds", 300) or 300)
+                first_secs = int(os.getenv("SENTRY_POLL_FIRST_SECS", "20") or 20)
+                application.job_queue.run_repeating(
+                    _sentry_poll_job,
+                    interval=max(30, interval_secs),
+                    first=max(0, first_secs),
+                    name="sentry_poll",
+                )
+        except Exception:
+            # Fail-open: לא נשבור startup אם JobQueue לא זמין/מוגבל
+            pass
+    except Exception:
+        pass
+
 # --- Background job: Cache warming based on recent usage (lightweight) ---
     try:
         async def _cache_warming_job(context: ContextTypes.DEFAULT_TYPE):  # noqa: ARG001

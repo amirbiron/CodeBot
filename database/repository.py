@@ -1631,21 +1631,29 @@ class Repository:
             emit_event("db_get_selected_repo_error", severity="error", error=str(e))
             return None
 
-    def save_user(self, user_id: int, username: str = None) -> bool:
+    def save_user(self, user_id: int, username: Optional[str] = None) -> bool:
         try:
             users_collection = self.manager.db.users
             now_utc = datetime.now(timezone.utc)
+            username_s = (username or "").strip()
+            if username_s:
+                username_s = username_s[:64]
+            else:
+                username_s = ""
+            set_on_insert = {
+                "user_id": user_id,
+                "created_at": now_utc,
+                "has_seen_welcome_modal": False,
+            }
+            update_set = {"last_activity": now_utc}
+            # חשוב: לא לשמור username אם הוא None/ריק כדי לא להיתקע על unique index של null/"".
+            if username_s:
+                set_on_insert["username"] = username_s
+                update_set["username"] = username_s
+                update_set["updated_at"] = now_utc
             result = users_collection.update_one(
                 {"user_id": user_id},
-                {
-                    "$setOnInsert": {
-                        "user_id": user_id,
-                        "username": username,
-                        "created_at": now_utc,
-                        "has_seen_welcome_modal": False,
-                    },
-                    "$set": {"last_activity": now_utc},
-                },
+                {"$setOnInsert": set_on_insert, "$set": update_set},
                 upsert=True,
             )
             return bool(result.acknowledged)
