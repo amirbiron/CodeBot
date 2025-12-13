@@ -213,9 +213,12 @@ class BasePage:
         """
         בדיקה האם אלמנט נמצא בתוך ה-viewport.
         """
-        return self.page.evaluate("""(selector) => {
-            const el = document.querySelector(selector);
-            if (!el) return false;
+        # חשוב: לא להשתמש ב-tagName כ-selector, כי זה ימצא את האלמנט הראשון מסוגו בעמוד
+        # ולא בהכרח את האלמנט שה-locator מצביע עליו.
+        if locator.count() == 0:
+            return False
+
+        return locator.first.evaluate("""(el) => {
             const rect = el.getBoundingClientRect();
             return (
                 rect.top >= 0 &&
@@ -223,7 +226,7 @@ class BasePage:
                 rect.bottom <= window.innerHeight &&
                 rect.right <= window.innerWidth
             );
-        }""", locator.first.evaluate("el => el.tagName"))
+        }""")
 
     def get_element_bounding_box(self, locator: Locator) -> dict:
         """

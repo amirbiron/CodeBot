@@ -149,9 +149,9 @@ class SettingsPage(BasePage):
         """
         בחירת תמה.
         """
-        theme_option = self.theme_options.filter(has_text=theme_name).first
-        if theme_option.count() > 0:
-            theme_option.click()
+        matching_options = self.theme_options.filter(has_text=theme_name)
+        if matching_options.count() > 0:
+            matching_options.first.click()
         else:
             # Try dropdown
             self.theme_selector.select_option(theme_name)

@@ -66,6 +66,9 @@ def assert_element_within_viewport(
     assert box["x"] + box["width"] <= viewport["width"] + tolerance_px, (
         f"האלמנט יוצא מימין: right={box['x'] + box['width']}px > {viewport['width']}px"
     )
+    assert box["y"] + box["height"] <= viewport["height"] + tolerance_px, (
+        f"האלמנט יוצא מלמטה: bottom={box['y'] + box['height']}px > {viewport['height']}px"
+    )
 
 
 def assert_element_visible_with_tolerance(
