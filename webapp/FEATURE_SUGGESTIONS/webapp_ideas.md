@@ -1,718 +1,171 @@
-# 🌟 רעיונות חדשניים לשיפור WebApp - Code Keeper Bot
-## פיצ'רים ממוקדי משתמש ויעילות - נובמבר 2025
+# רעיונות *חדשים* לשיפור ה־WebApp (CodeBot)
 
-תאריך: 22/11/2025  
-מטרה: הצעות פיצ'רים ייחודיים שלא הוצעו במסמכים קיימים  
-דגש: יעילות, פרקטיות, וערך אמיתי למשתמשים
+תאריך: 2025-12-12
 
----
+## מה המסמך הזה עושה
+- **מטרה**: להציע פיצ׳רים ושיפורים *שלא מופיעים כבר* במסמכי `webapp/FEATURE_SUGGESTIONS/`.
+- **מה לא תמצאו פה בכוונה**: רעיונות שכבר תועדו (כמו חיפוש גלובלי, CodeMirror, Diff/היסטוריית גרסאות, PWA, Offline Mode, שיתופים מתקדמים), וגם **לא**: *שיתופי קהילה* ו-*סוכן AI לבוט*.
 
-## 📋 תוכן עניינים
-
-1. [עדיפות גבוהה - פיצ'רים מהפכניים](#עדיפות-גבוהה---פיצ'רים-מהפכניים)
-2. [עדיפות בינונית - שיפורי פרודוקטיביות](#עדיפות-בינונית---שיפורי-פרודוקטיביות)  
-3. [עדיפות נמוכה - תוספות נחמדות](#עדיפות-נמוכה---תוספות-נחמדות)
-4. [תכנית יישום מוצעת](#תכנית-יישום-מוצעת)
+## עקרונות בחירה
+- **פחות “וואו” ויותר “עוזר לי כל יום”**.
+- **בטיחות/פרטיות כברירת מחדל** (במיוחד סביב קוד וסודות).
+- **UI ברור**: מסך אחד שמסיים משימה, בלי לקפוץ בין 3 מקומות.
 
 ---
 
-## 🔥 עדיפות גבוהה - פיצ'רים מהפכניים
+## רשימת רעיונות (מסודר לפי ROI)
 
-### 1. 🎮 Code Playground - הרצת קוד בדפדפן
+### 1) “סל מיחזור” אמיתי (UI מלא למחיקה רכה + שחזור)
+**הבעיה**: יש מחיקה רכה בצד שרת, אבל למשתמש אין מקום אחד ברור לראות “מה מחקתי” ולהחזיר.
 
-**מה זה:**
-סביבת הרצה מובנית לקוד ישירות בדפדפן, ללא צורך בשרת נפרד.
+**מה מוסיפים ב־UI**:
+- עמוד `Recycle Bin` עם חיפוש/סינון, תאריך מחיקה, ו”נמחק לצמיתות בעוד X ימים”.
+- פעולות: **שחזור**, **מחיקה לצמיתות**, **ריקון סל** (עם אזהרה).
+- תמיכה ב־bulk: שחזור/מחיקה לכמה קבצים.
 
-**איך זה עובד:**
-- **JavaScript/TypeScript**: ריצה ישירה בדפדפן עם console output
-- **Python**: Pyodide (Python ב-WebAssembly)
-- **HTML/CSS**: iframe עם live preview
-- **SQL**: sql.js (SQLite ב-WASM)
-- **Go/Rust**: WebAssembly compilation
-- פאנל פלט עם console, errors, ותוצאות
-- שמירת סשנים ותוצאות ריצה
+**למה זה נותן ערך**:
+- מציל טעויות, מוריד לחץ, ומונע “אוי לא” אחרי מחיקה.
 
-**למה זה מהפכני:**
-- הופך את האפליקציה ל-IDE קל משקל
-- לומדים יכולים לנסות קוד מיד
-- בדיקות מהירות ללא סביבת פיתוח
-- שיתוף קוד רץ עם אחרים
-
-**דוגמת מימוש:**
-```html
-<div class="playground-container">
-    <div class="playground-editor">
-        <!-- CodeMirror editor -->
-    </div>
-    <div class="playground-controls">
-        <button onclick="runCode()">▶️ הרץ</button>
-        <select id="runtime">
-            <option value="js">JavaScript</option>
-            <option value="python">Python</option>
-            <option value="html">HTML/CSS</option>
-        </select>
-    </div>
-    <div class="playground-output">
-        <div class="console-output"></div>
-        <div class="preview-frame"></div>
-    </div>
-</div>
-```
-
-```javascript
-// JavaScript runtime
-async function runJavaScript(code) {
-    const iframe = document.createElement('iframe');
-    iframe.style.display = 'none';
-    document.body.appendChild(iframe);
-    
-    // Override console methods
-    const output = [];
-    iframe.contentWindow.console.log = (...args) => {
-        output.push(args.join(' '));
-    };
-    
-    try {
-        iframe.contentWindow.eval(code);
-        return { success: true, output };
-    } catch (error) {
-        return { success: false, error: error.toString() };
-    }
-}
-
-// Python runtime with Pyodide
-async function runPython(code) {
-    if (!window.pyodide) {
-        window.pyodide = await loadPyodide();
-    }
-    
-    try {
-        pyodide.runPython(`
-            import sys
-            from io import StringIO
-            sys.stdout = StringIO()
-        `);
-        pyodide.runPython(code);
-        const output = pyodide.runPython("sys.stdout.getvalue()");
-        return { success: true, output };
-    } catch (error) {
-        return { success: false, error: error.toString() };
-    }
-}
-```
-
-**מורכבות:** גבוהה | **ROI:** גבוה מאוד | **זמן משוער:** 3-4 שבועות
+**מאמץ**: בינוני (בעיקר UI + API לרשימה/restore/purge).
 
 ---
 
-### 2. 🎨 Visual Git Timeline - ציר זמן ויזואלי לקוד
+### 2) מצב “קובץ רגיש” (Privacy Mode לקבצים)
+**הבעיה**: הרבה קטעי קוד מכילים טוקנים/סיסמאות/URL-ים פנימיים. גם אם הכל פרטי – מספיק צילום מסך/שיתוף מסך כדי להדליף.
 
-**מה זה:**
-תצוגה ויזואלית אינטראקטיבית של היסטוריית השינויים בקוד.
+**מה מוסיפים**:
+- דגל לכל קובץ: **רגיש**.
+- כשהקובץ רגיש:
+  - מסתירים תוכן בתצוגה עד “לחיצה והחזק 1.5 שניות” או אישור.
+  - מסתירים Preview snippets ברשימות.
+  - אפשרות “אל תציג בתוצאות חיפוש” (רק שם/מטא-דאטה).
 
-**איך זה עובד:**
-- ציר זמן אופקי/אנכי עם נקודות לכל גרסה
-- תצוגת diff ויזואלית בין גרסאות
-- אנימציה של התפתחות הקוד
-- הדגשת שינויים חמים (hotspots)
-- פילטר לפי תאריך/תגית/גודל שינוי
-- מיני-מפה של כל הקובץ עם אינדיקציה לשינויים
+**בונוס קטן**: “טשטוש” אוטומטי בצילומי מסך פנימיים (למשל כשמייצרים תמונה/הדפסה).
 
-**למה זה מהפכני:**
-- הבנה מיידית של התפתחות הקוד
-- זיהוי מהיר של באגים שהוכנסו
-- למידה מהיסטוריה
-- ויזואליזציה יפה ומרשימה
-
-**דוגמת מימוש:**
-```javascript
-class GitTimeline {
-    constructor(container, versions) {
-        this.container = container;
-        this.versions = versions;
-        this.currentIndex = versions.length - 1;
-    }
-    
-    render() {
-        const timeline = document.createElement('div');
-        timeline.className = 'git-timeline';
-        
-        // Create timeline points
-        this.versions.forEach((version, index) => {
-            const point = document.createElement('div');
-            point.className = 'timeline-point';
-            point.dataset.index = index;
-            
-            // Size based on change magnitude
-            const changeSize = this.calculateChangeSize(version);
-            point.style.width = `${10 + changeSize * 2}px`;
-            point.style.height = `${10 + changeSize * 2}px`;
-            
-            // Color based on change type
-            point.style.background = this.getChangeColor(version);
-            
-            // Tooltip with details
-            point.title = `${version.date} - ${version.message}`;
-            
-            point.addEventListener('click', () => this.showVersion(index));
-            timeline.appendChild(point);
-        });
-        
-        this.container.appendChild(timeline);
-    }
-    
-    showVersion(index) {
-        const version = this.versions[index];
-        const previousVersion = index > 0 ? this.versions[index - 1] : null;
-        
-        // Animate transition
-        this.animateTransition(previousVersion, version);
-        
-        // Show diff
-        this.showDiff(previousVersion, version);
-    }
-    
-    animateTransition(from, to) {
-        // Smooth animation between versions
-        const lines = this.container.querySelectorAll('.code-line');
-        lines.forEach(line => {
-            if (line.dataset.changed) {
-                line.classList.add('highlight-change');
-                setTimeout(() => line.classList.remove('highlight-change'), 1000);
-            }
-        });
-    }
-}
-```
-
-**מורכבות:** גבוהה | **ROI:** גבוה | **זמן משוער:** 2-3 שבועות
+**מאמץ**: נמוך-בינוני.
 
 ---
 
-### 3. 🎙️ Voice Code Commands - פקודות קוליות לקוד
+### 3) היגיינת Clipboard: העתקה בטוחה + ניקוי אוטומטי
+**הבעיה**: Copy לקוד רגיש נשאר ב־clipboard ונדבק בטעות בצ׳אט/מייל.
 
-**מה זה:**
-שליטה קולית על העורך והניווט בקוד.
+**מה מוסיפים**:
+- כפתור חדש ליד “העתק”: **העתק (נקה תוך 30 שנ׳)**.
+- הודעת toast עם ספירה לאחור + כפתור “בטל ניקוי”.
+- הגדרה ברמת משתמש: ברירת מחדל 15/30/60 שנ׳.
 
-**איך זה עובד:**
-- Web Speech API לזיהוי קול
-- פקודות טבעיות: "גלול למטה", "חפש פונקציה main", "סמן שורה 42"
-- פקודות עריכה: "מחק שורה", "הוסף הערה", "שנה שם משתנה"
-- פקודות ניווט: "עבור לקובץ", "פתח מועדפים"
-- משוב קולי (TTS) אופציונלי
-- תמיכה בעברית ואנגלית
-
-**למה זה מהפכני:**
-- נגישות למשתמשים עם מוגבלויות
-- עבודה hands-free
-- מהירות בפעולות נפוצות
-- חדשנות וייחודיות
-
-**דוגמת מימוש:**
-```javascript
-class VoiceCommands {
-    constructor() {
-        this.recognition = new webkitSpeechRecognition();
-        this.recognition.lang = 'he-IL';
-        this.recognition.continuous = true;
-        this.recognition.interimResults = true;
-        
-        this.commands = {
-            'גלול למטה': () => window.scrollBy(0, 200),
-            'גלול למעלה': () => window.scrollBy(0, -200),
-            'חפש': (query) => this.search(query),
-            'עבור לשורה': (lineNum) => this.goToLine(lineNum),
-            'סמן שורה': (lineNum) => this.selectLine(lineNum),
-            'מחק שורה': () => this.deleteLine(),
-            'שמור': () => this.saveFile(),
-            'ביטול': () => this.undo(),
-            'חזור': () => this.redo()
-        };
-    }
-    
-    start() {
-        this.recognition.onresult = (event) => {
-            const transcript = event.results[event.results.length - 1][0].transcript;
-            this.processCommand(transcript);
-        };
-        
-        this.recognition.start();
-        this.showListening();
-    }
-    
-    processCommand(transcript) {
-        // Natural language processing
-        const normalized = transcript.toLowerCase().trim();
-        
-        // Match commands
-        for (const [pattern, handler] of Object.entries(this.commands)) {
-            const regex = new RegExp(pattern + '\\s*(\\d+)?');
-            const match = normalized.match(regex);
-            
-            if (match) {
-                handler(match[1]);
-                this.showFeedback(`✓ ${pattern}`);
-                break;
-            }
-        }
-    }
-    
-    showListening() {
-        const indicator = document.createElement('div');
-        indicator.className = 'voice-indicator';
-        indicator.innerHTML = '🎙️ מאזין...';
-        document.body.appendChild(indicator);
-    }
-}
-```
-
-**מורכבות:** בינונית | **ROI:** גבוה | **זמן משוער:** 1-2 שבועות
+**מאמץ**: נמוך.
 
 ---
 
-### 4. 📊 Code Metrics Dashboard - לוח מדדי קוד חכם
+### 4) “העתקה/שיתוף מסונן” (Redaction Presets)
+**הבעיה**: משתמש רוצה לשתף לוג/קונפיג/קוד, אבל חייב להשחיר טוקנים/סודות.
 
-**מה זה:**
-דשבורד אנליטי מתקדם למדידת איכות ומורכבות הקוד.
+**מה מוסיפים**:
+- כפתורים חדשים:
+  - **Copy Sanitized** (העתקה לאחר השחרה)
+  - **Download Sanitized** (הורדה לאחר השחרה)
+  - אופציונלי: **Share Sanitized** (קישור שיתוף לתוכן המסונן בלבד)
+- “תצוגת לפני/אחרי” קטנה (diff קצר) כדי לוודא שלא הרסנו משהו.
+- Presets פשוטים (ללא AI): Regex-ים נפוצים (JWT, API keys, bearer token, מפתחות פרטיים, כתובות מייל/טלפון וכו’).
 
-**איך זה עובד:**
-- **מדדי מורכבות**: Cyclomatic complexity, nesting depth
-- **מדדי איכות**: Code coverage, duplication percentage
-- **מדדי תחזוקה**: Technical debt, maintainability index
-- **טרנדים**: גרפים של שיפור/הרעה לאורך זמן
-- **השוואות**: בין קבצים, פרויקטים, תקופות
-- **המלצות**: הצעות אוטומטיות לשיפור
-- **Heatmap**: ויזואליזציה של אזורים בעייתיים
+**למה זה חזק**:
+- נותן למשתמש אומץ להשתמש ב־Share/Copy בלי פחד.
 
-**למה זה מהפכני:**
-- תובנות עמוקות על איכות הקוד
-- מניעת באגים מראש
-- שיפור מתמיד
-- מדדים אובייקטיביים
-
-**דוגמת מימוש:**
-```javascript
-class CodeMetricsAnalyzer {
-    analyzeComplexity(code) {
-        const metrics = {
-            cyclomaticComplexity: 0,
-            nestingDepth: 0,
-            linesOfCode: 0,
-            functions: [],
-            duplicates: []
-        };
-        
-        // Parse AST
-        const ast = parseCode(code);
-        
-        // Calculate cyclomatic complexity
-        ast.traverse({
-            IfStatement: () => metrics.cyclomaticComplexity++,
-            ForStatement: () => metrics.cyclomaticComplexity++,
-            WhileStatement: () => metrics.cyclomaticComplexity++,
-            CaseStatement: () => metrics.cyclomaticComplexity++,
-            CatchClause: () => metrics.cyclomaticComplexity++,
-            LogicalExpression: (node) => {
-                if (node.operator === '&&' || node.operator === '||') {
-                    metrics.cyclomaticComplexity++;
-                }
-            }
-        });
-        
-        // Find duplicates
-        metrics.duplicates = this.findDuplicates(ast);
-        
-        // Calculate maintainability index
-        metrics.maintainabilityIndex = this.calculateMaintainability(metrics);
-        
-        return metrics;
-    }
-    
-    renderDashboard(metrics) {
-        return `
-            <div class="metrics-dashboard">
-                <div class="metric-card complexity">
-                    <div class="metric-value">${metrics.cyclomaticComplexity}</div>
-                    <div class="metric-label">מורכבות ציקלומטית</div>
-                    <div class="metric-status ${this.getStatus(metrics.cyclomaticComplexity)}">
-                        ${this.getRecommendation(metrics.cyclomaticComplexity)}
-                    </div>
-                </div>
-                
-                <div class="metric-chart">
-                    <canvas id="complexityTrend"></canvas>
-                </div>
-                
-                <div class="code-heatmap">
-                    ${this.generateHeatmap(metrics)}
-                </div>
-            </div>
-        `;
-    }
-}
-```
-
-**מורכבות:** גבוהה | **ROI:** גבוה מאוד | **זמן משוער:** 3-4 שבועות
+**מאמץ**: בינוני.
 
 ---
 
-## 📈 עדיפות בינונית - שיפורי פרודוקטיביות
+### 5) Config Radar כעורך “מונחה סכימה” (לא רק צפייה)
+**הבעיה**: “Config Radar” מזהה/בודק קונפיגים, אבל עריכה ידנית של YAML/JSON עדיין מועדת לטעויות.
 
-### 5. ⚡ Live Preview for Web - תצוגה חיה של HTML/CSS/JS
+**מה מוסיפים**:
+- לכל קובץ נתמך (למשל `alerts.yml`, `error_signatures.yml`, `image_settings.yaml`):
+  - **טופס מונחה שדות** (בנוסף ל־RAW editor)
+  - ולידציה בזמן אמת + הודעות שגיאה אנושיות
+  - “תצוגת דוגמאות” ליד כל שדה (קומפקטי)
+- כפתור: **בדיקת תקינות (Dry-run)** שמחזיר דוח קצר.
 
-**מה זה:**
-תצוגה מיידית של שינויים בקוד web בזמן אמת.
-
-**איך זה עובד:**
-- iframe מובנה עם auto-refresh
-- Hot reload בעת שינוי קוד
-- פיצול מסך עורך/תצוגה
-- DevTools מובנים (console, network)
-- Responsive preview (מובייל/טאבלט/דסקטופ)
-- שיתוף URL לתצוגה חיה
-
-**למה זה חשוב:**
-- פיתוח web מהיר יותר
-- פידבק מיידי על שינויים
-- לא צריך לעבור בין חלונות
-- מושלם ללמידה
-
-**מורכבות:** בינונית | **ROI:** גבוה | **זמן משוער:** 1-2 שבועות
+**מאמץ**: בינוני-גבוה (אבל ROI גבוה מאוד למשתמשים שמנהלים קונפיגים).
 
 ---
 
-### 6. 🔍 Smart Code Search with AI - חיפוש חכם עם AI
+### 6) “שינוי קונפיג בטוח”: טיוטה, בדיקה, ואז Apply
+**הבעיה**: שינוי קטן בקונפיג יכול לשבור מערכת התראות/חתימות; אנשים מפחדים לגעת.
 
-**מה זה:**
-חיפוש סמנטי חכם שמבין את הכוונה, לא רק מילות מפתח.
+**מה מוסיפים**:
+- Workflow ב־Config Radar:
+  1) עריכת טיוטה
+  2) בדיקות (syntax + חוקים בסיסיים)
+  3) הצגת Diff
+  4) Apply
+  5) כפתור **Rollback** לגרסה קודמת
+- “שומר אוטומטית עותק אחרון שעבד”.
 
-**איך זה עובד:**
-- חיפוש לפי משמעות: "פונקציה שמחשבת ממוצע"
-- חיפוש דמיון קוד: "קוד שדומה לזה"
-- חיפוש לפי באגים: "קוד שעלול לגרום ל-null pointer"
-- Vector embeddings של הקוד
-- שימוש ב-Sentence Transformers
-- תוצאות מדורגות לפי רלוונטיות
-
-**למה זה חשוב:**
-- מציאת קוד רלוונטי במהירות
-- גילוי patterns ובעיות
-- חיפוש אינטואיטיבי
-- למידה מקוד קיים
-
-**מורכבות:** גבוהה | **ROI:** גבוה | **זמן משוער:** 2-3 שבועות
+**מאמץ**: בינוני.
 
 ---
 
-### 7. 🎯 Code Intentions - כוונות קוד
+### 7) Observability: יצוא “Postmortem” מתוך Incident Replay
+**הבעיה**: אחרי תקרית יש שחזור יפה, אבל כתיבת פוסטמורטם לוקחת זמן ומרגישה כפילות.
 
-**מה זה:**
-הוספת "כוונות" לקטעי קוד - מה הקוד אמור לעשות.
+**מה מוסיפים**:
+- כפתור בעמוד ה־Replay: **Export Postmortem (Markdown)**
+- התוצר כולל:
+  - תקציר (זמן התחלה/סיום, חומרה)
+  - timeline מקוצר
+  - “מה השתבש / מה עזר” (טקסט חופשי)
+  - action items (צ׳קבוקסים)
+  - קישורים ל־runbook רלוונטי
 
-**איך זה עובד:**
-- הגדרת כוונה לפני כתיבת הקוד
-- בדיקה אוטומטית האם הקוד מממש את הכוונה
-- TODO שהופך לקוד
-- תיעוד אוטומטי מכוונות
-- בדיקות יחידה אוטומטיות מכוונות
-
-**למה זה חשוב:**
-- TDD טבעי
-- תיעוד טוב יותר
-- פחות באגים
-- בהירות בקוד
-
-**מורכבות:** בינונית | **ROI:** בינוני-גבוה | **זמן משוער:** 2 שבועות
+**מאמץ**: בינוני.
 
 ---
 
-### 8. 🔗 Dependency Graph - גרף תלויות אינטראקטיבי
+### 8) Observability: “בריאות חוקים” (Coverage & Gaps)
+**הבעיה**: עם הזמן מצטברים חוקים/חתימות/רנבוקים, ואף אחד לא יודע מה יתום, כפול או חסר.
 
-**מה זה:**
-ויזואליזציה של תלויות בין קבצים ומודולים.
+**מה מוסיפים בלוח אדמין**:
+- דוח שבועי/מסך:
+  - חוקים בלי runbook
+  - חוקים בלי quick-fix
+  - כפילויות/התנגשויות (למשל שתי חתימות על אותו דפוס)
+  - חוקים שלא הופעלו X ימים (מועמדים לניקוי)
 
-**איך זה עובד:**
-- גרף אינטראקטיבי (D3.js או vis.js)
-- זיהוי imports/requires
-- הדגשת circular dependencies
-- זום וניווט בגרף
-- פילטר לפי סוג תלות
-- ניתוח impact של שינויים
-
-**למה זה חשוב:**
-- הבנת ארכיטקטורה
-- זיהוי בעיות עיצוב
-- תכנון refactoring
-- תיעוד ויזואלי
-
-**מורכבות:** בינונית-גבוהה | **ROI:** בינוני-גבוה | **זמן משוער:** 2 שבועות
+**מאמץ**: בינוני.
 
 ---
 
-### 9. 🤝 Code Review Mode - מצב ביקורת קוד
+### 9) “מה השתנה מאז הפעם האחרונה שראיתי” (Diff-on-open קליל)
+**הבעיה**: משתמש חוזר לקובץ אחרי שבוע ולא זוכר מה השתנה.
 
-**מה זה:**
-מצב מיוחד לביקורת קוד עם כלים ייעודיים.
+**מה מוסיפים**:
+- כשפותחים קובץ: אם הייתה צפייה קודמת, מציגים “שורות שהשתנו” כ־highlights עדינים (וגם כפתור “הצג שינויים מאז”).
+- סימון קטן ברשימת קבצים: **Changed** מאז צפייה אחרונה.
 
-**איך זה עובד:**
-- הערות inline על שורות
-- סימון בעיות (bug/security/style)
-- checklist לביקורת
-- השוואת גרסאות side-by-side
-- אישור/דחיית שינויים
-- דוח ביקורת מסכם
-
-**למה זה חשוב:**
-- שיפור איכות הקוד
-- למידה הדדית
-- תיעוד החלטות
-- מניעת באגים
-
-**מורכבות:** בינונית | **ROI:** גבוה | **זמן משוער:** 2 שבועות
+**מאמץ**: בינוני.
 
 ---
 
-### 10. 📐 Code Formatter - פורמטר קוד אוטומטי
+### 10) “מרכז אבטחה אישי” קטן (רק למשתמש עצמו)
+**הבעיה**: משתמש לא יודע אם יש לו קבצים “מסוכנים” במערכת.
 
-**מה זה:**
-פרמוט אוטומטי של קוד לפי סטנדרטים.
+**מה מוסיפים** (ללא AI, מבוסס חוקים פשוטים):
+- מסך שמציג:
+  - קבצים שמכילים “דפוסי סודות” (לפי regex)
+  - קבצים ששותפו לאחרונה + כפתור ביטול (רק אם כבר קיימת מערכת שיתוף)
+  - קבצים רגישים שלא סומנו כרגישים (הצעה לסמן)
 
-**איך זה עובד:**
-- תמיכה בכל השפות הנפוצות
-- Prettier ל-JS/TS/HTML/CSS
-- Black ל-Python
-- gofmt ל-Go
-- הגדרות מותאמות אישית
-- Format on save
-- Diff לפני/אחרי
-
-**למה זה חשוב:**
-- קוד אחיד ונקי
-- פחות ויכוחים על סגנון
-- קריאות משופרת
-- מקצועיות
-
-**מורכבות:** נמוכה-בינונית | **ROI:** גבוה | **זמן משוער:** 1 שבוע
+**מאמץ**: בינוני.
 
 ---
 
-## 🎁 עדיפות נמוכה - תוספות נחמדות
-
-### 11. 🏅 Achievements & Badges - הישגים ותגי הוקרה
-
-**מה זה:**
-מערכת gamification עם הישגים על פעילות.
-
-**איך זה עובד:**
-- תגים על מאות פעולות
-- רמות משתמש
-- לוח תוצאות
-- אתגרים יומיים/שבועיים
-- פרסים וירטואליים
-
-**מורכבות:** נמוכה | **ROI:** בינוני | **זמן משוער:** 1 שבוע
-
----
-
-### 12. 🌈 Code Themes Marketplace - חנות ערכות נושא
-
-**מה זה:**
-מאגר ערכות נושא להתאמה אישית.
-
-**איך זה עובד:**
-- עשרות themes מוכנות
-- יצירת theme מותאם אישית
-- שיתוף themes
-- דירוג ופופולריות
-- preview לפני התקנה
-
-**מורכבות:** נמוכה | **ROI:** נמוך-בינוני | **זמן משוער:** 1 שבוע
-
----
-
-### 13. 📸 Code Screenshots - צילומי מסך יפים לקוד
-
-**מה זה:**
-יצירת תמונות יפות של קוד לשיתוף.
-
-**איך זה עובד:**
-- רקעים ומסגרות יפות
-- לוגו/watermark אופציונלי
-- בחירת שורות ספציפיות
-- יצוא ל-PNG/SVG
-- שיתוף ישיר לרשתות
-
-**מורכבות:** נמוכה | **ROI:** נמוך-בינוני | **זמן משוער:** 3-5 ימים
-
----
-
-### 14. 🎬 Code Replay - הקלטת סשן קידוד
-
-**מה זה:**
-הקלטה והשמעה של סשן עבודה על קוד.
-
-**איך זה עובד:**
-- הקלטת כל השינויים
-- השמעה עם בקרת מהירות
-- קפיצה לנקודות זמן
-- הוספת הערות לרגעים
-- יצוא כ-video
-
-**מורכבות:** בינונית-גבוהה | **ROI:** נמוך-בינוני | **זמן משוער:** 2-3 שבועות
-
----
-
-### 15. 💬 Code Comments Thread - דיונים על קוד
-
-**מה זה:**
-מערכת תגובות ודיונים על קטעי קוד.
-
-**איך זה עובד:**
-- threads על שורות ספציפיות
-- mentions (@username)
-- reactions (👍❤️🎉)
-- נוטיפיקציות
-- היסטוריית דיונים
-
-**מורכבות:** בינונית | **ROI:** בינוני | **זמן משוער:** 1-2 שבועות
-
----
-
-## 🚀 תכנית יישום מוצעת
-
-### Phase 1: Quick Wins (חודש 1)
-**מטרה:** שיפורים מהירים עם השפעה גדולה
-
-1. **Code Formatter** - 1 שבוע
-2. **Voice Commands (בסיסי)** - 1 שבוע  
-3. **Live Preview for Web** - 2 שבועות
-
-**תוצאה צפויה:** שיפור משמעותי בחוויית המשתמש
-
----
-
-### Phase 2: Game Changers (חודשים 2-3)
-**מטרה:** פיצ'רים מהפכניים שמבדילים את המוצר
-
-1. **Code Playground** - 3-4 שבועות
-2. **Visual Git Timeline** - 2-3 שבועות
-3. **Code Metrics Dashboard** - 3-4 שבועות
-
-**תוצאה צפויה:** ייחודיות ויתרון תחרותי
-
----
-
-### Phase 3: Advanced Features (חודשים 4-5)
-**מטרה:** העמקת היכולות והערך
-
-1. **Smart Code Search with AI** - 2-3 שבועות
-2. **Dependency Graph** - 2 שבועות
-3. **Code Review Mode** - 2 שבועות
-4. **Code Intentions** - 2 שבועות
-
-**תוצאה צפויה:** פלטפורמה מקצועית ומתקדמת
-
----
-
-### Phase 4: Polish & Delight (חודש 6+)
-**מטרה:** שיפורי UX ו-engagement
-
-1. **Achievements & Badges** - 1 שבוע
-2. **Code Screenshots** - 3-5 ימים
-3. **Themes Marketplace** - 1 שבוע
-4. **Comments Thread** - 1-2 שבועות
-5. **Code Replay** - 2-3 שבועות
-
-**תוצאה צפויה:** חוויית משתמש מושלמת
-
----
-
-## 📊 מטריצת השפעה-מאמץ
-
-| פיצ'ר | השפעה | מאמץ | עדיפות | ROI |
-|-------|--------|-------|---------|-----|
-| Code Playground | 🔥🔥🔥 | גבוה | 1 | מעולה |
-| Visual Git Timeline | 🔥🔥🔥 | בינוני-גבוה | 2 | מעולה |
-| Voice Commands | 🔥🔥🔥 | בינוני | 3 | מעולה |
-| Code Metrics Dashboard | 🔥🔥🔥 | גבוה | 4 | מעולה |
-| Live Preview | 🔥🔥 | בינוני | 5 | טוב מאוד |
-| Smart Search AI | 🔥🔥 | גבוה | 6 | טוב |
-| Code Formatter | 🔥🔥 | נמוך | 7 | מעולה |
-| Dependency Graph | 🔥 | בינוני | 8 | טוב |
-| Code Review Mode | 🔥 | בינוני | 9 | טוב |
-| Code Intentions | 🔥 | בינוני | 10 | בינוני |
-
----
-
-## 💡 המלצות טכניות
-
-### ארכיטקטורה
-- **Microservices**: פיצול לשירותים קטנים
-- **WebAssembly**: לביצועים מהירים
-- **Web Workers**: לעיבוד ברקע
-- **IndexedDB**: לשמירה מקומית
-- **WebSockets**: לעדכונים בזמן אמת
-
-### טכנולוגיות מומלצות
-- **Pyodide**: Python בדפדפן
-- **Monaco Editor**: עורך מתקדם (או CodeMirror 6)
-- **D3.js / vis.js**: ויזואליזציות
-- **Workbox**: Service Worker מתקדם
-- **TensorFlow.js**: ML בדפדפן
-
-### ביצועים
-- Code splitting אגרסיבי
-- Lazy loading לכל פיצ'ר
-- Virtual scrolling לרשימות
-- Web Assembly לחישובים כבדים
-- SharedArrayBuffer לעיבוד מקבילי
-
-### נגישות
-- ARIA labels מלאים
-- Keyboard navigation
-- Screen reader support
-- High contrast mode
-- RTL מלא
-
----
-
-## 🎯 KPIs להצלחה
-
-1. **Engagement**
-   - זמן שהייה ממוצע +40%
-   - פעולות למשתמש +60%
-   - חזרה יומית +30%
-
-2. **Performance**
-   - Time to Interactive < 2s
-   - First Contentful Paint < 1s
-   - Lighthouse score > 95
-
-3. **User Satisfaction**
-   - NPS > 50
-   - דירוג 4.5+ כוכבים
-   - המלצות משתמשים +50%
-
-4. **Technical**
-   - Code coverage > 80%
-   - Zero critical bugs
-   - 99.9% uptime
-
----
-
-## 🌟 סיכום
-
-הרעיונות המוצעים כאן ממוקדים ביצירת ערך אמיתי למשתמשים תוך שמירה על פשטות ויעילות. כל פיצ'ר נבחר בקפידה כדי לענות על צורך אמיתי ולהוסיף ערך ייחודי שמבדיל את Code Keeper Bot מהמתחרים.
-
-הדגש הוא על:
-- ✅ חדשנות טכנולוגית
-- ✅ חוויית משתמש מעולה
-- ✅ פרקטיות ושימושיות
-- ✅ ביצועים מהירים
-- ✅ נגישות מלאה
-
-**המלצה:** להתחיל עם Code Playground ו-Visual Git Timeline - אלו הפיצ'רים עם ה-WOW factor הגבוה ביותר שיבדילו מיידית את המוצר בשוק.
-
----
-
-נוצר עבור Code Keeper Bot | נובמבר 2025 | גרסה 2.0
+## סדר ביצוע מומלץ (אם רוצים Quick Wins)
+1) סל מיחזור (1)
+2) Clipboard safety (3)
+3) מצב קובץ רגיש (2)
+4) Redaction להעתקה/שיתוף (4)
+5) שדרוגי Config Radar (5–6)
+6) שדרוגי Observability (7–8)
+7) “מה השתנה מאז” (9)
+8) מרכז אבטחה אישי (10)
