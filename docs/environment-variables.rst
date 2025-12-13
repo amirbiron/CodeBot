@@ -1327,6 +1327,18 @@
      - ``60``
      - ``120``
      - Bot/WebApp
+   * - ``FF_<FLAG_NAME>``
+     - דגל פיצ'ר מקומי ללא תלות חיצונית. למשל ``FF_NEW_DASHBOARD=true``. שם הדגל בקוד הוא ``NEW_DASHBOARD`` (המערכת ממירה לאותיות גדולות ומחליפה תווים לא חוקיים ב-``_``).
+     - לא
+     - כבוי (אם לא מוגדר)
+     - ``FF_NEW_DASHBOARD=true``
+     - Bot/WebApp
+   * - ``FFV_<FLAG_NAME>``
+     - ערך פיצ'ר מקומי (מחרוזת) ללא תלות חיצונית. למשל ``FFV_FREE_TRIAL_LENGTH=14``.
+     - לא
+     - ריק (אם לא מוגדר)
+     - ``FFV_FREE_TRIAL_LENGTH=14``
+     - Bot/WebApp
    * - ``BACKUPS_STORAGE``
      - בחירת מנגנון גיבוי: ``mongo`` (GridFS) או ``fs`` (מערכת קבצים מקומית).
      - לא

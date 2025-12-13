@@ -28,6 +28,32 @@ def _stable_traits_fingerprint(traits: dict[str, Any] | None) -> str:
     return hashlib.sha256(payload.encode("utf-8", errors="ignore")).hexdigest()
 
 
+def _normalize_flag_name_for_env(flag_name: str) -> str:
+    # Normalize to env-var-friendly token: uppercase + underscores only.
+    s = str(flag_name or "").strip().upper()
+    out = []
+    for ch in s:
+        if ("A" <= ch <= "Z") or ("0" <= ch <= "9"):
+            out.append(ch)
+        else:
+            out.append("_")
+    # Collapse multiple underscores
+    normalized = "".join(out)
+    while "__" in normalized:
+        normalized = normalized.replace("__", "_")
+    return normalized.strip("_")
+
+
+def _env_flag_key(flag_name: str) -> str:
+    # Boolean flag: FF_<FLAG>
+    return f"FF_{_normalize_flag_name_for_env(flag_name)}"
+
+
+def _env_value_key(flag_name: str) -> str:
+    # Value flag: FFV_<FLAG>
+    return f"FFV_{_normalize_flag_name_for_env(flag_name)}"
+
+
 @dataclass(frozen=True)
 class _IdentityCacheEntry:
     created_at: float
@@ -47,12 +73,14 @@ class FeatureFlagsService:
     def __init__(
         self,
         *,
+        backend: str,
         enabled: bool,
         fail_open: bool,
         identity_cache_ttl_seconds: float,
         client: Any | None,
         emit_event: Optional[Callable[..., Any]] = None,
     ) -> None:
+        self._backend = str(backend or "").strip().lower() or "env"
         self._enabled = bool(enabled)
         self._fail_open = bool(fail_open)
         self._ttl = max(0.0, float(identity_cache_ttl_seconds))
@@ -63,7 +91,13 @@ class FeatureFlagsService:
 
     @property
     def enabled(self) -> bool:
-        return self._enabled and (self._client is not None)
+        # "enabled" means: feature flags layer is active (either env backend or flagsmith backend).
+        if not self._enabled:
+            return False
+        if self._backend == "flagsmith":
+            return self._client is not None
+        # env backend is always available (no deps)
+        return True
 
     def _emit(self, event: str, severity: str = "info", **fields: Any) -> None:
         try:
@@ -93,10 +127,14 @@ class FeatureFlagsService:
         except Exception:
             ttl = 60.0
 
+        # אם אין Flagsmith env key – עדיין ניתן לעבוד "ENV בלבד" בלי התקנות:
+        # FF_<FLAG>=true/false  (בוליאני)
+        # FFV_<FLAG>=<value>    (ערך)
         if not env_key:
             return cls(
-                enabled=False,
-                fail_open=fail_open,
+                backend="env",
+                enabled=True,
+                fail_open=False,
                 identity_cache_ttl_seconds=ttl,
                 client=None,
                 emit_event=emit_event,
@@ -117,7 +155,8 @@ class FeatureFlagsService:
             except Exception:
                 pass
             return cls(
-                enabled=False,
+                backend="env",
+                enabled=True,
                 fail_open=fail_open,
                 identity_cache_ttl_seconds=ttl,
                 client=None,
@@ -143,6 +182,7 @@ class FeatureFlagsService:
             client = None
 
         return cls(
+            backend="flagsmith",
             enabled=True,
             fail_open=fail_open,
             identity_cache_ttl_seconds=ttl,
@@ -151,7 +191,7 @@ class FeatureFlagsService:
         )
 
     def _get_identity_flags(self, identifier: str, traits: dict[str, Any] | None) -> Any | None:
-        if not self.enabled:
+        if not self.enabled or self._backend != "flagsmith":
             return None
 
         fp = _stable_traits_fingerprint(traits)
@@ -196,6 +236,24 @@ class FeatureFlagsService:
 
         return flags
 
+    def _env_is_enabled(self, flag_name: str) -> bool:
+        key = _env_flag_key(flag_name)
+        if key not in os.environ:
+            return False
+        return _parse_bool(os.getenv(key), default=False)
+
+    def _env_get_value(self, flag_name: str, default: Any = None) -> Any:
+        key = _env_value_key(flag_name)
+        if key in os.environ:
+            v = os.getenv(key)
+            return default if v in (None, "") else v
+        # Fallback: allow reading FF_<FLAG> as a value too (useful for numeric-as-string)
+        key2 = _env_flag_key(flag_name)
+        if key2 in os.environ:
+            v = os.getenv(key2)
+            return default if v in (None, "") else v
+        return default
+
     def is_enabled(self, flag_name: str, *, user_id: str | None = None, traits: dict[str, Any] | None = None) -> bool:
         name = str(flag_name or "").strip()
         if not name:
@@ -203,6 +261,10 @@ class FeatureFlagsService:
 
         if not self.enabled:
             return False
+
+        if self._backend == "env":
+            # אין תמיכה ב-targeting/rollout במצב ENV בלבד.
+            return self._env_is_enabled(name)
 
         if user_id:
             identity_flags = self._get_identity_flags(str(user_id), traits=traits)
@@ -239,6 +301,9 @@ class FeatureFlagsService:
 
         if not self.enabled:
             return default
+
+        if self._backend == "env":
+            return self._env_get_value(name, default=default)
 
         if user_id:
             identity_flags = self._get_identity_flags(str(user_id), traits=traits)

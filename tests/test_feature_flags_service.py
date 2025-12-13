@@ -1,6 +1,3 @@
-import types
-
-
 def test_feature_flags_disabled_without_env_key(monkeypatch):
     from services.feature_flags_service import FeatureFlagsService
 
@@ -8,7 +5,8 @@ def test_feature_flags_disabled_without_env_key(monkeypatch):
     monkeypatch.delenv("FLAGSMITH_ENVIRONMENT_KEY", raising=False)
 
     svc = FeatureFlagsService.from_env()
-    assert svc.enabled is False
+    # Without Flagsmith, service falls back to ENV backend (no installs required).
+    assert svc.enabled is True
     assert svc.is_enabled("ANY_FLAG") is False
     assert svc.get_value("ANY_VALUE", default="x") == "x"
 
@@ -25,6 +23,7 @@ def test_feature_flags_environment_flag_uses_client():
             return name == "ON"
 
     svc = FeatureFlagsService(
+        backend="flagsmith",
         enabled=True,
         fail_open=False,
         identity_cache_ttl_seconds=60,
@@ -52,6 +51,7 @@ def test_feature_flags_identity_flags_cached(monkeypatch):
             return FakeIdentityFlags(enabled=True)
 
     svc = FeatureFlagsService(
+        backend="flagsmith",
         enabled=True,
         fail_open=False,
         identity_cache_ttl_seconds=9999,
@@ -72,6 +72,7 @@ def test_feature_flags_fail_open_on_client_error():
             raise RuntimeError("boom")
 
     svc = FeatureFlagsService(
+        backend="flagsmith",
         enabled=True,
         fail_open=True,
         identity_cache_ttl_seconds=60,
@@ -79,4 +80,17 @@ def test_feature_flags_fail_open_on_client_error():
         emit_event=None,
     )
     assert svc.is_enabled("FLAG") is True
+
+
+def test_env_backend_reads_flags_without_install(monkeypatch):
+    from services.feature_flags_service import FeatureFlagsService
+
+    monkeypatch.delenv("FLAGSMITH_ENV_KEY", raising=False)
+    monkeypatch.setenv("FF_NEW_DASHBOARD", "true")
+    monkeypatch.setenv("FFV_FREE_TRIAL_LENGTH", "14")
+
+    svc = FeatureFlagsService.from_env()
+    assert svc.is_enabled("NEW_DASHBOARD") is True
+    assert svc.is_enabled("SOMETHING_ELSE") is False
+    assert svc.get_value("FREE_TRIAL_LENGTH", default="7") == "14"
 
