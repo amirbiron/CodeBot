@@ -55,6 +55,11 @@
             --glass: rgba(255, 255, 255, 0.1);
             --glass-border: rgba(255, 255, 255, 0.2);
             --glass-hover: rgba(255, 255, 255, 0.15);
+            /* Solid surfaces (for dialogs/popovers that must not be "glass") */
+            --solid-surface-bg: #ffffff;
+            --solid-surface-text: #111827;
+            --solid-surface-border: rgba(0, 0, 0, 0.12);
+            --solid-surface-shadow: 0 14px 30px rgba(17, 23, 41, 0.16);
             --ui-font-scale: 1;
             --danger-bg: color-mix(in srgb, var(--danger) 18%, transparent);
             --danger-border: color-mix(in srgb, var(--danger) 45%, transparent);
@@ -1500,7 +1505,7 @@
     <!-- Modal: Add to Collection -->
     <div id="addToCollectionModal" style="display:none; position:fixed; inset:0; z-index:9999; align-items:center; justify-content:center;">
       <div onclick="closeAddToCollectionModal()" style="position:absolute; inset:0; background: rgba(0,0,0,0.5);"></div>
-      <div style="position:relative; background:var(--card-bg, rgba(255,255,255,0.95)); color:var(--text-primary, #333); border-radius:12px; max-width:420px; width:90%; padding:1rem;">
+      <div style="position:relative; background:var(--solid-surface-bg, rgba(255,255,255,0.98)); color:var(--solid-surface-text, #111827); border-radius:12px; border: 1px solid var(--solid-surface-border, rgba(0,0,0,0.12)); box-shadow: var(--solid-surface-shadow, 0 14px 30px rgba(17, 23, 41, 0.16)); max-width:420px; width:90%; padding:1rem;">
         <h3 style="margin-top:0">הוסף לאוסף</h3>
         <div id="addToCollectionBody">
           <div>טוען…</div>
