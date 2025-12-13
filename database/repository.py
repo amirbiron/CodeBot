@@ -1648,7 +1648,8 @@ class Repository:
             update_set = {"last_activity": now_utc}
             # חשוב: לא לשמור username אם הוא None/ריק כדי לא להיתקע על unique index של null/"".
             if username_s:
-                set_on_insert["username"] = username_s
+                # הערה: לא לשים את אותו שדה גם ב-$setOnInsert וגם ב-$set
+                # כי MongoDB יזרוק: "Updating the path 'username' would create a conflict at 'username'".
                 update_set["username"] = username_s
                 update_set["updated_at"] = now_utc
             result = users_collection.update_one(
