@@ -249,9 +249,77 @@ class ConditionOperators:
     
     @staticmethod
     def regex(actual: Any, expected: Any) -> bool:
+        """
+        התאמת ביטוי רגולרי עם הגנות מפני ReDoS.
+        
+        🔧 תיקון באג #2: מניעת ReDoS (Regular Expression Denial of Service)
+        - הגבלת אורך הדפוס למניעת דפוסים מורכבים מדי
+        - הגבלת אורך המחרוזת הנבדקת
+        - Timeout באמצעות signal (Linux) או חלופה
+        """
+        import signal
+        
+        MAX_PATTERN_LENGTH = 200
+        MAX_INPUT_LENGTH = 10000
+        REGEX_TIMEOUT_SECONDS = 1
+        
+        pattern_str = str(expected)
+        actual_str = str(actual)
+        
+        # בדיקות אורך בסיסיות
+        if len(pattern_str) > MAX_PATTERN_LENGTH:
+            logger.warning(f"Regex pattern too long ({len(pattern_str)} chars), rejecting")
+            return False
+        if len(actual_str) > MAX_INPUT_LENGTH:
+            logger.warning(f"Input too long for regex ({len(actual_str)} chars), truncating")
+            actual_str = actual_str[:MAX_INPUT_LENGTH]
+        
+        # זיהוי דפוסים מסוכנים (catastrophic backtracking)
+        dangerous_patterns = [
+            r'\(\.\+\)\+',      # (a+)+
+            r'\(\.\*\)\+',      # (.*)+
+            r'\(\[.+\]\+\)\+',  # ([a-z]+)+
+            r'\(\.\+\)\*',      # (a+)*
+        ]
+        for dangerous in dangerous_patterns:
+            if re.search(dangerous, pattern_str):
+                logger.warning(f"Potentially dangerous regex pattern detected, rejecting")
+                return False
+        
+        def timeout_handler(signum, frame):
+            raise TimeoutError("Regex evaluation timed out")
+        
         try:
-            return bool(re.search(str(expected), str(actual)))
-        except re.error:
+            # נסה להגדיר timeout (עובד רק על Linux/Unix)
+            old_handler = None
+            try:
+                old_handler = signal.signal(signal.SIGALRM, timeout_handler)
+                signal.alarm(REGEX_TIMEOUT_SECONDS)
+            except (ValueError, AttributeError):
+                # Windows או סביבה ללא תמיכה ב-signal
+                pass
+            
+            try:
+                result = bool(re.search(pattern_str, actual_str))
+            finally:
+                # ביטול ה-alarm
+                try:
+                    signal.alarm(0)
+                    if old_handler is not None:
+                        signal.signal(signal.SIGALRM, old_handler)
+                except (ValueError, AttributeError):
+                    pass
+            
+            return result
+            
+        except TimeoutError:
+            logger.error(f"Regex evaluation timed out for pattern: {pattern_str[:50]}...")
+            return False
+        except re.error as e:
+            logger.warning(f"Invalid regex pattern: {e}")
+            return False
+        except Exception as e:
+            logger.error(f"Unexpected error in regex evaluation: {e}")
             return False
     
     @staticmethod
@@ -428,20 +496,38 @@ class RuleEngine:
         if not children:
             return True
         
+        # 🔧 תיקון באג #1: הימנעות מ-Short-circuit evaluation
+        # הערכת כל הילדים מראש כדי לאסוף את כל התנאים שהותאמו
+        # (all/any עם generator מפסיקים בתוצאה הראשונה שקובעת)
+        
         if operator == "AND":
-            return all(
+            child_results = [
                 self._evaluate_node(child, context, triggered) 
                 for child in children
-            )
+            ]
+            return all(child_results)
         elif operator == "OR":
-            return any(
+            child_results = [
                 self._evaluate_node(child, context, triggered) 
                 for child in children
-            )
+            ]
+            return any(child_results)
         elif operator == "NOT":
-            # NOT מיושם על הילד הראשון בלבד
+            # 🔧 תיקון באג #6: NOT לא מוסיף תנאים שגויים ל-triggered
+            # אם הילד מתאים (True), ה-NOT מחזיר False - אז לא נוסיף ל-triggered
             if children:
-                return not self._evaluate_node(children[0], context, triggered)
+                # הערכה לרשימה זמנית כדי לא לזהם את triggered
+                temp_triggered: List[str] = []
+                child_result = self._evaluate_node(children[0], context, temp_triggered)
+                not_result = not child_result
+                
+                # רק אם NOT מחזיר True (כלומר הילד לא התאים), נתעד את זה
+                if not_result and temp_triggered:
+                    triggered.append(f"NOT({', '.join(temp_triggered)})")
+                elif not_result:
+                    triggered.append("NOT(condition not matched)")
+                    
+                return not_result
             return True
         else:
             logger.warning(f"Unknown logical operator: {operator}")
@@ -724,6 +810,28 @@ class RuleBuilder {
         this.init();
     }
     
+    /**
+     * 🔧 תיקון באג #3: פונקציית Escape למניעת XSS
+     * מקודדת תווים מיוחדים ב-HTML כדי למנוע הזרקת סקריפטים
+     */
+    htmlEscape(str) {
+        if (str === null || str === undefined) return '';
+        if (typeof str !== 'string') str = String(str);
+        
+        const escapeMap = {
+            '&': '&amp;',
+            '<': '&lt;',
+            '>': '&gt;',
+            '"': '&quot;',
+            "'": '&#39;',
+            '/': '&#x2F;',
+            '`': '&#x60;',
+            '=': '&#x3D;'
+        };
+        
+        return str.replace(/[&<>"'`=\/]/g, char => escapeMap[char]);
+    }
+    
     init() {
         this.container.innerHTML = `
             <div class="rule-builder">
@@ -894,7 +1002,7 @@ class RuleBuilder {
                         `).join('')}
                     </select>
                     <input type="text" class="value-input" data-bind="value" 
-                           value="${condition.value}" placeholder="ערך">
+                           value="${this.htmlEscape(condition.value)}" placeholder="ערך">
                 </div>
             </div>
         `;
@@ -1017,10 +1125,21 @@ class RuleBuilder {
     
     validate() {
         const errors = [];
+        const conditions = this.rule.conditions;
         
-        // בדיקת תנאים
-        if (this.rule.conditions.children.length === 0) {
-            errors.push('חובה להוסיף לפחות תנאי אחד');
+        // 🔧 תיקון באג #4: תמיכה בתנאי בודד (לא רק קבוצה)
+        // בדיקת מבנה התנאים - יכול להיות group או condition בודד
+        if (!conditions || !conditions.type) {
+            errors.push('מבנה התנאים אינו תקין');
+        } else if (conditions.type === 'group') {
+            // אם זו קבוצה, בדוק שיש לפחות תנאי אחד
+            if (!conditions.children || conditions.children.length === 0) {
+                errors.push('חובה להוסיף לפחות תנאי אחד לקבוצה');
+            }
+        } else if (conditions.type === 'condition') {
+            // תנאי בודד תקין - ממשיך לבדיקת השדות
+        } else {
+            errors.push(`סוג תנאי לא מוכר: ${conditions.type}`);
         }
         
         // בדיקת פעולות
@@ -1028,18 +1147,27 @@ class RuleBuilder {
             errors.push('חובה להוסיף לפחות פעולה אחת');
         }
         
-        // בדיקת שדות חסרים
-        this.validateNode(this.rule.conditions, errors);
+        // בדיקת שדות חסרים (רקורסיבית)
+        if (conditions && conditions.type) {
+            this.validateNode(conditions, errors);
+        }
         
         return errors;
     }
     
     validateNode(node, errors) {
+        if (!node || !node.type) return;
+        
         if (node.type === 'condition') {
             if (!node.field) errors.push('תנאי חסר שדה');
-            if (node.value === '') errors.push('תנאי חסר ערך');
+            if (node.value === '' || node.value === undefined || node.value === null) {
+                errors.push('תנאי חסר ערך');
+            }
         } else if (node.type === 'group') {
-            node.children.forEach(child => this.validateNode(child, errors));
+            // 🔧 בדיקה שיש children לפני הגישה אליהם
+            if (node.children && Array.isArray(node.children)) {
+                node.children.forEach(child => this.validateNode(child, errors));
+            }
         }
     }
 }
@@ -1303,8 +1431,27 @@ async def rules_list_view(request: web.Request) -> web.Response:
     # פרמטרים
     enabled_only = request.query.get("enabled") == "true"
     tags = request.query.getall("tag", [])
-    limit = min(int(request.query.get("limit", 50)), 200)
-    offset = int(request.query.get("offset", 0))
+    
+    # 🔧 תיקון באג #5: טיפול ב-ValueError עבור פרמטרים לא תקינים
+    try:
+        limit = min(int(request.query.get("limit", 50)), 200)
+    except (ValueError, TypeError):
+        return web.json_response({
+            "error": "Invalid 'limit' parameter - must be an integer"
+        }, status=400)
+    
+    try:
+        offset = int(request.query.get("offset", 0))
+    except (ValueError, TypeError):
+        return web.json_response({
+            "error": "Invalid 'offset' parameter - must be an integer"
+        }, status=400)
+    
+    # בדיקת ערכים שליליים
+    if limit < 0 or offset < 0:
+        return web.json_response({
+            "error": "Parameters 'limit' and 'offset' must be non-negative"
+        }, status=400)
     
     rules = await storage.list_rules(
         enabled_only=enabled_only,
