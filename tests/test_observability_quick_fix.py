@@ -70,8 +70,10 @@ def test_fetch_incident_replay_includes_quick_fix(monkeypatch):
     })
 
     payload = obs.fetch_incident_replay(start_dt=None, end_dt=None, limit=50)
-    assert payload["counts"]["chatops"] == 1
+    # Quick-fix telemetry should NOT pollute the Incident Replay timeline.
+    assert payload["counts"]["chatops"] == 0
     assert payload["events"]
+    assert all(evt.get("type") != "chatops" for evt in payload["events"])
 
 
 def test_get_quick_fix_actions_prefers_runbook(monkeypatch, tmp_path):
@@ -94,9 +96,34 @@ runbooks:
     monkeypatch.setattr(obs, "_RUNBOOK_ALIAS_MAP", {})
     monkeypatch.setattr(obs, "_RUNBOOK_MTIME", 0.0)
 
-    alert = {"alert_type": "demo_alert", "timestamp": "2025-01-01T00:00:00+00:00"}
+    # Ensure normalization matches even when alert_type uses different separators.
+    alert = {"alert_type": "demo-alert", "timestamp": "2025-01-01T00:00:00+00:00"}
     actions = obs.get_quick_fix_actions(alert)
     assert actions and actions[0]["label"] == "Demo Action"
+
+
+def test_get_quick_fix_actions_matches_config_key_with_different_separators(monkeypatch, tmp_path):
+    cfg = {
+        "by_alert_type": {
+            "demo_alert": [
+                {
+                    "id": "demo_action",
+                    "label": "Demo",
+                    "type": "link",
+                    "href": "/demo?ts={{timestamp}}",
+                }
+            ]
+        }
+    }
+    path = tmp_path / "quick_fix.json"
+    path.write_text(json.dumps(cfg), encoding="utf-8")
+    monkeypatch.setattr(obs, "_QUICK_FIX_PATH", path)
+    monkeypatch.setattr(obs, "_QUICK_FIX_CACHE", {})
+    monkeypatch.setattr(obs, "_QUICK_FIX_MTIME", 0.0)
+
+    alert = {"alert_type": "demo-alert", "timestamp": "2025-01-01T00:00:00+00:00"}
+    actions = obs.get_quick_fix_actions(alert)
+    assert actions and actions[0]["href"].endswith("2025-01-01T00:00:00+00:00")
 
 
 def test_fetch_runbook_for_event_uses_cache(monkeypatch, tmp_path):

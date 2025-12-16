@@ -10027,6 +10027,7 @@ def api_observability_replay():
 def api_observability_runbook(event_id: str):
     if not _require_admin_user():
         return jsonify({'ok': False, 'error': 'admin_only'}), 403
+    ui_context = request.args.get('ui') or request.args.get('context')
     fallback = {
         'alert_type': request.args.get('alert_type'),
         'type': request.args.get('type'),
@@ -10049,6 +10050,7 @@ def api_observability_runbook(event_id: str):
         payload = observability_service.fetch_runbook_for_event(
             event_id=event_id,
             fallback_metadata=metadata or None,
+            ui_context=ui_context,
         )
     except ValueError as exc:
         logger.info("observability_runbook_invalid_request: event_id=%s error=%s", event_id, exc)
@@ -10069,6 +10071,7 @@ def api_observability_runbook_status(event_id: str):
     if not user_id:
         return jsonify({'ok': False, 'error': 'admin_only'}), 403
     payload = request.get_json(silent=True) or {}
+    ui_context = payload.get('ui') or payload.get('context')
     step_id = str(payload.get('step_id') or '').strip()
     if not step_id:
         return jsonify({'ok': False, 'error': 'missing_step_id'}), 400
@@ -10082,6 +10085,7 @@ def api_observability_runbook_status(event_id: str):
             completed=completed,
             user_id=user_id,
             fallback_metadata=fallback_metadata,
+            ui_context=ui_context,
         )
     except ValueError as exc:
         logger.warning("observability_runbook_status_invalid_request: event_id=%s error=%s", event_id, exc)
