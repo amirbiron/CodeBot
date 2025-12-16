@@ -44,6 +44,7 @@
       this._cdnUrl = null;
       // מצב משותף למעבר בין עורכים: "איפה המשתמש היה" (שורה אחרונה שנצפתה)
       this._sharedLastLine = 1;
+      this._textareaLineHeightCache = null;
       try { console.log('[EditorManager] Initialized with preferred editor:', this.currentEditor); } catch(_) {}
     }
 
@@ -53,13 +54,76 @@
       try {
         const ta = textareaEl;
         if (!ta || !window.getComputedStyle) return 19; // fallback סביר
+
+        if (!this._textareaLineHeightCache) {
+          this._textareaLineHeightCache = new WeakMap();
+        }
+        const cached = this._textareaLineHeightCache.get(ta);
+        if (cached && typeof cached === 'number' && cached > 0) {
+          return cached;
+        }
+
         const cs = window.getComputedStyle(ta);
         const lhRaw = cs ? cs.lineHeight : '';
         const lh = parseFloat(lhRaw);
-        if (lh && !Number.isNaN(lh) && lh > 0) return lh;
+        if (lh && !Number.isNaN(lh) && lh > 0) {
+          this._textareaLineHeightCache.set(ta, lh);
+          return lh;
+        }
+
+        // אם line-height הוא "normal" (או משהו לא מספרי) – נמדוד בפועל באמצעות probe.
+        try {
+          const body = document && document.body;
+          if (body) {
+            const probe = document.createElement('div');
+            probe.style.position = 'absolute';
+            probe.style.visibility = 'hidden';
+            probe.style.pointerEvents = 'none';
+            probe.style.whiteSpace = 'pre';
+            probe.style.padding = '0';
+            probe.style.margin = '0';
+            probe.style.border = '0';
+            // העתקה של סטייל פונט רלוונטי
+            try { probe.style.fontFamily = cs.fontFamily; } catch(_) {}
+            try { probe.style.fontSize = cs.fontSize; } catch(_) {}
+            try { probe.style.fontWeight = cs.fontWeight; } catch(_) {}
+            try { probe.style.fontStyle = cs.fontStyle; } catch(_) {}
+            try { probe.style.letterSpacing = cs.letterSpacing; } catch(_) {}
+            try { probe.style.lineHeight = cs.lineHeight; } catch(_) {}
+
+            body.appendChild(probe);
+            let h1 = 0;
+            let h2 = 0;
+            try {
+              probe.textContent = 'X';
+              h1 = probe.getBoundingClientRect().height || 0;
+              probe.textContent = 'X\nX';
+              h2 = probe.getBoundingClientRect().height || 0;
+            } finally {
+              try { probe.remove(); } catch(_) {}
+            }
+            const measured = (h2 > 0 && h1 > 0) ? (h2 - h1) : 0;
+            if (measured && measured > 0) {
+              this._textareaLineHeightCache.set(ta, measured);
+              return measured;
+            }
+            if (h2 && h2 > 0) {
+              const approx = h2 / 2;
+              if (approx > 0) {
+                this._textareaLineHeightCache.set(ta, approx);
+                return approx;
+              }
+            }
+          }
+        } catch(_) {}
+
         const fsRaw = cs ? cs.fontSize : '';
         const fs = parseFloat(fsRaw);
-        if (fs && !Number.isNaN(fs) && fs > 0) return fs * 1.25; // הערכה נפוצה ל-"normal"
+        if (fs && !Number.isNaN(fs) && fs > 0) {
+          const approx = fs * 1.2; // הערכה שמרנית יותר ל-"normal"
+          this._textareaLineHeightCache.set(ta, approx);
+          return approx;
+        }
       } catch(_) {}
       return 19;
     }
@@ -389,15 +453,34 @@
             // דרך יציבה: שימוש ב-lineBlockAtHeight עם scrollTop (CM6)
             if (typeof view.lineBlockAtHeight === 'function' && view.scrollDOM && typeof view.scrollDOM.scrollTop === 'number') {
               const block = view.lineBlockAtHeight((view.scrollDOM.scrollTop || 0) + 8);
-              const ln = view.state.doc.lineAt(block.from).number;
-              if (typeof ln === 'number' && ln > 0) return ln;
+              const topLine = view.state.doc.lineAt(block.from).number;
+
+              // אם הסמן בתוך ה-viewport – נשמור את שורת הסמן (זה מה שהמשתמש "עומד עליו")
+              let cursorLine = null;
+              try {
+                const head = (view.state.selection && view.state.selection.main) ? view.state.selection.main.head : 0;
+                cursorLine = view.state.doc.lineAt(head).number;
+              } catch(_) {}
+
+              try {
+                const height = (view.scrollDOM && typeof view.scrollDOM.clientHeight === 'number') ? view.scrollDOM.clientHeight : 0;
+                if (height && height > 0) {
+                  const bottomBlock = view.lineBlockAtHeight((view.scrollDOM.scrollTop || 0) + height - 8);
+                  const bottomLine = view.state.doc.lineAt(bottomBlock.from).number;
+                  if (cursorLine && cursorLine >= topLine && cursorLine <= bottomLine) {
+                    return cursorLine;
+                  }
+                }
+              } catch(_) {}
+
+              if (typeof topLine === 'number' && topLine > 0) return topLine;
             }
           } catch(_) {}
           try {
             // fallback: viewport (אם זמין)
             if (view.viewport && typeof view.viewport.from === 'number') {
-              const ln = view.state.doc.lineAt(view.viewport.from).number;
-              if (typeof ln === 'number' && ln > 0) return ln;
+              const topLine = view.state.doc.lineAt(view.viewport.from).number;
+              if (typeof topLine === 'number' && topLine > 0) return topLine;
             }
           } catch(_) {}
           try {
@@ -413,20 +496,30 @@
           const ta = this.textarea;
           const value = ta.value || '';
           const totalLines = Math.max(1, (value.split('\n').length || 1));
-          // חישוב לפי scrollTop/lineHeight (עם fallback בטוח ל-"normal")
-          try {
-            const lh = this._getTextareaLineHeightPx(ta);
-            const lineFromScroll = Math.floor((ta.scrollTop || 0) / lh) + 1;
-            return Math.min(totalLines, Math.max(1, lineFromScroll));
-          } catch(_) {}
-          // fallback לשורה של הסמן
+
+          // חישוב שורה של הסמן (cursor)
+          let cursorLine = 1;
           try {
             const pos = (typeof ta.selectionStart === 'number') ? ta.selectionStart : 0;
             const before = value.slice(0, Math.max(0, Math.min(pos, value.length)));
-            const lineFromSel = before.split('\n').length || 1;
-            return Math.min(totalLines, Math.max(1, lineFromSel));
+            cursorLine = before.split('\n').length || 1;
+            cursorLine = Math.min(totalLines, Math.max(1, cursorLine));
+          } catch(_) { cursorLine = 1; }
+
+          // חישוב לפי scrollTop/lineHeight (עם fallback בטוח ל-"normal")
+          try {
+            const lh = this._getTextareaLineHeightPx(ta);
+            const topLine = Math.min(totalLines, Math.max(1, Math.floor((ta.scrollTop || 0) / lh) + 1));
+            const visibleLines = Math.max(1, Math.floor(((ta.clientHeight || 0) * 1.0) / lh));
+            const bottomLine = Math.min(totalLines, Math.max(topLine, topLine + visibleLines - 1));
+
+            // אם הסמן נמצא בתוך ה-viewport, זה בדרך כלל "הקו הפעיל" שהמשתמש מצפה לשמור.
+            if (cursorLine >= topLine && cursorLine <= bottomLine) {
+              return cursorLine;
+            }
+            return topLine;
           } catch(_) {}
-          return 1;
+          return cursorLine || 1;
         }
       } catch(_) {}
 
