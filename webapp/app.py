@@ -7749,6 +7749,7 @@ def edit_file_page(file_id):
             source_url_was_edited = source_url_state == 'edited'
             clean_source_url = None
             source_url_removed = False
+            markdown_image_payloads: List[Dict[str, Any]] = []
             if source_url_value:
                 clean_source_url, source_url_err = _normalize_source_url_value(source_url_value)
                 if source_url_err:
@@ -7913,6 +7914,48 @@ def edit_file_page(file_id):
                     except Exception:
                         tags = []
 
+                # תמונות ל-Markdown (כמו במסך יצירה): נשמרות כ-attachments לפי גרסה
+                should_collect_images = isinstance(file_name, str) and file_name.lower().endswith(('.md', '.markdown'))
+                if not error and should_collect_images:
+                    try:
+                        incoming_images = request.files.getlist('md_images')
+                    except Exception:
+                        incoming_images = []
+                    valid_images = [img for img in incoming_images if getattr(img, 'filename', '').strip()]
+                    if valid_images:
+                        if len(valid_images) > MARKDOWN_IMAGE_LIMIT:
+                            error = f'ניתן לצרף עד {MARKDOWN_IMAGE_LIMIT} תמונות'
+                        else:
+                            for img in valid_images:
+                                if error:
+                                    break
+                                try:
+                                    data = img.read()
+                                except Exception:
+                                    data = b''
+                                if not data:
+                                    continue
+                                if len(data) > MARKDOWN_IMAGE_MAX_BYTES:
+                                    max_mb = max(1, MARKDOWN_IMAGE_MAX_BYTES // (1024 * 1024))
+                                    error = f'כל תמונה מוגבלת ל-{max_mb}MB'
+                                    break
+                                safe_name = secure_filename(img.filename or '') or f'image_{len(markdown_image_payloads) + 1}.png'
+                                content_type = (img.mimetype or '').lower()
+                                if content_type not in ALLOWED_MARKDOWN_IMAGE_TYPES:
+                                    guessed_type = mimetypes.guess_type(safe_name)[0] or ''
+                                    content_type = guessed_type.lower() if guessed_type else content_type
+                                if content_type not in ALLOWED_MARKDOWN_IMAGE_TYPES:
+                                    error = 'ניתן להעלות רק תמונות PNG, JPG, WEBP או GIF'
+                                    break
+                                markdown_image_payloads.append({
+                                    'filename': safe_name,
+                                    'content_type': content_type,
+                                    'size': len(data),
+                                    'data': data,
+                                })
+                            if error:
+                                markdown_image_payloads = []
+
                 now = datetime.now(timezone.utc)
                 new_doc = {
                     'user_id': user_id,
@@ -7938,6 +7981,11 @@ def edit_file_page(file_id):
                 try:
                     res = db.code_snippets.insert_one(new_doc)
                     if res and getattr(res, 'inserted_id', None):
+                        if markdown_image_payloads:
+                            try:
+                                _save_markdown_images(db, user_id, res.inserted_id, markdown_image_payloads)
+                            except Exception:
+                                pass
                         if original_file_name and original_file_name != file_name:
                             _sync_collection_items_after_web_rename(db, user_id, original_file_name, file_name)
                         if _log_webapp_user_activity():
@@ -8705,7 +8753,7 @@ def upload_file_web():
                 except Exception:
                     pass
                 # שמירה ישירה במסד (להימנע מתלות ב-BOT_TOKEN של שכבת הבוט)
-                should_collect_images = isinstance(file_name, str) and file_name.lower().endswith('.md')
+                should_collect_images = isinstance(file_name, str) and file_name.lower().endswith(('.md', '.markdown'))
                 if not error and should_collect_images:
                     try:
                         incoming_images = request.files.getlist('md_images')
