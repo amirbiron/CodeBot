@@ -727,9 +727,15 @@ def _match_graph_rule(alert: Dict[str, Any]) -> Tuple[Optional[str], Optional[st
 
 
 def _describe_alert_graph(alert: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    alert_type = str(alert.get("alert_type") or "").strip().lower()
     metric = _alert_metric_from_metadata(alert)
     reason = "metadata" if metric else None
     category = None
+    # Sentry issues אינם קשורים בהכרח למדדים הפנימיים (latency/error_rate וכו'),
+    # ולעיתים התאמה היוריסטית לפי מילות מפתח ("errors") יוצרת גרף "ריק" ומבלבל.
+    # אם בעתיד נרצה גרף עבור Sentry – נוסיף metric מפורש במטא־דאטה או מקור חיצוני.
+    if not metric and alert_type == "sentry_issue":
+        return None
     if not metric:
         metric, category, reason = _match_graph_rule(alert)
     if not metric:
