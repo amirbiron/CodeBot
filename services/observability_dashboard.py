@@ -605,6 +605,29 @@ def _expand_quick_fix_action(cfg: Dict[str, Any], alert: Dict[str, Any]) -> Dict
     return expanded
 
 
+def _effective_alert_type_from_snapshot(alert: Dict[str, Any]) -> Optional[str]:
+    """Best-effort alert_type extraction from either top-level or metadata/details.
+
+    Older DB rows or upstream emitters sometimes store the type under metadata keys
+    (e.g. details.type) while the top-level alert_type field is missing.
+    """
+    try:
+        direct = alert.get("alert_type")
+    except Exception:
+        direct = None
+    if direct not in (None, ""):
+        return direct  # type: ignore[return-value]
+    meta = alert.get("metadata") if isinstance(alert.get("metadata"), dict) else {}
+    for key in ("alert_type", "type", "category", "kind"):
+        try:
+            candidate = meta.get(key)
+        except Exception:
+            candidate = None
+        if candidate not in (None, ""):
+            return candidate  # type: ignore[return-value]
+    return None
+
+
 def _collect_quick_fix_actions(alert: Dict[str, Any]) -> List[Dict[str, Any]]:
     config = _load_quick_fix_config() or {}
     actions: List[Dict[str, Any]] = []
@@ -623,7 +646,7 @@ def _collect_quick_fix_actions(alert: Dict[str, Any]) -> List[Dict[str, Any]]:
             seen.add(act_id)
             actions.append(expanded)
 
-    alert_type = _normalize_alert_type(alert.get("alert_type"))
+    alert_type = _normalize_alert_type(_effective_alert_type_from_snapshot(alert))
     by_type = config.get("by_alert_type") if isinstance(config, dict) else None
     by_type_map: Dict[str, Any] = {}
     if isinstance(by_type, dict):
@@ -681,7 +704,8 @@ def _expand_runbook_steps(
 
 
 def _runbook_quick_fix_actions(alert: Dict[str, Any]) -> List[Dict[str, Any]]:
-    runbook = _resolve_runbook_entry(alert.get("alert_type"))
+    alert_type = _effective_alert_type_from_snapshot(alert)
+    runbook = _resolve_runbook_entry(alert_type)
     if not runbook:
         return []
     _, actions = _expand_runbook_steps(runbook, alert)
@@ -2573,18 +2597,30 @@ def fetch_incident_replay(
             continue
         if ts_dt is not None and not _is_within_window(ts_dt, start_dt, end_dt):
             continue
+        uid = alert.get("alert_uid") or _build_alert_uid(alert)
+        # Prefer the stored top-level alert_type, but fall back to metadata/details when missing.
+        effective_alert_type = alert.get("alert_type")
+        if not effective_alert_type:
+            meta = alert.get("metadata") if isinstance(alert.get("metadata"), dict) else {}
+            for key in ("alert_type", "type", "category", "kind"):
+                try:
+                    candidate = meta.get(key)
+                except Exception:
+                    candidate = None
+                if candidate not in (None, ""):
+                    effective_alert_type = candidate
+                    break
         event_type = "alert"
-        if _normalize_alert_type(alert.get("alert_type")) == "deployment_event":
+        if _normalize_alert_type(effective_alert_type) == "deployment_event":
             event_type = "deployment"
             deployment_count += 1
         else:
             alert_count += 1
-        uid = alert.get("alert_uid") or _build_alert_uid(alert)
         metadata = {
             "endpoint": alert.get("endpoint"),
-            "alert_type": alert.get("alert_type"),
+            "alert_type": effective_alert_type,
             "source": alert.get("source"),
-            "has_runbook": bool(_resolve_runbook_key(alert.get("alert_type"), allow_default=False)),
+            "has_runbook": bool(_resolve_runbook_key(effective_alert_type, allow_default=False)),
         }
         events.append(
             {
