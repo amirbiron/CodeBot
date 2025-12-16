@@ -30,16 +30,26 @@ ChatOps זה דרך לנהל ולנטר את המערכת ישירות דרך ה
 ## 🏥 פקודות בריאות המערכת
 
 ### `/status` - בדיקת בריאות כללית
-בודק את מצב כל הרכיבים המרכזיים במערכת.
+מציג דוח חלון זמן (UTC) על תעבורה/לטנסי + בדיקות בריאות בסיסיות (DB/Redis/Sentry/OTEL).
 
 **דוגמה:**
 ```
-/status
+/status --since 15m
 ```
 
 **תשובה:**
 ```
-📋 Status
+📋 Status (UTC)
+Report for: 2025-12-16 10:00 - 2025-12-16 10:15 UTC (since 15m)
+
+📈 Traffic (source=db)
+• Total Requests: 123
+• Errors (5xx): 2 (1.63%)
+⏱️ Latency: p50=120ms | p95=450ms | p99=900ms
+🐢 Slowest Endpoints (max)
+1. GET /api/x — max=1200ms avg=340ms (n=12)
+
+🧪 Health
 DB: 🟢
 Redis: 🟢
 GitHub: 4823/5000 (3% used)
@@ -49,6 +59,7 @@ GitHub: 4823/5000 (3% used)
 - חיבור למסד נתונים (MongoDB)
 - זמינות Redis לקאשינג
 - מכסת GitHub API
+- בנוסף: Total Requests + p50/p95/p99 + Slowest Endpoints בחלון הזמן שנבחר (UTC)
 
 ---
 
@@ -131,20 +142,21 @@ Alerts (24h): 3 (1 critical)
 ---
 
 ### `/errors` - השגיאות האחרונות
-מציג את 10 השגיאות האחרונות במערכת.
+מציג Top שגיאות לפי חתימות (עם חלון זמן אופציונלי ב-UTC), כולל דגימות `request_id` כשזמין.
 
 **דוגמה:**
 ```
-/errors
+/errors --since 2h --min_severity ERROR
 ```
 
 **תשובה:**
 ```
-🧰 שגיאות אחרונות:
-1. [CONN_001] Database connection timeout
-2. [API_002] GitHub rate limit exceeded
-3. [MEM_003] Memory usage above 90%
-...
+🧰 שגיאות (UTC)
+Report for: 2025-12-16 08:15 - 2025-12-16 10:15 UTC (since 2h)
+
+Top signatures:
+1. [db|SIG1] 12× boom (code=E1) — דוגמאות: /errors examples SIG1 ids=req-1,req-7
+2. [net|SIG2] 5× timeout (code=E2) — דוגמאות: /errors examples SIG2
 ```
 
 **מקורות נתונים:**

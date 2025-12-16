@@ -18,6 +18,7 @@ Environment variables:
 """
 from __future__ import annotations
 
+import math
 import os
 import time
 from collections import deque
@@ -429,3 +430,105 @@ def aggregate_error_ratio(
         return {"total": 0, "errors": 0}
     doc = rows[0]
     return {"total": int(doc.get("total", 0)), "errors": int(doc.get("errors", 0))}
+
+
+def aggregate_latency_percentiles(
+    *,
+    start_dt: Optional[datetime],
+    end_dt: Optional[datetime],
+    percentiles: Tuple[int, ...] = (50, 95, 99),
+    sample_limit: int = 5000,
+) -> Dict[str, float]:
+    """Return latency percentiles (seconds) for the given window.
+
+    Best-effort:
+    - Try Mongo $percentile aggregation when available.
+    - Otherwise, sample up to sample_limit records and compute percentiles in Python.
+    """
+    coll = _get_collection()
+    if coll is None:
+        return {}
+
+    try:
+        pcts = tuple(int(p) for p in (percentiles or (50, 95, 99)))
+    except Exception:
+        pcts = (50, 95, 99)
+    pcts = tuple(p for p in pcts if 0 < int(p) < 100)
+    if not pcts:
+        pcts = (50, 95, 99)
+
+    match = _build_time_match(start_dt, end_dt)
+
+    # Attempt Mongo-native percentile aggregation (MongoDB 5.2+)
+    try:
+        p_array = [float(p) / 100.0 for p in pcts]
+        pipeline = [
+            {"$match": match},
+            {
+                "$group": {
+                    "_id": None,
+                    "p": {
+                        "$percentile": {
+                            "input": "$duration_seconds",
+                            "p": p_array,
+                            "method": "approximate",
+                        }
+                    },
+                }
+            },
+        ]
+        rows = list(coll.aggregate(pipeline))  # type: ignore[attr-defined]
+        if rows:
+            arr = rows[0].get("p")
+            if isinstance(arr, list) and len(arr) == len(pcts):
+                out: Dict[str, float] = {}
+                for idx, p in enumerate(pcts):
+                    try:
+                        out[f"p{p}"] = float(arr[idx])
+                    except Exception:
+                        continue
+                if out:
+                    return out
+    except Exception:
+        # fallback below
+        pass
+
+    # Fallback: sample durations and compute percentiles in Python (nearest-rank).
+    try:
+        max_items = max(1, min(50_000, int(sample_limit)))
+    except Exception:
+        max_items = 5000
+    try:
+        cursor = (
+            coll.find(match, {"duration_seconds": 1, "_id": 0})  # type: ignore[attr-defined]
+            .sort("ts", -1)
+            .limit(max_items)
+        )
+        values: list[float] = []
+        for doc in cursor:
+            try:
+                values.append(float(doc.get("duration_seconds", 0.0) or 0.0))
+            except Exception:
+                continue
+        if not values:
+            return {}
+        values.sort()
+
+        def _nearest_rank(p: int) -> float:
+            if not values:
+                return 0.0
+            # nearest-rank: ceil(p/100 * N) - 1
+            n = len(values)
+            k = int(math.ceil((float(p) / 100.0) * float(n))) - 1
+            k = max(0, min(n - 1, k))
+            return float(values[k])
+
+        out: Dict[str, float] = {}
+        for p in pcts:
+            try:
+                out[f"p{p}"] = _nearest_rank(int(p))
+            except Exception:
+                continue
+        return out
+    except Exception:
+        return {}
