@@ -57,6 +57,260 @@ class _AnomalyBatch:
 _ANOMALY_BATCHES: Dict[str, _AnomalyBatch] = {}
 
 
+def _safe_int(value: Any, default: int = 0) -> int:
+    try:
+        return int(float(str(value).strip()))
+    except Exception:
+        return int(default)
+
+
+def _safe_float(value: Any, default: float = 0.0) -> float:
+    try:
+        return float(str(value).strip().replace("%", "").replace("s", ""))
+    except Exception:
+        return float(default)
+
+
+def _fmt_minutes(window_seconds: Any) -> str:
+    sec = _safe_int(window_seconds, 0)
+    if sec <= 0:
+        return "—"
+    minutes = max(1, int(math.ceil(sec / 60.0)))
+    return f"{minutes} minutes"
+
+
+def _clean_sentry_noise(text: str) -> str:
+    """Remove very noisy Sentry/driver fragments for chat notifications."""
+    try:
+        t = str(text or "")
+    except Exception:
+        return ""
+    # Drop TopologyDescription tail (very long)
+    try:
+        t = re.sub(r",?\s*Topology Description:\s*<TopologyDescription[\s\S]*$", "", t, flags=re.IGNORECASE)
+    except Exception:
+        pass
+    # Trim excessive whitespace
+    try:
+        t = re.sub(r"\s+", " ", t).strip()
+    except Exception:
+        pass
+    # Hard cap to avoid huge messages
+    if len(t) > 260:
+        t = t[:259] + "…"
+    return t
+
+
+def _extract_host_from_text(text: str) -> Optional[str]:
+    try:
+        m = re.search(r"([\w-]+\.mongodb\.net)", str(text or ""))
+        return m.group(1) if m else None
+    except Exception:
+        return None
+
+
+def _extract_connect_timeout_ms(text: str) -> Optional[int]:
+    try:
+        m = re.search(r"connectTimeoutMS:\s*([0-9.]+)ms", str(text or ""), flags=re.IGNORECASE)
+        if m:
+            return int(float(m.group(1)))
+    except Exception:
+        return None
+    return None
+
+
+def _parse_avg_threshold_from_summary(summary: str) -> tuple[Optional[float], Optional[float]]:
+    """Parse `avg_rt=3.737s (threshold 3.000s)` style summaries."""
+    try:
+        s = str(summary or "")
+    except Exception:
+        return None, None
+    try:
+        m_avg = re.search(r"avg_rt\s*=\s*([0-9.]+)s", s, flags=re.IGNORECASE)
+        m_thr = re.search(r"threshold\s*([0-9.]+)s", s, flags=re.IGNORECASE)
+        avg = float(m_avg.group(1)) if m_avg else None
+        thr = float(m_thr.group(1)) if m_thr else None
+        return avg, thr
+    except Exception:
+        return None, None
+
+
+def _parse_percent_pair_from_summary(summary: str) -> tuple[Optional[float], Optional[float]]:
+    """Parse `...=60.00% > threshold=20.00%` style summaries."""
+    try:
+        s = str(summary or "")
+    except Exception:
+        return None, None
+    try:
+        m_cur = re.search(r"=\s*([0-9.]+)%", s)
+        m_thr = re.search(r"threshold\s*=\s*([0-9.]+)%", s, flags=re.IGNORECASE)
+        cur = float(m_cur.group(1)) if m_cur else None
+        thr = float(m_thr.group(1)) if m_thr else None
+        return cur, thr
+    except Exception:
+        return None, None
+
+
+def _format_external_service_degraded(
+    *,
+    service: Optional[str],
+    current_percent: Optional[float],
+    threshold_percent: Optional[float],
+    sample_count: int,
+    error_count: int,
+    window_seconds: int,
+) -> str:
+    svc = service or "Unknown"
+    cur = f"{current_percent:.0f}%" if current_percent is not None else "—"
+    thr = f"{threshold_percent:.0f}%" if threshold_percent is not None else "—"
+    window = _fmt_minutes(window_seconds)
+    return "\n".join(
+        [
+            "⚠️ External Service Degraded",
+            f"Service: {svc}",
+            f"📉 Error Rate: {cur} (Threshold: {thr})",
+            "📊 Stats:",
+            f"• Errors: {error_count} / {max(0, sample_count)} requests",
+            f"• Window: {window}",
+            "🛑 Action Required: Check external provider status page.",
+        ]
+    )
+
+
+def _format_latency_anomaly(
+    *,
+    avg_rt: Optional[float],
+    threshold: Optional[float],
+    top_slow_endpoint: Optional[str],
+    slow_endpoints_compact: Optional[str],
+    active_requests: Optional[str],
+    memory_mb: Optional[str],
+    recent_errors_5m: Optional[str],
+) -> str:
+    avg_s = f"{avg_rt:.2f}s" if avg_rt is not None else "—"
+    thr_s = f"{threshold:.2f}s" if threshold is not None else "—"
+
+    # Parse "GET index (10.525s)" into pieces
+    culprit_line = "Unknown"
+    based_on = None
+    if top_slow_endpoint:
+        try:
+            m = re.match(r"(?P<m>\w+)\s+(?P<ep>[^()]+)\((?P<dur>[0-9.]+)s\)", top_slow_endpoint.strip())
+            if m:
+                method = m.group("m").upper()
+                ep = m.group("ep").strip()
+                if not ep.startswith("/"):
+                    ep = "/" + ep
+                dur = float(m.group("dur"))
+                culprit_line = f"{method} {ep} ➡️ {dur:.2f}s ⚠️"
+            else:
+                culprit_line = top_slow_endpoint.strip()
+        except Exception:
+            culprit_line = top_slow_endpoint
+    # Try to infer sample count for the top endpoint from compact list (n=..)
+    if slow_endpoints_compact and top_slow_endpoint:
+        try:
+            m = re.search(r"\(n=(\d+)\)", slow_endpoints_compact)
+            if m:
+                based_on = int(m.group(1))
+        except Exception:
+            based_on = None
+
+    other_lines: List[str] = []
+    if slow_endpoints_compact:
+        # "GET index: 10.53s (n=1); HEAD index: 0.21s (n=1)"
+        try:
+            entries = [e.strip() for e in slow_endpoints_compact.split(";") if e.strip()]
+        except Exception:
+            entries = []
+        for e in entries[1:4]:
+            # Normalize endpoint presentation a bit
+            other_lines.append(f"• {e}")
+
+    health_lines: List[str] = []
+    if active_requests is not None:
+        health_lines.append(f"• Active Req: {active_requests}")
+    if memory_mb is not None:
+        try:
+            mem = float(str(memory_mb).strip())
+            health_lines.append(f"• Memory: {mem:.0f} MB")
+        except Exception:
+            health_lines.append(f"• Memory: {memory_mb} MB")
+    if recent_errors_5m is not None:
+        health_lines.append(f"• Errors (5m): {recent_errors_5m}")
+
+    lines = [
+        "🐢 High Latency Detected",
+        f"Avg Response: {avg_s} (Threshold: {thr_s})",
+        "🐌 Top Bottleneck:",
+        culprit_line,
+    ]
+    if based_on is not None:
+        lines.append(f"(Based on {based_on} request)")
+    if other_lines:
+        lines.append("📉 Other Endpoints:")
+        lines.extend(other_lines)
+    if health_lines:
+        lines.append("📊 Server Health:")
+        lines.extend(health_lines)
+    return "\n".join(lines)
+
+
+def _format_sentry_issue(
+    *,
+    short_id: Optional[str],
+    summary: str,
+    last_seen: Optional[str],
+    sentry_link: Optional[str],
+) -> str:
+    raw = str(summary or "")
+    cleaned = _clean_sentry_noise(raw)
+    sid = short_id or "—"
+
+    lowered = raw.lower()
+    # Heuristics for clearer titles
+    if "_operationcancelled" in lowered or "operation cancelled" in lowered:
+        title = "🧹 DB Pool Maintenance Warning"
+        body = "Background cleanup task failed due to network instability."
+        host = _extract_host_from_text(raw)
+        if host:
+            body += f"\nTarget: {host}"
+        text = "\n".join([title, f"Source: Sentry ({sid})", f"Error: Operation Cancelled", body])
+    elif "ssl handshake failed" in lowered:
+        title = "🔐 SSL Handshake Failed"
+        host = _extract_host_from_text(raw) or "Unknown Host"
+        timeout_ms = _extract_connect_timeout_ms(raw)
+        timeout_line = f"⏱️ Timeout: {timeout_ms}ms ({(timeout_ms/1000.0):.0f}s)" if timeout_ms else "⏱️ Timeout: —"
+        text = "\n".join(
+            [
+                title,
+                f"Source: Sentry ({sid})",
+                f"Target: {host}",
+                timeout_line,
+                _clean_sentry_noise(raw),
+            ]
+        )
+    elif ("replicasetnoprimary" in lowered) or ("primary()" in lowered) or ("no replica set members match selector" in lowered):
+        title = "🚨 Critical Database Error"
+        text = "\n".join(
+            [
+                title,
+                f"Source: Sentry ({sid})",
+                "💀 Issue: MongoDB Connection Failed",
+                cleaned or "—",
+            ]
+        )
+    else:
+        title = "🚨 Sentry Alert"
+        text = "\n".join([title, f"Source: Sentry ({sid})", cleaned or "—"])
+
+    if last_seen:
+        text += f"\n📅 Last Seen: {last_seen}"
+    if sentry_link:
+        text += f"\n🔗 Action: {sentry_link}"
+    return text
+
+
 def _format_alert_text(alert: Dict[str, Any]) -> str:
     labels = alert.get("labels", {}) or {}
     annotations = alert.get("annotations", {}) or {}
@@ -85,20 +339,83 @@ def _format_alert_text(alert: Dict[str, Any]) -> str:
 
     generator_url = alert.get("generatorURL") or ""
 
-    parts = [f"[{status.upper()} | {severity}] {name}"]
+    # --- Specialized templates for high-signal alerts ---
+    try:
+        if str(name or "").strip() == "External Service Degraded":
+            cur, thr = _parse_percent_pair_from_summary(str(summary or ""))
+            # Prefer explicit annotations from internal_alerts; fallback to details_preview parsing
+            cur = _safe_float(_first(["current_percent"])) if _first(["current_percent"]) else cur
+            thr = _safe_float(_first(["threshold_percent"])) if _first(["threshold_percent"]) else thr
+            sample_count = _safe_int(_first(["sample_count"]), 0)
+            error_count = _safe_int(_first(["error_count"]), 0)
+            window_seconds = _safe_int(_first(["window_seconds"]), 0)
+            msg = _format_external_service_degraded(
+                service=service,
+                current_percent=cur,
+                threshold_percent=thr,
+                sample_count=sample_count,
+                error_count=error_count,
+                window_seconds=window_seconds,
+            )
+            # Append URLs (Grafana/AM + Sentry) if present
+            if generator_url:
+                msg += f"\n{generator_url}"
+            sentry_link = _build_sentry_link(
+                direct_url=_first(["sentry_permalink", "sentry_url", "sentry"]),
+                request_id=request_id,
+                error_signature=_first(["error_signature", "signature"]),
+            )
+            if sentry_link:
+                msg += f"\nSentry: {sentry_link}"
+            return msg
+
+        if str(name or "").strip().lower() == "anomaly_detected":
+            avg, thr = _parse_avg_threshold_from_summary(str(summary or ""))
+            msg = _format_latency_anomaly(
+                avg_rt=avg,
+                threshold=thr,
+                top_slow_endpoint=_first(["top_slow_endpoint"]),
+                slow_endpoints_compact=_first(["slow_endpoints_compact"]),
+                active_requests=_first(["active_requests"]),
+                memory_mb=_first(["avg_memory_usage_mb"]),
+                recent_errors_5m=_first(["recent_errors_5m"]),
+            )
+            if generator_url:
+                msg += f"\n{generator_url}"
+            return msg
+
+        # Only treat as a Sentry-origin alert when the alert itself is named as such.
+        # Regular alerts may still include a Sentry permalink for convenience.
+        if str(name or "").strip().lower().startswith("sentry:"):
+            msg = _format_sentry_issue(
+                short_id=_first(["sentry_short_id"]) or (str(name).split(":", 1)[-1].strip() if ":" in str(name) else None),
+                summary=str(summary or ""),
+                last_seen=_first(["sentry_last_seen"]),
+                sentry_link=_build_sentry_link(
+                    direct_url=_first(["sentry_permalink", "sentry_url", "sentry"]),
+                    request_id=request_id,
+                    error_signature=_first(["error_signature", "signature"]),
+                ),
+            )
+            return msg
+    except Exception:
+        # If specialized formatting fails, fall back to generic.
+        pass
+
+    parts = [f"🔔 {name} ({severity})"]
+    if summary:
+        parts.append(str(summary))
     if service:
         parts.append(f"service: {service}")
     if environment:
         parts.append(f"env: {environment}")
     if instance:
         parts.append(f"instance: {instance}")
-    if summary:
-        parts.append(str(summary))
+    if request_id:
+        parts.append(f"request_id: {request_id}")
     detail_preview = annotations.get("details_preview") or annotations.get("details")
     if detail_preview:
         parts.append(str(detail_preview))
-    if request_id:
-        parts.append(f"request_id: {request_id}")
 
     # Append source URL if exists (Alertmanager/Grafana link)
     if generator_url:

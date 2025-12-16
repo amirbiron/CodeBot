@@ -676,6 +676,29 @@ def check_and_emit_alerts(now_ts: Optional[float] = None) -> None:
                 "threshold_percent": round(_EXTERNAL_WARNING_THRESHOLD, 4),
                 "source": "external",
             }
+            # Best-effort: derive "which service" from recent external error contexts.
+            # This relies on metrics.record_request_outcome(...) feeding alert_manager.note_request(...)
+            # with a context that includes component/command/path. If unavailable, we keep it empty.
+            try:
+                contexts = _recent_error_contexts(t, window_sec)
+                ext = [c for c in (contexts or []) if str(c.get("source") or "").lower().startswith("external")]
+                if ext:
+                    def _most_common(key: str) -> Optional[str]:
+                        vals = [str(c.get(key)).strip() for c in ext if c.get(key)]
+                        if not vals:
+                            return None
+                        return Counter(vals).most_common(1)[0][0]
+                    # Prefer component → command → path/handler
+                    service_label = (
+                        _most_common("component")
+                        or _most_common("command")
+                        or _most_common("path")
+                        or _most_common("handler")
+                    )
+                    if service_label:
+                        warning_details["service"] = service_label
+            except Exception:
+                pass
             _emit_warning_once(
                 key="external_error_rate_percent",
                 name="External Service Degraded",

@@ -138,6 +138,38 @@ def test_external_errors_emit_warning_only(tmp_path, monkeypatch):
     assert gauge_values and gauge_values[-1] > 0.0
 
 
+def test_external_warning_includes_service_when_context_available(tmp_path, monkeypatch):
+    am = _load_alert_manager(tmp_path, monkeypatch)
+
+    captured: list[tuple[str, str, str, dict]] = []
+
+    def _fake_alert(name, severity="info", summary="", **details):
+        captured.append((name, severity, summary, details))
+
+    monkeypatch.setitem(sys.modules, 'internal_alerts', types.SimpleNamespace(emit_internal_alert=_fake_alert))
+
+    import metrics  # noqa: WPS433
+
+    monkeypatch.setattr(metrics, "set_external_error_rate_percent", lambda value=None: None)
+
+    now = time.time()
+    # Seed external errors with a component in context (best-effort service attribution)
+    for i in range(6):
+        am.note_request(
+            503,
+            0.2,
+            ts=now - 60 + i,
+            source="external",
+            context={"source": "external", "component": "OpenAI_API"},
+        )
+
+    am.check_and_emit_alerts(now_ts=now)
+
+    warn = next((d for n, sev, _s, d in captured if n == "External Service Degraded" and sev == "warning"), None)
+    assert warn is not None
+    assert warn.get("service") == "OpenAI_API"
+
+
 def test_internal_errors_trigger_high_error_rate(tmp_path, monkeypatch):
     am = _load_alert_manager(tmp_path, monkeypatch)
 

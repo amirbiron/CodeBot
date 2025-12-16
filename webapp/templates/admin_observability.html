@@ -240,6 +240,7 @@
   font-size: 0.8rem;
 }
 .status-critical { background: rgba(255,99,132,0.15); color: #ff627c; }
+.status-error { background: rgba(255, 119, 86, 0.18); color: #ff8a6b; }
 .status-anomaly { background: rgba(255,206,86,0.18); color: #fcd177; }
 .status-warning { background: rgba(54,162,235,0.18); color: #5ec0ff; }
 .status-info { background: rgba(99,255,203,0.15); color: #64ffda; }
@@ -689,6 +690,7 @@
         <select id="severityFilter">
           <option value="all">כל החומרות</option>
           <option value="critical">Critical</option>
+          <option value="error">Error</option>
           <option value="anomaly">Anomaly</option>
           <option value="warning">Warning</option>
           <option value="info">Info</option>
@@ -986,6 +988,7 @@
     if (!sev) return 'status-info';
     const v = String(sev).toLowerCase();
     if (v.startsWith('crit')) return 'status-critical';
+    if (v.startsWith('err')) return 'status-error';
     if (v.startsWith('anom')) return 'status-anomaly';
     if (v.startsWith('warn')) return 'status-warning';
     return 'status-info';
