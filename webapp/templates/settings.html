@@ -465,7 +465,26 @@
           </div>
         </div>
       </div>
-      <div>
+      <div style="display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap">
+        <span class="settings-theme-morph" aria-hidden="true" title="תצוגת מעבר בהחלפת ערכת נושא">
+          <svg class="sun-and-moon" aria-hidden="true" width="24" height="24" viewBox="0 0 24 24">
+            <mask class="moon" id="settingsMoonMask">
+              <rect x="0" y="0" width="100%" height="100%" fill="white" />
+              <circle cx="24" cy="10" r="6" fill="black" />
+            </mask>
+            <circle class="sun" cx="12" cy="12" r="6" mask="url(#settingsMoonMask)" fill="currentColor" />
+            <g class="sun-beams" stroke="currentColor">
+              <line x1="12" y1="1" x2="12" y2="3" />
+              <line x1="12" y1="21" x2="12" y2="23" />
+              <line x1="4.22" y1="4.22" x2="5.64" y2="5.64" />
+              <line x1="18.36" y1="18.36" x2="19.78" y2="19.78" />
+              <line x1="1" y1="12" x2="3" y2="12" />
+              <line x1="21" y1="12" x2="23" y2="12" />
+              <line x1="4.22" y1="19.78" x2="5.64" y2="18.36" />
+              <line x1="18.36" y1="5.64" x2="19.78" y2="4.22" />
+            </g>
+          </svg>
+        </span>
         <select
           id="themeSelect"
           class="filter-select"
@@ -1142,16 +1161,31 @@
       });
 
       if (themeSel) themeSel.addEventListener('change', async function(){
+        let prevTheme = 'classic';
+        try {
+          prevTheme = (document.documentElement && document.documentElement.getAttribute('data-theme')) || '{{ ui_theme }}' || 'classic';
+        } catch(_) {}
+        const nextTheme = themeSel.value;
+
         try {
           try { localStorage.setItem('dark_mode_preference', themeSel.value); } catch(_) {}
+          try {
+            // החלה מיידית כדי לראות את המעבר (ללא רענון)
+            document.documentElement.setAttribute('data-theme', nextTheme);
+          } catch(_) {}
           const res = await fetch('/api/ui_prefs', {
             method: 'POST', headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ theme: themeSel.value })
           });
           const data = await res.json();
           if (!data.ok) throw 0;
-          location.reload();
-        } catch (e) { alert('שגיאה בעדכון ערכת הנושא'); }
+          // אין צורך ב-reload – ה-theme כבר הוחל בעמוד
+        } catch (e) {
+          // חזרה למצב קודם כדי לא להשאיר UI במצב שלא נשמר
+          try { document.documentElement.setAttribute('data-theme', prevTheme); } catch(_) {}
+          try { themeSel.value = prevTheme; } catch(_) {}
+          alert('שגיאה בעדכון ערכת הנושא');
+        }
       });
 
       // Bookmarks toggle visibility controls
