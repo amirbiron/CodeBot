@@ -990,6 +990,28 @@
       font-size: 0.8rem;
       margin-left: 0.25rem;
     }
+    .radar-chip.radar-action-chip {
+      align-items: center;
+      gap: 0.35rem;
+    }
+    .radar-action-link {
+      color: inherit;
+      text-decoration: underline;
+    }
+    .radar-action-copy {
+      appearance: none;
+      background: none;
+      border: none;
+      color: inherit;
+      text-decoration: underline;
+      font: inherit;
+      padding: 0;
+      cursor: pointer;
+    }
+    .radar-action-copy[disabled] {
+      cursor: default;
+      opacity: 0.65;
+    }
     .badge-success {
       background: rgba(16, 185, 129, 0.2);
       border-color: rgba(16, 185, 129, 0.4);
@@ -1154,7 +1176,7 @@
 
       const escapeHtml = (value) => {
         if (value === null || value === undefined) return '';
-        return String(value).replace(/[&<>"]/g, (char) => {
+        return String(value).replace(/[&<>"']/g, (char) => {
           switch (char) {
             case '&': return '&amp;';
             case '<': return '&lt;';
@@ -1178,6 +1200,67 @@
         } catch (e) {
           return value;
         }
+      };
+
+      const sanitizeHref = (value) => {
+        const href = String(value || '').trim();
+        if (!href || href === '—') return '';
+        const lower = href.toLowerCase();
+        // Avoid javascript: / data: injection vectors.
+        if (lower.startsWith('javascript:') || lower.startsWith('data:') || lower.startsWith('vbscript:')) return '';
+        // Allow relative, hash, and common safe schemes.
+        if (href.startsWith('/') || href.startsWith('#')) return href;
+        if (lower.startsWith('http://') || lower.startsWith('https://') || lower.startsWith('mailto:')) return href;
+        return '';
+      };
+
+      const safeCopyToClipboard = async (raw) => {
+        const text = String(raw ?? '');
+        if (!text) return false;
+        try {
+          if (navigator?.clipboard?.writeText && window.isSecureContext) {
+            await navigator.clipboard.writeText(text);
+            return true;
+          }
+        } catch (_) {}
+        try {
+          const ta = document.createElement('textarea');
+          ta.value = text;
+          ta.setAttribute('readonly', 'true');
+          ta.style.position = 'fixed';
+          ta.style.top = '0';
+          ta.style.left = '-9999px';
+          document.body.appendChild(ta);
+          ta.focus();
+          ta.select();
+          const ok = document.execCommand('copy');
+          document.body.removeChild(ta);
+          return Boolean(ok);
+        } catch (_) {
+          return false;
+        }
+      };
+
+      const bindRadarCopyButtons = (root) => {
+        if (!root) return;
+        root.querySelectorAll('.radar-action-copy').forEach((btn) => {
+          if (btn.dataset.bound === '1') return;
+          btn.dataset.bound = '1';
+          btn.addEventListener('click', async (event) => {
+            event.preventDefault();
+            const encoded = btn.dataset.copy || '';
+            let text = '';
+            try { text = decodeURIComponent(encoded); } catch (_) { text = encoded; }
+            const prev = btn.textContent;
+            btn.disabled = true;
+            const ok = await safeCopyToClipboard(text);
+            btn.textContent = ok ? 'הועתק' : 'שגיאה';
+            setTimeout(() => {
+              btn.textContent = prev;
+              btn.disabled = false;
+            }, 1200);
+          });
+        });
       };
 
       const initConfigRadar = () => {
@@ -1406,15 +1489,73 @@
           if (!Array.isArray(actions) || !actions.length) {
             return '<span class="radar-chip">—</span>';
           }
-          return actions.map((action) => {
-            const label = escapeHtml(action?.label || '');
-            const type = escapeHtml(action?.type || '');
-            return `<span class="radar-chip">
-              ${label || '—'}
-              ${type ? `<small style="display:block; opacity:0.7">${type}</small>` : ''}
-            </span>`;
-          }).join(' ');
+        return actions.map((action) => {
+          const label = escapeHtml(action?.label || '—');
+          const typeRaw = String(action?.type || '');
+          const type = typeRaw.toLowerCase();
+          const value = String(action?.value || '');
+
+          if (type === 'link') {
+            const href = sanitizeHref(value);
+            if (href) {
+              return `<span class="radar-chip radar-action-chip">
+                ${label}
+                <span style="opacity:0.6;">•</span>
+                <a class="radar-action-link" href="${escapeHtml(href)}" target="_blank" rel="noopener">link</a>
+              </span>`;
+            }
+          }
+          if (type === 'copy') {
+            const payload = value && value !== '—' ? value : '';
+            if (payload) {
+              return `<span class="radar-chip radar-action-chip">
+                ${label}
+                <span style="opacity:0.6;">•</span>
+                <button class="radar-action-copy" type="button" data-copy="${encodeURIComponent(payload)}">copy</button>
+              </span>`;
+            }
+          }
+
+          const typeLabel = escapeHtml(typeRaw);
+          return `<span class="radar-chip">
+            ${label}
+            ${typeLabel ? `<small style="display:block; opacity:0.7">${typeLabel}</small>` : ''}
+          </span>`;
+        }).join(' ');
         };
+
+      const renderRunbookStepAction = (step) => {
+        const rawLabel = String(step?.action_label || '').trim();
+        if (!rawLabel) return '';
+        const typeRaw = String(step?.action_type || '');
+        const type = typeRaw.toLowerCase();
+        const value = String(step?.action_value || '');
+        const label = escapeHtml(rawLabel);
+
+        if (type === 'link') {
+          const href = sanitizeHref(value);
+          if (href) {
+            return `<span class="radar-chip radar-action-chip">
+              ${label}
+              <span style="opacity:0.6;">•</span>
+              <a class="radar-action-link" href="${escapeHtml(href)}" target="_blank" rel="noopener">link</a>
+            </span>`;
+          }
+        }
+        if (type === 'copy') {
+          const payload = value && value !== '—' ? value : '';
+          if (payload) {
+            return `<span class="radar-chip radar-action-chip">
+              ${label}
+              <span style="opacity:0.6;">•</span>
+              <button class="radar-action-copy" type="button" data-copy="${encodeURIComponent(payload)}">copy</button>
+            </span>`;
+          }
+        }
+
+        const typeLabel = escapeHtml(typeRaw);
+        return `<span class="radar-chip">${label}${typeLabel ? ` • ${typeLabel}` : ''}</span>`;
+      };
 
         const buildQuickFixPanel = (snapshot) => {
           const quick = snapshot?.quick_fixes || {};
@@ -1502,7 +1643,7 @@
                   ? (book.steps || []).map((step) => `
                       <li>
                         <strong>${escapeHtml(step.title || step.id || '')}</strong>
-                        ${step.action_label ? `<span class="radar-chip">${escapeHtml(step.action_label)}${step.action_type ? ` • ${escapeHtml(step.action_type)}` : ''}</span>` : ''}
+                        ${step.action_label ? renderRunbookStepAction(step) : ''}
                       </li>
                     `).join('')
                   : '<li>לא הוגדרו צעדים לדוגמה</li>';
@@ -1731,6 +1872,7 @@
           if (slots.images) slots.images.innerHTML = buildImagesPanel(snapshot);
           if (slots.quickfixes) slots.quickfixes.innerHTML = buildQuickFixPanel(snapshot);
           if (slots.runbooks) slots.runbooks.innerHTML = buildRunbooksPanel(snapshot);
+          bindRadarCopyButtons(card);
         };
 
         const fetchSnapshot = async (label) => {
