@@ -605,6 +605,29 @@ def _expand_quick_fix_action(cfg: Dict[str, Any], alert: Dict[str, Any]) -> Dict
     return expanded
 
 
+def _effective_alert_type_from_snapshot(alert: Dict[str, Any]) -> Optional[str]:
+    """Best-effort alert_type extraction from either top-level or metadata/details.
+
+    Older DB rows or upstream emitters sometimes store the type under metadata keys
+    (e.g. details.type) while the top-level alert_type field is missing.
+    """
+    try:
+        direct = alert.get("alert_type")
+    except Exception:
+        direct = None
+    if direct not in (None, ""):
+        return direct  # type: ignore[return-value]
+    meta = alert.get("metadata") if isinstance(alert.get("metadata"), dict) else {}
+    for key in ("alert_type", "type", "category", "kind"):
+        try:
+            candidate = meta.get(key)
+        except Exception:
+            candidate = None
+        if candidate not in (None, ""):
+            return candidate  # type: ignore[return-value]
+    return None
+
+
 def _collect_quick_fix_actions(alert: Dict[str, Any]) -> List[Dict[str, Any]]:
     config = _load_quick_fix_config() or {}
     actions: List[Dict[str, Any]] = []
@@ -623,7 +646,7 @@ def _collect_quick_fix_actions(alert: Dict[str, Any]) -> List[Dict[str, Any]]:
             seen.add(act_id)
             actions.append(expanded)
 
-    alert_type = _normalize_alert_type(alert.get("alert_type"))
+    alert_type = _normalize_alert_type(_effective_alert_type_from_snapshot(alert))
     by_type = config.get("by_alert_type") if isinstance(config, dict) else None
     by_type_map: Dict[str, Any] = {}
     if isinstance(by_type, dict):
@@ -681,21 +704,7 @@ def _expand_runbook_steps(
 
 
 def _runbook_quick_fix_actions(alert: Dict[str, Any]) -> List[Dict[str, Any]]:
-    # In production we sometimes have alert_type only inside metadata/details (older records
-    # or upstream emitters), while the top-level alert_type field is missing.
-    # To avoid falling back to generic quick-fixes/runbooks, we derive an effective alert_type
-    # from either the top-level field or common metadata keys.
-    alert_type = alert.get("alert_type")
-    if not alert_type:
-        meta = alert.get("metadata") if isinstance(alert.get("metadata"), dict) else {}
-        for key in ("alert_type", "type", "category", "kind"):
-            try:
-                candidate = meta.get(key)
-            except Exception:
-                candidate = None
-            if candidate not in (None, ""):
-                alert_type = candidate
-                break
+    alert_type = _effective_alert_type_from_snapshot(alert)
     runbook = _resolve_runbook_entry(alert_type)
     if not runbook:
         return []
