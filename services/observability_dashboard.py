@@ -762,6 +762,17 @@ def _build_alert_uid(alert: Dict[str, Any]) -> str:
     return _hash_identifier(raw or "|".join(parts))
 
 
+def _ensure_utc_aware(dt: datetime) -> datetime:
+    """
+    Normalize datetimes for safe comparisons.
+
+    We treat offset-naive datetimes as UTC (common for DB-stored timestamps).
+    """
+    if dt.tzinfo is None:
+        return dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(timezone.utc)
+
+
 def _parse_iso_dt(value: Optional[str]) -> Optional[datetime]:
     if not value:
         return None
@@ -772,9 +783,7 @@ def _parse_iso_dt(value: Optional[str]) -> Optional[datetime]:
         if text.endswith("Z"):
             text = text[:-1] + "+00:00"
         dt = datetime.fromisoformat(text)
-        if dt.tzinfo is None:
-            dt = dt.replace(tzinfo=timezone.utc)
-        return dt
+        return _ensure_utc_aware(dt)
     except Exception:
         return None
 
@@ -1046,6 +1055,10 @@ def fetch_aggregations(
     end_dt: Optional[datetime],
     slow_endpoints_limit: int = 5,
 ) -> Dict[str, Any]:
+    # Ensure consistent datetime semantics across sources (DB timestamps are often naive UTC).
+    start_dt = _ensure_utc_aware(start_dt) if start_dt else None
+    end_dt = _ensure_utc_aware(end_dt) if end_dt else None
+
     cache_key = (
         start_dt.isoformat() if start_dt else None,
         end_dt.isoformat() if end_dt else None,
@@ -1073,13 +1086,14 @@ def fetch_aggregations(
         alert_type="deployment_event",
         limit=50,
     )
+    deployments = [_ensure_utc_aware(ts) for ts in deployments]
     if not deployments and _internal_alerts is not None:
         fallback_deployments = [
             _parse_iso_dt(rec.get("ts"))
             for rec in (_internal_alerts.get_recent_alerts(limit=200) or [])  # type: ignore[attr-defined]
             if str(rec.get("name") or "").lower() == "deployment_event"
         ]
-        deployments = [ts for ts in fallback_deployments if ts is not None]
+        deployments = [_ensure_utc_aware(ts) for ts in fallback_deployments if ts is not None]
 
     windows = _build_windows(deployments)
     window_averages: List[float] = []
@@ -1095,6 +1109,7 @@ def fetch_aggregations(
         severity="anomaly",
         limit=500,
     )
+    anomalies = [_ensure_utc_aware(ts) for ts in anomalies]
     anomaly_total = len(anomalies)
     if not anomalies and _internal_alerts is not None:
         anomaly_total = 0
@@ -1103,6 +1118,7 @@ def fetch_aggregations(
             ts = _parse_iso_dt(rec.get("ts"))
             if ts is None:
                 continue
+            ts = _ensure_utc_aware(ts)
             if start_dt and ts < start_dt:
                 continue
             if end_dt and ts > end_dt:
@@ -1112,6 +1128,7 @@ def fetch_aggregations(
         anomaly_total = len(anomalies)
 
     def _is_in_window(ts: datetime) -> bool:
+        ts = _ensure_utc_aware(ts)
         for start, finish in windows:
             if start <= ts <= finish:
                 return True
