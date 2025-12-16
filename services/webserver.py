@@ -535,7 +535,6 @@ def create_app() -> web.Application:
                     method_label,
                     route_name or handler_name or path_label,
                     float(queue_delay_ms) / 1000.0,
-                    path=path_label,
                 )
             except Exception:
                 pass

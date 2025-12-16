@@ -1230,8 +1230,6 @@ def record_request_queue_delay(
     method: str,
     endpoint: str | None,
     delay_seconds: float,
-    *,
-    path: str | None = None,
 ) -> None:
     """Record request queue delay (best-effort, never raises)."""
     try:

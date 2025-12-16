@@ -2269,7 +2269,7 @@ def _metrics_after(resp):
             except Exception:
                 q_src = None
             try:
-                record_request_queue_delay(method_label, endpoint, float(q_ms) / 1000.0, path=path_label)
+                record_request_queue_delay(method_label, endpoint, float(q_ms) / 1000.0)
             except Exception:
                 pass
             try:
