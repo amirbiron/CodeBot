@@ -65,15 +65,19 @@ _SECRET_RE = re.compile(r"(?i)(token|secret|password|api[_-]?key)\s*[:=]\s*([^\s
 _EMAIL_LOCAL_CHARS = frozenset("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._%+-")
 _EMAIL_DOMAIN_CHARS = frozenset("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789.-")
 
+_REPO_ROOT = Path(__file__).resolve().parents[1]
+
 _QUICK_FIX_PATH = Path(os.getenv("ALERT_QUICK_FIX_PATH", "config/alert_quick_fixes.json"))
 _QUICK_FIX_CACHE: Dict[str, Any] = {}
 _QUICK_FIX_MTIME: float = 0.0
+_QUICK_FIX_RESOLVED_PATH: Optional[Path] = None
 _QUICK_FIX_ACTIONS: deque[Dict[str, Any]] = deque(maxlen=200)
 
 _RUNBOOK_PATH = Path(os.getenv("OBSERVABILITY_RUNBOOK_PATH", "config/observability_runbooks.yml"))
 _RUNBOOK_CACHE: Dict[str, Any] = {}
 _RUNBOOK_ALIAS_MAP: Dict[str, str] = {}
 _RUNBOOK_MTIME: float = 0.0
+_RUNBOOK_RESOLVED_PATH: Optional[Path] = None
 try:
     _RUNBOOK_STATE_TTL = float(os.getenv("OBS_RUNBOOK_STATE_TTL", "14400"))
 except ValueError:  # pragma: no cover - env misconfig fallback
@@ -277,8 +281,12 @@ def _hash_identifier(raw: Any) -> str:
 
 
 def _load_quick_fix_config() -> Dict[str, Any]:
-    global _QUICK_FIX_CACHE, _QUICK_FIX_MTIME
-    path = _QUICK_FIX_PATH
+    global _QUICK_FIX_CACHE, _QUICK_FIX_MTIME, _QUICK_FIX_RESOLVED_PATH
+    path = _resolve_config_path(_QUICK_FIX_PATH)
+    if _QUICK_FIX_RESOLVED_PATH != path:
+        _QUICK_FIX_CACHE = {}
+        _QUICK_FIX_MTIME = 0.0
+        _QUICK_FIX_RESOLVED_PATH = path
     try:
         stat = path.stat()
     except FileNotFoundError:
@@ -307,6 +315,29 @@ def _load_quick_fix_config() -> Dict[str, Any]:
 def _slugify(value: str, fallback: str) -> str:
     text = re.sub(r"[^a-z0-9]+", "_", (value or "").lower()).strip("_")
     return text or fallback
+
+
+def _resolve_config_path(path: Path) -> Path:
+    """Resolve config file paths robustly regardless of current working directory.
+
+    In production the process CWD isn't guaranteed to be the repository root,
+    but we still want relative config paths (defaults + env overrides) to work.
+
+    Resolution order:
+    - absolute paths stay as-is
+    - relative paths: prefer CWD when the file exists (backwards compatible)
+    - otherwise: resolve relative to the repo root (based on this module location)
+    """
+    try:
+        p = Path(path)
+    except Exception:
+        return path
+    if p.is_absolute():
+        return p
+    cwd_candidate = (Path.cwd() / p)
+    if cwd_candidate.exists():
+        return cwd_candidate
+    return _REPO_ROOT / p
 
 
 def _normalize_alert_type(value: Optional[str]) -> str:
@@ -377,8 +408,13 @@ def _normalize_runbook_config(raw: Any) -> Tuple[Dict[str, Any], Dict[str, str],
 
 
 def _load_runbook_config() -> Dict[str, Any]:
-    global _RUNBOOK_CACHE, _RUNBOOK_ALIAS_MAP, _RUNBOOK_MTIME
-    path = _RUNBOOK_PATH
+    global _RUNBOOK_CACHE, _RUNBOOK_ALIAS_MAP, _RUNBOOK_MTIME, _RUNBOOK_RESOLVED_PATH
+    path = _resolve_config_path(_RUNBOOK_PATH)
+    if _RUNBOOK_RESOLVED_PATH != path:
+        _RUNBOOK_CACHE = {}
+        _RUNBOOK_ALIAS_MAP = {}
+        _RUNBOOK_MTIME = 0.0
+        _RUNBOOK_RESOLVED_PATH = path
     try:
         stat = path.stat()
     except FileNotFoundError:
