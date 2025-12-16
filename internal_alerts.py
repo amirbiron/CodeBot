@@ -148,17 +148,22 @@ def _details_preview(details: Dict[str, Any]) -> str | None:
     def _compact_slow_endpoints(val: Any) -> str | None:
         if not isinstance(val, list) or not val:
             return None
+        # Prefer max_duration and sort slowest-first for stable messaging
+        items: List[Dict[str, Any]] = [x for x in val if isinstance(x, dict)]
+        try:
+            items.sort(key=lambda x: float(x.get("max_duration") or x.get("avg_duration") or 0.0), reverse=True)
+        except Exception:
+            pass
         parts: List[str] = []
-        for item in val[:4]:
+        for item in items[:4]:
             if not isinstance(item, dict):
                 continue
             try:
                 method = str(item.get("method") or "GET").upper()
                 endpoint = str(item.get("endpoint") or "unknown")
                 count = int(item.get("count") or 0)
-                avg = float(item.get("avg_duration") or 0.0)
-                # Prefer avg (more stable), keep max only when it's the same (common in single sample)
-                parts.append(f"{method} {endpoint}: {avg:.2f}s (n={max(1, count)})")
+                mx = float(item.get("max_duration") or item.get("avg_duration") or 0.0)
+                parts.append(f"{method} {endpoint}: {mx:.2f}s (n={max(1, count)})")
             except Exception:
                 continue
         if parts:
@@ -281,16 +286,21 @@ def _build_forward_payload(name: str, severity: str, summary: str, details: Dict
                     alert["annotations"][k] = _coerce_str(v)
             raw_slow = details.get("slow_endpoints") if isinstance(details, dict) else None
             if isinstance(raw_slow, list) and raw_slow:
+                items: List[Dict[str, Any]] = [x for x in raw_slow if isinstance(x, dict)]
+                try:
+                    items.sort(key=lambda x: float(x.get("max_duration") or x.get("avg_duration") or 0.0), reverse=True)
+                except Exception:
+                    pass
                 compact_parts: List[str] = []
-                for item in raw_slow[:6]:
+                for item in items[:6]:
                     if not isinstance(item, dict):
                         continue
                     try:
                         method = str(item.get("method") or "GET").upper()
                         endpoint = str(item.get("endpoint") or "unknown")
                         count = int(item.get("count") or 0)
-                        avg = float(item.get("avg_duration") or 0.0)
-                        compact_parts.append(f"{method} {endpoint}: {avg:.2f}s (n={max(1, count)})")
+                        mx = float(item.get("max_duration") or item.get("avg_duration") or 0.0)
+                        compact_parts.append(f"{method} {endpoint}: {mx:.2f}s (n={max(1, count)})")
                     except Exception:
                         continue
                 if compact_parts:

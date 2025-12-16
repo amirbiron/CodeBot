@@ -177,7 +177,37 @@ def _format_external_service_degraded(
     )
 
 
-def _format_latency_anomaly(
+def _parse_slow_endpoints_compact(value: Optional[str]) -> List[Dict[str, Any]]:
+    if not value:
+        return []
+    try:
+        raw = str(value)
+    except Exception:
+        return []
+    entries: List[Dict[str, Any]] = []
+    for chunk in [c.strip() for c in raw.split(";") if c.strip()]:
+        # Format from internal_alerts: "METHOD endpoint: 10.53s (n=1)"
+        try:
+            m = re.match(
+                r"^(?P<method>[A-Z]+)\s+(?P<endpoint>.+?):\s+(?P<sec>[0-9.]+)s\s+\(n=(?P<n>[0-9]+)\)$",
+                chunk,
+            )
+            if not m:
+                continue
+            entries.append(
+                {
+                    "method": m.group("method"),
+                    "endpoint": m.group("endpoint").strip(),
+                    "seconds": float(m.group("sec")),
+                    "count": int(m.group("n")),
+                }
+            )
+        except Exception:
+            continue
+    return entries
+
+
+def _format_anomaly_alert(
     *,
     avg_rt: Optional[float],
     threshold: Optional[float],
@@ -190,42 +220,23 @@ def _format_latency_anomaly(
     avg_s = f"{avg_rt:.2f}s" if avg_rt is not None else "—"
     thr_s = f"{threshold:.2f}s" if threshold is not None else "—"
 
-    # Parse "GET index (10.525s)" into pieces
-    culprit_line = "Unknown"
-    based_on = None
-    if top_slow_endpoint:
+    entries = _parse_slow_endpoints_compact(slow_endpoints_compact)
+    main = entries[0] if entries else None
+    others = entries[1:4] if len(entries) > 1 else []
+
+    # Fallback: parse "GET index (10.525s)" when compact list is missing
+    if main is None and top_slow_endpoint:
         try:
             m = re.match(r"(?P<m>\w+)\s+(?P<ep>[^()]+)\((?P<dur>[0-9.]+)s\)", top_slow_endpoint.strip())
             if m:
-                method = m.group("m").upper()
-                ep = m.group("ep").strip()
-                if not ep.startswith("/"):
-                    ep = "/" + ep
-                dur = float(m.group("dur"))
-                culprit_line = f"{method} {ep} ➡️ {dur:.2f}s ⚠️"
-            else:
-                culprit_line = top_slow_endpoint.strip()
+                main = {
+                    "method": m.group("m").upper(),
+                    "endpoint": m.group("ep").strip(),
+                    "seconds": float(m.group("dur")),
+                    "count": 1,
+                }
         except Exception:
-            culprit_line = top_slow_endpoint
-    # Try to infer sample count for the top endpoint from compact list (n=..)
-    if slow_endpoints_compact and top_slow_endpoint:
-        try:
-            m = re.search(r"\(n=(\d+)\)", slow_endpoints_compact)
-            if m:
-                based_on = int(m.group(1))
-        except Exception:
-            based_on = None
-
-    other_lines: List[str] = []
-    if slow_endpoints_compact:
-        # "GET index: 10.53s (n=1); HEAD index: 0.21s (n=1)"
-        try:
-            entries = [e.strip() for e in slow_endpoints_compact.split(";") if e.strip()]
-        except Exception:
-            entries = []
-        for e in entries[1:4]:
-            # Normalize endpoint presentation a bit
-            other_lines.append(f"• {e}")
+            main = None
 
     health_lines: List[str] = []
     if active_requests is not None:
@@ -240,18 +251,26 @@ def _format_latency_anomaly(
         health_lines.append(f"• Errors (5m): {recent_errors_5m}")
 
     lines = [
-        "🐢 High Latency Detected",
+        "🐢 System Anomaly Detected",
         f"Avg Response: {avg_s} (Threshold: {thr_s})",
-        "🐌 Top Bottleneck:",
-        culprit_line,
     ]
-    if based_on is not None:
-        lines.append(f"(Based on {based_on} request)")
-    if other_lines:
-        lines.append("📉 Other Endpoints:")
-        lines.extend(other_lines)
+    if main:
+        lines.extend(
+            [
+                "🐌 Main Bottleneck:",
+                f"{main.get('method')} {main.get('endpoint')}",
+                f"⏱️ {float(main.get('seconds') or 0.0):.2f}s",
+            ]
+        )
+    if others:
+        lines.append("📉 Also Slow in this Window:")
+        for item in others:
+            try:
+                lines.append(f"• {item.get('method')} {item.get('endpoint')}: {float(item.get('seconds') or 0.0):.2f}s")
+            except Exception:
+                continue
     if health_lines:
-        lines.append("📊 Server Health:")
+        lines.append("📊 Resource Usage:")
         lines.extend(health_lines)
     return "\n".join(lines)
 
@@ -371,7 +390,7 @@ def _format_alert_text(alert: Dict[str, Any]) -> str:
 
         if str(name or "").strip().lower() == "anomaly_detected":
             avg, thr = _parse_avg_threshold_from_summary(str(summary or ""))
-            msg = _format_latency_anomaly(
+            msg = _format_anomaly_alert(
                 avg_rt=avg,
                 threshold=thr,
                 top_slow_endpoint=_first(["top_slow_endpoint"]),

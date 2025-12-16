@@ -129,3 +129,35 @@ def test_anomaly_alerts_are_batched_before_telegram(monkeypatch):
     assert "2 מופעים" in telegram_calls[0][1]
 
     af._reset_anomaly_batches_for_tests()
+
+
+def test_anomaly_detected_formats_as_system_anomaly(monkeypatch):
+    import alert_forwarder as af
+    import importlib
+    importlib.reload(af)
+
+    alert = {
+        "status": "firing",
+        "labels": {"alertname": "anomaly_detected", "severity": "anomaly"},
+        "annotations": {
+            "summary": "avg_rt=3.081s (threshold 3.000s)",
+            "top_slow_endpoint": "POST bookmarks.toggle_bookmark (2.794s)",
+            "active_requests": "1",
+            "recent_errors_5m": "0",
+            "avg_memory_usage_mb": "205.14",
+            "slow_endpoints_compact": (
+                "POST bookmarks.toggle_bookmark: 2.79s (n=1); "
+                "GET api_observability_aggregations: 1.59s (n=1); "
+                "GET settings: 0.53s (n=1); "
+                "GET api_observability_alerts: 0.53s (n=1)"
+            ),
+        },
+    }
+
+    text = af._format_alert_text(alert)  # noqa: SLF001
+    assert "🐢 System Anomaly Detected" in text
+    assert "Avg Response:" in text and "Threshold:" in text
+    assert "🐌 Main Bottleneck:" in text
+    assert "POST bookmarks.toggle_bookmark" in text
+    assert "📉 Also Slow in this Window:" in text
+    assert "📊 Resource Usage:" in text
