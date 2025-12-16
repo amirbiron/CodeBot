@@ -791,7 +791,9 @@
         return;
       }
       input.addEventListener('change', () => {
-        updateRunbookStatus(eventId, stepId, input.checked, meta);
+        const nextValue = Boolean(input.checked);
+        const prevValue = !nextValue;
+        updateRunbookStatus(eventId, stepId, nextValue, meta, input, prevValue);
       });
     });
   }
@@ -850,7 +852,10 @@
     }
   }
 
-  async function updateRunbookStatus(eventId, stepId, completed, eventMeta) {
+  async function updateRunbookStatus(eventId, stepId, completed, eventMeta, inputEl, prevChecked) {
+    if (inputEl) {
+      inputEl.disabled = true;
+    }
     try {
       const eventPayload = serializeEventForApi(eventMeta || state.eventsMap[eventId]);
       const res = await fetch(`/api/observability/runbook/${encodeURIComponent(eventId)}/status`, {
@@ -869,6 +874,13 @@
     } catch (err) {
       console.error('runbook_status_failed', err);
       showShareToast('שמירת Runbook נכשלה');
+      if (inputEl) {
+        inputEl.checked = Boolean(prevChecked);
+      }
+    } finally {
+      if (inputEl) {
+        inputEl.disabled = false;
+      }
     }
   }
 
