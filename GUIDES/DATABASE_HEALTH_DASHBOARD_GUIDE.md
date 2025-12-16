@@ -64,6 +64,7 @@ Database Health Service - ניטור בריאות MongoDB (Async).
 """
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
 import time
@@ -434,12 +435,15 @@ class AsyncDatabaseHealthService:
         return summary
 
 
-# Singleton instance לשימוש גלובלי
+# Singleton instance לשימוש גלובלי עם הגנה מפני race condition
 _async_health_service: Optional[AsyncDatabaseHealthService] = None
+_async_health_service_lock: asyncio.Lock = asyncio.Lock()
 
 
 async def get_async_db_health_service() -> AsyncDatabaseHealthService:
     """מחזיר את ה-singleton של AsyncDatabaseHealthService.
+    
+    משתמש ב-asyncio.Lock למניעת race condition בזמן אתחול.
     
     Usage:
         from services.db_health_service import get_async_db_health_service
@@ -447,9 +451,22 @@ async def get_async_db_health_service() -> AsyncDatabaseHealthService:
         pool = await svc.get_pool_status()
     """
     global _async_health_service
-    if _async_health_service is None:
-        _async_health_service = AsyncDatabaseHealthService()
-        await _async_health_service.connect()
+    
+    # בדיקה מהירה לפני נעילה (double-checked locking)
+    if _async_health_service is not None:
+        return _async_health_service
+    
+    # נעילה למניעת race condition בזמן אתחול
+    async with _async_health_service_lock:
+        # בדיקה נוספת אחרי הנעילה
+        if _async_health_service is not None:
+            return _async_health_service
+        
+        # אתחול מלא בתוך הנעילה
+        service = AsyncDatabaseHealthService()
+        await service.connect()
+        _async_health_service = service
+    
     return _async_health_service
 ```
 
@@ -674,41 +691,52 @@ class ThreadPoolDatabaseHealthService:
         return summary
 
 
-# Factory function לבחירת הגרסה המתאימה
+# Factory function לבחירת הגרסה המתאימה עם הגנה מפני race condition
 _health_service_instance = None
+_health_service_lock = asyncio.Lock()
 
 
 async def get_db_health_service():
     """מחזיר את ה-service המתאים לפי הקונפיגורציה.
+    
+    משתמש ב-asyncio.Lock למניעת race condition בזמן אתחול.
     
     - אם Motor מותקן ו-MONGODB_URL מוגדר: AsyncDatabaseHealthService
     - אחרת: ThreadPoolDatabaseHealthService עם DatabaseManager הקיים
     """
     global _health_service_instance
     
+    # בדיקה מהירה לפני נעילה (double-checked locking)
     if _health_service_instance is not None:
         return _health_service_instance
 
-    # נסה Motor קודם (מומלץ)
-    try:
-        from motor.motor_asyncio import AsyncIOMotorClient
-        import os
-        if os.getenv("MONGODB_URL"):
-            _health_service_instance = AsyncDatabaseHealthService()
-            await _health_service_instance.connect()
-            logger.info("Using AsyncDatabaseHealthService (Motor)")
+    # נעילה למניעת race condition
+    async with _health_service_lock:
+        # בדיקה נוספת אחרי הנעילה
+        if _health_service_instance is not None:
             return _health_service_instance
-    except ImportError:
-        pass
+        
+        # נסה Motor קודם (מומלץ)
+        try:
+            from motor.motor_asyncio import AsyncIOMotorClient
+            import os
+            if os.getenv("MONGODB_URL"):
+                service = AsyncDatabaseHealthService()
+                await service.connect()  # אתחול מלא בתוך הנעילה
+                _health_service_instance = service
+                logger.info("Using AsyncDatabaseHealthService (Motor)")
+                return _health_service_instance
+        except ImportError:
+            pass
 
-    # Fallback ל-PyMongo עם thread pool
-    try:
-        from database import db_manager
-        _health_service_instance = ThreadPoolDatabaseHealthService(db_manager)
-        logger.info("Using ThreadPoolDatabaseHealthService (PyMongo)")
-        return _health_service_instance
-    except Exception as e:
-        raise RuntimeError(f"Could not initialize health service: {e}") from e
+        # Fallback ל-PyMongo עם thread pool
+        try:
+            from database import db_manager
+            _health_service_instance = ThreadPoolDatabaseHealthService(db_manager)
+            logger.info("Using ThreadPoolDatabaseHealthService (PyMongo)")
+            return _health_service_instance
+        except Exception as e:
+            raise RuntimeError(f"Could not initialize health service: {e}") from e
 ```
 
 ---
@@ -1292,6 +1320,14 @@ async function refreshPool() {
     }
 }
 
+// פונקציית escape למניעת XSS
+function escapeHtml(str) {
+    if (str == null) return '';
+    const div = document.createElement('div');
+    div.textContent = String(str);
+    return div.innerHTML;
+}
+
 async function refreshOps() {
     try {
         const resp = await fetch('/api/db/ops');
@@ -1303,15 +1339,35 @@ async function refreshOps() {
         if (data.count === 0) {
             list.innerHTML = '<p class="empty-state">אין פעולות איטיות כרגע 🎉</p>';
         } else {
-            list.innerHTML = data.operations.map(op => `
-                <div class="ops-item" data-severity="${op.severity}">
-                    <div class="ops-item-header">
-                        <span class="ops-type">${op.type}</span>
-                        <span class="ops-time">${op.running_secs}s</span>
-                    </div>
-                    <div class="ops-ns">${op.namespace}</div>
-                </div>
-            `).join('');
+            // שימוש ב-DOM API במקום innerHTML למניעת XSS
+            list.innerHTML = '';
+            data.operations.forEach(op => {
+                const item = document.createElement('div');
+                item.className = 'ops-item';
+                item.dataset.severity = escapeHtml(op.severity);
+                
+                const header = document.createElement('div');
+                header.className = 'ops-item-header';
+                
+                const typeSpan = document.createElement('span');
+                typeSpan.className = 'ops-type';
+                typeSpan.textContent = op.type;  // textContent בטוח מ-XSS
+                
+                const timeSpan = document.createElement('span');
+                timeSpan.className = 'ops-time';
+                timeSpan.textContent = `${op.running_secs}s`;
+                
+                header.appendChild(typeSpan);
+                header.appendChild(timeSpan);
+                
+                const nsDiv = document.createElement('div');
+                nsDiv.className = 'ops-ns';
+                nsDiv.textContent = op.namespace;  // textContent בטוח מ-XSS
+                
+                item.appendChild(header);
+                item.appendChild(nsDiv);
+                list.appendChild(item);
+            });
         }
     } catch (e) {
         console.error('refreshOps error:', e);
@@ -1328,16 +1384,30 @@ async function loadCollections() {
         const data = await resp.json();
         
         const tbody = document.getElementById('collections-tbody');
-        tbody.innerHTML = data.collections.map(c => `
-            <tr>
-                <td>${c.name}</td>
-                <td>${c.count.toLocaleString()}</td>
-                <td>${c.size_mb}</td>
-                <td>${c.storage_size_mb}</td>
-                <td>${c.index_count}</td>
-                <td>${c.total_index_size_mb}</td>
-            </tr>
-        `).join('');
+        // שימוש ב-DOM API במקום innerHTML למניעת XSS
+        tbody.innerHTML = '';
+        
+        data.collections.forEach(c => {
+            const tr = document.createElement('tr');
+            
+            // יצירת תאים עם textContent (בטוח מ-XSS)
+            const cells = [
+                c.name,
+                c.count.toLocaleString(),
+                c.size_mb,
+                c.storage_size_mb,
+                c.index_count,
+                c.total_index_size_mb
+            ];
+            
+            cells.forEach(value => {
+                const td = document.createElement('td');
+                td.textContent = value;  // textContent בטוח מ-XSS
+                tr.appendChild(td);
+            });
+            
+            tbody.appendChild(tr);
+        });
         
         document.getElementById('collections-wrapper').style.display = 'block';
         btn.innerHTML = '<i class="fas fa-sync"></i> רענן סטטיסטיקות';
@@ -1416,8 +1486,28 @@ app.router.add_get("/db-health", db_health_page_view)
 ```python
 # דוגמה להגנה על ה-API endpoints
 
-# 1. Token-based authentication
+import hmac
+import secrets
+
+# 1. Token-based authentication עם הגנה מפני timing attacks
 DB_HEALTH_TOKEN = os.getenv("DB_HEALTH_TOKEN", "")
+
+
+def _constant_time_compare(a: str, b: str) -> bool:
+    """השוואה בזמן קבוע למניעת timing attacks.
+    
+    משתמש ב-hmac.compare_digest שמבצע השוואה בזמן קבוע
+    ללא קיצור-דרך על אי-התאמה ראשונה.
+    """
+    # המר לבייטים כדי להשתמש ב-compare_digest
+    try:
+        return hmac.compare_digest(
+            a.encode('utf-8') if isinstance(a, str) else a,
+            b.encode('utf-8') if isinstance(b, str) else b
+        )
+    except (TypeError, AttributeError):
+        return False
+
 
 @web.middleware
 async def db_health_auth_middleware(request: web.Request, handler):
@@ -1428,7 +1518,16 @@ async def db_health_auth_middleware(request: web.Request, handler):
             return web.json_response({"error": "disabled"}, status=403)
         
         auth = request.headers.get("Authorization", "")
-        if not auth.startswith("Bearer ") or auth[7:] != DB_HEALTH_TOKEN:
+        
+        # בדיקה שה-header מתחיל ב-Bearer (לא חושפת מידע)
+        if not auth.startswith("Bearer "):
+            return web.json_response({"error": "unauthorized"}, status=401)
+        
+        provided_token = auth[7:]  # הסר את "Bearer "
+        
+        # השוואה בזמן קבוע למניעת timing attacks!
+        # secrets.compare_digest או hmac.compare_digest
+        if not _constant_time_compare(provided_token, DB_HEALTH_TOKEN):
             return web.json_response({"error": "unauthorized"}, status=401)
     
     return await handler(request)
@@ -1443,6 +1542,11 @@ def check_ip_allowed(request: web.Request) -> bool:
         client_ip = request.remote
     return client_ip in ALLOWED_IPS
 ```
+
+> ⚠️ **למה `hmac.compare_digest`?**  
+> השוואה רגילה של מחרוזות (`!=`) עוצרת בתו הראשון שלא מתאים.  
+> תוקף יכול למדוד את זמן התגובה ולגלות את ה-token תו-תו.  
+> `compare_digest` תמיד לוקחת אותו זמן, לא משנה איפה אי-ההתאמה.
 
 ---
 
