@@ -1,0 +1,157 @@
+{% extends "base.html" %}
+
+{% block title %}סל מחזור - Code Keeper{% endblock %}
+
+{% block content %}
+<div class="section-header" style="display:flex; align-items:center; justify-content:space-between; gap:1rem; flex-wrap:wrap;">
+    <h1 class="page-title" style="margin:0;">סל מחזור</h1>
+    <div style="display:flex; gap:0.5rem; align-items:center; flex-wrap:wrap;">
+        <a href="/files" class="btn btn-secondary btn-icon" title="חזרה לקבצים">
+            <i class="fas fa-arrow-right" aria-hidden="true"></i>
+            <span class="btn-text">חזרה לקבצים</span>
+        </a>
+    </div>
+</div>
+
+<div class="glass-card" style="margin-top: 1rem;">
+    <div style="display:flex; justify-content:space-between; align-items:center; gap:0.75rem; flex-wrap:wrap;">
+        <div style="opacity:0.9;">
+            🗑️ יש כרגע <strong>{{ total_count }}</strong> פריטים בסל
+            {% if recycle_ttl_days %}
+            <span style="opacity:0.85;">| פריטים נמחקים אוטומטית אחרי ~{{ recycle_ttl_days }} ימים</span>
+            {% endif %}
+        </div>
+        {% if total_pages > 1 %}
+        <div style="opacity:0.8;">עמוד {{ page }} מתוך {{ total_pages }}</div>
+        {% endif %}
+    </div>
+</div>
+
+{% if items %}
+<div class="glass-card" style="margin-top: 1rem; overflow:hidden;">
+    <div style="overflow-x:auto;">
+        <table style="width:100%; border-collapse: collapse;">
+            <thead>
+                <tr style="text-align:right; border-bottom: 1px solid rgba(255,255,255,0.12);">
+                    <th style="padding: 0.75rem;">קובץ</th>
+                    <th style="padding: 0.75rem; white-space:nowrap;">נמחק</th>
+                    <th style="padding: 0.75rem; white-space:nowrap;">נמחק סופית ב-</th>
+                    <th style="padding: 0.75rem; text-align:left;">פעולות</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for it in items %}
+                <tr style="border-bottom: 1px solid rgba(255,255,255,0.08);">
+                    <td style="padding: 0.75rem; min-width: 260px;">
+                        <div style="display:flex; align-items:center; gap:0.75rem; min-width:0;">
+                            <span style="font-size:1.5rem; flex:0 0 auto;" aria-hidden="true">{{ it.icon }}</span>
+                            <div style="min-width:0;">
+                                <div style="font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;" title="{{ it.file_name }}">{{ it.file_name }}</div>
+                                <div style="opacity:0.8; font-size:0.9rem; display:flex; gap:0.5rem; flex-wrap:wrap;">
+                                    <span class="badge">{{ it.language }}</span>
+                                    {% if it.version %}
+                                    <span class="badge" style="opacity:0.9;">v{{ it.version }}</span>
+                                    {% endif %}
+                                    {% if it.kind %}
+                                    <span class="badge" style="opacity:0.9;">{{ it.kind }}</span>
+                                    {% endif %}
+                                </div>
+                            </div>
+                        </div>
+                    </td>
+                    <td style="padding: 0.75rem; white-space:nowrap; opacity:0.9;">{{ it.deleted_at or '—' }}</td>
+                    <td style="padding: 0.75rem; white-space:nowrap; opacity:0.9;">{{ it.expires_at or '—' }}</td>
+                    <td style="padding: 0.75rem; text-align:left; white-space:nowrap;">
+                        <button type="button"
+                                class="btn btn-secondary btn-icon"
+                                onclick="restoreTrashed('{{ it.id }}')"
+                                title="שחזר">
+                            ♻️ <span class="btn-text">שחזר</span>
+                        </button>
+                        <button type="button"
+                                class="btn btn-danger btn-icon"
+                                onclick="purgeTrashed('{{ it.id }}')"
+                                title="מחיקה סופית">
+                            🧨 <span class="btn-text">מחיקה סופית</span>
+                        </button>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<div class="pagination glass-card" style="margin-top: 1rem; display:flex; justify-content:center; align-items:center; gap: 0.75rem;">
+    {% if has_prev %}
+    <a href="/trash?page={{ page - 1 }}" class="btn btn-secondary btn-icon">
+        <i class="fas fa-chevron-right" aria-hidden="true"></i>
+        הקודם
+    </a>
+    {% endif %}
+    {% if total_pages > 1 %}
+    <span style="opacity:0.9;">עמוד {{ page }} מתוך {{ total_pages }}</span>
+    {% endif %}
+    {% if has_next %}
+    <a href="/trash?page={{ page + 1 }}" class="btn btn-secondary btn-icon">
+        הבא
+        <i class="fas fa-chevron-left" aria-hidden="true"></i>
+    </a>
+    {% endif %}
+</div>
+{% else %}
+<div class="glass-card" style="margin-top: 1rem; text-align:center; padding: 3rem 1.5rem;">
+    <div style="font-size: 3rem; margin-bottom: 1rem;">🗑️</div>
+    <h2 style="margin:0;">הסל ריק</h2>
+    <p style="margin: 0.75rem 0 0; opacity:0.85;">קבצים שמועברים לסל יופיעו כאן עד למחיקה אוטומטית.</p>
+    <a href="/files" class="btn btn-primary btn-icon" style="margin-top: 1.25rem;">
+        <i class="fas fa-folder" aria-hidden="true"></i>
+        חזרה לקבצים
+    </a>
+</div>
+{% endif %}
+{% endblock %}
+
+{% block extra_js %}
+<script>
+async function restoreTrashed(fileId) {
+    if (!fileId) return;
+    try {
+        const res = await fetch(`/api/trash/${encodeURIComponent(fileId)}/restore`, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({})
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok || !data || !data.ok) {
+            alert((data && data.error) ? data.error : 'שגיאה בשחזור');
+            return;
+        }
+        window.location.reload();
+    } catch (e) {
+        alert('שגיאה בשחזור');
+    }
+}
+
+async function purgeTrashed(fileId) {
+    if (!fileId) return;
+    if (!confirm('למחוק לצמיתות? אי אפשר לשחזר אחרי זה.')) return;
+    try {
+        const res = await fetch(`/api/trash/${encodeURIComponent(fileId)}/purge`, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({})
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok || !data || !data.ok) {
+            alert((data && data.error) ? data.error : 'שגיאה במחיקה סופית');
+            return;
+        }
+        window.location.reload();
+    } catch (e) {
+        alert('שגיאה במחיקה סופית');
+    }
+}
+</script>
+{% endblock %}
+

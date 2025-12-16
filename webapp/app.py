@@ -6279,6 +6279,112 @@ def files():
             pass
     return html
 
+
+@app.route('/trash')
+@login_required
+@traced("files.recycle_bin_page")
+def trash_page():
+    """דף סל מחזור בווב-אפ (קבצים עם is_active=False)."""
+    db = get_db()
+    user_id = session['user_id']
+
+    try:
+        page = int(request.args.get('page', 1))
+    except Exception:
+        page = 1
+    page = max(1, page)
+    per_page = 20
+
+    match = {'user_id': user_id, 'is_active': False}
+
+    reg_docs: list[dict] = []
+    try:
+        reg_docs = list(db.code_snippets.find(
+            match,
+            {
+                'file_name': 1,
+                'programming_language': 1,
+                'deleted_at': 1,
+                'deleted_expires_at': 1,
+                'updated_at': 1,
+                'created_at': 1,
+                'version': 1,
+            },
+        ))
+    except Exception:
+        reg_docs = []
+
+    large_docs: list[dict] = []
+    large_coll = getattr(db, 'large_files', None)
+    if large_coll is not None:
+        try:
+            large_docs = list(large_coll.find(
+                match,
+                {
+                    'file_name': 1,
+                    'programming_language': 1,
+                    'deleted_at': 1,
+                    'deleted_expires_at': 1,
+                    'updated_at': 1,
+                    'created_at': 1,
+                },
+            ))
+        except Exception:
+            large_docs = []
+
+    combined: list[dict] = []
+    for d in reg_docs:
+        if isinstance(d, dict):
+            d['_is_large'] = False
+            combined.append(d)
+    for d in large_docs:
+        if isinstance(d, dict):
+            d['_is_large'] = True
+            combined.append(d)
+
+    def _sort_key(doc: dict):
+        dt = doc.get('deleted_at') or doc.get('updated_at') or doc.get('created_at')
+        if isinstance(dt, datetime):
+            return dt if dt.tzinfo is not None else dt.replace(tzinfo=timezone.utc)
+        return datetime.min.replace(tzinfo=timezone.utc)
+
+    combined.sort(key=_sort_key, reverse=True)
+
+    total_count = len(combined)
+    total_pages = (total_count + per_page - 1) // per_page if total_count > 0 else 1
+    page = max(1, min(page, total_pages))
+    start = (page - 1) * per_page
+    end = start + per_page
+    page_docs = combined[start:end]
+
+    items: list[dict] = []
+    for doc in page_docs:
+        fname = str(doc.get('file_name') or '')
+        lang_display = resolve_file_language(doc.get('programming_language'), fname)
+        is_large = bool(doc.get('_is_large', False))
+        items.append({
+            'id': str(doc.get('_id') or ''),
+            'file_name': fname,
+            'language': lang_display,
+            'icon': get_language_icon(lang_display),
+            'deleted_at': format_datetime_display(doc.get('deleted_at')),
+            'expires_at': format_datetime_display(doc.get('deleted_expires_at')),
+            'version': (doc.get('version') if not is_large else None),
+            'kind': ('גדול' if is_large else 'רגיל'),
+        })
+
+    return render_template(
+        'trash.html',
+        user=session['user_data'],
+        items=items,
+        total_count=total_count,
+        page=page,
+        total_pages=total_pages,
+        has_prev=page > 1,
+        has_next=page < total_pages,
+        recycle_ttl_days=RECYCLE_TTL_DAYS_DEFAULT,
+    )
+
 @app.route('/file/<file_id>')
 @login_required
 def view_file(file_id):
@@ -7326,6 +7432,96 @@ def api_file_move_to_trash(file_id):
 
     message = f'הקובץ הועבר לסל המיחזור ל-{ttl_days} ימים'
     return jsonify({'ok': True, 'message': message, 'affected': modified_count})
+
+
+@app.route('/api/trash/<file_id>/restore', methods=['POST'])
+@login_required
+@traced("files.recycle_bin_restore")
+def api_recycle_bin_restore(file_id: str):
+    """שחזור פריט מסל המחזור לפי מזהה מסמך (קוד רגיל או קובץ גדול)."""
+    db = get_db()
+    user_id = session['user_id']
+    try:
+        oid = ObjectId(file_id)
+    except Exception:
+        return jsonify({'ok': False, 'error': 'Invalid file id'}), 400
+
+    now = datetime.now(timezone.utc)
+    modified = 0
+
+    try:
+        res = db.code_snippets.update_many(
+            {'_id': oid, 'user_id': user_id, 'is_active': False},
+            {'$set': {'is_active': True, 'updated_at': now},
+             '$unset': {'deleted_at': '', 'deleted_expires_at': ''}},
+        )
+        modified += int(getattr(res, 'modified_count', 0) or 0)
+    except Exception:
+        pass
+
+    if modified == 0:
+        large_coll = getattr(db, 'large_files', None)
+        if large_coll is not None:
+            try:
+                res2 = large_coll.update_many(
+                    {'_id': oid, 'user_id': user_id, 'is_active': False},
+                    {'$set': {'is_active': True, 'updated_at': now},
+                     '$unset': {'deleted_at': '', 'deleted_expires_at': ''}},
+                )
+                modified += int(getattr(res2, 'modified_count', 0) or 0)
+            except Exception:
+                pass
+
+    if modified == 0:
+        return jsonify({'ok': False, 'error': 'not_found'}), 404
+
+    try:
+        cache.invalidate_user_cache(int(user_id))
+        cache.delete_pattern(f"collections_*:{int(user_id)}:*")
+    except Exception:
+        pass
+
+    return jsonify({'ok': True, 'restored': modified})
+
+
+@app.route('/api/trash/<file_id>/purge', methods=['POST'])
+@login_required
+@traced("files.recycle_bin_purge")
+def api_recycle_bin_purge(file_id: str):
+    """מחיקה סופית מפריט בסל המחזור לפי מזהה מסמך."""
+    db = get_db()
+    user_id = session['user_id']
+    try:
+        oid = ObjectId(file_id)
+    except Exception:
+        return jsonify({'ok': False, 'error': 'Invalid file id'}), 400
+
+    deleted = 0
+    try:
+        res = db.code_snippets.delete_many({'_id': oid, 'user_id': user_id, 'is_active': False})
+        deleted += int(getattr(res, 'deleted_count', 0) or 0)
+    except Exception:
+        pass
+
+    if deleted == 0:
+        large_coll = getattr(db, 'large_files', None)
+        if large_coll is not None:
+            try:
+                res2 = large_coll.delete_many({'_id': oid, 'user_id': user_id, 'is_active': False})
+                deleted += int(getattr(res2, 'deleted_count', 0) or 0)
+            except Exception:
+                pass
+
+    if deleted == 0:
+        return jsonify({'ok': False, 'error': 'not_found'}), 404
+
+    try:
+        cache.invalidate_user_cache(int(user_id))
+        cache.delete_pattern(f"collections_*:{int(user_id)}:*")
+    except Exception:
+        pass
+
+    return jsonify({'ok': True, 'deleted': deleted})
 
 @app.route('/api/files/recent')
 @login_required
