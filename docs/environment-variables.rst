@@ -887,6 +887,12 @@
      - ``3.0``
      - ``2.5``
      - Bot
+  * - ``ANOMALY_IGNORE_ENDPOINTS``
+    - רשימת נתיבי URL (CSV/JSON list) שמוחרגים מעדכון EWMA ומדגימת ``slow_endpoints`` (המטריקות הרגילות עדיין נרשמות לגרפים).
+    - לא
+    - ``""``
+    - ``/api/observability/aggregations,/api/observability/timeseries``
+    - WebApp/Observability
    * - ``ALERT_AVG_RESPONSE_TIME_DEPLOY``
      - רף חלופי לאותה התראה בזמן חלון חסד לאחר Deploy.
      - לא

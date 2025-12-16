@@ -24,6 +24,7 @@ Playbook קצר להתראות
 - ``ALERT_TELEGRAM_MIN_SEVERITY`` – מגדיר מאיזה דרגת חומרה (``anomaly``/``info``/``warn``/``error``/``critical``) בכלל נשלחות הודעות לטלגרם. הערך חל גם במסלול הגיבוי של ``internal_alerts`` כך שאם תציבו ``warn`` תקבלו רק אירועים משמעותיים גם כשה-forwarder אינו זמין.
 - ``ALERT_ANOMALY_BATCH_WINDOW_SECONDS`` – חלון מתגלגל (ברירת מחדל 180 שניות) שמאפשר לקבץ כמה התראות ``anomaly`` דומות להודעת טלגרם אחת עם טקסט בסגנון ``"N מופעים ב-X דקות"``. העלאת הערך מפחיתה רעש בזמני עומס ידועים.
 - ``ALERT_AVG_RESPONSE_TIME`` – רף ה-EWMA שמוגדר ב-``metrics.py`` להתראת ``anomaly_detected``. ברירת המחדל עודכנה ל-``3.0`` שניות (קודם ``2.0``) כדי לא להפנות תשומת לב על תנודות קלות. הציבו ``0`` כדי לנטרל או ערך גבוה/נמוך יותר לפי SLA.
+- ``ANOMALY_IGNORE_ENDPOINTS`` – רשימת נתיבי URL (CSV/JSON list) שמוחרגים מעדכון ה-EWMA ומדגימת ``slow_endpoints`` (כדי למנוע false positives מנתיבים “כבדים” כמו דשבורד Observability). חשוב: המטריקות הרגילות (``http_requests_total``/``http_request_duration_seconds``) עדיין נרשמות לגרפים, אבל ההחרגה **לא** פותרת חסימת main-thread/Starvation אם קיימת.
 - ``ALERT_AVG_RESPONSE_TIME_DEPLOY`` – רף חלופי (ברירת מחדל ``10.0`` שניות) שנכנס לפעולה בזמן חלון החסד אחרי Deploy. מאפשר להתעלם מפיקים לגיטימיים בלי להעלות את הרף הגלובלי.
 - ``DEPLOY_GRACE_PERIOD_SECONDS`` – אורך חלון החסד אחרי Deploy (ברירת מחדל ``120`` שניות). בתוך החלון הזה האלגוריתם ישתמש ב-``ALERT_AVG_RESPONSE_TIME_DEPLOY`` במקום הרף הרגיל.
 
