@@ -57,6 +57,25 @@
 
 ---
 
+## 5. מדריך פתרון תקלות (Troubleshooting Guide)
+
+זיהוי שגיאות נפוצות והתאמת ערכי הקונפיגורציה לטיפול בהן.
+
+| סימפטום / שגיאה | רכיב | סיבה אפשרית | פעולה מומלצת (ENV) |
+|:---|:---|:---|:---|
+| **ServerSelectionTimeoutError**<br>או *"Timed out waiting for connection"* | MongoDB | עומס כבד, כל החיבורים ב-Pool תפוסים לאורך זמן. | 1. הגדל `MONGODB_MAX_POOL_SIZE`.<br>2. הגדל `MONGODB_WAIT_QUEUE_TIMEOUT_MS`. |
+| **ConnectionFailure / NetworkTimeout** | MongoDB | איטיות ברשת או עומס על ה-DB עצמו. | הגדל `MONGODB_CONNECT_TIMEOUT_MS` ו-`MONGODB_SOCKET_TIMEOUT_MS`. |
+| **Redis ConnectionError**<br>*"Maximum number of connections exceeded"* | Redis | ה-Client מנסה לפתוח יותר חיבורים מהמותר. | הגדל `REDIS_MAX_CONNECTIONS`. |
+| **Redis TimeoutError** | Redis | השרת עמוס או שיש Latency גבוה. | הגדל `REDIS_SOCKET_TIMEOUT` ו-`REDIS_CONNECT_TIMEOUT`. |
+| **aiohttp.ClientConnectionError**<br>או *TimeoutError* | HTTP (Async) | הבקשה לוקחת יותר מדי זמן או שהיעד לא מגיב. | הגדל `AIOHTTP_TIMEOUT_TOTAL`. |
+| **Connection pool is full**<br>(Log warning/Error) | HTTP (Async) | יותר מדי בקשות במקביל ליעדים שונים או לאותו יעד. | הגדל `AIOHTTP_POOL_LIMIT` ו-`AIOHTTP_LIMIT_PER_HOST`. |
+| **requests.exceptions.ConnectionError**<br>*"Pool is full"* | HTTP (Sync) | עומס בקשות סינכרוניות. | הגדל `REQUESTS_POOL_MAXSIZE` ו-`REQUESTS_POOL_CONNECTIONS`. |
+| **ReadTimeout** | HTTP (Sync) | השרת המרוחק מגיב לאט. | הגדל `REQUESTS_TIMEOUT`. |
+
+> **טיפ לניטור:** חפשו בלוגים הודעות `slow_mongo`, `slow_http` או `slow_http_async` – אלו אינדיקטורים לכך שהמערכת ממתינה זמן רב לתשובה, מה שעלול לגרום לרוויה ב-Pools.
+
+---
+
 ## תבניות מומלצות מלאות (Full Copy-Paste)
 
 להלן תבניות `.env` הכוללות את **כל** המשתנים האפשריים, מותאמים לסוג הסביבה.
