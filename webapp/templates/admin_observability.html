@@ -282,97 +282,6 @@
   opacity: 0.5;
   cursor: not-allowed;
 }
-
-.runbook-btn {
-  border: none;
-  border-radius: 999px;
-  padding: 0.45rem 0.7rem;
-  font-size: 0.85rem;
-  cursor: pointer;
-  background: rgba(100, 181, 246, 0.16);
-  color: #e2e8f0;
-  transition: background 0.15s ease;
-  white-space: nowrap;
-}
-.runbook-btn:hover {
-  background: rgba(100, 181, 246, 0.26);
-}
-.runbook-card {
-  display: flex;
-  flex-direction: column;
-  gap: 0.85rem;
-}
-.runbook-head {
-  display: flex;
-  justify-content: space-between;
-  gap: 1rem;
-}
-.runbook-title {
-  font-size: 1.05rem;
-  font-weight: 650;
-  margin: 0;
-}
-.runbook-desc {
-  font-size: 0.85rem;
-  opacity: 0.78;
-  margin-top: 0.15rem;
-}
-.runbook-progress {
-  text-align: right;
-  font-size: 0.9rem;
-  opacity: 0.9;
-}
-.runbook-progress small {
-  display: block;
-  font-size: 0.75rem;
-  opacity: 0.7;
-}
-.runbook-steps {
-  display: flex;
-  flex-direction: column;
-  gap: 0.55rem;
-}
-.runbook-step {
-  display: flex;
-  gap: 0.6rem;
-  align-items: flex-start;
-  padding: 0.55rem 0.65rem;
-  border-radius: 12px;
-  background: rgba(255,255,255,0.05);
-  border: 1px solid rgba(255,255,255,0.08);
-}
-.runbook-step input[type="checkbox"] {
-  width: 18px;
-  height: 18px;
-  margin-top: 0.35rem;
-}
-.runbook-step__title {
-  font-size: 0.95rem;
-  font-weight: 600;
-}
-.runbook-step__desc {
-  font-size: 0.85rem;
-  opacity: 0.82;
-  margin-top: 0.15rem;
-}
-.runbook-actions {
-  border-top: 1px solid rgba(255,255,255,0.08);
-  padding-top: 0.65rem;
-}
-.runbook-actions__title {
-  font-size: 0.9rem;
-  opacity: 0.85;
-  margin-bottom: 0.45rem;
-}
-.runbook-actions__list {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.4rem;
-}
-.runbook-meta {
-  font-size: 0.8rem;
-  opacity: 0.75;
-}
 .story-cell {
   display: flex;
   flex-direction: column;
@@ -807,14 +716,13 @@
             <th>סיכום</th>
             <th>Meta</th>
             <th>גרף</th>
-            <th>Runbook</th>
             <th>Quick Fix</th>
             <th>הסבר AI</th>
             <th>סיפור אירוע</th>
           </tr>
         </thead>
         <tbody>
-          <tr><td colspan="10">טוען נתונים…</td></tr>
+          <tr><td colspan="9">טוען נתונים…</td></tr>
         </tbody>
       </table>
     </div>
@@ -878,21 +786,6 @@
   </div>
 </div>
 
-<div id="runbookModal" class="story-modal" hidden>
-  <div class="story-modal__dialog" role="dialog" aria-modal="true" aria-labelledby="runbookModalTitle">
-    <div class="story-modal__header">
-      <h3 id="runbookModalTitle">📚 Runbook</h3>
-      <button class="story-modal__close" type="button" data-runbook-close aria-label="סגור">✕</button>
-    </div>
-    <div id="runbookModalBody">
-      <div style="opacity:0.8;">טוען Runbook…</div>
-    </div>
-    <div class="story-modal__actions" style="justify-content:flex-end;">
-      <button type="button" class="story-secondary-btn" data-runbook-close>סגור</button>
-    </div>
-  </div>
-</div>
-
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 <script>
 (function(){
@@ -916,13 +809,6 @@
     story: null,
   };
   const storyModal = document.getElementById('storyModal');
-  const runbookModal = document.getElementById('runbookModal');
-  const runbookModalBody = document.getElementById('runbookModalBody');
-  const runbookModalTitle = document.getElementById('runbookModalTitle');
-  const runbookState = {
-    alert: null,
-    payload: null,
-  };
   const storyFormEls = {
     start: document.getElementById('storyWindowStart'),
     end: document.getElementById('storyWindowEnd'),
@@ -1166,7 +1052,7 @@
       .join('');
     return `
       <tr class="visual-context-row" id="visual-row-${meta.uid}" data-alert-uid="${meta.uid}" hidden>
-        <td colspan="10">
+        <td colspan="9">
           <div class="visual-context-panel" data-graph="${payload}">
             <div class="visual-context-header">
               <div>
@@ -1206,7 +1092,7 @@
     });
     Object.keys(visualContextStore).forEach(key => delete visualContextStore[key]);
     if (!alerts || !alerts.length) {
-      body.innerHTML = '<tr><td colspan="10">לא נמצאו התראות בטווח שנבחר</td></tr>';
+      body.innerHTML = '<tr><td colspan="9">לא נמצאו התראות בטווח שנבחר</td></tr>';
       return;
     }
     const rows = [];
@@ -1224,7 +1110,6 @@
           <td>${alert.summary || '-'}</td>
           <td><div class="meta-list">${metaItems || ''}</div></td>
           <td>${renderGraphCell(alert)}</td>
-          <td>${renderRunbookCell(alert)}</td>
           <td>${renderQuickFixCell(alert)}</td>
           <td>${renderAiExplainCell(alert)}</td>
           <td>${renderStoryCell(alert)}</td>
@@ -1248,40 +1133,11 @@
     const nextBtn = document.getElementById('nextPageBtn');
     if (prevBtn) prevBtn.disabled = page <= 1;
     if (nextBtn) nextBtn.disabled = page >= totalPages;
-    initRunbookHandlers();
     initQuickFixHandlers();
     initStoryHandlers();
     initVisualContextHandlers();
     initAiExplainHandlers();
     highlightFocusedRow();
-  }
-
-  function buildAlertFocusLink(alert) {
-    const ts = alert && alert.timestamp ? String(alert.timestamp) : '';
-    if (!ts) return '/admin/observability#history';
-    return `/admin/observability?focus_ts=${encodeURIComponent(ts)}#history`;
-  }
-
-  function renderRunbookCell(alert) {
-    const uid = alert && alert.alert_uid ? String(alert.alert_uid) : '';
-    if (!uid) {
-      return '<span style="opacity:0.5;">—</span>';
-    }
-    const payload = encodeURIComponent(
-      JSON.stringify({
-        alert_uid: uid,
-        alert_type: alert.alert_type || '',
-        severity: alert.severity || '',
-        summary: alert.summary || '',
-        title: alert.name || '',
-        timestamp: alert.timestamp || '',
-        endpoint: alert.endpoint || '',
-        source: alert.source || '',
-        link: buildAlertFocusLink(alert),
-        metadata: alert.metadata || {},
-      })
-    );
-    return `<button type="button" class="runbook-btn" data-runbook="${payload}" data-alert-uid="${uid}">📚 Runbook</button>`;
   }
 
   function renderQuickFixCell(alert) {
@@ -1315,248 +1171,6 @@
         }).join('')}
       </div>
     `;
-  }
-
-  function initRunbookHandlers() {
-    document.querySelectorAll('.runbook-btn').forEach(btn => {
-      if (btn.dataset.runbookBound === '1') return;
-      btn.dataset.runbookBound = '1';
-      btn.addEventListener('click', () => {
-        const payload = btn.dataset.runbook;
-        if (!payload) return;
-        try {
-          const meta = JSON.parse(decodeURIComponent(payload));
-          openRunbookModal(meta);
-        } catch (err) {
-          console.warn('runbook payload parse failed', err);
-        }
-      });
-    });
-  }
-
-  function openRunbookModal(alertMeta) {
-    if (!alertMeta) return;
-    runbookState.alert = alertMeta;
-    runbookState.payload = null;
-    if (runbookModalTitle) runbookModalTitle.textContent = '📚 Runbook';
-    if (runbookModalBody) runbookModalBody.innerHTML = '<div style="opacity:0.8;">טוען Runbook…</div>';
-    if (runbookModal) runbookModal.hidden = false;
-    loadRunbookForAlert(alertMeta);
-  }
-
-  function closeRunbookModal() {
-    if (runbookModal) runbookModal.hidden = true;
-    runbookState.alert = null;
-    runbookState.payload = null;
-  }
-
-  function serializeAlertForRunbookApi(alertMeta) {
-    const alertType = alertMeta && alertMeta.alert_type ? String(alertMeta.alert_type) : 'alert';
-    const endpoint = alertMeta && alertMeta.endpoint ? String(alertMeta.endpoint) : '';
-    const source = alertMeta && alertMeta.source ? String(alertMeta.source) : '';
-    const link = alertMeta && alertMeta.link ? String(alertMeta.link) : '';
-    const baseMeta =
-      alertMeta && alertMeta.metadata && typeof alertMeta.metadata === 'object'
-        ? Object.assign({}, alertMeta.metadata)
-        : {};
-    return {
-      alert_type: alertType,
-      type: 'alert',
-      severity: alertMeta && alertMeta.severity ? String(alertMeta.severity) : 'info',
-      summary: alertMeta && alertMeta.summary ? String(alertMeta.summary) : '',
-      title: alertMeta && alertMeta.title ? String(alertMeta.title) : '',
-      timestamp: alertMeta && alertMeta.timestamp ? String(alertMeta.timestamp) : '',
-      endpoint,
-      source,
-      link,
-      metadata: Object.assign({}, baseMeta, { alert_type: alertType, endpoint, source }),
-    };
-  }
-
-  function formatRunbookUpdated(status) {
-    if (!status || typeof status !== 'object') return '';
-    const updatedAt = status.updated_at || '';
-    const updatedBy = status.updated_by || '';
-    if (!updatedAt && !updatedBy) return '';
-    const by = updatedBy ? ` · ע"י ${updatedBy}` : '';
-    return `עודכן: ${formatShortTimestamp(updatedAt)}${by}`;
-  }
-
-  function renderRunbookModal(payload, alertMeta) {
-    if (!runbookModalBody) return;
-    if (!payload || payload.ok === false) {
-      runbookModalBody.innerHTML = '<div style="opacity:0.8;">שגיאה בטעינת ה-Runbook.</div>';
-      return;
-    }
-    const runbook = payload.runbook;
-    const status = payload.status || {};
-    if (!runbook) {
-      runbookModalBody.innerHTML = '<div style="opacity:0.8;">לא נמצא Runbook לאירוע הזה.</div>';
-      return;
-    }
-    const progress = runbook.progress || {};
-    const steps = Array.isArray(runbook.steps) ? runbook.steps : [];
-    const actions = Array.isArray(payload.actions) ? payload.actions : [];
-    const eventId = alertMeta && alertMeta.alert_uid ? String(alertMeta.alert_uid) : '';
-    if (runbookModalTitle) runbookModalTitle.textContent = `📚 ${runbook.title || 'Runbook'}`;
-
-    const stepsMarkup = steps.length
-      ? steps
-          .map(step => {
-            const stepId = step.id || '';
-            const disabled = (!eventId || !stepId) ? 'disabled' : '';
-            return `
-              <label class="runbook-step" data-step="${stepId}">
-                <input type="checkbox" ${step.completed ? 'checked' : ''} ${disabled}>
-                <div>
-                  <div class="runbook-step__title">${step.title || 'צעד'}</div>
-                  <div class="runbook-step__desc">${step.description || ''}</div>
-                </div>
-              </label>
-            `;
-          })
-          .join('')
-      : '<div style="opacity:0.75;">אין צעדים מוגדרים.</div>';
-
-    const actionsMarkup = actions.length
-      ? `
-        <div class="runbook-actions">
-          <div class="runbook-actions__title">Quick Fix</div>
-          <div class="runbook-actions__list">
-            ${actions
-              .map(action => {
-                const payload = encodeURIComponent(
-                  JSON.stringify({
-                    action: {
-                      id: action.id,
-                      type: action.type,
-                      label: action.label,
-                      href: action.href,
-                      payload: action.payload,
-                      safety: action.safety,
-                      description: action.description,
-                    },
-                    alert: {
-                      alert_uid: eventId,
-                      alert_type: (alertMeta && alertMeta.alert_type) || '',
-                      severity: (alertMeta && alertMeta.severity) || '',
-                      timestamp: (alertMeta && alertMeta.timestamp) || '',
-                      summary: (alertMeta && alertMeta.summary) || '',
-                    },
-                  })
-                );
-                const safetyClass = action.safety ? `safety-${action.safety}` : '';
-                return `<button type="button" class="quick-fix-action ${safetyClass}" data-qf="${payload}">${action.label || 'פעולה'}</button>`;
-              })
-              .join('')}
-          </div>
-        </div>
-      `
-      : '';
-
-    const updatedLine = formatRunbookUpdated(status);
-    runbookModalBody.innerHTML = `
-      <div class="runbook-card" data-event-id="${eventId}">
-        <div class="runbook-head">
-          <div>
-            <div class="runbook-title">${runbook.title || 'Runbook'}</div>
-            <div class="runbook-desc">${runbook.description || ''}</div>
-          </div>
-          <div class="runbook-progress">
-            <span>${progress.completed || 0}/${progress.total || 0}</span>
-            <small>${Math.round(progress.percent || 0)}%</small>
-          </div>
-        </div>
-        <div class="runbook-steps">${stepsMarkup}</div>
-        ${actionsMarkup}
-        ${updatedLine ? `<div class="runbook-meta">${updatedLine}</div>` : ''}
-      </div>
-    `;
-    bindRunbookStepToggles(eventId, steps, alertMeta);
-    // פעולות Runbook משתמשות באותו handler כמו Quick Fix.
-    initQuickFixHandlers();
-  }
-
-  function bindRunbookStepToggles(eventId, steps, alertMeta) {
-    if (!runbookModalBody || !eventId || !Array.isArray(steps)) return;
-    const validSteps = new Set(steps.map(step => step.id).filter(Boolean));
-    runbookModalBody.querySelectorAll('.runbook-step input[type="checkbox"]').forEach(input => {
-      const container = input.closest('.runbook-step');
-      const stepId = container ? container.dataset.step : '';
-      if (!stepId || !validSteps.has(stepId)) {
-        input.disabled = true;
-        return;
-      }
-      if (input.dataset.bound === '1') return;
-      input.dataset.bound = '1';
-      input.addEventListener('change', () => {
-        const nextValue = Boolean(input.checked);
-        const prevValue = !nextValue;
-        updateRunbookStatus(eventId, stepId, nextValue, alertMeta, input, prevValue);
-      });
-    });
-  }
-
-  async function updateRunbookStatus(eventId, stepId, completed, alertMeta, inputEl, prevChecked) {
-    // UI is optimistic: browser toggles checkbox before async completes.
-    // On failure, we must revert to keep UI consistent with server state.
-    if (inputEl) {
-      inputEl.disabled = true;
-    }
-    try {
-      const eventPayload = serializeAlertForRunbookApi(alertMeta || runbookState.alert || {});
-      const res = await fetch(`/api/observability/runbook/${encodeURIComponent(eventId)}/status`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ step_id: stepId, completed, event: eventPayload }),
-      });
-      const payload = await res.json();
-      if (payload.ok === false) throw new Error(payload.error || 'status_failed');
-      runbookState.payload = payload;
-      renderRunbookModal(payload, alertMeta);
-    } catch (err) {
-      console.error('runbook_status_failed', err);
-      showToast('שמירת Runbook נכשלה');
-      if (runbookState.payload) {
-        // Restore last known good server state (rebuilds UI).
-        renderRunbookModal(runbookState.payload, alertMeta || runbookState.alert || {});
-      } else if (inputEl) {
-        // Fallback: revert just the toggled checkbox.
-        inputEl.checked = Boolean(prevChecked);
-      }
-    } finally {
-      if (inputEl) {
-        inputEl.disabled = false;
-      }
-    }
-  }
-
-  async function loadRunbookForAlert(alertMeta) {
-    if (!alertMeta || !alertMeta.alert_uid) return;
-    const eventId = String(alertMeta.alert_uid);
-    try {
-      const params = new URLSearchParams();
-      if (alertMeta.alert_type) params.set('alert_type', alertMeta.alert_type);
-      if (alertMeta.endpoint) params.set('endpoint', alertMeta.endpoint);
-      if (alertMeta.source) params.set('source', alertMeta.source);
-      if (alertMeta.severity) params.set('severity', alertMeta.severity);
-      if (alertMeta.summary) params.set('summary', alertMeta.summary);
-      if (alertMeta.title) params.set('title', alertMeta.title);
-      if (alertMeta.timestamp) params.set('timestamp', alertMeta.timestamp);
-      if (alertMeta.link) params.set('link', alertMeta.link);
-      const qs = params.toString();
-      const res = await fetch(`/api/observability/runbook/${encodeURIComponent(eventId)}${qs ? `?${qs}` : ''}`, {
-        headers: { Accept: 'application/json' },
-      });
-      if (!res.ok) throw new Error('HTTP ' + res.status);
-      const payload = await res.json();
-      if (payload.ok === false) throw new Error(payload.error || 'runbook_error');
-      runbookState.payload = payload;
-      renderRunbookModal(payload, alertMeta);
-    } catch (err) {
-      console.error('runbook_load_failed', err);
-      if (runbookModalBody) runbookModalBody.innerHTML = '<div style="opacity:0.8;">שגיאה בטעינת ה-Runbook. נסה שוב.</div>';
-    }
   }
 
   function renderStoryCell(alert) {
@@ -1607,7 +1221,7 @@
     if (!uid) return '';
     return `
       <tr class="ai-explain-row" id="ai-row-${uid}" data-alert-uid="${uid}" hidden>
-        <td colspan="10">
+        <td colspan="9">
           <div class="ai-panel">
             <div class="ai-panel-body" id="ai-body-${uid}">
               <div class="ai-panel-placeholder">לחץ על הכפתור לקבלת הסבר חכם.</div>
@@ -2746,17 +2360,6 @@
     });
     storyModal.querySelectorAll('[data-story-close]').forEach(btn => {
       btn.addEventListener('click', closeStoryModal);
-    });
-  }
-
-  if (runbookModal) {
-    runbookModal.addEventListener('click', event => {
-      if (event.target === runbookModal) {
-        closeRunbookModal();
-      }
-    });
-    runbookModal.querySelectorAll('[data-runbook-close]').forEach(btn => {
-      btn.addEventListener('click', closeRunbookModal);
     });
   }
 

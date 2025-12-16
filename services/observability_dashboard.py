@@ -311,60 +311,9 @@ def _slugify(value: str, fallback: str) -> str:
 
 def _normalize_alert_type(value: Optional[str]) -> str:
     try:
-        text = str(value or "").strip().lower()
+        return str(value or "").strip().lower()
     except Exception:
         return ""
-    if not text:
-        return ""
-    # Normalize common variants so alert types match runbook aliases:
-    # - "No replica set members" -> "no_replica_set_members"
-    # - "SSL handshake failed"   -> "ssl_handshake_failed"
-    # - "_OperationCancelled"    -> "operationcancelled"
-    text = re.sub(r"[\s\-]+", "_", text)
-    text = text.strip("_")
-    text = re.sub(r"[^a-z0-9_\.]+", "", text)
-    text = re.sub(r"_+", "_", text)
-    return text
-
-
-def _fallback_runbook_definition() -> Dict[str, Any]:
-    """
-    Fallback runbook shown when runbook YAML isn't available/parseable.
-
-    This prevents the UI from showing "אין Runbook" in environments where the
-    YAML dependency/config wasn't shipped correctly, and still gives operators
-    safe, actionable next steps.
-    """
-    return {
-        "id": "generic_incident_flow",
-        "title": "פלייבוק כללי להתראות",
-        "description": "Fallback בסיסי כשאין Runbook ייעודי/כשקובץ ה-Runbooks לא נטען.",
-        "category": "fallback",
-        "steps": [
-            {
-                "id": "open_replay",
-                "title": "פתח Incident Replay סביב האירוע",
-                "description": "בדוק אם יש דיפלוימנט/התראות נוספות סביב אותה שעה.",
-                "action": {
-                    "label": "⏪ Incident Replay",
-                    "type": "link",
-                    "href": "/admin/observability/replay?timerange=3h&focus_ts={{timestamp}}",
-                    "safety": "safe",
-                },
-            },
-            {
-                "id": "run_errors",
-                "title": "משוך /errors",
-                "description": "פקודה מהירה שמציפה שגיאות אחרונות (fallback כשאין תמונה מלאה).",
-                "action": {
-                    "label": "🚨 /errors",
-                    "type": "copy",
-                    "payload": "/errors",
-                    "safety": "safe",
-                },
-            },
-        ],
-    }
 
 
 def _normalize_runbook_config(raw: Any) -> Tuple[Dict[str, Any], Dict[str, str], Optional[str], Optional[int]]:
@@ -2248,8 +2197,7 @@ def _build_runbook_snapshot(
 ) -> Optional[Dict[str, Any]]:
     definition = copy.deepcopy(runbook) if runbook else _resolve_runbook_entry(alert_snapshot.get("alert_type"))
     if not definition:
-        # If the runbook config isn't available (e.g. YAML missing), don't fail the UI.
-        definition = _fallback_runbook_definition()
+        return None
     steps, actions = _expand_runbook_steps(definition, alert_snapshot)
     state = _get_runbook_state(alert_snapshot.get("alert_uid") or _build_alert_uid(alert_snapshot))
     completed_ids = set(state.get("completed") or set())
