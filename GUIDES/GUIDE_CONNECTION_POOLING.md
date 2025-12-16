@@ -1,7 +1,7 @@
 # מדריך הגדרות Connection Pool (מעודכן ל-2025)
 
 הקוד בריפו כולל מימושים אופטימליים לניהול חיבורים (Connection Pooling) עבור שירותי התשתית.
-מסמך זה מרכז את **משתני הסביבה (ENV)** והגדרות הקונפיגורציה, כולל **ערכי ברירת המחדל (Defaults)** המוטמעים בקוד ("Hardcoded") במידה ולא הוגדר ערך ב-ENV.
+מסמך זה מרכז את **משתני הסביבה (ENV)** והגדרות הקונפיגורציה, כולל **ערכי ברירת המחדל (Defaults)** המוטמעים בקוד במידה ולא הוגדר ערך ב-ENV.
 
 ---
 
@@ -29,7 +29,7 @@
 | `REDIS_MAX_CONNECTIONS` | `50` | מקסימום חיבורים ב-Pool של Redis. |
 | `REDIS_CONNECT_TIMEOUT` | `5` | (בשניות) זמן המתנה לחיבור. במצב `SAFE_MODE=1` הערך יורד ל-`1`. |
 | `REDIS_SOCKET_TIMEOUT` | `5` | (בשניות) זמן המתנה לפעולת רשת. במצב `SAFE_MODE=1` הערך יורד ל-`1`. |
-| *(הגדרה פנימית)* | `30` | `health_check_interval` - בדיקת תקינות חיבור כל 30 שניות (קבוע בקוד). |
+| *(Internal definition)* | `30` | `health_check_interval` - בדיקת תקינות חיבור כל 30 שניות (קבוע בקוד). |
 
 ---
 
@@ -39,7 +39,7 @@
 | משתנה סביבה | ברירת מחדל בקוד | תיאור |
 |:---|:---:|:---|
 | `AIOHTTP_POOL_LIMIT` | `50` | סה"כ חיבורים מקביליים מותרים (לכל הדומיינים יחד). |
-| `AIOHTTP_LIMIT_PER_HOST` | `0` | (ללא הגבלה) מקסימום חיבורים לדומיין בודד. ב-Prod מומלץ להגדיר (למשל `20`). |
+| `AIOHTTP_LIMIT_PER_HOST` | `0` | (ללא הגבלה) מקסימום חיבורים לדומיין בודד. |
 | `AIOHTTP_TIMEOUT_TOTAL` | `10` | (10 שניות) זמן מקסימלי לכל הבקשה (Connect + Read). |
 
 ---
@@ -57,45 +57,70 @@
 
 ---
 
-## תבניות מומלצות לפי סביבה (Copy-Paste)
+## תבניות מומלצות מלאות (Full Copy-Paste)
+
+להלן תבניות `.env` הכוללות את **כל** המשתנים האפשריים, מותאמים לסוג הסביבה.
 
 ### 💻 Local Development / CI
-הגדרות מינימליות למכונות קטנות ולמניעת תופסני משאבים.
+הגדרות "רזות" ומהירות – חסכון במשאבים וכישלון מהיר (Fail Fast) כשיש בעיות רשת.
 
 ```bash
-# MongoDB
+# --- MongoDB (Lightweight) ---
 MONGODB_MAX_POOL_SIZE=10
 MONGODB_MIN_POOL_SIZE=1
+MONGODB_WAIT_QUEUE_TIMEOUT_MS=2000
+MONGODB_MAX_IDLE_TIME_MS=10000
+MONGODB_CONNECT_TIMEOUT_MS=2000
+MONGODB_SOCKET_TIMEOUT_MS=5000
+MONGODB_SERVER_SELECTION_TIMEOUT_MS=2000
+MONGODB_HEARTBEAT_FREQUENCY_MS=5000
 
-# Redis
+# --- Redis (Lightweight) ---
 REDIS_MAX_CONNECTIONS=10
 REDIS_CONNECT_TIMEOUT=1
+REDIS_SOCKET_TIMEOUT=1
 
-# HTTP
+# --- HTTP Async (aiohttp) ---
 AIOHTTP_POOL_LIMIT=20
+AIOHTTP_LIMIT_PER_HOST=5
+AIOHTTP_TIMEOUT_TOTAL=5
+
+# --- HTTP Sync (requests) ---
 REQUESTS_POOL_CONNECTIONS=10
 REQUESTS_POOL_MAXSIZE=10
+REQUESTS_RETRIES=1
+REQUESTS_TIMEOUT=5.0
+REQUESTS_RETRY_BACKOFF=0.1
 ```
 
 ### 🚀 Production (High Performance)
-הגדרות המיועדות לעומס גבוה ומקביליות רבה.
+הגדרות "רחבות" ויציבות – תמיכה במקביליות גבוהה (High Concurrency) ועמידות בפני איטיות רגעית.
 
 ```bash
-# MongoDB
-MONGODB_MAX_POOL_SIZE=200
-MONGODB_MIN_POOL_SIZE=20
-MONGODB_WAIT_QUEUE_TIMEOUT_MS=2000  # Fail fast if overloaded
+# --- MongoDB (Production) ---
+MONGODB_MAX_POOL_SIZE=100         # ניתן להגדיל ל-200 בעומס כבד
+MONGODB_MIN_POOL_SIZE=10
+MONGODB_WAIT_QUEUE_TIMEOUT_MS=5000
+MONGODB_MAX_IDLE_TIME_MS=30000
+MONGODB_CONNECT_TIMEOUT_MS=10000
+MONGODB_SOCKET_TIMEOUT_MS=20000
+MONGODB_SERVER_SELECTION_TIMEOUT_MS=5000
+MONGODB_HEARTBEAT_FREQUENCY_MS=10000
 
-# Redis
-REDIS_MAX_CONNECTIONS=200
+# --- Redis (Production) ---
+REDIS_MAX_CONNECTIONS=100         # ניתן להגדיל ל-200 בעומס כבד
 REDIS_CONNECT_TIMEOUT=2.0
+REDIS_SOCKET_TIMEOUT=2.0
 
-# HTTP (Async is dominant)
-AIOHTTP_POOL_LIMIT=200
-AIOHTTP_LIMIT_PER_HOST=50
-AIOHTTP_TIMEOUT_TOTAL=20
+# --- HTTP Async (aiohttp - Production) ---
+AIOHTTP_POOL_LIMIT=100            # מגבלה גלובלית
+AIOHTTP_LIMIT_PER_HOST=25         # הגנה על שירותים חיצוניים ספציפיים מהצפה
+AIOHTTP_TIMEOUT_TOTAL=15
 
-# HTTP (Sync fallback)
-REQUESTS_POOL_CONNECTIONS=50
+# --- HTTP Sync (requests - Production) ---
+REQUESTS_POOL_CONNECTIONS=20
 REQUESTS_POOL_MAXSIZE=100
+REQUESTS_RETRIES=3
+REQUESTS_TIMEOUT=10.0
+REQUESTS_RETRY_BACKOFF=0.5
 ```
