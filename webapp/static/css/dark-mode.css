@@ -430,3 +430,72 @@
         padding: 1rem;
     }
 }
+
+/* ============================================
+   Settings: Sun/Moon morph (theme picker)
+   ============================================ */
+
+.settings-theme-morph {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    line-height: 0;
+    color: var(--text-primary, currentColor);
+}
+
+.settings-theme-morph .sun-and-moon {
+    display: block;
+}
+
+.settings-theme-morph .sun-and-moon > :is(.moon, .sun, .sun-beams) {
+    transform-origin: center center;
+}
+
+.settings-theme-morph .sun-and-moon > :is(.moon, .sun) {
+    fill: currentColor;
+}
+
+.settings-theme-morph .sun-and-moon > .sun-beams {
+    stroke: currentColor;
+    stroke-width: 2px;
+    stroke-linecap: round;
+}
+
+/* מצב לילה (מופעל ע"י data-theme על <html>) */
+[data-theme="dark"] .settings-theme-morph .sun-and-moon > .sun,
+[data-theme="dim"] .settings-theme-morph .sun-and-moon > .sun {
+    transform: scale(1.75);
+}
+
+[data-theme="dark"] .settings-theme-morph .sun-and-moon > .sun-beams,
+[data-theme="dim"] .settings-theme-morph .sun-and-moon > .sun-beams {
+    opacity: 0;
+    transform: rotate(-25deg);
+}
+
+[data-theme="dark"] .settings-theme-morph .sun-and-moon > .moon > circle,
+[data-theme="dim"] .settings-theme-morph .sun-and-moon > .moon > circle {
+    transform: translateX(-7px);
+}
+
+/* האנימציה עצמה - מעברים חלקים */
+.settings-theme-morph .sun-and-moon > .sun {
+    transition: transform 0.5s var(--ease-elastic-3, cubic-bezier(0.34, 1.56, 0.64, 1));
+}
+
+.settings-theme-morph .sun-and-moon > .sun-beams {
+    transition: transform 0.5s var(--ease-elastic-4, cubic-bezier(0.34, 1.56, 0.64, 1)),
+                opacity 0.5s var(--ease-3, ease);
+}
+
+.settings-theme-morph .sun-and-moon .moon > circle {
+    transition: transform 0.25s var(--ease-out-5, cubic-bezier(0.17, 0.67, 0.24, 1));
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .settings-theme-morph .sun-and-moon > .sun,
+    .settings-theme-morph .sun-and-moon > .sun-beams,
+    .settings-theme-morph .sun-and-moon .moon > circle {
+        transition: none !important;
+    }
+}
