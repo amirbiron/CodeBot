@@ -399,15 +399,24 @@ def _summarize_runbook_steps(
         action = step.get("action")
         action_label = ""
         action_type = ""
+        action_value = ""
+        action_safety = ""
         if isinstance(action, dict):
             action_label = str(action.get("label") or "")
-            action_type = str(action.get("type") or "")
+            action_type = str(action.get("type") or "").lower()
+            action_safety = str(action.get("safety") or "")
+            if action_type == "link":
+                action_value = str(action.get("href") or "")
+            elif action_type == "copy":
+                action_value = str(action.get("payload") or "")
         summaries.append(
             {
                 "id": step.get("id"),
                 "title": step.get("title"),
                 "action_label": action_label,
                 "action_type": action_type,
+                "action_value": action_value,
+                "action_safety": action_safety,
             }
         )
     return summaries
