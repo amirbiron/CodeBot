@@ -1142,16 +1142,64 @@
       });
 
       if (themeSel) themeSel.addEventListener('change', async function(){
+        const html = document.documentElement;
+        const prevTheme = ((html.getAttribute('data-theme') || 'classic') + '').trim().toLowerCase();
+        const nextTheme = ((themeSel.value || '') + '').trim().toLowerCase();
+
+        const allowed = (window.__ckThemeRipple && Array.isArray(window.__ckThemeRipple.allowedThemes))
+          ? window.__ckThemeRipple.allowedThemes
+          : ['classic','ocean','forest','rose-pine-dawn','dark','dim','nebula','high-contrast'];
+
+        const isAllowed = (t) => !!t && allowed.indexOf(t) !== -1;
+        if (!isAllowed(nextTheme)) {
+          alert('ערכת נושא לא נתמכת');
+          try { themeSel.value = prevTheme; } catch(_) {}
+          return;
+        }
+
+        function persistLocal(theme){
+          try { localStorage.setItem('user_theme', theme); } catch(_) {}
+          try {
+            if (theme === 'dark' || theme === 'dim') {
+              localStorage.setItem('dark_mode_preference', theme);
+            } else if (theme === 'classic') {
+              localStorage.setItem('dark_mode_preference', 'light');
+            } else {
+              localStorage.removeItem('dark_mode_preference');
+            }
+          } catch(_) {}
+        }
+
+        function applyNow(theme){
+          try { html.setAttribute('data-theme', theme); } catch(_) {}
+        }
+
         try {
-          try { localStorage.setItem('dark_mode_preference', themeSel.value); } catch(_) {}
+          // שמירה מקומית לפני הכל (כדי לסנכרן טאבים ולהחזיק גם אם הרשת נופלת)
+          persistLocal(nextTheme);
+
+          // אפקט ripple + החלפה בסוף האנימציה
+          if (typeof window.applyThemeChangeWithRipple === 'function') {
+            window.applyThemeChangeWithRipple(nextTheme, themeSel, applyNow);
+          } else {
+            applyNow(nextTheme);
+          }
+
           const res = await fetch('/api/ui_prefs', {
-            method: 'POST', headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ theme: themeSel.value })
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ theme: nextTheme })
           });
           const data = await res.json();
           if (!data.ok) throw 0;
-          location.reload();
-        } catch (e) { alert('שגיאה בעדכון ערכת הנושא'); }
+        } catch (e) {
+          // rollback: בטל אנימציה אם רצה, והחזר את הערך הקודם
+          try { if (window.__ckThemeRipple && typeof window.__ckThemeRipple.cancel === 'function') window.__ckThemeRipple.cancel(); } catch(_) {}
+          persistLocal(prevTheme);
+          applyNow(prevTheme);
+          try { themeSel.value = prevTheme; } catch(_) {}
+          alert('שגיאה בעדכון ערכת הנושא');
+        }
       });
 
       // Bookmarks toggle visibility controls
