@@ -17,12 +17,28 @@
 
     <script>
         // קביעה מוקדמת של data-theme כדי למנוע הבהוב לפני טעינת ה-CSS
-        // עדיפות: dark_mode_preference (אם קיים) -> user_theme (רק אם אין ui_theme cookie)
         (function() {
             try {
                 var html = document.documentElement;
-                var hasUiThemeCookie = false;
-                try { hasUiThemeCookie = /(?:^|;\s*)ui_theme=/.test(document.cookie || ''); } catch (_) {}
+                var isLoggedIn = {{ 'true' if session.user_id else 'false' }};
+                var serverTheme = '{{ ui_theme }}';
+                serverTheme = String(serverTheme || 'classic').trim().toLowerCase();
+                var allowed = {
+                    'classic': 1,
+                    'ocean': 1,
+                    'forest': 1,
+                    'rose-pine-dawn': 1,
+                    'dark': 1,
+                    'dim': 1,
+                    'nebula': 1,
+                    'high-contrast': 1
+                };
+
+                // אם השרת קבע ערכת נושא שאינה מצב "בהיר/כהה" – נכבד אותה תמיד (סנכרון בין מכשירים)
+                if (allowed[serverTheme] && (serverTheme !== 'classic' && serverTheme !== 'dark' && serverTheme !== 'dim')) {
+                    html.setAttribute('data-theme', serverTheme);
+                    return;
+                }
 
                 var savedMode = localStorage.getItem('dark_mode_preference');
                 if (savedMode === 'dark' || savedMode === 'dim') {
@@ -34,24 +50,21 @@
                     return;
                 }
 
-                if (!hasUiThemeCookie) {
+                // כשלא מחוברים — נכבד user_theme מקומי (ללא תלות בשרת)
+                if (!isLoggedIn) {
                     var savedTheme = localStorage.getItem('user_theme');
                     if (savedTheme) {
                         savedTheme = String(savedTheme).trim().toLowerCase();
-                        var allowed = {
-                            'classic': 1,
-                            'ocean': 1,
-                            'forest': 1,
-                            'rose-pine-dawn': 1,
-                            'dark': 1,
-                            'dim': 1,
-                            'nebula': 1,
-                            'high-contrast': 1
-                        };
                         if (allowed[savedTheme]) {
                             html.setAttribute('data-theme', savedTheme);
+                            return;
                         }
                     }
+                }
+
+                // fallback: ערכת נושא מהשרת
+                if (allowed[serverTheme]) {
+                    html.setAttribute('data-theme', serverTheme);
                 }
             } catch (_) { /* ignore */ }
         })();
@@ -2588,6 +2601,14 @@
         wizardEl.setAttribute('aria-hidden', 'true');
         bodyEl.classList.remove('theme-wizard-open');
         document.removeEventListener('keydown', handleKeydown, true);
+        // אם המשתמש סגר בלי לשמור – בטל ripple ממתין כדי שלא ידרוס את הרברט
+        if (!persist) {
+            try {
+                if (window.__ckThemeRipple && typeof window.__ckThemeRipple.cancel === 'function') {
+                    window.__ckThemeRipple.cancel();
+                }
+            } catch (_) { /* ignore */ }
+        }
         if (persist && state.selectedTheme) {
             persistTheme(state.selectedTheme);
         } else {

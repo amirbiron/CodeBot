@@ -1157,6 +1157,21 @@
           return;
         }
 
+        // ניהול תחרות (race): רק הפעולה האחרונה רשאית לבצע rollback/cancel
+        const opState = window.__ckThemeSelectOp = window.__ckThemeSelectOp || { seq: 0, controller: null, intendedTheme: null };
+        const opId = (opState.seq = (Number(opState.seq) || 0) + 1);
+        opState.intendedTheme = nextTheme;
+        try {
+          if (opState.controller && typeof opState.controller.abort === 'function') {
+            opState.controller.abort();
+          }
+        } catch(_) {}
+        try {
+          opState.controller = (typeof AbortController !== 'undefined') ? new AbortController() : null;
+        } catch(_) {
+          opState.controller = null;
+        }
+
         function persistLocal(theme){
           try { localStorage.setItem('user_theme', theme); } catch(_) {}
           try {
@@ -1185,14 +1200,28 @@
             applyNow(nextTheme);
           }
 
-          const res = await fetch('/api/ui_prefs', {
+          const fetchOpts = {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ theme: nextTheme })
-          });
+          };
+          try {
+            if (opState.controller && opState.controller.signal) {
+              fetchOpts.signal = opState.controller.signal;
+            }
+          } catch(_) {}
+
+          const res = await fetch('/api/ui_prefs', fetchOpts);
           const data = await res.json();
           if (!data.ok) throw 0;
         } catch (e) {
+          // אם זו לא הפעולה האחרונה – לא עושים rollback (אחרת נשבור בחירה חדשה)
+          const aborted = !!(e && (e.name === 'AbortError' || String(e).toLowerCase().includes('abort')));
+          const stillLatest = (window.__ckThemeSelectOp && window.__ckThemeSelectOp.seq === opId);
+          const stillIntended = (window.__ckThemeSelectOp && window.__ckThemeSelectOp.intendedTheme === nextTheme);
+          if (aborted || !stillLatest || !stillIntended) {
+            return;
+          }
           // rollback: בטל אנימציה אם רצה, והחזר את הערך הקודם
           try { if (window.__ckThemeRipple && typeof window.__ckThemeRipple.cancel === 'function') window.__ckThemeRipple.cancel(); } catch(_) {}
           persistLocal(prevTheme);
