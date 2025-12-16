@@ -102,6 +102,38 @@ runbooks:
     assert actions and actions[0]["label"] == "Demo Action"
 
 
+def test_get_quick_fix_actions_uses_metadata_type_when_alert_type_missing(monkeypatch, tmp_path):
+    yaml_text = """
+runbooks:
+  db_connection_issue:
+    title: DB Issue
+    aliases:
+      - no_replica_set_members
+    steps:
+      - id: triage_db
+        title: Triage DB
+        action:
+          label: /triage db
+          type: copy
+          payload: "/triage db"
+"""
+    path = tmp_path / "runbook.yml"
+    path.write_text(yaml_text, encoding="utf-8")
+    monkeypatch.setattr(obs, "_RUNBOOK_PATH", path)
+    monkeypatch.setattr(obs, "_RUNBOOK_CACHE", {})
+    monkeypatch.setattr(obs, "_RUNBOOK_ALIAS_MAP", {})
+    monkeypatch.setattr(obs, "_RUNBOOK_MTIME", 0.0)
+
+    # Simulate older DB rows where alert_type isn't stored top-level, but exists under metadata "type".
+    alert = {
+        "alert_type": None,
+        "timestamp": "2025-01-01T00:00:00+00:00",
+        "metadata": {"type": "no_replica_set_members"},
+    }
+    actions = obs.get_quick_fix_actions(alert)
+    assert actions and actions[0]["label"] == "/triage db"
+
+
 def test_get_quick_fix_actions_matches_config_key_with_different_separators(monkeypatch, tmp_path):
     cfg = {
         "by_alert_type": {

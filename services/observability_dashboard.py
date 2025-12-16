@@ -681,7 +681,22 @@ def _expand_runbook_steps(
 
 
 def _runbook_quick_fix_actions(alert: Dict[str, Any]) -> List[Dict[str, Any]]:
-    runbook = _resolve_runbook_entry(alert.get("alert_type"))
+    # In production we sometimes have alert_type only inside metadata/details (older records
+    # or upstream emitters), while the top-level alert_type field is missing.
+    # To avoid falling back to generic quick-fixes/runbooks, we derive an effective alert_type
+    # from either the top-level field or common metadata keys.
+    alert_type = alert.get("alert_type")
+    if not alert_type:
+        meta = alert.get("metadata") if isinstance(alert.get("metadata"), dict) else {}
+        for key in ("alert_type", "type", "category", "kind"):
+            try:
+                candidate = meta.get(key)
+            except Exception:
+                candidate = None
+            if candidate not in (None, ""):
+                alert_type = candidate
+                break
+    runbook = _resolve_runbook_entry(alert_type)
     if not runbook:
         return []
     _, actions = _expand_runbook_steps(runbook, alert)
@@ -2580,11 +2595,23 @@ def fetch_incident_replay(
         else:
             alert_count += 1
         uid = alert.get("alert_uid") or _build_alert_uid(alert)
+        # Prefer the stored top-level alert_type, but fall back to metadata/details when missing.
+        effective_alert_type = alert.get("alert_type")
+        if not effective_alert_type:
+            meta = alert.get("metadata") if isinstance(alert.get("metadata"), dict) else {}
+            for key in ("alert_type", "type", "category", "kind"):
+                try:
+                    candidate = meta.get(key)
+                except Exception:
+                    candidate = None
+                if candidate not in (None, ""):
+                    effective_alert_type = candidate
+                    break
         metadata = {
             "endpoint": alert.get("endpoint"),
-            "alert_type": alert.get("alert_type"),
+            "alert_type": effective_alert_type,
             "source": alert.get("source"),
-            "has_runbook": bool(_resolve_runbook_key(alert.get("alert_type"), allow_default=False)),
+            "has_runbook": bool(_resolve_runbook_key(effective_alert_type, allow_default=False)),
         }
         events.append(
             {
