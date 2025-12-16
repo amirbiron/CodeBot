@@ -3,6 +3,7 @@ Prometheus metrics primitives and helpers.
 """
 from __future__ import annotations
 
+import json
 import logging
 import time
 from contextlib import contextmanager
@@ -12,6 +13,7 @@ import os
 import threading
 import time as _time
 from collections import deque
+from urllib.parse import urlparse
 
 # Structured event emission (no dependency loop back to metrics)
 try:
@@ -384,6 +386,99 @@ _AVG_RT_THRESHOLD: float = float(os.getenv("ALERT_AVG_RESPONSE_TIME", "3.0"))
 _DEPLOY_AVG_RT_THRESHOLD: float = float(os.getenv("ALERT_AVG_RESPONSE_TIME_DEPLOY", "10.0"))
 _DEPLOY_GRACE_PERIOD_SECONDS: int = int(os.getenv("DEPLOY_GRACE_PERIOD_SECONDS", "120"))
 _LAST_DEPLOYMENT_TS: float | None = None
+
+# Endpoints to exclude from EWMA + slow-endpoint sampling (but still record Prometheus metrics).
+# IMPORTANT: do not import `config.py` here (it has required settings and can break docs/tests).
+_ANOMALY_IGNORE_ENDPOINTS_ENV: str = "ANOMALY_IGNORE_ENDPOINTS"
+_ANOMALY_IGNORE_ENDPOINTS_RAW: str | None = None
+_ANOMALY_IGNORE_ENDPOINTS_SET: set[str] = set()
+_ANOMALY_IGNORE_ENDPOINTS_LOCK = threading.Lock()
+
+
+def _normalize_anomaly_ignore_token(value: Any) -> str:
+    """Normalize a configured ignore token (path or endpoint name)."""
+    try:
+        s = str(value or "").strip()
+    except Exception:
+        return ""
+    if not s:
+        return ""
+    # Allow full URL values by extracting the path part
+    if "://" in s:
+        try:
+            parsed = urlparse(s)
+            if parsed and parsed.path:
+                s = parsed.path
+        except Exception:
+            pass
+    # Drop query/hash to match request.path semantics
+    try:
+        s = s.split("?", 1)[0].split("#", 1)[0].strip()
+    except Exception:
+        pass
+    if not s:
+        return ""
+    # Normalize trailing slash for paths (keep "/" as-is)
+    if s.startswith("/") and len(s) > 1:
+        s = s.rstrip("/")
+    return s
+
+
+def _parse_anomaly_ignore_endpoints(raw: str | None) -> set[str]:
+    try:
+        text = str(raw or "").strip()
+    except Exception:
+        text = ""
+    if not text:
+        return set()
+
+    tokens: list[Any]
+    if text.startswith("["):
+        try:
+            parsed = json.loads(text)
+            if isinstance(parsed, list):
+                tokens = list(parsed)
+            else:
+                tokens = [parsed]
+        except Exception:
+            tokens = [p.strip() for p in text.split(",")]
+    else:
+        tokens = [p.strip() for p in text.split(",")]
+
+    out: set[str] = set()
+    for token in tokens:
+        normalized = _normalize_anomaly_ignore_token(token)
+        if normalized:
+            out.add(normalized)
+    return out
+
+
+def _get_anomaly_ignore_endpoints() -> set[str]:
+    """Return the current ignore set, reloading if env changed (thread-safe)."""
+    global _ANOMALY_IGNORE_ENDPOINTS_RAW, _ANOMALY_IGNORE_ENDPOINTS_SET
+    raw = os.getenv(_ANOMALY_IGNORE_ENDPOINTS_ENV, "") or ""
+    if _ANOMALY_IGNORE_ENDPOINTS_RAW is not None and raw == _ANOMALY_IGNORE_ENDPOINTS_RAW:
+        return _ANOMALY_IGNORE_ENDPOINTS_SET
+
+    with _ANOMALY_IGNORE_ENDPOINTS_LOCK:
+        raw2 = os.getenv(_ANOMALY_IGNORE_ENDPOINTS_ENV, "") or ""
+        if _ANOMALY_IGNORE_ENDPOINTS_RAW is not None and raw2 == _ANOMALY_IGNORE_ENDPOINTS_RAW:
+            return _ANOMALY_IGNORE_ENDPOINTS_SET
+        _ANOMALY_IGNORE_ENDPOINTS_RAW = raw2
+        _ANOMALY_IGNORE_ENDPOINTS_SET = _parse_anomaly_ignore_endpoints(raw2)
+        return _ANOMALY_IGNORE_ENDPOINTS_SET
+
+
+def _is_anomaly_ignored(*, path: str | None = None, endpoint: str | None = None) -> bool:
+    """True if the request should be ignored for EWMA/slow-endpoint sampling."""
+    ignore_set = _get_anomaly_ignore_endpoints()
+    if not ignore_set:
+        return False
+    for candidate in (path, endpoint):
+        normalized = _normalize_anomaly_ignore_token(candidate)
+        if normalized and normalized in ignore_set:
+            return True
+    return False
 
 
 @contextmanager
@@ -843,7 +938,10 @@ def record_request_outcome(
             if codebot_failed_requests_total is not None:
                 codebot_failed_requests_total.inc()
             _record_error_timestamp()
-        _update_ewma(float(duration_seconds))
+        # Allow excluding specific paths (e.g., observability heavy endpoints) from EWMA.
+        # Still record core request counters + error timestamps for history.
+        if not _is_anomaly_ignored(path=path):
+            _update_ewma(float(duration_seconds))
         _maybe_trigger_anomaly()
         # Dual-write: enqueue request metrics to DB (best-effort, batched)
         ctx_dict: Dict[str, Any] = {}
@@ -1086,6 +1184,8 @@ def record_http_request(
     endpoint: str | None,
     status_code: int,
     duration_seconds: float,
+    *,
+    path: str | None = None,
 ) -> None:
     """Record HTTP request metrics for SLO calculations.
 
@@ -1108,7 +1208,9 @@ def record_http_request(
                 http_request_duration_seconds.labels(m, ep).observe(max(0.0, float(duration_seconds)))
             except Exception:
                 pass
-        _note_http_request_sample(m, ep, int(status), float(duration_seconds))
+        # Keep Prometheus metrics for history, but optionally exclude from slow-endpoint sampling.
+        if not _is_anomaly_ignored(path=path, endpoint=endpoint):
+            _note_http_request_sample(m, ep, int(status), float(duration_seconds))
     except Exception:
         return
 

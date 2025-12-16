@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import List, Optional
 import json
+from urllib.parse import urlparse
 
 from pydantic import Field, ValidationError, field_validator
 from pydantic_settings import (
@@ -322,6 +323,15 @@ class BotConfig(BaseSettings):
         default=False, description="Enable 'Send Sentry test event' admin button"
     )
 
+    # Anomaly detection tuning
+    ANOMALY_IGNORE_ENDPOINTS: List[str] = Field(
+        default_factory=list,
+        description=(
+            "Comma-separated or JSON list of URL paths/endpoints to exclude from EWMA "
+            "latency calculations and slow-endpoint sampling (metrics are still recorded)."
+        ),
+    )
+
     # Metrics DB
     METRICS_DB_ENABLED: bool = Field(
         default=False, description="Enable metrics dual-write to DB"
@@ -419,6 +429,62 @@ class BotConfig(BaseSettings):
         raise ValueError(
             "ADMIN_USER_IDS must be list[int], int, CSV string, or JSON list/int"
         )
+
+    @field_validator("ANOMALY_IGNORE_ENDPOINTS", mode="before")
+    @classmethod
+    def _parse_anomaly_ignore_endpoints(cls, v):
+        """Parse ANOMALY_IGNORE_ENDPOINTS from CSV/JSON/list and normalize paths."""
+        if v is None or v == "":
+            return []
+
+        tokens: list[object]
+        if isinstance(v, (list, tuple, set)):
+            tokens = list(v)
+        elif isinstance(v, str):
+            s = v.strip()
+            if s == "":
+                return []
+            if s.startswith("["):
+                try:
+                    parsed = json.loads(s)
+                except Exception:
+                    parsed = None
+                if parsed is not None:
+                    if isinstance(parsed, list):
+                        tokens = list(parsed)
+                    else:
+                        tokens = [parsed]
+                else:
+                    tokens = [p.strip() for p in s.split(",")]
+            else:
+                tokens = [p.strip() for p in s.split(",")]
+        else:
+            tokens = [v]
+
+        out: list[str] = []
+        seen: set[str] = set()
+        for token in tokens:
+            try:
+                item = str(token or "").strip()
+            except Exception:
+                continue
+            if not item:
+                continue
+            if "://" in item:
+                try:
+                    parsed_url = urlparse(item)
+                    if parsed_url and parsed_url.path:
+                        item = parsed_url.path
+                except Exception:
+                    pass
+            # Drop query/hash, normalize trailing slash for paths
+            item = item.split("?", 1)[0].split("#", 1)[0].strip()
+            if item.startswith("/") and len(item) > 1:
+                item = item.rstrip("/")
+            if item and item not in seen:
+                out.append(item)
+                seen.add(item)
+        return out
 
     @classmethod
     def settings_customise_sources(

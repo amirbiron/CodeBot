@@ -2160,7 +2160,7 @@ def _metrics_after(resp):
             )
             try:
                 method = getattr(request, "method", "GET")
-                record_http_request(method, endpoint, status, dur)
+                record_http_request(method, endpoint, status, dur, path=path_label)
             except Exception:
                 pass
             # מדידת זמן "בקשה ראשונה" מול זמן אתחול התהליך

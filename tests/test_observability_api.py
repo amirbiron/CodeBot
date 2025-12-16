@@ -1,5 +1,6 @@
 import importlib
 from datetime import datetime, timezone
+import pytest
 
 
 def _build_app():
@@ -234,6 +235,65 @@ def test_observability_aggregations_passes_limit(monkeypatch):
     assert captured['slow_endpoints_limit'] == 3
     assert isinstance(captured['start_dt'], datetime)
     assert captured['start_dt'].tzinfo == timezone.utc
+
+
+def test_observability_aggregations_ignored_does_not_update_ewma(monkeypatch):
+    import metrics
+
+    admin_id = 123
+    monkeypatch.setenv('ADMIN_USER_IDS', str(admin_id))
+    monkeypatch.setenv(
+        'ANOMALY_IGNORE_ENDPOINTS',
+        '/api/observability/aggregations,/api/observability/timeseries',
+    )
+
+    # Ensure clean metrics state for deterministic assertions
+    with metrics._HTTP_SAMPLES_LOCK:  # type: ignore[attr-defined]
+        metrics._HTTP_REQUEST_SAMPLES.clear()  # type: ignore[attr-defined]
+    metrics._EWMA_RT = 0.5
+
+    # Patch handler to avoid DB work; duration is simulated via perf_counter
+    def _fake_fetch_aggregations(**_kwargs):
+        return {
+            'summary': {'total': 1, 'critical': 0, 'anomaly': 0, 'deployment': 0},
+            'top_slow_endpoints': [],
+            'deployment_correlation': {},
+        }
+
+    monkeypatch.setattr(
+        'webapp.app.observability_service.fetch_aggregations',
+        _fake_fetch_aggregations,
+    )
+
+    # Simulate a slow request (6s) without sleeping.
+    import importlib
+
+    app_mod = importlib.import_module('webapp.app')
+    calls = {'n': 0}
+
+    def _fake_perf_counter():
+        calls['n'] += 1
+        if calls['n'] == 1:
+            return 100.0
+        if calls['n'] == 2:
+            return 106.0
+        # keep monotonic increasing for any extra calls
+        return 106.0 + (0.001 * float(calls['n'] - 2))
+
+    monkeypatch.setattr(app_mod._time, 'perf_counter', _fake_perf_counter, raising=True)
+
+    app = app_mod.app
+    app.testing = True
+    with app.test_client() as client:
+        with client.session_transaction() as sess:
+            sess['user_id'] = admin_id
+        resp = client.get('/api/observability/aggregations?timerange=24h&limit=3')
+        assert resp.status_code == 200
+
+    # EWMA should remain unchanged for ignored endpoints
+    assert metrics.get_avg_response_time_seconds() == pytest.approx(0.5)
+    # And slow-endpoint sampling should not include this request
+    assert metrics.get_top_slow_endpoints(limit=5) == []
 
 
 def test_observability_timeseries_custom_granularity(monkeypatch):
