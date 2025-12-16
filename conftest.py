@@ -3,6 +3,7 @@ import inspect
 import os
 import sys
 import math
+from pathlib import Path
 from typing import AsyncIterator, Dict, List, Optional
 import pytest
 import pytest_asyncio
@@ -50,7 +51,7 @@ def _ui_validation_enabled(config: pytest.Config) -> bool:
     return any(a.startswith("tests/ui_validation") or "/tests/ui_validation" in a for a in args)
 
 
-def pytest_ignore_collect(path, config: pytest.Config) -> bool:  # type: ignore[override]
+def pytest_ignore_collect(collection_path: Path, config: pytest.Config) -> bool:
     """מדלג על בדיקות UI validation כברירת מחדל.
 
     הסיבה: ה-Unit Tests ב-CI רצים בלי בחירת markers (pytest -v),
@@ -61,7 +62,7 @@ def pytest_ignore_collect(path, config: pytest.Config) -> bool:  # type: ignore[
     - Full: pytest -m "ui_full and not flaky" -n 4 tests/ui_validation/
     - או עם הדגל: pytest --run-ui-validation tests/ui_validation/
     """
-    path_str = str(path)
+    path_str = str(collection_path)
     if not _is_ui_validation_test_path(path_str):
         return False
 
