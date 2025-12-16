@@ -24,7 +24,7 @@ import time
 from collections import deque
 from datetime import datetime, timezone
 from threading import Lock
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 # Optional structured event emission (do not hard-depend)
 try:  # pragma: no cover
