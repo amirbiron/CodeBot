@@ -1,5 +1,7 @@
 from datetime import datetime, timezone
 import json
+import os
+from pathlib import Path
 import sys
 import time
 import types
@@ -224,3 +226,67 @@ runbooks:
     )
     assert payload["status"]["completed_steps"] == ["check"]
     assert payload["runbook"]["steps"][0]["completed"] is True
+
+
+def test_runbook_relative_path_resolves_from_repo_root_when_cwd_differs(monkeypatch, tmp_path):
+    """Regression: production CWD isn't guaranteed to be repo root."""
+    monkeypatch.setattr(obs, "_RUNBOOK_PATH", Path("config/observability_runbooks.yml"))
+    monkeypatch.setattr(obs, "_RUNBOOK_CACHE", {})
+    monkeypatch.setattr(obs, "_RUNBOOK_ALIAS_MAP", {})
+    monkeypatch.setattr(obs, "_RUNBOOK_MTIME", 0.0)
+    monkeypatch.setattr(obs, "_RUNBOOK_RESOLVED_PATH", None)
+    obs._RUNBOOK_EVENT_CACHE.clear()
+
+    old_cwd = os.getcwd()
+    os.chdir(tmp_path)
+    try:
+        payload = obs.fetch_runbook_for_event(
+            event_id="evt-relative",
+            fallback_metadata={
+                "id": "evt-relative",
+                "alert_type": "some_unknown_alert_type",
+                "type": "alert",
+                "title": "Demo",
+                "summary": "S",
+                "timestamp": "2025-01-01T00:00:00+00:00",
+                "severity": "critical",
+                "metadata": {"alert_type": "some_unknown_alert_type"},
+            },
+        )
+    finally:
+        os.chdir(old_cwd)
+
+    assert payload
+    assert payload["runbook"]
+    assert payload["runbook"]["steps"]
+
+
+def test_runbook_path_resolution_does_not_crash_if_cwd_unavailable(monkeypatch):
+    """Regression: Path.cwd()/exists() failures must not bubble up."""
+    monkeypatch.setattr(obs, "_RUNBOOK_PATH", Path("config/observability_runbooks.yml"))
+    monkeypatch.setattr(obs, "_RUNBOOK_CACHE", {})
+    monkeypatch.setattr(obs, "_RUNBOOK_ALIAS_MAP", {})
+    monkeypatch.setattr(obs, "_RUNBOOK_MTIME", 0.0)
+    monkeypatch.setattr(obs, "_RUNBOOK_RESOLVED_PATH", None)
+
+    def _boom(*args, **kwargs):
+        raise FileNotFoundError("cwd_missing")
+
+    monkeypatch.setattr(obs.Path, "cwd", classmethod(_boom), raising=True)
+
+    payload = obs.fetch_runbook_for_event(
+        event_id="evt-cwd-missing",
+        fallback_metadata={
+            "id": "evt-cwd-missing",
+            "alert_type": "some_unknown_alert_type",
+            "type": "alert",
+            "title": "Demo",
+            "summary": "S",
+            "timestamp": "2025-01-01T00:00:00+00:00",
+            "severity": "critical",
+            "metadata": {"alert_type": "some_unknown_alert_type"},
+        },
+    )
+
+    assert payload
+    assert payload["runbook"]
