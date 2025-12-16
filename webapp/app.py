@@ -4855,7 +4855,17 @@ def format_day_hhmm(value) -> str:
         return ''
 # Routes
 
-@app.route('/')
+@app.route('/', methods=['HEAD'])
+def index_head():
+    """בדיקת דופק קלה ל-HEAD / בלי IO/Template.
+
+    חשוב: Flask ממפה HEAD אוטומטית ל-GET ולכן בלי מסלול ייעודי היינו מריצים
+    את `index()` (כולל קריאת uptime חיצונית) גם עבור בדיקות דופק/Health.
+    """
+    return Response(status=200)
+
+
+@app.route('/', methods=['GET'])
 def index():
     """דף הבית"""
     # Try resolve external uptime (non-blocking semantics: short timeout + cache inside helper)
@@ -7538,7 +7548,15 @@ def api_recent_files():
         ensure_recent_opens_indexes()
 
         # שלוף יותר מ-10 כדי לפצות על דילוג פריטים לא תקינים
-        raw_cursor = db.recent_opens.find({'user_id': user_id}) \
+        raw_cursor = db.recent_opens.find(
+            {'user_id': user_id},
+            {
+                'last_opened_file_id': 1,
+                'file_name': 1,
+                'language': 1,
+                'last_opened_at': 1,
+            },
+        ) \
             .sort('last_opened_at', DESCENDING) \
             .limit(30)
 
@@ -7563,7 +7581,14 @@ def api_recent_files():
                                 {'is_active': {'$exists': False}}
                             ]
                         }
-                        file_doc = db.code_snippets.find_one(q)
+                        file_doc = db.code_snippets.find_one(
+                            q,
+                            {
+                                'file_name': 1,
+                                'programming_language': 1,
+                                'file_size': 1,
+                            },
+                        )
                     except Exception:
                         file_doc = None
 
@@ -7578,6 +7603,11 @@ def api_recent_files():
                                     {'is_active': True},
                                     {'is_active': {'$exists': False}}
                                 ]
+                            },
+                            {
+                                'file_name': 1,
+                                'programming_language': 1,
+                                'file_size': 1,
                             },
                             sort=[('version', DESCENDING), ('updated_at', DESCENDING), ('_id', DESCENDING)]
                         )
@@ -7595,8 +7625,12 @@ def api_recent_files():
                     continue
                 seen_ids.add(sid)
 
-                code_str = (file_doc.get('code') or '') if isinstance(file_doc.get('code'), str) else ''
-                size_bytes = len(code_str.encode('utf-8')) if code_str else 0
+                # שים לב: לא מושכים `code` רק כדי לחשב גודל — זה כבד מאוד על DB.
+                # אם `file_size` לא קיים (מסמכים ישנים) נחזיר 0; זה עדיף על האטה/תקיעות.
+                try:
+                    size_bytes = int(file_doc.get('file_size') or 0)
+                except Exception:
+                    size_bytes = 0
                 lang = (file_doc.get('programming_language') or rdoc.get('language') or 'text')
 
                 results.append({

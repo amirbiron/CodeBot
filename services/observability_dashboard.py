@@ -239,6 +239,29 @@ def _cache_set(kind: str, key: Any, value: Any) -> None:
         bucket[key] = (time.time(), value)
 
 
+def _cache_dt_key(dt: Optional[datetime], *, bucket_seconds: int = 60) -> Optional[str]:
+    """מייצר מפתח זמן יציב לקאש.
+
+    הרבה מהקריאות מגיעות עם end_dt="עכשיו", ולכן שימוש ב-isoformat מלא יוצר miss
+    על כל בקשה ומבטל את הקאש לחלוטין. כאן אנחנו "מיישרים" את הזמן לבאקט (דקה כברירת מחדל)
+    רק עבור *מפתח הקאש* — לא משנים את start_dt/end_dt שנשלחים לשכבות האחסון.
+    """
+    if dt is None:
+        return None
+    try:
+        aware = _ensure_utc_aware(dt)
+        # יישור דטרמיניסטי לבאקט (למשל 60 שניות)
+        bucket = max(1, int(bucket_seconds))
+        epoch = int(aware.timestamp())
+        snapped = (epoch // bucket) * bucket
+        return datetime.fromtimestamp(snapped, tz=timezone.utc).isoformat()
+    except Exception:
+        try:
+            return dt.isoformat()
+        except Exception:
+            return None
+
+
 def _hash_identifier(raw: Any) -> str:
     try:
         text = str(raw or "").strip()
@@ -925,8 +948,8 @@ def fetch_alerts(
     per_page: int,
 ) -> Dict[str, Any]:
     cache_key = (
-        start_dt.isoformat() if start_dt else None,
-        end_dt.isoformat() if end_dt else None,
+        _cache_dt_key(start_dt, bucket_seconds=60),
+        _cache_dt_key(end_dt, bucket_seconds=60),
         (severity or "").lower(),
         (alert_type or "").lower(),
         endpoint or "",
@@ -1066,8 +1089,8 @@ def fetch_aggregations(
     end_dt = _ensure_utc_aware(end_dt) if end_dt else None
 
     cache_key = (
-        start_dt.isoformat() if start_dt else None,
-        end_dt.isoformat() if end_dt else None,
+        _cache_dt_key(start_dt, bucket_seconds=60),
+        _cache_dt_key(end_dt, bucket_seconds=60),
         slow_endpoints_limit,
     )
     cached = _cache_get("aggregations", cache_key, _AGG_CACHE_TTL)
@@ -1352,9 +1375,11 @@ def fetch_timeseries(
     granularity_seconds: int,
     metric: str,
 ) -> Dict[str, Any]:
+    # קאש יציב: align לפי גרנולריות כדי שלא נקבל miss על כל "עכשיו"
+    bucket = max(60, int(granularity_seconds or 60))
     cache_key = (
-        start_dt.isoformat() if start_dt else None,
-        end_dt.isoformat() if end_dt else None,
+        _cache_dt_key(start_dt, bucket_seconds=bucket),
+        _cache_dt_key(end_dt, bucket_seconds=bucket),
         granularity_seconds,
         metric,
     )
