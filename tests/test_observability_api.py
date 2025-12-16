@@ -76,9 +76,10 @@ def test_observability_runbook_returns_payload(monkeypatch):
 
     captured = {}
 
-    def _fake_fetch(event_id, fallback_metadata=None):
+    def _fake_fetch(event_id, fallback_metadata=None, ui_context=None):
         captured['event_id'] = event_id
         captured['fallback'] = fallback_metadata
+        captured['ui'] = ui_context
         return {'event': {'id': event_id}, 'runbook': {'title': 'Demo', 'steps': []}, 'actions': [], 'status': {}}
 
     monkeypatch.setattr(
@@ -103,13 +104,14 @@ def test_observability_runbook_status_updates(monkeypatch):
     monkeypatch.setenv('ADMIN_USER_IDS', str(admin_id))
     captured = {}
 
-    def _fake_update(event_id, step_id, completed, user_id, fallback_metadata=None):
+    def _fake_update(event_id, step_id, completed, user_id, fallback_metadata=None, ui_context=None):
         captured.update({
             'event_id': event_id,
             'step_id': step_id,
             'completed': completed,
             'user_id': user_id,
             'fallback': fallback_metadata,
+            'ui': ui_context,
         })
         return {'event': {'id': event_id}, 'runbook': {'title': 'Demo', 'steps': [{'id': step_id, 'completed': completed}]}, 'actions': [], 'status': {'completed_steps': [step_id]}}
 

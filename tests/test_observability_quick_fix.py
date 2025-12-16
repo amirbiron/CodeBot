@@ -1,5 +1,7 @@
 from datetime import datetime, timezone
 import json
+import os
+from pathlib import Path
 import sys
 import time
 import types
@@ -68,8 +70,10 @@ def test_fetch_incident_replay_includes_quick_fix(monkeypatch):
     })
 
     payload = obs.fetch_incident_replay(start_dt=None, end_dt=None, limit=50)
-    assert payload["counts"]["chatops"] == 1
+    # Quick-fix telemetry should NOT pollute the Incident Replay timeline.
+    assert payload["counts"]["chatops"] == 0
     assert payload["events"]
+    assert all(evt.get("type") != "chatops" for evt in payload["events"])
 
 
 def test_get_quick_fix_actions_prefers_runbook(monkeypatch, tmp_path):
@@ -92,9 +96,34 @@ runbooks:
     monkeypatch.setattr(obs, "_RUNBOOK_ALIAS_MAP", {})
     monkeypatch.setattr(obs, "_RUNBOOK_MTIME", 0.0)
 
-    alert = {"alert_type": "demo_alert", "timestamp": "2025-01-01T00:00:00+00:00"}
+    # Ensure normalization matches even when alert_type uses different separators.
+    alert = {"alert_type": "demo-alert", "timestamp": "2025-01-01T00:00:00+00:00"}
     actions = obs.get_quick_fix_actions(alert)
     assert actions and actions[0]["label"] == "Demo Action"
+
+
+def test_get_quick_fix_actions_matches_config_key_with_different_separators(monkeypatch, tmp_path):
+    cfg = {
+        "by_alert_type": {
+            "demo_alert": [
+                {
+                    "id": "demo_action",
+                    "label": "Demo",
+                    "type": "link",
+                    "href": "/demo?ts={{timestamp}}",
+                }
+            ]
+        }
+    }
+    path = tmp_path / "quick_fix.json"
+    path.write_text(json.dumps(cfg), encoding="utf-8")
+    monkeypatch.setattr(obs, "_QUICK_FIX_PATH", path)
+    monkeypatch.setattr(obs, "_QUICK_FIX_CACHE", {})
+    monkeypatch.setattr(obs, "_QUICK_FIX_MTIME", 0.0)
+
+    alert = {"alert_type": "demo-alert", "timestamp": "2025-01-01T00:00:00+00:00"}
+    actions = obs.get_quick_fix_actions(alert)
+    assert actions and actions[0]["href"].endswith("2025-01-01T00:00:00+00:00")
 
 
 def test_fetch_runbook_for_event_uses_cache(monkeypatch, tmp_path):
@@ -224,3 +253,67 @@ runbooks:
     )
     assert payload["status"]["completed_steps"] == ["check"]
     assert payload["runbook"]["steps"][0]["completed"] is True
+
+
+def test_runbook_relative_path_resolves_from_repo_root_when_cwd_differs(monkeypatch, tmp_path):
+    """Regression: production CWD isn't guaranteed to be repo root."""
+    monkeypatch.setattr(obs, "_RUNBOOK_PATH", Path("config/observability_runbooks.yml"))
+    monkeypatch.setattr(obs, "_RUNBOOK_CACHE", {})
+    monkeypatch.setattr(obs, "_RUNBOOK_ALIAS_MAP", {})
+    monkeypatch.setattr(obs, "_RUNBOOK_MTIME", 0.0)
+    monkeypatch.setattr(obs, "_RUNBOOK_RESOLVED_PATH", None)
+    obs._RUNBOOK_EVENT_CACHE.clear()
+
+    old_cwd = os.getcwd()
+    os.chdir(tmp_path)
+    try:
+        payload = obs.fetch_runbook_for_event(
+            event_id="evt-relative",
+            fallback_metadata={
+                "id": "evt-relative",
+                "alert_type": "some_unknown_alert_type",
+                "type": "alert",
+                "title": "Demo",
+                "summary": "S",
+                "timestamp": "2025-01-01T00:00:00+00:00",
+                "severity": "critical",
+                "metadata": {"alert_type": "some_unknown_alert_type"},
+            },
+        )
+    finally:
+        os.chdir(old_cwd)
+
+    assert payload
+    assert payload["runbook"]
+    assert payload["runbook"]["steps"]
+
+
+def test_runbook_path_resolution_does_not_crash_if_cwd_unavailable(monkeypatch):
+    """Regression: Path.cwd()/exists() failures must not bubble up."""
+    monkeypatch.setattr(obs, "_RUNBOOK_PATH", Path("config/observability_runbooks.yml"))
+    monkeypatch.setattr(obs, "_RUNBOOK_CACHE", {})
+    monkeypatch.setattr(obs, "_RUNBOOK_ALIAS_MAP", {})
+    monkeypatch.setattr(obs, "_RUNBOOK_MTIME", 0.0)
+    monkeypatch.setattr(obs, "_RUNBOOK_RESOLVED_PATH", None)
+
+    def _boom(*args, **kwargs):
+        raise FileNotFoundError("cwd_missing")
+
+    monkeypatch.setattr(obs.Path, "cwd", classmethod(_boom), raising=True)
+
+    payload = obs.fetch_runbook_for_event(
+        event_id="evt-cwd-missing",
+        fallback_metadata={
+            "id": "evt-cwd-missing",
+            "alert_type": "some_unknown_alert_type",
+            "type": "alert",
+            "title": "Demo",
+            "summary": "S",
+            "timestamp": "2025-01-01T00:00:00+00:00",
+            "severity": "critical",
+            "metadata": {"alert_type": "some_unknown_alert_type"},
+        },
+    )
+
+    assert payload
+    assert payload["runbook"]
