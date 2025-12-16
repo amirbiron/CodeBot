@@ -85,14 +85,18 @@ def _clean_sentry_noise(text: str) -> str:
         t = str(text or "")
     except Exception:
         return ""
-    # Drop TopologyDescription tail (very long)
+    # Drop TopologyDescription tail (very long) without regex (avoid ReDoS warnings)
     try:
-        t = re.sub(r",?\s*Topology Description:\s*<TopologyDescription[\s\S]*$", "", t, flags=re.IGNORECASE)
+        lowered = t.lower()
+        marker = "topology description:"
+        idx = lowered.find(marker)
+        if idx >= 0:
+            t = t[:idx].rstrip(" ,")
     except Exception:
         pass
-    # Trim excessive whitespace
+    # Trim excessive whitespace without regex
     try:
-        t = re.sub(r"\s+", " ", t).strip()
+        t = " ".join(t.split()).strip()
     except Exception:
         pass
     # Hard cap to avoid huge messages
@@ -102,21 +106,57 @@ def _clean_sentry_noise(text: str) -> str:
 
 
 def _extract_host_from_text(text: str) -> Optional[str]:
+    # Avoid regex: scan for ".mongodb.net" suffix and expand token leftwards.
     try:
-        m = re.search(r"([\w-]+\.mongodb\.net)", str(text or ""))
-        return m.group(1) if m else None
+        s = str(text or "")
     except Exception:
         return None
+    lowered = s.lower()
+    suffix = ".mongodb.net"
+    idx = lowered.find(suffix)
+    if idx < 0:
+        return None
+    end = idx + len(suffix)
+    # Expand left until non-host character
+    allowed = set("abcdefghijklmnopqrstuvwxyz0123456789-._")
+    i = idx - 1
+    while i >= 0:
+        ch = lowered[i]
+        if ch in allowed:
+            i -= 1
+            continue
+        break
+    start = i + 1
+    host = s[start:end].strip()
+    return host or None
 
 
 def _extract_connect_timeout_ms(text: str) -> Optional[int]:
+    # Avoid regex: locate "connectTimeoutMS:" and parse number until "ms"
     try:
-        m = re.search(r"connectTimeoutMS:\s*([0-9.]+)ms", str(text or ""), flags=re.IGNORECASE)
-        if m:
-            return int(float(m.group(1)))
+        s = str(text or "")
     except Exception:
         return None
-    return None
+    lowered = s.lower()
+    key = "connecttimeoutms:"
+    idx = lowered.find(key)
+    if idx < 0:
+        return None
+    j = idx + len(key)
+    # Skip whitespace
+    while j < len(s) and s[j].isspace():
+        j += 1
+    # Read number (digits + dot)
+    k = j
+    while k < len(s) and (s[k].isdigit() or s[k] == "."):
+        k += 1
+    num = s[j:k].strip()
+    if not num:
+        return None
+    try:
+        return int(float(num))
+    except Exception:
+        return None
 
 
 def _parse_avg_threshold_from_summary(summary: str) -> tuple[Optional[float], Optional[float]]:
@@ -125,14 +165,30 @@ def _parse_avg_threshold_from_summary(summary: str) -> tuple[Optional[float], Op
         s = str(summary or "")
     except Exception:
         return None, None
-    try:
-        m_avg = re.search(r"avg_rt\s*=\s*([0-9.]+)s", s, flags=re.IGNORECASE)
-        m_thr = re.search(r"threshold\s*([0-9.]+)s", s, flags=re.IGNORECASE)
-        avg = float(m_avg.group(1)) if m_avg else None
-        thr = float(m_thr.group(1)) if m_thr else None
-        return avg, thr
-    except Exception:
-        return None, None
+    def _extract_float_after(label: str) -> Optional[float]:
+        try:
+            low = s.lower()
+            idx = low.find(label.lower())
+            if idx < 0:
+                return None
+            j = idx + len(label)
+            while j < len(s) and s[j].isspace():
+                j += 1
+            if j < len(s) and s[j] == "=":
+                j += 1
+            while j < len(s) and s[j].isspace():
+                j += 1
+            k = j
+            while k < len(s) and (s[k].isdigit() or s[k] == "."):
+                k += 1
+            num = s[j:k].strip()
+            return float(num) if num else None
+        except Exception:
+            return None
+
+    avg = _extract_float_after("avg_rt")
+    thr = _extract_float_after("threshold")
+    return avg, thr
 
 
 def _parse_percent_pair_from_summary(summary: str) -> tuple[Optional[float], Optional[float]]:
@@ -141,14 +197,52 @@ def _parse_percent_pair_from_summary(summary: str) -> tuple[Optional[float], Opt
         s = str(summary or "")
     except Exception:
         return None, None
+    def _extract_percent_after(label: str) -> Optional[float]:
+        try:
+            low = s.lower()
+            idx = low.find(label.lower())
+            if idx < 0:
+                return None
+            j = idx + len(label)
+            while j < len(s) and s[j].isspace():
+                j += 1
+            if j < len(s) and s[j] == "=":
+                j += 1
+            while j < len(s) and s[j].isspace():
+                j += 1
+            k = j
+            while k < len(s) and (s[k].isdigit() or s[k] == "."):
+                k += 1
+            num = s[j:k].strip()
+            # Require a following '%' to reduce false positives
+            if not num:
+                return None
+            if "%" not in s[k : k + 3]:
+                # tolerate "60.0%," or "60.0% "
+                pass
+            return float(num)
+        except Exception:
+            return None
+
+    # Current is typically the first "...=NN%" token; use the first '=' occurrence.
+    cur = None
     try:
-        m_cur = re.search(r"=\s*([0-9.]+)%", s)
-        m_thr = re.search(r"threshold\s*=\s*([0-9.]+)%", s, flags=re.IGNORECASE)
-        cur = float(m_cur.group(1)) if m_cur else None
-        thr = float(m_thr.group(1)) if m_thr else None
-        return cur, thr
+        eq = s.find("=")
+        if eq >= 0:
+            tmp = s[eq + 1 :]
+            k = 0
+            while k < len(tmp) and tmp[k].isspace():
+                k += 1
+            j = k
+            while j < len(tmp) and (tmp[j].isdigit() or tmp[j] == "."):
+                j += 1
+            num = tmp[k:j].strip()
+            if num:
+                cur = float(num)
     except Exception:
-        return None, None
+        cur = None
+    thr = _extract_percent_after("threshold")
+    return cur, thr
 
 
 def _format_external_service_degraded(
@@ -186,22 +280,35 @@ def _parse_slow_endpoints_compact(value: Optional[str]) -> List[Dict[str, Any]]:
         return []
     entries: List[Dict[str, Any]] = []
     for chunk in [c.strip() for c in raw.split(";") if c.strip()]:
-        # Format from internal_alerts: "METHOD endpoint: 10.53s (n=1)"
+        # Format from internal_alerts: "METHOD endpoint: 10.53s (n=1)" (avoid regex)
         try:
-            m = re.match(
-                r"^(?P<method>[A-Z]+)\s+(?P<endpoint>.+?):\s+(?P<sec>[0-9.]+)s\s+\(n=(?P<n>[0-9]+)\)$",
-                chunk,
-            )
-            if not m:
+            parts = chunk.split(None, 1)
+            if len(parts) != 2:
                 continue
-            entries.append(
-                {
-                    "method": m.group("method"),
-                    "endpoint": m.group("endpoint").strip(),
-                    "seconds": float(m.group("sec")),
-                    "count": int(m.group("n")),
-                }
-            )
+            method = str(parts[0] or "").strip().upper()
+            rest = str(parts[1] or "").strip()
+            if not method or not rest:
+                continue
+            if ": " not in rest:
+                continue
+            endpoint_part, tail = rest.rsplit(": ", 1)
+            endpoint = endpoint_part.strip()
+            if not endpoint:
+                continue
+            # tail: "10.53s (n=1)"
+            if "s" not in tail:
+                continue
+            sec_text = tail.split("s", 1)[0].strip()
+            seconds = float(sec_text)
+            count = 1
+            n_idx = tail.find("(n=")
+            if n_idx >= 0:
+                close = tail.find(")", n_idx)
+                if close > n_idx:
+                    n_text = tail[n_idx + 3 : close].strip()
+                    if n_text.isdigit():
+                        count = int(n_text)
+            entries.append({"method": method, "endpoint": endpoint, "seconds": seconds, "count": count})
         except Exception:
             continue
     return entries
@@ -227,14 +334,21 @@ def _format_anomaly_alert(
     # Fallback: parse "GET index (10.525s)" when compact list is missing
     if main is None and top_slow_endpoint:
         try:
-            m = re.match(r"(?P<m>\w+)\s+(?P<ep>[^()]+)\((?P<dur>[0-9.]+)s\)", top_slow_endpoint.strip())
-            if m:
-                main = {
-                    "method": m.group("m").upper(),
-                    "endpoint": m.group("ep").strip(),
-                    "seconds": float(m.group("dur")),
-                    "count": 1,
-                }
+            raw = str(top_slow_endpoint or "").strip()
+            if raw:
+                parts = raw.split(None, 1)
+                if len(parts) == 2:
+                    method = parts[0].strip().upper()
+                    rest = parts[1].strip()
+                    lpar = rest.rfind("(")
+                    rpar = rest.rfind(")")
+                    if lpar >= 0 and rpar > lpar:
+                        endpoint = rest[:lpar].strip()
+                        dur_raw = rest[lpar + 1 : rpar].strip()
+                        if dur_raw.endswith("s"):
+                            dur_raw = dur_raw[:-1].strip()
+                        seconds = float(dur_raw)
+                        main = {"method": method, "endpoint": endpoint, "seconds": seconds, "count": 1}
         except Exception:
             main = None
 
