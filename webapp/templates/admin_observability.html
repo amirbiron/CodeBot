@@ -1490,12 +1490,19 @@
       if (input.dataset.bound === '1') return;
       input.dataset.bound = '1';
       input.addEventListener('change', () => {
-        updateRunbookStatus(eventId, stepId, input.checked, alertMeta);
+        const nextValue = Boolean(input.checked);
+        const prevValue = !nextValue;
+        updateRunbookStatus(eventId, stepId, nextValue, alertMeta, input, prevValue);
       });
     });
   }
 
-  async function updateRunbookStatus(eventId, stepId, completed, alertMeta) {
+  async function updateRunbookStatus(eventId, stepId, completed, alertMeta, inputEl, prevChecked) {
+    // UI is optimistic: browser toggles checkbox before async completes.
+    // On failure, we must revert to keep UI consistent with server state.
+    if (inputEl) {
+      inputEl.disabled = true;
+    }
     try {
       const eventPayload = serializeAlertForRunbookApi(alertMeta || runbookState.alert || {});
       const res = await fetch(`/api/observability/runbook/${encodeURIComponent(eventId)}/status`, {
@@ -1510,6 +1517,17 @@
     } catch (err) {
       console.error('runbook_status_failed', err);
       showToast('שמירת Runbook נכשלה');
+      if (runbookState.payload) {
+        // Restore last known good server state (rebuilds UI).
+        renderRunbookModal(runbookState.payload, alertMeta || runbookState.alert || {});
+      } else if (inputEl) {
+        // Fallback: revert just the toggled checkbox.
+        inputEl.checked = Boolean(prevChecked);
+      }
+    } finally {
+      if (inputEl) {
+        inputEl.disabled = false;
+      }
     }
   }
 
