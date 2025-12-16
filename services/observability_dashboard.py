@@ -363,10 +363,27 @@ def _resolve_config_path(path: Path) -> Path:
 
 
 def _normalize_alert_type(value: Optional[str]) -> str:
+    """
+    Normalize alert_type identifiers to a stable key.
+
+    Production data isn't always consistent (e.g. "deployment-event", "Deployment Event",
+    "deployment_event"). We normalize common separators into underscores so config keys
+    in runbooks / quick-fixes can match reliably.
+    """
     try:
-        return str(value or "").strip().lower()
+        text = str(value or "").strip().lower()
     except Exception:
         return ""
+    if not text:
+        return ""
+    # Normalize common separators to underscore
+    try:
+        text = re.sub(r"[\s\-./:]+", "_", text)
+        text = re.sub(r"__+", "_", text).strip("_")
+    except Exception:
+        # Best-effort: keep the lowercased string
+        text = text.strip()
+    return text
 
 
 def _normalize_runbook_config(raw: Any) -> Tuple[Dict[str, Any], Dict[str, str], Optional[str], Optional[int]]:
@@ -606,17 +623,25 @@ def _collect_quick_fix_actions(alert: Dict[str, Any]) -> List[Dict[str, Any]]:
             seen.add(act_id)
             actions.append(expanded)
 
-    alert_type = str(alert.get("alert_type") or "").lower()
-    by_type = config.get("by_alert_type") or {}
-    if alert_type and alert_type in by_type:
-        _extend(by_type.get(alert_type))
+    alert_type = _normalize_alert_type(alert.get("alert_type"))
+    by_type = config.get("by_alert_type") if isinstance(config, dict) else None
+    by_type_map: Dict[str, Any] = {}
+    if isinstance(by_type, dict):
+        # Normalize config keys too (backwards compatible)
+        for key, value in by_type.items():
+            norm_key = _normalize_alert_type(key)
+            if norm_key and norm_key not in by_type_map:
+                by_type_map[norm_key] = value
+    if alert_type and alert_type in by_type_map:
+        _extend(by_type_map.get(alert_type))
 
     severity = str(alert.get("severity") or "").lower()
-    by_severity = config.get("by_severity") or {}
-    if severity and severity in by_severity:
+    by_severity = config.get("by_severity") if isinstance(config, dict) else None
+    if isinstance(by_severity, dict) and severity and severity in by_severity:
         _extend(by_severity.get(severity))
 
-    _extend(config.get("fallback"))
+    if isinstance(config, dict):
+        _extend(config.get("fallback"))
     return actions
 
 
@@ -663,13 +688,52 @@ def _runbook_quick_fix_actions(alert: Dict[str, Any]) -> List[Dict[str, Any]]:
     return actions
 
 
-def get_quick_fix_actions(alert: Dict[str, Any]) -> List[Dict[str, Any]]:
+def _should_hide_quick_fix_action(action: Dict[str, Any], *, ui_context: str) -> bool:
+    ctx = str(ui_context or "").strip().lower()
+    if not ctx:
+        return False
+    action_id = str(action.get("id") or "")
+    label = str(action.get("label") or "")
+    href = str(action.get("href") or "")
+
+    if ctx == "dashboard_history":
+        # We're already inside the Observability dashboard history.
+        # Hide the generic "open dashboard" action to reduce noise.
+        if "open_focus_link" in action_id or "פתח בלוח" in label:
+            return True
+        if href.startswith("/admin/observability") and "/replay" not in href and "#" not in href:
+            if "focus_ts=" in href:
+                return True
+
+    if ctx == "replay":
+        # We're already on Incident Replay - hide the self-referential step/action.
+        if "review_replay" in action_id:
+            return True
+
+    return False
+
+
+def _filter_quick_fix_actions(actions: List[Dict[str, Any]], *, ui_context: Optional[str]) -> List[Dict[str, Any]]:
+    ctx = str(ui_context or "").strip().lower()
+    if not ctx:
+        return actions
+    filtered: List[Dict[str, Any]] = []
+    for action in actions:
+        if not isinstance(action, dict):
+            continue
+        if _should_hide_quick_fix_action(action, ui_context=ctx):
+            continue
+        filtered.append(action)
+    return filtered
+
+
+def get_quick_fix_actions(alert: Dict[str, Any], *, ui_context: Optional[str] = None) -> List[Dict[str, Any]]:
     """Return applicable quick-fix actions for a given alert."""
     try:
         actions = _runbook_quick_fix_actions(alert)
         if actions:
-            return actions
-        return _collect_quick_fix_actions(alert)
+            return _filter_quick_fix_actions(actions, ui_context=ui_context)
+        return _filter_quick_fix_actions(_collect_quick_fix_actions(alert), ui_context=ui_context)
     except Exception:
         return []
 
@@ -963,7 +1027,7 @@ def _fallback_alerts(
             or metadata.get("route")
             or metadata.get("url")
         )
-        alert_type_value = str(metadata.get("alert_type") or item.get("name") or "").lower() or None
+        alert_type_value = _normalize_alert_type(metadata.get("alert_type") or item.get("name")) or None
         normalized.append(
             {
                 "timestamp": ts_value,
@@ -1050,7 +1114,7 @@ def fetch_alerts(
         except Exception:
             uid = _hash_identifier(alert)
         alert["alert_uid"] = uid
-        alert["quick_fixes"] = get_quick_fix_actions(alert)
+        alert["quick_fixes"] = get_quick_fix_actions(alert, ui_context="dashboard_history")
         graph = _describe_alert_graph(alert)
         if graph:
             alert["graph"] = graph
@@ -2158,6 +2222,7 @@ def _seed_replay_event_cache(events: List[Dict[str, Any]]) -> None:
             if not event_id:
                 continue
             metadata = copy.deepcopy(event.get("metadata") or {})
+            cached_alert_type = _normalize_alert_type(metadata.get("alert_type") or event.get("type"))
             _RUNBOOK_EVENT_CACHE[event_id] = (
                 now,
                 {
@@ -2168,7 +2233,7 @@ def _seed_replay_event_cache(events: List[Dict[str, Any]]) -> None:
                     "summary": event.get("summary"),
                     "timestamp": event.get("timestamp"),
                     "severity": event.get("severity"),
-                    "alert_type": metadata.get("alert_type") or event.get("type"),
+                    "alert_type": cached_alert_type,
                     "metadata": metadata,
                     "link": event.get("link"),
                 },
@@ -2255,11 +2320,22 @@ def _build_runbook_snapshot(
     alert_snapshot: Dict[str, Any],
     *,
     runbook: Optional[Dict[str, Any]] = None,
+    ui_context: Optional[str] = None,
 ) -> Optional[Dict[str, Any]]:
     definition = copy.deepcopy(runbook) if runbook else _resolve_runbook_entry(alert_snapshot.get("alert_type"))
     if not definition:
         return None
     steps, actions = _expand_runbook_steps(definition, alert_snapshot)
+    ctx = str(ui_context or "").strip().lower()
+    if ctx == "replay":
+        # Hide self-referential step when already inside Incident Replay
+        steps = [step for step in steps if str(step.get("id") or "") != "review_replay"]
+        # Also drop the embedded action on the hidden step (defensive)
+        for step in steps:
+            action = step.get("action")
+            if isinstance(action, dict) and _should_hide_quick_fix_action(action, ui_context=ctx):
+                step["action"] = None
+    actions = _filter_quick_fix_actions(actions, ui_context=ui_context)
     state = _get_runbook_state(alert_snapshot.get("alert_uid") or _build_alert_uid(alert_snapshot))
     completed_ids = set(state.get("completed") or set())
     completed_count = 0
@@ -2335,6 +2411,7 @@ def fetch_runbook_for_event(
     *,
     event_id: str,
     fallback_metadata: Optional[Dict[str, Any]] = None,
+    ui_context: Optional[str] = None,
 ) -> Optional[Dict[str, Any]]:
     key = str(event_id or "").strip()
     if not key:
@@ -2351,7 +2428,7 @@ def fetch_runbook_for_event(
         "alert_type": context.get("alert_type"),
         "metadata": context.get("metadata") or {},
     }
-    snapshot = _build_runbook_snapshot(alert_snapshot)
+    snapshot = _build_runbook_snapshot(alert_snapshot, ui_context=ui_context)
     payload = {
         "event": context,
         "runbook": None,
@@ -2376,6 +2453,7 @@ def update_runbook_step_status(
     completed: bool,
     user_id: Optional[int],
     fallback_metadata: Optional[Dict[str, Any]] = None,
+    ui_context: Optional[str] = None,
 ) -> Dict[str, Any]:
     key = str(event_id or "").strip()
     if not key:
@@ -2402,7 +2480,7 @@ def update_runbook_step_status(
     if step not in valid_step_ids:
         raise ValueError("invalid_step")
     _set_runbook_step_state(alert_snapshot.get("alert_uid"), step, completed, user_id)
-    snapshot = _build_runbook_snapshot(alert_snapshot, runbook=runbook)
+    snapshot = _build_runbook_snapshot(alert_snapshot, runbook=runbook, ui_context=ui_context)
     if not snapshot:
         raise ValueError("runbook_missing")
     return {
@@ -2496,7 +2574,7 @@ def fetch_incident_replay(
         if ts_dt is not None and not _is_within_window(ts_dt, start_dt, end_dt):
             continue
         event_type = "alert"
-        if str(alert.get("alert_type") or "").lower() == "deployment_event":
+        if _normalize_alert_type(alert.get("alert_type")) == "deployment_event":
             event_type = "deployment"
             deployment_count += 1
         else:
@@ -2521,27 +2599,8 @@ def fetch_incident_replay(
             }
         )
 
-    for action in _iter_quick_fix_actions():
-        ts = action.get("timestamp")
-        ts_dt = _parse_iso_dt(ts)
-        if ts_dt is None or not _is_within_window(ts_dt, start_dt, end_dt):
-            continue
-        chatops_count += 1
-        events.append(
-            {
-                "id": f"{action.get('action_id')}-{action.get('alert_uid')}",
-                "timestamp": ts,
-                "type": "chatops",
-                "severity": "info",
-                "title": action.get("action_label") or "Quick Fix",
-                "summary": action.get("summary") or "",
-                "link": _build_focus_link(action.get("alert_timestamp") or ts, anchor="history"),
-                "metadata": {
-                    "alert_uid": action.get("alert_uid"),
-                    "alert_type": action.get("alert_type"),
-                },
-            }
-        )
+    # NOTE: We intentionally do NOT append "quick-fix invoked" telemetry into Incident Replay events.
+    # The replay timeline should reflect real incidents (alerts/deployments/stories), not UI clicks.
 
     stories = incident_story_storage.list_stories(
         start_dt=start_dt,

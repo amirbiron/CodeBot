@@ -857,6 +857,7 @@
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
         body: JSON.stringify({
+          ui: 'replay',
           step_id: stepId,
           completed,
           event: eventPayload,
@@ -1159,6 +1160,7 @@
     setRunbookLoading();
     try {
       const params = new URLSearchParams();
+      params.set('ui', 'replay');
       if (evt.metadata && evt.metadata.alert_type) params.set('alert_type', evt.metadata.alert_type);
       if (evt.metadata && evt.metadata.endpoint) params.set('endpoint', evt.metadata.endpoint);
       if (evt.metadata && evt.metadata.source) params.set('source', evt.metadata.source);
