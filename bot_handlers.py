@@ -80,6 +80,13 @@ except Exception:  # pragma: no cover
             return fn
         return _decorator
 
+# ChatOps – time range parsing (best-effort)
+try:
+    from chatops.time_range import parse_time_range, TimeRangeParseError  # type: ignore
+except Exception:  # pragma: no cover
+    parse_time_range = None  # type: ignore
+    TimeRangeParseError = ValueError  # type: ignore
+
 try:
     from chatops.permissions import (
         admin_required,
@@ -1173,7 +1180,7 @@ class AdvancedBotHandlers:
         await update.message.reply_text(response, parse_mode=ParseMode.MARKDOWN)
 
     async def status_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """/status – בדיקות בריאות בסיסיות: DB, Redis, GitHub API"""
+        """/status – דוח חלון זמן (UTC) + בדיקות בריאות בסיסיות."""
         try:
             # הרשאות: אדמינים בלבד
             try:
@@ -1183,6 +1190,37 @@ class AdvancedBotHandlers:
             if not self._is_admin(user_id):
                 await update.message.reply_text("❌ פקודה זמינה למנהלים בלבד")
                 return
+
+            # --- Time range (default: last 5 minutes) ---
+            args = list(getattr(context, "args", []) or [])
+            start_dt = None
+            end_dt = None
+            time_label = None
+            if parse_time_range is not None:
+                try:
+                    tr, _remaining = parse_time_range(
+                        args,
+                        default_since=timedelta(minutes=5),
+                        max_window=timedelta(hours=24),
+                    )
+                    start_dt = tr.start
+                    end_dt = tr.end
+                    time_label = tr.label
+                except TimeRangeParseError as e:
+                    await update.message.reply_text(
+                        "❌ טווח זמן לא תקין.\n"
+                        f"{html.escape(str(e))}\n\n"
+                        "דוגמאות:\n"
+                        "• /status --since 15m\n"
+                        "• /status --since 2h\n"
+                        "• /status --from 2025-12-16T10:00 --to 2025-12-16T10:15\n"
+                        "(Timezone ברירת מחדל: UTC)"
+                    )
+                    return
+            else:
+                start_dt = datetime.now(timezone.utc) - timedelta(minutes=5)
+                end_dt = datetime.now(timezone.utc)
+                time_label = f"{start_dt.strftime('%Y-%m-%d %H:%M')} - {end_dt.strftime('%Y-%m-%d %H:%M')} UTC (default 5m)"
             # DB status - בדיקת פינג אמיתית ל-MongoDB
             # הערה: ניגש לפונקציה דרך המודול כדי לאפשר monkeypatch יציב בטסטים
             try:
@@ -1224,6 +1262,112 @@ class AdvancedBotHandlers:
             def _emoji(ok: bool) -> str:
                 return "🟢" if ok else "🔴"
 
+            # --- Window metrics (best-effort) ---
+            total_requests = 0
+            error_5xx = 0
+            p50_s: Optional[float] = None
+            p95_s: Optional[float] = None
+            p99_s: Optional[float] = None
+            slow_endpoints: list[dict[str, Any]] = []
+            source_label = "unknown"
+
+            window_sec: Optional[int] = None
+            try:
+                if start_dt and end_dt:
+                    window_sec = int(max(1, (end_dt - start_dt).total_seconds()))
+            except Exception:
+                window_sec = None
+
+            # DB-backed metrics (if enabled)
+            try:
+                from monitoring import metrics_storage as ms  # type: ignore
+
+                ratio = ms.aggregate_error_ratio(start_dt=start_dt, end_dt=end_dt)
+                total_requests = int(ratio.get("total", 0) or 0)
+                error_5xx = int(ratio.get("errors", 0) or 0)
+
+                pmap = ms.aggregate_latency_percentiles(start_dt=start_dt, end_dt=end_dt, percentiles=(50, 95, 99))
+                if pmap:
+                    try:
+                        p50_s = float(pmap.get("p50")) if pmap.get("p50") is not None else None
+                    except Exception:
+                        p50_s = None
+                    try:
+                        p95_s = float(pmap.get("p95")) if pmap.get("p95") is not None else None
+                    except Exception:
+                        p95_s = None
+                    try:
+                        p99_s = float(pmap.get("p99")) if pmap.get("p99") is not None else None
+                    except Exception:
+                        p99_s = None
+
+                slow_endpoints = ms.aggregate_top_endpoints(start_dt=start_dt, end_dt=end_dt, limit=5) or []
+                if total_requests or pmap or slow_endpoints:
+                    source_label = "db"
+            except Exception:
+                pass
+
+            # Memory fallback (3h rolling window) – only if DB not available
+            if source_label != "db":
+                try:
+                    from alert_manager import get_request_stats_between  # type: ignore
+
+                    if start_dt and end_dt:
+                        snap = get_request_stats_between(start_dt, end_dt, source="internal", percentiles=(50, 95, 99))
+                        try:
+                            total_requests = int(snap.get("total", 0.0) or 0.0)
+                        except Exception:
+                            total_requests = 0
+                        try:
+                            error_5xx = int(snap.get("errors", 0.0) or 0.0)
+                        except Exception:
+                            error_5xx = 0
+                        try:
+                            if p50_s is None and snap.get("p50") is not None:
+                                p50_s = float(snap.get("p50") or 0.0)
+                        except Exception:
+                            pass
+                        try:
+                            if p95_s is None and snap.get("p95") is not None:
+                                p95_s = float(snap.get("p95") or 0.0)
+                        except Exception:
+                            pass
+                        try:
+                            if p99_s is None and snap.get("p99") is not None:
+                                p99_s = float(snap.get("p99") or 0.0)
+                        except Exception:
+                            pass
+                        if total_requests or p50_s or p95_s or p99_s:
+                            source_label = "memory"
+                except Exception:
+                    pass
+
+            # Slow endpoints fallback (in-memory sampler)
+            if not slow_endpoints:
+                try:
+                    import metrics as _metrics  # type: ignore
+                    slow_endpoints = _metrics.get_top_slow_endpoints(limit=5, window_seconds=window_sec) or []
+                    if slow_endpoints and source_label == "unknown":
+                        source_label = "memory"
+                except Exception:
+                    slow_endpoints = []
+
+            # Active requests – רגעי
+            active_requests = 0
+            try:
+                import metrics as _metrics  # type: ignore
+                active_requests = int(_metrics.get_active_requests_count())
+            except Exception:
+                active_requests = 0
+
+            def _fmt_ms(val: Optional[float]) -> str:
+                if val is None:
+                    return "—"
+                try:
+                    return f"{max(0.0, float(val)) * 1000.0:.0f}ms"
+                except Exception:
+                    return "—"
+
             # Sentry status (DSN/API) – לא חושפים סודות
             sentry_dsn_set = bool(os.getenv("SENTRY_DSN"))
             sentry_api_ready = bool(os.getenv("SENTRY_AUTH_TOKEN") and (os.getenv("SENTRY_ORG") or os.getenv("SENTRY_ORG_SLUG")))
@@ -1243,16 +1387,59 @@ class AdvancedBotHandlers:
             except Exception:
                 otel_ready = False
 
-            text = (
-                f"📋 Status\n"
-                f"DB: {_emoji(db_ok)}\n"
-                f"Redis: {_emoji(redis_ok)}\n"
-                f"GitHub: {gh_status}\n"
-                f"Sentry DSN: {_emoji(bool(sentry_dsn_set))}\n"
-                f"Sentry API: {_emoji(bool(sentry_api_ready))}\n"
-                f"OTEL Exporter: {_emoji(bool(otel_ready))}\n"
-            )
-            await update.message.reply_text(text)
+            lines: list[str] = []
+            lines.append("📋 Status (UTC)")
+            if time_label:
+                lines.append(f"Report for: {time_label}")
+            lines.append("")
+
+            lines.append(f"📈 Traffic (source={source_label})")
+            lines.append(f"• Total Requests: {total_requests}")
+            if total_requests > 0:
+                try:
+                    err_pct = (float(error_5xx) / float(total_requests)) * 100.0
+                except Exception:
+                    err_pct = 0.0
+                lines.append(f"• Errors (5xx): {error_5xx} ({err_pct:.2f}%)")
+            else:
+                lines.append(f"• Errors (5xx): {error_5xx}")
+            lines.append(f"⏱️ Latency: p50={_fmt_ms(p50_s)} | p95={_fmt_ms(p95_s)} | p99={_fmt_ms(p99_s)}")
+
+            if slow_endpoints:
+                lines.append("🐢 Slowest Endpoints (max)")
+                for i, row in enumerate((slow_endpoints or [])[:5], 1):
+                    method = str(row.get("method") or "—")
+                    ep = str(row.get("endpoint") or row.get("path") or "unknown")
+                    try:
+                        n = int(row.get("count", 0) or 0)
+                    except Exception:
+                        n = 0
+                    try:
+                        avg_s = float(row.get("avg_duration", 0.0) or 0.0)
+                    except Exception:
+                        avg_s = 0.0
+                    try:
+                        mx_s = float(row.get("max_duration", 0.0) or 0.0)
+                    except Exception:
+                        mx_s = 0.0
+                    lines.append(f"{i}. {method} {ep} — max={_fmt_ms(mx_s)} avg={_fmt_ms(avg_s)} (n={n})")
+            else:
+                lines.append("🐢 Slowest Endpoints: (אין נתונים)")
+
+            lines.append("")
+            lines.append("🧱 Infra (point-in-time)")
+            lines.append(f"• Active Requests: {active_requests}")
+
+            lines.append("")
+            lines.append("🧪 Health")
+            lines.append(f"DB: {_emoji(db_ok)}")
+            lines.append(f"Redis: {_emoji(redis_ok)}")
+            lines.append(f"GitHub: {gh_status}")
+            lines.append(f"Sentry DSN: {_emoji(bool(sentry_dsn_set))}")
+            lines.append(f"Sentry API: {_emoji(bool(sentry_api_ready))}")
+            lines.append(f"OTEL Exporter: {_emoji(bool(otel_ready))}")
+
+            await update.message.reply_text("\n".join(lines))
         except Exception as e:
             await update.message.reply_text(f"❌ שגיאה ב-/status: {html.escape(str(e))}")
 
@@ -2006,7 +2193,7 @@ class AdvancedBotHandlers:
             await update.message.reply_text(f"❌ שגיאה ב-/accuracy: {html.escape(str(e))}")
 
     async def errors_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """/errors – Top signatures (5/30/120m) + Sentry links; supports '/errors examples <signature>'"""
+        """/errors – Top signatures + דוח חלון זמן (UTC) עם --since / --from/--to; supports '/errors examples <signature>'"""
         try:
             # הרשאות: אדמינים בלבד
             try:
@@ -2018,24 +2205,115 @@ class AdvancedBotHandlers:
                 return
 
             args = list(getattr(context, "args", []) or [])
-            # Optional filters: service=..., endpoint=...
+
+            # --- Time range support (only when explicitly provided) ---
+            start_dt = None
+            end_dt = None
+            time_label = None
+            explicit_time_range = False
+            filter_args = list(args)
+
+            def _has_time_flags(tokens: list[str]) -> bool:
+                for tok in tokens:
+                    tl = str(tok or "").strip().lower()
+                    if tl.startswith("--since") or tl.startswith("--from") or tl.startswith("--to"):
+                        return True
+                    if tl.startswith("since=") or tl.startswith("from=") or tl.startswith("to="):
+                        return True
+                return False
+
+            if parse_time_range is not None and _has_time_flags(filter_args):
+                try:
+                    tr, filter_args = parse_time_range(
+                        filter_args,
+                        default_since=timedelta(minutes=30),
+                        max_window=timedelta(hours=24),
+                    )
+                    start_dt = tr.start
+                    end_dt = tr.end
+                    time_label = tr.label
+                    explicit_time_range = True
+                except TimeRangeParseError as e:
+                    await update.message.reply_text(
+                        "❌ טווח זמן לא תקין.\n"
+                        f"{html.escape(str(e))}\n\n"
+                        "דוגמאות:\n"
+                        "• /errors --since 15m\n"
+                        "• /errors --since 2h\n"
+                        "• /errors --from 2025-12-16T10:00 --to 2025-12-16T10:15\n"
+                        "(Timezone ברירת מחדל: UTC)"
+                    )
+                    return
+
+            # --- Filters: service / endpoint / min_severity (supports --flag value, --flag=value, key=value) ---
             svc_filter = None
             ep_filter = None
+            min_severity = None
             try:
-                for tok in args:
-                    t = str(tok or "").strip()
-                    if "=" not in t:
+                i = 0
+                while i < len(filter_args):
+                    t = str(filter_args[i] or "").strip()
+                    tl = t.lower()
+                    val = None
+                    key = None
+
+                    if tl in {"--service", "--endpoint", "--min_severity", "--min-severity"}:
+                        if i + 1 < len(filter_args):
+                            key = tl.lstrip("-").replace("-", "_")
+                            val = str(filter_args[i + 1] or "").strip()
+                            i += 2
+                        else:
+                            i += 1
+                        if key and val:
+                            if key == "service":
+                                svc_filter = val
+                            elif key == "endpoint":
+                                ep_filter = val
+                            elif key == "min_severity":
+                                min_severity = val
                         continue
-                    k, v = t.split("=", 1)
-                    key = (k or "").strip().lower()
-                    val = (v or "").strip()
-                    if key == "service" and val:
-                        svc_filter = val
-                    elif key == "endpoint" and val:
-                        ep_filter = val
+
+                    if tl.startswith("--service=") or tl.startswith("--endpoint=") or tl.startswith("--min_severity=") or tl.startswith("--min-severity="):
+                        consumed_key = tl.split("=", 1)[0].lstrip("-").replace("-", "_")
+                        consumed_val = t.split("=", 1)[1].strip()
+                        if consumed_key == "service" and consumed_val:
+                            svc_filter = consumed_val
+                        elif consumed_key == "endpoint" and consumed_val:
+                            ep_filter = consumed_val
+                        elif consumed_key == "min_severity" and consumed_val:
+                            min_severity = consumed_val
+                        i += 1
+                        continue
+
+                    if "=" in t:
+                        k, v = t.split("=", 1)
+                        k2 = (k or "").strip().lower().replace("-", "_")
+                        v2 = (v or "").strip()
+                        if k2 == "service" and v2:
+                            svc_filter = v2
+                        elif k2 == "endpoint" and v2:
+                            ep_filter = v2
+                        elif k2 in {"min_severity", "minseverity"} and v2:
+                            min_severity = v2
+                    i += 1
             except Exception:
-                svc_filter = svc_filter or None
-                ep_filter = ep_filter or None
+                pass
+
+            def _sev_rank(raw: str | None) -> int:
+                s = str(raw or "").strip().lower()
+                mapping = {
+                    "debug": 10,
+                    "info": 20,
+                    "warn": 30,
+                    "warning": 30,
+                    "anomaly": 35,
+                    "error": 40,
+                    "critical": 50,
+                    "fatal": 60,
+                }
+                return int(mapping.get(s, 0))
+
+            min_sev_rank = _sev_rank(min_severity) if min_severity else 0
 
             # Helper: build Sentry query link for a given error_signature
             def _sentry_query_link(signature: str) -> Optional[str]:
@@ -2099,6 +2377,162 @@ class AdvancedBotHandlers:
             lines: list[str] = []
             kb_rows: list[list[InlineKeyboardButton]] = []
 
+            # אם המשתמש ביקש טווח זמן מפורש – נציג דוח ממוקד לחלון הזה (UTC),
+            # בלי לערבב "Sentry issues אחרונים" שאינם קשורים בהכרח לטווח המבוקש.
+            if explicit_time_range and start_dt and end_dt:
+                try:
+                    from observability import get_recent_errors  # type: ignore
+                    from datetime import datetime, timezone
+
+                    def _parse_ts(ts: str) -> Optional[datetime]:
+                        try:
+                            dt = datetime.fromisoformat(str(ts).replace("Z", "+00:00"))
+                        except Exception:
+                            return None
+                        try:
+                            if dt.tzinfo is None:
+                                return dt.replace(tzinfo=timezone.utc)
+                            return dt.astimezone(timezone.utc)
+                        except Exception:
+                            return None
+
+                    lines.append("🧰 שגיאות (UTC)")
+                    if time_label:
+                        lines.append(f"Report for: {time_label}")
+
+                    filt_parts: list[str] = []
+                    if svc_filter:
+                        filt_parts.append(f"service~{svc_filter}")
+                    if ep_filter:
+                        filt_parts.append(f"endpoint~{ep_filter}")
+                    if min_severity:
+                        filt_parts.append(f"min_severity={min_severity}")
+                    if filt_parts:
+                        lines.append("Filters: " + ", ".join(filt_parts))
+                    lines.append("")
+
+                    recent = get_recent_errors(limit=200) or []
+                    grouped: dict[str, dict[str, Any]] = {}
+                    endpoint_counts: dict[str, int] = {}
+
+                    for er in recent:
+                        ts_raw = er.get("ts") or er.get("timestamp") or ""
+                        ts_parsed = _parse_ts(str(ts_raw))
+                        if ts_parsed is None:
+                            continue
+                        if ts_parsed < start_dt or ts_parsed > end_dt:
+                            continue
+
+                        # filters
+                        try:
+                            if svc_filter:
+                                svc = str(er.get("service") or "")
+                                if svc_filter.lower() not in svc.lower():
+                                    continue
+                            if ep_filter:
+                                ep = str(er.get("endpoint") or "")
+                                if ep_filter.lower() not in ep.lower():
+                                    continue
+                        except Exception:
+                            pass
+
+                        sev_txt = str(er.get("severity") or er.get("error_severity_hint") or "error")
+                        if min_sev_rank and _sev_rank(sev_txt) < min_sev_rank:
+                            continue
+
+                        signature = str(er.get("error_signature") or er.get("event") or "unknown")
+                        category = str(er.get("error_category") or "") or "-"
+                        policy = str(er.get("error_policy") or "")
+                        code = str(er.get("error_code") or "-")
+                        sample = str(er.get("error") or er.get("event") or "")
+                        endpoint = str(er.get("endpoint") or "") or "-"
+                        rid = str(er.get("request_id") or er.get("trace_id") or "").strip()
+
+                        bucket = grouped.setdefault(
+                            signature,
+                            {
+                                "count": 0,
+                                "sample": "",
+                                "category": category,
+                                "policy": policy,
+                                "code": code,
+                                "ids": [],
+                            },
+                        )
+                        bucket["count"] += 1
+                        if not bucket.get("sample") and sample:
+                            bucket["sample"] = sample
+                        if (not bucket.get("category") or bucket.get("category") == "-") and category:
+                            bucket["category"] = category
+                        if not bucket.get("policy") and policy:
+                            bucket["policy"] = policy
+                        if bucket.get("code") in {"", "-"} and code and code != "-":
+                            bucket["code"] = code
+                        if rid and rid not in bucket["ids"]:
+                            bucket["ids"].append(rid)
+
+                        if endpoint and endpoint != "-":
+                            endpoint_counts[endpoint] = endpoint_counts.get(endpoint, 0) + 1
+
+                    if not grouped:
+                        lines.append("(אין נתונים בחלון הזמן הזה)")
+                        await update.message.reply_text("\n".join(lines))
+                        return
+
+                    sorted_groups = sorted(grouped.items(), key=lambda item: int(item[1].get("count", 0) or 0), reverse=True)
+                    lines.append("Top signatures:")
+                    selected_sigs: list[str] = []
+                    for i, (sig, info) in enumerate(sorted_groups[:10], 1):
+                        label = "|".join([str(info.get("category") or "-"), sig]) if sig and sig != "unknown" else str(info.get("category") or "-")
+                        count = int(info.get("count", 0) or 0)
+                        sample = str(info.get("sample") or "-")
+                        code = str(info.get("code") or "-")
+                        policy = str(info.get("policy") or "").strip()
+                        ids = list(info.get("ids") or [])[:3]
+                        ids_part = f" ids={','.join(ids)}" if ids else ""
+                        line = f"{i}. [{label}] {count}× {sample}"
+                        if policy and policy not in {"escalate", "default"}:
+                            line += f" — policy={policy}"
+                        if code and code != "-":
+                            line += f" (code={code})"
+                        link = _sentry_query_link(sig) if sig and sig != "unknown" else None
+                        if link:
+                            line += f" — Sentry: {link}"
+                        line += f" — דוגמאות: /errors examples {sig}{ids_part}"
+                        lines.append(line)
+                        if sig and sig != "unknown":
+                            selected_sigs.append(sig)
+
+                    if endpoint_counts:
+                        lines.append("")
+                        lines.append("Top endpoints:")
+                        for i, (ep, cnt) in enumerate(sorted(endpoint_counts.items(), key=lambda kv: kv[1], reverse=True)[:5], 1):
+                            lines.append(f"{i}. {ep} — {cnt}×")
+
+                    # כפתורי "דוגמאות" עבור 5 ראשונות
+                    try:
+                        top_for_buttons = [sig for sig in selected_sigs[:5] if sig]
+                        if top_for_buttons:
+                            tokens_map = context.user_data.get("errors_sig_tokens") or {}
+                            for sig in top_for_buttons:
+                                tok = hashlib.sha1(sig.encode("utf-8", "ignore")).hexdigest()[:16]
+                                tokens_map[tok] = sig
+                                label = f"📄 דוגמאות – {sig[:18]}"
+                                kb_rows.append([InlineKeyboardButton(label, callback_data=f"err_ex:{tok}")])
+                            context.user_data["errors_sig_tokens"] = tokens_map
+                    except Exception:
+                        kb_rows = []
+
+                    await update.message.reply_text(
+                        "\n".join(lines),
+                        reply_markup=(InlineKeyboardMarkup(kb_rows) if kb_rows else None),
+                    )
+                    return
+                except Exception:
+                    # fall through to legacy behaviour
+                    lines = []
+                    kb_rows = []
+
             # 1) Sentry-first (best-effort): recent unresolved issues
             try:
                 import integrations_sentry as _sentry  # type: ignore
@@ -2119,7 +2553,7 @@ class AdvancedBotHandlers:
             # 2) Local Top signatures from recent errors buffer, across windows
             try:
                 from observability import get_recent_errors  # type: ignore
-                from datetime import datetime, timezone, timedelta
+                from datetime import datetime, timezone
 
                 def _parse_ts(ts: str) -> Optional[datetime]:
                     try:
@@ -2168,6 +2602,14 @@ class AdvancedBotHandlers:
                         except Exception:
                             # On parsing errors, skip filtering for this record
                             pass
+
+                        # Severity filter
+                        try:
+                            sev_txt = str(er.get("severity") or er.get("error_severity_hint") or "error")
+                            if min_sev_rank and _sev_rank(sev_txt) < min_sev_rank:
+                                continue
+                        except Exception:
+                            pass
                         ts_raw = er.get("ts") or er.get("timestamp") or ""
                         ts_parsed = _parse_ts(ts_raw)
                         error_ts: datetime = ts_parsed if ts_parsed is not None else now
@@ -2187,6 +2629,7 @@ class AdvancedBotHandlers:
                             "category": str(er.get("error_category") or ""),
                             "policy": str(er.get("error_policy") or ""),
                             "code": str(er.get("error_code") or "-"),
+                            "ids": [],
                         })
                         bucket["count"] += 1
                         if not bucket["sample"]:
@@ -2197,6 +2640,12 @@ class AdvancedBotHandlers:
                             bucket["policy"] = str(er.get("error_policy") or "")
                         if bucket.get("code") in {"", "-"} and er.get("error_code"):
                             bucket["code"] = str(er.get("error_code") or "-")
+                        try:
+                            rid = str(er.get("request_id") or er.get("trace_id") or "").strip()
+                            if rid and rid not in bucket["ids"]:
+                                bucket["ids"].append(rid)
+                        except Exception:
+                            pass
 
                     lines.append("")
                     lines.append(f"⏱️ Top {w}m:")
@@ -2223,7 +2672,9 @@ class AdvancedBotHandlers:
                         link = _sentry_query_link(sig) if sig and sig != "unknown" else None
                         if link:
                             line += f" — Sentry: {link}"
-                        line += f" — דוגמאות: /errors examples {sig}"
+                        ids = list(info.get("ids") or [])[:3]
+                        ids_part = f" ids={','.join(ids)}" if ids else ""
+                        line += f" — דוגמאות: /errors examples {sig}{ids_part}"
                         lines.append(line)
 
                     # בחירת מועמדים לכפתורים
@@ -3088,8 +3539,10 @@ class AdvancedBotHandlers:
             "• /broadcast – שידור (מוגבל)\n\n"
             "<b>ChatOps/מנהל (מוגבל הרשאות)</b>\n"
             "• /status, /health, /observe, /triage\n"
+            "  - /status --since 15m | --from 2025-12-16T10:00 --to 2025-12-16T10:15 (UTC)\n"
             "• /system_info, /metrics, /uptime, /alerts, /incidents\n"
             "• /predict, /accuracy, /errors, /rate_limit\n"
+            "  - /errors --since 2h | --from ... --to ... | --endpoint /api | --min_severity ERROR (UTC)\n"
             "• /enable_backoff, /disable_backoff, /silence, /unsilence, /silences\n\n"
             "טיפ: בפלואו /image אפשר לבחור תמה/רוחב/פונט ולשמור כברירת‑מחדל.\n"
             "הערה: הוסף תווית קצרה לתמונה עם <code>--note</code> (או נקה עם <code>--note-clear</code>)."

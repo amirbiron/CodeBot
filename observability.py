@@ -536,9 +536,12 @@ def emit_event(event: str, severity: str = "info", **fields: Any) -> None:
         try:
             _RECENT_ERRORS.append({
                 "ts": datetime.now(timezone.utc).isoformat(),
+                "severity": str(severity or ""),
                 "event": str(event),
                 "error_code": str(fields.get("error_code") or ""),
                 "error": str(fields.get("error") or fields.get("message") or ""),
+                "request_id": str(request_id or ""),
+                "trace_id": str(fields.get("trace_id") or fields.get("traceId") or ""),
                 "operation": str(fields.get("operation") or ""),
                 "service": str(fields.get("service") or ""),
                 "endpoint": str(fields.get("endpoint") or ""),
