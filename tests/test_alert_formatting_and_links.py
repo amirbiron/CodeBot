@@ -267,6 +267,38 @@ def test_internal_alerts_forward_payload_includes_context(monkeypatch):
     assert "SECRET" not in annotations["details_preview"]
 
 
+def test_internal_alerts_details_preview_skips_raw_noisy_fields(monkeypatch):
+    _clear_sentry_env(monkeypatch)
+
+    import internal_alerts as ia
+    import importlib
+    importlib.reload(ia)
+
+    captured = {}
+
+    def _fake_forward(alerts):
+        captured["alerts"] = alerts
+
+    monkeypatch.setattr(ia, "forward_alerts", _fake_forward)
+
+    # labels doesn't include any of the compact keys, and slow_endpoints is large:
+    # details_preview should NOT embed raw dict/list representations.
+    ia.emit_internal_alert(
+        name="anomaly_detected",
+        severity="anomaly",
+        summary="avg_rt=3.1s (threshold 3.0s)",
+        labels={"something_else": "x"},
+        slow_endpoints=[{"method": "GET", "endpoint": "index", "count": 1, "avg_duration": 1.0, "max_duration": 1.0}],
+    )
+
+    alert_list = captured.get("alerts") or []
+    assert len(alert_list) == 1
+    preview = (alert_list[0].get("annotations") or {}).get("details_preview") or ""
+    # We should never embed raw dict/list representations for these noisy fields.
+    assert "labels={" not in preview
+    assert "slow_endpoints=[" not in preview
+
+
 def test_internal_alerts_respect_min_severity_for_direct_telegram(monkeypatch):
     monkeypatch.setenv("ALERT_TELEGRAM_MIN_SEVERITY", "error")
     monkeypatch.setenv("ALERT_TELEGRAM_BOT_TOKEN", "token")

@@ -184,14 +184,16 @@ def _details_preview(details: Dict[str, Any]) -> str | None:
                 safe_items.append(compact)
                 if len(safe_items) >= 6:
                     break
-                continue
+            # Never fall back to raw labels dict in preview (too noisy)
+            continue
         if lk == "slow_endpoints":
             compact = _compact_slow_endpoints(value)
             if compact:
                 safe_items.append(f"slow_endpoints={compact}")
                 if len(safe_items) >= 6:
                     break
-                continue
+            # Never fall back to raw slow_endpoints list in preview (too noisy)
+            continue
         safe_items.append(f"{key}={_coerce_str(value)}")
         if len(safe_items) >= 6:
             break

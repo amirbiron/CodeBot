@@ -287,7 +287,12 @@ def _extract_sentry_alert(payload: Any) -> _SentryAlert | None:
     # Downgrade them to warning so they don't look like user-facing errors in Telegram/Observability.
     try:
         lowered_title = str(title_s or "").lower()
-        if "_operationcancelled" in lowered_title or "operation cancelled" in lowered_title:
+        # NOTE: do not override "resolved" notifications; they should remain informational,
+        # otherwise we emit new warning-level alerts and create new dedup keys.
+        if (
+            severity != "info"
+            and ("_operationcancelled" in lowered_title or "operation cancelled" in lowered_title)
+        ):
             severity = "warning"
     except Exception:
         pass
