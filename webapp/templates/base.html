@@ -19,12 +19,52 @@
         // קביעה מוקדמת של data-theme כדי למנוע הבהוב לפני טעינת ה-CSS
         (function() {
             try {
-                var saved = localStorage.getItem('dark_mode_preference');
                 var html = document.documentElement;
-                if (saved === 'dark' || saved === 'dim') {
-                    html.setAttribute('data-theme', saved);
-                } else if (saved === 'auto' && window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) {
+                var isLoggedIn = {{ 'true' if session.user_id else 'false' }};
+                var serverTheme = '{{ ui_theme }}';
+                serverTheme = String(serverTheme || 'classic').trim().toLowerCase();
+                var allowed = {
+                    'classic': 1,
+                    'ocean': 1,
+                    'forest': 1,
+                    'rose-pine-dawn': 1,
+                    'dark': 1,
+                    'dim': 1,
+                    'nebula': 1,
+                    'high-contrast': 1
+                };
+
+                // אם השרת קבע ערכת נושא שאינה מצב "בהיר/כהה" – נכבד אותה תמיד (סנכרון בין מכשירים)
+                if (allowed[serverTheme] && (serverTheme !== 'classic' && serverTheme !== 'dark' && serverTheme !== 'dim')) {
+                    html.setAttribute('data-theme', serverTheme);
+                    return;
+                }
+
+                var savedMode = localStorage.getItem('dark_mode_preference');
+                if (savedMode === 'dark' || savedMode === 'dim') {
+                    html.setAttribute('data-theme', savedMode);
+                    return;
+                }
+                if (savedMode === 'auto' && window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) {
                     html.setAttribute('data-theme', 'dark');
+                    return;
+                }
+
+                // כשלא מחוברים — נכבד user_theme מקומי (ללא תלות בשרת)
+                if (!isLoggedIn) {
+                    var savedTheme = localStorage.getItem('user_theme');
+                    if (savedTheme) {
+                        savedTheme = String(savedTheme).trim().toLowerCase();
+                        if (allowed[savedTheme]) {
+                            html.setAttribute('data-theme', savedTheme);
+                            return;
+                        }
+                    }
+                }
+
+                // fallback: ערכת נושא מהשרת
+                if (allowed[serverTheme]) {
+                    html.setAttribute('data-theme', serverTheme);
                 }
             } catch (_) { /* ignore */ }
         })();
@@ -1375,11 +1415,13 @@
     <link rel="stylesheet" href="{{ url_for('static', filename='css/global_search.css') }}?v={{ static_version }}">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/high-contrast.css') }}?v={{ static_version }}">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/dark-mode.css') }}?v={{ static_version }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/theme-mask.css') }}?v={{ static_version }}">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/smooth-scroll.css') }}?v={{ static_version }}">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/driver.js@1.3.1/dist/driver.css" crossorigin="anonymous">
     <script src="https://cdn.jsdelivr.net/npm/driver.js@1.3.1/dist/driver.js.iife.js" defer></script>
 </head>
 <body>
+    <div id="theme-mask" aria-hidden="true"></div>
     <script>
         (function() {
             try {
@@ -1561,6 +1603,16 @@
         <span class="theme-wizard-option__name">Nebula</span>
         <span class="theme-wizard-option__desc">גוונים קוסמיים עמוקים עם ניגודיות עשירה.</span>
       </button>
+      <button type="button" class="theme-wizard-option" role="listitem" data-theme-option="dark" aria-pressed="false">
+        <span class="theme-wizard-option__emoji" aria-hidden="true">🌙</span>
+        <span class="theme-wizard-option__name">Dark</span>
+        <span class="theme-wizard-option__desc">מראה כהה קלאסי לעבודה בלילה.</span>
+      </button>
+      <button type="button" class="theme-wizard-option" role="listitem" data-theme-option="dim" aria-pressed="false">
+        <span class="theme-wizard-option__emoji" aria-hidden="true">🌆</span>
+        <span class="theme-wizard-option__name">Dim</span>
+        <span class="theme-wizard-option__desc">כהה רך יותר עם פחות ניגודיות.</span>
+      </button>
       <button type="button" class="theme-wizard-option" role="listitem" data-theme-option="rose-pine-dawn" aria-pressed="false">
         <span class="theme-wizard-option__emoji" aria-hidden="true">🌹</span>
         <span class="theme-wizard-option__name">Rose Pine Dawn</span>
@@ -1570,6 +1622,21 @@
         <span class="theme-wizard-option__emoji" aria-hidden="true">🏛️</span>
         <span class="theme-wizard-option__name">Classic</span>
         <span class="theme-wizard-option__desc">המראה המוכר והמאוזן של CodeKeeper.</span>
+      </button>
+      <button type="button" class="theme-wizard-option" role="listitem" data-theme-option="ocean" aria-pressed="false">
+        <span class="theme-wizard-option__emoji" aria-hidden="true">🌊</span>
+        <span class="theme-wizard-option__name">Ocean</span>
+        <span class="theme-wizard-option__desc">גווני כחול עמוקים עם תחושת ים.</span>
+      </button>
+      <button type="button" class="theme-wizard-option" role="listitem" data-theme-option="forest" aria-pressed="false">
+        <span class="theme-wizard-option__emoji" aria-hidden="true">🌲</span>
+        <span class="theme-wizard-option__name">Forest</span>
+        <span class="theme-wizard-option__desc">ירוקים עשירים עם תחושת טבע.</span>
+      </button>
+      <button type="button" class="theme-wizard-option" role="listitem" data-theme-option="high-contrast" aria-pressed="false">
+        <span class="theme-wizard-option__emoji" aria-hidden="true">⚫️</span>
+        <span class="theme-wizard-option__name">High Contrast</span>
+        <span class="theme-wizard-option__desc">ניגודיות גבוהה ונגישות משופרת.</span>
       </button>
     </div>
     <p class="theme-wizard__hint">
@@ -2201,6 +2268,135 @@
 </script>
 
 <script>
+(function initThemeRipple(){
+    if (window.applyThemeChangeWithRipple) { return; }
+
+    const RIPPLE_DURATION_MS = 700;
+    const FADE_OUT_MS = 120;
+
+    // צבע רקע למסכה לפי ערכת נושא (מותאם לצבעי ה-bg-primary במערכת)
+    const THEME_BACKGROUND_COLORS = {
+        'classic': '#6b63ff',
+        'ocean': '#1a365d',
+        'forest': '#1a4731',
+        'rose-pine-dawn': '#faf4ed',
+        'dark': '#1a1a1a',
+        'dim': '#2a2a2a',
+        'nebula': '#151a2c',
+        'high-contrast': '#000000'
+    };
+
+    const ALLOWED_UI_THEMES = new Set(Object.keys(THEME_BACKGROUND_COLORS));
+    let _timers = [];
+
+    function clearTimers(){
+        while (_timers.length) {
+            try { clearTimeout(_timers.pop()); } catch (_) {}
+        }
+    }
+
+    function prefersReducedMotion(){
+        try {
+            return !!(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
+        } catch (_) {
+            return false;
+        }
+    }
+
+    function sanitizeTheme(theme){
+        const t = (theme || '').toString().trim().toLowerCase();
+        if (ALLOWED_UI_THEMES.has(t)) {
+            return t;
+        }
+        return 'classic';
+    }
+
+    function resolvePoint(triggerElement){
+        let x = Math.round((window.innerWidth || 0) / 2);
+        let y = Math.round((window.innerHeight || 0) / 2);
+        try {
+            if (triggerElement && typeof triggerElement.getBoundingClientRect === 'function') {
+                const rect = triggerElement.getBoundingClientRect();
+                x = Math.round(rect.left + rect.width / 2);
+                y = Math.round(rect.top + rect.height / 2);
+            }
+        } catch (_) {}
+        return { x, y };
+    }
+
+    function applyThemeChangeWithRipple(newTheme, triggerElement, applyThemeFn){
+        const theme = sanitizeTheme(newTheme);
+        const root = document.documentElement;
+        const apply = (typeof applyThemeFn === 'function')
+            ? applyThemeFn
+            : (t) => { try { root.setAttribute('data-theme', t); } catch (_) {} };
+
+        if (prefersReducedMotion()) {
+            apply(theme);
+            return;
+        }
+
+        const mask = document.getElementById('theme-mask');
+        if (!mask) {
+            apply(theme);
+            return;
+        }
+
+        clearTimers();
+
+        const pt = resolvePoint(triggerElement);
+        try {
+            root.style.setProperty('--toggle-x', `${pt.x}px`);
+            root.style.setProperty('--toggle-y', `${pt.y}px`);
+            root.style.setProperty('--ripple-radius', '150vmax');
+        } catch (_) {}
+
+        try {
+            mask.style.background = THEME_BACKGROUND_COLORS[theme] || '#000000';
+        } catch (_) {}
+
+        // איפוס מצב קודם (בלי "כיווץ" מורגש)
+        try {
+            mask.classList.remove('active');
+            mask.style.opacity = '0';
+            // Force reflow כדי שהמעבר הבא יתחיל נקי
+            void mask.offsetWidth;
+            mask.style.opacity = '';
+        } catch (_) {}
+
+        // התחלת ripple
+        try { mask.classList.add('active'); } catch (_) {}
+
+        _timers.push(setTimeout(() => {
+            try { apply(theme); } catch (_) {}
+            // Fade-out כשהמסכה עדיין מלאה, כדי לא להציג "חזרה אחורה"
+            try { mask.style.opacity = '0'; } catch (_) {}
+            _timers.push(setTimeout(() => {
+                try { mask.classList.remove('active'); } catch (_) {}
+                try { mask.style.opacity = '0'; } catch (_) {}
+            }, FADE_OUT_MS + 20));
+        }, RIPPLE_DURATION_MS));
+    }
+
+    window.applyThemeChangeWithRipple = applyThemeChangeWithRipple;
+    window.__ckThemeRipple = {
+        durationMs: RIPPLE_DURATION_MS,
+        allowedThemes: Array.from(ALLOWED_UI_THEMES),
+        cancel: () => {
+            try { clearTimers(); } catch (_) {}
+            try {
+                const mask = document.getElementById('theme-mask');
+                if (mask) {
+                    mask.classList.remove('active');
+                    mask.style.opacity = '0';
+                }
+            } catch (_) {}
+        }
+    };
+})();
+</script>
+
+<script>
 (function initThemeWizard(){
     const wizardEl = document.getElementById('themeWizard');
     const htmlEl = document.documentElement;
@@ -2405,6 +2601,14 @@
         wizardEl.setAttribute('aria-hidden', 'true');
         bodyEl.classList.remove('theme-wizard-open');
         document.removeEventListener('keydown', handleKeydown, true);
+        // אם המשתמש סגר בלי לשמור – בטל ripple ממתין כדי שלא ידרוס את הרברט
+        if (!persist) {
+            try {
+                if (window.__ckThemeRipple && typeof window.__ckThemeRipple.cancel === 'function') {
+                    window.__ckThemeRipple.cancel();
+                }
+            } catch (_) { /* ignore */ }
+        }
         if (persist && state.selectedTheme) {
             persistTheme(state.selectedTheme);
         } else {
@@ -2474,13 +2678,21 @@
         btn.addEventListener('blur', () => { if (state.isOpen) { revertPreview(); } });
         btn.addEventListener('click', () => {
             setActiveChoice(theme);
-            previewTheme(theme);
+            if (typeof window.applyThemeChangeWithRipple === 'function') {
+                window.applyThemeChangeWithRipple(theme, btn, (t) => previewTheme(t));
+            } else {
+                previewTheme(theme);
+            }
         });
         btn.addEventListener('keydown', (event) => {
             if (event.key === 'Enter' || event.key === ' ') {
                 event.preventDefault();
                 setActiveChoice(theme);
-                previewTheme(theme);
+                if (typeof window.applyThemeChangeWithRipple === 'function') {
+                    window.applyThemeChangeWithRipple(theme, btn, (t) => previewTheme(t));
+                } else {
+                    previewTheme(theme);
+                }
             }
         });
     });
@@ -2532,6 +2744,48 @@
         resetSeen,
         scheduleFallback
     };
+
+    // סנכרון ערכת נושא בין טאבים (localStorage storage event)
+    window.addEventListener('storage', (event) => {
+        try {
+            if (!event || !event.key) { return; }
+            const key = String(event.key);
+            const allowed = (window.__ckThemeRipple && Array.isArray(window.__ckThemeRipple.allowedThemes))
+                ? window.__ckThemeRipple.allowedThemes
+                : ['classic','ocean','forest','rose-pine-dawn','dark','dim','nebula','high-contrast'];
+            const isAllowed = (t) => !!t && allowed.indexOf(t) !== -1;
+            const normalize = (v) => (v || '').toString().trim().toLowerCase();
+
+            if (key === STORAGE_KEYS.userTheme) {
+                const t = normalize(event.newValue);
+                if (isAllowed(t)) {
+                    previewTheme(t);
+                    // עדכון בחירה רק אם קיימת אופציה בוויזארד
+                    if (availableThemes().includes(t)) {
+                        setActiveChoice(t);
+                    }
+                }
+                return;
+            }
+
+            if (key === STORAGE_KEYS.preference) {
+                const pref = normalize(event.newValue);
+                if (pref === 'dark' || pref === 'dim') {
+                    previewTheme(pref);
+                    return;
+                }
+                if (pref === 'light') {
+                    previewTheme('classic');
+                    return;
+                }
+                if (pref === 'auto') {
+                    const isDark = !!(window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches);
+                    previewTheme(isDark ? 'dark' : 'classic');
+                    return;
+                }
+            }
+        } catch (_) { /* ignore */ }
+    });
 
     const triggered = handleUrlTrigger();
     if (!triggered) {

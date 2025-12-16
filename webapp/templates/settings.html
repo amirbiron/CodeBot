@@ -1142,16 +1142,93 @@
       });
 
       if (themeSel) themeSel.addEventListener('change', async function(){
+        const html = document.documentElement;
+        const prevTheme = ((html.getAttribute('data-theme') || 'classic') + '').trim().toLowerCase();
+        const nextTheme = ((themeSel.value || '') + '').trim().toLowerCase();
+
+        const allowed = (window.__ckThemeRipple && Array.isArray(window.__ckThemeRipple.allowedThemes))
+          ? window.__ckThemeRipple.allowedThemes
+          : ['classic','ocean','forest','rose-pine-dawn','dark','dim','nebula','high-contrast'];
+
+        const isAllowed = (t) => !!t && allowed.indexOf(t) !== -1;
+        if (!isAllowed(nextTheme)) {
+          alert('ערכת נושא לא נתמכת');
+          try { themeSel.value = prevTheme; } catch(_) {}
+          return;
+        }
+
+        // ניהול תחרות (race): רק הפעולה האחרונה רשאית לבצע rollback/cancel
+        const opState = window.__ckThemeSelectOp = window.__ckThemeSelectOp || { seq: 0, controller: null, intendedTheme: null };
+        const opId = (opState.seq = (Number(opState.seq) || 0) + 1);
+        opState.intendedTheme = nextTheme;
         try {
-          try { localStorage.setItem('dark_mode_preference', themeSel.value); } catch(_) {}
-          const res = await fetch('/api/ui_prefs', {
-            method: 'POST', headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ theme: themeSel.value })
-          });
+          if (opState.controller && typeof opState.controller.abort === 'function') {
+            opState.controller.abort();
+          }
+        } catch(_) {}
+        try {
+          opState.controller = (typeof AbortController !== 'undefined') ? new AbortController() : null;
+        } catch(_) {
+          opState.controller = null;
+        }
+
+        function persistLocal(theme){
+          try { localStorage.setItem('user_theme', theme); } catch(_) {}
+          try {
+            if (theme === 'dark' || theme === 'dim') {
+              localStorage.setItem('dark_mode_preference', theme);
+            } else if (theme === 'classic') {
+              localStorage.setItem('dark_mode_preference', 'light');
+            } else {
+              localStorage.removeItem('dark_mode_preference');
+            }
+          } catch(_) {}
+        }
+
+        function applyNow(theme){
+          try { html.setAttribute('data-theme', theme); } catch(_) {}
+        }
+
+        try {
+          // שמירה מקומית לפני הכל (כדי לסנכרן טאבים ולהחזיק גם אם הרשת נופלת)
+          persistLocal(nextTheme);
+
+          // אפקט ripple + החלפה בסוף האנימציה
+          if (typeof window.applyThemeChangeWithRipple === 'function') {
+            window.applyThemeChangeWithRipple(nextTheme, themeSel, applyNow);
+          } else {
+            applyNow(nextTheme);
+          }
+
+          const fetchOpts = {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ theme: nextTheme })
+          };
+          try {
+            if (opState.controller && opState.controller.signal) {
+              fetchOpts.signal = opState.controller.signal;
+            }
+          } catch(_) {}
+
+          const res = await fetch('/api/ui_prefs', fetchOpts);
           const data = await res.json();
           if (!data.ok) throw 0;
-          location.reload();
-        } catch (e) { alert('שגיאה בעדכון ערכת הנושא'); }
+        } catch (e) {
+          // אם זו לא הפעולה האחרונה – לא עושים rollback (אחרת נשבור בחירה חדשה)
+          const aborted = !!(e && (e.name === 'AbortError' || String(e).toLowerCase().includes('abort')));
+          const stillLatest = (window.__ckThemeSelectOp && window.__ckThemeSelectOp.seq === opId);
+          const stillIntended = (window.__ckThemeSelectOp && window.__ckThemeSelectOp.intendedTheme === nextTheme);
+          if (aborted || !stillLatest || !stillIntended) {
+            return;
+          }
+          // rollback: בטל אנימציה אם רצה, והחזר את הערך הקודם
+          try { if (window.__ckThemeRipple && typeof window.__ckThemeRipple.cancel === 'function') window.__ckThemeRipple.cancel(); } catch(_) {}
+          persistLocal(prevTheme);
+          applyNow(prevTheme);
+          try { themeSel.value = prevTheme; } catch(_) {}
+          alert('שגיאה בעדכון ערכת הנושא');
+        }
       });
 
       // Bookmarks toggle visibility controls
