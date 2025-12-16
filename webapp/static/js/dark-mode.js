@@ -149,16 +149,25 @@
         syncToServer(next);
     }
 
+    function normalizeToggleMode(mode) {
+        if (mode === 'classic') return 'light';
+        if (mode === 'dark' || mode === 'dim' || mode === 'light' || mode === 'auto') return mode;
+        return 'auto';
+    }
+
     function updateToggleButton(mode) {
         const toggleBtn = document.getElementById('darkModeToggle');
         const icon = document.getElementById('darkModeIcon');
         const text = toggleBtn?.querySelector('.btn-text');
         if (!toggleBtn || !icon) return;
+        mode = normalizeToggleMode(mode);
         const icons = { 'auto': 'fa-adjust', 'dark': 'fa-moon', 'dim': 'fa-cloud-moon', 'light': 'fa-sun' };
         const labels = { 'auto': 'אוטומטי', 'dark': 'חשוך', 'dim': 'מעומעם', 'light': 'בהיר' };
+        const label = labels[mode] || labels.auto;
         icon.className = 'fas ' + (icons[mode] || icons.auto);
-        if (text) text.textContent = labels[mode] || labels.auto;
-        toggleBtn.setAttribute('title', `מצב: ${labels[mode] || labels.auto}`);
+        if (text) text.textContent = label;
+        toggleBtn.setAttribute('title', `מצב: ${label}`);
+        toggleBtn.setAttribute('aria-label', `מצב: ${label}`);
     }
 
     async function syncToServer(theme) {
