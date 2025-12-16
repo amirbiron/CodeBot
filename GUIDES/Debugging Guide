@@ -65,3 +65,22 @@
 * האם אפשר לגרום לשגיאה לקרות בכוונה בסביבה מקומית (Local)?
 * דוגמה: "אם אריץ את הפקודה `/stats` פעמיים רצוף, האם אקבל את השגיאה?"
 * **הצלחת לשחזר?** מזל טוב, פתרון הבעיה הוא עניין של זמן קצר.
+
+---
+
+## 🐢 אבחון איטיות (High Latency Diagnosis)
+
+כאשר מתקבלות התראות על `High Latency` או `anomaly_detected`, יש לבדוק בלוגים את השדה `queue_time_ms` (אם קיים) כדי לבודד את מקור הבעיה.
+
+### טבלת אבחון מהירה (The Latency Compass)
+
+| סימפטום בלוגים | משמעות (Diagnosis) | פעולות לביצוע (Action Items) |
+| :--- | :--- | :--- |
+| **`queue_time` גבוה** <br> (ו-`duration` גבוה) | **בעיית קיבולת (Capacity)** <br> השרת "פקוק". הבקשה המתינה זמן רב עד ש-Worker התפנה לטפל בה. הקוד עצמו אולי תקין. | 1. **Connection Pool:** בדוק אם ה-Pool חנוק (High Utilization). <br> 2. **Workers:** שקול להגדיל מספר Workers/Memory. <br> 3. **Noisy Neighbor:** האם יש בוטים שמפציצים את ה-API? |
+| **`queue_time` נמוך** <br> (אבל `duration` גבוה) | **בעיית קוד (Code/Logic)** <br> הבקשה נכנסה מיד לעיבוד, אך הלוגיקה רצה לאט. | 1. **DB:** חפש שאילתות כבדות (`currentOp` או Slow Query Log). <br> 2. **External:** האם יש קריאה איטית ל-API חיצוני (Telegram/AI)? <br> 3. **CPU:** האם יש לולאה כבדה בקוד? |
+
+### 👻 הערה על "בקשות רפאים"
+אם מופיע לוג חריג בשעה לא הגיונית (למשל אמצע הלילה) עם `queue_time` גבוה מאוד:
+* **זהו אירוע מושהה.** האירוע קרה בפועל בזמן: `timestamp` מינוס `queue_time`.
+* זה מעיד בדרך כלל על התאוששות מתקיעה (למשל: חידוש חיבור ל-DB אחרי ניתוק).
+
