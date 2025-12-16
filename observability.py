@@ -418,6 +418,7 @@ def _maybe_sample_info(logger, method, event_dict: Dict[str, Any]):
             "business_metric",
             "performance",
             "github_sync",
+            "access_logs",
         }
         ev = str(event_dict.get("event") or "")
         if ev in allowlist:
