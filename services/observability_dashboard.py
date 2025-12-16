@@ -282,7 +282,10 @@ def _hash_identifier(raw: Any) -> str:
 
 def _load_quick_fix_config() -> Dict[str, Any]:
     global _QUICK_FIX_CACHE, _QUICK_FIX_MTIME, _QUICK_FIX_RESOLVED_PATH
-    path = _resolve_config_path(_QUICK_FIX_PATH)
+    try:
+        path = _resolve_config_path(_QUICK_FIX_PATH)
+    except Exception:
+        return _QUICK_FIX_CACHE
     if _QUICK_FIX_RESOLVED_PATH != path:
         _QUICK_FIX_CACHE = {}
         _QUICK_FIX_MTIME = 0.0
@@ -332,12 +335,31 @@ def _resolve_config_path(path: Path) -> Path:
         p = Path(path)
     except Exception:
         return path
-    if p.is_absolute():
+    try:
+        if p.is_absolute():
+            return p
+    except Exception:
+        # Best-effort: keep original path-like object
         return p
-    cwd_candidate = (Path.cwd() / p)
-    if cwd_candidate.exists():
-        return cwd_candidate
-    return _REPO_ROOT / p
+
+    # Best-effort CWD resolution (CWD may be missing/permission-denied in prod)
+    try:
+        cwd = Path.cwd()
+    except Exception:
+        cwd = None
+    if cwd is not None:
+        try:
+            cwd_candidate = cwd / p
+            if cwd_candidate.exists():
+                return cwd_candidate
+        except Exception:
+            pass
+
+    # Repo-root fallback (final best-effort)
+    try:
+        return _REPO_ROOT / p
+    except Exception:
+        return p
 
 
 def _normalize_alert_type(value: Optional[str]) -> str:
@@ -409,7 +431,10 @@ def _normalize_runbook_config(raw: Any) -> Tuple[Dict[str, Any], Dict[str, str],
 
 def _load_runbook_config() -> Dict[str, Any]:
     global _RUNBOOK_CACHE, _RUNBOOK_ALIAS_MAP, _RUNBOOK_MTIME, _RUNBOOK_RESOLVED_PATH
-    path = _resolve_config_path(_RUNBOOK_PATH)
+    try:
+        path = _resolve_config_path(_RUNBOOK_PATH)
+    except Exception:
+        return _RUNBOOK_CACHE
     if _RUNBOOK_RESOLVED_PATH != path:
         _RUNBOOK_CACHE = {}
         _RUNBOOK_ALIAS_MAP = {}

@@ -259,3 +259,34 @@ def test_runbook_relative_path_resolves_from_repo_root_when_cwd_differs(monkeypa
     assert payload
     assert payload["runbook"]
     assert payload["runbook"]["steps"]
+
+
+def test_runbook_path_resolution_does_not_crash_if_cwd_unavailable(monkeypatch):
+    """Regression: Path.cwd()/exists() failures must not bubble up."""
+    monkeypatch.setattr(obs, "_RUNBOOK_PATH", Path("config/observability_runbooks.yml"))
+    monkeypatch.setattr(obs, "_RUNBOOK_CACHE", {})
+    monkeypatch.setattr(obs, "_RUNBOOK_ALIAS_MAP", {})
+    monkeypatch.setattr(obs, "_RUNBOOK_MTIME", 0.0)
+    monkeypatch.setattr(obs, "_RUNBOOK_RESOLVED_PATH", None)
+
+    def _boom(*args, **kwargs):
+        raise FileNotFoundError("cwd_missing")
+
+    monkeypatch.setattr(obs.Path, "cwd", classmethod(_boom), raising=True)
+
+    payload = obs.fetch_runbook_for_event(
+        event_id="evt-cwd-missing",
+        fallback_metadata={
+            "id": "evt-cwd-missing",
+            "alert_type": "some_unknown_alert_type",
+            "type": "alert",
+            "title": "Demo",
+            "summary": "S",
+            "timestamp": "2025-01-01T00:00:00+00:00",
+            "severity": "critical",
+            "metadata": {"alert_type": "some_unknown_alert_type"},
+        },
+    )
+
+    assert payload
+    assert payload["runbook"]
