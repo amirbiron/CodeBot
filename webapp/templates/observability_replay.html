@@ -490,7 +490,7 @@
       </ul>
     </div>
     <div class="runbook-panel" id="runbookPanel">
-      <div class="runbook-empty">בחר אירוע (לחיצה על שורה בציר הזמן) כדי לטעון Runbook.</div>
+      <div class="runbook-empty">בחר אירוע כדי לטעון Runbook.</div>
     </div>
   </div>
 </div>
@@ -649,7 +649,7 @@
     setTimeout(() => toast.remove(), 2200);
   }
 
-  function setRunbookEmpty(message = 'בחר אירוע (לחיצה על שורה בציר הזמן) כדי לטעון Runbook.') {
+  function setRunbookEmpty(message = 'בחר אירוע כדי לטעון Runbook.') {
     if (!runbookPanel) return;
     runbookPanel.dataset.loading = '0';
     runbookPanel.innerHTML = `<div class="runbook-empty">${message}</div>`;
