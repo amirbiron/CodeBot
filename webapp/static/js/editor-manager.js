@@ -47,6 +47,23 @@
       try { console.log('[EditorManager] Initialized with preferred editor:', this.currentEditor); } catch(_) {}
     }
 
+    _getTextareaLineHeightPx(textareaEl) {
+      // ב-Textarea, getComputedStyle(lineHeight) יכול להחזיר "normal" ולכן parseFloat נכשל.
+      // כדי שחישוב שורה לפי scrollTop יהיה יציב, ננסה להפיק line-height בפיקסלים בצורה בטוחה.
+      try {
+        const ta = textareaEl;
+        if (!ta || !window.getComputedStyle) return 19; // fallback סביר
+        const cs = window.getComputedStyle(ta);
+        const lhRaw = cs ? cs.lineHeight : '';
+        const lh = parseFloat(lhRaw);
+        if (lh && !Number.isNaN(lh) && lh > 0) return lh;
+        const fsRaw = cs ? cs.fontSize : '';
+        const fs = parseFloat(fsRaw);
+        if (fs && !Number.isNaN(fs) && fs > 0) return fs * 1.25; // הערכה נפוצה ל-"normal"
+      } catch(_) {}
+      return 19;
+    }
+
     loadPreference() {
       try {
         // קדימות: localStorage, אחר כך העדפת שרת (אם קיימת), ולבסוף ברירת מחדל codemirror
@@ -281,10 +298,7 @@
         // אחרי שהעורך החדש מוכן: החזר את המשתמש לאותה שורה (מיקום משותף בין העורכים)
         try {
           const targetLine = this._sharedLastLine || lastLine || 1;
-          // דחייה קלה כדי לאפשר layout/render לעורך החדש
-          setTimeout(() => {
-            try { this.restoreLinePosition(targetLine); } catch(_) {}
-          }, 0);
+          this._scheduleRestoreLinePosition(targetLine);
         } catch(_) {}
         this.savePreference(this.currentEditor);
         try {
@@ -372,6 +386,15 @@
         if (this.cmInstance && this.cmInstance.state) {
           const view = this.cmInstance;
           try {
+            // דרך יציבה: שימוש ב-lineBlockAtHeight עם scrollTop (CM6)
+            if (typeof view.lineBlockAtHeight === 'function' && view.scrollDOM && typeof view.scrollDOM.scrollTop === 'number') {
+              const block = view.lineBlockAtHeight((view.scrollDOM.scrollTop || 0) + 8);
+              const ln = view.state.doc.lineAt(block.from).number;
+              if (typeof ln === 'number' && ln > 0) return ln;
+            }
+          } catch(_) {}
+          try {
+            // fallback: viewport (אם זמין)
             if (view.viewport && typeof view.viewport.from === 'number') {
               const ln = view.state.doc.lineAt(view.viewport.from).number;
               if (typeof ln === 'number' && ln > 0) return ln;
@@ -390,14 +413,11 @@
           const ta = this.textarea;
           const value = ta.value || '';
           const totalLines = Math.max(1, (value.split('\n').length || 1));
-          // נסה לחשב לפי scrollTop/lineHeight
+          // חישוב לפי scrollTop/lineHeight (עם fallback בטוח ל-"normal")
           try {
-            const lhRaw = (window.getComputedStyle && window.getComputedStyle(ta)) ? window.getComputedStyle(ta).lineHeight : '';
-            const lh = parseFloat(lhRaw);
-            if (lh && !Number.isNaN(lh) && lh > 0) {
-              const lineFromScroll = Math.floor((ta.scrollTop || 0) / lh) + 1;
-              return Math.min(totalLines, Math.max(1, lineFromScroll));
-            }
+            const lh = this._getTextareaLineHeightPx(ta);
+            const lineFromScroll = Math.floor((ta.scrollTop || 0) / lh) + 1;
+            return Math.min(totalLines, Math.max(1, lineFromScroll));
           } catch(_) {}
           // fallback לשורה של הסמן
           try {
@@ -411,6 +431,39 @@
       } catch(_) {}
 
       return 1;
+    }
+
+    _scheduleRestoreLinePosition(lineNumber) {
+      // לפעמים (בעיקר ב-CodeMirror) ה-layout עוד לא הסתיים מיד אחרי init,
+      // ואז scroll/selection יכולים "לקפוץ". נעשה ניסיון אחד אחרי frame,
+      // ואם עדיין לא הגענו לשורה הרצויה – ניסיון נוסף קצר.
+      const target = Math.max(1, parseInt(lineNumber || 1, 10) || 1);
+      const attempt = () => {
+        try { this.restoreLinePosition(target); } catch(_) {}
+      };
+      const verifyAndMaybeRetry = () => {
+        try {
+          const current = this.getCurrentVisibleLine() || 1;
+          if (Math.abs(current - target) > 1) {
+            attempt();
+          }
+        } catch(_) {}
+      };
+
+      try {
+        if (typeof requestAnimationFrame === 'function') {
+          requestAnimationFrame(() => {
+            attempt();
+            setTimeout(verifyAndMaybeRetry, 60);
+          });
+          return;
+        }
+      } catch(_) {}
+
+      setTimeout(() => {
+        attempt();
+        setTimeout(verifyAndMaybeRetry, 60);
+      }, 0);
     }
 
     restoreLinePosition(lineNumber) {
@@ -447,11 +500,8 @@
           try { ta.setSelectionRange(offset, offset); } catch(_) {}
           // נסה ליישר גלילה לשורה
           try {
-            const lhRaw = (window.getComputedStyle && window.getComputedStyle(ta)) ? window.getComputedStyle(ta).lineHeight : '';
-            const lh = parseFloat(lhRaw);
-            if (lh && !Number.isNaN(lh) && lh > 0) {
-              ta.scrollTop = Math.max(0, (targetLine - 1) * lh);
-            }
+            const lh = this._getTextareaLineHeightPx(ta);
+            ta.scrollTop = Math.max(0, (targetLine - 1) * lh);
           } catch(_) {}
           return true;
         }
