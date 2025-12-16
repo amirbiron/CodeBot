@@ -7956,44 +7956,46 @@ def edit_file_page(file_id):
                             if error:
                                 markdown_image_payloads = []
 
-                now = datetime.now(timezone.utc)
-                new_doc = {
-                    'user_id': user_id,
-                    'file_name': file_name,
-                    'code': code,
-                    'programming_language': language,
-                    'description': description,
-                    'tags': tags,
-                    'version': version,
-                    'created_at': now,
-                    'updated_at': now,
-                    'is_active': True,
-                }
-                prev_source = None
-                try:
-                    prev_source = (prev or file or {}).get('source_url')
-                except Exception:
+                # אם ולידציית תמונות (או כל ולידציה אחרת) קבעה error – לא נשמור גרסה חדשה
+                if not error:
+                    now = datetime.now(timezone.utc)
+                    new_doc = {
+                        'user_id': user_id,
+                        'file_name': file_name,
+                        'code': code,
+                        'programming_language': language,
+                        'description': description,
+                        'tags': tags,
+                        'version': version,
+                        'created_at': now,
+                        'updated_at': now,
+                        'is_active': True,
+                    }
                     prev_source = None
-                if clean_source_url:
-                    new_doc['source_url'] = clean_source_url
-                elif not source_url_removed and prev_source:
-                    new_doc['source_url'] = prev_source
-                try:
-                    res = db.code_snippets.insert_one(new_doc)
-                    if res and getattr(res, 'inserted_id', None):
-                        if markdown_image_payloads:
-                            try:
-                                _save_markdown_images(db, user_id, res.inserted_id, markdown_image_payloads)
-                            except Exception:
-                                pass
-                        if original_file_name and original_file_name != file_name:
-                            _sync_collection_items_after_web_rename(db, user_id, original_file_name, file_name)
-                        if _log_webapp_user_activity():
-                            session['_skip_view_activity_once'] = True
-                        return redirect(url_for('view_file', file_id=str(res.inserted_id)))
-                    error = 'שמירת הקובץ נכשלה'
-                except Exception as _e:
-                    error = f'שמירת הקובץ נכשלה: {_e}'
+                    try:
+                        prev_source = (prev or file or {}).get('source_url')
+                    except Exception:
+                        prev_source = None
+                    if clean_source_url:
+                        new_doc['source_url'] = clean_source_url
+                    elif not source_url_removed and prev_source:
+                        new_doc['source_url'] = prev_source
+                    try:
+                        res = db.code_snippets.insert_one(new_doc)
+                        if res and getattr(res, 'inserted_id', None):
+                            if markdown_image_payloads:
+                                try:
+                                    _save_markdown_images(db, user_id, res.inserted_id, markdown_image_payloads)
+                                except Exception:
+                                    pass
+                            if original_file_name and original_file_name != file_name:
+                                _sync_collection_items_after_web_rename(db, user_id, original_file_name, file_name)
+                            if _log_webapp_user_activity():
+                                session['_skip_view_activity_once'] = True
+                            return redirect(url_for('view_file', file_id=str(res.inserted_id)))
+                        error = 'שמירת הקובץ נכשלה'
+                    except Exception as _e:
+                        error = f'שמירת הקובץ נכשלה: {_e}'
         except Exception as e:
             error = f'שגיאה בעריכה: {e}'
 
