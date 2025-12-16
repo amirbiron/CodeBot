@@ -2588,12 +2588,6 @@ def fetch_incident_replay(
             continue
         if ts_dt is not None and not _is_within_window(ts_dt, start_dt, end_dt):
             continue
-        event_type = "alert"
-        if _normalize_alert_type(alert.get("alert_type")) == "deployment_event":
-            event_type = "deployment"
-            deployment_count += 1
-        else:
-            alert_count += 1
         uid = alert.get("alert_uid") or _build_alert_uid(alert)
         # Prefer the stored top-level alert_type, but fall back to metadata/details when missing.
         effective_alert_type = alert.get("alert_type")
@@ -2607,6 +2601,12 @@ def fetch_incident_replay(
                 if candidate not in (None, ""):
                     effective_alert_type = candidate
                     break
+        event_type = "alert"
+        if _normalize_alert_type(effective_alert_type) == "deployment_event":
+            event_type = "deployment"
+            deployment_count += 1
+        else:
+            alert_count += 1
         metadata = {
             "endpoint": alert.get("endpoint"),
             "alert_type": effective_alert_type,

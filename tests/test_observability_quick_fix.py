@@ -76,6 +76,32 @@ def test_fetch_incident_replay_includes_quick_fix(monkeypatch):
     assert all(evt.get("type") != "chatops" for evt in payload["events"])
 
 
+def test_fetch_incident_replay_classifies_deployment_from_metadata_type(monkeypatch):
+    def _fake_fetch_alerts(**kwargs):
+        return (
+            [
+                {
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                    "alert_type": None,
+                    "name": "Deployment Event",
+                    "severity": "info",
+                    "summary": "deploy happened",
+                    "alert_uid": "uid-deploy-1",
+                    "metadata": {"type": "Deployment Event"},
+                }
+            ],
+            1,
+        )
+
+    monkeypatch.setattr(obs.alerts_storage, "fetch_alerts", _fake_fetch_alerts)
+    payload = obs.fetch_incident_replay(start_dt=None, end_dt=None, limit=50)
+    assert payload["counts"]["deployments"] == 1
+    assert payload["counts"]["alerts"] == 0
+    assert payload["events"]
+    assert payload["events"][0]["type"] == "deployment"
+    assert payload["events"][0]["metadata"]["alert_type"] == "Deployment Event"
+
+
 def test_get_quick_fix_actions_prefers_runbook(monkeypatch, tmp_path):
     yaml_text = """
 runbooks:
