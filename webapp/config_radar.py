@@ -361,14 +361,18 @@ def _build_runbooks_section(path: Path) -> SectionResult:
         if aliases_raw is not None and not isinstance(aliases_raw, list):
             issues.append(_issue(path.name, f"runbooks.{key}.aliases", "aliases חייב להיות מערך מחרוזות"))
             aliases_raw = []
+        steps_preview = _summarize_runbook_steps(path.name, key, steps, issues)
         runbooks_summary.append(
             {
                 "name": str(key),
                 "title": cfg.get("title"),
                 "description": cfg.get("description"),
                 "aliases": [str(alias) for alias in (aliases_raw or []) if isinstance(alias, str)],
-                "steps_count": len(steps),
-                "steps": _summarize_runbook_steps(path.name, key, steps, issues),
+                # Config Radar UI shows only a preview (up to 6 items) so keep the displayed count consistent
+                # with what the user actually sees.
+                "steps_count": len(steps_preview),
+                "steps_total": len(steps),
+                "steps": steps_preview,
             }
         )
 

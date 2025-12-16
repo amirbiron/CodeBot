@@ -24,14 +24,6 @@ runbooks:
           type: copy
           payload: "/triage errors"
           safety: safe
-      - id: open_error_playbook
-        title: "עיין בפלייבוק השגיאות"
-        description: "בדוק את סעיפי הניתוח ב-Logging Improvements לפני שינויים בקוד."
-        action:
-          label: "📘 Playbook שגיאות"
-          type: link
-          href: "/GUIDES/LOGGING_IMPROVEMENTS.md"
-          safety: safe
   slow_response:
     title: "Latency גבוה / שירות איטי"
     description: "מסלול טיפול בביצועים איטיים או בזינוקי P95."
@@ -61,7 +53,7 @@ runbooks:
         action:
           label: "🧭 מדריך Latency"
           type: link
-          href: "/GUIDES/GUIDE_CONNECTION_POOLING.md"
+          href: "https://github.com/amirbiron/CodeBot/blob/main/GUIDES/GUIDE_CONNECTION_POOLING.md"
           safety: safe
   db_connection_issue:
     title: "כשלים מול בסיס הנתונים"
