@@ -8,14 +8,24 @@
 - מידע נוסף על מבנה הקטלוג נמצא ב-:doc:`/webapp/commands-catalog`.
 
 ## /status
-- מתי להשתמש: כשצריך תמונת מצב מהירה של כלל השירותים.
-- פרמטרים: ללא (אופציונלי: `service=<name>`)
-- הרשאות: כולם (רק בצ'אטים מורשים)
-- מה לחפש בפלט: סיווג OK/DEGRADED, p95, קצב שגיאות, request_id לפולו-אפ
-- דוגמה:
+- מתי להשתמש: כשצריך תמונת מצב מהירה על תעבורה/לטנסי + Health בסיסי.
+- פרמטרים:
+  - `--since <duration>` – חלון אחורה מעכשיו. תומך `m`/`h`/`d` (לדוגמה: `15m`, `2h`, `1d`)
+  - `--from <iso8601> --to <iso8601>` – חלון זמן ספציפי (לחקירת עבר)
+  - (אופציונלי ב-/errors בלבד: `--endpoint`, `--min_severity`)
+- ברירת מחדל: 5 דקות אחרונות.
+- Timezone: אם לא צוין אזור זמן ב-ISO8601, מניחים **UTC** (ומציינים זאת בפלט).
+- Safety: חלון מקסימלי 24 שעות (כדי למנוע שאילתות כבדות).
+- הרשאות: מנהלים בלבד (ובצ'אטים מורשים).
+- מה לחפש בפלט:
+  - Total Requests בחלון
+  - Latency percentiles: p50/p95/p99
+  - Slowest Endpoints בחלון
+  - Active Requests (רגעי) + Health בסיסי (DB/Redis/Sentry/OTEL)
+- דוגמאות:
 ```
-/status
-OK | p95: 320ms | errors: 0.2% | request_id: 2f3a...
+/status --since 15m
+/status --from 2025-12-16T10:00 --to 2025-12-16T10:15
 ```
 
 ## /health
@@ -70,9 +80,17 @@ OK | p95: 320ms | errors: 0.2% | request_id: 2f3a...
 
 ## /errors
 - מתי להשתמש: לקבל את 10 השגיאות האחרונות שחזרו מהמערכת.
-- פרמטרים: אופציונלי `since=<minutes>` או `service=<name>`
+- פרמטרים:
+  - `--since <duration>` או `--from <iso8601> --to <iso8601>`
+  - `--endpoint /path` (אופציונלי)
+  - `--min_severity ERROR` (אופציונלי; תומך גם WARNING/CRITICAL וכו')
+  - עדיין נתמך גם פורמט ישן `service=...` / `endpoint=...` לטובת תאימות
+- ברירת מחדל: כמו היום – Top ב-5/30/120 דקות + Sentry issues אם מוגדר.
 - הרשאות: מנהלים בלבד (נבדק גם throttling)
-- מה לחפש בפלט: מגמות שחוזרות (קוד/הקשר), request_id, severity, קישור להמשך תחקור.
+- מה לחפש בפלט:
+  - Top Error Signatures + Counts
+  - דגימות של `request_id`/`trace_id` (אם קיימים)
+  - קישור Sentry לפי חתימה (כשאפשר) + פקודת המשך: `/errors examples <signature>`
 
 ### סטטוסי תוצאות (Mappings)
 - אנו ממפים תוצאות לסטטוסים אחידים לצורך ניתוח מהיר ודשבורדים:

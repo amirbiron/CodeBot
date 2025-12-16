@@ -1149,7 +1149,17 @@ HELP_SECTIONS: list[HelpSection] = [
     {
         "title": "⚙️ <b>מנהל (מוגבל)</b>",
         "entries": [
-            {"commands": ("status", "errors", "metrics", "uptime"), "description": None},
+            {
+                "commands": ("status",),
+                "description": "דוח חלון זמן + בדיקות בריאות (UTC)",
+                "suffix": " <code>--since 15m</code> | <code>--from 2025-12-16T10:00 --to 2025-12-16T10:15</code>",
+            },
+            {
+                "commands": ("errors",),
+                "description": "Top שגיאות + דוח חלון זמן (UTC)",
+                "suffix": " <code>--since 15m</code> | <code>--from ... --to ...</code> | <code>--endpoint /api</code> | <code>--min_severity ERROR</code>",
+            },
+            {"commands": ("metrics", "uptime"), "description": None},
         ],
     },
 ]
@@ -1179,7 +1189,9 @@ STATIC_HELP_MESSAGE = (
     "🏗️ <b>רפקטורינג</b>\n"
     "• <code>/refactor</code> &lt;קובץ&gt; – רפקטורינג אוטומטי לקובץ\n\n"
     "⚙️ <b>מנהל (מוגבל)</b>\n"
-    "• <code>/status</code> <code>/errors</code> <code>/metrics</code> <code>/uptime</code>\n\n"
+    "• <code>/status</code> <code>--since 15m</code> | <code>--from ... --to ...</code>\n"
+    "• <code>/errors</code> <code>--since 15m</code> | <code>--from ... --to ...</code> | <code>--endpoint /api</code> | <code>--min_severity ERROR</code>\n"
+    "• <code>/metrics</code> <code>/uptime</code>\n\n"
     f"{SUPPORT_FOOTER}"
 )
 

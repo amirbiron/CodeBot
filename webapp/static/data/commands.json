@@ -2,8 +2,11 @@
   {
     "name": "/status",
     "type": "chatops",
-    "description": "בדיקת בריאות כללית",
-    "arguments": [],
+    "description": "דוח חלון זמן (UTC) + בדיקות בריאות",
+    "arguments": [
+      "--since=<15m|2h|1d>",
+      "--from=<iso8601> --to=<iso8601>"
+    ],
     "doc_link": "https://amirbiron.github.io/CodeBot/chatops/commands.html"
   },
   {
@@ -67,10 +70,13 @@
   {
     "name": "/errors",
     "type": "chatops",
-    "description": "10 השגיאות האחרונות",
+    "description": "Top שגיאות + חלון זמן (UTC)",
     "arguments": [
-      "--service=<שם>",
-      "--limit=<10>"
+      "--since=<15m|2h|1d>",
+      "--from=<iso8601> --to=<iso8601>",
+      "--endpoint=/path",
+      "--min_severity=<ERROR|WARNING|CRITICAL>",
+      "--service=<name>"
     ],
     "doc_link": "https://amirbiron.github.io/CodeBot/chatops/commands.html"
   },

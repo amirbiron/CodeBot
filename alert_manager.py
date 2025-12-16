@@ -531,6 +531,87 @@ def get_current_avg_latency_seconds(window_sec: int = 300, *, source: Optional[s
         return 0.0
 
 
+def get_request_stats_between(
+    start_dt: datetime,
+    end_dt: datetime,
+    *,
+    source: Optional[str] = None,
+    percentiles: Tuple[int, ...] = (50, 95, 99),
+) -> Dict[str, float]:
+    """Best-effort request stats for an arbitrary time window מתוך ה-buffer בזיכרון.
+
+    מחזיר:
+    - total (int as float)
+    - errors (int as float)
+    - p50/p95/p99 (seconds) אם יש דגימות
+
+    הערה: היסטוריה זמינה רק עד ~3 שעות (WINDOW_SEC).
+    """
+    try:
+        # Normalize inputs to UTC timestamps
+        if start_dt.tzinfo is None:
+            start_dt = start_dt.replace(tzinfo=timezone.utc)
+        else:
+            start_dt = start_dt.astimezone(timezone.utc)
+        if end_dt.tzinfo is None:
+            end_dt = end_dt.replace(tzinfo=timezone.utc)
+        else:
+            end_dt = end_dt.astimezone(timezone.utc)
+    except Exception:
+        start_dt = start_dt.replace(tzinfo=timezone.utc)
+        end_dt = end_dt.replace(tzinfo=timezone.utc)
+
+    start_ts = float(start_dt.timestamp())
+    end_ts = float(end_dt.timestamp())
+    if end_ts <= start_ts:
+        return {"total": 0.0, "errors": 0.0}
+
+    src_norm = _normalize_sample_source(source) if source else None
+    total = 0
+    errors = 0
+    lats: List[float] = []
+    try:
+        for ts, is_err, lat, sample_source in list(_samples):
+            if ts < start_ts or ts > end_ts:
+                continue
+            if src_norm and sample_source != src_norm:
+                continue
+            total += 1
+            if is_err:
+                errors += 1
+            try:
+                lats.append(float(lat))
+            except Exception:
+                continue
+    except Exception:
+        return {"total": float(total), "errors": float(errors)}
+
+    out: Dict[str, float] = {"total": float(total), "errors": float(errors)}
+    if not lats:
+        return out
+    lats.sort()
+
+    def _nearest_rank(p: int) -> float:
+        n = len(lats)
+        if n <= 0:
+            return 0.0
+        try:
+            k = int(math.ceil((float(p) / 100.0) * float(n))) - 1
+        except Exception:
+            k = 0
+        k = max(0, min(n - 1, k))
+        return float(lats[k])
+
+    try:
+        pcts = tuple(int(p) for p in (percentiles or (50, 95, 99)))
+    except Exception:
+        pcts = (50, 95, 99)
+    for p in pcts:
+        if 0 < int(p) < 100:
+            out[f"p{int(p)}"] = _nearest_rank(int(p))
+    return out
+
+
 def bump_threshold(kind: str, factor: float = 1.2) -> None:
     """Multiply the current adaptive threshold by a factor and refresh gauges (best-effort)."""
     try:
