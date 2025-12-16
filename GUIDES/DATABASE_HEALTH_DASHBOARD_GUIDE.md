@@ -49,24 +49,39 @@
 
 ## 2. Service Layer - `services/db_health_service.py`
 
+> ⚠️ **חשוב - Async vs Sync:**  
+> הפרויקט משתמש ב-**aiohttp** (אסינכרוני) ו-**Motor** לחלק מהפעולות.  
+> להלן שתי גרסאות: **Motor (מומלץ)** ו-**PyMongo עם Thread Pool**.
+
+### 2.1 גרסה אסינכרונית (Motor) - מומלץ ✅
+
 ```python
 """
-Database Health Service - ניטור בריאות MongoDB.
+Database Health Service - ניטור בריאות MongoDB (Async).
 
 שימוש בפקודות ניהול מובנות: serverStatus, currentOp, collStats.
-מותאם ל-DatabaseManager הקיים ב-database/manager.py.
+גרסה אסינכרונית עם Motor - מומלצת לשימוש עם aiohttp.
 """
 from __future__ import annotations
 
 import logging
+import os
 import time
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 
+# Motor - async MongoDB driver
+try:
+    from motor.motor_asyncio import AsyncIOMotorClient
+    MOTOR_AVAILABLE = True
+except ImportError:
+    MOTOR_AVAILABLE = False
+    AsyncIOMotorClient = None  # type: ignore
+
 logger = logging.getLogger(__name__)
 
 # סף לזיהוי slow queries (באלפיות שנייה)
-SLOW_QUERY_THRESHOLD_MS = 1000
+SLOW_QUERY_THRESHOLD_MS = int(os.getenv("DB_HEALTH_SLOW_THRESHOLD_MS", "1000"))
 
 
 @dataclass
@@ -157,37 +172,52 @@ class CollectionStat:
         }
 
 
-class DatabaseHealthService:
-    """שירות ניטור בריאות MongoDB.
+class AsyncDatabaseHealthService:
+    """שירות ניטור בריאות MongoDB - גרסה אסינכרונית.
     
-    משתמש ב-DatabaseManager הקיים לגישה ל-client.
+    משתמש ב-Motor (AsyncIOMotorClient) לגישה non-blocking ל-MongoDB.
+    מתאים לשימוש עם aiohttp ו-asyncio.
     
     Usage:
-        from database import db_manager
-        health_svc = DatabaseHealthService(db_manager)
-        pool_status = health_svc.get_pool_status()
+        svc = AsyncDatabaseHealthService()
+        await svc.connect()
+        pool_status = await svc.get_pool_status()
     """
 
-    def __init__(self, db_manager):
+    def __init__(self, mongo_url: Optional[str] = None, database_name: Optional[str] = None):
         """
         Args:
-            db_manager: מופע של DatabaseManager מ-database/manager.py
+            mongo_url: MongoDB connection string (או מ-ENV: MONGODB_URL)
+            database_name: שם ה-database (או מ-ENV: DATABASE_NAME)
         """
-        self.db_manager = db_manager
-        self._cached_pool: Optional[PoolStatus] = None
-        self._cache_ttl = 2.0  # שניות
+        if not MOTOR_AVAILABLE:
+            raise RuntimeError("Motor is not installed. Run: pip install motor")
+        
+        self._mongo_url = mongo_url or os.getenv("MONGODB_URL")
+        self._db_name = database_name or os.getenv("DATABASE_NAME", "code_keeper_bot")
+        self._client: Optional[AsyncIOMotorClient] = None
+        self._db = None
 
-    @property
-    def _client(self):
-        """גישה בטוחה ל-MongoClient."""
-        return getattr(self.db_manager, "client", None)
+    async def connect(self) -> None:
+        """יצירת חיבור ל-MongoDB."""
+        if not self._mongo_url:
+            raise RuntimeError("MONGODB_URL is not configured")
+        
+        self._client = AsyncIOMotorClient(self._mongo_url)
+        self._db = self._client[self._db_name]
+        
+        # בדיקת חיבור
+        await self._client.admin.command("ping")
+        logger.info("AsyncDatabaseHealthService connected to MongoDB")
 
-    @property
-    def _db(self):
-        """גישה בטוחה ל-Database."""
-        return getattr(self.db_manager, "db", None)
+    async def close(self) -> None:
+        """סגירת החיבור."""
+        if self._client:
+            self._client.close()
+            self._client = None
+            self._db = None
 
-    def get_pool_status(self) -> PoolStatus:
+    async def get_pool_status(self) -> PoolStatus:
         """שליפת מצב Connection Pool באמצעות serverStatus.
         
         Returns:
@@ -196,13 +226,12 @@ class DatabaseHealthService:
         Raises:
             RuntimeError: אם אין חיבור פעיל למסד.
         """
-        client = self._client
-        if client is None:
-            raise RuntimeError("No MongoDB client available")
+        if self._client is None:
+            raise RuntimeError("No MongoDB client available - call connect() first")
 
         try:
-            # serverStatus מחזיר מידע מקיף על השרת
-            status = client.admin.command("serverStatus")
+            # await חובה! - Motor הוא אסינכרוני
+            status = await self._client.admin.command("serverStatus")
             connections = status.get("connections", {})
             
             current = int(connections.get("current", 0))
@@ -216,23 +245,12 @@ class DatabaseHealthService:
             else:
                 utilization = 0.0
 
-            # מידע נוסף על תור ההמתנה (אם זמין)
-            # ב-PyMongo, המידע מגיע מ-topology description
-            wait_queue = 0
-            try:
-                topology = client.topology_description
-                for server in topology.server_descriptions().values():
-                    # Best-effort: לא תמיד זמין
-                    pass
-            except Exception:
-                pass
-
             return PoolStatus(
                 current=current,
                 available=available,
                 total_created=total_created,
                 max_pool_size=max_pool,
-                wait_queue_size=wait_queue,
+                wait_queue_size=0,  # Motor לא חושף את זה ישירות
                 utilization_pct=utilization,
             )
 
@@ -240,7 +258,7 @@ class DatabaseHealthService:
             logger.error(f"Failed to get pool status: {e}")
             raise RuntimeError(f"serverStatus failed: {e}") from e
 
-    def get_current_operations(
+    async def get_current_operations(
         self,
         threshold_ms: int = SLOW_QUERY_THRESHOLD_MS,
         include_system: bool = False,
@@ -254,17 +272,16 @@ class DatabaseHealthService:
         Returns:
             רשימת SlowOperation ממוינת לפי זמן ריצה (הארוך ביותר קודם).
         """
-        client = self._client
-        if client is None:
-            raise RuntimeError("No MongoDB client available")
+        if self._client is None:
+            raise RuntimeError("No MongoDB client available - call connect() first")
 
         try:
             threshold_secs = threshold_ms / 1000.0
             
-            # currentOp - הצגת כל הפעולות הפעילות
-            result = client.admin.command(
+            # await חובה! - currentOp אסינכרוני
+            result = await self._client.admin.command(
                 "currentOp",
-                {"$all": True}  # כולל idle connections
+                {"$all": True}
             )
             
             slow_ops: List[SlowOperation] = []
@@ -275,7 +292,6 @@ class DatabaseHealthService:
                     ns = op.get("ns", "")
                     if ns.startswith("admin.") or ns.startswith("local.") or ns.startswith("config."):
                         continue
-                    # דילוג על פעולות פנימיות
                     if op.get("desc", "").startswith("conn") and op.get("op") == "none":
                         continue
 
@@ -312,7 +328,7 @@ class DatabaseHealthService:
             logger.error(f"Failed to get current operations: {e}")
             raise RuntimeError(f"currentOp failed: {e}") from e
 
-    def get_collection_stats(self, collection_name: Optional[str] = None) -> List[CollectionStat]:
+    async def get_collection_stats(self, collection_name: Optional[str] = None) -> List[CollectionStat]:
         """שליפת סטטיסטיקות collections באמצעות collStats.
         
         Args:
@@ -321,17 +337,16 @@ class DatabaseHealthService:
         Returns:
             רשימת CollectionStat ממוינת לפי גודל (הגדול ביותר קודם).
         """
-        db = self._db
-        if db is None:
-            raise RuntimeError("No MongoDB database available")
+        if self._db is None:
+            raise RuntimeError("No MongoDB database available - call connect() first")
 
         try:
             if collection_name:
                 collections = [collection_name]
             else:
-                # רשימת כל ה-collections (לא כולל system)
+                # await חובה! - list_collection_names אסינכרוני
                 collections = [
-                    name for name in db.list_collection_names()
+                    name for name in await self._db.list_collection_names()
                     if not name.startswith("system.")
                 ]
 
@@ -339,7 +354,8 @@ class DatabaseHealthService:
             
             for coll_name in collections:
                 try:
-                    result = db.command("collStats", coll_name)
+                    # await חובה! - command אסינכרוני
+                    result = await self._db.command("collStats", coll_name)
                     
                     stats.append(CollectionStat(
                         name=coll_name,
@@ -363,7 +379,7 @@ class DatabaseHealthService:
             logger.error(f"Failed to get collection stats: {e}")
             raise RuntimeError(f"collStats failed: {e}") from e
 
-    def get_health_summary(self) -> Dict[str, Any]:
+    async def get_health_summary(self) -> Dict[str, Any]:
         """סיכום בריאות כללי לדשבורד.
         
         Returns:
@@ -380,24 +396,24 @@ class DatabaseHealthService:
 
         # Pool status
         try:
-            pool = self.get_pool_status()
+            pool = await self.get_pool_status()
             summary["pool"] = pool.to_dict()
         except Exception as e:
             summary["errors"].append(f"pool: {e}")
 
         # Slow queries count
         try:
-            ops = self.get_current_operations()
+            ops = await self.get_current_operations()
             summary["slow_queries_count"] = len(ops)
         except Exception as e:
             summary["errors"].append(f"ops: {e}")
 
         # Collections count
         try:
-            db = self._db
-            if db:
+            if self._db:
+                coll_names = await self._db.list_collection_names()
                 summary["collections_count"] = len([
-                    n for n in db.list_collection_names()
+                    n for n in coll_names
                     if not n.startswith("system.")
                 ])
         except Exception as e:
@@ -419,27 +435,287 @@ class DatabaseHealthService:
 
 
 # Singleton instance לשימוש גלובלי
-_health_service: Optional[DatabaseHealthService] = None
+_async_health_service: Optional[AsyncDatabaseHealthService] = None
 
 
-def get_db_health_service() -> DatabaseHealthService:
-    """מחזיר את ה-singleton של DatabaseHealthService.
+async def get_async_db_health_service() -> AsyncDatabaseHealthService:
+    """מחזיר את ה-singleton של AsyncDatabaseHealthService.
     
     Usage:
-        from services.db_health_service import get_db_health_service
-        svc = get_db_health_service()
-        pool = svc.get_pool_status()
+        from services.db_health_service import get_async_db_health_service
+        svc = await get_async_db_health_service()
+        pool = await svc.get_pool_status()
     """
-    global _health_service
-    if _health_service is None:
+    global _async_health_service
+    if _async_health_service is None:
+        _async_health_service = AsyncDatabaseHealthService()
+        await _async_health_service.connect()
+    return _async_health_service
+```
+
+---
+
+### 2.2 גרסה סינכרונית (PyMongo עם Thread Pool) - אלטרנטיבה
+
+אם אתה רוצה להשתמש ב-`DatabaseManager` הסינכרוני הקיים, עטוף אותו עם `asyncio.to_thread`:
+
+```python
+"""
+Database Health Service - גרסה סינכרונית עם Thread Pool.
+
+עוטף את PyMongo הסינכרוני ומריץ אותו ב-thread pool
+כדי לא לחסום את ה-event loop של aiohttp.
+"""
+from __future__ import annotations
+
+import asyncio
+import logging
+from functools import partial
+from typing import Any, Dict, List, Optional
+
+# ייבוא ה-dataclasses מהגרסה הקודמת
+from .db_health_service import (
+    PoolStatus,
+    SlowOperation,
+    CollectionStat,
+    SLOW_QUERY_THRESHOLD_MS,
+)
+
+logger = logging.getLogger(__name__)
+
+
+class SyncDatabaseHealthService:
+    """גרסה סינכרונית (PyMongo) - פנימית."""
+    
+    def __init__(self, db_manager):
+        self.db_manager = db_manager
+
+    @property
+    def _client(self):
+        return getattr(self.db_manager, "client", None)
+
+    @property
+    def _db(self):
+        return getattr(self.db_manager, "db", None)
+
+    def get_pool_status_sync(self) -> PoolStatus:
+        """גרסה סינכרונית - לא לקרוא ישירות מ-aiohttp!"""
+        client = self._client
+        if client is None:
+            raise RuntimeError("No MongoDB client available")
+
+        status = client.admin.command("serverStatus")
+        connections = status.get("connections", {})
+        
+        current = int(connections.get("current", 0))
+        available = int(connections.get("available", 0))
+        total_created = int(connections.get("totalCreated", 0))
+        
+        max_pool = current + available
+        utilization = (current / max_pool * 100) if max_pool > 0 else 0.0
+
+        return PoolStatus(
+            current=current,
+            available=available,
+            total_created=total_created,
+            max_pool_size=max_pool,
+            utilization_pct=utilization,
+        )
+
+    def get_current_operations_sync(
+        self,
+        threshold_ms: int = SLOW_QUERY_THRESHOLD_MS,
+        include_system: bool = False,
+    ) -> List[SlowOperation]:
+        """גרסה סינכרונית - לא לקרוא ישירות מ-aiohttp!"""
+        client = self._client
+        if client is None:
+            raise RuntimeError("No MongoDB client available")
+
+        threshold_secs = threshold_ms / 1000.0
+        result = client.admin.command("currentOp", {"$all": True})
+        
+        slow_ops: List[SlowOperation] = []
+        for op in result.get("inprog", []):
+            if not include_system:
+                ns = op.get("ns", "")
+                if ns.startswith(("admin.", "local.", "config.")):
+                    continue
+                if op.get("desc", "").startswith("conn") and op.get("op") == "none":
+                    continue
+
+            secs_running = op.get("secs_running", 0) or (op.get("microsecs_running", 0) / 1_000_000)
+            if secs_running < threshold_secs:
+                continue
+
+            command = op.get("command", {})
+            query = command.get("filter", command.get("query", command))
+            
+            slow_ops.append(SlowOperation(
+                op_id=str(op.get("opid", "")),
+                operation_type=op.get("op", "unknown"),
+                namespace=op.get("ns", "unknown"),
+                running_secs=float(secs_running),
+                query=query if isinstance(query, dict) else {"raw": str(query)},
+                client_ip=op.get("client_s", op.get("client", "")),
+                description=op.get("desc", ""),
+            ))
+
+        slow_ops.sort(key=lambda x: x.running_secs, reverse=True)
+        return slow_ops
+
+    def get_collection_stats_sync(self, collection_name: Optional[str] = None) -> List[CollectionStat]:
+        """גרסה סינכרונית - לא לקרוא ישירות מ-aiohttp!"""
+        db = self._db
+        if db is None:
+            raise RuntimeError("No MongoDB database available")
+
+        if collection_name:
+            collections = [collection_name]
+        else:
+            collections = [n for n in db.list_collection_names() if not n.startswith("system.")]
+
+        stats: List[CollectionStat] = []
+        for coll_name in collections:
+            try:
+                result = db.command("collStats", coll_name)
+                stats.append(CollectionStat(
+                    name=coll_name,
+                    count=int(result.get("count", 0)),
+                    size_bytes=int(result.get("size", 0)),
+                    storage_size_bytes=int(result.get("storageSize", 0)),
+                    index_count=int(result.get("nindexes", 0)),
+                    total_index_size_bytes=int(result.get("totalIndexSize", 0)),
+                    avg_obj_size_bytes=int(result.get("avgObjSize", 0)),
+                ))
+            except Exception as e:
+                logger.warning(f"Failed to get stats for {coll_name}: {e}")
+
+        stats.sort(key=lambda x: x.size_bytes, reverse=True)
+        return stats
+
+
+class ThreadPoolDatabaseHealthService:
+    """Async wrapper שמריץ PyMongo ב-thread pool.
+    
+    משתמש ב-asyncio.to_thread (Python 3.9+) או run_in_executor
+    כדי להריץ קוד סינכרוני בלי לחסום את ה-event loop.
+    
+    Usage:
         from database import db_manager
-        _health_service = DatabaseHealthService(db_manager)
-    return _health_service
+        svc = ThreadPoolDatabaseHealthService(db_manager)
+        pool = await svc.get_pool_status()  # לא חוסם!
+    """
+
+    def __init__(self, db_manager):
+        self._sync_service = SyncDatabaseHealthService(db_manager)
+
+    async def get_pool_status(self) -> PoolStatus:
+        """שליפת מצב pool - רץ ב-thread pool."""
+        return await asyncio.to_thread(self._sync_service.get_pool_status_sync)
+
+    async def get_current_operations(
+        self,
+        threshold_ms: int = SLOW_QUERY_THRESHOLD_MS,
+        include_system: bool = False,
+    ) -> List[SlowOperation]:
+        """שליפת פעולות איטיות - רץ ב-thread pool."""
+        return await asyncio.to_thread(
+            self._sync_service.get_current_operations_sync,
+            threshold_ms,
+            include_system,
+        )
+
+    async def get_collection_stats(self, collection_name: Optional[str] = None) -> List[CollectionStat]:
+        """שליפת סטטיסטיקות - רץ ב-thread pool."""
+        return await asyncio.to_thread(
+            self._sync_service.get_collection_stats_sync,
+            collection_name,
+        )
+
+    async def get_health_summary(self) -> Dict[str, Any]:
+        """סיכום בריאות - רץ ב-thread pool."""
+        # הרצה מקבילית של כל הבדיקות
+        pool_task = asyncio.create_task(self.get_pool_status())
+        ops_task = asyncio.create_task(self.get_current_operations())
+        
+        summary = {
+            "timestamp": __import__("time").time(),
+            "status": "unknown",
+            "pool": None,
+            "slow_queries_count": 0,
+            "errors": [],
+        }
+
+        try:
+            pool = await pool_task
+            summary["pool"] = pool.to_dict()
+        except Exception as e:
+            summary["errors"].append(f"pool: {e}")
+
+        try:
+            ops = await ops_task
+            summary["slow_queries_count"] = len(ops)
+        except Exception as e:
+            summary["errors"].append(f"ops: {e}")
+
+        # קביעת סטטוס
+        if summary["errors"]:
+            summary["status"] = "error"
+        elif summary.get("pool", {}).get("status") == "critical":
+            summary["status"] = "critical"
+        elif summary["slow_queries_count"] > 5:
+            summary["status"] = "warning"
+        elif summary.get("pool", {}).get("status") == "warning":
+            summary["status"] = "warning"
+        else:
+            summary["status"] = "healthy"
+
+        return summary
+
+
+# Factory function לבחירת הגרסה המתאימה
+_health_service_instance = None
+
+
+async def get_db_health_service():
+    """מחזיר את ה-service המתאים לפי הקונפיגורציה.
+    
+    - אם Motor מותקן ו-MONGODB_URL מוגדר: AsyncDatabaseHealthService
+    - אחרת: ThreadPoolDatabaseHealthService עם DatabaseManager הקיים
+    """
+    global _health_service_instance
+    
+    if _health_service_instance is not None:
+        return _health_service_instance
+
+    # נסה Motor קודם (מומלץ)
+    try:
+        from motor.motor_asyncio import AsyncIOMotorClient
+        import os
+        if os.getenv("MONGODB_URL"):
+            _health_service_instance = AsyncDatabaseHealthService()
+            await _health_service_instance.connect()
+            logger.info("Using AsyncDatabaseHealthService (Motor)")
+            return _health_service_instance
+    except ImportError:
+        pass
+
+    # Fallback ל-PyMongo עם thread pool
+    try:
+        from database import db_manager
+        _health_service_instance = ThreadPoolDatabaseHealthService(db_manager)
+        logger.info("Using ThreadPoolDatabaseHealthService (PyMongo)")
+        return _health_service_instance
+    except Exception as e:
+        raise RuntimeError(f"Could not initialize health service: {e}") from e
 ```
 
 ---
 
 ## 3. API Endpoints - הוספה ל-`services/webserver.py`
+
+> ⚠️ **שים לב:** כל הקריאות ל-service הן **אסינכרוניות** עם `await`!
 
 ```python
 # הוסף את ה-imports בראש הקובץ
@@ -450,8 +726,10 @@ from services.db_health_service import get_db_health_service
 async def db_health_pool_view(request: web.Request) -> web.Response:
     """GET /api/db/pool - מצב Connection Pool."""
     try:
-        svc = get_db_health_service()
-        pool = svc.get_pool_status()
+        # await לקבלת ה-service (יכול להיות async init)
+        svc = await get_db_health_service()
+        # await לקריאה ל-MongoDB (Motor או thread pool)
+        pool = await svc.get_pool_status()
         return web.json_response(pool.to_dict())
     except Exception as e:
         logger.error(f"db_health_pool error: {e}")
@@ -467,8 +745,9 @@ async def db_health_ops_view(request: web.Request) -> web.Response:
         threshold = int(request.query.get("threshold_ms", "1000"))
         include_system = request.query.get("include_system", "").lower() == "true"
         
-        svc = get_db_health_service()
-        ops = svc.get_current_operations(
+        svc = await get_db_health_service()
+        # await חובה! - הקריאה ל-MongoDB היא אסינכרונית
+        ops = await svc.get_current_operations(
             threshold_ms=threshold,
             include_system=include_system,
         )
@@ -491,8 +770,9 @@ async def db_health_collections_view(request: web.Request) -> web.Response:
     try:
         collection = request.query.get("collection")
         
-        svc = get_db_health_service()
-        stats = svc.get_collection_stats(collection_name=collection)
+        svc = await get_db_health_service()
+        # await חובה! - collStats יכול לקחת זמן
+        stats = await svc.get_collection_stats(collection_name=collection)
         
         return web.json_response({
             "count": len(stats),
@@ -509,8 +789,9 @@ async def db_health_collections_view(request: web.Request) -> web.Response:
 async def db_health_summary_view(request: web.Request) -> web.Response:
     """GET /api/db/health - סיכום בריאות כללי."""
     try:
-        svc = get_db_health_service()
-        summary = svc.get_health_summary()
+        svc = await get_db_health_service()
+        # await חובה!
+        summary = await svc.get_health_summary()
         return web.json_response(summary)
     except Exception as e:
         logger.error(f"db_health_summary error: {e}")
@@ -525,6 +806,33 @@ app.router.add_get("/api/db/pool", db_health_pool_view)
 app.router.add_get("/api/db/ops", db_health_ops_view)
 app.router.add_get("/api/db/collections", db_health_collections_view)
 app.router.add_get("/api/db/health", db_health_summary_view)
+```
+
+### 3.1 אתחול ה-Service ב-App Startup
+
+מומלץ לאתחל את ה-service פעם אחת בעליית השרת:
+
+```python
+# בתוך create_app()
+
+async def on_startup(app: web.Application):
+    """אתחול שירותים בעליית השרת."""
+    try:
+        # אתחול מוקדם של DB Health Service
+        svc = await get_db_health_service()
+        app["db_health_service"] = svc
+        logger.info("DB Health Service initialized")
+    except Exception as e:
+        logger.warning(f"DB Health Service init failed: {e}")
+
+async def on_cleanup(app: web.Application):
+    """ניקוי משאבים בכיבוי השרת."""
+    svc = app.get("db_health_service")
+    if svc and hasattr(svc, "close"):
+        await svc.close()
+
+app.on_startup.append(on_startup)
+app.on_cleanup.append(on_cleanup)
 ```
 
 ---
@@ -1149,85 +1457,39 @@ def check_ip_allowed(request: web.Request) -> bool:
 
 ---
 
+## 7.1 תלויות נדרשות
+
+הוסף ל-`requirements.txt`:
+
+```txt
+# Async MongoDB driver (מומלץ לשימוש עם aiohttp)
+motor>=3.0.0
+
+# לבדיקות אסינכרוניות
+pytest-asyncio>=0.21.0
+```
+
+> **הערה:** אם אתה מעדיף להשתמש ב-PyMongo הסינכרוני הקיים עם `asyncio.to_thread`,
+> אין צורך ב-motor, אבל הביצועים יהיו פחות אופטימליים.
+
+---
+
 ## 8. בדיקות יחידה
+
+> ⚠️ **שים לב:** הבדיקות משתמשות ב-`pytest-asyncio` לבדיקת קוד אסינכרוני.
 
 ```python
 # tests/test_db_health_service.py
 
 import pytest
-from unittest.mock import MagicMock, patch
-from services.db_health_service import DatabaseHealthService, PoolStatus
-
-
-class TestDatabaseHealthService:
-    """בדיקות יחידה ל-DatabaseHealthService."""
-
-    @pytest.fixture
-    def mock_db_manager(self):
-        """Mock של DatabaseManager."""
-        manager = MagicMock()
-        manager.client = MagicMock()
-        manager.db = MagicMock()
-        return manager
-
-    @pytest.fixture
-    def service(self, mock_db_manager):
-        return DatabaseHealthService(mock_db_manager)
-
-    def test_get_pool_status_success(self, service, mock_db_manager):
-        """בדיקת שליפת מצב pool תקינה."""
-        mock_db_manager.client.admin.command.return_value = {
-            "connections": {
-                "current": 10,
-                "available": 40,
-                "totalCreated": 150,
-            }
-        }
-        
-        result = service.get_pool_status()
-        
-        assert result.current == 10
-        assert result.available == 40
-        assert result.total_created == 150
-        assert result.utilization_pct == 20.0  # 10/50 * 100
-
-    def test_get_pool_status_no_client(self, mock_db_manager):
-        """בדיקת שגיאה כשאין client."""
-        mock_db_manager.client = None
-        service = DatabaseHealthService(mock_db_manager)
-        
-        with pytest.raises(RuntimeError, match="No MongoDB client"):
-            service.get_pool_status()
-
-    def test_get_current_operations_filters_by_threshold(self, service, mock_db_manager):
-        """בדיקת סינון לפי סף זמן."""
-        mock_db_manager.client.admin.command.return_value = {
-            "inprog": [
-                {"opid": 1, "op": "query", "ns": "test.users", "secs_running": 2.5},
-                {"opid": 2, "op": "query", "ns": "test.logs", "secs_running": 0.5},
-                {"opid": 3, "op": "update", "ns": "test.data", "secs_running": 5.0},
-            ]
-        }
-        
-        result = service.get_current_operations(threshold_ms=1000)
-        
-        assert len(result) == 2
-        assert result[0].running_secs == 5.0  # ממוין לפי זמן
-        assert result[1].running_secs == 2.5
-
-    def test_get_collection_stats_success(self, service, mock_db_manager):
-        """בדיקת שליפת סטטיסטיקות collections."""
-        mock_db_manager.db.list_collection_names.return_value = ["users", "logs"]
-        mock_db_manager.db.command.side_effect = [
-            {"count": 1000, "size": 1024*1024, "nindexes": 3, "storageSize": 2*1024*1024, "totalIndexSize": 512*1024, "avgObjSize": 512},
-            {"count": 5000, "size": 5*1024*1024, "nindexes": 2, "storageSize": 6*1024*1024, "totalIndexSize": 256*1024, "avgObjSize": 256},
-        ]
-        
-        result = service.get_collection_stats()
-        
-        assert len(result) == 2
-        assert result[0].name == "logs"  # ממוין לפי גודל
-        assert result[0].count == 5000
+from unittest.mock import AsyncMock, MagicMock, patch
+from services.db_health_service import (
+    AsyncDatabaseHealthService,
+    ThreadPoolDatabaseHealthService,
+    PoolStatus,
+    SlowOperation,
+    CollectionStat,
+)
 
 
 class TestPoolStatus:
@@ -1248,6 +1510,230 @@ class TestPoolStatus:
     def test_health_status_critical_with_queue(self):
         status = PoolStatus(current=50, available=50, wait_queue_size=15, utilization_pct=50)
         assert status._health_status() == "critical"
+
+    def test_to_dict(self):
+        status = PoolStatus(current=10, available=40, total_created=100, utilization_pct=20.0)
+        result = status.to_dict()
+        
+        assert result["current"] == 10
+        assert result["available"] == 40
+        assert result["utilization_pct"] == 20.0
+        assert result["status"] == "healthy"
+
+
+class TestSlowOperation:
+    """בדיקות ל-SlowOperation dataclass."""
+
+    def test_severity_info(self):
+        op = SlowOperation(op_id="1", operation_type="query", namespace="test.users", running_secs=2.0, query={})
+        assert op._severity() == "info"
+
+    def test_severity_warning(self):
+        op = SlowOperation(op_id="1", operation_type="query", namespace="test.users", running_secs=7.0, query={})
+        assert op._severity() == "warning"
+
+    def test_severity_critical(self):
+        op = SlowOperation(op_id="1", operation_type="query", namespace="test.users", running_secs=15.0, query={})
+        assert op._severity() == "critical"
+
+
+@pytest.mark.asyncio
+class TestAsyncDatabaseHealthService:
+    """בדיקות יחידה ל-AsyncDatabaseHealthService."""
+
+    @pytest.fixture
+    def mock_motor_client(self):
+        """Mock של Motor AsyncIOMotorClient."""
+        client = AsyncMock()
+        client.admin.command = AsyncMock()
+        return client
+
+    @pytest.fixture
+    async def service(self, mock_motor_client):
+        """Service עם client מוק."""
+        svc = AsyncDatabaseHealthService.__new__(AsyncDatabaseHealthService)
+        svc._client = mock_motor_client
+        svc._db = AsyncMock()
+        return svc
+
+    async def test_get_pool_status_success(self, service, mock_motor_client):
+        """בדיקת שליפת מצב pool תקינה."""
+        mock_motor_client.admin.command.return_value = {
+            "connections": {
+                "current": 10,
+                "available": 40,
+                "totalCreated": 150,
+            }
+        }
+        
+        result = await service.get_pool_status()
+        
+        assert result.current == 10
+        assert result.available == 40
+        assert result.total_created == 150
+        assert result.utilization_pct == 20.0  # 10/50 * 100
+        
+        # וודא שהקריאה נעשתה עם await
+        mock_motor_client.admin.command.assert_awaited_once_with("serverStatus")
+
+    async def test_get_pool_status_no_client(self):
+        """בדיקת שגיאה כשאין client."""
+        svc = AsyncDatabaseHealthService.__new__(AsyncDatabaseHealthService)
+        svc._client = None
+        
+        with pytest.raises(RuntimeError, match="No MongoDB client"):
+            await svc.get_pool_status()
+
+    async def test_get_current_operations_filters_by_threshold(self, service, mock_motor_client):
+        """בדיקת סינון לפי סף זמן."""
+        mock_motor_client.admin.command.return_value = {
+            "inprog": [
+                {"opid": 1, "op": "query", "ns": "test.users", "secs_running": 2.5},
+                {"opid": 2, "op": "query", "ns": "test.logs", "secs_running": 0.5},  # מתחת לסף
+                {"opid": 3, "op": "update", "ns": "test.data", "secs_running": 5.0},
+            ]
+        }
+        
+        result = await service.get_current_operations(threshold_ms=1000)
+        
+        assert len(result) == 2
+        assert result[0].running_secs == 5.0  # ממוין לפי זמן (הארוך קודם)
+        assert result[1].running_secs == 2.5
+
+    async def test_get_current_operations_excludes_system(self, service, mock_motor_client):
+        """בדיקת סינון פעולות מערכת."""
+        mock_motor_client.admin.command.return_value = {
+            "inprog": [
+                {"opid": 1, "op": "query", "ns": "test.users", "secs_running": 2.5},
+                {"opid": 2, "op": "query", "ns": "admin.system", "secs_running": 3.0},  # מערכת
+                {"opid": 3, "op": "query", "ns": "local.oplog", "secs_running": 4.0},   # מערכת
+            ]
+        }
+        
+        result = await service.get_current_operations(threshold_ms=1000, include_system=False)
+        
+        assert len(result) == 1
+        assert result[0].namespace == "test.users"
+
+    async def test_get_collection_stats_success(self, service):
+        """בדיקת שליפת סטטיסטיקות collections."""
+        service._db.list_collection_names = AsyncMock(return_value=["users", "logs"])
+        service._db.command = AsyncMock(side_effect=[
+            {"count": 1000, "size": 1024*1024, "nindexes": 3, "storageSize": 2*1024*1024, "totalIndexSize": 512*1024, "avgObjSize": 512},
+            {"count": 5000, "size": 5*1024*1024, "nindexes": 2, "storageSize": 6*1024*1024, "totalIndexSize": 256*1024, "avgObjSize": 256},
+        ])
+        
+        result = await service.get_collection_stats()
+        
+        assert len(result) == 2
+        assert result[0].name == "logs"  # ממוין לפי גודל (הגדול קודם)
+        assert result[0].count == 5000
+        assert result[1].name == "users"
+        assert result[1].count == 1000
+
+    async def test_get_health_summary_healthy(self, service, mock_motor_client):
+        """בדיקת סיכום בריאות תקין."""
+        # Pool תקין
+        mock_motor_client.admin.command.side_effect = [
+            {"connections": {"current": 10, "available": 90, "totalCreated": 100}},  # serverStatus
+            {"inprog": []},  # currentOp - אין slow queries
+        ]
+        service._db.list_collection_names = AsyncMock(return_value=["users", "logs"])
+        
+        result = await service.get_health_summary()
+        
+        assert result["status"] == "healthy"
+        assert result["slow_queries_count"] == 0
+        assert result["collections_count"] == 2
+        assert len(result["errors"]) == 0
+
+
+@pytest.mark.asyncio
+class TestThreadPoolDatabaseHealthService:
+    """בדיקות ל-ThreadPoolDatabaseHealthService (PyMongo wrapper)."""
+
+    @pytest.fixture
+    def mock_db_manager(self):
+        """Mock של DatabaseManager הסינכרוני."""
+        manager = MagicMock()
+        manager.client = MagicMock()
+        manager.db = MagicMock()
+        return manager
+
+    @pytest.fixture
+    def service(self, mock_db_manager):
+        return ThreadPoolDatabaseHealthService(mock_db_manager)
+
+    async def test_get_pool_status_runs_in_thread(self, service, mock_db_manager):
+        """בדיקה שהקריאה רצה ב-thread pool ולא חוסמת."""
+        mock_db_manager.client.admin.command.return_value = {
+            "connections": {"current": 5, "available": 45, "totalCreated": 50}
+        }
+        
+        result = await service.get_pool_status()
+        
+        assert result.current == 5
+        assert result.available == 45
+        # הקריאה הסינכרונית נעשתה
+        mock_db_manager.client.admin.command.assert_called_once_with("serverStatus")
+
+
+# Integration test (דורש MongoDB אמיתי)
+@pytest.mark.integration
+@pytest.mark.asyncio
+class TestDatabaseHealthServiceIntegration:
+    """בדיקות אינטגרציה - רצות רק עם MongoDB אמיתי."""
+
+    @pytest.fixture
+    async def service(self):
+        """יצירת service אמיתי."""
+        import os
+        if not os.getenv("MONGODB_URL"):
+            pytest.skip("MONGODB_URL not set")
+        
+        svc = AsyncDatabaseHealthService()
+        await svc.connect()
+        yield svc
+        await svc.close()
+
+    async def test_real_pool_status(self, service):
+        """בדיקת שליפת pool אמיתית."""
+        result = await service.get_pool_status()
+        
+        assert result.current >= 0
+        assert result.available >= 0
+        assert result.status in ("healthy", "warning", "critical")
+
+    async def test_real_current_ops(self, service):
+        """בדיקת שליפת ops אמיתית."""
+        result = await service.get_current_operations(threshold_ms=0)
+        
+        assert isinstance(result, list)
+        for op in result:
+            assert isinstance(op, SlowOperation)
+
+    async def test_real_collection_stats(self, service):
+        """בדיקת שליפת stats אמיתית."""
+        result = await service.get_collection_stats()
+        
+        assert isinstance(result, list)
+        for stat in result:
+            assert isinstance(stat, CollectionStat)
+            assert stat.name
+            assert stat.count >= 0
+```
+
+### 8.1 הרצת הבדיקות
+
+```bash
+# בדיקות יחידה בלבד
+pytest tests/test_db_health_service.py -v
+
+# בדיקות אינטגרציה (דורשות MongoDB)
+MONGODB_URL=mongodb://localhost:27017 pytest tests/test_db_health_service.py -v -m integration
+
+# כל הבדיקות
+MONGODB_URL=mongodb://localhost:27017 pytest tests/test_db_health_service.py -v
 ```
 
 ---
@@ -1334,11 +1820,34 @@ def update_prometheus_metrics(self):
 
 ## 12. רשימת תיוג למימוש
 
-- [ ] צור קובץ `services/db_health_service.py`
-- [ ] הוסף API endpoints ל-`services/webserver.py`
+- [ ] התקן `motor>=3.0.0` (או השתמש ב-PyMongo עם thread pool)
+- [ ] צור קובץ `services/db_health_service.py` (גרסה async)
+- [ ] הוסף API endpoints ל-`services/webserver.py` עם `await`
+- [ ] הוסף אתחול ב-`on_startup` ו-`on_cleanup`
 - [ ] צור תבנית `webapp/templates/db_health.html`
 - [ ] הגדר `DB_HEALTH_TOKEN` ב-ENV
 - [ ] הוסף route ל-webapp (Flask או aiohttp)
-- [ ] כתוב בדיקות יחידה
+- [ ] כתוב בדיקות יחידה (עם `pytest-asyncio`)
 - [ ] הוסף מטריקות Prometheus (אופציונלי)
 - [ ] עדכן תיעוד API
+
+### סדר מומלץ למימוש
+
+1. **שלב 1 - Backend:**
+   ```bash
+   pip install motor pytest-asyncio
+   ```
+   - צור `services/db_health_service.py`
+   - הוסף endpoints ל-webserver
+
+2. **שלב 2 - Frontend:**
+   - צור `db_health.html`
+   - הוסף route
+
+3. **שלב 3 - אבטחה:**
+   - הוסף middleware עם token
+   - הגדר `DB_HEALTH_TOKEN`
+
+4. **שלב 4 - בדיקות:**
+   - כתוב unit tests
+   - הרץ integration tests
