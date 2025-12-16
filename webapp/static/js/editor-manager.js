@@ -384,6 +384,47 @@
       } catch(_) {}
     }
 
+    insertTextAtCursor(nextText) {
+      const text = typeof nextText === 'string' ? nextText : '';
+      if (!text) return false;
+
+      // CodeMirror: החלף בחירה/הדבק בנקודת הסמן
+      try {
+        if (this.cmInstance && this.cmInstance.state) {
+          const view = this.cmInstance;
+          const mainSel = (view.state.selection && view.state.selection.main) ? view.state.selection.main : null;
+          const from = mainSel ? mainSel.from : view.state.doc.length;
+          const to = mainSel ? mainSel.to : view.state.doc.length;
+          try { view.focus(); } catch(_) {}
+          view.dispatch({
+            changes: { from, to, insert: text },
+            selection: { anchor: from + text.length },
+            scrollIntoView: true
+          });
+          return true;
+        }
+      } catch(_) {}
+
+      // עורך פשוט (textarea): החלף בחירה/הדבק בנקודת הסמן
+      try {
+        if (this.textarea) {
+          const ta = this.textarea;
+          const value = ta.value || '';
+          const start = (typeof ta.selectionStart === 'number') ? ta.selectionStart : value.length;
+          const end = (typeof ta.selectionEnd === 'number') ? ta.selectionEnd : start;
+          const nextValue = value.slice(0, start) + text + value.slice(end);
+          ta.value = nextValue;
+          try { ta.dispatchEvent(new Event('input', { bubbles: true })); } catch(_) {}
+          const caret = start + text.length;
+          try { ta.focus(); } catch(_) {}
+          try { ta.setSelectionRange(caret, caret); } catch(_) {}
+          return true;
+        }
+      } catch(_) {}
+
+      return false;
+    }
+
     async handleClipboardCopy(switcher) {
       const content = this.getEditorContent() || '';
       let success = false;
@@ -436,7 +477,12 @@
         this.showClipboardNotice(switcher, usedPrompt ? 'לא הוזן טקסט' : 'הלוח ריק');
         return;
       }
-      this.setEditorContent(text);
+      // התנהגות רצויה: הדבקה במיקום הסמן בלבד (או החלפה אם מסומן טקסט)
+      const ok = this.insertTextAtCursor(text);
+      if (!ok) {
+        // fallback נדיר: אם לא הצלחנו לזהות סמן/בחירה, לא נחסום את המשתמש
+        this.setEditorContent(text);
+      }
       this.showClipboardNotice(switcher, 'הטקסט הודבק');
     }
 
