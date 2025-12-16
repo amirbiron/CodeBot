@@ -700,6 +700,7 @@
           <option value="deployment_event">Deployment</option>
           <option value="anomaly_detected">Anomaly Detected</option>
           <option value="high_error_rate">High Error Rate</option>
+          <option value="sentry_issue">Sentry Issue</option>
         </select>
         <input type="text" id="endpointFilter" placeholder="Endpoint / Path">
         <input type="search" id="searchFilter" placeholder="חיפוש חופשי">
@@ -893,6 +894,12 @@
     if (anomalyEl) anomalyEl.textContent = summary?.anomaly ?? '0';
     if (deployEl) deployEl.textContent = summary?.deployment ?? '0';
     if (spikeEl) spikeEl.textContent = correlation?.avg_spike_during_deployment?.toFixed?.(2) ?? '0';
+  }
+
+  function updateDailyWidgets(summary) {
+    // Widgets that must always reflect the last 24h, independent of the global time range.
+    const criticalEl = document.getElementById('criticalCount');
+    if (criticalEl) criticalEl.textContent = summary?.critical ?? '0';
   }
 
   function updateLastUpdated() {
@@ -2164,11 +2171,18 @@
   }
 
   async function refreshAggregations() {
-    const params = new URLSearchParams({ timerange: state.range, limit: '5' });
-    const data = await fetchJson('/api/observability/aggregations?' + params.toString());
-    if (!data.ok) throw new Error(data.error || 'aggregation_error');
-    updateCards(data.summary, data.deployment_correlation);
-    renderTopEndpoints(data.top_slow_endpoints || []);
+    const rangeParams = new URLSearchParams({ timerange: state.range, limit: '5' });
+    const dailyParams = new URLSearchParams({ timerange: '24h', limit: '5' });
+    const rangeReq = fetchJson('/api/observability/aggregations?' + rangeParams.toString());
+    const dailyReq = (String(state.range || '').toLowerCase() === '24h')
+      ? rangeReq
+      : fetchJson('/api/observability/aggregations?' + dailyParams.toString());
+    const [rangeData, dailyData] = await Promise.all([rangeReq, dailyReq]);
+    if (!rangeData.ok) throw new Error(rangeData.error || 'aggregation_error');
+    if (!dailyData.ok) throw new Error(dailyData.error || 'aggregation_error');
+    updateCards(rangeData.summary, rangeData.deployment_correlation);
+    updateDailyWidgets(dailyData.summary);
+    renderTopEndpoints(dailyData.top_slow_endpoints || []);
   }
 
   async function refreshTimeseries() {
