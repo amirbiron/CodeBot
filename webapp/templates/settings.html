@@ -1208,8 +1208,11 @@
         const lower = href.toLowerCase();
         // Avoid javascript: / data: injection vectors.
         if (lower.startsWith('javascript:') || lower.startsWith('data:') || lower.startsWith('vbscript:')) return '';
+        // Disallow protocol-relative URLs like //evil.com (can look like internal path).
+        if (href.startsWith('//') || href.startsWith('\\\\')) return '';
         // Allow relative, hash, and common safe schemes.
-        if (href.startsWith('/') || href.startsWith('#')) return href;
+        if (href.startsWith('/') && !href.startsWith('//')) return href;
+        if (href.startsWith('#')) return href;
         if (lower.startsWith('http://') || lower.startsWith('https://') || lower.startsWith('mailto:')) return href;
         return '';
       };
