@@ -283,6 +283,20 @@ def _extract_sentry_alert(payload: Any) -> _SentryAlert | None:
     if action in {"resolved", "resolved_issue", "issue_resolved"}:
         severity = "info"
 
+    # Heuristic: some Sentry issues are background/maintenance noise (e.g. pymongo pool housekeeping).
+    # Downgrade them to warning so they don't look like user-facing errors in Telegram/Observability.
+    try:
+        lowered_title = str(title_s or "").lower()
+        # NOTE: do not override "resolved" notifications; they should remain informational,
+        # otherwise we emit new warning-level alerts and create new dedup keys.
+        if (
+            severity != "info"
+            and ("_operationcancelled" in lowered_title or "operation cancelled" in lowered_title)
+        ):
+            severity = "warning"
+    except Exception:
+        pass
+
     # Stable identifiers for dedup
     primary_id = issue_id or short_id or str(event.get("id") or event.get("event_id") or "").strip()
     dedup_key = "|".join([x for x in [primary_id, project_slug, severity, action] if x])

@@ -118,12 +118,81 @@ def _details_preview(details: Dict[str, Any]) -> str | None:
     if not isinstance(details, dict):
         return None
     safe_items: List[str] = []
+    def _short(val: Any, *, limit: int = 180) -> str:
+        try:
+            text = _coerce_str(val)
+        except Exception:
+            text = ""
+        if len(text) > limit:
+            return text[: max(0, limit - 1)] + "…"
+        return text
+
+    def _compact_labels(val: Any) -> str | None:
+        if not isinstance(val, dict):
+            return None
+        # Keep only high-signal fields used by anomaly alerts
+        keys = ("top_slow_endpoint", "active_requests", "recent_errors_5m", "avg_memory_usage_mb")
+        parts: List[str] = []
+        for k in keys:
+            try:
+                v = val.get(k)
+            except Exception:
+                v = None
+            if v in (None, ""):
+                continue
+            parts.append(f"{k}={_short(v, limit=80)}")
+        if parts:
+            return ", ".join(parts)
+        return None
+
+    def _compact_slow_endpoints(val: Any) -> str | None:
+        if not isinstance(val, list) or not val:
+            return None
+        # Prefer max_duration and sort slowest-first for stable messaging
+        items: List[Dict[str, Any]] = [x for x in val if isinstance(x, dict)]
+        try:
+            items.sort(key=lambda x: float(x.get("max_duration") or x.get("avg_duration") or 0.0), reverse=True)
+        except Exception:
+            pass
+        parts: List[str] = []
+        for item in items[:4]:
+            if not isinstance(item, dict):
+                continue
+            try:
+                method = str(item.get("method") or "GET").upper()
+                endpoint = str(item.get("endpoint") or "unknown")
+                count = int(item.get("count") or 0)
+                mx = float(item.get("max_duration") or item.get("avg_duration") or 0.0)
+                parts.append(f"{method} {endpoint}: {mx:.2f}s (n={max(1, count)})")
+            except Exception:
+                continue
+        if parts:
+            return "; ".join(parts)
+        return None
+
     for key, value in details.items():
         try:
             lk = str(key).lower()
         except Exception:
             continue
         if lk in _SENSITIVE_DETAIL_KEYS or lk in _PROMOTED_DETAIL_KEYS or lk in _SENTRY_META_KEYS:
+            continue
+        # Special compaction for noisy structured fields
+        if lk == "labels":
+            compact = _compact_labels(value)
+            if compact:
+                safe_items.append(compact)
+                if len(safe_items) >= 6:
+                    break
+            # Never fall back to raw labels dict in preview (too noisy)
+            continue
+        if lk == "slow_endpoints":
+            compact = _compact_slow_endpoints(value)
+            if compact:
+                safe_items.append(f"slow_endpoints={compact}")
+                if len(safe_items) >= 6:
+                    break
+            # Never fall back to raw slow_endpoints list in preview (too noisy)
             continue
         safe_items.append(f"{key}={_coerce_str(value)}")
         if len(safe_items) >= 6:
@@ -166,6 +235,80 @@ def _build_forward_payload(name: str, severity: str, summary: str, details: Dict
     error_signature = _first_detail(details, ("error_signature", "signature"))
     if error_signature:
         alert["annotations"]["error_signature"] = error_signature
+
+    # Promote a small allowlist of numeric/meta fields into annotations for better formatting downstream.
+    # Keep values as strings to match Alertmanager annotations behavior.
+    try:
+        promote_keys = (
+            # Generic metric fields (alert_manager / internal)
+            "current_percent",
+            "threshold_percent",
+            "sample_count",
+            "error_count",
+            "window_seconds",
+            "current_seconds",
+            "threshold_seconds",
+            "source",
+            "metric",
+            "graph_metric",
+            # Sentry meta (webhook/poll)
+            "sentry_short_id",
+            "sentry_issue_id",
+            "sentry_last_seen",
+            "sentry_first_seen",
+            "project",
+            "level",
+            "action",
+        )
+        for k in promote_keys:
+            if k not in details:
+                continue
+            try:
+                v = details.get(k)
+            except Exception:
+                v = None
+            if v in (None, ""):
+                continue
+            alert["annotations"][k] = _coerce_str(v)
+    except Exception:
+        pass
+
+    # Anomaly formatting helpers: flatten nested labels + compact slow endpoints list.
+    try:
+        if str(name or "").strip().lower() == "anomaly_detected":
+            raw_labels = details.get("labels") if isinstance(details, dict) else None
+            if isinstance(raw_labels, dict):
+                for k in ("top_slow_endpoint", "active_requests", "recent_errors_5m", "avg_memory_usage_mb"):
+                    try:
+                        v = raw_labels.get(k)
+                    except Exception:
+                        v = None
+                    if v in (None, ""):
+                        continue
+                    alert["annotations"][k] = _coerce_str(v)
+            raw_slow = details.get("slow_endpoints") if isinstance(details, dict) else None
+            if isinstance(raw_slow, list) and raw_slow:
+                items: List[Dict[str, Any]] = [x for x in raw_slow if isinstance(x, dict)]
+                try:
+                    items.sort(key=lambda x: float(x.get("max_duration") or x.get("avg_duration") or 0.0), reverse=True)
+                except Exception:
+                    pass
+                compact_parts: List[str] = []
+                for item in items[:6]:
+                    if not isinstance(item, dict):
+                        continue
+                    try:
+                        method = str(item.get("method") or "GET").upper()
+                        endpoint = str(item.get("endpoint") or "unknown")
+                        count = int(item.get("count") or 0)
+                        mx = float(item.get("max_duration") or item.get("avg_duration") or 0.0)
+                        compact_parts.append(f"{method} {endpoint}: {mx:.2f}s (n={max(1, count)})")
+                    except Exception:
+                        continue
+                if compact_parts:
+                    alert["annotations"]["slow_endpoints_compact"] = "; ".join(compact_parts)
+    except Exception:
+        pass
 
     preview = _details_preview(details)
     if preview:
@@ -284,9 +427,13 @@ def emit_internal_alert(name: str, severity: str = "info", summary: str = "", **
                 pass
 
         # Emit structured log/event as well
+        # חשוב: אל תשלח את חומרת ההתראה כ-severity של emit_event,
+        # אחרת observability.emit_event יתעד זאת כ-error/critical ב-Sentry וייצור Issues "internal_alert".
+        # במקום זה, משדרים תמיד כאנומליה (לצורך תיעוד/דאשבורד) ושומרים את החומרה המקורית בשדה נפרד.
         emit_event(
             "internal_alert",
-            severity=str(severity),
+            severity="anomaly",
+            alert_severity=str(severity),
             name=str(name),
             summary=str(summary),
             is_drill=bool(is_drill),
