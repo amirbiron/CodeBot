@@ -44,6 +44,26 @@
   gap: 1rem;
   align-items: center;
 }
+.replay-filters {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.replay-filter-btn {
+  background: rgba(255,255,255,0.08);
+  color: #fff;
+  border: 1px solid rgba(255,255,255,0.2);
+  border-radius: 999px;
+  padding: 0.35rem 0.85rem;
+  font-size: 0.9rem;
+  cursor: pointer;
+}
+.replay-filter-btn.active {
+  background: rgba(255,255,255,0.15);
+  color: #121826;
+  font-weight: 600;
+}
 .replay-range-buttons {
   display: flex;
   gap: 0.45rem;
@@ -455,6 +475,9 @@
       </label>
       <button id="applyCustomRange">עדכן</button>
     </div>
+    <div class="replay-filters">
+      <button type="button" id="toggleDeploymentsBtn" class="replay-filter-btn" aria-pressed="true">🚫 הסתר Deployments</button>
+    </div>
   </div>
 
   <div class="replay-layout">
@@ -513,13 +536,17 @@
 
 <script>
 (() => {
+  const urlParams = new URLSearchParams(window.location.search || '');
   const state = {
     range: '{{ default_range|default("3h", true) }}',
     start: '{{ initial_start|default('', true) }}',
     end: '{{ initial_end|default('', true) }}',
     focus: '{{ initial_focus|default('', true) }}',
+    hideDeployments: (urlParams.get('hide_deployments') ?? '1') !== '0',
     selectedEventId: '',
-    eventsMap: {}
+    eventsMap: {},
+    allEvents: [],
+    lastCounts: {},
   };
 
   const timelineSummaryEl = document.getElementById('timelineSummary');
@@ -527,6 +554,37 @@
   const rangeButtons = document.querySelectorAll('#replayRangeButtons button');
   const storyViewer = createStoryViewer();
   const runbookPanel = document.getElementById('runbookPanel');
+  const deploymentsToggleBtn = document.getElementById('toggleDeploymentsBtn');
+
+  function updateDeploymentsToggleUi() {
+    if (!deploymentsToggleBtn) return;
+    const hidden = Boolean(state.hideDeployments);
+    deploymentsToggleBtn.classList.toggle('active', hidden);
+    deploymentsToggleBtn.setAttribute('aria-pressed', hidden ? 'true' : 'false');
+    deploymentsToggleBtn.textContent = hidden ? '🚫 הסתר Deployments' : '✅ הצג Deployments';
+  }
+  updateDeploymentsToggleUi();
+
+  function syncUrlFilterParam() {
+    try {
+      const params = new URLSearchParams(window.location.search || '');
+      params.set('hide_deployments', state.hideDeployments ? '1' : '0');
+      const newUrl = `${window.location.pathname}?${params.toString()}`;
+      window.history.replaceState({}, '', newUrl);
+    } catch (_) {}
+  }
+
+  if (deploymentsToggleBtn) {
+    deploymentsToggleBtn.addEventListener('click', () => {
+      state.hideDeployments = !state.hideDeployments;
+      updateDeploymentsToggleUi();
+      syncUrlFilterParam();
+      // רינדור מחדש מהנתונים שכבר נטענו (בלי קריאת API נוספת).
+      if (state.allEvents && state.allEvents.length) {
+        renderTimeline(state.allEvents, state.lastCounts || {}, {});
+      }
+    });
+  }
 
   function markActiveRange(rangeValue) {
     rangeButtons.forEach(b => {
@@ -566,6 +624,7 @@
       if (state.start) params.set('start', state.start);
       if (state.end) params.set('end', state.end);
       if (state.focus) params.set('focus_ts', state.focus);
+      params.set('hide_deployments', state.hideDeployments ? '1' : '0');
       const shareUrl = `${window.location.origin}/admin/observability/replay?${params.toString()}`;
       await navigator.clipboard.writeText(shareUrl);
       showShareToast('הקישור הועתק ללוח');
@@ -987,13 +1046,21 @@
     if (!res.ok) throw new Error('HTTP ' + res.status);
     const payload = await res.json();
     if (payload.ok === false) throw new Error(payload.error || 'replay_error');
-    renderTimeline(payload.events || [], payload.counts || {}, payload.window || {});
+    state.allEvents = payload.events || [];
+    state.lastCounts = payload.counts || {};
+    renderTimeline(state.allEvents, state.lastCounts, payload.window || {});
   }
 
   function renderTimeline(events, counts, windowInfo) {
-    timelineSummaryEl.textContent = `סה"כ ${counts.alerts || 0} התראות, ${counts.deployments || 0} דיפלוימנטים, ${counts.chatops || 0} פעולות ChatOps, ${counts.stories || 0} סיפורים`;
+    const totalEvents = Array.isArray(events) ? events.length : 0;
+    const filteredEvents = (events || []).filter(evt => !(state.hideDeployments && evt && evt.type === 'deployment'));
+    const hiddenDeployments = state.hideDeployments ? (counts.deployments || 0) : 0;
+    timelineSummaryEl.textContent =
+      `סה"כ ${counts.alerts || 0} התראות, ${counts.deployments || 0} דיפלוימנטים, ${counts.chatops || 0} פעולות ChatOps, ${counts.stories || 0} סיפורים` +
+      ` · מוצגים ${filteredEvents.length}/${totalEvents}` +
+      (hiddenDeployments ? ` (הוסתרו ${hiddenDeployments} דיפלוימנטים)` : '');
     const list = timelineListEl;
-    if (!events.length) {
+    if (!filteredEvents.length) {
       list.innerHTML = '<li class="empty-state">לא נמצאו אירועים בטווח הנבחר.</li>';
       state.eventsMap = {};
       state.selectedEventId = '';
@@ -1001,7 +1068,12 @@
       return;
     }
     state.eventsMap = {};
-    list.innerHTML = events.map(evt => {
+    // אם האירוע שנבחר "נעלם" עקב פילטר, ננקה בחירה ו-Runbook.
+    if (state.selectedEventId && !filteredEvents.some(evt => evt && evt.id === state.selectedEventId)) {
+      state.selectedEventId = '';
+      setRunbookEmpty();
+    }
+    list.innerHTML = filteredEvents.map(evt => {
       if (evt.id) {
         state.eventsMap[evt.id] = evt;
       }
