@@ -491,6 +491,20 @@
             בונה ערכת נושא (אדמין)
           </a>
         </div>
+        {% if custom_theme and custom_theme.is_active %}
+        <div style="margin-top: 0.5rem; display: flex; justify-content: flex-end;">
+          <button
+            type="button"
+            class="btn btn-tertiary btn-icon"
+            onclick="deleteCustomTheme()"
+            title="מחק ערכה מותאמת"
+            style="border-color: rgba(245, 101, 101, 0.55); color: var(--danger);"
+          >
+            <i class="fas fa-trash" style="color: var(--danger);"></i>
+            מחק ערכה
+          </button>
+        </div>
+        {% endif %}
         {% endif %}
       </div>
     </div>
@@ -1126,6 +1140,28 @@
       const btnMinus = document.getElementById('fontMinus');
       const btnPlus = document.getElementById('fontPlus');
       const themeSel = document.getElementById('themeSelect');
+      
+      // מחיקת ערכת נושא מותאמת (Custom) מתוך מסך ההגדרות
+      window.deleteCustomTheme = async function deleteCustomTheme(){
+        if (!confirm("האם למחוק את הערכה?")) {
+          return;
+        }
+        try {
+          const res = await fetch('/api/themes/custom', { method: 'DELETE' });
+          const data = await res.json();
+          if (!res.ok || !data || !data.ok) {
+            throw new Error((data && data.error) || 'delete_failed');
+          }
+        } catch (e) {
+          console.error('deleteCustomTheme failed:', e);
+          alert('שגיאה במחיקת הערכה');
+          return;
+        }
+
+        try { localStorage.setItem('dark_mode_preference', 'classic'); } catch (_) {}
+        try { localStorage.setItem('user_theme', 'classic'); } catch (_) {}
+        location.reload();
+      };
       function setVal(x){ if (vEl) vEl.textContent = '× ' + x.toFixed(2); }
       function save(scale){
         return fetch('/api/ui_prefs', {

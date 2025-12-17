@@ -753,6 +753,11 @@
 
             showToast('הערכה נשמרה בהצלחה! מרענן...', 'success');
 
+            // חשוב: שמור מצב "custom" בלוקאל כדי למנוע דריסה ע\"י JS בטעינה (no-flicker)
+            // זה משמש כסמן לכך שהמשתמש בחר/שמר ערכה מותאמת.
+            try { localStorage.setItem('dark_mode_preference', 'custom'); } catch (_) {}
+            try { localStorage.setItem('user_theme', 'custom'); } catch (_) {}
+
             // רענן כדי להחיל
             setTimeout(() => location.reload(), 1500);
 

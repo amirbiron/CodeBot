@@ -68,8 +68,19 @@
 
     function normalizeCookieTheme(theme) {
         if (!theme) return null;
-        if (theme === 'classic' || theme === 'dark' || theme === 'dim') {
-            return theme;
+        const t = String(theme).trim().toLowerCase();
+        if (
+            t === 'classic' ||
+            t === 'dark' ||
+            t === 'dim' ||
+            t === 'ocean' ||
+            t === 'forest' ||
+            t === 'rose-pine-dawn' ||
+            t === 'nebula' ||
+            t === 'high-contrast' ||
+            t === 'custom'
+        ) {
+            return t;
         }
         return null;
     }
@@ -105,21 +116,38 @@
                 }
             }
         } else {
-            applyTheme(preference);
+            const normalized = normalizePreferenceValue(preference);
+            applyTheme(normalized || preference);
         }
     }
 
     function ensureThemeSync() {
         const preference = loadPreference();
         const cookieTheme = readServerTheme();
+        const htmlTheme = (document.documentElement.getAttribute(THEME_ATTRIBUTE) || '').trim();
+
+        // אם השרת/HTML קבע ערכת נושא "אמיתית" (שאינה classic/dark/dim) — לא נדרוס אותה
+        // עם dark_mode_preference (שמייצג מצב כהה/בהיר/אוטומטי).
+        const normalizedServerTheme = normalizeCookieTheme(cookieTheme) || normalizeCookieTheme(htmlTheme);
+        if (
+            normalizedServerTheme &&
+            normalizedServerTheme !== 'classic' &&
+            normalizedServerTheme !== 'dark' &&
+            normalizedServerTheme !== 'dim'
+        ) {
+            document.documentElement.setAttribute(THEME_ATTRIBUTE, normalizedServerTheme);
+            updateToggleButton(preference || normalizedServerTheme);
+            return;
+        }
+
         if (preference) {
             if (cookieTheme && preference !== 'auto') {
                 const normalizedCookie = normalizeCookieTheme(cookieTheme);
                 const normalizedPref = normalizePreferenceValue(preference);
                 if (normalizedCookie && normalizedPref && normalizedCookie !== normalizedPref) {
                     clearPreference();
-                    document.documentElement.setAttribute(THEME_ATTRIBUTE, cookieTheme);
-                    updateToggleButton(cookieTheme);
+                    document.documentElement.setAttribute(THEME_ATTRIBUTE, normalizedCookie);
+                    updateToggleButton(normalizedCookie);
                     return;
                 }
             }
@@ -128,8 +156,11 @@
             return;
         }
         if (cookieTheme) {
-            document.documentElement.setAttribute(THEME_ATTRIBUTE, cookieTheme);
-            updateToggleButton(cookieTheme);
+            const normalizedCookie = normalizeCookieTheme(cookieTheme);
+            if (normalizedCookie) {
+                document.documentElement.setAttribute(THEME_ATTRIBUTE, normalizedCookie);
+                updateToggleButton(normalizedCookie);
+            }
         }
     }
 

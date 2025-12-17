@@ -35,13 +35,27 @@
                     'custom': 1{% endif %}
                 };
 
+                // עדיפות ל-custom אם קיים ותקין (כדי למנוע "הבהוב" לאחר שמירה/רענון)
+                // הערך הזה משמש כסמן ללקוח שהמשתמש בחר ערכה מותאמת.
+                var savedMode = localStorage.getItem('dark_mode_preference');
+                savedMode = String(savedMode || '').trim().toLowerCase();
+                if (savedMode === 'custom' && allowed['custom']) {
+                    html.setAttribute('data-theme', 'custom');
+                    return;
+                }
+                var savedThemeAny = localStorage.getItem('user_theme');
+                savedThemeAny = String(savedThemeAny || '').trim().toLowerCase();
+                if (savedThemeAny === 'custom' && allowed['custom']) {
+                    html.setAttribute('data-theme', 'custom');
+                    return;
+                }
+
                 // אם השרת קבע ערכת נושא שאינה מצב "בהיר/כהה" – נכבד אותה תמיד (סנכרון בין מכשירים)
                 if (allowed[serverTheme] && (serverTheme !== 'classic' && serverTheme !== 'dark' && serverTheme !== 'dim')) {
                     html.setAttribute('data-theme', serverTheme);
                     return;
                 }
 
-                var savedMode = localStorage.getItem('dark_mode_preference');
                 if (savedMode === 'dark' || savedMode === 'dim') {
                     html.setAttribute('data-theme', savedMode);
                     return;
