@@ -108,6 +108,9 @@ _REQUEST_CONTEXTS: Deque[Tuple[float, Dict[str, Any]]] = deque(maxlen=20_000)
 _REQUEST_CONTEXT_WINDOW_SEC = max(60, int(os.getenv("REQUEST_CONTEXT_WINDOW_SECONDS", "900") or 900))
 _last_recompute_ts: float = 0.0
 
+# Guard for lazy state initialization (avoid races under concurrent calls).
+_MONGO_SERVERSTATUS_STATE_LOCK = threading.Lock()
+
 
 @dataclass
 class _MetricThreshold:
@@ -552,13 +555,17 @@ def _mongo_connections_snapshot() -> Dict[str, Any]:
     # We keep the state on the function object to minimize global clutter and preserve backwards compatibility.
     state = getattr(_mongo_connections_snapshot, "_state", None)
     if state is None:
-        state = {
-            "lock": threading.Lock(),
-            "ts": 0.0,
-            "data": {},
-            "inflight": False,
-        }
-        setattr(_mongo_connections_snapshot, "_state", state)
+        # Avoid creating multiple independent state dicts under concurrency.
+        with _MONGO_SERVERSTATUS_STATE_LOCK:
+            state = getattr(_mongo_connections_snapshot, "_state", None)
+            if state is None:
+                state = {
+                    "lock": threading.Lock(),
+                    "ts": 0.0,
+                    "data": {},
+                    "inflight": False,
+                }
+                setattr(_mongo_connections_snapshot, "_state", state)
 
     def _refresh_interval_seconds() -> float:
         # Default 5s to match guides. Allow tuning via env.
@@ -616,9 +623,19 @@ def _mongo_connections_snapshot() -> Dict[str, Any]:
         return (not inflight) and (age >= _refresh_interval_seconds())
 
     def _schedule_refresh() -> None:
-        if not _should_refresh(time.time()):
+        # Atomically check + mark inflight under the same lock to prevent TOCTOU races
+        # that can trigger multiple concurrent refreshes.
+        now_ts = time.time()
+        try:
+            with state["lock"]:
+                last_ts = float(state.get("ts") or 0.0)
+                inflight = bool(state.get("inflight"))
+                age = max(0.0, float(now_ts - last_ts))
+                if inflight or age < _refresh_interval_seconds():
+                    return
+                state["inflight"] = True
+        except Exception:
             return
-        _mark_inflight(True)
 
         # Try async Motor first (if admin.command is awaitable), otherwise offload sync PyMongo to executor/thread.
         try:
@@ -642,7 +659,16 @@ def _mongo_connections_snapshot() -> Dict[str, Any]:
                     except Exception:
                         maybe_coro = None
                     if maybe_coro is not None and asyncio.iscoroutine(maybe_coro):
-                        task = loop.create_task(maybe_coro)
+                        try:
+                            task = loop.create_task(maybe_coro)
+                        except Exception:
+                            # Prevent "coroutine was never awaited" warnings when task creation fails
+                            # (e.g. loop is closing).
+                            try:
+                                maybe_coro.close()  # type: ignore[attr-defined]
+                            except Exception:
+                                pass
+                            raise
                         def _done_cb(fut: "asyncio.Future[Any]") -> None:  # type: ignore[name-defined]
                             try:
                                 res = fut.result()
