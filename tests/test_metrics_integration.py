@@ -60,3 +60,29 @@ def test_access_logs_silenced_for_flask_monitoring_endpoints_when_ok(monkeypatch
     assert resp2.status_code < 500
     access2 = [e for e in events if e[0] == "access_logs"]
     assert not access2, "expected /favicon.ico to be silenced when ok"
+
+
+def test_access_logs_silenced_for_flask_head_root_when_ok(monkeypatch):
+    try:
+        import webapp.app as flask_app
+    except Exception:
+        pytest.skip("Flask app not importable in this environment")
+
+    app = flask_app.app
+    try:
+        client = app.test_client()
+    except Exception:
+        pytest.skip("Flask test client not available")
+
+    events: list[tuple[str, str, dict]] = []
+
+    def fake_emit(event: str, severity: str = "info", **fields):
+        events.append((event, severity, fields))
+
+    monkeypatch.setattr(flask_app, "emit_event", fake_emit)
+
+    resp = client.head("/")
+    assert resp.status_code == 200
+
+    access = [e for e in events if e[0] == "access_logs"]
+    assert not access, "expected HEAD / to be silenced when ok"
