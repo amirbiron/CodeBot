@@ -472,6 +472,9 @@
           aria-label="בחר ערכת נושא"
           style="padding: 0.5rem 0.75rem; border-radius: 10px; border: 1px solid rgba(255,255,255,0.2); background: rgba(255,255,255,0.1); color: var(--text-primary);"
         >
+          {% if is_admin and custom_theme and custom_theme.is_active %}
+          <option value="custom" {% if ui_theme == 'custom' %}selected{% endif %}>🎨 {{ custom_theme.name if custom_theme.name else 'Custom' }}{% if ui_theme == 'custom' %} (נוכחית){% endif %}</option>
+          {% endif %}
           <option value="classic" {% if ui_theme == 'classic' %}selected{% endif %}>קלאסי{% if ui_theme == 'classic' %} (נוכחית){% endif %}</option>
           <option value="ocean" {% if ui_theme == 'ocean' %}selected{% endif %}>אוקיינוס{% if ui_theme == 'ocean' %} (נוכחית){% endif %}</option>
           <option value="forest" {% if ui_theme == 'forest' %}selected{% endif %}>יער{% if ui_theme == 'forest' %} (נוכחית){% endif %}</option>
@@ -481,6 +484,14 @@
           <option value="nebula" {% if ui_theme == 'nebula' %}selected{% endif %}>🌌 Nebula{% if ui_theme == 'nebula' %} (נוכחית){% endif %}</option>
           <option value="high-contrast" {% if ui_theme == 'high-contrast' %}selected{% endif %}>ניגודיות גבוהה{% if ui_theme == 'high-contrast' %} (נוכחית){% endif %}</option>
         </select>
+        {% if is_admin %}
+        <div style="margin-top: 0.75rem; opacity: 0.85; font-size: 0.95rem;">
+          <a class="btn btn-secondary btn-icon" href="/settings/theme-builder">
+            <i class="fas fa-palette"></i>
+            בונה ערכת נושא (אדמין)
+          </a>
+        </div>
+        {% endif %}
       </div>
     </div>
   </div>
@@ -1148,7 +1159,7 @@
 
         const allowed = (window.__ckThemeRipple && Array.isArray(window.__ckThemeRipple.allowedThemes))
           ? window.__ckThemeRipple.allowedThemes
-          : ['classic','ocean','forest','rose-pine-dawn','dark','dim','nebula','high-contrast'];
+          : ['classic','ocean','forest','rose-pine-dawn','dark','dim','nebula','high-contrast','custom'];
 
         const isAllowed = (t) => !!t && allowed.indexOf(t) !== -1;
         if (!isAllowed(nextTheme)) {
