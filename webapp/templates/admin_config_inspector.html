@@ -1,0 +1,864 @@
+{% extends "base.html" %}
+
+{% block title %}Config Inspector{% endblock %}
+
+{% block extra_css %}
+<style>
+/* ================================
+   Config Inspector – Glassmorphism Dark Theme
+   ================================ */
+
+.config-page {
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+  color: #fff;
+  max-width: 1400px;
+  margin: 0 auto;
+  padding: 1rem;
+}
+
+.config-page .page-title {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  font-size: 1.8rem;
+  font-weight: 600;
+}
+
+.config-page .page-title i {
+  color: #64ffda;
+}
+
+/* ================================
+   Summary Cards (Glassmorphism)
+   ================================ */
+.config-summary-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 1rem;
+}
+
+.summary-card {
+  background: rgba(18, 24, 38, 0.75);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 16px;
+  padding: 1.25rem;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.25);
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.summary-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 14px 40px rgba(0, 0, 0, 0.35);
+}
+
+.summary-card h3 {
+  font-size: 0.85rem;
+  margin: 0;
+  opacity: 0.7;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.summary-card .card-value {
+  font-size: 2.2rem;
+  font-weight: 600;
+  margin: 0.5rem 0 0;
+}
+
+.summary-card .card-value.modified {
+  color: #ffa34f;
+}
+
+.summary-card .card-value.missing {
+  color: #ff627c;
+}
+
+.summary-card .card-value.default {
+  color: #64ffda;
+}
+
+/* ================================
+   Filters Bar
+   ================================ */
+.config-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  align-items: center;
+  padding: 1rem 1.25rem;
+  background: rgba(18, 24, 38, 0.6);
+  backdrop-filter: blur(10px);
+  border-radius: 14px;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.config-filters label {
+  font-size: 0.9rem;
+  opacity: 0.8;
+}
+
+.config-filters select {
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 999px;
+  color: #fff;
+  padding: 0.4rem 1rem;
+  font-size: 0.9rem;
+  cursor: pointer;
+  transition: background 0.2s ease;
+}
+
+.config-filters select:hover {
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.config-filters select:focus {
+  outline: none;
+  border-color: #64ffda;
+}
+
+.config-filters select option {
+  background: #1a1f2e;
+  color: #fff;
+}
+
+.filter-btn {
+  border: none;
+  border-radius: 999px;
+  padding: 0.45rem 1.2rem;
+  background: linear-gradient(135deg, #64ffda, #4dd0e1);
+  color: #0c1725;
+  font-weight: 600;
+  cursor: pointer;
+  transition: box-shadow 0.2s ease, transform 0.2s ease;
+}
+
+.filter-btn:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 8px 20px rgba(100, 255, 218, 0.3);
+}
+
+.reset-btn {
+  background: rgba(255, 255, 255, 0.08);
+  color: #fff;
+}
+
+.reset-btn:hover {
+  background: rgba(255, 255, 255, 0.15);
+  box-shadow: none;
+}
+
+/* ================================
+   Alerts for Missing Required
+   ================================ */
+.config-alert {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.75rem;
+  padding: 1rem 1.25rem;
+  border-radius: 14px;
+  font-size: 0.95rem;
+}
+
+.config-alert.warning {
+  background: rgba(255, 99, 132, 0.12);
+  border: 1px solid rgba(255, 99, 132, 0.3);
+  color: #ff9bb6;
+}
+
+.config-alert i {
+  font-size: 1.1rem;
+  margin-top: 0.1rem;
+}
+
+.config-alert strong {
+  color: #fff;
+}
+
+.config-alert code {
+  background: rgba(0, 0, 0, 0.3);
+  padding: 0.15rem 0.4rem;
+  border-radius: 4px;
+  font-family: monospace;
+  font-size: 0.85rem;
+}
+
+/* ================================
+   Config Table
+   ================================ */
+.config-table-wrapper {
+  background: rgba(18, 24, 38, 0.72);
+  backdrop-filter: blur(14px);
+  border-radius: 18px;
+  padding: 1.25rem;
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  box-shadow: 0 18px 32px rgba(0, 0, 0, 0.35);
+  overflow-x: auto;
+}
+
+.config-table-wrapper h2 {
+  margin: 0 0 1rem;
+  font-size: 1.15rem;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.config-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.92rem;
+}
+
+.config-table thead th {
+  text-align: right;
+  padding: 0.75rem 0.6rem;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  font-weight: 500;
+  opacity: 0.8;
+  white-space: nowrap;
+}
+
+.config-table tbody td {
+  padding: 0.7rem 0.6rem;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+  vertical-align: middle;
+}
+
+.config-table tbody tr:hover {
+  background: rgba(255, 255, 255, 0.03);
+}
+
+/* Row status highlighting */
+.config-table tbody tr.status-modified {
+  background: rgba(255, 163, 79, 0.06);
+}
+
+.config-table tbody tr.status-modified:hover {
+  background: rgba(255, 163, 79, 0.1);
+}
+
+.config-table tbody tr.status-missing {
+  background: rgba(255, 99, 132, 0.06);
+}
+
+.config-table tbody tr.status-missing:hover {
+  background: rgba(255, 99, 132, 0.1);
+}
+
+/* Key column */
+.config-key {
+  font-family: 'JetBrains Mono', 'Fira Code', monospace;
+  font-size: 0.88rem;
+  color: #a5d6ff;
+}
+
+.config-key .category-badge {
+  display: inline-block;
+  font-size: 0.7rem;
+  padding: 0.15rem 0.45rem;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.08);
+  color: rgba(255, 255, 255, 0.6);
+  margin-right: 0.5rem;
+  font-family: inherit;
+  text-transform: uppercase;
+}
+
+/* Value columns */
+.config-value {
+  font-family: 'JetBrains Mono', 'Fira Code', monospace;
+  font-size: 0.85rem;
+  word-break: break-all;
+  max-width: 300px;
+}
+
+.config-value.masked {
+  color: #888;
+  font-style: italic;
+}
+
+.config-value.empty {
+  color: #666;
+  font-style: italic;
+}
+
+/* Source badge */
+.source-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.2rem 0.6rem;
+  border-radius: 999px;
+  font-size: 0.8rem;
+}
+
+.source-badge.environment {
+  background: rgba(100, 255, 218, 0.12);
+  color: #64ffda;
+}
+
+.source-badge.default {
+  background: rgba(255, 255, 255, 0.08);
+  color: rgba(255, 255, 255, 0.6);
+}
+
+/* Status pill */
+.status-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.25rem 0.7rem;
+  border-radius: 999px;
+  font-size: 0.8rem;
+  font-weight: 500;
+}
+
+.status-pill.modified {
+  background: rgba(255, 163, 79, 0.18);
+  color: #ffa34f;
+}
+
+.status-pill.default {
+  background: rgba(100, 255, 218, 0.12);
+  color: #64ffda;
+}
+
+.status-pill.missing {
+  background: rgba(255, 99, 132, 0.18);
+  color: #ff627c;
+}
+
+.status-pill i {
+  font-size: 0.75rem;
+}
+
+/* Description tooltip */
+.config-desc {
+  font-size: 0.8rem;
+  color: rgba(255, 255, 255, 0.55);
+  max-width: 200px;
+}
+
+/* ================================
+   Copy Button
+   ================================ */
+.value-wrapper {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.copy-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border: none;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.06);
+  color: rgba(255, 255, 255, 0.5);
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.15s ease, background 0.15s ease, color 0.15s ease;
+  flex-shrink: 0;
+}
+
+.config-table tbody tr:hover .copy-btn {
+  opacity: 1;
+}
+
+.copy-btn:hover {
+  background: rgba(100, 255, 218, 0.15);
+  color: #64ffda;
+}
+
+.copy-btn:active {
+  transform: scale(0.92);
+}
+
+.copy-btn.copied {
+  background: rgba(100, 255, 218, 0.2);
+  color: #64ffda;
+}
+
+.copy-btn i {
+  font-size: 0.75rem;
+}
+
+/* Toast Notification */
+.copy-toast {
+  position: fixed;
+  bottom: 24px;
+  left: 50%;
+  transform: translateX(-50%) translateY(100px);
+  background: rgba(18, 24, 38, 0.95);
+  backdrop-filter: blur(10px);
+  color: #64ffda;
+  padding: 0.6rem 1.2rem;
+  border-radius: 999px;
+  font-size: 0.9rem;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.4);
+  border: 1px solid rgba(100, 255, 218, 0.2);
+  z-index: 9999;
+  opacity: 0;
+  transition: transform 0.3s ease, opacity 0.3s ease;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.copy-toast.show {
+  transform: translateX(-50%) translateY(0);
+  opacity: 1;
+}
+
+.copy-toast i {
+  font-size: 0.85rem;
+}
+
+/* ================================
+   Category Summary Section
+   ================================ */
+.category-summary {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 0.75rem;
+}
+
+.category-card {
+  background: rgba(18, 24, 38, 0.6);
+  border-radius: 12px;
+  padding: 0.9rem 1rem;
+  border: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.category-card h4 {
+  margin: 0 0 0.5rem;
+  font-size: 0.9rem;
+  text-transform: capitalize;
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.category-card h4 i {
+  opacity: 0.7;
+}
+
+.category-stats {
+  display: flex;
+  gap: 0.75rem;
+  font-size: 0.8rem;
+}
+
+.category-stats span {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+.category-stats .modified { color: #ffa34f; }
+.category-stats .missing { color: #ff627c; }
+.category-stats .default { color: #64ffda; }
+
+/* ================================
+   Footer / Meta
+   ================================ */
+.config-meta {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 0.85rem;
+  opacity: 0.7;
+  padding-top: 0.5rem;
+}
+
+/* ================================
+   Responsive
+   ================================ */
+@media (max-width: 768px) {
+  .config-page .page-title {
+    font-size: 1.4rem;
+  }
+
+  .summary-card .card-value {
+    font-size: 1.8rem;
+  }
+
+  .config-filters {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .config-filters select,
+  .filter-btn {
+    width: 100%;
+  }
+
+  .config-table {
+    font-size: 0.85rem;
+  }
+
+  .config-value {
+    max-width: 150px;
+  }
+}
+
+/* ================================
+   Rose Pine Dawn Theme Support
+   ================================ */
+:root[data-theme="rose-pine-dawn"] .config-page {
+  color: var(--text-primary);
+}
+
+:root[data-theme="rose-pine-dawn"] .summary-card,
+:root[data-theme="rose-pine-dawn"] .config-table-wrapper,
+:root[data-theme="rose-pine-dawn"] .config-filters {
+  background: color-mix(in srgb, #ffffff 75%, var(--bg-secondary) 25%);
+  border-color: var(--glass-border);
+}
+
+:root[data-theme="rose-pine-dawn"] .config-table thead th,
+:root[data-theme="rose-pine-dawn"] .config-table tbody td {
+  border-color: rgba(87, 82, 121, 0.2);
+}
+
+:root[data-theme="rose-pine-dawn"] .config-key {
+  color: #286983;
+}
+
+:root[data-theme="rose-pine-dawn"] .copy-btn {
+  background: rgba(87, 82, 121, 0.08);
+  color: rgba(87, 82, 121, 0.5);
+}
+
+:root[data-theme="rose-pine-dawn"] .copy-btn:hover {
+  background: rgba(40, 105, 131, 0.15);
+  color: #286983;
+}
+
+:root[data-theme="rose-pine-dawn"] .copy-toast {
+  background: rgba(250, 244, 237, 0.95);
+  color: #286983;
+  border-color: rgba(40, 105, 131, 0.3);
+}
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="config-page" dir="rtl">
+  <!-- Page Title -->
+  <div class="page-title">
+    <i class="fas fa-cogs"></i>
+    Config Inspector
+  </div>
+
+  <!-- Alert for Missing Required Variables -->
+  {% if missing_required %}
+  <div class="config-alert warning">
+    <i class="fas fa-exclamation-triangle"></i>
+    <div>
+      <strong>אזהרה:</strong> משתני סביבה הכרחיים חסרים:
+      {% for key in missing_required %}
+        <code>{{ key }}</code>{% if not loop.last %}, {% endif %}
+      {% endfor %}
+    </div>
+  </div>
+  {% endif %}
+
+  <!-- Summary Cards -->
+  <div class="config-summary-cards">
+    <div class="summary-card">
+      <h3>סה"כ משתנים</h3>
+      <div class="card-value">{{ overview.total_count }}</div>
+    </div>
+    <div class="summary-card">
+      <h3>שונו מדיפולט</h3>
+      <div class="card-value modified">{{ overview.modified_count }}</div>
+    </div>
+    <div class="summary-card">
+      <h3>חסרים</h3>
+      <div class="card-value missing">{{ overview.missing_count }}</div>
+    </div>
+    <div class="summary-card">
+      <h3>ברירת מחדל</h3>
+      <div class="card-value default">{{ overview.default_count }}</div>
+    </div>
+  </div>
+
+  <!-- Filters -->
+  <form class="config-filters" method="get" action="">
+    <label for="categoryFilter">קטגוריה:</label>
+    <select name="category" id="categoryFilter">
+      <option value="">הכל</option>
+      {% for cat in overview.categories %}
+        <option value="{{ cat }}" {% if selected_category == cat %}selected{% endif %}>
+          {{ cat | capitalize }}
+        </option>
+      {% endfor %}
+    </select>
+
+    <label for="statusFilter">סטטוס:</label>
+    <select name="status" id="statusFilter">
+      <option value="">הכל</option>
+      {% for s in statuses %}
+        <option value="{{ s }}" {% if selected_status == s %}selected{% endif %}>
+          {{ s }}
+        </option>
+      {% endfor %}
+    </select>
+
+    <button type="submit" class="filter-btn">
+      <i class="fas fa-filter"></i> סנן
+    </button>
+    <a href="?" class="filter-btn reset-btn">
+      <i class="fas fa-redo"></i> איפוס
+    </a>
+  </form>
+
+  <!-- Category Summary -->
+  {% if category_summary %}
+  <div class="category-summary">
+    {% for cat, stats in category_summary.items() %}
+    <div class="category-card">
+      <h4>
+        {% if cat == 'database' %}<i class="fas fa-database"></i>
+        {% elif cat == 'api' %}<i class="fas fa-plug"></i>
+        {% elif cat == 'telegram' %}<i class="fab fa-telegram"></i>
+        {% elif cat == 'external' %}<i class="fas fa-cloud"></i>
+        {% elif cat == 'webserver' %}<i class="fas fa-server"></i>
+        {% elif cat == 'cache' %}<i class="fas fa-memory"></i>
+        {% elif cat == 'logging' %}<i class="fas fa-file-alt"></i>
+        {% elif cat == 'features' %}<i class="fas fa-toggle-on"></i>
+        {% elif cat == 'limits' %}<i class="fas fa-tachometer-alt"></i>
+        {% else %}<i class="fas fa-cog"></i>
+        {% endif %}
+        {{ cat | capitalize }}
+      </h4>
+      <div class="category-stats">
+        <span class="modified" title="שונו">
+          <i class="fas fa-pen"></i> {{ stats.modified }}
+        </span>
+        <span class="missing" title="חסרים">
+          <i class="fas fa-times"></i> {{ stats.missing }}
+        </span>
+        <span class="default" title="ברירת מחדל">
+          <i class="fas fa-check"></i> {{ stats.default }}
+        </span>
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+  {% endif %}
+
+  <!-- Config Table -->
+  <div class="config-table-wrapper">
+    <h2>
+      <i class="fas fa-list"></i>
+      פירוט משתנים
+    </h2>
+
+    {% if overview.entries %}
+    <table class="config-table">
+      <thead>
+        <tr>
+          <th>Key</th>
+          <th>Active Value</th>
+          <th>Default Value</th>
+          <th>Source</th>
+          <th>Status</th>
+          <th>תיאור</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for entry in overview.entries %}
+        <tr class="status-{{ entry.status.value | lower }}">
+          <td>
+            <div class="config-key">
+              <span class="category-badge">{{ entry.category }}</span>
+              {{ entry.key }}
+            </div>
+          </td>
+          <td>
+            <div class="value-wrapper">
+              <div class="config-value {% if entry.is_sensitive %}masked{% endif %} {% if not entry.active_value %}empty{% endif %}">
+                {% if entry.is_sensitive %}
+                  {{ entry.active_value }}
+                  <i class="fas fa-lock" style="margin-right: 0.3rem; font-size: 0.75rem; opacity: 0.6;" title="ערך מוסתר"></i>
+                {% elif entry.active_value %}
+                  {{ entry.active_value }}
+                {% else %}
+                  (ריק)
+                {% endif %}
+              </div>
+              {% if not entry.is_sensitive and entry.active_value %}
+              <button
+                type="button"
+                class="copy-btn"
+                data-copy="{{ entry.active_value }}"
+                title="העתק ללוח"
+                aria-label="העתק ערך ללוח">
+                <i class="fas fa-copy"></i>
+              </button>
+              {% endif %}
+            </div>
+          </td>
+          <td>
+            <div class="config-value {% if not entry.default_value %}empty{% endif %}">
+              {% if entry.default_value %}
+                {{ entry.default_value }}
+              {% else %}
+                (ללא)
+              {% endif %}
+            </div>
+          </td>
+          <td>
+            <span class="source-badge {{ entry.source.value | lower }}">
+              {% if entry.source.value == 'Environment' %}
+                <i class="fas fa-terminal"></i>
+              {% else %}
+                <i class="fas fa-code"></i>
+              {% endif %}
+              {{ entry.source.value }}
+            </span>
+          </td>
+          <td>
+            <span class="status-pill {{ entry.status.value | lower }}">
+              {% if entry.status.value == 'Modified' %}
+                <i class="fas fa-pen"></i>
+              {% elif entry.status.value == 'Missing' %}
+                <i class="fas fa-exclamation-circle"></i>
+              {% else %}
+                <i class="fas fa-check"></i>
+              {% endif %}
+              {{ entry.status.value }}
+            </span>
+          </td>
+          <td>
+            <div class="config-desc">{{ entry.description or '—' }}</div>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+    <div style="text-align: center; padding: 2rem; opacity: 0.7;">
+      <i class="fas fa-inbox" style="font-size: 2rem; margin-bottom: 0.5rem;"></i>
+      <p>לא נמצאו משתנים התואמים לסינון</p>
+    </div>
+    {% endif %}
+  </div>
+
+  <!-- Meta Footer -->
+  <div class="config-meta">
+    <span>
+      <i class="fas fa-clock"></i>
+      נוצר ב: {{ overview.generated_at }}
+    </span>
+    <span>
+      סה"כ: {{ overview.total_count }} משתנים
+    </span>
+  </div>
+</div>
+
+<script>
+(function() {
+  // ================================
+  // Copy to Clipboard functionality
+  // ================================
+
+  // Create toast element
+  const toast = document.createElement('div');
+  toast.className = 'copy-toast';
+  toast.innerHTML = '<i class="fas fa-check"></i> <span>הועתק ללוח!</span>';
+  document.body.appendChild(toast);
+
+  let toastTimeout = null;
+
+  function showToast(message = 'הועתק ללוח!') {
+    toast.querySelector('span').textContent = message;
+    toast.classList.add('show');
+
+    if (toastTimeout) {
+      clearTimeout(toastTimeout);
+    }
+
+    toastTimeout = setTimeout(() => {
+      toast.classList.remove('show');
+    }, 2000);
+  }
+
+  async function copyToClipboard(text, button) {
+    try {
+      await navigator.clipboard.writeText(text);
+
+      // Visual feedback on button
+      button.classList.add('copied');
+      const icon = button.querySelector('i');
+      icon.className = 'fas fa-check';
+
+      showToast();
+
+      // Reset button after animation
+      setTimeout(() => {
+        button.classList.remove('copied');
+        icon.className = 'fas fa-copy';
+      }, 1500);
+
+    } catch (err) {
+      console.error('Copy failed:', err);
+      showToast('שגיאה בהעתקה');
+    }
+  }
+
+  // Attach click handlers to all copy buttons
+  document.querySelectorAll('.copy-btn').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      const value = btn.dataset.copy;
+      if (value) {
+        copyToClipboard(value, btn);
+      }
+    });
+  });
+
+  // ================================
+  // Filter functionality
+  // ================================
+
+  const form = document.querySelector('.config-filters');
+  const selects = form.querySelectorAll('select');
+
+  selects.forEach(select => {
+    select.addEventListener('change', () => {
+      // Optional: auto-submit on filter change
+      // form.submit();
+    });
+  });
+
+  // Highlight rows on hover with smooth transition
+  const rows = document.querySelectorAll('.config-table tbody tr');
+  rows.forEach(row => {
+    row.style.transition = 'background 0.15s ease';
+  });
+
+  // ================================
+  // Keyboard shortcut: Ctrl+F to focus search
+  // ================================
+  document.addEventListener('keydown', (e) => {
+    // Escape closes toast
+    if (e.key === 'Escape' && toast.classList.contains('show')) {
+      toast.classList.remove('show');
+    }
+  });
+})();
+</script>
+{% endblock %}
+
