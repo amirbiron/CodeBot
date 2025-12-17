@@ -11,6 +11,9 @@ from functools import wraps
 from typing import Optional, Dict, Any, List, Tuple
 from datetime import datetime
 from io import BytesIO
+import json
+import os
+import time
 import zipfile
 import html
 import logging
@@ -443,7 +446,58 @@ def get_items(collection_id: str):
             return jsonify({'ok': False, 'error': 'Invalid page/per_page'}), 400
         include_computed = str(request.args.get('include_computed', 'true')).lower() == 'true'
         mgr = get_manager()
-        result = mgr.get_collection_items(user_id, collection_id, page=page, per_page=per_page, include_computed=include_computed)
+        t0 = time.perf_counter()
+        result = mgr.get_collection_items(
+            user_id,
+            collection_id,
+            page=page,
+            per_page=per_page,
+            include_computed=include_computed,
+        )
+        elapsed_ms = max(0.0, (time.perf_counter() - t0) * 1000.0)
+        # מדידת payload (best-effort) רק אם איטי או לפי בקשה מפורשת
+        debug_perf = str(request.args.get("debug_perf", "")).lower() in {"1", "true", "yes"}
+        try:
+            slow_ms_env = os.getenv("COLLECTIONS_API_ITEMS_SLOW_MS", "")
+            slow_ms = float(slow_ms_env) if slow_ms_env not in (None, "") else 500.0
+        except Exception:
+            slow_ms = 500.0
+        if debug_perf or elapsed_ms >= float(slow_ms or 0.0):
+            payload_bytes: Optional[int] = None
+            try:
+                payload_bytes = len(
+                    json.dumps(result, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+                )
+            except Exception:
+                payload_bytes = None
+            try:
+                emit_event(
+                    "collections_get_items_http_perf",
+                    severity="warn" if elapsed_ms >= float(slow_ms or 0.0) else "info",
+                    operation="collections.items",
+                    request_id=_get_request_id(),
+                    user_id=int(user_id),
+                    collection_id=str(collection_id),
+                    page=int(page),
+                    per_page=int(per_page),
+                    include_computed=bool(include_computed),
+                    total_ms=round(elapsed_ms, 1),
+                    payload_bytes=payload_bytes,
+                    items_count=int(len((result or {}).get("items") or [])) if isinstance(result, dict) else None,
+                    ok=bool((result or {}).get("ok")) if isinstance(result, dict) else None,
+                    handled=True,
+                )
+            except Exception:
+                pass
+            try:
+                logger.warning(
+                    "collections_get_items_http_slow ms=%.1f bytes=%s items=%s",
+                    elapsed_ms,
+                    payload_bytes,
+                    (len((result or {}).get("items") or []) if isinstance(result, dict) else None),
+                )
+            except Exception:
+                pass
         return jsonify(result)
     except Exception as e:
         rid = _get_request_id()
