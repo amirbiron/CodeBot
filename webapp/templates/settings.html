@@ -465,7 +465,7 @@
           </div>
         </div>
       </div>
-      <div>
+      <div style="display:flex; align-items:center; gap:0.5rem; justify-content:flex-end; flex-wrap:wrap;">
         <select
           id="themeSelect"
           class="filter-select"
@@ -483,6 +483,18 @@
           <option value="nebula" {% if ui_theme == 'nebula' %}selected{% endif %}>🌌 Nebula{% if ui_theme == 'nebula' %} (נוכחית){% endif %}</option>
           <option value="high-contrast" {% if ui_theme == 'high-contrast' %}selected{% endif %}>ניגודיות גבוהה{% if ui_theme == 'high-contrast' %} (נוכחית){% endif %}</option>
         </select>
+        {% if is_admin and custom_theme and custom_theme.is_active and ui_theme == 'custom' %}
+        <button
+          type="button"
+          class="btn btn-tertiary btn-icon"
+          onclick="deleteCustomTheme({{ (custom_theme.name if custom_theme.name else 'Custom') | tojson | safe }})"
+          title="מחק ערכה מותאמת"
+          style="opacity: 0.82; border-color: rgba(255,255,255,0.18);"
+        >
+          <i class="fas fa-trash" style="opacity: 0.75;"></i>
+          מחק ערכה {{ custom_theme.name if custom_theme.name else 'Custom' }}
+        </button>
+        {% endif %}
         {% if is_admin %}
         <div style="margin-top: 0.75rem; opacity: 0.85; font-size: 0.95rem;">
           <a class="btn btn-secondary btn-icon" href="/settings/theme-builder">
@@ -490,20 +502,6 @@
             בונה ערכת נושא (אדמין)
           </a>
         </div>
-        {% if custom_theme and custom_theme.is_active and ui_theme == 'custom' %}
-        <div style="margin-top: 0.5rem; display: flex; justify-content: flex-end;">
-          <button
-            type="button"
-            class="btn btn-tertiary btn-icon"
-            onclick="deleteCustomTheme()"
-            title="מחק ערכה מותאמת"
-            style="border-color: rgba(245, 101, 101, 0.55); color: var(--danger);"
-          >
-            <i class="fas fa-trash" style="color: var(--danger);"></i>
-            מחק ערכה
-          </button>
-        </div>
-        {% endif %}
         {% endif %}
       </div>
     </div>
@@ -1141,8 +1139,9 @@
       const themeSel = document.getElementById('themeSelect');
       
       // מחיקת ערכת נושא מותאמת (Custom) מתוך מסך ההגדרות
-      window.deleteCustomTheme = async function deleteCustomTheme(){
-        if (!confirm("האם למחוק את הערכה?")) {
+      window.deleteCustomTheme = async function deleteCustomTheme(themeName){
+        const name = (themeName && String(themeName).trim()) ? String(themeName).trim() : 'Custom';
+        if (!confirm(`האם למחוק את הערכה "${name}"?`)) {
           return;
         }
         try {
