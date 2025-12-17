@@ -1313,6 +1313,14 @@ def inject_globals():
     except Exception:
         static_ver = _STATIC_VERSION
 
+    # Global settings (animations kill switch, etc.)
+    global_enable_animations = True
+    try:
+        from services import global_settings
+        global_enable_animations = global_settings.is_animations_enabled()
+    except Exception:
+        global_enable_animations = True
+
     return {
         'bot_username': BOT_USERNAME_CLEAN,
         'ui_font_scale': font_scale,
@@ -1335,6 +1343,8 @@ def inject_globals():
         'show_welcome_modal': show_welcome_modal,
         'welcome_primary_guide_url': primary_guide_url,
         'welcome_secondary_guide_url': secondary_guide_url,
+        # Global system settings
+        'global_enable_animations': global_enable_animations,
     }
 
     
@@ -4257,6 +4267,72 @@ def admin_announcements_activate():
     except Exception:
         pass
     return redirect(url_for('admin_announcements_index'))
+
+
+# ===== Admin: Global Settings API =====
+
+@app.route('/api/admin/global-settings', methods=['GET'])
+@admin_required
+def api_admin_global_settings_get():
+    """מחזיר את כל ההגדרות הגלובליות (אדמין בלבד)."""
+    try:
+        from services import global_settings
+        return jsonify({
+            'ok': True,
+            'settings': global_settings.get_all()
+        })
+    except Exception as e:
+        logger.error(f"Error getting global settings: {e}")
+        return jsonify({'ok': False, 'error': str(e)}), 500
+
+
+@app.route('/api/admin/global-settings', methods=['POST'])
+@admin_required
+def api_admin_global_settings_update():
+    """עדכון הגדרה גלובלית (אדמין בלבד)."""
+    try:
+        data = request.get_json(force=True)
+    except Exception:
+        return jsonify({'ok': False, 'error': 'invalid_json'}), 400
+    
+    if not data:
+        return jsonify({'ok': False, 'error': 'no_data'}), 400
+    
+    key = data.get('key', '').strip()
+    value = data.get('value')
+    
+    if not key:
+        return jsonify({'ok': False, 'error': 'missing_key'}), 400
+    
+    # רשימת הגדרות מותרות לעדכון
+    ALLOWED_SETTINGS = {'ENABLE_ANIMATIONS'}
+    
+    if key not in ALLOWED_SETTINGS:
+        return jsonify({'ok': False, 'error': 'setting_not_allowed'}), 403
+    
+    try:
+        from services import global_settings
+        
+        # וולידציה לפי סוג ההגדרה
+        if key == 'ENABLE_ANIMATIONS':
+            value = bool(value)
+        
+        success = global_settings.set(key, value)
+        if success:
+            logger.info(f"Admin updated global setting: {key}={value}")
+            return jsonify({
+                'ok': True,
+                'key': key,
+                'value': value
+            })
+        else:
+            return jsonify({'ok': False, 'error': 'save_failed'}), 500
+            
+    except Exception as e:
+        logger.error(f"Error updating global setting {key}: {e}")
+        return jsonify({'ok': False, 'error': str(e)}), 500
+
+
 # ===== Global Content Search API =====
 def _search_limiter_decorator(rule: str):
     """Wrap limiter.limit if available; return no-op otherwise."""
@@ -9736,13 +9812,23 @@ def settings():
     except Exception:
         push_enabled = True
 
+    # Global settings for admin
+    global_settings_data = {}
+    if user_is_admin:
+        try:
+            from services import global_settings
+            global_settings_data = global_settings.get_all()
+        except Exception:
+            global_settings_data = {'ENABLE_ANIMATIONS': True}
+
     return render_template('settings.html',
                          user=session['user_data'],
                          is_admin=user_is_admin,
                          is_premium=user_is_premium,
                          persistent_login_enabled=has_persistent,
                          persistent_days=PERSISTENT_LOGIN_DAYS,
-                         push_enabled=push_enabled)
+                         push_enabled=push_enabled,
+                         global_settings=global_settings_data)
 
 @app.route('/health')
 @_limiter_exempt()

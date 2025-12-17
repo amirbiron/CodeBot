@@ -1041,3 +1041,99 @@ img.is-loaded {
     transition: none !important;
   }
 }
+
+/* ==============================================
+   Admin Kill Switch: Disable New Animations
+   מנטרל את האנימציות החדשות בלבד כאשר האדמין
+   מכבה אותן ברמת המערכת
+   ============================================== */
+
+body.disable-new-animations {
+  /* איפוס כל משתני הזמנים */
+  --duration-instant: 0ms !important;
+  --duration-fast: 0ms !important;
+  --duration-normal: 0ms !important;
+  --duration-slow: 0ms !important;
+  --duration-slower: 0ms !important;
+  
+  /* ביטול פונקציות תזמון לליניאריות */
+  --ease-out-expo: linear !important;
+  --ease-out-quart: linear !important;
+  --ease-in-out-quart: linear !important;
+  --ease-spring: linear !important;
+  --ease-smooth: linear !important;
+}
+
+/* כיבוי פיזי של אלמנטים ספציפיים למערכת האנימציות החדשה */
+body.disable-new-animations .skeleton,
+body.disable-new-animations .spinner,
+body.disable-new-animations .spinner-dots,
+body.disable-new-animations .item-enter,
+body.disable-new-animations .item-exit,
+body.disable-new-animations .item-success,
+body.disable-new-animations .anim-fade-in,
+body.disable-new-animations .anim-fade-out,
+body.disable-new-animations .anim-fade-in-up,
+body.disable-new-animations .anim-fade-in-down,
+body.disable-new-animations .anim-fade-in-scale,
+body.disable-new-animations .anim-slide-in-right,
+body.disable-new-animations .anim-slide-in-left,
+body.disable-new-animations .anim-scale-in,
+body.disable-new-animations .anim-pop-in,
+body.disable-new-animations .anim-shake,
+body.disable-new-animations .anim-wiggle,
+body.disable-new-animations .anim-pulse,
+body.disable-new-animations .anim-bounce,
+body.disable-new-animations .anim-glow,
+body.disable-new-animations .anim-success-flash,
+body.disable-new-animations .anim-error-shake,
+body.disable-new-animations .toast-enter,
+body.disable-new-animations .toast-exit,
+body.disable-new-animations .modal-backdrop,
+body.disable-new-animations .modal-content,
+body.disable-new-animations .stagger-children > * {
+  animation: none !important;
+  transition: none !important;
+}
+
+/* הסתרת skeleton loaders במצב מנוטרל */
+body.disable-new-animations .skeleton,
+body.disable-new-animations .skeleton-text,
+body.disable-new-animations .skeleton-title,
+body.disable-new-animations .skeleton-avatar,
+body.disable-new-animations .skeleton-card {
+  background: var(--card-bg, rgba(255, 255, 255, 0.1)) !important;
+  animation: none !important;
+}
+
+/* spinners יוצגו כסטטיים */
+body.disable-new-animations .spinner {
+  animation: none !important;
+  border-color: var(--anim-highlight) !important;
+}
+
+/* ביטול loading overlays animations */
+body.disable-new-animations .loading-overlay {
+  transition: none !important;
+}
+
+/* ביטול ripple effects */
+body.disable-new-animations .btn-ripple .ripple-effect {
+  display: none !important;
+}
+
+/* ביטול אנימציות בקבצים הספציפיים */
+body.disable-new-animations .collection-modal,
+body.disable-new-animations .collection-modal__backdrop,
+body.disable-new-animations .collection-modal__panel,
+body.disable-new-animations .collection-item,
+body.disable-new-animations .workspace-card,
+body.disable-new-animations .sidebar-item,
+body.disable-new-animations .bookmark-item,
+body.disable-new-animations .sticky-note,
+body.disable-new-animations .community-grid .card,
+body.disable-new-animations .glass-card,
+body.disable-new-animations .snippet-card {
+  animation: none !important;
+  transition: none !important;
+}

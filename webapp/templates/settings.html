@@ -90,6 +90,47 @@
   {% endif %}
 </div>
 
+{% if is_admin %}
+<div class="glass-card" style="border: 2px solid #f59e0b;">
+  <h2 class="section-title" style="color: #f59e0b;">
+    <i class="fas fa-shield-alt"></i>
+    🛡️ הגדרות מערכת (אדמין בלבד)
+  </h2>
+  <p style="opacity: 0.8; margin-bottom: 1.5rem;">
+    הגדרות אלו משפיעות על כל המשתמשים במערכת. השתמש בזהירות!
+  </p>
+  
+  <div class="glass-card" style="background: rgba(255, 255, 255, 0.05);">
+    <div style="display: flex; align-items: center; justify-content: space-between; gap: 1rem; flex-wrap: wrap;">
+      <div style="display: flex; align-items: center; gap: 1rem;">
+        <i class="fas fa-magic" style="font-size: 1.5rem; color: #a78bfa;"></i>
+        <div>
+          <div style="font-weight: 600;">אנימציות UX חדשות</div>
+          <div style="opacity: 0.8; font-size: 0.95rem;">
+            מתג חירום לכיבוי כל האנימציות החדשות במקרה של בעיה
+          </div>
+        </div>
+      </div>
+      <label class="switch">
+        <input
+          id="globalAnimationsToggle"
+          type="checkbox"
+          {% if global_settings.ENABLE_ANIMATIONS %}checked{% endif %}
+        />
+        <span class="slider"></span>
+      </label>
+    </div>
+    <div id="globalAnimationsMsg" style="opacity: 0.8; margin-top: 0.75rem; font-size: 0.95rem;">
+      {% if global_settings.ENABLE_ANIMATIONS %}
+        <span style="color: #4ade80;">✓ האנימציות מופעלות לכל המשתמשים</span>
+      {% else %}
+        <span style="color: #f87171;">✗ האנימציות מכובות לכל המשתמשים</span>
+      {% endif %}
+    </div>
+  </div>
+</div>
+{% endif %}
+
 <div class="glass-card">
   <h2 class="section-title">
     <i class="fas fa-clock"></i>
@@ -1106,6 +1147,34 @@
           } catch (e) {
             toggle.checked = !toggle.checked;
             alert('שגיאה בעדכון מצב החיבור הקבוע');
+          }
+        });
+      }
+
+      // Global Animations Toggle (Admin only)
+      const animToggle = document.getElementById('globalAnimationsToggle');
+      const animMsg = document.getElementById('globalAnimationsMsg');
+      if (animToggle) {
+        animToggle.addEventListener('change', async function(){
+          const enabled = animToggle.checked;
+          try {
+            const res = await fetch('/api/admin/global-settings', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ key: 'ENABLE_ANIMATIONS', value: enabled })
+            });
+            const data = await res.json();
+            if (!data.ok) throw new Error(data.error || 'Failed');
+            if (enabled) {
+              animMsg.innerHTML = '<span style="color: #4ade80;">✓ האנימציות מופעלות לכל המשתמשים</span>';
+              document.body.classList.remove('disable-new-animations');
+            } else {
+              animMsg.innerHTML = '<span style="color: #f87171;">✗ האנימציות מכובות לכל המשתמשים</span>';
+              document.body.classList.add('disable-new-animations');
+            }
+          } catch (e) {
+            animToggle.checked = !enabled;
+            alert('שגיאה בעדכון הגדרת האנימציות: ' + (e.message || 'Unknown error'));
           }
         });
       }
