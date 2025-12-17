@@ -61,6 +61,7 @@ from webapp.activity_tracker import log_user_event  # noqa: E402
 from webapp.config_radar import build_config_radar_snapshot  # noqa: E402
 from services import observability_dashboard as observability_service  # noqa: E402
 from services.diff_service import get_diff_service, DiffMode  # noqa: E402
+from services.db_health_service import get_db_health_service  # noqa: E402
 
 # קונפיגורציה מרכזית (Pydantic Settings)
 try:  # שמירה על יציבות גם בסביבות דוקס/CI
@@ -2979,6 +2980,101 @@ def db_health_page():
         abort(403)
 
     return render_template('db_health.html', db_health_token=token)
+
+
+def _db_health_token() -> str:
+    return str(os.getenv("DB_HEALTH_TOKEN", "") or "").strip()
+
+
+def _db_health_is_authorized() -> bool:
+    """אימות Bearer token עבור /api/db/* (הגנה על מידע רגיש)."""
+    token = _db_health_token()
+    if not token:
+        return False
+    auth = str(request.headers.get("Authorization", "") or "")
+    if not auth.startswith("Bearer "):
+        return False
+    provided = auth[7:].strip()
+    try:
+        return hmac.compare_digest(provided, token)
+    except Exception:
+        return False
+
+
+@app.route('/api/db/pool', methods=['GET'])
+async def api_db_pool():
+    """GET /api/db/pool - מצב Connection Pool."""
+    if not _db_health_token():
+        return jsonify({"error": "disabled"}), 403
+    if not _db_health_is_authorized():
+        return jsonify({"error": "unauthorized"}), 401
+    try:
+        svc = await get_db_health_service()
+        pool = await svc.get_pool_status()
+        return jsonify(pool.to_dict())
+    except Exception as e:
+        logger.exception("api_db_pool_failed")
+        return jsonify({"error": "failed", "message": str(e)}), 500
+
+
+@app.route('/api/db/ops', methods=['GET'])
+async def api_db_ops():
+    """GET /api/db/ops - פעולות איטיות פעילות."""
+    if not _db_health_token():
+        return jsonify({"error": "disabled"}), 403
+    if not _db_health_is_authorized():
+        return jsonify({"error": "unauthorized"}), 401
+    try:
+        threshold = int(request.args.get("threshold_ms", "1000"))
+    except Exception:
+        threshold = 1000
+    include_system = str(request.args.get("include_system", "")).lower() == "true"
+    try:
+        svc = await get_db_health_service()
+        ops = await svc.get_current_operations(threshold_ms=threshold, include_system=include_system)
+        return jsonify(
+            {
+                "count": len(ops),
+                "threshold_ms": threshold,
+                "operations": [op.to_dict() for op in ops],
+            }
+        )
+    except Exception as e:
+        logger.exception("api_db_ops_failed")
+        return jsonify({"error": "failed", "message": str(e)}), 500
+
+
+@app.route('/api/db/collections', methods=['GET'])
+async def api_db_collections():
+    """GET /api/db/collections - סטטיסטיקות collections."""
+    if not _db_health_token():
+        return jsonify({"error": "disabled"}), 403
+    if not _db_health_is_authorized():
+        return jsonify({"error": "unauthorized"}), 401
+    collection = request.args.get("collection")
+    try:
+        svc = await get_db_health_service()
+        stats = await svc.get_collection_stats(collection_name=collection)
+        return jsonify({"count": len(stats), "collections": [s.to_dict() for s in stats]})
+    except Exception as e:
+        logger.exception("api_db_collections_failed")
+        return jsonify({"error": "failed", "message": str(e)}), 500
+
+
+@app.route('/api/db/health', methods=['GET'])
+async def api_db_health():
+    """GET /api/db/health - סיכום בריאות כללי."""
+    if not _db_health_token():
+        return jsonify({"error": "disabled"}), 403
+    if not _db_health_is_authorized():
+        return jsonify({"error": "unauthorized"}), 401
+    try:
+        svc = await get_db_health_service()
+        summary = await svc.get_health_summary()
+        return jsonify(summary)
+    except Exception as e:
+        logger.exception("api_db_health_failed")
+        return jsonify({"error": "failed", "message": str(e)}), 500
 
 
 @app.route('/admin/stats')

@@ -1,5 +1,5 @@
 import os
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -223,6 +223,9 @@ class TestDatabaseHealthServiceIntegration:
     @pytest.fixture
     async def service(self):
         """יצירת service אמיתי."""
+        enabled = str(os.getenv("RUN_DB_HEALTH_INTEGRATION", "") or "").strip().lower() in {"1", "true", "yes"}
+        if not enabled:
+            pytest.skip("DB health integration tests are disabled (set RUN_DB_HEALTH_INTEGRATION=1)")
         if not os.getenv("MONGODB_URL"):
             pytest.skip("MONGODB_URL not set")
 
