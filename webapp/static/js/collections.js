@@ -2008,15 +2008,18 @@
     refreshSidebar: ensureCollectionsSidebar,
   };
   async function initCollectionsPage(){
-    try {
-      await ensureCollectionsSidebar();
-    } catch (_err) {}
     const initialId = consumeInitialCollectionId();
+    // טען את הסיידבר במקביל לטעינת הפריטים כדי לא "לשרשר" שתי בקשות ברצף בתחילת העמוד.
+    const sidebarPromise = ensureCollectionsSidebar().catch(() => {});
     if (!initialId) {
+      await sidebarPromise;
       return;
     }
     try {
-      await renderCollectionItems(initialId);
+      await Promise.all([
+        sidebarPromise,
+        renderCollectionItems(initialId),
+      ]);
     } catch (_err) {
       const container = document.getElementById('collectionsContent');
       if (container) {

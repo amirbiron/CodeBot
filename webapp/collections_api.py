@@ -329,7 +329,8 @@ def list_collections():
                         col.pop('public_api_url', None)
                 except Exception:
                     continue
-        return jsonify(result)
+        # החזר dict ישירות כדי להימנע מסריאליזציה כפולה (jsonify ואז get_json בדקורטור cache)
+        return result
     except Exception as e:
         rid = _get_request_id()
         uid = session.get('user_id')
@@ -361,7 +362,8 @@ def get_collection(collection_id: str):
                 result['public_api_url'] = public_api_url
                 col['public_url'] = public_url
                 col['public_api_url'] = public_api_url
-        return jsonify(result)
+        # החזר dict ישירות כדי להימנע מסריאליזציה כפולה (jsonify ואז get_json בדקורטור cache)
+        return result
     except Exception as e:
         rid = _get_request_id()
         try:
@@ -498,7 +500,8 @@ def get_items(collection_id: str):
                 )
             except Exception:
                 pass
-        return jsonify(result)
+        # החזר dict ישירות כדי להימנע מסריאליזציה כפולה (jsonify ואז get_json בדקורטור cache)
+        return result
     except Exception as e:
         rid = _get_request_id()
         try:
