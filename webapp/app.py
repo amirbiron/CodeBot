@@ -771,6 +771,7 @@ try:
     from metrics import (
         record_request_outcome,
         record_http_request,
+        record_request_queue_delay,
         get_boot_monotonic,
         mark_startup_complete,
         note_first_request_latency,
@@ -788,6 +789,8 @@ except Exception:  # pragma: no cover
     def record_request_outcome(status_code: int, duration_seconds: float, **_kwargs) -> None:
         return None
     def record_http_request(method: str, endpoint: str, status_code: int, duration_seconds: float) -> None:
+        return None
+    def record_request_queue_delay(method: str, endpoint: str | None, delay_seconds: float, **_kwargs) -> None:
         return None
     def get_boot_monotonic() -> float:
         return 0.0
@@ -2052,10 +2055,103 @@ def try_persistent_login():
         pass
 
 
+# --- Queue delay (request queueing) instrumentation ---
+_QUEUE_DELAY_HEADERS = ("X-Queue-Start", "X-Request-Start")
+_QUEUE_DELAY_EPOCH_RE = re.compile(r"(-?\d+(?:\.\d+)?)")
+
+
+def _queue_delay_warn_threshold_ms() -> int:
+    try:
+        return max(0, int(float(os.getenv("QUEUE_DELAY_WARN_MS", "500") or 500)))
+    except Exception:
+        return 500
+
+
+def _parse_request_start_to_epoch_seconds(raw: str | None) -> float | None:
+    """Parse ingress timestamp headers into epoch seconds (best-effort)."""
+    try:
+        text = str(raw or "").strip()
+    except Exception:
+        return None
+    if not text:
+        return None
+    if text.lower().startswith("t="):
+        text = text.split("=", 1)[1].strip()
+    m = _QUEUE_DELAY_EPOCH_RE.search(text)
+    if not m:
+        return None
+    token = m.group(1)
+    if not token:
+        return None
+    if "." in token:
+        try:
+            value = float(token)
+        except Exception:
+            return None
+        return value if value > 0 else None
+    try:
+        value_int = int(token)
+    except Exception:
+        return None
+    if value_int <= 0:
+        return None
+    digits = len(token.lstrip("+-"))
+    if digits <= 10:
+        return float(value_int)
+    if digits <= 13:
+        return float(value_int) / 1_000.0
+    if digits <= 16:
+        return float(value_int) / 1_000_000.0
+    return float(value_int) / 1_000_000_000.0
+
+
+def _compute_queue_delay_ms(headers, *, now_epoch_seconds: float) -> tuple[int, str | None]:
+    for header_name in _QUEUE_DELAY_HEADERS:
+        try:
+            raw = headers.get(header_name)
+        except Exception:
+            raw = None
+        if not raw:
+            continue
+        ts = _parse_request_start_to_epoch_seconds(raw)
+        if ts is None:
+            continue
+        try:
+            delay_ms = int(round(max(0.0, float(now_epoch_seconds - float(ts)) * 1000.0)))
+        except Exception:
+            delay_ms = 0
+        return delay_ms, header_name
+    return 0, None
+
+
+def _bind_queue_delay_context(queue_delay_ms: int, source_header: str | None) -> None:
+    """Bind queue delay to structlog contextvars (best-effort)."""
+    try:
+        import structlog  # type: ignore
+
+        payload: Dict[str, Any] = {"queue_delay": int(queue_delay_ms)}
+        if source_header:
+            payload["queue_delay_source"] = str(source_header)
+        structlog.contextvars.bind_contextvars(**payload)
+    except Exception:
+        return
+
+
 @app.before_request
 def _correlation_bind():
     """Bind a short request_id to structlog context and store for response header."""
     try:
+        # Queue delay must be captured as early as possible (before business logic).
+        try:
+            now_epoch = float(time.time())
+            q_ms, q_src = _compute_queue_delay_ms(request.headers, now_epoch_seconds=now_epoch)
+            setattr(g, "_queue_delay_ms", int(q_ms))
+            setattr(g, "_queue_delay_source", q_src)
+            _bind_queue_delay_context(int(q_ms), q_src)
+        except Exception:
+            setattr(g, "_queue_delay_ms", 0)
+            setattr(g, "_queue_delay_source", None)
+
         try:
             incoming = str(request.headers.get("X-Request-ID", "")).strip()
         except Exception:
@@ -2161,6 +2257,51 @@ def _metrics_after(resp):
             try:
                 method = getattr(request, "method", "GET")
                 record_http_request(method, endpoint, status, dur, path=path_label)
+            except Exception:
+                pass
+            # Queue delay instrumentation (best-effort)
+            try:
+                q_ms = int(getattr(g, "_queue_delay_ms", 0) or 0)
+            except Exception:
+                q_ms = 0
+            try:
+                q_src = getattr(g, "_queue_delay_source", None)
+            except Exception:
+                q_src = None
+            try:
+                record_request_queue_delay(method_label, endpoint, float(q_ms) / 1000.0)
+            except Exception:
+                pass
+            try:
+                rid = getattr(request, "_req_id", "") or ""
+                access_fields: Dict[str, Any] = {
+                    "request_id": str(rid),
+                    "method": method_label,
+                    "path": path_label,
+                    "handler": handler_label,
+                    "status_code": int(status),
+                    "duration_ms": int(float(dur) * 1000),
+                    "queue_delay": int(q_ms),
+                }
+                if q_src:
+                    access_fields["queue_delay_source"] = str(q_src)
+                emit_event("access_logs", severity="info", **access_fields)
+            except Exception:
+                pass
+            try:
+                threshold = _queue_delay_warn_threshold_ms()
+                if threshold > 0 and int(q_ms) >= int(threshold):
+                    warn_fields: Dict[str, Any] = {
+                        "request_id": str(getattr(request, "_req_id", "") or ""),
+                        "queue_delay": int(q_ms),
+                        "threshold_ms": int(threshold),
+                        "method": method_label,
+                        "path": path_label,
+                        "handler": handler_label,
+                    }
+                    if q_src:
+                        warn_fields["queue_delay_source"] = str(q_src)
+                    emit_event("queue_delay_high", severity="warning", **warn_fields)
             except Exception:
                 pass
             # מדידת זמן "בקשה ראשונה" מול זמן אתחול התהליך

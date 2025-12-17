@@ -221,6 +221,17 @@ http_request_duration_seconds = (
     else None
 )
 
+# Queue delay (time from ingress to app handling) as measured from X-Request-Start/X-Queue-Start.
+http_request_queue_duration_seconds = (
+    Histogram(
+        "http_request_queue_duration_seconds",
+        "HTTP request queue delay in seconds",
+        ["method", "endpoint"],
+    )
+    if Histogram
+    else None
+)
+
 # --- Stage 4: outbound dependency resilience metrics ---
 outbound_request_duration_seconds = (
     Histogram(
@@ -1211,6 +1222,23 @@ def record_http_request(
         # Keep Prometheus metrics for history, but optionally exclude from slow-endpoint sampling.
         if not _is_anomaly_ignored(path=path, endpoint=endpoint):
             _note_http_request_sample(m, ep, int(status), float(duration_seconds))
+    except Exception:
+        return
+
+
+def record_request_queue_delay(
+    method: str,
+    endpoint: str | None,
+    delay_seconds: float,
+) -> None:
+    """Record request queue delay (best-effort, never raises)."""
+    try:
+        if http_request_queue_duration_seconds is None:
+            return
+        ep = _normalize_endpoint(endpoint)
+        m = (method or "").upper() or "GET"
+        delay = max(0.0, float(delay_seconds))
+        http_request_queue_duration_seconds.labels(m, ep).observe(delay)
     except Exception:
         return
 
