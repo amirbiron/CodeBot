@@ -160,6 +160,36 @@
      - ``2``
      - ``4``
      - WebApp
+   * - ``OBSERVABILITY_WARMUP_ENABLED``
+     - הפעלה/כיבוי של Warmup “כבד” לדוחות Observability (למילוי קאש ו‑RAM) ברקע אחרי עליית התהליך
+     - לא
+     - ``true``
+     - ``false``
+     - WebApp
+   * - ``OBSERVABILITY_WARMUP_DELAY_SECONDS``
+     - השהייה (שניות) לפני תחילת Warmup הדוחות כדי לא להעמיס בזמן העלייה
+     - לא
+     - ``5``
+     - ``10``
+     - WebApp
+   * - ``OBSERVABILITY_WARMUP_BUDGET_SECONDS``
+     - תקציב זמן מקסימלי (שניות) ל‑Warmup הדוחות ברקע; מעבר לתקציב נעצור מוקדם
+     - לא
+     - ``20``
+     - ``30``
+     - WebApp
+   * - ``OBSERVABILITY_WARMUP_RANGES``
+     - רשימת טווחי זמן (CSV) לחימום ``/api/observability/aggregations`` (למשל ``24h,7d,30d``)
+     - לא
+     - ``24h,7d,30d``
+     - ``24h,7d``
+     - WebApp
+   * - ``OBSERVABILITY_WARMUP_SLOW_LIMIT``
+     - ערך ``slow_endpoints_limit`` עבור החימום (ברירת מחדל כמו ב‑API)
+     - לא
+     - ``5``
+     - ``10``
+     - WebApp
    * - ``PUBLIC_BASE_URL``
      - כתובת בסיס ציבורית ליצירת קישורי שיתוף
      - לא
