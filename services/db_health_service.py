@@ -607,6 +607,60 @@ _health_service_instance = None
 _health_service_lock = asyncio.Lock()
 
 
+def _is_truthy_env(name: str) -> bool:
+    val = os.getenv(name)
+    if val is None:
+        return False
+    return str(val).strip().lower() in {"1", "true", "yes", "y", "on"}
+
+
+def _db_health_disabled() -> bool:
+    # NOTE: חשוב במיוחד לטסטים – כדי להימנע מ-timeout על ping ל-MongoDB בזמן import/startup.
+    # קובץ tests/conftest.py כבר מגדיר DISABLE_DB=1 כברירת מחדל.
+    if _is_truthy_env("DISABLE_DB"):
+        return True
+    if _is_truthy_env("DB_HEALTH_DISABLED"):
+        return True
+    if _is_truthy_env("TESTING"):
+        return True
+    # Pytest מספק ENV ייחודי בזמן ריצה – שימוש בו כ"רשת ביטחון"
+    if os.getenv("PYTEST_CURRENT_TEST"):
+        return True
+    return False
+
+
+class _NoopDatabaseHealthService:
+    """שירות DB Health מושבת (למשל בטסטים).
+
+    מחזיר תשובות "ריקות" מהר כדי למנוע IO חיצוני / timeouts.
+    """
+
+    async def close(self) -> None:
+        return None
+
+    async def get_pool_status(self) -> PoolStatus:
+        return PoolStatus(current=0, available=0, total_created=0, max_pool_size=0, wait_queue_size=0, utilization_pct=0.0)
+
+    async def get_current_operations(
+        self,
+        threshold_ms: int = SLOW_QUERY_THRESHOLD_MS,
+        include_system: bool = False,
+    ) -> List[SlowOperation]:
+        return []
+
+    async def get_collection_stats(self, collection_name: Optional[str] = None) -> List[CollectionStat]:
+        return []
+
+    async def get_health_summary(self) -> Dict[str, Any]:
+        return {
+            "timestamp": time.time(),
+            "status": "disabled",
+            "pool": None,
+            "slow_queries_count": 0,
+            "errors": ["disabled"],
+        }
+
+
 async def get_db_health_service():
     """מחזיר את ה-service המתאים לפי הקונפיגורציה.
 
@@ -616,6 +670,12 @@ async def get_db_health_service():
     - אחרת: ThreadPoolDatabaseHealthService עם DatabaseManager הקיים
     """
     global _health_service_instance
+
+    # מצב בדיקות / DISABLE_DB: לא מנסים להתחבר ל-MongoDB בכלל (מונע timeouts).
+    if _db_health_disabled():
+        if not isinstance(_health_service_instance, _NoopDatabaseHealthService):
+            _health_service_instance = _NoopDatabaseHealthService()
+        return _health_service_instance
 
     # בדיקה מהירה לפני נעילה (double-checked locking)
     if _health_service_instance is not None:
