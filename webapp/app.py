@@ -1275,6 +1275,34 @@ def inject_globals():
     if theme not in ALLOWED_UI_THEMES:
         theme = 'classic'
 
+    # ערכת נושא מותאמת (אם קיימת) — מועברת לתבניות כדי לאפשר injection ב-base.html
+    custom_theme = None
+    user_is_admin = False
+    try:
+        if user_id:
+            user_is_admin = bool(is_admin(int(user_id)))
+    except Exception:
+        user_is_admin = False
+    try:
+        if user_id and user_doc:
+            ct = user_doc.get('custom_theme')
+            if isinstance(ct, dict) and ct:
+                # Normalize minimal structure to avoid template errors
+                if not isinstance(ct.get('variables'), dict):
+                    ct = {**ct, 'variables': {}}
+                if user_is_admin:
+                    custom_theme = ct
+    except Exception:
+        custom_theme = None
+
+    # Safety: אל תאפשר theme=custom בלי custom_theme פעיל (וגם לא למשתמשים לא-אדמין).
+    try:
+        ct_active = bool(custom_theme and isinstance(custom_theme, dict) and custom_theme.get('is_active'))
+    except Exception:
+        ct_active = False
+    if theme == 'custom' and not (user_is_admin and ct_active):
+        theme = 'classic'
+
     show_welcome_modal = False
     if user_id:
         # אם אין user_doc (למשל כשל זמני ב-DB) נ fallback לסשן כדי לא לחסום משתמשים חדשים
@@ -1317,6 +1345,7 @@ def inject_globals():
         'bot_username': BOT_USERNAME_CLEAN,
         'ui_font_scale': font_scale,
         'ui_theme': theme,
+        'custom_theme': custom_theme,
         # Feature flags
         'announcement_enabled': WEEKLY_TIP_ENABLED,
         'weekly_tip_enabled': WEEKLY_TIP_ENABLED,
@@ -1348,7 +1377,51 @@ ALLOWED_UI_THEMES = {
     'dim',
     'rose-pine-dawn',
     'nebula',
+    'custom',
 }
+
+# --- Theme Builder validation ---
+# Regex for safe color validation - prevents CSS injection
+# Note: keep regex linear-time; bound variable-length parts to avoid ReDoS.
+VALID_COLOR_REGEX = re.compile(
+    r'^('
+    r'#[0-9a-fA-F]{6}'
+    r'|#[0-9a-fA-F]{8}'
+    r'|rgba?\(\s*\d{1,3}\s*,\s*\d{1,3}\s*,\s*\d{1,3}\s*(,\s*[\d.]+\s*)?\)'
+    r'|var\(--[a-zA-Z0-9_-]+\)'
+    r'|color-mix\(in\s+srgb\s*,\s*[^)]{1,160}\)'
+    r')$'
+)
+MAX_THEME_NAME_LENGTH = 50
+MAX_THEME_VALUE_LENGTH = 200
+ALLOWED_VARIABLES = {
+    '--bg-primary', '--bg-secondary', '--card-bg',
+    '--primary', '--secondary',
+    '--text-primary', '--text-secondary',
+    '--glass', '--glass-border', '--glass-hover', '--glass-blur',
+    '--md-surface', '--md-text',
+    '--btn-primary-bg', '--btn-primary-color',
+}
+
+
+def _validate_color(value: str) -> bool:
+    """בדיקה שהערך הוא צבע תקין או blur value (px)."""
+    if not value or not isinstance(value, str):
+        return False
+    value = value.strip()
+    if not value:
+        return False
+    # Safety: prevent expensive validation on huge strings (ReDoS / accidental payloads)
+    if len(value) > MAX_THEME_VALUE_LENGTH:
+        return False
+    # blur יכול להיות ערך px
+    if value.endswith('px'):
+        try:
+            float(value[:-2])
+            return True
+        except ValueError:
+            return False
+    return bool(VALID_COLOR_REGEX.match(value))
 
 def get_current_theme() -> str:
     """קובע את ערכת הנושא הנוכחית לפי cookie ו/או העדפות משתמש (DB).
@@ -9780,6 +9853,31 @@ def settings():
                          persistent_days=PERSISTENT_LOGIN_DAYS,
                          push_enabled=push_enabled)
 
+
+@app.route('/settings/theme-builder')
+@login_required
+def theme_builder():
+    """דף בונה ערכת נושא מותאמת אישית (זמין כרגע לאדמינים בלבד)."""
+    user_id = session['user_id']
+    if not is_admin(user_id):
+        abort(404)
+
+    saved_theme = None
+    try:
+        db = get_db()
+        user_doc = db.users.find_one({'user_id': user_id}, {'custom_theme': 1}) or {}
+        saved_theme = user_doc.get('custom_theme')
+    except Exception as e:
+        logger.warning("theme_builder: failed to load custom_theme: %s", e)
+
+    return render_template(
+        'settings/theme_builder.html',
+        user=session.get('user_data', {}),
+        is_admin=True,
+        is_premium=is_premium(user_id),
+        saved_theme=saved_theme,
+    )
+
 @app.route('/health')
 @_limiter_exempt()
 def health():
@@ -9971,7 +10069,7 @@ def api_ui_prefs():
 
     קלט JSON נתמך:
     - font_scale: float בין 0.85 ל-1.6 (אופציונלי)
-    - theme: אחד מ-{"classic","ocean","forest","high-contrast","dark","dim","rose-pine-dawn","nebula"} (אופציונלי)
+    - theme: אחד מ-{"classic","ocean","forest","high-contrast","dark","dim","rose-pine-dawn","nebula","custom"} (אופציונלי)
     - editor: "simple" | "codemirror" (אופציונלי)
     - work_state: אובייקט עם מצב עבודה נוכחי (last_url, scroll_y, timestamp)
     """
@@ -10005,7 +10103,23 @@ def api_ui_prefs():
         # עדכון ערכת צבעים במידת הצורך
         if 'theme' in payload:
             theme = (payload.get('theme') or '').strip().lower()
-            if theme in ALLOWED_UI_THEMES:
+            # Feature flag: 'custom' זמין כרגע רק לאדמינים ורק אם קיימת ערכה פעילה ב-DB.
+            if theme == 'custom':
+                if not is_admin(user_id):
+                    return jsonify({'ok': False, 'error': 'admin_only'}), 403
+                try:
+                    udoc = db.users.find_one({'user_id': user_id}, {'custom_theme': 1}) or {}
+                    ct = (udoc.get('custom_theme') or {}) if isinstance(udoc, dict) else {}
+                    if not (isinstance(ct, dict) and ct.get('is_active')):
+                        return jsonify({'ok': False, 'error': 'custom_theme_not_active'}), 400
+                except Exception:
+                    return jsonify({'ok': False, 'error': 'custom_theme_not_active'}), 400
+
+            if theme in ALLOWED_UI_THEMES and theme != 'custom':
+                update_fields['ui_prefs.theme'] = theme
+                resp_payload['theme'] = theme
+                theme_cookie_value = theme
+            elif theme == 'custom':
                 update_fields['ui_prefs.theme'] = theme
                 resp_payload['theme'] = theme
                 theme_cookie_value = theme
@@ -10076,6 +10190,78 @@ def api_ui_prefs():
         return resp
     except Exception:
         return jsonify({'ok': False, 'error': 'שגיאה לא צפויה'}), 500
+
+
+@app.route('/api/themes/save', methods=['POST'])
+@login_required
+def save_custom_theme():
+    """שמירת ערכת נושא מותאמת אישית (Admin-only בשלב הזה)."""
+    user_id = _require_admin_user()
+    if not user_id:
+        return jsonify({"ok": False, "error": "admin_only"}), 403
+
+    data = request.get_json(silent=True) or {}
+
+    # ולידציית שם
+    name = (data.get("name") or "").strip()
+    if not name:
+        return jsonify({"ok": False, "error": "missing_name"}), 400
+    if len(name) > MAX_THEME_NAME_LENGTH:
+        return jsonify({"ok": False, "error": "name_too_long"}), 400
+
+    # ולידציית variables
+    variables = data.get("variables") or {}
+    if not isinstance(variables, dict):
+        return jsonify({"ok": False, "error": "invalid_variables"}), 400
+
+    validated_vars: Dict[str, str] = {}
+    for var_name, var_value in variables.items():
+        if var_name not in ALLOWED_VARIABLES:
+            continue  # התעלם ממשתנים לא מוכרים
+        if not _validate_color(var_value):
+            return jsonify({"ok": False, "error": "invalid_color", "field": var_name}), 400
+        validated_vars[var_name] = str(var_value).strip()
+
+    theme_doc = {
+        "name": name,
+        "description": (data.get("description") or "").strip()[:200],
+        "is_active": bool(data.get("set_as_default", True)),
+        "updated_at": datetime.now(timezone.utc),
+        "variables": validated_vars,
+    }
+
+    try:
+        db = get_db()
+        db.users.update_one({"user_id": user_id}, {"$set": {"custom_theme": theme_doc}}, upsert=True)
+
+        if theme_doc["is_active"]:
+            db.users.update_one({"user_id": user_id}, {"$set": {"ui_prefs.theme": "custom"}}, upsert=True)
+
+        return jsonify({"ok": True})
+    except Exception as e:
+        logger.exception("save_custom_theme failed: %s", e)
+        return jsonify({"ok": False, "error": "database_error"}), 500
+
+
+@app.route('/api/themes/custom', methods=['DELETE'])
+@login_required
+def delete_custom_theme():
+    """מחיקת ערכת נושא מותאמת אישית (איפוס) (Admin-only בשלב הזה)."""
+    user_id = _require_admin_user()
+    if not user_id:
+        return jsonify({"ok": False, "error": "admin_only"}), 403
+
+    try:
+        db = get_db()
+        db.users.update_one(
+            {"user_id": user_id},
+            {"$unset": {"custom_theme": ""}, "$set": {"ui_prefs.theme": "classic"}},
+            upsert=True,
+        )
+        return jsonify({"ok": True, "reset_to": "classic"})
+    except Exception as e:
+        logger.exception("delete_custom_theme failed: %s", e)
+        return jsonify({"ok": False, "error": "database_error"}), 500
 
 
 @app.route('/api/config/radar', methods=['GET'])

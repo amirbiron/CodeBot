@@ -238,21 +238,21 @@ Component Tokens ו‑Theme Builder
 
 .. note::
 
-   המפרט הרשמי של Theme Builder מתועד ב‑Issue #2097. הפיצ׳ר טרם פותח, אך ההנחיות כאן משמשות כספציפיקציה מחייבת גם לפיתוח עתידי וגם לעבודה ידנית זמנית.
+   המפרט הרשמי של Theme Builder מתועד ב‑Issue #2097. הפיצ׳ר **ממומש** ומופעל כרגע **רק למשתמשי אדמין** (feature flag זמני).
 
 - מטרות ה‑Builder (לפי Issue #2097):
   - בונה ערכה ב‑`/settings/theme-builder` עם Live Preview מבודד שמצרוך `var(--token)` בלבד ולא משפיע על שאר ה‑UI עד לשמירה.
   - שמירת Theme יחיד בשדה ``users.custom_theme`` + הזרקה אוטומטית דרך ``<style id="user-custom-theme">`` ב‑``base.html``.
   - בקרה על קבוצות הטוקנים: רקעים (`--bg-primary`, `--bg-secondary`, `--card-bg`), אקסנטים (`--primary`, `--secondary`), טקסט (`--text-primary`, `--text-secondary`), Glass (`--glass`, `--glass-border`, `--glass-hover`, `--glass-blur` החדש) ו‑Markdown (`--md-surface`, `--md-text`).
-  - ממשק עם Pickr (RGBA + Opacity) וסליידר Blur שמעדכן את `--glass-blur` (ערך px).
+  - ממשק עם Pickr (RGBA + Opacity) וסליידר Blur שמעדכן את `--glass-blur` (ערך px). **הספרייה נטענת לוקאלית** מתוך ``webapp/static/libs/pickr`` (בלי CDN).
   - API לשמירה: ``POST /api/themes/save`` עם ולידציה (`VALID_COLOR_REGEX`, `MAX_THEME_NAME_LENGTH`) ושדה ``variables`` שמכיל רק את הטוקנים המאושרים; כפתור Reset מבצע ``DELETE /api/themes/custom``.
   - נגישות: תיוגי `aria`, Toast לכשלי שמירה ובדיקת ניגודיות ≥ 4.5:1 לערכים שנשמרים.
-- שימו לב: עד שהפיצ׳ר יפותח, ניתן להשתמש בכללים הללו כ‑spec לעבודה ידנית עם Overrides.
+- שימו לב: עד שיוסר ה‑feature flag, הפיצ׳ר מיועד לאדמינים בלבד; משתמשים רגילים לא אמורים לראות את הדף/ה‑API.
 - כאשר מוסיפים טוקן חדש:
   1. הוסיפו ערך ברירת מחדל ל‑``:root`` בתוך ``webapp/static/css/variables.css``.
   2. הוסיפו Overrides בבלוקים של כל Theme שדורש התאמה.
   3. אם הטוקן שייך לרכיב ספציפי, הגדירו אותו גם בקובץ הרכיב (למשל ``split-view.css``) כדי לא לאבד הקשר.
-- בעתיד Theme Builder (או Override ידני) ייעשה באמצעות ``<style id="user-custom-theme">`` שמוזרק בסוף ה‑``<head>``. כך ניתן לאפשר Overrides בטוחים:
+- Theme Builder (או Override ידני) נעשה באמצעות ``<style id="user-custom-theme">`` שמוזרק בסוף ה‑``<head>``. כך ניתן לאפשר Overrides בטוחים:
 
   .. code-block:: html
 
