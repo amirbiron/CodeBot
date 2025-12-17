@@ -238,6 +238,12 @@
      - ``10``
      - ``10``
      - WebApp
+   * - ``DB_HEALTH_COLLECTIONS_COOLDOWN_SEC``
+     - זמן Cooldown (שניות) בין קריאות ל-``/api/db/collections`` (פעולת ``collStats``). קריאה נוספת בתוך החלון תחזיר ``429`` עם Header ``Retry-After``.
+     - לא
+     - ``30``
+     - ``30``
+     - WebApp
    * - ``PREMIUM_USER_IDS``
      - מזהי משתמש טלגרם לסטטוס פרימיום (CSV)
      - לא

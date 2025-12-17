@@ -574,6 +574,7 @@ class CollectionsManager:
         """Reorder items within a collection.
 
         Requirements (for FakeDB compatibility and simplicity):
+
         - Do not use update_many/bulk.
         - Load the collection document, update its "items" field to reflect
           the new order (list of {source, file_name}), update items_count,
