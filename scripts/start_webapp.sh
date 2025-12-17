@@ -43,7 +43,51 @@ APP_MODULE="${WEBAPP_WSGI_APP:-app:app}"
 log "Starting Gunicorn (${APP_MODULE}) on 0.0.0.0:${PORT}"
 
 cd "$APP_DIR"
-gunicorn "$APP_MODULE" --bind "0.0.0.0:${PORT}" &
+
+# --- Gunicorn concurrency tuning (Render/Prod) ---
+# ברירת מחדל "חכמה" כדי לצמצם queue_delay כאשר בקשות איטיות תופסות worker יחיד.
+# ניתן לשלוט ידנית דרך ENV:
+# - WEB_CONCURRENCY / WEBAPP_GUNICORN_WORKERS
+# - WEBAPP_GUNICORN_THREADS
+# - WEBAPP_GUNICORN_WORKER_CLASS (ברירת מחדל: gthread)
+# - WEBAPP_GUNICORN_TIMEOUT / WEBAPP_GUNICORN_KEEPALIVE
+cpu_count="1"
+if command -v getconf >/dev/null 2>&1; then
+  cpu_count="$(getconf _NPROCESSORS_ONLN 2>/dev/null || echo 1)"
+elif command -v nproc >/dev/null 2>&1; then
+  cpu_count="$(nproc 2>/dev/null || echo 1)"
+fi
+cpu_count="$(trim "${cpu_count:-1}")"
+
+GUNICORN_WORKERS="$(trim "${WEB_CONCURRENCY:-${WEBAPP_GUNICORN_WORKERS:-}}")"
+if [ -z "$GUNICORN_WORKERS" ]; then
+  # ברירת מחדל שמרנית ל-Render Starter: 2 processes כדי שלא "worker אחד" יתקע את כולם.
+  # במכונות עם יותר CPU, נשתמש בכמות הליבות עד תקרה של 4 (למניעת צריכת זיכרון חריגה).
+  if [ "${cpu_count:-1}" -le 1 ]; then
+    GUNICORN_WORKERS="2"
+  else
+    GUNICORN_WORKERS="${cpu_count}"
+  fi
+  # cap to 4
+  if [ "${GUNICORN_WORKERS:-2}" -gt 4 ]; then
+    GUNICORN_WORKERS="4"
+  fi
+fi
+
+GUNICORN_THREADS="$(trim "${WEBAPP_GUNICORN_THREADS:-4}")"
+GUNICORN_WORKER_CLASS="$(trim "${WEBAPP_GUNICORN_WORKER_CLASS:-gthread}")"
+GUNICORN_TIMEOUT="$(trim "${WEBAPP_GUNICORN_TIMEOUT:-60}")"
+GUNICORN_KEEPALIVE="$(trim "${WEBAPP_GUNICORN_KEEPALIVE:-2}")"
+
+log "Gunicorn config: workers=${GUNICORN_WORKERS} threads=${GUNICORN_THREADS} class=${GUNICORN_WORKER_CLASS} timeout=${GUNICORN_TIMEOUT}s keepalive=${GUNICORN_KEEPALIVE}s"
+
+gunicorn "$APP_MODULE" \
+  --bind "0.0.0.0:${PORT}" \
+  --workers "${GUNICORN_WORKERS}" \
+  --worker-class "${GUNICORN_WORKER_CLASS}" \
+  --threads "${GUNICORN_THREADS}" \
+  --timeout "${GUNICORN_TIMEOUT}" \
+  --keep-alive "${GUNICORN_KEEPALIVE}" &
 APP_PID=$!
 
 cleanup() {
