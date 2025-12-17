@@ -42,6 +42,7 @@ except Exception as e:
 from aiohttp import web
 import json
 import time
+from services.db_health_service import get_db_health_service
 try:
     # Correlation for web requests
     from observability import generate_request_id, bind_request_id  # type: ignore
@@ -99,6 +100,49 @@ except ValueError:
 _AI_ROUTE_TOKEN = os.getenv("OBS_AI_EXPLAIN_TOKEN") or os.getenv("AI_EXPLAIN_TOKEN") or ""
 
 logger = logging.getLogger(__name__)
+
+# --- DB Health auth (Token-based) ---
+DB_HEALTH_TOKEN = os.getenv("DB_HEALTH_TOKEN", "")
+
+
+def _constant_time_compare(a: str, b: str) -> bool:
+    """השוואה בזמן קבוע למניעת timing attacks.
+
+    משתמש ב-hmac.compare_digest שמבצע השוואה בזמן קבוע
+    ללא קיצור-דרך על אי-התאמה ראשונה.
+    """
+    try:
+        return hmac.compare_digest(
+            a.encode("utf-8") if isinstance(a, str) else a,
+            b.encode("utf-8") if isinstance(b, str) else b,
+        )
+    except (TypeError, AttributeError):
+        return False
+
+
+@web.middleware
+async def db_health_auth_middleware(request: web.Request, handler):
+    """Middleware להגנה על endpoints של /api/db/*"""
+    if request.path.startswith("/api/db/"):
+        if not DB_HEALTH_TOKEN:
+            # אם לא מוגדר token, חסום לגמרי
+            return web.json_response({"error": "disabled"}, status=403)
+
+        auth = request.headers.get("Authorization", "")
+
+        # בדיקה שה-header מתחיל ב-Bearer (לא חושפת מידע)
+        if not auth.startswith("Bearer "):
+            return web.json_response({"error": "unauthorized"}, status=401)
+
+        provided_token = auth[7:]  # הסר את "Bearer "
+
+        # השוואה בזמן קבוע למניעת timing attacks!
+        # secrets.compare_digest או hmac.compare_digest
+        if not _constant_time_compare(provided_token, DB_HEALTH_TOKEN):
+            return web.json_response({"error": "unauthorized"}, status=401)
+
+    return await handler(request)
+
 
 # AI explain service is optional in minimal envs.
 # IMPORTANT: Tests monkeypatch `services.webserver.ai_explain_service`, so keep the attribute always present.
@@ -613,7 +657,26 @@ def create_app() -> web.Application:
                 )
         return response
 
-    app = web.Application(middlewares=[_request_id_mw])
+    app = web.Application(middlewares=[_request_id_mw, db_health_auth_middleware])
+
+    async def on_startup(app: web.Application):
+        """אתחול שירותים בעליית השרת."""
+        try:
+            # אתחול מוקדם של DB Health Service
+            svc = await get_db_health_service()
+            app["db_health_service"] = svc
+            logger.info("DB Health Service initialized")
+        except Exception as e:
+            logger.warning(f"DB Health Service init failed: {e}")
+
+    async def on_cleanup(app: web.Application):
+        """ניקוי משאבים בכיבוי השרת."""
+        svc = app.get("db_health_service")
+        if svc and hasattr(svc, "close"):
+            await svc.close()
+
+    app.on_startup.append(on_startup)
+    app.on_cleanup.append(on_cleanup)
 
     async def health(request: web.Request) -> web.Response:
         return web.json_response({"status": "ok"})
@@ -1013,6 +1076,72 @@ def create_app() -> web.Application:
 """
         return web.Response(text=html, content_type="text/html")
 
+    async def db_health_pool_view(request: web.Request) -> web.Response:
+        """GET /api/db/pool - מצב Connection Pool."""
+        try:
+            # await לקבלת ה-service (יכול להיות async init)
+            svc = await get_db_health_service()
+            # await לקריאה ל-MongoDB (Motor או thread pool)
+            pool = await svc.get_pool_status()
+            return web.json_response(pool.to_dict())
+        except Exception as e:
+            logger.error(f"db_health_pool error: {e}")
+            return web.json_response({"error": "failed", "message": str(e)}, status=500)
+
+    async def db_health_ops_view(request: web.Request) -> web.Response:
+        """GET /api/db/ops - פעולות איטיות פעילות."""
+        try:
+            threshold = int(request.query.get("threshold_ms", "1000"))
+            include_system = request.query.get("include_system", "").lower() == "true"
+
+            svc = await get_db_health_service()
+            # await חובה! - הקריאה ל-MongoDB היא אסינכרונית
+            ops = await svc.get_current_operations(
+                threshold_ms=threshold,
+                include_system=include_system,
+            )
+
+            return web.json_response(
+                {
+                    "count": len(ops),
+                    "threshold_ms": threshold,
+                    "operations": [op.to_dict() for op in ops],
+                }
+            )
+        except Exception as e:
+            logger.error(f"db_health_ops error: {e}")
+            return web.json_response({"error": "failed", "message": str(e)}, status=500)
+
+    async def db_health_collections_view(request: web.Request) -> web.Response:
+        """GET /api/db/collections - סטטיסטיקות collections."""
+        try:
+            collection = request.query.get("collection")
+
+            svc = await get_db_health_service()
+            # await חובה! - collStats יכול לקחת זמן
+            stats = await svc.get_collection_stats(collection_name=collection)
+
+            return web.json_response(
+                {
+                    "count": len(stats),
+                    "collections": [s.to_dict() for s in stats],
+                }
+            )
+        except Exception as e:
+            logger.error(f"db_health_collections error: {e}")
+            return web.json_response({"error": "failed", "message": str(e)}, status=500)
+
+    async def db_health_summary_view(request: web.Request) -> web.Response:
+        """GET /api/db/health - סיכום בריאות כללי."""
+        try:
+            svc = await get_db_health_service()
+            # await חובה!
+            summary = await svc.get_health_summary()
+            return web.json_response(summary)
+        except Exception as e:
+            logger.error(f"db_health_summary error: {e}")
+            return web.json_response({"error": "failed", "message": str(e)}, status=500)
+
     app.router.add_get("/health", health)
     # Always expose /healthz alias for platform probes
     try:
@@ -1038,6 +1167,10 @@ def create_app() -> web.Application:
     app.router.add_get("/incidents", incidents_get_view)
     app.router.add_post("/api/ai/explain", ai_explain_view)
     app.router.add_get("/share/{share_id}", share_view)
+    app.router.add_get("/api/db/pool", db_health_pool_view)
+    app.router.add_get("/api/db/ops", db_health_ops_view)
+    app.router.add_get("/api/db/collections", db_health_collections_view)
+    app.router.add_get("/api/db/health", db_health_summary_view)
 
     return app
 

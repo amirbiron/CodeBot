@@ -2958,6 +2958,29 @@ def _log_webapp_user_activity() -> bool:
         return False
 
 
+@app.route('/db-health')
+def db_health_page():
+    """דף דשבורד בריאות מסד הנתונים (Admin בלבד)."""
+    try:
+        user_id = session.get('user_id')
+    except Exception:
+        user_id = None
+
+    # דרישת המוצר: ללא הרשאה מתאימה => 403 (גם אם לא מחובר)
+    try:
+        uid_int = int(user_id) if user_id is not None else None
+    except Exception:
+        uid_int = None
+    if not uid_int or not is_admin(uid_int):
+        abort(403)
+
+    token = str(os.getenv("DB_HEALTH_TOKEN", "") or "").strip()
+    if not token:
+        abort(403)
+
+    return render_template('db_health.html', db_health_token=token)
+
+
 @app.route('/admin/stats')
 @admin_required
 def admin_stats_page():
