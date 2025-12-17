@@ -213,6 +213,14 @@ def test_is_file_active_for_regular_and_large_and_exception_path(mgr: Collection
     assert by_name2["a.py"]["is_file_active"] is False
     assert by_name2["b.big"]["is_file_active"] is False
 
+    # תאימות: אם large_files לא מוגדר, fallback ל-code_snippets עבור פריטי large
+    mgr.large_files = None  # type: ignore[assignment]
+    mgr.code_snippets.insert_one({"user_id": 20, "file_name": "b.big", "is_active": True})  # type: ignore[attr-defined]
+    out_fallback = mgr.get_collection_items(20, cid, page=1, per_page=10, include_computed=False)
+    assert out_fallback["ok"]
+    by_name_fb = {it["file_name"]: it for it in out_fallback["items"]}
+    assert by_name_fb["b.big"]["is_file_active"] is True
+
     # מסלול חריגות: large_files.find_one יזרוק — המנג'ר צריך לסמן True (fail-open)
     class Boom:
         def find_one(self, *a, **k):  # pragma: no cover - exercised here

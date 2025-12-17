@@ -818,7 +818,19 @@ class CollectionsManager:
                 # large
                 if large_names:
                     if self.large_files is None:
-                        _mark_all("large", large_names, True)
+                        # תאימות להתנהגות קודמת:
+                        # כאשר large_files לא קיים, נסה לבדוק קיום דרך code_snippets (אם זמין).
+                        # זה מאפשר "graceful degradation" בסביבות ללא large_files.
+                        if self.code_snippets is None:
+                            _mark_all("large", large_names, True)
+                        else:
+                            try:
+                                active_large_fallback = _batch_active_names(self.code_snippets, large_names)
+                                for fn in large_names:
+                                    active_map[("large", fn)] = bool(fn in active_large_fallback)
+                            except Exception:
+                                # fail-open: אם יש כשל במסד – נניח פעיל כדי לא להסתיר פריטים
+                                _mark_all("large", large_names, True)
                     else:
                         try:
                             active_large = _batch_active_names(self.large_files, large_names)
