@@ -2674,6 +2674,7 @@ def alertmanager_webhook():
         # --- DEBUG START ---
         # חשוב: לא מדפיסים סודות ללוגים. אנחנו משחירים ערכים רגישים.
         import os
+        import secrets as _secrets
         import logging
         logger = logging.getLogger(__name__)
 
@@ -2710,28 +2711,25 @@ def alertmanager_webhook():
         # --- DEBUG END ---
 
         # --- Basic authentication/guard ---
-        secret = os.getenv('ALERTMANAGER_WEBHOOK_SECRET', '').strip()
-        allow_ips = {ip.strip() for ip in (os.getenv('ALERTMANAGER_IP_ALLOWLIST') or '').split(',') if ip.strip()}
+        env_secret = (os.getenv('ALERTMANAGER_WEBHOOK_SECRET') or '').strip()
 
-        def _client_ip() -> str:
-            try:
-                xff = (request.headers.get('X-Forwarded-For') or '').split(',')[0].strip()
-                return xff or (request.remote_addr or '')
-            except Exception:
-                return request.remote_addr or ''
+        def secrets_match(req: object, env: object) -> bool:
+            """Compare webhook secrets in constant-time (best effort)."""
+            return _secrets.compare_digest(
+                ('' if req is None else str(req)).strip(),
+                ('' if env is None else str(env)).strip(),
+            )
 
-        ok_secret = True
-        ok_ip = True
-        # If a secret is configured, require matching header or query token
-        if secret:
-            token = request.headers.get('X-Alertmanager-Token') or request.args.get('token') or ''
-            ok_secret = (token.strip() == secret)
-        # If an IP allow-list is configured, require client IP in the list
-        if allow_ips:
-            ok_ip = (_client_ip() in allow_ips)
+        # --- תחילת התיקון ---
+        # ביטלנו את בדיקת ה-IP כי היא חוסמת סתם. סומכים רק על הסיסמה.
+        # allow_ips = {... from ALERTMANAGER_IP_ALLOWLIST ...}
+        # if allow_ips and not is_ip_allowed(...):
+        #     return 403
+        # --- סוף התיקון ---
 
-        # Enforce guards when configured
-        if (secret and not ok_secret) or (allow_ips and not ok_ip):
+        # מוודאים שרק בדיקת הסיסמה נשארת (אם מוגדרת סיסמה ב-ENV)
+        if env_secret and not secrets_match(req_secret, env_secret):
+            logger.warning("🚨 DEBUG WEBHOOK: Wrong secret for /alertmanager/webhook")
             return jsonify({"status": "forbidden"}), 403
 
         payload = request.get_json(silent=True) or {}
