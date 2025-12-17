@@ -85,6 +85,26 @@
                 </div>
             </fieldset>
 
+            <fieldset class="control-section">
+                <legend><i class="fas fa-mouse-pointer"></i> כפתור ראשי</legend>
+                
+                <div class="color-row">
+                    <label for="btnPrimaryBg">צבע רקע</label>
+                    <div class="color-input-wrapper">
+                        <input type="text" id="btnPrimaryBgText" data-var="--btn-primary-bg" class="color-text" />
+                        <div id="btnPrimaryBg" class="color-picker" data-var="--btn-primary-bg"></div>
+                    </div>
+                </div>
+
+                <div class="color-row">
+                    <label for="btnPrimaryColor">צבע טקסט</label>
+                    <div class="color-input-wrapper">
+                        <input type="text" id="btnPrimaryColorText" data-var="--btn-primary-color" class="color-text" value="#ffffff" />
+                        <div id="btnPrimaryColor" class="color-picker" data-var="--btn-primary-color"></div>
+                    </div>
+                </div>
+            </fieldset>
+
             <!-- Text Colors -->
             <fieldset class="control-section">
                 <legend><i class="fas fa-font"></i> טקסט</legend>
@@ -474,6 +494,8 @@
         '--card-bg': 'rgba(255, 255, 255, 0.12)',
         '--primary': '#667eea',
         '--secondary': '#764ba2',
+        '--btn-primary-bg': '#667eea',
+        '--btn-primary-color': '#ffffff',
         '--text-primary': '#ffffff',
         '--glass': 'rgba(255, 255, 255, 0.1)',
         '--glass-border': 'rgba(255, 255, 255, 0.2)',
@@ -602,6 +624,8 @@
         pickrInstances['textPrimary'] = initColorPicker('textPrimary', '--text-primary');
         pickrInstances['mdSurface'] = initColorPicker('mdSurface', '--md-surface');
         pickrInstances['mdText'] = initColorPicker('mdText', '--md-text');
+        pickrInstances['btnPrimaryBg'] = initColorPicker('btnPrimaryBg', '--btn-primary-bg');
+        pickrInstances['btnPrimaryColor'] = initColorPicker('btnPrimaryColor', '--btn-primary-color');
     }
 
     // ========== Glass Sliders ==========
@@ -656,6 +680,8 @@
             'textPrimary': '--text-primary',
             'mdSurface': '--md-surface',
             'mdText': '--md-text',
+            'btnPrimaryBg': '--btn-primary-bg',
+            'btnPrimaryColor': '--btn-primary-color',
         };
 
         for (const [pickrId, varName] of Object.entries(varMap)) {
