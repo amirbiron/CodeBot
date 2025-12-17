@@ -491,6 +491,7 @@ function startCollectionsCooldown(seconds) {
                 clearInterval(collectionsCooldownTimer);
                 collectionsCooldownTimer = null;
             }
+            setCollectionsNotice('', 'muted');
             btn.disabled = false;
             btn.innerHTML = getCollectionsBaseLabel();
             return;
