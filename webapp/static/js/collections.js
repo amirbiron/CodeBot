@@ -906,15 +906,24 @@
         const boardHtml = buildWorkspaceBoardHtml(baseItems);
         container.innerHTML = `${headerHtml}${boardHtml}`;
       } else {
-        const itemsHtml = baseItems.map(it => `
-          <div class="collection-item" data-source="${escapeHtml(it.source || 'regular')}" data-name="${escapeHtml(it.file_name || '')}" data-file-id="${escapeHtml(it.file_id || '')}" data-pinned="${it.pinned ? '1' : '0'}">
-            <span class="drag" draggable="true">⋮⋮</span>
-            <a class="file" href="#" draggable="false" data-open="${escapeHtml(it.file_name || '')}">${escapeHtml(it.file_name || '')}</a>
-            <button class="pin ${it.pinned ? 'pinned' : ''}" title="${it.pinned ? 'בטל הצמדה' : 'הצמד'}">📌</button>
-            <button class="preview" title="תצוגה מקדימה" aria-label="תצוגה מקדימה">🧾</button>
-            <button class="remove" title="הסר">✕</button>
-          </div>
-        `).join('');
+        const itemsHtml = baseItems.map((it) => {
+          const fileName = String(it.file_name || '').trim();
+          const fileNameEsc = escapeHtml(fileName);
+          const mode = getDirectViewMode(fileName);
+          const btnLabel = directViewTitle(mode);
+          const directBtn = mode
+            ? `<button class="open-view" data-view="${escapeHtml(mode)}" title="${escapeHtml(btnLabel)}" aria-label="${escapeHtml(btnLabel)}">🌐</button>`
+            : '';
+          return `
+            <div class="collection-item" data-source="${escapeHtml(it.source || 'regular')}" data-name="${fileNameEsc}" data-file-id="${escapeHtml(it.file_id || '')}" data-pinned="${it.pinned ? '1' : '0'}">
+              <span class="drag" draggable="true">⋮⋮</span>
+              <a class="file" href="#" draggable="false" data-open="${fileNameEsc}">${fileNameEsc}</a>
+              ${directBtn}
+              <button class="preview" title="תצוגה מקדימה" aria-label="תצוגה מקדימה">🧾</button>
+              <button class="remove" title="הסר">✕</button>
+            </div>
+          `;
+        }).join('');
         container.innerHTML = `${headerHtml}<div class="collection-items" id="collectionItems">${itemsHtml || '<div class="empty">אין פריטים</div>'}</div>`;
       }
 
@@ -1070,12 +1079,10 @@
             return;
           }
 
-          const pinBtn = ev.target.closest('.pin');
-          if (pinBtn) {
-            const nextPinned = !pinBtn.classList.contains('pinned');
-            const res = await api.addItems(collectionId, [{ source, file_name: name, pinned: nextPinned }]);
-            if (!res || !res.ok) return alert((res && res.error) || 'שגיאה בעדכון הצמדה');
-            await renderCollectionItems(collectionId);
+          const openBtn = ev.target.closest('.open-view');
+          if (openBtn) {
+            ev.preventDefault();
+            await handleDirectViewClick(row, openBtn, name);
             return;
           }
 
@@ -1200,6 +1207,73 @@
     window.cardPreview.expand(fileId, row);
   }
 
+  function getDirectViewMode(fileName){
+    const lower = String(fileName || '').trim().toLowerCase();
+    if (!lower) return '';
+    if (lower.endsWith('.md') || lower.endsWith('.markdown')) return 'md';
+    if (lower.endsWith('.html') || lower.endsWith('.htm')) return 'html';
+    return '';
+  }
+
+  function directViewTitle(mode){
+    if (mode === 'md') return 'פתח תצוגת Markdown';
+    if (mode === 'html') return 'פתח תצוגת דפדפן';
+    return 'פתח תצוגה';
+  }
+
+  async function handleDirectViewClick(row, button, rawName){
+    if (!row || !button) return;
+    const fname = String(rawName || '').trim();
+    if (!fname) {
+      alert('שם הקובץ חסר');
+      return;
+    }
+    const mode = String(button.getAttribute('data-view') || '').trim() || getDirectViewMode(fname);
+    if (!mode) {
+      // אם זה לא Markdown/HTML, נפול חזרה להתנהגות הרגילה
+      await openFileByName(fname);
+      return;
+    }
+
+    let fileId = row.getAttribute('data-file-id') || '';
+    if (!fileId) {
+      const restore = setPreviewLoading(button);
+      try {
+        fileId = await resolveFileId(fname);
+        if (fileId) {
+          row.setAttribute('data-file-id', fileId);
+        }
+      } catch (err) {
+        const code = (err && (err.code || err.message)) || 'error';
+        if (code === 'in_recycle_bin') {
+          alert(RECYCLE_BIN_ALERT);
+        } else if (code === 'not_found') {
+          alert('הקובץ לא נמצא לפתיחה');
+        } else if (code === 'missing_name') {
+          alert('שם הקובץ חסר');
+        } else {
+          alert('שגיאה בפתיחת התצוגה');
+        }
+        return;
+      } finally {
+        restore();
+      }
+    }
+    if (!fileId) {
+      alert('הקובץ לא נמצא לפתיחה');
+      return;
+    }
+
+    const url = (mode === 'md')
+      ? `/md/${encodeURIComponent(fileId)}`
+      : `/html/${encodeURIComponent(fileId)}`;
+    try {
+      window.open(url, '_blank', 'noopener');
+    } catch (_err) {
+      window.location.href = url;
+    }
+  }
+
   // פתיחת קובץ לפי שם הקובץ (שימושי גם ללחיצה על כל השורה)
   async function openFileByName(fname){
     const name = String(fname || '').trim();
@@ -1295,7 +1369,12 @@
   function renderWorkspaceCard(item){
     const state = normalizeWorkspaceState(item.workspace_state);
     const itemId = String(item.id || item._id || item.file_name || '');
-    const pinnedClass = item.pinned ? 'pinned' : '';
+    const fileName = String(item.file_name || '').trim();
+    const mode = getDirectViewMode(fileName);
+    const btnLabel = directViewTitle(mode);
+    const directBtn = mode
+      ? `<button type="button" class="open-view" data-view="${escapeHtml(mode)}" title="${escapeHtml(btnLabel)}" aria-label="${escapeHtml(btnLabel)}">🌐</button>`
+      : '';
     return `
       <article class="workspace-card" data-item-id="${escapeHtml(itemId)}" data-state="${escapeHtml(state)}" data-source="${escapeHtml(item.source || 'regular')}" data-name="${escapeHtml(item.file_name || '')}" data-file-id="${escapeHtml(item.file_id || '')}">
         <div class="workspace-card__top">
@@ -1310,13 +1389,12 @@
                 <span class="workspace-card__tag-text">${escapeHtml(workspaceStateLabel(state))}</span>
               </span>
               ${item.note ? `<span>📝 ${escapeHtml(item.note)}</span>` : ''}
-              ${item.pinned ? '<span>📌 מוצמד</span>' : ''}
             </div>
           </div>
         </div>
         <div class="workspace-card__actions">
+          ${directBtn}
           <button type="button" class="preview" title="תצוגה מקדימה" aria-label="תצוגה מקדימה">🧾</button>
-          <button type="button" class="pin ${pinnedClass}" title="${item.pinned ? 'בטל הצמדה' : 'הצמד'}">📌</button>
           <button type="button" class="remove" title="הסר">✕</button>
         </div>
       </article>
@@ -1382,15 +1460,10 @@
         return;
       }
 
-      const pinBtn = ev.target.closest('.pin');
-      if (pinBtn) {
-        const nextPinned = !pinBtn.classList.contains('pinned');
-        const res = await api.addItems(ctx.collectionId, [{ source, file_name: name, pinned: nextPinned }]);
-        if (!res || !res.ok) {
-          alert((res && res.error) || 'שגיאה בעדכון הצמדה');
-          return;
-        }
-        await renderCollectionItems(ctx.collectionId);
+      const openBtn = ev.target.closest('.open-view');
+      if (openBtn) {
+        ev.preventDefault();
+        await handleDirectViewClick(card, openBtn, name);
         return;
       }
 
