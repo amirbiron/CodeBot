@@ -102,6 +102,8 @@ _Sample = Tuple[float, bool, float, str]
 _samples: Deque[_Sample] = deque(maxlen=200_000)  # (ts, is_error, latency_s, source)
 _error_contexts: Deque[Tuple[float, Dict[str, Any]]] = deque(maxlen=5_000)
 _ERROR_CONTEXT_WINDOW_SEC = 5 * 60
+_REQUEST_CONTEXTS: Deque[Tuple[float, Dict[str, Any]]] = deque(maxlen=20_000)
+_REQUEST_CONTEXT_WINDOW_SEC = max(60, int(os.getenv("REQUEST_CONTEXT_WINDOW_SECONDS", "900") or 900))
 _last_recompute_ts: float = 0.0
 
 
@@ -139,6 +141,7 @@ def reset_state_for_tests() -> None:
     _dispatch_log.clear()
     _last_alert_ts.clear()
     _error_contexts.clear()
+    _REQUEST_CONTEXTS.clear()
 
 
 def _now() -> float:
@@ -174,8 +177,65 @@ def note_request(
         _samples.append((t, bool(is_error), max(0.0, float(duration_seconds)), normalized_source))
         if is_error and context:
             _record_error_context(t, context)
+        if context:
+            _record_request_context(t, duration_seconds, normalized_source, context)
         _evict_older_than(t - _WINDOW_SEC)
         _recompute_if_due(t)
+    except Exception:
+        return
+
+
+def _record_request_context(
+    ts: float,
+    duration_seconds: float,
+    source: str,
+    context: Dict[str, Any],
+) -> None:
+    """Keep a small rolling buffer of request contexts for quick-fix enrichment.
+
+    This is intentionally best-effort and keeps only a minimal subset of keys to
+    avoid memory bloat and accidental PII retention.
+    """
+    try:
+        # Only keep contexts that can help explain slowness/root cause.
+        queue_delay_ms = None
+        for key in ("queue_delay_ms", "queue_delay", "queue_time_ms", "queue_ms"):
+            try:
+                raw = context.get(key)
+            except Exception:
+                raw = None
+            if raw in (None, ""):
+                continue
+            try:
+                queue_delay_ms = int(float(raw))
+            except Exception:
+                queue_delay_ms = None
+            if queue_delay_ms is not None:
+                queue_delay_ms = max(0, queue_delay_ms)
+                break
+        duration_ms = int(max(0.0, float(duration_seconds)) * 1000.0)
+        kept: Dict[str, Any] = {
+            "source": str(source or ""),
+            "duration_ms": duration_ms,
+        }
+        if queue_delay_ms is not None:
+            kept["queue_delay_ms"] = int(queue_delay_ms)
+        # Minimal routing context (no message text)
+        for key in ("path", "endpoint", "route", "method", "handler", "command", "component", "request_id"):
+            try:
+                val = context.get(key)
+            except Exception:
+                val = None
+            if val in (None, ""):
+                continue
+            try:
+                kept[key] = str(val)[:256]
+            except Exception:
+                continue
+        _REQUEST_CONTEXTS.append((float(ts), kept))
+        cutoff = float(ts) - float(_REQUEST_CONTEXT_WINDOW_SEC)
+        while _REQUEST_CONTEXTS and _REQUEST_CONTEXTS[0][0] < cutoff:
+            _REQUEST_CONTEXTS.popleft()
     except Exception:
         return
 
@@ -362,6 +422,142 @@ def _recent_error_contexts(now_ts: float, window_sec: int = _ERROR_CONTEXT_WINDO
     return [ctx for _, ctx in list(_error_contexts)]
 
 
+def _queue_delay_stats(now_ts: float, *, window_sec: int = 300, source: Optional[str] = None) -> Dict[str, Any]:
+    """Compute best-effort queue-delay stats from recent request contexts."""
+    try:
+        window = max(1, int(window_sec))
+    except Exception:
+        window = 300
+    cutoff = float(now_ts) - float(window)
+    target_source = None
+    if source:
+        try:
+            s = str(source).strip().lower()
+        except Exception:
+            s = ""
+        if s in {"internal", "external"}:
+            target_source = s
+
+    # Evict old entries (best-effort)
+    try:
+        while _REQUEST_CONTEXTS and _REQUEST_CONTEXTS[0][0] < cutoff:
+            _REQUEST_CONTEXTS.popleft()
+    except Exception:
+        pass
+
+    values: List[int] = []
+    try:
+        for ts, ctx in list(_REQUEST_CONTEXTS):
+            if ts < cutoff:
+                continue
+            if not isinstance(ctx, dict):
+                continue
+            if target_source is not None:
+                try:
+                    if str(ctx.get("source") or "").strip().lower() != target_source:
+                        continue
+                except Exception:
+                    continue
+            q = ctx.get("queue_delay_ms")
+            if q in (None, ""):
+                continue
+            try:
+                values.append(max(0, int(float(q))))
+            except Exception:
+                continue
+    except Exception:
+        return {}
+
+    if not values:
+        return {}
+    values.sort()
+    n = len(values)
+    avg = int(round(sum(values) / float(n)))
+    p95_idx = max(0, min(n - 1, int((0.95 * n) - 1)))
+    p95 = int(values[p95_idx])
+    mx = int(values[-1])
+    return {
+        "queue_delay_ms_avg": avg,
+        "queue_delay_ms_p95": p95,
+        "queue_delay_ms_max": mx,
+        "queue_delay_samples": int(n),
+    }
+
+
+def _system_resource_snapshot() -> Dict[str, Any]:
+    """Best-effort resource snapshot (CPU/RAM + in-flight requests)."""
+    out: Dict[str, Any] = {}
+    try:
+        import psutil  # type: ignore
+
+        try:
+            out["cpu_percent"] = float(psutil.cpu_percent(interval=None))
+        except Exception:
+            pass
+        try:
+            vm = psutil.virtual_memory()
+            out["memory_percent"] = float(getattr(vm, "percent", 0.0) or 0.0)
+        except Exception:
+            pass
+    except Exception:
+        pass
+
+    # Active requests + RSS are tracked in metrics (best-effort, avoid hard dependency)
+    try:
+        from metrics import get_active_requests_count, get_current_memory_usage  # type: ignore
+
+        try:
+            out["active_requests"] = int(get_active_requests_count())
+        except Exception:
+            pass
+        try:
+            out["memory_mb"] = round(float(get_current_memory_usage()), 2)
+        except Exception:
+            pass
+    except Exception:
+        pass
+    return {k: v for k, v in out.items() if v not in (None, "")}
+
+
+def _mongo_connections_snapshot() -> Dict[str, Any]:
+    """Best-effort MongoDB connections snapshot.
+
+    NOTE: This is *not* PyMongo client-side pool utilization; it's server-reported
+    connections.current/available which is still a useful pressure signal.
+    """
+    out: Dict[str, Any] = {}
+    try:
+        from database import db as db_manager  # type: ignore
+    except Exception:
+        return {}
+    try:
+        client = getattr(db_manager, "client", None)
+    except Exception:
+        client = None
+    if client is None:
+        return {}
+    try:
+        status = client.admin.command("serverStatus")  # type: ignore[attr-defined]
+        connections = status.get("connections") if isinstance(status, dict) else None
+        if not isinstance(connections, dict):
+            return {}
+        current = connections.get("current")
+        available = connections.get("available")
+        try:
+            cur_i = int(current)
+            avail_i = int(available)
+        except Exception:
+            return {}
+        total = max(0, cur_i) + max(0, avail_i)
+        util = (float(max(0, cur_i)) / float(total) * 100.0) if total > 0 else 0.0
+        out["db_connections_current"] = int(max(0, cur_i))
+        out["db_connections_available"] = int(max(0, avail_i))
+        out["db_pool_utilization_pct"] = round(util, 1)
+    except Exception:
+        return {}
+    return out
+
+
 def _derive_feature_from_command(command: Optional[str]) -> Optional[str]:
     if not command:
         return None
@@ -469,6 +665,39 @@ def _build_high_error_rate_meta(
 
 
 def _enrich_alert_details(key: str, details: Dict[str, Any], now_ts: float) -> Dict[str, Any]:
+    if str(key) == "latency_seconds":
+        enriched = dict(details or {})
+        # Normalize alert_type so dashboards/runbooks can match reliably.
+        enriched.setdefault("alert_type", "slow_response")
+        # Provide a consistent duration_ms signal for quick-fix decisioning.
+        if "duration_ms" not in enriched:
+            try:
+                cur = float(enriched.get("current_seconds") or 0.0)
+                if cur > 0:
+                    enriched["duration_ms"] = int(round(cur * 1000.0))
+            except Exception:
+                pass
+        # Best-effort queue-delay stats from recent request contexts.
+        try:
+            window_sec = int(enriched.get("window_seconds") or 300)
+        except Exception:
+            window_sec = 300
+        try:
+            enriched.update(_queue_delay_stats(now_ts, window_sec=window_sec, source=enriched.get("source")))
+        except Exception:
+            pass
+        # Best-effort resource snapshot (cpu/mem + active_requests).
+        try:
+            enriched.update(_system_resource_snapshot())
+        except Exception:
+            pass
+        # Best-effort DB "pool" pressure snapshot (connections utilization).
+        try:
+            enriched.update(_mongo_connections_snapshot())
+        except Exception:
+            pass
+        return enriched
+
     if str(key) != "error_rate_percent":
         return details
     try:
@@ -737,6 +966,7 @@ def check_and_emit_alerts(now_ts: Optional[float] = None) -> None:
                 details={
                     "current_seconds": round(cur_lat, 4),
                     "sample_count": int(internal_total),
+                    "window_seconds": int(window_sec),
                     "source": "internal",
                 },
                 now_ts=t,
@@ -919,7 +1149,15 @@ def _notify_critical_external(name: str, summary: str, details: Dict[str, Any]) 
     # Persist to MongoDB (best-effort) for unified counts across services; include silenced flag
     try:
         from monitoring.alerts_storage import record_alert  # type: ignore
-        record_alert(alert_id=alert_id, name=str(name), severity="critical", summary=str(summary), source="alert_manager", silenced=bool(silenced))
+        record_alert(
+            alert_id=alert_id,
+            name=str(name),
+            severity="critical",
+            summary=str(summary),
+            source="alert_manager",
+            silenced=bool(silenced),
+            details=details if isinstance(details, dict) else None,
+        )
     except Exception:
         pass
 
@@ -1009,6 +1247,33 @@ def _format_text(name: str, severity: str, summary: str, details: Dict[str, Any]
     link = _build_sentry_link(direct_url=sentry_direct, request_id=request_id, error_signature=_get(details, "error_signature"))
     if link:
         parts.append(f"Sentry: {link}")
+
+    # Best-effort: include Quick Fix suggestion (derived from runbooks + dynamic rules).
+    try:
+        from services.observability_dashboard import get_quick_fix_actions  # type: ignore
+
+        snapshot = {
+            "name": str(name or ""),
+            "severity": str(severity or "").lower(),
+            "summary": str(summary or ""),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "alert_type": str(details.get("alert_type") or ""),
+            "metadata": details if isinstance(details, dict) else {},
+        }
+        actions = get_quick_fix_actions(snapshot, ui_context="bot_alert")
+        if actions:
+            top = actions[0] if isinstance(actions[0], dict) else None
+            if top:
+                label = str(top.get("label") or "").strip()
+                hint = ""
+                if str(top.get("type") or "").lower() == "copy" and top.get("payload"):
+                    hint = f" → {top.get('payload')}"
+                elif top.get("href"):
+                    hint = f" → {top.get('href')}"
+                if label:
+                    parts.append(f"Quick Fix: {label}{hint}")
+    except Exception:
+        pass
 
     return "\n".join([p for p in parts if p])
 

@@ -310,3 +310,57 @@ runbooks:
           type: link
           href: "/admin/observability/replay?timerange=6h"
           safety: safe
+
+# --- Quick Fix חכם (דינמי) לפי Queue Delay + עומס/DB ---
+# הערה: זה קונפיג עבור הלוגיקה הדינמית בשרת/בוט. כשחסרים נתונים (למשל אין pool/resource metrics)
+# הלוגיקה עושה fallback בטוח ולא שוברת UI.
+quick_fix_rules:
+  latency_v1:
+    enabled: true
+    thresholds:
+      queue_delay_ms: 500
+      duration_ms: 3000
+      pool_utilization_high_pct: 90
+      pool_utilization_low_pct: 20
+      cpu_high_pct: 85
+      memory_high_pct: 85
+      cpu_low_pct: 30
+      memory_low_pct: 30
+      active_requests_low: 2
+    actions:
+      queue_pool_high:
+        label: "🔌 הגדל Connection Pool / Kill Slow Queries"
+        type: copy
+        payload: "/triage db"
+        safety: caution
+        description: "Queueing גבוה + לחץ על DB: בדוק pool utilization / minPoolSize, ושאילתות איטיות."
+      queue_resources_high:
+        label: "📈 Scale Up / Add Workers"
+        type: copy
+        payload: "/triage system"
+        safety: safe
+        description: "Queueing גבוה + עומס CPU/RAM: כנראה צריך עוד משאבים/Workers."
+      queue_stuck_workers:
+        label: "🔄 Restart Service (Stuck Workers)"
+        type: copy
+        payload: "/status_worker"
+        safety: caution
+        description: "Queueing גבוה אבל שימוש נמוך: חשד ל-workers תקועים/deadlock."
+      queue_generic:
+        label: "📈 Scale Up"
+        type: copy
+        payload: "/triage system"
+        safety: safe
+        description: "Queueing גבוה ללא אינדיקציה ברורה: התחל מ-scaling ואז העמק."
+      processing_mongo:
+        label: "🔍 בדוק אינדקסים / currentOp (Slow Query)"
+        type: copy
+        payload: "/triage db"
+        safety: caution
+        description: "Queueing נמוך אבל Duration גבוה: חשד ל-Slow Query במונגו."
+      processing_generic:
+        label: "💾 הוסף Caching"
+        type: copy
+        payload: "/triage latency"
+        safety: safe
+        description: "Queueing נמוך אבל Duration גבוה: כנראה עיבוד איטי בקוד (Cache/אופטימיזציה)."

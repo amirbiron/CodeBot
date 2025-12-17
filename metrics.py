@@ -957,6 +957,7 @@ def record_request_outcome(
         # Dual-write: enqueue request metrics to DB (best-effort, batched)
         ctx_dict: Dict[str, Any] = {}
         rid: Optional[str] = None
+        queue_delay_ms: Optional[int] = None
         command_label = ""
         handler_text = ""
         method_text = ""
@@ -966,6 +967,22 @@ def record_request_outcome(
             ctx_dict = ctx_raw if isinstance(ctx_raw, dict) else {}
             req_id = ctx_dict.get("request_id")
             rid = str(req_id) if req_id else None
+            # Queue delay (milliseconds) is bound by the webserver middleware (X-Queue-Start/X-Request-Start).
+            # Keep it best-effort and numeric-only to avoid polluting downstream storage.
+            for key in ("queue_delay", "queue_delay_ms", "queue_time_ms", "queue_ms"):
+                try:
+                    raw_q = ctx_dict.get(key)
+                except Exception:
+                    raw_q = None
+                if raw_q in (None, ""):
+                    continue
+                try:
+                    queue_delay_ms = int(float(raw_q))
+                except Exception:
+                    queue_delay_ms = None
+                if queue_delay_ms is not None:
+                    queue_delay_ms = max(0, queue_delay_ms)
+                    break
             extra_fields: Dict[str, Any] = {}
             if source is not None:
                 try:
@@ -1021,6 +1038,8 @@ def record_request_outcome(
             if component_label:
                 limited_component = component_label[:200]
                 extra_fields["component"] = limited_component
+            if queue_delay_ms is not None:
+                extra_fields["queue_delay_ms"] = int(queue_delay_ms)
             _db_enqueue_request_metric(
                 int(status_code),
                 float(duration_seconds),
@@ -1043,6 +1062,8 @@ def record_request_outcome(
                 else None
             ),
         }
+        if queue_delay_ms is not None:
+            note_context["queue_delay_ms"] = int(queue_delay_ms)
         note_context = {k: v for k, v in note_context.items() if v}
         # Feed adaptive thresholds module (best-effort)
         try:

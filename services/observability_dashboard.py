@@ -386,15 +386,24 @@ def _normalize_alert_type(value: Optional[str]) -> str:
     return text
 
 
-def _normalize_runbook_config(raw: Any) -> Tuple[Dict[str, Any], Dict[str, str], Optional[str], Optional[int]]:
+def _normalize_runbook_config(
+    raw: Any,
+) -> Tuple[Dict[str, Any], Dict[str, str], Optional[str], Optional[int], Dict[str, Any]]:
     definitions: Dict[str, Any] = {}
     aliases: Dict[str, str] = {}
     default_key: Optional[str] = None
     version: Optional[int] = None
+    quick_fix_rules: Dict[str, Any] = {}
 
     if isinstance(raw, dict):
         version = raw.get("version")
         runbooks_block = raw.get("runbooks") if isinstance(raw.get("runbooks"), dict) else raw
+        try:
+            qf = raw.get("quick_fix_rules")
+        except Exception:
+            qf = None
+        if isinstance(qf, dict):
+            quick_fix_rules = copy.deepcopy(qf)
     else:
         runbooks_block = {}
 
@@ -443,7 +452,7 @@ def _normalize_runbook_config(raw: Any) -> Tuple[Dict[str, Any], Dict[str, str],
         if mapped in definitions:
             default_key = mapped
 
-    return definitions, aliases, default_key, version
+    return definitions, aliases, default_key, version, quick_fix_rules
 
 
 def _load_runbook_config() -> Dict[str, Any]:
@@ -483,11 +492,12 @@ def _load_runbook_config() -> Dict[str, Any]:
         logger.warning("observability_runbook_parse_failed")
         data = {}
 
-    definitions, aliases, default_key, version = _normalize_runbook_config(data)
+    definitions, aliases, default_key, version, quick_fix_rules = _normalize_runbook_config(data)
     _RUNBOOK_CACHE = {
         "definitions": definitions,
         "default": default_key,
         "version": version,
+        "quick_fix_rules": quick_fix_rules,
     }
     _RUNBOOK_ALIAS_MAP = aliases
     _RUNBOOK_MTIME = stat.st_mtime
@@ -712,6 +722,241 @@ def _runbook_quick_fix_actions(alert: Dict[str, Any]) -> List[Dict[str, Any]]:
     return actions
 
 
+def _get_quick_fix_rules_config() -> Dict[str, Any]:
+    try:
+        cfg = _load_runbook_config() or {}
+    except Exception:
+        return {}
+    rules = cfg.get("quick_fix_rules") if isinstance(cfg, dict) else None
+    return rules if isinstance(rules, dict) else {}
+
+
+def _coerce_float(value: Any) -> Optional[float]:
+    if value in (None, ""):
+        return None
+    try:
+        return float(value)
+    except Exception:
+        try:
+            text = str(value).strip().lower().replace("%", "").replace("ms", "").replace("s", "")
+            return float(text) if text else None
+        except Exception:
+            return None
+
+
+def _extract_number(alert: Dict[str, Any], keys: Tuple[str, ...]) -> Optional[float]:
+    meta = alert.get("metadata") if isinstance(alert.get("metadata"), dict) else {}
+    for key in keys:
+        try:
+            raw = meta.get(key)
+        except Exception:
+            raw = None
+        val = _coerce_float(raw)
+        if val is not None:
+            return val
+        try:
+            raw2 = alert.get(key)
+        except Exception:
+            raw2 = None
+        val2 = _coerce_float(raw2)
+        if val2 is not None:
+            return val2
+    return None
+
+
+def _parse_latency_ms_from_summary(summary: Any) -> Optional[float]:
+    """Best-effort parsing for summaries like `avg_latency=3.737s > threshold=3.000s`."""
+    try:
+        s = str(summary or "")
+    except Exception:
+        return None
+    low = s.lower()
+    needle = "avg_latency="
+    idx = low.find(needle)
+    if idx < 0:
+        return None
+    j = idx + len(needle)
+    # read until non-digit/dot
+    k = j
+    while k < len(s) and (s[k].isdigit() or s[k] == "."):
+        k += 1
+    num = s[j:k].strip()
+    if not num:
+        return None
+    try:
+        seconds = float(num)
+    except Exception:
+        return None
+    return max(0.0, seconds * 1000.0)
+
+
+def _looks_like_mongo(alert: Dict[str, Any]) -> bool:
+    meta = alert.get("metadata") if isinstance(alert.get("metadata"), dict) else {}
+    haystacks: List[str] = []
+    for key in ("trace", "error", "message", "component", "service"):
+        try:
+            val = meta.get(key)
+        except Exception:
+            val = None
+        if val:
+            haystacks.append(str(val))
+    try:
+        if alert.get("summary"):
+            haystacks.append(str(alert.get("summary")))
+    except Exception:
+        pass
+    text = " ".join(haystacks).lower()
+    return ("mongo" in text) or ("pymongo" in text) or ("mongodb" in text)
+
+
+def _dynamic_quick_fix_actions(alert: Dict[str, Any]) -> List[Dict[str, Any]]:
+    """Compute dynamic quick-fix actions based on queue delay + resource/DB signals.
+
+    Returns an empty list when there's not enough signal to be confident.
+    """
+    alert_type = _normalize_alert_type(_effective_alert_type_from_snapshot(alert))
+    if alert_type not in {"slow_response", "latency", "latency_seconds"}:
+        return []
+
+    rules = _get_quick_fix_rules_config()
+    latency_cfg = rules.get("latency_v1") if isinstance(rules, dict) else None
+    if not isinstance(latency_cfg, dict):
+        latency_cfg = {}
+    if str(latency_cfg.get("enabled", "true")).lower() in {"0", "false", "no"}:
+        return []
+
+    thresholds = latency_cfg.get("thresholds") if isinstance(latency_cfg.get("thresholds"), dict) else {}
+    actions_cfg = latency_cfg.get("actions") if isinstance(latency_cfg.get("actions"), dict) else {}
+
+    queue_thr = int(_coerce_float(thresholds.get("queue_delay_ms")) or 500.0)
+    dur_thr = int(_coerce_float(thresholds.get("duration_ms")) or 3000.0)
+    pool_high = float(_coerce_float(thresholds.get("pool_utilization_high_pct")) or 90.0)
+    pool_low = float(_coerce_float(thresholds.get("pool_utilization_low_pct")) or 20.0)
+    cpu_high_thr = float(_coerce_float(thresholds.get("cpu_high_pct")) or 85.0)
+    mem_high_thr = float(_coerce_float(thresholds.get("memory_high_pct")) or 85.0)
+    cpu_low_thr = float(_coerce_float(thresholds.get("cpu_low_pct")) or 30.0)
+    mem_low_thr = float(_coerce_float(thresholds.get("memory_low_pct")) or 30.0)
+    active_low_thr = int(_coerce_float(thresholds.get("active_requests_low")) or 2.0)
+
+    queue_ms = _extract_number(
+        alert,
+        (
+            "queue_delay_ms_p95",
+            "queue_delay_ms",
+            "queue_delay",
+            "queue_time_ms",
+            "queue_ms",
+            "queue_delay_ms_avg",
+        ),
+    )
+    duration_ms = _extract_number(alert, ("duration_ms", "current_ms", "latency_ms", "duration"))
+    if duration_ms is None:
+        duration_ms = _parse_latency_ms_from_summary(alert.get("summary"))
+    if duration_ms is None:
+        dur_s = _extract_number(alert, ("duration_seconds",))
+        if dur_s is not None:
+            duration_ms = dur_s * 1000.0
+
+    pool_util = _extract_number(
+        alert,
+        (
+            "db_pool_utilization_pct",
+            "pool_utilization_pct",
+            "mongo_pool_utilization_percent",
+            "mongo_pool_utilization_pct",
+        ),
+    )
+    cpu_pct = _extract_number(alert, ("cpu_percent", "cpu_usage_percent"))
+    mem_pct = _extract_number(alert, ("memory_percent", "memory_usage_percent"))
+    active_requests = _extract_number(alert, ("active_requests",))
+
+    queue_ms_i = int(max(0.0, queue_ms or 0.0))
+    duration_ms_i = int(max(0.0, duration_ms or 0.0))
+
+    cpu_high = cpu_pct is not None and float(cpu_pct) >= cpu_high_thr
+    mem_high = mem_pct is not None and float(mem_pct) >= mem_high_thr
+    low_usage = (
+        cpu_pct is not None
+        and mem_pct is not None
+        and active_requests is not None
+        and float(cpu_pct) <= cpu_low_thr
+        and float(mem_pct) <= mem_low_thr
+        and int(active_requests) <= active_low_thr
+    )
+
+    picked_key: Optional[str] = None
+    if queue_ms_i > queue_thr:
+        if pool_util is not None and float(pool_util) >= pool_high:
+            picked_key = "queue_pool_high"
+        elif cpu_high or mem_high:
+            picked_key = "queue_resources_high"
+        elif pool_util is not None and float(pool_util) <= pool_low and low_usage:
+            picked_key = "queue_stuck_workers"
+        else:
+            picked_key = "queue_generic"
+    elif duration_ms_i > dur_thr:
+        picked_key = "processing_mongo" if _looks_like_mongo(alert) else "processing_generic"
+    else:
+        return []
+
+    base = actions_cfg.get(picked_key) if isinstance(actions_cfg, dict) else None
+    if not isinstance(base, dict):
+        # Sensible fallback if config is missing
+        fallback_map = {
+            "queue_pool_high": {
+                "label": "🔌 הגדל Connection Pool / Kill Slow Queries",
+                "type": "copy",
+                "payload": "/triage db",
+                "safety": "caution",
+            },
+            "queue_resources_high": {
+                "label": "📈 Scale Up / Add Workers",
+                "type": "copy",
+                "payload": "/triage system",
+                "safety": "safe",
+            },
+            "queue_stuck_workers": {
+                "label": "🔄 Restart Service (Stuck Workers)",
+                "type": "copy",
+                "payload": "/status_worker",
+                "safety": "caution",
+            },
+            "queue_generic": {
+                "label": "📈 Scale Up",
+                "type": "copy",
+                "payload": "/triage system",
+                "safety": "safe",
+            },
+            "processing_mongo": {
+                "label": "🔍 בדוק אינדקסים / currentOp (Slow Query)",
+                "type": "copy",
+                "payload": "/triage db",
+                "safety": "caution",
+            },
+            "processing_generic": {
+                "label": "💾 הוסף Caching",
+                "type": "copy",
+                "payload": "/triage latency",
+                "safety": "safe",
+            },
+        }
+        base = fallback_map.get(picked_key) or {}
+
+    action = _expand_quick_fix_action(
+        {
+            "id": f"dynamic_{picked_key}",
+            "label": base.get("label") or "Quick Fix",
+            "type": base.get("type") or "copy",
+            "payload": base.get("payload"),
+            "href": base.get("href"),
+            "description": base.get("description"),
+            "safety": base.get("safety") or "safe",
+        },
+        alert,
+    )
+    return [action]
+
+
 def _should_hide_quick_fix_action(action: Dict[str, Any], *, ui_context: str) -> bool:
     ctx = str(ui_context or "").strip().lower()
     if not ctx:
@@ -754,10 +999,32 @@ def _filter_quick_fix_actions(actions: List[Dict[str, Any]], *, ui_context: Opti
 def get_quick_fix_actions(alert: Dict[str, Any], *, ui_context: Optional[str] = None) -> List[Dict[str, Any]]:
     """Return applicable quick-fix actions for a given alert."""
     try:
-        actions = _runbook_quick_fix_actions(alert)
-        if actions:
-            return _filter_quick_fix_actions(actions, ui_context=ui_context)
-        return _filter_quick_fix_actions(_collect_quick_fix_actions(alert), ui_context=ui_context)
+        combined: List[Dict[str, Any]] = []
+        seen: set[str] = set()
+
+        def _add(items: List[Dict[str, Any]]) -> None:
+            for item in items or []:
+                if not isinstance(item, dict):
+                    continue
+                act_id = str(item.get("id") or "")
+                if act_id and act_id in seen:
+                    continue
+                if act_id:
+                    seen.add(act_id)
+                combined.append(item)
+
+        # 1) Dynamic quick-fix (queueing vs processing), when enough signal exists.
+        _add(_dynamic_quick_fix_actions(alert))
+
+        # 2) Runbook actions (preferred over legacy JSON mapping).
+        runbook_actions = _runbook_quick_fix_actions(alert)
+        if runbook_actions:
+            _add(runbook_actions)
+            return _filter_quick_fix_actions(combined, ui_context=ui_context)
+
+        # 3) Legacy JSON mapping fallback.
+        _add(_collect_quick_fix_actions(alert))
+        return _filter_quick_fix_actions(combined, ui_context=ui_context)
     except Exception:
         return []
 

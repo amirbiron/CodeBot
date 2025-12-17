@@ -231,6 +231,8 @@ def test_high_latency_details_include_source(tmp_path, monkeypatch):
     )
     assert latency_details is not None
     assert latency_details.get("source") == "internal"
+    assert latency_details.get("alert_type") == "slow_response"
+    assert latency_details.get("duration_ms") is not None
 
 
 def test_mixed_samples_only_internal_counted(tmp_path, monkeypatch):
