@@ -299,11 +299,26 @@ def _should_autostart_observability_warmup() -> bool:
     if os.getenv("PYTEST_CURRENT_TEST") and not _env_bool("OBSERVABILITY_WARMUP_AUTOSTART", False):
         return False
 
-    # Flask dev reloader imports modules twice; start only in the "real" process.
-    # In production (gunicorn/uwsgi), WERKZEUG_RUN_MAIN is usually unset.
+    # Flask dev reloader imports modules twice; start only in the "real" (child) process.
+    #
+    # Werkzeug sets WERKZEUG_RUN_MAIN="true" only in the child process that serves requests.
+    # The parent reloader process typically has it *unset* (None), which looks identical to many
+    # production setups (gunicorn/uwsgi) where it's also unset.
+    #
+    # לכן אנחנו מזהים "סביבת reloader" לפי דגלים של flask-run/debug, ורק אז דורשים WERKZEUG_RUN_MAIN="true".
     wrm = os.getenv("WERKZEUG_RUN_MAIN")
-    if wrm not in (None, "", "true", "True", "1"):
-        return False
+    if wrm not in (None, ""):
+        # When explicitly present, only allow the child ("true"/"1").
+        if str(wrm).strip().lower() not in {"true", "1"}:
+            return False
+    else:
+        # If it is unset, allow in production, but block in the reloader parent process.
+        flask_run_from_cli = str(os.getenv("FLASK_RUN_FROM_CLI") or "").strip().lower() in {"true", "1"}
+        flask_debug = str(os.getenv("FLASK_DEBUG") or "").strip().lower() in {"true", "1"}
+        flask_env = str(os.getenv("FLASK_ENV") or "").strip().lower()
+        likely_reloader_parent = flask_run_from_cli or flask_debug or (flask_env == "development")
+        if likely_reloader_parent:
+            return False
 
     return True
 
