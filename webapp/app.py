@@ -1367,17 +1367,18 @@ ALLOWED_UI_THEMES = {
 
 # --- Theme Builder validation ---
 # Regex for safe color validation - prevents CSS injection
-# Note: color-mix uses [^)]+ to prevent escaping the parentheses
+# Note: keep regex linear-time; bound variable-length parts to avoid ReDoS.
 VALID_COLOR_REGEX = re.compile(
     r'^('
     r'#[0-9a-fA-F]{6}'
     r'|#[0-9a-fA-F]{8}'
     r'|rgba?\(\s*\d{1,3}\s*,\s*\d{1,3}\s*,\s*\d{1,3}\s*(,\s*[\d.]+\s*)?\)'
     r'|var\(--[a-zA-Z0-9_-]+\)'
-    r'|color-mix\(in\s+srgb\s*,\s*[^)]+\)'
+    r'|color-mix\(in\s+srgb\s*,\s*[^)]{1,160}\)'
     r')$'
 )
 MAX_THEME_NAME_LENGTH = 50
+MAX_THEME_VALUE_LENGTH = 200
 ALLOWED_VARIABLES = {
     '--bg-primary', '--bg-secondary', '--card-bg',
     '--primary', '--secondary',
@@ -1394,6 +1395,9 @@ def _validate_color(value: str) -> bool:
         return False
     value = value.strip()
     if not value:
+        return False
+    # Safety: prevent expensive validation on huge strings (ReDoS / accidental payloads)
+    if len(value) > MAX_THEME_VALUE_LENGTH:
         return False
     # blur יכול להיות ערך px
     if value.endswith('px'):
