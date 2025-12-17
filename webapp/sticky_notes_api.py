@@ -14,6 +14,7 @@ import html
 import re
 import hashlib
 import threading
+import asyncio
 # Robust ObjectId/InvalidId import with fallbacks for stub environments
 try:  # type: ignore
     from bson import ObjectId  # type: ignore
@@ -138,7 +139,16 @@ def kickoff_index_warmup(*, background: bool = True, delay_seconds: float = 0.0)
 
     if background:
         try:
-            threading.Thread(target=_job, name="sticky-index-warmup", daemon=True).start()
+            # אם אנחנו בתוך event loop (למשל שירות aiohttp) – עדיף להעיף ל-executor כדי לא לחסום.
+            # ב-Flask/Wsgi (ללא לולאה רצה) ניפול חזרה ל-thread דמון.
+            try:
+                loop = asyncio.get_running_loop()
+            except RuntimeError:
+                loop = None
+            if loop is not None:
+                loop.run_in_executor(None, _job)
+            else:
+                threading.Thread(target=_job, name="sticky-index-warmup", daemon=True).start()
         except Exception:
             _job()
     else:

@@ -71,41 +71,12 @@ warmup() {
   for ((attempt = 1; attempt <= attempts; attempt++)); do
     if curl -fsS --max-time 5 "$warmup_url" >/dev/null 2>&1; then
       log "Warmup succeeded on attempt ${attempt}"
-      warmup_frontend_paths
       return 0
     fi
     sleep "$delay"
   done
   log "Warmup did not succeed after ${attempts} attempts (best-effort)"
   return 0
-}
-
-warmup_frontend_paths() {
-  local csv="${WEBAPP_WARMUP_PATHS:-}"
-  if [ -z "$csv" ]; then
-    return 0
-  fi
-  local base="${WEBAPP_WARMUP_BASE_URL:-http://127.0.0.1:${PORT}}"
-  base="${base%/}"
-  local timeout="${WEBAPP_WARMUP_REQUEST_TIMEOUT:-2}"
-  local IFS=','
-  read -r -a warmup_paths <<< "$csv"
-  local path trimmed url
-  for path in "${warmup_paths[@]}"; do
-    trimmed="$(trim "$path")"
-    if [ -z "$trimmed" ]; then
-      continue
-    fi
-    if [[ "$trimmed" != /* ]]; then
-      trimmed="/${trimmed}"
-    fi
-    url="${base}${trimmed}"
-    if curl -fsS --max-time "$timeout" "$url" >/dev/null 2>&1; then
-      log "Warmup: ${trimmed}... OK"
-    else
-      log "Warmup: ${trimmed}... FAIL (best-effort)"
-    fi
-  done
 }
 
 warmup || true
