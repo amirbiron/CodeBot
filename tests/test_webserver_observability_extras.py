@@ -215,3 +215,134 @@ async def test_share_view_error_and_not_found_events(monkeypatch):
     names = [e[0] for e in events]
     assert "share_view_error" in names
     assert "share_view_not_found" in names
+
+
+@pytest.mark.asyncio
+async def test_access_logs_includes_queue_delay_when_header_missing(monkeypatch):
+    import services.webserver as ws
+
+    events: list[tuple[str, str, dict]] = []
+
+    def fake_emit(event: str, severity: str = "info", **fields):
+        events.append((event, severity, fields))
+
+    # Freeze wall clock to make queue_delay deterministic
+    monkeypatch.setattr(ws, "emit_event", fake_emit)
+    monkeypatch.setattr(ws.time, "time", lambda: 1700000000.0)
+
+    app = ws.create_app()
+
+    from aiohttp import web
+
+    runner = web.AppRunner(app)
+    await runner.setup()
+    site = web.TCPSite(runner, host="127.0.0.1", port=0)
+    await site.start()
+    try:
+        port = list(site._server.sockets)[0].getsockname()[1]
+        import aiohttp
+
+        async with aiohttp.ClientSession() as session:
+            async with session.get(f"http://127.0.0.1:{port}/health") as resp:
+                assert resp.status == 200
+    finally:
+        await runner.cleanup()
+
+    access = [e for e in events if e[0] == "access_logs"]
+    assert access, "expected an access_logs structured event"
+    _name, sev, fields = access[-1]
+    assert sev == "info"
+    assert fields.get("queue_delay") == 0
+
+
+@pytest.mark.asyncio
+async def test_queue_delay_parses_x_request_start_and_emits_warning(monkeypatch):
+    import services.webserver as ws
+
+    events: list[tuple[str, str, dict]] = []
+
+    def fake_emit(event: str, severity: str = "info", **fields):
+        events.append((event, severity, fields))
+
+    # now=1700000000.0, header=1699999999.4 -> 600ms delay
+    monkeypatch.setattr(ws, "emit_event", fake_emit)
+    monkeypatch.setattr(ws.time, "time", lambda: 1700000000.0)
+
+    app = ws.create_app()
+
+    from aiohttp import web
+
+    runner = web.AppRunner(app)
+    await runner.setup()
+    site = web.TCPSite(runner, host="127.0.0.1", port=0)
+    await site.start()
+    try:
+        port = list(site._server.sockets)[0].getsockname()[1]
+        import aiohttp
+
+        async with aiohttp.ClientSession() as session:
+            async with session.get(
+                f"http://127.0.0.1:{port}/health",
+                headers={"X-Request-Start": "t=1699999999.4"},
+            ) as resp:
+                assert resp.status == 200
+    finally:
+        await runner.cleanup()
+
+    access = [e for e in events if e[0] == "access_logs"]
+    assert access, "expected an access_logs structured event"
+    _name, sev, fields = access[-1]
+    assert sev == "info"
+    assert fields.get("queue_delay") == 600
+    assert fields.get("queue_delay_source") == "X-Request-Start"
+
+    warns = [e for e in events if e[0] == "queue_delay_high"]
+    assert warns, "expected a queue_delay_high warning event"
+    _n, wsev, wfields = warns[-1]
+    assert wsev in {"warn", "warning"}
+    assert wfields.get("queue_delay") == 600
+    assert wfields.get("threshold_ms") == 500
+
+
+@pytest.mark.asyncio
+async def test_queue_delay_prefers_x_queue_start_ms(monkeypatch):
+    import services.webserver as ws
+
+    events: list[tuple[str, str, dict]] = []
+
+    def fake_emit(event: str, severity: str = "info", **fields):
+        events.append((event, severity, fields))
+
+    # now=1700000000.0s -> 1700000000000ms, header=1699999999400ms -> 600ms delay
+    monkeypatch.setattr(ws, "emit_event", fake_emit)
+    monkeypatch.setattr(ws.time, "time", lambda: 1700000000.0)
+
+    app = ws.create_app()
+
+    from aiohttp import web
+
+    runner = web.AppRunner(app)
+    await runner.setup()
+    site = web.TCPSite(runner, host="127.0.0.1", port=0)
+    await site.start()
+    try:
+        port = list(site._server.sockets)[0].getsockname()[1]
+        import aiohttp
+
+        async with aiohttp.ClientSession() as session:
+            async with session.get(
+                f"http://127.0.0.1:{port}/health",
+                headers={
+                    "X-Queue-Start": "1699999999400",
+                    "X-Request-Start": "t=1699999990.0",
+                },
+            ) as resp:
+                assert resp.status == 200
+    finally:
+        await runner.cleanup()
+
+    access = [e for e in events if e[0] == "access_logs"]
+    assert access, "expected an access_logs structured event"
+    _name, _sev, fields = access[-1]
+    assert fields.get("queue_delay") == 600
+    assert fields.get("queue_delay_source") == "X-Queue-Start"

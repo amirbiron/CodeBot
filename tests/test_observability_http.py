@@ -1,5 +1,7 @@
 import pytest
 
+from datetime import datetime, timezone
+
 from services import observability_http as obs_http
 from services import observability_dashboard as obs_dash
 
@@ -135,3 +137,44 @@ def test_http_get_json_wraps_security_error(monkeypatch):
     with pytest.raises(obs_http.SecurityError) as exc:
         obs_dash._http_get_json("https://example.com/path")
     assert "visual_context_fetch_blocked" in str(exc.value)
+
+
+def test_fetch_aggregations_handles_naive_and_aware_datetimes(monkeypatch):
+    # Avoid cache interference
+    monkeypatch.setattr(obs_dash, "_cache_get", lambda *_a, **_k: None)
+    monkeypatch.setattr(obs_dash, "_cache_set", lambda *_a, **_k: None)
+
+    monkeypatch.setattr(
+        obs_dash.alerts_storage,
+        "aggregate_alert_summary",
+        lambda **_kwargs: {"total": 2, "critical": 0, "anomaly": 1, "deployment": 1},
+    )
+
+    def _fake_fetch_alert_timestamps(*, start_dt, end_dt, severity=None, alert_type=None, limit=500):
+        # Deployment timestamps come back as UTC-aware
+        if alert_type == "deployment_event":
+            return [datetime(2025, 1, 1, 0, 30, tzinfo=timezone.utc)]
+        # Anomaly timestamps come back as offset-naive (common in DB)
+        if severity == "anomaly":
+            return [datetime(2025, 1, 1, 0, 45)]
+        return []
+
+    monkeypatch.setattr(obs_dash.alerts_storage, "fetch_alert_timestamps", _fake_fetch_alert_timestamps)
+
+    monkeypatch.setattr(
+        obs_dash.metrics_storage,
+        "aggregate_top_endpoints",
+        lambda **_kwargs: [
+            {"endpoint": "/healthz", "method": "GET", "count": 1, "avg_duration": 0.1, "max_duration": 0.1}
+        ],
+    )
+    monkeypatch.setattr(obs_dash.metrics_storage, "average_request_duration", lambda **_kwargs: 1.23)
+
+    payload = obs_dash.fetch_aggregations(
+        start_dt=datetime(2025, 1, 1, 0, 0, tzinfo=timezone.utc),
+        end_dt=datetime(2025, 1, 1, 2, 0, tzinfo=timezone.utc),
+        slow_endpoints_limit=5,
+    )
+
+    assert payload["deployment_correlation"]["anomalies_not_related_to_deployment_percent"] == 0.0
+    assert payload["deployment_correlation"]["avg_spike_during_deployment"] == 1.23

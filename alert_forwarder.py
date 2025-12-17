@@ -57,6 +57,393 @@ class _AnomalyBatch:
 _ANOMALY_BATCHES: Dict[str, _AnomalyBatch] = {}
 
 
+def _safe_int(value: Any, default: int = 0) -> int:
+    try:
+        return int(float(str(value).strip()))
+    except Exception:
+        return int(default)
+
+
+def _safe_float(value: Any, default: float = 0.0) -> float:
+    try:
+        return float(str(value).strip().replace("%", "").replace("s", ""))
+    except Exception:
+        return float(default)
+
+
+def _fmt_minutes(window_seconds: Any) -> str:
+    sec = _safe_int(window_seconds, 0)
+    if sec <= 0:
+        return "—"
+    minutes = max(1, int(math.ceil(sec / 60.0)))
+    return f"{minutes} minutes"
+
+
+def _clean_sentry_noise(text: str) -> str:
+    """Remove very noisy Sentry/driver fragments for chat notifications."""
+    try:
+        t = str(text or "")
+    except Exception:
+        return ""
+    # Drop TopologyDescription tail (very long) without regex (avoid ReDoS warnings)
+    try:
+        lowered = t.lower()
+        marker = "topology description:"
+        idx = lowered.find(marker)
+        if idx >= 0:
+            t = t[:idx].rstrip(" ,")
+    except Exception:
+        pass
+    # Trim excessive whitespace without regex
+    try:
+        t = " ".join(t.split()).strip()
+    except Exception:
+        pass
+    # Hard cap to avoid huge messages
+    if len(t) > 260:
+        t = t[:259] + "…"
+    return t
+
+
+def _extract_host_from_text(text: str) -> Optional[str]:
+    # Avoid regex: scan for ".mongodb.net" suffix and expand token leftwards.
+    try:
+        s = str(text or "")
+    except Exception:
+        return None
+    lowered = s.lower()
+    suffix = ".mongodb.net"
+    idx = lowered.find(suffix)
+    if idx < 0:
+        return None
+    end = idx + len(suffix)
+    # Expand left until non-host character
+    allowed = set("abcdefghijklmnopqrstuvwxyz0123456789-._")
+    i = idx - 1
+    while i >= 0:
+        ch = lowered[i]
+        if ch in allowed:
+            i -= 1
+            continue
+        break
+    start = i + 1
+    host = s[start:end].strip()
+    return host or None
+
+
+def _extract_connect_timeout_ms(text: str) -> Optional[int]:
+    # Avoid regex: locate "connectTimeoutMS:" and parse number until "ms"
+    try:
+        s = str(text or "")
+    except Exception:
+        return None
+    lowered = s.lower()
+    key = "connecttimeoutms:"
+    idx = lowered.find(key)
+    if idx < 0:
+        return None
+    j = idx + len(key)
+    # Skip whitespace
+    while j < len(s) and s[j].isspace():
+        j += 1
+    # Read number (digits + dot)
+    k = j
+    while k < len(s) and (s[k].isdigit() or s[k] == "."):
+        k += 1
+    num = s[j:k].strip()
+    if not num:
+        return None
+    try:
+        return int(float(num))
+    except Exception:
+        return None
+
+
+def _parse_avg_threshold_from_summary(summary: str) -> tuple[Optional[float], Optional[float]]:
+    """Parse `avg_rt=3.737s (threshold 3.000s)` style summaries."""
+    try:
+        s = str(summary or "")
+    except Exception:
+        return None, None
+    def _extract_float_after(label: str) -> Optional[float]:
+        try:
+            low = s.lower()
+            idx = low.find(label.lower())
+            if idx < 0:
+                return None
+            j = idx + len(label)
+            while j < len(s) and s[j].isspace():
+                j += 1
+            if j < len(s) and s[j] == "=":
+                j += 1
+            while j < len(s) and s[j].isspace():
+                j += 1
+            k = j
+            while k < len(s) and (s[k].isdigit() or s[k] == "."):
+                k += 1
+            num = s[j:k].strip()
+            return float(num) if num else None
+        except Exception:
+            return None
+
+    avg = _extract_float_after("avg_rt")
+    thr = _extract_float_after("threshold")
+    return avg, thr
+
+
+def _parse_percent_pair_from_summary(summary: str) -> tuple[Optional[float], Optional[float]]:
+    """Parse `...=60.00% > threshold=20.00%` style summaries."""
+    try:
+        s = str(summary or "")
+    except Exception:
+        return None, None
+    def _extract_percent_after(label: str) -> Optional[float]:
+        try:
+            low = s.lower()
+            idx = low.find(label.lower())
+            if idx < 0:
+                return None
+            j = idx + len(label)
+            while j < len(s) and s[j].isspace():
+                j += 1
+            if j < len(s) and s[j] == "=":
+                j += 1
+            while j < len(s) and s[j].isspace():
+                j += 1
+            k = j
+            while k < len(s) and (s[k].isdigit() or s[k] == "."):
+                k += 1
+            num = s[j:k].strip()
+            # Require a following '%' to reduce false positives
+            if not num:
+                return None
+            if "%" not in s[k : k + 3]:
+                # tolerate "60.0%," or "60.0% "
+                pass
+            return float(num)
+        except Exception:
+            return None
+
+    # Current is typically the first "...=NN%" token; use the first '=' occurrence.
+    cur = None
+    try:
+        eq = s.find("=")
+        if eq >= 0:
+            tmp = s[eq + 1 :]
+            k = 0
+            while k < len(tmp) and tmp[k].isspace():
+                k += 1
+            j = k
+            while j < len(tmp) and (tmp[j].isdigit() or tmp[j] == "."):
+                j += 1
+            num = tmp[k:j].strip()
+            if num:
+                cur = float(num)
+    except Exception:
+        cur = None
+    thr = _extract_percent_after("threshold")
+    return cur, thr
+
+
+def _format_external_service_degraded(
+    *,
+    service: Optional[str],
+    current_percent: Optional[float],
+    threshold_percent: Optional[float],
+    sample_count: int,
+    error_count: int,
+    window_seconds: int,
+) -> str:
+    svc = service or "Unknown"
+    cur = f"{current_percent:.0f}%" if current_percent is not None else "—"
+    thr = f"{threshold_percent:.0f}%" if threshold_percent is not None else "—"
+    window = _fmt_minutes(window_seconds)
+    return "\n".join(
+        [
+            "⚠️ External Service Degraded",
+            f"Service: {svc}",
+            f"📉 Error Rate: {cur} (Threshold: {thr})",
+            "📊 Stats:",
+            f"• Errors: {error_count} / {max(0, sample_count)} requests",
+            f"• Window: {window}",
+            "🛑 Action Required: Check external provider status page.",
+        ]
+    )
+
+
+def _parse_slow_endpoints_compact(value: Optional[str]) -> List[Dict[str, Any]]:
+    if not value:
+        return []
+    try:
+        raw = str(value)
+    except Exception:
+        return []
+    entries: List[Dict[str, Any]] = []
+    for chunk in [c.strip() for c in raw.split(";") if c.strip()]:
+        # Format from internal_alerts: "METHOD endpoint: 10.53s (n=1)" (avoid regex)
+        try:
+            parts = chunk.split(None, 1)
+            if len(parts) != 2:
+                continue
+            method = str(parts[0] or "").strip().upper()
+            rest = str(parts[1] or "").strip()
+            if not method or not rest:
+                continue
+            if ": " not in rest:
+                continue
+            endpoint_part, tail = rest.rsplit(": ", 1)
+            endpoint = endpoint_part.strip()
+            if not endpoint:
+                continue
+            # tail: "10.53s (n=1)"
+            if "s" not in tail:
+                continue
+            sec_text = tail.split("s", 1)[0].strip()
+            seconds = float(sec_text)
+            count = 1
+            n_idx = tail.find("(n=")
+            if n_idx >= 0:
+                close = tail.find(")", n_idx)
+                if close > n_idx:
+                    n_text = tail[n_idx + 3 : close].strip()
+                    if n_text.isdigit():
+                        count = int(n_text)
+            entries.append({"method": method, "endpoint": endpoint, "seconds": seconds, "count": count})
+        except Exception:
+            continue
+    return entries
+
+
+def _format_anomaly_alert(
+    *,
+    avg_rt: Optional[float],
+    threshold: Optional[float],
+    top_slow_endpoint: Optional[str],
+    slow_endpoints_compact: Optional[str],
+    active_requests: Optional[str],
+    memory_mb: Optional[str],
+    recent_errors_5m: Optional[str],
+) -> str:
+    avg_s = f"{avg_rt:.2f}s" if avg_rt is not None else "—"
+    thr_s = f"{threshold:.2f}s" if threshold is not None else "—"
+
+    entries = _parse_slow_endpoints_compact(slow_endpoints_compact)
+    main = entries[0] if entries else None
+    others = entries[1:4] if len(entries) > 1 else []
+
+    # Fallback: parse "GET index (10.525s)" when compact list is missing
+    if main is None and top_slow_endpoint:
+        try:
+            raw = str(top_slow_endpoint or "").strip()
+            if raw:
+                parts = raw.split(None, 1)
+                if len(parts) == 2:
+                    method = parts[0].strip().upper()
+                    rest = parts[1].strip()
+                    lpar = rest.rfind("(")
+                    rpar = rest.rfind(")")
+                    if lpar >= 0 and rpar > lpar:
+                        endpoint = rest[:lpar].strip()
+                        dur_raw = rest[lpar + 1 : rpar].strip()
+                        if dur_raw.endswith("s"):
+                            dur_raw = dur_raw[:-1].strip()
+                        seconds = float(dur_raw)
+                        main = {"method": method, "endpoint": endpoint, "seconds": seconds, "count": 1}
+        except Exception:
+            main = None
+
+    health_lines: List[str] = []
+    if active_requests is not None:
+        health_lines.append(f"• Active Req: {active_requests}")
+    if memory_mb is not None:
+        try:
+            mem = float(str(memory_mb).strip())
+            health_lines.append(f"• Memory: {mem:.0f} MB")
+        except Exception:
+            health_lines.append(f"• Memory: {memory_mb} MB")
+    if recent_errors_5m is not None:
+        health_lines.append(f"• Errors (5m): {recent_errors_5m}")
+
+    lines = [
+        "🐢 System Anomaly Detected",
+        f"Avg Response: {avg_s} (Threshold: {thr_s})",
+    ]
+    if main:
+        lines.extend(
+            [
+                "🐌 Main Bottleneck:",
+                f"{main.get('method')} {main.get('endpoint')}",
+                f"⏱️ {float(main.get('seconds') or 0.0):.2f}s",
+            ]
+        )
+    if others:
+        lines.append("📉 Also Slow in this Window:")
+        for item in others:
+            try:
+                lines.append(f"• {item.get('method')} {item.get('endpoint')}: {float(item.get('seconds') or 0.0):.2f}s")
+            except Exception:
+                continue
+    if health_lines:
+        lines.append("📊 Resource Usage:")
+        lines.extend(health_lines)
+    return "\n".join(lines)
+
+
+def _format_sentry_issue(
+    *,
+    short_id: Optional[str],
+    summary: str,
+    last_seen: Optional[str],
+    sentry_link: Optional[str],
+) -> str:
+    raw = str(summary or "")
+    cleaned = _clean_sentry_noise(raw)
+    sid = short_id or "—"
+
+    lowered = raw.lower()
+    # Heuristics for clearer titles
+    if "_operationcancelled" in lowered or "operation cancelled" in lowered:
+        title = "🧹 DB Pool Maintenance Warning"
+        body = "Background cleanup task failed due to network instability."
+        host = _extract_host_from_text(raw)
+        if host:
+            body += f"\nTarget: {host}"
+        text = "\n".join([title, f"Source: Sentry ({sid})", f"Error: Operation Cancelled", body])
+    elif "ssl handshake failed" in lowered:
+        title = "🔐 SSL Handshake Failed"
+        host = _extract_host_from_text(raw) or "Unknown Host"
+        timeout_ms = _extract_connect_timeout_ms(raw)
+        timeout_line = f"⏱️ Timeout: {timeout_ms}ms ({(timeout_ms/1000.0):.0f}s)" if timeout_ms else "⏱️ Timeout: —"
+        text = "\n".join(
+            [
+                title,
+                f"Source: Sentry ({sid})",
+                f"Target: {host}",
+                timeout_line,
+                _clean_sentry_noise(raw),
+            ]
+        )
+    elif ("replicasetnoprimary" in lowered) or ("primary()" in lowered) or ("no replica set members match selector" in lowered):
+        title = "🚨 Critical Database Error"
+        text = "\n".join(
+            [
+                title,
+                f"Source: Sentry ({sid})",
+                "💀 Issue: MongoDB Connection Failed",
+                cleaned or "—",
+            ]
+        )
+    else:
+        title = "🚨 Sentry Alert"
+        text = "\n".join([title, f"Source: Sentry ({sid})", cleaned or "—"])
+
+    if last_seen:
+        text += f"\n📅 Last Seen: {last_seen}"
+    if sentry_link:
+        text += f"\n🔗 Action: {sentry_link}"
+    return text
+
+
 def _format_alert_text(alert: Dict[str, Any]) -> str:
     labels = alert.get("labels", {}) or {}
     annotations = alert.get("annotations", {}) or {}
@@ -85,20 +472,83 @@ def _format_alert_text(alert: Dict[str, Any]) -> str:
 
     generator_url = alert.get("generatorURL") or ""
 
-    parts = [f"[{status.upper()} | {severity}] {name}"]
+    # --- Specialized templates for high-signal alerts ---
+    try:
+        if str(name or "").strip() == "External Service Degraded":
+            cur, thr = _parse_percent_pair_from_summary(str(summary or ""))
+            # Prefer explicit annotations from internal_alerts; fallback to details_preview parsing
+            cur = _safe_float(_first(["current_percent"])) if _first(["current_percent"]) else cur
+            thr = _safe_float(_first(["threshold_percent"])) if _first(["threshold_percent"]) else thr
+            sample_count = _safe_int(_first(["sample_count"]), 0)
+            error_count = _safe_int(_first(["error_count"]), 0)
+            window_seconds = _safe_int(_first(["window_seconds"]), 0)
+            msg = _format_external_service_degraded(
+                service=service,
+                current_percent=cur,
+                threshold_percent=thr,
+                sample_count=sample_count,
+                error_count=error_count,
+                window_seconds=window_seconds,
+            )
+            # Append URLs (Grafana/AM + Sentry) if present
+            if generator_url:
+                msg += f"\n{generator_url}"
+            sentry_link = _build_sentry_link(
+                direct_url=_first(["sentry_permalink", "sentry_url", "sentry"]),
+                request_id=request_id,
+                error_signature=_first(["error_signature", "signature"]),
+            )
+            if sentry_link:
+                msg += f"\nSentry: {sentry_link}"
+            return msg
+
+        if str(name or "").strip().lower() == "anomaly_detected":
+            avg, thr = _parse_avg_threshold_from_summary(str(summary or ""))
+            msg = _format_anomaly_alert(
+                avg_rt=avg,
+                threshold=thr,
+                top_slow_endpoint=_first(["top_slow_endpoint"]),
+                slow_endpoints_compact=_first(["slow_endpoints_compact"]),
+                active_requests=_first(["active_requests"]),
+                memory_mb=_first(["avg_memory_usage_mb"]),
+                recent_errors_5m=_first(["recent_errors_5m"]),
+            )
+            if generator_url:
+                msg += f"\n{generator_url}"
+            return msg
+
+        # Only treat as a Sentry-origin alert when the alert itself is named as such.
+        # Regular alerts may still include a Sentry permalink for convenience.
+        if str(name or "").strip().lower().startswith("sentry:"):
+            msg = _format_sentry_issue(
+                short_id=_first(["sentry_short_id"]) or (str(name).split(":", 1)[-1].strip() if ":" in str(name) else None),
+                summary=str(summary or ""),
+                last_seen=_first(["sentry_last_seen"]),
+                sentry_link=_build_sentry_link(
+                    direct_url=_first(["sentry_permalink", "sentry_url", "sentry"]),
+                    request_id=request_id,
+                    error_signature=_first(["error_signature", "signature"]),
+                ),
+            )
+            return msg
+    except Exception:
+        # If specialized formatting fails, fall back to generic.
+        pass
+
+    parts = [f"🔔 {name} ({severity})"]
+    if summary:
+        parts.append(str(summary))
     if service:
         parts.append(f"service: {service}")
     if environment:
         parts.append(f"env: {environment}")
     if instance:
         parts.append(f"instance: {instance}")
-    if summary:
-        parts.append(str(summary))
+    if request_id:
+        parts.append(f"request_id: {request_id}")
     detail_preview = annotations.get("details_preview") or annotations.get("details")
     if detail_preview:
         parts.append(str(detail_preview))
-    if request_id:
-        parts.append(f"request_id: {request_id}")
 
     # Append source URL if exists (Alertmanager/Grafana link)
     if generator_url:

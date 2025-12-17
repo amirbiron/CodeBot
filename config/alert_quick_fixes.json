@@ -27,14 +27,6 @@
         "payload": "/triage errors",
         "description": "העתק פקודת ChatOps לקבלת רמזים מהלוגים בזמן אמת.",
         "safety": "safe"
-      },
-      {
-        "id": "open_error_playbook",
-        "label": "📘 Playbook שגיאות",
-        "type": "link",
-        "href": "/GUIDES/LOGGING_IMPROVEMENTS.md",
-        "description": "חוזר לפלייבוק המלא לטיפול בזינוקי Error Rate.",
-        "safety": "safe"
       }
     ],
     "slow_response": [
@@ -50,7 +42,7 @@
         "id": "open_latency_guide",
         "label": "🧭 מדריך Latency",
         "type": "link",
-        "href": "/GUIDES/GUIDE_CONNECTION_POOLING.md",
+        "href": "https://github.com/amirbiron/CodeBot/blob/main/GUIDES/GUIDE_CONNECTION_POOLING.md",
         "description": "תזכורת לצעדים להפחתת P95 גבוה.",
         "safety": "safe"
       }

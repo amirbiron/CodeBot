@@ -771,6 +771,7 @@ try:
     from metrics import (
         record_request_outcome,
         record_http_request,
+        record_request_queue_delay,
         get_boot_monotonic,
         mark_startup_complete,
         note_first_request_latency,
@@ -788,6 +789,8 @@ except Exception:  # pragma: no cover
     def record_request_outcome(status_code: int, duration_seconds: float, **_kwargs) -> None:
         return None
     def record_http_request(method: str, endpoint: str, status_code: int, duration_seconds: float) -> None:
+        return None
+    def record_request_queue_delay(method: str, endpoint: str | None, delay_seconds: float, **_kwargs) -> None:
         return None
     def get_boot_monotonic() -> float:
         return 0.0
@@ -2052,10 +2055,103 @@ def try_persistent_login():
         pass
 
 
+# --- Queue delay (request queueing) instrumentation ---
+_QUEUE_DELAY_HEADERS = ("X-Queue-Start", "X-Request-Start")
+_QUEUE_DELAY_EPOCH_RE = re.compile(r"(-?\d+(?:\.\d+)?)")
+
+
+def _queue_delay_warn_threshold_ms() -> int:
+    try:
+        return max(0, int(float(os.getenv("QUEUE_DELAY_WARN_MS", "500") or 500)))
+    except Exception:
+        return 500
+
+
+def _parse_request_start_to_epoch_seconds(raw: str | None) -> float | None:
+    """Parse ingress timestamp headers into epoch seconds (best-effort)."""
+    try:
+        text = str(raw or "").strip()
+    except Exception:
+        return None
+    if not text:
+        return None
+    if text.lower().startswith("t="):
+        text = text.split("=", 1)[1].strip()
+    m = _QUEUE_DELAY_EPOCH_RE.search(text)
+    if not m:
+        return None
+    token = m.group(1)
+    if not token:
+        return None
+    if "." in token:
+        try:
+            value = float(token)
+        except Exception:
+            return None
+        return value if value > 0 else None
+    try:
+        value_int = int(token)
+    except Exception:
+        return None
+    if value_int <= 0:
+        return None
+    digits = len(token.lstrip("+-"))
+    if digits <= 10:
+        return float(value_int)
+    if digits <= 13:
+        return float(value_int) / 1_000.0
+    if digits <= 16:
+        return float(value_int) / 1_000_000.0
+    return float(value_int) / 1_000_000_000.0
+
+
+def _compute_queue_delay_ms(headers, *, now_epoch_seconds: float) -> tuple[int, str | None]:
+    for header_name in _QUEUE_DELAY_HEADERS:
+        try:
+            raw = headers.get(header_name)
+        except Exception:
+            raw = None
+        if not raw:
+            continue
+        ts = _parse_request_start_to_epoch_seconds(raw)
+        if ts is None:
+            continue
+        try:
+            delay_ms = int(round(max(0.0, float(now_epoch_seconds - float(ts)) * 1000.0)))
+        except Exception:
+            delay_ms = 0
+        return delay_ms, header_name
+    return 0, None
+
+
+def _bind_queue_delay_context(queue_delay_ms: int, source_header: str | None) -> None:
+    """Bind queue delay to structlog contextvars (best-effort)."""
+    try:
+        import structlog  # type: ignore
+
+        payload: Dict[str, Any] = {"queue_delay": int(queue_delay_ms)}
+        if source_header:
+            payload["queue_delay_source"] = str(source_header)
+        structlog.contextvars.bind_contextvars(**payload)
+    except Exception:
+        return
+
+
 @app.before_request
 def _correlation_bind():
     """Bind a short request_id to structlog context and store for response header."""
     try:
+        # Queue delay must be captured as early as possible (before business logic).
+        try:
+            now_epoch = float(time.time())
+            q_ms, q_src = _compute_queue_delay_ms(request.headers, now_epoch_seconds=now_epoch)
+            setattr(g, "_queue_delay_ms", int(q_ms))
+            setattr(g, "_queue_delay_source", q_src)
+            _bind_queue_delay_context(int(q_ms), q_src)
+        except Exception:
+            setattr(g, "_queue_delay_ms", 0)
+            setattr(g, "_queue_delay_source", None)
+
         try:
             incoming = str(request.headers.get("X-Request-ID", "")).strip()
         except Exception:
@@ -2160,7 +2256,52 @@ def _metrics_after(resp):
             )
             try:
                 method = getattr(request, "method", "GET")
-                record_http_request(method, endpoint, status, dur)
+                record_http_request(method, endpoint, status, dur, path=path_label)
+            except Exception:
+                pass
+            # Queue delay instrumentation (best-effort)
+            try:
+                q_ms = int(getattr(g, "_queue_delay_ms", 0) or 0)
+            except Exception:
+                q_ms = 0
+            try:
+                q_src = getattr(g, "_queue_delay_source", None)
+            except Exception:
+                q_src = None
+            try:
+                record_request_queue_delay(method_label, endpoint, float(q_ms) / 1000.0)
+            except Exception:
+                pass
+            try:
+                rid = getattr(request, "_req_id", "") or ""
+                access_fields: Dict[str, Any] = {
+                    "request_id": str(rid),
+                    "method": method_label,
+                    "path": path_label,
+                    "handler": handler_label,
+                    "status_code": int(status),
+                    "duration_ms": int(float(dur) * 1000),
+                    "queue_delay": int(q_ms),
+                }
+                if q_src:
+                    access_fields["queue_delay_source"] = str(q_src)
+                emit_event("access_logs", severity="info", **access_fields)
+            except Exception:
+                pass
+            try:
+                threshold = _queue_delay_warn_threshold_ms()
+                if threshold > 0 and int(q_ms) >= int(threshold):
+                    warn_fields: Dict[str, Any] = {
+                        "request_id": str(getattr(request, "_req_id", "") or ""),
+                        "queue_delay": int(q_ms),
+                        "threshold_ms": int(threshold),
+                        "method": method_label,
+                        "path": path_label,
+                        "handler": handler_label,
+                    }
+                    if q_src:
+                        warn_fields["queue_delay_source"] = str(q_src)
+                    emit_event("queue_delay_high", severity="warning", **warn_fields)
             except Exception:
                 pass
             # מדידת זמן "בקשה ראשונה" מול זמן אתחול התהליך
@@ -4855,7 +4996,17 @@ def format_day_hhmm(value) -> str:
         return ''
 # Routes
 
-@app.route('/')
+@app.route('/', methods=['HEAD'])
+def index_head():
+    """בדיקת דופק קלה ל-HEAD / בלי IO/Template.
+
+    חשוב: Flask ממפה HEAD אוטומטית ל-GET ולכן בלי מסלול ייעודי היינו מריצים
+    את `index()` (כולל קריאת uptime חיצונית) גם עבור בדיקות דופק/Health.
+    """
+    return Response(status=200)
+
+
+@app.route('/', methods=['GET'])
 def index():
     """דף הבית"""
     # Try resolve external uptime (non-blocking semantics: short timeout + cache inside helper)
@@ -6279,6 +6430,112 @@ def files():
             pass
     return html
 
+
+@app.route('/trash')
+@login_required
+@traced("files.recycle_bin_page")
+def trash_page():
+    """דף סל מחזור בווב-אפ (קבצים עם is_active=False)."""
+    db = get_db()
+    user_id = session['user_id']
+
+    try:
+        page = int(request.args.get('page', 1))
+    except Exception:
+        page = 1
+    page = max(1, page)
+    per_page = 20
+
+    match = {'user_id': user_id, 'is_active': False}
+
+    reg_docs: list[dict] = []
+    try:
+        reg_docs = list(db.code_snippets.find(
+            match,
+            {
+                'file_name': 1,
+                'programming_language': 1,
+                'deleted_at': 1,
+                'deleted_expires_at': 1,
+                'updated_at': 1,
+                'created_at': 1,
+                'version': 1,
+            },
+        ))
+    except Exception:
+        reg_docs = []
+
+    large_docs: list[dict] = []
+    large_coll = getattr(db, 'large_files', None)
+    if large_coll is not None:
+        try:
+            large_docs = list(large_coll.find(
+                match,
+                {
+                    'file_name': 1,
+                    'programming_language': 1,
+                    'deleted_at': 1,
+                    'deleted_expires_at': 1,
+                    'updated_at': 1,
+                    'created_at': 1,
+                },
+            ))
+        except Exception:
+            large_docs = []
+
+    combined: list[dict] = []
+    for d in reg_docs:
+        if isinstance(d, dict):
+            d['_is_large'] = False
+            combined.append(d)
+    for d in large_docs:
+        if isinstance(d, dict):
+            d['_is_large'] = True
+            combined.append(d)
+
+    def _sort_key(doc: dict):
+        dt = doc.get('deleted_at') or doc.get('updated_at') or doc.get('created_at')
+        if isinstance(dt, datetime):
+            return dt if dt.tzinfo is not None else dt.replace(tzinfo=timezone.utc)
+        return datetime.min.replace(tzinfo=timezone.utc)
+
+    combined.sort(key=_sort_key, reverse=True)
+
+    total_count = len(combined)
+    total_pages = (total_count + per_page - 1) // per_page if total_count > 0 else 1
+    page = max(1, min(page, total_pages))
+    start = (page - 1) * per_page
+    end = start + per_page
+    page_docs = combined[start:end]
+
+    items: list[dict] = []
+    for doc in page_docs:
+        fname = str(doc.get('file_name') or '')
+        lang_display = resolve_file_language(doc.get('programming_language'), fname)
+        is_large = bool(doc.get('_is_large', False))
+        items.append({
+            'id': str(doc.get('_id') or ''),
+            'file_name': fname,
+            'language': lang_display,
+            'icon': get_language_icon(lang_display),
+            'deleted_at': format_datetime_display(doc.get('deleted_at')),
+            'expires_at': format_datetime_display(doc.get('deleted_expires_at')),
+            'version': (doc.get('version') if not is_large else None),
+            'kind': ('גדול' if is_large else 'רגיל'),
+        })
+
+    return render_template(
+        'trash.html',
+        user=session['user_data'],
+        items=items,
+        total_count=total_count,
+        page=page,
+        total_pages=total_pages,
+        has_prev=page > 1,
+        has_next=page < total_pages,
+        recycle_ttl_days=RECYCLE_TTL_DAYS_DEFAULT,
+    )
+
 @app.route('/file/<file_id>')
 @login_required
 def view_file(file_id):
@@ -7327,6 +7584,96 @@ def api_file_move_to_trash(file_id):
     message = f'הקובץ הועבר לסל המיחזור ל-{ttl_days} ימים'
     return jsonify({'ok': True, 'message': message, 'affected': modified_count})
 
+
+@app.route('/api/trash/<file_id>/restore', methods=['POST'])
+@login_required
+@traced("files.recycle_bin_restore")
+def api_recycle_bin_restore(file_id: str):
+    """שחזור פריט מסל המחזור לפי מזהה מסמך (קוד רגיל או קובץ גדול)."""
+    db = get_db()
+    user_id = session['user_id']
+    try:
+        oid = ObjectId(file_id)
+    except Exception:
+        return jsonify({'ok': False, 'error': 'Invalid file id'}), 400
+
+    now = datetime.now(timezone.utc)
+    modified = 0
+
+    try:
+        res = db.code_snippets.update_many(
+            {'_id': oid, 'user_id': user_id, 'is_active': False},
+            {'$set': {'is_active': True, 'updated_at': now},
+             '$unset': {'deleted_at': '', 'deleted_expires_at': ''}},
+        )
+        modified += int(getattr(res, 'modified_count', 0) or 0)
+    except Exception:
+        pass
+
+    if modified == 0:
+        large_coll = getattr(db, 'large_files', None)
+        if large_coll is not None:
+            try:
+                res2 = large_coll.update_many(
+                    {'_id': oid, 'user_id': user_id, 'is_active': False},
+                    {'$set': {'is_active': True, 'updated_at': now},
+                     '$unset': {'deleted_at': '', 'deleted_expires_at': ''}},
+                )
+                modified += int(getattr(res2, 'modified_count', 0) or 0)
+            except Exception:
+                pass
+
+    if modified == 0:
+        return jsonify({'ok': False, 'error': 'not_found'}), 404
+
+    try:
+        cache.invalidate_user_cache(int(user_id))
+        cache.delete_pattern(f"collections_*:{int(user_id)}:*")
+    except Exception:
+        pass
+
+    return jsonify({'ok': True, 'restored': modified})
+
+
+@app.route('/api/trash/<file_id>/purge', methods=['POST'])
+@login_required
+@traced("files.recycle_bin_purge")
+def api_recycle_bin_purge(file_id: str):
+    """מחיקה סופית מפריט בסל המחזור לפי מזהה מסמך."""
+    db = get_db()
+    user_id = session['user_id']
+    try:
+        oid = ObjectId(file_id)
+    except Exception:
+        return jsonify({'ok': False, 'error': 'Invalid file id'}), 400
+
+    deleted = 0
+    try:
+        res = db.code_snippets.delete_many({'_id': oid, 'user_id': user_id, 'is_active': False})
+        deleted += int(getattr(res, 'deleted_count', 0) or 0)
+    except Exception:
+        pass
+
+    if deleted == 0:
+        large_coll = getattr(db, 'large_files', None)
+        if large_coll is not None:
+            try:
+                res2 = large_coll.delete_many({'_id': oid, 'user_id': user_id, 'is_active': False})
+                deleted += int(getattr(res2, 'deleted_count', 0) or 0)
+            except Exception:
+                pass
+
+    if deleted == 0:
+        return jsonify({'ok': False, 'error': 'not_found'}), 404
+
+    try:
+        cache.invalidate_user_cache(int(user_id))
+        cache.delete_pattern(f"collections_*:{int(user_id)}:*")
+    except Exception:
+        pass
+
+    return jsonify({'ok': True, 'deleted': deleted})
+
 @app.route('/api/files/recent')
 @login_required
 def api_recent_files():
@@ -7342,7 +7689,15 @@ def api_recent_files():
         ensure_recent_opens_indexes()
 
         # שלוף יותר מ-10 כדי לפצות על דילוג פריטים לא תקינים
-        raw_cursor = db.recent_opens.find({'user_id': user_id}) \
+        raw_cursor = db.recent_opens.find(
+            {'user_id': user_id},
+            {
+                'last_opened_file_id': 1,
+                'file_name': 1,
+                'language': 1,
+                'last_opened_at': 1,
+            },
+        ) \
             .sort('last_opened_at', DESCENDING) \
             .limit(30)
 
@@ -7367,7 +7722,14 @@ def api_recent_files():
                                 {'is_active': {'$exists': False}}
                             ]
                         }
-                        file_doc = db.code_snippets.find_one(q)
+                        file_doc = db.code_snippets.find_one(
+                            q,
+                            {
+                                'file_name': 1,
+                                'programming_language': 1,
+                                'file_size': 1,
+                            },
+                        )
                     except Exception:
                         file_doc = None
 
@@ -7382,6 +7744,11 @@ def api_recent_files():
                                     {'is_active': True},
                                     {'is_active': {'$exists': False}}
                                 ]
+                            },
+                            {
+                                'file_name': 1,
+                                'programming_language': 1,
+                                'file_size': 1,
                             },
                             sort=[('version', DESCENDING), ('updated_at', DESCENDING), ('_id', DESCENDING)]
                         )
@@ -7399,8 +7766,12 @@ def api_recent_files():
                     continue
                 seen_ids.add(sid)
 
-                code_str = (file_doc.get('code') or '') if isinstance(file_doc.get('code'), str) else ''
-                size_bytes = len(code_str.encode('utf-8')) if code_str else 0
+                # שים לב: לא מושכים `code` רק כדי לחשב גודל — זה כבד מאוד על DB.
+                # אם `file_size` לא קיים (מסמכים ישנים) נחזיר 0; זה עדיף על האטה/תקיעות.
+                try:
+                    size_bytes = int(file_doc.get('file_size') or 0)
+                except Exception:
+                    size_bytes = 0
                 lang = (file_doc.get('programming_language') or rdoc.get('language') or 'text')
 
                 results.append({
@@ -7553,6 +7924,7 @@ def edit_file_page(file_id):
             source_url_was_edited = source_url_state == 'edited'
             clean_source_url = None
             source_url_removed = False
+            markdown_image_payloads: List[Dict[str, Any]] = []
             if source_url_value:
                 clean_source_url, source_url_err = _normalize_source_url_value(source_url_value)
                 if source_url_err:
@@ -7717,39 +8089,88 @@ def edit_file_page(file_id):
                     except Exception:
                         tags = []
 
-                now = datetime.now(timezone.utc)
-                new_doc = {
-                    'user_id': user_id,
-                    'file_name': file_name,
-                    'code': code,
-                    'programming_language': language,
-                    'description': description,
-                    'tags': tags,
-                    'version': version,
-                    'created_at': now,
-                    'updated_at': now,
-                    'is_active': True,
-                }
-                prev_source = None
-                try:
-                    prev_source = (prev or file or {}).get('source_url')
-                except Exception:
+                # תמונות ל-Markdown (כמו במסך יצירה): נשמרות כ-attachments לפי גרסה
+                should_collect_images = isinstance(file_name, str) and file_name.lower().endswith(('.md', '.markdown'))
+                if not error and should_collect_images:
+                    try:
+                        incoming_images = request.files.getlist('md_images')
+                    except Exception:
+                        incoming_images = []
+                    valid_images = [img for img in incoming_images if getattr(img, 'filename', '').strip()]
+                    if valid_images:
+                        if len(valid_images) > MARKDOWN_IMAGE_LIMIT:
+                            error = f'ניתן לצרף עד {MARKDOWN_IMAGE_LIMIT} תמונות'
+                        else:
+                            for img in valid_images:
+                                if error:
+                                    break
+                                try:
+                                    data = img.read()
+                                except Exception:
+                                    data = b''
+                                if not data:
+                                    continue
+                                if len(data) > MARKDOWN_IMAGE_MAX_BYTES:
+                                    max_mb = max(1, MARKDOWN_IMAGE_MAX_BYTES // (1024 * 1024))
+                                    error = f'כל תמונה מוגבלת ל-{max_mb}MB'
+                                    break
+                                safe_name = secure_filename(img.filename or '') or f'image_{len(markdown_image_payloads) + 1}.png'
+                                content_type = (img.mimetype or '').lower()
+                                if content_type not in ALLOWED_MARKDOWN_IMAGE_TYPES:
+                                    guessed_type = mimetypes.guess_type(safe_name)[0] or ''
+                                    content_type = guessed_type.lower() if guessed_type else content_type
+                                if content_type not in ALLOWED_MARKDOWN_IMAGE_TYPES:
+                                    error = 'ניתן להעלות רק תמונות PNG, JPG, WEBP או GIF'
+                                    break
+                                markdown_image_payloads.append({
+                                    'filename': safe_name,
+                                    'content_type': content_type,
+                                    'size': len(data),
+                                    'data': data,
+                                })
+                            if error:
+                                markdown_image_payloads = []
+
+                # אם ולידציית תמונות (או כל ולידציה אחרת) קבעה error – לא נשמור גרסה חדשה
+                if not error:
+                    now = datetime.now(timezone.utc)
+                    new_doc = {
+                        'user_id': user_id,
+                        'file_name': file_name,
+                        'code': code,
+                        'programming_language': language,
+                        'description': description,
+                        'tags': tags,
+                        'version': version,
+                        'created_at': now,
+                        'updated_at': now,
+                        'is_active': True,
+                    }
                     prev_source = None
-                if clean_source_url:
-                    new_doc['source_url'] = clean_source_url
-                elif not source_url_removed and prev_source:
-                    new_doc['source_url'] = prev_source
-                try:
-                    res = db.code_snippets.insert_one(new_doc)
-                    if res and getattr(res, 'inserted_id', None):
-                        if original_file_name and original_file_name != file_name:
-                            _sync_collection_items_after_web_rename(db, user_id, original_file_name, file_name)
-                        if _log_webapp_user_activity():
-                            session['_skip_view_activity_once'] = True
-                        return redirect(url_for('view_file', file_id=str(res.inserted_id)))
-                    error = 'שמירת הקובץ נכשלה'
-                except Exception as _e:
-                    error = f'שמירת הקובץ נכשלה: {_e}'
+                    try:
+                        prev_source = (prev or file or {}).get('source_url')
+                    except Exception:
+                        prev_source = None
+                    if clean_source_url:
+                        new_doc['source_url'] = clean_source_url
+                    elif not source_url_removed and prev_source:
+                        new_doc['source_url'] = prev_source
+                    try:
+                        res = db.code_snippets.insert_one(new_doc)
+                        if res and getattr(res, 'inserted_id', None):
+                            if markdown_image_payloads:
+                                try:
+                                    _save_markdown_images(db, user_id, res.inserted_id, markdown_image_payloads)
+                                except Exception:
+                                    pass
+                            if original_file_name and original_file_name != file_name:
+                                _sync_collection_items_after_web_rename(db, user_id, original_file_name, file_name)
+                            if _log_webapp_user_activity():
+                                session['_skip_view_activity_once'] = True
+                            return redirect(url_for('view_file', file_id=str(res.inserted_id)))
+                        error = 'שמירת הקובץ נכשלה'
+                    except Exception as _e:
+                        error = f'שמירת הקובץ נכשלה: {_e}'
         except Exception as e:
             error = f'שגיאה בעריכה: {e}'
 
@@ -8509,7 +8930,7 @@ def upload_file_web():
                 except Exception:
                     pass
                 # שמירה ישירה במסד (להימנע מתלות ב-BOT_TOKEN של שכבת הבוט)
-                should_collect_images = isinstance(file_name, str) and file_name.lower().endswith('.md')
+                should_collect_images = isinstance(file_name, str) and file_name.lower().endswith(('.md', '.markdown'))
                 if not error and should_collect_images:
                     try:
                         incoming_images = request.files.getlist('md_images')
@@ -9747,6 +10168,7 @@ def api_observability_replay():
 def api_observability_runbook(event_id: str):
     if not _require_admin_user():
         return jsonify({'ok': False, 'error': 'admin_only'}), 403
+    ui_context = request.args.get('ui') or request.args.get('context')
     fallback = {
         'alert_type': request.args.get('alert_type'),
         'type': request.args.get('type'),
@@ -9769,6 +10191,7 @@ def api_observability_runbook(event_id: str):
         payload = observability_service.fetch_runbook_for_event(
             event_id=event_id,
             fallback_metadata=metadata or None,
+            ui_context=ui_context,
         )
     except ValueError as exc:
         logger.info("observability_runbook_invalid_request: event_id=%s error=%s", event_id, exc)
@@ -9789,6 +10212,7 @@ def api_observability_runbook_status(event_id: str):
     if not user_id:
         return jsonify({'ok': False, 'error': 'admin_only'}), 403
     payload = request.get_json(silent=True) or {}
+    ui_context = payload.get('ui') or payload.get('context')
     step_id = str(payload.get('step_id') or '').strip()
     if not step_id:
         return jsonify({'ok': False, 'error': 'missing_step_id'}), 400
@@ -9802,6 +10226,7 @@ def api_observability_runbook_status(event_id: str):
             completed=completed,
             user_id=user_id,
             fallback_metadata=fallback_metadata,
+            ui_context=ui_context,
         )
     except ValueError as exc:
         logger.warning("observability_runbook_status_invalid_request: event_id=%s error=%s", event_id, exc)

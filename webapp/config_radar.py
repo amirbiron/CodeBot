@@ -361,14 +361,18 @@ def _build_runbooks_section(path: Path) -> SectionResult:
         if aliases_raw is not None and not isinstance(aliases_raw, list):
             issues.append(_issue(path.name, f"runbooks.{key}.aliases", "aliases חייב להיות מערך מחרוזות"))
             aliases_raw = []
+        steps_preview = _summarize_runbook_steps(path.name, key, steps, issues)
         runbooks_summary.append(
             {
                 "name": str(key),
                 "title": cfg.get("title"),
                 "description": cfg.get("description"),
                 "aliases": [str(alias) for alias in (aliases_raw or []) if isinstance(alias, str)],
-                "steps_count": len(steps),
-                "steps": _summarize_runbook_steps(path.name, key, steps, issues),
+                # Config Radar UI shows only a preview (up to 6 items) so keep the displayed count consistent
+                # with what the user actually sees.
+                "steps_count": len(steps_preview),
+                "steps_total": len(steps),
+                "steps": steps_preview,
             }
         )
 
@@ -399,15 +403,24 @@ def _summarize_runbook_steps(
         action = step.get("action")
         action_label = ""
         action_type = ""
+        action_value = ""
+        action_safety = ""
         if isinstance(action, dict):
             action_label = str(action.get("label") or "")
-            action_type = str(action.get("type") or "")
+            action_type = str(action.get("type") or "").lower()
+            action_safety = str(action.get("safety") or "")
+            if action_type == "link":
+                action_value = str(action.get("href") or "")
+            elif action_type == "copy":
+                action_value = str(action.get("payload") or "")
         summaries.append(
             {
                 "id": step.get("id"),
                 "title": step.get("title"),
                 "action_label": action_label,
                 "action_type": action_type,
+                "action_value": action_value,
+                "action_safety": action_safety,
             }
         )
     return summaries

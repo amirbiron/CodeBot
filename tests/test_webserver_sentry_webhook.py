@@ -109,3 +109,52 @@ async def test_sentry_webhook_accepts_with_token_query_when_secret_set(monkeypat
 
     assert captured
 
+
+@pytest.mark.asyncio
+async def test_sentry_webhook_resolved_operationcancelled_stays_info(monkeypatch):
+    from aiohttp import web
+
+    monkeypatch.delenv("SENTRY_WEBHOOK_SECRET", raising=False)
+    monkeypatch.delenv("WEBHOOK_SECRET", raising=False)
+
+    captured = []
+
+    def fake_emit_internal_alert(name: str, severity: str = "info", summary: str = "", **details):
+        captured.append({"name": name, "severity": severity, "summary": summary, "details": details})
+
+    import types
+    import importlib
+    monkeypatch.setitem(importlib.sys.modules, "internal_alerts", types.SimpleNamespace(emit_internal_alert=fake_emit_internal_alert))
+
+    app = create_app()
+    runner = web.AppRunner(app)
+    await runner.setup()
+    site = web.TCPSite(runner, host="127.0.0.1", port=0)
+    await site.start()
+    try:
+        port = list(site._server.sockets)[0].getsockname()[1]
+        import aiohttp
+        async with aiohttp.ClientSession() as session:
+            payload = {
+                "action": "resolved",
+                "data": {
+                    "issue": {
+                        "id": "999",
+                        "shortId": "PYTHON-1A",
+                        "title": "_OperationCancelled: operation cancelled",
+                        "permalink": "https://sentry.io/issue/999",
+                    },
+                    "event": {"level": "error"},
+                    "project": {"slug": "codebot"},
+                },
+            }
+            async with session.post(f"http://127.0.0.1:{port}/webhooks/sentry", data=json.dumps(payload)) as resp:
+                assert resp.status == 200
+                data = await resp.json()
+                assert data.get("ok") is True
+    finally:
+        await runner.cleanup()
+
+    assert captured, "expected internal alert emission"
+    assert captured[0]["severity"] == "info"
+

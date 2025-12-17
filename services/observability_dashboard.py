@@ -65,15 +65,19 @@ _SECRET_RE = re.compile(r"(?i)(token|secret|password|api[_-]?key)\s*[:=]\s*([^\s
 _EMAIL_LOCAL_CHARS = frozenset("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._%+-")
 _EMAIL_DOMAIN_CHARS = frozenset("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789.-")
 
+_REPO_ROOT = Path(__file__).resolve().parents[1]
+
 _QUICK_FIX_PATH = Path(os.getenv("ALERT_QUICK_FIX_PATH", "config/alert_quick_fixes.json"))
 _QUICK_FIX_CACHE: Dict[str, Any] = {}
 _QUICK_FIX_MTIME: float = 0.0
+_QUICK_FIX_RESOLVED_PATH: Optional[Path] = None
 _QUICK_FIX_ACTIONS: deque[Dict[str, Any]] = deque(maxlen=200)
 
 _RUNBOOK_PATH = Path(os.getenv("OBSERVABILITY_RUNBOOK_PATH", "config/observability_runbooks.yml"))
 _RUNBOOK_CACHE: Dict[str, Any] = {}
 _RUNBOOK_ALIAS_MAP: Dict[str, str] = {}
 _RUNBOOK_MTIME: float = 0.0
+_RUNBOOK_RESOLVED_PATH: Optional[Path] = None
 try:
     _RUNBOOK_STATE_TTL = float(os.getenv("OBS_RUNBOOK_STATE_TTL", "14400"))
 except ValueError:  # pragma: no cover - env misconfig fallback
@@ -239,6 +243,29 @@ def _cache_set(kind: str, key: Any, value: Any) -> None:
         bucket[key] = (time.time(), value)
 
 
+def _cache_dt_key(dt: Optional[datetime], *, bucket_seconds: int = 60) -> Optional[str]:
+    """מייצר מפתח זמן יציב לקאש.
+
+    הרבה מהקריאות מגיעות עם end_dt="עכשיו", ולכן שימוש ב-isoformat מלא יוצר miss
+    על כל בקשה ומבטל את הקאש לחלוטין. כאן אנחנו "מיישרים" את הזמן לבאקט (דקה כברירת מחדל)
+    רק עבור *מפתח הקאש* — לא משנים את start_dt/end_dt שנשלחים לשכבות האחסון.
+    """
+    if dt is None:
+        return None
+    try:
+        aware = _ensure_utc_aware(dt)
+        # יישור דטרמיניסטי לבאקט (למשל 60 שניות)
+        bucket = max(1, int(bucket_seconds))
+        epoch = int(aware.timestamp())
+        snapped = (epoch // bucket) * bucket
+        return datetime.fromtimestamp(snapped, tz=timezone.utc).isoformat()
+    except Exception:
+        try:
+            return dt.isoformat()
+        except Exception:
+            return None
+
+
 def _hash_identifier(raw: Any) -> str:
     try:
         text = str(raw or "").strip()
@@ -254,8 +281,15 @@ def _hash_identifier(raw: Any) -> str:
 
 
 def _load_quick_fix_config() -> Dict[str, Any]:
-    global _QUICK_FIX_CACHE, _QUICK_FIX_MTIME
-    path = _QUICK_FIX_PATH
+    global _QUICK_FIX_CACHE, _QUICK_FIX_MTIME, _QUICK_FIX_RESOLVED_PATH
+    try:
+        path = _resolve_config_path(_QUICK_FIX_PATH)
+    except Exception:
+        return _QUICK_FIX_CACHE
+    if _QUICK_FIX_RESOLVED_PATH != path:
+        _QUICK_FIX_CACHE = {}
+        _QUICK_FIX_MTIME = 0.0
+        _QUICK_FIX_RESOLVED_PATH = path
     try:
         stat = path.stat()
     except FileNotFoundError:
@@ -286,22 +320,90 @@ def _slugify(value: str, fallback: str) -> str:
     return text or fallback
 
 
-def _normalize_alert_type(value: Optional[str]) -> str:
+def _resolve_config_path(path: Path) -> Path:
+    """Resolve config file paths robustly regardless of current working directory.
+
+    In production the process CWD isn't guaranteed to be the repository root,
+    but we still want relative config paths (defaults + env overrides) to work.
+
+    Resolution order:
+    - absolute paths stay as-is
+    - relative paths: prefer CWD when the file exists (backwards compatible)
+    - otherwise: resolve relative to the repo root (based on this module location)
+    """
     try:
-        return str(value or "").strip().lower()
+        p = Path(path)
+    except Exception:
+        return path
+    try:
+        if p.is_absolute():
+            return p
+    except Exception:
+        # Best-effort: keep original path-like object
+        return p
+
+    # Best-effort CWD resolution (CWD may be missing/permission-denied in prod)
+    try:
+        cwd = Path.cwd()
+    except Exception:
+        cwd = None
+    if cwd is not None:
+        try:
+            cwd_candidate = cwd / p
+            if cwd_candidate.exists():
+                return cwd_candidate
+        except Exception:
+            pass
+
+    # Repo-root fallback (final best-effort)
+    try:
+        return _REPO_ROOT / p
+    except Exception:
+        return p
+
+
+def _normalize_alert_type(value: Optional[str]) -> str:
+    """
+    Normalize alert_type identifiers to a stable key.
+
+    Production data isn't always consistent (e.g. "deployment-event", "Deployment Event",
+    "deployment_event"). We normalize common separators into underscores so config keys
+    in runbooks / quick-fixes can match reliably.
+    """
+    try:
+        text = str(value or "").strip().lower()
     except Exception:
         return ""
+    if not text:
+        return ""
+    # Normalize common separators to underscore
+    try:
+        text = re.sub(r"[\s\-./:]+", "_", text)
+        text = re.sub(r"__+", "_", text).strip("_")
+    except Exception:
+        # Best-effort: keep the lowercased string
+        text = text.strip()
+    return text
 
 
-def _normalize_runbook_config(raw: Any) -> Tuple[Dict[str, Any], Dict[str, str], Optional[str], Optional[int]]:
+def _normalize_runbook_config(
+    raw: Any,
+) -> Tuple[Dict[str, Any], Dict[str, str], Optional[str], Optional[int], Dict[str, Any]]:
     definitions: Dict[str, Any] = {}
     aliases: Dict[str, str] = {}
     default_key: Optional[str] = None
     version: Optional[int] = None
+    quick_fix_rules: Dict[str, Any] = {}
 
     if isinstance(raw, dict):
         version = raw.get("version")
         runbooks_block = raw.get("runbooks") if isinstance(raw.get("runbooks"), dict) else raw
+        try:
+            qf = raw.get("quick_fix_rules")
+        except Exception:
+            qf = None
+        if isinstance(qf, dict):
+            quick_fix_rules = copy.deepcopy(qf)
     else:
         runbooks_block = {}
 
@@ -350,12 +452,20 @@ def _normalize_runbook_config(raw: Any) -> Tuple[Dict[str, Any], Dict[str, str],
         if mapped in definitions:
             default_key = mapped
 
-    return definitions, aliases, default_key, version
+    return definitions, aliases, default_key, version, quick_fix_rules
 
 
 def _load_runbook_config() -> Dict[str, Any]:
-    global _RUNBOOK_CACHE, _RUNBOOK_ALIAS_MAP, _RUNBOOK_MTIME
-    path = _RUNBOOK_PATH
+    global _RUNBOOK_CACHE, _RUNBOOK_ALIAS_MAP, _RUNBOOK_MTIME, _RUNBOOK_RESOLVED_PATH
+    try:
+        path = _resolve_config_path(_RUNBOOK_PATH)
+    except Exception:
+        return _RUNBOOK_CACHE
+    if _RUNBOOK_RESOLVED_PATH != path:
+        _RUNBOOK_CACHE = {}
+        _RUNBOOK_ALIAS_MAP = {}
+        _RUNBOOK_MTIME = 0.0
+        _RUNBOOK_RESOLVED_PATH = path
     try:
         stat = path.stat()
     except FileNotFoundError:
@@ -382,11 +492,12 @@ def _load_runbook_config() -> Dict[str, Any]:
         logger.warning("observability_runbook_parse_failed")
         data = {}
 
-    definitions, aliases, default_key, version = _normalize_runbook_config(data)
+    definitions, aliases, default_key, version, quick_fix_rules = _normalize_runbook_config(data)
     _RUNBOOK_CACHE = {
         "definitions": definitions,
         "default": default_key,
         "version": version,
+        "quick_fix_rules": quick_fix_rules,
     }
     _RUNBOOK_ALIAS_MAP = aliases
     _RUNBOOK_MTIME = stat.st_mtime
@@ -504,6 +615,29 @@ def _expand_quick_fix_action(cfg: Dict[str, Any], alert: Dict[str, Any]) -> Dict
     return expanded
 
 
+def _effective_alert_type_from_snapshot(alert: Dict[str, Any]) -> Optional[str]:
+    """Best-effort alert_type extraction from either top-level or metadata/details.
+
+    Older DB rows or upstream emitters sometimes store the type under metadata keys
+    (e.g. details.type) while the top-level alert_type field is missing.
+    """
+    try:
+        direct = alert.get("alert_type")
+    except Exception:
+        direct = None
+    if direct not in (None, ""):
+        return direct  # type: ignore[return-value]
+    meta = alert.get("metadata") if isinstance(alert.get("metadata"), dict) else {}
+    for key in ("alert_type", "type", "category", "kind"):
+        try:
+            candidate = meta.get(key)
+        except Exception:
+            candidate = None
+        if candidate not in (None, ""):
+            return candidate  # type: ignore[return-value]
+    return None
+
+
 def _collect_quick_fix_actions(alert: Dict[str, Any]) -> List[Dict[str, Any]]:
     config = _load_quick_fix_config() or {}
     actions: List[Dict[str, Any]] = []
@@ -522,17 +656,25 @@ def _collect_quick_fix_actions(alert: Dict[str, Any]) -> List[Dict[str, Any]]:
             seen.add(act_id)
             actions.append(expanded)
 
-    alert_type = str(alert.get("alert_type") or "").lower()
-    by_type = config.get("by_alert_type") or {}
-    if alert_type and alert_type in by_type:
-        _extend(by_type.get(alert_type))
+    alert_type = _normalize_alert_type(_effective_alert_type_from_snapshot(alert))
+    by_type = config.get("by_alert_type") if isinstance(config, dict) else None
+    by_type_map: Dict[str, Any] = {}
+    if isinstance(by_type, dict):
+        # Normalize config keys too (backwards compatible)
+        for key, value in by_type.items():
+            norm_key = _normalize_alert_type(key)
+            if norm_key and norm_key not in by_type_map:
+                by_type_map[norm_key] = value
+    if alert_type and alert_type in by_type_map:
+        _extend(by_type_map.get(alert_type))
 
     severity = str(alert.get("severity") or "").lower()
-    by_severity = config.get("by_severity") or {}
-    if severity and severity in by_severity:
+    by_severity = config.get("by_severity") if isinstance(config, dict) else None
+    if isinstance(by_severity, dict) and severity and severity in by_severity:
         _extend(by_severity.get(severity))
 
-    _extend(config.get("fallback"))
+    if isinstance(config, dict):
+        _extend(config.get("fallback"))
     return actions
 
 
@@ -572,20 +714,317 @@ def _expand_runbook_steps(
 
 
 def _runbook_quick_fix_actions(alert: Dict[str, Any]) -> List[Dict[str, Any]]:
-    runbook = _resolve_runbook_entry(alert.get("alert_type"))
+    alert_type = _effective_alert_type_from_snapshot(alert)
+    runbook = _resolve_runbook_entry(alert_type)
     if not runbook:
         return []
     _, actions = _expand_runbook_steps(runbook, alert)
     return actions
 
 
-def get_quick_fix_actions(alert: Dict[str, Any]) -> List[Dict[str, Any]]:
+def _get_quick_fix_rules_config() -> Dict[str, Any]:
+    try:
+        cfg = _load_runbook_config() or {}
+    except Exception:
+        return {}
+    rules = cfg.get("quick_fix_rules") if isinstance(cfg, dict) else None
+    return rules if isinstance(rules, dict) else {}
+
+
+def _coerce_float(value: Any) -> Optional[float]:
+    if value in (None, ""):
+        return None
+    try:
+        return float(value)
+    except Exception:
+        try:
+            text = str(value).strip().lower().replace("%", "").replace("ms", "").replace("s", "")
+            return float(text) if text else None
+        except Exception:
+            return None
+
+
+def _extract_number(alert: Dict[str, Any], keys: Tuple[str, ...]) -> Optional[float]:
+    meta = alert.get("metadata") if isinstance(alert.get("metadata"), dict) else {}
+    for key in keys:
+        try:
+            raw = meta.get(key)
+        except Exception:
+            raw = None
+        val = _coerce_float(raw)
+        if val is not None:
+            return val
+        try:
+            raw2 = alert.get(key)
+        except Exception:
+            raw2 = None
+        val2 = _coerce_float(raw2)
+        if val2 is not None:
+            return val2
+    return None
+
+
+def _parse_latency_ms_from_summary(summary: Any) -> Optional[float]:
+    """Best-effort parsing for summaries like `avg_latency=3.737s > threshold=3.000s`."""
+    try:
+        s = str(summary or "")
+    except Exception:
+        return None
+    low = s.lower()
+    needle = "avg_latency="
+    idx = low.find(needle)
+    if idx < 0:
+        return None
+    j = idx + len(needle)
+    # read until non-digit/dot
+    k = j
+    while k < len(s) and (s[k].isdigit() or s[k] == "."):
+        k += 1
+    num = s[j:k].strip()
+    if not num:
+        return None
+    try:
+        seconds = float(num)
+    except Exception:
+        return None
+    return max(0.0, seconds * 1000.0)
+
+
+def _looks_like_mongo(alert: Dict[str, Any]) -> bool:
+    meta = alert.get("metadata") if isinstance(alert.get("metadata"), dict) else {}
+    haystacks: List[str] = []
+    for key in ("trace", "error", "message", "component", "service"):
+        try:
+            val = meta.get(key)
+        except Exception:
+            val = None
+        if val:
+            haystacks.append(str(val))
+    try:
+        if alert.get("summary"):
+            haystacks.append(str(alert.get("summary")))
+    except Exception:
+        pass
+    text = " ".join(haystacks).lower()
+    return ("mongo" in text) or ("pymongo" in text) or ("mongodb" in text)
+
+
+def _dynamic_quick_fix_actions(alert: Dict[str, Any]) -> List[Dict[str, Any]]:
+    """Compute dynamic quick-fix actions based on queue delay + resource/DB signals.
+
+    Returns an empty list when there's not enough signal to be confident.
+    """
+    alert_type = _normalize_alert_type(_effective_alert_type_from_snapshot(alert))
+    if alert_type not in {"slow_response", "latency", "latency_seconds"}:
+        return []
+
+    rules = _get_quick_fix_rules_config()
+    latency_cfg = rules.get("latency_v1") if isinstance(rules, dict) else None
+    if not isinstance(latency_cfg, dict):
+        latency_cfg = {}
+    if str(latency_cfg.get("enabled", "true")).lower() in {"0", "false", "no"}:
+        return []
+
+    thresholds = latency_cfg.get("thresholds") if isinstance(latency_cfg.get("thresholds"), dict) else {}
+    actions_cfg = latency_cfg.get("actions") if isinstance(latency_cfg.get("actions"), dict) else {}
+
+    queue_thr = int(_coerce_float(thresholds.get("queue_delay_ms")) or 500.0)
+    dur_thr = int(_coerce_float(thresholds.get("duration_ms")) or 3000.0)
+    pool_high = float(_coerce_float(thresholds.get("pool_utilization_high_pct")) or 90.0)
+    pool_low = float(_coerce_float(thresholds.get("pool_utilization_low_pct")) or 20.0)
+    cpu_high_thr = float(_coerce_float(thresholds.get("cpu_high_pct")) or 85.0)
+    mem_high_thr = float(_coerce_float(thresholds.get("memory_high_pct")) or 85.0)
+    cpu_low_thr = float(_coerce_float(thresholds.get("cpu_low_pct")) or 30.0)
+    mem_low_thr = float(_coerce_float(thresholds.get("memory_low_pct")) or 30.0)
+    active_low_thr = int(_coerce_float(thresholds.get("active_requests_low")) or 2.0)
+
+    queue_ms = _extract_number(
+        alert,
+        (
+            "queue_delay_ms_p95",
+            "queue_delay_ms",
+            "queue_delay",
+            "queue_time_ms",
+            "queue_ms",
+            "queue_delay_ms_avg",
+        ),
+    )
+    duration_ms = _extract_number(alert, ("duration_ms", "current_ms", "latency_ms", "duration"))
+    if duration_ms is None:
+        duration_ms = _parse_latency_ms_from_summary(alert.get("summary"))
+    if duration_ms is None:
+        dur_s = _extract_number(alert, ("duration_seconds",))
+        if dur_s is not None:
+            duration_ms = dur_s * 1000.0
+
+    pool_util = _extract_number(
+        alert,
+        (
+            "db_pool_utilization_pct",
+            "pool_utilization_pct",
+            "mongo_pool_utilization_percent",
+            "mongo_pool_utilization_pct",
+        ),
+    )
+    cpu_pct = _extract_number(alert, ("cpu_percent", "cpu_usage_percent"))
+    mem_pct = _extract_number(alert, ("memory_percent", "memory_usage_percent"))
+    active_requests = _extract_number(alert, ("active_requests",))
+
+    queue_ms_i = int(max(0.0, queue_ms or 0.0))
+    duration_ms_i = int(max(0.0, duration_ms or 0.0))
+
+    cpu_high = cpu_pct is not None and float(cpu_pct) >= cpu_high_thr
+    mem_high = mem_pct is not None and float(mem_pct) >= mem_high_thr
+    low_usage = (
+        cpu_pct is not None
+        and mem_pct is not None
+        and active_requests is not None
+        and float(cpu_pct) <= cpu_low_thr
+        and float(mem_pct) <= mem_low_thr
+        and int(active_requests) <= active_low_thr
+    )
+
+    picked_key: Optional[str] = None
+    if queue_ms_i > queue_thr:
+        if pool_util is not None and float(pool_util) >= pool_high:
+            picked_key = "queue_pool_high"
+        elif cpu_high or mem_high:
+            picked_key = "queue_resources_high"
+        elif pool_util is not None and float(pool_util) <= pool_low and low_usage:
+            picked_key = "queue_stuck_workers"
+        else:
+            picked_key = "queue_generic"
+    elif duration_ms_i > dur_thr:
+        picked_key = "processing_mongo" if _looks_like_mongo(alert) else "processing_generic"
+    else:
+        return []
+
+    base = actions_cfg.get(picked_key) if isinstance(actions_cfg, dict) else None
+    if not isinstance(base, dict):
+        # Sensible fallback if config is missing
+        fallback_map = {
+            "queue_pool_high": {
+                "label": "🔌 הגדל Connection Pool / Kill Slow Queries",
+                "type": "copy",
+                "payload": "/triage db",
+                "safety": "caution",
+            },
+            "queue_resources_high": {
+                "label": "📈 Scale Up / Add Workers",
+                "type": "copy",
+                "payload": "/triage system",
+                "safety": "safe",
+            },
+            "queue_stuck_workers": {
+                "label": "🔄 Restart Service (Stuck Workers)",
+                "type": "copy",
+                "payload": "/status_worker",
+                "safety": "caution",
+            },
+            "queue_generic": {
+                "label": "📈 Scale Up",
+                "type": "copy",
+                "payload": "/triage system",
+                "safety": "safe",
+            },
+            "processing_mongo": {
+                "label": "🔍 בדוק אינדקסים / currentOp (Slow Query)",
+                "type": "copy",
+                "payload": "/triage db",
+                "safety": "caution",
+            },
+            "processing_generic": {
+                "label": "💾 הוסף Caching",
+                "type": "copy",
+                "payload": "/triage latency",
+                "safety": "safe",
+            },
+        }
+        base = fallback_map.get(picked_key) or {}
+
+    action = _expand_quick_fix_action(
+        {
+            "id": f"dynamic_{picked_key}",
+            "label": base.get("label") or "Quick Fix",
+            "type": base.get("type") or "copy",
+            "payload": base.get("payload"),
+            "href": base.get("href"),
+            "description": base.get("description"),
+            "safety": base.get("safety") or "safe",
+        },
+        alert,
+    )
+    return [action]
+
+
+def _should_hide_quick_fix_action(action: Dict[str, Any], *, ui_context: str) -> bool:
+    ctx = str(ui_context or "").strip().lower()
+    if not ctx:
+        return False
+    action_id = str(action.get("id") or "")
+    label = str(action.get("label") or "")
+    href = str(action.get("href") or "")
+
+    if ctx == "dashboard_history":
+        # We're already inside the Observability dashboard history.
+        # Hide the generic "open dashboard" action to reduce noise.
+        if "open_focus_link" in action_id or "פתח בלוח" in label:
+            return True
+        if href.startswith("/admin/observability") and "/replay" not in href and "#" not in href:
+            if "focus_ts=" in href:
+                return True
+
+    if ctx == "replay":
+        # We're already on Incident Replay - hide the self-referential step/action.
+        if "review_replay" in action_id:
+            return True
+
+    return False
+
+
+def _filter_quick_fix_actions(actions: List[Dict[str, Any]], *, ui_context: Optional[str]) -> List[Dict[str, Any]]:
+    ctx = str(ui_context or "").strip().lower()
+    if not ctx:
+        return actions
+    filtered: List[Dict[str, Any]] = []
+    for action in actions:
+        if not isinstance(action, dict):
+            continue
+        if _should_hide_quick_fix_action(action, ui_context=ctx):
+            continue
+        filtered.append(action)
+    return filtered
+
+
+def get_quick_fix_actions(alert: Dict[str, Any], *, ui_context: Optional[str] = None) -> List[Dict[str, Any]]:
     """Return applicable quick-fix actions for a given alert."""
     try:
-        actions = _runbook_quick_fix_actions(alert)
-        if actions:
-            return actions
-        return _collect_quick_fix_actions(alert)
+        combined: List[Dict[str, Any]] = []
+        seen: set[str] = set()
+
+        def _add(items: List[Dict[str, Any]]) -> None:
+            for item in items or []:
+                if not isinstance(item, dict):
+                    continue
+                act_id = str(item.get("id") or "")
+                if act_id and act_id in seen:
+                    continue
+                if act_id:
+                    seen.add(act_id)
+                combined.append(item)
+
+        # 1) Dynamic quick-fix (queueing vs processing), when enough signal exists.
+        _add(_dynamic_quick_fix_actions(alert))
+
+        # 2) Runbook actions (preferred over legacy JSON mapping).
+        runbook_actions = _runbook_quick_fix_actions(alert)
+        if runbook_actions:
+            _add(runbook_actions)
+            return _filter_quick_fix_actions(combined, ui_context=ui_context)
+
+        # 3) Legacy JSON mapping fallback.
+        _add(_collect_quick_fix_actions(alert))
+        return _filter_quick_fix_actions(combined, ui_context=ui_context)
     except Exception:
         return []
 
@@ -727,9 +1166,15 @@ def _match_graph_rule(alert: Dict[str, Any]) -> Tuple[Optional[str], Optional[st
 
 
 def _describe_alert_graph(alert: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    alert_type = str(alert.get("alert_type") or "").strip().lower()
     metric = _alert_metric_from_metadata(alert)
     reason = "metadata" if metric else None
     category = None
+    # Sentry issues אינם קשורים בהכרח למדדים הפנימיים (latency/error_rate וכו'),
+    # ולעיתים התאמה היוריסטית לפי מילות מפתח ("errors") יוצרת גרף "ריק" ומבלבל.
+    # אם בעתיד נרצה גרף עבור Sentry – נוסיף metric מפורש במטא־דאטה או מקור חיצוני.
+    if not metric and alert_type == "sentry_issue":
+        return None
     if not metric:
         metric, category, reason = _match_graph_rule(alert)
     if not metric:
@@ -762,6 +1207,17 @@ def _build_alert_uid(alert: Dict[str, Any]) -> str:
     return _hash_identifier(raw or "|".join(parts))
 
 
+def _ensure_utc_aware(dt: datetime) -> datetime:
+    """
+    Normalize datetimes for safe comparisons.
+
+    We treat offset-naive datetimes as UTC (common for DB-stored timestamps).
+    """
+    if dt.tzinfo is None:
+        return dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(timezone.utc)
+
+
 def _parse_iso_dt(value: Optional[str]) -> Optional[datetime]:
     if not value:
         return None
@@ -772,9 +1228,7 @@ def _parse_iso_dt(value: Optional[str]) -> Optional[datetime]:
         if text.endswith("Z"):
             text = text[:-1] + "+00:00"
         dt = datetime.fromisoformat(text)
-        if dt.tzinfo is None:
-            dt = dt.replace(tzinfo=timezone.utc)
-        return dt
+        return _ensure_utc_aware(dt)
     except Exception:
         return None
 
@@ -864,7 +1318,7 @@ def _fallback_alerts(
             or metadata.get("route")
             or metadata.get("url")
         )
-        alert_type_value = str(metadata.get("alert_type") or item.get("name") or "").lower() or None
+        alert_type_value = _normalize_alert_type(metadata.get("alert_type") or item.get("name")) or None
         normalized.append(
             {
                 "timestamp": ts_value,
@@ -910,8 +1364,8 @@ def fetch_alerts(
     per_page: int,
 ) -> Dict[str, Any]:
     cache_key = (
-        start_dt.isoformat() if start_dt else None,
-        end_dt.isoformat() if end_dt else None,
+        _cache_dt_key(start_dt, bucket_seconds=60),
+        _cache_dt_key(end_dt, bucket_seconds=60),
         (severity or "").lower(),
         (alert_type or "").lower(),
         endpoint or "",
@@ -951,7 +1405,7 @@ def fetch_alerts(
         except Exception:
             uid = _hash_identifier(alert)
         alert["alert_uid"] = uid
-        alert["quick_fixes"] = get_quick_fix_actions(alert)
+        alert["quick_fixes"] = get_quick_fix_actions(alert, ui_context="dashboard_history")
         graph = _describe_alert_graph(alert)
         if graph:
             alert["graph"] = graph
@@ -1046,9 +1500,13 @@ def fetch_aggregations(
     end_dt: Optional[datetime],
     slow_endpoints_limit: int = 5,
 ) -> Dict[str, Any]:
+    # Ensure consistent datetime semantics across sources (DB timestamps are often naive UTC).
+    start_dt = _ensure_utc_aware(start_dt) if start_dt else None
+    end_dt = _ensure_utc_aware(end_dt) if end_dt else None
+
     cache_key = (
-        start_dt.isoformat() if start_dt else None,
-        end_dt.isoformat() if end_dt else None,
+        _cache_dt_key(start_dt, bucket_seconds=60),
+        _cache_dt_key(end_dt, bucket_seconds=60),
         slow_endpoints_limit,
     )
     cached = _cache_get("aggregations", cache_key, _AGG_CACHE_TTL)
@@ -1073,13 +1531,14 @@ def fetch_aggregations(
         alert_type="deployment_event",
         limit=50,
     )
+    deployments = [_ensure_utc_aware(ts) for ts in deployments]
     if not deployments and _internal_alerts is not None:
         fallback_deployments = [
             _parse_iso_dt(rec.get("ts"))
             for rec in (_internal_alerts.get_recent_alerts(limit=200) or [])  # type: ignore[attr-defined]
             if str(rec.get("name") or "").lower() == "deployment_event"
         ]
-        deployments = [ts for ts in fallback_deployments if ts is not None]
+        deployments = [_ensure_utc_aware(ts) for ts in fallback_deployments if ts is not None]
 
     windows = _build_windows(deployments)
     window_averages: List[float] = []
@@ -1095,6 +1554,7 @@ def fetch_aggregations(
         severity="anomaly",
         limit=500,
     )
+    anomalies = [_ensure_utc_aware(ts) for ts in anomalies]
     anomaly_total = len(anomalies)
     if not anomalies and _internal_alerts is not None:
         anomaly_total = 0
@@ -1103,6 +1563,7 @@ def fetch_aggregations(
             ts = _parse_iso_dt(rec.get("ts"))
             if ts is None:
                 continue
+            ts = _ensure_utc_aware(ts)
             if start_dt and ts < start_dt:
                 continue
             if end_dt and ts > end_dt:
@@ -1112,6 +1573,7 @@ def fetch_aggregations(
         anomaly_total = len(anomalies)
 
     def _is_in_window(ts: datetime) -> bool:
+        ts = _ensure_utc_aware(ts)
         for start, finish in windows:
             if start <= ts <= finish:
                 return True
@@ -1329,9 +1791,11 @@ def fetch_timeseries(
     granularity_seconds: int,
     metric: str,
 ) -> Dict[str, Any]:
+    # קאש יציב: align לפי גרנולריות כדי שלא נקבל miss על כל "עכשיו"
+    bucket = max(60, int(granularity_seconds or 60))
     cache_key = (
-        start_dt.isoformat() if start_dt else None,
-        end_dt.isoformat() if end_dt else None,
+        _cache_dt_key(start_dt, bucket_seconds=bucket),
+        _cache_dt_key(end_dt, bucket_seconds=bucket),
         granularity_seconds,
         metric,
     )
@@ -2049,6 +2513,7 @@ def _seed_replay_event_cache(events: List[Dict[str, Any]]) -> None:
             if not event_id:
                 continue
             metadata = copy.deepcopy(event.get("metadata") or {})
+            cached_alert_type = _normalize_alert_type(metadata.get("alert_type") or event.get("type"))
             _RUNBOOK_EVENT_CACHE[event_id] = (
                 now,
                 {
@@ -2059,7 +2524,7 @@ def _seed_replay_event_cache(events: List[Dict[str, Any]]) -> None:
                     "summary": event.get("summary"),
                     "timestamp": event.get("timestamp"),
                     "severity": event.get("severity"),
-                    "alert_type": metadata.get("alert_type") or event.get("type"),
+                    "alert_type": cached_alert_type,
                     "metadata": metadata,
                     "link": event.get("link"),
                 },
@@ -2146,11 +2611,22 @@ def _build_runbook_snapshot(
     alert_snapshot: Dict[str, Any],
     *,
     runbook: Optional[Dict[str, Any]] = None,
+    ui_context: Optional[str] = None,
 ) -> Optional[Dict[str, Any]]:
     definition = copy.deepcopy(runbook) if runbook else _resolve_runbook_entry(alert_snapshot.get("alert_type"))
     if not definition:
         return None
     steps, actions = _expand_runbook_steps(definition, alert_snapshot)
+    ctx = str(ui_context or "").strip().lower()
+    if ctx == "replay":
+        # Hide self-referential step when already inside Incident Replay
+        steps = [step for step in steps if str(step.get("id") or "") != "review_replay"]
+        # Also drop the embedded action on the hidden step (defensive)
+        for step in steps:
+            action = step.get("action")
+            if isinstance(action, dict) and _should_hide_quick_fix_action(action, ui_context=ctx):
+                step["action"] = None
+    actions = _filter_quick_fix_actions(actions, ui_context=ui_context)
     state = _get_runbook_state(alert_snapshot.get("alert_uid") or _build_alert_uid(alert_snapshot))
     completed_ids = set(state.get("completed") or set())
     completed_count = 0
@@ -2226,6 +2702,7 @@ def fetch_runbook_for_event(
     *,
     event_id: str,
     fallback_metadata: Optional[Dict[str, Any]] = None,
+    ui_context: Optional[str] = None,
 ) -> Optional[Dict[str, Any]]:
     key = str(event_id or "").strip()
     if not key:
@@ -2242,7 +2719,7 @@ def fetch_runbook_for_event(
         "alert_type": context.get("alert_type"),
         "metadata": context.get("metadata") or {},
     }
-    snapshot = _build_runbook_snapshot(alert_snapshot)
+    snapshot = _build_runbook_snapshot(alert_snapshot, ui_context=ui_context)
     payload = {
         "event": context,
         "runbook": None,
@@ -2267,6 +2744,7 @@ def update_runbook_step_status(
     completed: bool,
     user_id: Optional[int],
     fallback_metadata: Optional[Dict[str, Any]] = None,
+    ui_context: Optional[str] = None,
 ) -> Dict[str, Any]:
     key = str(event_id or "").strip()
     if not key:
@@ -2293,7 +2771,7 @@ def update_runbook_step_status(
     if step not in valid_step_ids:
         raise ValueError("invalid_step")
     _set_runbook_step_state(alert_snapshot.get("alert_uid"), step, completed, user_id)
-    snapshot = _build_runbook_snapshot(alert_snapshot, runbook=runbook)
+    snapshot = _build_runbook_snapshot(alert_snapshot, runbook=runbook, ui_context=ui_context)
     if not snapshot:
         raise ValueError("runbook_missing")
     return {
@@ -2386,18 +2864,30 @@ def fetch_incident_replay(
             continue
         if ts_dt is not None and not _is_within_window(ts_dt, start_dt, end_dt):
             continue
+        uid = alert.get("alert_uid") or _build_alert_uid(alert)
+        # Prefer the stored top-level alert_type, but fall back to metadata/details when missing.
+        effective_alert_type = alert.get("alert_type")
+        if not effective_alert_type:
+            meta = alert.get("metadata") if isinstance(alert.get("metadata"), dict) else {}
+            for key in ("alert_type", "type", "category", "kind"):
+                try:
+                    candidate = meta.get(key)
+                except Exception:
+                    candidate = None
+                if candidate not in (None, ""):
+                    effective_alert_type = candidate
+                    break
         event_type = "alert"
-        if str(alert.get("alert_type") or "").lower() == "deployment_event":
+        if _normalize_alert_type(effective_alert_type) == "deployment_event":
             event_type = "deployment"
             deployment_count += 1
         else:
             alert_count += 1
-        uid = alert.get("alert_uid") or _build_alert_uid(alert)
         metadata = {
             "endpoint": alert.get("endpoint"),
-            "alert_type": alert.get("alert_type"),
+            "alert_type": effective_alert_type,
             "source": alert.get("source"),
-            "has_runbook": bool(_resolve_runbook_key(alert.get("alert_type"), allow_default=False)),
+            "has_runbook": bool(_resolve_runbook_key(effective_alert_type, allow_default=False)),
         }
         events.append(
             {
@@ -2412,27 +2902,8 @@ def fetch_incident_replay(
             }
         )
 
-    for action in _iter_quick_fix_actions():
-        ts = action.get("timestamp")
-        ts_dt = _parse_iso_dt(ts)
-        if ts_dt is None or not _is_within_window(ts_dt, start_dt, end_dt):
-            continue
-        chatops_count += 1
-        events.append(
-            {
-                "id": f"{action.get('action_id')}-{action.get('alert_uid')}",
-                "timestamp": ts,
-                "type": "chatops",
-                "severity": "info",
-                "title": action.get("action_label") or "Quick Fix",
-                "summary": action.get("summary") or "",
-                "link": _build_focus_link(action.get("alert_timestamp") or ts, anchor="history"),
-                "metadata": {
-                    "alert_uid": action.get("alert_uid"),
-                    "alert_type": action.get("alert_type"),
-                },
-            }
-        )
+    # NOTE: We intentionally do NOT append "quick-fix invoked" telemetry into Incident Replay events.
+    # The replay timeline should reflect real incidents (alerts/deployments/stories), not UI clicks.
 
     stories = incident_story_storage.list_stories(
         start_dt=start_dt,

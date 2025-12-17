@@ -1,0 +1,37 @@
+/* Theme Ripple Mask – used for smooth theme transitions */
+
+#theme-mask {
+  position: fixed;
+  inset: 0;
+  width: 100vw;
+  height: 100vh;
+  pointer-events: none;
+  z-index: 9999;
+
+  opacity: 0;
+  background: #000;
+
+  /* Start as a tiny circle from click point */
+  -webkit-clip-path: circle(0px at var(--toggle-x, 50vw) var(--toggle-y, 50vh));
+  clip-path: circle(0px at var(--toggle-x, 50vw) var(--toggle-y, 50vh));
+
+  will-change: clip-path, opacity;
+  contain: strict;
+
+  transition:
+    -webkit-clip-path 700ms cubic-bezier(0.4, 0, 0.2, 1),
+    clip-path 700ms cubic-bezier(0.4, 0, 0.2, 1),
+    opacity 120ms linear;
+}
+
+#theme-mask.active {
+  opacity: 1;
+  -webkit-clip-path: circle(var(--ripple-radius, 150vmax) at var(--toggle-x, 50vw) var(--toggle-y, 50vh));
+  clip-path: circle(var(--ripple-radius, 150vmax) at var(--toggle-x, 50vw) var(--toggle-y, 50vh));
+}
+
+@media (prefers-reduced-motion: reduce) {
+  #theme-mask {
+    transition: none;
+  }
+}

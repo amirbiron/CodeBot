@@ -24,14 +24,6 @@ runbooks:
           type: copy
           payload: "/triage errors"
           safety: safe
-      - id: open_error_playbook
-        title: "עיין בפלייבוק השגיאות"
-        description: "בדוק את סעיפי הניתוח ב-Logging Improvements לפני שינויים בקוד."
-        action:
-          label: "📘 Playbook שגיאות"
-          type: link
-          href: "/GUIDES/LOGGING_IMPROVEMENTS.md"
-          safety: safe
   slow_response:
     title: "Latency גבוה / שירות איטי"
     description: "מסלול טיפול בביצועים איטיים או בזינוקי P95."
@@ -61,7 +53,7 @@ runbooks:
         action:
           label: "🧭 מדריך Latency"
           type: link
-          href: "/GUIDES/GUIDE_CONNECTION_POOLING.md"
+          href: "https://github.com/amirbiron/CodeBot/blob/main/GUIDES/GUIDE_CONNECTION_POOLING.md"
           safety: safe
   db_connection_issue:
     title: "כשלים מול בסיס הנתונים"
@@ -70,7 +62,49 @@ runbooks:
       - db_connection_error
       - db_connection_issue
       - db_conn_error
+      - replicasetnoprimary
+      - no_replica_set_members
+      - ssl_handshake_failed
+      - operationcancelled
     steps:
+      - id: vendor_status_atlas
+        title: "בדוק סטטוס ספק (MongoDB)"
+        description: "אם יש תקלה עולמית אצל MongoDB/Atlas – לרוב אין מה לתקן אצלנו, רק לעקוב ולעדכן סטטוס."
+        action:
+          label: "🌐 MongoDB Status"
+          type: link
+          href: "https://status.mongodb.com/"
+          safety: safe
+      - id: check_mongodb_url
+        title: "ודא קונפיג בסיסי"
+        description: "בדוק ש-`MONGODB_URL` מוגדר ונראה תקין. את `YOUR_MONGODB_HOST` קח מתוך ה-URL (לרוב הדומיין אחרי `@`, למשל `cluster0.mongodb.net`)."
+      - id: check_dns
+        title: "בדוק DNS מהשרת"
+        description: "אם DNS לא פותר את הדומיין של MongoDB – זו בעיית רשת/DNS ולא בעיית קוד."
+        action:
+          label: "📋 העתק פקודת DNS"
+          type: copy
+          payload: "getent hosts YOUR_MONGODB_HOST"
+          safety: caution
+      - id: check_tcp_27017
+        title: "בדוק TCP לפורט 27017"
+        description: "אם החיבור ל-27017 נכשל/נתקע – בדוק Firewall/NAT/Network Access ב-Atlas."
+        action:
+          label: "📋 העתק בדיקת TCP"
+          type: copy
+          payload: "timeout 5 bash -lc 'cat < /dev/null > /dev/tcp/YOUR_MONGODB_HOST/27017'"
+          safety: caution
+      - id: check_tls_handshake
+        title: "בדוק TLS (אם יש SSL handshake failed)"
+        description: "כשל TLS יכול להיות בגלל זמן מערכת, CA bundle, או שינויי מדיניות TLS."
+        action:
+          label: "📋 העתק בדיקת TLS"
+          type: copy
+          payload: "timeout 8 openssl s_client -connect YOUR_MONGODB_HOST:27017 -servername YOUR_MONGODB_HOST -brief < /dev/null"
+          safety: caution
+      - id: check_atlas_allowlist
+        title: "בדוק IP allowlist (Atlas Network Access)"
+        description: "וודא שה-egress IP של השרת מורשה. מומלץ `x.x.x.x/32`. לא מומלץ לפתוח `0.0.0.0/0` (רק כחריג קצר-זמן ובכפוף למדיניות אבטחה, ואז להחזיר מיד)."
       - id: copy_triage_db
         title: "הרץ /triage db"
         description: "מקבל את סטטוס ה-Pool ומספר החיבורים הפעילים."
@@ -154,14 +188,91 @@ runbooks:
       - s3_error
       - external_api_timeout
     steps:
-      - id: check_status_pages
-        title: "בדוק סטטוס ספקים"
-        description: "לפני דיבאג, בדוק אם יש תקלה עולמית ב-GitHub או אצל ספק הענן."
+      - id: focus_replay_external
+        title: "פתח Incident Replay סביב השעה"
+        description: "לפני שמסיקים מסקנות, בדוק אם יש עוד אירועים/דיפלויים סביב אותו זמן."
+        action:
+          label: "⏪ Incident Replay"
+          type: link
+          href: "/admin/observability/replay?timerange=3h&focus_ts={{timestamp}}"
+          safety: safe
+      - id: check_status_openai
+        title: "בדוק סטטוס OpenAI"
+        description: "אם יש תקלה אצל הספק – לרוב הפתרון הוא המתנה/הודעת סטטוס למשתמשים."
+        action:
+          label: "🌐 OpenAI Status"
+          type: link
+          href: "https://status.openai.com/"
+          safety: safe
+      - id: check_status_telegram
+        title: "בדוק סטטוס Telegram"
+        description: "אם Telegram למטה – הודעות יכולות להיתקע/להיכשל."
+        action:
+          label: "🌐 Telegram Status"
+          type: link
+          href: "https://status.telegram.org/"
+          safety: safe
+      - id: check_status_github
+        title: "בדוק סטטוס GitHub"
+        description: "רלוונטי לתקלות API/Rate limit של GitHub או השהיות כלליות."
         action:
           label: "🌐 GitHub Status"
           type: link
           href: "https://www.githubstatus.com/"
           safety: safe
+      - id: run_errors_fallback
+        title: "משוך /errors"
+        description: "פקודה מהירה שמציפה שגיאות אחרונות (fallback כשאין תמונה מלאה)."
+        action:
+          label: "🚨 /errors"
+          type: copy
+          payload: "/errors"
+          safety: safe
+
+  deployment_event:
+    title: "אחרי Deploy – בדיקת רגרסיה/כשל"
+    description: "צעדים מהירים כשמיד אחרי דיפלוי מתחילות חריגות/500 או שבר בפיצ'ר."
+    aliases:
+      - deployment_error
+      - deploy_error
+      - release_regression
+      - observability_aggregations_failed
+    steps:
+      - id: replay_deploy_window
+        title: "פתח Replay סביב הדיפלוי"
+        description: "בדוק אם יש קורלציה בין הדיפלוי לזינוק בשגיאות/לטנציה."
+        action:
+          label: "⏪ Incident Replay"
+          type: link
+          href: "/admin/observability/replay?timerange=3h&focus_ts={{timestamp}}"
+          safety: safe
+      - id: check_recent_errors
+        title: "משוך /errors"
+        description: "ראה מהר אילו חריגות חוזרות (TypeError, 500, וכו')."
+        action:
+          label: "🚨 /errors"
+          type: copy
+          payload: "/errors"
+          safety: safe
+      - id: check_version_history
+        title: "בדוק /version_history"
+        description: "וודא איזו גרסה עלתה ומתי."
+        action:
+          label: "🚀 /version_history"
+          type: copy
+          payload: "/version_history"
+          safety: safe
+      - id: triage_with_request_id
+        title: "אם יש request_id – הרץ /triage"
+        description: "כשיש מזהה בקשה, /triage נותן קישורים ישירים ללוגים/הקשר."
+        action:
+          label: "📋 /triage <request_id>"
+          type: copy
+          payload: "/triage "
+          safety: safe
+      - id: rollback_if_needed
+        title: "אם יש פגיעה בפרודקשן – rollback"
+        description: "בצע rollback דרך CI/CD או החזרת image/tag קודם. הימנע מפקודות git הרסניות על שרת פרודקשן."
   generic_incident_flow:
     title: "פלייבוק כללי להתראות"
     description: "Fallback בסיסי המתאים לכל alert_type ללא Runbook ייעודי."
@@ -199,3 +310,57 @@ runbooks:
           type: link
           href: "/admin/observability/replay?timerange=6h"
           safety: safe
+
+# --- Quick Fix חכם (דינמי) לפי Queue Delay + עומס/DB ---
+# הערה: זה קונפיג עבור הלוגיקה הדינמית בשרת/בוט. כשחסרים נתונים (למשל אין pool/resource metrics)
+# הלוגיקה עושה fallback בטוח ולא שוברת UI.
+quick_fix_rules:
+  latency_v1:
+    enabled: true
+    thresholds:
+      queue_delay_ms: 500
+      duration_ms: 3000
+      pool_utilization_high_pct: 90
+      pool_utilization_low_pct: 20
+      cpu_high_pct: 85
+      memory_high_pct: 85
+      cpu_low_pct: 30
+      memory_low_pct: 30
+      active_requests_low: 2
+    actions:
+      queue_pool_high:
+        label: "🔌 הגדל Connection Pool / Kill Slow Queries"
+        type: copy
+        payload: "/triage db"
+        safety: caution
+        description: "Queueing גבוה + לחץ על DB: בדוק pool utilization / minPoolSize, ושאילתות איטיות."
+      queue_resources_high:
+        label: "📈 Scale Up / Add Workers"
+        type: copy
+        payload: "/triage system"
+        safety: safe
+        description: "Queueing גבוה + עומס CPU/RAM: כנראה צריך עוד משאבים/Workers."
+      queue_stuck_workers:
+        label: "🔄 Restart Service (Stuck Workers)"
+        type: copy
+        payload: "/status_worker"
+        safety: caution
+        description: "Queueing גבוה אבל שימוש נמוך: חשד ל-workers תקועים/deadlock."
+      queue_generic:
+        label: "📈 Scale Up"
+        type: copy
+        payload: "/triage system"
+        safety: safe
+        description: "Queueing גבוה ללא אינדיקציה ברורה: התחל מ-scaling ואז העמק."
+      processing_mongo:
+        label: "🔍 בדוק אינדקסים / currentOp (Slow Query)"
+        type: copy
+        payload: "/triage db"
+        safety: caution
+        description: "Queueing נמוך אבל Duration גבוה: חשד ל-Slow Query במונגו."
+      processing_generic:
+        label: "💾 הוסף Caching"
+        type: copy
+        payload: "/triage latency"
+        safety: safe
+        description: "Queueing נמוך אבל Duration גבוה: כנראה עיבוד איטי בקוד (Cache/אופטימיזציה)."

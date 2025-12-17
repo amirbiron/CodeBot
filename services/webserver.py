@@ -6,7 +6,8 @@ import secrets
 from dataclasses import dataclass
 import hashlib
 import hmac
-from typing import Any, Dict, Optional
+import re
+from typing import Any, Dict, Optional, Tuple
 
 # Configure structured logging and Sentry as early as possible,
 # and install sensitive data redaction on log handlers before Sentry hooks logging.
@@ -54,6 +55,7 @@ try:
         metrics_endpoint_bytes,
         metrics_content_type,
         record_request_outcome,
+        record_request_queue_delay,
         note_request_started,
         note_request_finished,
         note_deployment_started,
@@ -64,6 +66,8 @@ except Exception:  # pragma: no cover
     metrics_content_type = lambda: "text/plain; charset=utf-8"  # type: ignore
     def record_request_outcome(status_code: int, duration_seconds: float, **_kwargs) -> None:  # type: ignore
         return None
+    def record_request_queue_delay(method: str, endpoint: str | None, delay_seconds: float, **_kwargs) -> None:  # type: ignore
+        return None
     def note_request_started() -> None:  # type: ignore
         return None
     def note_request_finished() -> None:  # type: ignore
@@ -73,7 +77,6 @@ except Exception:  # pragma: no cover
     def note_deployment_shutdown(_summary: str = "Service shutting down") -> None:  # type: ignore
         return None
 from html import escape as html_escape
-from services import ai_explain_service
 
 # הערה: לא נייבא את code_sharing כ-reference קבוע כדי לאפשר monkeypatch דינמי בטסטים.
 # במקום זאת נפתור את ה-service בזמן ריצה בתוך ה-handler.
@@ -96,6 +99,121 @@ except ValueError:
 _AI_ROUTE_TOKEN = os.getenv("OBS_AI_EXPLAIN_TOKEN") or os.getenv("AI_EXPLAIN_TOKEN") or ""
 
 logger = logging.getLogger(__name__)
+
+# AI explain service is optional in minimal envs.
+# IMPORTANT: Tests monkeypatch `services.webserver.ai_explain_service`, so keep the attribute always present.
+try:  # type: ignore
+    from services import ai_explain_service as ai_explain_service  # type: ignore
+except Exception:  # pragma: no cover
+    class _AiExplainServiceStub:
+        class AiExplainError(RuntimeError):
+            pass
+
+        async def generate_ai_explanation(self, *_a, **_k):  # type: ignore[no-untyped-def]
+            raise self.AiExplainError("service_unavailable")
+
+    ai_explain_service = _AiExplainServiceStub()  # type: ignore
+
+# --- Queue delay (request queueing) instrumentation ---
+_QUEUE_DELAY_HEADERS = ("X-Queue-Start", "X-Request-Start")
+_QUEUE_DELAY_EVENT_NAME = "access_logs"
+_QUEUE_DELAY_EPOCH_RE = re.compile(r"(-?\d+(?:\.\d+)?)")
+
+
+def _queue_delay_warn_threshold_ms() -> int:
+    try:
+        return max(0, int(float(os.getenv("QUEUE_DELAY_WARN_MS", "500") or 500)))
+    except Exception:
+        return 500
+
+
+def _parse_request_start_to_epoch_seconds(raw: str | None) -> float | None:
+    """Parse request start header into epoch seconds (best-effort).
+
+    Supported shapes:
+    - "t=1700000000.123"  (seconds, float)
+    - "1700000000"        (seconds, int)
+    - "1700000000123"     (milliseconds)
+    - "1700000000123456"  (microseconds)
+    - "1700000000123456789" (nanoseconds)
+    """
+    try:
+        text = str(raw or "").strip()
+    except Exception:
+        return None
+    if not text:
+        return None
+
+    # Common prefix: "t=..."
+    if text.lower().startswith("t="):
+        text = text.split("=", 1)[1].strip()
+
+    m = _QUEUE_DELAY_EPOCH_RE.search(text)
+    if not m:
+        return None
+    token = m.group(1)
+    if not token:
+        return None
+
+    # Float token => treat as seconds (e.g., "1700000000.123")
+    if "." in token:
+        try:
+            value = float(token)
+        except Exception:
+            return None
+        return value if value > 0 else None
+
+    # Integer token => infer unit from digit length
+    try:
+        value_int = int(token)
+    except Exception:
+        return None
+    if value_int <= 0:
+        return None
+
+    digits = len(token.lstrip("+-"))
+    # epoch seconds ~ 10 digits, ms ~ 13, us ~ 16, ns ~ 19
+    if digits <= 10:
+        return float(value_int)
+    if digits <= 13:
+        return float(value_int) / 1_000.0
+    if digits <= 16:
+        return float(value_int) / 1_000_000.0
+    return float(value_int) / 1_000_000_000.0
+
+
+def _compute_queue_delay_ms(headers: Any, *, now_epoch_seconds: float) -> Tuple[int, str | None]:
+    """Return (queue_delay_ms, source_header) with fail-open behavior."""
+    for header_name in _QUEUE_DELAY_HEADERS:
+        try:
+            raw = headers.get(header_name)
+        except Exception:
+            raw = None
+        if not raw:
+            continue
+        ts = _parse_request_start_to_epoch_seconds(raw)
+        if ts is None:
+            continue
+        try:
+            delay_ms = int(round(max(0.0, float(now_epoch_seconds - float(ts)) * 1000.0)))
+        except Exception:
+            delay_ms = 0
+        return delay_ms, header_name
+    return 0, None
+
+
+def _bind_queue_delay_context(queue_delay_ms: int, source_header: str | None) -> None:
+    """Bind queue delay to structlog contextvars (best-effort)."""
+    try:
+        import structlog  # type: ignore
+
+        payload: Dict[str, Any] = {"queue_delay": int(queue_delay_ms)}
+        if source_header:
+            payload["queue_delay_source"] = str(source_header)
+        structlog.contextvars.bind_contextvars(**payload)
+    except Exception:
+        return
+
 
 # --- Sentry webhook: in-memory de-dup to avoid bursts ---
 _SENTRY_DEDUP: dict[str, float] = {}
@@ -283,6 +401,20 @@ def _extract_sentry_alert(payload: Any) -> _SentryAlert | None:
     if action in {"resolved", "resolved_issue", "issue_resolved"}:
         severity = "info"
 
+    # Heuristic: some Sentry issues are background/maintenance noise (e.g. pymongo pool housekeeping).
+    # Downgrade them to warning so they don't look like user-facing errors in Telegram/Observability.
+    try:
+        lowered_title = str(title_s or "").lower()
+        # NOTE: do not override "resolved" notifications; they should remain informational,
+        # otherwise we emit new warning-level alerts and create new dedup keys.
+        if (
+            severity != "info"
+            and ("_operationcancelled" in lowered_title or "operation cancelled" in lowered_title)
+        ):
+            severity = "warning"
+    except Exception:
+        pass
+
     # Stable identifiers for dedup
     primary_id = issue_id or short_id or str(event.get("id") or event.get("event_id") or "").strip()
     dedup_key = "|".join([x for x in [primary_id, project_slug, severity, action] if x])
@@ -339,7 +471,12 @@ def create_app() -> web.Application:
     async def _request_id_mw(request: web.Request, handler):
         req_id = generate_request_id() or ""
         start = time.perf_counter()
+        wall_now = time.time()
         handler_name = getattr(handler, "__name__", None) or handler.__class__.__name__
+        queue_delay_ms, queue_delay_source = _compute_queue_delay_ms(
+            request.headers, now_epoch_seconds=float(wall_now)
+        )
+        _bind_queue_delay_context(queue_delay_ms, queue_delay_source)
         try:
             note_request_started()
         except Exception:
@@ -407,6 +544,47 @@ def create_app() -> web.Application:
                 method=method_label,
                 cache_hit=None,
             )
+            try:
+                record_request_queue_delay(
+                    method_label,
+                    route_name or handler_name or path_label,
+                    float(queue_delay_ms) / 1000.0,
+                )
+            except Exception:
+                pass
+            # Structured access log (best-effort)
+            try:
+                access_fields: Dict[str, Any] = {
+                    "request_id": req_id,
+                    "method": method_label,
+                    "path": path_label,
+                    "handler": handler_label,
+                    "status_code": status,
+                    "duration_ms": int(duration * 1000),
+                    "queue_delay": int(queue_delay_ms),
+                }
+                if queue_delay_source:
+                    access_fields["queue_delay_source"] = str(queue_delay_source)
+                emit_event(_QUEUE_DELAY_EVENT_NAME, severity="info", **access_fields)
+            except Exception:
+                pass
+            # Warning when queue delay is suspiciously high
+            try:
+                threshold = _queue_delay_warn_threshold_ms()
+                if threshold > 0 and int(queue_delay_ms) >= int(threshold):
+                    warn_fields: Dict[str, Any] = {
+                        "request_id": req_id,
+                        "queue_delay": int(queue_delay_ms),
+                        "threshold_ms": int(threshold),
+                        "method": method_label,
+                        "path": path_label,
+                        "handler": handler_label,
+                    }
+                    if queue_delay_source:
+                        warn_fields["queue_delay_source"] = str(queue_delay_source)
+                    emit_event("queue_delay_high", severity="warning", **warn_fields)
+            except Exception:
+                pass
         except Exception as e:
             try:
                 emit_event(
@@ -707,6 +885,9 @@ def create_app() -> web.Application:
             elif error_code == "anthropic_api_key_missing":
                 status = 503
                 message = "השירות לא הוגדר (חסר מפתח Anthropic)"
+            elif error_code in {"service_unavailable", "ai_explain_service_unavailable"}:
+                status = 503
+                message = "שירות ההסבר אינו זמין"
             else:
                 status = 502
                 message = "ספק ה-AI לא הצליח להחזיר תשובה"

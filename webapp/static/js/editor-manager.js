@@ -42,7 +42,90 @@
       this.loadingPromise = null;
       // נשמור CDN אחיד לכל המודולים כדי למנוע חוסר תאימות בין מחלקות
       this._cdnUrl = null;
+      // מצב משותף למעבר בין עורכים: "איפה המשתמש היה" (שורה אחרונה שנצפתה)
+      this._sharedLastLine = 1;
+      this._textareaLineHeightCache = null;
       try { console.log('[EditorManager] Initialized with preferred editor:', this.currentEditor); } catch(_) {}
+    }
+
+    _getTextareaLineHeightPx(textareaEl) {
+      // ב-Textarea, getComputedStyle(lineHeight) יכול להחזיר "normal" ולכן parseFloat נכשל.
+      // כדי שחישוב שורה לפי scrollTop יהיה יציב, ננסה להפיק line-height בפיקסלים בצורה בטוחה.
+      try {
+        const ta = textareaEl;
+        if (!ta || !window.getComputedStyle) return 19; // fallback סביר
+
+        if (!this._textareaLineHeightCache) {
+          this._textareaLineHeightCache = new WeakMap();
+        }
+        const cached = this._textareaLineHeightCache.get(ta);
+        if (cached && typeof cached === 'number' && cached > 0) {
+          return cached;
+        }
+
+        const cs = window.getComputedStyle(ta);
+        const lhRaw = cs ? cs.lineHeight : '';
+        const lh = parseFloat(lhRaw);
+        if (lh && !Number.isNaN(lh) && lh > 0) {
+          this._textareaLineHeightCache.set(ta, lh);
+          return lh;
+        }
+
+        // אם line-height הוא "normal" (או משהו לא מספרי) – נמדוד בפועל באמצעות probe.
+        try {
+          const body = document && document.body;
+          if (body) {
+            const probe = document.createElement('div');
+            probe.style.position = 'absolute';
+            probe.style.visibility = 'hidden';
+            probe.style.pointerEvents = 'none';
+            probe.style.whiteSpace = 'pre';
+            probe.style.padding = '0';
+            probe.style.margin = '0';
+            probe.style.border = '0';
+            // העתקה של סטייל פונט רלוונטי
+            try { probe.style.fontFamily = cs.fontFamily; } catch(_) {}
+            try { probe.style.fontSize = cs.fontSize; } catch(_) {}
+            try { probe.style.fontWeight = cs.fontWeight; } catch(_) {}
+            try { probe.style.fontStyle = cs.fontStyle; } catch(_) {}
+            try { probe.style.letterSpacing = cs.letterSpacing; } catch(_) {}
+            try { probe.style.lineHeight = cs.lineHeight; } catch(_) {}
+
+            body.appendChild(probe);
+            let h1 = 0;
+            let h2 = 0;
+            try {
+              probe.textContent = 'X';
+              h1 = probe.getBoundingClientRect().height || 0;
+              probe.textContent = 'X\nX';
+              h2 = probe.getBoundingClientRect().height || 0;
+            } finally {
+              try { probe.remove(); } catch(_) {}
+            }
+            const measured = (h2 > 0 && h1 > 0) ? (h2 - h1) : 0;
+            if (measured && measured > 0) {
+              this._textareaLineHeightCache.set(ta, measured);
+              return measured;
+            }
+            if (h2 && h2 > 0) {
+              const approx = h2 / 2;
+              if (approx > 0) {
+                this._textareaLineHeightCache.set(ta, approx);
+                return approx;
+              }
+            }
+          }
+        } catch(_) {}
+
+        const fsRaw = cs ? cs.fontSize : '';
+        const fs = parseFloat(fsRaw);
+        if (fs && !Number.isNaN(fs) && fs > 0) {
+          const approx = fs * 1.2; // הערכה שמרנית יותר ל-"normal"
+          this._textareaLineHeightCache.set(ta, approx);
+          return approx;
+        }
+      } catch(_) {}
+      return 19;
     }
 
     loadPreference() {
@@ -260,6 +343,9 @@
 
       const toggleBtn = switcher.querySelector('.btn-switch-editor');
       toggleBtn.addEventListener('click', async () => {
+        // לפני החלפת עורך: נזכור את השורה האחרונה שהמשתמש "עומד עליה" (לפי גלילה/viewport)
+        const lastLine = this.getCurrentVisibleLine() || 1;
+        this._sharedLastLine = lastLine;
         const prev = this.currentEditor;
         this.currentEditor = prev === 'simple' ? 'codemirror' : 'simple';
         if (this.currentEditor === 'codemirror') {
@@ -273,6 +359,11 @@
         } else {
           this.initSimpleEditor(container, { value: this.cmInstance ? this.cmInstance.state.doc.toString() : this.textarea.value });
         }
+        // אחרי שהעורך החדש מוכן: החזר את המשתמש לאותה שורה (מיקום משותף בין העורכים)
+        try {
+          const targetLine = this._sharedLastLine || lastLine || 1;
+          this._scheduleRestoreLinePosition(targetLine);
+        } catch(_) {}
         this.savePreference(this.currentEditor);
         try {
           const label = switcher.querySelector('.btn-switch-editor span');
@@ -351,6 +442,167 @@
       } catch(_) {}
     }
 
+    // --- Shared position (line) handling between editors ---
+    getCurrentVisibleLine() {
+      // עדיפות: שורה עליונה שנראית (viewport) כדי לשמר גלילה גם אם הסמן לא זז.
+      // fallback: שורת הסמן.
+      try {
+        if (this.cmInstance && this.cmInstance.state) {
+          const view = this.cmInstance;
+          try {
+            // דרך יציבה: שימוש ב-lineBlockAtHeight עם scrollTop (CM6)
+            if (typeof view.lineBlockAtHeight === 'function' && view.scrollDOM && typeof view.scrollDOM.scrollTop === 'number') {
+              const block = view.lineBlockAtHeight((view.scrollDOM.scrollTop || 0) + 8);
+              const topLine = view.state.doc.lineAt(block.from).number;
+
+              // אם הסמן בתוך ה-viewport – נשמור את שורת הסמן (זה מה שהמשתמש "עומד עליו")
+              let cursorLine = null;
+              try {
+                const head = (view.state.selection && view.state.selection.main) ? view.state.selection.main.head : 0;
+                cursorLine = view.state.doc.lineAt(head).number;
+              } catch(_) {}
+
+              try {
+                const height = (view.scrollDOM && typeof view.scrollDOM.clientHeight === 'number') ? view.scrollDOM.clientHeight : 0;
+                if (height && height > 0) {
+                  const bottomBlock = view.lineBlockAtHeight((view.scrollDOM.scrollTop || 0) + height - 8);
+                  const bottomLine = view.state.doc.lineAt(bottomBlock.from).number;
+                  if (cursorLine && cursorLine >= topLine && cursorLine <= bottomLine) {
+                    return cursorLine;
+                  }
+                }
+              } catch(_) {}
+
+              if (typeof topLine === 'number' && topLine > 0) return topLine;
+            }
+          } catch(_) {}
+          try {
+            // fallback: viewport (אם זמין)
+            if (view.viewport && typeof view.viewport.from === 'number') {
+              const topLine = view.state.doc.lineAt(view.viewport.from).number;
+              if (typeof topLine === 'number' && topLine > 0) return topLine;
+            }
+          } catch(_) {}
+          try {
+            const head = (view.state.selection && view.state.selection.main) ? view.state.selection.main.head : 0;
+            const ln = view.state.doc.lineAt(head).number;
+            if (typeof ln === 'number' && ln > 0) return ln;
+          } catch(_) {}
+        }
+      } catch(_) {}
+
+      try {
+        if (this.textarea) {
+          const ta = this.textarea;
+          const value = ta.value || '';
+          const totalLines = Math.max(1, (value.split('\n').length || 1));
+
+          // חישוב שורה של הסמן (cursor)
+          let cursorLine = 1;
+          try {
+            const pos = (typeof ta.selectionStart === 'number') ? ta.selectionStart : 0;
+            const before = value.slice(0, Math.max(0, Math.min(pos, value.length)));
+            cursorLine = before.split('\n').length || 1;
+            cursorLine = Math.min(totalLines, Math.max(1, cursorLine));
+          } catch(_) { cursorLine = 1; }
+
+          // חישוב לפי scrollTop/lineHeight (עם fallback בטוח ל-"normal")
+          try {
+            const lh = this._getTextareaLineHeightPx(ta);
+            const topLine = Math.min(totalLines, Math.max(1, Math.floor((ta.scrollTop || 0) / lh) + 1));
+            const visibleLines = Math.max(1, Math.floor(((ta.clientHeight || 0) * 1.0) / lh));
+            const bottomLine = Math.min(totalLines, Math.max(topLine, topLine + visibleLines - 1));
+
+            // אם הסמן נמצא בתוך ה-viewport, זה בדרך כלל "הקו הפעיל" שהמשתמש מצפה לשמור.
+            if (cursorLine >= topLine && cursorLine <= bottomLine) {
+              return cursorLine;
+            }
+            return topLine;
+          } catch(_) {}
+          return cursorLine || 1;
+        }
+      } catch(_) {}
+
+      return 1;
+    }
+
+    _scheduleRestoreLinePosition(lineNumber) {
+      // לפעמים (בעיקר ב-CodeMirror) ה-layout עוד לא הסתיים מיד אחרי init,
+      // ואז scroll/selection יכולים "לקפוץ". נעשה ניסיון אחד אחרי frame,
+      // ואם עדיין לא הגענו לשורה הרצויה – ניסיון נוסף קצר.
+      const target = Math.max(1, parseInt(lineNumber || 1, 10) || 1);
+      const attempt = () => {
+        try { this.restoreLinePosition(target); } catch(_) {}
+      };
+      const verifyAndMaybeRetry = () => {
+        try {
+          const current = this.getCurrentVisibleLine() || 1;
+          if (Math.abs(current - target) > 1) {
+            attempt();
+          }
+        } catch(_) {}
+      };
+
+      try {
+        if (typeof requestAnimationFrame === 'function') {
+          requestAnimationFrame(() => {
+            attempt();
+            setTimeout(verifyAndMaybeRetry, 60);
+          });
+          return;
+        }
+      } catch(_) {}
+
+      setTimeout(() => {
+        attempt();
+        setTimeout(verifyAndMaybeRetry, 60);
+      }, 0);
+    }
+
+    restoreLinePosition(lineNumber) {
+      const line = Math.max(1, parseInt(lineNumber || 1, 10) || 1);
+      try {
+        if (this.cmInstance && this.cmInstance.state) {
+          const view = this.cmInstance;
+          const maxLines = Math.max(1, view.state.doc.lines || 1);
+          const targetLine = Math.min(maxLines, Math.max(1, line));
+          const info = view.state.doc.line(targetLine);
+          const pos = info ? info.from : 0;
+          try { view.focus(); } catch(_) {}
+          view.dispatch({
+            selection: { anchor: pos },
+            scrollIntoView: true
+          });
+          return true;
+        }
+      } catch(_) {}
+
+      try {
+        if (this.textarea) {
+          const ta = this.textarea;
+          const value = ta.value || '';
+          const lines = value.split('\n');
+          const maxLines = Math.max(1, lines.length || 1);
+          const targetLine = Math.min(maxLines, Math.max(1, line));
+          // מצא offset לתחילת השורה (1-based)
+          let offset = 0;
+          for (let i = 0; i < targetLine - 1; i++) {
+            offset += (lines[i] || '').length + 1; // + '\n'
+          }
+          try { ta.focus(); } catch(_) {}
+          try { ta.setSelectionRange(offset, offset); } catch(_) {}
+          // נסה ליישר גלילה לשורה
+          try {
+            const lh = this._getTextareaLineHeightPx(ta);
+            ta.scrollTop = Math.max(0, (targetLine - 1) * lh);
+          } catch(_) {}
+          return true;
+        }
+      } catch(_) {}
+
+      return false;
+    }
+
     getEditorContent() {
       try {
         if (this.cmInstance && this.cmInstance.state) {
@@ -382,6 +634,47 @@
           this.textarea.dispatchEvent(new Event('input', { bubbles: true }));
         }
       } catch(_) {}
+    }
+
+    insertTextAtCursor(nextText) {
+      const text = typeof nextText === 'string' ? nextText : '';
+      if (!text) return false;
+
+      // CodeMirror: החלף בחירה/הדבק בנקודת הסמן
+      try {
+        if (this.cmInstance && this.cmInstance.state) {
+          const view = this.cmInstance;
+          const mainSel = (view.state.selection && view.state.selection.main) ? view.state.selection.main : null;
+          const from = mainSel ? mainSel.from : view.state.doc.length;
+          const to = mainSel ? mainSel.to : view.state.doc.length;
+          try { view.focus(); } catch(_) {}
+          view.dispatch({
+            changes: { from, to, insert: text },
+            selection: { anchor: from + text.length },
+            scrollIntoView: true
+          });
+          return true;
+        }
+      } catch(_) {}
+
+      // עורך פשוט (textarea): החלף בחירה/הדבק בנקודת הסמן
+      try {
+        if (this.textarea) {
+          const ta = this.textarea;
+          const value = ta.value || '';
+          const start = (typeof ta.selectionStart === 'number') ? ta.selectionStart : value.length;
+          const end = (typeof ta.selectionEnd === 'number') ? ta.selectionEnd : start;
+          const nextValue = value.slice(0, start) + text + value.slice(end);
+          ta.value = nextValue;
+          try { ta.dispatchEvent(new Event('input', { bubbles: true })); } catch(_) {}
+          const caret = start + text.length;
+          try { ta.focus(); } catch(_) {}
+          try { ta.setSelectionRange(caret, caret); } catch(_) {}
+          return true;
+        }
+      } catch(_) {}
+
+      return false;
     }
 
     async handleClipboardCopy(switcher) {
@@ -436,7 +729,12 @@
         this.showClipboardNotice(switcher, usedPrompt ? 'לא הוזן טקסט' : 'הלוח ריק');
         return;
       }
-      this.setEditorContent(text);
+      // התנהגות רצויה: הדבקה במיקום הסמן בלבד (או החלפה אם מסומן טקסט)
+      const ok = this.insertTextAtCursor(text);
+      if (!ok) {
+        // fallback נדיר: אם לא הצלחנו לזהות סמן/בחירה, לא נחסום את המשתמש
+        this.setEditorContent(text);
+      }
       this.showClipboardNotice(switcher, 'הטקסט הודבק');
     }
 

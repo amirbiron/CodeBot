@@ -138,6 +138,38 @@ def test_external_errors_emit_warning_only(tmp_path, monkeypatch):
     assert gauge_values and gauge_values[-1] > 0.0
 
 
+def test_external_warning_includes_service_when_context_available(tmp_path, monkeypatch):
+    am = _load_alert_manager(tmp_path, monkeypatch)
+
+    captured: list[tuple[str, str, str, dict]] = []
+
+    def _fake_alert(name, severity="info", summary="", **details):
+        captured.append((name, severity, summary, details))
+
+    monkeypatch.setitem(sys.modules, 'internal_alerts', types.SimpleNamespace(emit_internal_alert=_fake_alert))
+
+    import metrics  # noqa: WPS433
+
+    monkeypatch.setattr(metrics, "set_external_error_rate_percent", lambda value=None: None)
+
+    now = time.time()
+    # Seed external errors with a component in context (best-effort service attribution)
+    for i in range(6):
+        am.note_request(
+            503,
+            0.2,
+            ts=now - 60 + i,
+            source="external",
+            context={"source": "external", "component": "OpenAI_API"},
+        )
+
+    am.check_and_emit_alerts(now_ts=now)
+
+    warn = next((d for n, sev, _s, d in captured if n == "External Service Degraded" and sev == "warning"), None)
+    assert warn is not None
+    assert warn.get("service") == "OpenAI_API"
+
+
 def test_internal_errors_trigger_high_error_rate(tmp_path, monkeypatch):
     am = _load_alert_manager(tmp_path, monkeypatch)
 
@@ -199,6 +231,8 @@ def test_high_latency_details_include_source(tmp_path, monkeypatch):
     )
     assert latency_details is not None
     assert latency_details.get("source") == "internal"
+    assert latency_details.get("alert_type") == "slow_response"
+    assert latency_details.get("duration_ms") is not None
 
 
 def test_mixed_samples_only_internal_counted(tmp_path, monkeypatch):
@@ -261,3 +295,22 @@ def test_error_context_does_not_override_internal_source(tmp_path, monkeypatch):
 
     assert captured_details, "expected High Error Rate alert to be emitted"
     assert captured_details[0].get("source") == "internal"
+
+
+def test_queue_delay_p95_uses_nearest_rank_for_small_samples(tmp_path, monkeypatch):
+    """Regression: avoid P95 under-estimation for small n (e.g. n=10)."""
+    am = _load_alert_manager(tmp_path, monkeypatch)
+
+    base_ts = time.time()
+    for i in range(10):
+        am.note_request(
+            200,
+            0.01,
+            ts=base_ts + i,
+            source="internal",
+            context={"queue_delay_ms": i + 1, "path": "/x"},
+        )
+
+    stats = am._queue_delay_stats(base_ts + 100, window_sec=10_000, source="internal")  # type: ignore[attr-defined]
+    assert stats["queue_delay_samples"] == 10
+    assert stats["queue_delay_ms_p95"] == 10
