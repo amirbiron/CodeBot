@@ -234,6 +234,168 @@ Compress(app)
 # לוגר מודולרי לשימוש פנימי
 logger = logging.getLogger(__name__)
 
+# --- Background warmup: heavy observability reports (fire & forget) ---
+_OBS_WARMUP_THREAD: Optional[threading.Thread] = None
+_OBS_WARMUP_LOCK = threading.Lock()
+_OBS_WARMUP_STOP_EVENT = threading.Event()
+
+
+def _env_bool(name: str, default: bool) -> bool:
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+    return str(raw).strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _env_float(name: str, default: float) -> float:
+    raw = os.getenv(name)
+    if raw is None:
+        return float(default)
+    try:
+        return float(str(raw).strip())
+    except Exception:
+        return float(default)
+
+
+def _parse_timerange_seconds(raw: str | None, default_seconds: int) -> int:
+    """Parse '24h'/'7d'/'30d' style duration to seconds (best-effort)."""
+    if not raw:
+        return int(default_seconds)
+    text = str(raw).strip().lower()
+    if not text:
+        return int(default_seconds)
+    try:
+        if text.endswith("ms"):
+            value = float(text[:-2])
+            seconds = max(0.001, value / 1000.0)
+        elif text.endswith("s"):
+            seconds = float(text[:-1])
+        elif text.endswith("m"):
+            seconds = float(text[:-1]) * 60.0
+        elif text.endswith("h"):
+            seconds = float(text[:-1]) * 3600.0
+        elif text.endswith("d"):
+            seconds = float(text[:-1]) * 86400.0
+        else:
+            seconds = float(text)
+    except Exception:
+        return int(default_seconds)
+    return max(1, int(seconds))
+
+
+def _observability_warmup_ranges() -> List[str]:
+    raw = os.getenv("OBSERVABILITY_WARMUP_RANGES", "24h,7d,30d")
+    parts = [p.strip() for p in str(raw or "").split(",")]
+    ranges = [p for p in parts if p]
+    return ranges or ["24h", "7d", "30d"]
+
+
+def _should_autostart_observability_warmup() -> bool:
+    # Feature flag
+    if not _env_bool("OBSERVABILITY_WARMUP_ENABLED", True):
+        return False
+
+    # Avoid noisy side-effects in unit tests unless explicitly forced
+    if os.getenv("PYTEST_CURRENT_TEST") and not _env_bool("OBSERVABILITY_WARMUP_AUTOSTART", False):
+        return False
+
+    # Flask dev reloader imports modules twice; start only in the "real" (child) process.
+    #
+    # Werkzeug sets WERKZEUG_RUN_MAIN="true" only in the child process that serves requests.
+    # The parent reloader process typically has it *unset* (None), which looks identical to many
+    # production setups (gunicorn/uwsgi) where it's also unset.
+    #
+    # לכן אנחנו מזהים "סביבת reloader" לפי דגלים של flask-run/debug, ורק אז דורשים WERKZEUG_RUN_MAIN="true".
+    wrm = os.getenv("WERKZEUG_RUN_MAIN")
+    if wrm not in (None, ""):
+        # When explicitly present, only allow the child ("true"/"1").
+        if str(wrm).strip().lower() not in {"true", "1"}:
+            return False
+    else:
+        # If it is unset, allow in production, but block in the reloader parent process.
+        flask_run_from_cli = str(os.getenv("FLASK_RUN_FROM_CLI") or "").strip().lower() in {"true", "1"}
+        flask_debug = str(os.getenv("FLASK_DEBUG") or "").strip().lower() in {"true", "1"}
+        flask_env = str(os.getenv("FLASK_ENV") or "").strip().lower()
+        likely_reloader_parent = flask_run_from_cli or flask_debug or (flask_env == "development")
+        if likely_reloader_parent:
+            return False
+
+    return True
+
+
+def _run_observability_warmup(stop_event: threading.Event) -> None:
+    """Warm up the heavy observability aggregations cache and DB RAM."""
+    delay_seconds = max(0.0, _env_float("OBSERVABILITY_WARMUP_DELAY_SECONDS", 5.0))
+    budget_seconds = max(0.0, _env_float("OBSERVABILITY_WARMUP_BUDGET_SECONDS", 20.0))
+    slow_endpoints_limit = max(1, min(20, int(_env_float("OBSERVABILITY_WARMUP_SLOW_LIMIT", 5.0))))
+
+    # Delay: allow the server to start accepting requests first.
+    if delay_seconds > 0:
+        stop_event.wait(delay_seconds)
+    if stop_event.is_set():
+        return
+
+    logger.info("🔥 Starting Background Cache Warmup...")
+
+    t0 = _time.monotonic()
+    try:
+        for range_val in _observability_warmup_ranges():
+            if budget_seconds and (_time.monotonic() - t0) > budget_seconds:
+                logger.info("⏱️ Warmup budget exceeded; stopping early")
+                break
+            if stop_event.is_set():
+                break
+
+            logger.info("⏳ Warming up report: %s...", range_val)
+            now = datetime.now(timezone.utc)
+            seconds = _parse_timerange_seconds(range_val, default_seconds=24 * 3600)
+            start_dt = now - timedelta(seconds=seconds)
+
+            # Direct service call (no HTTP) to populate internal cache and DB RAM.
+            observability_service.fetch_aggregations(
+                start_dt=start_dt,
+                end_dt=now,
+                slow_endpoints_limit=slow_endpoints_limit,
+            )
+
+        logger.info("✅ Background Cache Warmup Completed!")
+    except Exception as e:
+        # Fail-open: warmup is best-effort and should never crash the process.
+        logger.warning("⚠️ Warmup failed (non-critical): %s", e, exc_info=True)
+
+
+def start_background_observability_warmup() -> None:
+    """Start warmup thread once (non-blocking)."""
+    global _OBS_WARMUP_THREAD
+    if not _should_autostart_observability_warmup():
+        return
+    try:
+        with _OBS_WARMUP_LOCK:
+            if _OBS_WARMUP_THREAD is not None and _OBS_WARMUP_THREAD.is_alive():
+                return
+            _OBS_WARMUP_STOP_EVENT.clear()
+            _OBS_WARMUP_THREAD = threading.Thread(
+                target=_run_observability_warmup,
+                args=(_OBS_WARMUP_STOP_EVENT,),
+                name="observability_warmup",
+                daemon=True,
+            )
+            _OBS_WARMUP_THREAD.start()
+    except Exception:
+        # Fail-open: never block startup due to warmup scheduling.
+        return
+
+
+def _stop_background_observability_warmup() -> None:
+    try:
+        _OBS_WARMUP_STOP_EVENT.set()
+    except Exception:
+        return
+
+
+atexit.register(_stop_background_observability_warmup)
+start_background_observability_warmup()
+
 # --- Startup metrics instrumentation (נרשם רק בזמן עלייה) ---
 _STARTUP_METRICS_MS: Dict[str, float] = {}
 _STARTUP_METRICS_LOCK = threading.Lock()
