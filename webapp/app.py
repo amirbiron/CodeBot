@@ -2711,7 +2711,8 @@ def alertmanager_webhook():
 
         # --- Basic authentication/guard ---
         secret = os.getenv('ALERTMANAGER_WEBHOOK_SECRET', '').strip()
-        allow_ips = {ip.strip() for ip in (os.getenv('ALERTMANAGER_IP_ALLOWLIST') or '').split(',') if ip.strip()}
+        allow_raw = str(os.getenv('ALERTMANAGER_IP_ALLOWLIST') or '')
+        allow_entries = [ip.strip() for ip in allow_raw.split(',') if ip.strip()]
 
         def _client_ip() -> str:
             try:
@@ -2720,18 +2721,86 @@ def alertmanager_webhook():
             except Exception:
                 return request.remote_addr or ''
 
+        def _constant_time_equals(a: str, b: str) -> bool:
+            try:
+                import hmac
+
+                return hmac.compare_digest(str(a or ""), str(b or ""))
+            except Exception:
+                return False
+
+        def _extract_token() -> str:
+            # Support multiple common ways to pass the token:
+            # - Authorization: Bearer <token>
+            # - X-Alertmanager-Token: <token>
+            # - ?token=<token> / ?secret=<token> (URL is easiest to configure in Alertmanager)
+            try:
+                auth = str(request.headers.get('Authorization') or '').strip()
+                if auth.lower().startswith('bearer '):
+                    return auth.split(' ', 1)[1].strip()
+            except Exception:
+                pass
+            try:
+                header_token = request.headers.get('X-Alertmanager-Token') or request.headers.get('X-Webhook-Token') or ''
+                header_token = str(header_token or '').strip()
+                if header_token:
+                    return header_token
+            except Exception:
+                pass
+            try:
+                qp = request.args.get('token') or request.args.get('secret') or ''
+                return str(qp or '').strip()
+            except Exception:
+                return ''
+
         ok_secret = True
-        ok_ip = True
-        # If a secret is configured, require matching header or query token
         if secret:
-            token = request.headers.get('X-Alertmanager-Token') or request.args.get('token') or ''
-            ok_secret = (token.strip() == secret)
-        # If an IP allow-list is configured, require client IP in the list
-        if allow_ips:
-            ok_ip = (_client_ip() in allow_ips)
+            token = _extract_token()
+            ok_secret = bool(token) and _constant_time_equals(token, secret)
+
+        ok_ip = True
+        if allow_entries:
+            ok_ip = False
+            try:
+                import ipaddress
+
+                client_ip_str = str(_client_ip() or '').strip()
+                if client_ip_str:
+                    client_ip = ipaddress.ip_address(client_ip_str)
+                    # Normalize IPv4-mapped IPv6 addresses (e.g. ::ffff:1.2.3.4)
+                    try:
+                        if getattr(client_ip, 'ipv4_mapped', None) is not None:
+                            client_ip = client_ip.ipv4_mapped  # type: ignore[assignment]
+                    except Exception:
+                        pass
+
+                    allow_ips = set()
+                    allow_nets = []
+                    for entry in allow_entries:
+                        try:
+                            if '/' in entry:
+                                allow_nets.append(ipaddress.ip_network(entry, strict=False))
+                            else:
+                                allow_ips.add(ipaddress.ip_address(entry))
+                        except Exception:
+                            # Ignore invalid entries; the allowlist is optional and should not crash the endpoint.
+                            continue
+
+                    if client_ip in allow_ips:
+                        ok_ip = True
+                    else:
+                        for net in allow_nets:
+                            try:
+                                if client_ip in net:
+                                    ok_ip = True
+                                    break
+                            except Exception:
+                                continue
+            except Exception:
+                ok_ip = False
 
         # Enforce guards when configured
-        if (secret and not ok_secret) or (allow_ips and not ok_ip):
+        if (secret and not ok_secret) or (allow_entries and not ok_ip):
             return jsonify({"status": "forbidden"}), 403
 
         payload = request.get_json(silent=True) or {}
