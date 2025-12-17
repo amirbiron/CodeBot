@@ -3014,7 +3014,7 @@ async def api_db_pool():
         return jsonify(pool.to_dict())
     except Exception as e:
         logger.exception("api_db_pool_failed")
-        return jsonify({"error": "failed", "message": str(e)}), 500
+        return jsonify({"error": "failed", "message": "internal_error"}), 500
 
 
 @app.route('/api/db/ops', methods=['GET'])
@@ -3041,7 +3041,7 @@ async def api_db_ops():
         )
     except Exception as e:
         logger.exception("api_db_ops_failed")
-        return jsonify({"error": "failed", "message": str(e)}), 500
+        return jsonify({"error": "failed", "message": "internal_error"}), 500
 
 
 @app.route('/api/db/collections', methods=['GET'])
@@ -3058,7 +3058,7 @@ async def api_db_collections():
         return jsonify({"count": len(stats), "collections": [s.to_dict() for s in stats]})
     except Exception as e:
         logger.exception("api_db_collections_failed")
-        return jsonify({"error": "failed", "message": str(e)}), 500
+        return jsonify({"error": "failed", "message": "internal_error"}), 500
 
 
 @app.route('/api/db/health', methods=['GET'])
@@ -3074,7 +3074,7 @@ async def api_db_health():
         return jsonify(summary)
     except Exception as e:
         logger.exception("api_db_health_failed")
-        return jsonify({"error": "failed", "message": str(e)}), 500
+        return jsonify({"error": "failed", "message": "internal_error"}), 500
 
 
 @app.route('/admin/stats')

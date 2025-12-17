@@ -1086,7 +1086,7 @@ def create_app() -> web.Application:
             return web.json_response(pool.to_dict())
         except Exception as e:
             logger.error(f"db_health_pool error: {e}")
-            return web.json_response({"error": "failed", "message": str(e)}, status=500)
+            return web.json_response({"error": "failed", "message": "internal_error"}, status=500)
 
     async def db_health_ops_view(request: web.Request) -> web.Response:
         """GET /api/db/ops - פעולות איטיות פעילות."""
@@ -1110,7 +1110,7 @@ def create_app() -> web.Application:
             )
         except Exception as e:
             logger.error(f"db_health_ops error: {e}")
-            return web.json_response({"error": "failed", "message": str(e)}, status=500)
+            return web.json_response({"error": "failed", "message": "internal_error"}, status=500)
 
     async def db_health_collections_view(request: web.Request) -> web.Response:
         """GET /api/db/collections - סטטיסטיקות collections."""
@@ -1129,7 +1129,7 @@ def create_app() -> web.Application:
             )
         except Exception as e:
             logger.error(f"db_health_collections error: {e}")
-            return web.json_response({"error": "failed", "message": str(e)}, status=500)
+            return web.json_response({"error": "failed", "message": "internal_error"}, status=500)
 
     async def db_health_summary_view(request: web.Request) -> web.Response:
         """GET /api/db/health - סיכום בריאות כללי."""
@@ -1140,7 +1140,7 @@ def create_app() -> web.Application:
             return web.json_response(summary)
         except Exception as e:
             logger.error(f"db_health_summary error: {e}")
-            return web.json_response({"error": "failed", "message": str(e)}, status=500)
+            return web.json_response({"error": "failed", "message": "internal_error"}, status=500)
 
     app.router.add_get("/health", health)
     # Always expose /healthz alias for platform probes
