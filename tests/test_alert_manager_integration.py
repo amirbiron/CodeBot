@@ -231,6 +231,8 @@ def test_high_latency_details_include_source(tmp_path, monkeypatch):
     )
     assert latency_details is not None
     assert latency_details.get("source") == "internal"
+    assert latency_details.get("alert_type") == "slow_response"
+    assert latency_details.get("duration_ms") is not None
 
 
 def test_mixed_samples_only_internal_counted(tmp_path, monkeypatch):
@@ -293,3 +295,22 @@ def test_error_context_does_not_override_internal_source(tmp_path, monkeypatch):
 
     assert captured_details, "expected High Error Rate alert to be emitted"
     assert captured_details[0].get("source") == "internal"
+
+
+def test_queue_delay_p95_uses_nearest_rank_for_small_samples(tmp_path, monkeypatch):
+    """Regression: avoid P95 under-estimation for small n (e.g. n=10)."""
+    am = _load_alert_manager(tmp_path, monkeypatch)
+
+    base_ts = time.time()
+    for i in range(10):
+        am.note_request(
+            200,
+            0.01,
+            ts=base_ts + i,
+            source="internal",
+            context={"queue_delay_ms": i + 1, "path": "/x"},
+        )
+
+    stats = am._queue_delay_stats(base_ts + 100, window_sec=10_000, source="internal")  # type: ignore[attr-defined]
+    assert stats["queue_delay_samples"] == 10
+    assert stats["queue_delay_ms_p95"] == 10

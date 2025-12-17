@@ -415,3 +415,124 @@ def test_runbook_path_resolution_does_not_crash_if_cwd_unavailable(monkeypatch):
 
     assert payload
     assert payload["runbook"]
+
+
+def test_get_quick_fix_actions_dynamic_latency_prefers_pool_branch(monkeypatch, tmp_path):
+    yaml_text = """
+version: 1
+quick_fix_rules:
+  latency_v1:
+    enabled: true
+    thresholds:
+      queue_delay_ms: 500
+      duration_ms: 3000
+      pool_utilization_high_pct: 90
+    actions:
+      queue_pool_high:
+        label: "🔌 הגדל Connection Pool / Kill Slow Queries"
+        type: copy
+        payload: "/triage db"
+        safety: caution
+runbooks:
+  slow_response:
+    title: Slow Response
+    steps:
+      - id: triage
+        title: Triage
+        action:
+          label: /triage latency
+          type: copy
+          payload: "/triage latency"
+"""
+    path = tmp_path / "runbook.yml"
+    path.write_text(yaml_text, encoding="utf-8")
+    monkeypatch.setattr(obs, "_RUNBOOK_PATH", path)
+    monkeypatch.setattr(obs, "_RUNBOOK_CACHE", {})
+    monkeypatch.setattr(obs, "_RUNBOOK_ALIAS_MAP", {})
+    monkeypatch.setattr(obs, "_RUNBOOK_MTIME", 0.0)
+
+    alert = {
+        "alert_type": "slow_response",
+        "timestamp": "2025-01-01T00:00:00+00:00",
+        "metadata": {"queue_delay": 600, "duration_ms": 1200, "db_pool_utilization_pct": 95},
+    }
+    actions = obs.get_quick_fix_actions(alert)
+    assert actions
+    assert "Connection Pool" in (actions[0].get("label") or "")
+    assert actions[0].get("payload") == "/triage db"
+
+
+def test_get_quick_fix_actions_dynamic_latency_duration_mongo_branch(monkeypatch, tmp_path):
+    yaml_text = """
+version: 1
+quick_fix_rules:
+  latency_v1:
+    enabled: true
+    thresholds:
+      queue_delay_ms: 500
+      duration_ms: 3000
+    actions:
+      processing_mongo:
+        label: "🔍 בדוק אינדקסים / currentOp (Slow Query)"
+        type: copy
+        payload: "/triage db"
+        safety: caution
+runbooks:
+  slow_response:
+    title: Slow Response
+    steps: []
+"""
+    path = tmp_path / "runbook.yml"
+    path.write_text(yaml_text, encoding="utf-8")
+    monkeypatch.setattr(obs, "_RUNBOOK_PATH", path)
+    monkeypatch.setattr(obs, "_RUNBOOK_CACHE", {})
+    monkeypatch.setattr(obs, "_RUNBOOK_ALIAS_MAP", {})
+    monkeypatch.setattr(obs, "_RUNBOOK_MTIME", 0.0)
+
+    alert = {
+        "alert_type": "slow_response",
+        "timestamp": "2025-01-01T00:00:00+00:00",
+        "summary": "something about mongo timeout",
+        "metadata": {"queue_delay": 50, "duration_ms": 4000, "trace": "MongoDB"},
+    }
+    actions = obs.get_quick_fix_actions(alert)
+    assert actions
+    assert "currentOp" in (actions[0].get("label") or "")
+    assert actions[0].get("payload") == "/triage db"
+
+
+def test_get_quick_fix_actions_dynamic_latency_fallback_when_metrics_missing(monkeypatch, tmp_path):
+    yaml_text = """
+version: 1
+quick_fix_rules:
+  latency_v1:
+    enabled: true
+    thresholds:
+      queue_delay_ms: 500
+    actions:
+      queue_generic:
+        label: "📈 Scale Up"
+        type: copy
+        payload: "/triage system"
+        safety: safe
+runbooks:
+  slow_response:
+    title: Slow Response
+    steps: []
+"""
+    path = tmp_path / "runbook.yml"
+    path.write_text(yaml_text, encoding="utf-8")
+    monkeypatch.setattr(obs, "_RUNBOOK_PATH", path)
+    monkeypatch.setattr(obs, "_RUNBOOK_CACHE", {})
+    monkeypatch.setattr(obs, "_RUNBOOK_ALIAS_MAP", {})
+    monkeypatch.setattr(obs, "_RUNBOOK_MTIME", 0.0)
+
+    alert = {
+        "alert_type": "slow_response",
+        "timestamp": "2025-01-01T00:00:00+00:00",
+        "metadata": {"queue_delay": 800},
+    }
+    actions = obs.get_quick_fix_actions(alert)
+    assert actions
+    assert "Scale Up" in (actions[0].get("label") or "")
+    assert actions[0].get("payload") == "/triage system"
