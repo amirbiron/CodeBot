@@ -768,28 +768,86 @@ class CollectionsManager:
                         seen_keys.add(k)
                         uniq.append(k)
 
-                # בדיקה נאיבית (מספקת ל-per_page ≤ 200) עם גישה בטוחה למסד
+                # אופטימיזציה: הימנעות מ-N+1 (find_one לכל פריט).
+                # נבצע עד 2 שאילתות (regular/large) עם $in על file_name.
+                def _mark_all(source: str, names: set[str], value: bool) -> None:
+                    for _fn in names:
+                        active_map[(source, _fn)] = bool(value)
+
+                def _batch_active_names(coll: Any, names: set[str]) -> set[str]:
+                    # החזר קבוצת file_name שקיימים כ"פעילים". אם נכשל – זרוק חריגה כדי לאפשר fail-open.
+                    query = {
+                        "user_id": int(user_id),
+                        "file_name": {"$in": list(names)},
+                        "$or": [{"is_active": True}, {"is_active": {"$exists": False}}],
+                    }
+                    # מספיק לנו רק file_name
+                    projection = {"file_name": 1}
+                    rows = coll.find(query, projection=projection)
+                    docs = list(rows) if not isinstance(rows, list) else rows
+                    out: set[str] = set()
+                    for d in docs:
+                        if not isinstance(d, dict):
+                            continue
+                        fnv = d.get("file_name")
+                        if fnv:
+                            out.add(str(fnv))
+                    return out
+
+                regular_names: set[str] = set()
+                large_names: set[str] = set()
                 for src, fn in uniq:
-                    is_active = True
-                    try:
-                        if src == "large" and self.large_files is not None:
-                            doc = self.large_files.find_one({
-                                "user_id": int(user_id),
-                                "file_name": fn,
-                                "$or": [{"is_active": True}, {"is_active": {"$exists": False}}],
-                            })
-                            is_active = bool(doc is not None)
-                        elif self.code_snippets is not None:
-                            doc = self.code_snippets.find_one({
-                                "user_id": int(user_id),
-                                "file_name": fn,
-                                "$or": [{"is_active": True}, {"is_active": {"$exists": False}}],
-                            })
-                            is_active = bool(doc is not None)
-                    except Exception:
-                        # אם יש כשל במסד – נניח פעיל כדי לא להסתיר פריטים (fail-open)
-                        is_active = True
-                    active_map[(src, fn)] = is_active
+                    if str(src).lower() == "large":
+                        large_names.add(fn)
+                    else:
+                        regular_names.add(fn)
+
+                # regular
+                if regular_names:
+                    if self.code_snippets is None:
+                        _mark_all("regular", regular_names, True)
+                    else:
+                        try:
+                            active_regular = _batch_active_names(self.code_snippets, regular_names)
+                            for fn in regular_names:
+                                active_map[("regular", fn)] = bool(fn in active_regular)
+                        except Exception:
+                            # fail-open: אם יש כשל במסד – נניח פעיל כדי לא להסתיר פריטים
+                            _mark_all("regular", regular_names, True)
+
+                # large
+                if large_names:
+                    if self.large_files is None:
+                        # תאימות להתנהגות קודמת:
+                        # כאשר large_files לא קיים, נסה לבדוק קיום דרך code_snippets (אם זמין).
+                        # זה מאפשר "graceful degradation" בסביבות ללא large_files.
+                        if self.code_snippets is None:
+                            _mark_all("large", large_names, True)
+                        else:
+                            try:
+                                active_large_fallback = _batch_active_names(self.code_snippets, large_names)
+                                for fn in large_names:
+                                    active_map[("large", fn)] = bool(fn in active_large_fallback)
+                            except Exception:
+                                # fail-open: אם יש כשל במסד – נניח פעיל כדי לא להסתיר פריטים
+                                _mark_all("large", large_names, True)
+                    else:
+                        try:
+                            active_large = _batch_active_names(self.large_files, large_names)
+                            for fn in large_names:
+                                active_map[("large", fn)] = bool(fn in active_large)
+                        except Exception:
+                            # fail-open: אם יש כשל במסד – נניח פעיל כדי לא להסתיר פריטים
+                            _mark_all("large", large_names, True)
+
+                # שכבת תאימות: אם מקור נשמר בערך שאינו בדיוק "regular"/"large" (למשל רישיות),
+                # שייך אותו למפה לפי הנירמול הלוגי כדי שה-lookup בהמשך יצליח.
+                for src, fn in uniq:
+                    key = (src, fn)
+                    if key in active_map:
+                        continue
+                    src_norm = "large" if str(src).lower() == "large" else "regular"
+                    active_map[key] = bool(active_map.get((src_norm, fn), True))
             except Exception:
                 active_map = {}
 
