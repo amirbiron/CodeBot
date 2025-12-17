@@ -1277,6 +1277,12 @@ def inject_globals():
 
     # ערכת נושא מותאמת (אם קיימת) — מועברת לתבניות כדי לאפשר injection ב-base.html
     custom_theme = None
+    user_is_admin = False
+    try:
+        if user_id:
+            user_is_admin = bool(is_admin(int(user_id)))
+    except Exception:
+        user_is_admin = False
     try:
         if user_id and user_doc:
             ct = user_doc.get('custom_theme')
@@ -1284,9 +1290,18 @@ def inject_globals():
                 # Normalize minimal structure to avoid template errors
                 if not isinstance(ct.get('variables'), dict):
                     ct = {**ct, 'variables': {}}
-                custom_theme = ct
+                if user_is_admin:
+                    custom_theme = ct
     except Exception:
         custom_theme = None
+
+    # Safety: אל תאפשר theme=custom בלי custom_theme פעיל (וגם לא למשתמשים לא-אדמין).
+    try:
+        ct_active = bool(custom_theme and isinstance(custom_theme, dict) and custom_theme.get('is_active'))
+    except Exception:
+        ct_active = False
+    if theme == 'custom' and not (user_is_admin and ct_active):
+        theme = 'classic'
 
     show_welcome_modal = False
     if user_id:
@@ -10088,7 +10103,23 @@ def api_ui_prefs():
         # עדכון ערכת צבעים במידת הצורך
         if 'theme' in payload:
             theme = (payload.get('theme') or '').strip().lower()
-            if theme in ALLOWED_UI_THEMES:
+            # Feature flag: 'custom' זמין כרגע רק לאדמינים ורק אם קיימת ערכה פעילה ב-DB.
+            if theme == 'custom':
+                if not is_admin(user_id):
+                    return jsonify({'ok': False, 'error': 'admin_only'}), 403
+                try:
+                    udoc = db.users.find_one({'user_id': user_id}, {'custom_theme': 1}) or {}
+                    ct = (udoc.get('custom_theme') or {}) if isinstance(udoc, dict) else {}
+                    if not (isinstance(ct, dict) and ct.get('is_active')):
+                        return jsonify({'ok': False, 'error': 'custom_theme_not_active'}), 400
+                except Exception:
+                    return jsonify({'ok': False, 'error': 'custom_theme_not_active'}), 400
+
+            if theme in ALLOWED_UI_THEMES and theme != 'custom':
+                update_fields['ui_prefs.theme'] = theme
+                resp_payload['theme'] = theme
+                theme_cookie_value = theme
+            elif theme == 'custom':
                 update_fields['ui_prefs.theme'] = theme
                 resp_payload['theme'] = theme
                 theme_cookie_value = theme
