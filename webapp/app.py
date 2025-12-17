@@ -2681,6 +2681,44 @@ def service_worker_js():
 @app.route('/alertmanager/webhook', methods=['POST'])
 def alertmanager_webhook():
     try:
+        # --- DEBUG START ---
+        # חשוב: לא מדפיסים סודות ללוגים. אנחנו משחירים ערכים רגישים.
+        import os
+        import logging
+        logger = logging.getLogger(__name__)
+
+        def _mask_secret(value: object) -> str:
+            try:
+                s = ('' if value is None else str(value)).strip()
+                if not s:
+                    return '<empty>'
+                if len(s) <= 4:
+                    return '*' * len(s)
+                return f"{s[:2]}{'*' * (len(s) - 4)}{s[-2:]}"
+            except Exception:
+                return '<unavailable>'
+
+        # שליפת נתונים לדיבוג
+        # (ב-Flask אין request.query; משתמשים ב-request.args)
+        req_secret = (
+            request.args.get("secret")
+            or request.args.get("token")
+            or request.headers.get("X-Alertmanager-Token")
+        )
+        env_secret = os.getenv("ALERTMANAGER_WEBHOOK_SECRET")
+        client_ip = (
+            (request.headers.get("X-Forwarded-For") or "").split(",")[0].strip()
+            or (request.remote_addr or "")
+        )
+
+        logger.warning(f"🚨 DEBUG WEBHOOK: Client IP={client_ip}")
+        logger.warning(f"🚨 DEBUG WEBHOOK: Received Secret={_mask_secret(req_secret)}")
+        logger.warning(f"🚨 DEBUG WEBHOOK: Expected Secret={_mask_secret(env_secret)}")
+        logger.warning(
+            f"🚨 DEBUG WEBHOOK: IP allowlist configured={bool(os.getenv('ALERTMANAGER_IP_ALLOWLIST'))}"
+        )
+        # --- DEBUG END ---
+
         # --- Basic authentication/guard ---
         secret = os.getenv('ALERTMANAGER_WEBHOOK_SECRET', '').strip()
         allow_ips = {ip.strip() for ip in (os.getenv('ALERTMANAGER_IP_ALLOWLIST') or '').split(',') if ip.strip()}
