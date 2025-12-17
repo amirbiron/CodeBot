@@ -44,6 +44,7 @@ import secrets
 import threading
 import base64
 import traceback
+import asyncio
 
 
 # הוספת נתיב ה-root של הפרויקט ל-PYTHONPATH כדי לאפשר import ל-"database" כשהסקריפט רץ מתוך webapp/
@@ -61,7 +62,7 @@ from webapp.activity_tracker import log_user_event  # noqa: E402
 from webapp.config_radar import build_config_radar_snapshot  # noqa: E402
 from services import observability_dashboard as observability_service  # noqa: E402
 from services.diff_service import get_diff_service, DiffMode  # noqa: E402
-from services.db_health_service import get_db_health_service  # noqa: E402
+from services.db_health_service import ThreadPoolDatabaseHealthService  # noqa: E402
 
 # קונפיגורציה מרכזית (Pydantic Settings)
 try:  # שמירה על יציבות גם בסביבות דוקס/CI
@@ -2982,6 +2983,13 @@ def db_health_page():
     return render_template('db_health.html', db_health_token=token)
 
 
+@app.route('/admin/db-health')
+def admin_db_health_page():
+    """Alias תאימות לנתיב אדמין: מפנה ל-/db-health."""
+    # שמור את אותה התנהגות הרשאות (403) כמו הדף בפועל
+    return db_health_page()
+
+
 def _db_health_token() -> str:
     return str(os.getenv("DB_HEALTH_TOKEN", "") or "").strip()
 
@@ -3001,16 +3009,57 @@ def _db_health_is_authorized() -> bool:
         return False
 
 
+_WEBAPP_DB_HEALTH_SERVICE = None
+
+
+def _run_db_health(awaitable):
+    """הרצת קורוטינה בצורה תואמת Flask תחת WSGI.
+
+    אם asgiref קיים (Flask[async]) נשתמש בו; אחרת נריץ asyncio.run כדי להימנע מ-async views ב-WSGI.
+    """
+    async def _runner():
+        return await awaitable
+
+    try:
+        from asgiref.sync import async_to_sync  # type: ignore
+
+        return async_to_sync(_runner)()
+    except Exception:
+        return asyncio.run(_runner())
+
+
+def _get_webapp_db_health_service():
+    """מחזיר service יציב ל-WebApp (Flask).
+
+    הערה: ב-Flask תחת WSGI, שימוש ב-Motor יכול להישבר בגלל event loop שונה בין בקשות.
+    לכן אנחנו מכריחים כאן wrapper שמריץ PyMongo ב-thread pool (לא חוסם ויציב).
+    """
+    global _WEBAPP_DB_HEALTH_SERVICE
+    if _WEBAPP_DB_HEALTH_SERVICE is not None:
+        return _WEBAPP_DB_HEALTH_SERVICE
+
+    # ודא שה-client/db של ה-WebApp מאותחל
+    _db = get_db()
+    _client = globals().get("client")
+
+    class _ManagerLike:
+        client = _client
+        db = _db
+
+    _WEBAPP_DB_HEALTH_SERVICE = ThreadPoolDatabaseHealthService(_ManagerLike())
+    return _WEBAPP_DB_HEALTH_SERVICE
+
+
 @app.route('/api/db/pool', methods=['GET'])
-async def api_db_pool():
+def api_db_pool():
     """GET /api/db/pool - מצב Connection Pool."""
     if not _db_health_token():
         return jsonify({"error": "disabled"}), 403
     if not _db_health_is_authorized():
         return jsonify({"error": "unauthorized"}), 401
     try:
-        svc = await get_db_health_service()
-        pool = await svc.get_pool_status()
+        svc = _get_webapp_db_health_service()
+        pool = _run_db_health(svc.get_pool_status())
         return jsonify(pool.to_dict())
     except Exception as e:
         logger.exception("api_db_pool_failed")
@@ -3018,7 +3067,7 @@ async def api_db_pool():
 
 
 @app.route('/api/db/ops', methods=['GET'])
-async def api_db_ops():
+def api_db_ops():
     """GET /api/db/ops - פעולות איטיות פעילות."""
     if not _db_health_token():
         return jsonify({"error": "disabled"}), 403
@@ -3030,8 +3079,8 @@ async def api_db_ops():
         threshold = 1000
     include_system = str(request.args.get("include_system", "")).lower() == "true"
     try:
-        svc = await get_db_health_service()
-        ops = await svc.get_current_operations(threshold_ms=threshold, include_system=include_system)
+        svc = _get_webapp_db_health_service()
+        ops = _run_db_health(svc.get_current_operations(threshold_ms=threshold, include_system=include_system))
         return jsonify(
             {
                 "count": len(ops),
@@ -3045,7 +3094,7 @@ async def api_db_ops():
 
 
 @app.route('/api/db/collections', methods=['GET'])
-async def api_db_collections():
+def api_db_collections():
     """GET /api/db/collections - סטטיסטיקות collections."""
     if not _db_health_token():
         return jsonify({"error": "disabled"}), 403
@@ -3053,8 +3102,8 @@ async def api_db_collections():
         return jsonify({"error": "unauthorized"}), 401
     collection = request.args.get("collection")
     try:
-        svc = await get_db_health_service()
-        stats = await svc.get_collection_stats(collection_name=collection)
+        svc = _get_webapp_db_health_service()
+        stats = _run_db_health(svc.get_collection_stats(collection_name=collection))
         return jsonify({"count": len(stats), "collections": [s.to_dict() for s in stats]})
     except Exception as e:
         logger.exception("api_db_collections_failed")
@@ -3062,15 +3111,15 @@ async def api_db_collections():
 
 
 @app.route('/api/db/health', methods=['GET'])
-async def api_db_health():
+def api_db_health():
     """GET /api/db/health - סיכום בריאות כללי."""
     if not _db_health_token():
         return jsonify({"error": "disabled"}), 403
     if not _db_health_is_authorized():
         return jsonify({"error": "unauthorized"}), 401
     try:
-        svc = await get_db_health_service()
-        summary = await svc.get_health_summary()
+        svc = _get_webapp_db_health_service()
+        summary = _run_db_health(svc.get_health_summary())
         return jsonify(summary)
     except Exception as e:
         logger.exception("api_db_health_failed")
