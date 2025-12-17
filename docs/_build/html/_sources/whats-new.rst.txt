@@ -1,12 +1,6 @@
 What's New
 ==========
 
-2025-12-11
-----------
-- docs: עמוד חדש ``webapp/theming_and_css`` כולל טבלת טוקנים, שכבות, בדיקות, דוגמאות קוד ותרשימי SVG עבור Classic ו‑High Contrast.
-- docs: עודכן ``index.rst`` עם קטגוריה "Frontend > Theming" וקישורים מ-``development.rst`` ו-README.
-- docs: נוספו קישורים הדדיים ל‑``css_refactor_plan.md`` (FEATURE_SUGGESTIONS + WebApp) ול‑``webapp_theme_palettes.md``.
-
 2025-11-11
 ----------
 - docs: עמוד חדש "web 🌐 ממשקי משתמשים" עם זרימות בוט, שדות חובה, חיווי מצב וממשק אדמין.
