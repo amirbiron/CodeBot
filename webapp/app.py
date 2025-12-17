@@ -2983,6 +2983,13 @@ def db_health_page():
     return render_template('db_health.html', db_health_token=token)
 
 
+@app.route('/admin/db-health')
+def admin_db_health_page():
+    """Alias תאימות לנתיב אדמין: מפנה ל-/db-health."""
+    # שמור את אותה התנהגות הרשאות (403) כמו הדף בפועל
+    return db_health_page()
+
+
 def _db_health_token() -> str:
     return str(os.getenv("DB_HEALTH_TOKEN", "") or "").strip()
 
