@@ -1040,12 +1040,16 @@ def record_request_outcome(
                 extra_fields["component"] = limited_component
             if queue_delay_ms is not None:
                 extra_fields["queue_delay_ms"] = int(queue_delay_ms)
-            _db_enqueue_request_metric(
-                int(status_code),
-                float(duration_seconds),
-                request_id=rid,
-                extra=extra_fields or None,
-            )
+            # אל תשמור ב-DB מטריקות טכניות שמגיעות בתדירות גבוהה.
+            # חשוב: אנחנו עדיין רוצים counters/alerts בזיכרון, רק לדלג על persist ל-DB כדי לא לנפח אותו.
+            _db_ignored_paths = {"/metrics", "/healthz", "/favicon.ico"}
+            if path_text not in _db_ignored_paths:
+                _db_enqueue_request_metric(
+                    int(status_code),
+                    float(duration_seconds),
+                    request_id=rid,
+                    extra=extra_fields or None,
+                )
         except Exception:
             pass
         note_context = {
