@@ -473,7 +473,13 @@ def _queue_delay_stats(now_ts: float, *, window_sec: int = 300, source: Optional
     values.sort()
     n = len(values)
     avg = int(round(sum(values) / float(n)))
-    p95_idx = max(0, min(n - 1, int((0.95 * n) - 1)))
+    # P95 via "nearest-rank" (avoid underestimating for small samples).
+    # Example: n=10 -> ceil(0.95*10)-1 = 9 (max element), not 8.
+    try:
+        p95_idx = int(math.ceil(0.95 * float(n))) - 1
+    except Exception:
+        p95_idx = n - 1
+    p95_idx = max(0, min(n - 1, int(p95_idx)))
     p95 = int(values[p95_idx])
     mx = int(values[-1])
     return {
