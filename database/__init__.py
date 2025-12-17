@@ -9,6 +9,8 @@ from .manager import DatabaseManager
 
 # יצירת אינסטנס גלובלי לשמירה על תאימות לאחור
 db = DatabaseManager()
+# תאימות לשמות ישנים/מדריכים: "db_manager"
+db_manager = db
 
 # לשמירה על תאימות: פונקציה שמחזירה את המנהל (כמו קודם)
 

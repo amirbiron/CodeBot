@@ -1,0 +1,518 @@
+{% extends "base.html" %}
+
+{% block title %}Database Health - Code Keeper Bot{% endblock %}
+
+{% block content %}
+<h1 class="page-title">🏥 Database Health Dashboard</h1>
+
+<!-- Health Summary Card -->
+<div class="health-summary glass-card" id="health-summary">
+    <div class="summary-header">
+        <div class="status-indicator" data-status="loading">
+            <span class="status-dot"></span>
+            <span class="status-text">טוען...</span>
+        </div>
+        <button class="btn btn-secondary btn-icon" onclick="refreshAll()">
+            <i class="fas fa-sync"></i>
+            רענן הכל
+        </button>
+    </div>
+</div>
+
+<!-- Metrics Grid -->
+<div class="metrics-grid" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 1.5rem; margin-top: 2rem;">
+
+    <!-- Connection Pool Card -->
+    <div class="glass-card metric-card" id="pool-card">
+        <div class="card-header">
+            <div class="card-title">
+                <span class="card-icon">🔌</span>
+                <h2>Connection Pool</h2>
+            </div>
+            <span class="refresh-indicator" data-refresh="5s">
+                <i class="fas fa-clock"></i> 5s
+            </span>
+        </div>
+
+        <div class="pool-metrics" id="pool-metrics">
+            <div class="metric-row">
+                <span class="metric-label">חיבורים פעילים</span>
+                <span class="metric-value" id="pool-current">-</span>
+            </div>
+            <div class="metric-row">
+                <span class="metric-label">חיבורים זמינים</span>
+                <span class="metric-value" id="pool-available">-</span>
+            </div>
+            <div class="metric-row">
+                <span class="metric-label">ניצולת</span>
+                <div class="progress-bar">
+                    <div class="progress-fill" id="pool-utilization-bar" style="width: 0%"></div>
+                </div>
+                <span class="metric-value" id="pool-utilization">0%</span>
+            </div>
+            <div class="metric-row">
+                <span class="metric-label">ממתינים בתור</span>
+                <span class="metric-value" id="pool-queue">0</span>
+            </div>
+            <div class="metric-row">
+                <span class="metric-label">סה"כ נוצרו</span>
+                <span class="metric-value dim" id="pool-created">-</span>
+            </div>
+        </div>
+    </div>
+
+    <!-- Current Operations Card -->
+    <div class="glass-card metric-card" id="ops-card">
+        <div class="card-header">
+            <div class="card-title">
+                <span class="card-icon">⏱️</span>
+                <h2>Slow Queries</h2>
+            </div>
+            <span class="refresh-indicator" data-refresh="10s">
+                <i class="fas fa-clock"></i> 10s
+            </span>
+        </div>
+
+        <div class="ops-summary" id="ops-summary">
+            <div class="ops-count">
+                <span class="count-value" id="ops-count">0</span>
+                <span class="count-label">פעולות איטיות (>1s)</span>
+            </div>
+        </div>
+
+        <div class="ops-list" id="ops-list">
+            <p class="empty-state">אין פעולות איטיות כרגע 🎉</p>
+        </div>
+    </div>
+</div>
+
+<!-- Collections Stats (On-Demand) -->
+<div class="glass-card collections-card" id="collections-card" style="margin-top: 2rem;">
+    <div class="card-header">
+        <div class="card-title">
+            <span class="card-icon">📊</span>
+            <h2>Collection Stats</h2>
+        </div>
+        <button class="btn btn-primary btn-icon" id="load-collections-btn" onclick="loadCollections()">
+            <i class="fas fa-database"></i>
+            טען סטטיסטיקות
+        </button>
+    </div>
+
+    <div class="collections-table-wrapper" id="collections-wrapper" style="display: none;">
+        <table class="collections-table">
+            <thead>
+                <tr>
+                    <th>Collection</th>
+                    <th>מסמכים</th>
+                    <th>גודל (MB)</th>
+                    <th>אחסון (MB)</th>
+                    <th>אינדקסים</th>
+                    <th>גודל אינדקסים (MB)</th>
+                </tr>
+            </thead>
+            <tbody id="collections-tbody">
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<style>
+.health-summary {
+    padding: 1.5rem;
+}
+
+.summary-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.status-indicator {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    font-size: 1.25rem;
+    font-weight: 600;
+}
+
+.status-dot {
+    width: 16px;
+    height: 16px;
+    border-radius: 50%;
+    background: #6b7280;
+    animation: pulse 2s infinite;
+}
+
+.status-indicator[data-status="healthy"] .status-dot {
+    background: #22c55e;
+}
+
+.status-indicator[data-status="warning"] .status-dot {
+    background: #f59e0b;
+}
+
+.status-indicator[data-status="critical"] .status-dot {
+    background: #ef4444;
+}
+
+.status-indicator[data-status="error"] .status-dot {
+    background: #ef4444;
+}
+
+@keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.5; }
+}
+
+.metric-card {
+    min-height: 280px;
+}
+
+.card-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    margin-bottom: 1.5rem;
+}
+
+.card-title {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+}
+
+.card-title h2 {
+    margin: 0;
+    font-size: 1.3rem;
+    font-weight: 600;
+}
+
+.card-icon {
+    font-size: 1.5rem;
+}
+
+.refresh-indicator {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    color: rgba(255, 255, 255, 0.7);
+    font-size: 0.9rem;
+}
+
+.metric-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 0.75rem 0;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.metric-row:last-child {
+    border-bottom: none;
+}
+
+.metric-label {
+    color: rgba(255, 255, 255, 0.8);
+    font-size: 0.95rem;
+}
+
+.metric-value {
+    font-size: 1.1rem;
+    font-weight: 600;
+    color: #fff;
+}
+
+.metric-value.dim {
+    color: rgba(255, 255, 255, 0.6);
+    font-weight: 400;
+}
+
+.progress-bar {
+    flex: 1;
+    height: 8px;
+    background: rgba(255, 255, 255, 0.1);
+    border-radius: 4px;
+    margin: 0 1rem;
+    overflow: hidden;
+}
+
+.progress-fill {
+    height: 100%;
+    background: linear-gradient(90deg, #22c55e, #f59e0b, #ef4444);
+    border-radius: 4px;
+    transition: width 0.5s ease;
+}
+
+.ops-count {
+    text-align: center;
+    margin-bottom: 1.5rem;
+}
+
+.count-value {
+    display: block;
+    font-size: 2.5rem;
+    font-weight: 700;
+    color: #fff;
+}
+
+.count-label {
+    color: rgba(255, 255, 255, 0.7);
+    font-size: 0.95rem;
+}
+
+.ops-list {
+    max-height: 300px;
+    overflow-y: auto;
+}
+
+.empty-state {
+    text-align: center;
+    color: rgba(255, 255, 255, 0.6);
+    padding: 2rem;
+}
+
+.op-item {
+    background: rgba(255, 255, 255, 0.05);
+    border-radius: 8px;
+    padding: 1rem;
+    margin-bottom: 1rem;
+    border-left: 4px solid;
+}
+
+.op-item.severity-info {
+    border-left-color: #3b82f6;
+}
+
+.op-item.severity-warning {
+    border-left-color: #f59e0b;
+}
+
+.op-item.severity-critical {
+    border-left-color: #ef4444;
+}
+
+.op-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 0.5rem;
+}
+
+.op-namespace {
+    font-weight: 600;
+    color: #fff;
+}
+
+.op-duration {
+    background: rgba(0, 0, 0, 0.3);
+    padding: 0.25rem 0.75rem;
+    border-radius: 12px;
+    font-size: 0.85rem;
+}
+
+.op-query {
+    font-family: monospace;
+    font-size: 0.85rem;
+    color: rgba(255, 255, 255, 0.7);
+    background: rgba(0, 0, 0, 0.2);
+    padding: 0.75rem;
+    border-radius: 6px;
+    overflow-x: auto;
+}
+
+.collections-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-top: 1rem;
+}
+
+.collections-table th {
+    text-align: left;
+    padding: 1rem;
+    background: rgba(255, 255, 255, 0.05);
+    color: rgba(255, 255, 255, 0.9);
+    font-weight: 600;
+}
+
+.collections-table td {
+    padding: 0.75rem 1rem;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+    color: rgba(255, 255, 255, 0.8);
+}
+
+.collections-table tr:hover {
+    background: rgba(255, 255, 255, 0.03);
+}
+</style>
+
+<script>
+const DB_HEALTH_TOKEN = {{ db_health_token | tojson }};
+
+function authHeaders() {
+    if (!DB_HEALTH_TOKEN) {
+        return {};
+    }
+    return { 'Authorization': `Bearer ${DB_HEALTH_TOKEN}` };
+}
+
+// Auto refresh timers
+let poolInterval;
+let opsInterval;
+
+async function refreshAll() {
+    await Promise.all([
+        loadHealthSummary(),
+        loadPoolStatus(),
+        loadCurrentOps()
+    ]);
+}
+
+async function loadHealthSummary() {
+    try {
+        const resp = await fetch('/api/db/health', { headers: authHeaders() });
+        const data = await resp.json();
+
+        const indicator = document.querySelector('.status-indicator');
+        indicator.dataset.status = data.status || 'unknown';
+        indicator.querySelector('.status-text').textContent = getStatusText(data.status);
+    } catch (e) {
+        console.error('loadHealthSummary error:', e);
+        const indicator = document.querySelector('.status-indicator');
+        indicator.dataset.status = 'error';
+        indicator.querySelector('.status-text').textContent = 'שגיאה';
+    }
+}
+
+async function loadPoolStatus() {
+    try {
+        const resp = await fetch('/api/db/pool', { headers: authHeaders() });
+        const data = await resp.json();
+
+        document.getElementById('pool-current').textContent = data.current;
+        document.getElementById('pool-available').textContent = data.available;
+        document.getElementById('pool-created').textContent = data.total_created;
+        document.getElementById('pool-queue').textContent = data.wait_queue_size || 0;
+
+        const util = data.utilization_pct || 0;
+        document.getElementById('pool-utilization').textContent = `${util}%`;
+        document.getElementById('pool-utilization-bar').style.width = `${util}%`;
+
+        // Update card border based on status
+        const card = document.getElementById('pool-card');
+        card.dataset.status = data.status || 'unknown';
+    } catch (e) {
+        console.error('loadPoolStatus error:', e);
+    }
+}
+
+async function loadCurrentOps() {
+    try {
+        const resp = await fetch('/api/db/ops?threshold_ms=1000', { headers: authHeaders() });
+        const data = await resp.json();
+
+        document.getElementById('ops-count').textContent = data.count;
+
+        const list = document.getElementById('ops-list');
+        list.innerHTML = '';
+
+        if (!data.operations || data.operations.length === 0) {
+            list.innerHTML = '<p class="empty-state">אין פעולות איטיות כרגע 🎉</p>';
+            return;
+        }
+
+        data.operations.slice(0, 10).forEach(op => {
+            const div = document.createElement('div');
+            div.className = `op-item severity-${op.severity}`;
+
+            const queryText = JSON.stringify(op.query, null, 2);
+
+            div.innerHTML = `
+                <div class="op-header">
+                    <span class="op-namespace">${op.namespace}</span>
+                    <span class="op-duration">${op.running_secs}s</span>
+                </div>
+                <div class="op-query">${escapeHtml(queryText)}</div>
+            `;
+
+            list.appendChild(div);
+        });
+    } catch (e) {
+        console.error('loadCurrentOps error:', e);
+    }
+}
+
+function escapeHtml(str) {
+    return String(str)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#039;');
+}
+
+async function loadCollections() {
+    const btn = document.getElementById('load-collections-btn');
+    btn.disabled = true;
+    btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> טוען...';
+
+    try {
+        const resp = await fetch('/api/db/collections', { headers: authHeaders() });
+        const data = await resp.json();
+
+        const tbody = document.getElementById('collections-tbody');
+        tbody.innerHTML = '';
+
+        (data.collections || []).forEach(c => {
+            const tr = document.createElement('tr');
+
+            const cells = [
+                c.name,
+                c.count,
+                c.size_mb,
+                c.storage_size_mb,
+                c.index_count,
+                c.total_index_size_mb
+            ];
+
+            cells.forEach(value => {
+                const td = document.createElement('td');
+                td.textContent = value;  // textContent בטוח מ-XSS
+                tr.appendChild(td);
+            });
+
+            tbody.appendChild(tr);
+        });
+
+        document.getElementById('collections-wrapper').style.display = 'block';
+        btn.innerHTML = '<i class="fas fa-sync"></i> רענן סטטיסטיקות';
+    } catch (e) {
+        console.error('loadCollections error:', e);
+        btn.innerHTML = '<i class="fas fa-exclamation-triangle"></i> שגיאה';
+    } finally {
+        btn.disabled = false;
+    }
+}
+
+function getStatusText(status) {
+    const texts = {
+        healthy: '✅ תקין',
+        warning: '⚠️ אזהרה',
+        critical: '🔴 קריטי',
+        error: '❌ שגיאה',
+        loading: 'טוען...',
+        unknown: '❓ לא ידוע',
+    };
+    return texts[status] || status;
+}
+
+// Start polling
+document.addEventListener('DOMContentLoaded', async () => {
+    await refreshAll();
+    poolInterval = setInterval(loadPoolStatus, 5000);
+    opsInterval = setInterval(loadCurrentOps, 10000);
+    setInterval(loadHealthSummary, 5000);
+});
+</script>
+{% endblock %}
+
