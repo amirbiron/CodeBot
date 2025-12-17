@@ -98,6 +98,7 @@
             טען סטטיסטיקות
         </button>
     </div>
+    <div id="collections-notice" style="display:none; margin-top: 0.75rem; opacity: 0.9; font-size: 0.95rem;"></div>
 
     <div class="collections-table-wrapper" id="collections-wrapper" style="display: none;">
         <table class="collections-table">
@@ -359,6 +360,8 @@ function authHeaders() {
 // Auto refresh timers
 let poolInterval;
 let opsInterval;
+let collectionsCooldownTimer;
+let collectionsCooldownEndMs = 0;
 
 async function refreshAll() {
     await Promise.all([
@@ -451,14 +454,76 @@ function escapeHtml(str) {
         .replace(/'/g, '&#039;');
 }
 
+function getCollectionsBaseLabel() {
+    const wrapper = document.getElementById('collections-wrapper');
+    const hasData = wrapper && wrapper.style.display !== 'none';
+    return hasData ? '<i class="fas fa-sync"></i> רענן סטטיסטיקות' : '<i class="fas fa-database"></i> טען סטטיסטיקות';
+}
+
+function setCollectionsNotice(text, variant = 'muted') {
+    const el = document.getElementById('collections-notice');
+    if (!el) return;
+    el.style.display = text ? 'block' : 'none';
+    el.textContent = text || '';
+
+    if (variant === 'warning') el.style.color = 'rgba(251, 191, 36, 0.95)';
+    else if (variant === 'error') el.style.color = 'rgba(239, 68, 68, 0.95)';
+    else el.style.color = 'rgba(255, 255, 255, 0.85)';
+}
+
+function startCollectionsCooldown(seconds) {
+    const btn = document.getElementById('load-collections-btn');
+    if (!btn) return;
+
+    const sec = Math.max(1, parseInt(seconds || 0, 10) || 1);
+    collectionsCooldownEndMs = Date.now() + (sec * 1000);
+
+    if (collectionsCooldownTimer) {
+        clearInterval(collectionsCooldownTimer);
+        collectionsCooldownTimer = null;
+    }
+
+    const tick = () => {
+        const remainingMs = Math.max(0, collectionsCooldownEndMs - Date.now());
+        const remainingSec = Math.max(0, Math.ceil(remainingMs / 1000));
+        if (remainingSec <= 0) {
+            if (collectionsCooldownTimer) {
+                clearInterval(collectionsCooldownTimer);
+                collectionsCooldownTimer = null;
+            }
+            btn.disabled = false;
+            btn.innerHTML = getCollectionsBaseLabel();
+            return;
+        }
+        btn.disabled = true;
+        btn.innerHTML = `<i class="fas fa-clock"></i> נא להמתין ${remainingSec}s`;
+    };
+
+    tick();
+    collectionsCooldownTimer = setInterval(tick, 250);
+}
+
 async function loadCollections() {
     const btn = document.getElementById('load-collections-btn');
     btn.disabled = true;
     btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> טוען...';
 
+    let rateLimited = false;
     try {
         const resp = await fetch('/api/db/collections', { headers: authHeaders() });
-        const data = await resp.json();
+        const data = await resp.json().catch(() => ({}));
+
+        if (resp.status === 429) {
+            rateLimited = true;
+            const hdr = resp.headers.get('Retry-After');
+            const retryAfter = parseInt((data && data.retry_after_sec) || hdr || '0', 10) || 1;
+            setCollectionsNotice(`נא להמתין ${retryAfter} שניות לפני ניסיון נוסף.`, 'warning');
+            startCollectionsCooldown(retryAfter);
+            return;
+        }
+        if (!resp.ok) {
+            throw new Error((data && data.error) || 'request_failed');
+        }
 
         const tbody = document.getElementById('collections-tbody');
         tbody.innerHTML = '';
@@ -485,12 +550,16 @@ async function loadCollections() {
         });
 
         document.getElementById('collections-wrapper').style.display = 'block';
-        btn.innerHTML = '<i class="fas fa-sync"></i> רענן סטטיסטיקות';
+        setCollectionsNotice('', 'muted');
+        btn.innerHTML = getCollectionsBaseLabel();
     } catch (e) {
         console.error('loadCollections error:', e);
+        setCollectionsNotice('שגיאה בטעינת סטטיסטיקות. נסה שוב מאוחר יותר.', 'error');
         btn.innerHTML = '<i class="fas fa-exclamation-triangle"></i> שגיאה';
     } finally {
-        btn.disabled = false;
+        if (!rateLimited) {
+            btn.disabled = false;
+        }
     }
 }
 

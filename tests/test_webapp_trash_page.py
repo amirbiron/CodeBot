@@ -3,6 +3,7 @@ import types
 
 from bson import ObjectId
 from webapp import app as webapp_app
+from services.db_health_service import CollectionStat
 
 
 class _StubCollection:
@@ -110,4 +111,33 @@ def test_trash_page_lists_items_and_restore_purge(monkeypatch):
         resp5 = client.get("/trash")
         assert resp5.status_code == 200
         assert "deleted.py" not in resp5.get_data(as_text=True)
+
+
+def test_db_health_collections_endpoint_rate_limited(monkeypatch):
+    monkeypatch.setenv("DB_HEALTH_TOKEN", "test-db-health-token")
+    monkeypatch.setenv("DB_HEALTH_COLLECTIONS_COOLDOWN_SEC", "2")
+
+    # Reset global per-process cooldown state between tests
+    monkeypatch.setattr(webapp_app, "_DB_HEALTH_COLLECTIONS_LAST_REQUEST_MONO", None, raising=False)
+
+    class _Svc:
+        async def get_collection_stats(self, collection_name=None):
+            return [CollectionStat(name="users", count=1)]
+
+    monkeypatch.setattr(webapp_app, "_get_webapp_db_health_service", lambda: _Svc(), raising=True)
+
+    flask_app = webapp_app.app
+    with flask_app.test_client() as client:
+        headers = {"Authorization": "Bearer test-db-health-token"}
+        resp1 = client.get("/api/db/collections", headers=headers)
+        assert resp1.status_code == 200
+        payload1 = resp1.get_json()
+        assert payload1 and payload1.get("count") == 1
+
+        resp2 = client.get("/api/db/collections", headers=headers)
+        assert resp2.status_code == 429
+        payload2 = resp2.get_json()
+        assert payload2 and payload2.get("error") == "rate_limited"
+        assert int(payload2.get("retry_after_sec") or 0) >= 1
+        assert resp2.headers.get("Retry-After")
 

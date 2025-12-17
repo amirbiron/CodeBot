@@ -9,6 +9,7 @@ import logging
 import hashlib
 import hmac
 import json
+import math
 import time
 import mimetypes
 from datetime import datetime, timezone
@@ -3011,6 +3012,10 @@ def _db_health_is_authorized() -> bool:
 
 _WEBAPP_DB_HEALTH_SERVICE = None
 
+# Throttling ל-collStats (Per-process). מגן על DB מפני הרצות תכופות.
+_DB_HEALTH_COLLECTIONS_LAST_REQUEST_MONO: Optional[float] = None
+_DB_HEALTH_COLLECTIONS_COOLDOWN_LOCK = threading.Lock()
+
 
 def _run_db_health(awaitable):
     """הרצת קורוטינה בצורה תואמת Flask תחת WSGI.
@@ -3100,10 +3105,52 @@ def api_db_collections():
         return jsonify({"error": "disabled"}), 403
     if not _db_health_is_authorized():
         return jsonify({"error": "unauthorized"}), 401
+
+    # Cooldown: הגנה על collStats (כבד) מפני הרצות תכופות.
+    try:
+        cooldown_sec = int(os.getenv("DB_HEALTH_COLLECTIONS_COOLDOWN_SEC", "30"))
+    except Exception:
+        cooldown_sec = 30
+    cooldown_sec = max(0, cooldown_sec)
+
+    start_mono = time.monotonic()
+    if cooldown_sec > 0:
+        global _DB_HEALTH_COLLECTIONS_LAST_REQUEST_MONO
+        with _DB_HEALTH_COLLECTIONS_COOLDOWN_LOCK:
+            last = _DB_HEALTH_COLLECTIONS_LAST_REQUEST_MONO
+            if last is not None:
+                elapsed = start_mono - float(last)
+                if elapsed < cooldown_sec:
+                    remaining = max(0.0, float(cooldown_sec) - elapsed)
+                    retry_after_sec = max(1, int(math.ceil(remaining)))
+                    logger.info(
+                        "api_db_collections_rate_limited",
+                        extra={
+                            "retry_after_sec": retry_after_sec,
+                            "cooldown_sec": cooldown_sec,
+                        },
+                    )
+                    resp = jsonify({"error": "rate_limited", "retry_after_sec": retry_after_sec})
+                    resp.status_code = 429
+                    resp.headers["Retry-After"] = str(retry_after_sec)
+                    return resp
+
+            # Mark-as-started כדי למנוע הרצות מקביליות (per-process).
+            _DB_HEALTH_COLLECTIONS_LAST_REQUEST_MONO = start_mono
+
     collection = request.args.get("collection")
     try:
         svc = _get_webapp_db_health_service()
         stats = _run_db_health(svc.get_collection_stats(collection_name=collection))
+        duration_ms = int((time.monotonic() - start_mono) * 1000)
+        logger.info(
+            "api_db_collections_loaded",
+            extra={
+                "duration_ms": duration_ms,
+                "count": len(stats),
+                "collection": collection or "",
+            },
+        )
         return jsonify({"count": len(stats), "collections": [s.to_dict() for s in stats]})
     except Exception as e:
         logger.exception("api_db_collections_failed")
