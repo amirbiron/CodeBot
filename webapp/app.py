@@ -4321,7 +4321,7 @@ def api_admin_global_settings_get():
         })
     except Exception as e:
         logger.error(f"Error getting global settings: {e}")
-        return jsonify({'ok': False, 'error': str(e)}), 500
+        return jsonify({'ok': False, 'error': 'Internal server error'}), 500
 
 
 @app.route('/api/admin/global-settings', methods=['POST'])
