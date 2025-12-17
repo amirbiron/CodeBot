@@ -23,8 +23,10 @@ from collections import Counter, defaultdict, deque
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any, Deque, Dict, List, Tuple, Optional
+import asyncio
 import math
 import os
+import threading
 import time
 import uuid
 
@@ -105,6 +107,9 @@ _ERROR_CONTEXT_WINDOW_SEC = 5 * 60
 _REQUEST_CONTEXTS: Deque[Tuple[float, Dict[str, Any]]] = deque(maxlen=20_000)
 _REQUEST_CONTEXT_WINDOW_SEC = max(60, int(os.getenv("REQUEST_CONTEXT_WINDOW_SECONDS", "900") or 900))
 _last_recompute_ts: float = 0.0
+
+# Guard for lazy state initialization (avoid races under concurrent calls).
+_MONGO_SERVERSTATUS_STATE_LOCK = threading.Lock()
 
 
 @dataclass
@@ -531,6 +536,8 @@ def _mongo_connections_snapshot() -> Dict[str, Any]:
     NOTE: This is *not* PyMongo client-side pool utilization; it's server-reported
     connections.current/available which is still a useful pressure signal.
     """
+    # חשוב: פונקציה זו נקראת מנתיבי בקשה (דרך metrics.record_request_outcome -> check_and_emit_alerts),
+    # ולכן אסור לה לבצע IO חוסם. אנחנו מחזירים Cache ומרעננים ברקע (best-effort).
     out: Dict[str, Any] = {}
     try:
         from database import db as db_manager  # type: ignore
@@ -542,9 +549,36 @@ def _mongo_connections_snapshot() -> Dict[str, Any]:
         client = None
     if client is None:
         return {}
-    try:
-        status = client.admin.command("serverStatus")  # type: ignore[attr-defined]
-        connections = status.get("connections") if isinstance(status, dict) else None
+
+    # --- cache + refresh scheduling ---
+    # Module-level cache to avoid blocking the main thread / event loop.
+    # We keep the state on the function object to minimize global clutter and preserve backwards compatibility.
+    state = getattr(_mongo_connections_snapshot, "_state", None)
+    if state is None:
+        # Avoid creating multiple independent state dicts under concurrency.
+        with _MONGO_SERVERSTATUS_STATE_LOCK:
+            state = getattr(_mongo_connections_snapshot, "_state", None)
+            if state is None:
+                state = {
+                    "lock": threading.Lock(),
+                    "ts": 0.0,
+                    "data": {},
+                    "inflight": False,
+                }
+                setattr(_mongo_connections_snapshot, "_state", state)
+
+    def _refresh_interval_seconds() -> float:
+        # Default 5s to match guides. Allow tuning via env.
+        try:
+            return max(1.0, float(os.getenv("MONGO_SERVERSTATUS_REFRESH_SEC", "5") or "5"))
+        except Exception:
+            return 5.0
+
+    def _parse_status(status_obj: Any) -> Dict[str, Any]:
+        try:
+            connections = status_obj.get("connections") if isinstance(status_obj, dict) else None
+        except Exception:
+            connections = None
         if not isinstance(connections, dict):
             return {}
         current = connections.get("current")
@@ -556,12 +590,136 @@ def _mongo_connections_snapshot() -> Dict[str, Any]:
             return {}
         total = max(0, cur_i) + max(0, avail_i)
         util = (float(max(0, cur_i)) / float(total) * 100.0) if total > 0 else 0.0
-        out["db_connections_current"] = int(max(0, cur_i))
-        out["db_connections_available"] = int(max(0, avail_i))
-        out["db_pool_utilization_pct"] = round(util, 1)
+        return {
+            "db_connections_current": int(max(0, cur_i)),
+            "db_connections_available": int(max(0, avail_i)),
+            "db_pool_utilization_pct": round(util, 1),
+        }
+
+    def _set_cache(data: Dict[str, Any]) -> None:
+        try:
+            with state["lock"]:
+                state["data"] = dict(data or {})
+                state["ts"] = float(time.time())
+        except Exception:
+            return
+
+    def _mark_inflight(val: bool) -> None:
+        try:
+            with state["lock"]:
+                state["inflight"] = bool(val)
+        except Exception:
+            return
+
+    def _should_refresh(now_ts: float) -> bool:
+        try:
+            with state["lock"]:
+                last_ts = float(state.get("ts") or 0.0)
+                inflight = bool(state.get("inflight"))
+        except Exception:
+            last_ts = 0.0
+            inflight = False
+        age = max(0.0, float(now_ts - last_ts))
+        return (not inflight) and (age >= _refresh_interval_seconds())
+
+    def _schedule_refresh() -> None:
+        # Atomically check + mark inflight under the same lock to prevent TOCTOU races
+        # that can trigger multiple concurrent refreshes.
+        now_ts = time.time()
+        try:
+            with state["lock"]:
+                last_ts = float(state.get("ts") or 0.0)
+                inflight = bool(state.get("inflight"))
+                age = max(0.0, float(now_ts - last_ts))
+                if inflight or age < _refresh_interval_seconds():
+                    return
+                state["inflight"] = True
+        except Exception:
+            return
+
+        # Try async Motor first (if admin.command is awaitable), otherwise offload sync PyMongo to executor/thread.
+        try:
+            cmd = getattr(getattr(client, "admin", None), "command", None)
+        except Exception:
+            cmd = None
+
+        def _finalize() -> None:
+            _mark_inflight(False)
+
+        # Async path (Motor-like)
+        try:
+            if callable(cmd):
+                try:
+                    loop = asyncio.get_running_loop()
+                except RuntimeError:
+                    loop = None
+                if loop is not None:
+                    try:
+                        maybe_coro = cmd("serverStatus")  # type: ignore[misc]
+                    except Exception:
+                        maybe_coro = None
+                    if maybe_coro is not None and asyncio.iscoroutine(maybe_coro):
+                        try:
+                            task = loop.create_task(maybe_coro)
+                        except Exception:
+                            # Prevent "coroutine was never awaited" warnings when task creation fails
+                            # (e.g. loop is closing).
+                            try:
+                                maybe_coro.close()  # type: ignore[attr-defined]
+                            except Exception:
+                                pass
+                            raise
+                        def _done_cb(fut: "asyncio.Future[Any]") -> None:  # type: ignore[name-defined]
+                            try:
+                                res = fut.result()
+                                _set_cache(_parse_status(res))
+                            except Exception:
+                                pass
+                            finally:
+                                _finalize()
+                        task.add_done_callback(_done_cb)
+                        return
+        except Exception:
+            # If anything fails here, fall back to sync executor below.
+            pass
+
+        # Sync path (PyMongo-like): run in executor if loop exists, otherwise spawn a daemon thread.
+        def _job_sync() -> None:
+            try:
+                status_obj = client.admin.command("serverStatus")  # type: ignore[attr-defined]
+                _set_cache(_parse_status(status_obj))
+            except Exception:
+                pass
+            finally:
+                _finalize()
+
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            loop = None
+        if loop is not None:
+            try:
+                loop.run_in_executor(None, _job_sync)
+                return
+            except Exception:
+                pass
+        try:
+            threading.Thread(target=_job_sync, name="mongo-serverstatus-refresh", daemon=True).start()
+        except Exception:
+            # If we can't even spawn a thread, just mark done and move on.
+            _finalize()
+
+    # Kick a refresh if stale, but always return cached snapshot immediately.
+    try:
+        _schedule_refresh()
     except Exception:
-        return {}
-    return out
+        pass
+    try:
+        with state["lock"]:
+            cached = dict(state.get("data") or {})
+    except Exception:
+        cached = {}
+    return cached
 
 
 def _derive_feature_from_command(command: Optional[str]) -> Optional[str]:

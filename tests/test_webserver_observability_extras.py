@@ -243,7 +243,7 @@ async def test_access_logs_includes_queue_delay_when_header_missing(monkeypatch)
         import aiohttp
 
         async with aiohttp.ClientSession() as session:
-            async with session.get(f"http://127.0.0.1:{port}/health") as resp:
+            async with session.get(f"http://127.0.0.1:{port}/incidents") as resp:
                 assert resp.status == 200
     finally:
         await runner.cleanup()
@@ -282,7 +282,7 @@ async def test_queue_delay_parses_x_request_start_and_emits_warning(monkeypatch)
 
         async with aiohttp.ClientSession() as session:
             async with session.get(
-                f"http://127.0.0.1:{port}/health",
+                f"http://127.0.0.1:{port}/incidents",
                 headers={"X-Request-Start": "t=1699999999.4"},
             ) as resp:
                 assert resp.status == 200
@@ -331,7 +331,7 @@ async def test_queue_delay_prefers_x_queue_start_ms(monkeypatch):
 
         async with aiohttp.ClientSession() as session:
             async with session.get(
-                f"http://127.0.0.1:{port}/health",
+                f"http://127.0.0.1:{port}/incidents",
                 headers={
                     "X-Queue-Start": "1699999999400",
                     "X-Request-Start": "t=1699999990.0",
@@ -346,3 +346,42 @@ async def test_queue_delay_prefers_x_queue_start_ms(monkeypatch):
     _name, _sev, fields = access[-1]
     assert fields.get("queue_delay") == 600
     assert fields.get("queue_delay_source") == "X-Queue-Start"
+
+
+@pytest.mark.asyncio
+async def test_access_logs_silenced_for_monitoring_endpoints_when_ok(monkeypatch):
+    import services.webserver as ws
+
+    events: list[tuple[str, str, dict]] = []
+
+    def fake_emit(event: str, severity: str = "info", **fields):
+        events.append((event, severity, fields))
+
+    monkeypatch.setattr(ws, "emit_event", fake_emit)
+
+    app = ws.create_app()
+    from aiohttp import web
+
+    runner = web.AppRunner(app)
+    await runner.setup()
+    site = web.TCPSite(runner, host="127.0.0.1", port=0)
+    await site.start()
+    try:
+        port = list(site._server.sockets)[0].getsockname()[1]
+        import aiohttp
+
+        async with aiohttp.ClientSession() as session:
+            async with session.get(f"http://127.0.0.1:{port}/health") as resp:
+                assert resp.status == 200
+            async with session.get(f"http://127.0.0.1:{port}/healthz") as resp:
+                assert resp.status == 200
+            async with session.get(f"http://127.0.0.1:{port}/metrics") as resp:
+                assert resp.status == 200
+            # favicon usually 404 -> should still be silenced
+            async with session.get(f"http://127.0.0.1:{port}/favicon.ico") as resp:
+                assert resp.status in (200, 404)
+    finally:
+        await runner.cleanup()
+
+    access = [e for e in events if e[0] == "access_logs"]
+    assert not access, "expected monitoring endpoints to be silenced when ok"

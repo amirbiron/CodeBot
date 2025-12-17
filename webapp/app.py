@@ -2435,19 +2435,31 @@ def _metrics_after(resp):
             except Exception:
                 pass
             try:
-                rid = getattr(request, "_req_id", "") or ""
-                access_fields: Dict[str, Any] = {
-                    "request_id": str(rid),
-                    "method": method_label,
-                    "path": path_label,
-                    "handler": handler_label,
-                    "status_code": int(status),
-                    "duration_ms": int(float(dur) * 1000),
-                    "queue_delay": int(q_ms),
-                }
-                if q_src:
-                    access_fields["queue_delay_source"] = str(q_src)
-                emit_event("access_logs", severity="info", **access_fields)
+                # Silence noisy monitoring endpoints when request is "ok".
+                # - For health/metrics: skip only successes (<400) but keep 4xx/5xx.
+                # - For favicon: also skip 404/4xx noise, keep 5xx.
+                # - For root availability probes: skip HEAD / when "ok" (<400), but keep 4xx/5xx.
+                silent_paths = {"/metrics", "/health", "/healthz", "/favicon.ico"}
+                is_silent_path = path_label in silent_paths
+                is_root_check = (path_label == "/" and str(method_label).upper() == "HEAD")
+                should_silence = False
+                if is_silent_path or is_root_check:
+                    ok_threshold = 500 if path_label == "/favicon.ico" else 400
+                    should_silence = int(status) < int(ok_threshold)
+                if not should_silence:
+                    rid = getattr(request, "_req_id", "") or ""
+                    access_fields: Dict[str, Any] = {
+                        "request_id": str(rid),
+                        "method": method_label,
+                        "path": path_label,
+                        "handler": handler_label,
+                        "status_code": int(status),
+                        "duration_ms": int(float(dur) * 1000),
+                        "queue_delay": int(q_ms),
+                    }
+                    if q_src:
+                        access_fields["queue_delay_source"] = str(q_src)
+                    emit_event("access_logs", severity="info", **access_fields)
             except Exception:
                 pass
             try:
