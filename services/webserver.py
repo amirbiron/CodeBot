@@ -100,6 +100,20 @@ _AI_ROUTE_TOKEN = os.getenv("OBS_AI_EXPLAIN_TOKEN") or os.getenv("AI_EXPLAIN_TOK
 
 logger = logging.getLogger(__name__)
 
+# AI explain service is optional in minimal envs.
+# IMPORTANT: Tests monkeypatch `services.webserver.ai_explain_service`, so keep the attribute always present.
+try:  # type: ignore
+    from services import ai_explain_service as ai_explain_service  # type: ignore
+except Exception:  # pragma: no cover
+    class _AiExplainServiceStub:
+        class AiExplainError(RuntimeError):
+            pass
+
+        async def generate_ai_explanation(self, *_a, **_k):  # type: ignore[no-untyped-def]
+            raise self.AiExplainError("service_unavailable")
+
+    ai_explain_service = _AiExplainServiceStub()  # type: ignore
+
 # --- Queue delay (request queueing) instrumentation ---
 _QUEUE_DELAY_HEADERS = ("X-Queue-Start", "X-Request-Start")
 _QUEUE_DELAY_EVENT_NAME = "access_logs"
@@ -800,24 +814,6 @@ def create_app() -> web.Application:
         start = time.perf_counter()
         req_id = request.headers.get("X-Request-ID") or ""
 
-        # Lazy import to avoid hard dependency during minimal deployments/tests.
-        try:
-            from services import ai_explain_service as _ai_explain_service
-        except Exception as e:
-            try:
-                emit_event(
-                    "ai_explain_service_unavailable",
-                    severity="warning",
-                    handled=True,
-                    error=str(e),
-                )
-            except Exception:
-                pass
-            return web.json_response(
-                {"error": "service_unavailable", "message": "שירות ההסבר אינו זמין"},
-                status=503,
-            )
-
         if _AI_ROUTE_TOKEN:
             auth_header = request.headers.get("Authorization", "").strip()
             expected_header = f"Bearer {_AI_ROUTE_TOKEN}"
@@ -853,7 +849,7 @@ def create_app() -> web.Application:
         alert_uid = str(context.get("alert_uid") or "")
         try:
             explanation = await asyncio.wait_for(
-                _ai_explain_service.generate_ai_explanation(
+                ai_explain_service.generate_ai_explanation(
                     context,
                     expected_sections=expected_sections,
                     request_id=req_id,
@@ -880,7 +876,7 @@ def create_app() -> web.Application:
                 },
                 status=504,
             )
-        except _ai_explain_service.AiExplainError as exc:
+        except ai_explain_service.AiExplainError as exc:
             duration = time.perf_counter() - start
             error_code = str(exc) or "provider_error"
             if error_code == "invalid_context":
@@ -889,6 +885,9 @@ def create_app() -> web.Application:
             elif error_code == "anthropic_api_key_missing":
                 status = 503
                 message = "השירות לא הוגדר (חסר מפתח Anthropic)"
+            elif error_code in {"service_unavailable", "ai_explain_service_unavailable"}:
+                status = 503
+                message = "שירות ההסבר אינו זמין"
             else:
                 status = 502
                 message = "ספק ה-AI לא הצליח להחזיר תשובה"
