@@ -266,7 +266,7 @@ components:
           maximum: 1.6
         theme:
           type: string
-          enum: [classic, ocean, forest, high-contrast]
+          enum: [classic, ocean, rose-pine-dawn, dark, dim, nebula, high-contrast, custom]
         editor:
           type: string
           enum: [simple, codemirror]

@@ -1131,24 +1131,38 @@ function loadDraft() {
 <script>
     (function() {
         try {
-            var saved = localStorage.getItem('dark_mode_preference');
             var html = document.documentElement;
-            
-            // Check for custom theme first
+            // user_theme מחזיק את ערכת ה-UI שנבחרה (classic/ocean/.../custom).
+            var savedTheme = localStorage.getItem('user_theme');
+            savedTheme = String(savedTheme || '').trim().toLowerCase();
+
+            // dark_mode_preference הוא enum של dark/dim/light/auto בלבד.
+            var savedMode = localStorage.getItem('dark_mode_preference');
+            savedMode = String(savedMode || '').trim().toLowerCase();
+
+            // אם יש ערכת custom פעילה והמשתמש בחר בה – נעדיף אותה.
             {% if custom_theme and custom_theme.is_active %}
-            if (saved === 'custom' || !saved) {
+            if (savedTheme === 'custom') {
                 html.setAttribute('data-theme', 'custom');
                 return;
             }
             {% endif %}
-            
-            if (saved === 'dark' || saved === 'dim' || saved === 'nebula' || 
-                saved === 'ocean' || saved === 'forest' || saved === 'classic' ||
-                saved === 'rose-pine-dawn' || saved === 'high-contrast' || saved === 'custom') {
-                html.setAttribute('data-theme', saved);
-            } else if (saved === 'auto' && window.matchMedia && 
+
+            // מצבי dark/dim גוברים על ערכת הבסיס.
+            if (savedMode === 'dark' || savedMode === 'dim') {
+                html.setAttribute('data-theme', savedMode);
+                return;
+            }
+            if (savedMode === 'auto' && window.matchMedia &&
                        window.matchMedia('(prefers-color-scheme: dark)').matches) {
                 html.setAttribute('data-theme', 'dark');
+                return;
+            }
+
+            // אחרת – ננסה להחיל ערכת UI מה-local (אם היא מוכרת), ואת היתר נשאיר לשרת.
+            if (savedTheme === 'classic' || savedTheme === 'ocean' || savedTheme === 'nebula' ||
+                savedTheme === 'rose-pine-dawn' || savedTheme === 'high-contrast') {
+                html.setAttribute('data-theme', savedTheme);
             }
         } catch (_) {}
     })();

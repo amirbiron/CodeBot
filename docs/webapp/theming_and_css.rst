@@ -162,10 +162,6 @@
      - ``ocean``
      - כחול עמוק
      - כל טוקן רקע/טקסט מוגדר ידנית; Split View מקבל ``--split-codehilite`` כחול
-   * - Forest
-     - ``forest``
-     - ירוק רווי
-     - חלוקת ``--success`` מותאמת, Markdown נשאר כהה
    * - Rose Pine Dawn
      - ``rose-pine-dawn``
      - ורוד‑שמנת
