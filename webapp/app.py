@@ -4368,7 +4368,7 @@ def api_admin_global_settings_update():
             
     except Exception as e:
         logger.error(f"Error updating global setting {key}: {e}")
-        return jsonify({'ok': False, 'error': str(e)}), 500
+        return jsonify({'ok': False, 'error': 'internal_error'}), 500
 
 
 # ===== Global Content Search API =====
