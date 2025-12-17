@@ -33,6 +33,7 @@ Code Keeper Bot - תיעוד API
    configuration
    environment-variables
    performance-scaling
+   performance-sticky-notes
    large-files-runbook
 
 .. toctree::
@@ -62,6 +63,9 @@ Code Keeper Bot - תיעוד API
    troubleshooting
    development
    development/pre-commit
+   development/tools
+   development/scripts
+   development/i18n
    integrations
    repository-integrations
    security
@@ -69,6 +73,7 @@ Code Keeper Bot - תיעוד API
    git-lfs
    user/bookmarks
    user/sticky_notes
+   user/reminders
    user/my_collections
    user/share_code
    user/github_browse
@@ -118,17 +123,29 @@ Code Keeper Bot - תיעוד API
    webapp/caching
    webapp/advanced-caching
    webapp/static-checklist
+   webapp/commands-catalog
    webapp/api-reference
    webapp/bulk-actions
    webapp/editor
    webapp/markdown-folding
    webapp/smooth-scrolling
+   webapp/system-modules
+
+.. toctree::
+   :maxdepth: 2
+   :caption: Frontend > Theming
+
+   webapp/theming_and_css
 
 .. toctree::
    :maxdepth: 2
    :caption: Observability
 
    observability
+   observability/observability_dashboard
+   observability/quick_fix_rules
+   observability/coverage_report
+   api/ai_explain
    rate-limiting
    observability/guidelines
    logging_schema
@@ -136,6 +153,7 @@ Code Keeper Bot - תיעוד API
    resilience
    alerts
    observability/log_based_alerts
+   observability/log-aggregator
    sentry
    runbooks/incident-checklist
    runbooks/logging-levels
@@ -144,11 +162,18 @@ Code Keeper Bot - תיעוד API
 
 .. toctree::
    :maxdepth: 2
+   :caption: פריסה ו-Workers
+
+   deployment/workers
+
+.. toctree::
+   :maxdepth: 2
    :caption: ChatOps
 
    chatops/overview
    chatops/commands
    chatops/observe
+   chatops/ratelimit
    chatops/playbooks
    chatops/permissions
    chatops/troubleshooting

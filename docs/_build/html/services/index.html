@@ -9,7 +9,7 @@
   <title>Services &mdash; תיעוד Code Keeper Bot 1.0.0</title>
       <link rel="stylesheet" type="text/css" href="../_static/pygments.css?v=b86133f3" />
       <link rel="stylesheet" type="text/css" href="../_static/css/theme.css?v=e59714d7" />
-      <link rel="stylesheet" type="text/css" href="../_static/custom.css?v=2d7a82d5" />
+      <link rel="stylesheet" type="text/css" href="../_static/custom.css?v=97689da2" />
 
   
       <script src="../_static/jquery.js?v=5d32c60e"></script>
@@ -17,6 +17,9 @@
       <script src="../_static/documentation_options.js?v=0062297a"></script>
       <script src="../_static/doctools.js?v=9bcbadda"></script>
       <script src="../_static/sphinx_highlight.js?v=dc90522c"></script>
+      <script src="../_static/vendor/turndown.umd.js?v=c7d37de5"></script>
+      <script src="../_static/vendor/turndown-plugin-gfm.js?v=cc6884c9"></script>
+      <script src="../_static/copy-page.js?v=8142343d"></script>
       <script src="../_static/translations.js?v=a336edf7"></script>
     <script src="../_static/js/theme.js"></script>
     <link rel="index" title="אינדקס" href="../genindex.html" />
@@ -121,20 +124,35 @@
 </ul>
 </li>
 <li class="toctree-l1"><a class="reference internal" href="../whats-new.html">What’s New</a><ul>
-<li class="toctree-l2"><a class="reference internal" href="../whats-new.html#id1">2025-11-11</a></li>
-<li class="toctree-l2"><a class="reference internal" href="../whats-new.html#id2">2025-11-06</a></li>
-<li class="toctree-l2"><a class="reference internal" href="../whats-new.html#id3">2025-11-05</a></li>
-<li class="toctree-l2"><a class="reference internal" href="../whats-new.html#id4">2025-10-30</a></li>
-<li class="toctree-l2"><a class="reference internal" href="../whats-new.html#id5">2025-10-29</a></li>
-<li class="toctree-l2"><a class="reference internal" href="../whats-new.html#id6">2025-10-15</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../whats-new.html#id1">2025-12-11</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../whats-new.html#id2">2025-11-11</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../whats-new.html#id3">2025-11-06</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../whats-new.html#id4">2025-11-05</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../whats-new.html#id5">2025-10-30</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../whats-new.html#id6">2025-10-29</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../whats-new.html#id7">2025-10-15</a></li>
 </ul>
 </li>
 <li class="toctree-l1"><a class="reference internal" href="../architecture.html">ארכיטקטורה</a><ul>
 <li class="toctree-l2"><a class="reference internal" href="../architecture.html#id2">סקירה כללית</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../architecture.html#id3">תרשים רכיבים (תמציתי)</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../architecture.html#id4">מבנה תיקיות</a></li>
-<li class="toctree-l2"><a class="reference internal" href="../architecture.html#id5">זרימות מרכזיות</a></li>
-<li class="toctree-l2"><a class="reference internal" href="../architecture.html#id6">קישורים</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../architecture.html#id5">מקורות נוספים</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../architecture/clean-architecture.html">Clean Architecture ב-src</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../architecture/clean-architecture.html#clean-architecture">למה Clean Architecture</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../architecture/clean-architecture.html#id1">תרשים שכבות</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../architecture/clean-architecture.html#id2">מבנה תיקיות</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../architecture/clean-architecture.html#domain">שכבת הדומיין (Domain)</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../architecture/clean-architecture.html#application">שכבת היישום (Application)</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../architecture/clean-architecture.html#infrastructure">שכבת התשתית (Infrastructure)</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../architecture/clean-architecture.html#id3">דוגמת זרימה: יצירת סניפט</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../architecture/clean-architecture.html#id4">הנחיות עבודה</a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../architecture.html#id6">זרימות מרכזיות</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../architecture.html#id7">קישורים</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../architecture.html#http-aiohttp">תשתית HTTP – סשן aiohttp משותף</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../architecture.html#documenthandler">הפרדת אחריות – DocumentHandler</a></li>
 </ul>
@@ -206,10 +224,23 @@
 <li class="toctree-l2"><a class="reference internal" href="../configuration.html#id8">איחוד תיעוד קונפיגורציה</a></li>
 </ul>
 </li>
+<li class="toctree-l1"><a class="reference internal" href="../configuration.html#id9">קבצי קונפיגורציה ייעודיים</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../configuration.html#config-alert-graph-sources-json"><code class="docutils literal notranslate"><span class="pre">config/alert_graph_sources.json</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="../configuration.html#config-observability-runbooks-yml"><code class="docutils literal notranslate"><span class="pre">config/observability_runbooks.yml</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="../configuration.html#config-alert-quick-fixes-json"><code class="docutils literal notranslate"><span class="pre">config/alert_quick_fixes.json</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="../configuration.html#config-alerts-yml"><code class="docutils literal notranslate"><span class="pre">config/alerts.yml</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="../configuration.html#config-error-signatures-yml"><code class="docutils literal notranslate"><span class="pre">config/error_signatures.yml</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="../configuration.html#config-image-settings-yaml"><code class="docutils literal notranslate"><span class="pre">config/image_settings.yaml</span></code></a></li>
+</ul>
+</li>
 <li class="toctree-l1"><a class="reference internal" href="../environment-variables.html">משתני סביבה - רפרנס</a><ul>
 <li class="toctree-l2"><a class="reference internal" href="../environment-variables.html#id2">טבלה מרכזית</a></li>
-<li class="toctree-l2"><a class="reference internal" href="../environment-variables.html#id3">דוגמאות קונפיגורציה</a></li>
-<li class="toctree-l2"><a class="reference internal" href="../environment-variables.html#id4">קישורים</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../environment-variables.html#id3">התראות וניטור (הרחבה)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../environment-variables.html#otel">מדדים, OTEL וחיזוי</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../environment-variables.html#id4">תפעול, אינטגרציות ופיצ’רים</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../environment-variables.html#id5">דגלי בדיקות ופיתוח</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../environment-variables.html#id6">דוגמאות קונפיגורציה</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../environment-variables.html#id7">קישורים</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../environment-variables.html#scopes-github">טבלת Scopes לפיצ’רים של GitHub</a></li>
 </ul>
 </li>
@@ -223,6 +254,16 @@
 <li class="toctree-l2"><a class="reference internal" href="../performance-scaling.html#id3">הנחיות לפי סביבה</a></li>
 </ul>
 </li>
+<li class="toctree-l1"><a class="reference internal" href="../performance-sticky-notes.html">Sticky Notes Warmup – פתרון ביצועים משולב</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../performance-sticky-notes.html#id1">רקע קצר</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../performance-sticky-notes.html#id2">התרופה המיידית (מוכחת)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../performance-sticky-notes.html#warmup">Warmup מבני (עדיין בתהליך אימות)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../performance-sticky-notes.html#id3">איפוס הדגל בעת שינוי אינדקסים</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../performance-sticky-notes.html#rollout">מה לאמת לפני rollout מלא</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../performance-sticky-notes.html#latency">מה לעשות אם latency קופץ שוב</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../performance-sticky-notes.html#id4">המלצה רשמית</a></li>
+</ul>
+</li>
 <li class="toctree-l1"><a class="reference internal" href="../large-files-runbook.html">טיפול בקבצים גדולים (Large Files)</a><ul>
 <li class="toctree-l2"><a class="reference internal" href="../large-files-runbook.html#id1">מגבלות ופולבקים</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../large-files-runbook.html#id2">הנחיות הפעלה</a></li>
@@ -234,6 +275,7 @@
 <ul class="current">
 <li class="toctree-l1"><a class="reference internal" href="../api/index.html">API Reference</a><ul>
 <li class="toctree-l2"><a class="reference internal" href="../api/main.html">main module</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../api/main.html#main.get_drive_handler_from_application"><code class="docutils literal notranslate"><span class="pre">get_drive_handler_from_application()</span></code></a></li>
 <li class="toctree-l3"><a class="reference internal" href="../api/main.html#main.get_admin_ids"><code class="docutils literal notranslate"><span class="pre">get_admin_ids()</span></code></a></li>
 <li class="toctree-l3"><a class="reference internal" href="../api/main.html#main.notify_admins"><code class="docutils literal notranslate"><span class="pre">notify_admins()</span></code></a></li>
 <li class="toctree-l3"><a class="reference internal" href="../api/main.html#main.recycle_backfill_command"><code class="docutils literal notranslate"><span class="pre">recycle_backfill_command()</span></code></a></li>
@@ -342,6 +384,7 @@
 <li class="toctree-l4"><a class="reference internal" href="../api/config.html#config.BotConfig.UI_PAGE_SIZE"><code class="docutils literal notranslate"><span class="pre">BotConfig.UI_PAGE_SIZE</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="../api/config.html#config.BotConfig.SENTRY_DSN"><code class="docutils literal notranslate"><span class="pre">BotConfig.SENTRY_DSN</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="../api/config.html#config.BotConfig.SENTRY_TEST_BUTTON_ENABLED"><code class="docutils literal notranslate"><span class="pre">BotConfig.SENTRY_TEST_BUTTON_ENABLED</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../api/config.html#config.BotConfig.ANOMALY_IGNORE_ENDPOINTS"><code class="docutils literal notranslate"><span class="pre">BotConfig.ANOMALY_IGNORE_ENDPOINTS</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="../api/config.html#config.BotConfig.METRICS_DB_ENABLED"><code class="docutils literal notranslate"><span class="pre">BotConfig.METRICS_DB_ENABLED</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="../api/config.html#config.BotConfig.METRICS_COLLECTION"><code class="docutils literal notranslate"><span class="pre">BotConfig.METRICS_COLLECTION</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="../api/config.html#config.BotConfig.METRICS_BATCH_SIZE"><code class="docutils literal notranslate"><span class="pre">BotConfig.METRICS_BATCH_SIZE</span></code></a></li>
@@ -381,6 +424,9 @@
 <li class="toctree-l4"><a class="reference internal" href="../api/bot_handlers.html#bot_handlers.AdvancedBotHandlers.system_info_command"><code class="docutils literal notranslate"><span class="pre">AdvancedBotHandlers.system_info_command()</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="../api/bot_handlers.html#bot_handlers.AdvancedBotHandlers.metrics_command"><code class="docutils literal notranslate"><span class="pre">AdvancedBotHandlers.metrics_command()</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="../api/bot_handlers.html#bot_handlers.AdvancedBotHandlers.rate_limit_command"><code class="docutils literal notranslate"><span class="pre">AdvancedBotHandlers.rate_limit_command()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../api/bot_handlers.html#bot_handlers.AdvancedBotHandlers.cache_clear_stale_command"><code class="docutils literal notranslate"><span class="pre">AdvancedBotHandlers.cache_clear_stale_command()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../api/bot_handlers.html#bot_handlers.AdvancedBotHandlers.status_worker_command"><code class="docutils literal notranslate"><span class="pre">AdvancedBotHandlers.status_worker_command()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../api/bot_handlers.html#bot_handlers.AdvancedBotHandlers.version_history_command"><code class="docutils literal notranslate"><span class="pre">AdvancedBotHandlers.version_history_command()</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="../api/bot_handlers.html#bot_handlers.AdvancedBotHandlers.enable_backoff_command"><code class="docutils literal notranslate"><span class="pre">AdvancedBotHandlers.enable_backoff_command()</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="../api/bot_handlers.html#bot_handlers.AdvancedBotHandlers.disable_backoff_command"><code class="docutils literal notranslate"><span class="pre">AdvancedBotHandlers.disable_backoff_command()</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="../api/bot_handlers.html#bot_handlers.AdvancedBotHandlers.validate_command"><code class="docutils literal notranslate"><span class="pre">AdvancedBotHandlers.validate_command()</span></code></a></li>
@@ -406,6 +452,7 @@
 </ul>
 </li>
 <li class="toctree-l2"><a class="reference internal" href="../api/conversation_handlers.html">conversation_handlers module</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../api/conversation_handlers.html#conversation_handlers.DatabaseManager"><code class="docutils literal notranslate"><span class="pre">DatabaseManager</span></code></a></li>
 <li class="toctree-l3"><a class="reference internal" href="../api/conversation_handlers.html#conversation_handlers.set_activity_reporter"><code class="docutils literal notranslate"><span class="pre">set_activity_reporter()</span></code></a></li>
 <li class="toctree-l3"><a class="reference internal" href="../api/conversation_handlers.html#conversation_handlers.start_command"><code class="docutils literal notranslate"><span class="pre">start_command()</span></code></a></li>
 <li class="toctree-l3"><a class="reference internal" href="../api/conversation_handlers.html#conversation_handlers.show_community_hub"><code class="docutils literal notranslate"><span class="pre">show_community_hub()</span></code></a></li>
@@ -641,6 +688,7 @@
 <li class="toctree-l4"><a class="reference internal" href="../api/alert_manager.html#alert_manager.note_request"><code class="docutils literal notranslate"><span class="pre">note_request()</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="../api/alert_manager.html#alert_manager.get_current_error_rate_percent"><code class="docutils literal notranslate"><span class="pre">get_current_error_rate_percent()</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="../api/alert_manager.html#alert_manager.get_current_avg_latency_seconds"><code class="docutils literal notranslate"><span class="pre">get_current_avg_latency_seconds()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../api/alert_manager.html#alert_manager.get_request_stats_between"><code class="docutils literal notranslate"><span class="pre">get_request_stats_between()</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="../api/alert_manager.html#alert_manager.bump_threshold"><code class="docutils literal notranslate"><span class="pre">bump_threshold()</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="../api/alert_manager.html#alert_manager.get_thresholds_snapshot"><code class="docutils literal notranslate"><span class="pre">get_thresholds_snapshot()</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="../api/alert_manager.html#alert_manager.check_and_emit_alerts"><code class="docutils literal notranslate"><span class="pre">check_and_emit_alerts()</span></code></a></li>
@@ -715,6 +763,7 @@
 </li>
 <li class="toctree-l3"><a class="reference internal" href="../api/conftest.html">conftest module</a><ul>
 <li class="toctree-l4"><a class="reference internal" href="../api/conftest.html#conftest.pytest_addoption"><code class="docutils literal notranslate"><span class="pre">pytest_addoption()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../api/conftest.html#conftest.pytest_ignore_collect"><code class="docutils literal notranslate"><span class="pre">pytest_ignore_collect()</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="../api/conftest.html#conftest.pytest_configure"><code class="docutils literal notranslate"><span class="pre">pytest_configure()</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="../api/conftest.html#conftest.pytest_collection_modifyitems"><code class="docutils literal notranslate"><span class="pre">pytest_collection_modifyitems()</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="../api/conftest.html#conftest.pytest_runtest_makereport"><code class="docutils literal notranslate"><span class="pre">pytest_runtest_makereport()</span></code></a></li>
@@ -722,6 +771,7 @@
 </ul>
 </li>
 <li class="toctree-l3"><a class="reference internal" href="../api/conversation_handlers.html">conversation_handlers module</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../api/conversation_handlers.html#conversation_handlers.DatabaseManager"><code class="docutils literal notranslate"><span class="pre">DatabaseManager</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="../api/conversation_handlers.html#conversation_handlers.set_activity_reporter"><code class="docutils literal notranslate"><span class="pre">set_activity_reporter()</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="../api/conversation_handlers.html#conversation_handlers.start_command"><code class="docutils literal notranslate"><span class="pre">start_command()</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="../api/conversation_handlers.html#conversation_handlers.show_community_hub"><code class="docutils literal notranslate"><span class="pre">show_community_hub()</span></code></a></li>
@@ -889,6 +939,7 @@
 </ul>
 </li>
 <li class="toctree-l3"><a class="reference internal" href="../api/main.html">main module</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../api/main.html#main.get_drive_handler_from_application"><code class="docutils literal notranslate"><span class="pre">get_drive_handler_from_application()</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="../api/main.html#main.get_admin_ids"><code class="docutils literal notranslate"><span class="pre">get_admin_ids()</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="../api/main.html#main.notify_admins"><code class="docutils literal notranslate"><span class="pre">notify_admins()</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="../api/main.html#main.recycle_backfill_command"><code class="docutils literal notranslate"><span class="pre">recycle_backfill_command()</span></code></a></li>
@@ -911,8 +962,22 @@
 <li class="toctree-l4"><a class="reference internal" href="../api/metrics.html#metrics.metrics_endpoint_bytes"><code class="docutils literal notranslate"><span class="pre">metrics_endpoint_bytes()</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="../api/metrics.html#metrics.metrics_content_type"><code class="docutils literal notranslate"><span class="pre">metrics_content_type()</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="../api/metrics.html#metrics.note_active_user"><code class="docutils literal notranslate"><span class="pre">note_active_user()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../api/metrics.html#metrics.note_request_started"><code class="docutils literal notranslate"><span class="pre">note_request_started()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../api/metrics.html#metrics.note_request_finished"><code class="docutils literal notranslate"><span class="pre">note_request_finished()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../api/metrics.html#metrics.get_active_requests_count"><code class="docutils literal notranslate"><span class="pre">get_active_requests_count()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../api/metrics.html#metrics.get_current_memory_usage"><code class="docutils literal notranslate"><span class="pre">get_current_memory_usage()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../api/metrics.html#metrics.get_recent_errors_count"><code class="docutils literal notranslate"><span class="pre">get_recent_errors_count()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../api/metrics.html#metrics.get_top_slow_endpoints"><code class="docutils literal notranslate"><span class="pre">get_top_slow_endpoints()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../api/metrics.html#metrics.get_slowest_endpoint"><code class="docutils literal notranslate"><span class="pre">get_slowest_endpoint()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../api/metrics.html#metrics.note_deployment_started"><code class="docutils literal notranslate"><span class="pre">note_deployment_started()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../api/metrics.html#metrics.note_deployment_shutdown"><code class="docutils literal notranslate"><span class="pre">note_deployment_shutdown()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../api/metrics.html#metrics.get_avg_response_time_seconds"><code class="docutils literal notranslate"><span class="pre">get_avg_response_time_seconds()</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="../api/metrics.html#metrics.record_request_outcome"><code class="docutils literal notranslate"><span class="pre">record_request_outcome()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../api/metrics.html#metrics.update_health_gauges"><code class="docutils literal notranslate"><span class="pre">update_health_gauges()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../api/metrics.html#metrics.record_startup_stage_metric"><code class="docutils literal notranslate"><span class="pre">record_startup_stage_metric()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../api/metrics.html#metrics.record_startup_total_metric"><code class="docutils literal notranslate"><span class="pre">record_startup_total_metric()</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="../api/metrics.html#metrics.record_http_request"><code class="docutils literal notranslate"><span class="pre">record_http_request()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../api/metrics.html#metrics.record_request_queue_delay"><code class="docutils literal notranslate"><span class="pre">record_request_queue_delay()</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="../api/metrics.html#metrics.record_outbound_request_duration"><code class="docutils literal notranslate"><span class="pre">record_outbound_request_duration()</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="../api/metrics.html#metrics.increment_outbound_retry"><code class="docutils literal notranslate"><span class="pre">increment_outbound_retry()</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="../api/metrics.html#metrics.set_circuit_state"><code class="docutils literal notranslate"><span class="pre">set_circuit_state()</span></code></a></li>
@@ -925,6 +990,7 @@
 <li class="toctree-l4"><a class="reference internal" href="../api/metrics.html#metrics.record_db_operation"><code class="docutils literal notranslate"><span class="pre">record_db_operation()</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="../api/metrics.html#metrics.get_uptime_percentage"><code class="docutils literal notranslate"><span class="pre">get_uptime_percentage()</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="../api/metrics.html#metrics.set_adaptive_observability_gauges"><code class="docutils literal notranslate"><span class="pre">set_adaptive_observability_gauges()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../api/metrics.html#metrics.set_external_error_rate_percent"><code class="docutils literal notranslate"><span class="pre">set_external_error_rate_percent()</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="../api/metrics.html#metrics.track_file_saved"><code class="docutils literal notranslate"><span class="pre">track_file_saved()</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="../api/metrics.html#metrics.track_search_performed"><code class="docutils literal notranslate"><span class="pre">track_search_performed()</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="../api/metrics.html#metrics.track_github_sync"><code class="docutils literal notranslate"><span class="pre">track_github_sync()</span></code></a></li>
@@ -1126,6 +1192,7 @@
 <li class="toctree-l2"><a class="reference internal" href="../handlers/index.html#save-flow-handler">Save Flow Handler</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../handlers/index.html#states-handler">States Handler</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../handlers/index.html#github-handlers">GitHub Handlers</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../handlers/index.html#github-menu-bridge">GitHub Menu Bridge</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../handlers/index.html#document-flow">Document Flow</a><ul>
 <li class="toctree-l3"><a class="reference internal" href="../handlers/document-flow.html">זרימת הטיפול במסמכים (Document Flow)</a><ul>
 <li class="toctree-l4"><a class="reference internal" href="../handlers/document-flow.html#id1">מפה ותפקידים</a></li>
@@ -1139,6 +1206,7 @@
 </li>
 </ul>
 </li>
+<li class="toctree-l2"><a class="reference internal" href="../handlers/index.html#drive-utilities">Drive Utilities</a></li>
 </ul>
 </li>
 <li class="toctree-l1 current"><a class="current reference internal" href="#">Services</a><ul>
@@ -1148,6 +1216,11 @@
 </li>
 <li class="toctree-l2"><a class="reference internal" href="#github-service">GitHub Service</a></li>
 <li class="toctree-l2"><a class="reference internal" href="#backup-service">Backup Service</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#ai-explain-service">AI Explain Service</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#community-library-service">Community Library Service</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#image-generator-service">Image Generator Service</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#snippet-library-service">Snippet Library Service</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#observability-http-service">Observability HTTP Service</a></li>
 <li class="toctree-l2"><a class="reference internal" href="#google-drive-service">Google Drive Service</a><ul>
 <li class="toctree-l3"><a class="reference internal" href="google_drive_service.html">Google Drive Service</a><ul>
 <li class="toctree-l4"><a class="reference internal" href="google_drive_service.html#id1">סקירה</a></li>
@@ -1175,6 +1248,29 @@
 </ul>
 </li>
 <li class="toctree-l2"><a class="reference internal" href="../database/index.html#users">אינדקסים בקולקציית users</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../database/index.html#id1">מדריכי מודולים ייעודיים</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../database/bookmarks-manager.html">מנהל סימניות – BookmarksManager</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../database/bookmarks-manager.html#id1">מתי משתמשים בו?</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../database/bookmarks-manager.html#id2">מבנה ואינדקסים</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../database/bookmarks-manager.html#id3">מגבלות שימוש</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../database/bookmarks-manager.html#toggle">תהליך Toggle</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../database/bookmarks-manager.html#id4">סנכרון עם שינויים בקובץ</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../database/bookmarks-manager.html#analytics">אירועים (Analytics)</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../database/bookmarks-manager.html#module-database.bookmarks_manager">Autodoc</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="../database/collections-manager.html">מנהל אוספים – CollectionsManager</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../database/collections-manager.html#id1">רכיבי בסיס</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../database/collections-manager.html#id2">אינדקסים</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../database/collections-manager.html#id3">סוגי אוספים</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../database/collections-manager.html#id4">תרחישי שימוש נפוצים</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../database/collections-manager.html#id5">חוקים ושמירה על איכות</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../database/collections-manager.html#id6">שיתוף ציבורי</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../database/collections-manager.html#module-database.collections_manager">Autodoc</a></li>
+</ul>
+</li>
+</ul>
+</li>
 </ul>
 </li>
 <li class="toctree-l1"><a class="reference internal" href="../database/indexing.html">MongoDB Indexing Cookbook</a><ul>
@@ -1373,6 +1469,42 @@
 <li class="toctree-l2"><a class="reference internal" href="../development/pre-commit.html#id3">טיפים לפתרון בעיות</a></li>
 </ul>
 </li>
+<li class="toctree-l1"><a class="reference internal" href="../development/tools.html">כלי עזר למפתחים</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../development/tools.html#tools-analyze-queries-py"><code class="docutils literal notranslate"><span class="pre">tools/analyze_queries.py</span></code></a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../development/tools.html#id3">מטרה</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../development/tools.html#id4">דרישות</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../development/tools.html#id5">דוגמת הרצה</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../development/tools.html#id6">פלט אופייני</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../development/tools.html#id7">טיפים</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../development/tools.html#tools-dup-scan-py"><code class="docutils literal notranslate"><span class="pre">tools/dup_scan.py</span></code></a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../development/tools.html#id8">מטרה</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../development/tools.html#id9">דוגמת הרצה</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../development/tools.html#id10">פרמטרים חשובים</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../development/tools.html#best-practices">Best Practices</a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../development/scripts.html">סקריפטים שימושיים</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../development/scripts.html#scripts-cleanup-repo-tags-py"><code class="docutils literal notranslate"><span class="pre">scripts/cleanup_repo_tags.py</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="../development/scripts.html#scripts-dev-seed-py"><code class="docutils literal notranslate"><span class="pre">scripts/dev_seed.py</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="../development/scripts.html#scripts-import-snippets-from-markdown-py">scripts/import_snippets_from_markdown.py</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../development/scripts.html#scripts-migrate-workspace-collections-py">scripts/migrate_workspace_collections.py</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../development/scripts.html#scripts-run-log-aggregator-py"><code class="docutils literal notranslate"><span class="pre">scripts/run_log_aggregator.py</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="../development/scripts.html#scripts-start-webapp-sh"><code class="docutils literal notranslate"><span class="pre">scripts/start_webapp.sh</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="../development/scripts.html#scripts-start-with-worker-sh"><code class="docutils literal notranslate"><span class="pre">scripts/start_with_worker.sh</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../development/i18n.html">בינאום ותמיכה בשפות</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../development/i18n.html#id3">מבנה הקבצים</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../development/i18n.html#id4">בחירת שפה בזמן ריצה</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../development/i18n.html#id5">הוספת שפה חדשה</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../development/i18n.html#id6">עקרונות כתיבה</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../development/i18n.html#id7">בדיקות מהירות</a></li>
+</ul>
+</li>
 <li class="toctree-l1"><a class="reference internal" href="../integrations.html">Integrations</a><ul>
 <li class="toctree-l2"><a class="reference internal" href="../integrations.html#github-api">GitHub API</a><ul>
 <li class="toctree-l3"><a class="reference internal" href="../integrations.html#gist">יצירת Gist (דוגמה)</a></li>
@@ -1407,6 +1539,7 @@
 <li class="toctree-l2"><a class="reference internal" href="../monitoring.html#grafana-telegram-webhook">חיבור Grafana → Telegram (Webhook)</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../monitoring.html#grafana-annotations">Grafana Annotations</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../monitoring.html#adaptive-thresholds">Adaptive Thresholds (ספים דינמיים)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../monitoring.html#id1">הפרדה בין שגיאות פנימיות לחיצוניות</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../monitoring.html#predictive-health-v7">Predictive Health (v7)</a><ul>
 <li class="toctree-l3"><a class="reference internal" href="../monitoring.html#safe-mode">SAFE_MODE ודילוג על פעולות מנע</a></li>
 <li class="toctree-l3"><a class="reference internal" href="../monitoring.html#chatops">ChatOps</a></li>
@@ -1420,16 +1553,16 @@
 </li>
 <li class="toctree-l2"><a class="reference internal" href="../monitoring.html#autoremediation-v5">Auto‑Remediation (v5)</a><ul>
 <li class="toctree-l3"><a class="reference internal" href="../monitoring.html#incident-memory">Incident Memory</a></li>
-<li class="toctree-l3"><a class="reference internal" href="../monitoring.html#id1">Feedback Loop לאירועים חוזרים</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../monitoring.html#id2">Feedback Loop לאירועים חוזרים</a></li>
 </ul>
 </li>
 <li class="toctree-l2"><a class="reference internal" href="../monitoring.html#chatops-observe">ChatOps – /observe</a><ul>
-<li class="toctree-l3"><a class="reference internal" href="../monitoring.html#id2">הרחבות מצב מפורט</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../monitoring.html#id3">הרחבות מצב מפורט</a></li>
 </ul>
 </li>
 <li class="toctree-l2"><a class="reference internal" href="../monitoring.html#endpoints">Endpoints</a></li>
-<li class="toctree-l2"><a class="reference internal" href="../monitoring.html#id3">קישורים לתיעוד ChatOps</a></li>
-<li class="toctree-l2"><a class="reference internal" href="../monitoring.html#id4">טיפים</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../monitoring.html#id4">קישורים לתיעוד ChatOps</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../monitoring.html#id5">טיפים</a></li>
 </ul>
 </li>
 <li class="toctree-l1"><a class="reference internal" href="../git-lfs.html">Git LFS Integration</a><ul>
@@ -1469,6 +1602,18 @@
 </li>
 </ul>
 </li>
+<li class="toctree-l1"><a class="reference internal" href="../user/reminders.html">תזכורות בבוט</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../user/reminders.html#id2">סקירה קצרה</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../user/reminders.html#id3">פקודות עיקריות</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../user/reminders.html#id4">איך הוויזרד עובד</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../user/reminders.html#id5">טיפים לשימוש בפקודה מהירה</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../user/reminders.html#id6">ניהול התזכורות</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../user/reminders.html#id7">מגבלות ומדיניות</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../user/reminders.html#id8">מתזמן והתאוששות</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../user/reminders.html#id9">חיבור לקוד</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../user/reminders.html#id10">קישורים</a></li>
+</ul>
+</li>
 <li class="toctree-l1"><a class="reference internal" href="../user/my_collections.html">האוספים שלי (My Collections)</a><ul>
 <li class="toctree-l2"><a class="reference internal" href="../user/my_collections.html#id1">מהם אוספים?</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../user/my_collections.html#id2">יכולות מרכזיות</a></li>
@@ -1478,6 +1623,7 @@
 <li class="toctree-l2"><a class="reference internal" href="../user/my_collections.html#api">API קצר (למפתחים)</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../user/my_collections.html#id6">טיפים</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../user/my_collections.html#id7">מובייל/טאבלט – גרירה לסידור</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../user/my_collections.html#kanban">לוח Kanban עבור <em>שולחן העבודה</em></a></li>
 </ul>
 </li>
 <li class="toctree-l1"><a class="reference internal" href="../user/share_code.html">שיתוף קוד (חשוב)</a><ul>
@@ -1730,14 +1876,44 @@
 <li class="toctree-l2"><a class="reference internal" href="../webapp/snippet-library.html#ai">מדריך קצר לסוכני AI</a></li>
 </ul>
 </li>
-<li class="toctree-l1"><a class="reference internal" href="../webapp/onboarding.html">🎉 Onboarding (Welcome Modal) – WebApp</a><ul>
-<li class="toctree-l2"><a class="reference internal" href="../webapp/onboarding.html#id1">מטרות</a></li>
-<li class="toctree-l2"><a class="reference internal" href="../webapp/onboarding.html#id2">זרימת משתמש</a></li>
-<li class="toctree-l2"><a class="reference internal" href="../webapp/onboarding.html#anchors">קישורי מדריכים (Anchors)</a></li>
-<li class="toctree-l2"><a class="reference internal" href="../webapp/onboarding.html#best-practices">Best Practices – אינדיקציה למשתמשים חדשים</a></li>
-<li class="toctree-l2"><a class="reference internal" href="../webapp/onboarding.html#js-ajax">דוגמת JS – מודאל עם Ajax</a></li>
-<li class="toctree-l2"><a class="reference internal" href="../webapp/onboarding.html#api">API קשור</a></li>
-<li class="toctree-l2"><a class="reference internal" href="../webapp/onboarding.html#id3">מדיה</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../webapp/onboarding.html">🧭 WebApp Onboarding – Welcome Modal, Interactive Tour &amp; Theme Wizard</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../webapp/onboarding.html#id1">רכיבים ומה הם עושים</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../webapp/onboarding.html#id2">תרשים אינטראקציה</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../webapp/onboarding.html#welcome-modal">Welcome Modal – רענון קצר</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../webapp/onboarding.html#id3">מטרות</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../webapp/onboarding.html#id4">זרימת משתמש</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../webapp/onboarding.html#id5">סנכרון למדריך העדכני</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../webapp/onboarding.html#id6">איך לעדכן</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="../webapp/onboarding.html#anchors">קישורי מדריכים (Anchors)</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../webapp/onboarding.html#best-practices">Best Practices – סימון משתמשים חדשים</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../webapp/onboarding.html#js-ajax">דוגמת JS – מודאל עם Ajax</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../webapp/onboarding.html#api">API קשור</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../webapp/onboarding.html#interactive-tour-driver-js">Interactive Tour (Driver.js)</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../webapp/onboarding.html#id7">מתי הסיור נפתח?</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../webapp/onboarding.html#id8">שלבי הסיור</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../webapp/onboarding.html#id9">הפעלה ידנית ואיפוס</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../webapp/onboarding.html#id10">תחזוקה למפתחים</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../webapp/onboarding.html#troubleshooting">Troubleshooting – ”למה הסיור לא מופיע?“</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../webapp/onboarding.html#gif">צילומי מסך / GIF</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../webapp/onboarding.html#theme-picker-wizard-personalization">Theme Picker Wizard (Personalization)</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../webapp/onboarding.html#id11">סקירה כללית</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../webapp/onboarding.html#id12">טריגרים והגנות</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../webapp/onboarding.html#id13">ממשק וחוויית משתמש</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../webapp/onboarding.html#id14">התמדה וסנכרון שרת</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../webapp/onboarding.html#debugging-reset">🛠️ Debugging &amp; Reset</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../webapp/onboarding.html#qa">מדריך בדיקות (QA)</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../webapp/onboarding.html#id15">צילומי מסך</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../webapp/onboarding.html#id16">קישורים רלוונטיים</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../webapp/onboarding.html#id17">Troubleshooting מרוכז – ”למה שום דבר לא קופץ לי?“</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../webapp/onboarding.html#id18">מדיה והרחבות</a></li>
 </ul>
 </li>
 <li class="toctree-l1"><a class="reference internal" href="../webapp/caching.html">Caching &amp; HTTP Validators (ETag / Last-Modified / 304)</a><ul>
@@ -1755,6 +1931,7 @@
 <li class="toctree-l2"><a class="reference internal" href="../webapp/advanced-caching.html#id1">עקרונות</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../webapp/advanced-caching.html#id2">קוד לדוגמה</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../webapp/advanced-caching.html#id3">דגשים תפעוליים</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../webapp/advanced-caching.html#warmup-frontend">Warmup לנכסי Frontend</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../webapp/advanced-caching.html#id4">קישורים</a></li>
 </ul>
 </li>
@@ -1766,6 +1943,19 @@
 <li class="toctree-l2"><a class="reference internal" href="../webapp/static-checklist.html#copypaste">בדיקות ידניות (Copy‑Paste)</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../webapp/static-checklist.html#best-practices">Best Practices</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../webapp/static-checklist.html#gotchas">Gotchas</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../webapp/commands-catalog.html">תחזוקת קטלוג הפקודות (<code class="docutils literal notranslate"><span class="pre">commands.json</span></code>)</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../webapp/commands-catalog.html#id1">מבוא</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../webapp/commands-catalog.html#schema">מבנה הנתונים (Schema)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../webapp/commands-catalog.html#json">דוגמת JSON</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../webapp/commands-catalog.html#taxonomy">הנחיות סיווג (Taxonomy)</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../webapp/commands-catalog.html#id2">טיפים לזיהוי אוטומטי</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../webapp/commands-catalog.html#id3">צ’ק-ליסט להוספת פקודה</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../webapp/commands-catalog.html#id4">בדיקות</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../webapp/commands-catalog.html#id5">כרטיסיות חדשות (דצמ« 2025)</a></li>
 </ul>
 </li>
 <li class="toctree-l1"><a class="reference internal" href="../webapp/api-reference.html">WebApp API Reference</a><ul>
@@ -1824,6 +2014,39 @@
 <li class="toctree-l2"><a class="reference internal" href="../webapp/smooth-scrolling.html#id7">קישורים פנימיים</a></li>
 </ul>
 </li>
+<li class="toctree-l1"><a class="reference internal" href="../webapp/system-modules.html">מודולים פנימיים ב-WebApp</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../webapp/system-modules.html#activity-tracker-py"><code class="docutils literal notranslate"><span class="pre">activity_tracker.py</span></code> – דגימת פעילות משתמשים</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../webapp/system-modules.html#community-library-api-py-rest"><code class="docutils literal notranslate"><span class="pre">community_library_api.py</span></code> – REST עבור אוסף הקהילה</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../webapp/system-modules.html#community-library-ui-py-web"><code class="docutils literal notranslate"><span class="pre">community_library_ui.py</span></code> – תצוגת Web</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../webapp/system-modules.html#snippet-library-api-py-snippet-library-ui-py"><code class="docutils literal notranslate"><span class="pre">snippet_library_api.py</span></code> ו-<code class="docutils literal notranslate"><span class="pre">snippet_library_ui.py</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="../webapp/system-modules.html#push-api-py-web-push-subscriptions"><code class="docutils literal notranslate"><span class="pre">push_api.py</span></code> – Web Push Subscriptions</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../webapp/system-modules.html#workspace-api-py-kanban-workspaces"><code class="docutils literal notranslate"><span class="pre">workspace_api.py</span></code> – ניהול Kanban (Workspaces)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../webapp/system-modules.html#config-radar-py"><code class="docutils literal notranslate"><span class="pre">config_radar.py</span></code> – רנטגן קונפיגורציה</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../webapp/system-modules.html#id2">איך להשתמש בעמוד זה</a></li>
+</ul>
+</li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">Frontend &gt; Theming</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../webapp/theming_and_css.html">מערכת ערכות הנושא והטוקנים החדשה</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../webapp/theming_and_css.html#id3">רקע ומוטיבציה</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../webapp/theming_and_css.html#data-theme">שכבות משתנים וטעינת <code class="docutils literal notranslate"><span class="pre">data-theme</span></code></a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../webapp/theming_and_css.html#id4">תרשים זרימת היררכיית טוקנים</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../webapp/theming_and_css.html#id5">טבלת טוקנים עיקריים</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../webapp/theming_and_css.html#theme-reference">מפת ערכות הנושא (Theme Reference)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../webapp/theming_and_css.html#markdown-viewer-split-view">Markdown Viewer ו‑Split View</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../webapp/theming_and_css.html#best-practices">הנחיות למפתחים (Best Practices)</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../webapp/theming_and_css.html#id6">דוגמת קוד – לא תקין לעומת תקין</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../webapp/theming_and_css.html#component-tokens-theme-builder">Component Tokens ו‑Theme Builder</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../webapp/theming_and_css.html#merge">בדיקות חובה לפני Merge</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../webapp/theming_and_css.html#id7">שימושים נוספים וחריגים</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../webapp/theming_and_css.html#id8">קישורים ונספחים</a></li>
+</ul>
+</li>
 </ul>
 <p class="caption" role="heading"><span class="caption-text">Observability</span></p>
 <ul>
@@ -1841,6 +2064,77 @@
 </li>
 <li class="toctree-l2"><a class="reference internal" href="../observability.html#traced">כיסוי דקורטור &#64;traced</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../observability.html#staging">אימות ב-Staging</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../observability/observability_dashboard.html">📡 Observability Dashboard &amp; API</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../observability/observability_dashboard.html#admin-observability">🖥️ סקירת הממשק <code class="docutils literal notranslate"><span class="pre">/admin/observability</span></code></a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../observability/observability_dashboard.html#id1">חלוקת הדף</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../observability/observability_dashboard.html#id2">יכולות סינון</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../observability/observability_dashboard.html#ui">מקרא ו־UI</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../observability/observability_dashboard.html#ai">🤖 הסבר AI להתראות</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../observability/observability_dashboard.html#api-reference">📚 API Reference</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../observability/observability_dashboard.html#id3">פרמטרי זמן משותפים</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../observability/observability_dashboard.html#get-api-observability-alerts"><code class="docutils literal notranslate"><span class="pre">GET</span> <span class="pre">/api/observability/alerts</span></code></a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../observability/observability_dashboard.html#meta-high-error-rate">Meta מועשר להתראות High Error Rate</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="../observability/observability_dashboard.html#get-api-observability-aggregations"><code class="docutils literal notranslate"><span class="pre">GET</span> <span class="pre">/api/observability/aggregations</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../observability/observability_dashboard.html#get-api-observability-timeseries"><code class="docutils literal notranslate"><span class="pre">GET</span> <span class="pre">/api/observability/timeseries</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../observability/observability_dashboard.html#get-api-observability-replay"><code class="docutils literal notranslate"><span class="pre">GET</span> <span class="pre">/api/observability/replay</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../observability/observability_dashboard.html#runbooks-quick-fix">Runbooks דינמיים + Quick Fix</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../observability/observability_dashboard.html#get-api-observability-export"><code class="docutils literal notranslate"><span class="pre">GET</span> <span class="pre">/api/observability/export</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../observability/observability_dashboard.html#post-api-observability-quickfix-track"><code class="docutils literal notranslate"><span class="pre">POST</span> <span class="pre">/api/observability/quickfix/track</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../observability/observability_dashboard.html#post-api-observability-alerts-ai-explain"><code class="docutils literal notranslate"><span class="pre">POST</span> <span class="pre">/api/observability/alerts/ai_explain</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../observability/observability_dashboard.html#rate-limiting">🔐 אבטחה, Rate Limiting וקאש</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../observability/observability_dashboard.html#id4">🔌 אינטגרציות ודוגמאות שימוש</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../observability/observability_dashboard.html#grafana-bi">Grafana / BI</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../observability/observability_dashboard.html#slack-on-call-bot">Slack / On-call Bot</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../observability/observability_dashboard.html#config-radar">שילוב עם Config Radar</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../observability/observability_dashboard.html#readme">רפרנס ל־README</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../observability/observability_dashboard.html#id5">✔️ מה הלאה?</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../observability/quick_fix_rules.html">🧠 Quick Fix חכם (Queue Delay + עומס/DB) – הנחיות למפתחים ולסוכני AI</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../observability/quick_fix_rules.html#id1">איפה זה מופיע</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../observability/quick_fix_rules.html#id2">מקור אמת: איפה החוקים חיים</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../observability/quick_fix_rules.html#latency-slow-response">טבלת החלטה (Latency / Slow Response)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../observability/quick_fix_rules.html#id3">אילו שדות אנחנו משתמשים בהם (סכמת נתונים)</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../observability/quick_fix_rules.html#id4">אותות עיקריים</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../observability/quick_fix_rules.html#id5">עומס ומשאבים</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../observability/quick_fix_rules.html#db-pool-utilization">“DB Pool utilization”</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../observability/quick_fix_rules.html#safety">עקרונות Safety (חשוב)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../observability/quick_fix_rules.html#ai">איך להוסיף/לשנות חוק (צ’קליסט למפתחים ול‑AI)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../observability/quick_fix_rules.html#id6">הערות לסוכני AI (איך לעבוד נכון)</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../observability/coverage_report.html">Coverage Report (Runbooks / Quick Fixes)</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../observability/coverage_report.html#id1">מטרה</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../observability/coverage_report.html#catalog-registry">מקור האמת (Catalog / Registry)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../observability/coverage_report.html#matching">הגדרות כיסוי (Matching)</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../observability/coverage_report.html#runbooks">Runbooks</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../observability/coverage_report.html#quick-fixes">Quick Fixes</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../observability/coverage_report.html#id2">מה מוצג בדוח</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../observability/coverage_report.html#api">API</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../api/ai_explain.html">🧠 Observability AI Explain API</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../api/ai_explain.html#id1">🔐 אימות ובקרות</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../api/ai_explain.html#post-api-ai-explain">📥 בקשה (<code class="docutils literal notranslate"><span class="pre">POST</span> <span class="pre">/api/ai/explain</span></code>)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../api/ai_explain.html#ok">📤 תגובה מוצלחת (<code class="docutils literal notranslate"><span class="pre">200</span> <span class="pre">OK</span></code>)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../api/ai_explain.html#id2">❗ קודי שגיאה</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../api/ai_explain.html#id3">⚙️ קונפיגורציה נדרשת</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../api/ai_explain.html#id4">🧪 בדיקות</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../api/ai_explain.html#id5">📝 טיפים לפריסה</a></li>
 </ul>
 </li>
 <li class="toctree-l1"><a class="reference internal" href="../rate-limiting.html">Rate Limiting</a><ul>
@@ -1893,6 +2187,7 @@
 <li class="toctree-l2"><a class="reference internal" href="../alerts.html#id1">סקירה מהירה</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../alerts.html#id2">חוקי ברירת המחדל</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../alerts.html#id3">התאמה לצרכים שלך</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../alerts.html#health-startup-prometheus">מדדי Health ו-Startup ל-Prometheus</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../alerts.html#alert-manager">קונפיגורציית <code class="docutils literal notranslate"><span class="pre">alert_manager</span></code> באפליקציה</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../alerts.html#id4">טעינת שינויים</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../alerts.html#id5">בדיקת הזרימה בקצה השני</a></li>
@@ -1935,9 +2230,26 @@
 <li class="toctree-l2"><a class="reference internal" href="../observability/log_based_alerts.html#classify-error">קריאת המשך – <code class="docutils literal notranslate"><span class="pre">classify_error()</span></code></a></li>
 </ul>
 </li>
+<li class="toctree-l1"><a class="reference internal" href="../observability/log-aggregator.html">מנוע ניתוח לוגים (Log Event Aggregator)</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../observability/log-aggregator.html#id2">ארכיטקטורה</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../observability/log-aggregator.html#id3">קונפיגורציה וקבצים</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../observability/log-aggregator.html#cli">הרצת CLI מקומית</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../observability/log-aggregator.html#id4">שילוב במערכת</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../observability/log-aggregator.html#id5">עבודה בטוחה</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../observability/log-aggregator.html#id6">ניפוי תקלות נפוץ</a></li>
+</ul>
+</li>
 <li class="toctree-l1"><a class="reference internal" href="../sentry.html">Sentry</a><ul>
 <li class="toctree-l2"><a class="reference internal" href="../sentry.html#id1">הפעלה (משתני סביבה)</a></li>
-<li class="toctree-l2"><a class="reference internal" href="../sentry.html#id2">עקרונות</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../sentry.html#telegram-observability">התראות ל־Telegram וללוח Observability</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../sentry.html#id2">איפה להגדיר משתנים</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../sentry.html#observability">מה צריך כדי שזה יופיע בלוח Observability</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../sentry.html#id3">מה צריך כדי שזה יישלח לטלגרם</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../sentry.html#polling">Polling – משתנים רלוונטיים</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../sentry.html#webhook">Webhook – אבטחה ודה-דופליקציה</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../sentry.html#id4">עקרונות</a></li>
 </ul>
 </li>
 <li class="toctree-l1"><a class="reference internal" href="../runbooks/incident-checklist.html">Incident Checklist (On‑Call)</a><ul>
@@ -1967,7 +2279,31 @@
 <li class="toctree-l2"><a class="reference internal" href="../runbooks/slo.html#higherrorrate">HighErrorRate</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../runbooks/slo.html#sloavailabilitybreach-99-9">SLOAvailabilityBreach (זמינות &lt; 99.9%)</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../runbooks/slo.html#slolatencyp95breach-p95-0-5s">SLOLatencyP95Breach (P95 &gt; 0.5s)</a></li>
-<li class="toctree-l2"><a class="reference internal" href="../runbooks/slo.html#id1">דשבורד</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../runbooks/slo.html#db-mongodb">תקלת התחברות ל‑DB (MongoDB) – קריטי</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../runbooks/slo.html#id1">סימפטומים</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../runbooks/slo.html#id2">סדר פעולות (בקצרה)</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../runbooks/slo.html#id3">איטיות/נפילה של שירות חיצוני – בינוני</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../runbooks/slo.html#id4">סימפטומים</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../runbooks/slo.html#id5">סדר פעולות</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../runbooks/slo.html#deploy-release">באג אחרי Deploy / Release – משתנה</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../runbooks/slo.html#id6">סדר פעולות</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../runbooks/slo.html#id7">דשבורד</a></li>
+</ul>
+</li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">פריסה ו-Workers</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../deployment/workers.html">עובדי Push ו-Edge</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../deployment/workers.html#cloudflare-worker-worker">Cloudflare Worker (<cite>/worker</cite>)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../deployment/workers.html#node-push-worker-push-worker">Node Push Worker (<cite>/push_worker</cite>)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../deployment/workers.html#webapp-webapp-push-api-py">חיבור ל-WebApp (<cite>webapp/push_api.py</cite>)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../deployment/workers.html#id2">בדיקות ועצות</a></li>
 </ul>
 </li>
 </ul>
@@ -1979,17 +2315,40 @@
 </ul>
 </li>
 <li class="toctree-l1"><a class="reference internal" href="../chatops/commands.html">פקודות ChatOps</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../chatops/commands.html#ctrl-cmd-k">כרטיסיות חיפוש (Ctrl/Cmd+K)</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../chatops/commands.html#status">/status</a></li>
-<li class="toctree-l2"><a class="reference internal" href="../chatops/commands.html#errors">/errors</a></li>
-<li class="toctree-l2"><a class="reference internal" href="../chatops/commands.html#mappings">סטטוסי תוצאות (Mappings)</a></li>
-<li class="toctree-l2"><a class="reference internal" href="../chatops/commands.html#triage">/triage</a></li>
-<li class="toctree-l2"><a class="reference internal" href="../chatops/commands.html#predict">/predict</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../chatops/commands.html#health">/health</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../chatops/commands.html#uptime">/uptime</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../chatops/commands.html#system-info">/system_info</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../chatops/commands.html#metrics">/metrics</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../chatops/commands.html#observe">/observe</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../chatops/commands.html#observe-v">/observe -v (מפורט)</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../chatops/commands.html#observe-vv">/observe -vv (מפורט מאוד)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../chatops/commands.html#errors">/errors</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../chatops/commands.html#mappings">סטטוסי תוצאות (Mappings)</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../chatops/commands.html#alerts">/alerts</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../chatops/commands.html#incidents">/incidents</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../chatops/commands.html#triage">/triage</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../chatops/commands.html#predict">/predict</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../chatops/commands.html#accuracy">/accuracy</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../chatops/commands.html#rate-limit">/rate_limit</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../chatops/commands.html#enable-backoff">/enable_backoff</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../chatops/commands.html#disable-backoff">/disable_backoff</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../chatops/commands.html#sen">/sen</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../chatops/commands.html#lang">/lang</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../chatops/commands.html#lang-debug">/lang_debug</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../chatops/commands.html#dm">/dm</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../chatops/commands.html#silence">/silence</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../chatops/commands.html#unsilence">/unsilence</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../chatops/commands.html#silences">/silences</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../chatops/commands.html#cache-stats">/cache_stats</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../chatops/commands.html#clear-cache">/clear_cache</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../chatops/commands.html#cache-warm">/cache_warm</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../chatops/commands.html#cache-clear-stale">/cache_clear_stale</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../chatops/commands.html#status-worker">/status_worker</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../chatops/commands.html#version-history">/version_history</a></li>
 </ul>
 </li>
 <li class="toctree-l1"><a class="reference internal" href="../chatops/observe.html">ChatOps – /observe: הרחבות -v ו- -vv</a><ul>
@@ -1999,6 +2358,14 @@
 <li class="toctree-l2"><a class="reference internal" href="../chatops/observe.html#vv">פלט לדוגמה – ‎-vv</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../chatops/observe.html#id3">הערות שימוש</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../chatops/observe.html#id4">קישורים רלוונטיים</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../chatops/ratelimit.html">הגבלת קצב לפקודות רגישות</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../chatops/ratelimit.html#id2">עקרונות מרכזיים</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../chatops/ratelimit.html#id3">שימוש בדקורטור</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../chatops/ratelimit.html#id4">קונפיגורציה</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../chatops/ratelimit.html#id5">שילוב בבוט</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../chatops/ratelimit.html#autodoc">Autodoc</a></li>
 </ul>
 </li>
 <li class="toctree-l1"><a class="reference internal" href="../chatops/playbooks.html">Playbooks – תרחישים נפוצים</a><ul>
@@ -2327,6 +2694,666 @@ For now it proxies to existing GitHub handlers/utilities to keep behavior.</p>
 <li><p><strong>user_id</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.14)"><em>int</em></a>)</p></li>
 <li><p><strong>backup_ids</strong> (<a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.List" title="(in Python v3.14)"><em>List</em></a><em>[</em><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><em>str</em></a><em>]</em>)</p></li>
 </ul>
+</dd>
+</dl>
+</dd></dl>
+
+</section>
+<section id="ai-explain-service">
+<h2>AI Explain Service<a class="headerlink" href="#ai-explain-service" title="Link to this heading"></a></h2>
+<p>שירות observability שמפיק הסברים להתראות על בסיס Anthropic Claude עם fallback בין מודלים, סניטציה של לוגים וחיתוך שדות רגישים לפני שליחת ההקשר.</p>
+<p>ראו גם <a class="reference internal" href="../api/ai_explain.html"><span class="doc">🧠 Observability AI Explain API</span></a>.</p>
+<dl class="py exception">
+<dt class="sig sig-object py">
+<em class="property"><span class="k"><span class="pre">exception</span></span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">services.ai_explain_service.</span></span><span class="sig-name descname"><span class="pre">AiExplainError</span></span><a class="reference internal" href="../_modules/services/ai_explain_service.html#AiExplainError"><span class="viewcode-link"><span class="pre">[מקור]</span></span></a></dt>
+<dd><p>Bases: <a class="reference external" href="https://docs.python.org/3/library/exceptions.html#RuntimeError" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">RuntimeError</span></code></a></p>
+<p>Logical/transport errors while generating AI explanations.</p>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py">
+<em class="property"><span class="k"><span class="pre">async</span></span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">services.ai_explain_service.</span></span><span class="sig-name descname"><span class="pre">generate_ai_explanation</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">context</span></span></em>, <em class="sig-param"><span class="keyword-only-separator o"><abbr title="Keyword-only parameters separator (PEP 3102)"><span class="pre">*</span></abbr></span></em>, <em class="sig-param"><span class="n"><span class="pre">expected_sections</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">request_id</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/services/ai_explain_service.html#generate_ai_explanation"><span class="viewcode-link"><span class="pre">[מקור]</span></span></a></dt>
+<dd><p>Build a prompt from the incoming alert context and fetch an AI explanation.</p>
+<dl class="field-list simple">
+<dt class="field-odd">פרמטרים<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>context</strong> (<span class="sphinx_autodoc_typehints-type"><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Dict" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">Dict</span></code></a>[<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">str</span></code></a>, <a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Any" title="(in Python v3.14)"><code class="xref py py-data docutils literal notranslate"><span class="pre">Any</span></code></a>]</span>) – Alert context payload (already masked by the dashboard layer).</p></li>
+<li><p><strong>expected_sections</strong> (<span class="sphinx_autodoc_typehints-type"><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Optional" title="(in Python v3.14)"><code class="xref py py-data docutils literal notranslate"><span class="pre">Optional</span></code></a>[<a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Sequence" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">Sequence</span></code></a>[<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">str</span></code></a>]]</span>) – Optional override for required sections.</p></li>
+<li><p><strong>request_id</strong> (<span class="sphinx_autodoc_typehints-type"><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Optional" title="(in Python v3.14)"><code class="xref py py-data docutils literal notranslate"><span class="pre">Optional</span></code></a>[<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">str</span></code></a>]</span>) – Optional correlation ID for logging.</p></li>
+</ul>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p><span class="sphinx_autodoc_typehints-type"><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Dict" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">Dict</span></code></a>[<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">str</span></code></a>, <a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Any" title="(in Python v3.14)"><code class="xref py py-data docutils literal notranslate"><span class="pre">Any</span></code></a>]</span></p>
+</dd>
+</dl>
+</dd></dl>
+
+</section>
+<section id="community-library-service">
+<h2>Community Library Service<a class="headerlink" href="#community-library-service" title="Link to this heading"></a></h2>
+<p>ניהול ספריית קוד קהילתית: קליטת מועמדים, אישור/דחייה מול MongoDB, רשימות פומביות עם חיפוש, תגיות וסימון Featured.</p>
+<dl class="py class">
+<dt class="sig sig-object py">
+<em class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">services.community_library_service.</span></span><span class="sig-name descname"><span class="pre">CommunityItem</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">title</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">description</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">url</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">logo_file_id</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">status</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">submitted_at</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">approved_at</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">approved_by</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">rejection_reason</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">user_id</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">username</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">tags</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">featured</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/services/community_library_service.html#CommunityItem"><span class="viewcode-link"><span class="pre">[מקור]</span></span></a></dt>
+<dd><p>Bases: <a class="reference external" href="https://docs.python.org/3/library/functions.html#object" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">object</span></code></a></p>
+<dl class="field-list simple">
+<dt class="field-odd">פרמטרים<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>title</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><em>str</em></a>)</p></li>
+<li><p><strong>description</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><em>str</em></a>)</p></li>
+<li><p><strong>url</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><em>str</em></a>)</p></li>
+<li><p><strong>logo_file_id</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><em>str</em></a><em> | </em><em>None</em>)</p></li>
+<li><p><strong>status</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><em>str</em></a>)</p></li>
+<li><p><strong>submitted_at</strong> (<a class="reference external" href="https://docs.python.org/3/library/datetime.html#datetime.datetime" title="(in Python v3.14)"><em>datetime</em></a>)</p></li>
+<li><p><strong>approved_at</strong> (<a class="reference external" href="https://docs.python.org/3/library/datetime.html#datetime.datetime" title="(in Python v3.14)"><em>datetime</em></a><em> | </em><em>None</em>)</p></li>
+<li><p><strong>approved_by</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.14)"><em>int</em></a><em> | </em><em>None</em>)</p></li>
+<li><p><strong>rejection_reason</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><em>str</em></a><em> | </em><em>None</em>)</p></li>
+<li><p><strong>user_id</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.14)"><em>int</em></a>)</p></li>
+<li><p><strong>username</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><em>str</em></a><em> | </em><em>None</em>)</p></li>
+<li><p><strong>tags</strong> (<a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.List" title="(in Python v3.14)"><em>List</em></a><em>[</em><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><em>str</em></a><em>]</em>)</p></li>
+<li><p><strong>featured</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.14)"><em>bool</em></a>)</p></li>
+</ul>
+</dd>
+</dl>
+<dl class="py attribute">
+<dt class="sig sig-object py">
+<span class="sig-name descname"><span class="pre">title</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">str</span></code></a></em></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py">
+<span class="sig-name descname"><span class="pre">description</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">str</span></code></a></em></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py">
+<span class="sig-name descname"><span class="pre">url</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">str</span></code></a></em></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py">
+<span class="sig-name descname"><span class="pre">logo_file_id</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Optional" title="(in Python v3.14)"><code class="xref py py-data docutils literal notranslate"><span class="pre">Optional</span></code></a><span class="pre">[</span><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">str</span></code></a><span class="pre">]</span></em></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py">
+<span class="sig-name descname"><span class="pre">status</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">str</span></code></a></em></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py">
+<span class="sig-name descname"><span class="pre">submitted_at</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/datetime.html#datetime.datetime" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">datetime</span></code></a></em></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py">
+<span class="sig-name descname"><span class="pre">approved_at</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Optional" title="(in Python v3.14)"><code class="xref py py-data docutils literal notranslate"><span class="pre">Optional</span></code></a><span class="pre">[</span><a class="reference external" href="https://docs.python.org/3/library/datetime.html#datetime.datetime" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">datetime</span></code></a><span class="pre">]</span></em></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py">
+<span class="sig-name descname"><span class="pre">approved_by</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Optional" title="(in Python v3.14)"><code class="xref py py-data docutils literal notranslate"><span class="pre">Optional</span></code></a><span class="pre">[</span><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">int</span></code></a><span class="pre">]</span></em></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py">
+<span class="sig-name descname"><span class="pre">rejection_reason</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Optional" title="(in Python v3.14)"><code class="xref py py-data docutils literal notranslate"><span class="pre">Optional</span></code></a><span class="pre">[</span><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">str</span></code></a><span class="pre">]</span></em></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py">
+<span class="sig-name descname"><span class="pre">user_id</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">int</span></code></a></em></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py">
+<span class="sig-name descname"><span class="pre">username</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Optional" title="(in Python v3.14)"><code class="xref py py-data docutils literal notranslate"><span class="pre">Optional</span></code></a><span class="pre">[</span><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">str</span></code></a><span class="pre">]</span></em></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py">
+<span class="sig-name descname"><span class="pre">tags</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.List" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">List</span></code></a><span class="pre">[</span><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">str</span></code></a><span class="pre">]</span></em></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py">
+<span class="sig-name descname"><span class="pre">featured</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">bool</span></code></a></em></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py">
+<span class="sig-name descname"><span class="pre">__init__</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">title</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">description</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">url</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">logo_file_id</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">status</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">submitted_at</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">approved_at</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">approved_by</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">rejection_reason</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">user_id</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">username</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">tags</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">featured</span></span></em><span class="sig-paren">)</span></dt>
+<dd><dl class="field-list simple">
+<dt class="field-odd">פרמטרים<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>title</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><em>str</em></a>)</p></li>
+<li><p><strong>description</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><em>str</em></a>)</p></li>
+<li><p><strong>url</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><em>str</em></a>)</p></li>
+<li><p><strong>logo_file_id</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><em>str</em></a><em> | </em><em>None</em>)</p></li>
+<li><p><strong>status</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><em>str</em></a>)</p></li>
+<li><p><strong>submitted_at</strong> (<a class="reference external" href="https://docs.python.org/3/library/datetime.html#datetime.datetime" title="(in Python v3.14)"><em>datetime</em></a>)</p></li>
+<li><p><strong>approved_at</strong> (<a class="reference external" href="https://docs.python.org/3/library/datetime.html#datetime.datetime" title="(in Python v3.14)"><em>datetime</em></a><em> | </em><em>None</em>)</p></li>
+<li><p><strong>approved_by</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.14)"><em>int</em></a><em> | </em><em>None</em>)</p></li>
+<li><p><strong>rejection_reason</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><em>str</em></a><em> | </em><em>None</em>)</p></li>
+<li><p><strong>user_id</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.14)"><em>int</em></a>)</p></li>
+<li><p><strong>username</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><em>str</em></a><em> | </em><em>None</em>)</p></li>
+<li><p><strong>tags</strong> (<a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.List" title="(in Python v3.14)"><em>List</em></a><em>[</em><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><em>str</em></a><em>]</em>)</p></li>
+<li><p><strong>featured</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.14)"><em>bool</em></a>)</p></li>
+</ul>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p>None</p>
+</dd>
+</dl>
+</dd></dl>
+
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py">
+<span class="sig-prename descclassname"><span class="pre">services.community_library_service.</span></span><span class="sig-name descname"><span class="pre">submit_item</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="keyword-only-separator o"><abbr title="Keyword-only parameters separator (PEP 3102)"><span class="pre">*</span></abbr></span></em>, <em class="sig-param"><span class="n"><span class="pre">title</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">description</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">url</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">user_id</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">username</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">logo_file_id</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">tags</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">featured</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/services/community_library_service.html#submit_item"><span class="viewcode-link"><span class="pre">[מקור]</span></span></a></dt>
+<dd><p>Create a new pending community item with basic validation.</p>
+<p>Returns dict with ok/error and id when available.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p><span class="sphinx_autodoc_typehints-type"><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Dict" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">Dict</span></code></a>[<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">str</span></code></a>, <a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Any" title="(in Python v3.14)"><code class="xref py py-data docutils literal notranslate"><span class="pre">Any</span></code></a>]</span></p>
+</dd>
+<dt class="field-even">פרמטרים<span class="colon">:</span></dt>
+<dd class="field-even"><ul class="simple">
+<li><p><strong>title</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><em>str</em></a>)</p></li>
+<li><p><strong>description</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><em>str</em></a>)</p></li>
+<li><p><strong>url</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><em>str</em></a>)</p></li>
+<li><p><strong>user_id</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.14)"><em>int</em></a>)</p></li>
+<li><p><strong>username</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><em>str</em></a><em> | </em><em>None</em>)</p></li>
+<li><p><strong>logo_file_id</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><em>str</em></a><em> | </em><em>None</em>)</p></li>
+<li><p><strong>tags</strong> (<a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.List" title="(in Python v3.14)"><em>List</em></a><em>[</em><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><em>str</em></a><em>] </em><em>| </em><em>None</em>)</p></li>
+<li><p><strong>featured</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.14)"><em>bool</em></a>)</p></li>
+</ul>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py">
+<span class="sig-prename descclassname"><span class="pre">services.community_library_service.</span></span><span class="sig-name descname"><span class="pre">approve_item</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">item_id</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">admin_id</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/services/community_library_service.html#approve_item"><span class="viewcode-link"><span class="pre">[מקור]</span></span></a></dt>
+<dd><dl class="field-list simple">
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p><span class="sphinx_autodoc_typehints-type"><a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">bool</span></code></a></span></p>
+</dd>
+<dt class="field-even">פרמטרים<span class="colon">:</span></dt>
+<dd class="field-even"><ul class="simple">
+<li><p><strong>item_id</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><em>str</em></a>)</p></li>
+<li><p><strong>admin_id</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.14)"><em>int</em></a>)</p></li>
+</ul>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py">
+<span class="sig-prename descclassname"><span class="pre">services.community_library_service.</span></span><span class="sig-name descname"><span class="pre">reject_item</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">item_id</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">admin_id</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">reason</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/services/community_library_service.html#reject_item"><span class="viewcode-link"><span class="pre">[מקור]</span></span></a></dt>
+<dd><dl class="field-list simple">
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p><span class="sphinx_autodoc_typehints-type"><a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">bool</span></code></a></span></p>
+</dd>
+<dt class="field-even">פרמטרים<span class="colon">:</span></dt>
+<dd class="field-even"><ul class="simple">
+<li><p><strong>item_id</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><em>str</em></a>)</p></li>
+<li><p><strong>admin_id</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.14)"><em>int</em></a>)</p></li>
+<li><p><strong>reason</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><em>str</em></a>)</p></li>
+</ul>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py">
+<span class="sig-prename descclassname"><span class="pre">services.community_library_service.</span></span><span class="sig-name descname"><span class="pre">list_pending</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">limit</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">20</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">skip</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">0</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/services/community_library_service.html#list_pending"><span class="viewcode-link"><span class="pre">[מקור]</span></span></a></dt>
+<dd><dl class="field-list simple">
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p><span class="sphinx_autodoc_typehints-type"><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.List" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">List</span></code></a>[<a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Dict" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">Dict</span></code></a>[<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">str</span></code></a>, <a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Any" title="(in Python v3.14)"><code class="xref py py-data docutils literal notranslate"><span class="pre">Any</span></code></a>]]</span></p>
+</dd>
+<dt class="field-even">פרמטרים<span class="colon">:</span></dt>
+<dd class="field-even"><ul class="simple">
+<li><p><strong>limit</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.14)"><em>int</em></a>)</p></li>
+<li><p><strong>skip</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.14)"><em>int</em></a>)</p></li>
+</ul>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py">
+<span class="sig-prename descclassname"><span class="pre">services.community_library_service.</span></span><span class="sig-name descname"><span class="pre">list_public</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">q</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">page</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">1</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">per_page</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">30</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">tags</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">featured_first</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">True</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/services/community_library_service.html#list_public"><span class="viewcode-link"><span class="pre">[מקור]</span></span></a></dt>
+<dd><dl class="field-list simple">
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p><span class="sphinx_autodoc_typehints-type"><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Tuple" title="(in Python v3.14)"><code class="xref py py-data docutils literal notranslate"><span class="pre">Tuple</span></code></a>[<a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.List" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">List</span></code></a>[<a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Dict" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">Dict</span></code></a>[<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">str</span></code></a>, <a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Any" title="(in Python v3.14)"><code class="xref py py-data docutils literal notranslate"><span class="pre">Any</span></code></a>]], <a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">int</span></code></a>]</span></p>
+</dd>
+<dt class="field-even">פרמטרים<span class="colon">:</span></dt>
+<dd class="field-even"><ul class="simple">
+<li><p><strong>q</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><em>str</em></a><em> | </em><em>None</em>)</p></li>
+<li><p><strong>page</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.14)"><em>int</em></a>)</p></li>
+<li><p><strong>per_page</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.14)"><em>int</em></a>)</p></li>
+<li><p><strong>tags</strong> (<a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.List" title="(in Python v3.14)"><em>List</em></a><em>[</em><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><em>str</em></a><em>] </em><em>| </em><em>None</em>)</p></li>
+<li><p><strong>featured_first</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.14)"><em>bool</em></a>)</p></li>
+</ul>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py">
+<span class="sig-prename descclassname"><span class="pre">services.community_library_service.</span></span><span class="sig-name descname"><span class="pre">get_item_by_id</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">item_id</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/services/community_library_service.html#get_item_by_id"><span class="viewcode-link"><span class="pre">[מקור]</span></span></a></dt>
+<dd><p>Return raw community library document by id (or None).</p>
+<dl class="field-list simple">
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p><span class="sphinx_autodoc_typehints-type"><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Optional" title="(in Python v3.14)"><code class="xref py py-data docutils literal notranslate"><span class="pre">Optional</span></code></a>[<a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Dict" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">Dict</span></code></a>[<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">str</span></code></a>, <a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Any" title="(in Python v3.14)"><code class="xref py py-data docutils literal notranslate"><span class="pre">Any</span></code></a>]]</span></p>
+</dd>
+<dt class="field-even">פרמטרים<span class="colon">:</span></dt>
+<dd class="field-even"><p><strong>item_id</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><em>str</em></a>)</p>
+</dd>
+</dl>
+</dd></dl>
+
+</section>
+<section id="image-generator-service">
+<h2>Image Generator Service<a class="headerlink" href="#image-generator-service" title="Link to this heading"></a></h2>
+<p>מחולל תמונות קוד מקצועיות עם Pygments, Playwright/WeasyPrint/PIL, מגוון תמות (dark/light/github/monokai וכו«) ותמיכה בבחירת פונטים.</p>
+<p>שירות ליצירת תמונות קוד עם היילייטינג (Playwright → WeasyPrint → PIL)
+Code Image Generator Service</p>
+<p>מסלול מועדף:
+1) Playwright (אם מותקן) – רינדור HTML בדפדפן headless באיכות גבוהה (DPR=2)
+2) WeasyPrint (אם מותקן) – רינדור HTML איכותי
+3) PIL fallback – ציור ידני (קיים כיום), עם סקייל x2 לשיפור חדות</p>
+<dl class="py class">
+<dt class="sig sig-object py">
+<em class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">services.image_generator.</span></span><span class="sig-name descname"><span class="pre">CodeImageGenerator</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">style</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'monokai'</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">theme</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'dark'</span></span></em>, <em class="sig-param"><span class="keyword-only-separator o"><abbr title="Keyword-only parameters separator (PEP 3102)"><span class="pre">*</span></abbr></span></em>, <em class="sig-param"><span class="n"><span class="pre">font_family</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/services/image_generator.html#CodeImageGenerator"><span class="viewcode-link"><span class="pre">[מקור]</span></span></a></dt>
+<dd><p>Bases: <a class="reference external" href="https://docs.python.org/3/library/functions.html#object" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">object</span></code></a></p>
+<p>מחולל תמונות לקוד עם הדגשת תחביר.</p>
+<p>מבוסס על PIL לציור טקסט ואזורי מספרי שורות, ועל Pygments ליצירת HTML מודגש
+שממנו מחולצים צבעים בסיסיים.</p>
+<dl class="field-list simple">
+<dt class="field-odd">פרמטרים<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>style</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><em>str</em></a>)</p></li>
+<li><p><strong>theme</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><em>str</em></a>)</p></li>
+<li><p><strong>font_family</strong> (<em>Optional</em><em>[</em><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><em>str</em></a><em>]</em>)</p></li>
+</ul>
+</dd>
+</dl>
+<dl class="py attribute">
+<dt class="sig sig-object py">
+<span class="sig-name descname"><span class="pre">DEFAULT_WIDTH</span></span><em class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">1200</span></em></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py">
+<span class="sig-name descname"><span class="pre">DEFAULT_PADDING</span></span><em class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">40</span></em></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py">
+<span class="sig-name descname"><span class="pre">LINE_HEIGHT</span></span><em class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">24</span></em></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py">
+<span class="sig-name descname"><span class="pre">FONT_SIZE</span></span><em class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">14</span></em></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py">
+<span class="sig-name descname"><span class="pre">LINE_NUMBER_WIDTH</span></span><em class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">60</span></em></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py">
+<span class="sig-name descname"><span class="pre">LOGO_SIZE</span></span><em class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">(80,</span> <span class="pre">20)</span></em></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py">
+<span class="sig-name descname"><span class="pre">LOGO_PADDING</span></span><em class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">10</span></em></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py">
+<span class="sig-name descname"><span class="pre">CARD_MARGIN</span></span><em class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">18</span></em></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py">
+<span class="sig-name descname"><span class="pre">TITLE_BAR_HEIGHT</span></span><em class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">28</span></em></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py">
+<span class="sig-name descname"><span class="pre">CODE_GUTTER_SPACING</span></span><em class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">20</span></em></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py">
+<span class="sig-name descname"><span class="pre">THEMES</span></span><em class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">{'dark':</span> <span class="pre">{'background':</span> <span class="pre">'#1e1e1e',</span> <span class="pre">'border':</span> <span class="pre">'#3e3e42',</span> <span class="pre">'line_number_bg':</span> <span class="pre">'#252526',</span> <span class="pre">'line_number_text':</span> <span class="pre">'#858585',</span> <span class="pre">'text':</span> <span class="pre">'#d4d4d4'},</span> <span class="pre">'dracula':</span> <span class="pre">{'background':</span> <span class="pre">'#282a36',</span> <span class="pre">'border':</span> <span class="pre">'#44475a',</span> <span class="pre">'line_number_bg':</span> <span class="pre">'#1e1f29',</span> <span class="pre">'line_number_text':</span> <span class="pre">'#6272a4',</span> <span class="pre">'text':</span> <span class="pre">'#f8f8f2'},</span> <span class="pre">'github':</span> <span class="pre">{'background':</span> <span class="pre">'#0d1117',</span> <span class="pre">'border':</span> <span class="pre">'#30363d',</span> <span class="pre">'line_number_bg':</span> <span class="pre">'#161b22',</span> <span class="pre">'line_number_text':</span> <span class="pre">'#7d8590',</span> <span class="pre">'text':</span> <span class="pre">'#c9d1d9'},</span> <span class="pre">'gruvbox':</span> <span class="pre">{'background':</span> <span class="pre">'#282828',</span> <span class="pre">'border':</span> <span class="pre">'#504945',</span> <span class="pre">'line_number_bg':</span> <span class="pre">'#3c3836',</span> <span class="pre">'line_number_text':</span> <span class="pre">'#bdae93',</span> <span class="pre">'text':</span> <span class="pre">'#ebdbb2'},</span> <span class="pre">'light':</span> <span class="pre">{'background':</span> <span class="pre">'#ffffff',</span> <span class="pre">'border':</span> <span class="pre">'#e0e0e0',</span> <span class="pre">'line_number_bg':</span> <span class="pre">'#f5f5f5',</span> <span class="pre">'line_number_text':</span> <span class="pre">'#999999',</span> <span class="pre">'text':</span> <span class="pre">'#333333'},</span> <span class="pre">'monokai':</span> <span class="pre">{'background':</span> <span class="pre">'#272822',</span> <span class="pre">'border':</span> <span class="pre">'#49483e',</span> <span class="pre">'line_number_bg':</span> <span class="pre">'#3e3d32',</span> <span class="pre">'line_number_text':</span> <span class="pre">'#75715e',</span> <span class="pre">'text':</span> <span class="pre">'#f8f8f2'},</span> <span class="pre">'one_dark':</span> <span class="pre">{'background':</span> <span class="pre">'#282c34',</span> <span class="pre">'border':</span> <span class="pre">'#3b4048',</span> <span class="pre">'line_number_bg':</span> <span class="pre">'#21252b',</span> <span class="pre">'line_number_text':</span> <span class="pre">'#5c6370',</span> <span class="pre">'text':</span> <span class="pre">'#abb2bf'}}</span></em></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py">
+<span class="sig-name descname"><span class="pre">__init__</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">style</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'monokai'</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">theme</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'dark'</span></span></em>, <em class="sig-param"><span class="keyword-only-separator o"><abbr title="Keyword-only parameters separator (PEP 3102)"><span class="pre">*</span></abbr></span></em>, <em class="sig-param"><span class="n"><span class="pre">font_family</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/services/image_generator.html#CodeImageGenerator.__init__"><span class="viewcode-link"><span class="pre">[מקור]</span></span></a></dt>
+<dd><dl class="field-list simple">
+<dt class="field-odd">פרמטרים<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>style</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><em>str</em></a>)</p></li>
+<li><p><strong>theme</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><em>str</em></a>)</p></li>
+<li><p><strong>font_family</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><em>str</em></a><em> | </em><em>None</em>)</p></li>
+</ul>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p>None</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py">
+<span class="sig-name descname"><span class="pre">cleanup</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="../_modules/services/image_generator.html#CodeImageGenerator.cleanup"><span class="viewcode-link"><span class="pre">[מקור]</span></span></a></dt>
+<dd><p>תאימות לאחור – אין צורך בפעולה לאחר מעבר ל-Async Playwright.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p><span class="sphinx_autodoc_typehints-type"><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.14)"><code class="xref py py-obj docutils literal notranslate"><span class="pre">None</span></code></a></span></p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py">
+<span class="sig-name descname"><span class="pre">configure</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="keyword-only-separator o"><abbr title="Keyword-only parameters separator (PEP 3102)"><span class="pre">*</span></abbr></span></em>, <em class="sig-param"><span class="n"><span class="pre">style</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">theme</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">font_family</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/services/image_generator.html#CodeImageGenerator.configure"><span class="viewcode-link"><span class="pre">[מקור]</span></span></a></dt>
+<dd><p>עדכון דינמי של ההעדפות בלי יצירת מופע חדש.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p><span class="sphinx_autodoc_typehints-type"><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.14)"><code class="xref py py-obj docutils literal notranslate"><span class="pre">None</span></code></a></span></p>
+</dd>
+<dt class="field-even">פרמטרים<span class="colon">:</span></dt>
+<dd class="field-even"><ul class="simple">
+<li><p><strong>style</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><em>str</em></a><em> | </em><em>None</em>)</p></li>
+<li><p><strong>theme</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><em>str</em></a><em> | </em><em>None</em>)</p></li>
+<li><p><strong>font_family</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><em>str</em></a><em> | </em><em>None</em>)</p></li>
+</ul>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py">
+<span class="sig-name descname"><span class="pre">optimize_image_size</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">img</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/services/image_generator.html#CodeImageGenerator.optimize_image_size"><span class="viewcode-link"><span class="pre">[מקור]</span></span></a></dt>
+<dd><dl class="field-list simple">
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p><span class="sphinx_autodoc_typehints-type"><code class="xref py py-class docutils literal notranslate"><span class="pre">Image</span></code></span></p>
+</dd>
+<dt class="field-even">פרמטרים<span class="colon">:</span></dt>
+<dd class="field-even"><p><strong>img</strong> (<em>Image</em>)</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py">
+<span class="sig-name descname"><span class="pre">save_optimized_png</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">img</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/services/image_generator.html#CodeImageGenerator.save_optimized_png"><span class="viewcode-link"><span class="pre">[מקור]</span></span></a></dt>
+<dd><p>Always return PNG for crisp code images; keep optimization, avoid JPEG.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p><span class="sphinx_autodoc_typehints-type"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#bytes" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">bytes</span></code></a></span></p>
+</dd>
+<dt class="field-even">פרמטרים<span class="colon">:</span></dt>
+<dd class="field-even"><p><strong>img</strong> (<em>Image</em>)</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py">
+<span class="sig-name descname"><span class="pre">generate_image</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">code</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">language</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'text'</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">filename</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">max_width</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">1200</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">max_height</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">note</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/services/image_generator.html#CodeImageGenerator.generate_image"><span class="viewcode-link"><span class="pre">[מקור]</span></span></a></dt>
+<dd><dl class="field-list simple">
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p><span class="sphinx_autodoc_typehints-type"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#bytes" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">bytes</span></code></a></span></p>
+</dd>
+<dt class="field-even">פרמטרים<span class="colon">:</span></dt>
+<dd class="field-even"><ul class="simple">
+<li><p><strong>code</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><em>str</em></a>)</p></li>
+<li><p><strong>language</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><em>str</em></a>)</p></li>
+<li><p><strong>filename</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><em>str</em></a><em> | </em><em>None</em>)</p></li>
+<li><p><strong>max_width</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.14)"><em>int</em></a>)</p></li>
+<li><p><strong>max_height</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.14)"><em>int</em></a><em> | </em><em>None</em>)</p></li>
+<li><p><strong>note</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><em>str</em></a><em> | </em><em>None</em>)</p></li>
+</ul>
+</dd>
+</dl>
+</dd></dl>
+
+</dd></dl>
+
+</section>
+<section id="snippet-library-service">
+<h2>Snippet Library Service<a class="headerlink" href="#snippet-library-service" title="Link to this heading"></a></h2>
+<p>מנהל את ספריית הסניפטים המובנית: Built-in snippets, שליחת הצעות, אישור מנהלים, חיפוש לפי שפה/תגיות וסנכרון עם ה-Repo הקיים.</p>
+<dl class="py function">
+<dt class="sig sig-object py">
+<span class="sig-prename descclassname"><span class="pre">services.snippet_library_service.</span></span><span class="sig-name descname"><span class="pre">submit_snippet</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="keyword-only-separator o"><abbr title="Keyword-only parameters separator (PEP 3102)"><span class="pre">*</span></abbr></span></em>, <em class="sig-param"><span class="n"><span class="pre">title</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">description</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">code</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">language</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">user_id</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">username</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/services/snippet_library_service.html#submit_snippet"><span class="viewcode-link"><span class="pre">[מקור]</span></span></a></dt>
+<dd><p>Create a new pending snippet proposal with basic validation.</p>
+<p>Returns dict with ok/error and id when available.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p><span class="sphinx_autodoc_typehints-type"><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Dict" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">Dict</span></code></a>[<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">str</span></code></a>, <a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Any" title="(in Python v3.14)"><code class="xref py py-data docutils literal notranslate"><span class="pre">Any</span></code></a>]</span></p>
+</dd>
+<dt class="field-even">פרמטרים<span class="colon">:</span></dt>
+<dd class="field-even"><ul class="simple">
+<li><p><strong>title</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><em>str</em></a>)</p></li>
+<li><p><strong>description</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><em>str</em></a>)</p></li>
+<li><p><strong>code</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><em>str</em></a>)</p></li>
+<li><p><strong>language</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><em>str</em></a>)</p></li>
+<li><p><strong>user_id</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.14)"><em>int</em></a>)</p></li>
+<li><p><strong>username</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><em>str</em></a><em> | </em><em>None</em>)</p></li>
+</ul>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py">
+<span class="sig-prename descclassname"><span class="pre">services.snippet_library_service.</span></span><span class="sig-name descname"><span class="pre">approve_snippet</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">item_id</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">admin_id</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/services/snippet_library_service.html#approve_snippet"><span class="viewcode-link"><span class="pre">[מקור]</span></span></a></dt>
+<dd><dl class="field-list simple">
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p><span class="sphinx_autodoc_typehints-type"><a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">bool</span></code></a></span></p>
+</dd>
+<dt class="field-even">פרמטרים<span class="colon">:</span></dt>
+<dd class="field-even"><ul class="simple">
+<li><p><strong>item_id</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><em>str</em></a>)</p></li>
+<li><p><strong>admin_id</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.14)"><em>int</em></a>)</p></li>
+</ul>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py">
+<span class="sig-prename descclassname"><span class="pre">services.snippet_library_service.</span></span><span class="sig-name descname"><span class="pre">reject_snippet</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">item_id</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">admin_id</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">reason</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/services/snippet_library_service.html#reject_snippet"><span class="viewcode-link"><span class="pre">[מקור]</span></span></a></dt>
+<dd><dl class="field-list simple">
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p><span class="sphinx_autodoc_typehints-type"><a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">bool</span></code></a></span></p>
+</dd>
+<dt class="field-even">פרמטרים<span class="colon">:</span></dt>
+<dd class="field-even"><ul class="simple">
+<li><p><strong>item_id</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><em>str</em></a>)</p></li>
+<li><p><strong>admin_id</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.14)"><em>int</em></a>)</p></li>
+<li><p><strong>reason</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><em>str</em></a>)</p></li>
+</ul>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py">
+<span class="sig-prename descclassname"><span class="pre">services.snippet_library_service.</span></span><span class="sig-name descname"><span class="pre">list_pending_snippets</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">limit</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">20</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">skip</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">0</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/services/snippet_library_service.html#list_pending_snippets"><span class="viewcode-link"><span class="pre">[מקור]</span></span></a></dt>
+<dd><dl class="field-list simple">
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p><span class="sphinx_autodoc_typehints-type"><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.List" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">List</span></code></a>[<a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Dict" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">Dict</span></code></a>[<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">str</span></code></a>, <a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Any" title="(in Python v3.14)"><code class="xref py py-data docutils literal notranslate"><span class="pre">Any</span></code></a>]]</span></p>
+</dd>
+<dt class="field-even">פרמטרים<span class="colon">:</span></dt>
+<dd class="field-even"><ul class="simple">
+<li><p><strong>limit</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.14)"><em>int</em></a>)</p></li>
+<li><p><strong>skip</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.14)"><em>int</em></a>)</p></li>
+</ul>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py">
+<span class="sig-prename descclassname"><span class="pre">services.snippet_library_service.</span></span><span class="sig-name descname"><span class="pre">list_public_snippets</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="keyword-only-separator o"><abbr title="Keyword-only parameters separator (PEP 3102)"><span class="pre">*</span></abbr></span></em>, <em class="sig-param"><span class="n"><span class="pre">q</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">language</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">page</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">1</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">per_page</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">30</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/services/snippet_library_service.html#list_public_snippets"><span class="viewcode-link"><span class="pre">[מקור]</span></span></a></dt>
+<dd><p>החזרת סניפטים ציבוריים מאושרים, כולל פריטי Built‑in.</p>
+<p>מדיניות מעודכנת (בהתאם לבקשה):
+- סניפטי המשתמשים מה‑DB מסודרים לפי חדש → ישן ומופיעים תחילה.
+- פריטי Built‑in של &#64;CodeBot מוצגים רק לאחר שנגמרים פריטי ה‑DB,</p>
+<blockquote>
+<div><p>ובמידת הצורך משמשים למילוי דפים שאינם מלאים.</p>
+</div></blockquote>
+<ul class="simple">
+<li><p>נמנע כפילויות לפי כותרת (case-insensitive).</p></li>
+<li><p>total הוא סכום פריטי ה‑DB + ה‑Built‑in התואמים.</p></li>
+</ul>
+<dl class="field-list simple">
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p><span class="sphinx_autodoc_typehints-type"><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Tuple" title="(in Python v3.14)"><code class="xref py py-data docutils literal notranslate"><span class="pre">Tuple</span></code></a>[<a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.List" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">List</span></code></a>[<a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Dict" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">Dict</span></code></a>[<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">str</span></code></a>, <a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Any" title="(in Python v3.14)"><code class="xref py py-data docutils literal notranslate"><span class="pre">Any</span></code></a>]], <a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">int</span></code></a>]</span></p>
+</dd>
+<dt class="field-even">פרמטרים<span class="colon">:</span></dt>
+<dd class="field-even"><ul class="simple">
+<li><p><strong>q</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><em>str</em></a><em> | </em><em>None</em>)</p></li>
+<li><p><strong>language</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><em>str</em></a><em> | </em><em>None</em>)</p></li>
+<li><p><strong>page</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.14)"><em>int</em></a>)</p></li>
+<li><p><strong>per_page</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.14)"><em>int</em></a>)</p></li>
+</ul>
+</dd>
+</dl>
+</dd></dl>
+
+</section>
+<section id="observability-http-service">
+<h2>Observability HTTP Service<a class="headerlink" href="#observability-http-service" title="Link to this heading"></a></h2>
+<p>עטיפה ליצירת בקשות HTTP מאובטחות אל Grafana/Prometheus תוך מניעת SSRF, אימות DNS Rebinding ושימור Host header עבור SNI.</p>
+<dl class="py exception">
+<dt class="sig sig-object py">
+<em class="property"><span class="k"><span class="pre">exception</span></span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">services.observability_http.</span></span><span class="sig-name descname"><span class="pre">SecurityError</span></span><a class="reference internal" href="../_modules/services/observability_http.html#SecurityError"><span class="viewcode-link"><span class="pre">[מקור]</span></span></a></dt>
+<dd><p>Bases: <a class="reference external" href="https://docs.python.org/3/library/exceptions.html#RuntimeError" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">RuntimeError</span></code></a></p>
+<p>Raised when an unsafe network request is detected.</p>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py">
+<span class="sig-prename descclassname"><span class="pre">services.observability_http.</span></span><span class="sig-name descname"><span class="pre">is_private_ip</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">ip</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/services/observability_http.html#is_private_ip"><span class="viewcode-link"><span class="pre">[מקור]</span></span></a></dt>
+<dd><p>Return True if the IP address belongs to a private or unsafe range.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p><span class="sphinx_autodoc_typehints-type"><a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">bool</span></code></a></span></p>
+</dd>
+<dt class="field-even">פרמטרים<span class="colon">:</span></dt>
+<dd class="field-even"><p><strong>ip</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><em>str</em></a>)</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py">
+<span class="sig-prename descclassname"><span class="pre">services.observability_http.</span></span><span class="sig-name descname"><span class="pre">resolve_and_validate_domain</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">domain</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/services/observability_http.html#resolve_and_validate_domain"><span class="viewcode-link"><span class="pre">[מקור]</span></span></a></dt>
+<dd><p>Resolve the given domain and verify that all IPs are public.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p><span class="sphinx_autodoc_typehints-type"><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Tuple" title="(in Python v3.14)"><code class="xref py py-data docutils literal notranslate"><span class="pre">Tuple</span></code></a>[<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">str</span></code></a>, <a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.List" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">List</span></code></a>[<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">str</span></code></a>]]</span></p>
+</dd>
+<dt class="field-even">פרמטרים<span class="colon">:</span></dt>
+<dd class="field-even"><p><strong>domain</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><em>str</em></a>)</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py class">
+<dt class="sig sig-object py">
+<em class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">services.observability_http.</span></span><span class="sig-name descname"><span class="pre">HostHeaderSSLAdapter</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">hostname</span></span></em>, <em class="sig-param"><span class="o"><span class="pre">*</span></span><span class="n"><span class="pre">args</span></span></em>, <em class="sig-param"><span class="o"><span class="pre">**</span></span><span class="n"><span class="pre">kwargs</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/services/observability_http.html#HostHeaderSSLAdapter"><span class="viewcode-link"><span class="pre">[מקור]</span></span></a></dt>
+<dd><p>Bases: <code class="xref py py-class docutils literal notranslate"><span class="pre">HTTPAdapter</span></code></p>
+<p>Adapter that preserves the original hostname for HTTPS + SNI.</p>
+<dl class="field-list simple">
+<dt class="field-odd">פרמטרים<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>hostname</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><em>str</em></a>)</p>
+</dd>
+</dl>
+<dl class="py method">
+<dt class="sig sig-object py">
+<span class="sig-name descname"><span class="pre">__init__</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">hostname</span></span></em>, <em class="sig-param"><span class="o"><span class="pre">*</span></span><span class="n"><span class="pre">args</span></span></em>, <em class="sig-param"><span class="o"><span class="pre">**</span></span><span class="n"><span class="pre">kwargs</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/services/observability_http.html#HostHeaderSSLAdapter.__init__"><span class="viewcode-link"><span class="pre">[מקור]</span></span></a></dt>
+<dd><dl class="field-list simple">
+<dt class="field-odd">פרמטרים<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>hostname</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><em>str</em></a>)</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py">
+<span class="sig-name descname"><span class="pre">init_poolmanager</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="o"><span class="pre">*</span></span><span class="n"><span class="pre">args</span></span></em>, <em class="sig-param"><span class="o"><span class="pre">**</span></span><span class="n"><span class="pre">kwargs</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/services/observability_http.html#HostHeaderSSLAdapter.init_poolmanager"><span class="viewcode-link"><span class="pre">[מקור]</span></span></a></dt>
+<dd><p>Initializes a urllib3 PoolManager.</p>
+<p>This method should not be called from user code, and is only
+exposed for use when subclassing the
+<code class="xref py py-class docutils literal notranslate"><span class="pre">HTTPAdapter</span></code>.</p>
+<dl class="field-list simple">
+<dt class="field-odd">פרמטרים<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>connections</strong> – The number of urllib3 connection pools to cache.</p></li>
+<li><p><strong>maxsize</strong> – The maximum number of connections to save in the pool.</p></li>
+<li><p><strong>block</strong> – Block when no free connections are available.</p></li>
+<li><p><strong>pool_kwargs</strong> – Extra keyword arguments used to initialize the Pool Manager.</p></li>
+</ul>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py">
+<span class="sig-name descname"><span class="pre">proxy_manager_for</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="o"><span class="pre">*</span></span><span class="n"><span class="pre">args</span></span></em>, <em class="sig-param"><span class="o"><span class="pre">**</span></span><span class="n"><span class="pre">kwargs</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/services/observability_http.html#HostHeaderSSLAdapter.proxy_manager_for"><span class="viewcode-link"><span class="pre">[מקור]</span></span></a></dt>
+<dd><p>Return urllib3 ProxyManager for the given proxy.</p>
+<p>This method should not be called from user code, and is only
+exposed for use when subclassing the
+<code class="xref py py-class docutils literal notranslate"><span class="pre">HTTPAdapter</span></code>.</p>
+<dl class="field-list simple">
+<dt class="field-odd">פרמטרים<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>proxy</strong> – The proxy to return a urllib3 ProxyManager for.</p></li>
+<li><p><strong>proxy_kwargs</strong> – Extra keyword arguments used to configure the Proxy Manager.</p></li>
+</ul>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>ProxyManager</p>
+</dd>
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p>urllib3.ProxyManager</p>
+</dd>
+</dl>
+</dd></dl>
+
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py">
+<span class="sig-prename descclassname"><span class="pre">services.observability_http.</span></span><span class="sig-name descname"><span class="pre">fetch_graph_securely</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">graph_url_template</span></span></em>, <em class="sig-param"><span class="keyword-only-separator o"><abbr title="Keyword-only parameters separator (PEP 3102)"><span class="pre">*</span></abbr></span></em>, <em class="sig-param"><span class="n"><span class="pre">timeout</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">10</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">allow_redirects</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">headers</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="o"><span class="pre">**</span></span><span class="n"><span class="pre">url_params</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/services/observability_http.html#fetch_graph_securely"><span class="viewcode-link"><span class="pre">[מקור]</span></span></a></dt>
+<dd><p>Fetch a graph/JSON endpoint while protecting against DNS rebinding / SSRF.</p>
+<dl class="field-list simple">
+<dt class="field-odd">פרמטרים<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>graph_url_template</strong> (<span class="sphinx_autodoc_typehints-type"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">str</span></code></a></span>) – URL template (format-style) from configuration.</p></li>
+<li><p><strong>timeout</strong> (<span class="sphinx_autodoc_typehints-type"><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">int</span></code></a></span>) – Request timeout in seconds.</p></li>
+<li><p><strong>allow_redirects</strong> (<span class="sphinx_autodoc_typehints-type"><a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">bool</span></code></a></span>) – Whether to follow redirects (default False).</p></li>
+<li><p><strong>headers</strong> (<span class="sphinx_autodoc_typehints-type"><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Optional" title="(in Python v3.14)"><code class="xref py py-data docutils literal notranslate"><span class="pre">Optional</span></code></a>[<a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Dict" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">Dict</span></code></a>[<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">str</span></code></a>, <a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">str</span></code></a>]]</span>) – Optional base headers to attach to the request.</p></li>
+<li><p><strong>**url_params</strong> – Values used to render the template.</p></li>
+</ul>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p><span class="sphinx_autodoc_typehints-type"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#bytes" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">bytes</span></code></a></span></p>
 </dd>
 </dl>
 </dd></dl>

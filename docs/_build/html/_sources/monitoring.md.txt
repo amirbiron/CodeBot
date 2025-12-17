@@ -28,6 +28,14 @@
   - `adaptive_current_error_rate_percent`
   - `adaptive_current_latency_avg_seconds`
 
+## הפרדה בין שגיאות פנימיות לחיצוניות
+
+- כל קריאה ל-`record_request_outcome` מעבירה עכשיו פרמטר `source` עם ערך מפורש (`"internal"`/`"external"`). אם לא מעבירים, המערכת תנסה להצליב עם רשימת `EXTERNAL_SERVICES`.
+- רשימת ברירת המחדל נשמרת בקבוע `_EXTERNAL_SERVICE_KEYWORDS` בתוך `metrics.py`, וניתן להרחיב אותה דרך ה-ENV `ALERT_EXTERNAL_SERVICES="uptimerobot,github api,..."`.
+- `alert_manager` מחשב את התראת **High Error Rate** רק על דגימות פנימיות. דגימות שמסומנות כ-External משפיעות רק על מדד נפרד (`codebot_external_error_rate_percent`) ועל התרעת WARNING חדשה בשם **External Service Degraded**.
+- כשמדובר בהתרעת High Error Rate פנימית, שדה `source` במטא-דאטה תמיד יהיה `"internal"` ואפשר לבדוק את הרכיב המדויק באמצעות `component`.
+- בהתרעות חיצוניות (`source="external"`) מנגנון ה-Auto‑Remediation מדלג אוטומטית על הפעלת Restart ומתעד אירוע `AUTO_REMEDIATION_SKIPPED` במקום פעולה.
+
 ## Predictive Health (v7)
 
 - קובץ: `predictive_engine.py`
@@ -111,6 +119,7 @@ Samples (status, latency) → Adaptive Thresholds (mean+3σ)
     - DB Connection Errors → ניסיון פתיחה מחודשת ל‑MongoDB
   - כותבת `AUTO_REMEDIATION_EXECUTED` ללוג עם `incident_id`
   - מוסיפה Grafana Annotation עם פירוט הפעולה
+- אם ההתראה מסומנת עם `source="external"` (למשל תקלה ב-UptimeRobot), מתבצע skip מלא על פעולת התיקון ונרשם `AUTO_REMEDIATION_SKIPPED` כדי למנוע restarts מיותרים.
 
 ### Incident Memory
 
