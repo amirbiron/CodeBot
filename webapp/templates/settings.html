@@ -465,7 +465,7 @@
           </div>
         </div>
       </div>
-      <div style="display:flex; align-items:center; gap:0.5rem; justify-content:flex-end; flex-wrap:wrap;">
+      <div>
         <select
           id="themeSelect"
           class="filter-select"
@@ -483,18 +483,6 @@
           <option value="nebula" {% if ui_theme == 'nebula' %}selected{% endif %}>🌌 Nebula{% if ui_theme == 'nebula' %} (נוכחית){% endif %}</option>
           <option value="high-contrast" {% if ui_theme == 'high-contrast' %}selected{% endif %}>ניגודיות גבוהה{% if ui_theme == 'high-contrast' %} (נוכחית){% endif %}</option>
         </select>
-        {% if is_admin and custom_theme and custom_theme.is_active and ui_theme == 'custom' %}
-        <button
-          type="button"
-          class="btn btn-tertiary btn-icon"
-          onclick="deleteCustomTheme({{ (custom_theme.name if custom_theme.name else 'Custom') | tojson | safe }})"
-          title="מחק ערכה מותאמת"
-          style="opacity: 0.82; border-color: rgba(255,255,255,0.18);"
-        >
-          <i class="fas fa-trash" style="opacity: 0.75;"></i>
-          מחק ערכה {{ custom_theme.name if custom_theme.name else 'Custom' }}
-        </button>
-        {% endif %}
         {% if is_admin %}
         <div style="margin-top: 0.75rem; opacity: 0.85; font-size: 0.95rem;">
           <a class="btn btn-secondary btn-icon" href="/settings/theme-builder">
@@ -502,6 +490,20 @@
             בונה ערכת נושא (אדמין)
           </a>
         </div>
+        {% if custom_theme and custom_theme.is_active %}
+        <div style="margin-top: 0.5rem; display: flex; justify-content: flex-end;">
+          <button
+            type="button"
+            class="btn btn-tertiary btn-icon"
+            onclick="deleteCustomTheme()"
+            title="מחק ערכה מותאמת"
+            style="border-color: rgba(245, 101, 101, 0.55); color: var(--danger);"
+          >
+            <i class="fas fa-trash" style="color: var(--danger);"></i>
+            מחק ערכה
+          </button>
+        </div>
+        {% endif %}
         {% endif %}
       </div>
     </div>
@@ -1139,9 +1141,8 @@
       const themeSel = document.getElementById('themeSelect');
       
       // מחיקת ערכת נושא מותאמת (Custom) מתוך מסך ההגדרות
-      window.deleteCustomTheme = async function deleteCustomTheme(themeName){
-        const name = (themeName && String(themeName).trim()) ? String(themeName).trim() : 'Custom';
-        if (!confirm(`האם למחוק את הערכה "${name}"?`)) {
+      window.deleteCustomTheme = async function deleteCustomTheme(){
+        if (!confirm("האם למחוק את הערכה?")) {
           return;
         }
         try {
@@ -2406,6 +2407,96 @@
       if (pushTestBtn) pushTestBtn.addEventListener('click', testPush);
       refreshPushUi();
     })();
+    </script>
+    <script>
+      // UX: כפתור מחיקת Custom עדין, בצד, ובטקסט ברור עם שם הערכה
+      (function () {
+        try {
+          const themeSel = document.getElementById('themeSelect');
+          if (!themeSel) return;
+
+          const deleteBtn = document.querySelector('button[onclick="deleteCustomTheme()"]');
+          if (!deleteBtn) return;
+
+          const customThemeName = {{ (custom_theme.name if custom_theme and custom_theme.name else 'Custom') | tojson | safe }};
+          const name = (customThemeName && String(customThemeName).trim()) ? String(customThemeName).trim() : 'Custom';
+
+          // הצגה רק כשנמצאים על Custom (וגם כדי להימנע מלחיצות בטעות כשבוחרים ערכה אחרת)
+          function updateVisibility() {
+            try {
+              const isCustomSelected = (String(themeSel.value || '').trim().toLowerCase() === 'custom');
+              deleteBtn.style.display = isCustomSelected ? '' : 'none';
+            } catch (_) {}
+          }
+
+          // למקם את הכפתור ליד ה-select (באותה שורה)
+          try {
+            const rightCol = themeSel.parentElement;
+            if (rightCol && !rightCol.__ckThemeDeleteBarMounted) {
+              const bar = document.createElement('div');
+              bar.style.display = 'flex';
+              bar.style.alignItems = 'center';
+              bar.style.justifyContent = 'flex-end';
+              bar.style.gap = '0.5rem';
+              bar.style.flexWrap = 'wrap';
+              rightCol.__ckThemeDeleteBarMounted = true;
+
+              rightCol.insertBefore(bar, themeSel);
+              bar.appendChild(themeSel);
+
+              const oldWrap = deleteBtn.parentElement;
+              bar.appendChild(deleteBtn);
+              try {
+                if (oldWrap && oldWrap.parentElement && oldWrap.children.length === 0) {
+                  oldWrap.parentElement.removeChild(oldWrap);
+                } else if (oldWrap) {
+                  oldWrap.style.display = 'none';
+                }
+              } catch (_) {}
+            }
+          } catch (_) {}
+
+          // עיצוב פחות "צועק"
+          try {
+            deleteBtn.style.opacity = '0.82';
+            deleteBtn.style.borderColor = 'rgba(255,255,255,0.18)';
+            deleteBtn.style.color = 'inherit';
+          } catch (_) {}
+          try {
+            const icon = deleteBtn.querySelector('i');
+            if (icon) {
+              icon.style.color = 'inherit';
+              icon.style.opacity = '0.75';
+            }
+          } catch (_) {}
+
+          // טקסט ברור עם שם הערכה
+          try {
+            deleteBtn.innerHTML = `<i class="fas fa-trash" style="opacity:0.75;"></i> מחק ערכה ${name}`;
+            deleteBtn.title = `מחק ערכה "${name}"`;
+          } catch (_) {}
+
+          // דריסת confirm כדי לכלול שם ערכה, בלי לשנות את ה-HTML
+          window.deleteCustomTheme = async function deleteCustomTheme() {
+            if (!confirm(`האם למחוק את הערכה "${name}"?`)) return;
+            try {
+              const res = await fetch('/api/themes/custom', { method: 'DELETE' });
+              const data = await res.json();
+              if (!res.ok || !data || !data.ok) throw new Error((data && data.error) || 'delete_failed');
+            } catch (e) {
+              console.error('deleteCustomTheme failed:', e);
+              alert('שגיאה במחיקת הערכה');
+              return;
+            }
+            try { localStorage.setItem('dark_mode_preference', 'light'); } catch (_) {}
+            try { localStorage.setItem('user_theme', 'classic'); } catch (_) {}
+            location.reload();
+          };
+
+          themeSel.addEventListener('change', updateVisibility);
+          updateVisibility();
+        } catch (_) { /* ignore */ }
+      })();
     </script>
     {% endblock %}
 {% endblock %}
