@@ -4337,10 +4337,15 @@ def api_admin_global_settings_update():
         return jsonify({'ok': False, 'error': 'no_data'}), 400
     
     key = data.get('key', '').strip()
-    value = data.get('value')
     
     if not key:
         return jsonify({'ok': False, 'error': 'missing_key'}), 400
+    
+    # בדיקה שהשדה value קיים בבקשה (לא רק שהערך הוא truthy)
+    if 'value' not in data:
+        return jsonify({'ok': False, 'error': 'missing_value'}), 400
+    
+    value = data.get('value')
     
     # רשימת הגדרות מותרות לעדכון
     ALLOWED_SETTINGS = {'ENABLE_ANIMATIONS'}
@@ -4353,7 +4358,9 @@ def api_admin_global_settings_update():
         
         # וולידציה לפי סוג ההגדרה
         if key == 'ENABLE_ANIMATIONS':
-            value = bool(value)
+            # וודא שהערך הוא boolean מפורש
+            if not isinstance(value, bool):
+                return jsonify({'ok': False, 'error': 'value_must_be_boolean'}), 400
         
         success = global_settings.set(key, value)
         if success:
