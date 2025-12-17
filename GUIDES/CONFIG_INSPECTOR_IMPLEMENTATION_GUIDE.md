@@ -449,6 +449,19 @@ class ConfigService:
         """
         return os.getenv(key, default)
     
+    def _is_empty_value(self, value: Optional[str]) -> bool:
+        """
+        בדיקה האם ערך נחשב ריק.
+        None או מחרוזת ריקה/רווחים בלבד = ריק.
+        
+        Args:
+            value: הערך לבדיקה
+            
+        Returns:
+            True אם הערך ריק
+        """
+        return value is None or not str(value).strip()
+    
     def determine_status(
         self,
         env_value: Optional[str],
@@ -466,16 +479,23 @@ class ConfigService:
         Returns:
             סטטוס המשתנה
         """
-        # אם אין ערך בסביבה
-        if env_value is None:
+        env_is_empty = self._is_empty_value(env_value)
+        default_is_empty = self._is_empty_value(
+            str(default_value) if default_value is not None else None
+        )
+        
+        # אם אין ערך בסביבה (None או מחרוזת ריקה)
+        if env_is_empty:
             # אם גם אין דיפולט והמשתנה הכרחי - Missing
-            if default_value is None or (is_required and not default_value):
+            if default_is_empty and is_required:
                 return ConfigStatus.MISSING
-            # יש דיפולט - משתמשים בו
+            # אם יש דיפולט - משתמשים בו
+            if not default_is_empty:
+                return ConfigStatus.DEFAULT
+            # אין דיפולט אבל לא הכרחי - נחשב Default (ריק)
             return ConfigStatus.DEFAULT
         
-        # יש ערך בסביבה
-        # השוואה לדיפולט
+        # יש ערך בסביבה - השוואה לדיפולט
         default_str = str(default_value) if default_value is not None else ""
         if env_value == default_str:
             return ConfigStatus.DEFAULT
@@ -519,14 +539,18 @@ class ConfigService:
         # הערך הפעיל (מהסביבה או דיפולט)
         active_value = env_value if env_value is not None else str(default or "")
         
-        # הסתרת ערכים רגישים
+        # הסתרת ערכים רגישים - גם active וגם default!
         is_sensitive = self.is_sensitive_key(key) or definition.sensitive
         display_value = self.mask_value(active_value, key) if is_sensitive else active_value
+        
+        # הסתרת ערך ברירת מחדל אם רגיש (למניעת חשיפת credentials בדיפולטים)
+        default_str = str(default) if default is not None else ""
+        display_default = self.mask_value(default_str, key) if is_sensitive else default_str
         
         return ConfigEntry(
             key=key,
             active_value=display_value,
-            default_value=str(default) if default is not None else "",
+            default_value=display_default,
             source=source,
             status=status,
             description=definition.description,
@@ -620,7 +644,14 @@ class ConfigService:
                 continue
             
             env_value = self.get_env_value(definition.key)
-            if not env_value and not definition.default:
+            default_str = str(definition.default) if definition.default is not None else None
+            
+            # שימוש באותה לוגיקה כמו determine_status
+            env_is_empty = self._is_empty_value(env_value)
+            default_is_empty = self._is_empty_value(default_str)
+            
+            # חסר = אין ערך בסביבה וגם אין דיפולט תקף
+            if env_is_empty and default_is_empty:
                 missing.append(definition.key)
         
         return missing
@@ -1627,9 +1658,11 @@ SENSITIVE_PATTERNS: tuple[str, ...] = (
 ### מה מוגן?
 
 1. **הסתרת ערכים רגישים** – ערכים שמכילים מילים כמו TOKEN, KEY, PASSWORD וכו' מוחלפים ב-`********`
-2. **הגנת Admin** – הראוט מוגן ודורש `is_admin=True` בסשן
-3. **אין חשיפה ב-API** – הדף הוא HTML בלבד, אין JSON endpoint שחושף את הנתונים
-4. **לוגים** – הקונפיגורציה לא נרשמת ללוגים
+2. **הסתרת ערכי ברירת מחדל רגישים** – גם עמודת Default Value מוסתרת למפתחות רגישים (חשוב! ערכי דיפולט עלולים להכיל credentials)
+3. **הגנת Admin** – הראוט מוגן ודורש `is_admin=True` בסשן
+4. **אין חשיפה ב-API** – הדף הוא HTML בלבד, אין JSON endpoint שחושף את הנתונים
+5. **לוגים** – הקונפיגורציה לא נרשמת ללוגים
+6. **עקביות לוגית** – טיפול אחיד במחרוזות ריקות (None ו-"" מטופלים זהה)
 
 ### מה **לא** לעשות
 
@@ -1706,6 +1739,24 @@ class TestConfigService:
         status = self.service.determine_status(None, None, is_required=True)
         assert status == ConfigStatus.MISSING
 
+    def test_determine_status_empty_string_is_missing(self):
+        """Test that empty string env value is treated as missing for required vars."""
+        # מחרוזת ריקה בסביבה + אין דיפולט + הכרחי = Missing
+        status = self.service.determine_status("", None, is_required=True)
+        assert status == ConfigStatus.MISSING
+        
+        # מחרוזת ריקה בסביבה + יש דיפולט = Default (משתמש בדיפולט)
+        status = self.service.determine_status("", "fallback", is_required=True)
+        assert status == ConfigStatus.DEFAULT
+
+    def test_is_empty_value(self):
+        """Test empty value detection consistency."""
+        assert self.service._is_empty_value(None) is True
+        assert self.service._is_empty_value("") is True
+        assert self.service._is_empty_value("   ") is True
+        assert self.service._is_empty_value("value") is False
+        assert self.service._is_empty_value("  value  ") is False
+
     def test_determine_source(self):
         """Test source determination."""
         assert self.service.determine_source("value") == ConfigSource.ENVIRONMENT
@@ -1757,6 +1808,27 @@ class TestConfigService:
             assert entry.active_value == "********"
             assert entry.is_sensitive is True
 
+    def test_get_config_entry_sensitive_default_also_masked(self):
+        """Test that sensitive DEFAULT values are also masked (security fix)."""
+        # סימולציה: אין ערך בסביבה, יש דיפולט עם credentials
+        with patch.dict(os.environ, {}, clear=False):
+            # וודא שהמשתנה לא קיים בסביבה
+            os.environ.pop("DB_CONNECTION_URI", None)
+            
+            definition = ConfigDefinition(
+                key="DB_CONNECTION_URI",
+                default="mongodb://user:password@localhost:27017/db",
+                description="Database connection",
+                category="database",
+                sensitive=True,
+            )
+            entry = self.service.get_config_entry(definition)
+            
+            # שני הערכים צריכים להיות מוסתרים!
+            assert entry.active_value == "********"
+            assert entry.default_value == "********"
+            assert entry.is_sensitive is True
+
     def test_get_config_overview(self):
         """Test full config overview generation."""
         overview = self.service.get_config_overview()
@@ -1789,6 +1861,30 @@ class TestConfigService:
             missing = self.service.validate_required()
             # Should contain required vars without defaults
             assert isinstance(missing, list)
+
+    def test_validate_required_consistency_with_status(self):
+        """Test that validate_required and determine_status are consistent."""
+        # באג קודם: מחרוזת ריקה גרמה לסתירה בין השניים
+        with patch.dict(os.environ, {"TELEGRAM_BOT_TOKEN": ""}, clear=False):
+            # קבלת הסטטוס
+            definition = ConfigDefinition(
+                key="TELEGRAM_BOT_TOKEN",
+                default="",
+                description="Bot token",
+                category="telegram",
+                sensitive=True,
+                required=True,
+            )
+            entry = self.service.get_config_entry(definition)
+            
+            # בדיקת עקביות: אם הסטטוס הוא Missing, הוא חייב להופיע ב-validate_required
+            if entry.status == ConfigStatus.MISSING:
+                # נשתמש במוק מצומצם רק עם המשתנה הזה
+                test_service = ConfigService()
+                test_service.CONFIG_DEFINITIONS = {"TELEGRAM_BOT_TOKEN": definition}
+                missing = test_service.validate_required()
+                assert "TELEGRAM_BOT_TOKEN" in missing, \
+                    "Status is MISSING but validate_required didn't catch it!"
 
     def test_category_summary(self):
         """Test category summary generation."""
