@@ -160,6 +160,48 @@
      - ``2``
      - ``4``
      - WebApp
+   * - ``WEBAPP_WSGI_APP``
+     - מודול ה-WSGI של Flask עבור Gunicorn (בשימוש ``scripts/start_webapp.sh``)
+     - לא
+     - ``app:app``
+     - ``app:app``
+     - WebApp
+   * - ``WEB_CONCURRENCY``
+     - מספר ה-workers של Gunicorn ב-WebApp. אם מוגדר, גובר על ברירת המחדל של ``scripts/start_webapp.sh`` ומקטין ``queue_delay`` תחת עומס.
+     - לא
+     - ``2`` (או מספר הליבות עד 4)
+     - ``4``
+     - WebApp
+   * - ``WEBAPP_GUNICORN_WORKERS``
+     - מספר ה-workers של Gunicorn (חלופה ל-``WEB_CONCURRENCY``)
+     - לא
+     - ``2`` (או מספר הליבות עד 4)
+     - ``4``
+     - WebApp
+   * - ``WEBAPP_GUNICORN_THREADS``
+     - מספר Threads לכל worker כאשר משתמשים ב-``gthread`` (משפר מקביליות לבקשות I/O)
+     - לא
+     - ``4``
+     - ``8``
+     - WebApp
+   * - ``WEBAPP_GUNICORN_WORKER_CLASS``
+     - Worker class של Gunicorn (ברירת מחדל ``gthread``)
+     - לא
+     - ``gthread``
+     - ``gthread``
+     - WebApp
+   * - ``WEBAPP_GUNICORN_TIMEOUT``
+     - Timeout (שניות) לבקשה ב-Gunicorn
+     - לא
+     - ``60``
+     - ``90``
+     - WebApp
+   * - ``WEBAPP_GUNICORN_KEEPALIVE``
+     - keep-alive (שניות) לחיבורים ב-Gunicorn
+     - לא
+     - ``2``
+     - ``5``
+     - WebApp
    * - ``OBSERVABILITY_WARMUP_ENABLED``
      - הפעלה/כיבוי של Warmup “כבד” לדוחות Observability (למילוי קאש ו‑RAM) ברקע אחרי עליית התהליך
      - לא
@@ -754,6 +796,18 @@
      - ``0`` (מכובה)
      - ``20``
      - Bot/WebApp
+   * - ``QUEUE_DELAY_WARN_MS``
+     - סף מילישניות להתראת ``queue_delay_high`` כאשר התקבלה כותרת ``X-Queue-Start``/``X-Request-Start`` והשרת מזהה זמן המתנה בתור לפני טיפול בבקשה
+     - לא
+     - ``500``
+     - ``1000``
+     - WebApp
+   * - ``COLLECTIONS_API_ITEMS_SLOW_MS``
+     - סף מילישניות ללוג ביצועים ב-API של ``GET /api/collections/<id>/items`` (כדי לזהות בקשות איטיות וגודל payload)
+     - לא
+     - ``500``
+     - ``300``
+     - WebApp
    * - ``SEARCH_PAGE_SIZE``
      - גודל דף חיפוש בצד ה‑DB
      - לא
