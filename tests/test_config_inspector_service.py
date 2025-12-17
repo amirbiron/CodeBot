@@ -114,6 +114,30 @@ class TestConfigService:
         assert entry.source == ConfigSource.DEFAULT
         assert entry.status == ConfigStatus.DEFAULT
 
+    def test_get_config_entry_with_falsy_default_values(self):
+        """Test that falsy defaults like 0/False are displayed correctly."""
+        definition_zero = ConfigDefinition(
+            key="TEST_DEFAULT_ZERO",
+            default=0,
+            description="Numeric default",
+            category="test",
+        )
+        entry_zero = self.service.get_config_entry(definition_zero)
+        assert entry_zero.active_value == "0"
+        assert entry_zero.default_value == "0"
+        assert entry_zero.source == ConfigSource.DEFAULT
+
+        definition_false = ConfigDefinition(
+            key="TEST_DEFAULT_FALSE",
+            default=False,
+            description="Boolean default",
+            category="test",
+        )
+        entry_false = self.service.get_config_entry(definition_false)
+        assert entry_false.active_value == "False"
+        assert entry_false.default_value == "False"
+        assert entry_false.source == ConfigSource.DEFAULT
+
     def test_get_config_entry_sensitive_masked(self):
         """Test that sensitive values are masked."""
         with patch.dict(os.environ, {"MY_SECRET_KEY": "super-secret-123"}):

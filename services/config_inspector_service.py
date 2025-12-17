@@ -464,7 +464,8 @@ class ConfigService:
         status = self.determine_status(env_value, default, definition.required)
 
         # הערך הפעיל (מהסביבה או דיפולט)
-        active_value = env_value if env_value is not None else str(default or "")
+        # חשוב: לא להשתמש ב-`default or ""` כי זה שובר דיפולטים "Falsy" (0/False)
+        active_value = env_value if env_value is not None else (str(default) if default is not None else "")
 
         # הסתרת ערכים רגישים - גם active וגם default!
         is_sensitive = self.is_sensitive_key(key) or definition.sensitive
