@@ -753,6 +753,10 @@
 
             showToast('הערכה נשמרה בהצלחה! מרענן...', 'success');
 
+            // חשוב: אל נכתוב ערכים לא-תקינים ל-dark_mode_preference (הוא enum של dark/dim/light/auto).
+            // מספיק לשמור את הערכה שנבחרה תחת user_theme.
+            try { localStorage.setItem('user_theme', 'custom'); } catch (_) {}
+
             // רענן כדי להחיל
             setTimeout(() => location.reload(), 1500);
 
@@ -780,7 +784,9 @@
                 throw new Error(data.error || 'reset_failed');
             }
 
-            try { localStorage.setItem('dark_mode_preference', 'classic'); } catch (_) {}
+            // dark_mode_preference: כדי לחזור ל-Classic בצורה תקינה נשתמש ב-"light"
+            // (dark-mode.js ממפה light -> classic)
+            try { localStorage.setItem('dark_mode_preference', 'light'); } catch (_) {}
             try { localStorage.setItem('user_theme', 'classic'); } catch (_) {}
 
             showToast('הערכה אופסה. מרענן...', 'success');

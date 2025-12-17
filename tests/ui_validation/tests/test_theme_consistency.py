@@ -82,15 +82,6 @@ def test_theme_ocean_css_variables_defined(page: Page, base_url: str) -> None:
 
 
 @pytest.mark.ui_full
-def test_theme_forest_css_variables_defined(page: Page, base_url: str) -> None:
-    """
-    בדיקה שכל ה-CSS variables מוגדרים בתמת forest.
-    """
-    # Implementation here
-    pass
-
-
-@pytest.mark.ui_full
 def test_theme_rose_pine_dawn_css_variables_defined(page: Page, base_url: str) -> None:
     """
     בדיקה שכל ה-CSS variables מוגדרים בתמת rose-pine-dawn.

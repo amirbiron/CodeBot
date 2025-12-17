@@ -26,7 +26,6 @@
                 var allowed = {
                     'classic': 1,
                     'ocean': 1,
-                    'forest': 1,
                     'rose-pine-dawn': 1,
                     'dark': 1,
                     'dim': 1,
@@ -35,13 +34,23 @@
                     'custom': 1{% endif %}
                 };
 
+                // עדיפות ל-custom אם קיים ותקין (כדי למנוע "הבהוב" לאחר שמירה/רענון)
+                // חשוב: לא משתמשים ב-dark_mode_preference לסימון ערכות (זה enum של dark/dim/light/auto).
+                var savedMode = localStorage.getItem('dark_mode_preference');
+                savedMode = String(savedMode || '').trim().toLowerCase();
+                var savedThemeAny = localStorage.getItem('user_theme');
+                savedThemeAny = String(savedThemeAny || '').trim().toLowerCase();
+                if (savedThemeAny === 'custom' && allowed['custom']) {
+                    html.setAttribute('data-theme', 'custom');
+                    return;
+                }
+
                 // אם השרת קבע ערכת נושא שאינה מצב "בהיר/כהה" – נכבד אותה תמיד (סנכרון בין מכשירים)
                 if (allowed[serverTheme] && (serverTheme !== 'classic' && serverTheme !== 'dark' && serverTheme !== 'dim')) {
                     html.setAttribute('data-theme', serverTheme);
                     return;
                 }
 
-                var savedMode = localStorage.getItem('dark_mode_preference');
                 if (savedMode === 'dark' || savedMode === 'dim') {
                     html.setAttribute('data-theme', savedMode);
                     return;
@@ -186,53 +195,6 @@
             --md-text: #e2e8f0;
         }
 
-        /* Forest – Bold green gradient theme */
-        :root[data-theme="forest"] {
-            /* Core identity */
-            --primary: #2f855a;
-            --primary-dark: #276749;
-            --secondary: #22543d;
-
-            /* Backgrounds - deep forest greens */
-            --bg-primary: #1a4731;
-            --bg-secondary: #22543d;
-            --bg-tertiary: #276749;
-
-            /* Text - high contrast on dark green */
-            --text-primary: #ffffff;
-            --text-secondary: rgba(255, 255, 255, 0.85);
-            --text-muted: rgba(255, 255, 255, 0.65);
-
-            /* Glass morphism - forest-tinted */
-            --glass: rgba(47, 133, 90, 0.15);
-            --glass-border: rgba(47, 133, 90, 0.35);
-            --glass-hover: rgba(47, 133, 90, 0.25);
-
-            /* Cards */
-            --card-bg: rgba(26, 71, 49, 0.85);
-            --card-border: rgba(47, 133, 90, 0.35);
-
-            /* Code blocks */
-            --code-bg: #1a4731;
-            --code-text: #e2e8f0;
-            --code-border: rgba(47, 133, 90, 0.4);
-
-            /* Status colors - adjusted for green context */
-            --success: #9ae6b4;
-            --danger: #fc8181;
-            --warning: #f6ad55;
-            --info: #63b3ed;
-
-            /* Primary button */
-            --btn-primary-bg: rgba(255, 255, 255, 0.95);
-            --btn-primary-color: #1a4731;
-            --btn-primary-border: rgba(255, 255, 255, 0.65);
-            --btn-primary-shadow: 0 4px 14px rgba(26, 71, 49, 0.35);
-            --btn-primary-hover-bg: #ffffff;
-            --btn-primary-hover-shadow: 0 12px 28px rgba(26, 71, 49, 0.45);
-            --md-surface: #1a4731;
-            --md-text: #e2e8f0;
-        }
         /* Rose Pine Dawn (light) */
         :root[data-theme="rose-pine-dawn"] {
             --primary: #907aa9; /* iris */
@@ -380,12 +342,11 @@
             font-size: calc(16px * var(--ui-font-scale, 1));
         }
 
-        /* עדכון body למצב חשוך/מעומעם/ocean/forest */
+        /* עדכון body למצב חשוך/מעומעם/ocean/custom */
         :root[data-theme="dark"] body,
         :root[data-theme="dim"] body,
         :root[data-theme="nebula"] body,
         :root[data-theme="ocean"] body,
-        :root[data-theme="forest"] body,
         :root[data-theme="custom"] body {
             background: linear-gradient(135deg, var(--bg-primary) 0%, var(--bg-secondary) 100%);
             color: var(--text-primary);
@@ -425,10 +386,6 @@
 
         :root[data-theme="ocean"] body::before {
             background: url('data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1440 320"><path fill="%231a365d" fill-opacity="0.25" d="M0,96L48,112C96,128,192,160,288,160C384,160,480,128,576,122.7C672,117,768,139,864,138.7C960,139,1056,117,1152,101.3C1248,85,1344,75,1392,69.3L1440,64L1440,320L1392,320C1344,320,1248,320,1152,320C1056,320,960,320,864,320C768,320,672,320,576,320C480,320,384,320,288,320C192,320,96,320,48,320L0,320Z"/></svg>') no-repeat bottom center;
-        }
-
-        :root[data-theme="forest"] body::before {
-            background: url('data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1440 320"><path fill="%231a4731" fill-opacity="0.25" d="M0,96L48,112C96,128,192,160,288,160C384,160,480,128,576,122.7C672,117,768,139,864,138.7C960,139,1056,117,1152,101.3C1248,85,1344,75,1392,69.3L1440,64L1440,320L1392,320C1344,320,1248,320,1152,320C1056,320,960,320,864,320C768,320,672,320,576,320C480,320,384,320,288,320C192,320,96,320,48,320L0,320Z"/></svg>') no-repeat bottom center;
         }
 
         :root[data-theme="rose-pine-dawn"] body::before {
@@ -1643,11 +1600,6 @@
         <span class="theme-wizard-option__name">Ocean</span>
         <span class="theme-wizard-option__desc">גווני כחול עמוקים עם תחושת ים.</span>
       </button>
-      <button type="button" class="theme-wizard-option" role="listitem" data-theme-option="forest" aria-pressed="false">
-        <span class="theme-wizard-option__emoji" aria-hidden="true">🌲</span>
-        <span class="theme-wizard-option__name">Forest</span>
-        <span class="theme-wizard-option__desc">ירוקים עשירים עם תחושת טבע.</span>
-      </button>
       <button type="button" class="theme-wizard-option" role="listitem" data-theme-option="high-contrast" aria-pressed="false">
         <span class="theme-wizard-option__emoji" aria-hidden="true">⚫️</span>
         <span class="theme-wizard-option__name">High Contrast</span>
@@ -2293,7 +2245,6 @@
     const THEME_BACKGROUND_COLORS = {
         'classic': '#6b63ff',
         'ocean': '#1a365d',
-        'forest': '#1a4731',
         'rose-pine-dawn': '#faf4ed',
         'dark': '#1a1a1a',
         'dim': '#2a2a2a',
@@ -2768,7 +2719,7 @@
             const key = String(event.key);
             const allowed = (window.__ckThemeRipple && Array.isArray(window.__ckThemeRipple.allowedThemes))
                 ? window.__ckThemeRipple.allowedThemes
-                : ['classic','ocean','forest','rose-pine-dawn','dark','dim','nebula','high-contrast'];
+                : ['classic','ocean','rose-pine-dawn','dark','dim','nebula','high-contrast'];
             const isAllowed = (t) => !!t && allowed.indexOf(t) !== -1;
             const normalize = (v) => (v || '').toString().trim().toLowerCase();
 

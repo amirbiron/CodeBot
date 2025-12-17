@@ -179,7 +179,6 @@ def snapshot_threshold() -> float:
     "dim",
     "classic",
     "ocean",
-    "forest",
     "rose-pine-dawn",
     "nebula",
     "high-contrast",

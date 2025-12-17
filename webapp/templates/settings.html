@@ -477,7 +477,6 @@
           {% endif %}
           <option value="classic" {% if ui_theme == 'classic' %}selected{% endif %}>קלאסי{% if ui_theme == 'classic' %} (נוכחית){% endif %}</option>
           <option value="ocean" {% if ui_theme == 'ocean' %}selected{% endif %}>אוקיינוס{% if ui_theme == 'ocean' %} (נוכחית){% endif %}</option>
-          <option value="forest" {% if ui_theme == 'forest' %}selected{% endif %}>יער{% if ui_theme == 'forest' %} (נוכחית){% endif %}</option>
           <option value="rose-pine-dawn" {% if ui_theme == 'rose-pine-dawn' %}selected{% endif %}>🌹 Rose Pine Dawn{% if ui_theme == 'rose-pine-dawn' %} (נוכחית){% endif %}</option>
           <option value="dark" {% if ui_theme == 'dark' %}selected{% endif %}>🌙 חשוך{% if ui_theme == 'dark' %} (נוכחית){% endif %}</option>
           <option value="dim" {% if ui_theme == 'dim' %}selected{% endif %}>🌆 מעומעם{% if ui_theme == 'dim' %} (נוכחית){% endif %}</option>
@@ -491,6 +490,20 @@
             בונה ערכת נושא (אדמין)
           </a>
         </div>
+        {% if custom_theme and custom_theme.is_active %}
+        <div style="margin-top: 0.5rem; display: flex; justify-content: flex-end;">
+          <button
+            type="button"
+            class="btn btn-tertiary btn-icon"
+            onclick="deleteCustomTheme()"
+            title="מחק ערכה מותאמת"
+            style="border-color: rgba(245, 101, 101, 0.55); color: var(--danger);"
+          >
+            <i class="fas fa-trash" style="color: var(--danger);"></i>
+            מחק ערכה
+          </button>
+        </div>
+        {% endif %}
         {% endif %}
       </div>
     </div>
@@ -1126,6 +1139,30 @@
       const btnMinus = document.getElementById('fontMinus');
       const btnPlus = document.getElementById('fontPlus');
       const themeSel = document.getElementById('themeSelect');
+      
+      // מחיקת ערכת נושא מותאמת (Custom) מתוך מסך ההגדרות
+      window.deleteCustomTheme = async function deleteCustomTheme(){
+        if (!confirm("האם למחוק את הערכה?")) {
+          return;
+        }
+        try {
+          const res = await fetch('/api/themes/custom', { method: 'DELETE' });
+          const data = await res.json();
+          if (!res.ok || !data || !data.ok) {
+            throw new Error((data && data.error) || 'delete_failed');
+          }
+        } catch (e) {
+          console.error('deleteCustomTheme failed:', e);
+          alert('שגיאה במחיקת הערכה');
+          return;
+        }
+
+        // dark_mode_preference הוא enum של dark/dim/light/auto בלבד
+        // כדי לחזור ל-Classic בצורה תקינה נשתמש ב-"light"
+        try { localStorage.setItem('dark_mode_preference', 'light'); } catch (_) {}
+        try { localStorage.setItem('user_theme', 'classic'); } catch (_) {}
+        location.reload();
+      };
       function setVal(x){ if (vEl) vEl.textContent = '× ' + x.toFixed(2); }
       function save(scale){
         return fetch('/api/ui_prefs', {
@@ -1159,7 +1196,7 @@
 
         const allowed = (window.__ckThemeRipple && Array.isArray(window.__ckThemeRipple.allowedThemes))
           ? window.__ckThemeRipple.allowedThemes
-          : ['classic','ocean','forest','rose-pine-dawn','dark','dim','nebula','high-contrast','custom'];
+          : ['classic','ocean','rose-pine-dawn','dark','dim','nebula','high-contrast','custom'];
 
         const isAllowed = (t) => !!t && allowed.indexOf(t) !== -1;
         if (!isAllowed(nextTheme)) {
