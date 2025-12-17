@@ -135,7 +135,7 @@
         : container;
       if (!el) return;
       
-      if (el.dataset.originalContent) {
+      if ('originalContent' in el.dataset) {
         el.innerHTML = el.dataset.originalContent;
         delete el.dataset.originalContent;
       }
@@ -691,6 +691,12 @@
       if (shouldExpand) {
         el.style.maxHeight = el.scrollHeight + 'px';
         el.classList.add('is-expanded');
+        // Clear inline maxHeight after transition to allow content to grow
+        const onTransitionEnd = () => {
+          el.style.maxHeight = '';
+          el.removeEventListener('transitionend', onTransitionEnd);
+        };
+        el.addEventListener('transitionend', onTransitionEnd);
       } else {
         el.style.maxHeight = el.scrollHeight + 'px';
         requestAnimationFrame(() => {
