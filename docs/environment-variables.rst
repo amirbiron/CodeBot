@@ -169,19 +169,19 @@
    * - ``WEB_CONCURRENCY``
      - מספר ה-workers של Gunicorn ב-WebApp. אם מוגדר, גובר על ברירת המחדל של ``scripts/start_webapp.sh`` ומקטין ``queue_delay`` תחת עומס.
      - לא
-     - ``2`` (או מספר הליבות עד 4)
+     - ``2``
      - ``4``
      - WebApp
    * - ``WEBAPP_GUNICORN_WORKERS``
      - מספר ה-workers של Gunicorn (חלופה ל-``WEB_CONCURRENCY``)
      - לא
-     - ``2`` (או מספר הליבות עד 4)
+     - ``2``
      - ``4``
      - WebApp
    * - ``WEBAPP_GUNICORN_THREADS``
      - מספר Threads לכל worker כאשר משתמשים ב-``gthread`` (משפר מקביליות לבקשות I/O)
      - לא
-     - ``4``
+     - ``2``
      - ``8``
      - WebApp
    * - ``WEBAPP_GUNICORN_WORKER_CLASS``
