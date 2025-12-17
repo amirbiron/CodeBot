@@ -35,13 +35,9 @@
                 };
 
                 // עדיפות ל-custom אם קיים ותקין (כדי למנוע "הבהוב" לאחר שמירה/רענון)
-                // הערך הזה משמש כסמן ללקוח שהמשתמש בחר ערכה מותאמת.
+                // חשוב: לא משתמשים ב-dark_mode_preference לסימון ערכות (זה enum של dark/dim/light/auto).
                 var savedMode = localStorage.getItem('dark_mode_preference');
                 savedMode = String(savedMode || '').trim().toLowerCase();
-                if (savedMode === 'custom' && allowed['custom']) {
-                    html.setAttribute('data-theme', 'custom');
-                    return;
-                }
                 var savedThemeAny = localStorage.getItem('user_theme');
                 savedThemeAny = String(savedThemeAny || '').trim().toLowerCase();
                 if (savedThemeAny === 'custom' && allowed['custom']) {

@@ -753,9 +753,8 @@
 
             showToast('הערכה נשמרה בהצלחה! מרענן...', 'success');
 
-            // חשוב: שמור מצב "custom" בלוקאל כדי למנוע דריסה ע\"י JS בטעינה (no-flicker)
-            // זה משמש כסמן לכך שהמשתמש בחר/שמר ערכה מותאמת.
-            try { localStorage.setItem('dark_mode_preference', 'custom'); } catch (_) {}
+            // חשוב: אל נכתוב ערכים לא-תקינים ל-dark_mode_preference (הוא enum של dark/dim/light/auto).
+            // מספיק לשמור את הערכה שנבחרה תחת user_theme.
             try { localStorage.setItem('user_theme', 'custom'); } catch (_) {}
 
             // רענן כדי להחיל
@@ -785,7 +784,9 @@
                 throw new Error(data.error || 'reset_failed');
             }
 
-            try { localStorage.setItem('dark_mode_preference', 'classic'); } catch (_) {}
+            // dark_mode_preference: כדי לחזור ל-Classic בצורה תקינה נשתמש ב-"light"
+            // (dark-mode.js ממפה light -> classic)
+            try { localStorage.setItem('dark_mode_preference', 'light'); } catch (_) {}
             try { localStorage.setItem('user_theme', 'classic'); } catch (_) {}
 
             showToast('הערכה אופסה. מרענן...', 'success');

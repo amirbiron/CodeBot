@@ -1157,7 +1157,9 @@
           return;
         }
 
-        try { localStorage.setItem('dark_mode_preference', 'classic'); } catch (_) {}
+        // dark_mode_preference הוא enum של dark/dim/light/auto בלבד
+        // כדי לחזור ל-Classic בצורה תקינה נשתמש ב-"light"
+        try { localStorage.setItem('dark_mode_preference', 'light'); } catch (_) {}
         try { localStorage.setItem('user_theme', 'classic'); } catch (_) {}
         location.reload();
       };
