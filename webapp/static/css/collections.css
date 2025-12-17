@@ -516,9 +516,17 @@
 .workspace-card__status-indicator[data-state="todo"]{background:var(--collections-status-todo)}
 .workspace-card__status-indicator[data-state="in_progress"]{background:var(--collections-status-progress)}
 .workspace-card__status-indicator[data-state="done"]{background:var(--collections-status-done)}
-.collection-modal{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;z-index:12000;padding:1rem}
-.collection-modal__backdrop{position:absolute;inset:0;background:rgba(0,0,0,0.45);backdrop-filter:blur(4px)}
-.collection-modal__panel{position:relative;background:var(--collections-modal-bg);color:var(--collections-modal-text);border-radius:16px;padding:1.25rem;max-width:420px;width:calc(100% - 2rem);box-shadow:0 18px 40px rgba(15,23,42,0.2);display:flex;flex-direction:column;gap:1rem}
+/* Modal with animations */
+.collection-modal{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;z-index:12000;padding:1rem;opacity:0;animation:modalFadeIn var(--duration-normal, 250ms) var(--ease-out-quart, cubic-bezier(0.25, 1, 0.5, 1)) forwards}
+.collection-modal__backdrop{position:absolute;inset:0;background:rgba(0,0,0,0.45);backdrop-filter:blur(4px);opacity:0;animation:fadeIn var(--duration-normal, 250ms) var(--ease-smooth, ease) forwards}
+.collection-modal__panel{position:relative;background:var(--collections-modal-bg);color:var(--collections-modal-text);border-radius:16px;padding:1.25rem;max-width:420px;width:calc(100% - 2rem);box-shadow:0 18px 40px rgba(15,23,42,0.2);display:flex;flex-direction:column;gap:1rem;opacity:0;transform:scale(0.95) translateY(8px);animation:modalPanelIn var(--duration-normal, 250ms) var(--ease-out-expo, cubic-bezier(0.16, 1, 0.3, 1)) forwards;animation-delay:50ms}
+@keyframes modalFadeIn{from{opacity:0}to{opacity:1}}
+@keyframes modalPanelIn{from{opacity:0;transform:scale(0.95) translateY(8px)}to{opacity:1;transform:scale(1) translateY(0)}}
+.collection-modal.closing{animation:modalFadeOut var(--duration-fast, 150ms) var(--ease-smooth, ease) forwards}
+.collection-modal.closing .collection-modal__backdrop{animation:fadeOut var(--duration-fast, 150ms) var(--ease-smooth, ease) forwards}
+.collection-modal.closing .collection-modal__panel{animation:modalPanelOut var(--duration-fast, 150ms) var(--ease-smooth, ease) forwards}
+@keyframes modalFadeOut{from{opacity:1}to{opacity:0}}
+@keyframes modalPanelOut{from{opacity:1;transform:scale(1) translateY(0)}to{opacity:0;transform:scale(0.95) translateY(8px)}}
 .collection-modal__title{margin:0;font-size:1.15rem;font-weight:600}
 .collection-modal__field{display:flex;flex-direction:column;gap:.4rem}
 .collection-modal__field label{font-weight:600;font-size:.95rem}
@@ -578,4 +586,95 @@
 @media(max-width:900px){
   .shared-collection-layout{grid-template-columns:1fr}
   .shared-collection-viewer{order:2}
+}
+
+/* ==============================================
+   Collection Animations & UX Enhancements
+   ============================================== */
+
+/* Sidebar item hover animations */
+.sidebar-item{transition:background var(--duration-fast, 150ms) var(--ease-smooth, ease),border-color var(--duration-fast, 150ms) var(--ease-smooth, ease),transform var(--duration-fast, 150ms) var(--ease-out-quart, cubic-bezier(0.25, 1, 0.5, 1)),box-shadow var(--duration-fast, 150ms) var(--ease-smooth, ease)}
+.sidebar-item:hover{transform:translateX(-2px)}
+.sidebar-item:active{transform:translateX(0) scale(0.98)}
+
+/* Collection item animations */
+.collection-item{transition:background var(--duration-fast, 150ms) var(--ease-smooth, ease),border-color var(--duration-fast, 150ms) var(--ease-smooth, ease),transform var(--duration-fast, 150ms) var(--ease-out-quart, cubic-bezier(0.25, 1, 0.5, 1)),box-shadow var(--duration-fast, 150ms) var(--ease-smooth, ease),opacity var(--duration-fast, 150ms) var(--ease-smooth, ease)}
+.collection-item:hover{background:var(--collections-btn-hover-bg);transform:translateY(-1px);box-shadow:0 4px 12px var(--collections-card-shadow)}
+
+/* Item enter animation */
+.collection-item.item-enter{animation:itemFadeIn var(--duration-normal, 250ms) var(--ease-out-expo, cubic-bezier(0.16, 1, 0.3, 1)) forwards}
+@keyframes itemFadeIn{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
+
+/* Item exit animation */
+.collection-item.item-exit{animation:itemFadeOut var(--duration-fast, 150ms) var(--ease-smooth, ease) forwards}
+@keyframes itemFadeOut{from{opacity:1;transform:scale(1)}to{opacity:0;transform:scale(0.95)}}
+
+/* Item success flash (after add/update) */
+.collection-item.item-success{animation:itemSuccess 0.6s var(--ease-out-quart, ease) forwards}
+@keyframes itemSuccess{0%{background:var(--collections-card-bg)}30%{background:rgba(72,187,120,0.2)}100%{background:var(--collections-card-bg)}}
+
+/* Workspace card animations */
+.workspace-card{transition:background var(--duration-fast, 150ms) var(--ease-smooth, ease),border-color var(--duration-fast, 150ms) var(--ease-smooth, ease),transform var(--duration-fast, 150ms) var(--ease-out-quart, cubic-bezier(0.25, 1, 0.5, 1)),box-shadow var(--duration-fast, 150ms) var(--ease-smooth, ease),opacity var(--duration-fast, 150ms) var(--ease-smooth, ease)}
+.workspace-card:hover{transform:translateY(-2px);box-shadow:0 8px 20px var(--collections-card-shadow)}
+.workspace-card:active{transform:translateY(0)}
+
+/* Button animations in collections */
+.collection-header .actions .btn,
+.collection-icon-btn,
+.share-controls .share-copy{transition:background var(--duration-fast, 150ms) var(--ease-smooth, ease),border-color var(--duration-fast, 150ms) var(--ease-smooth, ease),transform var(--duration-instant, 100ms) var(--ease-smooth, ease),box-shadow var(--duration-fast, 150ms) var(--ease-smooth, ease),opacity var(--duration-fast, 150ms) var(--ease-smooth, ease)}
+.collection-header .actions .btn:not(:disabled):active,
+.collection-icon-btn:active,
+.share-controls .share-copy:not(:disabled):active{transform:scale(0.96)}
+
+/* Loading state for buttons */
+.collection-header .actions .btn.is-loading,
+.share-controls .share-copy.is-loading{position:relative;color:transparent !important;pointer-events:none}
+.collection-header .actions .btn.is-loading::after,
+.share-controls .share-copy.is-loading::after{content:'';position:absolute;top:50%;left:50%;width:1em;height:1em;margin:-0.5em 0 0 -0.5em;border:2px solid currentColor;border-top-color:transparent;border-radius:50%;animation:spin 0.8s linear infinite;color:var(--collections-btn-text)}
+@keyframes spin{from{transform:rotate(0deg)}to{transform:rotate(360deg)}}
+
+/* Icon option grid animations */
+.icon-option{transition:background var(--duration-fast, 150ms) var(--ease-smooth, ease),border-color var(--duration-fast, 150ms) var(--ease-smooth, ease),transform var(--duration-fast, 150ms) var(--ease-spring, cubic-bezier(0.34, 1.56, 0.64, 1))}
+.icon-option:hover{transform:scale(1.08)}
+.icon-option:active{transform:scale(0.95)}
+.icon-option.active{animation:iconPop var(--duration-fast, 150ms) var(--ease-spring, cubic-bezier(0.34, 1.56, 0.64, 1))}
+@keyframes iconPop{0%{transform:scale(1)}50%{transform:scale(1.1)}100%{transform:scale(1.05)}}
+
+/* Shared collection item animations */
+.shared-collection-item{transition:background var(--duration-fast, 150ms) var(--ease-smooth, ease),border-color var(--duration-fast, 150ms) var(--ease-smooth, ease),transform var(--duration-fast, 150ms) var(--ease-out-quart, cubic-bezier(0.25, 1, 0.5, 1)),box-shadow var(--duration-fast, 150ms) var(--ease-smooth, ease)}
+.shared-collection-item:hover{transform:translateY(-1px);box-shadow:0 6px 16px var(--collections-card-shadow)}
+.shared-collection-item.active{animation:itemHighlight 0.3s var(--ease-out-quart, ease)}
+@keyframes itemHighlight{0%{box-shadow:0 0 0 0 rgba(99,102,241,0.4)}100%{box-shadow:0 0 0 2px rgba(99,102,241,0.15)}}
+
+/* Stagger animation for list items */
+.collection-items .collection-item:nth-child(1){animation-delay:0ms}
+.collection-items .collection-item:nth-child(2){animation-delay:30ms}
+.collection-items .collection-item:nth-child(3){animation-delay:60ms}
+.collection-items .collection-item:nth-child(4){animation-delay:90ms}
+.collection-items .collection-item:nth-child(5){animation-delay:120ms}
+.collection-items .collection-item:nth-child(n+6){animation-delay:150ms}
+
+/* Loading placeholder with shimmer */
+.collections-content .loading,
+.collections-sidebar .loading{background:linear-gradient(90deg,var(--anim-shimmer-base, rgba(255,255,255,0.05)) 0%,var(--anim-shimmer-highlight, rgba(255,255,255,0.15)) 50%,var(--anim-shimmer-base, rgba(255,255,255,0.05)) 100%);background-size:200% 100%;animation:shimmer 1.5s infinite}
+@keyframes shimmer{0%{background-position:-200% 0}100%{background-position:200% 0}}
+
+/* Empty state subtle animation */
+.collection-items .empty,
+.sidebar-list .empty{opacity:0;animation:fadeIn var(--duration-slow, 350ms) var(--ease-out-quart, ease) forwards;animation-delay:100ms}
+
+/* Drag visual feedback improvements */
+.collection-item.dragging,.workspace-card--dragging{opacity:0.7;transform:scale(1.02) rotate(1deg);box-shadow:0 12px 28px rgba(0,0,0,0.25);z-index:1000}
+.sidebar-item--drop-ready{animation:dropReady 0.3s var(--ease-out-quart, ease)}
+@keyframes dropReady{0%{transform:scale(1)}50%{transform:scale(1.02)}100%{transform:scale(1.02)}}
+
+/* Pin button toggle animation */
+.collection-item .pin.pinned,.workspace-card__actions .pin.pinned{animation:pinToggle 0.3s var(--ease-spring, cubic-bezier(0.34, 1.56, 0.64, 1))}
+@keyframes pinToggle{0%{transform:scale(1)}50%{transform:scale(1.2) rotate(-10deg)}100%{transform:scale(1) rotate(0)}}
+
+/* Reduced motion support */
+@media(prefers-reduced-motion:reduce){
+  .sidebar-item,.collection-item,.workspace-card,.icon-option,.shared-collection-item,
+  .collection-modal,.collection-modal__backdrop,.collection-modal__panel{animation:none !important;transition-duration:0.01ms !important}
+  .collections-content .loading,.collections-sidebar .loading{animation:none;background:var(--anim-shimmer-base, rgba(255,255,255,0.05))}
 }

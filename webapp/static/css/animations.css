@@ -1,0 +1,1043 @@
+/* ==============================================
+   Global Animations & UX Enhancements
+   ============================================== 
+   
+   תמיכה בכל 8 הערכות:
+   - classic, ocean, forest, rose-pine-dawn
+   - dark, dim, nebula, high-contrast
+   
+   Performance: 60fps עם transform/opacity בלבד
+   Accessibility: prefers-reduced-motion נתמך
+   ============================================== */
+
+/* ==============================================
+   CSS Variables for Animations
+   ============================================== */
+:root {
+  /* Timing Functions */
+  --ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-out-quart: cubic-bezier(0.25, 1, 0.5, 1);
+  --ease-in-out-quart: cubic-bezier(0.76, 0, 0.24, 1);
+  --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+  --ease-smooth: cubic-bezier(0.4, 0, 0.2, 1);
+  
+  /* Durations */
+  --duration-instant: 100ms;
+  --duration-fast: 150ms;
+  --duration-normal: 250ms;
+  --duration-slow: 350ms;
+  --duration-slower: 500ms;
+  
+  /* Animation Colors (theme-aware) */
+  --anim-highlight: var(--primary, #667eea);
+  --anim-success: var(--success, #48bb78);
+  --anim-danger: var(--danger, #f56565);
+  --anim-shimmer-base: rgba(255, 255, 255, 0.05);
+  --anim-shimmer-highlight: rgba(255, 255, 255, 0.15);
+}
+
+/* Theme-specific animation colors */
+:root[data-theme="dark"],
+:root[data-theme="dim"],
+:root[data-theme="nebula"] {
+  --anim-shimmer-base: rgba(255, 255, 255, 0.03);
+  --anim-shimmer-highlight: rgba(255, 255, 255, 0.08);
+}
+
+:root[data-theme="rose-pine-dawn"] {
+  --anim-shimmer-base: rgba(144, 122, 169, 0.08);
+  --anim-shimmer-highlight: rgba(144, 122, 169, 0.18);
+}
+
+:root[data-theme="high-contrast"] {
+  --anim-shimmer-base: rgba(255, 255, 255, 0.1);
+  --anim-shimmer-highlight: rgba(255, 255, 255, 0.25);
+}
+
+/* ==============================================
+   Keyframe Definitions
+   ============================================== */
+
+/* Fade animations */
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes fadeOut {
+  from { opacity: 1; }
+  to { opacity: 0; }
+}
+
+@keyframes fadeInUp {
+  from {
+    opacity: 0;
+    transform: translateY(16px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes fadeInDown {
+  from {
+    opacity: 0;
+    transform: translateY(-16px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes fadeInScale {
+  from {
+    opacity: 0;
+    transform: scale(0.95);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes fadeOutScale {
+  from {
+    opacity: 1;
+    transform: scale(1);
+  }
+  to {
+    opacity: 0;
+    transform: scale(0.95);
+  }
+}
+
+/* Slide animations */
+@keyframes slideInRight {
+  from {
+    opacity: 0;
+    transform: translateX(24px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@keyframes slideInLeft {
+  from {
+    opacity: 0;
+    transform: translateX(-24px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@keyframes slideOutRight {
+  from {
+    opacity: 1;
+    transform: translateX(0);
+  }
+  to {
+    opacity: 0;
+    transform: translateX(24px);
+  }
+}
+
+/* Scale animations */
+@keyframes scaleIn {
+  from {
+    opacity: 0;
+    transform: scale(0.9);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes scaleOut {
+  from {
+    opacity: 1;
+    transform: scale(1);
+  }
+  to {
+    opacity: 0;
+    transform: scale(0.9);
+  }
+}
+
+@keyframes popIn {
+  0% {
+    opacity: 0;
+    transform: scale(0.8);
+  }
+  70% {
+    transform: scale(1.05);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes popOut {
+  0% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  100% {
+    opacity: 0;
+    transform: scale(0.8);
+  }
+}
+
+/* Loading animations */
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+
+@keyframes shimmer {
+  0% {
+    background-position: -200% 0;
+  }
+  100% {
+    background-position: 200% 0;
+  }
+}
+
+@keyframes bounce {
+  0%, 100% {
+    transform: translateY(0);
+    animation-timing-function: cubic-bezier(0.8, 0, 1, 1);
+  }
+  50% {
+    transform: translateY(-6px);
+    animation-timing-function: cubic-bezier(0, 0, 0.2, 1);
+  }
+}
+
+/* Attention animations */
+@keyframes shake {
+  0%, 100% { transform: translateX(0); }
+  10%, 30%, 50%, 70%, 90% { transform: translateX(-4px); }
+  20%, 40%, 60%, 80% { transform: translateX(4px); }
+}
+
+@keyframes wiggle {
+  0%, 100% { transform: rotate(0deg); }
+  25% { transform: rotate(-3deg); }
+  75% { transform: rotate(3deg); }
+}
+
+@keyframes glow {
+  0%, 100% {
+    box-shadow: 0 0 0 0 var(--anim-highlight);
+  }
+  50% {
+    box-shadow: 0 0 0 8px transparent;
+  }
+}
+
+@keyframes successFlash {
+  0% {
+    background-color: transparent;
+  }
+  30% {
+    background-color: rgba(72, 187, 120, 0.2);
+  }
+  100% {
+    background-color: transparent;
+  }
+}
+
+@keyframes errorShake {
+  0%, 100% { transform: translateX(0); }
+  20%, 60% { transform: translateX(-8px); }
+  40%, 80% { transform: translateX(8px); }
+}
+
+/* Ripple effect */
+@keyframes ripple {
+  0% {
+    transform: scale(0);
+    opacity: 0.6;
+  }
+  100% {
+    transform: scale(4);
+    opacity: 0;
+  }
+}
+
+/* Stagger children animation */
+@keyframes staggerFadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* ==============================================
+   Utility Classes
+   ============================================== */
+
+/* Fade utilities */
+.anim-fade-in {
+  animation: fadeIn var(--duration-normal) var(--ease-out-quart) forwards;
+}
+
+.anim-fade-out {
+  animation: fadeOut var(--duration-fast) var(--ease-smooth) forwards;
+}
+
+.anim-fade-in-up {
+  animation: fadeInUp var(--duration-normal) var(--ease-out-expo) forwards;
+}
+
+.anim-fade-in-down {
+  animation: fadeInDown var(--duration-normal) var(--ease-out-expo) forwards;
+}
+
+.anim-fade-in-scale {
+  animation: fadeInScale var(--duration-normal) var(--ease-out-quart) forwards;
+}
+
+/* Slide utilities */
+.anim-slide-in-right {
+  animation: slideInRight var(--duration-normal) var(--ease-out-expo) forwards;
+}
+
+.anim-slide-in-left {
+  animation: slideInLeft var(--duration-normal) var(--ease-out-expo) forwards;
+}
+
+/* Scale utilities */
+.anim-scale-in {
+  animation: scaleIn var(--duration-normal) var(--ease-out-quart) forwards;
+}
+
+.anim-pop-in {
+  animation: popIn var(--duration-slow) var(--ease-spring) forwards;
+}
+
+/* Attention utilities */
+.anim-shake {
+  animation: shake var(--duration-slow) var(--ease-smooth);
+}
+
+.anim-wiggle {
+  animation: wiggle 0.5s ease-in-out;
+}
+
+.anim-pulse {
+  animation: pulse 2s var(--ease-in-out-quart) infinite;
+}
+
+.anim-bounce {
+  animation: bounce 1s infinite;
+}
+
+.anim-glow {
+  animation: glow 2s var(--ease-smooth) infinite;
+}
+
+/* Success/Error feedback */
+.anim-success-flash {
+  animation: successFlash 0.6s var(--ease-out-quart);
+}
+
+.anim-error-shake {
+  animation: errorShake 0.4s var(--ease-out-quart);
+}
+
+/* ==============================================
+   Skeleton Loader Component
+   ============================================== */
+
+.skeleton {
+  background: linear-gradient(
+    90deg,
+    var(--anim-shimmer-base) 0%,
+    var(--anim-shimmer-highlight) 50%,
+    var(--anim-shimmer-base) 100%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 1.5s infinite;
+  border-radius: 4px;
+}
+
+.skeleton-text {
+  height: 1em;
+  margin-bottom: 0.5em;
+}
+
+.skeleton-text:last-child {
+  width: 75%;
+}
+
+.skeleton-title {
+  height: 1.5em;
+  width: 60%;
+  margin-bottom: 0.75em;
+}
+
+.skeleton-avatar {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+}
+
+.skeleton-card {
+  padding: 1rem;
+  border-radius: 12px;
+  background: var(--card-bg, rgba(255, 255, 255, 0.1));
+  border: 1px solid var(--glass-border, rgba(255, 255, 255, 0.2));
+}
+
+.skeleton-card .skeleton-header {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin-bottom: 1rem;
+}
+
+.skeleton-card .skeleton-content {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+/* ==============================================
+   Loading Spinner Component
+   ============================================== */
+
+.spinner {
+  display: inline-flex;
+  width: 1.5em;
+  height: 1.5em;
+  border: 2px solid var(--anim-shimmer-highlight);
+  border-top-color: var(--anim-highlight);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+.spinner-sm {
+  width: 1em;
+  height: 1em;
+  border-width: 2px;
+}
+
+.spinner-lg {
+  width: 2.5em;
+  height: 2.5em;
+  border-width: 3px;
+}
+
+/* Dots spinner variant */
+.spinner-dots {
+  display: inline-flex;
+  gap: 4px;
+}
+
+.spinner-dots span {
+  width: 8px;
+  height: 8px;
+  background: var(--anim-highlight);
+  border-radius: 50%;
+  animation: bounce 1.4s infinite ease-in-out both;
+}
+
+.spinner-dots span:nth-child(1) {
+  animation-delay: -0.32s;
+}
+
+.spinner-dots span:nth-child(2) {
+  animation-delay: -0.16s;
+}
+
+/* ==============================================
+   Loading Overlay
+   ============================================== */
+
+.loading-overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.15);
+  backdrop-filter: blur(2px);
+  z-index: 10;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity var(--duration-fast) var(--ease-smooth);
+}
+
+.loading-overlay.is-active {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+/* ==============================================
+   Button Ripple Effect
+   ============================================== */
+
+.btn-ripple {
+  position: relative;
+  overflow: hidden;
+}
+
+.btn-ripple .ripple-effect {
+  position: absolute;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.35);
+  pointer-events: none;
+  animation: ripple 0.6s var(--ease-out-quart) forwards;
+}
+
+/* ==============================================
+   Card & Item Animations
+   ============================================== */
+
+/* Card hover lift effect */
+.card-hover-lift {
+  transition: 
+    transform var(--duration-fast) var(--ease-out-quart),
+    box-shadow var(--duration-fast) var(--ease-out-quart);
+}
+
+.card-hover-lift:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.15);
+}
+
+/* Item entry animation for lists */
+.item-enter {
+  animation: fadeInUp var(--duration-normal) var(--ease-out-expo) forwards;
+}
+
+.item-exit {
+  animation: fadeOutScale var(--duration-fast) var(--ease-smooth) forwards;
+}
+
+/* Stagger animation for list items */
+.stagger-children > * {
+  opacity: 0;
+  animation: staggerFadeIn var(--duration-normal) var(--ease-out-expo) forwards;
+}
+
+.stagger-children > *:nth-child(1) { animation-delay: 0ms; }
+.stagger-children > *:nth-child(2) { animation-delay: 50ms; }
+.stagger-children > *:nth-child(3) { animation-delay: 100ms; }
+.stagger-children > *:nth-child(4) { animation-delay: 150ms; }
+.stagger-children > *:nth-child(5) { animation-delay: 200ms; }
+.stagger-children > *:nth-child(6) { animation-delay: 250ms; }
+.stagger-children > *:nth-child(7) { animation-delay: 300ms; }
+.stagger-children > *:nth-child(8) { animation-delay: 350ms; }
+.stagger-children > *:nth-child(n+9) { animation-delay: 400ms; }
+
+/* ==============================================
+   Modal Animations
+   ============================================== */
+
+.modal-backdrop {
+  opacity: 0;
+  transition: opacity var(--duration-normal) var(--ease-smooth);
+}
+
+.modal-backdrop.is-visible {
+  opacity: 1;
+}
+
+.modal-content {
+  opacity: 0;
+  transform: scale(0.95) translateY(8px);
+  transition: 
+    opacity var(--duration-normal) var(--ease-out-quart),
+    transform var(--duration-normal) var(--ease-out-expo);
+}
+
+.modal-content.is-visible {
+  opacity: 1;
+  transform: scale(1) translateY(0);
+}
+
+/* ==============================================
+   Panel Slide Animations
+   ============================================== */
+
+.panel-slide-right {
+  transform: translateX(100%);
+  transition: transform var(--duration-slow) var(--ease-out-expo);
+}
+
+.panel-slide-right.is-open {
+  transform: translateX(0);
+}
+
+.panel-slide-left {
+  transform: translateX(-100%);
+  transition: transform var(--duration-slow) var(--ease-out-expo);
+}
+
+.panel-slide-left.is-open {
+  transform: translateX(0);
+}
+
+/* ==============================================
+   Toast/Notification Animations
+   ============================================== */
+
+.toast-enter {
+  animation: slideInRight var(--duration-normal) var(--ease-out-expo) forwards;
+}
+
+.toast-exit {
+  animation: slideOutRight var(--duration-fast) var(--ease-smooth) forwards;
+}
+
+/* ==============================================
+   Button States & Feedback
+   ============================================== */
+
+/* Base button transition */
+.btn-animated {
+  transition: 
+    background-color var(--duration-fast) var(--ease-smooth),
+    border-color var(--duration-fast) var(--ease-smooth),
+    transform var(--duration-instant) var(--ease-smooth),
+    box-shadow var(--duration-fast) var(--ease-smooth);
+}
+
+.btn-animated:hover {
+  transform: translateY(-1px);
+}
+
+.btn-animated:active {
+  transform: translateY(0) scale(0.98);
+}
+
+/* Disabled state */
+.btn-animated:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+  transform: none;
+}
+
+/* Loading state for buttons */
+.btn-loading {
+  position: relative;
+  color: transparent !important;
+  pointer-events: none;
+}
+
+.btn-loading::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 1em;
+  height: 1em;
+  margin: -0.5em 0 0 -0.5em;
+  border: 2px solid currentColor;
+  border-top-color: transparent;
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+  color: var(--btn-primary-color, inherit);
+}
+
+/* ==============================================
+   Input Focus Animations
+   ============================================== */
+
+.input-animated {
+  transition: 
+    border-color var(--duration-fast) var(--ease-smooth),
+    box-shadow var(--duration-fast) var(--ease-smooth),
+    background-color var(--duration-fast) var(--ease-smooth);
+}
+
+.input-animated:focus {
+  outline: none;
+  border-color: var(--anim-highlight);
+  box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.2);
+}
+
+/* Validation states */
+.input-success {
+  border-color: var(--anim-success) !important;
+  box-shadow: 0 0 0 3px rgba(72, 187, 120, 0.2) !important;
+}
+
+.input-error {
+  border-color: var(--anim-danger) !important;
+  box-shadow: 0 0 0 3px rgba(245, 101, 101, 0.2) !important;
+  animation: shake 0.4s var(--ease-out-quart);
+}
+
+/* ==============================================
+   Collapse/Expand Animation
+   ============================================== */
+
+.collapse {
+  overflow: hidden;
+  max-height: 0;
+  opacity: 0;
+  transition: 
+    max-height var(--duration-slow) var(--ease-out-quart),
+    opacity var(--duration-normal) var(--ease-smooth);
+}
+
+.collapse.is-expanded {
+  max-height: 1000px; /* Will be overridden by JS if needed */
+  opacity: 1;
+}
+
+/* ==============================================
+   Drag & Drop Visual Feedback
+   ============================================== */
+
+.dragging {
+  opacity: 0.5;
+  transform: scale(1.02);
+  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.25);
+  z-index: 1000;
+}
+
+.drag-over {
+  background: rgba(102, 126, 234, 0.1);
+  border-color: var(--anim-highlight) !important;
+  transform: scale(1.01);
+}
+
+.drag-placeholder {
+  border: 2px dashed var(--anim-highlight);
+  border-radius: 8px;
+  background: rgba(102, 126, 234, 0.05);
+  animation: pulse 1.5s var(--ease-smooth) infinite;
+}
+
+/* ==============================================
+   Progress Indicators
+   ============================================== */
+
+.progress-bar {
+  height: 4px;
+  background: var(--anim-shimmer-base);
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.progress-bar-fill {
+  height: 100%;
+  background: var(--anim-highlight);
+  border-radius: 2px;
+  transition: width var(--duration-slow) var(--ease-out-quart);
+}
+
+/* Indeterminate progress */
+.progress-bar-indeterminate .progress-bar-fill {
+  width: 30%;
+  animation: shimmer 1.5s infinite;
+}
+
+/* ==============================================
+   Count Badge Animation
+   ============================================== */
+
+.badge-count {
+  transition: transform var(--duration-fast) var(--ease-spring);
+}
+
+.badge-count.updated {
+  animation: popIn var(--duration-normal) var(--ease-spring);
+}
+
+/* ==============================================
+   Checkbox/Toggle Animation
+   ============================================== */
+
+.toggle-animated {
+  transition: 
+    background-color var(--duration-fast) var(--ease-smooth),
+    border-color var(--duration-fast) var(--ease-smooth);
+}
+
+.toggle-animated::before {
+  transition: transform var(--duration-fast) var(--ease-spring);
+}
+
+.toggle-animated:checked::before {
+  transform: translateX(100%);
+}
+
+/* ==============================================
+   Page Transition (View Changes)
+   ============================================== */
+
+.page-transition-enter {
+  opacity: 0;
+  transform: translateY(8px);
+}
+
+.page-transition-enter-active {
+  opacity: 1;
+  transform: translateY(0);
+  transition: 
+    opacity var(--duration-normal) var(--ease-out-quart),
+    transform var(--duration-normal) var(--ease-out-expo);
+}
+
+.page-transition-exit {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.page-transition-exit-active {
+  opacity: 0;
+  transform: translateY(-8px);
+  transition: 
+    opacity var(--duration-fast) var(--ease-smooth),
+    transform var(--duration-fast) var(--ease-smooth);
+}
+
+/* ==============================================
+   Accessibility: Reduced Motion
+   ============================================== */
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+  
+  .skeleton {
+    animation: none;
+    background: var(--anim-shimmer-base);
+  }
+  
+  .spinner {
+    animation: none;
+    border-color: var(--anim-highlight);
+  }
+}
+
+/* ==============================================
+   Global Button Enhancements
+   ============================================== */
+
+/* Apply to all buttons with .btn class */
+.btn {
+  position: relative;
+  overflow: hidden;
+  transition: 
+    background-color var(--duration-fast) var(--ease-smooth),
+    border-color var(--duration-fast) var(--ease-smooth),
+    color var(--duration-fast) var(--ease-smooth),
+    transform var(--duration-instant) var(--ease-smooth),
+    box-shadow var(--duration-fast) var(--ease-smooth),
+    opacity var(--duration-fast) var(--ease-smooth);
+}
+
+.btn:not(:disabled):hover {
+  transform: translateY(-1px);
+}
+
+.btn:not(:disabled):active {
+  transform: translateY(0) scale(0.98);
+}
+
+.btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+/* Primary button glow on hover */
+.btn-primary:not(:disabled):hover,
+.btn.primary:not(:disabled):hover {
+  box-shadow: 0 4px 14px rgba(var(--primary-rgb, 102, 126, 234), 0.35);
+}
+
+/* Danger button glow */
+.btn-danger:not(:disabled):hover {
+  box-shadow: 0 4px 14px rgba(245, 101, 101, 0.35);
+}
+
+/* Success button glow */
+.btn-success:not(:disabled):hover {
+  box-shadow: 0 4px 14px rgba(72, 187, 120, 0.35);
+}
+
+/* Icon button specific */
+.btn-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.btn-icon:not(:disabled):hover {
+  transform: scale(1.05);
+}
+
+.btn-icon:not(:disabled):active {
+  transform: scale(0.95);
+}
+
+/* Loading state */
+.btn.is-loading {
+  position: relative;
+  color: transparent !important;
+  pointer-events: none;
+}
+
+.btn.is-loading::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 1em;
+  height: 1em;
+  margin: -0.5em 0 0 -0.5em;
+  border: 2px solid currentColor;
+  border-top-color: transparent;
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+  opacity: 0.8;
+}
+
+/* ==============================================
+   Global Input Enhancements
+   ============================================== */
+
+input[type="text"],
+input[type="email"],
+input[type="password"],
+input[type="search"],
+input[type="number"],
+input[type="url"],
+input[type="tel"],
+textarea,
+select {
+  transition: 
+    border-color var(--duration-fast) var(--ease-smooth),
+    box-shadow var(--duration-fast) var(--ease-smooth),
+    background-color var(--duration-fast) var(--ease-smooth);
+}
+
+input[type="text"]:focus,
+input[type="email"]:focus,
+input[type="password"]:focus,
+input[type="search"]:focus,
+input[type="number"]:focus,
+input[type="url"]:focus,
+input[type="tel"]:focus,
+textarea:focus,
+select:focus {
+  outline: none;
+  border-color: var(--primary, #667eea);
+  box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.15);
+}
+
+/* ==============================================
+   Global Link Transitions
+   ============================================== */
+
+a {
+  transition: color var(--duration-fast) var(--ease-smooth);
+}
+
+/* ==============================================
+   Focus Ring for Accessibility
+   ============================================== */
+
+:focus-visible {
+  outline: 2px solid var(--primary, #667eea);
+  outline-offset: 2px;
+}
+
+button:focus-visible,
+.btn:focus-visible {
+  outline: 2px solid var(--primary, #667eea);
+  outline-offset: 2px;
+}
+
+/* ==============================================
+   Global Card/Glass Enhancements
+   ============================================== */
+
+.glass-card,
+.card {
+  transition: 
+    background-color var(--duration-fast) var(--ease-smooth),
+    border-color var(--duration-fast) var(--ease-smooth),
+    transform var(--duration-fast) var(--ease-out-quart),
+    box-shadow var(--duration-fast) var(--ease-smooth);
+}
+
+/* ==============================================
+   Smooth Scroll Behavior
+   ============================================== */
+
+html {
+  scroll-behavior: smooth;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+}
+
+/* ==============================================
+   Image Loading State
+   ============================================== */
+
+img {
+  transition: opacity var(--duration-normal) var(--ease-smooth);
+}
+
+img.is-loading {
+  opacity: 0;
+}
+
+img.is-loaded {
+  opacity: 1;
+}
+
+/* ==============================================
+   Selection Styling
+   ============================================== */
+
+::selection {
+  background: var(--primary, #667eea);
+  color: white;
+}
+
+/* ==============================================
+   Print: Disable all animations
+   ============================================== */
+
+@media print {
+  *,
+  *::before,
+  *::after {
+    animation: none !important;
+    transition: none !important;
+  }
+}

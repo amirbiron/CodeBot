@@ -60,3 +60,192 @@
 :root[data-theme="rose-pine-dawn"] .community-controls select{
   box-shadow:0 6px 16px rgba(144,122,169,0.12);
 }
+
+/* ==============================================
+   Community Library Animations & UX Enhancements
+   ============================================== */
+
+/* Card base transitions */
+.community-grid .card {
+  transition: background var(--duration-fast, 150ms) var(--ease-smooth, ease),
+              border-color var(--duration-fast, 150ms) var(--ease-smooth, ease),
+              transform var(--duration-fast, 150ms) var(--ease-out-quart, cubic-bezier(0.25, 1, 0.5, 1)),
+              box-shadow var(--duration-fast, 150ms) var(--ease-smooth, ease),
+              opacity var(--duration-fast, 150ms) var(--ease-smooth, ease);
+}
+
+.community-grid .card:hover {
+  transform: translateY(-3px);
+  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.2);
+}
+
+/* Card entry animation */
+.community-grid .card.item-enter {
+  animation: cardFadeIn var(--duration-normal, 250ms) var(--ease-out-expo, cubic-bezier(0.16, 1, 0.3, 1)) forwards;
+}
+@keyframes cardFadeIn {
+  from { opacity: 0; transform: translateY(12px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* Card exit animation */
+.community-grid .card.item-exit {
+  animation: cardFadeOut var(--duration-fast, 150ms) var(--ease-smooth, ease) forwards;
+}
+@keyframes cardFadeOut {
+  from { opacity: 1; transform: scale(1); }
+  to { opacity: 0; transform: scale(0.95); }
+}
+
+/* Success flash */
+.community-grid .card.item-success {
+  animation: cardSuccess 0.6s var(--ease-out-quart, ease) forwards;
+}
+@keyframes cardSuccess {
+  0% { box-shadow: 0 0 0 0 rgba(72, 187, 120, 0.4); }
+  50% { box-shadow: 0 0 0 6px rgba(72, 187, 120, 0.2); }
+  100% { box-shadow: 0 4px 14px rgba(0, 0, 0, 0.15); }
+}
+
+/* Staggered entry for cards */
+.community-grid .card:nth-child(1) { animation-delay: 0ms; }
+.community-grid .card:nth-child(2) { animation-delay: 40ms; }
+.community-grid .card:nth-child(3) { animation-delay: 80ms; }
+.community-grid .card:nth-child(4) { animation-delay: 120ms; }
+.community-grid .card:nth-child(5) { animation-delay: 160ms; }
+.community-grid .card:nth-child(6) { animation-delay: 200ms; }
+.community-grid .card:nth-child(n+7) { animation-delay: 240ms; }
+
+/* Logo image loading animation */
+.community-grid .card .logo {
+  transition: opacity var(--duration-fast, 150ms) var(--ease-smooth, ease);
+}
+.community-grid .card .logo.is-loading {
+  background: linear-gradient(90deg,
+    var(--anim-shimmer-base, rgba(255,255,255,0.05)) 0%,
+    var(--anim-shimmer-highlight, rgba(255,255,255,0.15)) 50%,
+    var(--anim-shimmer-base, rgba(255,255,255,0.05)) 100%);
+  background-size: 200% 100%;
+  animation: shimmer 1.5s infinite;
+}
+.community-grid .card .logo img {
+  opacity: 0;
+  transition: opacity var(--duration-normal, 250ms) var(--ease-smooth, ease);
+}
+.community-grid .card .logo img.loaded {
+  opacity: 1;
+}
+
+/* Tag hover animation */
+.tag {
+  transition: background var(--duration-fast, 150ms) var(--ease-smooth, ease),
+              transform var(--duration-instant, 100ms) var(--ease-smooth, ease);
+  cursor: pointer;
+}
+.tag:hover {
+  background: #e0e7ff;
+  transform: translateY(-1px);
+}
+
+/* Action buttons */
+.community-grid .card .actions .btn {
+  transition: background 0.2s var(--ease-smooth, ease),
+              border-color 0.2s var(--ease-smooth, ease),
+              transform 0.15s var(--ease-out-quart, ease),
+              box-shadow 0.2s var(--ease-smooth, ease);
+}
+.community-grid .card .actions .btn:active {
+  transform: translateY(0) scale(0.96);
+}
+.community-grid .card .actions .btn.is-loading {
+  position: relative;
+  color: transparent !important;
+  pointer-events: none;
+}
+.community-grid .card .actions .btn.is-loading::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 1em;
+  height: 1em;
+  margin: -0.5em 0 0 -0.5em;
+  border: 2px solid currentColor;
+  border-top-color: transparent;
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+  color: #374151;
+}
+
+/* Search/filter controls animation */
+.community-controls input,
+.community-controls select {
+  transition: border-color var(--duration-fast, 150ms) var(--ease-smooth, ease),
+              box-shadow var(--duration-fast, 150ms) var(--ease-smooth, ease);
+}
+.community-controls input:focus,
+.community-controls select:focus {
+  border-color: var(--primary, #2b6cb0);
+  box-shadow: 0 0 0 3px rgba(43, 108, 176, 0.15);
+}
+
+/* Loading state for grid */
+.community-grid.is-loading {
+  opacity: 0.6;
+  pointer-events: none;
+}
+
+/* Skeleton card */
+.card-skeleton {
+  background: linear-gradient(90deg,
+    var(--anim-shimmer-base, rgba(255,255,255,0.08)) 0%,
+    var(--anim-shimmer-highlight, rgba(255,255,255,0.15)) 50%,
+    var(--anim-shimmer-base, rgba(255,255,255,0.08)) 100%);
+  background-size: 200% 100%;
+  animation: shimmer 1.5s infinite;
+  border-radius: 18px;
+  min-height: 140px;
+}
+
+/* Empty state animation */
+.empty-state {
+  animation: emptyFadeIn var(--duration-slow, 350ms) var(--ease-out-quart, ease) forwards;
+}
+@keyframes emptyFadeIn {
+  from { opacity: 0; transform: translateY(16px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* Primary button states */
+.btn.primary {
+  transition: background var(--duration-fast, 150ms) var(--ease-smooth, ease),
+              transform var(--duration-instant, 100ms) var(--ease-smooth, ease),
+              box-shadow var(--duration-fast, 150ms) var(--ease-smooth, ease);
+}
+.btn.primary:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 6px 16px rgba(43, 108, 176, 0.3);
+}
+.btn.primary:active {
+  transform: translateY(0) scale(0.98);
+}
+
+/* Reduced motion support */
+@media (prefers-reduced-motion: reduce) {
+  .community-grid .card,
+  .community-grid .card .logo,
+  .tag,
+  .community-grid .card .actions .btn,
+  .community-controls input,
+  .community-controls select,
+  .empty-state,
+  .btn.primary {
+    animation: none !important;
+    transition-duration: 0.01ms !important;
+  }
+  .community-grid .card .logo.is-loading,
+  .card-skeleton {
+    animation: none;
+    background: var(--anim-shimmer-base, rgba(255,255,255,0.08));
+  }
+}

@@ -128,3 +128,160 @@ details > summary::-webkit-details-marker { display: none; }
   opacity: 0.65;
   font-weight: 600;
 }
+
+/* ==============================================
+   Snippets Animations & UX Enhancements
+   ============================================== */
+
+/* Snippet card base transitions */
+.glass-card,
+.snippet-card {
+  transition: background var(--duration-fast, 150ms) var(--ease-smooth, ease),
+              border-color var(--duration-fast, 150ms) var(--ease-smooth, ease),
+              transform var(--duration-fast, 150ms) var(--ease-out-quart, cubic-bezier(0.25, 1, 0.5, 1)),
+              box-shadow var(--duration-fast, 150ms) var(--ease-smooth, ease),
+              opacity var(--duration-fast, 150ms) var(--ease-smooth, ease);
+}
+
+.glass-card:hover,
+.snippet-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.15);
+}
+
+/* Snippet entry animation */
+.snippet-card.item-enter,
+.glass-card.item-enter {
+  animation: snippetFadeIn var(--duration-normal, 250ms) var(--ease-out-expo, cubic-bezier(0.16, 1, 0.3, 1)) forwards;
+}
+@keyframes snippetFadeIn {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* Snippet exit animation */
+.snippet-card.item-exit,
+.glass-card.item-exit {
+  animation: snippetFadeOut var(--duration-fast, 150ms) var(--ease-smooth, ease) forwards;
+}
+@keyframes snippetFadeOut {
+  from { opacity: 1; transform: scale(1); }
+  to { opacity: 0; transform: scale(0.95); }
+}
+
+/* Success flash */
+.snippet-card.item-success,
+.glass-card.item-success {
+  animation: snippetSuccess 0.6s var(--ease-out-quart, ease) forwards;
+}
+@keyframes snippetSuccess {
+  0% { box-shadow: 0 0 0 0 rgba(72, 187, 120, 0.4); }
+  50% { box-shadow: 0 0 0 4px rgba(72, 187, 120, 0.25); }
+  100% { box-shadow: 0 4px 16px rgba(0, 0, 0, 0.1); }
+}
+
+/* Code block animations */
+.code-block,
+.snippet-code {
+  transition: opacity var(--duration-fast, 150ms) var(--ease-smooth, ease);
+}
+
+/* Details/accordion animation */
+details[open] > .code-block,
+details[open] > .snippet-code {
+  animation: codeReveal var(--duration-normal, 250ms) var(--ease-out-quart, ease) forwards;
+}
+@keyframes codeReveal {
+  from { opacity: 0; transform: translateY(-8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* Summary hover effect */
+details > summary {
+  cursor: pointer;
+  transition: color var(--duration-fast, 150ms) var(--ease-smooth, ease);
+}
+details > summary:hover {
+  color: var(--primary, #2563eb);
+}
+
+/* Copy button animation */
+.code-block > .btn,
+.snippet-code > .btn {
+  transition: background var(--duration-fast, 150ms) var(--ease-smooth, ease),
+              transform var(--duration-instant, 100ms) var(--ease-smooth, ease),
+              opacity var(--duration-fast, 150ms) var(--ease-smooth, ease);
+}
+.code-block > .btn:active,
+.snippet-code > .btn:active {
+  transform: scale(0.95);
+}
+
+/* Skeleton loader for snippets */
+.snippet-skeleton {
+  background: linear-gradient(90deg,
+    var(--anim-shimmer-base, rgba(255,255,255,0.05)) 0%,
+    var(--anim-shimmer-highlight, rgba(255,255,255,0.15)) 50%,
+    var(--anim-shimmer-base, rgba(255,255,255,0.05)) 100%);
+  background-size: 200% 100%;
+  animation: shimmer 1.5s infinite;
+  border-radius: 8px;
+}
+.snippet-skeleton--title {
+  height: 1.2em;
+  width: 60%;
+  margin-bottom: 0.5rem;
+}
+.snippet-skeleton--meta {
+  height: 0.9em;
+  width: 40%;
+  margin-bottom: 1rem;
+}
+.snippet-skeleton--code {
+  height: 6rem;
+  width: 100%;
+}
+
+/* Pager button transitions */
+#pager .btn,
+#pager .pager-number {
+  transition: background var(--duration-fast, 150ms) var(--ease-smooth, ease),
+              border-color var(--duration-fast, 150ms) var(--ease-smooth, ease),
+              transform var(--duration-instant, 100ms) var(--ease-smooth, ease),
+              color var(--duration-fast, 150ms) var(--ease-smooth, ease);
+}
+#pager .btn:active,
+#pager .pager-number:active {
+  transform: scale(0.95);
+}
+
+/* Loading state for snippet list */
+.snippets-list.is-loading {
+  opacity: 0.6;
+  pointer-events: none;
+}
+
+/* Staggered entry for snippet cards */
+.snippets-list .glass-card:nth-child(1),
+.snippets-list .snippet-card:nth-child(1) { animation-delay: 0ms; }
+.snippets-list .glass-card:nth-child(2),
+.snippets-list .snippet-card:nth-child(2) { animation-delay: 50ms; }
+.snippets-list .glass-card:nth-child(3),
+.snippets-list .snippet-card:nth-child(3) { animation-delay: 100ms; }
+.snippets-list .glass-card:nth-child(4),
+.snippets-list .snippet-card:nth-child(4) { animation-delay: 150ms; }
+.snippets-list .glass-card:nth-child(n+5),
+.snippets-list .snippet-card:nth-child(n+5) { animation-delay: 200ms; }
+
+/* Reduced motion */
+@media (prefers-reduced-motion: reduce) {
+  .glass-card, .snippet-card, .code-block, .snippet-code,
+  details > summary, #pager .btn, #pager .pager-number {
+    animation: none !important;
+    transition-duration: 0.01ms !important;
+  }
+  .snippet-skeleton {
+    animation: none;
+    background: var(--anim-shimmer-base, rgba(255,255,255,0.05));
+  }
+}

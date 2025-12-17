@@ -65,10 +65,146 @@
   .sticky-note-fab{ left: 4px; bottom: 14px; }
 }
 
-@keyframes noteAppear{ from{ opacity: 0; transform: scale(.9);} to{opacity:1; transform: scale(1);} }
-.sticky-note{ animation: noteAppear .2s ease-out; }
+@keyframes noteAppear {
+  from { opacity: 0; transform: scale(0.9) translateY(8px); }
+  to { opacity: 1; transform: scale(1) translateY(0); }
+}
+.sticky-note {
+  animation: noteAppear var(--duration-normal, 250ms) var(--ease-out-expo, cubic-bezier(0.16, 1, 0.3, 1));
+}
+
+/* ==============================================
+   Sticky Notes Animations & UX Enhancements
+   ============================================== */
+
+/* Smooth position/size transitions during drag/resize */
+.sticky-note {
+  transition: box-shadow var(--duration-fast, 150ms) var(--ease-smooth, ease),
+              border-color var(--duration-fast, 150ms) var(--ease-smooth, ease);
+}
+
+/* Dragging state */
+.sticky-note.is-dragging {
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.35);
+  transform: rotate(1deg);
+  z-index: 1000;
+}
+
+/* Resizing state */
+.sticky-note.is-resizing {
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.3);
+}
+
+/* Exit animation */
+.sticky-note.note-exit {
+  animation: noteDisappear var(--duration-fast, 150ms) var(--ease-smooth, ease) forwards;
+}
+@keyframes noteDisappear {
+  from { opacity: 1; transform: scale(1); }
+  to { opacity: 0; transform: scale(0.9); }
+}
+
+/* Minimize animation */
+.sticky-note.is-minimizing {
+  animation: noteMinimize var(--duration-fast, 150ms) var(--ease-out-quart, ease) forwards;
+}
+@keyframes noteMinimize {
+  from { opacity: 1; }
+  to { opacity: 0.9; }
+}
+
+/* Expand animation */
+.sticky-note.is-expanding {
+  animation: noteExpand var(--duration-normal, 250ms) var(--ease-out-expo, ease) forwards;
+}
+@keyframes noteExpand {
+  from { opacity: 0.9; }
+  to { opacity: 1; }
+}
+
+/* Pin toggle animation */
+.sticky-note-pin.is-toggling {
+  animation: pinWiggle 0.4s var(--ease-spring, cubic-bezier(0.34, 1.56, 0.64, 1));
+}
+@keyframes pinWiggle {
+  0% { transform: rotate(0); }
+  25% { transform: rotate(-12deg); }
+  75% { transform: rotate(8deg); }
+  100% { transform: rotate(0); }
+}
+
+/* Button hover effects */
+.sticky-note-btn {
+  transition: background-color 0.15s var(--ease-smooth, ease),
+              color 0.15s var(--ease-smooth, ease),
+              transform 0.1s var(--ease-smooth, ease);
+}
+.sticky-note-btn:active {
+  transform: scale(0.9);
+}
+
+/* FAB animations */
+.sticky-note-fab {
+  transition: transform var(--duration-fast, 150ms) var(--ease-spring, cubic-bezier(0.34, 1.56, 0.64, 1)),
+              box-shadow var(--duration-fast, 150ms) var(--ease-smooth, ease);
+}
+.sticky-note-fab:hover {
+  transform: scale(1.08);
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.25);
+}
+.sticky-note-fab:active {
+  transform: scale(0.95);
+}
+
+/* FAB pulse when no notes exist */
+.sticky-note-fab.is-empty-hint {
+  animation: fabPulse 2s var(--ease-smooth, ease) infinite;
+}
+@keyframes fabPulse {
+  0%, 100% { box-shadow: 0 8px 18px rgba(0, 0, 0, 0.2); }
+  50% { box-shadow: 0 8px 18px rgba(0, 0, 0, 0.2), 0 0 0 8px rgba(255, 255, 100, 0.15); }
+}
+
+/* Content textarea focus state */
+.sticky-note-content:focus {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+/* Resize handle hover */
+.sticky-note-resize {
+  transition: background var(--duration-fast, 150ms) var(--ease-smooth, ease),
+              transform var(--duration-fast, 150ms) var(--ease-smooth, ease);
+}
+.sticky-note-resize:hover {
+  background: linear-gradient(135deg, rgba(0, 0, 0, 0.25) 0%, rgba(0, 0, 0, 0.1) 100%);
+  transform: scale(1.1);
+}
+
+/* Note focus ring for accessibility */
+.sticky-note:focus-within {
+  outline: 2px solid rgba(99, 102, 241, 0.5);
+  outline-offset: 2px;
+}
+
+/* Stagger animation for multiple notes */
+.sticky-note:nth-of-type(1) { animation-delay: 0ms; }
+.sticky-note:nth-of-type(2) { animation-delay: 50ms; }
+.sticky-note:nth-of-type(3) { animation-delay: 100ms; }
+.sticky-note:nth-of-type(n+4) { animation-delay: 150ms; }
 
 /* Print: hide notes */
-@media print{
-  .sticky-note, .sticky-note-fab{ display:none !important; }
+@media print {
+  .sticky-note, .sticky-note-fab { display: none !important; }
+}
+
+/* Reduced motion support */
+@media (prefers-reduced-motion: reduce) {
+  .sticky-note,
+  .sticky-note-btn,
+  .sticky-note-fab,
+  .sticky-note-resize,
+  .sticky-note-pin {
+    animation: none !important;
+    transition-duration: 0.01ms !important;
+  }
 }

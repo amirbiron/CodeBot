@@ -286,7 +286,10 @@
     };
 
     const close = () => {
-      cleanup();
+      // Animate modal close
+      overlay.classList.add('closing');
+      const duration = getAnimDuration();
+      setTimeout(cleanup, duration);
     };
 
     const onKeydown = (ev) => {
@@ -395,8 +398,13 @@
       const finish = (value) => {
         if (settled) return;
         settled = true;
-        cleanup();
-        resolve(value);
+        // Animate modal close
+        overlay.classList.add('closing');
+        const duration = getAnimDuration();
+        setTimeout(() => {
+          cleanup();
+          resolve(value);
+        }, duration);
       };
 
       const onKeydown = (ev) => {
@@ -1051,6 +1059,22 @@
         container.innerHTML = '<div class="empty">האוסף נמחק. הקבצים נשארים זמינים בבוט ובמסך הקבצים.</div>';
       });
 
+      // Staggered entry animation for items
+      if (!isWorkspace && itemsContainer) {
+        const duration = getAnimDuration();
+        if (duration > 0) {
+          itemsContainer.querySelectorAll('.collection-item').forEach((item, index) => {
+            item.style.opacity = '0';
+            item.style.transform = 'translateY(8px)';
+            setTimeout(() => {
+              item.classList.add('item-enter');
+              item.style.opacity = '';
+              item.style.transform = '';
+            }, Math.min(index * 30, 150));
+          });
+        }
+      }
+
       if (!isWorkspace && itemsContainer) {
         itemsContainer.addEventListener('click', async (ev) => {
           const row = ev.target.closest('.collection-item');
@@ -1061,20 +1085,30 @@
           const rm = ev.target.closest('.remove');
           if (rm) {
             if (!confirm('להסיר את הפריט מהאוסף? הקובץ עצמו יישאר זמין בבוט ובמסך הקבצים.')) return;
+            setButtonLoading(rm, true);
             const res = await api.removeItems(collectionId, [{ source, file_name: name }]);
+            setButtonLoading(rm, false);
             if (!res || !res.ok) return alert((res && res.error) || 'שגיאה במחיקה');
-            row.remove();
-            if (!itemsContainer.querySelector('.collection-item')) {
-              itemsContainer.innerHTML = '<div class="empty">אין פריטים</div>';
-            }
+            // Animate item exit before removing
+            animateItemExit(row, () => {
+              row.remove();
+              if (!itemsContainer.querySelector('.collection-item')) {
+                itemsContainer.innerHTML = '<div class="empty">אין פריטים</div>';
+              }
+            });
             return;
           }
 
           const pinBtn = ev.target.closest('.pin');
           if (pinBtn) {
             const nextPinned = !pinBtn.classList.contains('pinned');
+            setButtonLoading(pinBtn, true);
             const res = await api.addItems(collectionId, [{ source, file_name: name, pinned: nextPinned }]);
+            setButtonLoading(pinBtn, false);
             if (!res || !res.ok) return alert((res && res.error) || 'שגיאה בעדכון הצמדה');
+            // Animate pin toggle
+            pinBtn.classList.toggle('pinned', nextPinned);
+            animateItemSuccess(row);
             await renderCollectionItems(collectionId);
             return;
           }
@@ -1372,24 +1406,34 @@
       const removeBtn = ev.target.closest('.remove');
       if (removeBtn) {
         if (!confirm('להסיר את הפריט מהאוסף? הקובץ עצמו יישאר זמין בבוט ובמסך הקבצים.')) return;
+        setButtonLoading(removeBtn, true);
         const res = await api.removeItems(ctx.collectionId, [{ source, file_name: name }]);
+        setButtonLoading(removeBtn, false);
         if (!res || !res.ok) {
           alert((res && res.error) || 'שגיאה במחיקה');
           return;
         }
-        card.remove();
-        updateWorkspaceEmptyStates(ctx);
+        // Animate card exit
+        animateItemExit(card, () => {
+          card.remove();
+          updateWorkspaceEmptyStates(ctx);
+        });
         return;
       }
 
       const pinBtn = ev.target.closest('.pin');
       if (pinBtn) {
         const nextPinned = !pinBtn.classList.contains('pinned');
+        setButtonLoading(pinBtn, true);
         const res = await api.addItems(ctx.collectionId, [{ source, file_name: name, pinned: nextPinned }]);
+        setButtonLoading(pinBtn, false);
         if (!res || !res.ok) {
           alert((res && res.error) || 'שגיאה בעדכון הצמדה');
           return;
         }
+        // Animate pin toggle
+        pinBtn.classList.toggle('pinned', nextPinned);
+        animateItemSuccess(card);
         await renderCollectionItems(ctx.collectionId);
         return;
       }
@@ -1874,6 +1918,72 @@
   }
 
   function escapeHtml(s){ const d=document.createElement('div'); d.textContent=String(s||''); return d.innerHTML; }
+
+  // Animation duration helper - respects prefers-reduced-motion
+  function getAnimDuration(normal = 200, reduced = 0) {
+    if (typeof window !== 'undefined' && window.matchMedia) {
+      try {
+        if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+          return reduced;
+        }
+      } catch (_e) {}
+    }
+    return normal;
+  }
+
+  // Animate item enter
+  function animateItemEnter(el) {
+    if (!el) return;
+    const duration = getAnimDuration();
+    if (duration > 0) {
+      el.classList.add('item-enter');
+      setTimeout(() => el.classList.remove('item-enter'), duration + 100);
+    }
+  }
+
+  // Animate item success flash
+  function animateItemSuccess(el) {
+    if (!el) return;
+    const duration = getAnimDuration(600, 0);
+    if (duration > 0) {
+      el.classList.add('item-success');
+      setTimeout(() => el.classList.remove('item-success'), duration + 100);
+    }
+  }
+
+  // Animate item exit with callback
+  function animateItemExit(el, callback) {
+    if (!el) {
+      if (typeof callback === 'function') callback();
+      return;
+    }
+    const duration = getAnimDuration(150, 0);
+    if (duration > 0) {
+      el.classList.add('item-exit');
+      setTimeout(() => {
+        if (typeof callback === 'function') callback();
+      }, duration);
+    } else {
+      if (typeof callback === 'function') callback();
+    }
+  }
+
+  // Set button loading state
+  function setButtonLoading(btn, loading) {
+    if (!btn) return;
+    if (loading) {
+      btn.disabled = true;
+      btn.classList.add('is-loading');
+      btn.dataset.originalText = btn.textContent || '';
+    } else {
+      btn.disabled = false;
+      btn.classList.remove('is-loading');
+      if (btn.dataset.originalText) {
+        btn.textContent = btn.dataset.originalText;
+        delete btn.dataset.originalText;
+      }
+    }
+  }
 
   // --- התאמת טקסט דינמית לאורכים משתנים ---
   function autoFitText(selector, opts){
