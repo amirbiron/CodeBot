@@ -23,6 +23,7 @@ Config Inspector הוא דף אדמין שמאפשר לראות במבט אחד:
 - **דיבאג**: לראות מה באמת פעיל בפרודקשן
 - **אבטחה**: לוודא שסודות לא נחשפים בטעות
 - **תחזוקה**: לזהות קונפיגורציות חסרות או שגויות
+- **נוחות**: העתקה מהירה של ערכים ללוח (לערכים לא-רגישים)
 
 ---
 
@@ -1065,6 +1066,84 @@ def render_template(template_name: str, request: web.Request, **context) -> web.
 }
 
 /* ================================
+   Copy Button
+   ================================ */
+.value-wrapper {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.copy-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border: none;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.06);
+  color: rgba(255, 255, 255, 0.5);
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.15s ease, background 0.15s ease, color 0.15s ease;
+  flex-shrink: 0;
+}
+
+.config-table tbody tr:hover .copy-btn {
+  opacity: 1;
+}
+
+.copy-btn:hover {
+  background: rgba(100, 255, 218, 0.15);
+  color: #64ffda;
+}
+
+.copy-btn:active {
+  transform: scale(0.92);
+}
+
+.copy-btn.copied {
+  background: rgba(100, 255, 218, 0.2);
+  color: #64ffda;
+}
+
+.copy-btn i {
+  font-size: 0.75rem;
+}
+
+/* Toast Notification */
+.copy-toast {
+  position: fixed;
+  bottom: 24px;
+  left: 50%;
+  transform: translateX(-50%) translateY(100px);
+  background: rgba(18, 24, 38, 0.95);
+  backdrop-filter: blur(10px);
+  color: #64ffda;
+  padding: 0.6rem 1.2rem;
+  border-radius: 999px;
+  font-size: 0.9rem;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.4);
+  border: 1px solid rgba(100, 255, 218, 0.2);
+  z-index: 9999;
+  opacity: 0;
+  transition: transform 0.3s ease, opacity 0.3s ease;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.copy-toast.show {
+  transform: translateX(-50%) translateY(0);
+  opacity: 1;
+}
+
+.copy-toast i {
+  font-size: 0.85rem;
+}
+
+/* ================================
    Category Summary Section
    ================================ */
 .category-summary {
@@ -1173,6 +1252,22 @@ def render_template(template_name: str, request: web.Request, **context) -> web.
 
 :root[data-theme="rose-pine-dawn"] .config-key {
   color: #286983;
+}
+
+:root[data-theme="rose-pine-dawn"] .copy-btn {
+  background: rgba(87, 82, 121, 0.08);
+  color: rgba(87, 82, 121, 0.5);
+}
+
+:root[data-theme="rose-pine-dawn"] .copy-btn:hover {
+  background: rgba(40, 105, 131, 0.15);
+  color: #286983;
+}
+
+:root[data-theme="rose-pine-dawn"] .copy-toast {
+  background: rgba(250, 244, 237, 0.95);
+  color: #286983;
+  border-color: rgba(40, 105, 131, 0.3);
 }
 </style>
 {% endblock %}
@@ -1312,14 +1407,26 @@ def render_template(template_name: str, request: web.Request, **context) -> web.
             </div>
           </td>
           <td>
-            <div class="config-value {% if entry.is_sensitive %}masked{% endif %} {% if not entry.active_value %}empty{% endif %}">
-              {% if entry.is_sensitive %}
-                {{ entry.active_value }}
-                <i class="fas fa-lock" style="margin-right: 0.3rem; font-size: 0.75rem; opacity: 0.6;" title="ערך מוסתר"></i>
-              {% elif entry.active_value %}
-                {{ entry.active_value }}
-              {% else %}
-                (ריק)
+            <div class="value-wrapper">
+              <div class="config-value {% if entry.is_sensitive %}masked{% endif %} {% if not entry.active_value %}empty{% endif %}">
+                {% if entry.is_sensitive %}
+                  {{ entry.active_value }}
+                  <i class="fas fa-lock" style="margin-right: 0.3rem; font-size: 0.75rem; opacity: 0.6;" title="ערך מוסתר"></i>
+                {% elif entry.active_value %}
+                  {{ entry.active_value }}
+                {% else %}
+                  (ריק)
+                {% endif %}
+              </div>
+              {% if not entry.is_sensitive and entry.active_value %}
+              <button 
+                type="button" 
+                class="copy-btn" 
+                data-copy="{{ entry.active_value }}"
+                title="העתק ללוח"
+                aria-label="העתק ערך ללוח">
+                <i class="fas fa-copy"></i>
+              </button>
               {% endif %}
             </div>
           </td>
@@ -1383,13 +1490,76 @@ def render_template(template_name: str, request: web.Request, **context) -> web.
 
 <script>
 (function() {
-  // Auto-submit on filter change (optional UX enhancement)
+  // ================================
+  // Copy to Clipboard functionality
+  // ================================
+  
+  // Create toast element
+  const toast = document.createElement('div');
+  toast.className = 'copy-toast';
+  toast.innerHTML = '<i class="fas fa-check"></i> <span>הועתק ללוח!</span>';
+  document.body.appendChild(toast);
+  
+  let toastTimeout = null;
+  
+  function showToast(message = 'הועתק ללוח!') {
+    toast.querySelector('span').textContent = message;
+    toast.classList.add('show');
+    
+    if (toastTimeout) {
+      clearTimeout(toastTimeout);
+    }
+    
+    toastTimeout = setTimeout(() => {
+      toast.classList.remove('show');
+    }, 2000);
+  }
+  
+  async function copyToClipboard(text, button) {
+    try {
+      await navigator.clipboard.writeText(text);
+      
+      // Visual feedback on button
+      button.classList.add('copied');
+      const icon = button.querySelector('i');
+      icon.className = 'fas fa-check';
+      
+      showToast();
+      
+      // Reset button after animation
+      setTimeout(() => {
+        button.classList.remove('copied');
+        icon.className = 'fas fa-copy';
+      }, 1500);
+      
+    } catch (err) {
+      console.error('Copy failed:', err);
+      showToast('שגיאה בהעתקה');
+    }
+  }
+  
+  // Attach click handlers to all copy buttons
+  document.querySelectorAll('.copy-btn').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      const value = btn.dataset.copy;
+      if (value) {
+        copyToClipboard(value, btn);
+      }
+    });
+  });
+  
+  // ================================
+  // Filter functionality
+  // ================================
+  
   const form = document.querySelector('.config-filters');
   const selects = form.querySelectorAll('select');
   
   selects.forEach(select => {
     select.addEventListener('change', () => {
-      // Optional: auto-submit
+      // Optional: auto-submit on filter change
       // form.submit();
     });
   });
@@ -1398,6 +1568,16 @@ def render_template(template_name: str, request: web.Request, **context) -> web.
   const rows = document.querySelectorAll('.config-table tbody tr');
   rows.forEach(row => {
     row.style.transition = 'background 0.15s ease';
+  });
+  
+  // ================================
+  // Keyboard shortcut: Ctrl+F to focus search
+  // ================================
+  document.addEventListener('keydown', (e) => {
+    // Escape closes toast
+    if (e.key === 'Escape' && toast.classList.contains('show')) {
+      toast.classList.remove('show');
+    }
   });
 })();
 </script>
@@ -1659,13 +1839,55 @@ pytest tests/test_config_inspector_service.py -v
 ├─────────────────────────────────────────────────────────────────┤
 │ קטגוריה: [כל ▼]  סטטוס: [כל ▼]  [סנן] [איפוס]                  │
 ├─────────────────────────────────────────────────────────────────┤
-│ Key                │ Active      │ Default │ Source │ Status   │
-│────────────────────┼─────────────┼─────────┼────────┼──────────│
-│ [db] MONGODB_URI   │ ********    │ mongo.. │ Env    │ Modified │
-│ [db] DB_TIMEOUT_MS │ 10000       │ 5000    │ Env    │ Modified │
-│ [api] API_TIMEOUT  │ 30          │ 30      │ Default│ Default  │
-│ ...                │             │         │        │          │
+│ Key                │ Active        │ Default │ Source │ Status │
+│────────────────────┼───────────────┼─────────┼────────┼────────│
+│ [db] MONGODB_URI   │ ******** 🔒  │ mongo.. │ Env    │ Modified│
+│ [db] DB_TIMEOUT_MS │ 10000    [📋]│ 5000    │ Env    │ Modified│
+│ [api] API_TIMEOUT  │ 30       [📋]│ 30      │ Default│ Default │
+│ ...                │               │         │        │         │
 └─────────────────────────────────────────────────────────────────┘
+                           ↑
+                  כפתור העתקה (לערכים לא-רגישים)
+```
+
+**לגנדה:**
+- 🔒 = ערך רגיש (מוסתר, ללא כפתור העתקה)
+- 📋 = כפתור העתקה (מופיע ב-hover)
+
+---
+
+---
+
+## 9. פיצ'רים נוספים
+
+### כפתור העתקה (Copy to Clipboard) 📋
+
+לכל ערך שאינו רגיש מופיע כפתור העתקה קטן:
+
+```
+┌────────────────────────────────────────────────────┐
+│ LOG_LEVEL    │  DEBUG  [📋]  │  INFO  │ Env │ ...  │
+└────────────────────────────────────────────────────┘
+                      ↑
+              כפתור העתקה (מופיע ב-hover)
+```
+
+**התנהגות:**
+- הכפתור מופיע רק כש-hover על השורה
+- לחיצה מעתיקה את הערך ללוח
+- מוצגת הודעת Toast "הועתק ללוח!" למשך 2 שניות
+- הכפתור **לא מופיע** לערכים רגישים (מוסתרים)
+
+**קוד ה-JavaScript:**
+```javascript
+async function copyToClipboard(text, button) {
+  try {
+    await navigator.clipboard.writeText(text);
+    showToast('הועתק ללוח!');
+  } catch (err) {
+    showToast('שגיאה בהעתקה');
+  }
+}
 ```
 
 ---
