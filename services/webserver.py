@@ -565,7 +565,16 @@ def create_app() -> web.Application:
                 }
                 if queue_delay_source:
                     access_fields["queue_delay_source"] = str(queue_delay_source)
-                emit_event(_QUEUE_DELAY_EVENT_NAME, severity="info", **access_fields)
+                # Silence noisy monitoring endpoints when request is "ok".
+                # - For health/metrics: skip only successes (<400) but keep 4xx/5xx.
+                # - For favicon: also skip 404/4xx noise, keep 5xx.
+                silent_paths = {"/metrics", "/health", "/healthz", "/favicon.ico"}
+                should_silence = False
+                if path_label in silent_paths:
+                    ok_threshold = 500 if path_label == "/favicon.ico" else 400
+                    should_silence = int(status) < int(ok_threshold)
+                if not should_silence:
+                    emit_event(_QUEUE_DELAY_EVENT_NAME, severity="info", **access_fields)
             except Exception:
                 pass
             # Warning when queue delay is suspiciously high
