@@ -74,7 +74,6 @@
             t === 'dark' ||
             t === 'dim' ||
             t === 'ocean' ||
-            t === 'forest' ||
             t === 'rose-pine-dawn' ||
             t === 'nebula' ||
             t === 'high-contrast' ||

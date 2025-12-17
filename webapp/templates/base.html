@@ -26,7 +26,6 @@
                 var allowed = {
                     'classic': 1,
                     'ocean': 1,
-                    'forest': 1,
                     'rose-pine-dawn': 1,
                     'dark': 1,
                     'dim': 1,
@@ -1657,11 +1656,6 @@
         <span class="theme-wizard-option__name">Ocean</span>
         <span class="theme-wizard-option__desc">גווני כחול עמוקים עם תחושת ים.</span>
       </button>
-      <button type="button" class="theme-wizard-option" role="listitem" data-theme-option="forest" aria-pressed="false">
-        <span class="theme-wizard-option__emoji" aria-hidden="true">🌲</span>
-        <span class="theme-wizard-option__name">Forest</span>
-        <span class="theme-wizard-option__desc">ירוקים עשירים עם תחושת טבע.</span>
-      </button>
       <button type="button" class="theme-wizard-option" role="listitem" data-theme-option="high-contrast" aria-pressed="false">
         <span class="theme-wizard-option__emoji" aria-hidden="true">⚫️</span>
         <span class="theme-wizard-option__name">High Contrast</span>
@@ -2307,7 +2301,6 @@
     const THEME_BACKGROUND_COLORS = {
         'classic': '#6b63ff',
         'ocean': '#1a365d',
-        'forest': '#1a4731',
         'rose-pine-dawn': '#faf4ed',
         'dark': '#1a1a1a',
         'dim': '#2a2a2a',
@@ -2782,7 +2775,7 @@
             const key = String(event.key);
             const allowed = (window.__ckThemeRipple && Array.isArray(window.__ckThemeRipple.allowedThemes))
                 ? window.__ckThemeRipple.allowedThemes
-                : ['classic','ocean','forest','rose-pine-dawn','dark','dim','nebula','high-contrast'];
+                : ['classic','ocean','rose-pine-dawn','dark','dim','nebula','high-contrast'];
             const isAllowed = (t) => !!t && allowed.indexOf(t) !== -1;
             const normalize = (v) => (v || '').toString().trim().toLowerCase();
 

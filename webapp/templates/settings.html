@@ -477,7 +477,6 @@
           {% endif %}
           <option value="classic" {% if ui_theme == 'classic' %}selected{% endif %}>קלאסי{% if ui_theme == 'classic' %} (נוכחית){% endif %}</option>
           <option value="ocean" {% if ui_theme == 'ocean' %}selected{% endif %}>אוקיינוס{% if ui_theme == 'ocean' %} (נוכחית){% endif %}</option>
-          <option value="forest" {% if ui_theme == 'forest' %}selected{% endif %}>יער{% if ui_theme == 'forest' %} (נוכחית){% endif %}</option>
           <option value="rose-pine-dawn" {% if ui_theme == 'rose-pine-dawn' %}selected{% endif %}>🌹 Rose Pine Dawn{% if ui_theme == 'rose-pine-dawn' %} (נוכחית){% endif %}</option>
           <option value="dark" {% if ui_theme == 'dark' %}selected{% endif %}>🌙 חשוך{% if ui_theme == 'dark' %} (נוכחית){% endif %}</option>
           <option value="dim" {% if ui_theme == 'dim' %}selected{% endif %}>🌆 מעומעם{% if ui_theme == 'dim' %} (נוכחית){% endif %}</option>
@@ -1195,7 +1194,7 @@
 
         const allowed = (window.__ckThemeRipple && Array.isArray(window.__ckThemeRipple.allowedThemes))
           ? window.__ckThemeRipple.allowedThemes
-          : ['classic','ocean','forest','rose-pine-dawn','dark','dim','nebula','high-contrast','custom'];
+          : ['classic','ocean','rose-pine-dawn','dark','dim','nebula','high-contrast','custom'];
 
         const isAllowed = (t) => !!t && allowed.indexOf(t) !== -1;
         if (!isAllowed(nextTheme)) {
