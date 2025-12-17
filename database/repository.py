@@ -1652,6 +1652,9 @@ class Repository:
                 # כי MongoDB יזרוק: "Updating the path 'username' would create a conflict at 'username'".
                 update_set["username"] = username_s
                 update_set["updated_at"] = now_utc
+                # הגנה: אם בעתיד ייכנס username גם ל-defaults של insert, נמנע קונפליקט.
+                if "username" in set_on_insert:
+                    del set_on_insert["username"]
             result = users_collection.update_one(
                 {"user_id": user_id},
                 {"$setOnInsert": set_on_insert, "$set": update_set},
