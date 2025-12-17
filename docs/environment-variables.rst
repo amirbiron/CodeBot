@@ -214,6 +214,30 @@
      - "" (ריק)
      - ``123,456``
      - Bot/WebApp
+   * - ``DB_HEALTH_TOKEN``
+     - טוקן להגנה על נתיבי ``/api/db/*`` (נשלח כ-``Authorization: Bearer <token>``). ללא טוקן ה-API חסום (403) והדשבורד ``/db-health`` יחזיר 403.
+     - כן (DB Health)
+     - "" (ריק)
+     - ``db_health_super_secret_token``
+     - Bot/WebApp
+   * - ``DB_HEALTH_SLOW_THRESHOLD_MS``
+     - סף ברירת מחדל לזיהוי slow queries (באלפיות שנייה) עבור ``currentOp``.
+     - לא
+     - ``1000``
+     - ``1500``
+     - Bot/WebApp
+   * - ``DB_HEALTH_POOL_REFRESH_SEC``
+     - תדירות רענון מומלצת (שניות) לסטטוס ה-pool בדשבורד. (משתנה תיעודי/קונפיגורציה כללית)
+     - לא
+     - ``5``
+     - ``5``
+     - WebApp
+   * - ``DB_HEALTH_OPS_REFRESH_SEC``
+     - תדירות רענון מומלצת (שניות) לרשימת slow queries בדשבורד. (משתנה תיעודי/קונפיגורציה כללית)
+     - לא
+     - ``10``
+     - ``10``
+     - WebApp
    * - ``PREMIUM_USER_IDS``
      - מזהי משתמש טלגרם לסטטוס פרימיום (CSV)
      - לא
