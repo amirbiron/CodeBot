@@ -80,6 +80,11 @@ def _match(doc: Dict[str, Any], flt: Dict[str, Any]) -> bool:
                     if actual not in v["$in"]:
                         return False
                     continue
+                if "$ne" in v:
+                    # MongoDB: $ne matches when field is missing (None here) and also when value differs.
+                    if actual == v["$ne"]:
+                        return False
+                    continue
                 if "$exists" in v:
                     should_exist = bool(v["$exists"])
                     # קיום שדה (נחשב קיים אם הערך אינו None)

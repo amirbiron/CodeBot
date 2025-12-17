@@ -9,15 +9,31 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple
+import logging
+import os
 import re
+import time
 
 try:
     from bson import ObjectId  # type: ignore
     HAS_BSON: bool = True
 except Exception:  # pragma: no cover
     HAS_BSON = False
+    _OID_RE = re.compile(r"^[0-9a-fA-F]{24}$")
+
     class ObjectId(str):  # type: ignore
-        pass
+        """Fallback ObjectId validator for environments without bson.
+
+        We validate the canonical 24-hex string format so that code paths that
+        expect bson.ObjectId behavior (e.g. rejecting invalid ids) keep working
+        גם בסביבת טסטים/CI ללא bson.
+        """
+
+        def __new__(cls, value: Any) -> "ObjectId":  # type: ignore[override]
+            s = str(value or "").strip()
+            if not _OID_RE.match(s):
+                raise ValueError("Invalid ObjectId")
+            return str.__new__(cls, s)  # type: ignore[arg-type]
 
 try:
     from pymongo import ASCENDING, DESCENDING, IndexModel  # type: ignore
@@ -41,6 +57,8 @@ try:
     from cache_manager import cache  # type: ignore
 except Exception:  # pragma: no cover
     cache = None  # type: ignore
+
+logger = logging.getLogger(__name__)
 
 
 ALLOWED_ICONS: List[str] = [
@@ -676,27 +694,62 @@ class CollectionsManager:
         include_computed: bool = True,
         fetch_all: bool = False,
     ) -> Dict[str, Any]:
+        t_total_start = time.perf_counter()
+        t_find_collection = 0.0
+        t_fetch_manual = 0.0
+        t_compute_smart = 0.0
+        t_compute_active = 0.0
+        t_public_map = 0.0
         try:
             cid = ObjectId(collection_id)
         except Exception:
             return {"ok": False, "error": "collection_id לא תקין"}
         try:
             # שליפת אוסף לקבלת המוד והחוקים
-            col = self.collections.find_one({"_id": cid, "user_id": user_id})
+            t0 = time.perf_counter()
+            try:
+                col = self.collections.find_one(
+                    {"_id": cid, "user_id": user_id},
+                    projection={"mode": 1, "rules": 1},
+                )
+            except TypeError:
+                # תאימות לסטאבים/מימושים ללא projection=
+                col = self.collections.find_one({"_id": cid, "user_id": user_id})
+            t_find_collection = max(0.0, time.perf_counter() - t0)
             if not col:
                 return {"ok": False, "error": "האוסף לא נמצא"}
             mode = str(col.get("mode") or "manual").lower()
             rules = dict(col.get("rules") or {})
 
             # פריטים ידניים
-            manual_cur = self.items.find({"collection_id": cid, "user_id": user_id})
+            t0 = time.perf_counter()
+            manual_query = {"collection_id": cid, "user_id": user_id}
+            manual_projection = {
+                "collection_id": 1,
+                "user_id": 1,
+                "source": 1,
+                "file_name": 1,
+                "note": 1,
+                "pinned": 1,
+                "custom_order": 1,
+                "workspace_state": 1,
+                "added_at": 1,
+                "updated_at": 1,
+            }
+            try:
+                manual_cur = self.items.find(manual_query, projection=manual_projection)
+            except TypeError:
+                manual_cur = self.items.find(manual_query)
             manual_list: List[Dict[str, Any]] = list(manual_cur) if not isinstance(manual_cur, list) else manual_cur
+            t_fetch_manual = max(0.0, time.perf_counter() - t0)
             manual_total = len(manual_list)
 
             # פריטים חכמים (ע"פ חוקים)
             computed: List[Dict[str, Any]] = []
             if include_computed and mode in {"smart", "mixed"}:
+                t0 = time.perf_counter()
                 computed = self.compute_smart_items(user_id, rules, limit=200)
+                t_compute_smart = max(0.0, time.perf_counter() - t0)
             comp_total = len(computed)
 
             out_items: List[Dict[str, Any]] = []
@@ -754,6 +807,7 @@ class CollectionsManager:
 
             # חישוב סטטוס פעילות קובץ (Data integrity): ערך בוליאני is_file_active
             try:
+                t0 = time.perf_counter()
                 active_map: Dict[Tuple[str, str], bool] = {}
                 # אסוף זוגות ייחודיים (source, file_name) מהעמוד בלבד
                 uniq: List[Tuple[str, str]] = []
@@ -779,7 +833,8 @@ class CollectionsManager:
                     query = {
                         "user_id": int(user_id),
                         "file_name": {"$in": list(names)},
-                        "$or": [{"is_active": True}, {"is_active": {"$exists": False}}],
+                        # אינדקס-פרנדלי + כולל גם מסמכים ישנים ללא is_active
+                        "is_active": {"$ne": False},
                     }
                     # מספיק לנו רק file_name
                     projection = {"file_name": 1}
@@ -848,18 +903,21 @@ class CollectionsManager:
                         continue
                     src_norm = "large" if str(src).lower() == "large" else "regular"
                     active_map[key] = bool(active_map.get((src_norm, fn), True))
+                t_compute_active = max(0.0, time.perf_counter() - t0)
             except Exception:
                 active_map = {}
 
             # החזרה (כולל is_file_active לכל פריט)
+            t0 = time.perf_counter()
             items_out: List[Dict[str, Any]] = []
             for x in page_items:
                 item_pub = self._public_item(x)
                 key = (str(item_pub.get("source") or "regular"), str(item_pub.get("file_name") or ""))
                 item_pub["is_file_active"] = bool(active_map.get(key, True))
                 items_out.append(item_pub)
+            t_public_map = max(0.0, time.perf_counter() - t0)
 
-            return {
+            result = {
                 "ok": True,
                 "items": items_out,
                 "page": p,
@@ -868,6 +926,50 @@ class CollectionsManager:
                 "total_computed": comp_total,
                 "total_items": len(out_items),
             }
+            # דיבוג ביצועים: לדווח רק אם איטי (או אם הופעל env)
+            try:
+                slow_ms_env = os.getenv("COLLECTIONS_GET_ITEMS_SLOW_MS", "")
+                slow_ms = float(slow_ms_env) if slow_ms_env not in (None, "") else 500.0
+            except Exception:
+                slow_ms = 500.0
+            total_ms = max(0.0, (time.perf_counter() - t_total_start) * 1000.0)
+            if total_ms >= float(slow_ms or 0.0):
+                try:
+                    emit_event(
+                        "collections_get_items_perf",
+                        severity="warn",
+                        user_id=int(user_id),
+                        collection_id=str(collection_id),
+                        mode=str(mode),
+                        include_computed=bool(include_computed),
+                        page=int(p),
+                        per_page=int(pp),
+                        total_ms=round(total_ms, 1),
+                        db_find_collection_ms=round(t_find_collection * 1000.0, 1),
+                        db_fetch_manual_ms=round(t_fetch_manual * 1000.0, 1),
+                        compute_smart_ms=round(t_compute_smart * 1000.0, 1),
+                        compute_active_ms=round(t_compute_active * 1000.0, 1),
+                        map_public_ms=round(t_public_map * 1000.0, 1),
+                        items_returned=int(len(items_out)),
+                        manual_total=int(manual_total),
+                        computed_total=int(comp_total),
+                        total_items=int(len(out_items)),
+                        handled=True,
+                    )
+                except Exception:
+                    pass
+                try:
+                    logger.warning(
+                        "collections_get_items_slow total_ms=%.1f mode=%s items=%s manual=%s computed=%s",
+                        total_ms,
+                        str(mode),
+                        len(items_out),
+                        manual_total,
+                        comp_total,
+                    )
+                except Exception:
+                    pass
+            return result
         except Exception as e:
             emit_event("collections_get_items_error", severity="error", user_id=int(user_id), error=str(e))
             return {"ok": False, "error": "שגיאה בשליפת פריטים"}
@@ -935,7 +1037,7 @@ class CollectionsManager:
         if self.code_snippets is None:
             return []
         try:
-            flt: Dict[str, Any] = {"user_id": int(user_id), "$or": [{"is_active": True}, {"is_active": {"$exists": False}}]}
+            flt: Dict[str, Any] = {"user_id": int(user_id), "is_active": {"$ne": False}}
             q = str(rules.get("query") or "").strip()
             if q:
                 flt["$text"] = {"$search": q}
@@ -1104,7 +1206,7 @@ class CollectionsManager:
         query = {
             "user_id": int(user_id),
             "file_name": str(file_name),
-            "$or": [{"is_active": True}, {"is_active": {"$exists": False}}],
+            "is_active": {"$ne": False},
         }
         projection = None if include_code else {"code": 0}
         doc: Optional[Dict[str, Any]] = None
@@ -1155,7 +1257,7 @@ class CollectionsManager:
         query = {
             "user_id": int(user_id),
             "file_name": str(file_name),
-            "$or": [{"is_active": True}, {"is_active": {"$exists": False}}],
+            "is_active": {"$ne": False},
         }
         projection = None if include_content else {"content": 0}
         doc: Optional[Dict[str, Any]] = None

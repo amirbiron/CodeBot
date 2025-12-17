@@ -125,6 +125,10 @@ def _match(doc: dict, flt: dict) -> bool:
             elif isinstance(v, dict) and "$in" in v:
                 if d.get(k) not in v["$in"]:
                     return False
+            elif isinstance(v, dict) and "$ne" in v:
+                # $ne matches when field is missing; we represent missing as None
+                if d.get(k) == v["$ne"]:
+                    return False
             else:
                 if str(d.get(k)) != str(v):
                     return False
