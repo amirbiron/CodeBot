@@ -568,9 +568,12 @@ def create_app() -> web.Application:
                 # Silence noisy monitoring endpoints when request is "ok".
                 # - For health/metrics: skip only successes (<400) but keep 4xx/5xx.
                 # - For favicon: also skip 404/4xx noise, keep 5xx.
+                # - For root availability probes: skip HEAD / when "ok" (<400), but keep 4xx/5xx.
                 silent_paths = {"/metrics", "/health", "/healthz", "/favicon.ico"}
+                is_silent_path = path_label in silent_paths
+                is_root_check = (path_label == "/" and str(method_label).upper() == "HEAD")
                 should_silence = False
-                if path_label in silent_paths:
+                if is_silent_path or is_root_check:
                     ok_threshold = 500 if path_label == "/favicon.ico" else 400
                     should_silence = int(status) < int(ok_threshold)
                 if not should_silence:
