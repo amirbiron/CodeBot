@@ -594,14 +594,6 @@
 
   <!-- Filters -->
   <form class="config-filters" method="get" action="">
-    <label for="viewFilter">תצוגה:</label>
-    <select name="view" id="viewFilter">
-      {% set v = selected_view | default('all') %}
-      <option value="all" {% if v == 'all' %}selected{% endif %}>כל המערכת</option>
-      <option value="webapp" {% if v == 'webapp' %}selected{% endif %}>Webapp</option>
-      <option value="bot" {% if v == 'bot' %}selected{% endif %}>Bot</option>
-    </select>
-
     <label for="categoryFilter">קטגוריה:</label>
     <select name="category" id="categoryFilter">
       <option value="">הכל</option>

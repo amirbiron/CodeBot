@@ -3228,7 +3228,6 @@ def admin_config_inspector_page():
     from services.config_inspector_service import ConfigStatus, get_config_service
 
     # קבלת פרמטרים לסינון
-    view = request.args.get("view", "all")
     category = request.args.get("category", "")
     status = request.args.get("status", "")
 
@@ -3243,20 +3242,17 @@ def admin_config_inspector_page():
     # קבלת הנתונים מהשירות
     service = get_config_service()
     overview = service.get_config_overview(
-        view=view,
         category_filter=category or None,
         status_filter=status_filter,
     )
-    category_summary = service.get_category_summary(view=view)
-    # האזהרה למעלה צריכה לשקף את התצוגה/קטגוריה שנבחרו (לא בהכרח את סטטוס הסינון)
-    missing_required = service.validate_required(view=view, category_filter=category or None)
+    category_summary = service.get_category_summary()
+    missing_required = service.validate_required()
 
     return render_template(
         "admin_config_inspector.html",
         overview=overview,
         category_summary=category_summary,
         missing_required=missing_required,
-        selected_view=view,
         selected_category=category,
         selected_status=status,
         statuses=[s.value for s in ConfigStatus],

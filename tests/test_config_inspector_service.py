@@ -228,65 +228,6 @@ class TestConfigService:
                 missing = test_service.validate_required()
                 assert "BOT_TOKEN" in missing, "Status is MISSING but validate_required didn't catch it!"
 
-    def test_view_filter_excludes_categories_for_missing(self):
-        """Test that view filters exclude irrelevant categories (webapp/bot)."""
-        service = ConfigService()
-        service.CONFIG_DEFINITIONS = {
-            "BOT_TOKEN": ConfigDefinition(
-                key="BOT_TOKEN",
-                default="",
-                description="Bot token",
-                category="telegram",
-                sensitive=True,
-                required=True,
-            ),
-            "ALERT_TELEGRAM_BOT_TOKEN": ConfigDefinition(
-                key="ALERT_TELEGRAM_BOT_TOKEN",
-                default="",
-                description="Alerts token",
-                category="alerts",
-                sensitive=True,
-                required=True,
-            ),
-            "SECRET_KEY": ConfigDefinition(
-                key="SECRET_KEY",
-                default="",
-                description="Web secret",
-                category="webserver",
-                sensitive=True,
-                required=True,
-            ),
-            "WEBAPP_GUNICORN_WORKERS": ConfigDefinition(
-                key="WEBAPP_GUNICORN_WORKERS",
-                default="",
-                description="Workers",
-                category="gunicorn",
-                required=True,
-            ),
-        }
-
-        with patch.dict(os.environ, {}, clear=True):
-            missing_all = set(service.validate_required(view="all"))
-            assert missing_all == {
-                "BOT_TOKEN",
-                "ALERT_TELEGRAM_BOT_TOKEN",
-                "SECRET_KEY",
-                "WEBAPP_GUNICORN_WORKERS",
-            }
-
-            missing_webapp = set(service.validate_required(view="webapp"))
-            assert "BOT_TOKEN" not in missing_webapp
-            # alerts כן רלוונטי ל-Webapp (לדוגמה: forwarder של התראות)
-            assert "ALERT_TELEGRAM_BOT_TOKEN" in missing_webapp
-            assert "SECRET_KEY" in missing_webapp
-            assert "WEBAPP_GUNICORN_WORKERS" in missing_webapp
-
-            missing_bot = set(service.validate_required(view="bot"))
-            assert "BOT_TOKEN" in missing_bot
-            assert "ALERT_TELEGRAM_BOT_TOKEN" in missing_bot
-            assert "SECRET_KEY" not in missing_bot
-            assert "WEBAPP_GUNICORN_WORKERS" not in missing_bot
-
     def test_category_summary(self):
         """Test category summary generation."""
         summary = self.service.get_category_summary()

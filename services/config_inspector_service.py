@@ -99,17 +99,6 @@ class ConfigService:
     # ערך ההסתרה לערכים רגישים
     MASKED_VALUE: str = "********"
 
-    # תצוגות (View) לדשבורד:
-    # המטרה היא לאפשר להתמקד ב-Webapp או ב-Bot בלי לשכפל דפים.
-    # זה משפיע רק על אילו מפתחות יוצגו/יחושבו, לא על הלוגיקה של סטטוסים.
-    VIEW_EXCLUDE_CATEGORIES: Dict[str, frozenset[str]] = {
-        # Webapp: לא מסתירים alerts (לדוגמה ALERT_TELEGRAM_BOT_TOKEN רלוונטי גם לווב)
-        # משאירים כאן רק מה שבאמת "בוט-רנטיים" ברוב המקרים.
-        "webapp": frozenset({"telegram"}),
-        # Bot לרוב לא צריך Webserver/Gunicorn
-        "bot": frozenset({"webserver", "gunicorn"}),
-    }
-
     # הגדרות כל משתני הקונפיגורציה באפליקציה
     CONFIG_DEFINITIONS: Dict[str, ConfigDefinition] = {
 
@@ -1693,27 +1682,6 @@ class ConfigService:
 
         self._sensitive_regex = self._compile_sensitive_pattern()
 
-    def _normalize_view(self, view: Optional[str]) -> str:
-        """
-        נרמול תצוגה (view) לסט ערכים ידוע.
-        ברירת מחדל: all
-        """
-
-        v = (view or "all").strip().lower()
-        if v in ("all", "webapp", "bot"):
-            return v
-        return "all"
-
-    def _definitions_for_view(self, view: Optional[str]) -> Dict[str, ConfigDefinition]:
-        """מסנן את CONFIG_DEFINITIONS לפי התצוגה שנבחרה."""
-
-        v = self._normalize_view(view)
-        if v == "all":
-            return self.CONFIG_DEFINITIONS
-
-        excluded = self.VIEW_EXCLUDE_CATEGORIES.get(v, frozenset())
-        return {k: d for k, d in self.CONFIG_DEFINITIONS.items() if d.category not in excluded}
-
     def _compile_sensitive_pattern(self) -> re.Pattern:
         """יצירת Regex לזיהוי משתנים רגישים."""
 
@@ -1887,7 +1855,6 @@ class ConfigService:
 
     def get_config_overview(
         self,
-        view: str = "all",
         category_filter: Optional[str] = None,
         status_filter: Optional[ConfigStatus] = None,
     ) -> ConfigOverview:
@@ -1905,8 +1872,7 @@ class ConfigService:
         entries: List[ConfigEntry] = []
         categories_set: set[str] = set()
 
-        definitions = self._definitions_for_view(view)
-        for definition in definitions.values():
+        for definition in self.CONFIG_DEFINITIONS.values():
             entry = self.get_config_entry(definition)
             categories_set.add(entry.category)
 
@@ -1936,7 +1902,7 @@ class ConfigService:
             categories=sorted(categories_set),
         )
 
-    def get_category_summary(self, view: str = "all") -> Dict[str, Dict[str, int]]:
+    def get_category_summary(self) -> Dict[str, Dict[str, int]]:
         """
         קבלת סיכום לפי קטגוריות.
 
@@ -1944,7 +1910,7 @@ class ConfigService:
             מילון עם ספירה לכל קטגוריה
         """
 
-        overview = self.get_config_overview(view=view)
+        overview = self.get_config_overview()
         summary: Dict[str, Dict[str, int]] = {}
 
         for entry in overview.entries:
@@ -1962,7 +1928,7 @@ class ConfigService:
 
         return summary
 
-    def validate_required(self, view: str = "all", category_filter: Optional[str] = None) -> List[str]:
+    def validate_required(self) -> List[str]:
         """
         בדיקת משתנים הכרחיים חסרים.
 
@@ -1971,10 +1937,7 @@ class ConfigService:
         """
 
         missing = []
-        definitions = self._definitions_for_view(view)
-        for definition in definitions.values():
-            if category_filter and definition.category != category_filter:
-                continue
+        for definition in self.CONFIG_DEFINITIONS.values():
             if not definition.required:
                 continue
 
