@@ -820,7 +820,7 @@
 
   function sanitizeEnvValue(value) {
     // שמירה על פורמט שורה אחת עבור .env
-    return String(value ?? '').replace(/\\r?\\n/g, '\\\\n');
+    return String(value ?? '').replace(/\r?\n/g, '\\n');
   }
 
   function getEnvLineFromRow(row) {
@@ -870,7 +870,7 @@
       }
 
       try {
-        await navigator.clipboard.writeText(lines.join('\\n'));
+        await navigator.clipboard.writeText(lines.join('\n'));
         showToast(`הועתקו ${lines.length} שורות`);
       } catch (err) {
         console.error('Copy group failed:', err);
