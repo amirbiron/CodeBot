@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import threading
 from typing import Optional
 
 
 _snippet_service_singleton = None  # type: Optional["SnippetService"]
+_singleton_lock = threading.Lock()
 
 
 def get_snippet_service():
@@ -14,6 +16,11 @@ def get_snippet_service():
     global _snippet_service_singleton
     if _snippet_service_singleton is not None:
         return _snippet_service_singleton
+
+    # Ensure singleton creation is thread-safe under concurrent first requests
+    with _singleton_lock:
+        if _snippet_service_singleton is not None:
+            return _snippet_service_singleton
 
     # Lazy imports to avoid hard coupling at import time and ease tests/mocks
     from src.application.services.snippet_service import SnippetService  # type: ignore
