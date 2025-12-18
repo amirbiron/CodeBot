@@ -3221,6 +3221,44 @@ def admin_observability_page():
     )
 
 
+@app.route('/admin/config-inspector')
+@admin_required
+def admin_config_inspector_page():
+    """דף Config Inspector לאדמינים: סקירה של משתני סביבה וקונפיגורציה."""
+    from services.config_inspector_service import ConfigStatus, get_config_service
+
+    # קבלת פרמטרים לסינון
+    category = request.args.get("category", "")
+    status = request.args.get("status", "")
+
+    # המרת סטטוס לאנום
+    status_filter = None
+    if status:
+        try:
+            status_filter = ConfigStatus(status)
+        except ValueError:
+            status_filter = None
+
+    # קבלת הנתונים מהשירות
+    service = get_config_service()
+    overview = service.get_config_overview(
+        category_filter=category or None,
+        status_filter=status_filter,
+    )
+    category_summary = service.get_category_summary()
+    missing_required = service.validate_required()
+
+    return render_template(
+        "admin_config_inspector.html",
+        overview=overview,
+        category_summary=category_summary,
+        missing_required=missing_required,
+        selected_category=category,
+        selected_status=status,
+        statuses=[s.value for s in ConfigStatus],
+    )
+
+
 @app.route('/admin/drills')
 @admin_required
 def admin_drills_page():
