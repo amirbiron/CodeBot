@@ -1516,8 +1516,13 @@
         const coverageState = {
           minCount: Number(urlParams.get('min_count') || '1') || 1,
           search: (urlParams.get('alert_type') || urlParams.get('q') || '').trim().toLowerCase(),
+          // Coverage tab defaults to weekly window (matches backend + typical review cadence).
+          range: (urlParams.get('timerange') || urlParams.get('range') || '7d').trim().toLowerCase(),
         };
         coverageState.minCount = Math.max(1, Math.min(10_000, Math.floor(coverageState.minCount || 1)));
+        if (!['24h', '7d', '30d'].includes(String(coverageState.range || '').toLowerCase())) {
+          coverageState.range = '7d';
+        }
 
         const setStatus = (message, variant = 'muted', extraHtml = '') => {
           if (!statusEl) return;
