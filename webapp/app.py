@@ -3662,10 +3662,18 @@ def admin_snippet_approve():
                                 api = f"https://api.telegram.org/bot{bot_token}/sendMessage"
                                 payload = {"chat_id": uid, "text": text}
                                 if _http_request is not None:
-                                    _http_request('POST', api, json=payload, timeout=5)
+                                    from telegram_api import parse_telegram_json_from_response, require_telegram_ok
+
+                                    resp = _http_request('POST', api, json=payload, timeout=5)
+                                    body = parse_telegram_json_from_response(resp, url=api)
+                                    require_telegram_ok(body, url=api)
                                 else:  # pragma: no cover
                                     import requests as _requests  # type: ignore
-                                    _requests.post(api, json=payload, timeout=5)
+                                    from telegram_api import parse_telegram_json_from_response, require_telegram_ok
+
+                                    resp = _requests.post(api, json=payload, timeout=5)
+                                    body = parse_telegram_json_from_response(resp, url=api)
+                                    require_telegram_ok(body, url=api)
                             except Exception:
                                 pass
                     except Exception:
@@ -3728,10 +3736,18 @@ def admin_snippet_reject():
                                 api = f"https://api.telegram.org/bot{bot_token}/sendMessage"
                                 payload = {"chat_id": uid, "text": text}
                                 if _http_request is not None:
-                                    _http_request('POST', api, json=payload, timeout=5)
+                                    from telegram_api import parse_telegram_json_from_response, require_telegram_ok
+
+                                    resp = _http_request('POST', api, json=payload, timeout=5)
+                                    body = parse_telegram_json_from_response(resp, url=api)
+                                    require_telegram_ok(body, url=api)
                                 else:  # pragma: no cover
                                     import requests as _requests  # type: ignore
-                                    _requests.post(api, json=payload, timeout=5)
+                                    from telegram_api import parse_telegram_json_from_response, require_telegram_ok
+
+                                    resp = _requests.post(api, json=payload, timeout=5)
+                                    body = parse_telegram_json_from_response(resp, url=api)
+                                    require_telegram_ok(body, url=api)
                             except Exception:
                                 pass
                     except Exception:
@@ -3867,10 +3883,18 @@ def admin_community_approve():
                             api = f"https://api.telegram.org/bot{bot_token}/sendMessage"
                             payload = {"chat_id": uid, "text": text}
                             if _http_request is not None:
-                                _http_request('POST', api, json=payload, timeout=5)
+                                from telegram_api import parse_telegram_json_from_response, require_telegram_ok
+
+                                resp = _http_request('POST', api, json=payload, timeout=5)
+                                body = parse_telegram_json_from_response(resp, url=api)
+                                require_telegram_ok(body, url=api)
                             else:  # pragma: no cover
                                 import requests as _requests  # type: ignore
-                                _requests.post(api, json=payload, timeout=5)
+                                from telegram_api import parse_telegram_json_from_response, require_telegram_ok
+
+                                resp = _requests.post(api, json=payload, timeout=5)
+                                body = parse_telegram_json_from_response(resp, url=api)
+                                require_telegram_ok(body, url=api)
                         except Exception:
                             pass
             except Exception:
@@ -3940,10 +3964,18 @@ def admin_community_reject():
                             api = f"https://api.telegram.org/bot{bot_token}/sendMessage"
                             payload = {"chat_id": uid, "text": text}
                             if _http_request is not None:
-                                _http_request('POST', api, json=payload, timeout=5)
+                                from telegram_api import parse_telegram_json_from_response, require_telegram_ok
+
+                                resp = _http_request('POST', api, json=payload, timeout=5)
+                                body = parse_telegram_json_from_response(resp, url=api)
+                                require_telegram_ok(body, url=api)
                             else:  # pragma: no cover
                                 import requests as _requests  # type: ignore
-                                _requests.post(api, json=payload, timeout=5)
+                                from telegram_api import parse_telegram_json_from_response, require_telegram_ok
+
+                                resp = _requests.post(api, json=payload, timeout=5)
+                                body = parse_telegram_json_from_response(resp, url=api)
+                                require_telegram_ok(body, url=api)
                         except Exception:
                             pass
             except Exception:
@@ -10708,7 +10740,11 @@ def api_ui_prefs():
         if len(update_fields) == 1:  # רק updated_at
             return jsonify({'ok': True})
 
-        db.users.update_one({'user_id': user_id}, {'$set': update_fields}, upsert=True)
+        db.users.update_one(
+            {'user_id': user_id},
+            {'$set': update_fields, '$setOnInsert': {'created_at': datetime.now(timezone.utc)}},
+            upsert=True,
+        )
 
         # עדכון קוקיז רק עבור שדות שסופקו
         resp = jsonify(resp_payload)
@@ -10778,10 +10814,20 @@ def save_custom_theme():
 
     try:
         db = get_db()
-        db.users.update_one({"user_id": user_id}, {"$set": {"custom_theme": theme_doc}}, upsert=True)
+        now_utc = datetime.now(timezone.utc)
+        db.users.update_one(
+            {"user_id": user_id},
+            {"$set": {"custom_theme": theme_doc, "updated_at": now_utc}, "$setOnInsert": {"created_at": now_utc}},
+            upsert=True,
+        )
 
         if theme_doc["is_active"]:
-            db.users.update_one({"user_id": user_id}, {"$set": {"ui_prefs.theme": "custom"}}, upsert=True)
+            now_utc2 = datetime.now(timezone.utc)
+            db.users.update_one(
+                {"user_id": user_id},
+                {"$set": {"ui_prefs.theme": "custom", "updated_at": now_utc2}, "$setOnInsert": {"created_at": now_utc2}},
+                upsert=True,
+            )
 
         return jsonify({"ok": True})
     except Exception as e:
@@ -10799,9 +10845,14 @@ def delete_custom_theme():
 
     try:
         db = get_db()
+        now_utc = datetime.now(timezone.utc)
         db.users.update_one(
             {"user_id": user_id},
-            {"$unset": {"custom_theme": ""}, "$set": {"ui_prefs.theme": "classic"}},
+            {
+                "$unset": {"custom_theme": ""},
+                "$set": {"ui_prefs.theme": "classic", "updated_at": now_utc},
+                "$setOnInsert": {"created_at": now_utc},
+            },
             upsert=True,
         )
         return jsonify({"ok": True, "reset_to": "classic"})
@@ -11526,7 +11577,10 @@ def update_user_preferences():
             user_id = session['user_id']
             db.users.update_one(
                 {'user_id': user_id},
-                {'$set': {'ui_prefs.editor': editor_type, 'updated_at': datetime.now(timezone.utc)}},
+                {
+                    '$set': {'ui_prefs.editor': editor_type, 'updated_at': datetime.now(timezone.utc)},
+                    '$setOnInsert': {'created_at': datetime.now(timezone.utc)},
+                },
                 upsert=True,
             )
         except Exception:

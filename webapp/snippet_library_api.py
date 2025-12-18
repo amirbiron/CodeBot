@@ -151,10 +151,18 @@ def _notify_admins_new_snippet(snippet_id: str, *, title: str, language: str, us
                 payload = {"chat_id": int(aid), "text": text, "reply_markup": kb}
                 try:
                     if _http_request is not None:
-                        _http_request('POST', api, json=payload, timeout=5)
+                        from telegram_api import parse_telegram_json_from_response, require_telegram_ok
+
+                        resp = _http_request('POST', api, json=payload, timeout=5)
+                        body = parse_telegram_json_from_response(resp, url=api)
+                        require_telegram_ok(body, url=api)
                     else:  # pragma: no cover
                         import requests as _requests  # type: ignore
-                        _requests.post(api, json=payload, timeout=5)
+                        from telegram_api import parse_telegram_json_from_response, require_telegram_ok
+
+                        resp = _requests.post(api, json=payload, timeout=5)
+                        body = parse_telegram_json_from_response(resp, url=api)
+                        require_telegram_ok(body, url=api)
                 except Exception:
                     continue
         except Exception:

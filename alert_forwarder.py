@@ -781,15 +781,33 @@ def _post_to_telegram(text: str) -> None:
         api = f"https://api.telegram.org/bot{token}/sendMessage"
         payload = {"chat_id": chat_id, "text": text}
         prefer_pooled = _use_pooled_http()
+        from telegram_api import parse_telegram_json_from_response, require_telegram_ok
+
         if prefer_pooled and _pooled_request is not None:
-            _pooled_request('POST', api, json=payload, timeout=5)
+            resp = _pooled_request('POST', api, json=payload, timeout=5)
         elif _requests is not None:
-            _requests.post(api, json=payload, timeout=5)
+            resp = _requests.post(api, json=payload, timeout=5)
         elif _pooled_request is not None:
-            _pooled_request('POST', api, json=payload, timeout=5)
+            resp = _pooled_request('POST', api, json=payload, timeout=5)
         else:
             raise RuntimeError("no http client available")
-    except Exception:
+        body = parse_telegram_json_from_response(resp, url=api)
+        require_telegram_ok(body, url=api)
+    except Exception as e:
+        try:
+            from telegram_api import TelegramAPIError
+
+            if isinstance(e, TelegramAPIError):
+                emit_event(
+                    "telegram_api_error",
+                    severity="warn",
+                    handled=True,
+                    context="alert_forwarder.sendMessage",
+                    error_code=getattr(e, "error_code", None),
+                    description=getattr(e, "description", None),
+                )
+        except Exception:
+            pass
         emit_event("alert_forward_telegram_error", severity="warn")
 
 
