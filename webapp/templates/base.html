@@ -1,5 +1,9 @@
 <!DOCTYPE html>
 {% set _announcement_enabled = announcement_enabled if announcement_enabled is defined else (weekly_tip_enabled if weekly_tip_enabled is defined else none) %}
+{# סשן: בטסטים/סביבות מסוימות יש user_id בלי user_data — לא להפיל את התבנית #}
+{% set _session_user_id = session.get('user_id') %}
+{% set _session_user_data = session.get('user_data') or {} %}
+{% set _session_first_name = (_session_user_data.get('first_name') if _session_user_data is mapping else none) %}
 <html dir="rtl" lang="he"{% if _announcement_enabled is not none %} data-announcement="{{ 'on' if _announcement_enabled else 'off' }}" data-weekly-tip="{{ 'on' if _announcement_enabled else 'off' }}"{% endif %}>
 <head>
     <meta charset="UTF-8">
@@ -20,7 +24,7 @@
         (function() {
             try {
                 var html = document.documentElement;
-                var isLoggedIn = {{ 'true' if session.user_id else 'false' }};
+                var isLoggedIn = {{ 'true' if _session_user_id else 'false' }};
                 var serverTheme = '{{ ui_theme }}';
                 serverTheme = String(serverTheme || 'classic').trim().toLowerCase();
                 var allowed = {
@@ -1432,7 +1436,7 @@
                 <button class="mobile-menu-toggle" onclick="toggleMobileMenu()">
                     <i class="fas fa-bars"></i>
                 </button>
-                {% if session.user_id %}
+                {% if _session_user_id %}
                 <!-- תפריט קיצורי דרך -->
                 <div class="quick-access-menu">
                     <button class="quick-access-toggle" onclick="toggleQuickAccess(event)" aria-label="תפריט קיצורי דרך" title="קיצורי דרך">
@@ -1468,7 +1472,7 @@
                     {% if uptime_status_url %}
                         <li><a href="{{ uptime_status_url }}" target="_blank" class="nav-link"><i class="fas fa-signal"></i> סטטוס</a></li>
                     {% endif %}
-                    {% if session.user_id %}
+                    {% if _session_user_id %}
                         <li><a href="/dashboard" class="nav-link"><i class="fas fa-chart-line"></i> דשבורד</a></li>
                         <li><a href="/files" class="nav-link"><i class="fas fa-folder"></i> הקבצים שלי</a></li>
                         <li><a href="/collections" class="nav-link" id="tourCollectionsNav"><i class="fas fa-layer-group"></i> האוספים שלי</a></li>
@@ -1476,11 +1480,11 @@
                     {% endif %}
                     
                     <li class="user-menu">
-                        {% if session.user_id %}
+                        {% if _session_user_id %}
                             <div class="user-avatar">
-                                {{ session.user_data.first_name[0] if session.user_data.first_name else 'U' }}
+                                {{ (_session_first_name[0] if _session_first_name else 'U') }}
                             </div>
-                            <span>{{ session.user_data.first_name }}</span>
+                            <span>{{ _session_first_name or '' }}</span>
                             <a href="/settings" class="nav-link" title="הגדרות">
                                 <i class="fas fa-cog"></i>
                                 <span class="nav-text" style="display:inline-block">הגדרות</span>
@@ -2039,7 +2043,7 @@
             function postServer(s){
                 try {
                     // זיהוי התחברות מהשרת (Cookie הסשן הוא HttpOnly ולכן לא זמין ל-JS)
-                    const isAuth = {% if session.user_id %}true{% else %}false{% endif %};
+                    const isAuth = {% if _session_user_id %}true{% else %}false{% endif %};
                     if (!isAuth) return;
                     fetch('/api/ui_prefs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ work_state: s }) }).catch(()=>{});
                 } catch(_) {}
@@ -2370,7 +2374,7 @@
     const wizardEl = document.getElementById('themeWizard');
     const htmlEl = document.documentElement;
     const bodyEl = document.body;
-    const isLoggedIn = {{ 'true' if session.user_id else 'false' }};
+    const isLoggedIn = {{ 'true' if _session_user_id else 'false' }};
     const ALLOWED_PATHS = ['/files'];
     const STORAGE_KEYS = {
         seen: 'theme_wizard_seen',
@@ -3217,7 +3221,7 @@
     const STORAGE_KEY = 'codekeeper_walkthrough_v1';
     const AUTO_PATHS = ['/files'];
     const MAX_RETRIES = 5;
-    const isLoggedIn = {{ 'true' if session.user_id else 'false' }};
+    const isLoggedIn = {{ 'true' if _session_user_id else 'false' }};
 
     function hasSeen(){
         try { return localStorage.getItem(STORAGE_KEY) === '1'; }
