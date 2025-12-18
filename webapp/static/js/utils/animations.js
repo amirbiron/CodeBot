@@ -17,13 +17,21 @@
     itemElement.classList.add('is-new');
     container.insertBefore(itemElement, container.firstChild);
 
-    itemElement.addEventListener(
-      'animationend',
-      () => {
+    let cleaned = false;
+    const cleanup = () => {
+      if (cleaned) {
+        return;
+      }
+      cleaned = true;
+      try {
         itemElement.classList.remove('is-new');
-      },
-      { once: true }
-    );
+      } catch (_) {
+        // ignore
+      }
+    };
+
+    itemElement.addEventListener('animationend', cleanup, { once: true });
+    setTimeout(cleanup, 800); // fallback: אם animationend לא נורה
   }
 
   /**
