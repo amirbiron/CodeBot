@@ -259,7 +259,7 @@ class Repository:
         try:
             if not isinstance(user_id, int) or user_id <= 0 or not self._validate_file_name(file_name):
                 return None
-            # שליפת גרסה אחרונה ללא שימוש בדקורטור cache כדי לא לזהם קאש לפני העדכון
+            # שליפת גרסה אחרונה (לבדיקת קיום/בעלות) ללא שימוש בדקורטור cache כדי לא לזהם קאש לפני העדכון
             snippet = None
             try:
                 docs_list = getattr(self.manager.collection, 'docs')
@@ -281,17 +281,34 @@ class Repository:
                     snippet = None
             if not snippet or int(snippet.get("user_id", 0) or 0) != int(user_id):
                 return None
-            # חישוב מצב חדש: העדף את הסטטוס מתוך docs (סטאב) אם זמין
-            curr_state = bool(snippet.get("is_favorite", False))
+
+            # חישוב מצב נוכחי "ברמת קובץ":
+            # ייתכן שבנתונים קיימים is_favorite נשמר רק על גרסאות ישנות.
+            # אם נסתכל רק על הגרסה האחרונה – נקבל לוגיקה הפוכה ("הסר" עושה "הוסף").
+            curr_state = False
             try:
                 docs_list = getattr(self.manager.collection, 'docs')
                 if isinstance(docs_list, list):
                     candidates = [d for d in docs_list if isinstance(d, dict) and d.get('user_id') == user_id and d.get('file_name') == file_name]
-                    if candidates:
-                        latest_doc = max(candidates, key=lambda d: int(d.get('version', 0) or 0))
-                        curr_state = bool(latest_doc.get('is_favorite', False))
+                    # קובץ נחשב מועדף אם *כל גרסה שהיא* מסומנת כמועדפת
+                    curr_state = any(bool(d.get('is_favorite', False)) for d in candidates)
             except Exception:
                 pass
+            if curr_state is False:
+                try:
+                    fav_q = {
+                        "user_id": user_id,
+                        "file_name": file_name,
+                        "is_favorite": True,
+                        "$or": [{"is_active": True}, {"is_active": {"$exists": False}}],
+                    }
+                    try:
+                        fav_doc = self.manager.collection.find_one(fav_q, {"_id": 1})
+                    except TypeError:
+                        fav_doc = self.manager.collection.find_one(fav_q)
+                    curr_state = bool(fav_doc)
+                except Exception:
+                    pass
             new_state = not curr_state
             now = datetime.now(timezone.utc)
             update = {
@@ -301,14 +318,14 @@ class Repository:
                     "favorited_at": (now if new_state else None),
                 }
             }
-            # עדכן את הגרסה האחרונה בלבד (לפי _id) כדי לוודא עקביות בדו"ח מועדפים
-            try:
-                target_id = snippet.get("_id")
-            except Exception:
-                target_id = None
-            query = {"_id": target_id} if target_id is not None else {
-                "user_id": user_id, "file_name": file_name,
-                "$or": [{"is_active": True}, {"is_active": {"$exists": False}}]
+            # חשוב: עדכן *כל הגרסאות* של אותו קובץ כדי למנוע מצב שבו:
+            # - ישנה גרסה ישנה עם is_favorite=True
+            # - הגרסה האחרונה עם is_favorite=False
+            # ואז רשימת המועדפים עדיין מציגה את הקובץ, ולחיצה על "הסר" עושה "הוסף".
+            query = {
+                "user_id": user_id,
+                "file_name": file_name,
+                "$or": [{"is_active": True}, {"is_active": {"$exists": False}}],
             }
             # עדכון באמצעות update_many אם זמין; בסביבת in-memory ייתכן שהמתודה לא קיימת
             class _UpdateResult:
@@ -321,32 +338,20 @@ class Repository:
             except Exception:
                 res = _UpdateResult(0, 0)
             matched = int(getattr(res, 'matched_count', 0) or 0)
-            # אם לא נמצאה התאמה לפי _id (למשל בסטאבים) — נסה לפי user_id+file_name
-            if matched <= 0:
-                fallback_q = {
-                    "user_id": user_id,
-                    "file_name": file_name,
-                    "$or": [{"is_active": True}, {"is_active": {"$exists": False}}]
-                }
+            # Fallback נוסף לסביבת טסטים: עדכון ישיר של המסמך ברשימת docs אם קיימת
+            if matched <= 0 and hasattr(self.manager.collection, 'docs'):
                 try:
-                    res = self.manager.collection.update_many(fallback_q, update)
+                    docs_list = getattr(self.manager.collection, 'docs')
+                    candidates = [d for d in docs_list if isinstance(d, dict) and d.get('user_id') == user_id and d.get('file_name') == file_name]
+                    if candidates:
+                        # עדכון כל המסמכים של אותו קובץ (כל הגרסאות)
+                        for d in candidates:
+                            d['is_favorite'] = new_state
+                            d['updated_at'] = now
+                            d['favorited_at'] = (now if new_state else None)
+                        matched = 1
                 except Exception:
-                    res = _UpdateResult(0, 0)
-                matched = int(getattr(res, 'matched_count', 0) or 0)
-                # Fallback נוסף לסביבת טסטים: עדכון ישיר של המסמך ברשימת docs אם קיימת
-                if matched <= 0 and hasattr(self.manager.collection, 'docs'):
-                    try:
-                        docs_list = getattr(self.manager.collection, 'docs')
-                        # מצא את הגרסה האחרונה עבור הקובץ והמשתמש
-                        candidates = [d for d in docs_list if isinstance(d, dict) and d.get('user_id') == user_id and d.get('file_name') == file_name]
-                        if candidates:
-                            latest = max(candidates, key=lambda d: int(d.get('version', 0) or 0))
-                            latest['is_favorite'] = new_state
-                            latest['updated_at'] = now
-                            latest['favorited_at'] = (now if new_state else None)
-                            matched = 1
-                    except Exception:
-                        pass
+                    pass
             # עדכון ישיר גם באחסון in-memory עבור סביבת טסטים (ללא קשר ל-matched)
             if hasattr(self.manager.collection, 'docs'):
                 try:
@@ -593,8 +598,35 @@ class Repository:
 
     def is_favorite(self, user_id: int, file_name: str) -> bool:
         try:
-            doc = self.get_latest_version(user_id, file_name)
-            return bool(doc.get("is_favorite", False)) if doc else False
+            # קובץ נחשב מועדף אם קיימת *איזושהי* גרסה פעילה מסומנת is_favorite=True
+            try:
+                docs_list = getattr(self.manager.collection, 'docs', None)
+                if isinstance(docs_list, list):
+                    for d in docs_list:
+                        if not isinstance(d, dict):
+                            continue
+                        if int(d.get('user_id', -1) or -1) != int(user_id):
+                            continue
+                        if str(d.get('file_name') or '') != str(file_name):
+                            continue
+                        if d.get('is_active') is False:
+                            continue
+                        if bool(d.get('is_favorite', False)):
+                            return True
+                    return False
+            except Exception:
+                pass
+            q = {
+                "user_id": user_id,
+                "file_name": file_name,
+                "is_favorite": True,
+                "$or": [{"is_active": True}, {"is_active": {"$exists": False}}],
+            }
+            try:
+                doc = self.manager.collection.find_one(q, {"_id": 1})
+            except TypeError:
+                doc = self.manager.collection.find_one(q)
+            return bool(doc)
         except Exception as e:
             emit_event("db_is_favorite_error", severity="error", error=str(e))
             return False

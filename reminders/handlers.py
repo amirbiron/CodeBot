@@ -119,31 +119,54 @@ class ReminderHandlers:
         return ConversationHandler.END
 
     async def receive_title(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        title = (update.message.text or "").strip()
-        if len(title) > ReminderConfig.max_title_length or not self.validator.validate_text(title):
-            await update.message.reply_text("❌ כותרת לא תקינה, נסה שוב:")
-            return REMINDER_TITLE
-        self._ensure_user_data(context)["reminder_title"] = title
-        keyboard = [
-            [InlineKeyboardButton("בעוד 15 דקות", callback_data="time_15m")],
-            [InlineKeyboardButton("בעוד 30 דקות", callback_data="time_30m")],
-            [InlineKeyboardButton("בעוד שעה", callback_data="time_1h")],
-            [InlineKeyboardButton("מחר בבוקר (09:00)", callback_data="time_tomorrow_9")],
-            [InlineKeyboardButton("בעוד שבוע", callback_data="time_week")],
-            [InlineKeyboardButton("זמן מותאם אישית", callback_data="time_custom")],
-        ]
-        safe_title = TextUtils.escape_markdown(title, version=1)
-        await update.message.reply_text(
-            f"📌 **{safe_title}**\n\nמתי להזכיר לך?",
-            reply_markup=InlineKeyboardMarkup(keyboard),
-            parse_mode=ParseMode.MARKDOWN,
-        )
-        return REMINDER_TIME
+        try:
+            title = (update.message.text or "").strip()  # type: ignore[union-attr]
+            if len(title) > ReminderConfig.max_title_length or not self.validator.validate_text(title):
+                await update.message.reply_text("❌ כותרת לא תקינה, נסה שוב:")  # type: ignore[union-attr]
+                return REMINDER_TITLE
+            self._ensure_user_data(context)["reminder_title"] = title
+            keyboard = [
+                [InlineKeyboardButton("בעוד 15 דקות", callback_data="time_15m")],
+                [InlineKeyboardButton("בעוד 30 דקות", callback_data="time_30m")],
+                [InlineKeyboardButton("בעוד שעה", callback_data="time_1h")],
+                [InlineKeyboardButton("מחר בבוקר (09:00)", callback_data="time_tomorrow_9")],
+                [InlineKeyboardButton("בעוד שבוע", callback_data="time_week")],
+                [InlineKeyboardButton("זמן מותאם אישית", callback_data="time_custom")],
+            ]
+            safe_title = TextUtils.escape_markdown(title, version=1)
+            await update.message.reply_text(  # type: ignore[union-attr]
+                f"📌 **{safe_title}**\n\nמתי להזכיר לך?",
+                reply_markup=InlineKeyboardMarkup(keyboard),
+                parse_mode=ParseMode.MARKDOWN,
+            )
+            return REMINDER_TIME
+        except Exception as e:
+            logger.error(f"receive_title error: {e}")
+            try:
+                await update.message.reply_text("❌ שגיאה ביצירת תזכורת. נסה שוב עם /remind או בטל עם /cancel")  # type: ignore[union-attr]
+            except Exception:
+                pass
+            # אל תשאיר state תקוע
+            try:
+                ud = self._ensure_user_data(context)
+                ud.pop("reminder_title", None)
+                ud.pop("reminder_time", None)
+            except Exception:
+                pass
+            return ConversationHandler.END
 
     async def receive_time(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         # Support both inline button selection (callback_query) and free text message for custom time
-        user_tz = self._get_user_timezone(update.effective_user.id)
-        now = datetime.now(ZoneInfo(user_tz))
+        try:
+            user_tz = self._get_user_timezone(update.effective_user.id)
+            now = datetime.now(ZoneInfo(user_tz))
+        except Exception as e:
+            logger.error(f"receive_time tz error: {e}")
+            try:
+                await update.message.reply_text("❌ שגיאה בזיהוי אזור זמן. נסה שוב עם /remind")  # type: ignore[union-attr]
+            except Exception:
+                pass
+            return ConversationHandler.END
 
         if update.callback_query:
             query = update.callback_query
@@ -176,7 +199,15 @@ class ReminderHandlers:
                 )
                 return REMINDER_TIME
 
-        self._ensure_user_data(context)["reminder_time"] = remind_time.astimezone(timezone.utc)
+        try:
+            self._ensure_user_data(context)["reminder_time"] = remind_time.astimezone(timezone.utc)
+        except Exception as e:
+            logger.error(f"receive_time store error: {e}")
+            try:
+                await update.message.reply_text("❌ שגיאה בשמירת הזמן. נסה שוב עם /remind או בטל עם /cancel")  # type: ignore[union-attr]
+            except Exception:
+                pass
+            return ConversationHandler.END
         keyboard = [
             [InlineKeyboardButton("ללא תיאור", callback_data="desc_skip")],
             [InlineKeyboardButton("הוסף תיאור", callback_data="desc_add")],
@@ -198,24 +229,32 @@ class ReminderHandlers:
         return REMINDER_DESCRIPTION
 
     async def receive_description(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        description = ""
-        if update.callback_query:
-            await update.callback_query.answer()
-            if update.callback_query.data == "desc_add":
-                await update.callback_query.edit_message_text("📝 הקלד תיאור לתזכורת (או שלח `דלג`)")
-                return REMINDER_DESCRIPTION
-        else:
-            text = (update.message.text or "").strip()
-            # תמיכה ב"דלג" כמילה חלופית ל-/skip
-            try:
-                normalized = text.strip().lower()
-            except Exception:
-                normalized = text
-            if text and normalized not in {"/skip", "דלג"}:
-                if len(text) > ReminderConfig.max_description_length or not self.validator.validate_text(text):
-                    await update.message.reply_text("❌ תיאור לא תקין. נסה שוב או /skip:")
+        try:
+            description = ""
+            if update.callback_query:
+                await update.callback_query.answer()
+                if update.callback_query.data == "desc_add":
+                    await update.callback_query.edit_message_text("📝 הקלד תיאור לתזכורת (או שלח `דלג`)")
                     return REMINDER_DESCRIPTION
-                description = text
+            else:
+                text = (update.message.text or "").strip()  # type: ignore[union-attr]
+                # תמיכה ב"דלג" כמילה חלופית ל-/skip
+                try:
+                    normalized = text.strip().lower()
+                except Exception:
+                    normalized = text
+                if text and normalized not in {"/skip", "דלג"}:
+                    if len(text) > ReminderConfig.max_description_length or not self.validator.validate_text(text):
+                        await update.message.reply_text("❌ תיאור לא תקין. נסה שוב או /skip:")  # type: ignore[union-attr]
+                        return REMINDER_DESCRIPTION
+                    description = text
+        except Exception as e:
+            logger.error(f"receive_description input error: {e}")
+            try:
+                await update.message.reply_text("❌ שגיאה בקבלת התיאור. נסה שוב עם /remind או בטל עם /cancel")  # type: ignore[union-attr]
+            except Exception:
+                pass
+            return ConversationHandler.END
 
         reminder = Reminder(
             reminder_id=str(uuid.uuid4()),
@@ -536,12 +575,14 @@ def setup_reminder_handlers(application):
             ],
         },
         fallbacks=[CommandHandler("cancel", cancel)],
+        allow_reentry=True,
     )
 
     # Register conversation handlers with default/high priority group.
     # Generic text handlers should use a larger group (e.g., 1) to avoid intercepting conversation messages.
     # Place conversation before generic text handlers (e.g., group -1) to avoid interception
-    application.add_handler(conv, group=-2)
+    # חשוב: קבוצה מוקדמת כדי שלא ייתפס ע"י handlers כלליים (למשל קלט פתקיות/זרימות אחרות)
+    application.add_handler(conv, group=-10)
     application.add_handler(CommandHandler("reminders", handlers.reminders_list))
     application.add_handler(CallbackQueryHandler(handlers.reminder_callback, pattern=r"^(rem_|snooze_|confirm_del_|edit_)"))
     application.add_handler(

@@ -4556,11 +4556,29 @@ class AdvancedBotHandlers:
                 except Exception:
                     doc = None
                 if not doc:
-                    await query.answer("⚠️ הקובץ לא נמצא", show_alert=False)
+                    try:
+                        await query.answer("⚠️ הקובץ לא נמצא", show_alert=False)
+                    except Exception:
+                        pass
                     return
                 fname = doc.get('file_name')
+                if not fname:
+                    try:
+                        await query.answer("⚠️ שם קובץ חסר", show_alert=False)
+                    except Exception:
+                        pass
+                    return
                 state = _call_files_api("toggle_favorite", user_id, fname)
-                await query.answer("⭐ נוסף למועדפים!" if state else "💔 הוסר מהמועדפים", show_alert=False)
+                if state is None:
+                    try:
+                        await query.answer("❌ שגיאה בעדכון מועדפים", show_alert=True)
+                    except Exception:
+                        pass
+                    return
+                try:
+                    await query.answer("⭐ נוסף למועדפים!" if state else "💔 הוסר מהמועדפים", show_alert=False)
+                except Exception:
+                    pass
                 # אם אנחנו במסך בקרה/פעולות, הצג הודעת סטטוס מעל הכפתורים ושמור את המקלדת
                 try:
                     # שלוף פרטים להצגה
@@ -4586,7 +4604,7 @@ class AdvancedBotHandlers:
                     fav_cb = f"fav_toggle_id:{fid}" if fid else f"fav_toggle_tok:{fname}"
                     from telegram import InlineKeyboardButton as _IKB, InlineKeyboardMarkup as _IKM
                     updated_kb = _IKM([[ _IKB(fav_label, callback_data=fav_cb) ]])
-                    await query.edit_message_text(new_text, parse_mode=ParseMode.HTML, reply_markup=updated_kb)
+                    await TelegramUtils.safe_edit_message_text(query, new_text, parse_mode=ParseMode.HTML, reply_markup=updated_kb)
                 except Exception:
                     pass
 
@@ -4600,7 +4618,16 @@ class AdvancedBotHandlers:
                     await query.answer("⚠️ לא נמצא קובץ לפעולה", show_alert=True)
                     return
                 state = _call_files_api("toggle_favorite", user_id, fname)
-                await query.answer("⭐ נוסף למועדפים!" if state else "💔 הוסר מהמועדפים", show_alert=False)
+                if state is None:
+                    try:
+                        await query.answer("❌ שגיאה בעדכון מועדפים", show_alert=True)
+                    except Exception:
+                        pass
+                    return
+                try:
+                    await query.answer("⭐ נוסף למועדפים!" if state else "💔 הוסר מהמועדפים", show_alert=False)
+                except Exception:
+                    pass
                 try:
                     latest = _call_files_api("get_latest_version", user_id, fname) or {}
                     lang = latest.get('programming_language') or 'text'
@@ -4622,13 +4649,21 @@ class AdvancedBotHandlers:
                     fav_cb = f"fav_toggle_tok:{token}"
                     from telegram import InlineKeyboardButton as _IKB, InlineKeyboardMarkup as _IKM
                     updated_kb = _IKM([[ _IKB(fav_label, callback_data=fav_cb) ]])
-                    await query.edit_message_text(new_text, parse_mode=ParseMode.HTML, reply_markup=updated_kb)
+                    await TelegramUtils.safe_edit_message_text(query, new_text, parse_mode=ParseMode.HTML, reply_markup=updated_kb)
                 except Exception:
                     pass
             
         except Exception as e:
             logger.error(f"שגיאה ב-callback: {e}")
-            await query.edit_message_text("❌ אירעה שגיאה. נסה שוב.")
+            # אל תשאיר "שתיקה": קודם נענה על ה-callback ואז ננסה לעדכן הודעה באופן בטוח
+            try:
+                await query.answer("❌ אירעה שגיאה. נסה שוב.", show_alert=True)
+            except Exception:
+                pass
+            try:
+                await TelegramUtils.safe_edit_message_text(query, "❌ אירעה שגיאה. נסה שוב.")
+            except Exception:
+                pass
     
     async def _send_highlighted_code(self, query, user_id: int, file_name: str):
         """שליחת קוד עם הדגשת תחביר"""
