@@ -86,7 +86,10 @@ async def detect_user_language(telegram_user: Any, db_user: Any = None) -> str:
         tg_lang = None
 
     tg_value = (str(tg_lang) if tg_lang is not None else "").strip().lower()
-    detected = "he" if tg_value.startswith("he") else "en"
+    if not tg_value:
+        detected = _DEFAULT_LANG
+    else:
+        detected = "he" if tg_value.startswith("he") else "en"
 
     # best-effort sync חזרה למודל user (בזיכרון)
     if db_user is not None and not db_lang:
