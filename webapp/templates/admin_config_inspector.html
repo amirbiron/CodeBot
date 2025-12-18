@@ -620,6 +620,9 @@
     <a href="?" class="filter-btn reset-btn">
       <i class="fas fa-redo"></i> איפוס
     </a>
+    <button type="button" class="filter-btn reset-btn copy-group-btn" id="copyGroupBtn">
+      <i class="fas fa-copy"></i> העתק הכל
+    </button>
   </form>
 
   <!-- Category Summary -->
@@ -682,31 +685,29 @@
           <td>
             <div class="config-key">
               <span class="category-badge">{{ entry.category }}</span>
-              {{ entry.key }}
+              <span class="config-key-name">{{ entry.key }}</span>
             </div>
           </td>
           <td>
             <div class="value-wrapper">
               <div class="config-value {% if entry.is_sensitive %}masked{% endif %} {% if not entry.active_value %}empty{% endif %}">
                 {% if entry.is_sensitive %}
-                  {{ entry.active_value }}
+                  <span class="config-value-text">{{ entry.active_value }}</span>
                   <i class="fas fa-lock" style="margin-right: 0.3rem; font-size: 0.75rem; opacity: 0.6;" title="ערך מוסתר"></i>
                 {% elif entry.active_value %}
-                  {{ entry.active_value }}
+                  <span class="config-value-text">{{ entry.active_value }}</span>
                 {% else %}
+                  <span class="config-value-text"></span>
                   (ריק)
                 {% endif %}
               </div>
-              {% if not entry.is_sensitive and entry.active_value %}
               <button
                 type="button"
                 class="copy-btn"
-                data-copy="{{ entry.active_value }}"
                 title="העתק ללוח"
-                aria-label="העתק ערך ללוח">
+                aria-label="העתק KEY=VALUE ללוח">
                 <i class="fas fa-copy"></i>
               </button>
-              {% endif %}
             </div>
           </td>
           <td>
@@ -817,17 +818,66 @@
     }
   }
 
-  // Attach click handlers to all copy buttons
+  function sanitizeEnvValue(value) {
+    // שמירה על פורמט שורה אחת עבור .env
+    return String(value ?? '').replace(/\r?\n/g, '\\n');
+  }
+
+  function getEnvLineFromRow(row) {
+    const keyEl = row.querySelector('.config-key-name');
+    const valueEl = row.querySelector('.config-value-text');
+    if (!keyEl) return null;
+
+    const key = (keyEl.textContent || '').trim();
+    const value = sanitizeEnvValue(valueEl ? valueEl.textContent : '');
+    if (!key) return null;
+    return `${key}=${value}`;
+  }
+
+  // Attach click handlers to all per-row copy buttons (copies KEY=VALUE)
   document.querySelectorAll('.copy-btn').forEach(btn => {
     btn.addEventListener('click', (e) => {
       e.preventDefault();
       e.stopPropagation();
-      const value = btn.dataset.copy;
-      if (value) {
-        copyToClipboard(value, btn);
-      }
+
+      const row = btn.closest('tr');
+      if (!row) return;
+
+      const line = getEnvLineFromRow(row);
+      if (!line) return;
+
+      copyToClipboard(line, btn);
     });
   });
+
+  // Copy Group: copy all currently displayed rows as .env lines (KEY=VALUE)
+  const copyGroupBtn = document.getElementById('copyGroupBtn');
+  if (copyGroupBtn) {
+    copyGroupBtn.addEventListener('click', async (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+
+      const rows = document.querySelectorAll('.config-table tbody tr');
+      const lines = [];
+      rows.forEach((row) => {
+        const line = getEnvLineFromRow(row);
+        if (line) lines.push(line);
+      });
+
+      if (lines.length === 0) {
+        showToast('אין שורות להעתקה');
+        return;
+      }
+
+      try {
+        await navigator.clipboard.writeText(lines.join('\n'));
+        showToast(`הועתקו ${lines.length} שורות`);
+      } catch (err) {
+        console.error('Copy group failed:', err);
+        showToast('שגיאה בהעתקה');
+      }
+    });
+  }
 
   // ================================
   // Filter functionality
