@@ -276,7 +276,8 @@ class TestConfigService:
 
             missing_webapp = set(service.validate_required(view="webapp"))
             assert "BOT_TOKEN" not in missing_webapp
-            assert "ALERT_TELEGRAM_BOT_TOKEN" not in missing_webapp
+            # alerts כן רלוונטי ל-Webapp (לדוגמה: forwarder של התראות)
+            assert "ALERT_TELEGRAM_BOT_TOKEN" in missing_webapp
             assert "SECRET_KEY" in missing_webapp
             assert "WEBAPP_GUNICORN_WORKERS" in missing_webapp
 

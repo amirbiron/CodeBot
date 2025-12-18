@@ -103,8 +103,9 @@ class ConfigService:
     # המטרה היא לאפשר להתמקד ב-Webapp או ב-Bot בלי לשכפל דפים.
     # זה משפיע רק על אילו מפתחות יוצגו/יחושבו, לא על הלוגיקה של סטטוסים.
     VIEW_EXCLUDE_CATEGORIES: Dict[str, frozenset[str]] = {
-        # Webapp לרוב לא צריך Telegram/Alerts
-        "webapp": frozenset({"telegram", "alerts"}),
+        # Webapp: לא מסתירים alerts (לדוגמה ALERT_TELEGRAM_BOT_TOKEN רלוונטי גם לווב)
+        # משאירים כאן רק מה שבאמת "בוט-רנטיים" ברוב המקרים.
+        "webapp": frozenset({"telegram"}),
         # Bot לרוב לא צריך Webserver/Gunicorn
         "bot": frozenset({"webserver", "gunicorn"}),
     }
