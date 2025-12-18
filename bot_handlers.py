@@ -30,7 +30,10 @@ from telegram.ext import ApplicationHandlerStop
 
 from services import code_service as code_processor
 from utils import TelegramUtils  # עריכות בטוחות להודעות/מקלדות
-from services.image_generator import CodeImageGenerator
+try:
+    from services.image_generator import CodeImageGenerator
+except Exception:  # pragma: no cover
+    CodeImageGenerator = None  # type: ignore
 from rate_limiter import RateLimiter
 from config import config
 from conversation_handlers import MAIN_KEYBOARD
@@ -51,6 +54,11 @@ def set_activity_reporter(new_reporter):
     reporter = new_reporter or _NoopReporter()
     
 # ---- DB access via composition facade (with legacy fallback) ---------------
+# Backwards-compatibility for tests that monkeypatch `bot_handlers.db`.
+# We intentionally keep it `None` by default to avoid import-time DB coupling.
+db = None  # type: ignore
+
+
 def _get_files_facade_or_none():
     """Best-effort access to FilesFacade without breaking older tests."""
     try:
@@ -62,6 +70,12 @@ def _get_files_facade_or_none():
 
 def _get_legacy_db():
     """Lazy access to the legacy DatabaseManager for fallback paths."""
+    try:
+        patched = globals().get("db")
+        if patched is not None:
+            return patched
+    except Exception:
+        pass
     try:
         module = importlib.import_module("database")
         return getattr(module, "db", None)
@@ -86,6 +100,22 @@ def _should_retry_with_legacy(value) -> bool:
 
 def _call_files_api(method_name: str, *args, **kwargs):
     """Invoke FilesFacade method by name, best-effort with legacy fallback."""
+    # If tests (or runtime) patched `bot_handlers.db`, prefer it for compatibility.
+    try:
+        patched = globals().get("db")
+    except Exception:
+        patched = None
+    if patched is not None:
+        method = getattr(patched, method_name, None)
+        if callable(method):
+            try:
+                legacy_result = method(*args, **kwargs)
+                if legacy_result is not None:
+                    return legacy_result
+            except Exception:
+                # fall through to facade path
+                pass
+
     facade_result = _FACADE_SENTINEL
     facade = _get_files_facade_or_none()
     if facade is not None:
@@ -4119,6 +4149,9 @@ class AdvancedBotHandlers:
             elif data.startswith("regenerate_image_"):
                 _suffix = data.replace("regenerate_image_", "")
                 file_name = self._resolve_image_target(context, _suffix)
+                if CodeImageGenerator is None:  # pragma: no cover
+                    await query.answer("❌ יצירת תמונות לא זמינה בסביבה זו", show_alert=True)
+                    return
                 # Rate limit for expensive regeneration
                 try:
                     allowed = await image_rate_limiter.check_rate_limit(user_id)
@@ -4338,6 +4371,9 @@ class AdvancedBotHandlers:
             elif data.startswith("save_to_drive_"):
                 _suffix = data.replace("save_to_drive_", "")
                 file_name = self._resolve_image_target(context, _suffix)
+                if CodeImageGenerator is None:  # pragma: no cover
+                    await query.answer("❌ יצירת תמונות לא זמינה בסביבה זו", show_alert=True)
+                    return
                 # Rate limit for potentially heavy generation+upload
                 try:
                     allowed = await image_rate_limiter.check_rate_limit(user_id)
@@ -5050,6 +5086,9 @@ class AdvancedBotHandlers:
         """יצירת תמונת PNG מהקוד עבור קובץ נתון."""
         reporter.report_activity(update.effective_user.id)
         user_id = update.effective_user.id
+        if CodeImageGenerator is None:  # pragma: no cover
+            await update.message.reply_text("❌ יצירת תמונות לא זמינה בסביבה זו.")
+            return
 
         # שימוש בסיסי והסבר קצר
         if not context.args:
@@ -5162,6 +5201,9 @@ class AdvancedBotHandlers:
         """תצוגה מקדימה (עד 50 שורות, רוחב 800px)."""
         reporter.report_activity(update.effective_user.id)
         user_id = update.effective_user.id
+        if CodeImageGenerator is None:  # pragma: no cover
+            await update.message.reply_text("❌ תצוגה מקדימה כתמונה לא זמינה בסביבה זו.")
+            return
 
         if not context.args:
             await update.message.reply_text(
@@ -5225,6 +5267,9 @@ class AdvancedBotHandlers:
         """יצירת תמונות לכל הקבצים של המשתמש (עד 20)."""
         reporter.report_activity(update.effective_user.id)
         user_id = update.effective_user.id
+        if CodeImageGenerator is None:  # pragma: no cover
+            await update.message.reply_text("❌ יצירת תמונות לא זמינה בסביבה זו.")
+            return
 
         # בדיקה רכה של Rate limit
         try:

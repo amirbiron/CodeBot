@@ -16,9 +16,20 @@ from utils import normalize_code  # נרמול קלט כדי להסיר תווי
 
 logger = logging.getLogger(__name__)
 
+# Backwards-compatibility for tests that monkeypatch `handlers.save_flow.db`
+# and/or `handlers.save_flow.CodeSnippet`.
+db = None  # type: ignore
+CodeSnippet = None  # type: ignore
+
 
 def _get_legacy_db():
     """גישה ל-DB הוותיק בלי import סטטי של database."""
+    try:
+        patched = globals().get("db")
+        if patched is not None:
+            return patched
+    except Exception:
+        pass
     try:
         module = importlib.import_module("database")
         return getattr(module, "db", None)
@@ -27,7 +38,15 @@ def _get_legacy_db():
 
 
 def _get_legacy_model_class(class_name: str):
-    for module_name in ("database.models", "database"):
+    # If tests patched a class in this module, prefer it.
+    try:
+        patched = globals().get(class_name)
+        if patched is not None:
+            return patched
+    except Exception:
+        pass
+    # Prefer `database.<Class>` first (tests often monkeypatch this path).
+    for module_name in ("database", "database.models"):
         try:
             module = importlib.import_module(module_name)
             cls = getattr(module, class_name, None)
@@ -664,6 +683,7 @@ async def save_file_final(update, context, filename, user_id):
         except Exception:
             facade = None
         success = False
+        last_exc: Optional[BaseException] = None
         if facade is not None:
             try:
                 success = bool(
@@ -676,8 +696,9 @@ async def save_file_final(update, context, filename, user_id):
                         tags=None,
                     )
                 )
-            except Exception:
+            except Exception as exc:
                 success = False
+                last_exc = last_exc or exc
         if not success:
             # fallback לנתיב legacy בלי import סטטי של database
             try:
@@ -692,8 +713,12 @@ async def save_file_final(update, context, filename, user_id):
                         description=note,
                     )
                     success = bool(legacy.save_code_snippet(snippet))
-            except Exception:
+            except Exception as exc:
                 success = False
+                # If legacy raised, bubble up to outer handler to trigger observability.
+                last_exc = last_exc or exc
+        if not success and last_exc is not None:
+            raise last_exc
         if success:
             try:
                 saved_doc = (facade.get_latest_version(user_id, filename) if facade is not None else None) or {}
