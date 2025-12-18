@@ -6724,11 +6724,13 @@ def files():
 
         pipeline = [
             {'$match': recent_query},
+            # חשוב: סינון "לא ריק" חייב להתבצע לפני group כדי לבחור את הגרסה האחרונה *הלא-ריקה*
+            # ולא לפסול קובץ רק בגלל שהגרסה האחרונה ריקה.
+            _mongo_add_size_lines_stage,
+            {'$match': {'file_size': {'$gt': 0}}},
             {'$sort': {'file_name': 1, 'version': -1}},
             {'$group': {'_id': '$file_name', 'latest': {'$first': '$$ROOT'}}},
             {'$replaceRoot': {'newRoot': '$latest'}},
-            _mongo_add_size_lines_stage,
-            {'$match': {'file_size': {'$gt': 0}}},
             {'$project': LIST_EXCLUDE_HEAVY_PROJECTION},
         ]
 
@@ -6816,11 +6818,13 @@ def files():
         # בסיס הפייפליין: גרסה אחרונה לכל file_name ותוכן לא ריק
         base_pipeline = [
             {'$match': query},
+            # חשוב: סינון "לא ריק" חייב להתבצע לפני group כדי לבחור את הגרסה האחרונה *הלא-ריקה*.
+            # אחרת, אם הגרסה האחרונה ריקה נקבל mismatch בין total_count לבין הרשימה בפועל.
+            _mongo_add_size_lines_stage,
+            {'$match': {'file_size': {'$gt': 0}}},
             {'$sort': {'file_name': 1, 'version': -1}},
             {'$group': {'_id': '$file_name', 'latest': {'$first': '$$ROOT'}}},
             {'$replaceRoot': {'newRoot': '$latest'}},
-            _mongo_add_size_lines_stage,
-            {'$match': {'file_size': {'$gt': 0}}},
             {'$project': LIST_EXCLUDE_HEAVY_PROJECTION},
         ]
         next_cursor_token = None
