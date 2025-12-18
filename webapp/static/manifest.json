@@ -3,6 +3,7 @@
   "short_name": "CodeKeeper",
   "start_url": "/",
   "display": "standalone",
+  "capture_links": "none",
   "background_color": "#5337A8",
   "theme_color": "#5337A8",
   "orientation": "any",
