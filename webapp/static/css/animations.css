@@ -209,3 +209,8 @@
 .stagger-item:nth-child(5) {
   animation-delay: 0.25s;
 }
+
+/* כל פריט מעבר ל-5 יופיע בסוף הרצף */
+.stagger-item:nth-child(n + 6) {
+  animation-delay: 0.3s;
+}
