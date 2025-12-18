@@ -103,11 +103,13 @@ class FilesFacade:
     def save_code_snippet(self, *, user_id: int, file_name: str, code: str, programming_language: str, description: str = "", tags: Optional[List[str]] = None) -> bool:
         """Persist a CodeSnippet including description field (for notes)."""
         try:
-            from database.models import CodeSnippet  # type: ignore
+            # Prefer `database.CodeSnippet` first:
+            # - In runtime it's an alias to database.models.CodeSnippet
+            # - In tests it's commonly monkeypatched on the `database` module
+            from database import CodeSnippet  # type: ignore
         except Exception:
-            # Older path (if available)
             try:
-                from database import CodeSnippet  # type: ignore
+                from database.models import CodeSnippet  # type: ignore
             except Exception:
                 CodeSnippet = None  # type: ignore
         if CodeSnippet is None:  # type: ignore
@@ -126,10 +128,11 @@ class FilesFacade:
     # ---- Large files -------------------------------------------------------
     def save_large_file(self, *, user_id: int, file_name: str, content: str, programming_language: str, file_size: int, lines_count: int) -> bool:
         try:
-            from database.models import LargeFile  # type: ignore
+            # Prefer `database.LargeFile` first for consistency with CodeSnippet.
+            from database import LargeFile  # type: ignore
         except Exception:
             try:
-                from database import LargeFile  # type: ignore
+                from database.models import LargeFile  # type: ignore
             except Exception:
                 LargeFile = None  # type: ignore
         if LargeFile is None:  # type: ignore
