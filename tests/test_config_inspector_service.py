@@ -31,8 +31,8 @@ class TestConfigService:
 
     def test_is_sensitive_key_by_definition(self):
         """Test sensitive key detection by definition."""
-        # TELEGRAM_BOT_TOKEN is defined as sensitive
-        assert self.service.is_sensitive_key("TELEGRAM_BOT_TOKEN") is True
+        # BOT_TOKEN is defined as sensitive
+        assert self.service.is_sensitive_key("BOT_TOKEN") is True
 
     def test_mask_value(self):
         """Test value masking."""
@@ -208,10 +208,10 @@ class TestConfigService:
     def test_validate_required_consistency_with_status(self):
         """Test that validate_required and determine_status are consistent."""
         # באג קודם: מחרוזת ריקה גרמה לסתירה בין השניים
-        with patch.dict(os.environ, {"TELEGRAM_BOT_TOKEN": ""}, clear=False):
+        with patch.dict(os.environ, {"BOT_TOKEN": ""}, clear=False):
             # קבלת הסטטוס
             definition = ConfigDefinition(
-                key="TELEGRAM_BOT_TOKEN",
+                key="BOT_TOKEN",
                 default="",
                 description="Bot token",
                 category="telegram",
@@ -224,9 +224,9 @@ class TestConfigService:
             if entry.status == ConfigStatus.MISSING:
                 # נשתמש במוק מצומצם רק עם המשתנה הזה
                 test_service = ConfigService()
-                test_service.CONFIG_DEFINITIONS = {"TELEGRAM_BOT_TOKEN": definition}
+                test_service.CONFIG_DEFINITIONS = {"BOT_TOKEN": definition}
                 missing = test_service.validate_required()
-                assert "TELEGRAM_BOT_TOKEN" in missing, "Status is MISSING but validate_required didn't catch it!"
+                assert "BOT_TOKEN" in missing, "Status is MISSING but validate_required didn't catch it!"
 
     def test_category_summary(self):
         """Test category summary generation."""
