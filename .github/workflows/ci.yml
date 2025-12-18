@@ -1,11 +1,12 @@
+---
 name: CI/CD Pipeline
 
 on:
-  push: 
-    branches: [ 'main', 'rollback/**' ]
+  push:
+    branches: ['main', 'rollback/**']
     # אל תתעלם משינויים ב-.cursorrules כדי שה-CI ירוץ גם על PRים שמעדכנים אותו
   pull_request:
-    branches: [ '**' ]
+    branches: ['**']
     types: [opened, synchronize, reopened, ready_for_review]
     # אל תתעלם מ-.cursorrules גם כאן
   workflow_dispatch:
@@ -155,7 +156,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        python-version: [ '3.11', '3.12' ]
+        python-version: ['3.11', '3.12']
     services:
       mongodb:
         image: mongo:6.0
@@ -342,6 +343,8 @@ jobs:
           fetch-depth: 0
       - name: Run gitleaks
         uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           args: detect --no-banner --redact --source .
         continue-on-error: true
@@ -448,4 +451,3 @@ jobs:
           DATABASE_URL: postgresql://postgres:postgres@localhost:5432/app
         run: |
           alembic upgrade head
-

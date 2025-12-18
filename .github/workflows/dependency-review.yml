@@ -2,7 +2,7 @@ name: Dependency Review
 
 on:
   pull_request:
-    branches: [ main, master ]
+    branches: [main, master]
 
 permissions:
   contents: read
@@ -24,4 +24,3 @@ jobs:
         run: |
           echo "Dependency review skipped: repository is private without GitHub Advanced Security."
           echo "Enable Security & analysis → Dependency graph and GitHub Advanced Security to use this check."
-

@@ -130,4 +130,3 @@ jobs:
           api_url="https://api.telegram.org/bot${BOT_TOKEN}/sendMessage"
           jq -nc --arg chat_id "$CHAT_ID" --arg text "$TEXT" '{chat_id:$chat_id, text:$text, parse_mode:"MarkdownV2", disable_web_page_preview:true}' \
             | curl -sS -X POST "$api_url" -H 'Content-Type: application/json' -d @- | cat
-

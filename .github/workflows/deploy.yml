@@ -8,8 +8,8 @@ name: 🚀 Code Keeper Bot CI/CD
 on:
   # הפעלה על push לענפים עיקריים בלבד (לא PR)
   push:
-    branches: [ main, develop ]
-    tags: [ 'v*' ]
+    branches: [main, develop]
+    tags: ['v*']
 
   # הפעלה ידנית
   workflow_dispatch:
@@ -45,19 +45,19 @@ jobs:
   code-quality:
     name: 🔍 Code Quality & Security
     runs-on: ubuntu-latest
-    
+
     steps:
       - name: 📥 Checkout Code
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      
+
       - name: 🐍 Setup Python
         uses: actions/setup-python@v4
         with:
           python-version: ${{ env.PYTHON_VERSION }}
           cache: 'pip'
-      
+
       - name: 📦 Install Dependencies
         run: |
           python -m pip install --upgrade pip
@@ -66,7 +66,7 @@ jobs:
           pip install -r requirements/development.txt
           pip freeze | sort > constraints.txt
           pip install -r requirements/development.txt -c constraints.txt
-      
+
       - name: 🔎 Dependency integrity (pip check)
         run: |
           pip check
@@ -74,37 +74,37 @@ jobs:
       - name: 🧪 Smoke compile (exclude .restore)
         run: |
           find . -type f -name "*.py" -not -path "./.restore/*" -print0 | xargs -0 -n1 -P 4 python -m py_compile
-      
+
       - name: 🎨 Code Formatting (Black)
         run: |
           black --check --diff .
         continue-on-error: true
-      
+
       - name: 📋 Import Sorting (isort)
         run: |
           isort --check-only --diff .
         continue-on-error: true
-      
+
       - name: 🔍 Linting (Flake8)
         run: |
           flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics
           flake8 . --count --exit-zero --max-complexity=10 --max-line-length=127 --statistics
-      
+
       - name: 🏷️ Type Checking (MyPy)
         run: |
           mypy . --ignore-missing-imports
         continue-on-error: true
-      
+
       - name: 🔒 Security Check (Bandit)
         run: |
           bandit -r . -f json -o bandit-report.json
         continue-on-error: true
-      
+
       - name: 🛡️ Dependency Check (Safety)
         run: |
           safety check --json --output safety-report.json
         continue-on-error: true
-      
+
       - name: 📊 Upload Security Reports
         uses: actions/upload-artifact@v4
         if: always()
@@ -121,11 +121,11 @@ jobs:
     name: Unit Tests
     runs-on: ubuntu-latest
     needs: code-quality
-    
+
     strategy:
       matrix:
         python-version: ['3.11', '3.12']
-    
+
     services:
       mongodb:
         image: mongo:6.0
@@ -139,7 +139,7 @@ jobs:
           --health-interval 10s
           --health-timeout 5s
           --health-retries 5
-      
+
       redis:
         image: redis:7-alpine
         ports:
@@ -149,17 +149,17 @@ jobs:
           --health-interval 10s
           --health-timeout 5s
           --health-retries 5
-    
+
     steps:
       - name: 📥 Checkout Code
         uses: actions/checkout@v4
-      
+
       - name: 🐍 Setup Python ${{ matrix.python-version }}
         uses: actions/setup-python@v4
         with:
           python-version: ${{ matrix.python-version }}
           cache: 'pip'
-      
+
       - name: 📦 Install Dependencies
         run: |
           python -m pip install --upgrade pip
@@ -173,11 +173,11 @@ jobs:
         run: |
           pip check
 
-        
+
       - name: 🧪 Smoke compile (exclude .restore)
         run: |
           find . -type f -name "*.py" -not -path "./.restore/*" -print0 | xargs -0 -n1 -P 4 python -m py_compile
-      
+
       - name: 🧪 Run Tests
         env:
           BOT_TOKEN: ${{ secrets.TEST_BOT_TOKEN || '1234567890:TEST_TOKEN_FOR_TESTING' }}
@@ -187,7 +187,7 @@ jobs:
           PASTEBIN_API_KEY: ${{ secrets.TEST_PASTEBIN_KEY }}
         run: |
           pytest -v --cov=. --cov-report=xml --cov-report=html
-      
+
       # Coverage upload מבוצע כבר ב-CI הראשי. כדי למנוע כפילויות/בלבול, ננטרל כאן.
       - name: 📊 Upload Coverage to Codecov (disabled - handled in CI workflow)
         if: false
@@ -196,7 +196,7 @@ jobs:
           files: ./coverage.xml
           flags: unittests
           name: codecov-umbrella
-      
+
       - name: 📈 Upload Coverage Reports
         uses: actions/upload-artifact@v4
         if: matrix.python-version == '3.11'
@@ -222,15 +222,15 @@ jobs:
     runs-on: ubuntu-latest
     needs: [code-quality, unit-tests]
     timeout-minutes: 45
-    
+
     outputs:
       image-digest: ${{ steps.build.outputs.digest }}
       image-tag: ${{ steps.meta.outputs.tags }}
-    
+
     steps:
       - name: 📥 Checkout Code
         uses: actions/checkout@v4
-      
+
       - name: 🧭 Determine build plan (platforms & push)
         id: plan
         run: |
@@ -245,15 +245,15 @@ jobs:
             echo "platforms=linux/amd64" >> "$GITHUB_OUTPUT"
             echo "do_push=false" >> "$GITHUB_OUTPUT"
           fi
-      
+
       - name: 🐧 Set up QEMU (for ARM emulation)
         uses: docker/setup-qemu-action@v3
         with:
           platforms: arm64
-      
+
       - name: 🔧 Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
-      
+
       - name: 🔐 Login to Container Registry
         if: ${{ steps.plan.outputs.do_push == 'true' }}
         uses: docker/login-action@v3
@@ -261,7 +261,7 @@ jobs:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-      
+
       - name: 🏷️ Extract Metadata
         id: meta
         uses: docker/metadata-action@v5
@@ -276,7 +276,7 @@ jobs:
             # Avoid generating tags with empty names
             type=sha,prefix=sha-
             type=raw,value=latest,enable={{is_default_branch}}
-      
+
       - name: 🏗️ Build and Push Docker Image
         id: build
         uses: docker/build-push-action@v5
@@ -290,11 +290,11 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
           target: production
-      
+
       - name: ⏳ Wait for image to be available in registry
         if: ${{ steps.plan.outputs.do_push == 'true' }}
         run: sleep 15
-      
+
       - name: 🛡️ Run Security Scan
         if: ${{ steps.plan.outputs.do_push == 'true' }}
         uses: aquasecurity/trivy-action@master
@@ -329,15 +329,15 @@ jobs:
     runs-on: ubuntu-latest
     needs: build-docker
     if: github.ref == 'refs/heads/develop' || github.event.inputs.environment == 'staging'
-    
+
     environment:
       name: staging
       url: https://code-keeper-bot-staging.onrender.com
-    
+
     steps:
       - name: 📥 Checkout Code
         uses: actions/checkout@v4
-      
+
       - name: 🚀 Trigger Render Deploy (Staging)
         run: |
           curl -X POST "${{ secrets.RENDER_STAGING_DEPLOY_HOOK }}" \
@@ -346,12 +346,12 @@ jobs:
               "branch": "develop",
               "commit": "${{ github.sha }}"
             }'
-      
+
       - name: ⏳ Wait for Deployment
         run: |
           echo "⏳ Waiting for Render deployment to complete..."
           sleep 120  # ממתין 2 דקות לפריסה
-      
+
       - name: 🧪 Health Check
         run: |
           echo "🏥 Checking staging health..."
@@ -365,7 +365,7 @@ jobs:
           done
           echo "❌ Staging health check failed"
           exit 1
-      
+
       - name: 🧪 Integration Tests
         run: |
           echo "🧪 Running integration tests against staging..."
@@ -373,17 +373,17 @@ jobs:
           python -c "
           import requests
           import os
-          
+
           # בדיקה שהבוט מגיב
           staging_url = 'https://code-keeper-bot-staging.onrender.com'
-          
+
           try:
               response = requests.get(f'{staging_url}/health', timeout=10)
               assert response.status_code == 200
               print('✅ Staging API is responding')
-              
+
               # בדיקות נוספות כאן...
-              
+
           except Exception as e:
               print(f'❌ Integration test failed: {e}')
               exit(1)
@@ -397,15 +397,15 @@ jobs:
     runs-on: ubuntu-latest
     needs: [build-docker, deploy-staging]
     if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v') || github.event.inputs.environment == 'production'
-    
+
     environment:
       name: production
       url: https://code-keeper-bot.onrender.com
-    
+
     steps:
       - name: 📥 Checkout Code
         uses: actions/checkout@v4
-      
+
       - name: 🎯 Create GitHub Release
         if: startsWith(github.ref, 'refs/tags/v')
         uses: actions/create-release@v1
@@ -416,32 +416,32 @@ jobs:
           release_name: Release ${{ github.ref_name }}
           body: |
             ## 🚀 Code Keeper Bot ${{ github.ref_name }}
-            
+
             ### ✨ New Features
             - Feature 1
             - Feature 2
-            
+
             ### 🐛 Bug Fixes
             - Fix 1
             - Fix 2
-            
+
             ### 📦 Docker Image
             ```bash
             docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.ref_name }}
             ```
-            
+
             ### 🌐 Live on Render
             The bot is deployed and running at: https://code-keeper-bot.onrender.com
-            
+
             ### 🔗 Full Changelog
             https://github.com/${{ github.repository }}/compare/${{ github.event.before }}...${{ github.ref_name }}
           draft: false
           prerelease: false
-      
+
       - name: 🚀 Trigger Render Deploy (Production)
         run: |
           echo "🚀 Deploying to Render Production..."
-          
+
           # קריאה ל-Render Deploy Hook
           response=$(curl -s -w "%{http_code}" -X POST "${{ secrets.RENDER_PRODUCTION_DEPLOY_HOOK }}" \
             -H "Content-Type: application/json" \
@@ -450,67 +450,67 @@ jobs:
               \"commit\": \"${{ github.sha }}\",
               \"message\": \"Automated deployment from GitHub Actions\"
             }")
-          
+
           http_code="${response: -3}"
-          
+
           if [ "$http_code" -eq 200 ] || [ "$http_code" -eq 201 ]; then
             echo "✅ Render deployment triggered successfully"
           else
             echo "❌ Failed to trigger Render deployment (HTTP: $http_code)"
             exit 1
           fi
-      
+
       - name: ⏳ Wait for Production Deployment
         run: |
           echo "⏳ Waiting for Render production deployment..."
-          
+
           # המתנה מותאמת לגודל הפרויקט
           echo "⏳ Build and deployment typically takes 3-5 minutes on Render..."
           sleep 180  # 3 דקות
-          
+
           # בדיקה שהשירות עלה
           for i in {1..20}; do
             if curl -f "https://code-keeper-bot.onrender.com/health" 2>/dev/null; then
               echo "✅ Production deployment successful!"
               break
             fi
-            
+
             if [ $i -eq 20 ]; then
               echo "❌ Production deployment timeout"
               exit 1
             fi
-            
+
             echo "⏳ Deployment check $i/20, waiting 30s..."
             sleep 30
           done
-      
+
       - name: 📊 Production Health Check
         run: |
           echo "🏥 Running comprehensive production health checks..."
-          
+
           production_url="https://code-keeper-bot.onrender.com"
-          
+
           # בדיקות בסיסיות
           echo "🔍 Testing basic connectivity..."
           curl -f "$production_url/health" || exit 1
-          
+
           # בדיקת response time
           echo "⚡ Testing response time..."
           response_time=$(curl -w "%{time_total}" -s -o /dev/null "$production_url/health")
-          
+
           if (( $(echo "$response_time > 5.0" | bc -l) )); then
             echo "⚠️ Warning: Slow response time ($response_time seconds)"
           else
             echo "✅ Good response time: $response_time seconds"
           fi
-          
+
           echo "✅ All production health checks passed!"
-      
+
       - name: 🔄 Rollback on Failure
         if: failure()
         run: |
           echo "❌ Production deployment failed, attempting rollback..."
-          
+
           # אם יש deploy hook לגרסה קודמת, נשתמש בו
           if [ -n "${{ secrets.RENDER_ROLLBACK_HOOK }}" ]; then
             curl -X POST "${{ secrets.RENDER_ROLLBACK_HOOK }}"
@@ -527,7 +527,7 @@ jobs:
 #    runs-on: ubuntu-latest
 #    needs: [deploy-staging, deploy-production]
 #    if: always()
-#    
+#
 #    steps:
 #      - name: 📱 Telegram Notification
 #        if: always()
@@ -537,21 +537,21 @@ jobs:
 #          token: ${{ secrets.TELEGRAM_BOT_TOKEN }}
 #          message: |
 #            🤖 **Code Keeper Bot Deployment**
-#            
+#
 #            📋 **Workflow:** ${{ github.workflow }}
 #            🌿 **Branch:** ${{ github.ref_name }}
 #            👤 **Actor:** ${{ github.actor }}
 #            💾 **Commit:** ${{ github.sha }}
-#            
+#
 #            📊 **Results:**
 #            • Code Quality: ${{ needs.code-quality.result }}
 #            • Unit Tests: ${{ needs.unit-tests.result }}
 #            • Docker Build: ${{ needs.build-docker.result }}
 #            • Staging: ${{ needs.deploy-staging.result }}
 #            • Production: ${{ needs.deploy-production.result }}
-#            
+#
 #            🔗 **Details:** https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
-#      
+#
 #      - name: 📧 Email Notification
 #        if: failure()
 #        uses: dawidd6/action-send-mail@v3
@@ -580,7 +580,7 @@ jobs:
     # needs: [notify]
     needs: [deploy-staging, deploy-production]
     if: always()
-    
+
     steps:
       - name: 🔑 Resolve Packages Token (PAT fallback)
         id: pkg-token
@@ -601,7 +601,7 @@ jobs:
           package-type: 'container'
           min-versions-to-keep: 10
           delete-only-untagged-versions: true
-      
+
       - name: 📊 Collect Metrics
         run: |
           echo "📊 Collecting deployment metrics..."
@@ -623,7 +623,7 @@ jobs:
 
 # עבור בדיקות:
 # - TEST_BOT_TOKEN: טוקן בוט לבדיקות
-# - TEST_GITHUB_TOKEN: טוקן GitHub לבדיקות  
+# - TEST_GITHUB_TOKEN: טוקן GitHub לבדיקות
 # - TEST_PASTEBIN_KEY: מפתח Pastebin לבדיקות
 
 # עבור Render deployment:
