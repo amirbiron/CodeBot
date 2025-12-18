@@ -2170,6 +2170,29 @@ def verify_telegram_auth(auth_data: Dict[str, Any]) -> bool:
 
 def login_required(f):
     """דקורטור לבדיקת התחברות"""
+    try:
+        is_async = asyncio.iscoroutinefunction(f)  # type: ignore[attr-defined]
+    except Exception:
+        is_async = False
+
+    if is_async:
+        @wraps(f)
+        async def decorated_function(*args, **kwargs):
+            if 'user_id' not in session:
+                try:
+                    wants_json = (
+                        (request.path or '').startswith('/api/') or
+                        ('application/json' in (request.headers.get('Accept') or ''))
+                    )
+                except Exception:
+                    wants_json = False
+                if wants_json:
+                    return jsonify({'error': 'נדרש להתחבר'}), 401
+                next_url = request.full_path if request.query_string else request.path
+                return redirect(url_for('login', next=next_url))
+            return await f(*args, **kwargs)
+        return decorated_function
+
     @wraps(f)
     def decorated_function(*args, **kwargs):
         if 'user_id' not in session:
@@ -10255,6 +10278,64 @@ def api_stats():
     except Exception:
         return jsonify(stats)
 
+
+@app.route('/api/stats/logs', methods=['GET'])
+@login_required
+async def api_stats_logs():
+    """API לוגים קצר (לטובת Observability/UI) – מחזיר רשומות מצומצמות ובטוחות."""
+    if not _require_admin_user():
+        return jsonify({'ok': False, 'error': 'admin_only'}), 403
+    try:
+        try:
+            limit = int(request.args.get('limit') or 120)
+        except Exception:
+            limit = 120
+        limit = max(1, min(500, limit))
+
+        def _fetch() -> List[Dict[str, Any]]:
+            rows: List[Dict[str, Any]] = []
+            try:
+                import internal_alerts as _ia  # type: ignore
+            except Exception:
+                _ia = None  # type: ignore
+            if _ia is None or not hasattr(_ia, 'get_recent_alerts'):
+                return rows
+            try:
+                raw = _ia.get_recent_alerts(limit=max(20, limit))  # type: ignore[attr-defined]
+            except Exception:
+                raw = []
+            mask = getattr(observability_service, "_mask_text", None)
+            for rec in (raw or [])[:limit]:
+                if not isinstance(rec, dict):
+                    continue
+                ts = rec.get('timestamp') or rec.get('ts') or rec.get('time') or rec.get('created_at')
+                severity = rec.get('severity') or rec.get('level') or rec.get('status') or 'info'
+                message = rec.get('message') or rec.get('summary') or rec.get('event') or rec.get('name') or ''
+                source = rec.get('source') or rec.get('service') or rec.get('component') or ''
+                try:
+                    msg_text = str(message or '')
+                except Exception:
+                    msg_text = ''
+                if callable(mask):
+                    try:
+                        msg_text = str(mask(msg_text) or '')
+                    except Exception:
+                        pass
+                msg_text = (msg_text[:500] + '…') if len(msg_text) > 500 else msg_text
+                rows.append({
+                    'timestamp': ts,
+                    'severity': str(severity or 'info'),
+                    'message': msg_text,
+                    'source': str(source or ''),
+                })
+            return rows
+
+        logs = await asyncio.to_thread(_fetch)
+        return jsonify({'ok': True, 'logs': logs, 'count': len(logs)})
+    except Exception:
+        logger.exception("api_stats_logs_failed")
+        return jsonify({'ok': False, 'error': 'internal_error'}), 500
+
 @app.route('/theme-preview')
 def theme_preview():
     """תצוגה מקדימה של ערכות נושא מוצעות"""
@@ -10840,7 +10921,7 @@ def api_observability_drills_history_details(drill_id: str):
 
 @app.route('/api/observability/alerts', methods=['GET'])
 @login_required
-def api_observability_alerts():
+async def api_observability_alerts():
     if not _require_admin_user():
         return jsonify({'ok': False, 'error': 'admin_only'}), 403
     try:
@@ -10854,7 +10935,8 @@ def api_observability_alerts():
             alert_type = None
         endpoint = request.args.get('endpoint') or None
         search = request.args.get('search') or request.args.get('q') or None
-        data = observability_service.fetch_alerts(
+        data = await asyncio.to_thread(
+            observability_service.fetch_alerts,
             start_dt=start_dt,
             end_dt=end_dt,
             severity=severity,
@@ -10876,7 +10958,7 @@ def api_observability_alerts():
 
 @app.route('/api/observability/coverage', methods=['GET'])
 @login_required
-def api_observability_coverage():
+async def api_observability_coverage():
     if not _require_admin_user():
         return jsonify({'ok': False, 'error': 'admin_only'}), 403
     try:
@@ -10886,7 +10968,8 @@ def api_observability_coverage():
         except Exception:
             min_count = 1
         min_count = max(1, min(10_000, min_count))
-        payload = observability_service.build_coverage_report(
+        payload = await asyncio.to_thread(
+            observability_service.build_coverage_report,
             start_dt=start_dt,
             end_dt=end_dt,
             min_count=min_count,
@@ -10903,7 +10986,7 @@ def api_observability_coverage():
 
 @app.route('/api/observability/aggregations', methods=['GET'])
 @login_required
-def api_observability_aggregations():
+async def api_observability_aggregations():
     if not _require_admin_user():
         return jsonify({'ok': False, 'error': 'admin_only'}), 403
     try:
@@ -10913,7 +10996,8 @@ def api_observability_aggregations():
         except Exception:
             limit = 5
         limit = max(1, min(20, limit))
-        payload = observability_service.fetch_aggregations(
+        payload = await asyncio.to_thread(
+            observability_service.fetch_aggregations,
             start_dt=start_dt,
             end_dt=end_dt,
             slow_endpoints_limit=limit,
@@ -10930,7 +11014,7 @@ def api_observability_aggregations():
 
 @app.route('/api/observability/timeseries', methods=['GET'])
 @login_required
-def api_observability_timeseries():
+async def api_observability_timeseries():
     if not _require_admin_user():
         return jsonify({'ok': False, 'error': 'admin_only'}), 403
     try:
@@ -10938,7 +11022,8 @@ def api_observability_timeseries():
         granularity_arg = request.args.get('granularity') or '1h'
         granularity_seconds = _parse_duration_to_seconds(granularity_arg, default_seconds=3600)
         metric = request.args.get('metric') or 'alerts_count'
-        payload = observability_service.fetch_timeseries(
+        payload = await asyncio.to_thread(
+            observability_service.fetch_timeseries,
             start_dt=start_dt,
             end_dt=end_dt,
             granularity_seconds=granularity_seconds,
@@ -10957,7 +11042,7 @@ def api_observability_timeseries():
 
 @app.route('/api/observability/export', methods=['GET'])
 @login_required
-def api_observability_export():
+async def api_observability_export():
     user_id = _require_admin_user()
     if not user_id:
         return jsonify({'ok': False, 'error': 'admin_only'}), 403
@@ -10968,7 +11053,8 @@ def api_observability_export():
             alerts_limit = int(request.args.get('alerts_limit') or request.args.get('per_page', 120))
         except Exception:
             alerts_limit = 120
-        snapshot = observability_service.build_dashboard_snapshot(
+        snapshot = await asyncio.to_thread(
+            observability_service.build_dashboard_snapshot,
             start_dt=start_dt,
             end_dt=end_dt,
             timerange_label=timerange,
@@ -10986,7 +11072,7 @@ def api_observability_export():
 
 @app.route('/api/observability/replay', methods=['GET'])
 @login_required
-def api_observability_replay():
+async def api_observability_replay():
     if not _require_admin_user():
         return jsonify({'ok': False, 'error': 'admin_only'}), 403
     try:
@@ -10995,7 +11081,8 @@ def api_observability_replay():
             limit = int(request.args.get('limit', 200))
         except Exception:
             limit = 200
-        payload = observability_service.fetch_incident_replay(
+        payload = await asyncio.to_thread(
+            observability_service.fetch_incident_replay,
             start_dt=start_dt,
             end_dt=end_dt,
             limit=limit,
@@ -11012,7 +11099,7 @@ def api_observability_replay():
 
 @app.route('/api/observability/runbook/<event_id>', methods=['GET'])
 @login_required
-def api_observability_runbook(event_id: str):
+async def api_observability_runbook(event_id: str):
     if not _require_admin_user():
         return jsonify({'ok': False, 'error': 'admin_only'}), 403
     ui_context = request.args.get('ui') or request.args.get('context')
@@ -11035,7 +11122,8 @@ def api_observability_runbook(event_id: str):
             'source': metadata.get('source'),
         }
     try:
-        payload = observability_service.fetch_runbook_for_event(
+        payload = await asyncio.to_thread(
+            observability_service.fetch_runbook_for_event,
             event_id=event_id,
             fallback_metadata=metadata or None,
             ui_context=ui_context,
@@ -11054,7 +11142,7 @@ def api_observability_runbook(event_id: str):
 
 @app.route('/api/observability/runbook/<event_id>/status', methods=['POST'])
 @login_required
-def api_observability_runbook_status(event_id: str):
+async def api_observability_runbook_status(event_id: str):
     user_id = _require_admin_user()
     if not user_id:
         return jsonify({'ok': False, 'error': 'admin_only'}), 403
@@ -11067,7 +11155,8 @@ def api_observability_runbook_status(event_id: str):
     fallback_event = payload.get('event')
     fallback_metadata = fallback_event if isinstance(fallback_event, dict) else None
     try:
-        snapshot = observability_service.update_runbook_step_status(
+        snapshot = await asyncio.to_thread(
+            observability_service.update_runbook_step_status,
             event_id=event_id,
             step_id=step_id,
             completed=completed,
@@ -11112,7 +11201,7 @@ def api_observability_quickfix_track():
 
 @app.route('/api/observability/alerts/ai_explain', methods=['POST'])
 @login_required
-def api_observability_alert_ai_explain():
+async def api_observability_alert_ai_explain():
     if not _require_admin_user():
         return jsonify({'ok': False, 'error': 'admin_only'}), 403
     payload = request.get_json(silent=True) or {}
@@ -11121,7 +11210,8 @@ def api_observability_alert_ai_explain():
     if not isinstance(alert_snapshot, dict):
         return jsonify({'ok': False, 'error': 'missing_alert'}), 400
     try:
-        explanation = observability_service.explain_alert_with_ai(
+        explanation = await asyncio.to_thread(
+            observability_service.explain_alert_with_ai,
             alert_snapshot,
             force_refresh=force_refresh,
         )
@@ -11144,7 +11234,7 @@ def api_observability_alert_ai_explain():
 
 @app.route('/api/observability/story/template', methods=['POST'])
 @login_required
-def api_observability_story_template():
+async def api_observability_story_template():
     if not _require_admin_user():
         return jsonify({'ok': False, 'error': 'admin_only'}), 403
     payload = request.get_json(silent=True) or {}
@@ -11153,7 +11243,8 @@ def api_observability_story_template():
         return jsonify({'ok': False, 'error': 'missing_alert'}), 400
     timerange = payload.get('timerange')
     try:
-        template = observability_service.build_story_template(
+        template = await asyncio.to_thread(
+            observability_service.build_story_template,
             alert_snapshot=alert_snapshot,
             timerange_label=timerange,
         )
@@ -11167,7 +11258,7 @@ def api_observability_story_template():
 
 @app.route('/api/observability/stories', methods=['POST'])
 @login_required
-def api_observability_story_save():
+async def api_observability_story_save():
     user_id = _require_admin_user()
     if not user_id:
         return jsonify({'ok': False, 'error': 'admin_only'}), 403
@@ -11176,7 +11267,7 @@ def api_observability_story_save():
     if not isinstance(story_payload, dict):
         return jsonify({'ok': False, 'error': 'missing_story'}), 400
     try:
-        stored = observability_service.save_incident_story(story_payload, user_id=user_id)
+        stored = await asyncio.to_thread(observability_service.save_incident_story, story_payload, user_id=user_id)
         return jsonify({'ok': True, 'story': stored})
     except ValueError as exc:
         logger.exception("observability_story_save_bad_request: %s", exc)
@@ -11188,10 +11279,10 @@ def api_observability_story_save():
 
 @app.route('/api/observability/stories/<story_id>', methods=['GET'])
 @login_required
-def api_observability_story_get(story_id: str):
+async def api_observability_story_get(story_id: str):
     if not _require_admin_user():
         return jsonify({'ok': False, 'error': 'admin_only'}), 403
-    story = observability_service.fetch_story(story_id)
+    story = await asyncio.to_thread(observability_service.fetch_story, story_id)
     if not story:
         return jsonify({'ok': False, 'error': 'not_found'}), 404
     return jsonify({'ok': True, 'story': story})
@@ -11199,14 +11290,14 @@ def api_observability_story_get(story_id: str):
 
 @app.route('/api/observability/stories/<story_id>/export', methods=['GET'])
 @login_required
-def api_observability_story_export(story_id: str):
+async def api_observability_story_export(story_id: str):
     if not _require_admin_user():
         return jsonify({'ok': False, 'error': 'admin_only'}), 403
     export_format = (request.args.get('format') or 'markdown').lower()
     if export_format not in {'md', 'markdown'}:
         return jsonify({'ok': False, 'error': 'unsupported_format'}), 400
     try:
-        markdown = observability_service.export_story_markdown(story_id)
+        markdown = await asyncio.to_thread(observability_service.export_story_markdown, story_id)
     except Exception:
         logger.exception("observability_story_export_failed")
         return jsonify({'ok': False, 'error': 'internal_error'}), 500
@@ -11328,7 +11419,7 @@ def _persist_story_markdown_file(
 
 @app.route('/api/observability/stories/save_markdown', methods=['POST'])
 @login_required
-def api_observability_story_save_markdown_file():
+async def api_observability_story_save_markdown_file():
     user_id = _require_admin_user()
     if not user_id:
         return jsonify({'ok': False, 'error': 'admin_only'}), 403
@@ -11338,7 +11429,7 @@ def api_observability_story_save_markdown_file():
     if not file_name or not isinstance(story_payload, dict):
         return jsonify({'ok': False, 'error': 'missing_fields'}), 400
     try:
-        markdown = observability_service.render_story_markdown_inline(story_payload)
+        markdown = await asyncio.to_thread(observability_service.render_story_markdown_inline, story_payload)
         tags = []
         severity = (story_payload.get('severity') or '').strip()
         if severity:
@@ -11346,7 +11437,8 @@ def api_observability_story_save_markdown_file():
         alert_uid = story_payload.get('alert_uid')
         if alert_uid:
             tags.append(f"alert:{alert_uid}")
-        result = _persist_story_markdown_file(
+        result = await asyncio.to_thread(
+            _persist_story_markdown_file,
             user_id=user_id,
             file_name=file_name,
             markdown=markdown,
