@@ -87,6 +87,46 @@
   let sidebarShellEl = null;
   let sidebarHoverBtn = null;
 
+  function getRemoveItemWithAnimation(){
+    try {
+      return (typeof window !== 'undefined' && typeof window.removeItemWithAnimation === 'function')
+        ? window.removeItemWithAnimation
+        : null;
+    } catch (_err) {
+      return null;
+    }
+  }
+
+  async function removeElementWithAnimation(el){
+    if (!el) {
+      return;
+    }
+    const fn = getRemoveItemWithAnimation();
+    if (fn) {
+      try {
+        await fn(el);
+        return;
+      } catch (_err) {
+        // נפילה לאחור למחיקה רגילה
+      }
+    }
+    try {
+      el.remove();
+    } catch (_err) {
+      try { el.parentNode && el.parentNode.removeChild(el); } catch (_err2) {}
+    }
+  }
+
+  function markElementAsNew(el){
+    if (!el || !el.classList) return;
+    el.classList.add('is-new');
+    const cleanup = () => {
+      try { el.classList.remove('is-new'); } catch (_err) {}
+    };
+    el.addEventListener('animationend', cleanup, { once: true });
+    setTimeout(cleanup, 800);
+  }
+
   function readInitialCollectionId() {
     let value = '';
     try {
@@ -772,7 +812,7 @@
       }
       if (ctx.element && ctx.element.remove) {
         const listEl = (ctx.container && ctx.container.isConnected) ? ctx.container : ctx.element.parentElement;
-        ctx.element.remove();
+        await removeElementWithAnimation(ctx.element);
         if (listEl && typeof listEl.hasAttribute === 'function' && listEl.hasAttribute('data-state-list')) {
           if (workspaceBoardCtx) {
             updateWorkspaceEmptyStates(workspaceBoardCtx);
@@ -924,7 +964,7 @@
             </div>
           `;
         }).join('');
-        container.innerHTML = `${headerHtml}<div class="collection-items" id="collectionItems">${itemsHtml || '<div class="empty">אין פריטים</div>'}</div>`;
+        container.innerHTML = `${headerHtml}<div class="collection-items stagger-feed" id="collectionItems">${itemsHtml || '<div class="empty">אין פריטים</div>'}</div>`;
       }
 
       const iconBtn = container.querySelector('.collection-icon-btn');
@@ -1072,7 +1112,7 @@
             if (!confirm('להסיר את הפריט מהאוסף? הקובץ עצמו יישאר זמין בבוט ובמסך הקבצים.')) return;
             const res = await api.removeItems(collectionId, [{ source, file_name: name }]);
             if (!res || !res.ok) return alert((res && res.error) || 'שגיאה במחיקה');
-            row.remove();
+            await removeElementWithAnimation(row);
             if (!itemsContainer.querySelector('.collection-item')) {
               itemsContainer.innerHTML = '<div class="empty">אין פריטים</div>';
             }
@@ -1355,7 +1395,7 @@
                     ${meta.shortcut ? `<span class="workspace-shortcut-hint">${escapeHtml(meta.shortcut)}</span>` : ''}
                   </div>
                 </div>
-                <div class="workspace-column__list" data-state-list="${state}" data-empty="${emptyAttr}">
+                <div class="workspace-column__list stagger-feed" data-state-list="${state}" data-empty="${emptyAttr}">
                   ${itemsHtml}
                 </div>
               </section>
@@ -1455,7 +1495,7 @@
           alert((res && res.error) || 'שגיאה במחיקה');
           return;
         }
-        card.remove();
+        await removeElementWithAnimation(card);
         updateWorkspaceEmptyStates(ctx);
         return;
       }
@@ -1594,6 +1634,7 @@
     }
     const name = card.getAttribute('data-name') || '';
     refreshWorkspaceCardState(card, newState);
+    markElementAsNew(card);
     updateWorkspaceEmptyStates(ctx);
     commitWorkspaceState(ctx, card, itemId, newState, prevState, name);
   }
@@ -1674,6 +1715,7 @@
     if (!list) return;
     list.appendChild(card);
     refreshWorkspaceCardState(card, targetState);
+    markElementAsNew(card);
     updateWorkspaceEmptyStates(ctx);
     commitWorkspaceState(ctx, card, itemId, targetState, prevState, card.getAttribute('data-name') || '');
   }

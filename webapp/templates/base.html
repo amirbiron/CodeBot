@@ -1368,6 +1368,7 @@
     </style>
     
     {% block extra_css %}{% endblock %}
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/animations.css') }}?v={{ static_version }}">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/collections.css') }}?v={{ static_version }}">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/codemirror-custom.css') }}?v={{ static_version }}">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/markdown-enhanced.css') }}?v={{ static_version }}">
@@ -2103,6 +2104,7 @@
             });
         })();
     </script>
+    <script src="{{ url_for('static', filename='js/utils/animations.js') }}?v={{ static_version }}" defer></script>
     <script src="{{ url_for('static', filename='js/global_search.js') }}?v={{ static_version }}" defer></script>
     <script src="{{ url_for('static', filename='js/dark-mode.js') }}?v={{ static_version }}" defer></script>
     <script src="{{ url_for('static', filename='js/smooth-scroll.js') }}?v={{ static_version }}" defer></script>
