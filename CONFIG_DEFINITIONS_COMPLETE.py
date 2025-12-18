@@ -308,6 +308,94 @@ CONFIG_DEFINITIONS: Dict[str, ConfigDefinition] = {
         category="webserver",
     ),
 
+    # ========== WebApp Warmup ==========
+    "WEBAPP_ENABLE_WARMUP": ConfigDefinition(
+        key="WEBAPP_ENABLE_WARMUP",
+        default="1",
+        description="הפעלת שלב warmup אוטומטי אחרי עליית Gunicorn (1/0)",
+        category="warmup",
+    ),
+    "WEBAPP_WARMUP_URL": ConfigDefinition(
+        key="WEBAPP_WARMUP_URL",
+        default="http://127.0.0.1:$PORT/healthz",
+        description="יעד curl לבדיקת הבריאות הראשונית",
+        category="warmup",
+    ),
+    "WEBAPP_WARMUP_MAX_ATTEMPTS": ConfigDefinition(
+        key="WEBAPP_WARMUP_MAX_ATTEMPTS",
+        default="15",
+        description="מספר ניסיונות curl עבור בדיקת הבריאות",
+        category="warmup",
+    ),
+    "WEBAPP_WARMUP_DELAY_SECONDS": ConfigDefinition(
+        key="WEBAPP_WARMUP_DELAY_SECONDS",
+        default="2",
+        description="השהיה בין ניסיונות ה-warmup הראשיים (שניות)",
+        category="warmup",
+    ),
+    "WEBAPP_WARMUP_PATHS": ConfigDefinition(
+        key="WEBAPP_WARMUP_PATHS",
+        default="",
+        description="רשימת מסלולי Frontend (CSV) לחימום לאחר שה-Healthz הצליח",
+        category="warmup",
+    ),
+    "WEBAPP_WARMUP_BASE_URL": ConfigDefinition(
+        key="WEBAPP_WARMUP_BASE_URL",
+        default="http://127.0.0.1:$PORT",
+        description="בסיס ה-URL לבקשות ה-Frontend Warmup",
+        category="warmup",
+    ),
+    "WEBAPP_WARMUP_REQUEST_TIMEOUT": ConfigDefinition(
+        key="WEBAPP_WARMUP_REQUEST_TIMEOUT",
+        default="2",
+        description="Timeout בשניות לכל בקשת Frontend Warmup",
+        category="warmup",
+    ),
+    "WEBAPP_WSGI_APP": ConfigDefinition(
+        key="WEBAPP_WSGI_APP",
+        default="app:app",
+        description="מודול ה-WSGI של Flask עבור Gunicorn",
+        category="warmup",
+    ),
+
+    # ========== Gunicorn ==========
+    "WEB_CONCURRENCY": ConfigDefinition(
+        key="WEB_CONCURRENCY",
+        default="2",
+        description="מספר ה-workers של Gunicorn ב-WebApp; אם מוגדר, גובר על ברירת המחדל ומקטין queue_delay תחת עומס",
+        category="gunicorn",
+    ),
+    "WEBAPP_GUNICORN_WORKERS": ConfigDefinition(
+        key="WEBAPP_GUNICORN_WORKERS",
+        default="2",
+        description="מספר ה-workers של Gunicorn (חלופה ל-WEB_CONCURRENCY)",
+        category="gunicorn",
+    ),
+    "WEBAPP_GUNICORN_THREADS": ConfigDefinition(
+        key="WEBAPP_GUNICORN_THREADS",
+        default="2",
+        description="מספר Threads לכל worker כאשר משתמשים ב-gthread (משפר מקביליות לבקשות I/O)",
+        category="gunicorn",
+    ),
+    "WEBAPP_GUNICORN_WORKER_CLASS": ConfigDefinition(
+        key="WEBAPP_GUNICORN_WORKER_CLASS",
+        default="gthread",
+        description="Worker class של Gunicorn",
+        category="gunicorn",
+    ),
+    "WEBAPP_GUNICORN_TIMEOUT": ConfigDefinition(
+        key="WEBAPP_GUNICORN_TIMEOUT",
+        default="60",
+        description="Timeout (שניות) לבקשה ב-Gunicorn",
+        category="gunicorn",
+    ),
+    "WEBAPP_GUNICORN_KEEPALIVE": ConfigDefinition(
+        key="WEBAPP_GUNICORN_KEEPALIVE",
+        default="2",
+        description="keep-alive (שניות) לחיבורים ב-Gunicorn",
+        category="gunicorn",
+    ),
+
     # ========== HTTP Client ==========
     "AIOHTTP_POOL_LIMIT": ConfigDefinition(
         key="AIOHTTP_POOL_LIMIT",
@@ -443,6 +531,18 @@ CONFIG_DEFINITIONS: Dict[str, ConfigDefinition] = {
         description="טוקן גישה ל-GitHub",
         category="external",
         sensitive=True,
+    ),
+    "GITHUB_API_BASE_DELAY": ConfigDefinition(
+        key="GITHUB_API_BASE_DELAY",
+        default="2.0",
+        description="דילי בסיסי בין בקשות GitHub כדי להישאר מתחת לרף rate-limit (שניות)",
+        category="external",
+    ),
+    "GITHUB_BACKOFF_DELAY": ConfigDefinition(
+        key="GITHUB_BACKOFF_DELAY",
+        default="5.0",
+        description="מקדם backoff (שניות) שמתווסף בכל ניסיון כושל לקריאות GitHub",
+        category="external",
     ),
     "PASTEBIN_API_KEY": ConfigDefinition(
         key="PASTEBIN_API_KEY",
@@ -884,13 +984,37 @@ CONFIG_DEFINITIONS: Dict[str, ConfigDefinition] = {
     "OBSERVABILITY_WARMUP_RANGES": ConfigDefinition(
         key="OBSERVABILITY_WARMUP_RANGES",
         default="24h,7d,30d",
-        description="טווחי חימום Observability",
+        description="רשימת טווחי זמן (CSV) לחימום /api/observability/aggregations",
         category="observability",
     ),
     "OBSERVABILITY_WARMUP_AUTOSTART": ConfigDefinition(
         key="OBSERVABILITY_WARMUP_AUTOSTART",
         default="false",
         description="התחלת חימום אוטומטית",
+        category="observability",
+    ),
+    "OBSERVABILITY_WARMUP_ENABLED": ConfigDefinition(
+        key="OBSERVABILITY_WARMUP_ENABLED",
+        default="true",
+        description="הפעלה/כיבוי של Warmup כבד לדוחות Observability ברקע אחרי עליית התהליך",
+        category="observability",
+    ),
+    "OBSERVABILITY_WARMUP_DELAY_SECONDS": ConfigDefinition(
+        key="OBSERVABILITY_WARMUP_DELAY_SECONDS",
+        default="5",
+        description="השהייה (שניות) לפני תחילת Warmup הדוחות כדי לא להעמיס בזמן העלייה",
+        category="observability",
+    ),
+    "OBSERVABILITY_WARMUP_BUDGET_SECONDS": ConfigDefinition(
+        key="OBSERVABILITY_WARMUP_BUDGET_SECONDS",
+        default="20",
+        description="תקציב זמן מקסימלי (שניות) ל-Warmup הדוחות ברקע; מעבר לתקציב נעצור מוקדם",
+        category="observability",
+    ),
+    "OBSERVABILITY_WARMUP_SLOW_LIMIT": ConfigDefinition(
+        key="OBSERVABILITY_WARMUP_SLOW_LIMIT",
+        default="5",
+        description="ערך slow_endpoints_limit עבור החימום (ברירת מחדל כמו ב-API)",
         category="observability",
     ),
 
@@ -1287,7 +1411,69 @@ CONFIG_DEFINITIONS: Dict[str, ConfigDefinition] = {
         category="maintenance",
     ),
 
-    # ========== Encryption ==========
+    # ========== Backups ==========
+    "BACKUPS_STORAGE": ConfigDefinition(
+        key="BACKUPS_STORAGE",
+        default="mongo",
+        description="בחירת מנגנון גיבוי: mongo (GridFS) או fs (מערכת קבצים מקומית)",
+        category="backups",
+    ),
+    "BACKUPS_RETENTION_DAYS": ConfigDefinition(
+        key="BACKUPS_RETENTION_DAYS",
+        default="30",
+        description="ימי שמירת ארכיבי גיבוי בדיסק/GridFS לפני מחיקה (מינימום 1)",
+        category="backups",
+    ),
+    "BACKUPS_CLEANUP_ENABLED": ConfigDefinition(
+        key="BACKUPS_CLEANUP_ENABLED",
+        default="false",
+        description="הפעלת ניקוי גיבויי ZIP ברקע (כבוי כברירת מחדל)",
+        category="backups",
+    ),
+    "BACKUPS_CLEANUP_INTERVAL_SECS": ConfigDefinition(
+        key="BACKUPS_CLEANUP_INTERVAL_SECS",
+        default="86400",
+        description="מרווח בין ריצות ניקוי גיבויים (שניות, מינימום 3600)",
+        category="backups",
+    ),
+    "BACKUPS_CLEANUP_FIRST_SECS": ConfigDefinition(
+        key="BACKUPS_CLEANUP_FIRST_SECS",
+        default="180",
+        description="דיליי לפני ריצת ניקוי גיבויים הראשונה (שניות)",
+        category="backups",
+    ),
+    "BACKUPS_MAX_PER_USER": ConfigDefinition(
+        key="BACKUPS_MAX_PER_USER",
+        default="",
+        description="מספר גיבויים מקסימלי לשמירה לכל משתמש (ריק = ללא מגבלה)",
+        category="backups",
+    ),
+    "BACKUPS_CLEANUP_BUDGET_SECONDS": ConfigDefinition(
+        key="BACKUPS_CLEANUP_BUDGET_SECONDS",
+        default="3",
+        description="תקציב זמן לניקוי גיבויים (מונע עומס)",
+        category="backups",
+    ),
+    "BACKUPS_DISK_MIN_FREE_BYTES": ConfigDefinition(
+        key="BACKUPS_DISK_MIN_FREE_BYTES",
+        default="209715200",
+        description="סף (ב-bytes) להתראת 'דיסק כמעט מלא' לפני שמירת ZIP (200MB)",
+        category="backups",
+    ),
+    "BACKUPS_DIR": ConfigDefinition(
+        key="BACKUPS_DIR",
+        default="/app/backups",
+        description="נתיב גיבויים בלוקאל (אם BACKUPS_STORAGE=fs)",
+        category="backups",
+    ),
+    "BACKUPS_SHOW_ALL_IF_EMPTY": ConfigDefinition(
+        key="BACKUPS_SHOW_ALL_IF_EMPTY",
+        default="false",
+        description="כאשר true מאפשר לממשק להציג את כל הקבצים גם כשאין פילטר",
+        category="backups",
+    ),
+
+    # ========== Security & Encryption ==========
     "TOKEN_ENC_KEY": ConfigDefinition(
         key="TOKEN_ENC_KEY",
         default="",
@@ -1299,6 +1485,13 @@ CONFIG_DEFINITIONS: Dict[str, ConfigDefinition] = {
         key="WEBHOOK_SECRET",
         default="",
         description="סוד אימות Webhook",
+        category="security",
+        sensitive=True,
+    ),
+    "ENCRYPTION_KEY": ConfigDefinition(
+        key="ENCRYPTION_KEY",
+        default="",
+        description="מפתח הצפנה לנתונים רגישים (32 בתים)",
         category="security",
         sensitive=True,
     ),
