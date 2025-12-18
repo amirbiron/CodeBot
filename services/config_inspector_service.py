@@ -100,9 +100,9 @@ class ConfigService:
     MASKED_VALUE: str = "********"
 
     # הגדרות כל משתני הקונפיגורציה באפליקציה
+    # הגדרות כל משתני הקונפיגורציה באפליקציה
+    # NOTE: צומצם ל-Webapp בלבד (הוסר category=telegram כדי לא לדווח Missing על משתני בוט)
     CONFIG_DEFINITIONS: Dict[str, ConfigDefinition] = {
-
-        # ========== Database - MongoDB ==========
         "MONGODB_URL": ConfigDefinition(
             key="MONGODB_URL",
             default="",
@@ -209,8 +209,6 @@ class ConfigService:
             description="תדירות בדיקת חיים של MongoDB (מילישניות)",
             category="database",
         ),
-
-        # ========== Database Health ==========
         "DB_HEALTH_TOKEN": ConfigDefinition(
             key="DB_HEALTH_TOKEN",
             default="",
@@ -230,37 +228,6 @@ class ConfigService:
             description="זמן קירור בין בדיקות בריאות (שניות)",
             category="database",
         ),
-
-        # ========== Telegram Bot ==========
-        "BOT_TOKEN": ConfigDefinition(
-            key="BOT_TOKEN",
-            default="",
-            description="טוקן הבוט של טלגרם (חובה)",
-            category="telegram",
-            sensitive=True,
-            required=True,
-        ),
-        "BOT_USERNAME": ConfigDefinition(
-            key="BOT_USERNAME",
-            default="my_code_keeper_bot",
-            description="שם המשתמש של הבוט בטלגרם",
-            category="telegram",
-        ),
-        "ADMIN_USER_IDS": ConfigDefinition(
-            key="ADMIN_USER_IDS",
-            default="",
-            description="רשימת מזהי אדמינים (מופרדים בפסיקים)",
-            category="telegram",
-            sensitive=True,
-        ),
-        "PREMIUM_USER_IDS": ConfigDefinition(
-            key="PREMIUM_USER_IDS",
-            default="",
-            description="רשימת מזהי משתמשי פרימיום",
-            category="telegram",
-        ),
-
-        # ========== Alert Telegram ==========
         "ALERT_TELEGRAM_BOT_TOKEN": ConfigDefinition(
             key="ALERT_TELEGRAM_BOT_TOKEN",
             default="",
@@ -281,8 +248,6 @@ class ConfigService:
             description="רמת חומרה מינימלית להתראות טלגרם",
             category="alerts",
         ),
-
-        # ========== Redis/Cache ==========
         "REDIS_URL": ConfigDefinition(
             key="REDIS_URL",
             default="",
@@ -326,8 +291,6 @@ class ConfigService:
             description="השבתת תחזוקת קאש אוטומטית",
             category="cache",
         ),
-
-        # ========== Web Server ==========
         "WEB_HOST": ConfigDefinition(
             key="WEB_HOST",
             default="0.0.0.0",
@@ -385,8 +348,6 @@ class ConfigService:
             description="כתובת WebApp (אם שונה מ-public)",
             category="webserver",
         ),
-
-        # ========== WebApp Warmup ==========
         "WEBAPP_ENABLE_WARMUP": ConfigDefinition(
             key="WEBAPP_ENABLE_WARMUP",
             default="1",
@@ -435,8 +396,6 @@ class ConfigService:
             description="מודול ה-WSGI של Flask עבור Gunicorn",
             category="warmup",
         ),
-
-        # ========== Gunicorn ==========
         "WEB_CONCURRENCY": ConfigDefinition(
             key="WEB_CONCURRENCY",
             default="2",
@@ -473,8 +432,6 @@ class ConfigService:
             description="keep-alive (שניות) לחיבורים ב-Gunicorn",
             category="gunicorn",
         ),
-
-        # ========== HTTP Client ==========
         "AIOHTTP_POOL_LIMIT": ConfigDefinition(
             key="AIOHTTP_POOL_LIMIT",
             default="50",
@@ -523,8 +480,6 @@ class ConfigService:
             description="פקטור backoff בין ניסיונות",
             category="http",
         ),
-
-        # ========== Push Notifications ==========
         "PUSH_NOTIFICATIONS_ENABLED": ConfigDefinition(
             key="PUSH_NOTIFICATIONS_ENABLED",
             default="true",
@@ -601,8 +556,6 @@ class ConfigService:
             description="TTL להחזקת Push (שניות)",
             category="push",
         ),
-
-        # ========== External Services - GitHub ==========
         "GITHUB_TOKEN": ConfigDefinition(
             key="GITHUB_TOKEN",
             default="",
@@ -629,8 +582,6 @@ class ConfigService:
             category="external",
             sensitive=True,
         ),
-
-        # ========== External Services - Google ==========
         "GOOGLE_CLIENT_ID": ConfigDefinition(
             key="GOOGLE_CLIENT_ID",
             default="",
@@ -657,8 +608,6 @@ class ConfigService:
             description="שוליים לרענון טוקן Google (שניות)",
             category="external",
         ),
-
-        # ========== External Services - Sentry ==========
         "SENTRY_DSN": ConfigDefinition(
             key="SENTRY_DSN",
             default="",
@@ -722,8 +671,6 @@ class ConfigService:
             description="הפעלת כפתור בדיקת Sentry",
             category="monitoring",
         ),
-
-        # ========== External Services - Grafana ==========
         "GRAFANA_URL": ConfigDefinition(
             key="GRAFANA_URL",
             default="",
@@ -737,8 +684,6 @@ class ConfigService:
             category="monitoring",
             sensitive=True,
         ),
-
-        # ========== OpenTelemetry ==========
         "OTEL_EXPORTER_OTLP_ENDPOINT": ConfigDefinition(
             key="OTEL_EXPORTER_OTLP_ENDPOINT",
             default="",
@@ -751,8 +696,6 @@ class ConfigService:
             description="שימוש בחיבור לא מאובטח ל-OTLP",
             category="monitoring",
         ),
-
-        # ========== AI Explain Service ==========
         "ANTHROPIC_API_URL": ConfigDefinition(
             key="ANTHROPIC_API_URL",
             default="https://api.anthropic.com/v1/messages",
@@ -834,8 +777,6 @@ class ConfigService:
             category="ai",
             sensitive=True,
         ),
-
-        # ========== Logging ==========
         "LOG_LEVEL": ConfigDefinition(
             key="LOG_LEVEL",
             default="INFO",
@@ -866,8 +807,6 @@ class ConfigService:
             description="גודל באפר השגיאות האחרונות",
             category="logging",
         ),
-
-        # ========== Log Aggregator ==========
         "LOG_AGGREGATOR_ENABLED": ConfigDefinition(
             key="LOG_AGGREGATOR_ENABLED",
             default="false",
@@ -904,8 +843,6 @@ class ConfigService:
             description="נתיב לקובץ קיבוץ התראות",
             category="logging",
         ),
-
-        # ========== Alerts ==========
         "ALERT_COOLDOWN_SEC": ConfigDefinition(
             key="ALERT_COOLDOWN_SEC",
             default="300",
@@ -1039,8 +976,6 @@ class ConfigService:
             description="רשימת IP מותרים ל-Alertmanager",
             category="alerts",
         ),
-
-        # ========== Observability Dashboard ==========
         "OBSERVABILITY_RUNBOOK_PATH": ConfigDefinition(
             key="OBSERVABILITY_RUNBOOK_PATH",
             default="config/observability_runbooks.yml",
@@ -1095,8 +1030,6 @@ class ConfigService:
             description="ערך slow_endpoints_limit עבור החימום (ברירת מחדל כמו ב-API)",
             category="observability",
         ),
-
-        # ========== Predictive Engine ==========
         "PREDICTIVE_HORIZON_SECONDS": ConfigDefinition(
             key="PREDICTIVE_HORIZON_SECONDS",
             default="900",
@@ -1151,8 +1084,6 @@ class ConfigService:
             description="השבתת פעולות מנע אוטומטיות",
             category="predictive",
         ),
-
-        # ========== Rate Limiting ==========
         "RATE_LIMIT_ENABLED": ConfigDefinition(
             key="RATE_LIMIT_ENABLED",
             default="true",
@@ -1177,8 +1108,6 @@ class ConfigService:
             description="מגבלת בקשות לדקה",
             category="rate_limit",
         ),
-
-        # ========== Metrics ==========
         "ENABLE_METRICS": ConfigDefinition(
             key="ENABLE_METRICS",
             default="true",
@@ -1227,8 +1156,6 @@ class ConfigService:
             description="חלון שמירת קונטקסט בקשות (שניות)",
             category="metrics",
         ),
-
-        # ========== Performance Tuning ==========
         "QUEUE_DELAY_WARN_MS": ConfigDefinition(
             key="QUEUE_DELAY_WARN_MS",
             default="500",
@@ -1259,8 +1186,6 @@ class ConfigService:
             description="נקודות קצה להתעלמות בזיהוי אנומליות",
             category="performance",
         ),
-
-        # ========== Features ==========
         "FEATURE_MY_COLLECTIONS": ConfigDefinition(
             key="FEATURE_MY_COLLECTIONS",
             default="true",
@@ -1291,8 +1216,6 @@ class ConfigService:
             description="מצב Refactoring מרובד",
             category="features",
         ),
-
-        # ========== Limits ==========
         "MAX_CODE_SIZE": ConfigDefinition(
             key="MAX_CODE_SIZE",
             default="100000",
@@ -1335,8 +1258,6 @@ class ConfigService:
             description="גודל עמוד בממשק משתמש",
             category="limits",
         ),
-
-        # ========== Uptime Monitoring ==========
         "UPTIME_PROVIDER": ConfigDefinition(
             key="UPTIME_PROVIDER",
             default="",
@@ -1380,8 +1301,6 @@ class ConfigService:
             description="TTL לקאש Uptime (שניות)",
             category="uptime",
         ),
-
-        # ========== Environment ==========
         "ENVIRONMENT": ConfigDefinition(
             key="ENVIRONMENT",
             default="production",
@@ -1418,8 +1337,6 @@ class ConfigService:
             description="שם ה-Host הנוכחי",
             category="environment",
         ),
-
-        # ========== Versioning ==========
         "APP_VERSION": ConfigDefinition(
             key="APP_VERSION",
             default="",
@@ -1462,8 +1379,6 @@ class ConfigService:
             description="Hash SRI של FontAwesome",
             category="versioning",
         ),
-
-        # ========== Maintenance ==========
         "MAINTENANCE_MODE": ConfigDefinition(
             key="MAINTENANCE_MODE",
             default="false",
@@ -1488,8 +1403,6 @@ class ConfigService:
             description="שניות גרייס נוספות לחימום",
             category="maintenance",
         ),
-
-        # ========== Backups ==========
         "BACKUPS_STORAGE": ConfigDefinition(
             key="BACKUPS_STORAGE",
             default="mongo",
@@ -1550,8 +1463,6 @@ class ConfigService:
             description="כאשר true מאפשר לממשק להציג את כל הקבצים גם כשאין פילטר",
             category="backups",
         ),
-
-        # ========== Security & Encryption ==========
         "TOKEN_ENC_KEY": ConfigDefinition(
             key="TOKEN_ENC_KEY",
             default="",
@@ -1573,8 +1484,6 @@ class ConfigService:
             category="security",
             sensitive=True,
         ),
-
-        # ========== Testing (לא לפרודקשן) ==========
         "PYTEST_CURRENT_TEST": ConfigDefinition(
             key="PYTEST_CURRENT_TEST",
             default="",
@@ -1623,8 +1532,6 @@ class ConfigService:
             description="אפשר seed על DB לא מקומי",
             category="testing",
         ),
-
-        # ========== Distributed Locking ==========
         "LOCK_LEASE_SECONDS": ConfigDefinition(
             key="LOCK_LEASE_SECONDS",
             default="60",
@@ -1637,8 +1544,6 @@ class ConfigService:
             description="מרווח ניסיון חוזר לנעילה (שניות)",
             category="distributed",
         ),
-
-        # ========== Display ==========
         "HIGHLIGHT_THEME": ConfigDefinition(
             key="HIGHLIGHT_THEME",
             default="github-dark",

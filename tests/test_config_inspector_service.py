@@ -31,8 +31,8 @@ class TestConfigService:
 
     def test_is_sensitive_key_by_definition(self):
         """Test sensitive key detection by definition."""
-        # BOT_TOKEN is defined as sensitive
-        assert self.service.is_sensitive_key("BOT_TOKEN") is True
+        # SECRET_KEY is defined as sensitive
+        assert self.service.is_sensitive_key("SECRET_KEY") is True
 
     def test_mask_value(self):
         """Test value masking."""
