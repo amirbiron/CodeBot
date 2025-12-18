@@ -516,6 +516,52 @@ def test_observability_coverage_calls_service(monkeypatch):
     assert captured['end_dt'] >= captured['start_dt']
 
 
+def test_observability_coverage_sentry_missing_requires_admin(monkeypatch):
+    monkeypatch.setenv('ADMIN_USER_IDS', '10')
+    app = _build_app()
+    with app.test_client() as client:
+        with client.session_transaction() as sess:
+            sess['user_id'] = 99
+        resp = client.get('/api/observability/coverage/missing_runbooks/sentry_issue')
+        assert resp.status_code == 403
+        payload = resp.get_json()
+        assert payload['error'] == 'admin_only'
+
+
+def test_observability_coverage_sentry_missing_calls_service(monkeypatch):
+    admin_id = 77
+    monkeypatch.setenv('ADMIN_USER_IDS', str(admin_id))
+    captured = {}
+
+    def _fake_fetch(*, start_dt, end_dt, min_count=1, limit=200, timerange_label=None):
+        captured['start_dt'] = start_dt
+        captured['end_dt'] = end_dt
+        captured['min_count'] = min_count
+        captured['limit'] = limit
+        captured['timerange'] = timerange_label
+        return {'items': [{'signature': 'oom_killed', 'count': 2, 'sentry_search_url': 'https://sentry.io/organizations/acme/issues/?query=error_signature%3A%22oom_killed%22'}], 'meta': {}}
+
+    monkeypatch.setattr(
+        'webapp.app.observability_service.fetch_sentry_issue_signatures_missing_runbook',
+        _fake_fetch,
+    )
+
+    app = _build_app()
+    with app.test_client() as client:
+        with client.session_transaction() as sess:
+            sess['user_id'] = admin_id
+        resp = client.get('/api/observability/coverage/missing_runbooks/sentry_issue?timerange=7d&min_count=3&limit=50')
+        assert resp.status_code == 200
+        data = resp.get_json()
+        assert data['ok'] is True
+        assert data['items'][0]['signature'] == 'oom_killed'
+
+    assert captured['min_count'] == 3
+    assert captured['limit'] == 50
+    assert captured['timerange'] == '7d'
+    assert captured['end_dt'] >= captured['start_dt']
+
+
 def test_coverage_logic_missing_and_orphans(monkeypatch, tmp_path):
     # Unit test for matching logic (runbook coverage, quick-fix coverage) and orphan detection.
     from datetime import timedelta

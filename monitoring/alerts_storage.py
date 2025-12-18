@@ -788,7 +788,8 @@ def aggregate_sentry_issue_signatures(
     when issue_id is missing.
 
     Returns rows:
-      { "signature": str, "issue_id": str|None, "short_id": str|None,
+      { "signature": str, "error_signature": str|None,
+        "issue_id": str|None, "short_id": str|None,
         "permalink": str|None, "project": str|None,
         "count": int, "last_seen_dt": datetime, "sample_title": str }
     """
@@ -813,6 +814,7 @@ def aggregate_sentry_issue_signatures(
     match["alert_type"] = "sentry_issue"
     # Keep only docs that have at least some identifying signal.
     match["$or"] = [
+        {"details.error_signature": {"$type": "string", "$ne": ""}},
         {"details.sentry_issue_id": {"$type": "string", "$ne": ""}},
         {"details.sentry_permalink": {"$type": "string", "$ne": ""}},
         {"details.sentry_short_id": {"$type": "string", "$ne": ""}},
@@ -826,6 +828,7 @@ def aggregate_sentry_issue_signatures(
             "$project": {
                 "ts_dt": 1,
                 "summary": 1,
+                "error_signature": {"$ifNull": ["$details.error_signature", ""]},
                 "issue_id": {"$ifNull": ["$details.sentry_issue_id", ""]},
                 "short_id": {"$ifNull": ["$details.sentry_short_id", ""]},
                 "permalink": {"$ifNull": ["$details.sentry_permalink", ""]},
@@ -837,13 +840,19 @@ def aggregate_sentry_issue_signatures(
                 "signature": {
                     "$toLower": {
                         "$cond": [
-                            {"$ne": ["$issue_id", ""]},
-                            "$issue_id",
+                            {"$ne": ["$error_signature", ""]},
+                            "$error_signature",
                             {
                                 "$cond": [
-                                    {"$ne": ["$permalink", ""]},
-                                    "$permalink",
-                                    "$short_id",
+                                    {"$ne": ["$issue_id", ""]},
+                                    "$issue_id",
+                                    {
+                                        "$cond": [
+                                            {"$ne": ["$permalink", ""]},
+                                            "$permalink",
+                                            "$short_id",
+                                        ]
+                                    },
                                 ]
                             },
                         ]
@@ -858,6 +867,7 @@ def aggregate_sentry_issue_signatures(
                 "count": {"$sum": 1},
                 "last_seen_dt": {"$first": "$ts_dt"},
                 "sample_title": {"$first": "$summary"},
+                "error_signature": {"$first": "$error_signature"},
                 "issue_id": {"$first": "$issue_id"},
                 "short_id": {"$first": "$short_id"},
                 "permalink": {"$first": "$permalink"},
@@ -887,9 +897,11 @@ def aggregate_sentry_issue_signatures(
             short_id = _safe_str(row.get("short_id"), limit=64) or None
             permalink = _safe_str(row.get("permalink"), limit=512) or None
             project = _safe_str(row.get("project"), limit=128) or None
+            error_signature = _safe_str(row.get("error_signature"), limit=128) or None
             out.append(
                 {
                     "signature": signature,
+                    "error_signature": error_signature,
                     "issue_id": issue_id,
                     "short_id": short_id,
                     "permalink": permalink,
