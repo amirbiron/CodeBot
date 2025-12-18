@@ -30,6 +30,7 @@ runbooks:
     aliases:
       - latency_spike
       - slow_response_time
+      - heavy_query_detected
     steps:
       - id: replay_latency
         title: "בדוק את ציר הזמן"
@@ -46,6 +47,14 @@ runbooks:
           label: "⚙️ /triage latency"
           type: copy
           payload: "/triage latency"
+          safety: safe
+      - id: check_heavy_projections
+        title: "בדוק Heavy Projections (Potential Missing Projection)"
+        description: "אם מופיע COLLSCAN/Slow Query – בדוק שלא מושכים שדות כבדים ברשימות, ושיש Explicit Fetch לתוכן מלא."
+        action:
+          label: "📘 Performance Bible (אופטימיזציה)"
+          type: link
+          href: "https://github.com/amirbiron/CodeBot/blob/main/docs/performance-bible.md"
           safety: safe
       - id: review_connection_pooling
         title: "וודא הגדרות Connection Pool"

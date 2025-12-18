@@ -444,34 +444,43 @@ class BackupMenuHandler:
                 files = db.get_user_files(user_id, limit=1000) or []
             backup_id = f"backup_{user_id}_{int(__import__('time').time())}"
             buf = BytesIO()
-            with track_performance("backup_create_full_zip"):
-                # High compression to shrink backup size
-                with zipfile.ZipFile(buf, 'w', compression=zipfile.ZIP_DEFLATED, compresslevel=9) as zf:
-                    # כתיבת תוכן הקבצים
-                    for doc in files:
-                        name = doc.get('file_name') or f"file_{doc.get('_id')}"
-                        code = doc.get('code') or ''
-                        zf.writestr(name, code)
-                    # מטאדטה
-                    metadata = {
-                        "backup_id": backup_id,
-                        "user_id": user_id,
-                        "created_at": __import__('datetime').datetime.now(__import__('datetime').timezone.utc).isoformat(),
-                        "backup_type": "manual",
-                        "include_versions": True,
-                        "file_count": len(files)
-                    }
-                    zf.writestr('metadata.json', json.dumps(metadata, indent=2))
-            buf.seek(0)
-            # שמור בהתאם למצב האחסון
-            with track_performance("backup_save_bytes"):
-                backup_manager.save_backup_bytes(buf.getvalue(), metadata)
-            # שלח קובץ למשתמש
-            buf.seek(0)
-            await query.message.reply_document(
-                document=InputFile(buf, filename=f"{backup_id}.zip"),
-                caption=f"✅ גיבוי נוצר בהצלחה\nקבצים: {len(files)} | גודל: {_format_bytes(len(buf.getvalue()))}"
-            )
+            try:
+                with track_performance("backup_create_full_zip"):
+                    # High compression to shrink backup size
+                    with zipfile.ZipFile(buf, 'w', compression=zipfile.ZIP_DEFLATED, compresslevel=9) as zf:
+                        # כתיבת תוכן הקבצים
+                        for doc in files:
+                            name = doc.get('file_name') or f"file_{doc.get('_id')}"
+                            code = doc.get('code') or ''
+                            zf.writestr(name, code)
+                        # מטאדטה
+                        metadata = {
+                            "backup_id": backup_id,
+                            "user_id": user_id,
+                            "created_at": __import__('datetime').datetime.now(__import__('datetime').timezone.utc).isoformat(),
+                            "backup_type": "manual",
+                            "include_versions": True,
+                            "file_count": len(files)
+                        }
+                        zf.writestr('metadata.json', json.dumps(metadata, indent=2))
+
+                # הקפאה ל-bytes פעם אחת בלבד (מונע דליפות של file handles דרך InputFile(BytesIO))
+                zip_bytes = buf.getvalue()
+
+                # שמור בהתאם למצב האחסון
+                with track_performance("backup_save_bytes"):
+                    backup_manager.save_backup_bytes(zip_bytes, metadata)
+
+                # שלח קובץ למשתמש (bytes במקום stream כדי למנוע unraisable/ResourceWarnings)
+                await query.message.reply_document(
+                    document=InputFile(zip_bytes, filename=f"{backup_id}.zip"),
+                    caption=f"✅ גיבוי נוצר בהצלחה\nקבצים: {len(files)} | גודל: {_format_bytes(len(zip_bytes))}"
+                )
+            finally:
+                try:
+                    buf.close()
+                except Exception:
+                    pass
             try:
                 emit_event(
                     "backup_create_full_success",
@@ -479,7 +488,7 @@ class BackupMenuHandler:
                     user_id=int(user_id),
                     backup_id=str(backup_id),
                     files_count=int(len(files)),
-                    size_bytes=int(len(buf.getvalue())),
+                    size_bytes=int(len(zip_bytes)),
                 )
             except Exception:
                 pass

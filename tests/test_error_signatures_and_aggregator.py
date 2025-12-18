@@ -177,3 +177,43 @@ categories:
     es = es_mod.ErrorSignatures(str(cfg))
     match = es.match("OOMKilled by kernel")
     assert match is not None and match.category == "config"
+
+
+def test_aggregator_emits_alert_type_as_signature_id(monkeypatch, tmp_path):
+    # Prepare configs with a performance signature
+    es_path = tmp_path / "es.yml"
+    es_path.write_text(
+        """
+noise_allowlist: []
+
+categories:
+  performance:
+    default_severity: anomaly
+    default_policy: escalate
+    signatures:
+      - id: heavy_query_detected
+        summary: "זוהתה שאילתה כבדה"
+        pattern: "COLLSCAN|slow query"
+        severity: critical
+""",
+        encoding="utf-8",
+    )
+    alerts_path = _make_alerts_cfg(tmp_path, window_minutes=5, min_count=3, cooldown_minutes=10, immediate=("config",))
+
+    calls = []
+
+    def _emit_internal_alert(name: str, severity: str = "info", summary: str = "", **details):
+        calls.append({"name": name, "severity": severity, "summary": summary, **details})
+
+    import internal_alerts as ia
+
+    monkeypatch.setattr(ia, "emit_internal_alert", _emit_internal_alert)
+
+    agg = LogEventAggregator(signatures_path=str(es_path), alerts_config_path=str(alerts_path))
+
+    out = agg.analyze_line("MongoDB explain: COLLSCAN detected on query", now_ts=1_700_000_000.0)
+    assert out is not None
+    assert len(calls) == 1
+    assert calls[0]["signature"] == "heavy_query_detected"
+    assert calls[0]["category"] == "performance"
+    assert calls[0]["alert_type"] == "heavy_query_detected"

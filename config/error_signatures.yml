@@ -50,6 +50,16 @@ categories:
         summary: תהליך רקע הסתיים בקוד שגיאה
         pattern: 'Exited with code (?!0)\\d+'
 
+  performance:
+    description: תקלות ביצועים (Slow Query / COLLSCAN / Latency חריגה)
+    default_severity: anomaly
+    default_policy: escalate
+    signatures:
+      - id: heavy_query_detected
+        summary: 'זוהתה שאילתה כבדה או איטיות חריגה (Potential Missing Projection)'
+        pattern: 'COLLSCAN|slow query|Long running operation|latency exceeds threshold'
+        severity: critical
+
   user_error:
     description: קלט או פעולה לא תקינה מצד המשתמש
     default_severity: warning

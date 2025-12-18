@@ -267,6 +267,8 @@ class LogEventAggregator:
                         count=int(g.count),
                         category=str(g.category),
                         signature=str(g.signature or ""),
+                        alert_type=str(g.signature or g.category or ""),
+                        error_signature=str(g.signature or ""),
                         policy=str(g.policy or ""),
                         severity_hint=str(g.severity_hint or ""),
                     )
@@ -297,6 +299,7 @@ class LogEventAggregator:
             "third_party": "כשלי ספק חיצוני",
             "transient": "תקלות חולפות",
             "user_error": "שגיאת משתמש",
+            "performance": "ביצועים",
             "critical": "התראה קריטית",
             "network_db": "בעיות רשת/DB",
             "app_runtime": "שגיאות אפליקציה",
