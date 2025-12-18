@@ -50,6 +50,32 @@ def _get_snippets_collection():
         return None
 
 
+def get_item_by_id(item_id: str) -> Optional[Dict[str, Any]]:
+    """
+    Return raw snippet library document by id (or None).
+
+    Used by handlers that need to notify submitters without importing `database` directly.
+    """
+    coll = _get_snippets_collection()
+    if coll is None:
+        return None
+    item_id_s = (item_id or "").strip()
+    if not item_id_s:
+        return None
+    key: Any = item_id_s
+    try:
+        repo = _db._get_repo()
+        normalizer = getattr(repo, "_normalize_snippet_identifier", None)
+        if callable(normalizer):
+            key = normalizer(item_id_s)
+    except Exception:
+        key = item_id_s
+    try:
+        return coll.find_one({"_id": key})
+    except Exception:
+        return None
+
+
 def _build_builtin_title_map(builtins: List[Dict[str, Any]]) -> Dict[str, str]:
     title_map: Dict[str, str] = {}
     for item in builtins:

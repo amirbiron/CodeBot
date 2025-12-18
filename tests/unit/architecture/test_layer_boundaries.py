@@ -78,6 +78,17 @@ def test_handlers_do_not_depend_directly_on_domain_or_raw_infrastructure():
     assert not violations, f"Handlers import violations:\n" + "\n".join(f"- {p}: {mod}" for p, mod in violations)
 
 
+def test_handlers_do_not_import_database_directly():
+    """
+    Handlers must not import the legacy `database` package directly.
+    Access to persistence should go through composition/facades/services.
+    """
+    files = list(_python_files_under("handlers"))
+    forbidden = ("database",)
+    violations = _violations(files, forbidden_prefixes=forbidden)
+    assert not violations, "Handlers must not import database directly:\n" + "\n".join(f"- {p}: {mod}" for p, mod in violations)
+
+
 def test_infrastructure_does_not_depend_on_handlers():
     files = list(_python_files_under("src/infrastructure"))
     forbidden = ("handlers",)

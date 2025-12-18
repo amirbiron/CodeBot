@@ -12,6 +12,7 @@ import re
 import html
 import secrets
 import telegram.error
+import importlib
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -32,7 +33,6 @@ from utils import TelegramUtils  # עריכות בטוחות להודעות/מק
 from services.image_generator import CodeImageGenerator
 from rate_limiter import RateLimiter
 from config import config
-from database import CodeSnippet, db
 from conversation_handlers import MAIN_KEYBOARD
 from pathlib import Path
 try:
@@ -50,6 +50,69 @@ def set_activity_reporter(new_reporter):
     global reporter
     reporter = new_reporter or _NoopReporter()
     
+# ---- DB access via composition facade (with legacy fallback) ---------------
+def _get_files_facade_or_none():
+    """Best-effort access to FilesFacade without breaking older tests."""
+    try:
+        from src.infrastructure.composition import get_files_facade  # type: ignore
+        return get_files_facade()
+    except Exception:
+        return None
+
+
+def _get_legacy_db():
+    """Lazy access to the legacy DatabaseManager for fallback paths."""
+    try:
+        module = importlib.import_module("database")
+        return getattr(module, "db", None)
+    except Exception:
+        return None
+
+
+_FACADE_SENTINEL = object()
+
+
+def _should_retry_with_legacy(value) -> bool:
+    if value is _FACADE_SENTINEL:
+        return True
+    if value in (None, False):
+        return True
+    if isinstance(value, (list, dict)) and not value:
+        return True
+    if isinstance(value, tuple) and not any(value):
+        return True
+    return False
+
+
+def _call_files_api(method_name: str, *args, **kwargs):
+    """Invoke FilesFacade method by name, best-effort with legacy fallback."""
+    facade_result = _FACADE_SENTINEL
+    facade = _get_files_facade_or_none()
+    if facade is not None:
+        method = getattr(facade, method_name, None)
+        if callable(method):
+            try:
+                facade_result = method(*args, **kwargs)
+            except Exception:
+                facade_result = _FACADE_SENTINEL
+
+    if _should_retry_with_legacy(facade_result):
+        legacy = _get_legacy_db()
+        if legacy is not None:
+            method = getattr(legacy, method_name, None)
+            if callable(method):
+                try:
+                    legacy_result = method(*args, **kwargs)
+                    if legacy_result is not None:
+                        return legacy_result
+                except Exception:
+                    pass
+
+    if facade_result is _FACADE_SENTINEL:
+        return None
+    return facade_result
+
+
 # Rate limiter לפיצ'ר יצירת תמונות (10 פעולות בדקה למשתמש)
 image_rate_limiter = RateLimiter(max_per_minute=10)
 
@@ -619,7 +682,7 @@ class AdvancedBotHandlers:
         """מאחד העדפות פר-משתמש (DB) עם העדפות פר-קובץ (context)."""
         try:
             # בסיס: העדפות משתמש גלובליות
-            base = db.get_image_prefs(user_id) or {}
+            base = _call_files_api("get_image_prefs", user_id) or {}
         except Exception:
             base = {}
         # דריסה פר-קובץ בזיכרון
@@ -734,7 +797,7 @@ class AdvancedBotHandlers:
             return
         
         file_name = " ".join(context.args)
-        file_data = db.get_latest_version(user_id, file_name)
+        file_data = _call_files_api("get_latest_version", user_id, file_name)
         
         if not file_data:
             await update.message.reply_text(
@@ -769,7 +832,7 @@ class AdvancedBotHandlers:
         file_id = str(file_data.get('_id', file_name))
         # כפתור מועדפים בהתאם למצב הנוכחי
         try:
-            is_fav_now = bool(db.is_favorite(user_id, file_name))
+            is_fav_now = bool(_call_files_api("is_favorite", user_id, file_name))
         except Exception:
             is_fav_now = False
         fav_text = ("💔 הסר ממועדפים" if is_fav_now else "⭐ הוסף למועדפים")
@@ -838,7 +901,7 @@ class AdvancedBotHandlers:
             )
             return
         file_name = " ".join(context.args)
-        snippet = db.get_latest_version(user_id, file_name)
+        snippet = _call_files_api("get_latest_version", user_id, file_name)
         if not snippet:
             await update.message.reply_text(
                 f"❌ הקובץ <code>{html.escape(file_name)}</code> לא נמצא.\n"
@@ -846,7 +909,7 @@ class AdvancedBotHandlers:
                 parse_mode=ParseMode.HTML
             )
             return
-        new_state = db.toggle_favorite(user_id, file_name)
+        new_state = _call_files_api("toggle_favorite", user_id, file_name)
         # אם המתודה מחזירה None, זו שגיאה
         if new_state is None:
             await update.message.reply_text("❌ שגיאה בעדכון מועדפים. נסה שוב מאוחר יותר.")
@@ -884,7 +947,7 @@ class AdvancedBotHandlers:
         """רשימת המועדפים של המשתמש: /favorites"""
         reporter.report_activity(update.effective_user.id)
         user_id = update.effective_user.id
-        favorites = db.get_favorites(user_id, limit=50)
+        favorites = _call_files_api("get_favorites", user_id, limit=50) or []
         if not favorites:
             await update.message.reply_text(
                 "💭 אין לך מועדפים כרגע.\n"
@@ -917,7 +980,7 @@ class AdvancedBotHandlers:
         for fav in favorites[:5]:
             fname = fav.get('file_name', '')
             try:
-                latest = db.get_latest_version(user_id, fname) or {}
+                latest = _call_files_api("get_latest_version", user_id, fname) or {}
                 fid = str(latest.get('_id') or '')
             except Exception:
                 fid = ''
@@ -975,7 +1038,7 @@ class AdvancedBotHandlers:
             return
         
         file_name = " ".join(context.args)
-        file_data = db.get_latest_version(user_id, file_name)
+        file_data = _call_files_api("get_latest_version", user_id, file_name)
         
         if not file_data:
             await update.message.reply_text(
@@ -1013,7 +1076,7 @@ class AdvancedBotHandlers:
             return
         
         file_name = " ".join(context.args)
-        file_data = db.get_latest_version(user_id, file_name)
+        file_data = _call_files_api("get_latest_version", user_id, file_name)
         
         if not file_data:
             await update.message.reply_text(
@@ -1053,7 +1116,7 @@ class AdvancedBotHandlers:
             return
         
         file_name = " ".join(context.args)
-        versions = db.get_all_versions(user_id, file_name)
+        versions = _call_files_api("get_all_versions", user_id, file_name) or []
         
         if not versions:
             await update.message.reply_text(
@@ -1113,7 +1176,7 @@ class AdvancedBotHandlers:
             return
         
         file_name = " ".join(context.args)
-        file_data = db.get_latest_version(user_id, file_name)
+        file_data = _call_files_api("get_latest_version", user_id, file_name)
         
         if not file_data:
             await update.message.reply_text(
@@ -3281,7 +3344,7 @@ class AdvancedBotHandlers:
             return
         
         file_name = " ".join(context.args)
-        file_data = db.get_latest_version(user_id, file_name)
+        file_data = _call_files_api("get_latest_version", user_id, file_name)
         
         if not file_data:
             await update.message.reply_text(
@@ -3347,7 +3410,7 @@ class AdvancedBotHandlers:
         found_files: List[Dict[str, Any]] = []
         missing: List[str] = []
         # נקבל את רשימת הקבצים של המשתמש למסנן wildcards בזיכרון
-        all_files = db.get_user_files(user_id, limit=500, projection={"file_name": 1})
+        all_files = _call_files_api("get_user_files", user_id, limit=500, projection={"file_name": 1}) or []
         all_names = [f['file_name'] for f in all_files if f.get('file_name')]
 
         def _expand_pattern(pattern: str) -> List[str]:
@@ -3374,7 +3437,7 @@ class AdvancedBotHandlers:
                 final_names.append(n)
 
         for fname in final_names:
-            data = db.get_latest_version(user_id, fname)
+            data = _call_files_api("get_latest_version", user_id, fname)
             if data:
                 found_files.append(data)
             else:
@@ -3570,7 +3633,7 @@ class AdvancedBotHandlers:
             return
         
         file_name = " ".join(context.args)
-        file_data = db.get_latest_version(user_id, file_name)
+        file_data = _call_files_api("get_latest_version", user_id, file_name)
         
         if not file_data:
             await update.message.reply_text(
@@ -3598,7 +3661,7 @@ class AdvancedBotHandlers:
         reporter.report_activity(update.effective_user.id)
         user_id = update.effective_user.id
         
-        files = db.get_user_files(user_id, limit=500, projection={"file_name": 1, "tags": 1})
+        files = _call_files_api("get_user_files", user_id, limit=500, projection={"file_name": 1, "tags": 1}) or []
         
         if not files:
             await update.message.reply_text("🏷️ עדיין אין לך קבצים עם תגיות.")
@@ -3643,7 +3706,7 @@ class AdvancedBotHandlers:
         # חיפוש קבצים אחרונים
         since_date = datetime.now(timezone.utc) - timedelta(days=days_back)
         
-        files = db.get_user_files(user_id, limit=50)
+        files = _call_files_api("get_user_files", user_id, limit=50) or []
         recent_files = [
             f for f in files 
             if f['updated_at'] >= since_date
@@ -3685,7 +3748,7 @@ class AdvancedBotHandlers:
             return
         
         file_name = " ".join(context.args)
-        file_data = db.get_latest_version(user_id, file_name)
+        file_data = _call_files_api("get_latest_version", user_id, file_name)
         if not file_data:
             await update.message.reply_text(
                 f"❌ קובץ <code>{html.escape(file_name)}</code> לא נמצא.",
@@ -3799,11 +3862,13 @@ class AdvancedBotHandlers:
             return
         
         # שליפת נמענים מ-Mongo
-        if not hasattr(db, 'db') or db.db is None or not hasattr(db.db, 'users'):
+        legacy = _get_legacy_db()
+        db_obj = getattr(legacy, "db", None) if legacy is not None else None
+        coll = getattr(db_obj, "users", None) if db_obj is not None else None
+        if coll is None:
             await update.message.reply_text("❌ לא ניתן לטעון רשימת משתמשים מהמסד.")
             return
         try:
-            coll = db.db.users
             cursor = coll.find({"user_id": {"$exists": True}, "blocked": {"$ne": True}}, {"user_id": 1})
             recipients: List[int] = []
             for doc in cursor:
@@ -3912,9 +3977,12 @@ class AdvancedBotHandlers:
             # username: strip leading @ and query DB
             uname = recipient_token[1:] if recipient_token.startswith('@') else recipient_token
             try:
-                if hasattr(db, 'db') and db.db is not None and hasattr(db.db, 'users'):
+                legacy = _get_legacy_db()
+                db_obj = getattr(legacy, "db", None) if legacy is not None else None
+                users_coll = getattr(db_obj, "users", None) if db_obj is not None else None
+                if users_coll is not None:
                     # נסה התאמה מדויקת ואז lowercase
-                    doc = db.db.users.find_one({"username": uname}) or db.db.users.find_one({"username": uname.lower()})
+                    doc = users_coll.find_one({"username": uname}) or users_coll.find_one({"username": uname.lower()})
                     if doc and doc.get('user_id'):
                         target_id = int(doc['user_id'])
             except Exception:
@@ -3951,8 +4019,11 @@ class AdvancedBotHandlers:
         except telegram.error.Forbidden:
             # ייתכן שהמשתמש חסם את הבוט – נסמן ב-DB
             try:
-                if hasattr(db, 'db') and db.db is not None and hasattr(db.db, 'users'):
-                    db.db.users.update_one({"user_id": target_id}, {"$set": {"blocked": True}})
+                legacy = _get_legacy_db()
+                db_obj = getattr(legacy, "db", None) if legacy is not None else None
+                users_coll = getattr(db_obj, "users", None) if db_obj is not None else None
+                if users_coll is not None:
+                    users_coll.update_one({"user_id": target_id}, {"$set": {"blocked": True}})
             except Exception:
                 pass
             await update.message.reply_text("⚠️ לא ניתן לשלוח (המשתמש חסם את הבוט או בוטק). סומן כ-blocked.")
@@ -3976,7 +4047,7 @@ class AdvancedBotHandlers:
             if data.startswith("confirm_delete_"):
                 file_name = data.replace("confirm_delete_", "")
                 
-                if db.delete_file(user_id, file_name):
+                if _call_files_api("delete_file", user_id, file_name):
                     await query.edit_message_text(
                         f"✅ הקובץ `{file_name}` נמחק בהצלחה!",
                         parse_mode=ParseMode.MARKDOWN
@@ -4056,7 +4127,7 @@ class AdvancedBotHandlers:
                 if not allowed:
                     await query.answer("⏱️ יותר מדי בקשות. אנא נסה שוב בעוד דקה.", show_alert=True)
                     return
-                doc = db.get_latest_version(user_id, file_name)
+                doc = _call_files_api("get_latest_version", user_id, file_name)
                 if not doc or not doc.get('code'):
                     await self._edit_message_with_media_fallback(
                         query,
@@ -4236,7 +4307,7 @@ class AdvancedBotHandlers:
                     payload = {k: eff[k] for k in ("theme", "width", "font") if k in eff}
                     if payload:
                         try:
-                            db.save_image_prefs(user_id, payload)  # type: ignore[attr-defined]
+                            _call_files_api("save_image_prefs", user_id, payload)  # type: ignore[attr-defined]
                         except Exception:
                             # אם אין method זמין (במצב ללא DB), דלג בשקט
                             pass
@@ -4275,7 +4346,7 @@ class AdvancedBotHandlers:
                 if not allowed:
                     await query.answer("⏱️ יותר מדי בקשות. אנא נסה שוב בעוד דקה.", show_alert=True)
                     return
-                doc = db.get_latest_version(user_id, file_name)
+                doc = _call_files_api("get_latest_version", user_id, file_name)
                 if not doc or not doc.get('code'):
                     await self._edit_message_with_media_fallback(
                         query,
@@ -4385,7 +4456,7 @@ class AdvancedBotHandlers:
 
             # --- Favorites callbacks ---
             elif data == "favorites_list":
-                favs = db.get_favorites(user_id, limit=50)
+                favs = _call_files_api("get_favorites", user_id, limit=50) or []
                 if not favs:
                     await query.edit_message_text("💭 אין לך מועדפים כרגע.")
                     return
@@ -4400,7 +4471,7 @@ class AdvancedBotHandlers:
                 await query.edit_message_text("\n".join(lines), parse_mode=ParseMode.HTML)
 
             elif data == "export_favorites":
-                favs = db.get_favorites(user_id, limit=200)
+                favs = _call_files_api("get_favorites", user_id, limit=200) or []
                 export_data = {
                     "exported_at": datetime.now(timezone.utc).isoformat(),
                     "user_id": user_id,
@@ -4415,7 +4486,7 @@ class AdvancedBotHandlers:
                 await query.edit_message_text("✅ קובץ ייצוא נשלח")
 
             elif data == "favorites_stats":
-                favs = db.get_favorites(user_id, limit=500)
+                favs = _call_files_api("get_favorites", user_id, limit=500) or []
                 if not favs:
                     await query.edit_message_text("💭 אין סטטיסטיקות - אין מועדפים")
                     return
@@ -4445,19 +4516,19 @@ class AdvancedBotHandlers:
             elif data.startswith("fav_toggle_id:"):
                 fid = data.split(":", 1)[1]
                 try:
-                    doc = db.get_file_by_id(fid)
+                    doc = _call_files_api("get_file_by_id", fid)
                 except Exception:
                     doc = None
                 if not doc:
                     await query.answer("⚠️ הקובץ לא נמצא", show_alert=False)
                     return
                 fname = doc.get('file_name')
-                state = db.toggle_favorite(user_id, fname)
+                state = _call_files_api("toggle_favorite", user_id, fname)
                 await query.answer("⭐ נוסף למועדפים!" if state else "💔 הוסר מהמועדפים", show_alert=False)
                 # אם אנחנו במסך בקרה/פעולות, הצג הודעת סטטוס מעל הכפתורים ושמור את המקלדת
                 try:
                     # שלוף פרטים להצגה
-                    latest = db.get_latest_version(user_id, fname) or {}
+                    latest = _call_files_api("get_latest_version", user_id, fname) or {}
                     lang = latest.get('programming_language') or 'text'
                     note = latest.get('description') or '—'
                     notice = ("⭐️ הקוד נשמר במועדפים" if state else "💔 הקוד הוסר מהמועדפים")
@@ -4471,7 +4542,7 @@ class AdvancedBotHandlers:
                     )
                     # בנה מקלדת מעודכנת עם תווית כפתור מועדפים הנכונה
                     try:
-                        is_fav_now = bool(db.is_favorite(user_id, fname))
+                        is_fav_now = bool(_call_files_api("is_favorite", user_id, fname))
                     except Exception:
                         is_fav_now = state
                     fav_label = "💔 הסר ממועדפים" if is_fav_now else "⭐ הוסף למועדפים"
@@ -4492,10 +4563,10 @@ class AdvancedBotHandlers:
                 if not fname:
                     await query.answer("⚠️ לא נמצא קובץ לפעולה", show_alert=True)
                     return
-                state = db.toggle_favorite(user_id, fname)
+                state = _call_files_api("toggle_favorite", user_id, fname)
                 await query.answer("⭐ נוסף למועדפים!" if state else "💔 הוסר מהמועדפים", show_alert=False)
                 try:
-                    latest = db.get_latest_version(user_id, fname) or {}
+                    latest = _call_files_api("get_latest_version", user_id, fname) or {}
                     lang = latest.get('programming_language') or 'text'
                     note = latest.get('description') or '—'
                     notice = ("⭐️ הקוד נשמר במועדפים" if state else "💔 הקוד הוסר מהמועדפים")
@@ -4508,7 +4579,7 @@ class AdvancedBotHandlers:
                         f"🎮 בחר פעולה מתקדמת:"
                     )
                     try:
-                        is_fav_now = bool(db.is_favorite(user_id, fname))
+                        is_fav_now = bool(_call_files_api("is_favorite", user_id, fname))
                     except Exception:
                         is_fav_now = state
                     fav_label = "💔 הסר ממועדפים" if is_fav_now else "⭐ הוסף למועדפים"
@@ -4525,7 +4596,7 @@ class AdvancedBotHandlers:
     
     async def _send_highlighted_code(self, query, user_id: int, file_name: str):
         """שליחת קוד עם הדגשת תחביר"""
-        file_data = db.get_latest_version(user_id, file_name)
+        file_data = _call_files_api("get_latest_version", user_id, file_name)
         
         if not file_data:
             await query.edit_message_text(f"❌ קובץ `{file_name}` לא נמצא.")
@@ -4610,7 +4681,7 @@ class AdvancedBotHandlers:
             )
             return
         
-        file_data = db.get_latest_version(user_id, file_name)
+        file_data = _call_files_api("get_latest_version", user_id, file_name)
         
         if not file_data:
             await query.edit_message_text(f"❌ קובץ `{file_name}` לא נמצא.")
@@ -4644,7 +4715,7 @@ class AdvancedBotHandlers:
     async def _share_to_pastebin(self, query, user_id: int, file_name: str):
         """שיתוף ב-Pastebin"""
         from integrations import code_sharing
-        file_data = db.get_latest_version(user_id, file_name)
+        file_data = _call_files_api("get_latest_version", user_id, file_name)
         if not file_data:
             await query.edit_message_text(f"❌ קובץ `{file_name}` לא נמצא.")
             return
@@ -4673,7 +4744,7 @@ class AdvancedBotHandlers:
     async def _share_internal(self, query, user_id: int, file_name: str):
         """יצירת קישור שיתוף פנימי"""
         from integrations import code_sharing
-        file_data = db.get_latest_version(user_id, file_name)
+        file_data = _call_files_api("get_latest_version", user_id, file_name)
         if not file_data:
             await query.edit_message_text(f"❌ קובץ `{file_name}` לא נמצא.")
             return
@@ -4740,7 +4811,7 @@ class AdvancedBotHandlers:
             await query.edit_message_text("❌ לא נמצאה רשימת קבצים עבור השיתוף.")
             return
         for fname in names:
-            data = db.get_latest_version(user_id, fname)
+            data = _call_files_api("get_latest_version", user_id, fname)
             if data:
                 files_map[data['file_name']] = data['code']
         if not files_map:
@@ -4781,7 +4852,7 @@ class AdvancedBotHandlers:
         bundle_parts: List[str] = []
         lang_hint = None
         for fname in names:
-            data = db.get_latest_version(user_id, fname)
+            data = _call_files_api("get_latest_version", user_id, fname)
             if data:
                 lang_hint = lang_hint or data['programming_language']
                 bundle_parts.append(f"// ==== {data['file_name']} ====\n{data['code']}\n")
@@ -4848,7 +4919,7 @@ class AdvancedBotHandlers:
                 pass
 
     async def _send_file_download(self, query, user_id: int, file_name: str):
-        file_data = db.get_latest_version(user_id, file_name)
+        file_data = _call_files_api("get_latest_version", user_id, file_name)
         if not file_data:
             await query.edit_message_text(f"❌ קובץ `{file_name}` לא נמצא.")
             return
@@ -5008,7 +5079,7 @@ class AdvancedBotHandlers:
             return
         if note_explicit:
             self._set_image_setting(context, file_name, 'note', (inline_note or None))
-        file_data = db.get_latest_version(user_id, file_name)
+        file_data = _call_files_api("get_latest_version", user_id, file_name)
         if not file_data:
             safe = html.escape(file_name)
             await update.message.reply_text(f"❌ קובץ <code>{safe}</code> לא נמצא.", parse_mode=ParseMode.HTML)
@@ -5110,7 +5181,7 @@ class AdvancedBotHandlers:
             return
 
         file_name = " ".join(context.args)
-        file_data = db.get_latest_version(user_id, file_name)
+        file_data = _call_files_api("get_latest_version", user_id, file_name)
         if not file_data:
             safe = html.escape(file_name)
             await update.message.reply_text(f"❌ קובץ <code>{safe}</code> לא נמצא.", parse_mode=ParseMode.HTML)
@@ -5170,7 +5241,7 @@ class AdvancedBotHandlers:
         max_total_chars = int((_img_all_cfg.get('max_total_chars') or 300000))
         max_lines_per_file = int((_img_all_cfg.get('max_lines') or 200))
 
-        files = db.get_user_files(user_id, limit=max_images)
+        files = _call_files_api("get_user_files", user_id, limit=max_images) or []
         if not files:
             await update.message.reply_text("❌ לא נמצאו קבצים.")
             return
@@ -5193,7 +5264,7 @@ class AdvancedBotHandlers:
             for f in files:
                 try:
                     fname = f.get('file_name') or f.get('file_name'.encode(), 'unknown')
-                    data = db.get_latest_version(user_id, fname)
+                    data = _call_files_api("get_latest_version", user_id, fname)
                     if not data or not data.get('code'):
                         continue
                     # קיטוע קבצים ארוכים לשמירה על זיכרון
