@@ -244,7 +244,7 @@
       results.innerHTML = '<p class="text-muted">לא נמצאו תוצאות</p>';
     } else {
       const cardsHtml = data.results.map(renderCard).join('');
-      results.innerHTML = '<div class="results-container"><div class="global-search-results" role="list">' + cardsHtml + '</div></div>';
+      results.innerHTML = '<div class="results-container"><div class="global-search-results stagger-feed" role="list">' + cardsHtml + '</div></div>';
     }
 
     renderPagination(pagination, data);
