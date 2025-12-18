@@ -812,12 +812,19 @@ class Repository:
             # - אם caller נתן projection מפורש: כבד אותו (משאיר יכולת include ייעודית).
             if projection and isinstance(projection, dict) and projection:
                 proj = dict(projection)
-                proj.setdefault("file_name", 1)
-                # אם מדובר ב-exclude projection (ערכים 0) — נקשיח שגם השדות הכבדים יצאו החוצה.
+                # זיהוי האם זה include-projection או exclude-projection (בלי לערבב 1/0).
+                # הערה: _id חריג במונגו ומותר לשלב אותו, לכן מתעלמים ממנו בזיהוי.
                 try:
-                    is_include = any(int(v) == 1 for v in proj.values() if v in (0, 1))
+                    is_include = any(
+                        (k != "_id") and (int(v) == 1)
+                        for k, v in proj.items()
+                        if v in (0, 1)
+                    )
                 except Exception:
                     is_include = False
+                # רק ב-include projection נכפה file_name כדי למנוע mixed projection לא חוקי.
+                if is_include:
+                    proj.setdefault("file_name", 1)
                 if not is_include:
                     try:
                         proj.update(_HEAVY_FIELDS_EXCLUDE_PROJECTION)

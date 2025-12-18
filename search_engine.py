@@ -172,7 +172,17 @@ class SearchIndex:
                             projection={"file_name": 1, "programming_language": 1, "tags": 1, "code": 1},
                         )
                     except TypeError:
-                        files = db.get_user_files(user_id, PAGE_SIZE)
+                        # תאימות כפולה:
+                        # 1) יש stubs שלא תומכים ב-projection
+                        # 2) יש מימושים ישנים שלא תומכים ב-skip אבל כן תומכים ב-projection
+                        try:
+                            files = db.get_user_files(
+                                user_id,
+                                PAGE_SIZE,
+                                projection={"file_name": 1, "programming_language": 1, "tags": 1, "code": 1},
+                            )
+                        except TypeError:
+                            files = db.get_user_files(user_id, PAGE_SIZE)
                     # אם כבר עשינו ניסיון ראשון והגענו לכאן, עצור
                     if offset > 0:
                         files = []
@@ -432,7 +442,15 @@ class AdvancedSearchEngine:
                     projection={"file_name": 1, "code": 1, "tags": 1, "programming_language": 1, "updated_at": 1},
                 )
             except TypeError:
-                files = db.get_user_files(user_id, PAGE_SIZE)
+                # נסה לשמר code גם בנתיב תאימות (מימוש ישן בלי skip אבל עם projection)
+                try:
+                    files = db.get_user_files(
+                        user_id,
+                        PAGE_SIZE,
+                        projection={"file_name": 1, "code": 1, "tags": 1, "programming_language": 1, "updated_at": 1},
+                    )
+                except TypeError:
+                    files = db.get_user_files(user_id, PAGE_SIZE)
                 if offset > 0:
                     files = []
             if not files:
@@ -476,7 +494,14 @@ class AdvancedSearchEngine:
                     projection={"file_name": 1, "code": 1, "tags": 1, "programming_language": 1, "updated_at": 1},
                 )
             except TypeError:
-                files = db.get_user_files(user_id, PAGE_SIZE)
+                try:
+                    files = db.get_user_files(
+                        user_id,
+                        PAGE_SIZE,
+                        projection={"file_name": 1, "code": 1, "tags": 1, "programming_language": 1, "updated_at": 1},
+                    )
+                except TypeError:
+                    files = db.get_user_files(user_id, PAGE_SIZE)
                 if offset > 0:
                     files = []
             if not files:
@@ -551,7 +576,14 @@ class AdvancedSearchEngine:
                     projection={"file_name": 1, "code": 1, "tags": 1, "programming_language": 1, "updated_at": 1},
                 )
             except TypeError:
-                files = db.get_user_files(user_id, PAGE_SIZE)
+                try:
+                    files = db.get_user_files(
+                        user_id,
+                        PAGE_SIZE,
+                        projection={"file_name": 1, "code": 1, "tags": 1, "programming_language": 1, "updated_at": 1},
+                    )
+                except TypeError:
+                    files = db.get_user_files(user_id, PAGE_SIZE)
                 if offset > 0:
                     files = []
             if not files:
