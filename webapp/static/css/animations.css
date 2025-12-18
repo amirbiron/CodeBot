@@ -175,6 +175,9 @@
 /* אנימציית כניסה לתוכן ראשי */
 .main-content-fade {
   animation: fadeInSlide var(--duration-slow, 0.35s) var(--ease-out-expo) forwards;
+  will-change: transform, opacity;
+  backface-visibility: hidden;
+  -webkit-font-smoothing: subpixel-antialiased;
 }
 
 @keyframes fadeInSlide {
