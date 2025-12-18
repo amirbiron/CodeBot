@@ -2348,10 +2348,12 @@ class GitHubIssueAction:
             logger.error("GitHub token not configured")
             return {"success": False, "error": "GitHub token not configured"}
         
-        # בניית כותרת
+        # בניית כותרת (עם קיצור - כותרות GitHub מוגבלות)
         title = self._render_template(
             action_config.get("title_template", "🐛 [Auto] New Error: {{error_message}}"),
-            alert_data
+            alert_data,
+            truncate_long_values=True,  # קיצור רק בכותרת
+            max_length=80
         )
         
         # בניית גוף ה-Issue
@@ -2410,16 +2412,30 @@ class GitHubIssueAction:
             logger.error(f"Error creating GitHub issue: {e}")
             return {"success": False, "error": str(e)}
     
-    def _render_template(self, template: str, data: Dict[str, Any]) -> str:
-        """מחליף placeholders בתבנית."""
+    def _render_template(
+        self, 
+        template: str, 
+        data: Dict[str, Any],
+        truncate_long_values: bool = False,
+        max_length: int = 100
+    ) -> str:
+        """
+        מחליף placeholders בתבנית.
+        
+        Args:
+            template: תבנית עם {{placeholders}}
+            data: מילון ערכים
+            truncate_long_values: האם לקצר ערכים ארוכים (לכותרות בלבד)
+            max_length: אורך מקסימלי כשמקצרים
+        """
         result = template
         for key, value in data.items():
             placeholder = "{{" + key + "}}"
             if placeholder in result:
-                # חיטוי ערכים ארוכים
                 str_value = str(value)
-                if len(str_value) > 100:
-                    str_value = str_value[:97] + "..."
+                # קיצור רק אם התבקש במפורש (לכותרות)
+                if truncate_long_values and len(str_value) > max_length:
+                    str_value = str_value[:max_length - 3] + "..."
                 result = result.replace(placeholder, str_value)
         return result
     
@@ -2729,13 +2745,26 @@ class TestGitHubIssueAction:
         
         assert result == "Error in api: timeout"
     
-    def test_render_template_truncates_long_values(self, action):
-        template = "{{long_value}}"
-        data = {"long_value": "x" * 200}
+    def test_render_template_preserves_long_values_by_default(self, action):
+        """ודא שערכים ארוכים נשמרים בגוף (stack trace וכו')."""
+        template = "{{stack_trace}}"
+        long_trace = "x" * 5000
+        data = {"stack_trace": long_trace}
         
         result = action._render_template(template, data)
         
-        assert len(result) <= 103  # 100 + "..."
+        assert result == long_trace  # לא מקוצר!
+        assert len(result) == 5000
+    
+    def test_render_template_truncates_when_requested(self, action):
+        """ודא שקיצור עובד כשמתבקש (לכותרות)."""
+        template = "{{error_message}}"
+        data = {"error_message": "x" * 200}
+        
+        result = action._render_template(template, data, truncate_long_values=True, max_length=100)
+        
+        assert len(result) == 100  # 97 + "..."
+        assert result.endswith("...")
     
     def test_build_issue_body(self, action, sample_action_config, sample_alert):
         triggered = ["is_new_error eq true", "environment eq production"]
