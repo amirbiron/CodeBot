@@ -75,7 +75,8 @@ def get_logo(file_id: str):
             from telegram_api import require_telegram_ok
 
             body = meta_resp.json() if getattr(meta_resp, 'content', None) is not None else {}
-            body = require_telegram_ok(body, url=str(getattr(meta_resp, "url", "") or None))
+            meta_url = str(getattr(meta_resp, "url", "") or "").strip() or None
+            body = require_telegram_ok(body, url=meta_url)
             file_path = (body.get('result') or {}).get('file_path')
         except Exception:
             file_path = None
