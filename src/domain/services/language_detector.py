@@ -115,10 +115,37 @@ class LanguageDetector:
             # Markdown links
             if re.search(r"\[.+?\]\(.+?\)", view):
                 return True
-            # Fenced code blocks
-            if "```" in view:
-                return True
             return False
+
+        def _extract_single_fenced_block(content: str) -> tuple[str, Optional[str]] | None:
+            """אם כל הקובץ הוא בלוק ``` אחד – החזר (inner, fence_lang).
+
+            זה חשוב כדי לא לטעות ולשמור קוד כ-Markdown רק בגלל שהמשתמש עטף אותו ב-``` בטלגרם.
+            """
+            try:
+                stripped = (content or "").strip()
+                if not stripped:
+                    return None
+                lines = stripped.splitlines()
+                if not lines:
+                    return None
+                # מצא שורות fence: ```... (מתעלמים מרווחים בתחילת/סוף שורה)
+                fence_lines = [i for i, ln in enumerate(lines) if (ln.strip().startswith("```"))]
+                if len(fence_lines) != 2:
+                    return None
+                if fence_lines[0] != 0 or fence_lines[1] != (len(lines) - 1):
+                    return None
+                first = lines[0].strip()
+                # language אחרי ה-``` (למשל ```python)
+                fence_lang = (first[3:].strip().split()[:1] or [None])[0]
+                inner = "\n".join(lines[1:-1])
+                return inner, (str(fence_lang).lower() if fence_lang else None)
+            except Exception:
+                return None
+
+        def _looks_like_markdown_without_fences(content: str) -> bool:
+            """וריאנט שמאפשר להתעלם מ-``` בלבד (כי זה נפוץ בהדבקה של קוד)."""
+            return looks_like_markdown(content)
 
         def strong_python_signal(content: str) -> bool:
             if re.search(r"^#!.*\bpython(\d+(?:\.\d+)*)?\b", content, flags=re.IGNORECASE | re.MULTILINE):
@@ -138,7 +165,21 @@ class LanguageDetector:
 
         # Markdown: prefer markdown unless the content is clearly Python and no strong markdown markers
         if ext in generic_md_exts:
-            return "python" if strong_python_signal(text) and not looks_like_markdown(text) else "markdown"
+            fenced = _extract_single_fenced_block(text)
+            if fenced is not None:
+                inner, fence_lang = fenced
+                # אם מצוין שפה על ה-fence – נכבד (בעדיפות ל-python לפי הדרישה)
+                if fence_lang in {"python", "py"}:
+                    return "python"
+                if strong_python_signal(inner):
+                    return "python"
+                # אחרת נשאר markdown (קובץ markdown עם בלוק יחיד)
+                return "markdown"
+
+            # אם זה .md אבל התוכן "קוד בלבד" (גם אם יש ```), נעדיף python.
+            if strong_python_signal(text) and not _looks_like_markdown_without_fences(text):
+                return "python"
+            return "markdown"
 
         # Plain text or no extension: allow content override
         if ext in generic_text_exts:

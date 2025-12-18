@@ -60,6 +60,18 @@ from .models import CodeSnippet, LargeFile
 
 logger = logging.getLogger(__name__)
 
+# ===================== List projections (performance) =====================
+# שדות "כבדים" שאין צורך להחזיר במסכי רשימות/עימוד.
+# המטרה: להקטין payload מה-DB ולהפחית הקצאות זיכרון בפייתון.
+#
+# הערה: אפשר להחזיר אותם במפורש ע"י העברת projection מפורש (include) בקריאות ייעודיות.
+_HEAVY_FIELDS_EXCLUDE_PROJECTION: Dict[str, int] = {
+    "code": 0,        # CodeSnippet
+    "content": 0,     # LargeFile
+    "raw_data": 0,    # future-proof / backward-compat (אם קיים בפריטים מסוימים)
+    "raw_content": 0, # future-proof
+}
+
 # Optional performance instrumentation
 try:
     from metrics import track_performance
@@ -247,7 +259,7 @@ class Repository:
         try:
             if not isinstance(user_id, int) or user_id <= 0 or not self._validate_file_name(file_name):
                 return None
-            # שליפת גרסה אחרונה ללא שימוש בדקורטור cache כדי לא לזהם קאש לפני העדכון
+            # שליפת גרסה אחרונה (לבדיקת קיום/בעלות) ללא שימוש בדקורטור cache כדי לא לזהם קאש לפני העדכון
             snippet = None
             try:
                 docs_list = getattr(self.manager.collection, 'docs')
@@ -269,17 +281,34 @@ class Repository:
                     snippet = None
             if not snippet or int(snippet.get("user_id", 0) or 0) != int(user_id):
                 return None
-            # חישוב מצב חדש: העדף את הסטטוס מתוך docs (סטאב) אם זמין
-            curr_state = bool(snippet.get("is_favorite", False))
+
+            # חישוב מצב נוכחי "ברמת קובץ":
+            # ייתכן שבנתונים קיימים is_favorite נשמר רק על גרסאות ישנות.
+            # אם נסתכל רק על הגרסה האחרונה – נקבל לוגיקה הפוכה ("הסר" עושה "הוסף").
+            curr_state = False
             try:
                 docs_list = getattr(self.manager.collection, 'docs')
                 if isinstance(docs_list, list):
                     candidates = [d for d in docs_list if isinstance(d, dict) and d.get('user_id') == user_id and d.get('file_name') == file_name]
-                    if candidates:
-                        latest_doc = max(candidates, key=lambda d: int(d.get('version', 0) or 0))
-                        curr_state = bool(latest_doc.get('is_favorite', False))
+                    # קובץ נחשב מועדף אם *כל גרסה שהיא* מסומנת כמועדפת
+                    curr_state = any(bool(d.get('is_favorite', False)) for d in candidates)
             except Exception:
                 pass
+            if curr_state is False:
+                try:
+                    fav_q = {
+                        "user_id": user_id,
+                        "file_name": file_name,
+                        "is_favorite": True,
+                        "$or": [{"is_active": True}, {"is_active": {"$exists": False}}],
+                    }
+                    try:
+                        fav_doc = self.manager.collection.find_one(fav_q, {"_id": 1})
+                    except TypeError:
+                        fav_doc = self.manager.collection.find_one(fav_q)
+                    curr_state = bool(fav_doc)
+                except Exception:
+                    pass
             new_state = not curr_state
             now = datetime.now(timezone.utc)
             update = {
@@ -289,14 +318,14 @@ class Repository:
                     "favorited_at": (now if new_state else None),
                 }
             }
-            # עדכן את הגרסה האחרונה בלבד (לפי _id) כדי לוודא עקביות בדו"ח מועדפים
-            try:
-                target_id = snippet.get("_id")
-            except Exception:
-                target_id = None
-            query = {"_id": target_id} if target_id is not None else {
-                "user_id": user_id, "file_name": file_name,
-                "$or": [{"is_active": True}, {"is_active": {"$exists": False}}]
+            # חשוב: עדכן *כל הגרסאות* של אותו קובץ כדי למנוע מצב שבו:
+            # - ישנה גרסה ישנה עם is_favorite=True
+            # - הגרסה האחרונה עם is_favorite=False
+            # ואז רשימת המועדפים עדיין מציגה את הקובץ, ולחיצה על "הסר" עושה "הוסף".
+            query = {
+                "user_id": user_id,
+                "file_name": file_name,
+                "$or": [{"is_active": True}, {"is_active": {"$exists": False}}],
             }
             # עדכון באמצעות update_many אם זמין; בסביבת in-memory ייתכן שהמתודה לא קיימת
             class _UpdateResult:
@@ -309,32 +338,20 @@ class Repository:
             except Exception:
                 res = _UpdateResult(0, 0)
             matched = int(getattr(res, 'matched_count', 0) or 0)
-            # אם לא נמצאה התאמה לפי _id (למשל בסטאבים) — נסה לפי user_id+file_name
-            if matched <= 0:
-                fallback_q = {
-                    "user_id": user_id,
-                    "file_name": file_name,
-                    "$or": [{"is_active": True}, {"is_active": {"$exists": False}}]
-                }
+            # Fallback נוסף לסביבת טסטים: עדכון ישיר של המסמך ברשימת docs אם קיימת
+            if matched <= 0 and hasattr(self.manager.collection, 'docs'):
                 try:
-                    res = self.manager.collection.update_many(fallback_q, update)
+                    docs_list = getattr(self.manager.collection, 'docs')
+                    candidates = [d for d in docs_list if isinstance(d, dict) and d.get('user_id') == user_id and d.get('file_name') == file_name]
+                    if candidates:
+                        # עדכון כל המסמכים של אותו קובץ (כל הגרסאות)
+                        for d in candidates:
+                            d['is_favorite'] = new_state
+                            d['updated_at'] = now
+                            d['favorited_at'] = (now if new_state else None)
+                        matched = 1
                 except Exception:
-                    res = _UpdateResult(0, 0)
-                matched = int(getattr(res, 'matched_count', 0) or 0)
-                # Fallback נוסף לסביבת טסטים: עדכון ישיר של המסמך ברשימת docs אם קיימת
-                if matched <= 0 and hasattr(self.manager.collection, 'docs'):
-                    try:
-                        docs_list = getattr(self.manager.collection, 'docs')
-                        # מצא את הגרסה האחרונה עבור הקובץ והמשתמש
-                        candidates = [d for d in docs_list if isinstance(d, dict) and d.get('user_id') == user_id and d.get('file_name') == file_name]
-                        if candidates:
-                            latest = max(candidates, key=lambda d: int(d.get('version', 0) or 0))
-                            latest['is_favorite'] = new_state
-                            latest['updated_at'] = now
-                            latest['favorited_at'] = (now if new_state else None)
-                            matched = 1
-                    except Exception:
-                        pass
+                    pass
             # עדכון ישיר גם באחסון in-memory עבור סביבת טסטים (ללא קשר ל-matched)
             if hasattr(self.manager.collection, 'docs'):
                 try:
@@ -581,8 +598,35 @@ class Repository:
 
     def is_favorite(self, user_id: int, file_name: str) -> bool:
         try:
-            doc = self.get_latest_version(user_id, file_name)
-            return bool(doc.get("is_favorite", False)) if doc else False
+            # קובץ נחשב מועדף אם קיימת *איזושהי* גרסה פעילה מסומנת is_favorite=True
+            try:
+                docs_list = getattr(self.manager.collection, 'docs', None)
+                if isinstance(docs_list, list):
+                    for d in docs_list:
+                        if not isinstance(d, dict):
+                            continue
+                        if int(d.get('user_id', -1) or -1) != int(user_id):
+                            continue
+                        if str(d.get('file_name') or '') != str(file_name):
+                            continue
+                        if d.get('is_active') is False:
+                            continue
+                        if bool(d.get('is_favorite', False)):
+                            return True
+                    return False
+            except Exception:
+                pass
+            q = {
+                "user_id": user_id,
+                "file_name": file_name,
+                "is_favorite": True,
+                "$or": [{"is_active": True}, {"is_active": {"$exists": False}}],
+            }
+            try:
+                doc = self.manager.collection.find_one(q, {"_id": 1})
+            except TypeError:
+                doc = self.manager.collection.find_one(q)
+            return bool(doc)
         except Exception as e:
             emit_event("db_is_favorite_error", severity="error", error=str(e))
             return False
@@ -795,12 +839,32 @@ class Repository:
                 {"$replaceRoot": {"newRoot": "$latest"}},
                 {"$sort": {"updated_at": -1}},
             ]
-            # הקרנה אופציונלית לשדות דרושים בלבד
+            # הקרנה:
+            # - ברירת מחדל: exclude לשדות כבדים (code/content וכו') למסכי רשימות.
+            # - אם caller נתן projection מפורש: כבד אותו (משאיר יכולת include ייעודית).
             if projection and isinstance(projection, dict) and projection:
-                # הבטחה שתמיד יוחזר file_name אם לא נכלל
                 proj = dict(projection)
-                proj.setdefault("file_name", 1)
+                # זיהוי האם זה include-projection או exclude-projection (בלי לערבב 1/0).
+                # הערה: _id חריג במונגו ומותר לשלב אותו, לכן מתעלמים ממנו בזיהוי.
+                try:
+                    is_include = any(
+                        (k != "_id") and (int(v) == 1)
+                        for k, v in proj.items()
+                        if v in (0, 1)
+                    )
+                except Exception:
+                    is_include = False
+                # רק ב-include projection נכפה file_name כדי למנוע mixed projection לא חוקי.
+                if is_include:
+                    proj.setdefault("file_name", 1)
+                if not is_include:
+                    try:
+                        proj.update(_HEAVY_FIELDS_EXCLUDE_PROJECTION)
+                    except Exception:
+                        pass
                 pipeline.append({"$project": proj})
+            else:
+                pipeline.append({"$project": dict(_HEAVY_FIELDS_EXCLUDE_PROJECTION)})
             # עימוד: דילוג ואז הגבלה
             if eff_skip > 0:
                 pipeline.append({"$skip": eff_skip})
@@ -850,6 +914,17 @@ class Repository:
                 {"$replaceRoot": {"newRoot": "$latest"}},
                 {"$sort": {"updated_at": -1}},
                 {"$limit": limit},
+                # תוצאות חיפוש הן רשימה — אין צורך להחזיר את שדה code המלא כאן.
+                {"$project": {
+                    "_id": 1,
+                    "file_name": 1,
+                    "programming_language": 1,
+                    "updated_at": 1,
+                    "description": 1,
+                    "tags": 1,
+                    "is_favorite": 1,
+                    "favorited_at": 1,
+                }},
             ]
             with track_performance("db_search_code"):
                 rows = list(self.manager.collection.aggregate(pipeline, allowDiskUse=True))
@@ -1226,12 +1301,22 @@ class Repository:
             total_count = self.manager.large_files_collection.count_documents({"user_id": user_id, "$or": [
                 {"is_active": True}, {"is_active": {"$exists": False}}
             ]})
-            cursor = self.manager.large_files_collection.find(
-                {"user_id": user_id, "$or": [
-                    {"is_active": True}, {"is_active": {"$exists": False}}
-                ]},
-                sort=[("created_at", -1)],
-            )
+            query = {"user_id": user_id, "$or": [
+                {"is_active": True}, {"is_active": {"$exists": False}}
+            ]}
+            # רשימת קבצים גדולים: אל תחזיר content (כבד) ברירת מחדל.
+            try:
+                cursor = self.manager.large_files_collection.find(
+                    query,
+                    dict(_HEAVY_FIELDS_EXCLUDE_PROJECTION),
+                    sort=[("created_at", -1)],
+                )
+            except TypeError:
+                # תאימות ל-stubs שלא תומכים בפרמטר projection
+                cursor = self.manager.large_files_collection.find(
+                    query,
+                    sort=[("created_at", -1)],
+                )
             # תמיכה ב-mocks שמחזירים list במקום Cursor
             if isinstance(cursor, list):
                 files = cursor[skip: skip + per_page]
@@ -1312,7 +1397,10 @@ class Repository:
             match = {"user_id": user_id, "is_active": False}
             # Fetch all and merge-sort in Python for simplicity and correctness across two collections
             try:
-                reg_docs = list(self.manager.collection.find(match))
+                try:
+                    reg_docs = list(self.manager.collection.find(match, dict(_HEAVY_FIELDS_EXCLUDE_PROJECTION)))
+                except TypeError:
+                    reg_docs = list(self.manager.collection.find(match))
             except Exception as e:
                 # Emit per-source failure to help diagnostics
                 try:
@@ -1321,7 +1409,10 @@ class Repository:
                     pass
                 reg_docs = []
             try:
-                large_docs = list(self.manager.large_files_collection.find(match))
+                try:
+                    large_docs = list(self.manager.large_files_collection.find(match, dict(_HEAVY_FIELDS_EXCLUDE_PROJECTION)))
+                except TypeError:
+                    large_docs = list(self.manager.large_files_collection.find(match))
             except Exception as e:
                 try:
                     emit_event("db_list_deleted_files_error", severity="error", error=str(e), stage="large")

@@ -11,6 +11,7 @@ from functools import wraps
 from typing import Any, Dict, List, Optional, Union, Callable, TypeVar, ParamSpec, Coroutine, cast, Tuple
 import copy
 import random
+import threading
 try:
     import redis
 except Exception:  # redis אינו חובה – נריץ במצב מושבת אם חסר
@@ -685,6 +686,68 @@ cache = CacheManager()
 
 # Fallback in-process cache store (used when Redis disabled or on failures)
 _local_cache_store: Dict[str, Tuple[float, Any]] = {}
+_local_cache_lock = threading.Lock()
+_local_cache_last_cleanup_ts: float = 0.0
+
+
+def _get_local_cache_max_entries() -> int:
+    """מגבלת גודל לפולבק בזיכרון מקומי כדי למנוע זליגת זיכרון.
+
+    הערה: הפולבק נועד למקרי Redis מושבת/נופל ולכן חייב להיות מוגבל.
+    """
+    try:
+        v = int(os.getenv("LOCAL_CACHE_MAX_ENTRIES", "2000"))
+    except Exception:
+        v = 2000
+    return max(0, v)
+
+
+def _cleanup_local_cache(*, now: Optional[float] = None, force: bool = False) -> None:
+    """ניקוי עדין של הפולבק בזיכרון: מחיקת פגי-תוקף + פינוי לפי גודל.
+
+    קריטי: בלי ניקוי, `_local_cache_store` גדל ללא גבול כי TTL נבדק רק בקריאה.
+    """
+    global _local_cache_last_cleanup_ts
+    max_entries = _get_local_cache_max_entries()
+    if max_entries <= 0:
+        # אם הגדירו 0/שלילי — כבה לגמרי את הפולבק כדי להעדיף Redis/חישוב חוזר.
+        with _local_cache_lock:
+            _local_cache_store.clear()
+        return
+
+    ts = float(time.time() if now is None else now)
+    # אל תעשה סריקה מלאה בכל בקשה; מספיק כל ~30 שניות או אם עברנו את המגבלה.
+    if not force and (ts - float(_local_cache_last_cleanup_ts or 0.0)) < 30.0:
+        with _local_cache_lock:
+            if len(_local_cache_store) <= max_entries:
+                return
+
+    with _local_cache_lock:
+        _local_cache_last_cleanup_ts = ts
+        if not _local_cache_store:
+            return
+
+        # 1) מחיקת ערכים שפג תוקפם
+        expired_keys: List[str] = []
+        for k, entry in _local_cache_store.items():
+            try:
+                expires_at = float(entry[0])
+            except Exception:
+                expires_at = 0.0
+            if expires_at <= ts:
+                expired_keys.append(k)
+        for k in expired_keys:
+            _local_cache_store.pop(k, None)
+
+        # 2) אם עדיין גדול מדי — פנה לפי סדר הכנסה (dict שומר order ב-Python 3.7+)
+        if len(_local_cache_store) > max_entries:
+            to_evict = len(_local_cache_store) - max_entries
+            try:
+                for k in list(_local_cache_store.keys())[:to_evict]:
+                    _local_cache_store.pop(k, None)
+            except Exception:
+                # fallback בטוח: מחיקה אגרסיבית אם משהו השתבש
+                _local_cache_store.clear()
 
 def cached(expire_seconds: int = 300, key_prefix: str = "default"):
     """דקורטור לcaching פונקציות"""
@@ -702,28 +765,34 @@ def cached(expire_seconds: int = 300, key_prefix: str = "default"):
 
             # בדיקת Fallback בזיכרון מקומי
             try:
-                entry = _local_cache_store.get(cache_key)
+                now = time.time()
+                with _local_cache_lock:
+                    entry = _local_cache_store.get(cache_key)
+                    if entry is not None:
+                        # אחורה תאימות: ערך יכול להיות או (expires, value) או (expires, ('json'|'obj', payload))
+                        expires_at = float(entry[0])
+                        if expires_at <= now:
+                            # חשוב: למחוק ערכים פגי-תוקף כדי למנוע גדילה אינסופית
+                            _local_cache_store.pop(cache_key, None)
+                            entry = None
                 if entry is not None:
-                    # אחורה תאימות: ערך יכול להיות או (expires, value) או (expires, ('json'|'obj', payload))
-                    expires_at = float(entry[0])
-                    if expires_at > time.time():
-                        stored_value = entry[1]
-                        try:
-                            # אם נשמר מחרוזת JSON – פרסר יחזיר עותק חדש
-                            if isinstance(stored_value, tuple) and len(stored_value) == 2:
-                                kind, payload = stored_value
-                                if kind == 'json' and isinstance(payload, str):
-                                    logger.debug(f"Local cache hit(json): {cache_key}")
-                                    return json.loads(payload)
-                                if kind == 'obj':
-                                    logger.debug(f"Local cache hit(obj): {cache_key}")
-                                    return copy.deepcopy(payload)
-                            # תמיכה בנתונים ישנים: החזר deep copy כדי לשמר איסולציה
-                            if isinstance(stored_value, str):
-                                return json.loads(stored_value)
-                            return copy.deepcopy(stored_value)
-                        except Exception:
-                            return stored_value
+                    stored_value = entry[1]
+                    try:
+                        # אם נשמר מחרוזת JSON – פרסר יחזיר עותק חדש
+                        if isinstance(stored_value, tuple) and len(stored_value) == 2:
+                            kind, payload = stored_value
+                            if kind == 'json' and isinstance(payload, str):
+                                logger.debug(f"Local cache hit(json): {cache_key}")
+                                return json.loads(payload)
+                            if kind == 'obj':
+                                logger.debug(f"Local cache hit(obj): {cache_key}")
+                                return copy.deepcopy(payload)
+                        # תמיכה בנתונים ישנים: החזר deep copy כדי לשמר איסולציה
+                        if isinstance(stored_value, str):
+                            return json.loads(stored_value)
+                        return copy.deepcopy(stored_value)
+                    except Exception:
+                        return stored_value
             except Exception:
                 # לא חוסם זרימה במקרה של שגיאה בפולבק
                 pass
@@ -749,7 +818,9 @@ def cached(expire_seconds: int = 300, key_prefix: str = "default"):
                         payload = ('json', serialized)
                     except Exception:
                         payload = ('obj', copy.deepcopy(result))
-                    _local_cache_store[cache_key] = (time.time() + float(expire_seconds), payload)
+                    with _local_cache_lock:
+                        _local_cache_store[cache_key] = (time.time() + float(expire_seconds), payload)
+                    _cleanup_local_cache()
                 except Exception:
                     pass
             logger.debug(f"Cache miss, stored: {cache_key}")
@@ -774,25 +845,30 @@ def async_cached(expire_seconds: int = 300, key_prefix: str = "default"):
 
             # בדיקת Fallback בזיכרון מקומי
             try:
-                entry = _local_cache_store.get(cache_key)
+                now = time.time()
+                with _local_cache_lock:
+                    entry = _local_cache_store.get(cache_key)
+                    if entry is not None:
+                        expires_at = float(entry[0])
+                        if expires_at <= now:
+                            _local_cache_store.pop(cache_key, None)
+                            entry = None
                 if entry is not None:
-                    expires_at = float(entry[0])
-                    if expires_at > time.time():
-                        stored_value = entry[1]
-                        try:
-                            if isinstance(stored_value, tuple) and len(stored_value) == 2:
-                                kind, payload = stored_value
-                                if kind == 'json' and isinstance(payload, str):
-                                    logger.debug(f"Local cache hit(json): {cache_key}")
-                                    return json.loads(payload)
-                                if kind == 'obj':
-                                    logger.debug(f"Local cache hit(obj): {cache_key}")
-                                    return copy.deepcopy(payload)
-                            if isinstance(stored_value, str):
-                                return json.loads(stored_value)
-                            return copy.deepcopy(stored_value)
-                        except Exception:
-                            return stored_value
+                    stored_value = entry[1]
+                    try:
+                        if isinstance(stored_value, tuple) and len(stored_value) == 2:
+                            kind, payload = stored_value
+                            if kind == 'json' and isinstance(payload, str):
+                                logger.debug(f"Local cache hit(json): {cache_key}")
+                                return json.loads(payload)
+                            if kind == 'obj':
+                                logger.debug(f"Local cache hit(obj): {cache_key}")
+                                return copy.deepcopy(payload)
+                        if isinstance(stored_value, str):
+                            return json.loads(stored_value)
+                        return copy.deepcopy(stored_value)
+                    except Exception:
+                        return stored_value
             except Exception:
                 pass
             
@@ -815,7 +891,9 @@ def async_cached(expire_seconds: int = 300, key_prefix: str = "default"):
                         payload = ('json', serialized)
                     except Exception:
                         payload = ('obj', copy.deepcopy(result))
-                    _local_cache_store[cache_key] = (time.time() + float(expire_seconds), payload)
+                    with _local_cache_lock:
+                        _local_cache_store[cache_key] = (time.time() + float(expire_seconds), payload)
+                    _cleanup_local_cache()
                 except Exception:
                     pass
             logger.debug(f"Cache miss, stored: {cache_key}")

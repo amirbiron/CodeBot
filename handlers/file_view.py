@@ -364,10 +364,12 @@ async def handle_view_file(update, context: ContextTypes.DEFAULT_TYPE) -> int:
                     context.user_data['files_cache'] = files_cache
                 except Exception:
                     pass
-        # אם השפה שמורה כ-text או ריקה אך התוכן מרמז אחרת – נזהה מחדש להצגה דרך מקור אחיד
+        # אם השפה שמורה כ-text/ריקה או (markdown עם תוכן שהוא קוד ברור) – נזהה מחדש להצגה דרך מקור אחיד
         try:
             lang_lower = str(language or "").lower()
-            if (not lang_lower) or lang_lower == "text":
+            file_name_lower = str(file_name or "").lower()
+            is_md_name = file_name_lower.endswith((".md", ".markdown", ".mdown", ".mkd", ".mkdn"))
+            if (not lang_lower) or lang_lower == "text" or (lang_lower == "markdown" and is_md_name):
                 new_lang = code_service.detect_language(code, file_name)
                 if new_lang and new_lang != language:
                     language = new_lang

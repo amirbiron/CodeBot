@@ -118,6 +118,8 @@ class RefactorHandlers:
 
         # Fallback: השוואה בלתי-תלויה-רישיות + התאמת basename (עוזר במקרי נתיב מלא)
         if not snippet:
+            # חשוב: לאחר רפקטור ה-Repository מחזיר ברירת מחדל רשימות ללא code/content כדי לשפר ביצועים.
+            # לכן כאן משתמשים ברשימה רק כדי למצוא שם קובץ מתאים, ואז מבצעים Full Fetch ממוקד לקובץ הבודד.
             try:
                 files = db.get_user_files(user_id, limit=200)  # type: ignore[attr-defined]
             except Exception:
@@ -126,7 +128,17 @@ class RefactorHandlers:
             try:
                 if hasattr(db, 'get_user_large_files'):
                     large_files, _ = db.get_user_large_files(user_id, page=1, per_page=200)  # type: ignore[attr-defined]
-                    files = list(files or []) + list(large_files or [])
+                    # נסמן שמדובר בקובץ גדול כדי שנוכל לבצע full fetch נכון בהמשך
+                    marked_large: list[dict] = []
+                    try:
+                        for lf in list(large_files or []):
+                            if isinstance(lf, dict):
+                                tmp = dict(lf)
+                                tmp["_is_large_file"] = True
+                                marked_large.append(tmp)
+                    except Exception:
+                        marked_large = list(large_files or [])
+                    files = list(files or []) + marked_large
             except Exception:
                 pass
             def _norm_for_match(s: str) -> str:
@@ -162,7 +174,23 @@ class RefactorHandlers:
                 except Exception:
                     continue
             if best is not None:
-                snippet = best
+                # Full fetch ממוקד לפי שם הקובץ שנמצא
+                try:
+                    best_name = str(best.get("file_name") or "")
+                except Exception:
+                    best_name = ""
+                if best_name:
+                    try:
+                        if bool(best.get("_is_large_file")) and hasattr(db, "get_large_file"):
+                            snippet = db.get_large_file(user_id, best_name)
+                        else:
+                            snippet = db.get_file(user_id, best_name)
+                        if not snippet and hasattr(db, "get_large_file"):
+                            snippet = db.get_large_file(user_id, best_name)
+                    except Exception:
+                        snippet = best
+                else:
+                    snippet = best
 
         if not snippet:
             await update.message.reply_text(
