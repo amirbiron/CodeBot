@@ -320,3 +320,43 @@ async def safe_edit(query, text, reply_markup=None, parse_mode=None):
 - יישם בהתאם לרוח ההצעה
 - מותר לסטות בפרטים אם יש שיקולי אבטחה/פשטות, **אבל ציין זאת**
 - אם יש פער: הצע התאמה או שאל במידת הצורך
+
+---
+
+## Performance & Optimization Architecture
+
+> **מתי להשתמש:** בכל פיתוח של Endpoint חדש, שאילתת DB, או דף ב־Webapp
+
+### 1. חוק ה־Smart Projection (החרגת שדות כבדים)
+
+- **לעולם אל תמשוך** את השדות `code`, `content`, או `raw_data` בשאילתות שמחזירות רשימה/אוסף של קבצים.
+
+- השתמש תמיד בקבוע `HEAVY_FIELDS_EXCLUDE_PROJECTION` (מתוך `database/repository.py`).
+
+- משיכת תוכן מלא תתבצע **רק** בבקשה מפורשת (Explicit Fetch) עבור צפייה או עריכה של קובץ בודד.
+
+### 2. מטא־דאטה במקום חישובים בזיכרון
+
+- העדף שימוש בשדות מחושבים ב־DB כמו `file_size` ו־`lines_count`.
+
+- אם הוספת שדה תוכן חדש, ודא שהוא מתעדכן ב־`save_code_snippet` כך שלא נצטרך לספור שורות או בייטים בפייתון בזמן שליפת רשימות.
+
+### 3. אופטימיזציית חיפוש (The Snippet Pattern)
+
+- בחיפוש קוד, **אל תחזיר את כל הקובץ** מה־API.
+
+- השתמש ב־Aggregation של MongoDB (`$regexFind`) כדי לחתוך רק את קטע הקוד הרלוונטי (Snippet) כבר ברמת בסיס הנתונים.
+
+### 4. אינדקסים כחלק מהפיתוח
+
+- כל שאילתה חדשה חייבת לעבור בדיקת אינדקסים ב־`database/repository.py`.
+
+- העדף אינדקסים מורכבים (Compound Indexes) הכוללים את ה־`user_id` יחד עם סטטוס המחיקה/מועדפים.
+
+### 5. טעינה אסינכרונית ב־Webapp (Lazy Loading)
+
+- דפים כבדים ב־Webapp צריכים להחזיר HTML ראשוני מהר (< 200ms).
+
+- השתמש ב־**Skeleton Loaders** ובשליפת נתונים מה־API דרך JavaScript ברקע.
+
+- עטוף חישובים כבדים ב־`await asyncio.to_thread(...)` כדי לא לחסום את ה־Event Loop.
