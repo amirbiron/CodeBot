@@ -15,6 +15,7 @@ import mimetypes
 from datetime import datetime, timezone
 from functools import wraps, lru_cache
 from typing import Optional, Dict, Any, List, Tuple, Set
+from concurrent.futures import ThreadPoolExecutor
 
 from flask import Flask, Blueprint, render_template, jsonify, request, session, redirect, url_for, send_file, abort, Response, g
 import threading
@@ -65,11 +66,33 @@ from services import observability_dashboard as observability_service  # noqa: E
 from services.diff_service import get_diff_service, DiffMode  # noqa: E402
 from services.db_health_service import ThreadPoolDatabaseHealthService  # noqa: E402
 
+
+# --- Observability: הרצת פעולות כבדות בת׳רד (תואם Flask sync) ---
+_OBSERVABILITY_THREADPOOL = ThreadPoolExecutor(
+    max_workers=max(2, min(16, int(os.getenv('OBSERVABILITY_THREADPOOL_WORKERS') or 6))),
+    thread_name_prefix='observability',
+)
+
+
+def _run_observability_blocking(func, *args, **kwargs):
+    """מריץ פונקציה כבדה בת׳רד ומחזיר תוצאה (ללא async/await)."""
+    return _OBSERVABILITY_THREADPOOL.submit(func, *args, **kwargs).result()
+
 # קונפיגורציה מרכזית (Pydantic Settings)
 try:  # שמירה על יציבות גם בסביבות דוקס/CI
     from config import config as cfg
 except Exception:  # pragma: no cover
     cfg = None
+
+# --- Smart Projection (Performance) ---
+# ברירת מחדל למסכי רשימות: אל תמשוך שדות "כבדים" מה-DB.
+# חשוב: מסכי צפייה/עריכה של קובץ בודד עדיין מושכים מסמך מלא.
+try:  # prefer the canonical list projection from repository layer
+    from database.repository import HEAVY_FIELDS_EXCLUDE_PROJECTION as _HEAVY_FIELDS_EXCLUDE_PROJECTION  # type: ignore
+except Exception:  # pragma: no cover - fallback for minimal environments
+    _HEAVY_FIELDS_EXCLUDE_PROJECTION = {"code": 0, "content": 0, "raw_content": 0}
+
+LIST_EXCLUDE_HEAVY_PROJECTION: Dict[str, int] = dict(_HEAVY_FIELDS_EXCLUDE_PROJECTION)
 
 DEFAULT_LANGUAGE_CHOICES = [
     "python",
@@ -1778,6 +1801,37 @@ def ensure_code_snippets_indexes() -> None:
                 coll.create_index([('user_id', ASCENDING), ('is_favorite', ASCENDING)], name='user_favorite', background=True)
             except Exception:
                 pass
+            # אינדקסים לשדות מטא חדשים (מסייעים לפילטרים/מיונים עתידיים כמו min_size/max_size)
+            try:
+                coll.create_index([('user_id', ASCENDING), ('file_size', ASCENDING)], name='user_file_size', background=True)
+            except Exception:
+                pass
+            try:
+                coll.create_index([('user_id', ASCENDING), ('lines_count', ASCENDING)], name='user_lines_count', background=True)
+            except Exception:
+                pass
+            # אינדקסים לתמיכה ב-"גרסה אחרונה לכל file_name" (פייפליינים עם sort+group)
+            try:
+                coll.create_index(
+                    [('user_id', ASCENDING), ('file_name', ASCENDING), ('version', DESCENDING)],
+                    name='user_file_version_desc',
+                    background=True,
+                )
+            except Exception:
+                pass
+            # אינדקסים למיונים נפוצים במסכי רשימות
+            try:
+                coll.create_index([('user_id', ASCENDING), ('updated_at', DESCENDING)], name='user_updated_at', background=True)
+            except Exception:
+                pass
+            try:
+                coll.create_index(
+                    [('user_id', ASCENDING), ('is_favorite', ASCENDING), ('favorited_at', DESCENDING)],
+                    name='user_favorite_favorited_at',
+                    background=True,
+                )
+            except Exception:
+                pass
 
             # Text index – רק אם לא קיים כבר אינדקס מסוג text
             try:
@@ -2034,15 +2088,39 @@ def _get_builtin_share_doc(share_id: str) -> Optional[Dict[str, Any]]:
     }
 
 
-def get_internal_share(share_id: str) -> Optional[Dict[str, Any]]:
-    """שליפת שיתוף פנימי מה-DB (internal_shares) עם בדיקת תוקף."""
+def get_internal_share(share_id: str, *, include_code: bool = True) -> Optional[Dict[str, Any]]:
+    """שליפת שיתוף פנימי מה-DB (internal_shares) עם בדיקת תוקף.
+
+    - include_code=False: מיועד לתצוגה מקדימה (preview) כדי לא למשוך תוכן מלא.
+    - include_code=True: מיועד להורדה/שמירה, כשבאמת חייבים את התוכן המלא.
+    """
     builtin_doc = _get_builtin_share_doc(share_id)
     if builtin_doc:
+        if not include_code:
+            # תצוגה מקדימה: אל תדחוף קוד מלא לזיכרון אם לא צריך.
+            try:
+                code = str(builtin_doc.get('code') or '')
+                builtin_doc = dict(builtin_doc)
+                builtin_doc['snippet_preview'] = code[:2000]
+                builtin_doc['file_size'] = int(len(code.encode('utf-8', errors='ignore'))) if code else 0
+                builtin_doc['lines_count'] = int(len(code.splitlines())) if code else 0
+                builtin_doc.pop('code', None)
+                builtin_doc['mode'] = builtin_doc.get('mode') or 'preview'
+            except Exception:
+                pass
         return builtin_doc
     try:
         db = get_db()
         coll = db.internal_shares
-        doc = coll.find_one({"share_id": share_id})
+        projection = None
+        if not include_code:
+            # Preview: אל תחזיר את שדה code אם הוא קיים (יכול להיות כבד מאוד).
+            projection = {"code": 0}
+        try:
+            doc = coll.find_one({"share_id": share_id}, projection=projection)
+        except TypeError:
+            # תאימות לסטאבים/מימושים ללא projection=
+            doc = coll.find_one({"share_id": share_id})
         if not doc:
             return None
         # TTL אמור לטפל במחיקה, אבל אם עדיין לא נמחק — נבדוק תוקף ידנית באופן חסין tz
@@ -2105,6 +2183,29 @@ def verify_telegram_auth(auth_data: Dict[str, Any]) -> bool:
 
 def login_required(f):
     """דקורטור לבדיקת התחברות"""
+    try:
+        is_async = asyncio.iscoroutinefunction(f)  # type: ignore[attr-defined]
+    except Exception:
+        is_async = False
+
+    if is_async:
+        @wraps(f)
+        async def decorated_function(*args, **kwargs):
+            if 'user_id' not in session:
+                try:
+                    wants_json = (
+                        (request.path or '').startswith('/api/') or
+                        ('application/json' in (request.headers.get('Accept') or ''))
+                    )
+                except Exception:
+                    wants_json = False
+                if wants_json:
+                    return jsonify({'error': 'נדרש להתחבר'}), 401
+                next_url = request.full_path if request.query_string else request.path
+                return redirect(url_for('login', next=next_url))
+            return await f(*args, **kwargs)
+        return decorated_function
+
     @wraps(f)
     def decorated_function(*args, **kwargs):
         if 'user_id' not in session:
@@ -4802,73 +4903,126 @@ def _safe_search(user_id: int, query: str, **kwargs):
     except Exception:
         pass
 
+    # חשוב: בחיפוש רוצים להחזיר snippet קצר ולא למשוך את כל `code` לפייתון.
+    # נחלץ match ראשון + snippet ב-DB (best-effort). אם פונקציות אגרגציה חסרות,
+    # ניפול ל-fallback הישן (כבד יותר) כדי לשמור פונקציונליות.
     pipeline = [
         {'$match': match_stage},
         {'$sort': {'file_name': 1, 'version': -1}},
         {'$group': {'_id': '$file_name', 'latest': {'$first': '$$ROOT'}}},
         {'$replaceRoot': {'newRoot': '$latest'}},
+        # חישוב match ראשון + snippet סביבו (בערך 200 תווים סביב נקודת התאמה)
+        {'$addFields': {
+            '_m': {'$regexFind': {'input': '$code', 'regex': pattern, 'options': 'i'}},
+        }},
+        {'$addFields': {
+            '_match_idx': {'$ifNull': ['$_m.idx', 0]},
+            '_match_len': {'$strLenBytes': {'$ifNull': ['$_m.match', '']}},
+        }},
+        {'$addFields': {
+            '_snippet_start': {'$max': [0, {'$subtract': ['$_match_idx', 50]}]},
+        }},
+        {'$addFields': {
+            'snippet_preview': {'$substrBytes': ['$code', '$_snippet_start', 200]},
+            # מטא-דאטה קל (למסמכים חדשים נשמר כבר; למסמכים ישנים מחשבים בריצה)
+            'file_size': {'$ifNull': ['$file_size', {'$strLenBytes': '$code'}]},
+            'lines_count': {'$ifNull': ['$lines_count', {'$size': {'$split': ['$code', '\n']}}]},
+            # highlight range יחיד (יחסי ל-snippet) עבור התאמה הראשונה
+            'highlight_ranges': [[
+                {'$max': [0, {'$subtract': ['$_match_idx', '$_snippet_start']}]},
+                {'$max': [0, {'$add': [{'$subtract': ['$_match_idx', '$_snippet_start']}, '$_match_len']}]},
+            ]],
+        }},
+        {'$project': {
+            # אל תחזיר code מלא בחיפוש fallback
+            'code': 0,
+            # שדות עזר פנימיים
+            '_m': 0,
+            '_match_idx': 0,
+            '_match_len': 0,
+            '_snippet_start': 0,
+        }},
         {'$sort': {'updated_at': -1}},
         {'$limit': total_limit},
     ]
 
     try:
         docs = list(db.code_snippets.aggregate(pipeline, allowDiskUse=True))
+        from types import SimpleNamespace
+        results: list = []
+        for doc in docs:
+            if not isinstance(doc, dict):
+                continue
+            # score גס ב-fallback: אין לנו חישוב מושלם בלי לקרוא את כל התוכן
+            score = 1.0
+            try:
+                score = float(doc.get('relevance_score') or 1.0)
+            except Exception:
+                score = 1.0
+            results.append(SimpleNamespace(
+                file_name=str(doc.get('file_name') or ''),
+                programming_language=str(doc.get('programming_language') or ''),
+                tags=list(doc.get('tags') or []),
+                created_at=doc.get('created_at') or datetime.now(timezone.utc),
+                updated_at=doc.get('updated_at') or datetime.now(timezone.utc),
+                version=int(doc.get('version') or 1),
+                relevance_score=float(score),
+                matches=[],
+                snippet_preview=str(doc.get('snippet_preview') or ''),
+                highlight_ranges=list(doc.get('highlight_ranges') or []),
+                file_size=int(doc.get('file_size') or 0),
+                lines_count=int(doc.get('lines_count') or 0),
+            ))
+        return results
     except Exception:
-        return []
-
-    # החזרת מבנה תוצאות הדומה למנוע המלא
-    from types import SimpleNamespace
-    results: list = []
-    # קומפילציה ל-highlight תואם Unicode בצורה בטוחה: תמיד escap‎e לקלט משתמש
-    # (גם במצב regex) כדי למנוע החדרת תבניות רגקס. ההדגשה היא ליטרלית בלבד.
-    try:
-        comp = re.compile(re.escape(query), re.IGNORECASE | re.MULTILINE)
-    except Exception:
-        comp = None
-
-    for doc in docs:
-        code_text = str(doc.get('code') or '')
-
-        # יצירת snippet ו-highlight מדויקים לפי span של regex (Unicode-safe)
-        snippet = ''
-        highlight_ranges = []
-        match_start = -1
-        match_end = -1
-        if comp is not None:
-            m = comp.search(code_text)
-            if m:
-                match_start, match_end = m.start(), m.end()
-                start = max(0, match_start - 50)
-                end = min(len(code_text), match_end + 50)
-                snippet = code_text[start:end]
-                rel_start = match_start - start
-                rel_end = match_end - start
-                highlight_ranges = [(rel_start, rel_end)]
-
-        # ניקוד פשוט לפי שכיחות ביחס לאורך המסמך (סופרים הופעות ע"י regex)
+        # fallback אחרון: שמירה על פונקציונליות גם אם Mongo לא תומך ב-$regexFind וכו'.
         try:
-            occurrences = sum(1 for _ in comp.finditer(code_text)) if comp is not None else 0
+            old_pipeline = [
+                {'$match': match_stage},
+                {'$sort': {'file_name': 1, 'version': -1}},
+                {'$group': {'_id': '$file_name', 'latest': {'$first': '$$ROOT'}}},
+                {'$replaceRoot': {'newRoot': '$latest'}},
+                {'$sort': {'updated_at': -1}},
+                {'$limit': total_limit},
+            ]
+            docs = list(db.code_snippets.aggregate(old_pipeline, allowDiskUse=True))
         except Exception:
-            occurrences = 1 if match_start >= 0 else 0
-        denom = max(1, len(code_text))
-        score = min((occurrences or (1 if match_start >= 0 else 0)) / (denom / 1000.0), 10.0)
-
-        # בניית אובייקט תוצאה עם תכונות כפי שמצופה downstream
-        results.append(SimpleNamespace(
-            file_name=str(doc.get('file_name') or ''),
-            content=code_text,
-            programming_language=str(doc.get('programming_language') or ''),
-            tags=list(doc.get('tags') or []),
-            created_at=doc.get('created_at') or datetime.now(timezone.utc),
-            updated_at=doc.get('updated_at') or datetime.now(timezone.utc),
-            version=int(doc.get('version') or 1),
-            relevance_score=float(score),
-            matches=[],
-            snippet_preview=snippet,
-            highlight_ranges=highlight_ranges,
-        ))
-
-    return results
+            return []
+        from types import SimpleNamespace
+        results: list = []
+        # קומפילציה להדגשה ליטרלית בלבד (לא מחזירים את כל הקוד ללקוח)
+        try:
+            comp = re.compile(re.escape(query), re.IGNORECASE | re.MULTILINE)
+        except Exception:
+            comp = None
+        for doc in docs:
+            if not isinstance(doc, dict):
+                continue
+            code_text = str(doc.get('code') or '')
+            snippet = ''
+            highlight_ranges = []
+            if comp is not None:
+                m = comp.search(code_text)
+                if m:
+                    start = max(0, m.start() - 50)
+                    end = min(len(code_text), m.end() + 50)
+                    snippet = code_text[start:end]
+                    highlight_ranges = [(m.start() - start, m.end() - start)]
+            results.append(SimpleNamespace(
+                file_name=str(doc.get('file_name') or ''),
+                programming_language=str(doc.get('programming_language') or ''),
+                tags=list(doc.get('tags') or []),
+                created_at=doc.get('created_at') or datetime.now(timezone.utc),
+                updated_at=doc.get('updated_at') or datetime.now(timezone.utc),
+                version=int(doc.get('version') or 1),
+                relevance_score=1.0,
+                matches=[],
+                snippet_preview=snippet,
+                highlight_ranges=highlight_ranges,
+                file_size=int(doc.get('file_size') or 0),
+                lines_count=int(doc.get('lines_count') or 0),
+            ))
+        return results
 
 
 @app.route('/api/search/global', methods=['POST'])
@@ -5090,7 +5244,7 @@ def api_search_global():
             except Exception:
                 return default
 
-        # Resolve DB ids for links (best-effort; don't fail search if DB unavailable)
+        # Resolve DB ids for links + מטא-דאטה (best-effort; don't fail search if DB unavailable)
         try:
             db = get_db()
         except Exception:
@@ -5107,6 +5261,27 @@ def api_search_global():
         except Exception:
             pass
 
+        def _resolve_doc_meta(fn: str) -> Dict[str, Any]:
+            """החזרת {_id, file_size, lines_count} עבור הקובץ (גרסה אחרונה פעילה)."""
+            if db is None:
+                return {}
+            try:
+                return dict(db.code_snippets.find_one(
+                    {
+                        'user_id': user_id,
+                        'file_name': fn,
+                        'is_active': {'$ne': False},
+                    },
+                    {
+                        '_id': 1,
+                        'file_size': 1,
+                        'lines_count': 1,
+                    },
+                    sort=[('version', DESCENDING), ('updated_at', DESCENDING), ('_id', DESCENDING)],
+                ) or {})
+            except Exception:
+                return {}
+
         resp = {
             'success': True,
             'query': query,
@@ -5118,7 +5293,7 @@ def api_search_global():
             'results': [
                 {
                     'file_id': (lambda fn: (lambda doc: (str(doc.get('_id')) if isinstance(doc, dict) and doc.get('_id') else hashlib.sha256(f"{user_id}:{fn}".encode('utf-8')).hexdigest()))(
-                        (db.code_snippets.find_one({'user_id': user_id, 'file_name': fn}, sort=[('version', -1)]) if db is not None else None)
+                        _resolve_doc_meta(fn)
                     ))(_safe_getattr(r, 'file_name', '')),
                     'file_name': _safe_getattr(r, 'file_name', ''),
                     'language': _safe_getattr(r, 'programming_language', ''),
@@ -5128,7 +5303,12 @@ def api_search_global():
                     'highlights': _safe_getattr(r, 'highlight_ranges', []) or [],
                     'matches': (_safe_getattr(r, 'matches', []) or [])[:5],
                     'updated_at': safe_iso((_safe_getattr(r, 'updated_at', datetime.now(timezone.utc)) or datetime.now(timezone.utc)), field='updated_at'),
-                    'size': len(_safe_getattr(r, 'content', '') or ''),
+                    # עקביות: לא מחזירים `code` או `content`. מחזירים מטא בלבד.
+                    # נעדיף שדות שמגיעים מה-result (במנוע/ב-fallback) ואם חסר – ניקח מה-DB.
+                    'file_size': int(_safe_getattr(r, 'file_size', 0) or 0),
+                    'lines_count': int(_safe_getattr(r, 'lines_count', 0) or 0),
+                    # תאימות לאחור: `size` נשאר, אבל עכשיו הוא size-bytes ולא אורך תוכן שנשלף.
+                    'size': int(_safe_getattr(r, 'file_size', 0) or 0),
                 }
                 for r in page_results
             ],
@@ -6355,6 +6535,37 @@ def files():
     cursor_token = (request.args.get('cursor') or '').strip()
     per_page = 20
 
+    # --- Smart Projection helpers ---
+    # מסמכים חדשים יכולים להכיל file_size/lines_count (נשמרים בזמן שמירה).
+    # למסמכים ישנים: נחשב ב-DB (בלי להחזיר את `code`) באמצעות $strLenBytes/$split.
+    _mongo_file_size_from_code = {
+        '$cond': {
+            'if': {'$and': [
+                {'$ne': ['$code', None]},
+                {'$eq': [{'$type': '$code'}, 'string']},
+            ]},
+            'then': {'$strLenBytes': '$code'},
+            'else': 0,
+        }
+    }
+    _mongo_lines_count_from_code = {
+        '$cond': {
+            'if': {'$and': [
+                {'$ne': ['$code', None]},
+                {'$eq': [{'$type': '$code'}, 'string']},
+            ]},
+            # הערה: $split שומר תאימות טובה מספיק למסך רשימה (לא מושלם לעומת splitlines()).
+            'then': {'$size': {'$split': ['$code', '\n']}},
+            'else': 0,
+        }
+    }
+    _mongo_add_size_lines_stage = {
+        '$addFields': {
+            'file_size': {'$ifNull': ['$file_size', _mongo_file_size_from_code]},
+            'lines_count': {'$ifNull': ['$lines_count', _mongo_lines_count_from_code]},
+        }
+    }
+
     # החלת ברירות מחדל למיון לפני בניית מפתח הקאש
     try:
         # קטגוריית "נפתחו לאחרונה": לפי זמן פתיחה אחרון אם לא סופק מיון במפורש
@@ -6395,14 +6606,12 @@ def files():
     # הערה: ברירות המחדל למיון עבור recent/favorites כבר הוחלו לפני בניית מפתח הקאש
     
     # בניית שאילתה - כולל סינון קבצים פעילים בלבד
+    # עדיף להשתמש ב-{$ne: False} במקום $or/$exists כדי לעזור לאינדקסים.
     query = {
         'user_id': user_id,
         '$and': [
             {
-                '$or': [
-                    {'is_active': True},
-                    {'is_active': {'$exists': False}}  # תמיכה בקבצים ישנים ללא השדה
-                ]
+                'is_active': {'$ne': False}  # כולל מסמכים ישנים ללא השדה
             }
         ]
     }
@@ -6431,10 +6640,7 @@ def files():
                 # חשוב: לא מושפעת מחיפוש/שפה כדי להציג את כל הריפואים של המשתמש
                 base_active_query = {
                     'user_id': user_id,
-                    '$or': [
-                        {'is_active': True},
-                        {'is_active': {'$exists': False}}
-                    ]
+                    'is_active': {'$ne': False}
                 }
                 # מיישר ללוגיקה של הבוט: קבוצה לפי file_name (הגרסה האחרונה בלבד), ואז חילוץ תגית repo: אחת
                 repo_pipeline = [
@@ -6475,10 +6681,7 @@ def files():
                     'programming_language',
                     {
                         'user_id': user_id,
-                        '$or': [
-                            {'is_active': True},
-                            {'is_active': {'$exists': False}}
-                        ]
+                        'is_active': {'$ne': False}
                     }
                 )
                 languages = sorted([lang for lang in languages if lang]) if languages else []
@@ -6522,25 +6725,14 @@ def files():
             return redirect(url_for('files'))
         elif category_filter == 'large':
             # קבצים גדולים (מעל 100KB)
-            # נצטרך להוסיף שדה size אם אין
             pipeline = [
                 {'$match': query},
-                {'$addFields': {
-                    'code_size': {
-                        '$cond': {
-                            'if': {'$and': [
-                                {'$ne': ['$code', None]},
-                                {'$eq': [{'$type': '$code'}, 'string']}
-                            ]},
-                            'then': {'$strLenBytes': '$code'},
-                            'else': 0
-                        }
-                    }
-                }},
-                {'$match': {'code_size': {'$gte': 102400}}}  # 100KB
+                _mongo_add_size_lines_stage,
+                {'$match': {'file_size': {'$gte': 102400}}}  # 100KB
             ]
             # נשתמש ב-aggregation במקום find רגיל
             files_cursor = db.code_snippets.aggregate(pipeline + [
+                {'$project': LIST_EXCLUDE_HEAVY_PROJECTION},
                 {'$sort': {sort_by.lstrip('-'): -1 if sort_by.startswith('-') else 1}},
                 {'$skip': (page - 1) * per_page},
                 {'$limit': per_page}
@@ -6570,19 +6762,8 @@ def files():
         # "כל הקבצים": ספירה distinct לפי שם קובץ לאחר סינון (תוכן >0)
         count_pipeline = [
             {'$match': query},
-            {'$addFields': {
-                'code_size': {
-                    '$cond': {
-                        'if': {'$and': [
-                            {'$ne': ['$code', None]},
-                            {'$eq': [{'$type': '$code'}, 'string']}
-                        ]},
-                        'then': {'$strLenBytes': '$code'},
-                        'else': 0
-                    }
-                }
-            }},
-            {'$match': {'code_size': {'$gt': 0}}},
+            _mongo_add_size_lines_stage,
+            {'$match': {'file_size': {'$gt': 0}}},
             {'$group': {'_id': '$file_name'}},
             {'$count': 'total'}
         ]
@@ -6592,19 +6773,8 @@ def files():
         # ספירת קבצים ייחודיים לפי שם קובץ לאחר סינון (תוכן >0), עם עקביות ל-query הכללי
         count_pipeline = [
             {'$match': query},
-            {'$addFields': {
-                'code_size': {
-                    '$cond': {
-                        'if': {'$and': [
-                            {'$ne': ['$code', None]},
-                            {'$eq': [{'$type': '$code'}, 'string']}
-                        ]},
-                        'then': {'$strLenBytes': '$code'},
-                        'else': 0
-                    }
-                }
-            }},
-            {'$match': {'code_size': {'$gt': 0}}},
+            _mongo_add_size_lines_stage,
+            {'$match': {'file_size': {'$gt': 0}}},
             {'$group': {'_id': '$file_name'}},
             {'$count': 'total'}
         ]
@@ -6631,10 +6801,7 @@ def files():
                 'programming_language',
                 {
                     'user_id': user_id,
-                    '$or': [
-                        {'is_active': True},
-                        {'is_active': {'$exists': False}}
-                    ]
+                    'is_active': {'$ne': False}
                 }
             )
             languages = sorted([lang for lang in languages if lang]) if languages else []
@@ -6685,12 +6852,7 @@ def files():
         # בניית שאילתה עם כל המסננים שכבר חושבו + סינון לשמות שנפתחו לאחרונה
         recent_query = {
             'user_id': user_id,
-            '$and': [{
-                '$or': [
-                    {'is_active': True},
-                    {'is_active': {'$exists': False}}
-                ]
-            }]
+            '$and': [{'is_active': {'$ne': False}}]
         }
         # לשמור עקביות עם החיפוש/מסננים הכלליים
         if search_query:
@@ -6710,22 +6872,14 @@ def files():
 
         pipeline = [
             {'$match': recent_query},
-            {'$addFields': {
-                'code_size': {
-                    '$cond': {
-                        'if': {'$and': [
-                            {'$ne': ['$code', None]},
-                            {'$eq': [{'$type': '$code'}, 'string']}
-                        ]},
-                        'then': {'$strLenBytes': '$code'},
-                        'else': 0
-                    }
-                }
-            }},
-            {'$match': {'code_size': {'$gt': 0}}},
+            # חשוב: סינון "לא ריק" חייב להתבצע לפני group כדי לבחור את הגרסה האחרונה *הלא-ריקה*
+            # ולא לפסול קובץ רק בגלל שהגרסה האחרונה ריקה.
+            _mongo_add_size_lines_stage,
+            {'$match': {'file_size': {'$gt': 0}}},
             {'$sort': {'file_name': 1, 'version': -1}},
             {'$group': {'_id': '$file_name', 'latest': {'$first': '$$ROOT'}}},
             {'$replaceRoot': {'newRoot': '$latest'}},
+            {'$project': LIST_EXCLUDE_HEAVY_PROJECTION},
         ]
 
         # מיון: אם מיון לפי last_opened_at – נטפל בפייתון; אחרת נמיין ב-DB
@@ -6754,8 +6908,15 @@ def files():
         files_list = []
         for latest in page_items:
             fname = latest.get('file_name') or ''
-            code_str = latest.get('code') or ''
             lang_display = resolve_file_language(latest.get('programming_language'), fname)
+            try:
+                size_bytes = int(latest.get('file_size') or 0)
+            except Exception:
+                size_bytes = 0
+            try:
+                lines_count = int(latest.get('lines_count') or 0)
+            except Exception:
+                lines_count = 0
             files_list.append({
                 'id': str(latest.get('_id')),
                 'file_name': fname,
@@ -6763,8 +6924,8 @@ def files():
                 'icon': get_language_icon(lang_display),
                 'description': latest.get('description', ''),
                 'tags': latest.get('tags', []),
-                'size': format_file_size(len(code_str.encode('utf-8'))),
-                'lines': len(code_str.splitlines()),
+                'size': format_file_size(size_bytes),
+                'lines': lines_count,
                 'created_at': format_datetime_display(latest.get('created_at')),
                 'updated_at': format_datetime_display(latest.get('updated_at')),
                 'last_opened_at': format_datetime_display(recent_map.get(fname)),
@@ -6775,10 +6936,7 @@ def files():
             'programming_language',
             {
                 'user_id': user_id,
-                '$or': [
-                    {'is_active': True},
-                    {'is_active': {'$exists': False}}
-                ]
+                'is_active': {'$ne': False}
             }
         )
         languages = sorted([lang for lang in languages if lang]) if languages else []
@@ -6808,22 +6966,14 @@ def files():
         # בסיס הפייפליין: גרסה אחרונה לכל file_name ותוכן לא ריק
         base_pipeline = [
             {'$match': query},
-            {'$addFields': {
-                'code_size': {
-                    '$cond': {
-                        'if': {'$and': [
-                            {'$ne': ['$code', None]},
-                            {'$eq': [{'$type': '$code'}, 'string']}
-                        ]},
-                        'then': {'$strLenBytes': '$code'},
-                        'else': 0
-                    }
-                }
-            }},
-            {'$match': {'code_size': {'$gt': 0}}},
+            # חשוב: סינון "לא ריק" חייב להתבצע לפני group כדי לבחור את הגרסה האחרונה *הלא-ריקה*.
+            # אחרת, אם הגרסה האחרונה ריקה נקבל mismatch בין total_count לבין הרשימה בפועל.
+            _mongo_add_size_lines_stage,
+            {'$match': {'file_size': {'$gt': 0}}},
             {'$sort': {'file_name': 1, 'version': -1}},
             {'$group': {'_id': '$file_name', 'latest': {'$first': '$$ROOT'}}},
             {'$replaceRoot': {'newRoot': '$latest'}},
+            {'$project': LIST_EXCLUDE_HEAVY_PROJECTION},
         ]
         next_cursor_token = None
         use_cursor = (sort_field_local == 'created_at')
@@ -6872,31 +7022,30 @@ def files():
             pipeline.append({'$limit': per_page})
             files_cursor = db.code_snippets.aggregate(pipeline)
     elif category_filter not in ('large', 'other'):
-        files_cursor = db.code_snippets.find(query).sort(sort_field, sort_order).skip((page - 1) * per_page).limit(per_page)
+        # קטגוריות רגילות (ללא recent/large/other): עימוד לפי מסמכים,
+        # אבל עם Smart Projection כדי לא להחזיר `code` למסך רשימה.
+        files_cursor = db.code_snippets.aggregate([
+            {'$match': query},
+            _mongo_add_size_lines_stage,
+            {'$project': LIST_EXCLUDE_HEAVY_PROJECTION},
+            {'$sort': {sort_field: sort_order}},
+            {'$skip': (page - 1) * per_page},
+            {'$limit': per_page},
+        ])
     elif category_filter == 'other':
         # "שאר קבצים": בעלי תוכן (>0 בתים), מציגים גרסה אחרונה לכל file_name; עקבי עם ה-query הכללי
         sort_dir = -1 if sort_by.startswith('-') else 1
         sort_field_local = sort_by.lstrip('-')
         base_pipeline = [
             {'$match': query},
-            {'$addFields': {
-                'code_size': {
-                    '$cond': {
-                        'if': {'$and': [
-                            {'$ne': ['$code', None]},
-                            {'$eq': [{'$type': '$code'}, 'string']}
-                        ]},
-                        'then': {'$strLenBytes': '$code'},
-                        'else': 0
-                    }
-                }
-            }},
-            {'$match': {'code_size': {'$gt': 0}}},
+            _mongo_add_size_lines_stage,
+            {'$match': {'file_size': {'$gt': 0}}},
         ]
         pipeline = base_pipeline + [
             {'$sort': {'file_name': 1, 'version': -1}},
             {'$group': {'_id': '$file_name', 'latest': {'$first': '$$ROOT'}}},
             {'$replaceRoot': {'newRoot': '$latest'}},
+            {'$project': LIST_EXCLUDE_HEAVY_PROJECTION},
             {'$sort': {sort_field_local: sort_dir}},
             {'$skip': (page - 1) * per_page},
             {'$limit': per_page},
@@ -6905,9 +7054,16 @@ def files():
     
     files_list = []
     for file in files_cursor:
-        code_str = file.get('code') or ''
         fname = file.get('file_name') or ''
         lang_display = resolve_file_language(file.get('programming_language'), fname)
+        try:
+            size_bytes = int(file.get('file_size') or 0)
+        except Exception:
+            size_bytes = 0
+        try:
+            lines_count = int(file.get('lines_count') or 0)
+        except Exception:
+            lines_count = 0
         files_list.append({
             'id': str(file['_id']),
             'file_name': fname,
@@ -6915,8 +7071,8 @@ def files():
             'icon': get_language_icon(lang_display),
             'description': file.get('description', ''),
             'tags': file.get('tags', []),
-            'size': format_file_size(len(code_str.encode('utf-8'))),
-            'lines': len(code_str.splitlines()),
+            'size': format_file_size(size_bytes),
+            'lines': lines_count,
             'created_at': format_datetime_display(file.get('created_at')),
             'updated_at': format_datetime_display(file.get('updated_at'))
         })
@@ -6926,10 +7082,7 @@ def files():
         'programming_language',
         {
             'user_id': user_id,
-            '$or': [
-                {'is_active': True},
-                {'is_active': {'$exists': False}}
-            ]
+            'is_active': {'$ne': False}
         }
     )
     # סינון None וערכים ריקים ומיון
@@ -7898,6 +8051,15 @@ def api_file_history(file_id):
                     {'is_active': {'$exists': False}},
                 ],
             },
+            {
+                '_id': 1,
+                'version': 1,
+                'created_at': 1,
+                'updated_at': 1,
+                'description': 1,
+                'file_size': 1,
+                'lines_count': 1,
+            },
             sort=[('version', DESCENDING)],
         ).limit(FILE_HISTORY_MAX_VERSIONS))
     except Exception:
@@ -7911,14 +8073,15 @@ def api_file_history(file_id):
         except Exception:
             latest_version = 0
     for doc in docs:
-        code_value = doc.get('code') or ''
-        if not isinstance(code_value, str):
-            code_value = str(code_value or '')
-        try:
-            size_bytes = len(code_value.encode('utf-8', errors='ignore'))
-        except Exception:
-            size_bytes = len(code_value)
         version_number = int(doc.get('version') or 0)
+        try:
+            size_bytes = int(doc.get('file_size') or 0)
+        except Exception:
+            size_bytes = 0
+        try:
+            line_count = int(doc.get('lines_count') or 0)
+        except Exception:
+            line_count = 0
         versions.append({
             'id': str(doc.get('_id')),
             'version': version_number,
@@ -7927,8 +8090,10 @@ def api_file_history(file_id):
             'updated_at': format_datetime_display(doc.get('updated_at')),
             'iso_created': safe_iso(doc.get('created_at'), 'created_at'),
             'iso_updated': safe_iso(doc.get('updated_at'), 'updated_at'),
-            'line_count': len(code_value.splitlines()),
+            'line_count': line_count,
             'size': format_file_size(size_bytes),
+            'file_size': size_bytes,
+            'lines_count': line_count,
             'description': (doc.get('description') or '').strip(),
         })
 
@@ -8263,6 +8428,7 @@ def api_recent_files():
                                 'file_name': 1,
                                 'programming_language': 1,
                                 'file_size': 1,
+                                'lines_count': 1,
                             },
                         )
                     except Exception:
@@ -8284,6 +8450,7 @@ def api_recent_files():
                                 'file_name': 1,
                                 'programming_language': 1,
                                 'file_size': 1,
+                                'lines_count': 1,
                             },
                             sort=[('version', DESCENDING), ('updated_at', DESCENDING), ('_id', DESCENDING)]
                         )
@@ -8307,6 +8474,10 @@ def api_recent_files():
                     size_bytes = int(file_doc.get('file_size') or 0)
                 except Exception:
                     size_bytes = 0
+                try:
+                    lines_count = int(file_doc.get('lines_count') or 0)
+                except Exception:
+                    lines_count = 0
                 lang = (file_doc.get('programming_language') or rdoc.get('language') or 'text')
 
                 results.append({
@@ -8314,6 +8485,8 @@ def api_recent_files():
                     'filename': str(file_doc.get('file_name') or file_name_hint or ''),
                     'language': str(lang).lower(),
                     'size': size_bytes,
+                    'file_size': size_bytes,
+                    'lines_count': lines_count,
                     'accessed_at': (rdoc.get('last_opened_at') or datetime.now(timezone.utc)).isoformat(),
                 })
             except Exception:
@@ -9054,6 +9227,11 @@ def create_public_share(file_id):
         except Exception:
             share_type = ''
 
+        # מצב שיתוף:
+        # - preview: תצוגה מקדימה בלבד (לא שומרים/לא מושכים code מלא)
+        # - download: מיועד להורדה/גיבוי (שומרים תוכן מלא)
+        share_mode = 'download' if share_type in {'download', 'full', 'raw'} else 'preview'
+
         permanent_flag = False
         if share_type in {'permanent', 'forever'}:
             permanent_flag = True
@@ -9074,16 +9252,70 @@ def create_public_share(file_id):
         now = datetime.now(timezone.utc)
         expires_at = None if permanent_flag else now + timedelta(days=PUBLIC_SHARE_TTL_DAYS)
 
-        doc = {
+        doc: Dict[str, Any] = {
             'share_id': share_id,
-            'file_name': file.get('file_name') or 'snippet.txt',
-            'code': file.get('code') or '',
-            'language': (file.get('programming_language') or 'text'),
-            'description': file.get('description') or '',
             'created_at': now,
             'views': 0,
             'is_permanent': permanent_flag,
+            'mode': share_mode,
+            'source_file_id': ObjectId(file_id),
+            'source_user_id': int(user_id),
         }
+        if share_mode == 'preview':
+            # אל תביא code מלא לפייתון. חתוך snippet + מטא-דאטה ב-DB.
+            try:
+                agg = list(db.code_snippets.aggregate([
+                    {'$match': {'_id': ObjectId(file_id), 'user_id': user_id}},
+                    {'$addFields': {
+                        'file_size': {'$ifNull': ['$file_size', {'$strLenBytes': '$code'}]},
+                        'lines_count': {'$ifNull': ['$lines_count', {'$size': {'$split': ['$code', '\n']}}]},
+                        'snippet_preview': {'$substrBytes': ['$code', 0, 2000]},
+                    }},
+                    {'$project': {
+                        'file_name': 1,
+                        'programming_language': 1,
+                        'description': 1,
+                        'file_size': 1,
+                        'lines_count': 1,
+                        'snippet_preview': 1,
+                    }},
+                    {'$limit': 1},
+                ]))
+                meta = agg[0] if agg and isinstance(agg[0], dict) else {}
+            except Exception:
+                meta = {}
+            if not meta:
+                return jsonify({'ok': False, 'error': 'קובץ לא נמצא'}), 404
+            doc.update({
+                'file_name': meta.get('file_name') or 'snippet.txt',
+                'language': (meta.get('programming_language') or 'text'),
+                'description': meta.get('description') or '',
+                'file_size': int(meta.get('file_size') or 0),
+                'lines_count': int(meta.get('lines_count') or 0),
+                'snippet_preview': str(meta.get('snippet_preview') or ''),
+            })
+        else:
+            # download/full: חייבים תוכן מלא
+            code = file.get('code') or ''
+            if not isinstance(code, str):
+                code = str(code or '')
+            try:
+                size_bytes = int(file.get('file_size') or len(code.encode('utf-8', errors='ignore')))
+            except Exception:
+                size_bytes = 0
+            try:
+                lines_count = int(file.get('lines_count') or len(code.splitlines()))
+            except Exception:
+                lines_count = 0
+            doc.update({
+                'file_name': file.get('file_name') or 'snippet.txt',
+                'code': code,
+                'language': (file.get('programming_language') or 'text'),
+                'description': file.get('description') or '',
+                'file_size': size_bytes,
+                'lines_count': lines_count,
+                'snippet_preview': code[:2000],
+            })
         if not permanent_flag and expires_at is not None:
             doc['expires_at'] = expires_at
 
@@ -9129,11 +9361,15 @@ def api_save_shared_file():
         if not share_id:
             return jsonify({'ok': False, 'error': 'share_id נדרש'}), 400
 
+        # שמירה דורשת תוכן מלא (לא preview)
+        # חשוב: לא להעביר kwargs כאן כדי לא לשבור טסטים שעושים monkeypatch לפונקציה.
         share_doc = get_internal_share(share_id)
         if not share_doc:
             return jsonify({'ok': False, 'error': 'השיתוף לא נמצא'}), 404
 
         raw_code = share_doc.get('code', '')
+        if not raw_code:
+            return jsonify({'ok': False, 'error': 'השיתוף אינו כולל תוכן מלא'}), 400
         code = normalize_code(raw_code if isinstance(raw_code, str) else str(raw_code or ''))
 
         requested_name = str(payload.get('file_name') or share_doc.get('file_name') or '').strip()
@@ -10056,6 +10292,64 @@ def api_stats():
     except Exception:
         return jsonify(stats)
 
+
+@app.route('/api/stats/logs', methods=['GET'])
+@login_required
+def api_stats_logs():
+    """API לוגים קצר (לטובת Observability/UI) – מחזיר רשומות מצומצמות ובטוחות."""
+    if not _require_admin_user():
+        return jsonify({'ok': False, 'error': 'admin_only'}), 403
+    try:
+        try:
+            limit = int(request.args.get('limit') or 120)
+        except Exception:
+            limit = 120
+        limit = max(1, min(500, limit))
+
+        def _fetch() -> List[Dict[str, Any]]:
+            rows: List[Dict[str, Any]] = []
+            try:
+                import internal_alerts as _ia  # type: ignore
+            except Exception:
+                _ia = None  # type: ignore
+            if _ia is None or not hasattr(_ia, 'get_recent_alerts'):
+                return rows
+            try:
+                raw = _ia.get_recent_alerts(limit=max(20, limit))  # type: ignore[attr-defined]
+            except Exception:
+                raw = []
+            mask = getattr(observability_service, "_mask_text", None)
+            for rec in (raw or [])[:limit]:
+                if not isinstance(rec, dict):
+                    continue
+                ts = rec.get('timestamp') or rec.get('ts') or rec.get('time') or rec.get('created_at')
+                severity = rec.get('severity') or rec.get('level') or rec.get('status') or 'info'
+                message = rec.get('message') or rec.get('summary') or rec.get('event') or rec.get('name') or ''
+                source = rec.get('source') or rec.get('service') or rec.get('component') or ''
+                try:
+                    msg_text = str(message or '')
+                except Exception:
+                    msg_text = ''
+                if callable(mask):
+                    try:
+                        msg_text = str(mask(msg_text) or '')
+                    except Exception:
+                        pass
+                msg_text = (msg_text[:500] + '…') if len(msg_text) > 500 else msg_text
+                rows.append({
+                    'timestamp': ts,
+                    'severity': str(severity or 'info'),
+                    'message': msg_text,
+                    'source': str(source or ''),
+                })
+            return rows
+
+        logs = _run_observability_blocking(_fetch)
+        return jsonify({'ok': True, 'logs': logs, 'count': len(logs)})
+    except Exception:
+        logger.exception("api_stats_logs_failed")
+        return jsonify({'ok': False, 'error': 'internal_error'}), 500
+
 @app.route('/theme-preview')
 def theme_preview():
     """תצוגה מקדימה של ערכות נושא מוצעות"""
@@ -10655,7 +10949,8 @@ def api_observability_alerts():
             alert_type = None
         endpoint = request.args.get('endpoint') or None
         search = request.args.get('search') or request.args.get('q') or None
-        data = observability_service.fetch_alerts(
+        data = _run_observability_blocking(
+            observability_service.fetch_alerts,
             start_dt=start_dt,
             end_dt=end_dt,
             severity=severity,
@@ -10687,7 +10982,8 @@ def api_observability_coverage():
         except Exception:
             min_count = 1
         min_count = max(1, min(10_000, min_count))
-        payload = observability_service.build_coverage_report(
+        payload = _run_observability_blocking(
+            observability_service.build_coverage_report,
             start_dt=start_dt,
             end_dt=end_dt,
             min_count=min_count,
@@ -10714,7 +11010,8 @@ def api_observability_aggregations():
         except Exception:
             limit = 5
         limit = max(1, min(20, limit))
-        payload = observability_service.fetch_aggregations(
+        payload = _run_observability_blocking(
+            observability_service.fetch_aggregations,
             start_dt=start_dt,
             end_dt=end_dt,
             slow_endpoints_limit=limit,
@@ -10739,7 +11036,8 @@ def api_observability_timeseries():
         granularity_arg = request.args.get('granularity') or '1h'
         granularity_seconds = _parse_duration_to_seconds(granularity_arg, default_seconds=3600)
         metric = request.args.get('metric') or 'alerts_count'
-        payload = observability_service.fetch_timeseries(
+        payload = _run_observability_blocking(
+            observability_service.fetch_timeseries,
             start_dt=start_dt,
             end_dt=end_dt,
             granularity_seconds=granularity_seconds,
@@ -10769,7 +11067,8 @@ def api_observability_export():
             alerts_limit = int(request.args.get('alerts_limit') or request.args.get('per_page', 120))
         except Exception:
             alerts_limit = 120
-        snapshot = observability_service.build_dashboard_snapshot(
+        snapshot = _run_observability_blocking(
+            observability_service.build_dashboard_snapshot,
             start_dt=start_dt,
             end_dt=end_dt,
             timerange_label=timerange,
@@ -10796,7 +11095,8 @@ def api_observability_replay():
             limit = int(request.args.get('limit', 200))
         except Exception:
             limit = 200
-        payload = observability_service.fetch_incident_replay(
+        payload = _run_observability_blocking(
+            observability_service.fetch_incident_replay,
             start_dt=start_dt,
             end_dt=end_dt,
             limit=limit,
@@ -10836,7 +11136,8 @@ def api_observability_runbook(event_id: str):
             'source': metadata.get('source'),
         }
     try:
-        payload = observability_service.fetch_runbook_for_event(
+        payload = _run_observability_blocking(
+            observability_service.fetch_runbook_for_event,
             event_id=event_id,
             fallback_metadata=metadata or None,
             ui_context=ui_context,
@@ -10868,7 +11169,8 @@ def api_observability_runbook_status(event_id: str):
     fallback_event = payload.get('event')
     fallback_metadata = fallback_event if isinstance(fallback_event, dict) else None
     try:
-        snapshot = observability_service.update_runbook_step_status(
+        snapshot = _run_observability_blocking(
+            observability_service.update_runbook_step_status,
             event_id=event_id,
             step_id=step_id,
             completed=completed,
@@ -10922,7 +11224,8 @@ def api_observability_alert_ai_explain():
     if not isinstance(alert_snapshot, dict):
         return jsonify({'ok': False, 'error': 'missing_alert'}), 400
     try:
-        explanation = observability_service.explain_alert_with_ai(
+        explanation = _run_observability_blocking(
+            observability_service.explain_alert_with_ai,
             alert_snapshot,
             force_refresh=force_refresh,
         )
@@ -10954,7 +11257,8 @@ def api_observability_story_template():
         return jsonify({'ok': False, 'error': 'missing_alert'}), 400
     timerange = payload.get('timerange')
     try:
-        template = observability_service.build_story_template(
+        template = _run_observability_blocking(
+            observability_service.build_story_template,
             alert_snapshot=alert_snapshot,
             timerange_label=timerange,
         )
@@ -10977,7 +11281,7 @@ def api_observability_story_save():
     if not isinstance(story_payload, dict):
         return jsonify({'ok': False, 'error': 'missing_story'}), 400
     try:
-        stored = observability_service.save_incident_story(story_payload, user_id=user_id)
+        stored = _run_observability_blocking(observability_service.save_incident_story, story_payload, user_id=user_id)
         return jsonify({'ok': True, 'story': stored})
     except ValueError as exc:
         logger.exception("observability_story_save_bad_request: %s", exc)
@@ -10992,7 +11296,7 @@ def api_observability_story_save():
 def api_observability_story_get(story_id: str):
     if not _require_admin_user():
         return jsonify({'ok': False, 'error': 'admin_only'}), 403
-    story = observability_service.fetch_story(story_id)
+    story = _run_observability_blocking(observability_service.fetch_story, story_id)
     if not story:
         return jsonify({'ok': False, 'error': 'not_found'}), 404
     return jsonify({'ok': True, 'story': story})
@@ -11007,7 +11311,7 @@ def api_observability_story_export(story_id: str):
     if export_format not in {'md', 'markdown'}:
         return jsonify({'ok': False, 'error': 'unsupported_format'}), 400
     try:
-        markdown = observability_service.export_story_markdown(story_id)
+        markdown = _run_observability_blocking(observability_service.export_story_markdown, story_id)
     except Exception:
         logger.exception("observability_story_export_failed")
         return jsonify({'ok': False, 'error': 'internal_error'}), 500
@@ -11139,7 +11443,7 @@ def api_observability_story_save_markdown_file():
     if not file_name or not isinstance(story_payload, dict):
         return jsonify({'ok': False, 'error': 'missing_fields'}), 400
     try:
-        markdown = observability_service.render_story_markdown_inline(story_payload)
+        markdown = _run_observability_blocking(observability_service.render_story_markdown_inline, story_payload)
         tags = []
         severity = (story_payload.get('severity') or '').strip()
         if severity:
@@ -11147,7 +11451,8 @@ def api_observability_story_save_markdown_file():
         alert_uid = story_payload.get('alert_uid')
         if alert_uid:
             tags.append(f"alert:{alert_uid}")
-        result = _persist_story_markdown_file(
+        result = _run_observability_blocking(
+            _persist_story_markdown_file,
             user_id=user_id,
             file_name=file_name,
             markdown=markdown,
@@ -11381,11 +11686,13 @@ def public_share(share_id):
 
     תומך בפרמטר view=md כדי להציג קבצי Markdown בעמוד התצוגה הייעודי (עם כפתורי שיתוף).
     """
-    doc = get_internal_share(share_id)
+    # תצוגה מקדימה: אל תמשוך code מלא אלא אם באמת צריך
+    doc = get_internal_share(share_id, include_code=False)
     if not doc:
         return render_template('404.html'), 404
 
-    code = doc.get('code', '')
+    # תצוגה ציבורית: ברירת מחדל היא snippet (או code מלא אם זה שיתוף ישן/מלא)
+    code = doc.get('snippet_preview') or doc.get('code') or ''
     file_name = doc.get('file_name', 'snippet.txt')
     language = resolve_file_language(doc.get('language'), file_name)
     description = doc.get('description', '')
@@ -11429,8 +11736,25 @@ def public_share(share_id):
     highlighted_code = highlight(code, lexer, formatter)
     css = formatter.get_style_defs('.source')
 
-    size = len(code.encode('utf-8'))
-    lines = len(code.split('\n'))
+    # מטא-דאטה: נעדיף מהמסמך (preview), אחרת נחשב מה-snippet (best-effort)
+    try:
+        size_bytes = int(doc.get('file_size') or 0)
+    except Exception:
+        size_bytes = 0
+    try:
+        lines_count = int(doc.get('lines_count') or 0)
+    except Exception:
+        lines_count = 0
+    if size_bytes <= 0:
+        try:
+            size_bytes = len(str(code).encode('utf-8', errors='ignore'))
+        except Exception:
+            size_bytes = 0
+    if lines_count <= 0:
+        try:
+            lines_count = len(str(code).splitlines())
+        except Exception:
+            lines_count = 0
     created_at = doc.get('created_at')
     if isinstance(created_at, datetime):
         created_at_str = created_at.strftime('%d/%m/%Y %H:%M')
@@ -11447,13 +11771,34 @@ def public_share(share_id):
         'icon': get_language_icon(language),
         'description': description,
         'tags': [],
-        'size': format_file_size(size),
-        'lines': lines,
+        'size': format_file_size(size_bytes),
+        'lines': lines_count,
         'created_at': created_at_str,
         'updated_at': created_at_str,
         'version': 1,
     }
     return render_template('view_file.html', file=file_data, highlighted_code=highlighted_code, syntax_css=css)
+
+
+@app.route('/share/<share_id>/download')
+def public_share_download(share_id: str):
+    """הורדה ציבורית של שיתוף פנימי (רק לשיתופי download/full)."""
+    doc = get_internal_share(share_id, include_code=True)
+    if not doc:
+        return render_template('404.html'), 404
+    if str(doc.get('mode') or '').lower() != 'download':
+        return render_template('404.html'), 404
+    code = doc.get('code') or ''
+    if not isinstance(code, str) or not code:
+        return render_template('404.html'), 404
+    file_name = str(doc.get('file_name') or 'shared.txt').strip() or 'shared.txt'
+    safe = file_name.replace('..', '_').replace('/', '_').replace('\\', '_')
+    from io import BytesIO
+    buf = BytesIO(code.encode('utf-8', errors='ignore'))
+    buf.seek(0)
+    resp = send_file(buf, mimetype='text/plain; charset=utf-8', as_attachment=True, download_name=safe)
+    resp.headers['Cache-Control'] = 'no-store'
+    return resp
 
 # --- Public multiple-files share route (tokens created via /api/files/create-share-link) ---
 @app.route('/shared/<token>')
@@ -11487,30 +11832,51 @@ def public_shared_files(token: str):
     file_ids = [oid for oid in (doc.get('file_ids') or []) if isinstance(oid, ObjectId)]
     if not file_ids:
         return render_template('404.html'), 404
+    # תצוגת רשימה: לא צריך להחזיר code מלא (כבד מאוד)
     try:
-        cursor = db.code_snippets.find({'_id': {'$in': file_ids}})
+        cursor = db.code_snippets.find(
+            {'_id': {'$in': file_ids}},
+            {
+                'file_name': 1,
+                'programming_language': 1,
+                'file_size': 1,
+                'lines_count': 1,
+            },
+        )
         files = list(cursor)
     except Exception:
-        files = []
+        # fallback למימושים ללא projection=
+        try:
+            cursor = db.code_snippets.find({'_id': {'$in': file_ids}})
+            files = list(cursor)
+        except Exception:
+            files = []
     if not files:
         return render_template('404.html'), 404
 
     # בניית רשימת פריטים לתצוגה
     view_items = []
     for f in files:
-        code = f.get('code', '')
         file_name = (f.get('file_name') or 'snippet.txt')
         language = resolve_file_language(f.get('programming_language'), file_name)
-        size = len((code or '').encode('utf-8'))
-        lines = len((code or '').split('\n'))
+        try:
+            size_bytes = int(f.get('file_size') or 0)
+        except Exception:
+            size_bytes = 0
+        try:
+            lines = int(f.get('lines_count') or 0)
+        except Exception:
+            lines = 0
+        # fallback למסמכים ישנים בלבד (עדיף על משיכת קוד יזומה)
+        if size_bytes <= 0:
+            size_bytes = 0
         view_items.append({
             'id': str(f.get('_id')),
             'file_name': file_name,
             'language': language,
             'icon': get_language_icon(language),
-            'size': format_file_size(size),
+            'size': format_file_size(size_bytes),
             'lines': lines,
-            'code': code,
         })
 
     # תבנית בסיסית של רשימת קבצים ששותפו

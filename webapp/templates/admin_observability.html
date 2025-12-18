@@ -90,6 +90,41 @@
   font-weight: 600;
   margin: 0.5rem 0 0;
 }
+.skeleton {
+  position: relative;
+  overflow: hidden;
+  border-radius: 10px;
+  background: rgba(255,255,255,0.08);
+}
+.skeleton::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  transform: translateX(-100%);
+  background: linear-gradient(90deg, transparent, rgba(255,255,255,0.14), transparent);
+  animation: sk 1.1s ease-in-out infinite;
+}
+@keyframes sk {
+  to { transform: translateX(100%); }
+}
+.skeleton-text {
+  display: inline-block;
+  height: 1em;
+  width: 5ch;
+  vertical-align: baseline;
+}
+.skeleton-line {
+  display: block;
+  height: 0.95rem;
+  width: 100%;
+  margin: 0.35rem 0;
+}
+.skeleton-row td {
+  padding: 0.65rem 0.5rem;
+}
+.fade-in-target {
+  opacity: 0;
+}
 .obs-card .obs-card-subtext {
   font-size: 0.85rem;
   opacity: 0.65;
@@ -632,22 +667,22 @@
   <div class="obs-cards">
     <div class="obs-card" data-card="critical">
       <h3>CRITICAL היום</h3>
-      <div class="obs-card-value" id="criticalCount">—</div>
+      <div class="obs-card-value fade-in-target" id="criticalCount"><span class="skeleton skeleton-text" style="width: 6ch"></span></div>
       <div class="obs-card-subtext">התראות מחמירות ב-24 השעות האחרונות</div>
     </div>
     <div class="obs-card" data-card="anomaly">
       <h3>אנומליות בשבוע</h3>
-      <div class="obs-card-value" id="anomalyCount">—</div>
+      <div class="obs-card-value fade-in-target" id="anomalyCount"><span class="skeleton skeleton-text" style="width: 6ch"></span></div>
       <div class="obs-card-subtext">התרעות anomaly בטווח שנבחר</div>
     </div>
     <div class="obs-card" data-card="deployments">
       <h3>דיפלוימנטים</h3>
-      <div class="obs-card-value" id="deployCount">—</div>
+      <div class="obs-card-value fade-in-target" id="deployCount"><span class="skeleton skeleton-text" style="width: 6ch"></span></div>
       <div class="obs-card-subtext">דיפלוימנטים שדווחו בטווח</div>
     </div>
     <div class="obs-card" data-card="error-rate">
       <h3>Spike בזמן דיפלוימנט</h3>
-      <div class="obs-card-value" id="deploySpike">—</div>
+      <div class="obs-card-value fade-in-target" id="deploySpike"><span class="skeleton skeleton-text" style="width: 6ch"></span></div>
       <div class="obs-card-subtext">ממוצע שניות עיכוב בסמוך לדיפלוימנטים</div>
     </div>
   </div>
@@ -677,7 +712,13 @@
           </tr>
         </thead>
         <tbody>
-          <tr><td colspan="5">טוען נתונים…</td></tr>
+          <tr class="skeleton-row">
+            <td colspan="5">
+              <span class="skeleton skeleton-line"></span>
+              <span class="skeleton skeleton-line"></span>
+              <span class="skeleton skeleton-line" style="width: 70%"></span>
+            </td>
+          </tr>
         </tbody>
       </table>
     </div>
@@ -722,7 +763,13 @@
           </tr>
         </thead>
         <tbody>
-          <tr><td colspan="9">טוען נתונים…</td></tr>
+          <tr class="skeleton-row">
+            <td colspan="9">
+              <span class="skeleton skeleton-line"></span>
+              <span class="skeleton skeleton-line"></span>
+              <span class="skeleton skeleton-line" style="width: 85%"></span>
+            </td>
+          </tr>
         </tbody>
       </table>
     </div>
@@ -885,15 +932,27 @@
     return res.json();
   }
 
+  function fadeInIfPossible(el) {
+    if (!el) return;
+    try {
+      el.classList.remove('fade-in-target');
+    } catch (_) {}
+    try {
+      if (window.AnimUtils && typeof window.AnimUtils.fadeIn === 'function') {
+        window.AnimUtils.fadeIn(el, { duration: 200, fromOpacity: 0, fromY: 8 });
+      }
+    } catch (_) {}
+  }
+
   function updateCards(summary, correlation) {
     const criticalEl = document.getElementById('criticalCount');
     const anomalyEl = document.getElementById('anomalyCount');
     const deployEl = document.getElementById('deployCount');
     const spikeEl = document.getElementById('deploySpike');
-    if (criticalEl) criticalEl.textContent = summary?.critical ?? '0';
-    if (anomalyEl) anomalyEl.textContent = summary?.anomaly ?? '0';
-    if (deployEl) deployEl.textContent = summary?.deployment ?? '0';
-    if (spikeEl) spikeEl.textContent = correlation?.avg_spike_during_deployment?.toFixed?.(2) ?? '0';
+    if (criticalEl) { criticalEl.textContent = summary?.critical ?? '0'; fadeInIfPossible(criticalEl); }
+    if (anomalyEl) { anomalyEl.textContent = summary?.anomaly ?? '0'; fadeInIfPossible(anomalyEl); }
+    if (deployEl) { deployEl.textContent = summary?.deployment ?? '0'; fadeInIfPossible(deployEl); }
+    if (spikeEl) { spikeEl.textContent = correlation?.avg_spike_during_deployment?.toFixed?.(2) ?? '0'; fadeInIfPossible(spikeEl); }
   }
 
   function updateDailyWidgets(summary) {

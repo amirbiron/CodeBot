@@ -32,6 +32,7 @@ Code Keeper Bot - תיעוד API
    installation
    configuration
    environment-variables
+   performance-bible
    performance-scaling
    performance-sticky-notes
    large-files-runbook
