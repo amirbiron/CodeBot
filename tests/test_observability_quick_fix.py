@@ -536,3 +536,17 @@ runbooks:
     assert actions
     assert "Scale Up" in (actions[0].get("label") or "")
     assert actions[0].get("payload") == "/triage system"
+
+
+def test_heavy_query_detected_alias_maps_to_slow_response_and_links_performance_bible(monkeypatch):
+    # Use the real repo runbooks config to ensure the alias + step exist.
+    monkeypatch.setattr(obs, "_RUNBOOK_PATH", Path("config/observability_runbooks.yml"))
+    monkeypatch.setattr(obs, "_RUNBOOK_CACHE", {})
+    monkeypatch.setattr(obs, "_RUNBOOK_ALIAS_MAP", {})
+    monkeypatch.setattr(obs, "_RUNBOOK_MTIME", 0.0)
+    monkeypatch.setattr(obs, "_RUNBOOK_RESOLVED_PATH", None)
+
+    alert = {"alert_type": "heavy_query_detected", "timestamp": "2025-01-01T00:00:00+00:00", "metadata": {}}
+    actions = obs.get_quick_fix_actions(alert)
+    assert actions
+    assert any("docs/performance-bible.md" in str(a.get("href") or "") for a in actions)
