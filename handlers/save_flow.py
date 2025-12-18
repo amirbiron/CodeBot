@@ -222,15 +222,23 @@ async def _save_via_layered_flow(update, context, filename, user_id, code, note)
     saved = await _call_service_method(service, "create_snippet", dto)
     if not saved:
         return False
+    fid = ''
+    # נסיון 1: FilesFacade (אם זמין)
     try:
         from src.infrastructure.composition import get_files_facade  # type: ignore
         try:
             saved_doc = (get_files_facade().get_latest_version(user_id, filename) or {}) if get_files_facade else {}
         except Exception:
             saved_doc = {}
-        fid = str(saved_doc.get('_id') or '')
+        try:
+            fid = str(saved_doc.get('_id') or '')
+        except Exception:
+            fid = ''
     except Exception:
         fid = ''
+
+    # נסיון 2: legacy DB (אם אין fid, או אם facade נכשל בריצה)
+    if not fid:
         try:
             legacy = _get_legacy_db()
             if legacy is not None:
