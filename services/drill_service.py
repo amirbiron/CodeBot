@@ -99,12 +99,35 @@ def _send_telegram_message(text: str) -> bool:
     payload = {"chat_id": chat_id, "text": text}
     try:
         if _http_request is not None:
-            _http_request("POST", api, json=payload, timeout=5)
+            from telegram_api import parse_telegram_json_from_response, require_telegram_ok
+
+            resp = _http_request("POST", api, json=payload, timeout=5)
+            body = parse_telegram_json_from_response(resp, url=api)
+            require_telegram_ok(body, url=api)
             return True
         if _requests is not None:  # pragma: no cover
-            _requests.post(api, json=payload, timeout=5)
+            from telegram_api import parse_telegram_json_from_response, require_telegram_ok
+
+            resp = _requests.post(api, json=payload, timeout=5)
+            body = parse_telegram_json_from_response(resp, url=api)
+            require_telegram_ok(body, url=api)
             return True
-    except Exception:
+    except Exception as e:
+        # תרגול הוא best-effort – אל תפיל את הזרימה, אבל כן תן פרטים לניטור.
+        try:
+            from telegram_api import TelegramAPIError
+
+            if isinstance(e, TelegramAPIError):
+                emit_event(
+                    "telegram_api_error",
+                    severity="warn",
+                    handled=True,
+                    context="drill_service.sendMessage",
+                    error_code=getattr(e, "error_code", None),
+                    description=getattr(e, "description", None),
+                )
+        except Exception:
+            pass
         return False
     return False
 

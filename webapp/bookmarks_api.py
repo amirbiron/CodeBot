@@ -725,10 +725,15 @@ def set_prefs():
             return jsonify({'ok': False, 'error': 'Invalid color'}), 400
         db.users.update_one(
             {'user_id': user_id},
-            {'$set': {
-                'bookmark_prefs.default_color': color,
-                'updated_at': datetime.now(timezone.utc)
-            }},
+            {
+                '$set': {
+                    'bookmark_prefs.default_color': color,
+                    'updated_at': datetime.now(timezone.utc)
+                },
+                '$setOnInsert': {
+                    'created_at': datetime.now(timezone.utc)
+                },
+            },
             upsert=True
         )
         return jsonify({'ok': True, 'default_color': color})

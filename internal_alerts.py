@@ -382,10 +382,28 @@ def _send_telegram(text: str, severity: str = "info") -> None:
     try:
         api = f"https://api.telegram.org/bot{token}/sendMessage"
         payload = {"chat_id": chat_id, "text": text}
-        request('POST', api, json=payload, timeout=5)
-    except Exception:
+        from telegram_api import parse_telegram_json_from_response, require_telegram_ok
+
+        resp = request('POST', api, json=payload, timeout=5)
+        body = parse_telegram_json_from_response(resp, url=api)
+        require_telegram_ok(body, url=api)
+    except Exception as e:
         # Don't raise
-        pass
+        try:
+            from telegram_api import TelegramAPIError
+
+            if isinstance(e, TelegramAPIError):
+                emit_event(
+                    "telegram_api_error",
+                    severity="warn",
+                    handled=True,
+                    context="internal_alerts.sendMessage",
+                    error_code=getattr(e, "error_code", None),
+                    description=getattr(e, "description", None),
+                )
+        except Exception:
+            pass
+        return
 
 
 def emit_internal_alert(name: str, severity: str = "info", summary: str = "", **details: Any) -> None:

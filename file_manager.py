@@ -171,10 +171,18 @@ class BackupManager:
                             payload = {"chat_id": int(admin_id), "text": text}
                             try:
                                 if _request is not None:
-                                    _request('POST', api, json=payload, timeout=5)
+                                    from telegram_api import parse_telegram_json_from_response, require_telegram_ok
+
+                                    resp = _request('POST', api, json=payload, timeout=5)
+                                    body = parse_telegram_json_from_response(resp, url=api)
+                                    require_telegram_ok(body, url=api)
                                 else:
                                     import requests  # type: ignore
-                                    requests.post(api, json=payload, timeout=5)
+                                    from telegram_api import parse_telegram_json_from_response, require_telegram_ok
+
+                                    resp = requests.post(api, json=payload, timeout=5)
+                                    body = parse_telegram_json_from_response(resp, url=api)
+                                    require_telegram_ok(body, url=api)
                             except Exception:
                                 continue
                     except Exception:

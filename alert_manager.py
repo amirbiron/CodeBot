@@ -1499,9 +1499,27 @@ def _send_telegram(text: str) -> None:
         return
     api = f"https://api.telegram.org/bot{token}/sendMessage"
     try:
-        request('POST', api, json={"chat_id": chat_id, "text": text}, timeout=5)
-    except Exception:
+        from telegram_api import parse_telegram_json_from_response, require_telegram_ok
+
+        resp = request('POST', api, json={"chat_id": chat_id, "text": text}, timeout=5)
+        body = parse_telegram_json_from_response(resp, url=api)
+        require_telegram_ok(body, url=api)
+    except Exception as e:
         # do not raise
+        try:
+            from telegram_api import TelegramAPIError
+
+            if isinstance(e, TelegramAPIError):
+                emit_event(
+                    "telegram_api_error",
+                    severity="warn",
+                    handled=True,
+                    context="alert_manager.sendMessage",
+                    error_code=getattr(e, "error_code", None),
+                    description=getattr(e, "description", None),
+                )
+        except Exception:
+            pass
         pass
 
 
