@@ -1788,6 +1788,15 @@ def ensure_code_snippets_indexes() -> None:
                 coll.create_index([('user_id', ASCENDING), ('is_favorite', ASCENDING)], name='user_favorite', background=True)
             except Exception:
                 pass
+            # אינדקסים לשדות מטא חדשים (מסייעים לפילטרים/מיונים עתידיים כמו min_size/max_size)
+            try:
+                coll.create_index([('user_id', ASCENDING), ('file_size', ASCENDING)], name='user_file_size', background=True)
+            except Exception:
+                pass
+            try:
+                coll.create_index([('user_id', ASCENDING), ('lines_count', ASCENDING)], name='user_lines_count', background=True)
+            except Exception:
+                pass
             # אינדקסים לתמיכה ב-"גרסה אחרונה לכל file_name" (פייפליינים עם sort+group)
             try:
                 coll.create_index(
@@ -2066,15 +2075,39 @@ def _get_builtin_share_doc(share_id: str) -> Optional[Dict[str, Any]]:
     }
 
 
-def get_internal_share(share_id: str) -> Optional[Dict[str, Any]]:
-    """שליפת שיתוף פנימי מה-DB (internal_shares) עם בדיקת תוקף."""
+def get_internal_share(share_id: str, *, include_code: bool = True) -> Optional[Dict[str, Any]]:
+    """שליפת שיתוף פנימי מה-DB (internal_shares) עם בדיקת תוקף.
+
+    - include_code=False: מיועד לתצוגה מקדימה (preview) כדי לא למשוך תוכן מלא.
+    - include_code=True: מיועד להורדה/שמירה, כשבאמת חייבים את התוכן המלא.
+    """
     builtin_doc = _get_builtin_share_doc(share_id)
     if builtin_doc:
+        if not include_code:
+            # תצוגה מקדימה: אל תדחוף קוד מלא לזיכרון אם לא צריך.
+            try:
+                code = str(builtin_doc.get('code') or '')
+                builtin_doc = dict(builtin_doc)
+                builtin_doc['snippet_preview'] = code[:2000]
+                builtin_doc['file_size'] = int(len(code.encode('utf-8', errors='ignore'))) if code else 0
+                builtin_doc['lines_count'] = int(len(code.splitlines())) if code else 0
+                builtin_doc.pop('code', None)
+                builtin_doc['mode'] = builtin_doc.get('mode') or 'preview'
+            except Exception:
+                pass
         return builtin_doc
     try:
         db = get_db()
         coll = db.internal_shares
-        doc = coll.find_one({"share_id": share_id})
+        projection = None
+        if not include_code:
+            # Preview: אל תחזיר את שדה code אם הוא קיים (יכול להיות כבד מאוד).
+            projection = {"code": 0}
+        try:
+            doc = coll.find_one({"share_id": share_id}, projection=projection)
+        except TypeError:
+            # תאימות לסטאבים/מימושים ללא projection=
+            doc = coll.find_one({"share_id": share_id})
         if not doc:
             return None
         # TTL אמור לטפל במחיקה, אבל אם עדיין לא נמחק — נבדוק תוקף ידנית באופן חסין tz
@@ -9158,6 +9191,11 @@ def create_public_share(file_id):
         except Exception:
             share_type = ''
 
+        # מצב שיתוף:
+        # - preview: תצוגה מקדימה בלבד (לא שומרים/לא מושכים code מלא)
+        # - download: מיועד להורדה/גיבוי (שומרים תוכן מלא)
+        share_mode = 'download' if share_type in {'download', 'full', 'raw'} else 'preview'
+
         permanent_flag = False
         if share_type in {'permanent', 'forever'}:
             permanent_flag = True
@@ -9178,16 +9216,70 @@ def create_public_share(file_id):
         now = datetime.now(timezone.utc)
         expires_at = None if permanent_flag else now + timedelta(days=PUBLIC_SHARE_TTL_DAYS)
 
-        doc = {
+        doc: Dict[str, Any] = {
             'share_id': share_id,
-            'file_name': file.get('file_name') or 'snippet.txt',
-            'code': file.get('code') or '',
-            'language': (file.get('programming_language') or 'text'),
-            'description': file.get('description') or '',
             'created_at': now,
             'views': 0,
             'is_permanent': permanent_flag,
+            'mode': share_mode,
+            'source_file_id': ObjectId(file_id),
+            'source_user_id': int(user_id),
         }
+        if share_mode == 'preview':
+            # אל תביא code מלא לפייתון. חתוך snippet + מטא-דאטה ב-DB.
+            try:
+                agg = list(db.code_snippets.aggregate([
+                    {'$match': {'_id': ObjectId(file_id), 'user_id': user_id}},
+                    {'$addFields': {
+                        'file_size': {'$ifNull': ['$file_size', {'$strLenBytes': '$code'}]},
+                        'lines_count': {'$ifNull': ['$lines_count', {'$size': {'$split': ['$code', '\n']}}]},
+                        'snippet_preview': {'$substrBytes': ['$code', 0, 2000]},
+                    }},
+                    {'$project': {
+                        'file_name': 1,
+                        'programming_language': 1,
+                        'description': 1,
+                        'file_size': 1,
+                        'lines_count': 1,
+                        'snippet_preview': 1,
+                    }},
+                    {'$limit': 1},
+                ]))
+                meta = agg[0] if agg and isinstance(agg[0], dict) else {}
+            except Exception:
+                meta = {}
+            if not meta:
+                return jsonify({'ok': False, 'error': 'קובץ לא נמצא'}), 404
+            doc.update({
+                'file_name': meta.get('file_name') or 'snippet.txt',
+                'language': (meta.get('programming_language') or 'text'),
+                'description': meta.get('description') or '',
+                'file_size': int(meta.get('file_size') or 0),
+                'lines_count': int(meta.get('lines_count') or 0),
+                'snippet_preview': str(meta.get('snippet_preview') or ''),
+            })
+        else:
+            # download/full: חייבים תוכן מלא
+            code = file.get('code') or ''
+            if not isinstance(code, str):
+                code = str(code or '')
+            try:
+                size_bytes = int(file.get('file_size') or len(code.encode('utf-8', errors='ignore')))
+            except Exception:
+                size_bytes = 0
+            try:
+                lines_count = int(file.get('lines_count') or len(code.splitlines()))
+            except Exception:
+                lines_count = 0
+            doc.update({
+                'file_name': file.get('file_name') or 'snippet.txt',
+                'code': code,
+                'language': (file.get('programming_language') or 'text'),
+                'description': file.get('description') or '',
+                'file_size': size_bytes,
+                'lines_count': lines_count,
+                'snippet_preview': code[:2000],
+            })
         if not permanent_flag and expires_at is not None:
             doc['expires_at'] = expires_at
 
@@ -9233,11 +9325,14 @@ def api_save_shared_file():
         if not share_id:
             return jsonify({'ok': False, 'error': 'share_id נדרש'}), 400
 
-        share_doc = get_internal_share(share_id)
+        # שמירה דורשת תוכן מלא (לא preview)
+        share_doc = get_internal_share(share_id, include_code=True)
         if not share_doc:
             return jsonify({'ok': False, 'error': 'השיתוף לא נמצא'}), 404
 
         raw_code = share_doc.get('code', '')
+        if not raw_code:
+            return jsonify({'ok': False, 'error': 'השיתוף אינו כולל תוכן מלא'}), 400
         code = normalize_code(raw_code if isinstance(raw_code, str) else str(raw_code or ''))
 
         requested_name = str(payload.get('file_name') or share_doc.get('file_name') or '').strip()
@@ -11485,11 +11580,13 @@ def public_share(share_id):
 
     תומך בפרמטר view=md כדי להציג קבצי Markdown בעמוד התצוגה הייעודי (עם כפתורי שיתוף).
     """
-    doc = get_internal_share(share_id)
+    # תצוגה מקדימה: אל תמשוך code מלא אלא אם באמת צריך
+    doc = get_internal_share(share_id, include_code=False)
     if not doc:
         return render_template('404.html'), 404
 
-    code = doc.get('code', '')
+    # תצוגה ציבורית: ברירת מחדל היא snippet (או code מלא אם זה שיתוף ישן/מלא)
+    code = doc.get('snippet_preview') or doc.get('code') or ''
     file_name = doc.get('file_name', 'snippet.txt')
     language = resolve_file_language(doc.get('language'), file_name)
     description = doc.get('description', '')
@@ -11533,8 +11630,25 @@ def public_share(share_id):
     highlighted_code = highlight(code, lexer, formatter)
     css = formatter.get_style_defs('.source')
 
-    size = len(code.encode('utf-8'))
-    lines = len(code.split('\n'))
+    # מטא-דאטה: נעדיף מהמסמך (preview), אחרת נחשב מה-snippet (best-effort)
+    try:
+        size_bytes = int(doc.get('file_size') or 0)
+    except Exception:
+        size_bytes = 0
+    try:
+        lines_count = int(doc.get('lines_count') or 0)
+    except Exception:
+        lines_count = 0
+    if size_bytes <= 0:
+        try:
+            size_bytes = len(str(code).encode('utf-8', errors='ignore'))
+        except Exception:
+            size_bytes = 0
+    if lines_count <= 0:
+        try:
+            lines_count = len(str(code).splitlines())
+        except Exception:
+            lines_count = 0
     created_at = doc.get('created_at')
     if isinstance(created_at, datetime):
         created_at_str = created_at.strftime('%d/%m/%Y %H:%M')
@@ -11551,13 +11665,34 @@ def public_share(share_id):
         'icon': get_language_icon(language),
         'description': description,
         'tags': [],
-        'size': format_file_size(size),
-        'lines': lines,
+        'size': format_file_size(size_bytes),
+        'lines': lines_count,
         'created_at': created_at_str,
         'updated_at': created_at_str,
         'version': 1,
     }
     return render_template('view_file.html', file=file_data, highlighted_code=highlighted_code, syntax_css=css)
+
+
+@app.route('/share/<share_id>/download')
+def public_share_download(share_id: str):
+    """הורדה ציבורית של שיתוף פנימי (רק לשיתופי download/full)."""
+    doc = get_internal_share(share_id, include_code=True)
+    if not doc:
+        return render_template('404.html'), 404
+    if str(doc.get('mode') or '').lower() != 'download':
+        return render_template('404.html'), 404
+    code = doc.get('code') or ''
+    if not isinstance(code, str) or not code:
+        return render_template('404.html'), 404
+    file_name = str(doc.get('file_name') or 'shared.txt').strip() or 'shared.txt'
+    safe = file_name.replace('..', '_').replace('/', '_').replace('\\', '_')
+    from io import BytesIO
+    buf = BytesIO(code.encode('utf-8', errors='ignore'))
+    buf.seek(0)
+    resp = send_file(buf, mimetype='text/plain; charset=utf-8', as_attachment=True, download_name=safe)
+    resp.headers['Cache-Control'] = 'no-store'
+    return resp
 
 # --- Public multiple-files share route (tokens created via /api/files/create-share-link) ---
 @app.route('/shared/<token>')
@@ -11591,30 +11726,51 @@ def public_shared_files(token: str):
     file_ids = [oid for oid in (doc.get('file_ids') or []) if isinstance(oid, ObjectId)]
     if not file_ids:
         return render_template('404.html'), 404
+    # תצוגת רשימה: לא צריך להחזיר code מלא (כבד מאוד)
     try:
-        cursor = db.code_snippets.find({'_id': {'$in': file_ids}})
+        cursor = db.code_snippets.find(
+            {'_id': {'$in': file_ids}},
+            {
+                'file_name': 1,
+                'programming_language': 1,
+                'file_size': 1,
+                'lines_count': 1,
+            },
+        )
         files = list(cursor)
     except Exception:
-        files = []
+        # fallback למימושים ללא projection=
+        try:
+            cursor = db.code_snippets.find({'_id': {'$in': file_ids}})
+            files = list(cursor)
+        except Exception:
+            files = []
     if not files:
         return render_template('404.html'), 404
 
     # בניית רשימת פריטים לתצוגה
     view_items = []
     for f in files:
-        code = f.get('code', '')
         file_name = (f.get('file_name') or 'snippet.txt')
         language = resolve_file_language(f.get('programming_language'), file_name)
-        size = len((code or '').encode('utf-8'))
-        lines = len((code or '').split('\n'))
+        try:
+            size_bytes = int(f.get('file_size') or 0)
+        except Exception:
+            size_bytes = 0
+        try:
+            lines = int(f.get('lines_count') or 0)
+        except Exception:
+            lines = 0
+        # fallback למסמכים ישנים בלבד (עדיף על משיכת קוד יזומה)
+        if size_bytes <= 0:
+            size_bytes = 0
         view_items.append({
             'id': str(f.get('_id')),
             'file_name': file_name,
             'language': language,
             'icon': get_language_icon(language),
-            'size': format_file_size(size),
+            'size': format_file_size(size_bytes),
             'lines': lines,
-            'code': code,
         })
 
     # תבנית בסיסית של רשימת קבצים ששותפו
