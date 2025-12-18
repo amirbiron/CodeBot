@@ -4834,73 +4834,126 @@ def _safe_search(user_id: int, query: str, **kwargs):
     except Exception:
         pass
 
+    # חשוב: בחיפוש רוצים להחזיר snippet קצר ולא למשוך את כל `code` לפייתון.
+    # נחלץ match ראשון + snippet ב-DB (best-effort). אם פונקציות אגרגציה חסרות,
+    # ניפול ל-fallback הישן (כבד יותר) כדי לשמור פונקציונליות.
     pipeline = [
         {'$match': match_stage},
         {'$sort': {'file_name': 1, 'version': -1}},
         {'$group': {'_id': '$file_name', 'latest': {'$first': '$$ROOT'}}},
         {'$replaceRoot': {'newRoot': '$latest'}},
+        # חישוב match ראשון + snippet סביבו (בערך 200 תווים סביב נקודת התאמה)
+        {'$addFields': {
+            '_m': {'$regexFind': {'input': '$code', 'regex': pattern, 'options': 'i'}},
+        }},
+        {'$addFields': {
+            '_match_idx': {'$ifNull': ['$_m.idx', 0]},
+            '_match_len': {'$strLenBytes': {'$ifNull': ['$_m.match', '']}},
+        }},
+        {'$addFields': {
+            '_snippet_start': {'$max': [0, {'$subtract': ['$_match_idx', 50]}]},
+        }},
+        {'$addFields': {
+            'snippet_preview': {'$substrBytes': ['$code', '$_snippet_start', 200]},
+            # מטא-דאטה קל (למסמכים חדשים נשמר כבר; למסמכים ישנים מחשבים בריצה)
+            'file_size': {'$ifNull': ['$file_size', {'$strLenBytes': '$code'}]},
+            'lines_count': {'$ifNull': ['$lines_count', {'$size': {'$split': ['$code', '\n']}}]},
+            # highlight range יחיד (יחסי ל-snippet) עבור התאמה הראשונה
+            'highlight_ranges': [[
+                {'$max': [0, {'$subtract': ['$_match_idx', '$_snippet_start']}]},
+                {'$max': [0, {'$add': [{'$subtract': ['$_match_idx', '$_snippet_start']}, '$_match_len']}]},
+            ]],
+        }},
+        {'$project': {
+            # אל תחזיר code מלא בחיפוש fallback
+            'code': 0,
+            # שדות עזר פנימיים
+            '_m': 0,
+            '_match_idx': 0,
+            '_match_len': 0,
+            '_snippet_start': 0,
+        }},
         {'$sort': {'updated_at': -1}},
         {'$limit': total_limit},
     ]
 
     try:
         docs = list(db.code_snippets.aggregate(pipeline, allowDiskUse=True))
+        from types import SimpleNamespace
+        results: list = []
+        for doc in docs:
+            if not isinstance(doc, dict):
+                continue
+            # score גס ב-fallback: אין לנו חישוב מושלם בלי לקרוא את כל התוכן
+            score = 1.0
+            try:
+                score = float(doc.get('relevance_score') or 1.0)
+            except Exception:
+                score = 1.0
+            results.append(SimpleNamespace(
+                file_name=str(doc.get('file_name') or ''),
+                programming_language=str(doc.get('programming_language') or ''),
+                tags=list(doc.get('tags') or []),
+                created_at=doc.get('created_at') or datetime.now(timezone.utc),
+                updated_at=doc.get('updated_at') or datetime.now(timezone.utc),
+                version=int(doc.get('version') or 1),
+                relevance_score=float(score),
+                matches=[],
+                snippet_preview=str(doc.get('snippet_preview') or ''),
+                highlight_ranges=list(doc.get('highlight_ranges') or []),
+                file_size=int(doc.get('file_size') or 0),
+                lines_count=int(doc.get('lines_count') or 0),
+            ))
+        return results
     except Exception:
-        return []
-
-    # החזרת מבנה תוצאות הדומה למנוע המלא
-    from types import SimpleNamespace
-    results: list = []
-    # קומפילציה ל-highlight תואם Unicode בצורה בטוחה: תמיד escap‎e לקלט משתמש
-    # (גם במצב regex) כדי למנוע החדרת תבניות רגקס. ההדגשה היא ליטרלית בלבד.
-    try:
-        comp = re.compile(re.escape(query), re.IGNORECASE | re.MULTILINE)
-    except Exception:
-        comp = None
-
-    for doc in docs:
-        code_text = str(doc.get('code') or '')
-
-        # יצירת snippet ו-highlight מדויקים לפי span של regex (Unicode-safe)
-        snippet = ''
-        highlight_ranges = []
-        match_start = -1
-        match_end = -1
-        if comp is not None:
-            m = comp.search(code_text)
-            if m:
-                match_start, match_end = m.start(), m.end()
-                start = max(0, match_start - 50)
-                end = min(len(code_text), match_end + 50)
-                snippet = code_text[start:end]
-                rel_start = match_start - start
-                rel_end = match_end - start
-                highlight_ranges = [(rel_start, rel_end)]
-
-        # ניקוד פשוט לפי שכיחות ביחס לאורך המסמך (סופרים הופעות ע"י regex)
+        # fallback אחרון: שמירה על פונקציונליות גם אם Mongo לא תומך ב-$regexFind וכו'.
         try:
-            occurrences = sum(1 for _ in comp.finditer(code_text)) if comp is not None else 0
+            old_pipeline = [
+                {'$match': match_stage},
+                {'$sort': {'file_name': 1, 'version': -1}},
+                {'$group': {'_id': '$file_name', 'latest': {'$first': '$$ROOT'}}},
+                {'$replaceRoot': {'newRoot': '$latest'}},
+                {'$sort': {'updated_at': -1}},
+                {'$limit': total_limit},
+            ]
+            docs = list(db.code_snippets.aggregate(old_pipeline, allowDiskUse=True))
         except Exception:
-            occurrences = 1 if match_start >= 0 else 0
-        denom = max(1, len(code_text))
-        score = min((occurrences or (1 if match_start >= 0 else 0)) / (denom / 1000.0), 10.0)
-
-        # בניית אובייקט תוצאה עם תכונות כפי שמצופה downstream
-        results.append(SimpleNamespace(
-            file_name=str(doc.get('file_name') or ''),
-            content=code_text,
-            programming_language=str(doc.get('programming_language') or ''),
-            tags=list(doc.get('tags') or []),
-            created_at=doc.get('created_at') or datetime.now(timezone.utc),
-            updated_at=doc.get('updated_at') or datetime.now(timezone.utc),
-            version=int(doc.get('version') or 1),
-            relevance_score=float(score),
-            matches=[],
-            snippet_preview=snippet,
-            highlight_ranges=highlight_ranges,
-        ))
-
-    return results
+            return []
+        from types import SimpleNamespace
+        results: list = []
+        # קומפילציה להדגשה ליטרלית בלבד (לא מחזירים את כל הקוד ללקוח)
+        try:
+            comp = re.compile(re.escape(query), re.IGNORECASE | re.MULTILINE)
+        except Exception:
+            comp = None
+        for doc in docs:
+            if not isinstance(doc, dict):
+                continue
+            code_text = str(doc.get('code') or '')
+            snippet = ''
+            highlight_ranges = []
+            if comp is not None:
+                m = comp.search(code_text)
+                if m:
+                    start = max(0, m.start() - 50)
+                    end = min(len(code_text), m.end() + 50)
+                    snippet = code_text[start:end]
+                    highlight_ranges = [(m.start() - start, m.end() - start)]
+            results.append(SimpleNamespace(
+                file_name=str(doc.get('file_name') or ''),
+                programming_language=str(doc.get('programming_language') or ''),
+                tags=list(doc.get('tags') or []),
+                created_at=doc.get('created_at') or datetime.now(timezone.utc),
+                updated_at=doc.get('updated_at') or datetime.now(timezone.utc),
+                version=int(doc.get('version') or 1),
+                relevance_score=1.0,
+                matches=[],
+                snippet_preview=snippet,
+                highlight_ranges=highlight_ranges,
+                file_size=int(doc.get('file_size') or 0),
+                lines_count=int(doc.get('lines_count') or 0),
+            ))
+        return results
 
 
 @app.route('/api/search/global', methods=['POST'])
@@ -5122,7 +5175,7 @@ def api_search_global():
             except Exception:
                 return default
 
-        # Resolve DB ids for links (best-effort; don't fail search if DB unavailable)
+        # Resolve DB ids for links + מטא-דאטה (best-effort; don't fail search if DB unavailable)
         try:
             db = get_db()
         except Exception:
@@ -5139,6 +5192,27 @@ def api_search_global():
         except Exception:
             pass
 
+        def _resolve_doc_meta(fn: str) -> Dict[str, Any]:
+            """החזרת {_id, file_size, lines_count} עבור הקובץ (גרסה אחרונה פעילה)."""
+            if db is None:
+                return {}
+            try:
+                return dict(db.code_snippets.find_one(
+                    {
+                        'user_id': user_id,
+                        'file_name': fn,
+                        'is_active': {'$ne': False},
+                    },
+                    {
+                        '_id': 1,
+                        'file_size': 1,
+                        'lines_count': 1,
+                    },
+                    sort=[('version', DESCENDING), ('updated_at', DESCENDING), ('_id', DESCENDING)],
+                ) or {})
+            except Exception:
+                return {}
+
         resp = {
             'success': True,
             'query': query,
@@ -5150,7 +5224,7 @@ def api_search_global():
             'results': [
                 {
                     'file_id': (lambda fn: (lambda doc: (str(doc.get('_id')) if isinstance(doc, dict) and doc.get('_id') else hashlib.sha256(f"{user_id}:{fn}".encode('utf-8')).hexdigest()))(
-                        (db.code_snippets.find_one({'user_id': user_id, 'file_name': fn}, sort=[('version', -1)]) if db is not None else None)
+                        _resolve_doc_meta(fn)
                     ))(_safe_getattr(r, 'file_name', '')),
                     'file_name': _safe_getattr(r, 'file_name', ''),
                     'language': _safe_getattr(r, 'programming_language', ''),
@@ -5160,7 +5234,12 @@ def api_search_global():
                     'highlights': _safe_getattr(r, 'highlight_ranges', []) or [],
                     'matches': (_safe_getattr(r, 'matches', []) or [])[:5],
                     'updated_at': safe_iso((_safe_getattr(r, 'updated_at', datetime.now(timezone.utc)) or datetime.now(timezone.utc)), field='updated_at'),
-                    'size': len(_safe_getattr(r, 'content', '') or ''),
+                    # עקביות: לא מחזירים `code` או `content`. מחזירים מטא בלבד.
+                    # נעדיף שדות שמגיעים מה-result (במנוע/ב-fallback) ואם חסר – ניקח מה-DB.
+                    'file_size': int(_safe_getattr(r, 'file_size', 0) or 0),
+                    'lines_count': int(_safe_getattr(r, 'lines_count', 0) or 0),
+                    # תאימות לאחור: `size` נשאר, אבל עכשיו הוא size-bytes ולא אורך תוכן שנשלף.
+                    'size': int(_safe_getattr(r, 'file_size', 0) or 0),
                 }
                 for r in page_results
             ],
@@ -7903,6 +7982,15 @@ def api_file_history(file_id):
                     {'is_active': {'$exists': False}},
                 ],
             },
+            {
+                '_id': 1,
+                'version': 1,
+                'created_at': 1,
+                'updated_at': 1,
+                'description': 1,
+                'file_size': 1,
+                'lines_count': 1,
+            },
             sort=[('version', DESCENDING)],
         ).limit(FILE_HISTORY_MAX_VERSIONS))
     except Exception:
@@ -7916,14 +8004,15 @@ def api_file_history(file_id):
         except Exception:
             latest_version = 0
     for doc in docs:
-        code_value = doc.get('code') or ''
-        if not isinstance(code_value, str):
-            code_value = str(code_value or '')
-        try:
-            size_bytes = len(code_value.encode('utf-8', errors='ignore'))
-        except Exception:
-            size_bytes = len(code_value)
         version_number = int(doc.get('version') or 0)
+        try:
+            size_bytes = int(doc.get('file_size') or 0)
+        except Exception:
+            size_bytes = 0
+        try:
+            line_count = int(doc.get('lines_count') or 0)
+        except Exception:
+            line_count = 0
         versions.append({
             'id': str(doc.get('_id')),
             'version': version_number,
@@ -7932,8 +8021,10 @@ def api_file_history(file_id):
             'updated_at': format_datetime_display(doc.get('updated_at')),
             'iso_created': safe_iso(doc.get('created_at'), 'created_at'),
             'iso_updated': safe_iso(doc.get('updated_at'), 'updated_at'),
-            'line_count': len(code_value.splitlines()),
+            'line_count': line_count,
             'size': format_file_size(size_bytes),
+            'file_size': size_bytes,
+            'lines_count': line_count,
             'description': (doc.get('description') or '').strip(),
         })
 
@@ -8268,6 +8359,7 @@ def api_recent_files():
                                 'file_name': 1,
                                 'programming_language': 1,
                                 'file_size': 1,
+                                'lines_count': 1,
                             },
                         )
                     except Exception:
@@ -8289,6 +8381,7 @@ def api_recent_files():
                                 'file_name': 1,
                                 'programming_language': 1,
                                 'file_size': 1,
+                                'lines_count': 1,
                             },
                             sort=[('version', DESCENDING), ('updated_at', DESCENDING), ('_id', DESCENDING)]
                         )
@@ -8312,6 +8405,10 @@ def api_recent_files():
                     size_bytes = int(file_doc.get('file_size') or 0)
                 except Exception:
                     size_bytes = 0
+                try:
+                    lines_count = int(file_doc.get('lines_count') or 0)
+                except Exception:
+                    lines_count = 0
                 lang = (file_doc.get('programming_language') or rdoc.get('language') or 'text')
 
                 results.append({
@@ -8319,6 +8416,8 @@ def api_recent_files():
                     'filename': str(file_doc.get('file_name') or file_name_hint or ''),
                     'language': str(lang).lower(),
                     'size': size_bytes,
+                    'file_size': size_bytes,
+                    'lines_count': lines_count,
                     'accessed_at': (rdoc.get('last_opened_at') or datetime.now(timezone.utc)).isoformat(),
                 })
             except Exception:
