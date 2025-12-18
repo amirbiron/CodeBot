@@ -223,7 +223,47 @@ else:
 
 if _FASTAPI:  # pragma: no cover
 
-    def get_current_user(token: str = Depends(oauth2_scheme), db: Any = None) -> Any:  # type: ignore[misc]
+    from functools import lru_cache
+
+    @lru_cache(maxsize=1)
+    def _get_db_manager() -> Any:
+        # Prefer the repository's Mongo DatabaseManager singleton-ish instance.
+        # It is safe in CI/docs mode (falls back to a no-op DB).
+        from database.manager import DatabaseManager  # type: ignore
+
+        return DatabaseManager()
+
+    def get_db() -> Any:
+        """FastAPI dependency: return a DB handle.
+
+        Order of preference:
+        1) `app.core.database.get_db` if the app defines it
+        2) `webapp.app.get_db` (this repo's Flask Mongo accessor)
+        3) `database.manager.DatabaseManager().db`
+        """
+
+        try:
+            from app.core.database import get_db as _get_db  # type: ignore
+
+            db = _get_db()
+            if db is not None:
+                return db
+        except Exception:
+            pass
+
+        try:
+            from webapp.app import get_db as _get_db  # type: ignore
+
+            return _get_db()
+        except Exception:
+            pass
+
+        try:
+            return _get_db_manager().db
+        except Exception:
+            return None
+
+    def get_current_user(token: str = Depends(oauth2_scheme), db: Any = Depends(get_db)) -> Any:  # type: ignore[misc]
         """FastAPI dependency: decode JWT, load user from DB."""
 
         try:
