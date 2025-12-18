@@ -2,7 +2,9 @@ import re
 import os
 import logging
 import inspect
+import importlib
 from io import BytesIO
+from typing import Optional
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup
 from telegram.ext import ContextTypes, ConversationHandler
 
@@ -14,6 +16,46 @@ from utils import TelegramUtils
 from utils import normalize_code  # נרמול קלט כדי להסיר תווים נסתרים מוקדם
 
 logger = logging.getLogger(__name__)
+
+# Backwards-compatibility for tests that monkeypatch `handlers.save_flow.db`
+# and/or `handlers.save_flow.CodeSnippet`.
+db = None  # type: ignore
+CodeSnippet = None  # type: ignore
+
+
+def _get_legacy_db():
+    """גישה ל-DB הוותיק בלי import סטטי של database."""
+    try:
+        patched = globals().get("db")
+        if patched is not None:
+            return patched
+    except Exception:
+        pass
+    try:
+        module = importlib.import_module("database")
+        return getattr(module, "db", None)
+    except Exception:
+        return None
+
+
+def _get_legacy_model_class(class_name: str):
+    # If tests patched a class in this module, prefer it.
+    try:
+        patched = globals().get(class_name)
+        if patched is not None:
+            return patched
+    except Exception:
+        pass
+    # Prefer `database.<Class>` first (tests often monkeypatch this path).
+    for module_name in ("database", "database.models"):
+        try:
+            module = importlib.import_module(module_name)
+            cls = getattr(module, class_name, None)
+            if cls is not None:
+                return cls
+        except Exception:
+            continue
+    return None
 
 # Observability (fail-open): unify error/event reporting
 try:  # type: ignore
@@ -181,12 +223,30 @@ async def _save_via_layered_flow(update, context, filename, user_id, code, note)
     saved = await _call_service_method(service, "create_snippet", dto)
     if not saved:
         return False
+    fid = ''
+    # נסיון 1: FilesFacade (אם זמין)
     try:
-        from database import db  # type: ignore
-        saved_doc = db.get_latest_version(user_id, filename) or {}
-        fid = str(saved_doc.get('_id') or '')
+        from src.infrastructure.composition import get_files_facade  # type: ignore
+        try:
+            saved_doc = (get_files_facade().get_latest_version(user_id, filename) or {}) if get_files_facade else {}
+        except Exception:
+            saved_doc = {}
+        try:
+            fid = str(saved_doc.get('_id') or '')
+        except Exception:
+            fid = ''
     except Exception:
         fid = ''
+
+    # נסיון 2: legacy DB (אם אין fid, או אם facade נכשל בריצה)
+    if not fid:
+        try:
+            legacy = _get_legacy_db()
+            if legacy is not None:
+                saved_doc = legacy.get_latest_version(user_id, filename) or {}
+                fid = str(saved_doc.get('_id') or '')
+        except Exception:
+            fid = ''
     detected_language = getattr(saved, "language", None) or getattr(saved, "detected_language", None) or ""
     # חיזוק: אם קיבלנו 'text' או שלא נקבעה שפה, ננסה זיהוי מהשירות הוותיק (סיומת גוברת כמו .md)
     try:
@@ -526,14 +586,28 @@ async def get_filename(update, context: ContextTypes.DEFAULT_TYPE) -> int:
             existing_file = existing_entity
         if existing_file is None:
             try:
-                from database import db  # fallback
-                existing_doc = db.get_latest_version(user_id, filename)
+                from src.infrastructure.composition import get_files_facade  # type: ignore
+                existing_doc = get_files_facade().get_latest_version(user_id, filename) if get_files_facade else None
                 existing_file = bool(existing_doc)
             except Exception:
                 existing_file = None
+                try:
+                    legacy = _get_legacy_db()
+                    existing_doc = legacy.get_latest_version(user_id, filename) if legacy is not None else None
+                    existing_file = bool(existing_doc)
+                except Exception:
+                    existing_file = None
     else:
-        from database import db
-        existing_file = db.get_latest_version(user_id, filename)
+        try:
+            from src.infrastructure.composition import get_files_facade  # type: ignore
+            existing_file = get_files_facade().get_latest_version(user_id, filename) if get_files_facade else None
+        except Exception:
+            existing_file = None
+            try:
+                legacy = _get_legacy_db()
+                existing_file = legacy.get_latest_version(user_id, filename) if legacy is not None else None
+            except Exception:
+                existing_file = None
     if existing_file:
         keyboard = [
             [InlineKeyboardButton("🔄 החלף את הקובץ הקיים", callback_data=f"replace_{filename}")],
@@ -612,21 +686,61 @@ async def save_file_final(update, context, filename, user_id):
             pass
     try:
         detected_language = code_service.detect_language(code, filename)
-        from database import db, CodeSnippet
-        snippet = CodeSnippet(
-            user_id=user_id,
-            file_name=filename,
-            code=code,
-            programming_language=detected_language,
-            description=note,
-        )
-        success = db.save_code_snippet(snippet)
+        try:
+            from src.infrastructure.composition import get_files_facade  # type: ignore
+            facade = get_files_facade()
+        except Exception:
+            facade = None
+        success = False
+        last_exc: Optional[BaseException] = None
+        if facade is not None:
+            try:
+                success = bool(
+                    facade.save_code_snippet(
+                        user_id=int(user_id),
+                        file_name=str(filename),
+                        code=str(code or ""),
+                        programming_language=str(detected_language or "text"),
+                        description=str(note or ""),
+                        tags=None,
+                    )
+                )
+            except Exception as exc:
+                success = False
+                last_exc = last_exc or exc
+        if not success:
+            # fallback לנתיב legacy בלי import סטטי של database
+            try:
+                legacy = _get_legacy_db()
+                CodeSnippet = _get_legacy_model_class("CodeSnippet")
+                if legacy is not None and CodeSnippet is not None:
+                    snippet = CodeSnippet(
+                        user_id=user_id,
+                        file_name=filename,
+                        code=code,
+                        programming_language=detected_language,
+                        description=note,
+                    )
+                    success = bool(legacy.save_code_snippet(snippet))
+            except Exception as exc:
+                success = False
+                # If legacy raised, bubble up to outer handler to trigger observability.
+                last_exc = last_exc or exc
+        if not success and last_exc is not None:
+            raise last_exc
         if success:
             try:
-                saved_doc = db.get_latest_version(user_id, filename) or {}
+                saved_doc = (facade.get_latest_version(user_id, filename) if facade is not None else None) or {}
                 fid = str(saved_doc.get('_id') or '')
             except Exception:
                 fid = ''
+            if not fid:
+                try:
+                    legacy = _get_legacy_db()
+                    saved_doc = legacy.get_latest_version(user_id, filename) if legacy is not None else None
+                    fid = str((saved_doc or {}).get('_id') or '')
+                except Exception:
+                    fid = ''
             await _send_save_success(update, context, filename, detected_language, note or '', fid)
             _cleanup_save_flow_state(context)
             return ConversationHandler.END

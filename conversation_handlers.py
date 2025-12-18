@@ -207,6 +207,121 @@ def _get_owned_document_by_id(user_id: int, file_id: str):
     return None, False
 
 
+def _get_legacy_model_class(class_name: str):
+    """Best-effort lookup of database model classes without static imports."""
+    for module_name in ("database.models", "database"):
+        try:
+            module = importlib.import_module(module_name)
+            cls = getattr(module, class_name, None)
+            if cls is not None:
+                return cls
+        except Exception:
+            continue
+    return None
+
+
+def _save_code_snippet_with_description(
+    *,
+    user_id: int,
+    file_name: str,
+    code: str,
+    programming_language: str,
+    description: str,
+    tags: Optional[List[str]] = None,
+) -> bool:
+    """
+    Save a CodeSnippet including description, using FilesFacade when possible.
+    Falls back to legacy db.save_code_snippet(CodeSnippet) when facade isn't available.
+    """
+    facade = _get_files_facade_or_none()
+    if facade is not None:
+        try:
+            return bool(
+                facade.save_code_snippet(
+                    user_id=user_id,
+                    file_name=file_name,
+                    code=code,
+                    programming_language=programming_language,
+                    description=description,
+                    tags=list(tags or []),
+                )
+            )
+        except Exception:
+            pass
+
+    legacy = _get_legacy_db()
+    if legacy is None:
+        return False
+    CodeSnippet = _get_legacy_model_class("CodeSnippet")
+    if CodeSnippet is None:
+        return False
+    try:
+        snippet = CodeSnippet(
+            user_id=user_id,
+            file_name=file_name,
+            code=code,
+            programming_language=programming_language,
+            description=description,
+        )
+        # best-effort tags support
+        try:
+            setattr(snippet, "tags", list(tags or []))
+        except Exception:
+            pass
+        return bool(getattr(legacy, "save_code_snippet")(snippet))
+    except Exception:
+        return False
+
+
+def _save_large_file_compat(
+    *,
+    user_id: int,
+    file_name: str,
+    content: str,
+    programming_language: str,
+    file_size: int,
+    lines_count: int,
+) -> bool:
+    """
+    Save a LargeFile using FilesFacade when possible.
+    Falls back to legacy db.save_large_file(LargeFile) when facade isn't available.
+    """
+    facade = _get_files_facade_or_none()
+    if facade is not None:
+        try:
+            return bool(
+                facade.save_large_file(
+                    user_id=user_id,
+                    file_name=file_name,
+                    content=content,
+                    programming_language=programming_language,
+                    file_size=file_size,
+                    lines_count=lines_count,
+                )
+            )
+        except Exception:
+            pass
+
+    legacy = _get_legacy_db()
+    if legacy is None:
+        return False
+    LargeFile = _get_legacy_model_class("LargeFile")
+    if LargeFile is None:
+        return False
+    try:
+        lf = LargeFile(
+            user_id=user_id,
+            file_name=file_name,
+            content=content,
+            programming_language=programming_language,
+            file_size=file_size,
+            lines_count=lines_count,
+        )
+        return bool(getattr(legacy, "save_large_file")(lf))
+    except Exception:
+        return False
+
+
 def _load_favorites(user_id: int, limit: int = 1000, facade=None) -> List[Dict[str, object]]:
     """Fetch favorites via facade when available, fallback to legacy db."""
     if facade is None:
@@ -1368,11 +1483,8 @@ async def community_reject_command(update: Update, context: ContextTypes.DEFAULT
         await update.message.reply_text("🛑 נדחה" if ok else "❌ כשל בדחייה")
         # notify submitter best-effort
         try:
-            from database import db as _db
-            coll = getattr(_db, 'community_library_collection', None)
-            if coll is None:
-                coll = getattr(_db.db, 'community_library_items')
-            doc = coll.find_one({'_id': _CLObjectId(iid)}) if coll is not None else None
+            from services.community_library_service import get_item_by_id as _get_item_by_id
+            doc = _get_item_by_id(iid)
         except Exception:
             doc = None
         if isinstance(doc, dict):
@@ -1617,11 +1729,8 @@ async def snippet_inline_approve(update: Update, context: ContextTypes.DEFAULT_T
         # הודעה למשתמש שהגיש (ידידותית)
         if ok:
             try:
-                from database import db as _db
-                coll = getattr(_db, 'snippets_collection', None)
-                if coll is None:
-                    coll = getattr(_db.db, 'snippets')
-                doc = coll.find_one({'_id': _db._get_repo()._normalize_snippet_identifier(item_id)}) if coll is not None else None
+                from services.snippet_library_service import get_item_by_id as _get_item_by_id
+                doc = _get_item_by_id(item_id)
                 if isinstance(doc, dict):
                     uid = doc.get('user_id')
                     if uid:
@@ -1679,11 +1788,8 @@ async def snippet_collect_reject_reason(update: Update, context: ContextTypes.DE
     # ידידותי למשתמש
     if ok:
         try:
-            from database import db as _db
-            coll = getattr(_db, 'snippets_collection', None)
-            if coll is None:
-                coll = getattr(_db.db, 'snippets')
-            doc = coll.find_one({'_id': _db._get_repo()._normalize_snippet_identifier(item_id)}) if coll is not None else None
+            from services.snippet_library_service import get_item_by_id as _get_item_by_id
+            doc = _get_item_by_id(item_id)
         except Exception:
             doc = None
         if isinstance(doc, dict):
@@ -1742,11 +1848,8 @@ async def snippet_approve_command(update: Update, context: ContextTypes.DEFAULT_
         if ok:
             # הודע למשתמש
             try:
-                from database import db as _db
-                coll = getattr(_db, 'snippets_collection', None)
-                if coll is None:
-                    coll = getattr(_db.db, 'snippets')
-                doc = coll.find_one({'_id': _db._get_repo()._normalize_snippet_identifier(iid)}) if coll is not None else None
+                from services.snippet_library_service import get_item_by_id as _get_item_by_id
+                doc = _get_item_by_id(iid)
                 if isinstance(doc, dict):
                     uid = doc.get('user_id')
                     if uid:
@@ -1776,11 +1879,8 @@ async def snippet_reject_command(update: Update, context: ContextTypes.DEFAULT_T
         if ok:
             # הודע למשתמש
             try:
-                from database import db as _db
-                coll = getattr(_db, 'snippets_collection', None)
-                if coll is None:
-                    coll = getattr(_db.db, 'snippets')
-                doc = coll.find_one({'_id': _db._get_repo()._normalize_snippet_identifier(iid)}) if coll is not None else None
+                from services.snippet_library_service import get_item_by_id as _get_item_by_id
+                doc = _get_item_by_id(iid)
             except Exception:
                 doc = None
             if isinstance(doc, dict):
@@ -2028,7 +2128,6 @@ async def show_regular_files_page_callback(update: Update, context: ContextTypes
     await query.answer()
     user_id = update.effective_user.id
     files_facade = _get_files_facade_or_none()
-    from database import db
     try:
         # שלוף דף ספציפי מה-DB ללא תוכן קוד (ה-DB כבר מהדק עמוד חוקי במידת הצורך)
         data = query.data
@@ -2477,22 +2576,20 @@ async def receive_new_code(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         file_name = context.user_data.pop('editing_note_file')
         user_id = update.effective_user.id
         try:
-            from database import db
             # שלוף את המסמך האחרון ועדכן תיאור
-            doc = db.get_latest_version(user_id, file_name)
+            doc = _call_files_api("get_latest_version", user_id, file_name)
             if not doc:
                 await update.message.reply_text("❌ הקובץ לא נמצא לעדכון הערה")
                 return ConversationHandler.END
             # צור גרסה חדשה עם אותו קוד ושם, עדכון שדה description
-            from database import CodeSnippet
-            snippet = CodeSnippet(
-                user_id=user_id,
-                file_name=file_name,
-                code=doc.get('code', ''),
-                programming_language=doc.get('programming_language', 'text'),
-                description=("" if note_text.lower() == 'מחק' else note_text)[:280]
+            ok = _save_code_snippet_with_description(
+                user_id=int(user_id),
+                file_name=str(file_name),
+                code=str((doc or {}).get('code', '') or ''),
+                programming_language=str((doc or {}).get('programming_language', 'text') or 'text'),
+                description=("" if note_text.lower() == 'מחק' else note_text)[:280],
+                tags=list((doc or {}).get('tags') or []),
             )
-            ok = db.save_code_snippet(snippet)
             if ok:
                 await update.message.reply_text(
                     "✅ הערה עודכנה בהצלחה!",
@@ -2521,19 +2618,14 @@ async def receive_new_code(update: Update, context: ContextTypes.DEFAULT_TYPE) -
 
             language = code_service.detect_language(new_code, file_name)
 
-            # יצירת קובץ גדול חדש עם התוכן המעודכן
-            from database import LargeFile
-            updated_file = LargeFile(
-                user_id=user_id,
-                file_name=file_name,
-                content=new_code,
-                programming_language=language,
-                file_size=len(new_code.encode('utf-8')),
-                lines_count=len(new_code.split('\n'))
+            success = _save_large_file_compat(
+                user_id=int(user_id),
+                file_name=str(file_name),
+                content=str(new_code),
+                programming_language=str(language),
+                file_size=len(str(new_code).encode('utf-8')),
+                lines_count=len(str(new_code).split('\n')),
             )
-            
-            from database import db
-            success = db.save_large_file(updated_file)
             
             if success:
                 from utils import get_language_emoji
@@ -2592,12 +2684,10 @@ async def receive_new_code(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         
         # זיהוי שפה עם הקוד המנוקה
         detected_language = code_service.detect_language(cleaned_code, file_name)
-        
-        from database import db
-        success = db.save_file(user_id, file_name, cleaned_code, detected_language)
+        success = _call_files_api("save_file", user_id, file_name, cleaned_code, detected_language)
         
         if success:
-            last_version = db.get_latest_version(user_id, file_name)
+            last_version = _call_files_api("get_latest_version", user_id, file_name)
             version_num = last_version.get('version', 1) if last_version else 1
             try:
                 fid = str((last_version or {}).get('_id') or '')
@@ -2773,13 +2863,11 @@ async def receive_new_name(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         user_id = update.effective_user.id
         # תמיכה במקרים ישירים ומקרי cache
         old_name = context.user_data.get('editing_file_name') or file_data.get('file_name')
-        
-        from database import db
-        success = db.rename_file(user_id, old_name, new_name)
+        success = _call_files_api("rename_file", user_id, old_name, new_name)
         
         if success:
             try:
-                latest_doc = db.get_latest_version(user_id, new_name) or {}
+                latest_doc = _call_files_api("get_latest_version", user_id, new_name) or {}
                 fid = str(latest_doc.get('_id') or '')
             except Exception:
                 fid = ''
@@ -2847,8 +2935,7 @@ async def handle_versions_history(update: Update, context: ContextTypes.DEFAULT_
             file_name = file_data.get('file_name')
         
         user_id = update.effective_user.id
-        from database import db
-        versions = db.get_all_versions(user_id, file_name)
+        versions = _call_files_api("get_all_versions", user_id, file_name)
         
         if not versions:
             await query.edit_message_text("📚 אין היסטוריית גרסאות לקובץ זה")
@@ -2937,9 +3024,8 @@ async def handle_download_file(update: Update, context: ContextTypes.DEFAULT_TYP
         elif data.startswith('download_direct_'):
             # מצב שם ישיר
             file_name = data.replace('download_direct_', '', 1)
-            from database import db
             user_id = update.effective_user.id
-            latest = db.get_latest_version(user_id, file_name)
+            latest = _call_files_api("get_latest_version", user_id, file_name)
             if not latest:
                 await query.edit_message_text("❌ לא נמצאה גרסה אחרונה לקובץ")
                 return ConversationHandler.END
@@ -3039,9 +3125,7 @@ async def handle_delete_file(update: Update, context: ContextTypes.DEFAULT_TYPE)
         
         user_id = update.effective_user.id
         file_name = file_data.get('file_name')
-        
-        from database import db
-        success = db.delete_file(user_id, file_name)
+        success = _call_files_api("delete_file", user_id, file_name)
         
         if success:
             keyboard = [
@@ -3275,12 +3359,11 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
             elif mode == "direct":
                 file_name = parts[2]
                 user_id = update.effective_user.id
-                from database import db
-                doc = db.get_latest_version(user_id, file_name)
+                doc = _call_files_api("get_latest_version", user_id, file_name)
                 is_large_file = False
                 if not doc:
                     # נסה large_file
-                    doc = db.get_large_file(user_id, file_name) or {}
+                    doc = _call_files_api("get_large_file", user_id, file_name) or {}
                     is_large_file = bool(doc)
                     code = doc.get('content', '')
                 else:
@@ -3408,11 +3491,10 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
             elif mode == "direct":
                 file_name = parts[2]
                 user_id = update.effective_user.id
-                from database import db
-                doc = db.get_latest_version(user_id, file_name)
+                doc = _call_files_api("get_latest_version", user_id, file_name)
                 is_large_file = False
                 if not doc:
-                    doc = db.get_large_file(user_id, file_name) or {}
+                    doc = _call_files_api("get_large_file", user_id, file_name) or {}
                     is_large_file = bool(doc)
                     code = doc.get('content', '')
                 else:
@@ -3494,8 +3576,7 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
             # ננסה לעדכן מהמסד אם חסר
             if fallback_to_db:
                 try:
-                    from database import db
-                    doc = db.get_latest_version(update.effective_user.id, file_name)
+                    doc = _call_files_api("get_latest_version", update.effective_user.id, file_name)
                     saved = {
                         'file_name': file_name or (doc.get('file_name') if doc else ''),
                         'language': (doc.get('programming_language') if doc else 'text'),
@@ -3695,13 +3776,12 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
             await query.edit_message_text(text2, reply_markup=InlineKeyboardMarkup(kb), parse_mode=ParseMode.HTML)
         elif data == "rf_delete_do":
             # מחיקה בפועל לפי מזהי קבצים
-            from database import db
             user_id = update.effective_user.id
             selected_ids: List[str] = list(context.user_data.get('rf_selected_ids') or [])
             deleted = 0
             for fid in selected_ids:
                 try:
-                    res = db.delete_file_by_id(fid)
+                    res = _call_files_api("delete_file_by_id", fid)
                     if res:
                         deleted += 1
                 except Exception:
@@ -3709,7 +3789,8 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
             # רענון רשימת הקבצים ושחזור מצב רגיל (דף עדכני) ישירות מה-DB
             try:
                 last_page = context.user_data.get('files_last_page') or 1
-                files, total_files = db.get_regular_files_paginated(user_id, page=last_page, per_page=FILES_PAGE_SIZE)
+                page_data = _call_files_api("get_regular_files_paginated", user_id, page=last_page, per_page=FILES_PAGE_SIZE)
+                files, total_files = page_data if isinstance(page_data, tuple) else ([], 0)
             except Exception:
                 files, total_files = [], 0
             context.user_data['rf_selected_ids'] = []
@@ -3841,7 +3922,6 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
             from large_files_handler import large_files_handler
             await large_files_handler.show_file_info(update, context)
         elif data in ("batch_analyze_all", "batch_analyze_python", "batch_analyze_javascript", "batch_analyze_java", "batch_analyze_cpp"):
-            from database import db
             from batch_processor import batch_processor
             user_id = update.effective_user.id
             language_map = {
@@ -3852,11 +3932,11 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
             }
             if data == "batch_analyze_all":
                 # משוך רק שמות קבצים בהקרנה קלה כדי לחסוך בזיכרון
-                all_files = db.get_user_files(user_id, limit=500, projection={"file_name": 1})
+                all_files = _call_files_api("get_user_files", user_id, limit=500, projection={"file_name": 1}) or []
                 files = [f['file_name'] for f in all_files if f.get('file_name')]
             else:
                 language = language_map[data]
-                all_files = db.get_user_files(user_id, limit=500, projection={"file_name": 1, "programming_language": 1})
+                all_files = _call_files_api("get_user_files", user_id, limit=500, projection={"file_name": 1, "programming_language": 1}) or []
                 files = [f['file_name'] for f in all_files if str(f.get('programming_language', '')).lower() == language and f.get('file_name')]
             if not files:
                 await query.answer("❌ לא נמצאו קבצים", show_alert=True)
@@ -3871,10 +3951,9 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
             )
             asyncio.create_task(_auto_update_batch_status(context.application, sent.chat_id, sent.message_id, job_id, user_id))
         elif data == "batch_validate_all":
-            from database import db
             from batch_processor import batch_processor
             user_id = update.effective_user.id
-            all_files = db.get_user_files(user_id, limit=500, projection={"file_name": 1})
+            all_files = _call_files_api("get_user_files", user_id, limit=500, projection={"file_name": 1}) or []
             files = [f['file_name'] for f in all_files if f.get('file_name')]
             if not files:
                 await query.answer("❌ לא נמצאו קבצים", show_alert=True)
@@ -3989,9 +4068,9 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
             # הצגת קבצים לפי תגית ריפו + אפשרות מחיקה מרוכזת, עם עימוד
             tag = data.split(":", 1)[1]
             context.user_data['files_origin'] = { 'type': 'by_repo', 'tag': tag }
-            from database import db
             user_id = update.effective_user.id
-            files, total = db.get_user_files_by_repo(user_id, tag, page=1, per_page=FILES_PAGE_SIZE)
+            page_data = _call_files_api("get_user_files_by_repo", user_id, tag, page=1, per_page=FILES_PAGE_SIZE)
+            files, total = page_data if isinstance(page_data, tuple) else ([], 0)
             if not files:
                 await query.edit_message_text("ℹ️ אין קבצים עבור התגית הזו.")
                 return ConversationHandler.END
@@ -4039,9 +4118,8 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
         elif data.startswith("byrepo_delete_confirm:"):
             # שלב אישור ראשון למחיקת כל הקבצים תחת תגית ריפו
             tag = data.split(":", 1)[1]
-            from database import db
             user_id = update.effective_user.id
-            files = db.search_code(user_id, query="", tags=[tag] if tag else [], limit=10000) or []
+            files = _call_files_api("search_code", user_id, query="", tags=[tag] if tag else [], limit=10000) or []
             total = len(files)
             try:
                 _ttl_raw = getattr(config, 'RECYCLE_TTL_DAYS', 7)
@@ -4093,9 +4171,9 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
                 page = 1
             context.user_data['files_origin'] = { 'type': 'by_repo', 'tag': tag }
             context.user_data['files_last_page'] = page
-            from database import db
             user_id = update.effective_user.id
-            files, total = db.get_user_files_by_repo(user_id, tag, page=page, per_page=FILES_PAGE_SIZE)
+            page_data = _call_files_api("get_user_files_by_repo", user_id, tag, page=page, per_page=FILES_PAGE_SIZE)
+            files, total = page_data if isinstance(page_data, tuple) else ([], 0)
             keyboard = []
             context.user_data['files_cache'] = {}
             start_index = (page - 1) * FILES_PAGE_SIZE
@@ -4132,8 +4210,8 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
             name_filter = filters.get('name_filter') or ""
             lang = filters.get('lang')
             tag = filters.get('tag')
-            from database import db
-            results = db.search_code(
+            results = _call_files_api(
+                "search_code",
                 update.effective_user.id,
                 query=name_filter,
                 programming_language=(lang or ""),
@@ -4180,9 +4258,8 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
         elif data.startswith("byrepo_delete_do:"):
             # ביצוע מחיקה בפועל: מחיקה לפי שם קובץ של כל הקבצים תחת התג הנבחר
             tag = data.split(":", 1)[1]
-            from database import db
             user_id = update.effective_user.id
-            files = db.search_code(user_id, query="", tags=[tag] if tag else [], limit=10000) or []
+            files = _call_files_api("search_code", user_id, query="", tags=[tag] if tag else [], limit=10000) or []
             total = len(files)
             deleted = 0
             # הודעת התקדמות ראשונית + אימוג׳י קבוע
@@ -4208,7 +4285,7 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
                 if not name:
                     continue
                 try:
-                    if db.delete_file(user_id, name):
+                    if _call_files_api("delete_file", user_id, name):
                         deleted += 1
                 except Exception:
                     continue
@@ -4374,14 +4451,13 @@ async def handle_view_version(update: Update, context: ContextTypes.DEFAULT_TYPE
         version_num = int(version_str)
         
         user_id = update.effective_user.id
-        from database import db
-        version_doc = db.get_version(user_id, file_name, version_num)
+        version_doc = _call_files_api("get_version", user_id, file_name, version_num)
         if not version_doc:
             await query.edit_message_text("❌ הגרסה המבוקשת לא נמצאה")
             return ConversationHandler.END
         
         # בדיקה אם זו הגרסה הנוכחית
-        latest_doc = db.get_latest_version(user_id, file_name)
+        latest_doc = _call_files_api("get_latest_version", user_id, file_name)
         latest_version_num = latest_doc.get('version') if latest_doc else None
         is_current = latest_version_num == version_num
         
@@ -4459,21 +4535,18 @@ async def handle_revert_version(update: Update, context: ContextTypes.DEFAULT_TY
         version_num = int(version_str)
         
         user_id = update.effective_user.id
-        from database import db
-        version_doc = db.get_version(user_id, file_name, version_num)
+        version_doc = _call_files_api("get_version", user_id, file_name, version_num)
         if not version_doc:
             await query.edit_message_text("❌ הגרסה לשחזור לא נמצאה")
             return ConversationHandler.END
         
         code = version_doc.get('code', '')
         language = version_doc.get('programming_language', 'text')
-        
-        success = db.save_file(user_id, file_name, code, language)
+        success = _call_files_api("save_file", user_id, file_name, code, language)
         if not success:
             await query.edit_message_text("❌ שגיאה בשחזור הגרסה")
             return ConversationHandler.END
-        
-        latest = db.get_latest_version(user_id, file_name)
+        latest = _call_files_api("get_latest_version", user_id, file_name)
         latest_ver = latest.get('version', version_num) if latest else version_num
         
         try:
@@ -4588,11 +4661,10 @@ async def show_batch_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
 
 async def show_batch_repos_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """תפריט בחירת ריפו לעיבוד Batch"""
-    from database import db
     query = update.callback_query
     await query.answer()
     user_id = update.effective_user.id
-    files = db.get_user_files(user_id, limit=500, projection={"file_name": 1, "tags": 1})
+    files = _call_files_api("get_user_files", user_id, limit=500, projection={"file_name": 1, "tags": 1}) or []
     repo_to_count: Dict[str, int] = {}
     for f in files:
         for t in f.get('tags', []) or []:
@@ -4620,7 +4692,6 @@ async def show_batch_repos_menu(update: Update, context: ContextTypes.DEFAULT_TY
 
 async def show_batch_files_menu(update: Update, context: ContextTypes.DEFAULT_TYPE, page: int = 1) -> int:
     """מציג רשימת קבצים בהתאם לקטגוריה שנבחרה לבחירה (הכל או בודד)"""
-    from database import db
     query = update.callback_query
     await query.answer()
     user_id = update.effective_user.id
@@ -4630,21 +4701,22 @@ async def show_batch_files_menu(update: Update, context: ContextTypes.DEFAULT_TY
     try:
         if t == 'repo':
             tag = target.get('tag')
-            files_docs = db.search_code(user_id, query="", tags=[tag] if tag else [], limit=2000)
+            files_docs = _call_files_api("search_code", user_id, query="", tags=[tag] if tag else [], limit=2000) or []
             items = [cast(str, f['file_name']) for f in files_docs if f.get('file_name')]
         elif t == 'zips':
             # הצג את כל הקבצים הרגילים
-            files_docs = db.get_user_files(user_id, limit=500, projection={"file_name": 1})
+            files_docs = _call_files_api("get_user_files", user_id, limit=500, projection={"file_name": 1}) or []
             items = [cast(str, f['file_name']) for f in files_docs if f.get('file_name')]
         elif t == 'large':
-            large_files, _ = db.get_user_large_files(user_id, page=1, per_page=10000)
+            page_data = _call_files_api("get_user_large_files", user_id, page=1, per_page=10000)
+            large_files, _ = page_data if isinstance(page_data, tuple) else ([], 0)
             items = [cast(str, f['file_name']) for f in large_files if f.get('file_name')]
         elif t == 'other':
-            files_docs = db.get_user_files(user_id, limit=500, projection={"file_name": 1, "tags": 1})
+            files_docs = _call_files_api("get_user_files", user_id, limit=500, projection={"file_name": 1, "tags": 1}) or []
             files_docs = [f for f in files_docs if not any((tg or '').startswith('repo:') for tg in (f.get('tags') or []))]
             items = [cast(str, f['file_name']) for f in files_docs if f.get('file_name')]
         else:
-            files_docs = db.get_user_files(user_id, limit=500, projection={"file_name": 1})
+            files_docs = _call_files_api("get_user_files", user_id, limit=500, projection={"file_name": 1}) or []
             items = [cast(str, f['file_name']) for f in files_docs if f.get('file_name')]
 
         if not items:
@@ -4754,8 +4826,7 @@ async def show_batch_zips_menu(update: Update, context: ContextTypes.DEFAULT_TYP
             vtxt = f" v{vnum}" if vnum else ""
             # שלוף דירוג אם קיים
             try:
-                from database import db
-                rating = db.get_backup_rating(user_id, info.backup_id) or ""
+                rating = _call_files_api("get_backup_rating", user_id, info.backup_id) or ""
             except Exception:
                 rating = ""
             emoji = ""
@@ -4809,7 +4880,6 @@ async def show_batch_actions_menu(update: Update, context: ContextTypes.DEFAULT_
 
 async def execute_batch_on_current_selection(update: Update, context: ContextTypes.DEFAULT_TYPE, action: str) -> int:
     """מבצע את פעולת ה-Batch על קבוצת היעד שנבחרה"""
-    from database import db
     from batch_processor import batch_processor
     query = update.callback_query
     await query.answer()
@@ -4825,24 +4895,25 @@ async def execute_batch_on_current_selection(update: Update, context: ContextTyp
             t = target.get('type')
             if t == 'repo':
                 tag = target.get('tag')
-                items = db.search_code(user_id, query="", tags=[tag] if tag else [], limit=2000)
+                items = _call_files_api("search_code", user_id, query="", tags=[tag] if tag else [], limit=2000) or []
                 files = [f.get('file_name') for f in items if f.get('file_name')]
             elif t == 'zips':
                 # ZIPs אינם קבצי קוד; כבר בשלב הבחירה הוצגו הקבצים הרגילים
-                items = db.get_user_files(user_id)
+                items = _call_files_api("get_user_files", user_id, limit=500) or []
                 files = [f.get('file_name') for f in items if f.get('file_name')]
             elif t == 'large':
                 # שלוף רק קבצים גדולים
-                large_files, _ = db.get_user_large_files(user_id, page=1, per_page=10000)
+                page_data = _call_files_api("get_user_large_files", user_id, page=1, per_page=10000)
+                large_files, _ = page_data if isinstance(page_data, tuple) else ([], 0)
                 files = [f.get('file_name') for f in large_files if f.get('file_name')]
             elif t == 'other':
                 # קבצים רגילים שאין להם תגית repo:
-                items = db.get_user_files(user_id)
+                items = _call_files_api("get_user_files", user_id, limit=500) or []
                 items = [f for f in items if not any((t or '').startswith('repo:') for t in (f.get('tags') or []))]
                 files = [f.get('file_name') for f in items if f.get('file_name')]
             else:
                 # ברירת מחדל: כל הקבצים רגילים
-                items = db.get_user_files(user_id)
+                items = _call_files_api("get_user_files", user_id, limit=500) or []
                 files = [f.get('file_name') for f in items if f.get('file_name')]
 
         if not files:

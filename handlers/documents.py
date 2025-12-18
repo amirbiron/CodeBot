@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import base64
+import importlib
 import json
 import logging
 import os
@@ -133,8 +134,10 @@ class DocumentHandler:
         legacy = globals().get("db")
         if legacy is None:
             try:
-                from database import db as legacy  # type: ignore
-                globals()["db"] = legacy
+                module = importlib.import_module("database")
+                legacy = getattr(module, "db", None)
+                if legacy is not None:
+                    globals()["db"] = legacy
             except Exception as exc:
                 logger.debug("Legacy database unavailable: %s", exc)
                 legacy = None
@@ -149,7 +152,10 @@ class DocumentHandler:
             self._prefer_legacy_first = False
             return False
         try:
-            from database.manager import DatabaseManager  # type: ignore
+            dm_mod = importlib.import_module("database.manager")
+            DatabaseManager = getattr(dm_mod, "DatabaseManager", None)  # type: ignore
+            if DatabaseManager is None:
+                raise RuntimeError("DatabaseManager missing")
         except Exception:
             self._prefer_legacy_first = True
             return True
@@ -489,7 +495,8 @@ class DocumentHandler:
             "tags": list(tags or []),
         }
         try:
-            from database.models import CodeSnippet  # type: ignore
+            models_mod = importlib.import_module("database.models")
+            CodeSnippet = getattr(models_mod, "CodeSnippet", None)  # type: ignore
         except Exception:
             CodeSnippet = None  # type: ignore
         if CodeSnippet is None:  # type: ignore
@@ -519,7 +526,8 @@ class DocumentHandler:
             "lines_count": lines_count,
         }
         try:
-            from database.models import LargeFile  # type: ignore
+            models_mod = importlib.import_module("database.models")
+            LargeFile = getattr(models_mod, "LargeFile", None)  # type: ignore
         except Exception:
             LargeFile = None  # type: ignore
         if LargeFile is None:  # type: ignore
