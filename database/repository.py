@@ -60,6 +60,18 @@ from .models import CodeSnippet, LargeFile
 
 logger = logging.getLogger(__name__)
 
+# ===================== List projections (performance) =====================
+# שדות "כבדים" שאין צורך להחזיר במסכי רשימות/עימוד.
+# המטרה: להקטין payload מה-DB ולהפחית הקצאות זיכרון בפייתון.
+#
+# הערה: אפשר להחזיר אותם במפורש ע"י העברת projection מפורש (include) בקריאות ייעודיות.
+_HEAVY_FIELDS_EXCLUDE_PROJECTION: Dict[str, int] = {
+    "code": 0,        # CodeSnippet
+    "content": 0,     # LargeFile
+    "raw_data": 0,    # future-proof / backward-compat (אם קיים בפריטים מסוימים)
+    "raw_content": 0, # future-proof
+}
+
 # Optional performance instrumentation
 try:
     from metrics import track_performance
@@ -795,12 +807,25 @@ class Repository:
                 {"$replaceRoot": {"newRoot": "$latest"}},
                 {"$sort": {"updated_at": -1}},
             ]
-            # הקרנה אופציונלית לשדות דרושים בלבד
+            # הקרנה:
+            # - ברירת מחדל: exclude לשדות כבדים (code/content וכו') למסכי רשימות.
+            # - אם caller נתן projection מפורש: כבד אותו (משאיר יכולת include ייעודית).
             if projection and isinstance(projection, dict) and projection:
-                # הבטחה שתמיד יוחזר file_name אם לא נכלל
                 proj = dict(projection)
                 proj.setdefault("file_name", 1)
+                # אם מדובר ב-exclude projection (ערכים 0) — נקשיח שגם השדות הכבדים יצאו החוצה.
+                try:
+                    is_include = any(int(v) == 1 for v in proj.values() if v in (0, 1))
+                except Exception:
+                    is_include = False
+                if not is_include:
+                    try:
+                        proj.update(_HEAVY_FIELDS_EXCLUDE_PROJECTION)
+                    except Exception:
+                        pass
                 pipeline.append({"$project": proj})
+            else:
+                pipeline.append({"$project": dict(_HEAVY_FIELDS_EXCLUDE_PROJECTION)})
             # עימוד: דילוג ואז הגבלה
             if eff_skip > 0:
                 pipeline.append({"$skip": eff_skip})
@@ -850,6 +875,17 @@ class Repository:
                 {"$replaceRoot": {"newRoot": "$latest"}},
                 {"$sort": {"updated_at": -1}},
                 {"$limit": limit},
+                # תוצאות חיפוש הן רשימה — אין צורך להחזיר את שדה code המלא כאן.
+                {"$project": {
+                    "_id": 1,
+                    "file_name": 1,
+                    "programming_language": 1,
+                    "updated_at": 1,
+                    "description": 1,
+                    "tags": 1,
+                    "is_favorite": 1,
+                    "favorited_at": 1,
+                }},
             ]
             with track_performance("db_search_code"):
                 rows = list(self.manager.collection.aggregate(pipeline, allowDiskUse=True))
@@ -1226,12 +1262,22 @@ class Repository:
             total_count = self.manager.large_files_collection.count_documents({"user_id": user_id, "$or": [
                 {"is_active": True}, {"is_active": {"$exists": False}}
             ]})
-            cursor = self.manager.large_files_collection.find(
-                {"user_id": user_id, "$or": [
-                    {"is_active": True}, {"is_active": {"$exists": False}}
-                ]},
-                sort=[("created_at", -1)],
-            )
+            query = {"user_id": user_id, "$or": [
+                {"is_active": True}, {"is_active": {"$exists": False}}
+            ]}
+            # רשימת קבצים גדולים: אל תחזיר content (כבד) ברירת מחדל.
+            try:
+                cursor = self.manager.large_files_collection.find(
+                    query,
+                    dict(_HEAVY_FIELDS_EXCLUDE_PROJECTION),
+                    sort=[("created_at", -1)],
+                )
+            except TypeError:
+                # תאימות ל-stubs שלא תומכים בפרמטר projection
+                cursor = self.manager.large_files_collection.find(
+                    query,
+                    sort=[("created_at", -1)],
+                )
             # תמיכה ב-mocks שמחזירים list במקום Cursor
             if isinstance(cursor, list):
                 files = cursor[skip: skip + per_page]
@@ -1312,7 +1358,10 @@ class Repository:
             match = {"user_id": user_id, "is_active": False}
             # Fetch all and merge-sort in Python for simplicity and correctness across two collections
             try:
-                reg_docs = list(self.manager.collection.find(match))
+                try:
+                    reg_docs = list(self.manager.collection.find(match, dict(_HEAVY_FIELDS_EXCLUDE_PROJECTION)))
+                except TypeError:
+                    reg_docs = list(self.manager.collection.find(match))
             except Exception as e:
                 # Emit per-source failure to help diagnostics
                 try:
@@ -1321,7 +1370,10 @@ class Repository:
                     pass
                 reg_docs = []
             try:
-                large_docs = list(self.manager.large_files_collection.find(match))
+                try:
+                    large_docs = list(self.manager.large_files_collection.find(match, dict(_HEAVY_FIELDS_EXCLUDE_PROJECTION)))
+                except TypeError:
+                    large_docs = list(self.manager.large_files_collection.find(match))
             except Exception as e:
                 try:
                     emit_event("db_list_deleted_files_error", severity="error", error=str(e), stage="large")

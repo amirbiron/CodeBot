@@ -431,9 +431,17 @@ class BackupMenuHandler:
             from io import BytesIO
             import json
             from database import db
-            # אסוף את הקבצים של המשתמש
-            # לשם יצירת גיבוי: מספיק לקרוא את הגרסאות האחרונות; תכולה תישלף בהמשך
-            files = db.get_user_files(user_id, limit=1000) or []
+            # אסוף את הקבצים של המשתמש (כולל code) — נדרש כדי לכתוב את ה-ZIP.
+            # הערה: ברירת המחדל ב-Repository לרשימות עשויה להחזיר ללא שדות כבדים; לכן מבקשים code במפורש.
+            try:
+                files = db.get_user_files(
+                    user_id,
+                    limit=1000,
+                    projection={"_id": 1, "file_name": 1, "code": 1},
+                ) or []
+            except TypeError:
+                # תאימות ל-stubs ישנים שלא תומכים ב-projection
+                files = db.get_user_files(user_id, limit=1000) or []
             backup_id = f"backup_{user_id}_{int(__import__('time').time())}"
             buf = BytesIO()
             with track_performance("backup_create_full_zip"):
