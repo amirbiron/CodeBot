@@ -4,6 +4,7 @@ import logging
 import inspect
 import importlib
 from io import BytesIO
+from typing import Optional
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup
 from telegram.ext import ContextTypes, ConversationHandler
 
