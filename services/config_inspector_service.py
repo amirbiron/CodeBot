@@ -100,8 +100,6 @@ class ConfigService:
     MASKED_VALUE: str = "********"
 
     # הגדרות כל משתני הקונפיגורציה באפליקציה
-    # הגדרות כל משתני הקונפיגורציה באפליקציה
-    # הגדרות כל משתני הקונפיגורציה באפליקציה
     # NOTE: מסונן לפי docs/environment-variables.rst (עמודת "רכיב" כוללת WebApp)
     CONFIG_DEFINITIONS: Dict[str, ConfigDefinition] = {
         "MONGODB_URL": ConfigDefinition(
@@ -945,117 +943,117 @@ class ConfigService:
             description="תווית הבוט בממשק",
             category="display",
         ),
-    "ALERT_EXTERNAL_SERVICES": ConfigDefinition(
-        key="ALERT_EXTERNAL_SERVICES",
-        default="uptime,uptimerobot,uptime_robot,betteruptime,statuscake,pingdom,external_monitor,github api,github_api",
-        description="רשימת מחרוזות (CSV) של שירותים חיצוניים שיזוהו כ-``external`` במדד High Error Rate (למשל ``uptimerobot``/``github api``); שגיאות מהמקורות האלה ייצרו רק התרעת Warning ולא יריצו Auto-Remediation.",
-        category="alerts",
-    ),
-    "DB_HEALTH_OPS_REFRESH_SEC": ConfigDefinition(
-        key="DB_HEALTH_OPS_REFRESH_SEC",
-        default="10",
-        description="תדירות רענון מומלצת (שניות) לרשימת slow queries בדשבורד. (משתנה תיעודי/קונפיגורציה כללית)",
-        category="database",
-    ),
-    "DB_HEALTH_POOL_REFRESH_SEC": ConfigDefinition(
-        key="DB_HEALTH_POOL_REFRESH_SEC",
-        default="5",
-        description="תדירות רענון מומלצת (שניות) לסטטוס ה-pool בדשבורד. (משתנה תיעודי/קונפיגורציה כללית)",
-        category="database",
-    ),
-    "DB_SLOW_MS": ConfigDefinition(
-        key="DB_SLOW_MS",
-        default="``0`` (מכובה)",
-        description="סף מילישניות ללוג \"slow_mongo\" (MongoDB CommandListener)",
-        category="database",
-    ),
-    "DRILLS_COLLECTION": ConfigDefinition(
-        key="DRILLS_COLLECTION",
-        default="drill_history",
-        description="שם הקולקשן שבו נשמרת היסטוריית Drill Mode (תרגולים).",
-        category="drills",
-    ),
-    "DRILLS_DB_ENABLED": ConfigDefinition(
-        key="DRILLS_DB_ENABLED",
-        default="",
-        description="מפעיל שמירת היסטוריית Drill ב-MongoDB (ברירת מחדל נסמכת על ``ALERTS_DB_ENABLED``/``METRICS_DB_ENABLED``).",
-        category="drills",
-    ),
-    "DRILLS_TTL_DAYS": ConfigDefinition(
-        key="DRILLS_TTL_DAYS",
-        default="90",
-        description="כמה ימים נשמרת היסטוריית Drill לפני מחיקה אוטומטית (TTL index).",
-        category="drills",
-    ),
-    "DRILL_MODE_ENABLED": ConfigDefinition(
-        key="DRILL_MODE_ENABLED",
-        default="false",
-        description="מפעיל Drill Mode (תרגולים) ב-WebApp/API. כאשר כבוי, ``/api/observability/drills/run`` יחזיר ``drill_disabled``.",
-        category="drills",
-    ),
-    "DUMMY_BOT_TOKEN": ConfigDefinition(
-        key="DUMMY_BOT_TOKEN",
-        default="dummy_token",
-        description="טוקן בדיקה שמשמש סביבות שבהן אין צורך להתחבר לטלגרם (למשל docs build).",
-        category="general",
-        sensitive=True,
-    ),
-    "ENABLE_INTERNAL_SHARE_WEB": ConfigDefinition(
-        key="ENABLE_INTERNAL_SHARE_WEB",
-        default="false",
-        description="הפעלת שירות שיתוף פנימי",
-        category="features",
-    ),
-    "HTTP_SAMPLE_RETENTION_SECONDS": ConfigDefinition(
-        key="HTTP_SAMPLE_RETENTION_SECONDS",
-        default="600",
-        description="זמן שמירת הדגימות (שניות) לפני שמנקים אותן.",
-        category="http",
-    ),
-    "HTTP_SLOW_MS": ConfigDefinition(
-        key="HTTP_SLOW_MS",
-        default="``0`` (מכובה)",
-        description="סף מילישניות ללוג \"slow_http\" ב‑http_sync (requests)",
-        category="http",
-    ),
-    "OBS_AI_EXPLAIN_TOKEN": ConfigDefinition(
-        key="OBS_AI_EXPLAIN_TOKEN",
-        default="",
-        description="אסימון Bearer שנשלח ב-Header ``Authorization`` כאשר השירות מוגן (אופציונלי).",
-        category="observability",
-        sensitive=True,
-    ),
-    "OBS_AI_EXPLAIN_URL": ConfigDefinition(
-        key="OBS_AI_EXPLAIN_URL",
-        default="",
-        description="Endpoint לשירות ההסבר החכם של הדשבורד (מקבל ``POST`` עם ``context`` ומחזיר ``root_cause``/``actions``/``signals``).",
-        category="observability",
-        sensitive=True,
-    ),
-    "OTEL_EXPORTER_OTLP_METRICS_ENDPOINT": ConfigDefinition(
-        key="OTEL_EXPORTER_OTLP_METRICS_ENDPOINT",
-        default="",
-        description="כתובת ייעודית למטריקות OTLP (אם שונה מה-endpoint הראשי).",
-        category="monitoring",
-    ),
-    "OTEL_EXPORTER_OTLP_TRACES_ENDPOINT": ConfigDefinition(
-        key="OTEL_EXPORTER_OTLP_TRACES_ENDPOINT",
-        default="",
-        description="כתובת ייעודית ל-traces OTLP.",
-        category="monitoring",
-    ),
-    "PUSH_WORKER_PORT": ConfigDefinition(
-        key="PUSH_WORKER_PORT",
-        default="18080",
-        description="פורט פנימי ל‑Sidecar Worker (localhost בלבד)",
-        category="push",
-    ),
-    "WEEKLY_TIP_ENABLED": ConfigDefinition(
-        key="WEEKLY_TIP_ENABLED",
-        default="true",
-        description="מתג כללי להצגת רכיב ההכרזות (on/off)",
-        category="features",
-    ),
+        "ALERT_EXTERNAL_SERVICES": ConfigDefinition(
+            key="ALERT_EXTERNAL_SERVICES",
+            default="uptime,uptimerobot,uptime_robot,betteruptime,statuscake,pingdom,external_monitor,github api,github_api",
+            description="רשימת מחרוזות (CSV) של שירותים חיצוניים שיזוהו כ-``external`` במדד High Error Rate (למשל ``uptimerobot``/``github api``); שגיאות מהמקורות האלה ייצרו רק התרעת Warning ולא יריצו Auto-Remediation.",
+            category="alerts",
+        ),
+        "DB_HEALTH_OPS_REFRESH_SEC": ConfigDefinition(
+            key="DB_HEALTH_OPS_REFRESH_SEC",
+            default="10",
+            description="תדירות רענון מומלצת (שניות) לרשימת slow queries בדשבורד. (משתנה תיעודי/קונפיגורציה כללית)",
+            category="database",
+        ),
+        "DB_HEALTH_POOL_REFRESH_SEC": ConfigDefinition(
+            key="DB_HEALTH_POOL_REFRESH_SEC",
+            default="5",
+            description="תדירות רענון מומלצת (שניות) לסטטוס ה-pool בדשבורד. (משתנה תיעודי/קונפיגורציה כללית)",
+            category="database",
+        ),
+        "DB_SLOW_MS": ConfigDefinition(
+            key="DB_SLOW_MS",
+            default="0",
+            description="סף מילישניות ללוג \"slow_mongo\" (MongoDB CommandListener)",
+            category="database",
+        ),
+        "DRILLS_COLLECTION": ConfigDefinition(
+            key="DRILLS_COLLECTION",
+            default="drill_history",
+            description="שם הקולקשן שבו נשמרת היסטוריית Drill Mode (תרגולים).",
+            category="drills",
+        ),
+        "DRILLS_DB_ENABLED": ConfigDefinition(
+            key="DRILLS_DB_ENABLED",
+            default="",
+            description="מפעיל שמירת היסטוריית Drill ב-MongoDB (ברירת מחדל נסמכת על ``ALERTS_DB_ENABLED``/``METRICS_DB_ENABLED``).",
+            category="drills",
+        ),
+        "DRILLS_TTL_DAYS": ConfigDefinition(
+            key="DRILLS_TTL_DAYS",
+            default="90",
+            description="כמה ימים נשמרת היסטוריית Drill לפני מחיקה אוטומטית (TTL index).",
+            category="drills",
+        ),
+        "DRILL_MODE_ENABLED": ConfigDefinition(
+            key="DRILL_MODE_ENABLED",
+            default="false",
+            description="מפעיל Drill Mode (תרגולים) ב-WebApp/API. כאשר כבוי, ``/api/observability/drills/run`` יחזיר ``drill_disabled``.",
+            category="drills",
+        ),
+        "DUMMY_BOT_TOKEN": ConfigDefinition(
+            key="DUMMY_BOT_TOKEN",
+            default="dummy_token",
+            description="טוקן בדיקה שמשמש סביבות שבהן אין צורך להתחבר לטלגרם (למשל docs build).",
+            category="general",
+            sensitive=True,
+        ),
+        "ENABLE_INTERNAL_SHARE_WEB": ConfigDefinition(
+            key="ENABLE_INTERNAL_SHARE_WEB",
+            default="false",
+            description="הפעלת שירות שיתוף פנימי",
+            category="features",
+        ),
+        "HTTP_SAMPLE_RETENTION_SECONDS": ConfigDefinition(
+            key="HTTP_SAMPLE_RETENTION_SECONDS",
+            default="600",
+            description="זמן שמירת הדגימות (שניות) לפני שמנקים אותן.",
+            category="http",
+        ),
+        "HTTP_SLOW_MS": ConfigDefinition(
+            key="HTTP_SLOW_MS",
+            default="0",
+            description="סף מילישניות ללוג \"slow_http\" ב‑http_sync (requests)",
+            category="http",
+        ),
+        "OBS_AI_EXPLAIN_TOKEN": ConfigDefinition(
+            key="OBS_AI_EXPLAIN_TOKEN",
+            default="",
+            description="אסימון Bearer שנשלח ב-Header ``Authorization`` כאשר השירות מוגן (אופציונלי).",
+            category="observability",
+            sensitive=True,
+        ),
+        "OBS_AI_EXPLAIN_URL": ConfigDefinition(
+            key="OBS_AI_EXPLAIN_URL",
+            default="",
+            description="Endpoint לשירות ההסבר החכם של הדשבורד (מקבל ``POST`` עם ``context`` ומחזיר ``root_cause``/``actions``/``signals``).",
+            category="observability",
+            sensitive=True,
+        ),
+        "OTEL_EXPORTER_OTLP_METRICS_ENDPOINT": ConfigDefinition(
+            key="OTEL_EXPORTER_OTLP_METRICS_ENDPOINT",
+            default="",
+            description="כתובת ייעודית למטריקות OTLP (אם שונה מה-endpoint הראשי).",
+            category="monitoring",
+        ),
+        "OTEL_EXPORTER_OTLP_TRACES_ENDPOINT": ConfigDefinition(
+            key="OTEL_EXPORTER_OTLP_TRACES_ENDPOINT",
+            default="",
+            description="כתובת ייעודית ל-traces OTLP.",
+            category="monitoring",
+        ),
+        "PUSH_WORKER_PORT": ConfigDefinition(
+            key="PUSH_WORKER_PORT",
+            default="18080",
+            description="פורט פנימי ל‑Sidecar Worker (localhost בלבד)",
+            category="push",
+        ),
+        "WEEKLY_TIP_ENABLED": ConfigDefinition(
+            key="WEEKLY_TIP_ENABLED",
+            default="true",
+            description="מתג כללי להצגת רכיב ההכרזות (on/off)",
+            category="features",
+        ),
     }
 
     def __init__(self) -> None:
