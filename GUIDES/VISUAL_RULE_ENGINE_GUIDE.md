@@ -2231,6 +2231,663 @@ class TestEvaluationPerformance:
 
 ---
 
+## מימוש מורחב: פתיחת GitHub Issue אוטומטית
+
+> **תרחיש:** כאשר מזוהה שגיאה חדשה (שלא נראתה מעולם), המערכת פותחת Issue אוטומטי ב-GitHub עם כל המידע הרלוונטי.
+
+### שלב 1: הוספת שדות נדרשים
+
+הוסף ל-`AVAILABLE_FIELDS` ב-`services/rule_engine.py`:
+
+```python
+AVAILABLE_FIELDS = {
+    # ... שדות קיימים ...
+    
+    # 🆕 שדות לזיהוי שגיאות חדשות
+    "error_signature": {
+        "type": "string",
+        "label": "חתימת שגיאה",
+        "description": "Hash ייחודי של השגיאה (מבוסס על stack trace)"
+    },
+    "is_new_error": {
+        "type": "boolean",
+        "label": "שגיאה חדשה",
+        "description": "האם זו הפעם הראשונה שרואים את השגיאה"
+    },
+    "error_message": {
+        "type": "string",
+        "label": "הודעת שגיאה",
+        "description": "טקסט השגיאה המלא"
+    },
+    "stack_trace": {
+        "type": "string",
+        "label": "Stack Trace",
+        "description": "ה-stack trace המלא"
+    },
+    "first_seen_at": {
+        "type": "datetime",
+        "label": "נראה לראשונה",
+        "description": "מתי השגיאה נראתה לראשונה"
+    },
+    "occurrence_count": {
+        "type": "int",
+        "label": "מספר הופעות",
+        "description": "כמה פעמים השגיאה הופיעה"
+    },
+}
+```
+
+### שלב 2: יצירת Action Handler ל-GitHub
+
+צור קובץ `services/github_issue_action.py`:
+
+```python
+"""
+GitHub Issue Action Handler
+===========================
+פותח Issues אוטומטיים ב-GitHub כאשר כלל מתאים.
+"""
+
+import os
+import logging
+import aiohttp
+from typing import Any, Dict, Optional
+from datetime import datetime, timezone
+
+logger = logging.getLogger(__name__)
+
+# הגדרות
+GITHUB_TOKEN = os.getenv("GITHUB_TOKEN", "")
+GITHUB_REPO = os.getenv("GITHUB_REPO", "owner/repo")  # לדוגמה: "amirbiron/CodeBot"
+GITHUB_API_URL = "https://api.github.com"
+
+
+class GitHubIssueAction:
+    """
+    Handler ליצירת GitHub Issues.
+    
+    דוגמת שימוש בכלל:
+    ```json
+    {
+        "type": "create_github_issue",
+        "labels": ["auto-generated", "bug"],
+        "assignees": ["username"],
+        "title_template": "🐛 [Auto] {{error_type}}: {{error_message}}",
+        "body_template": "..."
+    }
+    ```
+    """
+    
+    def __init__(self, token: str = GITHUB_TOKEN, repo: str = GITHUB_REPO):
+        self.token = token
+        self.repo = repo
+        self.headers = {
+            "Authorization": f"token {self.token}",
+            "Accept": "application/vnd.github.v3+json",
+            "Content-Type": "application/json"
+        }
+    
+    async def execute(
+        self,
+        action_config: Dict[str, Any],
+        alert_data: Dict[str, Any],
+        triggered_conditions: list
+    ) -> Dict[str, Any]:
+        """
+        מבצע את הפעולה - פותח Issue ב-GitHub.
+        
+        Args:
+            action_config: הגדרות הפעולה מהכלל
+            alert_data: נתוני ההתראה/שגיאה
+            triggered_conditions: התנאים שהופעלו
+            
+        Returns:
+            dict עם תוצאת הפעולה (issue_url, issue_number, וכו')
+        """
+        if not self.token:
+            logger.error("GitHub token not configured")
+            return {"success": False, "error": "GitHub token not configured"}
+        
+        # בניית כותרת (עם קיצור - כותרות GitHub מוגבלות)
+        title = self._render_template(
+            action_config.get("title_template", "🐛 [Auto] New Error: {{error_message}}"),
+            alert_data,
+            truncate_long_values=True,  # קיצור רק בכותרת
+            max_length=80
+        )
+        
+        # בניית גוף ה-Issue
+        body = self._build_issue_body(action_config, alert_data, triggered_conditions)
+        
+        # Labels
+        labels = action_config.get("labels", ["auto-generated", "bug"])
+        
+        # Assignees
+        assignees = action_config.get("assignees", [])
+        
+        # בדיקה אם כבר קיים Issue פתוח לשגיאה זו
+        error_signature = alert_data.get("error_signature", "")
+        if error_signature:
+            existing = await self._find_existing_issue(error_signature)
+            if existing:
+                logger.info(f"Issue already exists for error {error_signature}: #{existing['number']}")
+                # עדכון ה-Issue הקיים עם הופעה חדשה
+                await self._add_occurrence_comment(existing["number"], alert_data)
+                return {
+                    "success": True,
+                    "action": "updated_existing",
+                    "issue_number": existing["number"],
+                    "issue_url": existing["html_url"]
+                }
+        
+        # יצירת Issue חדש
+        issue_data = {
+            "title": title[:256],  # GitHub limit
+            "body": body,
+            "labels": labels,
+        }
+        
+        if assignees:
+            issue_data["assignees"] = assignees
+        
+        try:
+            async with aiohttp.ClientSession() as session:
+                url = f"{GITHUB_API_URL}/repos/{self.repo}/issues"
+                async with session.post(url, json=issue_data, headers=self.headers) as resp:
+                    if resp.status == 201:
+                        result = await resp.json()
+                        logger.info(f"Created GitHub issue #{result['number']}: {result['html_url']}")
+                        return {
+                            "success": True,
+                            "action": "created",
+                            "issue_number": result["number"],
+                            "issue_url": result["html_url"]
+                        }
+                    else:
+                        error_text = await resp.text()
+                        logger.error(f"Failed to create issue: {resp.status} - {error_text}")
+                        return {"success": False, "error": error_text}
+                        
+        except Exception as e:
+            logger.error(f"Error creating GitHub issue: {e}")
+            return {"success": False, "error": str(e)}
+    
+    def _render_template(
+        self, 
+        template: str, 
+        data: Dict[str, Any],
+        truncate_long_values: bool = False,
+        max_length: int = 100
+    ) -> str:
+        """
+        מחליף placeholders בתבנית.
+        
+        Args:
+            template: תבנית עם {{placeholders}}
+            data: מילון ערכים
+            truncate_long_values: האם לקצר ערכים ארוכים (לכותרות בלבד)
+            max_length: אורך מקסימלי כשמקצרים
+        """
+        result = template
+        for key, value in data.items():
+            placeholder = "{{" + key + "}}"
+            if placeholder in result:
+                str_value = str(value)
+                # קיצור רק אם התבקש במפורש (לכותרות)
+                if truncate_long_values and len(str_value) > max_length:
+                    str_value = str_value[:max_length - 3] + "..."
+                result = result.replace(placeholder, str_value)
+        return result
+    
+    def _build_issue_body(
+        self,
+        action_config: Dict[str, Any],
+        alert_data: Dict[str, Any],
+        triggered_conditions: list
+    ) -> str:
+        """בונה את גוף ה-Issue בפורמט Markdown."""
+        
+        # תבנית ברירת מחדל
+        default_template = """## 🐛 שגיאה אוטומטית
+
+> Issue זה נוצר אוטומטית על ידי מערכת הניטור.
+
+### פרטי השגיאה
+
+| שדה | ערך |
+|-----|-----|
+| **סוג** | `{{alert_type}}` |
+| **שירות** | `{{service_name}}` |
+| **סביבה** | `{{environment}}` |
+| **זמן** | {{timestamp}} |
+| **חתימה** | `{{error_signature}}` |
+
+### הודעת השגיאה
+
+```
+{{error_message}}
+```
+
+### Stack Trace
+
+<details>
+<summary>לחץ להרחבה</summary>
+
+```
+{{stack_trace}}
+```
+
+</details>
+
+### תנאים שהופעלו
+
+{{triggered_conditions_list}}
+
+### מידע נוסף
+
+- **Error Rate:** {{error_rate}}%
+- **Latency:** {{latency_avg_ms}}ms
+- **מספר הופעות:** {{occurrence_count}}
+
+---
+
+<sub>🤖 נוצר אוטומטית ע"י Visual Rule Engine | כלל: `{{rule_name}}`</sub>
+"""
+        
+        template = action_config.get("body_template", default_template)
+        
+        # הוספת רשימת תנאים
+        conditions_list = "\n".join([f"- ✅ `{c}`" for c in triggered_conditions])
+        alert_data["triggered_conditions_list"] = conditions_list or "- (אין תנאים)"
+        
+        # הוספת timestamp
+        alert_data["timestamp"] = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
+        
+        # רינדור התבנית
+        body = self._render_template(template, alert_data)
+        
+        # הגבלת אורך
+        if len(body) > 65000:  # GitHub limit ~65535
+            body = body[:64000] + "\n\n...(truncated)"
+        
+        return body
+    
+    async def _find_existing_issue(self, error_signature: str) -> Optional[Dict[str, Any]]:
+        """מחפש Issue קיים פתוח עם אותה חתימת שגיאה."""
+        try:
+            async with aiohttp.ClientSession() as session:
+                # חיפוש ב-Issues פתוחים
+                search_query = f"repo:{self.repo} is:issue is:open in:body {error_signature}"
+                url = f"{GITHUB_API_URL}/search/issues?q={search_query}"
+                
+                async with session.get(url, headers=self.headers) as resp:
+                    if resp.status == 200:
+                        result = await resp.json()
+                        if result.get("total_count", 0) > 0:
+                            return result["items"][0]
+            return None
+        except Exception as e:
+            logger.warning(f"Error searching for existing issue: {e}")
+            return None
+    
+    async def _add_occurrence_comment(self, issue_number: int, alert_data: Dict[str, Any]) -> None:
+        """מוסיף תגובה ל-Issue קיים על הופעה נוספת."""
+        comment_body = f"""### 🔄 הופעה נוספת
+
+| שדה | ערך |
+|-----|-----|
+| **זמן** | {datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")} |
+| **Error Rate** | {alert_data.get("error_rate", "N/A")}% |
+| **סה"כ הופעות** | {alert_data.get("occurrence_count", "N/A")} |
+"""
+        
+        try:
+            async with aiohttp.ClientSession() as session:
+                url = f"{GITHUB_API_URL}/repos/{self.repo}/issues/{issue_number}/comments"
+                async with session.post(url, json={"body": comment_body}, headers=self.headers) as resp:
+                    if resp.status == 201:
+                        logger.info(f"Added occurrence comment to issue #{issue_number}")
+        except Exception as e:
+            logger.warning(f"Failed to add comment to issue #{issue_number}: {e}")
+
+
+# =============================================================================
+# רישום ה-Action במנוע
+# =============================================================================
+
+def register_github_action(engine):
+    """רושם את ה-action במנוע הכללים."""
+    handler = GitHubIssueAction()
+    engine.register_action_handler("create_github_issue", handler.execute)
+```
+
+### שלב 3: אינטגרציה עם זיהוי שגיאות חדשות
+
+הוסף ל-`monitoring/alerts_storage.py`:
+
+```python
+import hashlib
+
+def compute_error_signature(error_data: Dict[str, Any]) -> str:
+    """
+    מחשב חתימה ייחודית לשגיאה.
+    
+    החתימה מבוססת על:
+    - סוג השגיאה
+    - שם הקובץ והשורה (אם יש)
+    - 3 השורות הראשונות של ה-stack trace
+    """
+    components = [
+        error_data.get("error_type", ""),
+        error_data.get("file", ""),
+        str(error_data.get("line", "")),
+    ]
+    
+    # הוספת stack trace מנורמל
+    stack = error_data.get("stack_trace", "")
+    if stack:
+        # לקיחת 3 שורות ראשונות
+        lines = [l.strip() for l in stack.split("\n") if l.strip()][:3]
+        components.extend(lines)
+    
+    signature_input = "|".join(components)
+    return hashlib.sha256(signature_input.encode()).hexdigest()[:16]
+
+
+async def is_new_error(signature: str) -> bool:
+    """בודק אם השגיאה חדשה (לא נראתה ב-30 יום האחרונים)."""
+    from database.manager import get_database
+    from datetime import datetime, timedelta
+    
+    db = await get_database()
+    collection = db["error_signatures"]
+    
+    cutoff = datetime.now(timezone.utc) - timedelta(days=30)
+    
+    existing = await collection.find_one({
+        "signature": signature,
+        "last_seen": {"$gte": cutoff}
+    })
+    
+    # עדכון/הוספת הרשומה
+    await collection.update_one(
+        {"signature": signature},
+        {
+            "$set": {"last_seen": datetime.now(timezone.utc)},
+            "$inc": {"count": 1},
+            "$setOnInsert": {"first_seen": datetime.now(timezone.utc)}
+        },
+        upsert=True
+    )
+    
+    return existing is None
+
+
+async def enrich_alert_with_signature(alert_data: Dict[str, Any]) -> Dict[str, Any]:
+    """מעשיר את נתוני ההתראה עם חתימה ומידע על חדשות."""
+    signature = compute_error_signature(alert_data)
+    is_new = await is_new_error(signature)
+    
+    alert_data["error_signature"] = signature
+    alert_data["is_new_error"] = is_new
+    
+    return alert_data
+```
+
+### שלב 4: דוגמה לכלל JSON
+
+```json
+{
+  "version": 1,
+  "rule_id": "auto_github_issue_new_errors",
+  "name": "פתיחת Issue לשגיאות חדשות",
+  "description": "פותח Issue אוטומטי ב-GitHub כאשר מזוהה שגיאה שלא נראתה מעולם",
+  "enabled": true,
+  "conditions": {
+    "type": "group",
+    "operator": "AND",
+    "children": [
+      {
+        "type": "condition",
+        "field": "is_new_error",
+        "operator": "eq",
+        "value": true
+      },
+      {
+        "type": "condition",
+        "field": "environment",
+        "operator": "eq",
+        "value": "production"
+      }
+    ]
+  },
+  "actions": [
+    {
+      "type": "create_github_issue",
+      "labels": ["auto-generated", "bug", "needs-triage"],
+      "assignees": [],
+      "title_template": "🐛 [Auto] {{service_name}}: {{error_message}}"
+    },
+    {
+      "type": "send_alert",
+      "severity": "warning",
+      "channel": "errors",
+      "message_template": "📋 Issue נפתח אוטומטית: {{error_signature}}"
+    }
+  ],
+  "metadata": {
+    "tags": ["automation", "github"],
+    "cooldown_minutes": 5
+  }
+}
+```
+
+### שלב 5: הגדרת משתני סביבה
+
+הוסף ל-`.env` או להגדרות הסביבה:
+
+```bash
+# GitHub Integration
+GITHUB_TOKEN=ghp_xxxxxxxxxxxxxxxxxxxx
+GITHUB_REPO=owner/repo-name
+```
+
+### שלב 6: בדיקות
+
+הוסף ל-`tests/test_github_issue_action.py`:
+
+```python
+"""
+Tests for GitHub Issue Action
+"""
+
+import pytest
+from unittest.mock import AsyncMock, patch, MagicMock
+
+from services.github_issue_action import GitHubIssueAction
+
+
+class TestGitHubIssueAction:
+    """בדיקות ל-GitHub Issue Action."""
+    
+    @pytest.fixture
+    def action(self):
+        return GitHubIssueAction(token="test_token", repo="test/repo")
+    
+    @pytest.fixture
+    def sample_alert(self):
+        return {
+            "alert_type": "error",
+            "service_name": "api-gateway",
+            "environment": "production",
+            "error_message": "Connection refused",
+            "error_signature": "abc123def456",
+            "stack_trace": "Traceback...",
+            "error_rate": 0.05,
+            "latency_avg_ms": 200,
+            "occurrence_count": 1,
+            "rule_name": "Test Rule"
+        }
+    
+    @pytest.fixture
+    def sample_action_config(self):
+        return {
+            "type": "create_github_issue",
+            "labels": ["auto-generated", "bug"],
+            "title_template": "🐛 {{service_name}}: {{error_message}}"
+        }
+    
+    def test_render_template(self, action):
+        template = "Error in {{service_name}}: {{error_message}}"
+        data = {"service_name": "api", "error_message": "timeout"}
+        
+        result = action._render_template(template, data)
+        
+        assert result == "Error in api: timeout"
+    
+    def test_render_template_preserves_long_values_by_default(self, action):
+        """ודא שערכים ארוכים נשמרים בגוף (stack trace וכו')."""
+        template = "{{stack_trace}}"
+        long_trace = "x" * 5000
+        data = {"stack_trace": long_trace}
+        
+        result = action._render_template(template, data)
+        
+        assert result == long_trace  # לא מקוצר!
+        assert len(result) == 5000
+    
+    def test_render_template_truncates_when_requested(self, action):
+        """ודא שקיצור עובד כשמתבקש (לכותרות)."""
+        template = "{{error_message}}"
+        data = {"error_message": "x" * 200}
+        
+        result = action._render_template(template, data, truncate_long_values=True, max_length=100)
+        
+        assert len(result) == 100  # 97 + "..."
+        assert result.endswith("...")
+    
+    def test_build_issue_body(self, action, sample_action_config, sample_alert):
+        triggered = ["is_new_error eq true", "environment eq production"]
+        
+        body = action._build_issue_body(sample_action_config, sample_alert, triggered)
+        
+        assert "api-gateway" in body
+        assert "Connection refused" in body
+        assert "abc123def456" in body
+        assert "✅" in body  # triggered conditions
+    
+    @pytest.mark.asyncio
+    async def test_execute_creates_issue(self, action, sample_action_config, sample_alert):
+        with patch("aiohttp.ClientSession") as mock_session:
+            # Mock successful response
+            mock_response = AsyncMock()
+            mock_response.status = 201
+            mock_response.json = AsyncMock(return_value={
+                "number": 42,
+                "html_url": "https://github.com/test/repo/issues/42"
+            })
+            
+            mock_session.return_value.__aenter__.return_value.post.return_value.__aenter__.return_value = mock_response
+            mock_session.return_value.__aenter__.return_value.get.return_value.__aenter__.return_value.status = 200
+            mock_session.return_value.__aenter__.return_value.get.return_value.__aenter__.return_value.json = AsyncMock(
+                return_value={"total_count": 0}
+            )
+            
+            result = await action.execute(sample_action_config, sample_alert, [])
+            
+            assert result["success"] is True
+            assert result["issue_number"] == 42
+    
+    @pytest.mark.asyncio
+    async def test_execute_without_token(self):
+        action = GitHubIssueAction(token="", repo="test/repo")
+        
+        result = await action.execute({}, {}, [])
+        
+        assert result["success"] is False
+        assert "token" in result["error"].lower()
+
+
+class TestErrorSignature:
+    """בדיקות לחישוב חתימת שגיאה."""
+    
+    def test_compute_signature_consistency(self):
+        from monitoring.alerts_storage import compute_error_signature
+        
+        error1 = {
+            "error_type": "ConnectionError",
+            "file": "api.py",
+            "line": 42,
+            "stack_trace": "Line 1\nLine 2\nLine 3"
+        }
+        
+        sig1 = compute_error_signature(error1)
+        sig2 = compute_error_signature(error1)
+        
+        assert sig1 == sig2  # Same input = same signature
+    
+    def test_different_errors_different_signatures(self):
+        from monitoring.alerts_storage import compute_error_signature
+        
+        error1 = {"error_type": "ConnectionError", "file": "api.py"}
+        error2 = {"error_type": "TimeoutError", "file": "api.py"}
+        
+        assert compute_error_signature(error1) != compute_error_signature(error2)
+```
+
+### תרשים זרימה
+
+```
+┌─────────────────────┐
+│  שגיאה חדשה נכנסת   │
+└──────────┬──────────┘
+           │
+           ▼
+┌─────────────────────┐
+│ חישוב error_signature│
+│ (hash של stack trace)│
+└──────────┬──────────┘
+           │
+           ▼
+┌─────────────────────┐
+│ בדיקה: האם ראינו    │
+│ את החתימה ב-30 יום? │
+└──────────┬──────────┘
+           │
+     ┌─────┴─────┐
+     │           │
+    כן          לא
+     │           │
+     ▼           ▼
+┌─────────┐  ┌─────────────────┐
+│ is_new  │  │ is_new_error    │
+│ = false │  │ = true          │
+└─────────┘  └────────┬────────┘
+                      │
+                      ▼
+              ┌───────────────┐
+              │ Rule Engine   │
+              │ מעריך כללים   │
+              └───────┬───────┘
+                      │
+                      ▼ (כלל מתאים)
+              ┌───────────────────┐
+              │ create_github_issue│
+              └───────┬───────────┘
+                      │
+           ┌──────────┴──────────┐
+           │                     │
+    Issue קיים?              Issue חדש
+           │                     │
+           ▼                     ▼
+    ┌─────────────┐      ┌─────────────┐
+    │ הוסף תגובה  │      │ צור Issue   │
+    │ על הופעה   │      │ עם labels   │
+    └─────────────┘      └─────────────┘
+```
+
+---
+
 ## סיכום
 
 ### קבצים שיש ליצור/לעדכן:
@@ -2239,12 +2896,14 @@ class TestEvaluationPerformance:
 |------|-------|-------|
 | `services/rule_engine.py` | יצירה | מנוע הערכת כללים |
 | `services/rules_storage.py` | יצירה | אחסון כללים ב-MongoDB |
+| `services/github_issue_action.py` | יצירה | 🆕 Action לפתיחת GitHub Issues |
 | `services/webserver.py` | עדכון | הוספת API endpoints |
 | `webapp/static/js/rule-builder.js` | יצירה | ממשק Drag & Drop |
 | `webapp/static/css/rule-builder.css` | יצירה | עיצוב הממשק |
 | `webapp/templates/admin_rules.html` | יצירה | תבנית הדף |
-| `monitoring/alerts_storage.py` | עדכון | אינטגרציה עם הכללים |
+| `monitoring/alerts_storage.py` | עדכון | אינטגרציה + חתימות שגיאה |
 | `tests/test_rule_engine.py` | יצירה | בדיקות יחידה |
+| `tests/test_github_issue_action.py` | יצירה | 🆕 בדיקות ל-GitHub Action |
 
 ### שלבי מימוש מומלצים:
 
