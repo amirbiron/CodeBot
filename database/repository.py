@@ -72,6 +72,10 @@ _HEAVY_FIELDS_EXCLUDE_PROJECTION: Dict[str, int] = {
     "raw_content": 0, # future-proof
 }
 
+# Alias ציבורי לשימוש בשכבות אחרות (למשל Webapp) בלי להסתמך על שם פרטי עם _.
+# חשוב: לא לשנות את המשתנה הפנימי ישירות ממודולים חיצוניים.
+HEAVY_FIELDS_EXCLUDE_PROJECTION: Dict[str, int] = dict(_HEAVY_FIELDS_EXCLUDE_PROJECTION)
+
 # Optional performance instrumentation
 try:
     from metrics import track_performance
@@ -217,7 +221,24 @@ class Repository:
                 except Exception:
                     pass
             snippet.updated_at = datetime.now(timezone.utc)
-            result = self.manager.collection.insert_one(asdict(snippet))
+            # הוסף שדות מטא קלים למסכי רשימות כדי לא למשוך `code` רק בשביל סטטיסטיקות.
+            # זה שומר תאימות למסמכים ישנים (ללא שדות אלו) ומשפר ביצועים למסמכים חדשים.
+            doc = asdict(snippet)
+            try:
+                code_str = str(getattr(snippet, "code", "") or "")
+            except Exception:
+                code_str = ""
+            try:
+                doc["file_size"] = int(len(code_str.encode("utf-8", errors="ignore"))) if code_str else 0
+            except Exception:
+                doc["file_size"] = 0
+            try:
+                # splitlines() תואם ללוגיקה ב-webapp (שורות תצוגה) ומחזיר 0 עבור טקסט ריק.
+                doc["lines_count"] = int(len(code_str.splitlines())) if code_str else 0
+            except Exception:
+                doc["lines_count"] = 0
+
+            result = self.manager.collection.insert_one(doc)
             if result.inserted_id:
                 # Invalidate user-level and file-related caches
                 try:

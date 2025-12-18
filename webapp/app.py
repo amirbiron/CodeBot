@@ -71,6 +71,16 @@ try:  # שמירה על יציבות גם בסביבות דוקס/CI
 except Exception:  # pragma: no cover
     cfg = None
 
+# --- Smart Projection (Performance) ---
+# ברירת מחדל למסכי רשימות: אל תמשוך שדות "כבדים" מה-DB.
+# חשוב: מסכי צפייה/עריכה של קובץ בודד עדיין מושכים מסמך מלא.
+try:  # prefer the canonical list projection from repository layer
+    from database.repository import HEAVY_FIELDS_EXCLUDE_PROJECTION as _HEAVY_FIELDS_EXCLUDE_PROJECTION  # type: ignore
+except Exception:  # pragma: no cover - fallback for minimal environments
+    _HEAVY_FIELDS_EXCLUDE_PROJECTION = {"code": 0, "content": 0, "raw_content": 0}
+
+LIST_EXCLUDE_HEAVY_PROJECTION: Dict[str, int] = dict(_HEAVY_FIELDS_EXCLUDE_PROJECTION)
+
 DEFAULT_LANGUAGE_CHOICES = [
     "python",
     "javascript",
@@ -1776,6 +1786,28 @@ def ensure_code_snippets_indexes() -> None:
                 pass
             try:
                 coll.create_index([('user_id', ASCENDING), ('is_favorite', ASCENDING)], name='user_favorite', background=True)
+            except Exception:
+                pass
+            # אינדקסים לתמיכה ב-"גרסה אחרונה לכל file_name" (פייפליינים עם sort+group)
+            try:
+                coll.create_index(
+                    [('user_id', ASCENDING), ('file_name', ASCENDING), ('version', DESCENDING)],
+                    name='user_file_version_desc',
+                    background=True,
+                )
+            except Exception:
+                pass
+            # אינדקסים למיונים נפוצים במסכי רשימות
+            try:
+                coll.create_index([('user_id', ASCENDING), ('updated_at', DESCENDING)], name='user_updated_at', background=True)
+            except Exception:
+                pass
+            try:
+                coll.create_index(
+                    [('user_id', ASCENDING), ('is_favorite', ASCENDING), ('favorited_at', DESCENDING)],
+                    name='user_favorite_favorited_at',
+                    background=True,
+                )
             except Exception:
                 pass
 
@@ -6355,6 +6387,37 @@ def files():
     cursor_token = (request.args.get('cursor') or '').strip()
     per_page = 20
 
+    # --- Smart Projection helpers ---
+    # מסמכים חדשים יכולים להכיל file_size/lines_count (נשמרים בזמן שמירה).
+    # למסמכים ישנים: נחשב ב-DB (בלי להחזיר את `code`) באמצעות $strLenBytes/$split.
+    _mongo_file_size_from_code = {
+        '$cond': {
+            'if': {'$and': [
+                {'$ne': ['$code', None]},
+                {'$eq': [{'$type': '$code'}, 'string']},
+            ]},
+            'then': {'$strLenBytes': '$code'},
+            'else': 0,
+        }
+    }
+    _mongo_lines_count_from_code = {
+        '$cond': {
+            'if': {'$and': [
+                {'$ne': ['$code', None]},
+                {'$eq': [{'$type': '$code'}, 'string']},
+            ]},
+            # הערה: $split שומר תאימות טובה מספיק למסך רשימה (לא מושלם לעומת splitlines()).
+            'then': {'$size': {'$split': ['$code', '\n']}},
+            'else': 0,
+        }
+    }
+    _mongo_add_size_lines_stage = {
+        '$addFields': {
+            'file_size': {'$ifNull': ['$file_size', _mongo_file_size_from_code]},
+            'lines_count': {'$ifNull': ['$lines_count', _mongo_lines_count_from_code]},
+        }
+    }
+
     # החלת ברירות מחדל למיון לפני בניית מפתח הקאש
     try:
         # קטגוריית "נפתחו לאחרונה": לפי זמן פתיחה אחרון אם לא סופק מיון במפורש
@@ -6395,14 +6458,12 @@ def files():
     # הערה: ברירות המחדל למיון עבור recent/favorites כבר הוחלו לפני בניית מפתח הקאש
     
     # בניית שאילתה - כולל סינון קבצים פעילים בלבד
+    # עדיף להשתמש ב-{$ne: False} במקום $or/$exists כדי לעזור לאינדקסים.
     query = {
         'user_id': user_id,
         '$and': [
             {
-                '$or': [
-                    {'is_active': True},
-                    {'is_active': {'$exists': False}}  # תמיכה בקבצים ישנים ללא השדה
-                ]
+                'is_active': {'$ne': False}  # כולל מסמכים ישנים ללא השדה
             }
         ]
     }
@@ -6431,10 +6492,7 @@ def files():
                 # חשוב: לא מושפעת מחיפוש/שפה כדי להציג את כל הריפואים של המשתמש
                 base_active_query = {
                     'user_id': user_id,
-                    '$or': [
-                        {'is_active': True},
-                        {'is_active': {'$exists': False}}
-                    ]
+                    'is_active': {'$ne': False}
                 }
                 # מיישר ללוגיקה של הבוט: קבוצה לפי file_name (הגרסה האחרונה בלבד), ואז חילוץ תגית repo: אחת
                 repo_pipeline = [
@@ -6475,10 +6533,7 @@ def files():
                     'programming_language',
                     {
                         'user_id': user_id,
-                        '$or': [
-                            {'is_active': True},
-                            {'is_active': {'$exists': False}}
-                        ]
+                        'is_active': {'$ne': False}
                     }
                 )
                 languages = sorted([lang for lang in languages if lang]) if languages else []
@@ -6522,25 +6577,14 @@ def files():
             return redirect(url_for('files'))
         elif category_filter == 'large':
             # קבצים גדולים (מעל 100KB)
-            # נצטרך להוסיף שדה size אם אין
             pipeline = [
                 {'$match': query},
-                {'$addFields': {
-                    'code_size': {
-                        '$cond': {
-                            'if': {'$and': [
-                                {'$ne': ['$code', None]},
-                                {'$eq': [{'$type': '$code'}, 'string']}
-                            ]},
-                            'then': {'$strLenBytes': '$code'},
-                            'else': 0
-                        }
-                    }
-                }},
-                {'$match': {'code_size': {'$gte': 102400}}}  # 100KB
+                _mongo_add_size_lines_stage,
+                {'$match': {'file_size': {'$gte': 102400}}}  # 100KB
             ]
             # נשתמש ב-aggregation במקום find רגיל
             files_cursor = db.code_snippets.aggregate(pipeline + [
+                {'$project': LIST_EXCLUDE_HEAVY_PROJECTION},
                 {'$sort': {sort_by.lstrip('-'): -1 if sort_by.startswith('-') else 1}},
                 {'$skip': (page - 1) * per_page},
                 {'$limit': per_page}
@@ -6570,19 +6614,8 @@ def files():
         # "כל הקבצים": ספירה distinct לפי שם קובץ לאחר סינון (תוכן >0)
         count_pipeline = [
             {'$match': query},
-            {'$addFields': {
-                'code_size': {
-                    '$cond': {
-                        'if': {'$and': [
-                            {'$ne': ['$code', None]},
-                            {'$eq': [{'$type': '$code'}, 'string']}
-                        ]},
-                        'then': {'$strLenBytes': '$code'},
-                        'else': 0
-                    }
-                }
-            }},
-            {'$match': {'code_size': {'$gt': 0}}},
+            _mongo_add_size_lines_stage,
+            {'$match': {'file_size': {'$gt': 0}}},
             {'$group': {'_id': '$file_name'}},
             {'$count': 'total'}
         ]
@@ -6592,19 +6625,8 @@ def files():
         # ספירת קבצים ייחודיים לפי שם קובץ לאחר סינון (תוכן >0), עם עקביות ל-query הכללי
         count_pipeline = [
             {'$match': query},
-            {'$addFields': {
-                'code_size': {
-                    '$cond': {
-                        'if': {'$and': [
-                            {'$ne': ['$code', None]},
-                            {'$eq': [{'$type': '$code'}, 'string']}
-                        ]},
-                        'then': {'$strLenBytes': '$code'},
-                        'else': 0
-                    }
-                }
-            }},
-            {'$match': {'code_size': {'$gt': 0}}},
+            _mongo_add_size_lines_stage,
+            {'$match': {'file_size': {'$gt': 0}}},
             {'$group': {'_id': '$file_name'}},
             {'$count': 'total'}
         ]
@@ -6631,10 +6653,7 @@ def files():
                 'programming_language',
                 {
                     'user_id': user_id,
-                    '$or': [
-                        {'is_active': True},
-                        {'is_active': {'$exists': False}}
-                    ]
+                    'is_active': {'$ne': False}
                 }
             )
             languages = sorted([lang for lang in languages if lang]) if languages else []
@@ -6685,12 +6704,7 @@ def files():
         # בניית שאילתה עם כל המסננים שכבר חושבו + סינון לשמות שנפתחו לאחרונה
         recent_query = {
             'user_id': user_id,
-            '$and': [{
-                '$or': [
-                    {'is_active': True},
-                    {'is_active': {'$exists': False}}
-                ]
-            }]
+            '$and': [{'is_active': {'$ne': False}}]
         }
         # לשמור עקביות עם החיפוש/מסננים הכלליים
         if search_query:
@@ -6710,22 +6724,12 @@ def files():
 
         pipeline = [
             {'$match': recent_query},
-            {'$addFields': {
-                'code_size': {
-                    '$cond': {
-                        'if': {'$and': [
-                            {'$ne': ['$code', None]},
-                            {'$eq': [{'$type': '$code'}, 'string']}
-                        ]},
-                        'then': {'$strLenBytes': '$code'},
-                        'else': 0
-                    }
-                }
-            }},
-            {'$match': {'code_size': {'$gt': 0}}},
             {'$sort': {'file_name': 1, 'version': -1}},
             {'$group': {'_id': '$file_name', 'latest': {'$first': '$$ROOT'}}},
             {'$replaceRoot': {'newRoot': '$latest'}},
+            _mongo_add_size_lines_stage,
+            {'$match': {'file_size': {'$gt': 0}}},
+            {'$project': LIST_EXCLUDE_HEAVY_PROJECTION},
         ]
 
         # מיון: אם מיון לפי last_opened_at – נטפל בפייתון; אחרת נמיין ב-DB
@@ -6754,8 +6758,15 @@ def files():
         files_list = []
         for latest in page_items:
             fname = latest.get('file_name') or ''
-            code_str = latest.get('code') or ''
             lang_display = resolve_file_language(latest.get('programming_language'), fname)
+            try:
+                size_bytes = int(latest.get('file_size') or 0)
+            except Exception:
+                size_bytes = 0
+            try:
+                lines_count = int(latest.get('lines_count') or 0)
+            except Exception:
+                lines_count = 0
             files_list.append({
                 'id': str(latest.get('_id')),
                 'file_name': fname,
@@ -6763,8 +6774,8 @@ def files():
                 'icon': get_language_icon(lang_display),
                 'description': latest.get('description', ''),
                 'tags': latest.get('tags', []),
-                'size': format_file_size(len(code_str.encode('utf-8'))),
-                'lines': len(code_str.splitlines()),
+                'size': format_file_size(size_bytes),
+                'lines': lines_count,
                 'created_at': format_datetime_display(latest.get('created_at')),
                 'updated_at': format_datetime_display(latest.get('updated_at')),
                 'last_opened_at': format_datetime_display(recent_map.get(fname)),
@@ -6775,10 +6786,7 @@ def files():
             'programming_language',
             {
                 'user_id': user_id,
-                '$or': [
-                    {'is_active': True},
-                    {'is_active': {'$exists': False}}
-                ]
+                'is_active': {'$ne': False}
             }
         )
         languages = sorted([lang for lang in languages if lang]) if languages else []
@@ -6808,22 +6816,12 @@ def files():
         # בסיס הפייפליין: גרסה אחרונה לכל file_name ותוכן לא ריק
         base_pipeline = [
             {'$match': query},
-            {'$addFields': {
-                'code_size': {
-                    '$cond': {
-                        'if': {'$and': [
-                            {'$ne': ['$code', None]},
-                            {'$eq': [{'$type': '$code'}, 'string']}
-                        ]},
-                        'then': {'$strLenBytes': '$code'},
-                        'else': 0
-                    }
-                }
-            }},
-            {'$match': {'code_size': {'$gt': 0}}},
             {'$sort': {'file_name': 1, 'version': -1}},
             {'$group': {'_id': '$file_name', 'latest': {'$first': '$$ROOT'}}},
             {'$replaceRoot': {'newRoot': '$latest'}},
+            _mongo_add_size_lines_stage,
+            {'$match': {'file_size': {'$gt': 0}}},
+            {'$project': LIST_EXCLUDE_HEAVY_PROJECTION},
         ]
         next_cursor_token = None
         use_cursor = (sort_field_local == 'created_at')
@@ -6872,31 +6870,30 @@ def files():
             pipeline.append({'$limit': per_page})
             files_cursor = db.code_snippets.aggregate(pipeline)
     elif category_filter not in ('large', 'other'):
-        files_cursor = db.code_snippets.find(query).sort(sort_field, sort_order).skip((page - 1) * per_page).limit(per_page)
+        # קטגוריות רגילות (ללא recent/large/other): עימוד לפי מסמכים,
+        # אבל עם Smart Projection כדי לא להחזיר `code` למסך רשימה.
+        files_cursor = db.code_snippets.aggregate([
+            {'$match': query},
+            _mongo_add_size_lines_stage,
+            {'$project': LIST_EXCLUDE_HEAVY_PROJECTION},
+            {'$sort': {sort_field: sort_order}},
+            {'$skip': (page - 1) * per_page},
+            {'$limit': per_page},
+        ])
     elif category_filter == 'other':
         # "שאר קבצים": בעלי תוכן (>0 בתים), מציגים גרסה אחרונה לכל file_name; עקבי עם ה-query הכללי
         sort_dir = -1 if sort_by.startswith('-') else 1
         sort_field_local = sort_by.lstrip('-')
         base_pipeline = [
             {'$match': query},
-            {'$addFields': {
-                'code_size': {
-                    '$cond': {
-                        'if': {'$and': [
-                            {'$ne': ['$code', None]},
-                            {'$eq': [{'$type': '$code'}, 'string']}
-                        ]},
-                        'then': {'$strLenBytes': '$code'},
-                        'else': 0
-                    }
-                }
-            }},
-            {'$match': {'code_size': {'$gt': 0}}},
+            _mongo_add_size_lines_stage,
+            {'$match': {'file_size': {'$gt': 0}}},
         ]
         pipeline = base_pipeline + [
             {'$sort': {'file_name': 1, 'version': -1}},
             {'$group': {'_id': '$file_name', 'latest': {'$first': '$$ROOT'}}},
             {'$replaceRoot': {'newRoot': '$latest'}},
+            {'$project': LIST_EXCLUDE_HEAVY_PROJECTION},
             {'$sort': {sort_field_local: sort_dir}},
             {'$skip': (page - 1) * per_page},
             {'$limit': per_page},
@@ -6905,9 +6902,16 @@ def files():
     
     files_list = []
     for file in files_cursor:
-        code_str = file.get('code') or ''
         fname = file.get('file_name') or ''
         lang_display = resolve_file_language(file.get('programming_language'), fname)
+        try:
+            size_bytes = int(file.get('file_size') or 0)
+        except Exception:
+            size_bytes = 0
+        try:
+            lines_count = int(file.get('lines_count') or 0)
+        except Exception:
+            lines_count = 0
         files_list.append({
             'id': str(file['_id']),
             'file_name': fname,
@@ -6915,8 +6919,8 @@ def files():
             'icon': get_language_icon(lang_display),
             'description': file.get('description', ''),
             'tags': file.get('tags', []),
-            'size': format_file_size(len(code_str.encode('utf-8'))),
-            'lines': len(code_str.splitlines()),
+            'size': format_file_size(size_bytes),
+            'lines': lines_count,
             'created_at': format_datetime_display(file.get('created_at')),
             'updated_at': format_datetime_display(file.get('updated_at'))
         })
@@ -6926,10 +6930,7 @@ def files():
         'programming_language',
         {
             'user_id': user_id,
-            '$or': [
-                {'is_active': True},
-                {'is_active': {'$exists': False}}
-            ]
+            'is_active': {'$ne': False}
         }
     )
     # סינון None וערכים ריקים ומיון
