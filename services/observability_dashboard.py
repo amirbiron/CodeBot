@@ -3168,6 +3168,95 @@ def build_coverage_report(
     }
 
 
+def fetch_sentry_issue_signatures_missing_runbook(
+    *,
+    start_dt: Optional[datetime],
+    end_dt: Optional[datetime],
+    min_count: int = 1,
+    limit: int = 200,
+) -> Dict[str, Any]:
+    """Return Sentry issue signatures that currently have no dedicated runbook.
+
+    This is used by Config Radar -> Coverage to drill into the aggregated
+    `sentry_issue` alert_type and show per-issue breakdown with direct Sentry links.
+    """
+    # If a dedicated runbook exists for sentry_issue, there's no "missing runbook" drill-down.
+    try:
+        resolved = _resolve_runbook_key("sentry_issue", allow_default=False)
+        runbook_cfg = _load_runbook_config() or {}
+        default_key = runbook_cfg.get("default")
+        if resolved and default_key and str(resolved).strip().lower() == str(default_key).strip().lower():
+            resolved = None
+        if resolved:
+            return {
+                "items": [],
+                "meta": {
+                    "window_start": start_dt.isoformat() if start_dt else None,
+                    "window_end": end_dt.isoformat() if end_dt else None,
+                    "reason": "runbook_exists",
+                },
+            }
+    except Exception:
+        # Fail-open: if config parsing fails, we still try to return data.
+        pass
+
+    try:
+        min_count_int = int(min_count)
+    except Exception:
+        min_count_int = 1
+    min_count_int = max(1, min(10_000, min_count_int))
+
+    try:
+        limit_int = int(limit)
+    except Exception:
+        limit_int = 200
+    limit_int = max(1, min(2000, limit_int))
+
+    rows: List[Dict[str, Any]] = []
+    try:
+        rows = alerts_storage.aggregate_sentry_issue_signatures(
+            start_dt=start_dt,
+            end_dt=end_dt,
+            min_count=min_count_int,
+            limit=limit_int,
+        )
+    except Exception:
+        rows = []
+
+    # Normalize datetimes -> iso
+    items: List[Dict[str, Any]] = []
+    for row in rows or []:
+        try:
+            last_seen_dt = row.get("last_seen_dt")
+            last_seen_ts = last_seen_dt.isoformat() if isinstance(last_seen_dt, datetime) else None
+            items.append(
+                {
+                    "signature": str(row.get("signature") or "").strip(),
+                    "count": int(row.get("count") or 0),
+                    "last_seen_ts": last_seen_ts,
+                    "issue_id": row.get("issue_id"),
+                    "short_id": row.get("short_id"),
+                    "permalink": row.get("permalink"),
+                    "project": row.get("project"),
+                    "sample_title": row.get("sample_title"),
+                }
+            )
+        except Exception:
+            continue
+
+    # Sort again defensively (aggregate already sorts, but keep stable output)
+    items.sort(key=lambda r: (-int(r.get("count") or 0), str(r.get("signature") or "")))
+
+    return {
+        "items": items,
+        "meta": {
+            "window_start": start_dt.isoformat() if start_dt else None,
+            "window_end": end_dt.isoformat() if end_dt else None,
+            "mode": "alerts_db",
+        },
+    }
+
+
 def _fallback_aggregate_alert_types(
     *,
     start_dt: Optional[datetime],
