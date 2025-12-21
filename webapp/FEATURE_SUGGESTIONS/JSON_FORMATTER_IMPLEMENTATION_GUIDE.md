@@ -339,21 +339,64 @@ class JsonFormatterService:
 
         Returns:
             מחרוזת XML
+
+        Note:
+            מפתחות JSON שאינם תקינים כתגיות XML (רווחים, מספרים בהתחלה וכו')
+            יעברו סניטיזציה אוטומטית.
         """
         parsed = json.loads(json_string)
 
+        def sanitize_tag(key: str) -> str:
+            """
+            ניקוי מפתח JSON להפיכתו לתגית XML חוקית.
+            
+            חוקי XML לשמות תגיות:
+            - חייב להתחיל באות או קו תחתון
+            - יכול להכיל אותיות, מספרים, מקפים, נקודות, קווים תחתונים
+            - לא יכול להכיל רווחים או תווים מיוחדים
+            
+            דוגמאות:
+            - "User Name" -> "User_Name"
+            - "1st_Place" -> "_1st_Place"
+            - "e-mail@address" -> "e-mail_address"
+            """
+            key_str = str(key)
+            
+            # החלפת תווים לא חוקיים בקו תחתון
+            clean_key = re.sub(r'[^a-zA-Z0-9_\-\.]', '_', key_str)
+            
+            # הסרת קווים תחתונים כפולים
+            clean_key = re.sub(r'_+', '_', clean_key)
+            
+            # הסרת קו תחתון בהתחלה/סוף (אלא אם צריך)
+            clean_key = clean_key.strip('_') or 'item'
+            
+            # תגית XML חייבת להתחיל באות או קו תחתון
+            if clean_key and not clean_key[0].isalpha() and clean_key[0] != '_':
+                clean_key = f'_{clean_key}'
+            
+            # מקרה קיצון: מחרוזת ריקה
+            if not clean_key:
+                clean_key = 'item'
+                
+            return clean_key
+
         def to_xml(obj: Any, tag: str) -> str:
+            safe_tag = sanitize_tag(tag)
+            
             if isinstance(obj, dict):
                 children = ''.join(to_xml(v, k) for k, v in obj.items())
-                return f'<{tag}>{children}</{tag}>'
+                return f'<{safe_tag}>{children}</{safe_tag}>'
             elif isinstance(obj, list):
-                items = ''.join(to_xml(item, 'item') for item in obj)
-                return f'<{tag}>{items}</{tag}>'
+                # במערך, כל פריט מקבל שם הורה ביחיד או 'item'
+                child_tag = safe_tag.rstrip('s') if safe_tag.endswith('s') and len(safe_tag) > 1 else 'item'
+                items = ''.join(to_xml(item, child_tag) for item in obj)
+                return f'<{safe_tag}>{items}</{safe_tag}>'
             else:
                 value = '' if obj is None else self._escape_xml(str(obj))
-                return f'<{tag}>{value}</{tag}>'
+                return f'<{safe_tag}>{value}</{safe_tag}>'
 
-        return f'<?xml version="1.0" encoding="UTF-8"?>\n{to_xml(parsed, root_name)}'
+        return f'<?xml version="1.0" encoding="UTF-8"?>\n{to_xml(parsed, sanitize_tag(root_name))}'
 
     def _escape_xml(self, text: str) -> str:
         """Escape special XML characters."""
@@ -2669,6 +2712,35 @@ class TestConvertJson:
         assert '<?xml' in result
         assert '<name>' in result
         assert '</name>' in result
+    
+    def test_convert_to_xml_sanitizes_spaces(self, service):
+        """מפתחות עם רווחים מומרים לקו תחתון"""
+        json_str = '{"User Name": "Amir"}'
+        result = service.convert_to_xml(json_str)
+        assert '<User_Name>' in result
+        assert '</User_Name>' in result
+        assert 'User Name' not in result  # הרווח נעלם
+    
+    def test_convert_to_xml_sanitizes_leading_number(self, service):
+        """מפתחות שמתחילים במספר מקבלים קו תחתון"""
+        json_str = '{"1st_Place": true}'
+        result = service.convert_to_xml(json_str)
+        assert '<_1st_Place>' in result
+        assert '<1st_Place>' not in result  # לא חוקי ב-XML
+    
+    def test_convert_to_xml_sanitizes_special_chars(self, service):
+        """תווים מיוחדים מומרים"""
+        json_str = '{"e-mail@address": "test@example.com"}'
+        result = service.convert_to_xml(json_str)
+        # @ הופך לקו תחתון, מקף נשאר
+        assert '<e-mail_address>' in result
+    
+    def test_convert_to_xml_array_naming(self, service):
+        """מערכים מקבלים שמות פריטים נכונים"""
+        json_str = '{"users": ["a", "b"]}'
+        result = service.convert_to_xml(json_str)
+        assert '<users>' in result
+        assert '<user>' in result  # יחיד של users
     
     @pytest.mark.skipif(True, reason="Requires PyYAML")
     def test_convert_to_yaml(self, service):
