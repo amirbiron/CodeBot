@@ -40,12 +40,49 @@ _PUBLIC_WEBAPP_URL_DEFAULT = "https://code-keeper-webapp.onrender.com"
 _DASHBOARD_PATH = "/admin/observability"
 _TELEGRAM_DASHBOARD_BUTTON_TEXT = "Open Dashboard"
 
+
+def _env_bool(name: str, default: bool) -> bool:
+    try:
+        raw = os.getenv(name)
+    except Exception:
+        return default
+    if raw is None:
+        return default
+    val = str(raw).strip().lower()
+    if not val:
+        return default
+    if val in {"1", "true", "yes", "on"}:
+        return True
+    if val in {"0", "false", "no", "off"}:
+        return False
+    return default
+
+
+# Text formatting switches per sink
+_TEXT_INCLUDE_DASHBOARD_LINK_TELEGRAM = _env_bool(
+    "ALERTS_TEXT_INCLUDE_DASHBOARD_LINK_TELEGRAM",
+    False,  # Telegram already has an inline button; keep message body clean by default
+)
+_TEXT_INCLUDE_DASHBOARD_LINK_SLACK = _env_bool(
+    "ALERTS_TEXT_INCLUDE_DASHBOARD_LINK_SLACK",
+    True,  # Slack has no button, include the link in the message text
+)
+
+
 # Startup grace period: suppress noisy performance alerts right after deploy/cold start.
 _MODULE_START_MONOTONIC = monotonic()
-_STARTUP_GRACE_PERIOD_SECONDS = max(
-    0.0,
-    float(os.getenv("ALERT_STARTUP_GRACE_PERIOD_SECONDS", "300") or 300),
-)
+_DEFAULT_STARTUP_GRACE_PERIOD_SECONDS = 1200.0  # 20 minutes
+try:
+    _STARTUP_GRACE_PERIOD_SECONDS = float(
+        os.getenv(
+            "ALERT_STARTUP_GRACE_PERIOD_SECONDS",
+            str(int(_DEFAULT_STARTUP_GRACE_PERIOD_SECONDS)),
+        )
+        or _DEFAULT_STARTUP_GRACE_PERIOD_SECONDS
+    )
+except Exception:
+    _STARTUP_GRACE_PERIOD_SECONDS = float(_DEFAULT_STARTUP_GRACE_PERIOD_SECONDS)
+_STARTUP_GRACE_PERIOD_SECONDS = max(0.0, float(_STARTUP_GRACE_PERIOD_SECONDS))
 _IGNORED_ON_STARTUP = {
     # Alerts that commonly flap during cold start / initial DB connection warmup
     "AppLatencyEWMARegression",
@@ -474,7 +511,7 @@ def _format_sentry_issue(
     return text
 
 
-def _format_alert_text(alert: Dict[str, Any]) -> str:
+def _format_alert_text(alert: Dict[str, Any], *, include_dashboard_link: bool = True) -> str:
     labels = alert.get("labels", {}) or {}
     annotations = alert.get("annotations", {}) or {}
     status = str(alert.get("status") or "firing")
@@ -484,6 +521,11 @@ def _format_alert_text(alert: Dict[str, Any]) -> str:
     # Short summary/description
     summary = annotations.get("summary") or annotations.get("description") or ""
     dashboard_line = f"📊 Dashboard: {_build_public_dashboard_url()}"
+
+    def _with_dashboard(text: str) -> str:
+        if include_dashboard_link:
+            return f"{text}\n{dashboard_line}"
+        return text
 
     # Useful context (allowlist of common labels)
     def _first(keys: List[str]) -> Optional[str]:
@@ -526,7 +568,7 @@ def _format_alert_text(alert: Dict[str, Any]) -> str:
             )
             if sentry_link:
                 msg += f"\nSentry: {sentry_link}"
-            return f"{msg}\n{dashboard_line}"
+            return _with_dashboard(msg)
 
         if str(name or "").strip().lower() == "anomaly_detected":
             avg, thr = _parse_avg_threshold_from_summary(str(summary or ""))
@@ -539,7 +581,7 @@ def _format_alert_text(alert: Dict[str, Any]) -> str:
                 memory_mb=_first(["avg_memory_usage_mb"]),
                 recent_errors_5m=_first(["recent_errors_5m"]),
             )
-            return f"{msg}\n{dashboard_line}"
+            return _with_dashboard(msg)
 
         # Only treat as a Sentry-origin alert when the alert itself is named as such.
         # Regular alerts may still include a Sentry permalink for convenience.
@@ -554,7 +596,7 @@ def _format_alert_text(alert: Dict[str, Any]) -> str:
                     error_signature=_first(["error_signature", "signature"]),
                 ),
             )
-            return f"{msg}\n{dashboard_line}"
+            return _with_dashboard(msg)
     except Exception:
         # If specialized formatting fails, fall back to generic.
         pass
@@ -584,7 +626,8 @@ def _format_alert_text(alert: Dict[str, Any]) -> str:
         parts.append(f"Sentry: {sentry_link}")
 
     # Always prefer a stable public dashboard link over alertmanager's generatorURL
-    parts.append(dashboard_line)
+    if include_dashboard_link:
+        parts.append(dashboard_line)
 
     return "\n".join(parts)
 
@@ -664,8 +707,14 @@ def _format_duration_label(seconds: float) -> str:
     return f"{minutes} דקות"
 
 
-def _format_anomaly_batch_text(alert: Dict[str, Any], count: int, duration_seconds: float) -> str:
-    base = _format_alert_text(alert)
+def _format_anomaly_batch_text(
+    alert: Dict[str, Any],
+    count: int,
+    duration_seconds: float,
+    *,
+    include_dashboard_link: bool,
+) -> str:
+    base = _format_alert_text(alert, include_dashboard_link=include_dashboard_link)
     duration = _format_duration_label(duration_seconds)
     return f"{base}\n{count} מופעים ב-{duration}"
 
@@ -735,7 +784,12 @@ def _flush_anomaly_batch(key: str) -> None:
     if not batch:
         return
     duration_seconds = max(batch.window_seconds, monotonic() - batch.started_at)
-    text = _format_anomaly_batch_text(batch.representative_alert, batch.count, duration_seconds)
+    text = _format_anomaly_batch_text(
+        batch.representative_alert,
+        batch.count,
+        duration_seconds,
+        include_dashboard_link=_TEXT_INCLUDE_DASHBOARD_LINK_TELEGRAM,
+    )
     _post_to_telegram(text)
 
 
@@ -891,7 +945,8 @@ def forward_alerts(alerts: List[Dict[str, Any]]) -> None:
                 except Exception:
                     pass
                 continue
-            text = _format_alert_text(alert)
+            text_slack = _format_alert_text(alert, include_dashboard_link=_TEXT_INCLUDE_DASHBOARD_LINK_SLACK)
+            text_telegram = _format_alert_text(alert, include_dashboard_link=_TEXT_INCLUDE_DASHBOARD_LINK_TELEGRAM)
             severity = str(labels.get("severity") or labels.get("level") or "info")
             # Emit the base receipt event consistently as anomaly to reflect detection,
             # while preserving the original label in a separate field for observability.
@@ -925,12 +980,12 @@ def forward_alerts(alerts: List[Dict[str, Any]]) -> None:
                     pass
                 # Do not send to sinks
                 continue
-            _post_to_slack(text)
+            _post_to_slack(text_slack)
             # Send to Telegram only if severity >= configured minimum
             if _severity_rank(severity) >= min_tg_rank:
                 sev_norm = str(severity or "").strip().lower()
                 if sev_norm == "anomaly" and _queue_anomaly_alert(alert):
                     continue
-                _post_to_telegram(text)
+                _post_to_telegram(text_telegram)
         except Exception:
             emit_event("alert_forward_error", severity="warn")

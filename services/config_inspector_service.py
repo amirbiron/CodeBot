@@ -240,6 +240,24 @@ class ConfigService:
             description="רמת חומרה מינימלית להתראות טלגרם",
             category="alerts",
         ),
+        "ALERT_STARTUP_GRACE_PERIOD_SECONDS": ConfigDefinition(
+            key="ALERT_STARTUP_GRACE_PERIOD_SECONDS",
+            default="1200",
+            description="חלון חסד (שניות) לאחר אתחול שבו מושתקים רק alerts רועשים מתוך allowlist (Mongo/Latency/EWMA)",
+            category="alerts",
+        ),
+        "ALERTS_TEXT_INCLUDE_DASHBOARD_LINK_TELEGRAM": ConfigDefinition(
+            key="ALERTS_TEXT_INCLUDE_DASHBOARD_LINK_TELEGRAM",
+            default="false",
+            description="אם true מוסיף שורת 📊 Dashboard לגוף ההודעה בטלגרם (ברירת מחדל כבוי כי יש כפתור Inline)",
+            category="alerts",
+        ),
+        "ALERTS_TEXT_INCLUDE_DASHBOARD_LINK_SLACK": ConfigDefinition(
+            key="ALERTS_TEXT_INCLUDE_DASHBOARD_LINK_SLACK",
+            default="true",
+            description="אם true מוסיף שורת 📊 Dashboard לגוף ההודעה ב-Slack (ברירת מחדל פעיל)",
+            category="alerts",
+        ),
         "REDIS_MAX_CONNECTIONS": ConfigDefinition(
             key="REDIS_MAX_CONNECTIONS",
             default="50",
@@ -307,6 +325,12 @@ class ConfigService:
             key="PUBLIC_BASE_URL",
             default="",
             description="כתובת URL בסיסית לשיתוף קישורים",
+            category="webserver",
+        ),
+        "PUBLIC_URL": ConfigDefinition(
+            key="PUBLIC_URL",
+            default="https://code-keeper-webapp.onrender.com",
+            description="כתובת בסיס ציבורית של ה-WebApp (משמשת ליצירת קישור ציבורי ל-Observability Dashboard בהתראות)",
             category="webserver",
         ),
         "WEBAPP_URL": ConfigDefinition(

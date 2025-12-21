@@ -893,6 +893,12 @@
      - "" (ריק)
      - ``https://hooks.slack.com/services/...``
      - Bot
+   * - ``PUBLIC_URL``
+     - כתובת ציבורית בסיסית של ה-WebApp (משמשת ליצירת קישור יציב ל־Observability Dashboard בהודעות התראה).
+     - לא
+     - ``https://code-keeper-webapp.onrender.com``
+     - ``https://code-keeper-webapp.onrender.com``
+     - Bot/WebApp
    * - ``ALERT_TELEGRAM_BOT_TOKEN``
      - טוקן בוט ייעודי לשליחת התראות לטלגרם (נפרד מהבוט הראשי אם רוצים).
      - לא
@@ -910,6 +916,24 @@
      - לא
      - ``info``
      - ``warning``
+     - Bot/WebApp
+   * - ``ALERT_STARTUP_GRACE_PERIOD_SECONDS``
+     - חלון חסד (שניות) לאחר אתחול התהליך שבו מושתקים רק alerts "רועשים" מתוך allowlist (Mongo/Latency/EWMA) כדי למנוע רעשי דיפלוי.
+     - לא
+     - ``1200``
+     - ``1200``
+     - Bot/WebApp
+   * - ``ALERTS_TEXT_INCLUDE_DASHBOARD_LINK_TELEGRAM``
+     - אם ``true`` מוסיף שורת ``📊 Dashboard: ...`` לגוף ההודעה בטלגרם. ברירת מחדל כבוי כדי להימנע מכפילות (יש כפתור Inline).
+     - לא
+     - ``false``
+     - ``true``
+     - Bot/WebApp
+   * - ``ALERTS_TEXT_INCLUDE_DASHBOARD_LINK_SLACK``
+     - אם ``true`` מוסיף שורת ``📊 Dashboard: ...`` לגוף ההודעה ב-Slack (ברירת מחדל פעיל כי אין כפתור).
+     - לא
+     - ``true``
+     - ``false``
      - Bot/WebApp
    * - ``GRAFANA_URL``
      - בסיס ה-URL של Grafana לכתיבת annotations על התראות.
