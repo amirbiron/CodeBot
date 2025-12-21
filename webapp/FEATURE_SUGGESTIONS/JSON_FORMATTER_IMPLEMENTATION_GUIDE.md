@@ -23,6 +23,34 @@ JSON Formatter הוא כלי לעיצוב, אימות והמרת קוד JSON. ה
 
 ---
 
+## 📦 תלויות (Dependencies)
+
+### Python Dependencies
+
+הוסף ל-`requirements/base.txt`:
+
+```txt
+PyYAML>=6.0.1    # נדרש להמרת JSON ל-YAML
+```
+
+### התקנה
+
+```bash
+pip install PyYAML
+```
+
+### בדיקת תלויות קיימות
+
+לפני ההתקנה, בדוק אם PyYAML כבר מותקן:
+
+```bash
+pip show pyyaml
+```
+
+> **הערה:** אם אינך צריך את פיצ'ר ההמרה ל-YAML, ניתן לדלג על התלות הזו. הקוד יתפוס את השגיאה ויציג הודעה מתאימה למשתמש.
+
+---
+
 ## 🏗️ ארכיטקטורה
 
 ### תרשים רכיבים
@@ -1376,6 +1404,52 @@ app.register_blueprint(json_formatter_bp)
     box-shadow: var(--shadow-lg);
 }
 
+/* === Tree View Performance & Warnings === */
+.tree-warning {
+    background: var(--warning-bg, rgba(255, 193, 7, 0.1));
+    border: 1px solid var(--warning-color, #ffc107);
+    border-radius: var(--border-radius);
+    padding: var(--spacing-md);
+    margin-bottom: var(--spacing-md);
+    text-align: center;
+}
+
+.tree-warning .warning-icon {
+    font-size: 2rem;
+    display: block;
+    margin-bottom: var(--spacing-sm);
+}
+
+.tree-truncated {
+    color: var(--text-muted);
+    font-style: italic;
+    opacity: 0.7;
+}
+
+.tree-count {
+    color: var(--text-muted);
+    font-size: 0.75rem;
+    margin-left: 4px;
+}
+
+/* === CodeMirror Error Highlight === */
+.error-line {
+    background: rgba(255, 0, 0, 0.15) !important;
+    border-left: 3px solid var(--error-color, #dc3545);
+}
+
+/* === CodeMirror Container === */
+.cm-editor {
+    height: 100%;
+    min-height: 400px;
+    font-family: 'Fira Code', 'Monaco', 'Consolas', monospace;
+    font-size: 0.875rem;
+}
+
+.cm-editor .cm-scroller {
+    overflow: auto;
+}
+
 /* === CSS Variables (דוגמה) === */
 :root {
     --spacing-xs: 4px;
@@ -1394,6 +1468,11 @@ app.register_blueprint(json_formatter_bp)
     --json-number-color: #b5cea8;
     --json-boolean-color: #569cd6;
     --json-null-color: #808080;
+    
+    /* Warning/Error Colors */
+    --warning-bg: rgba(255, 193, 7, 0.1);
+    --warning-color: #ffc107;
+    --error-color: #dc3545;
 }
 ```
 
@@ -1405,17 +1484,31 @@ app.register_blueprint(json_formatter_bp)
  * =====================
  * מודול לעיצוב, אימות והמרת JSON.
  * 
+ * משתמש ב-EditorManager הקיים לאינטגרציית CodeMirror עם syntax highlighting.
+ * 
  * @module JsonFormatter
+ * @requires EditorManager (from editor-manager.js)
  */
 
 (function() {
     'use strict';
 
+    // ========== Configuration ==========
+    const CONFIG = {
+        TREE_MAX_DEPTH: 50,              // עומק מקסימלי ל-Tree View
+        TREE_MAX_NODES: 5000,            // מספר nodes מקסימלי
+        LARGE_FILE_WARNING_SIZE: 1024 * 1024,  // 1MB - אזהרה לקבצים גדולים
+        TREE_INITIAL_COLLAPSE_DEPTH: 3   // קיפול אוטומטי מעומק זה
+    };
+
     // ========== State ==========
     const state = {
         currentView: 'text',
         isLoading: false,
-        lastValidJson: null
+        lastValidJson: null,
+        inputEditor: null,   // CodeMirror instance for input
+        outputEditor: null,  // CodeMirror instance for output
+        treeNodeCount: 0     // ספירת nodes ב-Tree View
     };
 
     // ========== DOM Cache ==========
@@ -1423,9 +1516,15 @@ app.register_blueprint(json_formatter_bp)
 
     function cacheElements() {
         elements = {
-            // Inputs
+            // Editor containers (for CodeMirror)
+            inputContainer: document.getElementById('json-input'),
+            outputContainer: document.getElementById('json-output'),
+            
+            // Fallback textareas (used if EditorManager not available)
             jsonInput: document.getElementById('json-input'),
             jsonOutput: document.getElementById('json-output'),
+            
+            // Options
             indentSize: document.getElementById('indent-size'),
             sortKeys: document.getElementById('sort-keys'),
             fileUpload: document.getElementById('file-upload'),
@@ -1464,6 +1563,95 @@ app.register_blueprint(json_formatter_bp)
             convertDropdown: document.querySelector('.dropdown'),
             convertItems: document.querySelectorAll('.dropdown-item')
         };
+    }
+
+    // ========== CodeMirror Integration ==========
+    /**
+     * אתחול CodeMirror editors באמצעות EditorManager הקיים.
+     * אם EditorManager לא זמין, נשתמש ב-textarea רגיל.
+     */
+    async function initEditors() {
+        // בדיקה אם EditorManager זמין
+        if (typeof window.EditorManager === 'undefined') {
+            console.warn('EditorManager not available, falling back to textarea');
+            return;
+        }
+
+        try {
+            // אתחול editor לקלט
+            if (elements.inputContainer) {
+                state.inputEditor = await EditorManager.create(elements.inputContainer, {
+                    language: 'json',
+                    lineNumbers: true,
+                    theme: 'auto',  // יתאים ל-dark mode
+                    placeholder: 'הדבק JSON כאן...'
+                });
+                
+                // האזנה לשינויים לעדכון סטטיסטיקות
+                if (state.inputEditor) {
+                    state.inputEditor.on('change', debounce(onInputChange, 300));
+                }
+            }
+
+            // אתחול editor לפלט (read-only)
+            if (elements.outputContainer) {
+                state.outputEditor = await EditorManager.create(elements.outputContainer, {
+                    language: 'json',
+                    lineNumbers: true,
+                    theme: 'auto',
+                    readOnly: true
+                });
+            }
+
+            console.log('CodeMirror editors initialized successfully');
+        } catch (error) {
+            console.error('Failed to initialize CodeMirror:', error);
+            // Fallback to textarea
+            state.inputEditor = null;
+            state.outputEditor = null;
+        }
+    }
+
+    /**
+     * קבלת תוכן מה-editor (CodeMirror או textarea)
+     */
+    function getInputValue() {
+        if (state.inputEditor && typeof state.inputEditor.getValue === 'function') {
+            return state.inputEditor.getValue();
+        }
+        return elements.jsonInput?.value || '';
+    }
+
+    /**
+     * הגדרת תוכן ב-editor הקלט
+     */
+    function setInputValue(value) {
+        if (state.inputEditor && typeof state.inputEditor.setValue === 'function') {
+            state.inputEditor.setValue(value);
+        } else if (elements.jsonInput) {
+            elements.jsonInput.value = value;
+        }
+    }
+
+    /**
+     * הגדרת תוכן ב-editor הפלט
+     */
+    function setOutputValue(value) {
+        if (state.outputEditor && typeof state.outputEditor.setValue === 'function') {
+            state.outputEditor.setValue(value);
+        } else if (elements.jsonOutput) {
+            elements.jsonOutput.value = value;
+        }
+    }
+
+    /**
+     * קבלת תוכן מה-editor הפלט
+     */
+    function getOutputValue() {
+        if (state.outputEditor && typeof state.outputEditor.getValue === 'function') {
+            return state.outputEditor.getValue();
+        }
+        return elements.jsonOutput?.value || '';
     }
 
     // ========== Event Bindings ==========
@@ -1539,10 +1727,15 @@ app.register_blueprint(json_formatter_bp)
 
     // ========== Main Actions ==========
     async function formatJson() {
-        const content = elements.jsonInput.value.trim();
+        const content = getInputValue().trim();
         if (!content) {
             showToast('אנא הזן JSON', 'warning');
             return;
+        }
+
+        // אזהרה לקבצים גדולים
+        if (content.length > CONFIG.LARGE_FILE_WARNING_SIZE) {
+            console.warn('Large JSON file detected, processing may take a moment');
         }
         
         try {
@@ -1553,7 +1746,7 @@ app.register_blueprint(json_formatter_bp)
             });
             
             if (result.success) {
-                elements.jsonOutput.value = result.result;
+                setOutputValue(result.result);
                 state.lastValidJson = result.result;
                 updateStats(result.stats);
                 showValidation(true, 'JSON תקין ועוצב בהצלחה');
@@ -1568,7 +1761,7 @@ app.register_blueprint(json_formatter_bp)
     }
 
     async function minifyJson() {
-        const content = elements.jsonInput.value.trim();
+        const content = getInputValue().trim();
         if (!content) {
             showToast('אנא הזן JSON', 'warning');
             return;
@@ -1578,7 +1771,7 @@ app.register_blueprint(json_formatter_bp)
             const result = await apiCall('minify', { content });
             
             if (result.success) {
-                elements.jsonOutput.value = result.result;
+                setOutputValue(result.result);
                 const savings = `חיסכון: ${result.savings_percent}% (${formatBytes(result.original_size)} → ${formatBytes(result.minified_size)})`;
                 showValidation(true, savings);
             }
@@ -1588,7 +1781,7 @@ app.register_blueprint(json_formatter_bp)
     }
 
     async function validateJson() {
-        const content = elements.jsonInput.value.trim();
+        const content = getInputValue().trim();
         if (!content) {
             showToast('אנא הזן JSON', 'warning');
             return;
@@ -1610,7 +1803,7 @@ app.register_blueprint(json_formatter_bp)
     }
 
     async function convertJson(format) {
-        const content = elements.jsonInput.value.trim();
+        const content = getInputValue().trim();
         if (!content) {
             showToast('אנא הזן JSON', 'warning');
             return;
@@ -1625,7 +1818,7 @@ app.register_blueprint(json_formatter_bp)
             });
             
             if (result.success) {
-                elements.jsonOutput.value = result.result;
+                setOutputValue(result.result);
                 showToast(`הומר ל-${format.toUpperCase()} בהצלחה`, 'success');
             }
         } catch (error) {
@@ -1634,7 +1827,7 @@ app.register_blueprint(json_formatter_bp)
     }
 
     async function searchJson() {
-        const content = elements.jsonInput.value.trim();
+        const content = getInputValue().trim();
         const query = elements.searchInput.value.trim();
         
         if (!content || !query) {
@@ -1677,15 +1870,113 @@ app.register_blueprint(json_formatter_bp)
     function renderTree(jsonString) {
         try {
             const data = JSON.parse(jsonString);
-            elements.jsonTree.innerHTML = buildTreeHtml(data, 'root');
+            
+            // איפוס מונה ה-nodes
+            state.treeNodeCount = 0;
+            
+            // בדיקת גודל ה-JSON
+            const jsonSize = jsonString.length;
+            if (jsonSize > CONFIG.LARGE_FILE_WARNING_SIZE) {
+                elements.jsonTree.innerHTML = `
+                    <div class="tree-warning">
+                        <span class="warning-icon">⚠️</span>
+                        <p>הקובץ גדול מדי לתצוגת עץ (${formatBytes(jsonSize)})</p>
+                        <p>השתמש בתצוגת טקסט לביצועים טובים יותר</p>
+                        <button class="btn btn-sm btn-outline" onclick="JsonFormatter.forceRenderTree()">
+                            הצג בכל זאת (עלול להאט)
+                        </button>
+                    </div>
+                `;
+                // שמור את ה-data לשימוש עתידי
+                state.pendingTreeData = data;
+                return;
+            }
+            
+            const html = buildTreeHtml(data, 'root', 0);
+            
+            // בדיקה אם חרגנו מהמגבלות
+            if (state.treeNodeCount >= CONFIG.TREE_MAX_NODES) {
+                elements.jsonTree.innerHTML = `
+                    <div class="tree-warning">
+                        <span class="warning-icon">⚠️</span>
+                        <p>ה-JSON מכיל יותר מ-${CONFIG.TREE_MAX_NODES} אלמנטים</p>
+                        <p>מוצג חלק מהתוכן בלבד</p>
+                    </div>
+                ` + html;
+            } else {
+                elements.jsonTree.innerHTML = html;
+            }
+            
             bindTreeEvents();
+            
+            // קיפול אוטומטי של עומקים גבוהים
+            autoCollapseDeepNodes();
+            
         } catch (e) {
             elements.jsonTree.innerHTML = '<p class="error">לא ניתן לייצר תצוגת עץ</p>';
         }
     }
 
+    /**
+     * כפה רינדור Tree View גם לקבצים גדולים
+     */
+    function forceRenderTree() {
+        if (state.pendingTreeData) {
+            state.treeNodeCount = 0;
+            const html = buildTreeHtml(state.pendingTreeData, 'root', 0);
+            elements.jsonTree.innerHTML = html;
+            bindTreeEvents();
+            autoCollapseDeepNodes();
+            state.pendingTreeData = null;
+        }
+    }
+
+    /**
+     * קיפול אוטומטי של nodes בעומק גבוה
+     */
+    function autoCollapseDeepNodes() {
+        elements.jsonTree.querySelectorAll('.tree-node').forEach(node => {
+            const depth = getNodeDepth(node);
+            if (depth >= CONFIG.TREE_INITIAL_COLLAPSE_DEPTH) {
+                node.classList.add('collapsed');
+            }
+        });
+    }
+
+    /**
+     * חישוב עומק של node בעץ
+     */
+    function getNodeDepth(node) {
+        let depth = 0;
+        let current = node;
+        while (current.parentElement) {
+            if (current.parentElement.classList.contains('tree-node')) {
+                depth++;
+            }
+            current = current.parentElement;
+        }
+        return depth;
+    }
+
+    /**
+     * בניית HTML לתצוגת עץ עם הגבלות ביצועים
+     * 
+     * @param {any} obj - האובייקט לרנדור
+     * @param {string} key - שם המפתח
+     * @param {number} depth - עומק נוכחי
+     * @returns {string} HTML string
+     */
     function buildTreeHtml(obj, key, depth = 0) {
-        const indent = '  '.repeat(depth);
+        // הגבלת מספר nodes
+        if (state.treeNodeCount >= CONFIG.TREE_MAX_NODES) {
+            return '<span class="tree-truncated">... (יותר מדי אלמנטים)</span>';
+        }
+        state.treeNodeCount++;
+
+        // הגבלת עומק
+        if (depth > CONFIG.TREE_MAX_DEPTH) {
+            return '<span class="tree-truncated">... (עומק מקסימלי)</span>';
+        }
         
         if (obj === null) {
             return `<span class="tree-value null">null</span>`;
@@ -1693,7 +1984,12 @@ app.register_blueprint(json_formatter_bp)
         
         if (typeof obj !== 'object') {
             const type = typeof obj;
-            const value = type === 'string' ? `"${escapeHtml(obj)}"` : String(obj);
+            // קיצור מחרוזות ארוכות
+            let displayValue = obj;
+            if (type === 'string' && obj.length > 500) {
+                displayValue = obj.substring(0, 500) + '...';
+            }
+            const value = type === 'string' ? `"${escapeHtml(String(displayValue))}"` : String(obj);
             return `<span class="tree-value ${type}">${value}</span>`;
         }
         
@@ -1704,14 +2000,23 @@ app.register_blueprint(json_formatter_bp)
         if (entries.length === 0) {
             return `<span>${bracket[0]}${bracket[1]}</span>`;
         }
+
+        // אם יש יותר מדי items, הצג רק חלק
+        const maxItems = 100;
+        const truncated = entries.length > maxItems;
+        const displayEntries = truncated ? entries.slice(0, maxItems) : entries;
         
-        let html = `<div class="tree-node">`;
+        // קיפול אוטומטי לעומקים גבוהים
+        const autoCollapse = depth >= CONFIG.TREE_INITIAL_COLLAPSE_DEPTH;
+        
+        let html = `<div class="tree-node${autoCollapse ? ' collapsed' : ''}">`;
         html += `<span class="tree-toggle"></span>`;
-        html += `<span class="tree-key">${escapeHtml(String(key))}</span>: ${bracket[0]}`;
+        html += `<span class="tree-key">${escapeHtml(String(key))}</span>`;
+        html += `<span class="tree-count">(${entries.length})</span>: ${bracket[0]}`;
         html += `<div class="tree-children">`;
         
-        entries.forEach(([k, v], i) => {
-            const comma = i < entries.length - 1 ? ',' : '';
+        displayEntries.forEach(([k, v], i) => {
+            const comma = i < displayEntries.length - 1 ? ',' : '';
             html += `<div class="tree-item">`;
             
             if (typeof v === 'object' && v !== null) {
@@ -1723,6 +2028,11 @@ app.register_blueprint(json_formatter_bp)
             
             html += `${comma}</div>`;
         });
+
+        // הודעה על קיצוץ
+        if (truncated) {
+            html += `<div class="tree-item tree-truncated">... ועוד ${entries.length - maxItems} פריטים</div>`;
+        }
         
         html += `</div>${bracket[1]}</div>`;
         return html;
@@ -1797,18 +2107,54 @@ app.register_blueprint(json_formatter_bp)
         }
     }
 
+    /**
+     * הדגשת מיקום שגיאה ב-editor
+     * תומך גם ב-CodeMirror וגם ב-textarea רגיל
+     */
     function highlightError(line, column) {
-        const textarea = elements.jsonInput;
-        const lines = textarea.value.split('\n');
-        let position = 0;
-        
-        for (let i = 0; i < line - 1 && i < lines.length; i++) {
-            position += lines[i].length + 1;
+        // אם יש CodeMirror editor
+        if (state.inputEditor && typeof state.inputEditor.setCursor === 'function') {
+            // CodeMirror משתמש ב-0-based indexing
+            const cmLine = line - 1;
+            const cmColumn = column - 1;
+            
+            // מיקוד על השגיאה
+            state.inputEditor.setCursor({ line: cmLine, ch: cmColumn });
+            state.inputEditor.focus();
+            
+            // הדגשת השורה
+            if (typeof state.inputEditor.addLineClass === 'function') {
+                // הסרת הדגשות קודמות
+                for (let i = 0; i < state.inputEditor.lineCount(); i++) {
+                    state.inputEditor.removeLineClass(i, 'background', 'error-line');
+                }
+                state.inputEditor.addLineClass(cmLine, 'background', 'error-line');
+                
+                // הסרת ההדגשה אחרי 3 שניות
+                setTimeout(() => {
+                    state.inputEditor.removeLineClass(cmLine, 'background', 'error-line');
+                }, 3000);
+            }
+            
+            // גלילה לשורה
+            state.inputEditor.scrollIntoView({ line: cmLine, ch: cmColumn }, 100);
+            
+        } else {
+            // Fallback ל-textarea רגיל
+            const textarea = elements.jsonInput;
+            if (!textarea) return;
+            
+            const lines = textarea.value.split('\n');
+            let position = 0;
+            
+            for (let i = 0; i < line - 1 && i < lines.length; i++) {
+                position += lines[i].length + 1;
+            }
+            position += column - 1;
+            
+            textarea.focus();
+            textarea.setSelectionRange(position, position + 1);
         }
-        position += column - 1;
-        
-        textarea.focus();
-        textarea.setSelectionRange(position, position + 1);
     }
 
     function updateStats(stats) {
@@ -1834,7 +2180,7 @@ app.register_blueprint(json_formatter_bp)
 
     // ========== Helper Actions ==========
     function copyToClipboard() {
-        const text = elements.jsonOutput.value || elements.jsonInput.value;
+        const text = getOutputValue() || getInputValue();
         if (!text) {
             showToast('אין תוכן להעתקה', 'warning');
             return;
@@ -1848,14 +2194,16 @@ app.register_blueprint(json_formatter_bp)
     }
 
     function clearAll() {
-        elements.jsonInput.value = '';
-        elements.jsonOutput.value = '';
+        setInputValue('');
+        setOutputValue('');
         elements.jsonTree.innerHTML = '';
         elements.inputStats.textContent = '';
         elements.outputStats.textContent = '';
         elements.validationMessage.classList.add('hidden');
         elements.searchResults.innerHTML = '';
         state.lastValidJson = null;
+        state.pendingTreeData = null;
+        state.treeNodeCount = 0;
     }
 
     function loadSample() {
@@ -1879,17 +2227,22 @@ app.register_blueprint(json_formatter_bp)
             }
         };
         
-        elements.jsonInput.value = JSON.stringify(sample, null, 2);
+        setInputValue(JSON.stringify(sample, null, 2));
         onInputChange();
     }
 
     function handleFileUpload(event) {
         const file = event.target.files[0];
         if (!file) return;
+
+        // אזהרה לקבצים גדולים
+        if (file.size > CONFIG.LARGE_FILE_WARNING_SIZE) {
+            showToast(`קובץ גדול (${formatBytes(file.size)}) - הטעינה עלולה לקחת זמן`, 'warning');
+        }
         
         const reader = new FileReader();
         reader.onload = (e) => {
-            elements.jsonInput.value = e.target.result;
+            setInputValue(e.target.result);
             onInputChange();
             showToast(`נטען: ${file.name}`, 'success');
         };
@@ -1903,10 +2256,15 @@ app.register_blueprint(json_formatter_bp)
     }
 
     function onInputChange() {
-        const content = elements.jsonInput.value;
+        const content = getInputValue();
         const bytes = new Blob([content]).size;
         const lines = content.split('\n').length;
         elements.inputStats.textContent = `${formatBytes(bytes)} | ${lines} שורות`;
+
+        // אזהרה על גודל קובץ
+        if (bytes > CONFIG.LARGE_FILE_WARNING_SIZE) {
+            elements.inputStats.textContent += ' ⚠️ קובץ גדול';
+        }
     }
 
     function toggleDropdown(event) {
@@ -1977,8 +2335,12 @@ app.register_blueprint(json_formatter_bp)
     }
 
     // ========== Initialization ==========
-    function init() {
+    async function init() {
         cacheElements();
+        
+        // אתחול CodeMirror editors (אסינכרוני)
+        await initEditors();
+        
         bindEvents();
         onInputChange();
         console.log('JSON Formatter initialized');
@@ -1997,7 +2359,9 @@ app.register_blueprint(json_formatter_bp)
         minify: minifyJson,
         validate: validateJson,
         convert: convertJson,
-        search: searchJson
+        search: searchJson,
+        forceRenderTree: forceRenderTree,  // לכפיית רינדור Tree View לקבצים גדולים
+        getConfig: () => ({ ...CONFIG })   // גישה ל-configuration
     };
 
 })();
@@ -2506,3 +2870,64 @@ if (window.EditorManager) {
 - אל תמשוך שדות כבדים (`content`, `code`) בשאילתות רשימה
 - השתמש ב-aggregation ברמת ה-DB כשאפשר
 - טען נתונים כבדים אסינכרונית (Lazy Loading)
+
+---
+
+## ⚠️ נקודות חשובות למימוש
+
+### 1. אינטגרציית CodeMirror (קריטי)
+
+המדריך מתוכנן לעבוד עם `EditorManager` הקיים בפרויקט:
+
+```javascript
+// הקוד משתמש ב-EditorManager אוטומטית אם זמין
+await initEditors();
+
+// גישה לתוכן דרך פונקציות wrapper
+const content = getInputValue();  // עובד עם CodeMirror או textarea
+setOutputValue(result);           // עובד עם CodeMirror או textarea
+```
+
+**יתרונות:**
+- Syntax highlighting אוטומטי ל-JSON
+- מספרי שורות
+- התאמה ל-Dark Mode
+- הדגשת שגיאות על שורה ספציפית
+
+**Fallback:**
+אם `EditorManager` לא זמין, הקוד יעבוד עם textarea רגיל.
+
+### 2. תלויות Python
+
+**חובה להוסיף ל-`requirements/base.txt`:**
+
+```txt
+PyYAML>=6.0.1
+```
+
+ללא זה, המרה ל-YAML תיכשל עם הודעת שגיאה ברורה.
+
+### 3. הגבלות ביצועים ב-Tree View
+
+המימוש כולל הגנות מפני קבצי JSON גדולים:
+
+| הגדרה | ערך ברירת מחדל | תיאור |
+|--------|----------------|--------|
+| `TREE_MAX_DEPTH` | 50 | עומק מקסימלי לעץ |
+| `TREE_MAX_NODES` | 5000 | מספר nodes מקסימלי |
+| `LARGE_FILE_WARNING_SIZE` | 1MB | גודל לאזהרה |
+| `TREE_INITIAL_COLLAPSE_DEPTH` | 3 | קיפול אוטומטי מעומק זה |
+
+**התנהגות:**
+- קבצים מעל 1MB מציגים אזהרה עם אפשרות להמשיך
+- Nodes מעבר למגבלה מוצגים כ-"..."
+- קיפול אוטומטי של עומקים גבוהים
+
+### סיכום שינויים מרכזיים
+
+| נושא | מה נוסף |
+|------|---------|
+| **CodeMirror** | פונקציות `getInputValue()`, `setInputValue()`, `initEditors()` |
+| **תלויות** | סעיף Dependencies עם PyYAML |
+| **Tree View** | קונפיגורציית CONFIG, הגבלות עומק/nodes, אזהרות גודל |
+| **Error Highlight** | תמיכה ב-CodeMirror API עם fallback ל-textarea |
