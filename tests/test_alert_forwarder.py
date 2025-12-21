@@ -2,6 +2,7 @@ import os
 import time
 import types
 import importlib
+from urllib.parse import urlparse
 
 
 def test_forward_alerts_sends_to_sinks_and_emits(monkeypatch):
@@ -44,7 +45,7 @@ def test_forward_alerts_sends_to_sinks_and_emits(monkeypatch):
     # Event should be emitted as anomaly severity
     assert any(e[0] == "alert_received" and e[1] == "anomaly" for e in events["evts"])  # anomaly severity
 
-    tg_calls = [c for c in calls["posts"] if "api.telegram.org" in c[0]]
+    tg_calls = [c for c in calls["posts"] if urlparse(c[0]).hostname == "api.telegram.org"]
     assert len(tg_calls) == 1
     tg_payload = tg_calls[0][1] or {}
     # We do not include generatorURL in the text; instead we attach a public dashboard button.
