@@ -1012,7 +1012,6 @@ try:
     note_deployment_started("webapp service starting up")
 except Exception:
     pass
-atexit.register(lambda: note_deployment_shutdown("webapp service shutting down"))
 
 # --- Search: metrics, limiter (lightweight, optional) ---
 def _no_op(*args, **kwargs):

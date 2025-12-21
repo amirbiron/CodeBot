@@ -73,6 +73,16 @@ def _get_non_negative_int(name: str, default: int) -> int:
     return val if val >= 0 else int(default)
 
 
+# --- Startup warmup gate (avoid noisy internal alerts during deploy/cold start) ---
+# בזמן warmup אנחנו חוסמים את ה-monitor הפנימי לחלוטין כדי למנוע רעשי דיפלוי.
+_DEFAULT_STARTUP_GRACE_PERIOD_SECONDS = 1200  # 20 minutes
+_STARTUP_GRACE_PERIOD_SECONDS = _get_non_negative_int(
+    "ALERT_STARTUP_GRACE_PERIOD_SECONDS",
+    _DEFAULT_STARTUP_GRACE_PERIOD_SECONDS,
+)
+_START_TIME = time.time()
+
+
 # --- In-memory state ---
 _WINDOW_SEC = 3 * 60 * 60  # 3 hours
 _RECOMPUTE_EVERY_SEC = 5 * 60  # 5 minutes
@@ -139,6 +149,12 @@ def reset_state_for_tests() -> None:
     Not intended for production use.
     """
     _samples.clear()
+    # Make sure unit tests are not blocked by startup warmup.
+    global _START_TIME
+    try:
+        _START_TIME = time.time() - float(_STARTUP_GRACE_PERIOD_SECONDS or 0) - 1.0
+    except Exception:
+        _START_TIME = time.time() - 3600.0
     global _last_recompute_ts
     _last_recompute_ts = 0.0
     for k in list(_thresholds.keys()):
@@ -1084,6 +1100,13 @@ def check_and_emit_alerts(now_ts: Optional[float] = None) -> None:
 
     Cooldowns ensure we do not spam more than once per 5 minutes per alert type.
     """
+    try:
+        uptime = time.time() - float(_START_TIME or 0.0)
+        if float(_STARTUP_GRACE_PERIOD_SECONDS or 0) > 0 and uptime < float(_STARTUP_GRACE_PERIOD_SECONDS):
+            return
+    except Exception:
+        # Fail-open: if anything goes wrong, do not block alerting.
+        pass
     t = float(now_ts if now_ts is not None else _now())
     try:
         _recompute_if_due(t)

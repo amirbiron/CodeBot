@@ -10,7 +10,7 @@ groups:
           summary: "שיעור שגיאות גבוה (>5% בדקה)"
 
       - alert: SlowOperationsP95
-        expr: (histogram_quantile(0.95, rate(operation_latency_seconds_bucket[5m])) > 2) and on(job, instance) (time() - process_start_time_seconds > 300)
+        expr: (histogram_quantile(0.95, rate(operation_latency_seconds_bucket[5m])) > 2) and on(job, instance) (time() - process_start_time_seconds > 300) and on() ((time() - process_start_time_seconds{job=~".*prometheus.*"} > 600) or absent(process_start_time_seconds{job=~".*prometheus.*"}))
         for: 10m
         labels:
           severity: warning
@@ -41,6 +41,7 @@ groups:
             ) > 1.5
           )
           and on(job, instance) (time() - process_start_time_seconds > 300)
+          and on() ((time() - process_start_time_seconds{job=~".*prometheus.*"} > 600) or absent(process_start_time_seconds{job=~".*prometheus.*"}))
         for: 15m
         labels:
           severity: warning
@@ -57,6 +58,7 @@ groups:
             ) > 3
           )
           and on(job, instance) (time() - process_start_time_seconds > 300)
+          and on() ((time() - process_start_time_seconds{job=~".*prometheus.*"} > 600) or absent(process_start_time_seconds{job=~".*prometheus.*"}))
         for: 30m
         labels:
           severity: critical
@@ -66,7 +68,7 @@ groups:
 
       # --- Health & Startup metrics exposed via /healthz ---
       - alert: SlowMongoConnection
-        expr: (min_over_time(health_ping_ms[5m]) > 100) and on(job, instance) (time() - process_start_time_seconds > 300)
+        expr: (min_over_time(health_ping_ms[5m]) > 100) and on(job, instance) (time() - process_start_time_seconds > 300) and on() ((time() - process_start_time_seconds{job=~".*prometheus.*"} > 600) or absent(process_start_time_seconds{job=~".*prometheus.*"}))
         for: 0m
         labels:
           severity: warning
@@ -86,6 +88,7 @@ groups:
               > avg_over_time(health_ping_ms[30m] offset 6h) * 1.5
           )
           and on(job, instance) (time() - process_start_time_seconds > 300)
+          and on() ((time() - process_start_time_seconds{job=~".*prometheus.*"} > 600) or absent(process_start_time_seconds{job=~".*prometheus.*"}))
         for: 10m
         labels:
           severity: warning
@@ -95,7 +98,7 @@ groups:
           description: "השוואת חצי שעה אחרונה לעומת חלון זהה עם offset 6h לאחור."
 
       - alert: MongoLatencyPredictiveSpike
-        expr: (predict_linear(health_ping_ms[1h], 10m) > 120) and on(job, instance) (time() - process_start_time_seconds > 300)
+        expr: (predict_linear(health_ping_ms[1h], 10m) > 120) and on(job, instance) (time() - process_start_time_seconds > 300) and on() ((time() - process_start_time_seconds{job=~".*prometheus.*"} > 600) or absent(process_start_time_seconds{job=~".*prometheus.*"}))
         for: 0m
         labels:
           severity: critical
@@ -121,6 +124,7 @@ groups:
               > predict_linear(health_latency_ewma[2h], 15m) * 1.2
           )
           and on(job, instance) (time() - process_start_time_seconds > 300)
+          and on() ((time() - process_start_time_seconds{job=~".*prometheus.*"} > 600) or absent(process_start_time_seconds{job=~".*prometheus.*"}))
         for: 10m
         labels:
           severity: warning

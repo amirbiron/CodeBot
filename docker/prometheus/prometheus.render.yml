@@ -14,6 +14,11 @@ alerting:
             - ${ALERTMANAGER_TARGET}
 
 scrape_configs:
+  # Self-scrape so rules can gate on Prometheus uptime after restarts.
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['localhost:9090']
+
   - job_name: 'render-webapp'
     scheme: https
     metrics_path: /metrics
