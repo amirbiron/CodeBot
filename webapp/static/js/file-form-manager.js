@@ -47,6 +47,119 @@
     return /\.(md|markdown)$/i.test(n);
   }
 
+  class OverwriteConfirmManager {
+    constructor({ form, filenameInput, codeFileInput, mode, fileId }) {
+      this.form = form;
+      this.filenameInput = filenameInput;
+      this.codeFileInput = codeFileInput;
+      this.mode = normalizeMode(mode);
+      this.fileId = fileId ? String(fileId) : '';
+      this.initialFilename = (this.filenameInput && this.filenameInput.value) || '';
+    }
+
+    init() {
+      if (!this.form) {
+        return;
+      }
+
+      this.form.addEventListener('submit', async (e) => {
+        try {
+          // מנגנון מניעה מלולאת שליחה חוזרת
+          if (this.form.dataset.skipConfirm === '1') {
+            return;
+          }
+
+          const name = this.resolveTargetName();
+          if (!name) {
+            return; // השרת יוודא שם ריק
+          }
+
+          // בעריכה: אם השם לא השתנה - אין שום "דריסה" של קובץ אחר
+          if (this.mode === 'edit' && name === (this.initialFilename || '')) {
+            return;
+          }
+
+          e.preventDefault();
+
+          const resolved = await this.resolveExisting(name);
+          if (!resolved) {
+            // אם לא הצלחנו לבדוק - נבקש אישור כדי לא לדרוס בשקט
+            const confirmed = window.confirm('לא הצלחנו לבדוק אם קיים כבר קובץ בשם הזה. להמשיך לשמור?');
+            if (!confirmed) {
+              return;
+            }
+            this.form.dataset.skipConfirm = '1';
+            this.form.submit();
+            return;
+          }
+
+          const exists = !!resolved.ok;
+          const existingId = resolved.id ? String(resolved.id) : '';
+
+          // אם זה עריכה של אותו קובץ (אותו id) - אין צורך באישור
+          if (exists && this.mode === 'edit' && this.fileId && existingId && existingId === this.fileId) {
+            this.form.dataset.skipConfirm = '1';
+            this.form.submit();
+            return;
+          }
+
+          if (exists) {
+            const confirmed = window.confirm(`קובץ זה יחליף את קובץ ${name} — האם אתה בטוח?`);
+            if (!confirmed) {
+              return; // ביטול השמירה
+            }
+          }
+
+          // המשך שליחה רגילה
+          this.form.dataset.skipConfirm = '1';
+          this.form.submit();
+        } catch (_) {
+          // במקרה של כשל בבדיקה – נבקש אישור מינימלי כדי לא לדרוס בשקט
+          try {
+            const confirmed = window.confirm('לא הצלחנו לבדוק אם קיים כבר קובץ בשם הזה. להמשיך לשמור?');
+            if (!confirmed) {
+              return;
+            }
+          } catch (_) {}
+          try { this.form.dataset.skipConfirm = '1'; } catch (_) {}
+          try { this.form.submit(); } catch (_) {}
+        }
+      });
+    }
+
+    resolveTargetName() {
+      const typed = (this.filenameInput && this.filenameInput.value ? this.filenameInput.value : '').trim();
+      if (typed) {
+        return typed;
+      }
+      // Upload flow: אם המשתמש העלה קובץ ולא מילא שם, השרת ישתמש בשם הקובץ שהועלה
+      try {
+        const file = this.codeFileInput && this.codeFileInput.files ? this.codeFileInput.files[0] : null;
+        const uploadedName = file && file.name ? String(file.name).trim() : '';
+        return uploadedName || '';
+      } catch (_) {
+        return '';
+      }
+    }
+
+    async resolveExisting(name) {
+      try {
+        const url = `/api/files/resolve?name=${encodeURIComponent(String(name || '').trim())}`;
+        const res = await fetch(url, { credentials: 'same-origin' });
+        if (!res || !res.ok) {
+          return null;
+        }
+        const data = await res.json().catch(() => null);
+        if (!data || typeof data !== 'object') {
+          return null;
+        }
+        return data;
+      } catch (_) {
+        return null;
+      }
+    }
+  }
+
   class SourceUrlManager {
     constructor({ container }) {
       this.container = container;
@@ -762,6 +875,7 @@
       this.editorContainer = null;
       this.languageSelect = null;
       this.filenameInput = null;
+      this.codeFileInput = null;
       this.imageWidget = null;
       this.imageExternalTrigger = null;
       this.sourceUrlContainer = null;
@@ -770,6 +884,7 @@
       this.sourceUrlManager = null;
       this.languageDetector = null;
       this.imageManager = null;
+      this.overwriteConfirmManager = null;
     }
 
     async init() {
@@ -777,6 +892,7 @@
       this.editorContainer = document.querySelector(this.selectors.editorContainer || '');
       this.languageSelect = document.querySelector(this.selectors.languageSelect || '');
       this.filenameInput = document.querySelector(this.selectors.filenameInput || '');
+      this.codeFileInput = this.form ? this.form.querySelector('input[name="code_file"]') : null;
       this.imageWidget = document.querySelector(this.selectors.imageUploadContainer || '');
       this.imageExternalTrigger = null;
       try {
@@ -790,6 +906,16 @@
 
       this.sourceUrlManager = new SourceUrlManager({ container: this.sourceUrlContainer });
       this.sourceUrlManager.init();
+
+      // אישור דריסה אם שם הקובץ כבר קיים (גם Upload וגם Edit)
+      this.overwriteConfirmManager = new OverwriteConfirmManager({
+        form: this.form,
+        filenameInput: this.filenameInput,
+        codeFileInput: this.codeFileInput,
+        mode: this.mode,
+        fileId: (this.config && this.config.fileId) || '',
+      });
+      this.overwriteConfirmManager.init();
 
       // init images early (avoid waiting for editorManager -> prevents widget/button delay)
       this.imageManager = new ImageManager({

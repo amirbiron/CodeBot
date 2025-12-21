@@ -78,44 +78,6 @@
     const sourceUrlInput = document.getElementById('sourceUrlInput');
     const sourceUrlTouched = document.getElementById('sourceUrlTouched');
 
-    // --- אישור דריסה אם שם הקובץ כבר קיים ---
-    if (fileNameInput) {
-      form.addEventListener('submit', async (e) => {
-        try {
-          if (form.dataset.skipConfirm === '1') {
-            return;
-          }
-          const name = (fileNameInput.value || '').trim();
-          if (!name) {
-            return;
-          }
-          e.preventDefault();
-          const url = `/api/files/resolve?name=${encodeURIComponent(name)}`;
-          const res = await fetch(url, { credentials: 'same-origin' });
-          let exists = false;
-          if (res && res.ok) {
-            const data = await res.json().catch(() => ({}));
-            exists = !!(data && data.ok);
-          }
-          if (exists) {
-            const confirmed = window.confirm(`קובץ זה יחליף את קובץ ${name} — האם אתה בטוח?`);
-            if (!confirmed) {
-              return;
-            }
-          }
-          form.dataset.skipConfirm = '1';
-          form.submit();
-        } catch (_) {
-          try {
-            form.dataset.skipConfirm = '1';
-          } catch (_) {}
-          try {
-            form.submit();
-          } catch (_) {}
-        }
-      });
-    }
-
     // --- טיוטה מקומית (Upload בלבד) ---
     const statusEl = document.getElementById('draftSaveStatus');
     const clearBtn = document.getElementById('clearDraftBtn');
