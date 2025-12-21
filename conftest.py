@@ -8,6 +8,57 @@ from typing import AsyncIterator, Dict, List, Optional
 import pytest
 import pytest_asyncio
 
+# -----------------------------------------------------------------------------
+# Telegram module isolation (safe)
+# -----------------------------------------------------------------------------
+#
+# חלק מהטסטים מבצעים stubbing ידני ל-`sys.modules['telegram']` בלי להשתמש ב-monkeypatch,
+# ולפעמים זה stubbing *חלקי* (למשל בלי `InputFile`). אחרי שטסט כזה רץ, טסטים אחרים
+# שמייבאים `bot_handlers` נופלים כבר בזמן import על:
+# `ImportError: cannot import name 'InputFile' from 'telegram'`.
+#
+# מצד שני, אסור לנו למחוק/לטעון מחדש את telegram.ext בצורה אגרסיבית, כי זה עלול ליצור
+# שתי גרסאות שונות של אותן מחלקות (BaseHandler/ApplicationHandlerStop) ולהוביל ל-TypeError.
+#
+# הפתרון: נשמור reference לסטאבים הקנוניים שמגיעים מ-`tests/_telegram_stubs.py`
+# (שכבר נטענים ב-`tests/conftest.py`), ונשחזר אותם *רק* אם מזהים ש-telegram נהיה "שבור".
+_CANONICAL_TELEGRAM_MODULES: Dict[str, object] = {}
+
+
+def _ensure_canonical_telegram_modules_loaded() -> None:
+    global _CANONICAL_TELEGRAM_MODULES
+    if _CANONICAL_TELEGRAM_MODULES:
+        return
+    try:
+        import tests._telegram_stubs  # noqa: F401
+    except Exception:
+        return
+    for key in (
+        "telegram",
+        "telegram.constants",
+        "telegram.error",
+        "telegram.ext",
+        "telegram.ext._application",
+    ):
+        mod = sys.modules.get(key)
+        if mod is not None:
+            _CANONICAL_TELEGRAM_MODULES[key] = mod
+
+
+def _telegram_is_broken() -> bool:
+    tg = sys.modules.get("telegram")
+    if tg is None:
+        return True
+    return not hasattr(tg, "InputFile")
+
+
+def _restore_canonical_telegram_modules() -> None:
+    if not _CANONICAL_TELEGRAM_MODULES:
+        return
+    for key, mod in _CANONICAL_TELEGRAM_MODULES.items():
+        sys.modules[key] = mod  # type: ignore[assignment]
+
+
 # Ensure project root is on sys.path so `import utils` works in tests
 PROJECT_ROOT = os.path.dirname(__file__)
 if PROJECT_ROOT not in sys.path:
@@ -102,6 +153,7 @@ def pytest_configure(config: pytest.Config) -> None:
     # Accumulate per-test durations for performance tests
     config._perf_times = {}  # type: ignore[attr-defined]
     _ensure_real_telegram_package_loaded()
+    _ensure_canonical_telegram_modules_loaded()
 
 
 def pytest_collection_modifyitems(config: pytest.Config, items: List[pytest.Item]) -> None:
@@ -266,10 +318,13 @@ def _reset_telegram_modules_between_tests() -> None:
     יש טסטים שמסטבבים את `telegram` כדי לאפשר import בסביבות בלי PTB.
     בהרצה עם xdist, דליפה כזו יכולה להפיל טסטים שעושים import/reload ל-main.
     """
-    # ⚠️ קריטי:
-    # לא מנקים כאן telegram.* מ-sys.modules כדי לא לייצר "שתי גרסאות" של אותה ספרייה.
-    # המטרה של ה-fixtureים שלנו היא לאפס *מצב של האפליקציה שלנו*, לא של ספריות צד ג'.
+    _ensure_canonical_telegram_modules_loaded()
+    if _telegram_is_broken():
+        _restore_canonical_telegram_modules()
     yield
+    # ניקוי אחרי הטסט — רק אם מישהו השאיר סטאב שבור
+    if _telegram_is_broken():
+        _restore_canonical_telegram_modules()
 
 
 @pytest.fixture(autouse=True)
