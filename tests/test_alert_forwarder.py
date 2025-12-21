@@ -50,10 +50,21 @@ def test_forward_alerts_sends_to_sinks_and_emits(monkeypatch):
     tg_payload = tg_calls[0][1] or {}
     # We do not include generatorURL in the text; instead we attach a public dashboard button.
     assert "http://example" not in str(tg_payload.get("text") or "")
+    # Clean Telegram UI: no dashboard URL in message body (button only).
+    assert "📊 Dashboard:" not in str(tg_payload.get("text") or "")
+    assert "https://public.example/admin/observability" not in str(tg_payload.get("text") or "")
     kb = tg_payload.get("reply_markup") or {}
     rows = kb.get("inline_keyboard") or []
     assert rows and rows[0] and rows[0][0]["text"] == "Open Dashboard"
     assert rows[0][0]["url"] == "https://public.example/admin/observability"
+
+    slack_calls = [c for c in calls["posts"] if urlparse(c[0]).hostname == "hooks.slack.test"]
+    assert len(slack_calls) == 1
+    slack_payload = slack_calls[0][1] or {}
+    slack_text = str(slack_payload.get("text") or "")
+    # Slack has no button: include dashboard URL in message text.
+    assert "📊 Dashboard:" in slack_text
+    assert "https://public.example/admin/observability" in slack_text
 
 
 def test_forward_alerts_handles_sink_errors(monkeypatch):
@@ -209,5 +220,43 @@ def test_startup_grace_period_suppresses_noisy_alerts(monkeypatch):
 
     # After grace: should be forwarded to both sinks
     monkeypatch.setattr(af, "_MODULE_START_MONOTONIC", af.monotonic() - 301.0)
+    af.forward_alerts([alert])
+    assert len(calls["posts"]) == 2
+
+
+def test_default_startup_grace_period_is_20_minutes(monkeypatch):
+    monkeypatch.delenv("ALERT_STARTUP_GRACE_PERIOD_SECONDS", raising=False)
+    import importlib
+    import alert_forwarder as af
+    importlib.reload(af)
+    assert float(af._STARTUP_GRACE_PERIOD_SECONDS) == 1200.0  # noqa: SLF001
+
+
+def test_startup_grace_period_does_not_suppress_non_allowlisted_alerts(monkeypatch):
+    monkeypatch.setenv("SLACK_WEBHOOK_URL", "https://hooks.slack.test/abc")
+    monkeypatch.setenv("ALERT_TELEGRAM_BOT_TOKEN", "tkn")
+    monkeypatch.setenv("ALERT_TELEGRAM_CHAT_ID", "123")
+    monkeypatch.delenv("ALERT_STARTUP_GRACE_PERIOD_SECONDS", raising=False)  # use default (20m)
+
+    import importlib
+    import types
+    import alert_forwarder as af
+    importlib.reload(af)
+
+    calls = {"posts": []}
+
+    def _pooled(method, url, json=None, timeout=5):  # noqa: ARG001
+        calls["posts"].append((url, json))
+        return types.SimpleNamespace(status_code=200, json=lambda: {"ok": True})
+
+    monkeypatch.setattr(af, "_pooled_request", _pooled)
+
+    # During startup, only allowlisted noisy alerts are suppressed; critical safety alerts must pass.
+    alert = {
+        "status": "firing",
+        "labels": {"alertname": "DiskFull", "severity": "critical"},
+        "annotations": {"summary": "danger"},
+    }
+    monkeypatch.setattr(af, "_MODULE_START_MONOTONIC", af.monotonic())
     af.forward_alerts([alert])
     assert len(calls["posts"]) == 2
