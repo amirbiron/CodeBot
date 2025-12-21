@@ -36,6 +36,10 @@ except Exception:  # pragma: no cover
         return None
 
 
+_PUBLIC_WEBAPP_URL_DEFAULT = "https://code-keeper-webapp.onrender.com"
+_DASHBOARD_PATH = "/admin/observability"
+_TELEGRAM_DASHBOARD_BUTTON_TEXT = "Open Dashboard"
+
 _ANOMALY_WINDOW_SECONDS = max(
     0.0,
     float(os.getenv("ALERT_ANOMALY_BATCH_WINDOW_SECONDS", "180") or 180),
@@ -69,6 +73,18 @@ def _safe_float(value: Any, default: float = 0.0) -> float:
         return float(str(value).strip().replace("%", "").replace("s", ""))
     except Exception:
         return float(default)
+
+
+def _build_public_dashboard_url() -> str:
+    """Build a public URL to the observability dashboard (never internal generatorURL)."""
+    try:
+        public_url = str(os.getenv("PUBLIC_URL", _PUBLIC_WEBAPP_URL_DEFAULT) or "").strip()
+    except Exception:
+        public_url = ""
+    if not public_url:
+        public_url = _PUBLIC_WEBAPP_URL_DEFAULT
+    public_url = public_url.rstrip("/")
+    return f"{public_url}{_DASHBOARD_PATH}"
 
 
 def _fmt_minutes(window_seconds: Any) -> str:
@@ -470,8 +486,6 @@ def _format_alert_text(alert: Dict[str, Any]) -> str:
     instance = _first(["instance", "pod", "hostname"])  # k8s or host
     request_id = _first(["request_id", "request-id", "x-request-id", "x_request_id"])  # if present
 
-    generator_url = alert.get("generatorURL") or ""
-
     # --- Specialized templates for high-signal alerts ---
     try:
         if str(name or "").strip() == "External Service Degraded":
@@ -490,9 +504,6 @@ def _format_alert_text(alert: Dict[str, Any]) -> str:
                 error_count=error_count,
                 window_seconds=window_seconds,
             )
-            # Append URLs (Grafana/AM + Sentry) if present
-            if generator_url:
-                msg += f"\n{generator_url}"
             sentry_link = _build_sentry_link(
                 direct_url=_first(["sentry_permalink", "sentry_url", "sentry"]),
                 request_id=request_id,
@@ -513,8 +524,6 @@ def _format_alert_text(alert: Dict[str, Any]) -> str:
                 memory_mb=_first(["avg_memory_usage_mb"]),
                 recent_errors_5m=_first(["recent_errors_5m"]),
             )
-            if generator_url:
-                msg += f"\n{generator_url}"
             return msg
 
         # Only treat as a Sentry-origin alert when the alert itself is named as such.
@@ -549,10 +558,6 @@ def _format_alert_text(alert: Dict[str, Any]) -> str:
     detail_preview = annotations.get("details_preview") or annotations.get("details")
     if detail_preview:
         parts.append(str(detail_preview))
-
-    # Append source URL if exists (Alertmanager/Grafana link)
-    if generator_url:
-        parts.append(str(generator_url))
 
     # Best-effort: add Sentry link (issue/events search) when configured
     sentry_link = _build_sentry_link(
@@ -779,7 +784,15 @@ def _post_to_telegram(text: str) -> None:
         return
     try:
         api = f"https://api.telegram.org/bot{token}/sendMessage"
-        payload = {"chat_id": chat_id, "text": text}
+        action_url = _build_public_dashboard_url()
+        payload = {
+            "chat_id": chat_id,
+            "text": text,
+            "disable_web_page_preview": True,
+            "reply_markup": {
+                "inline_keyboard": [[{"text": _TELEGRAM_DASHBOARD_BUTTON_TEXT, "url": action_url}]],
+            },
+        }
         prefer_pooled = _use_pooled_http()
         from telegram_api import parse_telegram_json_from_response, require_telegram_ok
 

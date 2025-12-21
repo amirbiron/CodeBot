@@ -40,7 +40,8 @@ def test_forwarder_format_includes_context_and_direct_permalink(monkeypatch):
     assert "env: prod" in text
     assert "instance: pod-1" in text
     assert "request_id: rid-1" in text
-    assert "http://alert.example/am" in text
+    # We intentionally avoid showing generatorURL (often internal/non-public) in chat text.
+    assert "http://alert.example/am" not in text
     assert "Sentry: https://sentry.io/organizations/acme/issues/1" in text
 
 
