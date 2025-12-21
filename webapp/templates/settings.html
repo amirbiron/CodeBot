@@ -1258,12 +1258,18 @@
       cursor: pointer;
       padding: 0.2rem 0.5rem;
       border-radius: 6px;
-      margin-right: 0.5rem;
       transition: all 0.2s;
     }
     .radar-eye-btn:hover {
       background: rgba(255, 255, 255, 0.1);
       border-color: rgba(255, 255, 255, 0.3);
+    }
+
+    /* Count cell layout for number + eye button */
+    .radar-count-with-eye {
+      display: flex;
+      align-items: center;
+      gap: 8px;
     }
 
     /* Light theme adjustments */
@@ -2141,7 +2147,8 @@
 
         const buildCoverageTable = (title, rows, kind) => {
           // Add eye button only for "Missing Runbooks" when there are sentry_issue types
-          const hasSentryIssues = kind === 'missing' && rows.some(r => r.alert_type === 'sentry_issue');
+          const isMissingRunbooksTable = kind === 'missing' && String(title || '').includes('Missing Runbooks');
+          const hasSentryIssues = isMissingRunbooksTable && rows.some(r => r.alert_type === 'sentry_issue');
           const eyeButton = hasSentryIssues
             ? `<button class="radar-eye-btn" type="button" data-show-sentry-details title="צפה בפירוט השגיאות">👁️</button>`
             : '';
@@ -2150,7 +2157,6 @@
             <h4 style="margin: 0.25rem 0 0.6rem;">
               ${escapeHtml(title)} 
               <span class="radar-chip">${escapeHtml(String(rows.length))}</span>
-              ${eyeButton}
             </h4>
           `;
           if (!rows.length) {
@@ -2164,10 +2170,13 @@
               const sample = escapeHtml(r.sample_title || '');
               const obsHref = `/admin/observability?timerange=24h&alert_type=${encodeURIComponent(r.alert_type || '')}`;
               const selfHref = `/settings?config_radar_tab=coverage&min_count=${encodeURIComponent(String(coverageState.minCount))}&alert_type=${encodeURIComponent(r.alert_type || '')}#configRadarCard`;
+              const showEyeInCount = hasSentryIssues && r.alert_type === 'sentry_issue';
+              const countCellClass = showEyeInCount ? ' class="radar-count-with-eye"' : '';
+              const countCellHtml = showEyeInCount ? `<span>${count}</span>${eyeButton}` : count;
               return `
                 <tr>
                   <td><code dir="ltr">${alertType}</code></td>
-                  <td>${count}</td>
+                  <td${countCellClass}>${countCellHtml}</td>
                   <td>${lastSeen}</td>
                   <td>${sample || '—'}</td>
                   <td>
@@ -2270,11 +2279,10 @@
             </div>
           `;
 
-          // Bind eye button click
-          const eyeBtn = slots.coverage.querySelector('[data-show-sentry-details]');
-          if (eyeBtn) {
-            eyeBtn.addEventListener('click', openMissingRunbooksModal);
-          }
+          // Bind eye button click (support 1+ buttons)
+          slots.coverage.querySelectorAll('[data-show-sentry-details]').forEach((btn) => {
+            btn.addEventListener('click', openMissingRunbooksModal);
+          });
 
           const minEl = document.getElementById('configRadarCoverageMinCount');
           const searchEl = document.getElementById('configRadarCoverageSearch');
