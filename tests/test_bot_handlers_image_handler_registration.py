@@ -17,7 +17,14 @@ class _AppNoGroup:
 
 
 def _is_image_handler(handler):
-    pattern = getattr(handler, 'pattern', '') or ''
+    pattern = getattr(handler, 'pattern', None)
+    # ב-PTB אמיתי זה יכול להיות re.Pattern; בסטאבים זה לרוב מחרוזת
+    if hasattr(pattern, "pattern"):
+        try:
+            pattern = pattern.pattern
+        except Exception:
+            pattern = None
+    pattern = pattern or ''
     return isinstance(pattern, str) and 'regenerate_image_' in pattern and 'img_set_theme' in pattern
 
 

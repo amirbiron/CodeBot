@@ -80,9 +80,36 @@ def _compute_percentile(values: List[float], percentile: float) -> Optional[floa
     return xs[idx]
 
 
+def _ensure_real_telegram_package_loaded() -> None:
+    """וודא שב-process הנוכחי `telegram` הוא package אמיתי (python-telegram-bot).
+
+    זה חשוב במיוחד ל-xdist: אזהרות שנשלחות מה-workers עלולות להתבסס על
+    מחלקות/מודולים כמו `telegram.warnings`, וה-master חייב להיות מסוגל לייבא אותם.
+    """
+    import sys
+    import types
+
+    mod = sys.modules.get("telegram")
+    # אם הוזרק Stub (למשל ModuleType בלי __path__ / SimpleNamespace) — ננקה
+    if mod is not None:
+        is_module = isinstance(mod, types.ModuleType)
+        is_package = bool(is_module and hasattr(mod, "__path__"))
+        if not is_package:
+            for name in list(sys.modules.keys()):
+                if name == "telegram" or name.startswith("telegram."):
+                    sys.modules.pop(name, None)
+    try:
+        import telegram  # noqa: F401
+        import telegram.warnings  # noqa: F401
+    except Exception:
+        # אם אין PTB (או חסר בתלויות) — לא נחסום; טסטים שמסתמכים על stubs עדיין יעבדו
+        pass
+
+
 def pytest_configure(config: pytest.Config) -> None:
     # Accumulate per-test durations for performance tests
     config._perf_times = {}  # type: ignore[attr-defined]
+    _ensure_real_telegram_package_loaded()
 
 
 def pytest_collection_modifyitems(config: pytest.Config, items: List[pytest.Item]) -> None:
@@ -178,6 +205,142 @@ def _reset_cache_manager_stub_before_test() -> None:
     cm = sys.modules.get('cache_manager')
     if isinstance(cm, SimpleNamespace):
         sys.modules.pop('cache_manager', None)
+
+
+@pytest.fixture(autouse=True)
+def _reset_cache_manager_state_between_tests(_reset_cache_manager_stub_before_test) -> None:
+    """מאפס מצב גלובלי של cache_manager בין טסטים.
+
+    בהרצה מקבילית (xdist) כל worker מריץ תת-סט אחר של טסטים, ולכן "דליפות" מצב
+    (למשל cache.is_enabled=True עם redis_client=None) הופכות לפלייקיות.
+    אנחנו מאפסים לברירת מחדל בטוחה לפני/אחרי כל טסט.
+    """
+    try:
+        import cache_manager as cm  # type: ignore
+
+        try:
+            cm.cache.is_enabled = False
+            cm.cache.redis_client = None
+        except Exception:
+            pass
+
+        try:
+            lock = getattr(cm, "_local_cache_lock", None)
+            store = getattr(cm, "_local_cache_store", None)
+            if store is not None:
+                if lock is not None:
+                    with lock:
+                        store.clear()
+                else:
+                    store.clear()
+            try:
+                setattr(cm, "_local_cache_last_cleanup_ts", None)
+            except Exception:
+                pass
+        except Exception:
+            pass
+    except Exception:
+        pass
+
+    yield
+
+    # ניקוי נוסף אחרי הטסט כדי למנוע דליפות לשאר הטסטים באותו worker
+    try:
+        import cache_manager as cm  # type: ignore
+        try:
+            cm.cache.is_enabled = False
+            cm.cache.redis_client = None
+        except Exception:
+            pass
+        try:
+            lock = getattr(cm, "_local_cache_lock", None)
+            store = getattr(cm, "_local_cache_store", None)
+            if store is not None:
+                if lock is not None:
+                    with lock:
+                        store.clear()
+                else:
+                    store.clear()
+        except Exception:
+            pass
+    except Exception:
+        pass
+
+
+@pytest.fixture(autouse=True)
+def _reset_telegram_modules_between_tests() -> None:
+    """מנקה stubs שדלפו ל-telegram בין טסטים.
+
+    יש טסטים שמסטבבים את `telegram` כדי לאפשר import בסביבות בלי PTB.
+    בהרצה עם xdist, דליפה כזו יכולה להפיל טסטים שעושים import/reload ל-main.
+    """
+    import sys
+    import types
+
+    def _purge_if_stubbed() -> None:
+        mod = sys.modules.get("telegram")
+        if mod is None:
+            return
+        is_module = isinstance(mod, types.ModuleType)
+        has_botcommand = hasattr(mod, "BotCommand")
+        if is_module and has_botcommand:
+            return
+        # purge telegram and its submodules
+        for name in list(sys.modules.keys()):
+            if name == "telegram" or name.startswith("telegram."):
+                sys.modules.pop(name, None)
+
+    _purge_if_stubbed()
+    yield
+    _purge_if_stubbed()
+
+
+@pytest.fixture(autouse=True)
+def _reset_alerts_storage_stub_before_test() -> None:
+    """מבטל Stub שדלף ל-`monitoring.alerts_storage` בין טסטים.
+
+    חלק מהטסטים מציבים שם `types.SimpleNamespace` בתוך `sys.modules`.
+    בהרצה מקבילית זה יכול לדלוף ולהשפיע על טסטים אחרים שמצפים למודול אמיתי.
+    """
+    import sys
+    from types import SimpleNamespace
+
+    def _clean() -> None:
+        mod = sys.modules.get("monitoring.alerts_storage")
+        if isinstance(mod, SimpleNamespace):
+            sys.modules.pop("monitoring.alerts_storage", None)
+
+    # ניקוי לפני הטסט (אם דלף מטסט קודם באותו worker)
+    _clean()
+    yield
+    # ניקוי אחרי הטסט (כדי למנוע דליפה לטסט הבא באותו worker)
+    _clean()
+
+
+@pytest.fixture(autouse=True)
+def _reset_database_package_stub_between_tests() -> None:
+    """מנקה Stub שדלף ל-`database` (package) בין טסטים.
+
+    יש טסטים שמזריקים `sys.modules['database']` כמודול דמה.
+    אם זה דולף, importlib.reload על תתי-מודולים ייכשל כי `database` כבר לא package.
+    """
+    import sys
+    import types
+
+    def _purge_if_not_package() -> None:
+        mod = sys.modules.get("database")
+        if mod is None:
+            return
+        # package אמיתי אמור להכיל __path__
+        if isinstance(mod, types.ModuleType) and hasattr(mod, "__path__"):
+            return
+        for name in list(sys.modules.keys()):
+            if name == "database" or name.startswith("database."):
+                sys.modules.pop(name, None)
+
+    _purge_if_not_package()
+    yield
+    _purge_if_not_package()
 
 
 @pytest.fixture(autouse=True)

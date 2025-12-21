@@ -34,8 +34,8 @@ async def test_handle_callback_query_recycle_pagination_first_and_last(monkeypat
     async def fake_safe_edit_message_text(query, text, reply_markup=None, parse_mode=None):
         captured["reply_markup"] = reply_markup
         captured["text"] = text
-    from utils import TelegramUtils
-    monkeypatch.setattr(TelegramUtils, "safe_edit_message_text", fake_safe_edit_message_text)
+    # חשוב: conversation_handlers מייבא TelegramUtils ב-from utils, והוא עלול להחזיק רפרנס "ישן"
+    monkeypatch.setattr(ch.TelegramUtils, "safe_edit_message_text", fake_safe_edit_message_text)
 
     class Q:
         def __init__(self, data):

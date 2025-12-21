@@ -104,19 +104,9 @@ async def test_main_global_gate_shadow_adv_logs_only(monkeypatch):
         bot._per_user_global = object()  # type: ignore[attr-defined]
     bot._shadow_mode = True  # type: ignore[attr-defined]
 
-    # Find gate
-    gate = None
-    for (args, kwargs) in getattr(bot.application, 'handlers', []):
-        if args:
-            handler = args[0]
-            cb = getattr(handler, 'callback', None)
-            if callable(cb) and getattr(cb, '__name__', '') == '_rate_limit_gate':
-                gate = cb
-                break
-            if callable(handler) and getattr(handler, '__name__', '') == '_rate_limit_gate':
-                gate = handler
-                break
-    assert gate is not None
+    # Find gate (main.CodeKeeperBot exposes it explicitly for tests)
+    gate = getattr(bot, "_rate_limit_gate", None)
+    assert callable(gate), "_rate_limit_gate not available on bot"
 
     class _User:
         def __init__(self, id):
@@ -160,19 +150,8 @@ async def test_main_global_gate_admin_bypass(monkeypatch):
     class _Ctx:
         user_data = {}
 
-    # Extract the added gate handler from application handlers (group -90)
-    gate = None
-    for (args, kwargs) in getattr(bot.application, 'handlers', []):
-        if args:
-            handler = args[0]
-            cb = getattr(handler, 'callback', None)
-            if callable(cb) and getattr(cb, '__name__', '') == '_rate_limit_gate':
-                gate = cb
-                break
-            if callable(handler) and getattr(handler, '__name__', '') == '_rate_limit_gate':
-                gate = handler
-                break
-    assert gate is not None, "_rate_limit_gate not registered"
+    gate = getattr(bot, "_rate_limit_gate", None)
+    assert callable(gate), "_rate_limit_gate not available on bot"
 
     # Act: call with admin user; should not raise
     try:
@@ -190,19 +169,8 @@ async def test_main_global_gate_soft_warning_and_block(monkeypatch):
     from main import CodeKeeperBot, ApplicationHandlerStop
     bot = CodeKeeperBot()
 
-    # Find gate
-    gate = None
-    for (args, kwargs) in getattr(bot.application, 'handlers', []):
-        if args:
-            handler = args[0]
-            cb = getattr(handler, 'callback', None)
-            if callable(cb) and getattr(cb, '__name__', '') == '_rate_limit_gate':
-                gate = cb
-                break
-            if callable(handler) and getattr(handler, '__name__', '') == '_rate_limit_gate':
-                gate = handler
-                break
-    assert gate is not None
+    gate = getattr(bot, "_rate_limit_gate", None)
+    assert callable(gate), "_rate_limit_gate not available on bot"
 
     # Fake update/context
     class _User:
@@ -239,19 +207,8 @@ async def test_main_global_gate_blocks_callback_query(monkeypatch):
     from main import CodeKeeperBot, ApplicationHandlerStop
     bot = CodeKeeperBot()
 
-    # Find gate
-    gate = None
-    for (args, kwargs) in getattr(bot.application, 'handlers', []):
-        if args:
-            handler = args[0]
-            cb = getattr(handler, 'callback', None)
-            if callable(cb) and getattr(cb, '__name__', '') == '_rate_limit_gate':
-                gate = cb
-                break
-            if callable(handler) and getattr(handler, '__name__', '') == '_rate_limit_gate':
-                gate = handler
-                break
-    assert gate is not None
+    gate = getattr(bot, "_rate_limit_gate", None)
+    assert callable(gate), "_rate_limit_gate not available on bot"
 
     class _User:
         def __init__(self, id):
@@ -301,19 +258,8 @@ async def test_main_global_gate_admin_bypass(monkeypatch):
     class _Ctx:
         user_data = {}
 
-    # Extract the added gate handler from application handlers (group -90)
-    gate = None
-    for (args, kwargs) in getattr(bot.application, 'handlers', []):
-        if args and callable(getattr(args[1], 'callback', None)):
-            cb = args[1].callback
-            if cb.__name__ == '_rate_limit_gate':
-                gate = cb
-                break
-        if args and callable(args[1]):
-            if args[1].__name__ == '_rate_limit_gate':
-                gate = args[1]
-                break
-    assert gate is not None, "_rate_limit_gate not registered"
+    gate = getattr(bot, "_rate_limit_gate", None)
+    assert callable(gate), "_rate_limit_gate not available on bot"
 
     # Act: call with admin user; should not raise
     try:
@@ -331,19 +277,8 @@ async def test_main_global_gate_soft_warning_once_per_min(monkeypatch):
     from main import CodeKeeperBot, ApplicationHandlerStop
     bot = CodeKeeperBot()
 
-    # Find gate
-    gate = None
-    for (args, kwargs) in getattr(bot.application, 'handlers', []):
-        if args and callable(getattr(args[1], 'callback', None)):
-            cb = args[1].callback
-            if cb.__name__ == '_rate_limit_gate':
-                gate = cb
-                break
-        if args and callable(args[1]):
-            if args[1].__name__ == '_rate_limit_gate':
-                gate = args[1]
-                break
-    assert gate is not None
+    gate = getattr(bot, "_rate_limit_gate", None)
+    assert callable(gate), "_rate_limit_gate not available on bot"
 
     # Fake update/context
     class _User:
