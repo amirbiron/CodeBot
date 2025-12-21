@@ -34,8 +34,9 @@ async def test_handle_callback_query_recycle_flow(monkeypatch):
         captured["reply_markup"] = reply_markup
         captured["text"] = text
         captured["parse_mode"] = parse_mode
-    from utils import TelegramUtils
-    monkeypatch.setattr(TelegramUtils, "safe_edit_message_text", fake_safe_edit_message_text)
+    # חשוב: conversation_handlers מייבא TelegramUtils ב-from utils, והוא עלול להחזיק רפרנס "ישן"
+    # אחרי טסטים אחרים שעושים reload/סטאבינג. לכן נבצע patch על האובייקט שמשמש בפועל בתוך ch.
+    monkeypatch.setattr(ch.TelegramUtils, "safe_edit_message_text", fake_safe_edit_message_text)
 
     class Q:
         def __init__(self, data):
