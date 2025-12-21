@@ -84,3 +84,84 @@ async def test_triage_command_builds_report_and_link(monkeypatch):
     await adv.triage_command(upd, ctx)
     out = "\n".join(upd.message.texts)
     assert "Triage" in out and "Grafana" in out and "דוח מלא:" in out
+
+
+@pytest.mark.asyncio
+async def test_triage_system_outputs_numbers_from_alert_manager(monkeypatch):
+    app = _App()
+    adv = AdvancedBotHandlers(app)
+    upd = _Update()
+    ctx = _Context(args=["system"])
+    os.environ["ADMIN_USER_IDS"] = str(upd.effective_user.id)
+
+    import alert_manager as am
+
+    am.reset_state_for_tests()
+    for _ in range(10):
+        am.note_request(200, 0.05)
+
+    await adv.triage_command(upd, ctx)
+    out = "\n".join(upd.message.texts)
+    assert "Triage – System" in out
+    assert "Requests: " in out
+
+
+@pytest.mark.asyncio
+async def test_triage_latency_outputs_percentiles(monkeypatch):
+    app = _App()
+    adv = AdvancedBotHandlers(app)
+    upd = _Update()
+    ctx = _Context(args=["latency"])
+    os.environ["ADMIN_USER_IDS"] = str(upd.effective_user.id)
+
+    import alert_manager as am
+
+    am.reset_state_for_tests()
+    for _ in range(15):
+        am.note_request(200, 0.123)
+
+    await adv.triage_command(upd, ctx)
+    out = "\n".join(upd.message.texts)
+    assert "Triage – Latency" in out
+    assert "p50/p95/p99" in out
+
+
+@pytest.mark.asyncio
+async def test_errors_command_escapes_html_like_topology_description(monkeypatch):
+    app = _App()
+    adv = AdvancedBotHandlers(app)
+    upd = _Update()
+    ctx = _Context()
+    os.environ["ADMIN_USER_IDS"] = str(upd.effective_user.id)
+
+    # Ensure we hit the local-buffer path (not Sentry issues).
+    import integrations_sentry as sc
+
+    monkeypatch.setattr(sc, "is_configured", lambda: False, raising=False)
+
+    def _fake_recent(limit=200):
+        from datetime import datetime, timezone
+        now_iso = datetime.now(timezone.utc).isoformat()
+        return [
+            {
+                "ts": now_iso,
+                "error_signature": "mongo_topology",
+                "error": "<TopologyDescription id=1 topology_type=ReplicaSetNoPrimary>",
+                "severity": "error",
+                "service": "webapp",
+                "endpoint": "/api/demo",
+            }
+        ]
+
+    # Inject a lightweight stub module to avoid pulling optional deps (structlog, etc.)
+    import sys
+    import types as _types
+
+    obs_stub = _types.ModuleType("observability")
+    obs_stub.get_recent_errors = _fake_recent  # type: ignore[attr-defined]
+    monkeypatch.setitem(sys.modules, "observability", obs_stub)
+
+    await adv.errors_command(upd, ctx)
+    out = "\n".join(upd.message.texts)
+    assert "&lt;TopologyDescription" in out
+    assert "<TopologyDescription" not in out
