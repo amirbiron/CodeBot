@@ -5,12 +5,13 @@ import pytest
 @pytest.mark.asyncio
 async def test_safe_answer_integrated_with_recycle_handlers(monkeypatch):
     import conversation_handlers as ch
-    from utils import TelegramUtils
 
     calls = {"answered": 0}
-    async def fake_answer(self, query, text=None, show_alert=False, cache_time=None):
+    async def fake_answer(query, text=None, show_alert=False, cache_time=None):
         calls["answered"] += 1
-    monkeypatch.setattr(TelegramUtils, "safe_answer", fake_answer)
+    # חשוב: לתקן על האובייקט שה-handler משתמש בו בפועל (conversation_handlers.TelegramUtils),
+    # כדי להיות עמיד לניקוי/טעינה מחדש של מודולים בין טסטים.
+    monkeypatch.setattr(ch.TelegramUtils, "safe_answer", fake_answer)
 
     class Q:
         def __init__(self, data):
