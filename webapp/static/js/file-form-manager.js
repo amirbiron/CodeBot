@@ -374,14 +374,29 @@
       return isMarkdownFilename(filename) || isMarkdownLanguage(langValue);
     }
 
+    updateWidgetVisibility() {
+      if (!this.widget) {
+        return;
+      }
+
+      const isMarkdown = this.isMarkdownContext();
+      const hasImages = this.countExistingVisible() + this.newImages.length > 0;
+      const hasError = !!(this.errorEl && String(this.errorEl.textContent || '').trim().length > 0);
+
+      // ה-Widget מוצג רק אם זה Markdown וגם (יש תמונות או יש שגיאה)
+      if (isMarkdown && (hasImages || hasError)) {
+        this.widget.style.display = 'block';
+      } else {
+        this.widget.style.display = 'none';
+      }
+    }
+
     updateForContextChange() {
       if (!this.widget) {
         return;
       }
       const isMarkdown = this.isMarkdownContext();
-      // שימוש ב-style כדי לנהל display: none שמוגדר ב-HTML (מניעת FOUC)
-      this.widget.style.display = isMarkdown ? 'block' : 'none';
-      // שמירה על תאימות ל-CSS הקיים
+      // שמירה על תאימות ל-CSS הקיים (ובמיוחד מצב לא-Markdown)
       this.widget.classList.toggle('is-hidden', !isMarkdown);
 
       if (this.externalTrigger) {
@@ -397,13 +412,14 @@
 
       this.updateStatus();
       this.updateEmptyState();
+      this.updateWidgetVisibility();
     }
 
     setError(message) {
-      if (!this.errorEl) {
-        return;
+      if (this.errorEl) {
+        this.errorEl.textContent = message || '';
       }
-      this.errorEl.textContent = message || '';
+      this.updateWidgetVisibility();
     }
 
     updateStatus() {
@@ -494,6 +510,7 @@
       if (!toAdd.length) {
         this.updateStatus();
         this.updateEmptyState();
+        this.updateWidgetVisibility();
         return;
       }
 
@@ -501,6 +518,7 @@
       this.renderNewPreviews(toAdd);
       this.updateStatus();
       this.updateEmptyState();
+      this.updateWidgetVisibility();
     }
 
     renderNewPreviews(items) {
@@ -596,6 +614,7 @@
       if (!this.newImages.length && this.countExistingVisible() === 0) {
         this.setError('');
       }
+      this.updateWidgetVisibility();
     }
 
     onFormData(event) {
