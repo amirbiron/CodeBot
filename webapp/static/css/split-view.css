@@ -353,8 +353,6 @@
   display: flex;
   flex-direction: column;
   min-width: 0;
-  /* חשוב לגלילה בתוך flex (בעיקר במובייל/iOS): מאפשר לילדים עם overflow להתכווץ */
-  min-height: 0;
 }
 
 .split-panel--editor {
@@ -396,8 +394,6 @@
 .split-preview-content {
   flex: 1;
   overflow: auto;
-  /* מאפשר overflow פנימי לעבוד בתוך Flexbox */
-  min-height: 0;
   background: var(--split-preview-bg);
   color: var(--split-preview-text);
   border-radius: 8px;
@@ -525,14 +521,6 @@ html[dir="rtl"] .split-preview-content code {
   }
 
   .split-preview-content {
-    /* מובייל: מכריח את ה-flex item להתכווץ כדי ש-overflow-y יעבוד */
-    min-height: 0;
-    overflow-y: auto;
-    -webkit-overflow-scrolling: touch;
-  }
-
-  /* שומרים על גובה מינימלי נעים לתוכן/placeholder בלי לשבור גלילה */
-  .split-preview-canvas {
     min-height: 220px;
   }
 }
