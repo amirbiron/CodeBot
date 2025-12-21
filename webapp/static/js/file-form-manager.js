@@ -58,8 +58,9 @@
       return rawName;
     }
 
-    // תואם ללוגיקה בשרת: "md" מתנהג כמו "markdown"
-    const langKey = langKeyRaw === 'md' ? 'markdown' : langKeyRaw;
+    // תואם ללוגיקה בשרת: משתמשים בערך השפה כפי שנשלח מהטופס
+    // (בשרת lang_to_ext כולל "markdown" אבל לא כולל "md")
+    const langKey = langKeyRaw;
 
     // mirror backend mapping in upload/edit (only updates when no ext or ext is .txt/.text)
     const langToExt = {
