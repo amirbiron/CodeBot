@@ -479,16 +479,17 @@ def fetch_alerts_by_type(
 ) -> List[Dict[str, Any]]:
     """Fetch recent alerts of a specific type with Sentry details.
 
-    Returns a list of dicts:
-      {
-        "alert_id": str,
-        "ts_dt": datetime,
-        "name": str,
-        "summary": str,
-        "sentry_issue_id": Optional[str],
-        "sentry_permalink": Optional[str],
-        "sentry_short_id": Optional[str],
-      }
+    Returns a list of dicts, for example::
+
+        {
+          "alert_id": str,
+          "ts_dt": datetime,
+          "name": str,
+          "summary": str,
+          "sentry_issue_id": Optional[str],
+          "sentry_permalink": Optional[str],
+          "sentry_short_id": Optional[str],
+        }
     """
     coll = _get_collection()
     if coll is None:
