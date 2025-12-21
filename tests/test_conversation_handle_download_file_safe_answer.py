@@ -5,7 +5,10 @@ import pytest
 @pytest.mark.asyncio
 async def test_handle_download_file_uses_safe_answer(monkeypatch):
     # Arrange: monkeypatch TelegramUtils.safe_answer to observe it was called
-    from utils import TelegramUtils
+    # חשוב: תחת pytest-xdist יש הרבה טסטים שעושים importlib.reload(...) על מודולים,
+    # מה שעלול ליצור מצב שבו conversation_handlers מחזיק רפרנס "ישן" ל-TelegramUtils.
+    # לכן אנחנו עושים monkeypatch על האובייקט שמשמש בפועל את handle_download_file.
+    import conversation_handlers
 
     called = {"flag": False}
 
@@ -13,7 +16,7 @@ async def test_handle_download_file_uses_safe_answer(monkeypatch):
         called["flag"] = True
         return None
 
-    monkeypatch.setattr(TelegramUtils, "safe_answer", fake_safe_answer, raising=True)
+    monkeypatch.setattr(conversation_handlers.TelegramUtils, "safe_answer", fake_safe_answer, raising=True)
 
     # Minimal update/context with files_cache and dl_ path to avoid DB calls
     class Q:
@@ -47,7 +50,7 @@ async def test_handle_download_file_uses_safe_answer(monkeypatch):
                 }
             }
 
-    from conversation_handlers import handle_download_file
+    handle_download_file = conversation_handlers.handle_download_file
 
     # Act
     u = U()

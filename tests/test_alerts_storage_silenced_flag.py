@@ -31,9 +31,12 @@ def test_record_alert_includes_silenced_flag(monkeypatch):
     fake_pymongo = types.SimpleNamespace(MongoClient=lambda *a, **k: _Cli(), ASCENDING=1)
     monkeypatch.setitem(importlib.sys.modules, 'pymongo', fake_pymongo)
 
-    import monitoring.alerts_storage as s
-    import importlib as _il
-    _il.reload(s)
+    # תחת xdist יש טסטים אחרים שמסטבבים/מחליפים את sys.modules['monitoring.alerts_storage'].
+    # כדי להימנע מ-flakiness של importlib.reload (שתלוי בזהות המודול ב-sys.modules),
+    # נטען מחדש בצורה דטרמיניסטית: נפנה את המודול ואז נייבא אותו מחדש.
+    import sys
+    sys.modules.pop("monitoring.alerts_storage", None)
+    s = importlib.import_module("monitoring.alerts_storage")
 
     s.record_alert(alert_id="x", name="High Latency", severity="critical", summary="t", source="ut", silenced=True)
 

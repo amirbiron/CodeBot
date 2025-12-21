@@ -237,7 +237,7 @@ jobs:
           REQUESTS_RETRY_BACKOFF: '0'
           AIOHTTP_TIMEOUT_TOTAL: '6'
         run: |
-          pytest -v -o addopts="" --cov=. --cov-report=xml --cov-report=term \
+          pytest -n auto --dist=loadscope -v -o addopts="" --cov=. --cov-report=xml --cov-report=term \
                  --durations=0 --json-report --json-report-file=unit-durations.json
 
       - name: Upload coverage to Codecov

@@ -30,9 +30,12 @@ async def test_start_and_help_texts_include_highlights(monkeypatch):
     from telegram.ext import CommandHandler
     for h in app.handlers:
         if isinstance(h, CommandHandler):
-            if getattr(h, 'command', None) == ['start']:
+            # PTB v20+ משתמש ב-commands (frozenset), ובסטאבים ישנים מופיע לפעמים command (list)
+            cmd_list = getattr(h, 'command', None)
+            cmd_set = getattr(h, 'commands', None)
+            if (cmd_list == ['start']) or (cmd_set is not None and 'start' in cmd_set):
                 start_cb = h.callback
-            if getattr(h, 'command', None) == ['help']:
+            if (cmd_list == ['help']) or (cmd_set is not None and 'help' in cmd_set):
                 help_cb = h.callback
 
     assert start_cb is not None and help_cb is not None

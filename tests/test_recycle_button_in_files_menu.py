@@ -16,8 +16,8 @@ async def test_recycle_button_present_in_files_menu_callback(monkeypatch):
     async def fake_safe_edit_message_text(query, text, reply_markup=None, parse_mode=None):
         captured["reply_markup"] = reply_markup
 
-    from utils import TelegramUtils
-    monkeypatch.setattr(TelegramUtils, "safe_edit_message_text", fake_safe_edit_message_text)
+    # חשוב: conversation_handlers מייבא TelegramUtils ב-from utils, והוא עלול להיות "סטייל" אחרי reloadים.
+    monkeypatch.setattr(ch.TelegramUtils, "safe_edit_message_text", fake_safe_edit_message_text)
 
     class DummyQuery:
         def __init__(self):
