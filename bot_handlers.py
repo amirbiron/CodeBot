@@ -2834,6 +2834,120 @@ class AdvancedBotHandlers:
                 await update.message.reply_text("ℹ️ שימוש: /triage <request_id או שאילתא>")
                 return
 
+            # תתי-פקודות מובנות שמגיעות מ-Quick Fixes: /triage system, /triage latency
+            #
+            # המטרה: להחזיר מספרים אמיתיים (לא "דוח ריק") מתוך הדגימות של alert_manager/metrics.
+            # זה מאפשר למנהלים לאמת מיד שיש תעבורה ושמדדי latency/error-rate נאספים.
+            q_lower = str(query).strip().lower()
+            if q_lower in {"system", "latency"}:
+                try:
+                    from datetime import datetime, timedelta, timezone
+                    now_dt = datetime.now(timezone.utc)
+                    start_dt = now_dt - timedelta(minutes=5)
+                except Exception:
+                    now_dt = None  # type: ignore
+                    start_dt = None  # type: ignore
+
+                # --- Request stats from alert_manager (3h rolling window) ---
+                total = errors = 0
+                err_rate = avg_lat = 0.0
+                p50 = p95 = p99 = 0.0
+                try:
+                    import alert_manager as am  # type: ignore
+
+                    try:
+                        err_rate = float(am.get_current_error_rate_percent(window_sec=5 * 60, source="internal"))
+                    except Exception:
+                        err_rate = 0.0
+                    try:
+                        avg_lat = float(am.get_current_avg_latency_seconds(window_sec=5 * 60, source="internal"))
+                    except Exception:
+                        avg_lat = 0.0
+                    try:
+                        if start_dt is not None and now_dt is not None:
+                            stats = am.get_request_stats_between(start_dt, now_dt, source="internal", percentiles=(50, 95, 99))
+                        else:
+                            stats = {}
+                        total = int(stats.get("total", 0.0) or 0.0)
+                        errors = int(stats.get("errors", 0.0) or 0.0)
+                        p50 = float(stats.get("p50", 0.0) or 0.0)
+                        p95 = float(stats.get("p95", 0.0) or 0.0)
+                        p99 = float(stats.get("p99", 0.0) or 0.0)
+                    except Exception:
+                        total = errors = 0
+                        p50 = p95 = p99 = 0.0
+                except Exception:
+                    total = errors = 0
+                    err_rate = avg_lat = 0.0
+                    p50 = p95 = p99 = 0.0
+
+                # --- System snapshot (best-effort; avoid PII) ---
+                active_requests = 0
+                mem_mb = 0.0
+                uptime_s = 0.0
+                try:
+                    from metrics import get_active_requests_count, get_current_memory_usage, get_process_uptime_seconds  # type: ignore
+
+                    try:
+                        active_requests = int(get_active_requests_count())
+                    except Exception:
+                        active_requests = 0
+                    try:
+                        mem_mb = float(get_current_memory_usage())
+                    except Exception:
+                        mem_mb = 0.0
+                    try:
+                        uptime_s = float(get_process_uptime_seconds())
+                    except Exception:
+                        uptime_s = 0.0
+                except Exception:
+                    active_requests = 0
+                    mem_mb = 0.0
+                    uptime_s = 0.0
+
+                # Friendly formatting
+                def _fmt_s(seconds: float) -> str:
+                    try:
+                        s = int(max(0, float(seconds)))
+                        d, rem = divmod(s, 86400)
+                        h, rem = divmod(rem, 3600)
+                        m, _ = divmod(rem, 60)
+                        if d:
+                            return f"{d}d {h}h {m}m"
+                        if h:
+                            return f"{h}h {m}m"
+                        return f"{m}m"
+                    except Exception:
+                        return "n/a"
+
+                if q_lower == "latency":
+                    lines = [
+                        "⚙️ Triage – Latency (5m)",
+                        f"• Requests: {total}",
+                        f"• Errors (5xx): {errors} (rate={err_rate:.2f}%)",
+                        f"• Avg latency: {avg_lat:.3f}s",
+                        f"• p50/p95/p99: {p50:.3f}s / {p95:.3f}s / {p99:.3f}s",
+                    ]
+                    if total <= 0:
+                        lines.append("ℹ️ אין דגימות ב-5 דקות האחרונות. נסה לרענן כמה דפים ואז להריץ שוב.")
+                    await update.message.reply_text("\n".join(lines), parse_mode=None, disable_web_page_preview=True)
+                    return
+
+                # system
+                lines = [
+                    "💻 Triage – System (5m)",
+                    f"• Requests: {total}",
+                    f"• Errors (5xx): {errors} (rate={err_rate:.2f}%)",
+                    f"• Avg latency: {avg_lat:.3f}s (p95={p95:.3f}s)",
+                    f"• Active requests: {active_requests}",
+                    f"• Memory (RSS): {mem_mb:.1f} MB",
+                    f"• Process uptime: {_fmt_s(uptime_s)}",
+                ]
+                if total <= 0:
+                    lines.append("ℹ️ אין דגימות ב-5 דקות האחרונות. ודא שהאתר קיבל תעבורה (רענון דפים) ושאין חסימה באמצע.")
+                await update.message.reply_text("\n".join(lines), parse_mode=None, disable_web_page_preview=True)
+                return
+
             # איסוף נתונים דרך שירות ה-investigation (Sentry-first, best-effort)
             result: dict = {}
             try:
