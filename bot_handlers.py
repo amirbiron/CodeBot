@@ -2892,7 +2892,13 @@ class AdvancedBotHandlers:
                 else:
                     # fallback ברור במקום לינק שבקליק נפתח ל-blank page
                     summary_lines.append(f"דוח מלא: {TextUtils.escape_markdown(share_url_txt, version=1)}")
-                    summary_lines.append("(הערה: כדי שייפתח בקליק מהטלגרם צריך PUBLIC_BASE_URL/WEBAPP_URL)")
+                    # חשוב: ההודעה נשלחת ב-Markdown, לכן צריך לאסקייפ "_" במחרוזת ההסבר
+                    summary_lines.append(
+                        TextUtils.escape_markdown(
+                            "(הערה: כדי שייפתח בקליק מהטלגרם צריך PUBLIC_BASE_URL/WEBAPP_URL)",
+                            version=1,
+                        )
+                    )
             else:
                 # גם בסביבת טסטים ללא אינטגרציית שיתוף חייב להיות אזכור ברור לדוח המלא.
                 summary_lines.append("דוח מלא: לא נוצר קישור אוטומטי (סביבת בדיקות)")
