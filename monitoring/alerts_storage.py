@@ -25,6 +25,7 @@ from datetime import datetime, timezone, timedelta
 from typing import Any, Dict, List, Optional, Tuple
 import hashlib
 import os
+import re
 
 
 def _is_true(val: Optional[str]) -> bool:
@@ -504,8 +505,9 @@ def fetch_alerts_by_type(
     except Exception:
         limit_int = 100
 
+    safe_pattern = re.escape(normalized_type)
     match = {
-        "alert_type": {"$regex": f"^{normalized_type}$", "$options": "i"},
+        "alert_type": {"$regex": f"^{safe_pattern}$", "$options": "i"},
         "details.is_drill": {"$ne": True},
     }
 
