@@ -47,10 +47,83 @@
     return /\.(md|markdown)$/i.test(n);
   }
 
+  function normalizeFilenameForSave(name, language) {
+    const rawName = String(name || '').trim();
+    if (!rawName) {
+      return '';
+    }
+
+    const langKeyRaw = String(language || '').trim().toLowerCase();
+    if (!langKeyRaw || langKeyRaw === 'text') {
+      return rawName;
+    }
+
+    // תואם ללוגיקה בשרת: "md" מתנהג כמו "markdown"
+    const langKey = langKeyRaw === 'md' ? 'markdown' : langKeyRaw;
+
+    // mirror backend mapping in upload/edit (only updates when no ext or ext is .txt/.text)
+    const langToExt = {
+      python: 'py',
+      javascript: 'js',
+      typescript: 'ts',
+      java: 'java',
+      cpp: 'cpp',
+      c: 'c',
+      csharp: 'cs',
+      go: 'go',
+      rust: 'rs',
+      ruby: 'rb',
+      php: 'php',
+      swift: 'swift',
+      kotlin: 'kt',
+      html: 'html',
+      css: 'css',
+      sql: 'sql',
+      bash: 'sh',
+      shell: 'sh',
+      yaml: 'yaml',
+      json: 'json',
+      xml: 'xml',
+      markdown: 'md',
+      scss: 'scss',
+      sass: 'sass',
+      less: 'less',
+    };
+
+    const targetExt = langToExt[langKey];
+    if (!targetExt) {
+      return rawName;
+    }
+
+    // emulate Python os.path.splitext behavior for typical filenames
+    const lastDot = rawName.lastIndexOf('.');
+    const hasDot = lastDot > 0; // ignore dotfiles like ".bashrc"
+    const base = hasDot ? rawName.slice(0, lastDot) : rawName;
+    const ext = hasDot ? rawName.slice(lastDot) : '';
+    const extLower = ext.toLowerCase();
+    const wantedDotExt = `.${targetExt}`;
+
+    if (!base) {
+      return rawName;
+    }
+
+    if (!extLower) {
+      return `${base}${wantedDotExt}`;
+    }
+
+    if ((extLower === '.txt' || extLower === '.text') && extLower !== wantedDotExt) {
+      return `${base}${wantedDotExt}`;
+    }
+
+    // אם קיימת סיומת אחרת (לא-טקסט) - נכבד אותה
+    return rawName;
+  }
+
   class OverwriteConfirmManager {
-    constructor({ form, filenameInput, codeFileInput, mode, fileId }) {
+    constructor({ form, filenameInput, languageSelect, codeFileInput, mode, fileId }) {
       this.form = form;
       this.filenameInput = filenameInput;
+      this.languageSelect = languageSelect;
       this.codeFileInput = codeFileInput;
       this.mode = normalizeMode(mode);
       this.fileId = fileId ? String(fileId) : '';
@@ -129,14 +202,15 @@
 
     resolveTargetName() {
       const typed = (this.filenameInput && this.filenameInput.value ? this.filenameInput.value : '').trim();
+      const langValue = (this.languageSelect && this.languageSelect.value) || '';
       if (typed) {
-        return typed;
+        return normalizeFilenameForSave(typed, langValue);
       }
       // Upload flow: אם המשתמש העלה קובץ ולא מילא שם, השרת ישתמש בשם הקובץ שהועלה
       try {
         const file = this.codeFileInput && this.codeFileInput.files ? this.codeFileInput.files[0] : null;
         const uploadedName = file && file.name ? String(file.name).trim() : '';
-        return uploadedName || '';
+        return normalizeFilenameForSave(uploadedName || '', langValue);
       } catch (_) {
         return '';
       }
@@ -911,6 +985,7 @@
       this.overwriteConfirmManager = new OverwriteConfirmManager({
         form: this.form,
         filenameInput: this.filenameInput,
+        languageSelect: this.languageSelect,
         codeFileInput: this.codeFileInput,
         mode: this.mode,
         fileId: (this.config && this.config.fileId) || '',
