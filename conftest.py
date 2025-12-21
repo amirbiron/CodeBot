@@ -26,7 +26,6 @@ _CANONICAL_TELEGRAM_MODULES: Dict[str, object] = {}
 
 
 def _ensure_canonical_telegram_modules_loaded() -> None:
-    global _CANONICAL_TELEGRAM_MODULES
     if _CANONICAL_TELEGRAM_MODULES:
         return
     try:
