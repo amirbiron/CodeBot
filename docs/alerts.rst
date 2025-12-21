@@ -52,7 +52,7 @@
              (
                histogram_quantile(
                  0.95,
-                 sum by (le) (rate(http_request_duration_seconds_bucket{endpoint!~"(metrics|health|static.*|favicon.*)"}[5m]))
+                 sum by (job, instance, le) (rate(http_request_duration_seconds_bucket{endpoint!~"(metrics|health|static.*|favicon.*)"}[5m]))
                ) > 1.5
              )
              and on(job, instance) (time() - process_start_time_seconds > 300)
@@ -63,21 +63,21 @@
            annotations:
              summary: "זמן תגובה גבוה ב-P95 מעל 1.5 שניות (מתמשך)"
 
-          - alert: SLOLatencyP95Critical
-            expr: |
-              (
-                histogram_quantile(
-                  0.95,
-                  sum by (le) (rate(http_request_duration_seconds_bucket{endpoint!~"(metrics|health|static.*|favicon.*)"}[5m]))
-                ) > 3
-              )
-              and on(job, instance) (time() - process_start_time_seconds > 300)
-            for: 30m
-            labels:
-              severity: critical
-              component: webapp
-            annotations:
-              summary: "קריטי: זמן תגובה P95 מעל 3 שניות לאורך זמן"
+         - alert: SLOLatencyP95Critical
+           expr: |
+             (
+               histogram_quantile(
+                 0.95,
+                 sum by (job, instance, le) (rate(http_request_duration_seconds_bucket{endpoint!~"(metrics|health|static.*|favicon.*)"}[5m]))
+               ) > 3
+             )
+             and on(job, instance) (time() - process_start_time_seconds > 300)
+           for: 30m
+           labels:
+             severity: critical
+             component: webapp
+           annotations:
+             summary: "קריטי: זמן תגובה P95 מעל 3 שניות לאורך זמן"
 
 התאמה לצרכים שלך
 -----------------
