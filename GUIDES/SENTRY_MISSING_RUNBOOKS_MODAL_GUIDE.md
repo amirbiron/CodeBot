@@ -1,5 +1,11 @@
 # מדריך מימוש: Modal לתצוגת שגיאות Sentry ללא Runbook
 
+> ⚠️ **הערה חשובה:** מסמך זה הוא **מדריך למימוש עתידי** בלבד.  
+> הקוד המוצג כאן הוא דוגמאות והנחיות – **לא קוד פעיל בפרויקט**.  
+> כדי להפעיל את הפיצ'ר, יש לבצע את השלבים המתוארים בצ'קליסט בסוף המסמך.
+
+---
+
 ## 📋 תיאור הפיצ'ר
 
 **מטרה:** הוספת כפתור '👁️' ליד המונה של "Missing Runbooks" בלשונית Coverage של Config Radar, שפותח Modal עם טבלה מפורטת של חתימות השגיאה מסנטרי שאין להן Runbook, כולל לינקים ישירים לכל שגיאה בסנטרי.
@@ -469,14 +475,17 @@ const renderSentryAlertsTable = (alerts) => {
         count: 0,
         sentry_link: alert.sentry_link || alert.sentry_permalink,
         sentry_short_id: alert.sentry_short_id,
-        last_seen: alert.ts_iso,
+        last_seen: alert.ts_iso || null,
         alerts: [],
       };
     }
     grouped[key].count++;
     grouped[key].alerts.push(alert);
-    if (alert.ts_iso > grouped[key].last_seen) {
-      grouped[key].last_seen = alert.ts_iso;
+    // Safe timestamp comparison: only update if new value exists and is greater
+    const newTs = alert.ts_iso || '';
+    const oldTs = grouped[key].last_seen || '';
+    if (newTs && (!oldTs || newTs > oldTs)) {
+      grouped[key].last_seen = newTs;
     }
   }
   
@@ -667,6 +676,9 @@ def test_alerts_by_type_returns_sentry_details(monkeypatch, client):
 ---
 
 ## ✅ צ'קליסט למימוש
+
+> 📝 **שים לב:** רשימה זו מפרטת את כל השלבים הנדרשים למימוש הפיצ'ר.  
+> סמן כל שלב לאחר השלמתו. הקוד בפרויקט **לא יכלול** את הפיצ'ר עד להשלמת כל השלבים.
 
 - [ ] הוספת `fetch_alerts_by_type()` ב-`monitoring/alerts_storage.py`
 - [ ] הוספת endpoint `/api/observability/alerts-by-type` ב-`webapp/app.py`
