@@ -973,7 +973,9 @@ try:
         note_deployment_started,
         note_deployment_shutdown,
      )
+    _METRICS_AVAILABLE = True
 except Exception:  # pragma: no cover
+    _METRICS_AVAILABLE = False
     def record_request_outcome(status_code: int, duration_seconds: float, **_kwargs) -> None:
         return None
     def record_http_request(method: str, endpoint: str, status_code: int, duration_seconds: float) -> None:
@@ -2591,6 +2593,48 @@ def _metrics_after(resp):
                 path=path_label,
                 cache_hit=cache_flag,
             )
+            # חשוב: בחלק מהסביבות (docs/CI/מינימל) import של metrics נכשל ואז
+            # record_request_outcome הוא no-op → alert_manager לא מקבל דגימות ולכן /observe ו-/triage ריקים.
+            # לכן נבצע fallback ל-alert_manager.note_request רק כאשר metrics לא זמינים כדי למנוע double counting.
+            if not bool(globals().get("_METRICS_AVAILABLE", False)):
+                try:
+                    from alert_manager import note_request as _am_note_request  # type: ignore
+
+                    # דילוג על רעש (סטטי/בריאות) רק כשהבקשה "ok". שגיאות עדיין נרשמות.
+                    try:
+                        p = str(path_label or "")
+                    except Exception:
+                        p = ""
+                    is_static = p.startswith("/static/")
+                    silent_paths = {"/metrics", "/health", "/healthz", "/favicon.ico"}
+                    is_silent_ok = (p in silent_paths) and int(status) < 400
+                    if (not is_static) or int(status) >= 400:
+                        if not is_silent_ok:
+                            ctx: Dict[str, Any] = {
+                                "path": p,
+                                "method": str(method_label or ""),
+                            }
+                            try:
+                                if endpoint:
+                                    ctx["endpoint"] = str(endpoint)
+                            except Exception:
+                                pass
+                            try:
+                                rid = getattr(request, "_req_id", None)
+                                if rid:
+                                    ctx["request_id"] = str(rid)
+                            except Exception:
+                                pass
+                            try:
+                                q_ms = int(getattr(g, "_queue_delay_ms", 0) or 0)
+                            except Exception:
+                                q_ms = 0
+                            if q_ms > 0:
+                                ctx["queue_delay_ms"] = int(q_ms)
+                            ctx = {k: v for k, v in (ctx or {}).items() if v not in (None, "", {})}
+                            _am_note_request(int(status), float(dur), source="internal", context=(ctx or None))
+                except Exception:
+                    pass
             try:
                 method = getattr(request, "method", "GET")
                 record_http_request(method, endpoint, status, dur, path=path_label)
