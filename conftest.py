@@ -533,6 +533,27 @@ def _close_http_async_session_after_session() -> None:
         pass
 
 
+@pytest.fixture(scope="session", autouse=True)
+def _cleanup_alert_forwarder_timers_after_session() -> None:
+    """מנקה timers שנוצרו ב-alert_forwarder במהלך הרצת הסוויטה.
+
+    זה נועד למנוע flaky failures מסוג "unraisable exception warnings" בזמן teardown
+    של הפרוסס/GC, במקרה שטיימרים נשארו פעילים בסוף הריצה.
+    """
+    yield
+    try:
+        import sys
+
+        mod = sys.modules.get("alert_forwarder")
+        if mod is None:
+            return
+        reset = getattr(mod, "_reset_anomaly_batches_for_tests", None)
+        if callable(reset):
+            reset()
+    except Exception:
+        pass
+
+
 @pytest_asyncio.fixture
 async def _reset_http_async_session_between_tests(
     request: Optional[pytest.FixtureRequest] = None,
