@@ -1178,7 +1178,6 @@ def create_app() -> web.Application:
 def run(host: str = "0.0.0.0", port: int = 10000) -> None:
     try:
         note_deployment_started("aiohttp service starting up")
-        atexit.register(lambda: note_deployment_shutdown("aiohttp service shutting down"))
     except Exception:
         pass
     app = create_app()

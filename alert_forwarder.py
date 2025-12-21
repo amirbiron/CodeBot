@@ -40,35 +40,6 @@ _PUBLIC_WEBAPP_URL_DEFAULT = "https://code-keeper-webapp.onrender.com"
 _DASHBOARD_PATH = "/admin/observability"
 _TELEGRAM_DASHBOARD_BUTTON_TEXT = "Open Dashboard"
 
-
-def _env_bool(name: str, default: bool) -> bool:
-    try:
-        raw = os.getenv(name)
-    except Exception:
-        return default
-    if raw is None:
-        return default
-    val = str(raw).strip().lower()
-    if not val:
-        return default
-    if val in {"1", "true", "yes", "on"}:
-        return True
-    if val in {"0", "false", "no", "off"}:
-        return False
-    return default
-
-
-# Text formatting switches per sink
-_TEXT_INCLUDE_DASHBOARD_LINK_TELEGRAM = _env_bool(
-    "ALERTS_TEXT_INCLUDE_DASHBOARD_LINK_TELEGRAM",
-    False,  # Telegram already has an inline button; keep message body clean by default
-)
-_TEXT_INCLUDE_DASHBOARD_LINK_SLACK = _env_bool(
-    "ALERTS_TEXT_INCLUDE_DASHBOARD_LINK_SLACK",
-    True,  # Slack has no button, include the link in the message text
-)
-
-
 # Startup grace period: suppress noisy performance alerts right after deploy/cold start.
 _MODULE_START_MONOTONIC = monotonic()
 _DEFAULT_STARTUP_GRACE_PERIOD_SECONDS = 1200.0  # 20 minutes
@@ -788,7 +759,8 @@ def _flush_anomaly_batch(key: str) -> None:
         batch.representative_alert,
         batch.count,
         duration_seconds,
-        include_dashboard_link=_TEXT_INCLUDE_DASHBOARD_LINK_TELEGRAM,
+        # Telegram: keep body clean, rely on inline button only.
+        include_dashboard_link=False,
     )
     _post_to_telegram(text)
 
@@ -945,8 +917,10 @@ def forward_alerts(alerts: List[Dict[str, Any]]) -> None:
                 except Exception:
                     pass
                 continue
-            text_slack = _format_alert_text(alert, include_dashboard_link=_TEXT_INCLUDE_DASHBOARD_LINK_SLACK)
-            text_telegram = _format_alert_text(alert, include_dashboard_link=_TEXT_INCLUDE_DASHBOARD_LINK_TELEGRAM)
+            # Clean Telegram UI: rely on inline button only (no dashboard URL in body).
+            text_telegram = _format_alert_text(alert, include_dashboard_link=False)
+            # Slack (and similar sinks): include dashboard URL in the message text.
+            text_slack = _format_alert_text(alert, include_dashboard_link=True)
             severity = str(labels.get("severity") or labels.get("level") or "info")
             # Emit the base receipt event consistently as anomaly to reflect detection,
             # while preserving the original label in a separate field for observability.
