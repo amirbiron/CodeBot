@@ -273,6 +273,22 @@
   </div>
 </div>
 
+<!-- Missing Runbooks Detail Modal -->
+<div id="missingRunbooksModal" class="radar-modal" hidden>
+  <div class="radar-modal__dialog" role="dialog" aria-modal="true" aria-labelledby="missingRunbooksModalTitle">
+    <div class="radar-modal__header">
+      <h3 id="missingRunbooksModalTitle">👁️ פירוט שגיאות Sentry ללא Runbook</h3>
+      <button class="radar-modal__close" type="button" data-modal-close aria-label="סגור">✕</button>
+    </div>
+    <div class="radar-modal__body" id="missingRunbooksModalBody">
+      <div class="radar-empty-state">טוען נתונים...</div>
+    </div>
+    <div class="radar-modal__footer">
+      <button type="button" class="btn btn-secondary" data-modal-close>סגור</button>
+    </div>
+  </div>
+</div>
+
 <div class="glass-card" style="border: 2px solid rgba(251, 191, 36, 0.3)">
   <h2 class="section-title">
     <i class="fas fa-tools"></i>
@@ -1126,6 +1142,144 @@
       font-weight: 600;
       color: #93c5fd;
     }
+
+    /* Missing Runbooks Modal */
+    .radar-modal {
+      position: fixed;
+      inset: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: rgba(0, 0, 0, 0.7);
+      z-index: 3000;
+    }
+    .radar-modal[hidden] {
+      display: none;
+    }
+    .radar-modal__dialog {
+      background: rgba(18, 24, 38, 0.97);
+      border-radius: 18px;
+      max-width: 900px;
+      width: 95%;
+      max-height: 85vh;
+      display: flex;
+      flex-direction: column;
+      box-shadow: 0 20px 60px rgba(0, 0, 0, 0.6);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+    }
+    .radar-modal__header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 1rem 1.25rem;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+    }
+    .radar-modal__header h3 {
+      margin: 0;
+      font-size: 1.15rem;
+    }
+    .radar-modal__close {
+      background: transparent;
+      border: none;
+      color: inherit;
+      font-size: 1.4rem;
+      cursor: pointer;
+      opacity: 0.7;
+      transition: opacity 0.2s;
+    }
+    .radar-modal__close:hover {
+      opacity: 1;
+    }
+    .radar-modal__body {
+      padding: 1rem 1.25rem;
+      overflow-y: auto;
+      flex: 1;
+    }
+    .radar-modal__footer {
+      padding: 0.75rem 1.25rem;
+      border-top: 1px solid rgba(255, 255, 255, 0.1);
+      display: flex;
+      justify-content: flex-end;
+      gap: 0.5rem;
+    }
+
+    /* Modal Table Styles */
+    .radar-modal-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.9rem;
+    }
+    .radar-modal-table th,
+    .radar-modal-table td {
+      padding: 0.6rem 0.75rem;
+      text-align: right;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+    }
+    .radar-modal-table th {
+      font-weight: 600;
+      opacity: 0.85;
+      white-space: nowrap;
+    }
+    .radar-modal-table tbody tr:hover {
+      background: rgba(255, 255, 255, 0.04);
+    }
+    .radar-modal-table code {
+      font-size: 0.85em;
+      background: rgba(255, 255, 255, 0.1);
+      padding: 0.15rem 0.4rem;
+      border-radius: 4px;
+    }
+
+    /* Sentry Link Button */
+    .sentry-link-btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.3rem;
+      padding: 0.3rem 0.6rem;
+      background: rgba(130, 80, 223, 0.2);
+      color: #a78bfa;
+      border: 1px solid rgba(130, 80, 223, 0.3);
+      border-radius: 6px;
+      font-size: 0.8rem;
+      text-decoration: none;
+      transition: all 0.2s;
+    }
+    .sentry-link-btn:hover {
+      background: rgba(130, 80, 223, 0.35);
+      border-color: rgba(130, 80, 223, 0.5);
+    }
+
+    /* Eye Button for Modal Trigger */
+    .radar-eye-btn {
+      background: transparent;
+      border: 1px solid rgba(255, 255, 255, 0.2);
+      color: inherit;
+      font-size: 1rem;
+      cursor: pointer;
+      padding: 0.2rem 0.5rem;
+      border-radius: 6px;
+      margin-right: 0.5rem;
+      transition: all 0.2s;
+    }
+    .radar-eye-btn:hover {
+      background: rgba(255, 255, 255, 0.1);
+      border-color: rgba(255, 255, 255, 0.3);
+    }
+
+    /* Light theme adjustments */
+    :root[data-theme="rose-pine-dawn"] .radar-modal__dialog {
+      background: rgba(250, 244, 237, 0.98);
+      border-color: rgba(0, 0, 0, 0.1);
+    }
+    :root[data-theme="rose-pine-dawn"] .radar-modal__header,
+    :root[data-theme="rose-pine-dawn"] .radar-modal__footer {
+      border-color: rgba(0, 0, 0, 0.1);
+    }
+    :root[data-theme="rose-pine-dawn"] .sentry-link-btn {
+      background: rgba(130, 80, 223, 0.1);
+      border-color: rgba(130, 80, 223, 0.2);
+    }
+
     :root[data-theme="rose-pine-dawn"] .config-radar-card {
       background: color-mix(in srgb, #ffffff 78%, var(--bg-secondary) 22%);
       border: 1px solid var(--glass-border);
@@ -1463,6 +1617,123 @@
           runbooks: card.querySelector('#configRadarRunbooks'),
           coverage: card.querySelector('#configRadarCoverage'),
         };
+
+        // Missing Runbooks Modal Logic
+        const missingRunbooksModal = document.getElementById('missingRunbooksModal');
+        const missingRunbooksBody = document.getElementById('missingRunbooksModalBody');
+
+        const openMissingRunbooksModal = async () => {
+          if (!missingRunbooksModal) return;
+          missingRunbooksModal.hidden = false;
+          missingRunbooksBody.innerHTML = '<div class="radar-empty-state">טוען נתונים מסנטרי...</div>';
+          
+          try {
+            const res = await fetch('/api/observability/alerts-by-type?alert_type=sentry_issue&limit=100', {
+              cache: 'no-store',
+              credentials: 'same-origin',
+            });
+            if (!res.ok) throw new Error('request_failed');
+            const data = await res.json();
+            if (!data.ok) throw new Error(data.error || 'unknown_error');
+            
+            renderSentryAlertsTable(data.alerts || []);
+          } catch (e) {
+            missingRunbooksBody.innerHTML = `<div class="radar-empty-state">שגיאה בטעינת נתונים: ${escapeHtml(String(e.message || e))}</div>`;
+          }
+        };
+
+        const closeMissingRunbooksModal = () => {
+          if (missingRunbooksModal) missingRunbooksModal.hidden = true;
+        };
+
+        const renderSentryAlertsTable = (alerts) => {
+          if (!alerts.length) {
+            missingRunbooksBody.innerHTML = '<div class="radar-empty-state">לא נמצאו שגיאות סנטרי ללא Runbook</div>';
+            return;
+          }
+          
+          // Group by summary/signature for deduplication display
+          const grouped = {};
+          for (const alert of alerts) {
+            const key = alert.summary || alert.name || 'Unknown';
+            if (!grouped[key]) {
+              grouped[key] = {
+                summary: key,
+                count: 0,
+                sentry_link: alert.sentry_link || alert.sentry_permalink,
+                sentry_short_id: alert.sentry_short_id,
+                last_seen: alert.ts_iso || null,
+                alerts: [],
+              };
+            }
+            grouped[key].count++;
+            grouped[key].alerts.push(alert);
+            // Safe timestamp comparison: only update if new value exists and is greater
+            const newTs = alert.ts_iso || '';
+            const oldTs = grouped[key].last_seen || '';
+            if (newTs && (!oldTs || newTs > oldTs)) {
+              grouped[key].last_seen = newTs;
+            }
+          }
+          
+          const rows = Object.values(grouped).sort((a, b) => b.count - a.count);
+          
+          const tableRows = rows.map((row) => {
+            const summary = escapeHtml(row.summary.length > 80 ? row.summary.slice(0, 77) + '...' : row.summary);
+            const shortId = row.sentry_short_id ? escapeHtml(row.sentry_short_id) : '—';
+            const lastSeen = row.last_seen ? formatDateTime(row.last_seen) : '—';
+            const sentryLink = row.sentry_link
+              ? `<a class="sentry-link-btn" href="${escapeHtml(row.sentry_link)}" target="_blank" rel="noopener">
+                   🔗 פתח בסנטרי
+                 </a>`
+              : '<span class="radar-chip">לא זמין</span>';
+            
+            return `
+              <tr>
+                <td><code dir="ltr">${shortId}</code></td>
+                <td title="${escapeHtml(row.summary)}">${summary}</td>
+                <td>${escapeHtml(String(row.count))}</td>
+                <td>${escapeHtml(lastSeen)}</td>
+                <td>${sentryLink}</td>
+              </tr>
+            `;
+          }).join('');
+          
+          missingRunbooksBody.innerHTML = `
+            <p style="margin: 0 0 1rem; opacity: 0.85;">
+              סה״כ ${escapeHtml(String(alerts.length))} אירועים, ${escapeHtml(String(rows.length))} חתימות ייחודיות
+            </p>
+            <table class="radar-modal-table">
+              <thead>
+                <tr>
+                  <th>Sentry ID</th>
+                  <th>חתימה / תיאור</th>
+                  <th>כמות</th>
+                  <th>נראה לאחרונה</th>
+                  <th>פעולות</th>
+                </tr>
+              </thead>
+              <tbody>${tableRows}</tbody>
+            </table>
+          `;
+        };
+
+        // Modal event listeners
+        if (missingRunbooksModal) {
+          missingRunbooksModal.addEventListener('click', (e) => {
+            // Close on backdrop click
+            if (e.target === missingRunbooksModal) closeMissingRunbooksModal();
+          });
+          missingRunbooksModal.querySelectorAll('[data-modal-close]').forEach((btn) => {
+            btn.addEventListener('click', closeMissingRunbooksModal);
+          });
+          // ESC key to close
+          document.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape' && !missingRunbooksModal.hidden) {
+              closeMissingRunbooksModal();
+            }
+          });
+        }
 
         let isLoading = false;
         let coverageLoading = false;
@@ -1869,8 +2140,18 @@
         };
 
         const buildCoverageTable = (title, rows, kind) => {
+          // Add eye button only for "Missing Runbooks" when there are sentry_issue types
+          const hasSentryIssues = kind === 'missing' && rows.some(r => r.alert_type === 'sentry_issue');
+          const eyeButton = hasSentryIssues
+            ? `<button class="radar-eye-btn" type="button" data-show-sentry-details title="צפה בפירוט השגיאות">👁️</button>`
+            : '';
+          
           const header = `
-            <h4 style="margin: 0.25rem 0 0.6rem;">${escapeHtml(title)} <span class="radar-chip">${escapeHtml(String(rows.length))}</span></h4>
+            <h4 style="margin: 0.25rem 0 0.6rem;">
+              ${escapeHtml(title)} 
+              <span class="radar-chip">${escapeHtml(String(rows.length))}</span>
+              ${eyeButton}
+            </h4>
           `;
           if (!rows.length) {
             return `${header}<div class="radar-empty-state">אין פריטים להצגה</div>`;
@@ -1988,6 +2269,12 @@
               <div>${buildCoverageTable('👻 Orphan Quick Fixes', filtered.orphan_quick_fixes || [], 'orphan_quick_fixes')}</div>
             </div>
           `;
+
+          // Bind eye button click
+          const eyeBtn = slots.coverage.querySelector('[data-show-sentry-details]');
+          if (eyeBtn) {
+            eyeBtn.addEventListener('click', openMissingRunbooksModal);
+          }
 
           const minEl = document.getElementById('configRadarCoverageMinCount');
           const searchEl = document.getElementById('configRadarCoverageSearch');

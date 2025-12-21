@@ -25,6 +25,7 @@ from datetime import datetime, timezone, timedelta
 from typing import Any, Dict, List, Optional, Tuple
 import hashlib
 import os
+import re
 
 
 def _is_true(val: Optional[str]) -> bool:
@@ -468,6 +469,85 @@ def fetch_alert_type_catalog(
                 continue
     except Exception:
         return []
+    return out
+
+
+def fetch_alerts_by_type(
+    *,
+    alert_type: str,
+    limit: int = 100,
+    include_details: bool = True,
+) -> List[Dict[str, Any]]:
+    """Fetch recent alerts of a specific type with Sentry details.
+
+    Returns a list of dicts, for example::
+
+        {
+          "alert_id": str,
+          "ts_dt": datetime,
+          "name": str,
+          "summary": str,
+          "sentry_issue_id": Optional[str],
+          "sentry_permalink": Optional[str],
+          "sentry_short_id": Optional[str],
+        }
+    """
+    coll = _get_collection()
+    if coll is None:
+        return []
+
+    normalized_type = _safe_str(alert_type, limit=128).lower()
+    if not normalized_type:
+        return []
+
+    try:
+        limit_int = max(1, min(500, int(limit)))
+    except Exception:
+        limit_int = 100
+
+    safe_pattern = re.escape(normalized_type)
+    match = {
+        "alert_type": {"$regex": f"^{safe_pattern}$", "$options": "i"},
+        "details.is_drill": {"$ne": True},
+    }
+
+    projection = {
+        "_id": 0,
+        "alert_id": 1,
+        "ts_dt": 1,
+        "name": 1,
+        "summary": 1,
+    }
+
+    if include_details:
+        projection["details.sentry_issue_id"] = 1
+        projection["details.sentry_permalink"] = 1
+        projection["details.sentry_short_id"] = 1
+        projection["details.error_signature"] = 1
+
+    try:
+        cursor = coll.find(match, projection).sort([("ts_dt", -1)]).limit(limit_int)  # type: ignore[attr-defined]
+    except Exception:
+        return []
+
+    out: List[Dict[str, Any]] = []
+    for doc in cursor:
+        try:
+            details = doc.get("details") or {}
+            out.append(
+                {
+                    "alert_id": str(doc.get("alert_id") or ""),
+                    "ts_dt": doc.get("ts_dt"),
+                    "name": _safe_str(doc.get("name"), limit=128),
+                    "summary": _safe_str(doc.get("summary"), limit=256),
+                    "sentry_issue_id": _safe_str(details.get("sentry_issue_id"), limit=64),
+                    "sentry_permalink": _safe_str(details.get("sentry_permalink"), limit=512),
+                    "sentry_short_id": _safe_str(details.get("sentry_short_id"), limit=32),
+                    "error_signature": _safe_str(details.get("error_signature"), limit=128),
+                }
+            )
+        except Exception:
+            continue
     return out
 
 
