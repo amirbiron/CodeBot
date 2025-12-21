@@ -25,11 +25,11 @@ def test_prefers_pooled_over_requests(monkeypatch):
 
     def _req_post(url, json=None, timeout=5):  # noqa: ARG001
         calls["requests"] += 1
-        return types.SimpleNamespace(status_code=200)
+        return types.SimpleNamespace(status_code=200, json=lambda: {"ok": True})
 
     def _pooled(method, url, json=None, timeout=5):  # noqa: ARG001
         calls["pooled"] += 1
-        return types.SimpleNamespace(status_code=200)
+        return types.SimpleNamespace(status_code=200, json=lambda: {"ok": True})
 
     # Both clients available: should prefer pooled
     monkeypatch.setattr(af._requests, "post", _req_post)
@@ -54,7 +54,7 @@ def test_fallback_to_pooled_when_requests_missing(monkeypatch):
 
     def _pooled(method, url, json=None, timeout=5):  # noqa: ARG001
         calls["pooled"] += 1
-        return types.SimpleNamespace(status_code=200)
+        return types.SimpleNamespace(status_code=200, json=lambda: {"ok": True})
 
     # Simulate missing requests client
     monkeypatch.setattr(af, "_requests", None, raising=False)

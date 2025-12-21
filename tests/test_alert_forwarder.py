@@ -9,6 +9,7 @@ def test_forward_alerts_sends_to_sinks_and_emits(monkeypatch):
     monkeypatch.setenv("SLACK_WEBHOOK_URL", "https://hooks.slack.test/abc")
     monkeypatch.setenv("ALERT_TELEGRAM_BOT_TOKEN", "tkn")
     monkeypatch.setenv("ALERT_TELEGRAM_CHAT_ID", "123")
+    monkeypatch.setenv("PUBLIC_URL", "https://public.example")
 
     # Capture outgoing HTTP posts via pooled client
     calls = {"posts": []}
@@ -25,7 +26,7 @@ def test_forward_alerts_sends_to_sinks_and_emits(monkeypatch):
     # Stub pooled HTTP client so we don't perform real network calls
     def _pooled(method, url, json=None, timeout=5):  # noqa: ARG001
         calls["posts"].append((url, json))
-        return types.SimpleNamespace(status_code=200)
+        return types.SimpleNamespace(status_code=200, json=lambda: {"ok": True})
 
     monkeypatch.setattr(af, "_pooled_request", _pooled)
 
@@ -42,6 +43,16 @@ def test_forward_alerts_sends_to_sinks_and_emits(monkeypatch):
     assert len(calls["posts"]) == 2
     # Event should be emitted as anomaly severity
     assert any(e[0] == "alert_received" and e[1] == "anomaly" for e in events["evts"])  # anomaly severity
+
+    tg_calls = [c for c in calls["posts"] if "api.telegram.org" in c[0]]
+    assert len(tg_calls) == 1
+    tg_payload = tg_calls[0][1] or {}
+    # We do not include generatorURL in the text; instead we attach a public dashboard button.
+    assert "http://example" not in str(tg_payload.get("text") or "")
+    kb = tg_payload.get("reply_markup") or {}
+    rows = kb.get("inline_keyboard") or []
+    assert rows and rows[0] and rows[0][0]["text"] == "Open Dashboard"
+    assert rows[0][0]["url"] == "https://public.example/admin/observability"
 
 
 def test_forward_alerts_handles_sink_errors(monkeypatch):
