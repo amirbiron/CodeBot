@@ -68,14 +68,14 @@ groups:
 
       # --- Health & Startup metrics exposed via /healthz ---
       - alert: SlowMongoConnection
-        expr: (min_over_time(health_ping_ms[5m]) > 100) and on(job, instance) (time() - process_start_time_seconds > 300) and on() ((time() - process_start_time_seconds{job=~".*prometheus.*"} > 600) or absent(process_start_time_seconds{job=~".*prometheus.*"}))
-        for: 0m
+        expr: (avg_over_time(health_ping_ms[1m]) > 200) and on(job, instance) (time() - process_start_time_seconds > 300) and on() ((time() - process_start_time_seconds{job=~".*prometheus.*"} > 600) or absent(process_start_time_seconds{job=~".*prometheus.*"}))
+        for: 5m
         labels:
           severity: warning
           component: mongo
         annotations:
-          summary: "זמן פינג למונגו חוצה 100ms"
-          description: "health_ping_ms נותר מעל ‎100‎ מילישניות למשך 5 דקות."
+          summary: "זמן פינג למונגו חוצה 200ms (מתמשך)"
+          description: "health_ping_ms נותר מעל ‎200‎ מילישניות למשך 5 דקות רצופות."
 
       - alert: MongoLatencyRegressionVsBaseline
         expr: |
@@ -96,16 +96,6 @@ groups:
         annotations:
           summary: "הממוצע הנוכחי גבוה ב־50% מה-baseline שלפני 6 שעות"
           description: "השוואת חצי שעה אחרונה לעומת חלון זהה עם offset 6h לאחור."
-
-      - alert: MongoLatencyPredictiveSpike
-        expr: (predict_linear(health_ping_ms[1h], 10m) > 120) and on(job, instance) (time() - process_start_time_seconds > 300) and on() ((time() - process_start_time_seconds{job=~".*prometheus.*"} > 600) or absent(process_start_time_seconds{job=~".*prometheus.*"}))
-        for: 0m
-        labels:
-          severity: critical
-          component: mongo
-        annotations:
-          summary: "חיזוי: פינג למונגו יעלה מעל 120ms"
-          description: "predict_linear מצביע על קפיצה צפויה בעשר הדקות הקרובות."
 
       - alert: MongoDisconnected
         expr: health_mongo_status == 0
