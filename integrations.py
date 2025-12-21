@@ -522,10 +522,13 @@ class CodeSharingService:
                 "expires_at": expires_at.isoformat(),
             }
 
-        # בסיס URL: אם PUBLIC_BASE_URL לא קיים והוגדר WEBAPP_URL — השתמש בו
-        base = (config.PUBLIC_BASE_URL or config.WEBAPP_URL or "")
-        if base.endswith('/'):
+        # בסיס URL: אם PUBLIC_BASE_URL לא קיים והוגדר WEBAPP_URL — השתמש בו.
+        # שים לב: אם base מגיע בלי scheme (למשל "example.com"), טלגרם עלול לפתוח לינק כ-blank page.
+        base = str((config.PUBLIC_BASE_URL or config.WEBAPP_URL or "") or "").strip()
+        if base.endswith("/"):
             base = base[:-1]
+        if base and "://" not in base:
+            base = "https://" + base.lstrip("/")
         internal_url = f"{base}/share/{share_id}" if base else f"/share/{share_id}"
 
         result = {

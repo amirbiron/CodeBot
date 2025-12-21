@@ -29,7 +29,7 @@ from telegram.ext import (
 from telegram.ext import ApplicationHandlerStop
 
 from services import code_service as code_processor
-from utils import TelegramUtils  # עריכות בטוחות להודעות/מקלדות
+from utils import TelegramUtils, TextUtils  # עריכות בטוחות + אסקייפ ל-Markdown
 try:
     from services.image_generator import CodeImageGenerator
 except Exception:  # pragma: no cover
@@ -2299,6 +2299,20 @@ class AdvancedBotHandlers:
 
             args = list(getattr(context, "args", []) or [])
 
+            async def _reply_safe(text: str, *, reply_markup: Optional[InlineKeyboardMarkup] = None) -> None:
+                """Reply in HTML mode with full escaping.
+
+                חשוב: בוט רץ עם Defaults(parse_mode=HTML), ולכן טקסט גולמי עם '<...>'
+                עלול להיכשל ב-"can't parse entities". כאן אנחנו מבטיחים escape קבוע.
+                """
+                safe = html.escape(str(text or ""))
+                await self._send_long_message(
+                    update.message,
+                    safe,
+                    parse_mode=ParseMode.HTML,
+                    reply_markup=reply_markup,
+                )
+
             # --- Time range support (only when explicitly provided) ---
             start_dt = None
             end_dt = None
@@ -2327,9 +2341,9 @@ class AdvancedBotHandlers:
                     time_label = tr.label
                     explicit_time_range = True
                 except TimeRangeParseError as e:
-                    await update.message.reply_text(
+                    await _reply_safe(
                         "❌ טווח זמן לא תקין.\n"
-                        f"{html.escape(str(e))}\n\n"
+                        f"{str(e)}\n\n"
                         "דוגמאות:\n"
                         "• /errors --since 15m\n"
                         "• /errors --since 2h\n"
@@ -2441,7 +2455,7 @@ class AdvancedBotHandlers:
             if args and args[0].lower() in {"example", "examples"}:
                 signature = " ".join(args[1:]).strip()
                 if not signature:
-                    await update.message.reply_text("ℹ️ שימוש: /errors examples <error_signature>")
+                    await _reply_safe("ℹ️ שימוש: /errors examples <error_signature>")
                     return
                 try:
                     from observability import get_recent_errors  # type: ignore
@@ -2455,16 +2469,16 @@ class AdvancedBotHandlers:
                             if len(examples) >= 5:
                                 break
                     if not examples:
-                        await update.message.reply_text("(אין דוגמאות זמינות לחתימה זו)")
+                        await _reply_safe("(אין דוגמאות זמינות לחתימה זו)")
                         return
                     link = _sentry_query_link(signature)
                     header = f"🔎 דוגמאות לשגיאות עבור החתימה: {signature}"
                     if link:
                         header += f"\nSentry: {link}"
-                    await update.message.reply_text("\n".join([header] + examples))
+                    await _reply_safe("\n".join([header] + examples))
                     return
                 except Exception:
-                    await update.message.reply_text("(כשל באיסוף דוגמאות)")
+                    await _reply_safe("(כשל באיסוף דוגמאות)")
                     return
 
             lines: list[str] = []
@@ -2569,7 +2583,7 @@ class AdvancedBotHandlers:
 
                     if not grouped:
                         lines.append("(אין נתונים בחלון הזמן הזה)")
-                        await update.message.reply_text("\n".join(lines))
+                        await _reply_safe("\n".join(lines))
                         return
 
                     sorted_groups = sorted(grouped.items(), key=lambda item: int(item[1].get("count", 0) or 0), reverse=True)
@@ -2616,7 +2630,7 @@ class AdvancedBotHandlers:
                     except Exception:
                         kb_rows = []
 
-                    await update.message.reply_text(
+                    await _reply_safe(
                         "\n".join(lines),
                         reply_markup=(InlineKeyboardMarkup(kb_rows) if kb_rows else None),
                     )
@@ -2795,9 +2809,9 @@ class AdvancedBotHandlers:
 
             if not lines:
                 lines.append("(אין נתוני שגיאות זמינים בסביבה זו)")
-            await update.message.reply_text(
+            await _reply_safe(
                 "\n".join(["🧰 שגיאות אחרונות:"] + lines),
-                reply_markup=(InlineKeyboardMarkup(kb_rows) if kb_rows else None)
+                reply_markup=(InlineKeyboardMarkup(kb_rows) if kb_rows else None),
             )
         except Exception as e:
             await update.message.reply_text(f"❌ שגיאה ב-/errors: {html.escape(str(e))}")
@@ -2828,10 +2842,11 @@ class AdvancedBotHandlers:
             except Exception:
                 result = {"query": query, "timeline": [], "summary_text": ""}
 
-            summary_lines: list[str] = ["🔎 Triage", f"Query: {html.escape(query)}"]
+            query_md = TextUtils.escape_markdown(query, version=1)
+            summary_lines: list[str] = ["🔎 Triage", f"Query: {query_md}"]
             text_summary = str(result.get("summary_text") or "").strip()
             if text_summary:
-                summary_lines.append(text_summary)
+                summary_lines.append(TextUtils.escape_markdown(text_summary, version=1))
 
             # שיתוף דוח HTML מלא כ-share פנימי
             share_url = None
@@ -2846,8 +2861,38 @@ class AdvancedBotHandlers:
             except Exception:
                 share_url = None
             if share_url:
-                # חלק מלקוחות מרחפים על '_' בהודעות טקסט רגילות. שימוש ב‑Markdown עם קישור מעוגן מונע עיוות מזהה השיתוף.
-                summary_lines.append(f"דוח מלא: [לחיצה כאן]({share_url})")
+                share_url_txt = str(share_url or "").strip()
+                # Telegram לא אוהב קישורים יחסיים/ללא scheme → יכול להיפתח כ-blank page.
+                # ננסה להפוך לאבסולוטי בעזרת PUBLIC_BASE_URL/WEBAPP_URL (וגם fallback ל-ENV).
+                try:
+                    from urllib.parse import urlparse
+                    parsed = urlparse(share_url_txt)
+                    is_abs = parsed.scheme in {"http", "https"}
+                except Exception:
+                    is_abs = False
+                if not is_abs:
+                    base = (
+                        getattr(config, "PUBLIC_BASE_URL", None)
+                        or getattr(config, "WEBAPP_URL", None)
+                        or os.getenv("PUBLIC_BASE_URL")
+                        or os.getenv("WEBAPP_URL")
+                        or ""
+                    )
+                    base = str(base or "").strip().rstrip("/")
+                    if base and "://" not in base:
+                        base = "https://" + base.lstrip("/")
+                    if base:
+                        if share_url_txt.startswith("/"):
+                            share_url_txt = f"{base}{share_url_txt}"
+                        else:
+                            share_url_txt = f"{base}/{share_url_txt}"
+                if share_url_txt.startswith(("http://", "https://")):
+                    # חלק מלקוחות מרחפים על '_' בהודעות טקסט רגילות. שימוש ב‑Markdown עם קישור מעוגן מונע עיוות מזהה השיתוף.
+                    summary_lines.append(f"דוח מלא: [לחיצה כאן]({share_url_txt})")
+                else:
+                    # fallback ברור במקום לינק שבקליק נפתח ל-blank page
+                    summary_lines.append(f"דוח מלא: {TextUtils.escape_markdown(share_url_txt, version=1)}")
+                    summary_lines.append("(הערה: כדי שייפתח בקליק מהטלגרם צריך PUBLIC_BASE_URL/WEBAPP_URL)")
             else:
                 # גם בסביבת טסטים ללא אינטגרציית שיתוף חייב להיות אזכור ברור לדוח המלא.
                 summary_lines.append("דוח מלא: לא נוצר קישור אוטומטי (סביבת בדיקות)")
@@ -2856,11 +2901,17 @@ class AdvancedBotHandlers:
             try:
                 slinks = list(result.get("sentry_links") or [])
                 if slinks:
-                    sl = ", ".join(f"[{l.get('name')}]({l.get('url')})" for l in slinks[:2])
+                    sl = ", ".join(
+                        f"[{TextUtils.escape_markdown(str(l.get('name') or ''), version=1)}]({str(l.get('url') or '')})"
+                        for l in slinks[:2]
+                    )
                     summary_lines.append(f"Sentry: {sl}")
                 glinks = list(result.get("grafana_links") or [])
                 if glinks:
-                    gl = ", ".join(f"[{l.get('name')}]({l.get('url')})" for l in glinks[:2])
+                    gl = ", ".join(
+                        f"[{TextUtils.escape_markdown(str(l.get('name') or ''), version=1)}]({str(l.get('url') or '')})"
+                        for l in glinks[:2]
+                    )
                     summary_lines.append(f"Grafana: {gl}")
             except Exception:
                 pass
@@ -4483,9 +4534,15 @@ class AdvancedBotHandlers:
                     except Exception:
                         pass
                     if not examples:
-                        await query.message.reply_text(header + "\n(אין דוגמאות זמינות לחתימה זו)")
+                        await query.message.reply_text(
+                            html.escape(header + "\n(אין דוגמאות זמינות לחתימה זו)"),
+                            parse_mode=ParseMode.HTML,
+                        )
                     else:
-                        await query.message.reply_text("\n".join([header] + examples))
+                        await query.message.reply_text(
+                            html.escape("\n".join([header] + examples)),
+                            parse_mode=ParseMode.HTML,
+                        )
                 except Exception:
                     await query.message.reply_text("(כשל באיסוף דוגמאות)")
                     return
