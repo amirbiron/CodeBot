@@ -305,9 +305,16 @@ def _reset_alerts_storage_stub_before_test() -> None:
     import sys
     from types import SimpleNamespace
 
-    mod = sys.modules.get("monitoring.alerts_storage")
-    if isinstance(mod, SimpleNamespace):
-        sys.modules.pop("monitoring.alerts_storage", None)
+    def _clean() -> None:
+        mod = sys.modules.get("monitoring.alerts_storage")
+        if isinstance(mod, SimpleNamespace):
+            sys.modules.pop("monitoring.alerts_storage", None)
+
+    # ניקוי לפני הטסט (אם דלף מטסט קודם באותו worker)
+    _clean()
+    yield
+    # ניקוי אחרי הטסט (כדי למנוע דליפה לטסט הבא באותו worker)
+    _clean()
 
 
 @pytest.fixture(autouse=True)
