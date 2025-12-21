@@ -1,0 +1,30 @@
+{# רכיבי עורך משותפים ל-Upload/Edit #}
+
+{% macro image_uploader(existing_images=[]) %}
+<div id="image-upload-widget" class="glass-card" data-component="image-uploader">
+    <div class="image-uploader__header">
+        <span class="image-uploader__label">תמונות (לקבצי Markdown)</span>
+        <span class="image-uploader__status" data-role="image-status"></span>
+    </div>
+
+    <div class="image-uploader__actions">
+        <button type="button" class="btn btn-outline" data-action="add-image">🖼️ הוסף תמונה</button>
+        <small class="image-uploader__hint" data-role="image-hint">
+            ניתן לצרף עד 6 תמונות (PNG/JPG/WEBP/GIF, עד ‎2MB‎ לכל תמונה). הרכיב פעיל רק לקבצי ‎.md‎.
+        </small>
+        <div class="image-uploader__error" data-role="image-error" role="alert"></div>
+    </div>
+
+    <input type="file" name="md_images" hidden multiple accept="image/*" data-role="file-input">
+
+    <div class="previews-container" data-role="previews">
+        {% for img in existing_images %}
+        <div class="image-preview" data-image-id="{{ img.id }}" data-origin="existing" data-image-name="{{ img.name }}">
+            <img src="{{ img.url }}" alt="{{ img.name }}" loading="lazy">
+            <button type="button" class="image-preview__delete" data-action="delete-image" aria-label="מחק תמונה">🗑️</button>
+        </div>
+        {% endfor %}
+    </div>
+</div>
+{% endmacro %}
+

@@ -8665,6 +8665,28 @@ def edit_file_page(file_id):
             clean_source_url = None
             source_url_removed = False
             markdown_image_payloads: List[Dict[str, Any]] = []
+            deleted_image_obj_ids: List[ObjectId] = []
+            try:
+                deleted_raw = (request.form.get('deleted_images') or '').strip()
+            except Exception:
+                deleted_raw = ''
+            if deleted_raw:
+                deleted_ids: List[str] = []
+                try:
+                    parsed = json.loads(deleted_raw)
+                    if isinstance(parsed, list):
+                        deleted_ids = [str(x) for x in parsed if str(x).strip()]
+                except Exception:
+                    # fallback: "a,b,c" / "a b c"
+                    try:
+                        deleted_ids = [p.strip() for p in re.split(r'[,\s]+', deleted_raw) if p.strip()]
+                    except Exception:
+                        deleted_ids = []
+                for raw_id in deleted_ids:
+                    try:
+                        deleted_image_obj_ids.append(ObjectId(raw_id))
+                    except Exception:
+                        continue
             if source_url_value:
                 clean_source_url, source_url_err = _normalize_source_url_value(source_url_value)
                 if source_url_err:
@@ -8832,44 +8854,71 @@ def edit_file_page(file_id):
                 # תמונות ל-Markdown (כמו במסך יצירה): נשמרות כ-attachments לפי גרסה
                 should_collect_images = isinstance(file_name, str) and file_name.lower().endswith(('.md', '.markdown'))
                 if not error and should_collect_images:
+                    # נשאיל תמונות קיימות מהגרסה הנוכחית (אלא אם המשתמש סימן למחיקה)
+                    carry_payloads: List[Dict[str, Any]] = []
+                    try:
+                        query: Dict[str, Any] = {'snippet_id': file.get('_id'), 'user_id': user_id}
+                        if deleted_image_obj_ids:
+                            query['_id'] = {'$nin': deleted_image_obj_ids}
+                        cursor = db.markdown_images.find(query).sort('order', 1)
+                        for doc in cursor:
+                            data = doc.get('data')
+                            if data is None:
+                                continue
+                            try:
+                                raw = bytes(data)
+                            except Exception:
+                                raw = b''
+                            if not raw:
+                                continue
+                            carry_payloads.append({
+                                'filename': doc.get('file_name') or 'image',
+                                'content_type': (doc.get('content_type') or 'application/octet-stream'),
+                                'size': int(doc.get('size') or len(raw)),
+                                'data': raw,
+                            })
+                    except Exception:
+                        carry_payloads = []
+
                     try:
                         incoming_images = request.files.getlist('md_images')
                     except Exception:
                         incoming_images = []
                     valid_images = [img for img in incoming_images if getattr(img, 'filename', '').strip()]
-                    if valid_images:
-                        if len(valid_images) > MARKDOWN_IMAGE_LIMIT:
-                            error = f'ניתן לצרף עד {MARKDOWN_IMAGE_LIMIT} תמונות'
-                        else:
-                            for img in valid_images:
-                                if error:
-                                    break
-                                try:
-                                    data = img.read()
-                                except Exception:
-                                    data = b''
-                                if not data:
-                                    continue
-                                if len(data) > MARKDOWN_IMAGE_MAX_BYTES:
-                                    max_mb = max(1, MARKDOWN_IMAGE_MAX_BYTES // (1024 * 1024))
-                                    error = f'כל תמונה מוגבלת ל-{max_mb}MB'
-                                    break
-                                safe_name = secure_filename(img.filename or '') or f'image_{len(markdown_image_payloads) + 1}.png'
-                                content_type = (img.mimetype or '').lower()
-                                if content_type not in ALLOWED_MARKDOWN_IMAGE_TYPES:
-                                    guessed_type = mimetypes.guess_type(safe_name)[0] or ''
-                                    content_type = guessed_type.lower() if guessed_type else content_type
-                                if content_type not in ALLOWED_MARKDOWN_IMAGE_TYPES:
-                                    error = 'ניתן להעלות רק תמונות PNG, JPG, WEBP או GIF'
-                                    break
-                                markdown_image_payloads.append({
-                                    'filename': safe_name,
-                                    'content_type': content_type,
-                                    'size': len(data),
-                                    'data': data,
-                                })
+                    # מגבלת כמות: קיימות (שלא נמחקו) + חדשות
+                    if (carry_payloads or valid_images) and (len(carry_payloads) + len(valid_images)) > MARKDOWN_IMAGE_LIMIT:
+                        error = f'ניתן לצרף עד {MARKDOWN_IMAGE_LIMIT} תמונות'
+                    if not error:
+                        markdown_image_payloads.extend(carry_payloads)
+                        for img in valid_images:
                             if error:
-                                markdown_image_payloads = []
+                                break
+                            try:
+                                data = img.read()
+                            except Exception:
+                                data = b''
+                            if not data:
+                                continue
+                            if len(data) > MARKDOWN_IMAGE_MAX_BYTES:
+                                max_mb = max(1, MARKDOWN_IMAGE_MAX_BYTES // (1024 * 1024))
+                                error = f'כל תמונה מוגבלת ל-{max_mb}MB'
+                                break
+                            safe_name = secure_filename(img.filename or '') or f'image_{len(markdown_image_payloads) + 1}.png'
+                            content_type = (img.mimetype or '').lower()
+                            if content_type not in ALLOWED_MARKDOWN_IMAGE_TYPES:
+                                guessed_type = mimetypes.guess_type(safe_name)[0] or ''
+                                content_type = guessed_type.lower() if guessed_type else content_type
+                            if content_type not in ALLOWED_MARKDOWN_IMAGE_TYPES:
+                                error = 'ניתן להעלות רק תמונות PNG, JPG, WEBP או GIF'
+                                break
+                            markdown_image_payloads.append({
+                                'filename': safe_name,
+                                'content_type': content_type,
+                                'size': len(data),
+                                'data': data,
+                            })
+                        if error:
+                            markdown_image_payloads = []
 
                 # אם ולידציית תמונות (או כל ולידציה אחרת) קבעה error – לא נשמור גרסה חדשה
                 if not error:
@@ -8933,11 +8982,27 @@ def edit_file_page(file_id):
         'source_url': file.get('source_url') or '',
     }
 
+    # תמונות Markdown לגרסה הנוכחית (לצורך תצוגה/מחיקה ב-edit)
+    existing_images: List[Dict[str, Any]] = []
+    try:
+        cursor = db.markdown_images.find(
+            {'snippet_id': file.get('_id'), 'user_id': user_id}
+        ).sort('order', 1)
+        for img in cursor:
+            existing_images.append({
+                'id': str(img.get('_id')),
+                'url': url_for('get_markdown_image', file_id=file_id, image_id=str(img.get('_id'))),
+                'name': img.get('file_name') or 'image',
+            })
+    except Exception:
+        existing_images = []
+
     return render_template('edit_file.html',
                          user=session['user_data'],
                          file=file_data,
                          code_value=code_value,
                          languages=languages,
+                         existing_images=existing_images,
                          error=error,
                          success=success,
                          bot_username=BOT_USERNAME_CLEAN)
