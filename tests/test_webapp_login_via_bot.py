@@ -6,6 +6,11 @@ import asyncio
 
 def _install_telegram_stubs():
     """Install minimal telegram stubs so importing conversation_handlers won't fail."""
+    # אם כבר יש לנו telegram תקין (למשל stubs קנוניים מ-tests/_telegram_stubs.py),
+    # אל נדרוס אותו כדי לא לדלוף מצב לטסטים אחרים.
+    existing = sys.modules.get("telegram")
+    if existing is not None and hasattr(existing, "InputFile"):
+        return
     # telegram base module
     tg = types.ModuleType('telegram')
 
@@ -130,8 +135,14 @@ def test_start_command_webapp_login_sends_personal_link(monkeypatch):
     assert 'קישור התחברות אישי' in text
     # Validate reply markup and URL
     rm = kwargs.get('reply_markup')
-    assert rm and getattr(rm, 'rows', None), 'Expected inline keyboard rows'
-    btn = rm.rows[0][0]
+    # יש לנו שתי צורות סטאב שונות לאורך הטסטים:
+    # - stubs מקומיים בקובץ הזה משתמשים ב-`rows`
+    # - stubs קנוניים (tests/_telegram_stubs.py) משתמשים ב-`inline_keyboard`
+    rows = getattr(rm, 'rows', None)
+    inline_keyboard = getattr(rm, 'inline_keyboard', None)
+    assert rm and (rows or inline_keyboard), 'Expected inline keyboard rows'
+    grid = rows or inline_keyboard
+    btn = grid[0][0]
     assert '/auth/token?token=' in (btn.url or '')
     assert f'user_id={update.effective_user.id}' in btn.url
     # Token doc inserted
@@ -167,5 +178,7 @@ def test_start_command_webapp_login_handles_insert_exception(monkeypatch):
     text, kwargs = update.message.calls[0]
     assert 'קישור התחברות אישי' in text
     rm = kwargs.get('reply_markup')
-    assert rm and getattr(rm, 'rows', None)
+    rows = getattr(rm, 'rows', None)
+    inline_keyboard = getattr(rm, 'inline_keyboard', None)
+    assert rm and (rows or inline_keyboard)
 

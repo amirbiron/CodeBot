@@ -8,6 +8,56 @@ from typing import AsyncIterator, Dict, List, Optional
 import pytest
 import pytest_asyncio
 
+# -----------------------------------------------------------------------------
+# Telegram module isolation (safe)
+# -----------------------------------------------------------------------------
+#
+# חלק מהטסטים מבצעים stubbing ידני ל-`sys.modules['telegram']` בלי להשתמש ב-monkeypatch,
+# ולפעמים זה stubbing *חלקי* (למשל בלי `InputFile`). אחרי שטסט כזה רץ, טסטים אחרים
+# שמייבאים `bot_handlers` נופלים כבר בזמן import על:
+# `ImportError: cannot import name 'InputFile' from 'telegram'`.
+#
+# מצד שני, אסור לנו למחוק/לטעון מחדש את telegram.ext בצורה אגרסיבית, כי זה עלול ליצור
+# שתי גרסאות שונות של אותן מחלקות (BaseHandler/ApplicationHandlerStop) ולהוביל ל-TypeError.
+#
+# הפתרון: נשמור reference לסטאבים הקנוניים שמגיעים מ-`tests/_telegram_stubs.py`
+# (שכבר נטענים ב-`tests/conftest.py`), ונשחזר אותם *רק* אם מזהים ש-telegram נהיה "שבור".
+_CANONICAL_TELEGRAM_MODULES: Dict[str, object] = {}
+
+
+def _ensure_canonical_telegram_modules_loaded() -> None:
+    if _CANONICAL_TELEGRAM_MODULES:
+        return
+    try:
+        import tests._telegram_stubs  # noqa: F401
+    except Exception:
+        return
+    for key in (
+        "telegram",
+        "telegram.constants",
+        "telegram.error",
+        "telegram.ext",
+        "telegram.ext._application",
+    ):
+        mod = sys.modules.get(key)
+        if mod is not None:
+            _CANONICAL_TELEGRAM_MODULES[key] = mod
+
+
+def _telegram_is_broken() -> bool:
+    tg = sys.modules.get("telegram")
+    if tg is None:
+        return True
+    return not hasattr(tg, "InputFile")
+
+
+def _restore_canonical_telegram_modules() -> None:
+    if not _CANONICAL_TELEGRAM_MODULES:
+        return
+    for key, mod in _CANONICAL_TELEGRAM_MODULES.items():
+        sys.modules[key] = mod  # type: ignore[assignment]
+
+
 # Ensure project root is on sys.path so `import utils` works in tests
 PROJECT_ROOT = os.path.dirname(__file__)
 if PROJECT_ROOT not in sys.path:
@@ -86,30 +136,23 @@ def _ensure_real_telegram_package_loaded() -> None:
     זה חשוב במיוחד ל-xdist: אזהרות שנשלחות מה-workers עלולות להתבסס על
     מחלקות/מודולים כמו `telegram.warnings`, וה-master חייב להיות מסוגל לייבא אותם.
     """
-    import sys
-    import types
-
-    mod = sys.modules.get("telegram")
-    # אם הוזרק Stub (למשל ModuleType בלי __path__ / SimpleNamespace) — ננקה
-    if mod is not None:
-        is_module = isinstance(mod, types.ModuleType)
-        is_package = bool(is_module and hasattr(mod, "__path__"))
-        if not is_package:
-            for name in list(sys.modules.keys()):
-                if name == "telegram" or name.startswith("telegram."):
-                    sys.modules.pop(name, None)
-    try:
-        import telegram  # noqa: F401
-        import telegram.warnings  # noqa: F401
-    except Exception:
-        # אם אין PTB (או חסר בתלויות) — לא נחסום; טסטים שמסתמכים על stubs עדיין יעבדו
-        pass
+    # ⚠️ חשוב ל-Isolation:
+    # בעבר ניקינו כאן stubs של telegram מתוך sys.modules כדי "להחזיר" PTB אמיתי.
+    # בפועל זה יוצר מצב מסוכן שבו חלק מהקוד נטען מול telegram.ext ישן וחלק מול חדש,
+    # ואז מתקבלות שגיאות כמו:
+    # - TypeError: handler is not an instance of BaseHandler
+    # - ApplicationHandlerStop שלא נתפס ב-pytest.raises (כי זו מחלקה אחרת)
+    #
+    # לכן אנחנו *לא* מוחקים/מטעינים מחדש telegram במהלך הרצת הטסטים.
+    # אם צריך PTB אמיתי, יש להריץ את הסוויטה בלי ה-stubs (tests/_telegram_stubs.py).
+    return
 
 
 def pytest_configure(config: pytest.Config) -> None:
     # Accumulate per-test durations for performance tests
     config._perf_times = {}  # type: ignore[attr-defined]
     _ensure_real_telegram_package_loaded()
+    _ensure_canonical_telegram_modules_loaded()
 
 
 def pytest_collection_modifyitems(config: pytest.Config, items: List[pytest.Item]) -> None:
@@ -274,25 +317,13 @@ def _reset_telegram_modules_between_tests() -> None:
     יש טסטים שמסטבבים את `telegram` כדי לאפשר import בסביבות בלי PTB.
     בהרצה עם xdist, דליפה כזו יכולה להפיל טסטים שעושים import/reload ל-main.
     """
-    import sys
-    import types
-
-    def _purge_if_stubbed() -> None:
-        mod = sys.modules.get("telegram")
-        if mod is None:
-            return
-        is_module = isinstance(mod, types.ModuleType)
-        has_botcommand = hasattr(mod, "BotCommand")
-        if is_module and has_botcommand:
-            return
-        # purge telegram and its submodules
-        for name in list(sys.modules.keys()):
-            if name == "telegram" or name.startswith("telegram."):
-                sys.modules.pop(name, None)
-
-    _purge_if_stubbed()
+    _ensure_canonical_telegram_modules_loaded()
+    if _telegram_is_broken():
+        _restore_canonical_telegram_modules()
     yield
-    _purge_if_stubbed()
+    # ניקוי אחרי הטסט — רק אם מישהו השאיר סטאב שבור
+    if _telegram_is_broken():
+        _restore_canonical_telegram_modules()
 
 
 @pytest.fixture(autouse=True)
