@@ -516,6 +516,43 @@ def test_observability_coverage_calls_service(monkeypatch):
     assert captured['end_dt'] >= captured['start_dt']
 
 
+def test_alerts_by_type_returns_sentry_details(monkeypatch):
+    """Test that /api/observability/alerts-by-type returns Sentry details."""
+    admin_id = 7
+    monkeypatch.setenv('ADMIN_USER_IDS', str(admin_id))
+
+    fake_alerts = [
+        {
+            "alert_id": "abc123",
+            "ts_dt": datetime.now(timezone.utc),
+            "name": "Sentry: TEST-1",
+            "summary": "NullPointerException in handler",
+            "sentry_issue_id": "12345",
+            "sentry_permalink": "https://sentry.io/issues/12345",
+            "sentry_short_id": "TEST-1",
+            "error_signature": None,
+        },
+    ]
+
+    def mock_fetch(*args, **kwargs):
+        return fake_alerts
+
+    monkeypatch.setattr("monitoring.alerts_storage.fetch_alerts_by_type", mock_fetch)
+
+    app = _build_app()
+    with app.test_client() as client:
+        with client.session_transaction() as sess:
+            sess['user_id'] = admin_id
+        resp = client.get('/api/observability/alerts-by-type?alert_type=sentry_issue')
+        assert resp.status_code == 200
+        data = resp.get_json()
+        assert data['ok'] is True
+        assert data['count'] == 1
+        assert data['alerts'][0]['sentry_permalink'] == "https://sentry.io/issues/12345"
+        assert data['alerts'][0]['sentry_link'] == "https://sentry.io/issues/12345"
+        assert 'ts_iso' in data['alerts'][0]
+
+
 def test_coverage_logic_missing_and_orphans(monkeypatch, tmp_path):
     # Unit test for matching logic (runbook coverage, quick-fix coverage) and orphan detection.
     from datetime import timedelta

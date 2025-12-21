@@ -11101,6 +11101,68 @@ def api_observability_alerts():
         return jsonify({'ok': False, 'error': 'internal_error'}), 500
 
 
+@app.route('/api/observability/alerts-by-type', methods=['GET'])
+@login_required
+def api_observability_alerts_by_type():
+    """Return specific alerts for a given alert_type (e.g., sentry_issue)."""
+    if not _require_admin_user():
+        return jsonify({'ok': False, 'error': 'admin_only'}), 403
+
+    alert_type = request.args.get('alert_type', '').strip().lower()
+    if not alert_type:
+        return jsonify({'ok': False, 'error': 'missing_alert_type'}), 400
+
+    try:
+        limit = int(request.args.get('limit') or 100)
+    except Exception:
+        limit = 100
+    limit = max(1, min(500, limit))
+
+    try:
+        from monitoring import alerts_storage
+
+        rows = alerts_storage.fetch_alerts_by_type(
+            alert_type=alert_type,
+            limit=limit,
+            include_details=True,
+        )
+
+        # Build Sentry links for alerts without permalink
+        from alert_forwarder import _build_sentry_link
+
+        for row in rows:
+            if not row.get('sentry_permalink'):
+                row['sentry_link'] = _build_sentry_link(
+                    direct_url=None,
+                    request_id=None,
+                    error_signature=row.get('error_signature'),
+                )
+            else:
+                row['sentry_link'] = row.get('sentry_permalink')
+
+            # Format timestamp
+            ts_dt = row.get('ts_dt')
+            if ts_dt:
+                try:
+                    row['ts_iso'] = ts_dt.isoformat()
+                except Exception:
+                    pass
+            # Ensure JSON-safe payload
+            row.pop('ts_dt', None)
+
+        return jsonify(
+            {
+                'ok': True,
+                'alert_type': alert_type,
+                'count': len(rows),
+                'alerts': rows,
+            }
+        )
+    except Exception:
+        logger.exception("alerts_by_type_failed")
+        return jsonify({'ok': False, 'error': 'internal_error'}), 500
+
+
 @app.route('/api/observability/coverage', methods=['GET'])
 @login_required
 def api_observability_coverage():
