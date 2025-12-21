@@ -234,13 +234,20 @@
 }
 
 #image-upload-widget .image-uploader__error {
-  margin-top: 0.1rem;
   font-size: 0.9rem;
   color: #ff8a8a;
 }
 
+#image-upload-widget .image-uploader__error:empty {
+  display: none;
+}
+
+#image-upload-widget .image-uploader__error:not(:empty) {
+  margin-bottom: 0.5rem;
+}
+
 #image-upload-widget .previews-container {
-  margin-top: 0.75rem;
+  margin-top: 0;
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(90px, 1fr));
   gap: 0.75rem;

@@ -1,18 +1,13 @@
 {# רכיבי עורך משותפים ל-Upload/Edit #}
 
 {% macro image_uploader(existing_images=[]) %}
-<div id="image-upload-widget" class="glass-card" data-component="image-uploader" style="display: none;">
-    <div class="image-uploader__header">
-        <span class="image-uploader__label">תמונות (לקבצי Markdown)</span>
-        <span class="image-uploader__status" data-role="image-status"></span>
-    </div>
-
-    <div class="image-uploader__actions">
-        <small class="image-uploader__hint" data-role="image-hint">
-            ניתן לצרף עד 6 תמונות (PNG/JPG/WEBP/GIF, עד ‎2MB‎ לכל תמונה). הרכיב פעיל לקבצי Markdown (סיומת ‎.md/.markdown‎ או בחירת "Markdown" בשפה).
-        </small>
-        <div class="image-uploader__error" data-role="image-error" role="alert"></div>
-    </div>
+<div
+    id="image-upload-widget"
+    class="glass-card"
+    data-component="image-uploader"
+    style="display: none; padding: 0.5rem; border: none; background: transparent;"
+>
+    <div class="image-uploader__error" data-role="image-error" role="alert"></div>
 
     <input type="file" name="md_images" hidden multiple accept="image/*" data-role="file-input">
 
