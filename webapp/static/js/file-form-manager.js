@@ -197,6 +197,12 @@
 
       const manualLocked = this.touched && this.languageSelect.value !== 'text';
       if (manualLocked) {
+        // גם אם המשתמש נעל את השפה ידנית, עדיין צריך לעדכן את ה-UI (למשל רכיב התמונות) לפי שם הקובץ.
+        try {
+          if (this.onChange) {
+            this.onChange({ language: this.languageSelect.value });
+          }
+        } catch (_) {}
         return;
       }
 
@@ -337,10 +343,9 @@
       this.widget.classList.toggle('is-hidden', !isMarkdown);
 
       if (!isMarkdown) {
-        // אם יצאנו מ-Markdown: ננקה רק בחירות חדשות (לא נוגעים בתמונות קיימות של עריכה)
+        // אם יצאנו מ-Markdown: ננקה רק תמונות חדשות שהועלו עכשיו.
+        // חשוב: לא לנקות deletedExistingIds כדי לא לאבד מחיקות אם המשתמש יחזור ל-.md לפני שמירה.
         this.resetNewImages();
-        this.deletedExistingIds.clear();
-        this.writeDeletedImagesInput();
         this.setError('');
       }
 
