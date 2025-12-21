@@ -8852,7 +8852,15 @@ def edit_file_page(file_id):
                         tags = []
 
                 # תמונות ל-Markdown (כמו במסך יצירה): נשמרות כ-attachments לפי גרסה
-                should_collect_images = isinstance(file_name, str) and file_name.lower().endswith(('.md', '.markdown'))
+                # חשוב: ה-Frontend מאפשר לצרף תמונות גם כשנבחרה שפת Markdown ב-Dropdown,
+                # גם אם שם הקובץ לא מסתיים ב-.md/.markdown. כדי למנוע איבוד מידע, נאסוף תמונות גם לפי השפה.
+                is_md_extension = isinstance(file_name, str) and file_name.lower().endswith(('.md', '.markdown'))
+                try:
+                    lang_value = str(language or request.form.get('language') or '').strip().lower()
+                except Exception:
+                    lang_value = ''
+                is_md_language = lang_value in ('markdown', 'md')
+                should_collect_images = is_md_extension or is_md_language
                 if not error and should_collect_images:
                     # נשאיל תמונות קיימות מהגרסה הנוכחית (אלא אם המשתמש סימן למחיקה)
                     carry_payloads: List[Dict[str, Any]] = []
@@ -9798,7 +9806,15 @@ def upload_file_web():
                 except Exception:
                     pass
                 # שמירה ישירה במסד (להימנע מתלות ב-BOT_TOKEN של שכבת הבוט)
-                should_collect_images = isinstance(file_name, str) and file_name.lower().endswith(('.md', '.markdown'))
+                # חשוב: ה-Frontend מאפשר לצרף תמונות כששפת הטופס היא Markdown, גם אם הסיומת אינה .md.
+                # כדי למנוע איבוד מידע, נאסוף תמונות גם לפי השפה שנשלחה בטופס.
+                is_md_extension = isinstance(file_name, str) and file_name.lower().endswith(('.md', '.markdown'))
+                try:
+                    lang_value = str(language or request.form.get('language') or '').strip().lower()
+                except Exception:
+                    lang_value = ''
+                is_md_language = lang_value in ('markdown', 'md')
+                should_collect_images = is_md_extension or is_md_language
                 if not error and should_collect_images:
                     try:
                         incoming_images = request.files.getlist('md_images')

@@ -190,18 +190,10 @@
         return;
       }
 
-      // אל תדרוס בחירה קיימת בטעינה הראשונה אם המשתמש כבר על שפה ספציפית
-      if (triggerSource === 'initial' && this.languageSelect.value !== 'text') {
-        // עדיין צריך לעדכן UI שתלוי בשם הקובץ (למשל רכיב התמונות)
-        try {
-          if (this.onChange) {
-            this.onChange({ language: this.languageSelect.value });
-          }
-        } catch (_) {}
-        return;
-      }
-
+      const isInitial = triggerSource === 'initial';
       const filename = this.filenameInput.value || '';
+      const filenameLooksMarkdown = isMarkdownFilename(filename);
+
       let detected = null;
       try {
         if (this.editorManager && typeof this.editorManager.inferLanguageFromFilename === 'function') {
@@ -211,19 +203,41 @@
         detected = null;
       }
 
-      const manualLocked = this.touched && this.languageSelect.value !== 'text';
+      // אם מדובר ב-Markdown לפי סיומת - זה צריך לקבל עדיפות (גם אם המשתמש "נעל" שפה ידנית בעבר).
+      // בנוסף, בטעינה ראשונית לא נדרוס שפה שנקבעה מהשרת, אלא אם מדובר ב-Markdown לפי סיומת.
+      let resolved = detected;
+      if (filenameLooksMarkdown) {
+        if (!resolved || !this.languageOptionExists(resolved)) {
+          if (this.languageOptionExists('markdown')) {
+            resolved = 'markdown';
+          } else if (this.languageOptionExists('md')) {
+            resolved = 'md';
+          }
+        }
+      }
 
-      if (!manualLocked) {
-        // רק אם לא נעול - משנים את ה-Dropdown
-        if (detected && this.languageOptionExists(detected) && this.languageSelect.value !== detected) {
-          this.languageSelect.value = detected;
+      const isMarkdownFile = filenameLooksMarkdown || isMarkdownLanguage(resolved);
+      const manualLocked = this.touched && this.languageSelect.value !== 'text';
+      const initialLocked = isInitial && this.languageSelect.value !== 'text';
+      const locked = manualLocked || initialLocked;
+
+      if (resolved && this.languageOptionExists(resolved)) {
+        const target = String(resolved || '').toLowerCase();
+        const opt = Array.from(this.languageSelect.options || []).find((o) => {
+          const v = o && typeof o.value === 'string' ? o.value.toLowerCase() : '';
+          return v === target;
+        });
+        const nextValue = opt ? opt.value : resolved;
+
+        if ((!locked || isMarkdownFile) && nextValue && this.languageSelect.value !== nextValue) {
+          this.languageSelect.value = nextValue;
           try {
             this.languageSelect.dispatchEvent(new Event('change', { bubbles: true }));
           } catch (_) {}
         }
       }
 
-      // תמיד קוראים ל-onChange כדי לעדכן UI שתלוי בשם הקובץ (כמו כפתור/רכיב התמונות)
+      // תמיד קוראים ל-onChange כדי לעדכן UI שתלוי בשם הקובץ/שפה (כמו כפתור/רכיב התמונות)
       try {
         if (this.onChange) {
           this.onChange({ language: this.languageSelect.value });
@@ -233,11 +247,12 @@
   }
 
   class ImageManager {
-    constructor({ widget, form, filenameInput, languageSelect, mode }) {
+    constructor({ widget, form, filenameInput, languageSelect, externalTrigger, mode }) {
       this.widget = widget;
       this.form = form;
       this.filenameInput = filenameInput;
       this.languageSelect = languageSelect;
+      this.externalTrigger = externalTrigger;
       this.mode = normalizeMode(mode);
 
       this.addBtn = null;
@@ -269,8 +284,32 @@
       this.statusEl = this.widget.querySelector('[data-role="image-status"]');
       this.errorEl = this.widget.querySelector('[data-role="image-error"]');
 
+      // כפתור חיצוני (בשורת שם הקובץ) – מאפשר UX של אייקון צמוד לשדה
+      if (!this.externalTrigger) {
+        try {
+          this.externalTrigger = this.form
+            ? this.form.querySelector('#externalImageTrigger, [data-action="open-image-picker"]')
+            : null;
+        } catch (_) {
+          this.externalTrigger = null;
+        }
+      }
+
       if (this.addBtn && this.fileInput) {
         this.addBtn.addEventListener('click', () => {
+          try {
+            this.fileInput.click();
+          } catch (_) {}
+        });
+      }
+
+      if (this.externalTrigger && this.fileInput) {
+        this.externalTrigger.addEventListener('click', (event) => {
+          try {
+            if (event && typeof event.preventDefault === 'function') {
+              event.preventDefault();
+            }
+          } catch (_) {}
           try {
             this.fileInput.click();
           } catch (_) {}
@@ -330,9 +369,9 @@
     }
 
     isMarkdownContext() {
-      const name = this.filenameInput ? this.filenameInput.value : '';
-      // תואם לשרת: תמונות נשמרות רק לקבצים עם סיומת .md/.markdown
-      return isMarkdownFilename(name);
+      const filename = this.filenameInput ? this.filenameInput.value : '';
+      const langValue = this.languageSelect ? this.languageSelect.value : '';
+      return isMarkdownFilename(filename) || isMarkdownLanguage(langValue);
     }
 
     updateForContextChange() {
@@ -340,7 +379,14 @@
         return;
       }
       const isMarkdown = this.isMarkdownContext();
+      // שימוש ב-style כדי לנהל display: none שמוגדר ב-HTML (מניעת FOUC)
+      this.widget.style.display = isMarkdown ? 'block' : 'none';
+      // שמירה על תאימות ל-CSS הקיים
       this.widget.classList.toggle('is-hidden', !isMarkdown);
+
+      if (this.externalTrigger) {
+        this.externalTrigger.style.display = isMarkdown ? 'inline-flex' : 'none';
+      }
 
       if (!isMarkdown) {
         // אם יצאנו מ-Markdown: ננקה רק תמונות חדשות שהועלו עכשיו.
@@ -698,6 +744,7 @@
       this.languageSelect = null;
       this.filenameInput = null;
       this.imageWidget = null;
+      this.imageExternalTrigger = null;
       this.sourceUrlContainer = null;
 
       this.editorManager = null;
@@ -712,11 +759,47 @@
       this.languageSelect = document.querySelector(this.selectors.languageSelect || '');
       this.filenameInput = document.querySelector(this.selectors.filenameInput || '');
       this.imageWidget = document.querySelector(this.selectors.imageUploadContainer || '');
+      this.imageExternalTrigger = null;
+      try {
+        if (this.selectors.imageExternalTrigger) {
+          this.imageExternalTrigger = document.querySelector(this.selectors.imageExternalTrigger);
+        }
+      } catch (_) {
+        this.imageExternalTrigger = null;
+      }
       this.sourceUrlContainer = document.querySelector(this.selectors.sourceUrlContainer || '');
+
+      this.sourceUrlManager = new SourceUrlManager({ container: this.sourceUrlContainer });
+      this.sourceUrlManager.init();
+
+      // init images early (avoid waiting for editorManager -> prevents widget/button delay)
+      this.imageManager = new ImageManager({
+        widget: this.imageWidget,
+        form: this.form,
+        filenameInput: this.filenameInput,
+        languageSelect: this.languageSelect,
+        externalTrigger: this.imageExternalTrigger,
+        mode: this.mode,
+      });
+      this.imageManager.init();
+
+      this.languageDetector = new LanguageDetector({
+        filenameInput: this.filenameInput,
+        languageSelect: this.languageSelect,
+        editorManager: null,
+        onChange: () => {
+          try {
+            if (this.imageManager) {
+              this.imageManager.updateForContextChange();
+            }
+          } catch (_) {}
+        },
+      });
+      this.languageDetector.init();
 
       this.editorManager = await waitFor(() => window.editorManager, { timeoutMs: 3500, intervalMs: 100 });
 
-      // init editor
+      // init editor (languageSelect might have been updated by LanguageDetector already)
       if (this.editorContainer && this.editorManager && typeof this.editorManager.initEditor === 'function') {
         try {
           const value = this.getInitialEditorValue();
@@ -730,31 +813,13 @@
         }
       }
 
-      this.sourceUrlManager = new SourceUrlManager({ container: this.sourceUrlContainer });
-      this.sourceUrlManager.init();
-
-      this.languageDetector = new LanguageDetector({
-        filenameInput: this.filenameInput,
-        languageSelect: this.languageSelect,
-        editorManager: this.editorManager,
-        onChange: () => {
-          try {
-            if (this.imageManager) {
-              this.imageManager.updateForContextChange();
-            }
-          } catch (_) {}
-        },
-      });
-      this.languageDetector.init();
-
-      this.imageManager = new ImageManager({
-        widget: this.imageWidget,
-        form: this.form,
-        filenameInput: this.filenameInput,
-        languageSelect: this.languageSelect,
-        mode: this.mode,
-      });
-      this.imageManager.init();
+      // wire editorManager into LanguageDetector after it becomes available
+      try {
+        if (this.languageDetector) {
+          this.languageDetector.editorManager = this.editorManager;
+          this.languageDetector.autoDetect('initial');
+        }
+      } catch (_) {}
 
       // אם יש source_url קיים (בעיקר בעריכה/טיוטה) – נפתח אותו בתחילת הדרך
       try {
