@@ -173,3 +173,41 @@ def test_anomaly_detected_formats_as_system_anomaly(monkeypatch):
     assert "POST bookmarks.toggle_bookmark" in text
     assert "📉 Also Slow in this Window:" in text
     assert "📊 Resource Usage:" in text
+
+
+def test_startup_grace_period_suppresses_noisy_alerts(monkeypatch):
+    # Configure sinks so forwarding would normally happen
+    monkeypatch.setenv("SLACK_WEBHOOK_URL", "https://hooks.slack.test/abc")
+    monkeypatch.setenv("ALERT_TELEGRAM_BOT_TOKEN", "tkn")
+    monkeypatch.setenv("ALERT_TELEGRAM_CHAT_ID", "123")
+    monkeypatch.setenv("ALERT_STARTUP_GRACE_PERIOD_SECONDS", "300")
+
+    import importlib
+    import types
+
+    import alert_forwarder as af
+    importlib.reload(af)
+
+    calls = {"posts": []}
+
+    def _pooled(method, url, json=None, timeout=5):  # noqa: ARG001
+        calls["posts"].append((url, json))
+        return types.SimpleNamespace(status_code=200, json=lambda: {"ok": True})
+
+    monkeypatch.setattr(af, "_pooled_request", _pooled)
+
+    alert = {
+        "status": "firing",
+        "labels": {"alertname": "AppLatencyEWMARegression", "severity": "warning"},
+        "annotations": {"summary": "startup noise"},
+    }
+
+    # During startup: should be suppressed (no Slack/Telegram posts)
+    monkeypatch.setattr(af, "_MODULE_START_MONOTONIC", af.monotonic())
+    af.forward_alerts([alert])
+    assert calls["posts"] == []
+
+    # After grace: should be forwarded to both sinks
+    monkeypatch.setattr(af, "_MODULE_START_MONOTONIC", af.monotonic() - 301.0)
+    af.forward_alerts([alert])
+    assert len(calls["posts"]) == 2
