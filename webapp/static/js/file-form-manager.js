@@ -192,12 +192,7 @@
 
       // אל תדרוס בחירה קיימת בטעינה הראשונה אם המשתמש כבר על שפה ספציפית
       if (triggerSource === 'initial' && this.languageSelect.value !== 'text') {
-        return;
-      }
-
-      const manualLocked = this.touched && this.languageSelect.value !== 'text';
-      if (manualLocked) {
-        // גם אם המשתמש נעל את השפה ידנית, עדיין צריך לעדכן את ה-UI (למשל רכיב התמונות) לפי שם הקובץ.
+        // עדיין צריך לעדכן UI שתלוי בשם הקובץ (למשל רכיב התמונות)
         try {
           if (this.onChange) {
             this.onChange({ language: this.languageSelect.value });
@@ -216,18 +211,23 @@
         detected = null;
       }
 
-      if (!detected || !this.languageOptionExists(detected) || this.languageSelect.value === detected) {
-        try {
-          if (this.onChange) {
-            this.onChange({ language: this.languageSelect.value });
-          }
-        } catch (_) {}
-        return;
+      const manualLocked = this.touched && this.languageSelect.value !== 'text';
+
+      if (!manualLocked) {
+        // רק אם לא נעול - משנים את ה-Dropdown
+        if (detected && this.languageOptionExists(detected) && this.languageSelect.value !== detected) {
+          this.languageSelect.value = detected;
+          try {
+            this.languageSelect.dispatchEvent(new Event('change', { bubbles: true }));
+          } catch (_) {}
+        }
       }
 
-      this.languageSelect.value = detected;
+      // תמיד קוראים ל-onChange כדי לעדכן UI שתלוי בשם הקובץ (כמו כפתור/רכיב התמונות)
       try {
-        this.languageSelect.dispatchEvent(new Event('change', { bubbles: true }));
+        if (this.onChange) {
+          this.onChange({ language: this.languageSelect.value });
+        }
       } catch (_) {}
     }
   }
