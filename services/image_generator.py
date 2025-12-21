@@ -575,6 +575,13 @@ class CodeImageGenerator:
 
     def save_optimized_png(self, img: Image.Image) -> bytes:
         """Always return PNG for crisp code images; keep optimization, avoid JPEG."""
+        # Pillow 12+ עשוי לטעון פורמטים בצורה עצלה יותר. בחלק מהסביבות זה גורם ל-
+        # KeyError: 'PNG' בזמן save אם פלאגין PNG עדיין לא נרשם.
+        # נוודא אתחול רישום הפורמטים לפני השמירה.
+        try:
+            Image.init()
+        except Exception:
+            pass
         buf = io.BytesIO()
         img.save(buf, format='PNG', optimize=True, compress_level=9)
         return buf.getvalue()
