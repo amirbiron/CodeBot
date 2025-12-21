@@ -14,17 +14,22 @@ async def test_by_repo_menu_callback_skips_missing_tag(monkeypatch):
     )
     monkeypatch.setitem(__import__('sys').modules, "database", stub_db_mod)
 
-    from conversation_handlers import show_by_repo_menu_callback
-    from utils import TelegramUtils
+    import conversation_handlers as ch
 
     captured = {}
     async def fake_safe_edit_message_text(query, text, reply_markup=None, parse_mode=None):
         captured["reply_markup"] = reply_markup
 
-    monkeypatch.setattr(TelegramUtils, "safe_edit_message_text", fake_safe_edit_message_text)
+    # חשוב: לתקן על האובייקט שה-handler משתמש בו בפועל (conversation_handlers.TelegramUtils),
+    # כדי להיות עמיד לשינויים/ניקוי ב-sys.modules בין טסטים.
+    monkeypatch.setattr(ch.TelegramUtils, "safe_edit_message_text", fake_safe_edit_message_text)
 
     class DummyQuery:
+        def __init__(self):
+            self.data = None
         async def answer(self):
+            return None
+        async def edit_message_text(self, *a, **k):
             return None
 
     class DummyUpdate:
@@ -40,7 +45,7 @@ async def test_by_repo_menu_callback_skips_missing_tag(monkeypatch):
 
     u = DummyUpdate()
     c = Ctx()
-    await show_by_repo_menu_callback(u, c)
+    await ch.show_by_repo_menu_callback(u, c)
     rm = captured.get("reply_markup")
     assert rm is not None
     texts = [btn.text for row in rm.inline_keyboard for btn in row]
