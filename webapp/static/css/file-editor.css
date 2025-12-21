@@ -1,0 +1,301 @@
+/* Shared styles for Upload/Edit file forms (no inline CSS in templates) */
+
+.form-field {
+  width: 100%;
+  padding: 0.75rem;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--text-primary, #ffffff);
+  font: inherit;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease, background 0.2s ease;
+}
+
+.form-field:focus {
+  outline: none;
+  border-color: rgba(255, 255, 255, 0.5);
+  box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.08);
+}
+
+.form-field::placeholder {
+  color: var(--text-muted, rgba(255, 255, 255, 0.65));
+}
+
+.code-field {
+  font-family: 'Fira Code', 'Consolas', monospace;
+}
+
+:root[data-theme="rose-pine-dawn"] .form-field {
+  background: color-mix(in srgb, var(--bg-secondary) 70%, #ffffff 30%);
+  border: 1px solid var(--glass-border);
+  color: var(--text-primary);
+  box-shadow: inset 0 1px 3px rgba(87, 82, 121, 0.12);
+}
+
+:root[data-theme="rose-pine-dawn"] .form-field:focus {
+  border-color: rgba(144, 122, 169, 0.7);
+  box-shadow: 0 0 0 2px rgba(144, 122, 169, 0.15);
+}
+
+/* Source URL toggle */
+.source-url-block {
+  border: 1px solid var(--glass-border, rgba(255, 255, 255, 0.2));
+  border-radius: 12px;
+  padding: 0.75rem 1rem;
+  background: var(--glass, rgba(255, 255, 255, 0.08));
+}
+
+.source-url-toggle {
+  background: transparent;
+  border: none;
+  color: var(--text-primary, #ffffff);
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.95rem;
+  cursor: pointer;
+  font-weight: 500;
+  padding: 0;
+}
+
+.source-url-toggle:focus-visible {
+  outline: 2px solid var(--primary, #9775fa);
+  outline-offset: 3px;
+}
+
+.source-url-toggle__icon {
+  font-size: 1.1rem;
+}
+
+.source-url-field {
+  overflow: hidden;
+  max-height: 0;
+  opacity: 0;
+  transform: translateY(-6px);
+  transition: max-height 0.25s ease, opacity 0.2s ease, transform 0.2s ease;
+}
+
+.source-url-field.is-open {
+  max-height: 220px;
+  opacity: 1;
+  transform: translateY(0);
+  margin-top: 0.75rem;
+}
+
+.source-url-field label {
+  display: block;
+  margin-bottom: 0.35rem;
+  font-size: 0.9rem;
+  color: var(--text-secondary, rgba(255, 255, 255, 0.82));
+}
+
+.source-url-input {
+  width: 100%;
+  padding: 0.75rem;
+  border-radius: 10px;
+  border: 1px solid var(--glass-border, rgba(255, 255, 255, 0.25));
+  background: var(--bg-tertiary, rgba(255, 255, 255, 0.1));
+  color: var(--text-primary, #ffffff);
+  font-family: inherit;
+}
+
+.source-url-input::placeholder {
+  color: var(--text-muted, rgba(255, 255, 255, 0.65));
+}
+
+.source-url-hint {
+  display: block;
+  margin-top: 0.35rem;
+  font-size: 0.85rem;
+  color: var(--text-muted, rgba(255, 255, 255, 0.65));
+}
+
+/* Upload actions (used in upload.html) */
+.save-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.primary-actions {
+  display: flex;
+  gap: 1rem;
+  align-items: center;
+}
+
+.draft-meta {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  font-size: 0.85rem;
+  color: var(--text-muted, rgba(255, 255, 255, 0.65));
+}
+
+.draft-status {
+  color: inherit;
+}
+
+.btn-clear-draft {
+  background: transparent;
+  border: none;
+  color: var(--text-secondary, rgba(255, 255, 255, 0.82));
+  text-decoration: underline;
+  cursor: pointer;
+  padding: 0;
+  font: inherit;
+}
+
+.btn-clear-draft:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Simple hint text used in forms */
+.markdown-image-hint {
+  font-size: 0.85rem;
+  color: var(--text-secondary, rgba(255, 255, 255, 0.75));
+}
+
+/* Image uploader (Markdown images) */
+#image-upload-widget.is-hidden {
+  display: none;
+}
+
+#image-upload-widget .image-uploader__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-bottom: 0.5rem;
+}
+
+#image-upload-widget .image-uploader__label {
+  font-weight: 600;
+}
+
+#image-upload-widget .image-uploader__status {
+  font-size: 0.9rem;
+  color: var(--text-secondary, rgba(255, 255, 255, 0.8));
+}
+
+#image-upload-widget .image-uploader__actions {
+  display: grid;
+  gap: 0.5rem;
+}
+
+#image-upload-widget .image-uploader__hint {
+  font-size: 0.85rem;
+  color: var(--text-secondary, rgba(255, 255, 255, 0.75));
+}
+
+#image-upload-widget .image-uploader__error {
+  margin-top: 0.1rem;
+  font-size: 0.9rem;
+  color: #ff8a8a;
+}
+
+#image-upload-widget .previews-container {
+  margin-top: 0.75rem;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(90px, 1fr));
+  gap: 0.75rem;
+  padding: 0.75rem;
+  border-radius: 12px;
+  border: 1px dashed rgba(255, 255, 255, 0.25);
+  background: rgba(255, 255, 255, 0.04);
+}
+
+#image-upload-widget .previews-container.is-empty {
+  display: none;
+}
+
+#image-upload-widget .image-preview {
+  position: relative;
+  border-radius: 10px;
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  background: rgba(0, 0, 0, 0.2);
+  cursor: pointer;
+}
+
+#image-upload-widget .image-preview img {
+  width: 100%;
+  height: 80px;
+  object-fit: cover;
+  display: block;
+}
+
+#image-upload-widget .image-preview__delete {
+  position: absolute;
+  top: 6px;
+  left: 6px;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  border: none;
+  background: rgba(0, 0, 0, 0.55);
+  color: #fff;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.9rem;
+  opacity: 0;
+  transition: opacity 0.2s ease;
+}
+
+#image-upload-widget .image-preview:hover .image-preview__delete {
+  opacity: 1;
+}
+
+@media (max-width: 520px) {
+  #image-upload-widget .image-preview img {
+    height: 70px;
+  }
+}
+
+/* Fullscreen viewer (created by JS) */
+.markdown-image-fullscreen {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.9);
+  display: none;
+  align-items: center;
+  justify-content: center;
+  flex-direction: column;
+  padding: 1.5rem;
+  z-index: 9999;
+}
+
+.markdown-image-fullscreen.is-open {
+  display: flex;
+}
+
+.markdown-image-fullscreen img {
+  max-width: 90vw;
+  max-height: 80vh;
+  border-radius: 12px;
+  box-shadow: 0 25px 90px rgba(0, 0, 0, 0.45);
+}
+
+.markdown-image-fullscreen button {
+  align-self: flex-end;
+  margin-bottom: 1rem;
+  border: none;
+  background: rgba(255, 255, 255, 0.15);
+  color: white;
+  padding: 0.4rem 0.75rem;
+  border-radius: 999px;
+  cursor: pointer;
+  font-size: 0.95rem;
+}
+
+.markdown-image-fullscreen-caption {
+  margin-top: 1rem;
+  color: rgba(255, 255, 255, 0.85);
+  font-size: 0.95rem;
+  text-align: center;
+}
+
