@@ -33,6 +33,23 @@ html[dir="rtl"] .editor-info-primary { margin-left:0; margin-right:auto; }
 .cm-selectionBackground { background-color: rgba(100,100,255,0.3) !important; }
 @media (max-width: 768px){
   .cm-editor { max-height: 50vh; font-size: 14px; }
+  /* מובייל: מוסיפים "אוויר" בתחתית הגלילה כדי שהשורות האחרונות לא ייחתכו
+     מתחת ל-UI של הדפדפן / Safe Area (iOS). */
+  :root {
+    --editor-scroll-bottom-padding: 80px;
+    /* iOS Safe Area (ישן/חדש) */
+    --editor-scroll-bottom-padding: calc(80px + constant(safe-area-inset-bottom));
+    --editor-scroll-bottom-padding: calc(80px + env(safe-area-inset-bottom));
+  }
+
+  /* CodeMirror (העורך המתקדם) */
+  .cm-editor .cm-scroller { padding-bottom: var(--editor-scroll-bottom-padding) !important; }
+
+  /* Textarea (העורך הבסיסי) */
+  #codeTextarea,
+  textarea.code-field,
+  .editor-textarea { padding-bottom: var(--editor-scroll-bottom-padding) !important; }
+
   /* Mobile: Stack vertically */
   .editor-switcher-row { flex-direction: column; align-items: stretch; gap:.5rem; }
   .editor-switcher-actions { width: 100%; flex-direction: column; }
