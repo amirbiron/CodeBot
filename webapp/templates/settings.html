@@ -2279,11 +2279,10 @@
             </div>
           `;
 
-          // Bind eye button click
-          const eyeBtn = slots.coverage.querySelector('[data-show-sentry-details]');
-          if (eyeBtn) {
-            eyeBtn.addEventListener('click', openMissingRunbooksModal);
-          }
+          // Bind eye button click (support 1+ buttons)
+          slots.coverage.querySelectorAll('[data-show-sentry-details]').forEach((btn) => {
+            btn.addEventListener('click', openMissingRunbooksModal);
+          });
 
           const minEl = document.getElementById('configRadarCoverageMinCount');
           const searchEl = document.getElementById('configRadarCoverageSearch');
