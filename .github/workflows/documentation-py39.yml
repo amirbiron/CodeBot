@@ -17,51 +17,51 @@ jobs:
   build-docs-py39:
     name: 🔨 Build Documentation (Python 3.11)
     runs-on: ubuntu-latest
-    
+
     steps:
-    - name: 📥 Checkout code
-      uses: actions/checkout@v4
-      with:
-        fetch-depth: 0
-    
-    - name: 🐍 Setup Python ${{ env.PYTHON_VERSION }}
-      uses: actions/setup-python@v5
-      with:
-        python-version: ${{ env.PYTHON_VERSION }}
-        cache: 'pip'
-    
-    - name: 📦 Install documentation dependencies
-      run: |
-        python -m pip install --upgrade pip
-        # Install docs deps (conf.py mocks heavy imports)
-        pip install -r docs/requirements.txt
-        
-        # Try to install project dependencies (production-only)
-        pip install -r requirements/production.txt 2>/dev/null || true
-        # Install docs extra requirements (includes mermaid and addons)
-        pip install -r docs/requirements.txt
-    
-    - name: 🔨 Build HTML documentation
-      run: |
-        cd docs
-        # Build docs
-        python -m sphinx -b html . _build/html --keep-going -j auto
-      env:
-        SPHINX_MOCK_IMPORTS: true
-        BOT_TOKEN: dummy_token_for_docs
-        MONGODB_URL: mongodb://localhost:27017/test
-    
-    - name: 💾 Upload documentation artifacts
-      uses: actions/upload-artifact@v4
-      with:
-        name: documentation-html-py39
-        path: ${{ env.SPHINX_BUILD_DIR }}
-        retention-days: 7
-    
-    - name: 📝 Generate summary
-      run: |
-        echo "### 📖 Documentation Build (Python 3.11)" >> $GITHUB_STEP_SUMMARY
-        echo "- **Python Version**: ${{ env.PYTHON_VERSION }}" >> $GITHUB_STEP_SUMMARY
-        SPHINX_VER=$(python -c 'import sphinx; print("Sphinx " + sphinx.__version__)')
-        echo "- **Sphinx Version**: ${SPHINX_VER}" >> $GITHUB_STEP_SUMMARY
-        echo "- **Status**: ✅ Success" >> $GITHUB_STEP_SUMMARY
+      - name: 📥 Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: 🐍 Setup Python ${{ env.PYTHON_VERSION }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: 'pip'
+
+      - name: 📦 Install documentation dependencies
+        run: |
+          python -m pip install --upgrade pip
+          # Install docs deps (conf.py mocks heavy imports)
+          pip install -r docs/requirements.txt
+
+          # Try to install project dependencies (production-only)
+          pip install -r requirements/production.txt 2>/dev/null || true
+          # Install docs extra requirements (includes mermaid and addons)
+          pip install -r docs/requirements.txt
+
+      - name: 🔨 Build HTML documentation
+        run: |
+          cd docs
+          # Build docs
+          python -m sphinx -b html . _build/html --keep-going -j auto
+        env:
+          SPHINX_MOCK_IMPORTS: true
+          BOT_TOKEN: dummy_token_for_docs
+          MONGODB_URL: mongodb://localhost:27017/test
+
+      - name: 💾 Upload documentation artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: documentation-html-py39
+          path: ${{ env.SPHINX_BUILD_DIR }}
+          retention-days: 7
+
+      - name: 📝 Generate summary
+        run: |
+          echo "### 📖 Documentation Build (Python 3.11)" >> $GITHUB_STEP_SUMMARY
+          echo "- **Python Version**: ${{ env.PYTHON_VERSION }}" >> $GITHUB_STEP_SUMMARY
+          SPHINX_VER=$(python -c 'import sphinx; print("Sphinx " + sphinx.__version__)')
+          echo "- **Sphinx Version**: ${SPHINX_VER}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Status**: ✅ Success" >> $GITHUB_STEP_SUMMARY

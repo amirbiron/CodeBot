@@ -93,6 +93,7 @@ _RUNBOOK_STATE_LOCK = threading.Lock()
 logger = logging.getLogger(__name__)
 
 _HTTP_FETCH_TIMEOUT = 10
+_DEFAULT_COVERAGE_TIMERANGE = os.getenv("OBS_COVERAGE_TIMERANGE", "7d").strip().lower() or "7d"
 
 _RANGE_TO_MINUTES = {
     "15m": 15,
@@ -3164,6 +3165,174 @@ def build_coverage_report(
             "generated_at": generated_at,
             "mode": "catalog",
             "catalog_total": len(catalog_rows),
+        },
+    }
+
+
+def fetch_sentry_issue_signatures_missing_runbook(
+    *,
+    start_dt: Optional[datetime],
+    end_dt: Optional[datetime],
+    min_count: int = 1,
+    limit: int = 200,
+    timerange_label: Optional[str] = None,
+) -> Dict[str, Any]:
+    """Return Sentry issue signatures that currently have no dedicated runbook.
+
+    This is used by Config Radar -> Coverage to drill into the aggregated
+    `sentry_issue` alert_type and show per-issue breakdown with direct Sentry links.
+    """
+    # If a dedicated runbook exists for sentry_issue, there's no "missing runbook" drill-down.
+    try:
+        resolved = _resolve_runbook_key("sentry_issue", allow_default=False)
+        runbook_cfg = _load_runbook_config() or {}
+        default_key = runbook_cfg.get("default")
+        if resolved and default_key and str(resolved).strip().lower() == str(default_key).strip().lower():
+            resolved = None
+        if resolved:
+            return {
+                "items": [],
+                "meta": {
+                    "window_start": start_dt.isoformat() if start_dt else None,
+                    "window_end": end_dt.isoformat() if end_dt else None,
+                    "reason": "runbook_exists",
+                },
+            }
+    except Exception:
+        # Fail-open: if config parsing fails, we still try to return data.
+        pass
+
+    try:
+        min_count_int = int(min_count)
+    except Exception:
+        min_count_int = 1
+    min_count_int = max(1, min(10_000, min_count_int))
+
+    try:
+        limit_int = int(limit)
+    except Exception:
+        limit_int = 200
+    limit_int = max(1, min(2000, limit_int))
+
+    rows: List[Dict[str, Any]] = []
+    try:
+        rows = alerts_storage.aggregate_sentry_issue_signatures(
+            start_dt=start_dt,
+            end_dt=end_dt,
+            min_count=min_count_int,
+            limit=limit_int,
+        )
+    except Exception:
+        rows = []
+
+    def _build_sentry_links(row: Dict[str, Any]) -> Dict[str, Optional[str]]:
+        """Build primary (search) + optional direct link for a Sentry issue."""
+        try:
+            import os as _os
+            from urllib.parse import quote_plus, urlparse
+        except Exception:
+            return {"search_url": None, "direct_url": None}
+
+        # Same derivation logic as alert_forwarder._build_sentry_link (but we keep it local to avoid import cycles).
+        dashboard = _os.getenv("SENTRY_DASHBOARD_URL") or _os.getenv("SENTRY_PROJECT_URL")
+        if dashboard:
+            base_url = str(dashboard).rstrip("/")
+            # Ensure we point at org-level issues listing
+            if base_url.endswith("/issues"):
+                base_issues = base_url
+            else:
+                base_issues = base_url.rstrip("/") + "/issues"
+        else:
+            dsn = str(_os.getenv("SENTRY_DSN") or "")
+            host = None
+            if dsn:
+                try:
+                    parsed = urlparse(dsn)
+                    raw_host = parsed.hostname or ""
+                except Exception:
+                    raw_host = ""
+                if ".ingest." in raw_host:
+                    try:
+                        host = raw_host.split(".ingest.", 1)[1]
+                    except Exception:
+                        host = None
+                elif raw_host.startswith("ingest."):
+                    host = raw_host[len("ingest.") :]
+                elif raw_host == "sentry.io" or raw_host.endswith(".sentry.io"):
+                    host = "sentry.io"
+                else:
+                    host = raw_host or None
+            host = host or "sentry.io"
+            org = _os.getenv("SENTRY_ORG") or _os.getenv("SENTRY_ORG_SLUG")
+            if not org:
+                return {"search_url": None, "direct_url": None}
+            base_issues = f"https://{host}/organizations/{org}/issues"
+
+        stats_period = str((timerange_label or _DEFAULT_COVERAGE_TIMERANGE or "7d")).strip().lower() or "7d"
+
+        error_sig = str(row.get("error_signature") or "").strip()
+        short_id = str(row.get("short_id") or "").strip()
+        issue_id = str(row.get("issue_id") or "").strip()
+
+        query = None
+        if error_sig:
+            query = f'error_signature:"{error_sig}"'
+        elif short_id:
+            # Sentry accepts broad search terms; short ids like PYTHON-19 work well.
+            query = short_id
+        elif issue_id:
+            # Best-effort: allow searching by issue id string.
+            query = issue_id
+
+        search_url = None
+        if query:
+            search_url = f"{base_issues}/?query={quote_plus(query)}&statsPeriod={quote_plus(stats_period)}"
+
+        direct_url = None
+        if issue_id:
+            # Direct issue URL is stable and precise when the numeric issue id is known.
+            try:
+                direct_url = f"{base_issues}/{quote_plus(issue_id)}/"
+            except Exception:
+                direct_url = None
+
+        return {"search_url": search_url, "direct_url": direct_url}
+
+    # Normalize datetimes -> iso
+    items: List[Dict[str, Any]] = []
+    for row in rows or []:
+        try:
+            last_seen_dt = row.get("last_seen_dt")
+            last_seen_ts = last_seen_dt.isoformat() if isinstance(last_seen_dt, datetime) else None
+            links = _build_sentry_links(row)
+            items.append(
+                {
+                    "signature": str(row.get("signature") or "").strip(),
+                    "count": int(row.get("count") or 0),
+                    "last_seen_ts": last_seen_ts,
+                    "error_signature": row.get("error_signature"),
+                    "issue_id": row.get("issue_id"),
+                    "short_id": row.get("short_id"),
+                    "permalink": row.get("permalink"),
+                    "project": row.get("project"),
+                    "sample_title": row.get("sample_title"),
+                    "sentry_search_url": links.get("search_url"),
+                    "sentry_direct_url": links.get("direct_url"),
+                }
+            )
+        except Exception:
+            continue
+
+    # Sort again defensively (aggregate already sorts, but keep stable output)
+    items.sort(key=lambda r: (-int(r.get("count") or 0), str(r.get("signature") or "")))
+
+    return {
+        "items": items,
+        "meta": {
+            "window_start": start_dt.isoformat() if start_dt else None,
+            "window_end": end_dt.isoformat() if end_dt else None,
+            "mode": "alerts_db",
+            "timerange": str((timerange_label or _DEFAULT_COVERAGE_TIMERANGE or "7d")).strip().lower() or "7d",
         },
     }
 

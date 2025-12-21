@@ -69,43 +69,43 @@ services:
       # Enable internal share web + base URL for public links
       ENABLE_INTERNAL_SHARE_WEB: ${ENABLE_INTERNAL_SHARE_WEB:-true}
       PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:-http://localhost:${BOT_PORT:-8000}}
-      
+
       # Database
       MONGODB_URL: mongodb://${MONGO_USERNAME:-admin}:${MONGO_PASSWORD:-password123}@mongodb:27017/${DATABASE_NAME:-code_keeper_bot}?authSource=admin
       DATABASE_NAME: ${DATABASE_NAME:-code_keeper_bot}
-      
+
       # Cache
       REDIS_URL: redis://:${REDIS_PASSWORD:-redis123}@redis:6379/0
       CACHE_TTL: ${CACHE_TTL:-300}
-      
+
       # External integrations
       GITHUB_TOKEN: ${GITHUB_TOKEN}
       PASTEBIN_API_KEY: ${PASTEBIN_API_KEY}
-      
+
       # Performance
       MAX_CODE_SIZE: ${MAX_CODE_SIZE:-100000}
       MAX_FILES_PER_USER: ${MAX_FILES_PER_USER:-1000}
-      
+
       # Appearance
       HIGHLIGHT_THEME: ${HIGHLIGHT_THEME:-github-dark}
-      
+
       # Security
       ADMIN_USER_IDS: ${ADMIN_USER_IDS}
-      
+
       # Logging
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
       LOG_FILE: /app/logs/bot.log
-      
+
       # Server (for webhooks)
       PORT: 8000
       WEBHOOK_URL: ${WEBHOOK_URL}
       WEBHOOK_SECRET: ${WEBHOOK_SECRET}
-      
+
       # Backup
       AUTO_BACKUP_ENABLED: ${AUTO_BACKUP_ENABLED:-true}
       BACKUP_FREQUENCY_HOURS: ${BACKUP_FREQUENCY_HOURS:-24}
       MAX_BACKUPS_TO_KEEP: ${MAX_BACKUPS_TO_KEEP:-7}
-      
+
       # Monitoring
       SENTRY_DSN: ${SENTRY_DSN}
       ENABLE_METRICS: ${ENABLE_METRICS:-false}
@@ -129,25 +129,25 @@ services:
       ALERT_LATENCY_THRESHOLD_SCALE: ${ALERT_LATENCY_THRESHOLD_SCALE:-1.4}
       ALERT_MIN_SAMPLE_COUNT: ${ALERT_MIN_SAMPLE_COUNT:-60}
       ALERT_COOLDOWN_SEC: ${ALERT_COOLDOWN_SEC:-1200}              # 20 minutes
-    
+
     ports:
       - "${BOT_PORT:-8000}:8000"
-    
+
     volumes:
       - ./logs:/app/logs
       - ./backups:/app/backups
       - ./temp:/app/temp
       - bot_data:/app/data
-    
+
     networks:
       - code-keeper-network
-    
+
     depends_on:
       mongodb:
         condition: service_healthy
       redis:
         condition: service_healthy
-    
+
     healthcheck:
       test: ["CMD", "python", "-c", "from config import config; print('OK')"]
       interval: 30s

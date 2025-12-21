@@ -11027,7 +11027,9 @@ def api_observability_coverage():
     if not _require_admin_user():
         return jsonify({'ok': False, 'error': 'admin_only'}), 403
     try:
-        start_dt, end_dt = _resolve_time_window(default_hours=24)
+        # Coverage is typically reviewed on a weekly window (still catalog-based all-time),
+        # but we keep the window for links/drill-down endpoints and consistency.
+        start_dt, end_dt = _resolve_time_window(default_hours=7 * 24)
         try:
             min_count = int(request.args.get('min_count') or 1)
         except Exception:
@@ -11046,6 +11048,44 @@ def api_observability_coverage():
         return jsonify({'ok': False, 'error': 'bad_request'}), 400
     except Exception:
         logger.exception("observability_coverage_failed")
+        return jsonify({'ok': False, 'error': 'internal_error'}), 500
+
+
+@app.route('/api/observability/coverage/missing_runbooks/sentry_issue', methods=['GET'])
+@login_required
+def api_observability_coverage_sentry_issue_missing_runbooks():
+    """Drill-down: list Sentry issue signatures for sentry_issue missing runbook."""
+    if not _require_admin_user():
+        return jsonify({'ok': False, 'error': 'admin_only'}), 403
+    try:
+        timerange_label = str(request.args.get('timerange') or request.args.get('range') or '7d').strip().lower() or '7d'
+        start_dt, end_dt = _resolve_time_window(default_hours=7 * 24)
+        try:
+            min_count = int(request.args.get('min_count') or 1)
+        except Exception:
+            min_count = 1
+        min_count = max(1, min(10_000, min_count))
+        try:
+            limit = int(request.args.get('limit') or 200)
+        except Exception:
+            limit = 200
+        limit = max(1, min(2000, limit))
+
+        payload = _run_observability_blocking(
+            observability_service.fetch_sentry_issue_signatures_missing_runbook,
+            start_dt=start_dt,
+            end_dt=end_dt,
+            min_count=min_count,
+            limit=limit,
+            timerange_label=timerange_label,
+        )
+        payload['ok'] = True
+        return jsonify(payload)
+    except ValueError as exc:
+        logger.warning("observability_coverage_sentry_missing_bad_request: %s", exc)
+        return jsonify({'ok': False, 'error': 'bad_request'}), 400
+    except Exception:
+        logger.exception("observability_coverage_sentry_missing_failed")
         return jsonify({'ok': False, 'error': 'internal_error'}), 500
 
 

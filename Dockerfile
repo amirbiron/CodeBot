@@ -16,7 +16,7 @@ USER root
 # משתני סביבה לבילד
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
-    PIP_NO_CACHE_DIR=0 \
+    PIP_NO_CACHE_DIR=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=1 \
     PIP_DEFAULT_TIMEOUT=100 \
     PIP_INDEX_URL=https://pypi.org/simple \
@@ -24,6 +24,7 @@ ENV PYTHONUNBUFFERED=1 \
     PATH="/root/.local/bin:$PATH"
 
 # כלים לבניית חבילות heavy (wheels)
+# hadolint ignore=SC1091,DL3008
 RUN set -eux; \
     . /etc/os-release; \
     printf 'deb http://deb.debian.org/debian %s main contrib non-free non-free-firmware\n' "$VERSION_CODENAME" > /etc/apt/sources.list.d/non-free.list; \
@@ -31,6 +32,7 @@ RUN set -eux; \
     printf 'deb http://security.debian.org/debian-security %s-security main contrib non-free non-free-firmware\n' "$VERSION_CODENAME" >> /etc/apt/sources.list.d/non-free.list; \
     apt-get update -y && apt-get upgrade -y && \
     apt-get install -y --no-install-recommends \
+        bash \
         build-essential \
         python3-dev \
         libc6-dev \
@@ -41,6 +43,8 @@ RUN set -eux; \
         zlib1g-dev && \
     rm -rf /var/lib/apt/lists/*
 
+SHELL ["/bin/bash", "-o", "pipefail", "-c"]
+
 RUN python -m pip install --upgrade --no-cache-dir 'pip>=24.1' 'setuptools>=78.1.1' 'wheel>=0.43.0'
 
 WORKDIR /app
@@ -48,14 +52,14 @@ WORKDIR /app
 # העתקת requirements והתקנת dependencies (Production-only)
 COPY requirements/ /app/requirements/
 RUN --mount=type=cache,target=/root/.cache/pip \
-    pip install --user -r /app/requirements/production.txt --retries 5 --timeout 60
+    pip install --user --no-cache-dir -r /app/requirements/production.txt --retries 5 --timeout 60
 
 # יצירת constraints לשחזור צפוי
-RUN python -m pip freeze | sort > /app/constraints.txt
+RUN python -m pip freeze > /app/constraints.raw.txt && sort /app/constraints.raw.txt > /app/constraints.txt && rm -f /app/constraints.raw.txt
 
 # אימות התקנה מול constraints
 RUN --mount=type=cache,target=/root/.cache/pip \
-    pip install --user -r /app/requirements/production.txt -c /app/constraints.txt --retries 5 --timeout 60
+    pip install --user --no-cache-dir -r /app/requirements/production.txt -c /app/constraints.txt --retries 5 --timeout 60
 
 ######################################
 # שלב 2: Production stage (Debian slim)
@@ -77,6 +81,7 @@ ENV NODE_MAJOR=${NODE_MAJOR} \
     NODE_VERSION=${NODE_VERSION}
 
 # חבילות Runtime הנדרשות (כולל Playwright deps מלאים)
+# hadolint ignore=SC1091,DL3008
 RUN set -eux; \
     . /etc/os-release; \
     printf 'deb http://deb.debian.org/debian %s main contrib non-free non-free-firmware\n' "$VERSION_CODENAME" > /etc/apt/sources.list.d/non-free.list; \
@@ -84,6 +89,7 @@ RUN set -eux; \
     printf 'deb http://security.debian.org/debian-security %s-security main contrib non-free non-free-firmware\n' "$VERSION_CODENAME" >> /etc/apt/sources.list.d/non-free.list; \
     apt-get update -y && apt-get upgrade -y && \
     apt-get install -y --no-install-recommends \
+        bash \
         libasound2 \
         libatk-bridge2.0-0 \
         libatk1.0-0 \
@@ -119,6 +125,8 @@ RUN set -eux; \
         libjpeg62-turbo && \
     fc-cache -f -v && \
     rm -rf /var/lib/apt/lists/*
+
+SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 
 # התקנת תלותי Playwright (root) למנועי Chromium
 RUN python -m pip install --no-cache-dir 'playwright==1.49.0' && \

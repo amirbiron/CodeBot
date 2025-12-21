@@ -45,143 +45,141 @@ jobs:
       contents: read
       issues: write
       pull-requests: write
-    
+
     steps:
-    - name: 📥 Checkout code
-      uses: actions/checkout@v4
-      with:
-        fetch-depth: ${{ github.event_name == 'pull_request' && 1 || 0 }}
-    
-    - name: 🐍 Setup Python ${{ env.PYTHON_VERSION }}
-      uses: actions/setup-python@v5
-      with:
-        python-version: ${{ env.PYTHON_VERSION }}
-        cache: 'pip'
-        cache-dependency-path: |
-          requirements/*.txt
-          docs/requirements.txt
-    
-    - name: 📦 Install documentation dependencies
-      run: |
-        python -m pip install --upgrade pip
-        # Install only docs dependencies (conf.py mocks heavy imports)
-        pip install -r docs/requirements.txt
-    
-    - name: 🔍 Check documentation style
-      continue-on-error: true
-      run: |
-        pip install pydocstyle
-        pydocstyle --count --convention=google --add-ignore=D100,D104 || true
-    
-    - name: Cache Sphinx doctrees
-      uses: actions/cache@v4
-      with:
-        path: docs/_build/doctrees
-        key: docs-doctrees-${{ github.ref }}-${{ hashFiles('docs/**/*.rst', 'docs/conf.py') }}
-        restore-keys: |
-          docs-doctrees-${{ github.ref }}-
-          docs-doctrees-
+      - name: 📥 Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: ${{ github.event_name == 'pull_request' && 1 || 0 }}
 
-    - name: 🔨 Build docs (PR single-version)
-      if: github.event_name == 'pull_request'
-      run: |
-        cd docs
-        DISABLE_DB=1 python -m sphinx -b html . _build/html --keep-going -j auto
-      env:
-        SPHINX_MOCK_IMPORTS: true
-        BOT_TOKEN: dummy_token_for_docs
-        MONGODB_URL: mongodb://localhost:27017/test
+      - name: 🐍 Setup Python ${{ env.PYTHON_VERSION }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: 'pip'
+          cache-dependency-path: |
+            requirements/*.txt
+            docs/requirements.txt
 
-    - name: 🔨 Build docs (single-version for stability)
-      if: github.ref == 'refs/heads/main' && github.event_name == 'push'
-      run: |
-        cd docs
-        DISABLE_DB=1 python -m sphinx -b html . _build/html --keep-going -j auto
-    
-    - name: 📊 Generate documentation coverage report
-      if: github.event_name == 'pull_request'
-      continue-on-error: true
-      run: |
-        cd docs
-        python -m sphinx -b coverage . _build/coverage
-        echo "### 📊 Documentation Coverage Report" >> $GITHUB_STEP_SUMMARY
-        echo '```' >> $GITHUB_STEP_SUMMARY
-        cat _build/coverage/python.txt >> $GITHUB_STEP_SUMMARY || echo "No coverage data available" >> $GITHUB_STEP_SUMMARY
-        echo '```' >> $GITHUB_STEP_SUMMARY
-    
+      - name: 📦 Install documentation dependencies
+        run: |
+          python -m pip install --upgrade pip
+          # Install only docs dependencies (conf.py mocks heavy imports)
+          pip install -r docs/requirements.txt
 
-    
-    - name: 💾 Upload documentation artifacts
-      uses: actions/upload-artifact@v4
-      with:
-        name: documentation-html
-        path: ${{ env.SPHINX_BUILD_DIR }}
-        retention-days: 7
-    
-    - name: 📝 Generate documentation info
-      run: |
-        echo "### 📖 Documentation Build Info" >> $GITHUB_STEP_SUMMARY
-        echo "- **Branch**: ${{ github.ref_name }}" >> $GITHUB_STEP_SUMMARY
-        echo "- **Commit**: ${{ github.sha }}" >> $GITHUB_STEP_SUMMARY
-        echo "- **Python**: ${{ env.PYTHON_VERSION }}" >> $GITHUB_STEP_SUMMARY
-        SPHINX_VER=$(python -c 'import sphinx; print("Sphinx " + sphinx.__version__)')
-        echo "- **Sphinx**: ${SPHINX_VER}" >> $GITHUB_STEP_SUMMARY
-        echo "- **Build Time**: $(date -u +"%Y-%m-%d %H:%M:%S UTC")" >> $GITHUB_STEP_SUMMARY
-        
-        # Count documentation files
-        echo "- **HTML Files**: $(find ${{ env.SPHINX_BUILD_DIR }} -name "*.html" | wc -l)" >> $GITHUB_STEP_SUMMARY
-        echo "- **Total Size**: $(du -sh ${{ env.SPHINX_BUILD_DIR }} | cut -f1)" >> $GITHUB_STEP_SUMMARY
-        echo "" >> $GITHUB_STEP_SUMMARY
-        echo "✅ **Documentation built successfully!**" >> $GITHUB_STEP_SUMMARY
-        echo "" >> $GITHUB_STEP_SUMMARY
-        echo "⚠️ Note: Some warnings may appear during build. This is normal for projects with external dependencies." >> $GITHUB_STEP_SUMMARY
-    
-    - name: 💬 Comment on PR with preview link
-      if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
-      continue-on-error: true
-      uses: actions/github-script@v7
-      with:
-        script: |
-          const artifactUrl = `https://github.com/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
-          
-          const comments = await github.rest.issues.listComments({
-            owner: context.repo.owner,
-            repo: context.repo.repo,
-            issue_number: context.issue.number,
-          });
-          
-          const botComment = comments.data.find(comment => 
-            comment.user.type === 'Bot' && comment.body.includes('📖 Documentation Preview')
-          );
-          
-          const body = `## 📖 Documentation Preview
-          
-          The documentation has been built successfully! 
-          
-          - 📦 [Download Documentation Artifacts](${artifactUrl})
-          - 🔍 Check the workflow summary for coverage report
-          - 📊 Build completed at: ${new Date().toUTCString()}
-          
-          To view locally:
-          1. Download the artifacts
-          2. Extract the zip file
-          3. Open \`index.html\` in your browser`;
-          
-          if (botComment) {
-            await github.rest.issues.updateComment({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              comment_id: botComment.id,
-              body: body
-            });
-          } else {
-            await github.rest.issues.createComment({
+      - name: 🔍 Check documentation style
+        continue-on-error: true
+        run: |
+          pip install pydocstyle
+          pydocstyle --count --convention=google --add-ignore=D100,D104 || true
+
+      - name: Cache Sphinx doctrees
+        uses: actions/cache@v4
+        with:
+          path: docs/_build/doctrees
+          key: docs-doctrees-${{ github.ref }}-${{ hashFiles('docs/**/*.rst', 'docs/conf.py') }}
+          restore-keys: |
+            docs-doctrees-${{ github.ref }}-
+            docs-doctrees-
+
+      - name: 🔨 Build docs (PR single-version)
+        if: github.event_name == 'pull_request'
+        run: |
+          cd docs
+          DISABLE_DB=1 python -m sphinx -b html . _build/html --keep-going -j auto
+        env:
+          SPHINX_MOCK_IMPORTS: true
+          BOT_TOKEN: dummy_token_for_docs
+          MONGODB_URL: mongodb://localhost:27017/test
+
+      - name: 🔨 Build docs (single-version for stability)
+        if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+        run: |
+          cd docs
+          DISABLE_DB=1 python -m sphinx -b html . _build/html --keep-going -j auto
+
+      - name: 📊 Generate documentation coverage report
+        if: github.event_name == 'pull_request'
+        continue-on-error: true
+        run: |
+          cd docs
+          python -m sphinx -b coverage . _build/coverage
+          echo "### 📊 Documentation Coverage Report" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          cat _build/coverage/python.txt >> $GITHUB_STEP_SUMMARY || echo "No coverage data available" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+
+      - name: 💾 Upload documentation artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: documentation-html
+          path: ${{ env.SPHINX_BUILD_DIR }}
+          retention-days: 7
+
+      - name: 📝 Generate documentation info
+        run: |
+          echo "### 📖 Documentation Build Info" >> $GITHUB_STEP_SUMMARY
+          echo "- **Branch**: ${{ github.ref_name }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Commit**: ${{ github.sha }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Python**: ${{ env.PYTHON_VERSION }}" >> $GITHUB_STEP_SUMMARY
+          SPHINX_VER=$(python -c 'import sphinx; print("Sphinx " + sphinx.__version__)')
+          echo "- **Sphinx**: ${SPHINX_VER}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Build Time**: $(date -u +"%Y-%m-%d %H:%M:%S UTC")" >> $GITHUB_STEP_SUMMARY
+
+          # Count documentation files
+          echo "- **HTML Files**: $(find ${{ env.SPHINX_BUILD_DIR }} -name "*.html" | wc -l)" >> $GITHUB_STEP_SUMMARY
+          echo "- **Total Size**: $(du -sh ${{ env.SPHINX_BUILD_DIR }} | cut -f1)" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "✅ **Documentation built successfully!**" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "⚠️ Note: Some warnings may appear during build. This is normal for projects with external dependencies." >> $GITHUB_STEP_SUMMARY
+
+      - name: 💬 Comment on PR with preview link
+        if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+        continue-on-error: true
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const artifactUrl = `https://github.com/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+
+            const comments = await github.rest.issues.listComments({
               owner: context.repo.owner,
               repo: context.repo.repo,
               issue_number: context.issue.number,
-              body: body
             });
-          }
+
+            const botComment = comments.data.find(comment =>
+              comment.user.type === 'Bot' && comment.body.includes('📖 Documentation Preview')
+            );
+
+            const body = `## 📖 Documentation Preview
+
+            The documentation has been built successfully!
+
+            - 📦 [Download Documentation Artifacts](${artifactUrl})
+            - 🔍 Check the workflow summary for coverage report
+            - 📊 Build completed at: ${new Date().toUTCString()}
+
+            To view locally:
+            1. Download the artifacts
+            2. Extract the zip file
+            3. Open \`index.html\` in your browser`;
+
+            if (botComment) {
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: botComment.id,
+                body: body
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                body: body
+              });
+            }
 
   deploy-docs:
     name: 🚀 Deploy to GitHub Pages
@@ -195,43 +193,43 @@ jobs:
       contents: read
       pages: write
       id-token: write
-    
+
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
-    
-    steps:
-    - name: 📥 Download documentation artifact
-      uses: actions/download-artifact@v4
-      with:
-        name: documentation-html
-        path: public
 
-    - name: ✅ Verify public directory
-      run: |
-        if [ ! -d "public" ]; then
-          echo "Directory ./public does not exist (artifact missing)."
-          exit 1
-        fi
-    
-    - name: 📄 Setup GitHub Pages
-      uses: actions/configure-pages@v4
-    
-    - name: 📦 Upload to GitHub Pages
-      uses: actions/upload-pages-artifact@v3
-      with:
-        path: ./public
-    
-    - name: 🚀 Deploy to GitHub Pages
-      id: deployment
-      uses: actions/deploy-pages@v4
-    
-    - name: ✅ Deployment summary
-      run: |
-        echo "### 🚀 Documentation Deployed!" >> $GITHUB_STEP_SUMMARY
-        echo "- **URL**: ${{ steps.deployment.outputs.page_url }}" >> $GITHUB_STEP_SUMMARY
-        echo "- **Environment**: github-pages" >> $GITHUB_STEP_SUMMARY
-        echo "- **Deployed at**: $(date -u +"%Y-%m-%d %H:%M:%S UTC")" >> $GITHUB_STEP_SUMMARY
+    steps:
+      - name: 📥 Download documentation artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: documentation-html
+          path: public
+
+      - name: ✅ Verify public directory
+        run: |
+          if [ ! -d "public" ]; then
+            echo "Directory ./public does not exist (artifact missing)."
+            exit 1
+          fi
+
+      - name: 📄 Setup GitHub Pages
+        uses: actions/configure-pages@v4
+
+      - name: 📦 Upload to GitHub Pages
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: ./public
+
+      - name: 🚀 Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
+
+      - name: ✅ Deployment summary
+        run: |
+          echo "### 🚀 Documentation Deployed!" >> $GITHUB_STEP_SUMMARY
+          echo "- **URL**: ${{ steps.deployment.outputs.page_url }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Environment**: github-pages" >> $GITHUB_STEP_SUMMARY
+          echo "- **Deployed at**: $(date -u +"%Y-%m-%d %H:%M:%S UTC")" >> $GITHUB_STEP_SUMMARY
 
   linkcheck-nightly:
     name: 🔗 Nightly linkcheck (Sphinx)
@@ -270,29 +268,29 @@ jobs:
     needs: [build-docs]
     if: failure()
     runs-on: ubuntu-latest
-    
+
     steps:
-    - name: 📢 Create issue for documentation failure
-      if: github.ref == 'refs/heads/main'
-      uses: actions/github-script@v7
-      with:
-        script: |
-          const title = `📖 Documentation Build Failed - ${new Date().toISOString().split('T')[0]}`;
-          const body = `## ❌ Documentation Build Failed
-          
-          The documentation build failed on the main branch.
-          
-          **Details:**
-          - Commit: ${context.sha}
-          - Workflow: [${context.workflow}](https://github.com/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId})
-          - Time: ${new Date().toUTCString()}
-          
-          Please check the workflow logs and fix the documentation build.`;
-          
-          await github.rest.issues.create({
-            owner: context.repo.owner,
-            repo: context.repo.repo,
-            title: title,
-            body: body,
-            labels: ['documentation', 'bug', 'automated']
-          });
+      - name: 📢 Create issue for documentation failure
+        if: github.ref == 'refs/heads/main'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const title = `📖 Documentation Build Failed - ${new Date().toISOString().split('T')[0]}`;
+            const body = `## ❌ Documentation Build Failed
+
+            The documentation build failed on the main branch.
+
+            **Details:**
+            - Commit: ${context.sha}
+            - Workflow: [${context.workflow}](https://github.com/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId})
+            - Time: ${new Date().toUTCString()}
+
+            Please check the workflow logs and fix the documentation build.`;
+
+            await github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: title,
+              body: body,
+              labels: ['documentation', 'bug', 'automated']
+            });

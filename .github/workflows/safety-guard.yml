@@ -2,12 +2,12 @@ name: Safety Guard
 
 on:
   pull_request:
-    branches: [ '**' ]
+    branches: ['**']
     types: [opened, synchronize, reopened, ready_for_review]
     paths-ignore:
       - ".cursorrules"
   push:
-    branches: [ '**' ]
+    branches: ['**']
     paths-ignore:
       - ".cursorrules"
 
@@ -146,4 +146,3 @@ jobs:
         run: |
           echo "Blocking merge: flagged dangerous deletion calls found. See report above." >&2
           exit 1
-

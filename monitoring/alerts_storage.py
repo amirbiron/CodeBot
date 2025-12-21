@@ -774,6 +774,148 @@ def aggregate_alert_summary(
         return {"total": 0, "critical": 0, "anomaly": 0, "deployment": 0}
 
 
+def aggregate_sentry_issue_signatures(
+    *,
+    start_dt: Optional[datetime],
+    end_dt: Optional[datetime],
+    min_count: int = 1,
+    limit: int = 200,
+) -> List[Dict[str, Any]]:
+    """Aggregate Sentry issue signatures (issue_id) with counts and permalinks.
+
+    We store Sentry webhook/poller metadata under ``details``. This helper groups
+    by ``details.sentry_issue_id`` (preferred) and falls back to permalink/short_id
+    when issue_id is missing.
+
+    Returns rows:
+      { "signature": str, "error_signature": str|None,
+        "issue_id": str|None, "short_id": str|None,
+        "permalink": str|None, "project": str|None,
+        "count": int, "last_seen_dt": datetime, "sample_title": str }
+    """
+    coll = _get_collection()
+    if coll is None:
+        return []
+
+    try:
+        min_count_int = int(min_count)
+    except Exception:
+        min_count_int = 1
+    min_count_int = max(1, min_count_int)
+
+    try:
+        limit_int = int(limit)
+    except Exception:
+        limit_int = 200
+    limit_int = max(1, min(2000, limit_int))
+
+    match = _build_time_filter(start_dt, end_dt)
+    match["details.is_drill"] = {"$ne": True}
+    match["alert_type"] = "sentry_issue"
+    # Keep only docs that have at least some identifying signal.
+    match["$or"] = [
+        {"details.error_signature": {"$type": "string", "$ne": ""}},
+        {"details.sentry_issue_id": {"$type": "string", "$ne": ""}},
+        {"details.sentry_permalink": {"$type": "string", "$ne": ""}},
+        {"details.sentry_short_id": {"$type": "string", "$ne": ""}},
+    ]
+
+    # Prefer issue_id as the stable signature; fall back to permalink/short_id.
+    pipeline = [
+        {"$match": match},
+        {"$sort": {"ts_dt": -1}},
+        {
+            "$project": {
+                "ts_dt": 1,
+                "summary": 1,
+                "error_signature": {"$ifNull": ["$details.error_signature", ""]},
+                "issue_id": {"$ifNull": ["$details.sentry_issue_id", ""]},
+                "short_id": {"$ifNull": ["$details.sentry_short_id", ""]},
+                "permalink": {"$ifNull": ["$details.sentry_permalink", ""]},
+                "project": {"$ifNull": ["$details.project", ""]},
+            }
+        },
+        {
+            "$addFields": {
+                "signature": {
+                    "$toLower": {
+                        "$cond": [
+                            {"$ne": ["$error_signature", ""]},
+                            "$error_signature",
+                            {
+                                "$cond": [
+                                    {"$ne": ["$issue_id", ""]},
+                                    "$issue_id",
+                                    {
+                                        "$cond": [
+                                            {"$ne": ["$permalink", ""]},
+                                            "$permalink",
+                                            "$short_id",
+                                        ]
+                                    },
+                                ]
+                            },
+                        ]
+                    }
+                }
+            }
+        },
+        {"$match": {"signature": {"$type": "string", "$ne": ""}}},
+        {
+            "$group": {
+                "_id": "$signature",
+                "count": {"$sum": 1},
+                "last_seen_dt": {"$first": "$ts_dt"},
+                "sample_title": {"$first": "$summary"},
+                "error_signature": {"$first": "$error_signature"},
+                "issue_id": {"$first": "$issue_id"},
+                "short_id": {"$first": "$short_id"},
+                "permalink": {"$first": "$permalink"},
+                "project": {"$first": "$project"},
+            }
+        },
+        {"$match": {"count": {"$gte": min_count_int}}},
+        {"$sort": {"count": -1, "last_seen_dt": -1}},
+        {"$limit": limit_int},
+    ]
+
+    try:
+        rows = list(coll.aggregate(pipeline))  # type: ignore[attr-defined]
+    except Exception:
+        return []
+
+    out: List[Dict[str, Any]] = []
+    for row in rows:
+        try:
+            signature = _safe_str(row.get("_id"), limit=512)
+            if not signature:
+                continue
+            last_seen_dt = row.get("last_seen_dt")
+            if not isinstance(last_seen_dt, datetime):
+                continue
+            issue_id = _safe_str(row.get("issue_id"), limit=128) or None
+            short_id = _safe_str(row.get("short_id"), limit=64) or None
+            permalink = _safe_str(row.get("permalink"), limit=512) or None
+            project = _safe_str(row.get("project"), limit=128) or None
+            error_signature = _safe_str(row.get("error_signature"), limit=128) or None
+            out.append(
+                {
+                    "signature": signature,
+                    "error_signature": error_signature,
+                    "issue_id": issue_id,
+                    "short_id": short_id,
+                    "permalink": permalink,
+                    "project": project,
+                    "count": int(row.get("count", 0) or 0),
+                    "last_seen_dt": last_seen_dt,
+                    "sample_title": _safe_str(row.get("sample_title"), limit=256),
+                }
+            )
+        except Exception:
+            continue
+    return out
+
+
 def fetch_alert_timestamps(
     *,
     start_dt: Optional[datetime],

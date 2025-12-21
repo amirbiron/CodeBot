@@ -51,4 +51,3 @@ jobs:
             } catch (e) {
               core.setFailed(`Failed to update branch protection on ${branch}: ${e.message}`);
             }
-
