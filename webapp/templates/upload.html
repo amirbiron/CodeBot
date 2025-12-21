@@ -29,6 +29,7 @@
       "editorContainer": "#editorContainer",
       "languageSelect": "#languageSelect",
       "filenameInput": "#fileNameInput",
+      "imageExternalTrigger": "#externalImageTrigger",
       "imageUploadContainer": "#image-upload-widget",
       "sourceUrlContainer": "#source-url-group"
     },
@@ -47,7 +48,18 @@
         style="display: grid; gap: 1rem;">
     <div>
       <label for="fileNameInput">שם קובץ</label>
-      <input id="fileNameInput" type="text" name="file_name" placeholder="example.py" value="{{ file_name_value or '' }}" class="form-field">
+      <div class="filename-input-wrapper">
+        <input id="fileNameInput" type="text" name="file_name" placeholder="example.py" value="{{ file_name_value or '' }}" class="form-field">
+        <button
+          type="button"
+          class="image-upload-trigger"
+          id="externalImageTrigger"
+          data-action="open-image-picker"
+          title="צרף תמונה"
+          aria-label="צרף תמונה"
+          style="display: none;"
+        >🖼️</button>
+      </div>
       <small class="markdown-image-hint">
         ניתן לצרף תמונות רק לקבצי Markdown (.md / .markdown).
       </small>
