@@ -27,7 +27,7 @@
              summary: "שיעור שגיאות גבוה (>5% בדקה)"
 
          - alert: SlowOperationsP95
-           expr: histogram_quantile(0.95, rate(operation_latency_seconds_bucket[5m])) > 2
+           expr: (histogram_quantile(0.95, rate(operation_latency_seconds_bucket[5m])) > 2) and on(job, instance) (time() - process_start_time_seconds > 300)
            for: 10m
            labels:
              severity: warning
@@ -49,12 +49,35 @@
 
          - alert: SLOLatencyP95Breach
            expr: |
-             histogram_quantile(0.95, sum(rate(http_request_duration_seconds_bucket[5m])) by (le)) > 0.5
-           for: 10m
+             (
+               histogram_quantile(
+                 0.95,
+                 sum by (job, instance, le) (rate(http_request_duration_seconds_bucket{endpoint!~"(metrics|health|static.*|favicon.*)"}[5m]))
+               ) > 1.5
+             )
+             and on(job, instance) (time() - process_start_time_seconds > 300)
+           for: 15m
            labels:
              severity: warning
+             component: webapp
            annotations:
-             summary: "חריגת זמן תגובה P95 מעל 0.5s"
+             summary: "זמן תגובה גבוה ב-P95 מעל 1.5 שניות (מתמשך)"
+
+         - alert: SLOLatencyP95Critical
+           expr: |
+             (
+               histogram_quantile(
+                 0.95,
+                 sum by (job, instance, le) (rate(http_request_duration_seconds_bucket{endpoint!~"(metrics|health|static.*|favicon.*)"}[5m]))
+               ) > 3
+             )
+             and on(job, instance) (time() - process_start_time_seconds > 300)
+           for: 30m
+           labels:
+             severity: critical
+             component: webapp
+           annotations:
+             summary: "קריטי: זמן תגובה P95 מעל 3 שניות לאורך זמן"
 
 התאמה לצרכים שלך
 -----------------
@@ -71,8 +94,8 @@
 .. code-block:: yaml
 
    - alert: SlowMongoConnection
-     expr: health_ping_ms > 100
-     for: 5m
+     expr: (min_over_time(health_ping_ms[5m]) > 100) and on(job, instance) (time() - process_start_time_seconds > 300)
+     for: 0m
      labels:
        severity: warning
        component: mongo
@@ -89,6 +112,7 @@
          avg_over_time(health_ping_ms[30m])
            > avg_over_time(health_ping_ms[30m] offset 6h) * 1.5
        )
+       and on(job, instance) (time() - process_start_time_seconds > 300)
      for: 10m
      labels:
        severity: warning
@@ -97,7 +121,7 @@
        summary: "הממוצע הנוכחי גבוה ב־50% מה-baseline שלפני 6 שעות"
 
    - alert: MongoLatencyPredictiveSpike
-     expr: predict_linear(health_ping_ms[1h], 10m) > 120
+     expr: (predict_linear(health_ping_ms[1h], 10m) > 120) and on(job, instance) (time() - process_start_time_seconds > 300)
      for: 0m
      labels:
        severity: critical
@@ -116,8 +140,11 @@
 
    - alert: AppLatencyEWMARegression
      expr: |
-       health_latency_ewma
-         > predict_linear(health_latency_ewma[2h], 15m) * 1.2
+       (
+         health_latency_ewma
+           > predict_linear(health_latency_ewma[2h], 15m) * 1.2
+       )
+       and on(job, instance) (time() - process_start_time_seconds > 300)
      for: 10m
      labels:
        severity: warning
@@ -125,7 +152,7 @@
      annotations:
        summary: "EWMA של האפליקציה מזנקת ביחס לטרנד"
 
-החוקים עם ``offset`` משווים בין חצי שעה אחרונה לבין אותו חלון בדיוק שש שעות אחורה, כדי לזהות סטיה ביחס לשגרה היומית. הוספנו תנאי בסיס שדורש שה-baseline יהיה גדול מאפס כדי למנוע false positives אחרי חזרה מתקלה שבה ה-ping הוחזק כ-0. החוקים המבוססים על ``predict_linear`` נותנים heads-up לפני שהערך באמת חוצה את הסף ולכן מקבלים ``severity`` גבוה יותר ו-``for`` קצר לצמצום זמן התגובה.
+החוקים עם ``offset`` משווים בין חצי שעה אחרונה לבין אותו חלון בדיוק שש שעות אחורה, כדי לזהות סטיה ביחס לשגרה היומית. הוספנו תנאי בסיס שדורש שה-baseline יהיה גדול מאפס כדי למנוע false positives אחרי חזרה מתקלה שבה ה-ping הוחזק כ-0. החוקים המבוססים על ``predict_linear`` נותנים heads-up לפני שהערך באמת חוצה את הסף ולכן מקבלים ``severity`` גבוה יותר ו-``for`` קצר לצמצום זמן התגובה. בנוסף הוספנו "תקופת חסד" של 5 דקות אחרי עליית התהליך (``time() - process_start_time_seconds > 300``) כדי למנוע התראות שווא בזמן cold start אחרי דיפלוי.
 
 קונפיגורציית ``alert_manager`` באפליקציה
 -----------------------------------------
