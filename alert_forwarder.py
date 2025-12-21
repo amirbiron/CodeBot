@@ -40,6 +40,20 @@ _PUBLIC_WEBAPP_URL_DEFAULT = "https://code-keeper-webapp.onrender.com"
 _DASHBOARD_PATH = "/admin/observability"
 _TELEGRAM_DASHBOARD_BUTTON_TEXT = "Open Dashboard"
 
+# Startup grace period: suppress noisy performance alerts right after deploy/cold start.
+_MODULE_START_MONOTONIC = monotonic()
+_STARTUP_GRACE_PERIOD_SECONDS = max(
+    0.0,
+    float(os.getenv("ALERT_STARTUP_GRACE_PERIOD_SECONDS", "300") or 300),
+)
+_IGNORED_ON_STARTUP = {
+    # Alerts that commonly flap during cold start / initial DB connection warmup
+    "AppLatencyEWMARegression",
+    "MongoLatencyPredictiveSpike",
+    "SlowMongoConnection",
+    "HighLatency",
+}
+
 _ANOMALY_WINDOW_SECONDS = max(
     0.0,
     float(os.getenv("ALERT_ANOMALY_BATCH_WINDOW_SECONDS", "180") or 180),
@@ -469,6 +483,7 @@ def _format_alert_text(alert: Dict[str, Any]) -> str:
 
     # Short summary/description
     summary = annotations.get("summary") or annotations.get("description") or ""
+    dashboard_line = f"📊 Dashboard: {_build_public_dashboard_url()}"
 
     # Useful context (allowlist of common labels)
     def _first(keys: List[str]) -> Optional[str]:
@@ -511,7 +526,7 @@ def _format_alert_text(alert: Dict[str, Any]) -> str:
             )
             if sentry_link:
                 msg += f"\nSentry: {sentry_link}"
-            return msg
+            return f"{msg}\n{dashboard_line}"
 
         if str(name or "").strip().lower() == "anomaly_detected":
             avg, thr = _parse_avg_threshold_from_summary(str(summary or ""))
@@ -524,7 +539,7 @@ def _format_alert_text(alert: Dict[str, Any]) -> str:
                 memory_mb=_first(["avg_memory_usage_mb"]),
                 recent_errors_5m=_first(["recent_errors_5m"]),
             )
-            return msg
+            return f"{msg}\n{dashboard_line}"
 
         # Only treat as a Sentry-origin alert when the alert itself is named as such.
         # Regular alerts may still include a Sentry permalink for convenience.
@@ -539,7 +554,7 @@ def _format_alert_text(alert: Dict[str, Any]) -> str:
                     error_signature=_first(["error_signature", "signature"]),
                 ),
             )
-            return msg
+            return f"{msg}\n{dashboard_line}"
     except Exception:
         # If specialized formatting fails, fall back to generic.
         pass
@@ -567,6 +582,9 @@ def _format_alert_text(alert: Dict[str, Any]) -> str:
     )
     if sentry_link:
         parts.append(f"Sentry: {sentry_link}")
+
+    # Always prefer a stable public dashboard link over alertmanager's generatorURL
+    parts.append(dashboard_line)
 
     return "\n".join(parts)
 
@@ -853,10 +871,27 @@ def forward_alerts(alerts: List[Dict[str, Any]]) -> None:
     if not isinstance(alerts, list):
         return
     min_tg_rank = _min_telegram_severity_rank()
+    is_startup = (
+        _STARTUP_GRACE_PERIOD_SECONDS > 0
+        and (monotonic() - _MODULE_START_MONOTONIC) < _STARTUP_GRACE_PERIOD_SECONDS
+    )
     for alert in alerts:
         try:
-            text = _format_alert_text(alert)
             labels = alert.get("labels", {}) or {}
+            name = str(labels.get("alertname") or labels.get("name") or "")
+            if is_startup and name in _IGNORED_ON_STARTUP:
+                try:
+                    emit_event(
+                        "alert_suppressed_startup",
+                        severity="info",
+                        alertname=name,
+                        grace_seconds=float(_STARTUP_GRACE_PERIOD_SECONDS),
+                        handled=True,
+                    )
+                except Exception:
+                    pass
+                continue
+            text = _format_alert_text(alert)
             severity = str(labels.get("severity") or labels.get("level") or "info")
             # Emit the base receipt event consistently as anomaly to reflect detection,
             # while preserving the original label in a separate field for observability.
