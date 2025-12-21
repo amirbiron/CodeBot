@@ -86,24 +86,16 @@ def _ensure_real_telegram_package_loaded() -> None:
     זה חשוב במיוחד ל-xdist: אזהרות שנשלחות מה-workers עלולות להתבסס על
     מחלקות/מודולים כמו `telegram.warnings`, וה-master חייב להיות מסוגל לייבא אותם.
     """
-    import sys
-    import types
-
-    mod = sys.modules.get("telegram")
-    # אם הוזרק Stub (למשל ModuleType בלי __path__ / SimpleNamespace) — ננקה
-    if mod is not None:
-        is_module = isinstance(mod, types.ModuleType)
-        is_package = bool(is_module and hasattr(mod, "__path__"))
-        if not is_package:
-            for name in list(sys.modules.keys()):
-                if name == "telegram" or name.startswith("telegram."):
-                    sys.modules.pop(name, None)
-    try:
-        import telegram  # noqa: F401
-        import telegram.warnings  # noqa: F401
-    except Exception:
-        # אם אין PTB (או חסר בתלויות) — לא נחסום; טסטים שמסתמכים על stubs עדיין יעבדו
-        pass
+    # ⚠️ חשוב ל-Isolation:
+    # בעבר ניקינו כאן stubs של telegram מתוך sys.modules כדי "להחזיר" PTB אמיתי.
+    # בפועל זה יוצר מצב מסוכן שבו חלק מהקוד נטען מול telegram.ext ישן וחלק מול חדש,
+    # ואז מתקבלות שגיאות כמו:
+    # - TypeError: handler is not an instance of BaseHandler
+    # - ApplicationHandlerStop שלא נתפס ב-pytest.raises (כי זו מחלקה אחרת)
+    #
+    # לכן אנחנו *לא* מוחקים/מטעינים מחדש telegram במהלך הרצת הטסטים.
+    # אם צריך PTB אמיתי, יש להריץ את הסוויטה בלי ה-stubs (tests/_telegram_stubs.py).
+    return
 
 
 def pytest_configure(config: pytest.Config) -> None:
@@ -274,25 +266,10 @@ def _reset_telegram_modules_between_tests() -> None:
     יש טסטים שמסטבבים את `telegram` כדי לאפשר import בסביבות בלי PTB.
     בהרצה עם xdist, דליפה כזו יכולה להפיל טסטים שעושים import/reload ל-main.
     """
-    import sys
-    import types
-
-    def _purge_if_stubbed() -> None:
-        mod = sys.modules.get("telegram")
-        if mod is None:
-            return
-        is_module = isinstance(mod, types.ModuleType)
-        has_botcommand = hasattr(mod, "BotCommand")
-        if is_module and has_botcommand:
-            return
-        # purge telegram and its submodules
-        for name in list(sys.modules.keys()):
-            if name == "telegram" or name.startswith("telegram."):
-                sys.modules.pop(name, None)
-
-    _purge_if_stubbed()
+    # ⚠️ קריטי:
+    # לא מנקים כאן telegram.* מ-sys.modules כדי לא לייצר "שתי גרסאות" של אותה ספרייה.
+    # המטרה של ה-fixtureים שלנו היא לאפס *מצב של האפליקציה שלנו*, לא של ספריות צד ג'.
     yield
-    _purge_if_stubbed()
 
 
 @pytest.fixture(autouse=True)

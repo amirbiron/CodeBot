@@ -28,6 +28,10 @@ async def test_snippet_inline_reject_transitions_to_reason(monkeypatch):
 @pytest.mark.asyncio
 async def test_snippet_inline_approve_non_admin(monkeypatch):
     # no ADMIN_USER_IDS set → not admin by default
+    # חשוב: טסטים אחרים עושים os.environ.setdefault("CHATOPS_ALLOW_ALL_IF_NO_ADMINS","1")
+    # ברמת מודול, וזה עלול לגרום לכך ש"כולם אדמינים" כשהרשימה ריקה.
+    monkeypatch.setenv("CHATOPS_ALLOW_ALL_IF_NO_ADMINS", "0")
+    monkeypatch.setenv("ADMIN_USER_IDS", "")
     upd = types.SimpleNamespace(callback_query=_Query('snippet_approve:RID'), effective_user=types.SimpleNamespace(id=999))
     ctx = types.SimpleNamespace()
     state = await ch.snippet_inline_approve(upd, ctx)
