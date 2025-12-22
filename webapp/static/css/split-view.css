@@ -346,8 +346,6 @@
   flex-direction: row;
   min-height: 280px;
   max-height: calc(100vh - 200px);
-  /* חשוב לגלילה פנימית: מאפשר לילדים עם overflow להתכווץ במקום "להיתקע" */
-  min-height: 0;
 }
 
 .split-panel {
