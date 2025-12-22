@@ -65,8 +65,14 @@ class GitHubIssueAction:
             return {"success": False, "error": "GitHub token not configured"}
 
         # בניית כותרת (עם קיצור - כותרות GitHub מוגבלות)
+        params = action_config.get("params") or {}
+        if not isinstance(params, dict):
+            params = {}
+        # Precedence: new schema first (params.title), then legacy (title_template)
         title = self._render_template(
-            action_config.get("title_template", "🐛 [Auto] New Error: {{error_message}}"),
+            params.get("title")
+            or action_config.get("title_template")
+            or "🐛 [Auto] New Error: {{error_message}}",
             alert_data,
             truncate_long_values=True,  # קיצור רק בכותרת
             max_length=80,
