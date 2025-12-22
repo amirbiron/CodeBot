@@ -464,17 +464,8 @@ def emit_internal_alert(name: str, severity: str = "info", summary: str = "", **
         # 🔧 הערכת כללים ויזואליים לפני שליחה
         try:
             from services.rules_evaluator import evaluate_alert_rules, execute_matched_actions
-            try:
-                from monitoring.alerts_storage import enrich_alert_with_signature  # type: ignore
-            except Exception:
-                enrich_alert_with_signature = None  # type: ignore
 
             details_payload = details if isinstance(details, dict) else {}
-            try:
-                if enrich_alert_with_signature is not None and isinstance(details_payload, dict):
-                    enrich_alert_with_signature(details_payload)
-            except Exception:
-                pass
 
             alert_payload = {
                 "name": str(name),
