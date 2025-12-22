@@ -4,6 +4,37 @@
 
 ---
 
+## ⚠️ הערות חשובות לפני מימוש
+
+> **תאימות עם הפרויקט הקיים:**
+>
+> - **מיקום ה-API:** הפרויקט משתמש ב-**Flask** (`webapp/app.py`) כשרת ה-WebApp הראשי, ולא ב-aiohttp.
+>   ה-aiohttp (`services/webserver.py`) משמש לשירותים פנימיים (metrics, health, Sentry webhook) ולא ל-UI.
+>   **לכן: ה-API של מנוע הכללים יתווסף ל-Flask (`webapp/app.py` או Blueprint נפרד).**
+>
+> - **מסד הנתונים:** הפרויקט משתמש ב-**PyMongo סינכרוני** (לא Motor async).
+>   **לכן: הקוד צריך להיות סינכרוני עם `get_db()` הקיים ב-webapp.**
+>
+> - **עיצוב:** הפרויקט לא משתמש ב-Bootstrap אלא ב-CSS מותאם אישית + Font Awesome.
+>   **לכן: התבניות יורשות מ-`base.html` ומשתמשות במשתני ה-CSS הקיימים.**
+
+---
+
+## 📝 שינויים מגרסה קודמת (2025-12-22)
+
+| # | תיקון | פירוט |
+|---|-------|-------|
+| 1 | **מיקום ה-API** | שונה מ-aiohttp (`services/webserver.py`) ל-**Flask Blueprint** (`webapp/rules_api.py`) |
+| 2 | **סוג ה-DB** | שונה ממודל async (Motor) ל-**PyMongo סינכרוני** (תואם ל-Flask) |
+| 3 | **NOT operator** | נוספה תמיכה מלאה ב-**קבוצת NOT** בפרונט (כפתור, עיצוב, לוגיקה) |
+| 4 | **אופרטורים נוספים** | נוספו: `not_contains`, `starts_with`, `ends_with`, `in`, `not_in` לרשימת האופרטורים ב-UI |
+| 5 | **שדות Action** | הובהרו שדות ה-Action: `type` (חובה), `severity` (חובה), `channel`, `message_template` (אופציונלי) |
+| 6 | **אינטגרציה עם התראות** | תוקן למבנה הקיים (`name`, `severity`, `summary`, `details`) + מיפוי שדות מפורש |
+| 7 | **URL encoding** | תוקן ב-`_find_existing_issue` - שימוש ב-`urllib.parse.quote` |
+| 8 | **Bootstrap → CSS קיים** | התבנית שוכתבה ללא Bootstrap, עם סגנונות מותאמים ו-Modal פשוט |
+
+---
+
 ## 📋 תוכן עניינים
 
 1. [סקירה כללית](#סקירה-כללית)
@@ -126,29 +157,96 @@ LOGICAL_OPERATORS = {
 
 ### שדות זמינים (מבוסס על המערכת הקיימת)
 
+> **🔧 תיקון קריטי:** השדות מתאימים למבנה ההתראות הקיים ב-`monitoring/alerts_storage.py`.
+> ראה גם את `services/rules_evaluator.py` לפירוט המיפוי המלא.
+
 ```python
 AVAILABLE_FIELDS = {
-    # מדדי ביצועים
-    "error_rate": {"type": "float", "label": "שיעור שגיאות", "unit": "%"},
-    "latency_avg_ms": {"type": "float", "label": "Latency ממוצע", "unit": "ms"},
-    "latency_p95_ms": {"type": "float", "label": "Latency P95", "unit": "ms"},
-    "latency_p99_ms": {"type": "float", "label": "Latency P99", "unit": "ms"},
-    "requests_per_minute": {"type": "int", "label": "בקשות לדקה", "unit": "req/min"},
+    # === שדות בסיסיים מההתראות (monitoring/alerts_storage.py) ===
+    "alert_name": {
+        "type": "string", 
+        "label": "שם ההתראה",
+        "description": "שם ההתראה כפי שמופיע ב-internal_alerts"
+    },
+    "severity": {
+        "type": "string", 
+        "label": "רמת חומרה",
+        "description": "info, warning, critical, anomaly",
+        "enum": ["info", "warning", "critical", "anomaly"]
+    },
+    "summary": {
+        "type": "string", 
+        "label": "תיאור קצר",
+        "description": "תיאור ההתראה"
+    },
+    "source": {
+        "type": "string", 
+        "label": "מקור",
+        "description": "מקור ההתראה (sentry, internal, external)"
+    },
+    "is_silenced": {
+        "type": "boolean", 
+        "label": "מושתק",
+        "description": "האם ההתראה הושתקה"
+    },
     
-    # משאבי מערכת
-    "cpu_percent": {"type": "float", "label": "ניצול CPU", "unit": "%"},
-    "memory_percent": {"type": "float", "label": "ניצול זיכרון", "unit": "%"},
-    "disk_percent": {"type": "float", "label": "ניצול דיסק", "unit": "%"},
+    # === שדות מ-details (מידע מפורט) ===
+    "alert_type": {
+        "type": "string", 
+        "label": "סוג התראה",
+        "description": "sentry_issue, deployment_event, וכו'"
+    },
+    "sentry_issue_id": {
+        "type": "string", 
+        "label": "Sentry Issue ID",
+        "description": "מזהה ה-Issue ב-Sentry"
+    },
+    "sentry_short_id": {
+        "type": "string", 
+        "label": "Sentry Short ID",
+        "description": "מזהה קצר כמו PROJECT-123"
+    },
+    "project": {
+        "type": "string", 
+        "label": "פרויקט",
+        "description": "שם הפרויקט (Sentry/GitLab)"
+    },
+    "environment": {
+        "type": "string", 
+        "label": "סביבה",
+        "description": "production, staging, development"
+    },
+    "error_signature": {
+        "type": "string", 
+        "label": "חתימת שגיאה",
+        "description": "Hash ייחודי לזיהוי שגיאות חוזרות"
+    },
+    "culprit": {
+        "type": "string", 
+        "label": "מיקום השגיאה",
+        "description": "הפונקציה/קובץ שגרם לשגיאה"
+    },
+    "action": {
+        "type": "string", 
+        "label": "פעולה",
+        "description": "triggered, resolved, וכו'"
+    },
     
-    # מידע הקשרי
-    "service_name": {"type": "string", "label": "שם השירות"},
-    "environment": {"type": "string", "label": "סביבה"},
-    "user_id": {"type": "string", "label": "מזהה משתמש"},
-    "alert_type": {"type": "string", "label": "סוג התראה"},
-    
-    # זמן
-    "hour_of_day": {"type": "int", "label": "שעה ביום", "min": 0, "max": 23},
-    "day_of_week": {"type": "int", "label": "יום בשבוע", "min": 0, "max": 6}
+    # === שדות זמן (מחושבים) ===
+    "hour_of_day": {
+        "type": "int", 
+        "label": "שעה ביום", 
+        "min": 0, 
+        "max": 23,
+        "description": "שעה נוכחית (UTC)"
+    },
+    "day_of_week": {
+        "type": "int", 
+        "label": "יום בשבוע", 
+        "min": 0, 
+        "max": 6,
+        "description": "0=ראשון, 6=שבת"
+    }
 }
 ```
 
@@ -610,16 +708,22 @@ def get_rule_engine() -> RuleEngine:
 
 ### קובץ: `services/rules_storage.py`
 
+> **שינוי קריטי:** הקוד הוא **סינכרוני** (PyMongo) ולא async (Motor), כדי להתאים ל-Flask ולתשתית הקיימת.
+
 ```python
 """
-Rules Storage - אחסון כללים ב-MongoDB
-======================================
+Rules Storage - אחסון כללים ב-MongoDB (סינכרוני)
+=================================================
 מספק ממשק לשמירה, טעינה ועדכון כללים.
+
+🔧 הערה: הפרויקט משתמש ב-PyMongo (sync), לא ב-Motor (async).
+   לכן כל הפונקציות הן סינכרוניות.
 """
 
 from __future__ import annotations
 
 import logging
+import uuid
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
@@ -627,7 +731,6 @@ logger = logging.getLogger(__name__)
 
 # הגדרות ברירת מחדל
 RULES_COLLECTION = "visual_rules"
-RULES_TTL_DAYS = 365  # שמירת כללים לשנה
 
 
 class RulesStorage:
@@ -635,12 +738,19 @@ class RulesStorage:
     מנהל אחסון כללים ב-MongoDB.
     
     משתלב עם תשתית ה-MongoDB הקיימת (ראה monitoring/alerts_storage.py).
+    
+    🔧 שימוש:
+    ```python
+    from webapp.app import get_db
+    storage = RulesStorage(get_db())
+    rules = storage.list_rules()
+    ```
     """
     
     def __init__(self, db):
         """
         Args:
-            db: MongoDB database instance (מתקבל מ-get_database())
+            db: MongoDB database instance (מתקבל מ-get_db() ב-webapp/app.py)
         """
         self._db = db
         self._collection = db[RULES_COLLECTION]
@@ -649,30 +759,17 @@ class RulesStorage:
     def _ensure_indexes(self) -> None:
         """יצירת אינדקסים נדרשים."""
         try:
-            # אינדקס ייחודי על rule_id
             self._collection.create_index("rule_id", unique=True)
-            # אינדקס על enabled לשליפה מהירה של כללים פעילים
             self._collection.create_index("enabled")
-            # אינדקס על tags לסינון
             self._collection.create_index("metadata.tags")
-            # אינדקס על created_by
             self._collection.create_index("created_by")
         except Exception as e:
             logger.error(f"Failed to create indexes: {e}")
     
-    async def save_rule(self, rule: Dict[str, Any]) -> str:
-        """
-        שומר או מעדכן כלל.
-        
-        Args:
-            rule: הגדרת הכלל
-            
-        Returns:
-            rule_id
-        """
+    def save_rule(self, rule: Dict[str, Any]) -> str:
+        """שומר או מעדכן כלל (sync)."""
         rule_id = rule.get("rule_id")
         if not rule_id:
-            import uuid
             rule_id = f"rule_{uuid.uuid4().hex[:12]}"
             rule["rule_id"] = rule_id
         
@@ -681,7 +778,7 @@ class RulesStorage:
         if "created_at" not in rule:
             rule["created_at"] = now.isoformat()
         
-        await self._collection.update_one(
+        self._collection.update_one(
             {"rule_id": rule_id},
             {"$set": rule},
             upsert=True
@@ -690,23 +787,23 @@ class RulesStorage:
         logger.info(f"Saved rule: {rule_id}")
         return rule_id
     
-    async def get_rule(self, rule_id: str) -> Optional[Dict[str, Any]]:
-        """מחזיר כלל לפי ID."""
-        doc = await self._collection.find_one({"rule_id": rule_id})
+    def get_rule(self, rule_id: str) -> Optional[Dict[str, Any]]:
+        """מחזיר כלל לפי ID (sync)."""
+        doc = self._collection.find_one({"rule_id": rule_id})
         if doc:
             doc.pop("_id", None)
         return doc
     
-    async def get_enabled_rules(self) -> List[Dict[str, Any]]:
-        """מחזיר את כל הכללים הפעילים."""
+    def get_enabled_rules(self) -> List[Dict[str, Any]]:
+        """מחזיר את כל הכללים הפעילים (sync)."""
         cursor = self._collection.find({"enabled": True})
         rules = []
-        async for doc in cursor:
+        for doc in cursor:
             doc.pop("_id", None)
             rules.append(doc)
         return rules
     
-    async def list_rules(
+    def list_rules(
         self,
         enabled_only: bool = False,
         tags: Optional[List[str]] = None,
@@ -714,16 +811,7 @@ class RulesStorage:
         limit: int = 100,
         offset: int = 0
     ) -> List[Dict[str, Any]]:
-        """
-        מחזיר רשימת כללים עם סינון.
-        
-        Args:
-            enabled_only: רק כללים פעילים
-            tags: סינון לפי תגיות
-            created_by: סינון לפי יוצר
-            limit: מקסימום תוצאות
-            offset: דילוג על תוצאות ראשונות
-        """
+        """מחזיר רשימת כללים עם סינון (sync)."""
         query: Dict[str, Any] = {}
         
         if enabled_only:
@@ -733,49 +821,68 @@ class RulesStorage:
         if created_by:
             query["created_by"] = created_by
         
-        cursor = self._collection.find(query).skip(offset).limit(limit)
-        cursor = cursor.sort("updated_at", -1)
+        cursor = (
+            self._collection.find(query)
+            .skip(offset)
+            .limit(limit)
+            .sort("updated_at", -1)
+        )
         
         rules = []
-        async for doc in cursor:
+        for doc in cursor:
             doc.pop("_id", None)
             rules.append(doc)
         return rules
     
-    async def delete_rule(self, rule_id: str) -> bool:
-        """מוחק כלל."""
-        result = await self._collection.delete_one({"rule_id": rule_id})
+    def delete_rule(self, rule_id: str) -> bool:
+        """מוחק כלל (sync)."""
+        result = self._collection.delete_one({"rule_id": rule_id})
         deleted = result.deleted_count > 0
         if deleted:
             logger.info(f"Deleted rule: {rule_id}")
         return deleted
     
-    async def toggle_rule(self, rule_id: str, enabled: bool) -> bool:
-        """מפעיל/מכבה כלל."""
-        result = await self._collection.update_one(
+    def toggle_rule(self, rule_id: str, enabled: bool) -> bool:
+        """מפעיל/מכבה כלל (sync)."""
+        result = self._collection.update_one(
             {"rule_id": rule_id},
             {"$set": {"enabled": enabled, "updated_at": datetime.now(timezone.utc).isoformat()}}
         )
         return result.modified_count > 0
     
-    async def count_rules(self, enabled_only: bool = False) -> int:
-        """מחזיר מספר הכללים."""
+    def count_rules(self, enabled_only: bool = False) -> int:
+        """מחזיר מספר הכללים (sync)."""
         query = {"enabled": True} if enabled_only else {}
-        return await self._collection.count_documents(query)
+        return self._collection.count_documents(query)
 
 
 # =============================================================================
-# Factory function
+# Factory function - תואם ל-Flask/PyMongo
 # =============================================================================
 
 _storage: Optional[RulesStorage] = None
 
-async def get_rules_storage() -> RulesStorage:
-    """מחזיר את מנהל האחסון (singleton)."""
+def get_rules_storage(db=None) -> RulesStorage:
+    """
+    מחזיר את מנהל האחסון (singleton).
+    
+    Args:
+        db: אופציונלי - אם לא מועבר, משתמש ב-get_db() מ-webapp/app.py
+        
+    🔧 שימוש ב-Flask route:
+    ```python
+    @app.route('/api/rules')
+    def rules_list():
+        storage = get_rules_storage(get_db())
+        return jsonify(storage.list_rules())
+    ```
+    """
     global _storage
     if _storage is None:
-        from database.manager import get_database
-        db = await get_database()
+        if db is None:
+            # Lazy import כדי למנוע circular imports
+            from webapp.app import get_db
+            db = get_db()
         _storage = RulesStorage(db)
     return _storage
 ```
@@ -833,12 +940,14 @@ class RuleBuilder {
     }
     
     init() {
+        // 🔧 תיקון: הוספת כפתור NOT לממשק
         this.container.innerHTML = `
             <div class="rule-builder">
                 <div class="rule-builder__toolbar">
                     <button class="btn btn-sm" data-add="condition">+ תנאי</button>
                     <button class="btn btn-sm" data-add="group-and">+ קבוצת AND</button>
                     <button class="btn btn-sm" data-add="group-or">+ קבוצת OR</button>
+                    <button class="btn btn-sm" data-add="group-not">🚫 קבוצת NOT</button>
                     <button class="btn btn-sm" data-add="action">+ פעולה</button>
                 </div>
                 <div class="rule-builder__canvas" data-drop-zone="root">
@@ -906,6 +1015,10 @@ class RuleBuilder {
             case 'group-or':
                 this.rule.conditions.children.push(this.createGroup('OR'));
                 break;
+            // 🔧 תיקון: הוספת תמיכה ב-NOT operator
+            case 'group-not':
+                this.rule.conditions.children.push(this.createGroup('NOT'));
+                break;
             case 'action':
                 this.rule.actions.push(this.createAction());
                 break;
@@ -931,11 +1044,26 @@ class RuleBuilder {
         };
     }
     
+    /**
+     * 🔧 תיקון: שדות Action מלאים בהתאם לסכמה
+     * 
+     * שדות נדרשים:
+     * - type: סוג הפעולה (send_alert, create_ticket, webhook, suppress, create_github_issue)
+     * - severity: רמת חומרה (info, warning, critical)
+     * 
+     * שדות אופציונליים (לפי סוג):
+     * - channel: ערוץ יעד (telegram, slack, email)
+     * - message_template: תבנית הודעה עם placeholders כמו {{rule_name}}, {{triggered_conditions}}
+     * - labels: תגיות (למשל עבור GitHub Issues)
+     * - assignees: רשימת assignees (עבור GitHub Issues)
+     * - webhook_url: כתובת ה-webhook (עבור type=webhook)
+     */
     createAction() {
         return {
             type: 'send_alert',
             severity: 'warning',
-            channel: 'default'
+            channel: 'default',
+            message_template: '🔔 {{rule_name}}: {{triggered_conditions}}'
         };
     }
     
@@ -967,15 +1095,21 @@ class RuleBuilder {
     
     renderConditionBlock(condition) {
         const fields = this.options.availableFields;
+        // 🔧 תיקון: רשימה מלאה של כל האופרטורים הנתמכים ב-Backend
         const operators = [
-            { value: 'eq', label: '=' },
-            { value: 'ne', label: '≠' },
-            { value: 'gt', label: '>' },
-            { value: 'gte', label: '≥' },
-            { value: 'lt', label: '<' },
-            { value: 'lte', label: '≤' },
+            { value: 'eq', label: '= שווה' },
+            { value: 'ne', label: '≠ שונה' },
+            { value: 'gt', label: '> גדול מ' },
+            { value: 'gte', label: '≥ גדול או שווה' },
+            { value: 'lt', label: '< קטן מ' },
+            { value: 'lte', label: '≤ קטן או שווה' },
             { value: 'contains', label: 'מכיל' },
-            { value: 'regex', label: 'RegEx' }
+            { value: 'not_contains', label: 'לא מכיל' },
+            { value: 'starts_with', label: 'מתחיל ב' },
+            { value: 'ends_with', label: 'מסתיים ב' },
+            { value: 'regex', label: 'RegEx' },
+            { value: 'in', label: 'נמצא ברשימה' },
+            { value: 'not_in', label: 'לא נמצא ברשימה' }
         ];
         
         return `
@@ -1008,61 +1142,120 @@ class RuleBuilder {
         `;
     }
     
+    /**
+     * 🔧 תיקון: תמיכה מלאה ב-NOT operator
+     * - NOT מקבל רק ילד אחד
+     * - עיצוב ייחודי לקבוצת NOT
+     */
     renderGroupBlock(group, depth) {
-        const isAnd = group.operator === 'AND';
-        const className = isAnd ? 'group-and' : 'group-or';
-        const label = isAnd ? 'וגם (AND)' : 'או (OR)';
+        const operator = group.operator;
+        let className, label, icon;
+        
+        switch (operator) {
+            case 'AND':
+                className = 'group-and';
+                label = 'וגם (AND)';
+                icon = '🔗';
+                break;
+            case 'OR':
+                className = 'group-or';
+                label = 'או (OR)';
+                icon = '🔀';
+                break;
+            case 'NOT':
+                className = 'group-not';
+                label = 'היפוך (NOT)';
+                icon = '🚫';
+                break;
+            default:
+                className = 'group-and';
+                label = operator;
+                icon = '❓';
+        }
         
         const childrenHtml = group.children
             .map(child => this.renderConditions(child, depth + 1))
             .join('');
         
+        // NOT מקבל רק ילד אחד
+        const showAddButton = operator !== 'NOT' || group.children.length === 0;
+        const hint = operator === 'NOT' 
+            ? '<p class="empty-hint">גרור תנאי אחד לכאן (NOT הופך את התוצאה)</p>'
+            : '<p class="empty-hint">גרור תנאים לכאן</p>';
+        
         return `
-            <div class="block group-block ${className}" data-type="group" data-operator="${group.operator}">
+            <div class="block group-block ${className}" data-type="group" data-operator="${operator}">
                 <div class="block__header">
-                    <span class="block__icon">${isAnd ? '🔗' : '🔀'}</span>
+                    <span class="block__icon">${icon}</span>
                     <span class="block__title">${label}</span>
-                    <button class="block__add-child" data-action="add-condition">+ תנאי</button>
+                    ${showAddButton ? '<button class="block__add-child" data-action="add-condition">+ תנאי</button>' : ''}
                     <button class="block__delete" data-action="delete">×</button>
                 </div>
                 <div class="block__children" data-drop-zone="group">
-                    ${childrenHtml || '<p class="empty-hint">גרור תנאים לכאן</p>'}
+                    ${childrenHtml || hint}
                 </div>
             </div>
         `;
     }
     
+    /**
+     * 🔧 תיקון: רינדור Action עם כל השדות הנדרשים
+     * 
+     * שדות UI מלאים:
+     * - type: סוג הפעולה (חובה)
+     * - severity: רמת חומרה (חובה)
+     * - channel: ערוץ יעד (אופציונלי, מוצג עבור send_alert)
+     * - message_template: תבנית הודעה (אופציונלי, מוצג עבור send_alert)
+     */
     renderActions(actions) {
-        return actions.map((action, index) => `
-            <div class="block action-block" data-type="action" data-index="${index}">
-                <div class="block__header">
-                    <span class="block__icon">⚡</span>
-                    <span class="block__title">פעולה</span>
-                    <button class="block__delete" data-action="delete">×</button>
+        return actions.map((action, index) => {
+            const showChannelAndTemplate = action.type === 'send_alert';
+            
+            return `
+                <div class="block action-block" data-type="action" data-index="${index}">
+                    <div class="block__header">
+                        <span class="block__icon">⚡</span>
+                        <span class="block__title">פעולה</span>
+                        <button class="block__delete" data-action="delete">×</button>
+                    </div>
+                    <div class="block__content">
+                        <select class="action-type-select" data-bind="type">
+                            <option value="send_alert" ${action.type === 'send_alert' ? 'selected' : ''}>
+                                📢 שלח התראה
+                            </option>
+                            <option value="create_github_issue" ${action.type === 'create_github_issue' ? 'selected' : ''}>
+                                🐛 צור GitHub Issue
+                            </option>
+                            <option value="create_ticket" ${action.type === 'create_ticket' ? 'selected' : ''}>
+                                🎫 צור טיקט
+                            </option>
+                            <option value="webhook" ${action.type === 'webhook' ? 'selected' : ''}>
+                                🔗 קרא ל-Webhook
+                            </option>
+                            <option value="suppress" ${action.type === 'suppress' ? 'selected' : ''}>
+                                🔇 השתק התראות
+                            </option>
+                        </select>
+                        <select class="severity-select" data-bind="severity">
+                            <option value="info" ${action.severity === 'info' ? 'selected' : ''}>ℹ️ Info</option>
+                            <option value="warning" ${action.severity === 'warning' ? 'selected' : ''}>⚠️ Warning</option>
+                            <option value="critical" ${action.severity === 'critical' ? 'selected' : ''}>🔴 Critical</option>
+                        </select>
+                        ${showChannelAndTemplate ? `
+                            <select class="channel-select" data-bind="channel">
+                                <option value="default" ${action.channel === 'default' ? 'selected' : ''}>ברירת מחדל</option>
+                                <option value="telegram" ${action.channel === 'telegram' ? 'selected' : ''}>📱 Telegram</option>
+                                <option value="slack" ${action.channel === 'slack' ? 'selected' : ''}>💬 Slack</option>
+                                <option value="email" ${action.channel === 'email' ? 'selected' : ''}>📧 Email</option>
+                            </select>
+                            <input type="text" class="message-template-input" data-bind="message_template" 
+                                   value="${this.htmlEscape(action.message_template || '')}" 
+                                   placeholder="תבנית הודעה: {{rule_name}}, {{triggered_conditions}}">
+                        ` : ''}
+                    </div>
                 </div>
-                <div class="block__content">
-                    <select class="action-type-select" data-bind="type">
-                        <option value="send_alert" ${action.type === 'send_alert' ? 'selected' : ''}>
-                            📢 שלח התראה
-                        </option>
-                        <option value="create_ticket" ${action.type === 'create_ticket' ? 'selected' : ''}>
-                            🎫 צור טיקט
-                        </option>
-                        <option value="webhook" ${action.type === 'webhook' ? 'selected' : ''}>
-                            🔗 קרא ל-Webhook
-                        </option>
-                        <option value="suppress" ${action.type === 'suppress' ? 'selected' : ''}>
-                            🔇 השתק התראות
-                        </option>
-                    </select>
-                    <select class="severity-select" data-bind="severity">
-                        <option value="info" ${action.severity === 'info' ? 'selected' : ''}>ℹ️ Info</option>
-                        <option value="warning" ${action.severity === 'warning' ? 'selected' : ''}>⚠️ Warning</option>
-                        <option value="critical" ${action.severity === 'critical' ? 'selected' : ''}>🔴 Critical</option>
-                    </select>
-                </div>
-            </div>
-        `).join('');
+            `;
+        }).join('');
     }
     
     attachBlockEvents() {
@@ -1338,6 +1531,16 @@ if (typeof module !== 'undefined' && module.exports) {
     border-right: 4px solid var(--warning-color, #ff9800);
 }
 
+/* 🔧 תיקון: עיצוב עבור קבוצת NOT */
+.group-not {
+    border-right: 4px solid var(--danger-color, #f44336);
+    background: var(--danger-light, rgba(244, 67, 54, 0.05));
+}
+
+.group-not .block__header {
+    background: var(--danger-light, rgba(244, 67, 54, 0.1));
+}
+
 .block__children {
     padding: 0.75rem;
     margin: 0 0.5rem 0.5rem;
@@ -1415,53 +1618,80 @@ if (typeof module !== 'undefined' && module.exports) {
 
 ## API Endpoints
 
-### הוספה ל-`services/webserver.py`
+### יצירת Blueprint ב-Flask: `webapp/rules_api.py`
+
+> **שינוי קריטי:** ה-API נוסף כ-**Flask Blueprint** (לא aiohttp) כי הפרויקט משתמש ב-Flask.
 
 ```python
-# =============================================================================
-# Visual Rules API
-# =============================================================================
+"""
+Visual Rules API - Flask Blueprint
+===================================
+API לניהול כללים ויזואליים.
 
-async def rules_list_view(request: web.Request) -> web.Response:
+🔧 שימוש: הוסף ל-webapp/app.py:
+    from webapp.rules_api import rules_bp
+    app.register_blueprint(rules_bp, url_prefix='/api/rules')
+"""
+
+from flask import Blueprint, jsonify, request, g
+from functools import wraps
+import logging
+
+from services.rules_storage import get_rules_storage
+from services.rule_engine import get_rule_engine, EvaluationContext, AVAILABLE_FIELDS
+
+logger = logging.getLogger(__name__)
+
+rules_bp = Blueprint('rules', __name__)
+
+
+def get_db():
+    """קבלת חיבור DB (יבוא מ-webapp/app.py)."""
+    # Lazy import כדי למנוע circular imports
+    from webapp.app import get_db as app_get_db
+    return app_get_db()
+
+
+def admin_required(f):
+    """דקורטור לבדיקת הרשאות admin - התאם לפרויקט הקיים."""
+    @wraps(f)
+    def decorated(*args, **kwargs):
+        # 🔧 התאם ללוגיקת האימות הקיימת ב-webapp/app.py
+        from flask import session
+        if not session.get('user_id'):
+            return jsonify({"error": "unauthorized"}), 401
+        # אופציונלי: בדיקת is_admin
+        return f(*args, **kwargs)
+    return decorated
+
+
+@rules_bp.route('', methods=['GET'])
+@admin_required
+def rules_list():
     """GET /api/rules - רשימת כללים"""
-    from services.rules_storage import get_rules_storage
+    storage = get_rules_storage(get_db())
     
-    storage = await get_rules_storage()
-    
-    # פרמטרים
-    enabled_only = request.query.get("enabled") == "true"
-    tags = request.query.getall("tag", [])
-    
-    # 🔧 תיקון באג #5: טיפול ב-ValueError עבור פרמטרים לא תקינים
-    try:
-        limit = min(int(request.query.get("limit", 50)), 200)
-    except (ValueError, TypeError):
-        return web.json_response({
-            "error": "Invalid 'limit' parameter - must be an integer"
-        }, status=400)
+    enabled_only = request.args.get("enabled") == "true"
+    tags = request.args.getlist("tag")
     
     try:
-        offset = int(request.query.get("offset", 0))
+        limit = min(int(request.args.get("limit", 50)), 200)
+        offset = int(request.args.get("offset", 0))
     except (ValueError, TypeError):
-        return web.json_response({
-            "error": "Invalid 'offset' parameter - must be an integer"
-        }, status=400)
+        return jsonify({"error": "Invalid limit/offset parameter"}), 400
     
-    # בדיקת ערכים שליליים
     if limit < 0 or offset < 0:
-        return web.json_response({
-            "error": "Parameters 'limit' and 'offset' must be non-negative"
-        }, status=400)
+        return jsonify({"error": "limit and offset must be non-negative"}), 400
     
-    rules = await storage.list_rules(
+    rules = storage.list_rules(
         enabled_only=enabled_only,
         tags=tags or None,
         limit=limit,
         offset=offset
     )
-    count = await storage.count_rules(enabled_only=enabled_only)
+    count = storage.count_rules(enabled_only=enabled_only)
     
-    return web.json_response({
+    return jsonify({
         "rules": rules,
         "total": count,
         "limit": limit,
@@ -1469,132 +1699,35 @@ async def rules_list_view(request: web.Request) -> web.Response:
     })
 
 
-async def rules_get_view(request: web.Request) -> web.Response:
-    """GET /api/rules/{rule_id} - קבלת כלל ספציפי"""
-    from services.rules_storage import get_rules_storage
-    
-    rule_id = request.match_info["rule_id"]
-    storage = await get_rules_storage()
-    
-    rule = await storage.get_rule(rule_id)
-    if not rule:
-        return web.json_response({"error": "Rule not found"}, status=404)
-    
-    return web.json_response(rule)
+@rules_bp.route('/fields', methods=['GET'])
+@admin_required
+def rules_available_fields():
+    """GET /api/rules/fields - שדות זמינים"""
+    fields = [{"name": k, **v} for k, v in AVAILABLE_FIELDS.items()]
+    return jsonify({"fields": fields})
 
 
-async def rules_create_view(request: web.Request) -> web.Response:
-    """POST /api/rules - יצירת כלל חדש"""
-    from services.rules_storage import get_rules_storage
-    from services.rule_engine import get_rule_engine
-    
-    try:
-        data = await request.json()
-    except Exception:
-        return web.json_response({"error": "Invalid JSON"}, status=400)
-    
-    # ולידציה
-    engine = get_rule_engine()
-    errors = engine.validate_rule(data)
-    if errors:
-        return web.json_response({"error": "Validation failed", "details": errors}, status=400)
-    
-    # שמירה
-    storage = await get_rules_storage()
-    rule_id = await storage.save_rule(data)
-    
-    return web.json_response({"rule_id": rule_id, "message": "Rule created"}, status=201)
-
-
-async def rules_update_view(request: web.Request) -> web.Response:
-    """PUT /api/rules/{rule_id} - עדכון כלל"""
-    from services.rules_storage import get_rules_storage
-    from services.rule_engine import get_rule_engine
-    
-    rule_id = request.match_info["rule_id"]
-    
-    try:
-        data = await request.json()
-    except Exception:
-        return web.json_response({"error": "Invalid JSON"}, status=400)
-    
-    # וידוא שה-rule_id תואם
-    data["rule_id"] = rule_id
-    
-    # ולידציה
-    engine = get_rule_engine()
-    errors = engine.validate_rule(data)
-    if errors:
-        return web.json_response({"error": "Validation failed", "details": errors}, status=400)
-    
-    # עדכון
-    storage = await get_rules_storage()
-    await storage.save_rule(data)
-    
-    return web.json_response({"rule_id": rule_id, "message": "Rule updated"})
-
-
-async def rules_delete_view(request: web.Request) -> web.Response:
-    """DELETE /api/rules/{rule_id} - מחיקת כלל"""
-    from services.rules_storage import get_rules_storage
-    
-    rule_id = request.match_info["rule_id"]
-    storage = await get_rules_storage()
-    
-    deleted = await storage.delete_rule(rule_id)
-    if not deleted:
-        return web.json_response({"error": "Rule not found"}, status=404)
-    
-    return web.json_response({"message": "Rule deleted"})
-
-
-async def rules_toggle_view(request: web.Request) -> web.Response:
-    """POST /api/rules/{rule_id}/toggle - הפעלה/כיבוי כלל"""
-    from services.rules_storage import get_rules_storage
-    
-    rule_id = request.match_info["rule_id"]
-    
-    try:
-        data = await request.json()
-        enabled = data.get("enabled", True)
-    except Exception:
-        enabled = True
-    
-    storage = await get_rules_storage()
-    success = await storage.toggle_rule(rule_id, enabled)
-    
-    if not success:
-        return web.json_response({"error": "Rule not found"}, status=404)
-    
-    return web.json_response({"rule_id": rule_id, "enabled": enabled})
-
-
-async def rules_test_view(request: web.Request) -> web.Response:
+@rules_bp.route('/test', methods=['POST'])
+@admin_required
+def rules_test():
     """POST /api/rules/test - בדיקת כלל על נתוני דמה"""
-    from services.rule_engine import get_rule_engine, EvaluationContext
-    
     try:
-        data = await request.json()
+        data = request.get_json()
         rule = data.get("rule", {})
         test_data = data.get("data", {})
     except Exception:
-        return web.json_response({"error": "Invalid JSON"}, status=400)
+        return jsonify({"error": "Invalid JSON"}), 400
     
     engine = get_rule_engine()
-    
-    # ולידציה
     errors = engine.validate_rule(rule)
-    if errors:
-        return web.json_response({
-            "valid": False,
-            "errors": errors
-        })
     
-    # הערכה על נתוני הבדיקה
+    if errors:
+        return jsonify({"valid": False, "errors": errors})
+    
     context = EvaluationContext(data=test_data)
     result = engine.evaluate(rule, context)
     
-    return web.json_response({
+    return jsonify({
         "valid": True,
         "matched": result.matched,
         "triggered_conditions": result.triggered_conditions,
@@ -1603,107 +1736,348 @@ async def rules_test_view(request: web.Request) -> web.Response:
     })
 
 
-async def rules_available_fields_view(request: web.Request) -> web.Response:
-    """GET /api/rules/fields - שדות זמינים"""
-    from services.rule_engine import AVAILABLE_FIELDS
+@rules_bp.route('/<rule_id>', methods=['GET'])
+@admin_required
+def rules_get(rule_id):
+    """GET /api/rules/{rule_id} - קבלת כלל ספציפי"""
+    storage = get_rules_storage(get_db())
+    rule = storage.get_rule(rule_id)
     
-    fields = [
-        {"name": k, **v}
-        for k, v in AVAILABLE_FIELDS.items()
-    ]
+    if not rule:
+        return jsonify({"error": "Rule not found"}), 404
     
-    return web.json_response({"fields": fields})
+    return jsonify(rule)
 
 
-# =============================================================================
-# Routes Registration
-# =============================================================================
+@rules_bp.route('', methods=['POST'])
+@admin_required
+def rules_create():
+    """POST /api/rules - יצירת כלל חדש"""
+    try:
+        data = request.get_json()
+    except Exception:
+        return jsonify({"error": "Invalid JSON"}), 400
+    
+    engine = get_rule_engine()
+    errors = engine.validate_rule(data)
+    if errors:
+        return jsonify({"error": "Validation failed", "details": errors}), 400
+    
+    storage = get_rules_storage(get_db())
+    rule_id = storage.save_rule(data)
+    
+    return jsonify({"rule_id": rule_id, "message": "Rule created"}), 201
 
-def setup_rules_routes(app: web.Application) -> None:
-    """הגדרת routes עבור מנוע הכללים."""
-    app.router.add_get("/api/rules", rules_list_view)
-    app.router.add_post("/api/rules", rules_create_view)
-    app.router.add_get("/api/rules/fields", rules_available_fields_view)
-    app.router.add_post("/api/rules/test", rules_test_view)
-    app.router.add_get("/api/rules/{rule_id}", rules_get_view)
-    app.router.add_put("/api/rules/{rule_id}", rules_update_view)
-    app.router.add_delete("/api/rules/{rule_id}", rules_delete_view)
-    app.router.add_post("/api/rules/{rule_id}/toggle", rules_toggle_view)
+
+@rules_bp.route('/<rule_id>', methods=['PUT'])
+@admin_required
+def rules_update(rule_id):
+    """PUT /api/rules/{rule_id} - עדכון כלל"""
+    try:
+        data = request.get_json()
+    except Exception:
+        return jsonify({"error": "Invalid JSON"}), 400
+    
+    data["rule_id"] = rule_id
+    
+    engine = get_rule_engine()
+    errors = engine.validate_rule(data)
+    if errors:
+        return jsonify({"error": "Validation failed", "details": errors}), 400
+    
+    storage = get_rules_storage(get_db())
+    storage.save_rule(data)
+    
+    return jsonify({"rule_id": rule_id, "message": "Rule updated"})
+
+
+@rules_bp.route('/<rule_id>', methods=['DELETE'])
+@admin_required
+def rules_delete(rule_id):
+    """DELETE /api/rules/{rule_id} - מחיקת כלל"""
+    storage = get_rules_storage(get_db())
+    deleted = storage.delete_rule(rule_id)
+    
+    if not deleted:
+        return jsonify({"error": "Rule not found"}), 404
+    
+    return jsonify({"message": "Rule deleted"})
+
+
+@rules_bp.route('/<rule_id>/toggle', methods=['POST'])
+@admin_required
+def rules_toggle(rule_id):
+    """POST /api/rules/{rule_id}/toggle - הפעלה/כיבוי כלל"""
+    try:
+        data = request.get_json() or {}
+        enabled = data.get("enabled", True)
+    except Exception:
+        enabled = True
+    
+    storage = get_rules_storage(get_db())
+    success = storage.toggle_rule(rule_id, enabled)
+    
+    if not success:
+        return jsonify({"error": "Rule not found"}), 404
+    
+    return jsonify({"rule_id": rule_id, "enabled": enabled})
+```
+
+### רישום ה-Blueprint ב-`webapp/app.py`
+
+```python
+# הוסף בסוף הייבואים:
+from webapp.rules_api import rules_bp
+
+# הוסף לפני if __name__ == "__main__":
+app.register_blueprint(rules_bp, url_prefix='/api/rules')
 ```
 
 ---
 
 ## אינטגרציה עם המערכת הקיימת
 
-### 1. שילוב עם `alerts_storage.py`
+> **🔧 שינוי קריטי:** האינטגרציה היא **סינכרונית** (תואמת ל-PyMongo ול-Flask).
+> 
+> **מיפוי שדות:** מערכת ההתראות הקיימת (`monitoring/alerts_storage.py`) משתמשת בשדות:
+> - `name` - שם ההתראה
+> - `severity` - רמת חומרה (info/warning/critical/anomaly)
+> - `summary` - תיאור קצר
+> - `details` - dict עם פרטים נוספים (כולל sentry_issue_id, error_signature, וכו')
+> - `alert_type` - סוג ההתראה (sentry_issue, deployment_event, וכו')
+> - `endpoint` - endpoint רלוונטי (אם קיים)
+> - `silenced` - האם ההתראה הושתקה
 
-הכללים יופעלו אוטומטית כאשר מתקבלת התראה חדשה:
+### 1. שילוב עם `internal_alerts.py`
+
+נקודת החיבור הטובה ביותר היא `internal_alerts.py` שמטפל בהתראות לפני שליחה:
 
 ```python
-# בקובץ monitoring/alerts_storage.py - הוספה לפונקציית record_alert
+# יצירת קובץ חדש: services/rules_evaluator.py
 
-async def record_alert(alert_data: Dict[str, Any]) -> str:
-    """רישום התראה חדשה עם הערכת כללים ויזואליים."""
+"""
+Rules Evaluator - הערכת כללים על התראות נכנסות
+================================================
+מחבר בין מערכת ההתראות לבין מנוע הכללים.
+
+🔧 הערה: סינכרוני לחלוטין (PyMongo).
+"""
+
+import logging
+from typing import Any, Dict, List, Optional
+
+logger = logging.getLogger(__name__)
+
+
+def evaluate_alert_rules(alert_data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    """
+    מעריך את כל הכללים הפעילים על התראה נכנסת.
+    
+    Args:
+        alert_data: נתוני ההתראה מ-internal_alerts או monitoring/alerts_storage
+        
+    Returns:
+        dict עם תוצאות ההערכה, או None אם אין כללים מתאימים
+        
+    🔧 מיפוי שדות מההתראות הקיימות ל-EvaluationContext:
+    ```
+    ההתראה המקורית           ←→    שדה ב-context
+    ─────────────────────────────────────────────────
+    name                     ←→    alert_name
+    severity                 ←→    severity  
+    summary                  ←→    summary
+    details.alert_type       ←→    alert_type
+    details.sentry_issue_id  ←→    sentry_issue_id
+    details.sentry_short_id  ←→    sentry_short_id
+    details.project          ←→    project
+    details.environment      ←→    environment
+    details.error_signature  ←→    error_signature
+    source                   ←→    source
+    silenced                 ←→    is_silenced
+    ```
+    """
+    try:
+        from webapp.app import get_db
+        from services.rules_storage import get_rules_storage
+        from services.rule_engine import get_rule_engine, EvaluationContext
+        
+        # קבלת כללים פעילים
+        storage = get_rules_storage(get_db())
+        rules = storage.get_enabled_rules()
+        
+        if not rules:
+            return None
+        
+        # בניית context מההתראה
+        details = alert_data.get("details", {}) or {}
+        
+        context_data = {
+            # שדות בסיסיים מההתראה
+            "alert_name": str(alert_data.get("name", "")),
+            "severity": str(alert_data.get("severity", "info")).lower(),
+            "summary": str(alert_data.get("summary", "")),
+            "source": str(alert_data.get("source", "")),
+            "is_silenced": bool(alert_data.get("silenced", False)),
+            
+            # שדות מ-details
+            "alert_type": str(details.get("alert_type", "")),
+            "sentry_issue_id": str(details.get("sentry_issue_id", "")),
+            "sentry_short_id": str(details.get("sentry_short_id", "")),
+            "sentry_permalink": str(details.get("sentry_permalink", "")),
+            "project": str(details.get("project", "")),
+            "environment": str(details.get("environment", "")),
+            "error_signature": str(details.get("error_signature", "")),
+            "culprit": str(details.get("culprit", "")),
+            "action": str(details.get("action", "")),
+        }
+        
+        # הערכת כללים
+        engine = get_rule_engine()
+        matched_rules: List[Dict[str, Any]] = []
+        
+        for rule in rules:
+            try:
+                context = EvaluationContext(data=context_data)
+                result = engine.evaluate(rule, context)
+                
+                if result.matched:
+                    matched_rules.append({
+                        "rule_id": rule.get("rule_id"),
+                        "rule_name": rule.get("name"),
+                        "triggered_conditions": result.triggered_conditions,
+                        "actions": result.actions_to_execute,
+                    })
+            except Exception as e:
+                logger.warning(f"Error evaluating rule {rule.get('rule_id')}: {e}")
+                continue
+        
+        if matched_rules:
+            return {
+                "matched": True,
+                "rules": matched_rules,
+                "alert_data": alert_data,
+            }
+        
+        return None
+        
+    except Exception as e:
+        logger.error(f"Error in evaluate_alert_rules: {e}")
+        return None
+
+
+def execute_matched_actions(evaluation_result: Dict[str, Any]) -> None:
+    """
+    מבצע את הפעולות של כללים שהותאמו.
+    
+    Args:
+        evaluation_result: תוצאת evaluate_alert_rules()
+    """
+    if not evaluation_result or not evaluation_result.get("matched"):
+        return
+    
+    alert_data = evaluation_result.get("alert_data", {})
+    
+    for matched_rule in evaluation_result.get("rules", []):
+        for action in matched_rule.get("actions", []):
+            try:
+                action_type = action.get("type", "")
+                
+                if action_type == "suppress":
+                    # סימון ההתראה כמושתקת
+                    alert_data["silenced"] = True
+                    alert_data["silenced_by_rule"] = matched_rule.get("rule_id")
+                    logger.info(f"Alert suppressed by rule: {matched_rule.get('rule_id')}")
+                    
+                elif action_type == "send_alert":
+                    # שליחה להתראה נוספת (לערוץ ספציפי)
+                    _send_custom_notification(action, alert_data, matched_rule)
+                    
+                elif action_type == "create_github_issue":
+                    # יצירת GitHub Issue
+                    _create_github_issue(action, alert_data, matched_rule)
+                    
+                elif action_type == "webhook":
+                    _call_webhook(action, alert_data)
+                    
+            except Exception as e:
+                logger.error(f"Error executing action {action_type}: {e}")
+
+
+def _send_custom_notification(action: Dict, alert_data: Dict, matched_rule: Dict) -> None:
+    """שולח התראה מותאמת לערוץ ספציפי."""
+    try:
+        channel = action.get("channel", "default")
+        severity = action.get("severity", alert_data.get("severity", "info"))
+        template = action.get("message_template", "{{rule_name}}: {{summary}}")
+        
+        # החלפת placeholders
+        message = template.replace("{{rule_name}}", matched_rule.get("rule_name", ""))
+        message = message.replace("{{summary}}", alert_data.get("summary", ""))
+        message = message.replace("{{triggered_conditions}}", 
+                                  ", ".join(matched_rule.get("triggered_conditions", [])))
+        
+        logger.info(f"Custom notification [{channel}]: {message[:100]}...")
+        # כאן תוסיף את הלוגיקה לשליחה בפועל לערוץ המתאים
+        
+    except Exception as e:
+        logger.error(f"Error sending custom notification: {e}")
+
+
+def _create_github_issue(action: Dict, alert_data: Dict, matched_rule: Dict) -> None:
+    """יוצר GitHub Issue (ראה github_issue_action.py)."""
+    try:
+        from services.github_issue_action import GitHubIssueAction
+        handler = GitHubIssueAction()
+        # הפעלה סינכרונית (או דרך thread pool)
+        import asyncio
+        asyncio.run(handler.execute(action, alert_data, matched_rule.get("triggered_conditions", [])))
+    except Exception as e:
+        logger.error(f"Error creating GitHub issue: {e}")
+
+
+def _call_webhook(action: Dict, alert_data: Dict) -> None:
+    """קריאה ל-webhook."""
+    try:
+        import requests
+        url = action.get("webhook_url", "")
+        if url:
+            requests.post(url, json=alert_data, timeout=10)
+    except Exception as e:
+        logger.error(f"Error calling webhook: {e}")
+```
+
+### 2. נקודת ההפעלה ב-`internal_alerts.py`
+
+```python
+# הוסף ל-internal_alerts.py לפני שליחת ההתראה:
+
+def emit_internal_alert(...):
     # ... קוד קיים ...
     
-    # הערכת כללים ויזואליים
-    await _evaluate_visual_rules(alert_data)
-    
-    return alert_id
-
-
-async def _evaluate_visual_rules(alert_data: Dict[str, Any]) -> None:
-    """מעריך את כל הכללים הפעילים על ההתראה."""
-    from services.rules_storage import get_rules_storage
-    from services.rule_engine import get_rule_engine, EvaluationContext
-    
+    # 🔧 הערכת כללים ויזואליים לפני שליחה
     try:
-        storage = await get_rules_storage()
-        engine = get_rule_engine()
+        from services.rules_evaluator import evaluate_alert_rules, execute_matched_actions
         
-        # טעינת כללים פעילים
-        rules = await storage.get_enabled_rules()
+        alert_payload = {
+            "name": name,
+            "severity": severity,
+            "summary": summary,
+            "details": {...},  # פרטים נוספים
+        }
         
-        # יצירת הקשר מנתוני ההתראה
-        context = EvaluationContext(data={
-            "alert_type": alert_data.get("alert_type", ""),
-            "severity": alert_data.get("severity", ""),
-            "error_rate": alert_data.get("metrics", {}).get("error_rate", 0),
-            "latency_avg_ms": alert_data.get("metrics", {}).get("latency", 0),
-            "service_name": alert_data.get("service", ""),
-            # ... שדות נוספים לפי הצורך
-        })
-        
-        # הערכת כל כלל
-        for rule in rules:
-            result = engine.evaluate(rule, context)
-            if result.matched:
-                await _execute_rule_actions(rule, result, alert_data)
+        evaluation = evaluate_alert_rules(alert_payload)
+        if evaluation:
+            execute_matched_actions(evaluation)
+            
+            # אם הכלל דרש suppress, לא נשלח
+            if alert_payload.get("silenced"):
+                logger.info(f"Alert silenced by rule: {alert_payload.get('silenced_by_rule')}")
+                return  # דלג על שליחה
                 
     except Exception as e:
-        logger.error(f"Error evaluating visual rules: {e}")
-
-
-async def _execute_rule_actions(
-    rule: Dict[str, Any], 
-    result: Any, 
-    alert_data: Dict[str, Any]
-) -> None:
-    """מבצע את הפעולות של כלל שהותאם."""
-    for action in result.actions_to_execute:
-        action_type = action.get("type")
-        
-        if action_type == "send_alert":
-            # שליחת התראה מותאמת
-            await _send_custom_alert(action, alert_data, result)
-        elif action_type == "suppress":
-            # השתקת ההתראה
-            alert_data["suppressed"] = True
-            alert_data["suppressed_by_rule"] = rule.get("rule_id")
-        elif action_type == "webhook":
-            # קריאה ל-webhook
-            await _call_webhook(action, alert_data)
-        # ... פעולות נוספות
+        logger.warning(f"Rules evaluation failed: {e}")
+    
+    # ... המשך שליחת ההתראה ...
 ```
 
 ### 2. שילוב עם `observability_dashboard.py`
@@ -1755,6 +2129,10 @@ async def get_rule_suggestions_for_alert(alert: Dict[str, Any]) -> List[Dict[str
 
 קובץ: `webapp/templates/admin_rules.html`
 
+> **🔧 הערה חשובה:** הפרויקט **אינו** משתמש ב-Bootstrap!  
+> התבנית למטה משתמשת ב-CSS הקיים של הפרויקט (משתנים מ-`base.html`).
+> עבור Modal, משתמשים במודל פשוט עם CSS מותאם במקום Bootstrap Modal.
+
 ```html
 {% extends "base.html" %}
 
@@ -1763,112 +2141,160 @@ async def get_rule_suggestions_for_alert(alert: Dict[str, Any]) -> List[Dict[str
 {% block head %}
 <link rel="stylesheet" href="{{ url_for('static', filename='css/rule-builder.css') }}">
 <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.0/Sortable.min.js"></script>
+<style>
+    /* 🔧 סגנונות מותאמים לפרויקט (ללא Bootstrap) */
+    .rules-page { padding: 1.5rem; max-width: 1400px; margin: 0 auto; }
+    .rules-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem; flex-wrap: wrap; gap: 1rem; }
+    .rules-header h1 { margin: 0; font-size: 1.5rem; color: var(--text-primary, #333); }
+    .rules-header p { margin: 0.25rem 0 0; color: var(--text-secondary, #666); font-size: 0.9rem; }
+    .rules-actions { display: flex; gap: 0.5rem; }
+    
+    .rules-grid { display: grid; grid-template-columns: 350px 1fr; gap: 1.5rem; margin-bottom: 1.5rem; }
+    @media (max-width: 900px) { .rules-grid { grid-template-columns: 1fr; } }
+    
+    .rules-card { background: var(--card-bg, #fff); border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.08); overflow: hidden; }
+    .rules-card__header { padding: 0.75rem 1rem; background: var(--surface-color, #f8f9fa); border-bottom: 1px solid var(--border-color, #e0e0e0); }
+    .rules-card__header h3 { margin: 0; font-size: 1rem; font-weight: 600; }
+    .rules-card__body { padding: 1rem; }
+    
+    .form-group { margin-bottom: 1rem; }
+    .form-group label { display: block; margin-bottom: 0.25rem; font-weight: 500; font-size: 0.875rem; }
+    .form-group input, .form-group textarea { width: 100%; padding: 0.5rem; border: 1px solid var(--border-color, #ddd); border-radius: 4px; font-size: 0.9rem; }
+    .form-group input:focus, .form-group textarea:focus { outline: none; border-color: var(--primary, #667eea); }
+    
+    .toggle-switch { display: flex; align-items: center; gap: 0.5rem; }
+    .toggle-switch input[type="checkbox"] { width: 40px; height: 22px; appearance: none; background: #ccc; border-radius: 11px; cursor: pointer; transition: background 0.2s; }
+    .toggle-switch input[type="checkbox"]:checked { background: var(--success-color, #4caf50); }
+    
+    .rules-table { width: 100%; border-collapse: collapse; }
+    .rules-table th, .rules-table td { padding: 0.75rem; text-align: right; border-bottom: 1px solid var(--border-color, #eee); }
+    .rules-table th { background: var(--surface-color, #f8f9fa); font-weight: 600; font-size: 0.8rem; text-transform: uppercase; }
+    .rules-table tbody tr:hover { background: var(--hover-bg, rgba(0,0,0,0.02)); }
+    
+    .status-badge { display: inline-block; padding: 0.2rem 0.5rem; border-radius: 4px; font-size: 0.75rem; font-weight: 500; }
+    .status-badge--active { background: var(--success-light, #e8f5e9); color: var(--success-color, #4caf50); }
+    .status-badge--inactive { background: var(--surface-color, #f0f0f0); color: var(--text-secondary, #666); }
+    
+    /* Modal פשוט ללא Bootstrap */
+    .modal-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.5); z-index: 1000; justify-content: center; align-items: center; }
+    .modal-overlay.active { display: flex; }
+    .modal-box { background: var(--card-bg, #fff); border-radius: 8px; max-width: 600px; width: 90%; max-height: 80vh; overflow: auto; }
+    .modal-header { padding: 1rem; border-bottom: 1px solid var(--border-color, #e0e0e0); display: flex; justify-content: space-between; align-items: center; }
+    .modal-header h3 { margin: 0; font-size: 1.1rem; }
+    .modal-close { background: none; border: none; font-size: 1.5rem; cursor: pointer; color: var(--text-secondary, #666); }
+    .modal-body { padding: 1rem; }
+    .modal-footer { padding: 1rem; border-top: 1px solid var(--border-color, #e0e0e0); display: flex; justify-content: flex-end; gap: 0.5rem; }
+    
+    .test-result { margin-top: 1rem; padding: 1rem; border-radius: 6px; display: none; }
+    .test-result--success { background: var(--success-light, #e8f5e9); border: 1px solid var(--success-color, #4caf50); }
+    .test-result--warning { background: var(--warning-light, #fff3e0); border: 1px solid var(--warning-color, #ff9800); }
+</style>
 {% endblock %}
 
 {% block content %}
-<div class="container py-4">
-    <div class="row mb-4">
-        <div class="col">
+<div class="rules-page">
+    <div class="rules-header">
+        <div>
             <h1>🎯 מנהל כללים ויזואלי</h1>
-            <p class="text-muted">בנה כללי התראה מותאמים אישית בממשק Drag & Drop</p>
+            <p>בנה כללי התראה מותאמים אישית בממשק Drag & Drop</p>
         </div>
-        <div class="col-auto">
-            <button id="save-rule" class="btn btn-primary">💾 שמור כלל</button>
-            <button id="test-rule" class="btn btn-secondary">🧪 בדוק כלל</button>
+        <div class="rules-actions">
+            <button id="save-rule" class="btn btn-primary"><i class="fas fa-save"></i> שמור כלל</button>
+            <button id="test-rule" class="btn btn-secondary"><i class="fas fa-flask"></i> בדוק כלל</button>
         </div>
     </div>
     
-    <div class="row mb-4">
-        <div class="col-md-4">
-            <div class="card">
-                <div class="card-header">
-                    <h5>📋 פרטי הכלל</h5>
+    <div class="rules-grid">
+        <div class="rules-card">
+            <div class="rules-card__header">
+                <h3>📋 פרטי הכלל</h3>
+            </div>
+            <div class="rules-card__body">
+                <div class="form-group">
+                    <label for="rule-name">שם הכלל</label>
+                    <input type="text" id="rule-name" placeholder="כלל חדש">
                 </div>
-                <div class="card-body">
-                    <div class="mb-3">
-                        <label class="form-label">שם הכלל</label>
-                        <input type="text" id="rule-name" class="form-control" placeholder="כלל חדש">
-                    </div>
-                    <div class="mb-3">
-                        <label class="form-label">תיאור</label>
-                        <textarea id="rule-description" class="form-control" rows="2"></textarea>
-                    </div>
-                    <div class="form-check form-switch">
-                        <input class="form-check-input" type="checkbox" id="rule-enabled" checked>
-                        <label class="form-check-label" for="rule-enabled">כלל פעיל</label>
-                    </div>
+                <div class="form-group">
+                    <label for="rule-description">תיאור</label>
+                    <textarea id="rule-description" rows="2"></textarea>
+                </div>
+                <div class="toggle-switch">
+                    <input type="checkbox" id="rule-enabled" checked>
+                    <label for="rule-enabled">כלל פעיל</label>
                 </div>
             </div>
         </div>
-        <div class="col-md-8">
-            <div class="card">
-                <div class="card-header">
-                    <h5>🔧 בונה הכלל</h5>
-                </div>
-                <div class="card-body">
-                    <div id="rule-builder"></div>
-                </div>
+        
+        <div class="rules-card">
+            <div class="rules-card__header">
+                <h3>🔧 בונה הכלל</h3>
+            </div>
+            <div class="rules-card__body">
+                <div id="rule-builder"></div>
             </div>
         </div>
     </div>
     
-    <div class="row">
-        <div class="col">
-            <div class="card">
-                <div class="card-header">
-                    <h5>📜 כללים קיימים</h5>
-                </div>
-                <div class="card-body">
-                    <table class="table table-hover" id="rules-table">
-                        <thead>
-                            <tr>
-                                <th>שם</th>
-                                <th>סטטוס</th>
-                                <th>תנאים</th>
-                                <th>עדכון אחרון</th>
-                                <th>פעולות</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            <!-- Populated by JS -->
-                        </tbody>
-                    </table>
-                </div>
-            </div>
+    <div class="rules-card">
+        <div class="rules-card__header">
+            <h3>📜 כללים קיימים</h3>
+        </div>
+        <div class="rules-card__body">
+            <table class="rules-table" id="rules-table">
+                <thead>
+                    <tr>
+                        <th>שם</th>
+                        <th>סטטוס</th>
+                        <th>תנאים</th>
+                        <th>עדכון אחרון</th>
+                        <th>פעולות</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <!-- Populated by JS -->
+                </tbody>
+            </table>
         </div>
     </div>
 </div>
 
-<!-- Test Modal -->
-<div class="modal fade" id="test-modal" tabindex="-1">
-    <div class="modal-dialog modal-lg">
-        <div class="modal-content">
-            <div class="modal-header">
-                <h5 class="modal-title">🧪 בדיקת כלל</h5>
-                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-            </div>
-            <div class="modal-body">
-                <div class="mb-3">
-                    <label class="form-label">נתוני בדיקה (JSON)</label>
-                    <textarea id="test-data" class="form-control font-monospace" rows="6">{
-  "error_rate": 0.08,
-  "latency_avg_ms": 600,
-  "requests_per_minute": 1500,
-  "service_name": "api-gateway"
+<!-- Test Modal (ללא Bootstrap) -->
+<div class="modal-overlay" id="test-modal">
+    <div class="modal-box">
+        <div class="modal-header">
+            <h3>🧪 בדיקת כלל</h3>
+            <button class="modal-close" onclick="closeTestModal()">&times;</button>
+        </div>
+        <div class="modal-body">
+            <div class="form-group">
+                <label>נתוני בדיקה (JSON)</label>
+                <textarea id="test-data" rows="8" style="font-family: monospace;">{
+  "alert_name": "Test Alert",
+  "severity": "warning",
+  "alert_type": "sentry_issue",
+  "project": "api-gateway",
+  "environment": "production"
 }</textarea>
-                </div>
-                <div id="test-result" class="alert" style="display: none;"></div>
             </div>
-            <div class="modal-footer">
-                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">סגור</button>
-                <button type="button" class="btn btn-primary" id="run-test">הרץ בדיקה</button>
-            </div>
+            <div id="test-result" class="test-result"></div>
+        </div>
+        <div class="modal-footer">
+            <button class="btn btn-secondary" onclick="closeTestModal()">סגור</button>
+            <button class="btn btn-primary" id="run-test">הרץ בדיקה</button>
         </div>
     </div>
 </div>
 
 <script src="{{ url_for('static', filename='js/rule-builder.js') }}"></script>
 <script>
+// 🔧 Modal פשוט ללא Bootstrap
+function openTestModal() {
+    document.getElementById('test-modal').classList.add('active');
+}
+function closeTestModal() {
+    document.getElementById('test-modal').classList.remove('active');
+}
+
 document.addEventListener('DOMContentLoaded', async function() {
     // טעינת שדות זמינים
     const fieldsResponse = await fetch('/api/rules/fields');
@@ -1910,10 +2336,8 @@ document.addEventListener('DOMContentLoaded', async function() {
         }
     });
     
-    // בדיקת כלל
-    document.getElementById('test-rule').addEventListener('click', () => {
-        new bootstrap.Modal(document.getElementById('test-modal')).show();
-    });
+    // בדיקת כלל - פתיחת Modal
+    document.getElementById('test-rule').addEventListener('click', openTestModal);
     
     document.getElementById('run-test').addEventListener('click', async () => {
         const rule = builder.getRule();
@@ -1937,7 +2361,7 @@ document.addEventListener('DOMContentLoaded', async function() {
         resultDiv.style.display = 'block';
         
         if (result.matched) {
-            resultDiv.className = 'alert alert-success';
+            resultDiv.className = 'test-result test-result--success';
             resultDiv.innerHTML = `
                 <strong>✅ הכלל התאים!</strong><br>
                 תנאים שהופעלו: ${result.triggered_conditions.join(', ')}<br>
@@ -1945,7 +2369,7 @@ document.addEventListener('DOMContentLoaded', async function() {
                 זמן הערכה: ${result.evaluation_time_ms.toFixed(2)}ms
             `;
         } else {
-            resultDiv.className = 'alert alert-warning';
+            resultDiv.className = 'test-result test-result--warning';
             resultDiv.innerHTML = `
                 <strong>❌ הכלל לא התאים</strong><br>
                 הנתונים לא עמדו בתנאים.
@@ -1953,7 +2377,7 @@ document.addEventListener('DOMContentLoaded', async function() {
         }
     });
     
-    // טעינת כללים קיימים
+    // טעינת כללים קיימים (🔧 ללא Bootstrap classes)
     async function loadRules() {
         const response = await fetch('/api/rules');
         const { rules } = await response.json();
@@ -1963,18 +2387,18 @@ document.addEventListener('DOMContentLoaded', async function() {
             <tr>
                 <td><strong>${rule.name || rule.rule_id}</strong></td>
                 <td>
-                    <span class="badge ${rule.enabled ? 'bg-success' : 'bg-secondary'}">
+                    <span class="status-badge ${rule.enabled ? 'status-badge--active' : 'status-badge--inactive'}">
                         ${rule.enabled ? 'פעיל' : 'מושבת'}
                     </span>
                 </td>
                 <td>${countConditions(rule.conditions)} תנאים</td>
                 <td>${new Date(rule.updated_at).toLocaleString('he-IL')}</td>
                 <td>
-                    <button class="btn btn-sm btn-outline-primary" onclick="editRule('${rule.rule_id}')">
-                        ✏️ ערוך
+                    <button class="btn btn-sm" onclick="editRule('${rule.rule_id}')">
+                        <i class="fas fa-edit"></i> ערוך
                     </button>
-                    <button class="btn btn-sm btn-outline-danger" onclick="deleteRule('${rule.rule_id}')">
-                        🗑️ מחק
+                    <button class="btn btn-sm btn-danger" onclick="deleteRule('${rule.rule_id}')">
+                        <i class="fas fa-trash"></i> מחק
                     </button>
                 </td>
             </tr>
@@ -2513,12 +2937,20 @@ class GitHubIssueAction:
         return body
     
     async def _find_existing_issue(self, error_signature: str) -> Optional[Dict[str, Any]]:
-        """מחפש Issue קיים פתוח עם אותה חתימת שגיאה."""
+        """מחפש Issue קיים פתוח עם אותה חתימת שגיאה.
+        
+        🔧 תיקון באג: URL encoding נכון של search query.
+        """
         try:
+            # 🔧 תיקון: שימוש ב-urllib.parse.quote לקידוד נכון של ה-query
+            from urllib.parse import quote
+            
             async with aiohttp.ClientSession() as session:
                 # חיפוש ב-Issues פתוחים
                 search_query = f"repo:{self.repo} is:issue is:open in:body {error_signature}"
-                url = f"{GITHUB_API_URL}/search/issues?q={search_query}"
+                # קידוד נכון של ה-query string
+                encoded_query = quote(search_query, safe='')
+                url = f"{GITHUB_API_URL}/search/issues?q={encoded_query}"
                 
                 async with session.get(url, headers=self.headers) as resp:
                     if resp.status == 200:
