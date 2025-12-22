@@ -1691,6 +1691,9 @@ async def snippet_collect_language(update: Update, context: ContextTypes.DEFAULT
                  InlineKeyboardButton("❌ דחייה", callback_data=f"snippet_reject:{snippet_id}")],
                 [InlineKeyboardButton("👁️ הצג סניפט", url=f"{_resolve_webapp_base_url() or DEFAULT_WEBAPP_URL}/admin/snippets/view?id={snippet_id}")]
             ])
+            # BYPASS: שליחה ישירה לטלגרם ללא מנוע כללים
+            # סיבה: הודעת מוצר אינטראקטיבית לאדמינים (callback_data / reply_markup) – ה-Rule Engine לא תומך בזה כרגע
+            # TODO: להעביר למנוע כללים כאשר תהיה תמיכה ב-send_alert עם reply_markup/actions אינטראקטיביים
             for admin_id in admins:
                 try:
                     await context.bot.send_message(chat_id=int(admin_id), text=(

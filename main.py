@@ -684,14 +684,27 @@ def get_admin_ids() -> list[int]:
 
 async def notify_admins(context: ContextTypes.DEFAULT_TYPE, text: str) -> None:
     try:
-        admin_ids = get_admin_ids()
-        if not admin_ids:
+        # Alert Pipeline Consolidation:
+        # לא שולחים הודעות "אדמין" ישירות דרך bot.send_message (זה עוקף suppress/Rule Engine).
+        # במקום זה, מפיקים internal_alert ומאפשרים למנוע הכללים להחליט אם/לאן לשלוח.
+        try:
+            from internal_alerts import emit_internal_alert  # type: ignore
+        except Exception:
+            emit_internal_alert = None  # type: ignore
+
+        if emit_internal_alert is None:
             return
-        for admin_id in admin_ids:
-            try:
-                await context.bot.send_message(chat_id=admin_id, text=text)
-            except Exception:
-                pass
+
+        # שומרים את הטקסט בתור summary; פרטים נוספים (כמו רשימת אדמינים) רק להקשר.
+        # NOTE: לא מעבירים token/chat_id וכד' כדי לא להדליף מידע רגיש.
+        admin_ids = get_admin_ids()
+        emit_internal_alert(
+            "admin_notification",
+            severity="info",
+            summary=str(text or ""),
+            source="main.notify_admins",
+            admin_ids=admin_ids,
+        )
     except Exception:
         pass
 
@@ -3323,18 +3336,21 @@ class CodeKeeperBot:
                     mem_status = f" (RSS={mu.get('rss_mb')}MB, VMS={mu.get('vms_mb')}MB, %={mu.get('percent')})"
                 except Exception:
                     pass
-                # שלח התראה לאדמינים
+                # Alert Pipeline Consolidation: שלח התראה דרך internal_alerts (ולא DM ישיר בבוט)
                 try:
-                    await notify_admins(context, f"🚨 OOM זוהתה בבוט{mem_status}. חריגה: {err_text[:500]}")
-                except Exception:
-                    pass
-                # אם המשתמש אדמין – שלח גם אליו פירוט
-                try:
-                    if isinstance(update, Update) and update.effective_user:
-                        admin_ids = get_admin_ids()
-                        if admin_ids and update.effective_user.id in admin_ids:
-                            await context.bot.send_message(chat_id=update.effective_user.id,
-                                                           text=f"🚨 OOM זוהתה{mem_status}. התקבלה שגיאה: {err_text[:500]}")
+                    try:
+                        from internal_alerts import emit_internal_alert  # type: ignore
+                    except Exception:
+                        emit_internal_alert = None  # type: ignore
+                    if emit_internal_alert is not None:
+                        emit_internal_alert(
+                            "bot_oom",
+                            severity="critical",
+                            summary=f"🚨 OOM זוהתה בבוט{mem_status}. חריגה: {err_text[:500]}",
+                            source="main.error_handler",
+                            error_message=err_text[:2000],
+                            memory_status=mem_status,
+                        )
                 except Exception:
                     pass
         except Exception:

@@ -3710,7 +3710,9 @@ def admin_snippet_approve():
                             "🎉 איזה כיף! הסניפט שלך אושר והתווסף לספריית הסניפטים.\n"
                             f"אפשר לצפות כאן: {base}/snippets"
                         )
-                        # שלח דרך Telegram Bot API
+                        # BYPASS: שליחה ישירה לטלגרם ללא מנוע כללים
+                        # סיבה: הודעת מוצר למשתמש (BOT_TOKEN, chat_id=user_id) ולא "התראת מערכת" שמנוהלת ע"י Rule Engine
+                        # TODO: לשקול בעתיד שכבת Notification Service מאוחדת (user_notifications) אם ירצו ניהול כללי/השקטה גם להודעות מוצר
                         import os as _os
                         bot_token = _os.getenv('BOT_TOKEN', '')
                         if bot_token:
@@ -3785,6 +3787,9 @@ def admin_snippet_reject():
                             f"סיבה: {reason or '—'}\n"
                             "נשמח לשינויים קטנים ולהגשה מחדש."
                         )
+                        # BYPASS: שליחה ישירה לטלגרם ללא מנוע כללים
+                        # סיבה: הודעת מוצר למשתמש (BOT_TOKEN, chat_id=user_id) ולא "התראת מערכת" שמנוהלת ע"י Rule Engine
+                        # TODO: לשקול בעתיד שכבת Notification Service מאוחדת (user_notifications) אם ירצו ניהול כללי/השקטה גם להודעות מוצר
                         import os as _os
                         bot_token = _os.getenv('BOT_TOKEN', '')
                         if bot_token:
