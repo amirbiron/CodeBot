@@ -12,6 +12,7 @@
 - הודעת קומיט ב-HEREDOC
 - ללא סודות/PII בקוד ובדיפים
 - טסטים ירוקים לפני PR
+- כל כלי/פקודה חדשה מחייבת עדכון ל-``webapp/static/data/commands.json`` (ראו :doc:`/webapp/commands-catalog`)
 
 Workflow בסיסי
 --------------

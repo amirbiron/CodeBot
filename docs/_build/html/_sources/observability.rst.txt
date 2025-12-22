@@ -78,6 +78,7 @@
 - :doc:`metrics`
 - :doc:`alerts`
 - :doc:`sentry`
+- :doc:`observability/quick_fix_rules`
 - :doc:`runbooks/logging-levels`
 - Datasource של Jaeger ב‑Grafana מוגדר תחת ``docker/grafana/provisioning/datasources/prometheus.yml``
 

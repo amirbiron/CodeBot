@@ -28,6 +28,13 @@
 - הוסיפו jitter ל-TTL למניעת thundering herd.
 - fallback מקומי בעת תקלה ב-Redis.
 
+## Warmup לנכסי Frontend
+
+- לאחר שהשרת חולף על `/healthz`, `scripts/start_webapp.sh` יכול לבצע warmup יזום לדפי ה-Frontend ע״י משתנה הסביבה `WEBAPP_WARMUP_PATHS` (CSV כמו `/dashboard,/collections`).
+- ניתן לשנות את בסיס הכתובת באמצעות `WEBAPP_WARMUP_BASE_URL` (ברירת מחדל `http://127.0.0.1:$PORT`) ואת ה-timeout לכל בקשה דרך `WEBAPP_WARMUP_REQUEST_TIMEOUT` (ברירת מחדל 2 שניות).
+- כל ניסיון מחזיר לוג בסגנון `Warmup: /dashboard... OK/FAIL`, כך שניתן לעקוב אחרי CDN/Template Cache שמתמלא עוד לפני שהמשתמשים הראשונים מגיעים.
+- כדי למנוע השפעה על זמני עלייה, ה-warmup רץ רק לאחר הצלחת בדיקת הבריאות, ונחשב best-effort (כישלון לא מפיל את התהליך).
+
 ## קישורים
 
 - Issue המקור: [#975](https://github.com/amirbiron/CodeBot/issues/975)
