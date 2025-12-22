@@ -142,3 +142,81 @@ def test_call_webhook_respects_safety_gate(monkeypatch):
     monkeypatch.setattr(reval, "_is_safe_webhook_url", lambda *_a, **_k: True)
     reval._call_webhook({"type": "webhook", "webhook_url": "https://example.com/h"}, {"x": 1})  # noqa: SLF001
     assert post.call_count == 1
+
+
+class _FakeTelegramResponse:
+    def __init__(self, payload):
+        self.status_code = 200
+        self.url = "https://api.telegram.org/botXXX/sendMessage"
+        self._payload = payload
+
+    def json(self):
+        return self._payload
+
+
+def test_send_alert_dispatches_to_telegram_direct(monkeypatch):
+    from services import rules_evaluator as reval
+    import http_sync
+
+    monkeypatch.setenv("ALERT_TELEGRAM_BOT_TOKEN", "tkn")
+    monkeypatch.setenv("ALERT_TELEGRAM_CHAT_ID", "123")
+
+    calls = {}
+
+    def _req(method, url, json=None, timeout=None):  # noqa: A002
+        calls["method"] = method
+        calls["url"] = url
+        calls["json"] = json
+        calls["timeout"] = timeout
+        return _FakeTelegramResponse({"ok": True, "result": {"message_id": 1}})
+
+    monkeypatch.setattr(http_sync, "request", _req)
+
+    evaluation = {
+        "matched": True,
+        "alert_data": {"summary": "hello", "severity": "warn"},
+        "rules": [
+            {
+                "rule_id": "r1",
+                "rule_name": "My Rule",
+                "triggered_conditions": ["severity == warn", "source == internal"],
+                "actions": [
+                    {
+                        "type": "send_alert",
+                        "channel": "telegram",
+                        "message_template": "Rule={{rule_name}}\nSeverity={{severity}}\nSummary={{summary}}\nTriggered:\n{{triggered_conditions_json}}",
+                    }
+                ],
+            }
+        ],
+    }
+
+    reval.execute_matched_actions(evaluation)
+
+    assert calls["method"] == "POST"
+    assert calls["url"] == "https://api.telegram.org/bottkn/sendMessage"
+    assert calls["timeout"] == 5
+    assert calls["json"]["chat_id"] == "123"
+    assert "My Rule" in calls["json"]["text"]
+    assert "warn" in calls["json"]["text"]
+    assert "hello" in calls["json"]["text"]
+
+
+def test_send_alert_fail_open_on_telegram_error(monkeypatch):
+    from services import rules_evaluator as reval
+    import http_sync
+
+    monkeypatch.setenv("ALERT_TELEGRAM_BOT_TOKEN", "tkn")
+    monkeypatch.setenv("ALERT_TELEGRAM_CHAT_ID", "123")
+
+    def _boom(*_a, **_k):
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(http_sync, "request", _boom)
+
+    # Must not raise (fail-open)
+    reval._send_custom_notification(  # noqa: SLF001
+        {"type": "send_alert", "channel": "telegram", "message_template": "{{rule_name}}: {{summary}}"},
+        {"summary": "hello", "severity": "warn"},
+        {"rule_id": "r1", "rule_name": "My Rule", "triggered_conditions": ["x"]},
+    )
