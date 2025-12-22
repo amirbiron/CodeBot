@@ -242,3 +242,37 @@
     }
 }
 
+/* --- UI Contrast Fixes --- */
+
+/* 1. Fix General Section Headers (בונה הכלל, פרטי הכלל) */
+.rule-builder h1,
+.rule-builder h2,
+.rule-builder h3,
+.rule-builder h4,
+.rule-builder h5,
+.rule-builder h6 {
+    color: #1f2937 !important; /* Dark Grey/Black */
+}
+
+/* 2. Fix Card Headers inside the builder (THEN, IF, AND, OR, NOT) */
+.rule-builder .card-header,
+.rule-builder .block__title,
+.rule-builder .card-title {
+    color: #1f2937 !important;
+    font-weight: bold;
+}
+
+/* 3. Fix Table Headers at the bottom (שם, סטטוס, תנאים...) */
+.rule-builder table thead th,
+.rule-builder .table thead th {
+    color: #1f2937 !important;
+    background-color: #f3f4f6 !important; /* Light grey background for contrast */
+    border-bottom: 2px solid #d1d5db !important;
+}
+
+/* 4. Fix text inside the cards/blocks */
+.rule-builder .block,
+.rule-builder .card {
+    color: #1f2937 !important;
+}
+
