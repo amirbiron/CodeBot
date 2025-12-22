@@ -32,7 +32,16 @@ html[dir="rtl"] .editor-info-primary { margin-left:0; margin-right:auto; }
 .cm-editor.cm-focused { outline: 2px solid rgba(100,100,255,0.5); }
 .cm-selectionBackground { background-color: rgba(100,100,255,0.3) !important; }
 @media (max-width: 768px){
-  .cm-editor { max-height: 50vh; font-size: 14px; }
+  .codemirror-container {
+    border-radius: 0;
+  }
+  .cm-editor {
+    /* Mobile immersive editor: big enough to feel like an IDE */
+    min-height: 70vh;
+    min-height: 70dvh;
+    max-height: none;
+    font-size: 14px;
+  }
   /* Mobile fix: prevent last lines from being hidden by browser UI / safe-area */
   .cm-editor .cm-scroller {
     padding-bottom: 80px !important;
@@ -41,6 +50,8 @@ html[dir="rtl"] .editor-info-primary { margin-left:0; margin-right:auto; }
   #editorContainer textarea[name="code"],
   textarea.code-field,
   .editor-textarea {
+    min-height: 70vh;
+    min-height: 70dvh;
     padding-bottom: 80px !important;
     padding-bottom: calc(80px + env(safe-area-inset-bottom)) !important;
   }
