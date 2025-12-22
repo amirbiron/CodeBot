@@ -165,6 +165,18 @@ class TestRuleEngine:
 
         assert any("operator" in e for e in errors)
 
+    def test_boolean_expected_string_is_coerced(self, engine):
+        """ה-UI שולח לפעמים בוליאן כמחרוזת; המנוע צריך לנרמל לפני השוואה."""
+        rule = {
+            "rule_id": "bool_string",
+            "name": "bool string",
+            "enabled": True,
+            "conditions": {"type": "condition", "field": "is_new_error", "operator": "eq", "value": "True"},
+            "actions": [{"type": "send_alert"}],
+        }
+
+        assert engine.evaluate(rule, EvaluationContext(data={"is_new_error": True})).matched is True
+
     def test_empty_groups_evaluation_semantics(self, engine):
         # evaluate() לא קורא validate_rule; לכן אנחנו מכסים את הסמנטיקה של קבוצות ריקות
         and_rule = {
