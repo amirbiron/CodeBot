@@ -28,7 +28,7 @@ class RulesStorage:
 
     🔧 שימוש:
     ```python
-    from webapp.app import get_db
+    from services.db_provider import get_db
     storage = RulesStorage(get_db())
     rules = storage.list_rules()
     ```
@@ -37,7 +37,7 @@ class RulesStorage:
     def __init__(self, db):
         """
         Args:
-            db: MongoDB database instance (מתקבל מ-get_db() ב-webapp/app.py)
+            db: MongoDB database instance (מתקבל מ-get_db() דרך services/db_provider.py)
         """
         self._db = db
         self._collection = db[RULES_COLLECTION]
@@ -168,8 +168,11 @@ def get_rules_storage(db=None) -> RulesStorage:
     global _storage
     if _storage is None:
         if db is None:
-            # Lazy import כדי למנוע circular imports
-            from webapp.app import get_db
+            # חשוב: לא לייבא מ-webapp.app כאן.
+            # בזמן startup ייתכן ש-webapp/app.py עדיין באמצע import ואז get_db לא מוגדר עדיין,
+            # מה שגורם ל: "cannot import name 'get_db' from partially initialized module".
+            # במקום זה משתמשים ב-DB provider עצמאי (lazy) שלא תלוי ב-app.
+            from services.db_provider import get_db
 
             db = get_db()
         _storage = RulesStorage(db)
