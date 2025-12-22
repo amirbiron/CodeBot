@@ -45,7 +45,10 @@ def evaluate_alert_rules(alert_data: Dict[str, Any]) -> Optional[Dict[str, Any]]
     ```
     """
     try:
-        from webapp.app import get_db
+        # חשוב: לא לייבא מ-webapp.app כאן.
+        # בזמן startup ייתכן ש-webapp/app.py עדיין באמצע import ואז get_db לא מוגדר עדיין,
+        # מה שגורם ל: "cannot import name 'get_db' from partially initialized module".
+        from services.db_provider import get_db
         from services.rules_storage import get_rules_storage
         from services.rule_engine import EvaluationContext, get_rule_engine
         from monitoring.alerts_storage import enrich_alert_with_signature
