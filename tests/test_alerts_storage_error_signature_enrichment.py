@@ -66,14 +66,14 @@ def test_compute_error_signature_normalizes_memory_addresses_and_paths():
         "error_type": "TypeError",
         "file": "/home/ubuntu/app/service.py",
         "line": 123,
-        "error_message": "Object <Foo at 0x7f1234567890> is not callable",
+        "error_message": "Object <Foo at 0x7f1234567890> is not callable (see /home/ubuntu/app/service.py:123)",
         "stack_trace": 'Traceback (most recent call last):\n  File "/home/ubuntu/app/service.py", line 123, in run\n    x = Foo()\nTypeError: <Foo at 0x7f1234567890> is not callable',
     }
     e2 = {
         "error_type": "TypeError",
         "file": "/srv/app/service.py",
         "line": 123,
-        "error_message": "Object <Foo at 0x7fDEADBEEF00> is not callable",
+        "error_message": "Object <Foo at 0x7fDEADBEEF00> is not callable (see /srv/app/service.py:999)",
         "stack_trace": 'Traceback (most recent call last):\n  File "/srv/app/service.py", line 999, in run\n    x = Foo()\nTypeError: <Foo at 0x7fDEADBEEF00> is not callable',
     }
 
