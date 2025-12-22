@@ -129,6 +129,9 @@ def _notify_admins_new_snippet(snippet_id: str, *, title: str, language: str, us
                 return
             base = (base_url or getattr(_cfg, 'PUBLIC_BASE_URL', None) or getattr(_cfg, 'WEBAPP_URL', None) or '').rstrip('/')
             view_url = f"{base}/admin/snippets/view?id={snippet_id}" if base else f"/admin/snippets/view?id={snippet_id}"
+            # BYPASS: שליחה ישירה לטלגרם ללא מנוע כללים
+            # סיבה: הודעת מוצר אינטראקטיבית לאדמינים (inline_keyboard עם callback_data) – ה-Rule Engine לא תומך בזה כרגע
+            # TODO: להעביר למנוע כללים כאשר תהיה תמיכה ב-send_alert עם reply_markup/actions אינטראקטיביים
             api = f"https://api.telegram.org/bot{bot_token}/sendMessage"
             kb = {
                 "inline_keyboard": [

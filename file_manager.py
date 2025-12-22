@@ -147,46 +147,9 @@ class BackupManager:
                         emit_internal_alert("disk_low_space", severity="warn", summary=msg, **details)
                 except Exception:
                     pass
-
-                # הודעה ישירה למנהלים דרך הבוט (ADMIN_USER_IDS + BOT_TOKEN)
-                try:
-                    admins_raw = os.getenv("ADMIN_USER_IDS", "")
-                    if admins_raw:
-                        admin_ids = [int(x.strip()) for x in admins_raw.split(',') if x.strip().isdigit()]
-                    else:
-                        admin_ids = []
-                except Exception:
-                    admin_ids = []
-                bot_token = os.getenv("BOT_TOKEN", "")
-                if bot_token and admin_ids:
-                    text = f"{msg}\nנתיב: {details['path']}\nפנוי: {details['free_bytes']:,}B (סף {details['threshold_bytes']:,}B)"
-                    try:
-                        # העדף http_sync.request אם זמין, אחרת requests
-                        try:
-                            from http_sync import request as _request  # type: ignore
-                        except Exception:
-                            _request = None  # type: ignore
-                        api = f"https://api.telegram.org/bot{bot_token}/sendMessage"
-                        for admin_id in admin_ids:
-                            payload = {"chat_id": int(admin_id), "text": text}
-                            try:
-                                if _request is not None:
-                                    from telegram_api import parse_telegram_json_from_response, require_telegram_ok
-
-                                    resp = _request('POST', api, json=payload, timeout=5)
-                                    body = parse_telegram_json_from_response(resp, url=api)
-                                    require_telegram_ok(body, url=api)
-                                else:
-                                    import requests  # type: ignore
-                                    from telegram_api import parse_telegram_json_from_response, require_telegram_ok
-
-                                    resp = requests.post(api, json=payload, timeout=5)
-                                    body = parse_telegram_json_from_response(resp, url=api)
-                                    require_telegram_ok(body, url=api)
-                            except Exception:
-                                continue
-                    except Exception:
-                        pass
+                # NOTE: בעבר נשלחה כאן הודעת DM ישירה לאדמינים דרך BOT_TOKEN/ADMIN_USER_IDS.
+                # היום כל ההתראות אמורות לעבור דרך internal_alerts.emit_internal_alert כדי שמנוע הכללים
+                # (כולל suppress) יהיה מקור האמת, ולא תהיה "עקיפה" של הפייפליין.
         except Exception:
             # לא לשבור זרימה בגיבוי — התרעה היא best‑effort
             return

@@ -90,6 +90,9 @@ def _base_url() -> str:
 
 
 def _send_telegram_message(text: str) -> bool:
+    # BYPASS: שליחה ישירה לטלגרם ללא מנוע כללים
+    # סיבה: DRILL MODE נועד לשלוח הודעת תרגול מסומנת כדי לאפשר בדיקה מקצה-לקצה גם כשכללים/השקטות משתנים
+    # TODO: להעביר למנוע כללים כאשר תהיה תמיכה בערוץ drill ייעודי או ב-"always send" priority לתרגולים
     token = str(os.getenv("ALERT_TELEGRAM_BOT_TOKEN") or "").strip()
     chat_id = str(os.getenv("ALERT_TELEGRAM_CHAT_ID") or "").strip()
     if not token or not chat_id:
@@ -267,6 +270,9 @@ def run_drill_scenario(
         f"🧩 Quick fixes: {int(pipeline.get('quick_fixes_count') or 0)}\n\n"
         "⚠️ זה לא אירוע אמיתי — רק תרגול"
     )
+    # BYPASS: שליחה ישירה לטלגרם ללא מנוע כללים
+    # סיבה: הודעת תרגול יזומה (לא התראת מערכת) — לא אמורה להיות נשלטת ע״י suppress
+    # TODO: להעביר למנוע כללים כאשר תהיה תמיכה בערוץ drill ייעודי או בפילטר is_drill במנוע
     telegram_sent = _send_telegram_message(telegram_text)
 
     # Persist drill history (best-effort)

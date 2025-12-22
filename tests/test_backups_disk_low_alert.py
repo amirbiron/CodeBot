@@ -19,11 +19,11 @@ def _make_zip_bytes(meta_bid: str = "b1", user_id: int = 1) -> bytes:
 
 
 @pytest.mark.asyncio
-async def test_disk_low_alert_sends_events_and_admin_dm(tmp_path, monkeypatch):
+async def test_disk_low_alert_sends_events_and_internal_alert(tmp_path, monkeypatch):
     # Environment: force FS storage and direct backups dir
     monkeypatch.setenv("BACKUPS_STORAGE", "fs")
     monkeypatch.setenv("BACKUPS_DIR", str(tmp_path))
-    # Admins + bot token for DM
+    # Env שקודם הפעיל DM ישיר — צריך להישאר ללא שימוש (הכל דרך internal_alerts)
     monkeypatch.setenv("ADMIN_USER_IDS", "77,88")
     monkeypatch.setenv("BOT_TOKEN", "123:TEST")
     # Threshold high to guarantee alert
@@ -76,11 +76,8 @@ async def test_disk_low_alert_sends_events_and_admin_dm(tmp_path, monkeypatch):
     assert any(e[0] == "disk_low_space" for e in captured["events"])  # event name
     # Assert internal alert sent
     assert any(a[0] == "disk_low_space" and "כמעט מלא" in a[2] for a in captured["alerts"])  # name + summary text
-    # Assert admin DMs were attempted for both admins
-    assert len(captured["dms"]) >= 2
-    for rec in captured["dms"]:
-        url_host = urlparse(rec["url"]).hostname
-        assert url_host == "api.telegram.org" and rec["json"].get("chat_id") in (77, 88)
+    # Assert no direct Telegram DM is attempted (pipeline consolidation)
+    assert captured["dms"] == []
 
 
 @pytest.mark.asyncio
@@ -90,7 +87,7 @@ async def test_disk_low_alert_uses_default_when_env_empty(tmp_path, monkeypatch)
     monkeypatch.setenv("BACKUPS_DIR", str(tmp_path))
     # Env empty string → should fallback to default 100MB
     monkeypatch.setenv("BACKUPS_DISK_MIN_FREE_BYTES", "")
-    # Admins + token for DM
+    # Env שקודם הפעיל DM ישיר — לא אמור לשמש
     monkeypatch.setenv("ADMIN_USER_IDS", "99")
     monkeypatch.setenv("BOT_TOKEN", "123:TEST")
 
