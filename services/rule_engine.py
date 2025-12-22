@@ -558,6 +558,22 @@ class RuleEngine:
             logger.warning(f"Unknown operator: {operator_name}")
             return False
 
+        # 🔧 UI -> Engine: בוליאני יכול להגיע כמחרוזת ("True"/"False")
+        # כדי למנוע השוואה של True מול "True", נמיר את expected_value לבוליאני
+        # אם actual_value הוא בוליאני וה-expected_value מחרוזת.
+        if isinstance(actual_value, bool) and isinstance(expected_value, str):
+            raw_expected = expected_value
+            normalized = raw_expected.strip().lower()
+            if normalized in {"true", "false"}:
+                expected_value = normalized == "true"
+                if verbose:
+                    logger.warning(
+                        "Coerced expected_value to bool -> field '%s': '%s' -> %s",
+                        field_name,
+                        self._safe_value_for_field(field_name, raw_expected),
+                        expected_value,
+                    )
+
         # הערכת התנאי
         try:
             if verbose:
