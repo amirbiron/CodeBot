@@ -353,6 +353,8 @@
   display: flex;
   flex-direction: column;
   min-width: 0;
+  /* חשוב: מאפשר גלילה פנימית בתוך flex (במובייל במיוחד) */
+  min-height: 0;
 }
 
 .split-panel--editor {
@@ -366,6 +368,8 @@
   background: var(--split-preview-panel-bg);
   border-inline-start: 1px solid var(--split-preview-panel-border);
   padding: 0.85rem;
+  /* חשוב: בלי זה, התוכן יכול "להיתקע" ולהיחתך במקום לאפשר scroll */
+  min-height: 0;
 }
 
 .split-resizer {
@@ -393,7 +397,12 @@
 
 .split-preview-content {
   flex: 1;
-  overflow: auto;
+  /* כדי שה-preview (ובעיקר iframe) יקבל גובה אמיתי ולא "חלון קטן",
+     אנחנו הופכים את התוכן למבנה flex-עמודי ומעבירים את הגלילה ל-canvas. */
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  min-height: 0;
   background: var(--split-preview-bg);
   color: var(--split-preview-text);
   border-radius: 8px;
@@ -459,12 +468,22 @@ html[dir="rtl"] .split-preview-content code {
 }
 
 .split-preview-canvas {
+  /* ה-canvas הוא אזור התוכן/iframe – הוא צריך "לגדול" לגובה הפנוי */
+  flex: 1 1 auto;
   min-height: 160px;
+  /* מאפשר overflow בתוך flex container (במובייל) */
+  min-height: 0;
+  overflow: auto;
+  -webkit-overflow-scrolling: touch;
+  /* חשוב: canvas משמש גם לרינדור HTML של Markdown.
+     אם הוא flex, אלמנטים (h1/p/ul/...) הופכים ל-flex items ונפרסים בשורה. */
+  display: block;
 }
 
 .split-preview-content iframe {
   width: 100%;
   height: 100%;
+  display: block;
   border: none;
   background: var(--split-preview-bg);
 }
@@ -513,6 +532,8 @@ html[dir="rtl"] .split-preview-content code {
 
   .split-panels {
     flex-direction: column;
+    /* במובייל עדיף לא "לכלוא" גובה בתוך 100vh - כדי שלא יהיה מצב של גלילה שלא עובדת */
+    max-height: none;
   }
 
   .split-panel--editor,
@@ -522,6 +543,11 @@ html[dir="rtl"] .split-preview-content code {
 
   .split-preview-content {
     min-height: 220px;
+  }
+
+  .split-preview-canvas {
+    /* נותן יותר מרחב צפייה במובייל, ועדיין מאפשר גלילה פנימית */
+    min-height: 45vh;
   }
 }
 

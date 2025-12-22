@@ -6,7 +6,8 @@
 <style>
 .preview-container {
     width: 100%;
-    height: calc(100vh - 180px);
+    /* במובייל 100vh + כותרות/כרום גורם לפעמים למסגרת "פצפונת" */
+    height: clamp(360px, 70vh, calc(100vh - 180px));
     background: rgba(255,255,255,0.05);
     border-radius: 12px;
     overflow: hidden;
@@ -28,7 +29,7 @@
     display: none !important;
 }
 @media (max-width: 768px) {
-    .preview-container { height: calc(100vh - 220px); }
+    .preview-container { height: clamp(360px, 70vh, calc(100vh - 220px)); }
 }
 
 @media (max-width: 480px) {
