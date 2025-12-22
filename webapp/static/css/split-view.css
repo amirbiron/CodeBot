@@ -493,17 +493,9 @@ html[dir="rtl"] .split-preview-content code {
   }
 }
 
-@media (max-width: 768px) {
-  /* Mobile UX Polish: "Fixed-Height Card Layout" */
+@media (max-width: 767px) {
   .split-view {
-    height: 65dvh !important;
-    max-height: 65dvh !important;
-    width: 96% !important;
-    margin-left: auto !important;
-    margin-right: auto !important;
-    /* שמירה על border-radius הקיים (מוגדר כברירת מחדל) */
-    overflow: hidden !important;
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.12);
+    max-height: none;
   }
 
   .split-toolbar {
@@ -521,108 +513,15 @@ html[dir="rtl"] .split-preview-content code {
 
   .split-panels {
     flex-direction: column;
-    flex: 1 1 auto;
-    height: 100% !important;
-    min-height: 0 !important; /* קריטי כדי ש-overflow יעבוד בתוך Flex */
-    max-height: none !important;
-    overflow: hidden; /* מונע גלילה כפולה/הארכת דף */
-  }
-
-  /* גם כש-Live Preview כבוי (is-active=false) נשמור Flex כדי לקבל גלילה פנימית */
-  .split-view:not(.is-active) .split-panels {
-    display: flex !important;
-  }
-
-  .split-panel {
-    min-height: 0; /* קריטי ל-Flexbox כדי לאפשר גלילה פנימית */
   }
 
   .split-panel--editor,
   .split-panel--preview {
     padding: 0.65rem;
-    height: 100%;
-    min-height: 0;
-    overflow: hidden;
   }
 
   .split-preview-content {
-    height: 100%;
-    min-height: 0;
-    overflow: auto;
-    -webkit-overflow-scrolling: touch;
-    padding: 1rem;
-  }
-
-  /* במובייל אנחנו עובדים עם טאבים, לא עם Resizer */
-  .split-resizer {
-    display: none !important;
-  }
-
-  /* פאנל עורך פעיל: תופס את כל הגובה של הכרטיס */
-  .split-view[data-active-panel="editor"] .split-panel--editor {
-    flex: 1 1 auto;
-    height: 100%;
-  }
-
-  /* עוטף העורך (label + textarea/CodeMirror) */
-  .split-panel--editor #editorContainer {
-    display: flex;
-    flex-direction: column;
-    gap: 0.5rem;
-    height: 100%;
-    min-height: 0;
-  }
-
-  .split-panel--editor #editorContainer > label {
-    flex: 0 0 auto;
-  }
-
-  /* Codemirror wrapper חייב להיות flex כדי שהעורך ימלא את הגובה */
-  .split-panel--editor .codemirror-container {
-    flex: 1 1 auto;
-    height: 100%;
-    min-height: 0;
-    display: flex;
-    flex-direction: column;
-  }
-
-  /* CodeMirror בתוך הכרטיס: לא להיתקע על min-height דסקטופ, גלילה פנימית */
-  .split-panel--editor .cm-editor {
-    flex: 1 1 auto;
-    height: 100% !important;
-    max-height: none !important;
-    min-height: 0 !important;
-  }
-
-  .split-panel--editor .cm-scroller {
-    height: 100% !important;
-    overflow-y: auto !important;
-  }
-
-  /* fallback textarea editor: גלילה פנימית */
-  .split-panel--editor textarea[name="code"],
-  .split-panel--editor textarea.code-field,
-  .split-panel--editor .editor-textarea {
-    flex: 1 1 auto;
-    min-height: 0 !important;
-    height: 100% !important;
-    overflow: auto !important;
-    resize: none;
-  }
-
-  /* פאנל Preview פעיל: תופס את כל הגובה של הכרטיס */
-  .split-view[data-active-panel="preview"] .split-panel--preview {
-    display: flex !important;
-    flex-direction: column;
-    flex: 1 1 auto;
-    height: 100%;
-    min-height: 0;
-  }
-
-  /* הקטנת שוליים כלליים בעמודי Upload/Edit (רק כאשר split-view נטען) */
-  .main-content .container {
-    padding-left: 0.5rem !important;
-    padding-right: 0.5rem !important;
+    min-height: 220px;
   }
 }
 
