@@ -7,6 +7,7 @@ Rules Evaluator - הערכת כללים על התראות נכנסות
 """
 
 import logging
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
 logger = logging.getLogger(__name__)
@@ -43,6 +44,7 @@ def evaluate_alert_rules(alert_data: Dict[str, Any]) -> Optional[Dict[str, Any]]
         from webapp.app import get_db
         from services.rules_storage import get_rules_storage
         from services.rule_engine import EvaluationContext, get_rule_engine
+        from monitoring.alerts_storage import enrich_alert_with_signature
 
         # קבלת כללים פעילים
         storage = get_rules_storage(get_db())
@@ -54,6 +56,17 @@ def evaluate_alert_rules(alert_data: Dict[str, Any]) -> Optional[Dict[str, Any]]
         # בניית context מההתראה
         details = alert_data.get("details", {}) or {}
 
+        # 🔧 העשרה: חתימה + האם זו שגיאה חדשה (best-effort, לא לשבור אם אין DB)
+        try:
+            if isinstance(details, dict):
+                enrich_alert_with_signature(details)
+        except Exception:
+            pass
+
+        now = datetime.now(timezone.utc)
+        # המדריך מגדיר 0=ראשון, 6=שבת (Python: Monday=0)
+        day_of_week = (now.weekday() + 1) % 7
+
         context_data = {
             # שדות בסיסיים מההתראה
             "alert_name": str(alert_data.get("name", "")),
@@ -61,6 +74,8 @@ def evaluate_alert_rules(alert_data: Dict[str, Any]) -> Optional[Dict[str, Any]]
             "summary": str(alert_data.get("summary", "")),
             "source": str(alert_data.get("source", "")),
             "is_silenced": bool(alert_data.get("silenced", False)),
+            "hour_of_day": int(now.hour),
+            "day_of_week": int(day_of_week),
             # שדות מ-details
             "alert_type": str(details.get("alert_type", "")),
             "sentry_issue_id": str(details.get("sentry_issue_id", "")),
@@ -69,8 +84,17 @@ def evaluate_alert_rules(alert_data: Dict[str, Any]) -> Optional[Dict[str, Any]]
             "project": str(details.get("project", "")),
             "environment": str(details.get("environment", "")),
             "error_signature": str(details.get("error_signature", "")),
+            "is_new_error": bool(details.get("is_new_error", False)),
+            "error_message": str(details.get("error_message") or details.get("message") or alert_data.get("summary", "") or ""),
+            "stack_trace": str(details.get("stack_trace") or ""),
+            "first_seen_at": details.get("first_seen_at"),
+            "occurrence_count": int(details.get("occurrence_count") or details.get("count") or 1),
             "culprit": str(details.get("culprit", "")),
             "action": str(details.get("action", "")),
+            # מדדים (אם קיימים)
+            "error_rate": details.get("error_rate", details.get("error_rate_percent", alert_data.get("error_rate"))),
+            "requests_per_minute": details.get("requests_per_minute", alert_data.get("requests_per_minute")),
+            "latency_avg_ms": details.get("latency_avg_ms", details.get("latency_ms", alert_data.get("latency_avg_ms"))),
         }
 
         # הערכת כללים

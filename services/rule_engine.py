@@ -37,6 +37,22 @@ AVAILABLE_FIELDS = {
         "label": "תיאור קצר",
         "description": "תיאור ההתראה",
     },
+    # === מדדים (אם קיימים בהתראה/ב-details) ===
+    "error_rate": {
+        "type": "float",
+        "label": "שיעור שגיאות",
+        "description": "שיעור שגיאות (למשל 0.05 או 5)",
+    },
+    "requests_per_minute": {
+        "type": "int",
+        "label": "בקשות לדקה",
+        "description": "מספר בקשות לדקה",
+    },
+    "latency_avg_ms": {
+        "type": "int",
+        "label": "Latency ממוצע (ms)",
+        "description": "Latency ממוצע במילישניות",
+    },
     "source": {
         "type": "string",
         "label": "מקור",
