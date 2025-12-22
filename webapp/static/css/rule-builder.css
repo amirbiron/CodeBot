@@ -270,9 +270,8 @@
     border-bottom: 2px solid #d1d5db !important;
 }
 
-/* 4. Fix text inside the cards/blocks */
-.rule-builder .block,
-.rule-builder .card {
-    color: #1f2937 !important;
+/* 4. Fix drag placeholders text (גרור תנאים לכאן) */
+.rule-builder .empty-hint {
+    color: #4b5563 !important;
 }
 
