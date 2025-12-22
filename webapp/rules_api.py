@@ -116,6 +116,14 @@ def rules_test():
     """POST /api/rules/test - בדיקת כלל על נתוני דמה"""
     try:
         data = request.get_json()
+        # DEBUG: force-print incoming payload (tablet/no Network tab)
+        # חשוב: לא להישבר אם ה-JSON לא dict (אנחנו מחזירים 400 בהמשך).
+        try:
+            print(f"🕵️‍♂️ DEBUG INCOMING RULE: {data.get('rule')}")
+            print(f"🕵️‍♂️ DEBUG INCOMING DATA: {data.get('data')}")
+        except Exception as e:
+            print(f"🕵️‍♂️ DEBUG INCOMING RULE: <unavailable> err={e}")
+            print(f"🕵️‍♂️ DEBUG INCOMING DATA: <unavailable> err={e}")
         if not isinstance(data, dict):
             return jsonify({"error": "Invalid JSON"}), 400
         rule = data.get("rule", {})
