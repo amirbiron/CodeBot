@@ -138,7 +138,8 @@ def rules_test():
     if errors:
         return jsonify({"valid": False, "errors": errors})
 
-    context = EvaluationContext(data=test_data, metadata={"verbose": bool(verbose), "origin": "api.rules.test"})
+    # FORCE VERBOSE TRUE FOR DEBUGGING
+    context = EvaluationContext(data=test_data, metadata={"verbose": True})
     result = engine.evaluate(rule, context)
 
     return jsonify(
