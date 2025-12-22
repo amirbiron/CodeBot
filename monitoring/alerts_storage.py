@@ -318,12 +318,12 @@ def compute_error_signature(error_data: Dict[str, Any]) -> str:
 
             # Normalize absolute file paths to basename (Linux/Unix + Windows), only when it looks like a file.
             s = re.sub(
-                r"/(?:[^\s/]+/)+([^\s/]+\.(?:py|js|ts|tsx|java|go|rb))",
+                r"/[^\s]*/([^\s/]+\.(?:py|js|ts|tsx|java|go|rb))",
                 r"\1",
                 s,
             )
             s = re.sub(
-                r"[A-Za-z]:\\(?:[^\s\\]+\\)+([^\s\\]+\.(?:py|js|ts|tsx|java|go|rb))",
+                r"[A-Za-z]:\\[^\s]*\\([^\s\\]+\.(?:py|js|ts|tsx|java|go|rb))",
                 r"\1",
                 s,
             )
