@@ -536,6 +536,20 @@ html[dir="rtl"] .split-preview-content code {
     max-height: none;
   }
 
+  /* במובייל: טאבים מחליפים פאנל אחד בכל פעם.
+     חובה להסתיר הרמטית את הפאנל הלא פעיל כדי למנוע "כפילות" (preview מתחת לעורך). */
+  .split-view .split-resizer {
+    display: none !important;
+  }
+
+  .split-view[data-active-panel="editor"] .split-panel--preview {
+    display: none !important;
+  }
+
+  .split-view[data-active-panel="preview"] .split-panel--editor {
+    display: none !important;
+  }
+
   .split-panel--editor,
   .split-panel--preview {
     padding: 0.65rem;
