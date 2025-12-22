@@ -1,5 +1,5 @@
 # 🚀 הצעות פיצ'רים ממוקדות ל-WebApp
-## דצמבר 2025 - גרסה חדשה
+## דצמבר 2025 - גרסה מעודכנת
 
 > **Focus Areas:** Observability, Dev Tools, ויזואליזציות, Admin Tools, UI Components
 > **מה לא נכלל:** Social features, AI Agents, Backend-heavy ללא UI, CRUD משעממים
@@ -13,6 +13,7 @@
 3. [📊 ויזואליזציות](#-ויזואליזציות)
 4. [🔐 Admin Tools](#-admin-tools)
 5. [✨ UI Components מגניבים](#-ui-components-מגניבים)
+6. [🎛️ Extended Observability](#-extended-observability)
 
 ---
 
@@ -334,16 +335,153 @@
 
 ---
 
+## 🎛️ Extended Observability
+
+> רעיונות חדשים המבוססים על ניתוח הקוד הקיים והיכולות הנוכחיות של הדשבורד
+
+### 🔗 Correlation Timeline
+**תיאור:** ציר זמן שמחבר בין Deployments, Alerts, ו-ChatOps actions - מראה קורלציות בין אירועים בצורה ויזואלית
+**קטגוריה:** Observability
+**מורכבות:** בינונית
+
+---
+
+### 📖 Runbook Progress Tracker
+**תיאור:** דשבורד שמראה את ההתקדמות ב-Runbooks פעילים, מי ביצע מה ומתי, עם completion rate
+**קטגוריה:** Observability
+**מורכבות:** קלה
+
+---
+
+### 🧠 AI Explain History
+**תיאור:** גלריה של כל ה-AI Explanations שנוצרו עם חיפוש, filtering ואפשרות להשוואה בין הסברים
+**קטגוריה:** Observability
+**מורכבות:** קלה
+
+---
+
+### 📝 Incident Story Gallery
+**תיאור:** ארכיון ויזואלי של כל ה-Incident Stories עם חיפוש, תגיות, ו-insights מצטברים
+**קטגוריה:** Observability
+**מורכבות:** בינונית
+
+---
+
+### 🎬 Visual Context Comparison
+**תיאור:** מסך שמאפשר השוואה בין שני גרפים של Visual Context - לפני/אחרי incident או בין תקופות
+**קטגוריה:** Observability
+**מורכבות:** בינונית
+
+---
+
+### 🔌 Connection Pool Live Monitor
+**תיאור:** תצוגה ויזואלית בזמן אמת של ה-Connection Pool עם אנימציות של חיבורים פעילים/ממתינים
+**קטגוריה:** Observability
+**מורכבות:** קלה
+
+---
+
+### 🐌 Slow Query Analyzer
+**תיאור:** דף שמציג slow queries לאורך זמן עם patterns, frequency analysis והמלצות לאינדקסים
+**קטגוריה:** Dev Tool
+**מורכבות:** בינונית
+
+---
+
+### 📊 Aggregated Metrics Comparison
+**תיאור:** כלי להשוואת מדדים בין תקופות שונות (היום vs אתמול, שבוע זה vs שבוע שעבר)
+**קטגוריה:** Observability
+**מורכבות:** בינונית
+
+---
+
+### 🚨 Alert Grouping & Deduplication UI
+**תיאור:** ממשק שמקבץ התראות דומות, מציג count וזמן אחרון, ומאפשר acknowledge/mute
+**קטגוריה:** Observability
+**מורכבות:** בינונית
+
+---
+
+### 📍 Request ID Deep Dive
+**תיאור:** חיפוש לפי request_id שמציג את כל ה-trace - logs, metrics, errors ו-timing של הבקשה
+**קטגוריה:** Dev Tool
+**מורכבות:** מורכבת
+
+---
+
+### 🔧 Quick Fix Effectiveness Tracker
+**תיאור:** דשבורד שמראה אילו Quick Fixes נלחצו והאם הם באמת פתרו את הבעיה (מבוסס על ירידה בהתראות)
+**קטגוריה:** Observability
+**מורכבות:** בינונית
+
+---
+
+### 📱 Mobile-First Observability
+**תיאור:** תצוגת observability מותאמת למובייל עם swipe actions, compact cards ו-quick filters
+**קטגוריה:** UI Component
+**מורכבות:** בינונית
+
+---
+
+### 🕐 Time Travel Debugger
+**תיאור:** אפשרות "לנסוע בזמן" ולראות את מצב המערכת (metrics, alerts, pool) בכל רגע נתון בעבר
+**קטגוריה:** Dev Tool
+**מורכבות:** מורכבת
+
+---
+
+### 🏷️ Smart Alert Tagging
+**תיאור:** מערכת תיוג אוטומטי של התראות לפי patterns עם אפשרות ליצירת תגיות מותאמות
+**קטגוריה:** Observability
+**מורכבות:** קלה
+
+---
+
+### 📈 Capacity Planning Dashboard
+**תיאור:** דשבורד שמנתח trends ומנבא מתי יגמרו המשאבים (disk, connections, memory)
+**קטגוריה:** Observability
+**מורכבות:** מורכבת
+
+---
+
+### 🔀 A/B Deploy Comparison
+**תיאור:** השוואה בין metrics של שני deployments - לזהות האם גרסה חדשה משפרת או פוגעת
+**קטגוריה:** Observability
+**מורכבות:** בינונית
+
+---
+
+### 🗂️ Saved Views Manager
+**תיאור:** שמירה וניהול של filter combinations מועדפים בדשבורד ה-Observability
+**קטגוריה:** UI Component
+**מורכבות:** קלה
+
+---
+
+### 🔊 Audio Alerts for Critical Issues
+**תיאור:** התראות קוליות מותאמות לסוגי אירועים קריטיים (בנוסף לויזואלי)
+**קטגוריה:** UI Component
+**מורכבות:** קלה
+
+---
+
+### 📤 Export to Slack/Telegram
+**תיאור:** כפתור לייצוא מהיר של incident story או alert summary לערוצי צ'אט
+**קטגוריה:** Admin
+**מורכבות:** קלה
+
+---
+
 ## 📊 סיכום לפי קטגוריה ומורכבות
 
 | קטגוריה | קל | בינוני | מורכב |
 |---------|-----|--------|--------|
-| Observability | 1 | 5 | 2 |
-| Dev Tools | 3 | 5 | 0 |
+| Observability | 5 | 9 | 3 |
+| Dev Tools | 4 | 6 | 1 |
 | Visualization | 4 | 4 | 1 |
-| Admin | 2 | 5 | 1 |
-| UI Components | 8 | 4 | 0 |
-| **סה"כ** | **18** | **23** | **4** |
+| Admin | 3 | 5 | 1 |
+| UI Components | 11 | 5 | 0 |
+| **סה"כ** | **27** | **29** | **6** |
 
 ---
 
@@ -355,17 +493,39 @@
 2. **Activity Calendar Heatmap** - ויזואליזציה אטרקטיבית
 3. **Inline Sparklines** - מוסיף עניין לטבלאות קיימות
 4. **Toast Notifications System** - תשתית לכל הפיצ'רים
+5. **Runbook Progress Tracker** - מנצל יכולות קיימות
 
 ### Phase 2: Core Features (2-4 שבועות)
 1. **API Playground** - כלי מפתחים חיוני
 2. **Log Stream Viewer** - observability בסיסי
 3. **Feature Flags Manager** - שליטה בפיצ'רים
+4. **Correlation Timeline** - מרחיב את ה-Replay הקיים
+5. **Connection Pool Live Monitor** - בונה על db_health
 
 ### Phase 3: Advanced (4+ שבועות)
 1. **Service Health Topology** - ויזואליזציה מתקדמת
 2. **Import Graph** - ניתוח קוד עמוק
 3. **Database Explorer** - כלי admin מתקדם
+4. **Time Travel Debugger** - debugging מתקדם
+5. **Capacity Planning Dashboard** - תכנון עתידי
 
 ---
 
-> נוצר: דצמבר 2025 | Focus: Observability + Dev Tools + Visualizations + Admin + UI
+## 🔗 קישור ליכולות קיימות
+
+> ההצעות הבאות בנויות על הקוד הקיים ומרחיבות אותו:
+
+| פיצ'ר מוצע | בנוי על |
+|-----------|---------|
+| Correlation Timeline | `observability_replay.html` |
+| Runbook Progress Tracker | `observability_runbooks.yml` |
+| AI Explain History | AI Explain API (`/api/observability/alerts/ai_explain`) |
+| Incident Story Gallery | Stories API (`/api/observability/stories`) |
+| Connection Pool Live Monitor | `db_health.html` |
+| Slow Query Analyzer | `/api/db/ops` endpoint |
+| Quick Fix Effectiveness | Quick Fix tracking (`/api/observability/quickfix/track`) |
+
+---
+
+> נוצר: דצמבר 2025 | עודכן עם רעיונות מבוססי ניתוח קוד
+> Focus: Observability + Dev Tools + Visualizations + Admin + UI
