@@ -887,6 +887,18 @@
      - "" (ריק)
      - ``10.0.0.5,10.0.0.6``
      - WebApp
+   * - ``ALLOWED_WEBHOOK_HOSTS``
+     - Allowlist אופציונלי ליעדי ``webhook`` (Visual Rule Engine). אם מוגדר, יישלח webhook רק ל-hostnames שמופיעים ברשימה (CSV, התאמה מדויקת).
+     - לא
+     - "" (ריק)
+     - ``hooks.slack.com,api.example.com``
+     - Bot/WebApp
+   * - ``ALLOWED_WEBHOOK_SUFFIXES``
+     - Allowlist אופציונלי ליעדי ``webhook`` לפי סיומות דומיין (CSV). אם מוגדר, יישלח webhook רק לדומיינים שמסתיימים באחת הסיומות (למשל ``.example.com``).
+     - לא
+     - "" (ריק)
+     - ``.example.com,.mycompany.net``
+     - Bot/WebApp
    * - ``SLACK_WEBHOOK_URL``
      - כתובת Incoming Webhook של Slack לשליחת התראות.
      - לא

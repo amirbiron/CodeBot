@@ -659,6 +659,18 @@ class ConfigService:
             description="רשימת IP מותרים ל-Alertmanager",
             category="alerts",
         ),
+        "ALLOWED_WEBHOOK_HOSTS": ConfigDefinition(
+            key="ALLOWED_WEBHOOK_HOSTS",
+            default="",
+            description="Allowlist אופציונלי ליעדי webhook (Visual Rule Engine) לפי hostnames (CSV)",
+            category="alerts",
+        ),
+        "ALLOWED_WEBHOOK_SUFFIXES": ConfigDefinition(
+            key="ALLOWED_WEBHOOK_SUFFIXES",
+            default="",
+            description="Allowlist אופציונלי ליעדי webhook (Visual Rule Engine) לפי סיומות דומיין (CSV, למשל .example.com)",
+            category="alerts",
+        ),
         "OBSERVABILITY_RUNBOOK_PATH": ConfigDefinition(
             key="OBSERVABILITY_RUNBOOK_PATH",
             default="config/observability_runbooks.yml",
