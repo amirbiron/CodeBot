@@ -39,11 +39,26 @@ except Exception:  # pragma: no cover
 class _NoOpCollection:
     """מימוש מינימלי של Collection כדי לא לשבור קוד שקורא ל-storage."""
 
+    class _NoOpCursor:
+        """Cursor ריק שתומך ב-method chaining כמו PyMongo."""
+
+        def skip(self, *_a: Any, **_k: Any) -> "_NoOpCollection._NoOpCursor":
+            return self
+
+        def limit(self, *_a: Any, **_k: Any) -> "_NoOpCollection._NoOpCursor":
+            return self
+
+        def sort(self, *_a: Any, **_k: Any) -> "_NoOpCollection._NoOpCursor":
+            return self
+
+        def __iter__(self):
+            return iter(())
+
     def find_one(self, *_a: Any, **_k: Any) -> Any:
         return None
 
     def find(self, *_a: Any, **_k: Any) -> Any:
-        return []
+        return self._NoOpCursor()
 
     def update_one(self, *_a: Any, **_k: Any) -> Any:
         return SimpleNamespace(acknowledged=True, matched_count=0, modified_count=0, upserted_id=None)
