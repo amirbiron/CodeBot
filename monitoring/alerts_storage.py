@@ -296,14 +296,149 @@ def compute_error_signature(error_data: Dict[str, Any]) -> str:
     - 3 השורות הראשונות של ה-stack trace
     """
     try:
+        def _normalize_error_text(text: Any) -> str:
+            """
+            Normalize error/trace text before hashing to keep signatures stable across:
+            - dynamic hex memory addresses (0x7f...)
+            - absolute file paths that differ between environments
+            - noisy line numbers (optional)
+            """
+            if text in (None, ""):
+                return ""
+            try:
+                s = str(text)
+            except Exception:
+                return ""
+
+            # Normalize line endings
+            s = s.replace("\r\n", "\n").replace("\r", "\n")
+
+            # Replace hex memory addresses (0x7f..., 0x0000...)
+            s = re.sub(r"0x[0-9a-fA-F]+", "<ADDR>", s)
+
+            def _normalize_inline_absolute_paths(value: str) -> str:
+                """
+                Replace absolute path tokens inside free-form text with their basename.
+
+                Implemented as a linear scan (no regex) to avoid ReDoS/CodeQL warnings.
+                """
+                exts = (".py", ".js", ".ts", ".tsx", ".java", ".go", ".rb")
+                start_delims = set(" \t\r\n\"'([{<,;=|")
+                # Stop token at whitespace, quotes, and common punctuation around paths in tracebacks/logs
+                stop_chars = set(" \t\r\n\"'([{<,;|)]}>")
+
+                def _has_known_ext(filename: str) -> bool:
+                    try:
+                        low = filename.lower()
+                    except Exception:
+                        return False
+                    return any(low.endswith(ext) for ext in exts)
+
+                def _basename(path_like: str) -> str:
+                    # Keep only the last path segment (works for both / and \)
+                    if "/" in path_like:
+                        path_like = path_like.rsplit("/", 1)[-1]
+                    if "\\" in path_like:
+                        path_like = path_like.rsplit("\\", 1)[-1]
+                    return path_like
+
+                out: List[str] = []
+                i = 0
+                n = len(value)
+                while i < n:
+                    ch = value[i]
+
+                    # Detect start of absolute path token
+                    start = None
+                    if ch == "/" and (i == 0 or value[i - 1] in start_delims):
+                        start = i
+                    elif (
+                        ch.isalpha()
+                        and i + 2 < n
+                        and value[i + 1] == ":"
+                        and value[i + 2] == "\\"
+                        and (i == 0 or value[i - 1] in start_delims)
+                    ):
+                        start = i
+
+                    if start is None:
+                        out.append(ch)
+                        i += 1
+                        continue
+
+                    j = start
+                    while j < n and value[j] not in stop_chars:
+                        j += 1
+                    token = value[start:j]
+
+                    # Handle optional trailing :<digits> (line numbers), normalize digits to <LINE>
+                    line_suffix = ""
+                    k = token.rfind(":")
+                    if k != -1 and k + 1 < len(token):
+                        tail = token[k + 1 :]
+                        if tail.isdigit():
+                            token_base = token[:k]
+                            line_suffix = ":<LINE>"
+                        else:
+                            token_base = token
+                    else:
+                        token_base = token
+
+                    candidate = _basename(token_base)
+                    if _has_known_ext(candidate):
+                        out.append(candidate + line_suffix)
+                    else:
+                        # Not a filename token we recognize; keep original
+                        out.append(value[start:j])
+                    i = j
+
+                return "".join(out)
+
+            # Normalize inline absolute paths without regex (safe for untrusted input)
+            try:
+                s = _normalize_inline_absolute_paths(s)
+            except Exception:
+                pass
+
+            # Normalize common traceback patterns: `File "...", line 123`
+            s = re.sub(r"\bline\s+\d+\b", "line <LINE>", s)
+
+            # Normalize file:line patterns for Python files
+            s = re.sub(r"(\b[\w.\-]+\.py):\d+\b", r"\1:<LINE>", s)
+
+            # Collapse excessive spaces/tabs (keep newlines)
+            s = re.sub(r"[ \t]+", " ", s).strip()
+            return s
+
+        def _normalize_file_name(value: Any) -> str:
+            if value in (None, ""):
+                return ""
+            try:
+                s = str(value).strip()
+            except Exception:
+                return ""
+            if not s:
+                return ""
+            # Keep only basename for stability across environments
+            if "/" in s:
+                s = s.rsplit("/", 1)[-1]
+            if "\\" in s:
+                s = s.rsplit("\\", 1)[-1]
+            return s
+
         components = [
             str((error_data or {}).get("error_type", "") or ""),
-            str((error_data or {}).get("file", "") or ""),
+            _normalize_file_name((error_data or {}).get("file", "") or ""),
             str((error_data or {}).get("line", "") or ""),
         ]
 
+        # Include normalized message when present (improves signal when stack/file info is missing)
+        error_message = _normalize_error_text((error_data or {}).get("error_message", "") or "")
+        if error_message:
+            components.append(error_message)
+
         # הוספת stack trace מנורמל
-        stack = (error_data or {}).get("stack_trace", "") or ""
+        stack = _normalize_error_text((error_data or {}).get("stack_trace", "") or "")
         if stack:
             # לקיחת 3 שורות ראשונות
             lines = [l.strip() for l in str(stack).split("\n") if l.strip()][:3]
