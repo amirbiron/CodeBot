@@ -319,7 +319,21 @@ class RuleBuilder {
      */
     renderActions(actions) {
         return actions.map((action, index) => {
-            const showChannelAndTemplate = action.type === 'send_alert';
+            const showChannel = action.type === 'send_alert';
+            const showTemplateInput = action.type === 'send_alert' || action.type === 'create_github_issue';
+
+            // שדה טקסט אחד ב-UI, שמתמפה שונה לפי סוג הפעולה:
+            // - send_alert -> message_template
+            // - create_github_issue -> params.title (וגם title_template לתאימות)
+            let templateValue = '';
+            let templatePlaceholder = '';
+            if (action.type === 'send_alert') {
+                templateValue = action.message_template || '';
+                templatePlaceholder = 'תבנית הודעה: {{rule_name}}, {{triggered_conditions}}';
+            } else if (action.type === 'create_github_issue') {
+                templateValue = (action.params && action.params.title) || action.title_template || '';
+                templatePlaceholder = 'כותרת ל-Issue: {{rule_name}}, {{error_message}}';
+            }
 
             return `
                 <div class="block action-block" data-type="action" data-index="${index}">
@@ -351,16 +365,18 @@ class RuleBuilder {
                             <option value="warning" ${action.severity === 'warning' ? 'selected' : ''}>⚠️ Warning</option>
                             <option value="critical" ${action.severity === 'critical' ? 'selected' : ''}>🔴 Critical</option>
                         </select>
-                        ${showChannelAndTemplate ? `
+                        ${showChannel ? `
                             <select class="channel-select" data-bind="channel">
                                 <option value="default" ${action.channel === 'default' ? 'selected' : ''}>ברירת מחדל</option>
                                 <option value="telegram" ${action.channel === 'telegram' ? 'selected' : ''}>📱 Telegram</option>
                                 <option value="slack" ${action.channel === 'slack' ? 'selected' : ''}>💬 Slack</option>
                                 <option value="email" ${action.channel === 'email' ? 'selected' : ''}>📧 Email</option>
                             </select>
+                        ` : ''}
+                        ${showTemplateInput ? `
                             <input type="text" class="message-template-input" data-bind="message_template"
-                                   value="${this.htmlEscape(action.message_template || '')}"
-                                   placeholder="תבנית הודעה: {{rule_name}}, {{triggered_conditions}}">
+                                   value="${this.htmlEscape(templateValue)}"
+                                   placeholder="${this.htmlEscape(templatePlaceholder)}">
                         ` : ''}
                     </div>
                 </div>
@@ -487,12 +503,23 @@ class RuleBuilder {
 
                 const action = { type, severity };
 
+                const templateEl = block.querySelector('[data-bind="message_template"]');
+                const rawTemplate = templateEl ? templateEl.value : '';
+
                 // עבור send_alert: ודא שאוספים גם channel ו-message_template
                 if (type === 'send_alert') {
                     const channelEl = block.querySelector('[data-bind="channel"]');
-                    const templateEl = block.querySelector('[data-bind="message_template"]');
                     action.channel = channelEl ? channelEl.value : 'default';
-                    action.message_template = templateEl ? templateEl.value : '';
+                    action.message_template = rawTemplate || '';
+                }
+
+                // עבור create_github_issue: שמירה ב-params.title (ולצד זה title_template לתאימות עם ה-Backend הקיים)
+                if (type === 'create_github_issue') {
+                    const title = String(rawTemplate || '').trim();
+                    if (title) {
+                        action.params = { title };
+                        action.title_template = title;
+                    }
                 }
 
                 return action;
