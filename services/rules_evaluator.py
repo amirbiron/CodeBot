@@ -12,6 +12,7 @@ from typing import Any, Dict, List, Optional
 import socket
 import ipaddress
 from urllib.parse import urlparse
+import os
 
 logger = logging.getLogger(__name__)
 
@@ -143,20 +144,50 @@ def _is_safe_webhook_url(url: str) -> bool:
 
     - Only allow http/https schemes.
     - Reject URLs resolving to private/loopback/link-local/multicast/unspecified IPs.
+    - Optionally restrict hostnames via environment-based allowlists:
+      * ALLOWED_WEBHOOK_HOSTS: comma-separated exact hostnames.
+      * ALLOWED_WEBHOOK_SUFFIXES: comma-separated domain suffixes (e.g. ".example.com").
     """
     try:
         parsed = urlparse(url)
         if parsed.scheme not in ("http", "https"):
             return False
+
         hostname = parsed.hostname
         if not hostname:
             return False
+        hostname = hostname.strip().lower()
+        if not hostname:
+            return False
+
+        # Optional allowlists for additional control
+        try:
+            raw_hosts = (os.getenv("ALLOWED_WEBHOOK_HOSTS") or "").strip()
+            allowed_hosts = {h.strip().lower() for h in raw_hosts.split(",") if h.strip()} if raw_hosts else set()
+        except Exception:
+            allowed_hosts = set()
+        try:
+            raw_suffixes = (os.getenv("ALLOWED_WEBHOOK_SUFFIXES") or "").strip()
+            allowed_suffixes = [s.strip().lower() for s in raw_suffixes.split(",") if s.strip()] if raw_suffixes else []
+        except Exception:
+            allowed_suffixes = []
+
+        if allowed_hosts or allowed_suffixes:
+            in_hosts = hostname in allowed_hosts if allowed_hosts else False
+            in_suffixes = any(
+                hostname.endswith(suffix) or hostname == suffix.lstrip(".")
+                for suffix in allowed_suffixes
+            ) if allowed_suffixes else False
+            if not (in_hosts or in_suffixes):
+                return False
+
         # Resolve all addresses for the hostname and ensure none are internal.
         try:
             addrinfo = socket.getaddrinfo(hostname, parsed.port or 80, type=socket.SOCK_STREAM)
         except Exception:
             # If resolution fails, treat as unsafe to avoid surprises.
             return False
+
         for family, _, _, _, sockaddr in addrinfo:
             try:
                 if family == socket.AF_INET:
@@ -167,7 +198,13 @@ def _is_safe_webhook_url(url: str) -> bool:
                     # Unknown family – be conservative
                     return False
                 ip = ipaddress.ip_address(ip_str)
-                if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_multicast or ip.is_unspecified:
+                if (
+                    ip.is_private
+                    or ip.is_loopback
+                    or ip.is_link_local
+                    or ip.is_multicast
+                    or ip.is_unspecified
+                ):
                     return False
             except Exception:
                 return False
