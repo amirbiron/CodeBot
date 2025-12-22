@@ -286,6 +286,92 @@ def _build_key(alert_id: Optional[str], name: str, severity: str, summary: str, 
     return f"h:{digest}"
 
 
+def compute_error_signature(error_data: Dict[str, Any]) -> str:
+    """
+    מחשב חתימה ייחודית לשגיאה.
+
+    החתימה מבוססת על:
+    - סוג השגיאה
+    - שם הקובץ והשורה (אם יש)
+    - 3 השורות הראשונות של ה-stack trace
+    """
+    try:
+        components = [
+            str((error_data or {}).get("error_type", "") or ""),
+            str((error_data or {}).get("file", "") or ""),
+            str((error_data or {}).get("line", "") or ""),
+        ]
+
+        # הוספת stack trace מנורמל
+        stack = (error_data or {}).get("stack_trace", "") or ""
+        if stack:
+            # לקיחת 3 שורות ראשונות
+            lines = [l.strip() for l in str(stack).split("\n") if l.strip()][:3]
+            components.extend(lines)
+
+        signature_input = "|".join(components)
+        return hashlib.sha256(signature_input.encode()).hexdigest()[:16]
+    except Exception:
+        # Fail-open: return a stable fallback
+        try:
+            return hashlib.sha256(str(error_data).encode()).hexdigest()[:16]
+        except Exception:
+            return "0" * 16
+
+
+def is_new_error(signature: str) -> bool:
+    """בודק אם השגיאה חדשה (לא נראתה ב-30 יום האחרונים)."""
+    if not signature:
+        return False
+    if not _enabled() or _init_failed:
+        return False
+    try:
+        # ודא שהלקוח מאותחל (best-effort)
+        _ = _get_collection()
+        if _client is None:
+            return False
+        db_name = os.getenv("DATABASE_NAME") or "code_keeper_bot"
+        collection = _client[db_name]["error_signatures"]
+
+        # best-effort indexes
+        try:
+            from pymongo import ASCENDING  # type: ignore
+            collection.create_index([("signature", ASCENDING)], unique=True, background=True)
+            collection.create_index([("last_seen", ASCENDING)], background=True)
+        except Exception:
+            pass
+
+        cutoff = datetime.now(timezone.utc) - timedelta(days=30)
+
+        existing = collection.find_one({"signature": signature, "last_seen": {"$gte": cutoff}})
+
+        # עדכון/הוספת הרשומה
+        collection.update_one(
+            {"signature": signature},
+            {
+                "$set": {"last_seen": datetime.now(timezone.utc)},
+                "$inc": {"count": 1},
+                "$setOnInsert": {"first_seen": datetime.now(timezone.utc)},
+            },
+            upsert=True,
+        )
+
+        return existing is None
+    except Exception:
+        return False
+
+
+def enrich_alert_with_signature(alert_data: Dict[str, Any]) -> Dict[str, Any]:
+    """מעשיר את נתוני ההתראה עם חתימה ומידע על חדשות."""
+    signature = compute_error_signature(alert_data or {})
+    is_new = is_new_error(signature)
+
+    alert_data["error_signature"] = signature
+    alert_data["is_new_error"] = is_new
+
+    return alert_data
+
+
 def record_alert(
     *,
     alert_id: Optional[str],
