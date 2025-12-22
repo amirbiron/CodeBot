@@ -2848,38 +2848,90 @@ class AdvancedBotHandlers:
                     now_dt = None  # type: ignore
                     start_dt = None  # type: ignore
 
-                # --- Request stats from alert_manager (3h rolling window) ---
+                # --- Request stats (prefer DB-backed metrics; fallback to in-memory alert_manager) ---
                 total = errors = 0
                 err_rate = avg_lat = 0.0
                 p50 = p95 = p99 = 0.0
-                try:
-                    import alert_manager as am  # type: ignore
+                stats_source = "unknown"
 
+                # 1) DB-backed metrics (shared across processes/services)
+                try:
+                    from monitoring import metrics_storage as ms  # type: ignore
+
+                    if start_dt is not None and now_dt is not None:
+                        ratio = ms.aggregate_error_ratio(start_dt=start_dt, end_dt=now_dt)
+                        total = int(ratio.get("total", 0) or 0)
+                        errors = int(ratio.get("errors", 0) or 0)
+
+                        pmap = ms.aggregate_latency_percentiles(
+                            start_dt=start_dt,
+                            end_dt=now_dt,
+                            percentiles=(50, 95, 99),
+                        ) or {}
+                        try:
+                            p50 = float(pmap.get("p50", 0.0) or 0.0)
+                        except Exception:
+                            p50 = 0.0
+                        try:
+                            p95 = float(pmap.get("p95", 0.0) or 0.0)
+                        except Exception:
+                            p95 = 0.0
+                        try:
+                            p99 = float(pmap.get("p99", 0.0) or 0.0)
+                        except Exception:
+                            p99 = 0.0
+
+                        try:
+                            avg = ms.average_request_duration(start_dt=start_dt, end_dt=now_dt)
+                            avg_lat = float(avg) if avg is not None else 0.0
+                        except Exception:
+                            avg_lat = 0.0
+
+                        try:
+                            err_rate = (float(errors) / float(total)) * 100.0 if total > 0 else 0.0
+                        except Exception:
+                            err_rate = 0.0
+
+                        # Consider DB "available" only if it returns any meaningful signal
+                        if total > 0 or any(v > 0.0 for v in (p50, p95, p99)) or avg_lat > 0.0:
+                            stats_source = "db"
+                except Exception:
+                    pass
+
+                # 2) In-memory alert_manager fallback (works only when bot+webapp share a process)
+                if stats_source != "db":
                     try:
-                        err_rate = float(am.get_current_error_rate_percent(window_sec=5 * 60, source="internal"))
-                    except Exception:
-                        err_rate = 0.0
-                    try:
-                        avg_lat = float(am.get_current_avg_latency_seconds(window_sec=5 * 60, source="internal"))
-                    except Exception:
-                        avg_lat = 0.0
-                    try:
-                        if start_dt is not None and now_dt is not None:
-                            stats = am.get_request_stats_between(start_dt, now_dt, source="internal", percentiles=(50, 95, 99))
-                        else:
-                            stats = {}
-                        total = int(stats.get("total", 0.0) or 0.0)
-                        errors = int(stats.get("errors", 0.0) or 0.0)
-                        p50 = float(stats.get("p50", 0.0) or 0.0)
-                        p95 = float(stats.get("p95", 0.0) or 0.0)
-                        p99 = float(stats.get("p99", 0.0) or 0.0)
+                        import alert_manager as am  # type: ignore
+
+                        try:
+                            err_rate = float(am.get_current_error_rate_percent(window_sec=5 * 60, source="internal"))
+                        except Exception:
+                            err_rate = 0.0
+                        try:
+                            avg_lat = float(am.get_current_avg_latency_seconds(window_sec=5 * 60, source="internal"))
+                        except Exception:
+                            avg_lat = 0.0
+                        try:
+                            if start_dt is not None and now_dt is not None:
+                                stats = am.get_request_stats_between(
+                                    start_dt, now_dt, source="internal", percentiles=(50, 95, 99)
+                                )
+                            else:
+                                stats = {}
+                            total = int(stats.get("total", 0.0) or 0.0)
+                            errors = int(stats.get("errors", 0.0) or 0.0)
+                            p50 = float(stats.get("p50", 0.0) or 0.0)
+                            p95 = float(stats.get("p95", 0.0) or 0.0)
+                            p99 = float(stats.get("p99", 0.0) or 0.0)
+                            if total > 0 or any(v > 0.0 for v in (p50, p95, p99)) or avg_lat > 0.0:
+                                stats_source = "memory"
+                        except Exception:
+                            total = errors = 0
+                            p50 = p95 = p99 = 0.0
                     except Exception:
                         total = errors = 0
+                        err_rate = avg_lat = 0.0
                         p50 = p95 = p99 = 0.0
-                except Exception:
-                    total = errors = 0
-                    err_rate = avg_lat = 0.0
-                    p50 = p95 = p99 = 0.0
 
                 # --- System snapshot (best-effort; avoid PII) ---
                 active_requests = 0
@@ -2928,6 +2980,8 @@ class AdvancedBotHandlers:
                         f"• Avg latency: {avg_lat:.3f}s",
                         f"• p50/p95/p99: {p50:.3f}s / {p95:.3f}s / {p99:.3f}s",
                     ]
+                    if stats_source in {"db", "memory"}:
+                        lines.append(f"ℹ️ מקור נתונים: {stats_source}")
                     if total <= 0:
                         lines.append("ℹ️ אין דגימות ב-5 דקות האחרונות. נסה לרענן כמה דפים ואז להריץ שוב.")
                     await update.message.reply_text("\n".join(lines), parse_mode=None, disable_web_page_preview=True)
@@ -2943,6 +2997,8 @@ class AdvancedBotHandlers:
                     f"• Memory (RSS): {mem_mb:.1f} MB",
                     f"• Process uptime: {_fmt_s(uptime_s)}",
                 ]
+                if stats_source in {"db", "memory"}:
+                    lines.append(f"ℹ️ מקור נתונים: {stats_source}")
                 if total <= 0:
                     lines.append("ℹ️ אין דגימות ב-5 דקות האחרונות. ודא שהאתר קיבל תעבורה (רענון דפים) ושאין חסימה באמצע.")
                 await update.message.reply_text("\n".join(lines), parse_mode=None, disable_web_page_preview=True)
