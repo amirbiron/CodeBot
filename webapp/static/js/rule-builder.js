@@ -96,6 +96,9 @@ class RuleBuilder {
                 group: 'conditions',
                 animation: 150,
                 ghostClass: 'sortable-ghost',
+                handle: '.drag-handle',  // רק האייקון משמש לגרירה
+                filter: 'input, textarea, select, button', // ליתר ביטחון
+                preventOnFilter: false,
                 onEnd: () => this.syncFromDOM()
             });
 
@@ -103,6 +106,9 @@ class RuleBuilder {
                 group: 'actions',
                 animation: 150,
                 ghostClass: 'sortable-ghost',
+                handle: '.drag-handle',  // רק האייקון משמש לגרירה
+                filter: 'input, textarea, select, button', // ליתר ביטחון
+                preventOnFilter: false,
                 onEnd: () => this.syncFromDOM()
             });
         }
@@ -217,9 +223,9 @@ class RuleBuilder {
         ];
 
         return `
-            <div class="block condition-block" draggable="true" data-type="condition">
+            <div class="block condition-block" data-type="condition">
                 <div class="block__header">
-                    <span class="block__icon">📊</span>
+                    <span class="block__icon drag-handle">📊</span>
                     <span class="block__title">תנאי</span>
                     <button class="block__delete" data-action="delete">×</button>
                 </div>
@@ -290,7 +296,7 @@ class RuleBuilder {
         return `
             <div class="block group-block ${className}" data-type="group" data-operator="${operator}">
                 <div class="block__header">
-                    <span class="block__icon">${icon}</span>
+                    <span class="block__icon drag-handle">${icon}</span>
                     <span class="block__title">${label}</span>
                     ${showAddButton ? '<button class="block__add-child" data-action="add-condition">+ תנאי</button>' : ''}
                     <button class="block__delete" data-action="delete">×</button>
@@ -318,7 +324,7 @@ class RuleBuilder {
             return `
                 <div class="block action-block" data-type="action" data-index="${index}">
                     <div class="block__header">
-                        <span class="block__icon">⚡</span>
+                        <span class="block__icon drag-handle">⚡</span>
                         <span class="block__title">פעולה</span>
                         <button class="block__delete" data-action="delete">×</button>
                     </div>
