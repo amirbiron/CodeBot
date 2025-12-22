@@ -9,6 +9,9 @@ Rules Evaluator - הערכת כללים על התראות נכנסות
 import logging
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
+import socket
+import ipaddress
+from urllib.parse import urlparse
 
 logger = logging.getLogger(__name__)
 
@@ -133,6 +136,45 @@ def evaluate_alert_rules(alert_data: Dict[str, Any]) -> Optional[Dict[str, Any]]
         return None
 
 
+def _is_safe_webhook_url(url: str) -> bool:
+    """
+    Basic SSRF guardrail for webhook URLs.
+
+    - Only allow http/https schemes.
+    - Reject URLs resolving to private/loopback/link-local/multicast/unspecified IPs.
+    """
+    try:
+        parsed = urlparse(url)
+        if parsed.scheme not in ("http", "https"):
+            return False
+        hostname = parsed.hostname
+        if not hostname:
+            return False
+        # Resolve all addresses for the hostname and ensure none are internal.
+        try:
+            addrinfo = socket.getaddrinfo(hostname, parsed.port or 80, type=socket.SOCK_STREAM)
+        except Exception:
+            # If resolution fails, treat as unsafe to avoid surprises.
+            return False
+        for family, _, _, _, sockaddr in addrinfo:
+            try:
+                if family == socket.AF_INET:
+                    ip_str = sockaddr[0]
+                elif family == socket.AF_INET6:
+                    ip_str = sockaddr[0]
+                else:
+                    # Unknown family – be conservative
+                    return False
+                ip = ipaddress.ip_address(ip_str)
+                if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_multicast or ip.is_unspecified:
+                    return False
+            except Exception:
+                return False
+        return True
+    except Exception:
+        return False
+
+
 def execute_matched_actions(evaluation_result: Dict[str, Any]) -> None:
     """
     מבצע את הפעולות של כללים שהותאמו.
@@ -240,9 +282,15 @@ def _call_webhook(action: Dict, alert_data: Dict) -> None:
     try:
         import requests
 
-        url = action.get("webhook_url", "")
-        if url:
-            requests.post(url, json=alert_data, timeout=10)
+        url = str(action.get("webhook_url", "") or "").strip()
+        if not url:
+            return
+
+        if not _is_safe_webhook_url(url):
+            logger.warning("Blocked unsafe webhook URL: %s", url)
+            return
+
+        requests.post(url, json=alert_data, timeout=10)
     except Exception as e:
         logger.error(f"Error calling webhook: {e}")
 
