@@ -132,6 +132,14 @@ def rules_test():
     except Exception:
         return jsonify({"error": "Invalid JSON"}), 400
 
+    # הוספת שדות ברירת מחדל לסימולטור (כדי שהוולידציה תעבור גם בטסטים)
+    if "rule_id" not in rule:
+        rule["rule_id"] = "simulator-test"
+    if "name" not in rule:
+        rule["name"] = "Simulator Test Rule"
+    if "enabled" not in rule:
+        rule["enabled"] = True
+
     engine = get_rule_engine()
     errors = engine.validate_rule(rule)
 
