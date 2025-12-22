@@ -349,3 +349,36 @@
   text-align: center;
 }
 
+/* ==============================================
+   Mobile Space Optimization
+   ============================================== */
+
+@media (max-width: 767px) {
+  /* Reduce glass-card padding on upload/edit pages */
+  form[data-file-form-config] {
+    gap: 0.75rem !important;  /* Tighter form spacing */
+  }
+
+  /* Reduce side padding in split panels */
+  .split-panel--editor,
+  .split-panel--preview {
+    padding: 0.5rem 0.35rem;
+  }
+
+  /* Reduce preview content padding */
+  .split-preview-content {
+    padding: 0.75rem;
+  }
+}
+
+/* Very small screens */
+@media (max-width: 480px) {
+  .split-panel--editor,
+  .split-panel--preview {
+    padding: 0.35rem 0.25rem;
+  }
+
+  .split-preview-content {
+    padding: 0.5rem;
+  }
+}
