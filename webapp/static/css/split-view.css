@@ -471,8 +471,6 @@ html[dir="rtl"] .split-preview-content code {
   /* ה-canvas הוא אזור התוכן/iframe – הוא צריך "לגדול" לגובה הפנוי */
   flex: 1 1 auto;
   min-height: 160px;
-  /* מאפשר overflow בתוך flex container (במובייל) */
-  min-height: 0;
   overflow: auto;
   -webkit-overflow-scrolling: touch;
   /* חשוב: canvas משמש גם לרינדור HTML של Markdown.
@@ -534,6 +532,20 @@ html[dir="rtl"] .split-preview-content code {
     flex-direction: column;
     /* במובייל עדיף לא "לכלוא" גובה בתוך 100vh - כדי שלא יהיה מצב של גלילה שלא עובדת */
     max-height: none;
+  }
+
+  /* במובייל: טאבים מחליפים פאנל אחד בכל פעם.
+     חובה להסתיר הרמטית את הפאנל הלא פעיל כדי למנוע "כפילות" (preview מתחת לעורך). */
+  .split-view .split-resizer {
+    display: none !important;
+  }
+
+  .split-view[data-active-panel="editor"] .split-panel--preview {
+    display: none !important;
+  }
+
+  .split-view[data-active-panel="preview"] .split-panel--editor {
+    display: none !important;
   }
 
   .split-panel--editor,
