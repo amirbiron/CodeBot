@@ -353,6 +353,8 @@
   display: flex;
   flex-direction: column;
   min-width: 0;
+  /* חשוב: מאפשר גלילה פנימית בתוך flex (במובייל במיוחד) */
+  min-height: 0;
 }
 
 .split-panel--editor {
@@ -366,6 +368,8 @@
   background: var(--split-preview-panel-bg);
   border-inline-start: 1px solid var(--split-preview-panel-border);
   padding: 0.85rem;
+  /* חשוב: בלי זה, התוכן יכול "להיתקע" ולהיחתך במקום לאפשר scroll */
+  min-height: 0;
 }
 
 .split-resizer {
@@ -398,6 +402,7 @@
   display: flex;
   flex-direction: column;
   overflow: hidden;
+  min-height: 0;
   background: var(--split-preview-bg);
   color: var(--split-preview-text);
   border-radius: 8px;
