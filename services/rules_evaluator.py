@@ -13,6 +13,7 @@ import socket
 import ipaddress
 from urllib.parse import urlparse
 import os
+import json
 
 logger = logging.getLogger(__name__)
 
@@ -261,19 +262,85 @@ def _send_custom_notification(action: Dict, alert_data: Dict, matched_rule: Dict
         severity = action.get("severity", alert_data.get("severity", "info"))
         template = action.get("message_template", "{{rule_name}}: {{summary}}")
 
-        # החלפת placeholders
-        message = template.replace("{{rule_name}}", matched_rule.get("rule_name", ""))
-        message = message.replace("{{summary}}", alert_data.get("summary", ""))
-        message = message.replace(
-            "{{triggered_conditions}}",
-            ", ".join(matched_rule.get("triggered_conditions", [])),
-        )
+        # החלפת placeholders (best-effort)
+        rule_name = str(matched_rule.get("rule_name", "") or "")
+        summary = str(alert_data.get("summary") or alert_data.get("message") or "")
+        triggered = matched_rule.get("triggered_conditions", []) or []
+        try:
+            triggered_list = [str(x) for x in triggered]
+        except Exception:
+            triggered_list = []
+        try:
+            triggered_json = json.dumps(triggered_list, ensure_ascii=False, indent=2) if triggered_list else ""
+        except Exception:
+            triggered_json = ""
 
-        logger.info(f"Custom notification [{channel}]: {message[:100]}...")
-        # כאן תוסיף את הלוגיקה לשליחה בפועל לערוץ המתאים
+        message = str(template or "")
+        message = message.replace("{{rule_name}}", rule_name)
+        message = message.replace("{{summary}}", summary)
+        message = message.replace("{{severity}}", str(severity))
+        message = message.replace("{{triggered_conditions}}", ", ".join(triggered_list))
+        message = message.replace("{{triggered_conditions_json}}", triggered_json)
+
+        # Telegram limit is 4096 chars; keep margin for safety
+        max_len = 3800
+        if len(message) > max_len:
+            message = message[: max_len - 1] + "…"
+
+        # MVP: ערוץ ראשון נתמך = Telegram (channel: telegram/default)
+        if str(channel).strip().lower() in {"telegram", "default"}:
+            _send_telegram_direct(message)
+            return
+
+        # ערוצים אחרים עדיין לא ממומשים (לא שוברים Fail-open)
+        logger.info("Custom notification skipped (unsupported channel=%s rule_id=%s)", channel, matched_rule.get("rule_id"))
 
     except Exception as e:
         logger.error(f"Error sending custom notification: {e}")
+
+
+def _send_telegram_direct(text: str) -> None:
+    """Direct dispatch to Telegram Bot API (fail-open).
+
+    חשוב: לא לקרוא כאן ל-emit_internal_alert כדי לא ליצור לולאה.
+    """
+    token = str(os.getenv("ALERT_TELEGRAM_BOT_TOKEN") or "").strip()
+    chat_id = str(os.getenv("ALERT_TELEGRAM_CHAT_ID") or "").strip()
+    if not token or not chat_id:
+        return
+    if not text:
+        return
+    try:
+        api = f"https://api.telegram.org/bot{token}/sendMessage"
+        payload = {"chat_id": chat_id, "text": text, "disable_web_page_preview": True}
+
+        # Prefer the project's lightweight HTTP helper if available
+        try:
+            from http_sync import request  # type: ignore
+        except Exception:  # pragma: no cover
+            request = None  # type: ignore
+
+        from telegram_api import parse_telegram_json_from_response, require_telegram_ok
+
+        if callable(request):
+            resp = request("POST", api, json=payload, timeout=5)
+        else:
+            import requests  # local import to keep module import side-effects minimal
+
+            resp = requests.post(api, json=payload, timeout=5)
+
+        body = parse_telegram_json_from_response(resp, url=api)
+        require_telegram_ok(body, url=api)
+    except Exception as e:
+        # Fail-open: never raise from rules evaluator actions
+        try:
+            logger.error(
+                "Telegram send_alert failed (rule engine, fail-open). error=%s",
+                str(e),
+            )
+        except Exception:
+            pass
+        return
 
 
 def _create_github_issue(action: Dict, alert_data: Dict, matched_rule: Dict) -> None:
