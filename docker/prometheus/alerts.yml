@@ -68,14 +68,14 @@ groups:
 
       # --- Health & Startup metrics exposed via /healthz ---
       - alert: SlowMongoConnection
-        expr: (avg_over_time(health_ping_ms[1m]) > 200) and on(job, instance) (time() - process_start_time_seconds > 300) and on() ((time() - process_start_time_seconds{job=~".*prometheus.*"} > 600) or absent(process_start_time_seconds{job=~".*prometheus.*"}))
+        expr: (avg_over_time(health_ping_ms[1m]) > 500) and on(job, instance) (time() - process_start_time_seconds > 300) and on() ((time() - process_start_time_seconds{job=~".*prometheus.*"} > 600) or absent(process_start_time_seconds{job=~".*prometheus.*"}))
         for: 5m
         labels:
           severity: warning
           component: mongo
         annotations:
-          summary: "זמן פינג למונגו חוצה 200ms (מתמשך)"
-          description: "health_ping_ms נותר מעל ‎200‎ מילישניות למשך 5 דקות רצופות."
+          summary: "זמן פינג למונגו חוצה 500ms (מתמשך)"
+          description: "health_ping_ms נותר מעל ‎500 מילישניות למשך 5 דקות רצופות."
 
       - alert: MongoLatencyRegressionVsBaseline
         expr: |
