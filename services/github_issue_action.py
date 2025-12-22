@@ -82,7 +82,8 @@ class GitHubIssueAction:
         assignees = action_config.get("assignees", [])
 
         # בדיקה אם כבר קיים Issue פתוח לשגיאה זו
-        error_signature = alert_data.get("error_signature", "")
+        # העדף fingerprint (hash) כשזמין, אחרת fallback לשדה המסורתי
+        error_signature = alert_data.get("error_signature_hash") or alert_data.get("error_signature", "")
         if error_signature:
             existing = await self._find_existing_issue(error_signature)
             if existing:

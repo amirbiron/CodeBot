@@ -310,6 +310,14 @@ def compute_error_signature(error_data: Dict[str, Any]) -> str:
             components.extend(lines)
 
         signature_input = "|".join(components)
+        # אם אין לנו שום מידע יציב (כל הערכים ריקים) — לא נחשב חתימה, כדי לא לייצר hash קבוע
+        # שיגרום לכל ההתראות "לחלוק" אותה חתימה ולשבור is_new_error.
+        try:
+            has_signal = any(bool(str(c).strip()) for c in components)
+        except Exception:
+            has_signal = False
+        if not has_signal:
+            return ""
         return hashlib.sha256(signature_input.encode()).hexdigest()[:16]
     except Exception:
         # Fail-open: return a stable fallback
@@ -365,8 +373,23 @@ def enrich_alert_with_signature(alert_data: Dict[str, Any]) -> Dict[str, Any]:
     """מעשיר את נתוני ההתראה עם חתימה ומידע על חדשות."""
     # חשוב: בפרויקט כבר ייתכן שדה error_signature עם מזהה "טקסונומי" (למשל OOM_KILLED).
     # אסור לדרוס אותו. את ה-fingerprint (hash) נשמור בשדה נפרד.
-    signature_hash = compute_error_signature(alert_data or {})
-    is_new = is_new_error(signature_hash)
+    try:
+        existing_is_new = alert_data.get("is_new_error")
+    except Exception:
+        existing_is_new = None
+    try:
+        existing_hash = alert_data.get("error_signature_hash")
+    except Exception:
+        existing_hash = None
+
+    signature_hash = str(existing_hash or compute_error_signature(alert_data or {}) or "")
+
+    # אם כבר קיים is_new_error, לא נרוץ שוב מול ה-DB (idempotent) — זה מונע "היפוך" True→False
+    # במקרה שהפונקציה נקראת פעמיים על אותו dict.
+    if existing_is_new in (True, False):
+        is_new = bool(existing_is_new)
+    else:
+        is_new = is_new_error(signature_hash)
 
     # תמיד נשמור את ה-hash בנפרד כדי שתהיה אפשרות להשתמש בו לכללי "שגיאה חדשה"
     alert_data["error_signature_hash"] = signature_hash

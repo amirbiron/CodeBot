@@ -87,6 +87,7 @@ def evaluate_alert_rules(alert_data: Dict[str, Any]) -> Optional[Dict[str, Any]]
             "project": str(details.get("project", "")),
             "environment": str(details.get("environment", "")),
             "error_signature": str(details.get("error_signature", "")),
+            "error_signature_hash": str(details.get("error_signature_hash", "")),
             "is_new_error": bool(details.get("is_new_error", False)),
             "error_message": str(details.get("error_message") or details.get("message") or alert_data.get("summary", "") or ""),
             "stack_trace": str(details.get("stack_trace") or ""),

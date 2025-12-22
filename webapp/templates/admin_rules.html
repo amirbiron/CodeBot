@@ -160,6 +160,17 @@ function closeTestModal() {
 }
 
 document.addEventListener('DOMContentLoaded', async function() {
+    // בסיסי: Escape כדי להימנע מ-XSS כשכן משתמשים ב-innerHTML
+    function escapeHtml(value) {
+        const s = String(value ?? '');
+        return s
+            .replaceAll('&', '&amp;')
+            .replaceAll('<', '&lt;')
+            .replaceAll('>', '&gt;')
+            .replaceAll('"', '&quot;')
+            .replaceAll("'", '&#39;');
+    }
+
     // טעינת שדות זמינים
     const fieldsResponse = await fetch('/api/rules/fields');
     const { fields } = await fieldsResponse.json();
@@ -247,26 +258,63 @@ document.addEventListener('DOMContentLoaded', async function() {
         const { rules } = await response.json();
 
         const tbody = document.querySelector('#rules-table tbody');
-        tbody.innerHTML = rules.map(rule => `
-            <tr>
-                <td><strong>${rule.name || rule.rule_id}</strong></td>
-                <td>
-                    <span class="status-badge ${rule.enabled ? 'status-badge--active' : 'status-badge--inactive'}">
-                        ${rule.enabled ? 'פעיל' : 'מושבת'}
-                    </span>
-                </td>
-                <td>${countConditions(rule.conditions)} תנאים</td>
-                <td>${new Date(rule.updated_at).toLocaleString('he-IL')}</td>
-                <td>
-                    <button class="btn btn-sm" onclick="editRule('${rule.rule_id}')">
-                        <i class="fas fa-edit"></i> ערוך
-                    </button>
-                    <button class="btn btn-sm btn-danger" onclick="deleteRule('${rule.rule_id}')">
-                        <i class="fas fa-trash"></i> מחק
-                    </button>
-                </td>
-            </tr>
-        `).join('');
+        tbody.replaceChildren();
+
+        (rules || []).forEach((rule) => {
+            const tr = document.createElement('tr');
+
+            // שם
+            const tdName = document.createElement('td');
+            const strong = document.createElement('strong');
+            strong.textContent = rule?.name || rule?.rule_id || '';
+            tdName.appendChild(strong);
+            tr.appendChild(tdName);
+
+            // סטטוס
+            const tdStatus = document.createElement('td');
+            const badge = document.createElement('span');
+            badge.className = `status-badge ${rule?.enabled ? 'status-badge--active' : 'status-badge--inactive'}`;
+            badge.textContent = rule?.enabled ? 'פעיל' : 'מושבת';
+            tdStatus.appendChild(badge);
+            tr.appendChild(tdStatus);
+
+            // תנאים
+            const tdConditions = document.createElement('td');
+            tdConditions.textContent = `${countConditions(rule?.conditions)} תנאים`;
+            tr.appendChild(tdConditions);
+
+            // עדכון אחרון
+            const tdUpdated = document.createElement('td');
+            try {
+                tdUpdated.textContent = new Date(rule?.updated_at).toLocaleString('he-IL');
+            } catch (e) {
+                tdUpdated.textContent = '';
+            }
+            tr.appendChild(tdUpdated);
+
+            // פעולות
+            const tdActions = document.createElement('td');
+            const btnEdit = document.createElement('button');
+            btnEdit.className = 'btn btn-sm';
+            btnEdit.type = 'button';
+            btnEdit.dataset.ruleId = String(rule?.rule_id || '');
+            btnEdit.innerHTML = `<i class="fas fa-edit"></i> ${escapeHtml('ערוך')}`;
+            btnEdit.addEventListener('click', () => editRule(btnEdit.dataset.ruleId));
+
+            const btnDelete = document.createElement('button');
+            btnDelete.className = 'btn btn-sm btn-danger';
+            btnDelete.type = 'button';
+            btnDelete.dataset.ruleId = String(rule?.rule_id || '');
+            btnDelete.innerHTML = `<i class="fas fa-trash"></i> ${escapeHtml('מחק')}`;
+            btnDelete.addEventListener('click', () => deleteRule(btnDelete.dataset.ruleId));
+
+            tdActions.appendChild(btnEdit);
+            tdActions.appendChild(document.createTextNode(' '));
+            tdActions.appendChild(btnDelete);
+            tr.appendChild(tdActions);
+
+            tbody.appendChild(tr);
+        });
     }
 
     function countConditions(node) {

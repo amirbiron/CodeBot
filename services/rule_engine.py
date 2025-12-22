@@ -94,6 +94,11 @@ AVAILABLE_FIELDS = {
         "label": "חתימת שגיאה",
         "description": "Hash ייחודי לזיהוי שגיאות חוזרות",
     },
+    "error_signature_hash": {
+        "type": "string",
+        "label": "חתימת שגיאה (hash)",
+        "description": "Fingerprint (hash) של השגיאה לצורך זיהוי שגיאות חדשות",
+    },
     # 🆕 שדות לזיהוי שגיאות חדשות
     "is_new_error": {
         "type": "boolean",
@@ -470,7 +475,14 @@ class RuleEngine:
         children = group.get("children", [])
 
         if not children:
-            return True
+            # AND([]) => True, OR([]) => False. NOT דורש ילד אחד; ניפול ל-False (fail-closed).
+            if operator == "AND":
+                return True
+            if operator == "OR":
+                return False
+            if operator == "NOT":
+                return False
+            return False
 
         # 🔧 תיקון באג #1: הימנעות מ-Short-circuit evaluation
         # הערכת כל הילדים מראש כדי לאסוף את כל התנאים שהותאמו
@@ -492,9 +504,7 @@ class RuleEngine:
                 not_result = not child_result
 
                 # רק אם NOT מחזיר True (כלומר הילד לא התאים), נתעד את זה
-                if not_result and temp_triggered:
-                    triggered.append(f"NOT({', '.join(temp_triggered)})")
-                elif not_result:
+                if not_result:
                     triggered.append("NOT(condition not matched)")
 
                 return not_result
@@ -553,6 +563,11 @@ class RuleEngine:
                 errors.append(f"{path}: invalid group operator '{operator}'")
 
             children = node.get("children", [])
+            # ולידציה מבנית בסיסית כדי למנוע קבוצות ריקות/NOT לא תקין
+            if operator in ("AND", "OR") and not children:
+                errors.append(f"{path}: group '{operator}' must have at least one child")
+            if operator == "NOT" and len(children) != 1:
+                errors.append(f"{path}: group 'NOT' must have exactly one child")
             for i, child in enumerate(children):
                 self._validate_node(child, errors, f"{path}.children[{i}]")
 
