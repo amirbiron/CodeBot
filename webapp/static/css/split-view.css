@@ -471,15 +471,19 @@ html[dir="rtl"] .split-preview-content code {
   /* ה-canvas הוא אזור התוכן/iframe – הוא צריך "לגדול" לגובה הפנוי */
   flex: 1 1 auto;
   min-height: 160px;
+  /* מאפשר overflow בתוך flex container (במובייל) */
+  min-height: 0;
   overflow: auto;
   -webkit-overflow-scrolling: touch;
-  display: flex;
+  /* חשוב: canvas משמש גם לרינדור HTML של Markdown.
+     אם הוא flex, אלמנטים (h1/p/ul/...) הופכים ל-flex items ונפרסים בשורה. */
+  display: block;
 }
 
 .split-preview-content iframe {
   width: 100%;
   height: 100%;
-  flex: 1 1 auto;
+  display: block;
   border: none;
   background: var(--split-preview-bg);
 }
