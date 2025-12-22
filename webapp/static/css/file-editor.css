@@ -349,3 +349,78 @@
   text-align: center;
 }
 
+/* ==============================================
+   Mobile Optimization: Space & Editor Height
+   Issue: Wasted space + short code editor on mobile
+   ============================================== */
+
+/* ============ A. Reduce Margins ============ */
+
+@media (max-width: 767px) {
+  /* Tighter form spacing */
+  form[data-file-form-config] {
+    gap: 0.75rem !important;
+  }
+
+  /* Reduce split panel padding */
+  .split-panel--editor,
+  .split-panel--preview {
+    padding: 0.5rem 0.35rem;
+  }
+
+  /* Reduce preview content padding */
+  .split-preview-content {
+    padding: 0.75rem;
+  }
+}
+
+@media (max-width: 480px) {
+  .split-panel--editor,
+  .split-panel--preview {
+    padding: 0.35rem 0.25rem;
+  }
+
+  .split-preview-content {
+    padding: 0.5rem;
+  }
+}
+
+
+/* ============ B. Taller Code Editor ============ */
+
+@media (max-width: 767px) {
+  /* Native textarea */
+  textarea.code-field,
+  textarea[name="code"] {
+    min-height: 55vh;
+    max-height: 70vh;
+    resize: vertical;
+  }
+
+  /* CodeMirror editor */
+  #editorContainer .cm-editor {
+    min-height: 55vh;
+    max-height: 70vh;
+  }
+}
+
+@media (max-width: 480px) {
+  textarea.code-field,
+  textarea[name="code"] {
+    min-height: 50vh;
+  }
+
+  #editorContainer .cm-editor {
+    min-height: 50vh;
+  }
+}
+
+/* Landscape: More vertical space available */
+@media (max-width: 767px) and (orientation: landscape) {
+  textarea.code-field,
+  textarea[name="code"],
+  #editorContainer .cm-editor {
+    min-height: 60vh;
+  }
+}
+
