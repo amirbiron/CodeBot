@@ -7,6 +7,7 @@ Visual Rule Engine - מנוע כללים ויזואלי
 from __future__ import annotations
 
 import logging
+import os
 import re
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -356,6 +357,83 @@ class RuleEngine:
         self._validators: Dict[str, Callable] = {}
         self._action_handlers: Dict[str, Callable] = {}
 
+    @staticmethod
+    def _is_verbose(context: EvaluationContext) -> bool:
+        """האם להדפיס לוגים מפורטים (לצורכי דיבוג/סימולטור)."""
+        try:
+            if isinstance(getattr(context, "metadata", None), dict) and bool(context.metadata.get("verbose")):
+                return True
+        except Exception:
+            pass
+        raw = (os.getenv("RULES_VERBOSE_LOGGING") or "").strip().lower()
+        return raw in {"1", "true", "yes", "on"}
+
+    @staticmethod
+    def _safe_repr(value: Any, *, limit: int = 220) -> str:
+        """תצוגה קצרה ובטוחה ללוג (ללא הצפה)."""
+        try:
+            text = str(value)
+        except Exception:
+            text = "<unprintable>"
+        text = text.replace("\n", "\\n")
+        if len(text) > limit:
+            return text[: max(0, limit - 1)] + "…"
+        return text
+
+    @staticmethod
+    def _is_sensitive_field(field_name: str) -> bool:
+        try:
+            name = str(field_name or "").lower()
+        except Exception:
+            return False
+        # heuristic בסיסי למניעת דליפת סודות בלוגים
+        sensitive_markers = ("token", "password", "secret", "authorization", "api_key", "apikey", "private_key", "key")
+        return any(m in name for m in sensitive_markers)
+
+    def _safe_value_for_field(self, field_name: str, value: Any) -> str:
+        text = self._safe_repr(value)
+        if not text:
+            return text
+        if self._is_sensitive_field(field_name):
+            return "<REDACTED>"
+        return text
+
+    def _context_preview(self, context_data: Dict[str, Any]) -> str:
+        """Preview קטן של ה-context כדי להבין מה נכנס (בלי להציף לוגים)."""
+        if not isinstance(context_data, dict):
+            return self._safe_repr(context_data)
+        # Keep a small allowlist of common fields; the condition logs will show actual comparisons anyway.
+        allow = (
+            "alert_name",
+            "severity",
+            "summary",
+            "source",
+            "alert_type",
+            "project",
+            "environment",
+            "is_new_error",
+            "error_signature_hash",
+            "sentry_issue_id",
+            "sentry_short_id",
+            "action",
+        )
+        parts: List[str] = []
+        for k in allow:
+            if k not in context_data:
+                continue
+            v = context_data.get(k)
+            if v in (None, ""):
+                continue
+            parts.append(f"{k}={self._safe_value_for_field(k, v)}")
+        # Always include keys count for context shape
+        try:
+            keys_count = len(context_data.keys())
+        except Exception:
+            keys_count = -1
+        if parts:
+            return f"keys={keys_count}; " + ", ".join(parts)
+        return f"keys={keys_count}"
+
     def register_action_handler(self, action_type: str, handler: Callable) -> None:
         """רישום handler לסוג פעולה."""
         self._action_handlers[action_type] = handler
@@ -376,9 +454,19 @@ class RuleEngine:
         start_time = time.perf_counter()
 
         rule_id = rule.get("rule_id", "unknown")
+        rule_name = str(rule.get("name") or rule_id)
         triggered_conditions: List[str] = []
+        verbose = self._is_verbose(context)
 
         try:
+            if verbose:
+                logger.warning(
+                    "Checking rule '%s' (id=%s) -> incoming_context: %s",
+                    rule_name,
+                    rule_id,
+                    self._context_preview(context.data),
+                )
+
             # בדיקה אם הכלל מופעל
             if not rule.get("enabled", True):
                 return EvaluationResult(
@@ -395,6 +483,15 @@ class RuleEngine:
 
             # החזרת התוצאה
             actions = rule.get("actions", []) if matched else []
+
+            if verbose:
+                logger.warning(
+                    "Rule '%s' (id=%s) matched=%s, triggered_conditions=%s",
+                    rule_name,
+                    rule_id,
+                    bool(matched),
+                    self._safe_repr(triggered_conditions, limit=800),
+                )
 
             return EvaluationResult(
                 rule_id=rule_id,
@@ -441,11 +538,18 @@ class RuleEngine:
         field_name = condition.get("field", "")
         operator_name = condition.get("operator", "")
         expected_value = condition.get("value")
+        verbose = self._is_verbose(context)
 
         # קבלת הערך מההקשר
         actual_value = context.data.get(field_name)
         if actual_value is None:
-            logger.debug(f"Field '{field_name}' not found in context")
+            if verbose:
+                logger.warning(
+                    "Checking rule condition -> field '%s' missing in context (operator='%s', expected='%s')",
+                    field_name,
+                    operator_name,
+                    self._safe_value_for_field(field_name, expected_value),
+                )
             return False
 
         # קבלת פונקציית האופרטור
@@ -456,12 +560,38 @@ class RuleEngine:
 
         # הערכת התנאי
         try:
+            if verbose:
+                logger.warning(
+                    "Checking condition -> field '%s' value '%s' vs '%s' (op=%s)",
+                    field_name,
+                    self._safe_value_for_field(field_name, actual_value),
+                    self._safe_value_for_field(field_name, expected_value),
+                    operator_name,
+                )
             result = operator_func(actual_value, expected_value)
             if result:
                 triggered.append(f"{field_name} {operator_name} {expected_value}")
+            elif verbose:
+                logger.warning(
+                    "Condition failed -> Mismatch: field '%s' value '%s' vs '%s' (op=%s)",
+                    field_name,
+                    self._safe_value_for_field(field_name, actual_value),
+                    self._safe_value_for_field(field_name, expected_value),
+                    operator_name,
+                )
             return result
         except Exception as e:
-            logger.error(f"Error evaluating condition: {e}")
+            if verbose:
+                logger.warning(
+                    "Error evaluating condition (fail-closed): field '%s' value '%s' vs '%s' (op=%s) error=%s",
+                    field_name,
+                    self._safe_value_for_field(field_name, actual_value),
+                    self._safe_value_for_field(field_name, expected_value),
+                    operator_name,
+                    str(e),
+                )
+            else:
+                logger.error(f"Error evaluating condition: {e}")
             return False
 
     def _evaluate_group(
@@ -473,6 +603,7 @@ class RuleEngine:
         """מעריך קבוצת תנאים עם אופרטור לוגי."""
         operator = group.get("operator", "AND").upper()
         children = group.get("children", [])
+        verbose = self._is_verbose(context)
 
         if not children:
             # AND([]) => True, OR([]) => False. NOT דורש ילד אחד; ניפול ל-False (fail-closed).
@@ -490,9 +621,13 @@ class RuleEngine:
 
         if operator == "AND":
             child_results = [self._evaluate_node(child, context, triggered) for child in children]
+            if verbose:
+                logger.warning("Group AND evaluated -> results=%s -> %s", child_results, all(child_results))
             return all(child_results)
         if operator == "OR":
             child_results = [self._evaluate_node(child, context, triggered) for child in children]
+            if verbose:
+                logger.warning("Group OR evaluated -> results=%s -> %s", child_results, any(child_results))
             return any(child_results)
         if operator == "NOT":
             # 🔧 תיקון באג #6: NOT לא מוסיף תנאים שגויים ל-triggered
@@ -502,6 +637,8 @@ class RuleEngine:
                 temp_triggered: List[str] = []
                 child_result = self._evaluate_node(children[0], context, temp_triggered)
                 not_result = not child_result
+                if verbose:
+                    logger.warning("Group NOT evaluated -> child=%s -> %s", bool(child_result), bool(not_result))
 
                 # רק אם NOT מחזיר True (כלומר הילד לא התאים), נתעד את זה
                 if not_result:
