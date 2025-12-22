@@ -122,6 +122,26 @@ class TestGitHubIssueAction:
         assert result["success"] is False
         assert "token" in result["error"].lower()
 
+    @pytest.mark.asyncio
+    async def test_execute_updates_existing_issue_prefers_hash(self, action, sample_action_config, sample_alert):
+        # Prefer error_signature_hash over legacy error_signature
+        sample_alert = dict(sample_alert)
+        sample_alert["error_signature_hash"] = "hash-123"
+        sample_alert["error_signature"] = "legacy-should-not-be-used"
+
+        action._find_existing_issue = AsyncMock(  # type: ignore[method-assign]
+            return_value={"number": 7, "html_url": "https://github.com/test/repo/issues/7"}
+        )
+        action._add_occurrence_comment = AsyncMock(return_value=None)  # type: ignore[method-assign]
+
+        result = await action.execute(sample_action_config, sample_alert, ["x"])
+
+        assert result["success"] is True
+        assert result["action"] == "updated_existing"
+        assert result["issue_number"] == 7
+        action._find_existing_issue.assert_awaited_once_with("hash-123")
+        action._add_occurrence_comment.assert_awaited_once()
+
 
 class TestErrorSignature:
     """בדיקות לחישוב חתימת שגיאה."""

@@ -165,6 +165,93 @@ class TestRuleEngine:
 
         assert any("operator" in e for e in errors)
 
+    def test_empty_groups_evaluation_semantics(self, engine):
+        # evaluate() לא קורא validate_rule; לכן אנחנו מכסים את הסמנטיקה של קבוצות ריקות
+        and_rule = {
+            "rule_id": "and_empty",
+            "name": "and empty",
+            "enabled": True,
+            "conditions": {"type": "group", "operator": "AND", "children": []},
+            "actions": [],
+        }
+        or_rule = {
+            "rule_id": "or_empty",
+            "name": "or empty",
+            "enabled": True,
+            "conditions": {"type": "group", "operator": "OR", "children": []},
+            "actions": [],
+        }
+        not_rule = {
+            "rule_id": "not_empty",
+            "name": "not empty",
+            "enabled": True,
+            "conditions": {"type": "group", "operator": "NOT", "children": []},
+            "actions": [],
+        }
+
+        assert engine.evaluate(and_rule, EvaluationContext(data={})).matched is True
+        assert engine.evaluate(or_rule, EvaluationContext(data={})).matched is False
+        assert engine.evaluate(not_rule, EvaluationContext(data={})).matched is False
+
+    def test_not_group_does_not_leak_triggered_conditions(self, engine):
+        rule = {
+            "rule_id": "not_leak",
+            "name": "not leak",
+            "enabled": True,
+            "conditions": {
+                "type": "group",
+                "operator": "NOT",
+                "children": [{"type": "condition", "field": "x", "operator": "eq", "value": 1}],
+            },
+            "actions": [{"type": "send_alert"}],
+        }
+
+        result = engine.evaluate(rule, EvaluationContext(data={"x": 1}))
+        assert result.matched is False
+        # הילד התאפס ל-True אבל ה-NOT החזיר False -> לא מוסיפים triggered מהילד
+        assert result.triggered_conditions == []
+
+        result2 = engine.evaluate(rule, EvaluationContext(data={"x": 2}))
+        assert result2.matched is True
+        assert any("NOT(" in s for s in result2.triggered_conditions)
+
+    def test_unknown_node_type_evaluates_false(self, engine):
+        rule = {
+            "rule_id": "unknown_node",
+            "name": "unknown node",
+            "enabled": True,
+            "conditions": {"type": "wat", "x": 1},
+            "actions": [{"type": "send_alert"}],
+        }
+        assert engine.evaluate(rule, EvaluationContext(data={"x": 1})).matched is False
+
+    def test_validation_group_structure_rules(self, engine):
+        invalid = {
+            "rule_id": "bad",
+            "name": "bad",
+            "conditions": {"type": "group", "operator": "AND", "children": []},
+            "actions": [{"foo": "bar"}],
+        }
+        errors = engine.validate_rule(invalid)
+        assert any("must have at least one child" in e for e in errors)
+        assert any("Action" in e and "type" in e for e in errors)
+
+        invalid_not = {
+            "rule_id": "bad2",
+            "name": "bad2",
+            "conditions": {
+                "type": "group",
+                "operator": "NOT",
+                "children": [
+                    {"type": "condition", "field": "x", "operator": "eq", "value": 1},
+                    {"type": "condition", "field": "y", "operator": "eq", "value": 2},
+                ],
+            },
+            "actions": [],
+        }
+        errors2 = engine.validate_rule(invalid_not)
+        assert any("must have exactly one child" in e for e in errors2)
+
 
 class TestEvaluationPerformance:
     """בדיקות ביצועים."""
