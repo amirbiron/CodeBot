@@ -251,27 +251,37 @@
 .rule-builder h4,
 .rule-builder h5,
 .rule-builder h6 {
-    color: #1f2937 !important; /* Dark Grey/Black */
+    color: var(--solid-surface-text, var(--text-primary, #1f2937)) !important;
 }
 
 /* 2. Fix Card Headers inside the builder (THEN, IF, AND, OR, NOT) */
 .rule-builder .card-header,
 .rule-builder .block__title,
 .rule-builder .card-title {
-    color: #1f2937 !important;
+    color: var(--solid-surface-text, var(--text-primary, #1f2937)) !important;
     font-weight: bold;
 }
 
 /* 3. Fix Table Headers at the bottom (שם, סטטוס, תנאים...) */
 .rule-builder table thead th,
 .rule-builder .table thead th {
-    color: #1f2937 !important;
-    background-color: #f3f4f6 !important; /* Light grey background for contrast */
-    border-bottom: 2px solid #d1d5db !important;
+    color: var(--solid-surface-text, var(--text-primary, #1f2937)) !important;
+    background-color: var(--surface-color, #f3f4f6) !important;
+    border-bottom: 2px solid var(--border-color, #d1d5db) !important;
 }
 
 /* 4. Fix drag placeholders text (גרור תנאים לכאן) */
 .rule-builder .empty-hint {
-    color: #4b5563 !important;
+    color: var(--text-secondary, #4b5563);
+}
+
+/* Preview has a dark background - keep headings readable there */
+.rule-builder .rule-builder__preview h1,
+.rule-builder .rule-builder__preview h2,
+.rule-builder .rule-builder__preview h3,
+.rule-builder .rule-builder__preview h4,
+.rule-builder .rule-builder__preview h5,
+.rule-builder .rule-builder__preview h6 {
+    color: var(--text-secondary, #90a4ae) !important;
 }
 
