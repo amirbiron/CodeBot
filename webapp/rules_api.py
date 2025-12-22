@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import logging
 import os
+import time
 import uuid
 from functools import wraps
 
@@ -23,6 +24,21 @@ from services.rule_engine import AVAILABLE_FIELDS, EvaluationContext, get_rule_e
 logger = logging.getLogger(__name__)
 
 rules_bp = Blueprint("rules", __name__)
+
+
+def _is_truthy(raw: str | None) -> bool:
+    try:
+        v = (raw or "").strip().lower()
+        return v in {"1", "true", "yes", "on"}
+    except Exception:
+        return False
+
+
+def _rules_test_handler_debug_enabled() -> bool:
+    # Off by default (avoid noisy logs). Enable via query param or env.
+    if _is_truthy(request.args.get("debug")):
+        return True
+    return _is_truthy(os.getenv("RULES_TEST_HANDLER_DEBUG"))
 
 
 def get_db():
@@ -124,6 +140,54 @@ def rules_test():
     except Exception:
         return jsonify({"error": "Invalid JSON"}), 400
 
+    if _rules_test_handler_debug_enabled():
+        # DEBUG Print פרימיטיבי וישיר — כדי לוודא שה-handler באמת רץ, ומה הוא רואה.
+        user_id = session.get("user_id")
+        project_id = None
+        try:
+            if isinstance(test_data, dict):
+                project_id = (
+                    test_data.get("project_id")
+                    or test_data.get("project")
+                    or test_data.get("sentry_project_id")
+                    or test_data.get("sentry_project")
+                )
+        except Exception:
+            project_id = None
+
+        try:
+            print("*** DEBUG: Starting Rule Test Handler ***")
+            print(f"*** DEBUG: user_id={user_id!r} project_id={project_id!r} ***")
+        except Exception:
+            pass
+
+        try:
+            storage = get_rules_storage(get_db())
+            enabled_count = int(storage.count_rules(enabled_only=True))
+            try:
+                # best-effort: אם יש created_by בפועל אצלכם, ננסה לספור גם לפיו
+                created_by = str(user_id) if user_id is not None else None
+                created_by_count = len(storage.list_rules(enabled_only=True, created_by=created_by, limit=200, offset=0)) if created_by else 0
+            except Exception:
+                created_by_count = 0
+            msg = f"*** DEBUG: Found {enabled_count} active rules (enabled=true) ***"
+            msg2 = f"*** DEBUG: Found {created_by_count} active rules for created_by={str(user_id)!r} ***"
+            try:
+                print(msg)
+                print(msg2)
+            except Exception:
+                pass
+            try:
+                logger.warning("%s %s", msg, msg2)
+            except Exception:
+                pass
+        except Exception as e:
+            try:
+                print(f"*** DEBUG: Failed counting rules from DB: {e!r} ***")
+            except Exception:
+                pass
+
+    start_ts = time.perf_counter()
     engine = get_rule_engine()
     errors = engine.validate_rule(rule)
 
@@ -132,6 +196,7 @@ def rules_test():
 
     context = EvaluationContext(data=test_data, metadata={"verbose": bool(verbose), "origin": "api.rules.test"})
     result = engine.evaluate(rule, context)
+    handler_eval_ms = (time.perf_counter() - start_ts) * 1000.0
 
     return jsonify(
         {
@@ -140,6 +205,7 @@ def rules_test():
             "triggered_conditions": result.triggered_conditions,
             "actions": result.actions_to_execute,
             "evaluation_time_ms": result.evaluation_time_ms,
+            "handler_time_ms": handler_eval_ms,
         }
     )
 
