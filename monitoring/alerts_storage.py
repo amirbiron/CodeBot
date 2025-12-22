@@ -363,11 +363,22 @@ def is_new_error(signature: str) -> bool:
 
 def enrich_alert_with_signature(alert_data: Dict[str, Any]) -> Dict[str, Any]:
     """מעשיר את נתוני ההתראה עם חתימה ומידע על חדשות."""
-    signature = compute_error_signature(alert_data or {})
-    is_new = is_new_error(signature)
+    # חשוב: בפרויקט כבר ייתכן שדה error_signature עם מזהה "טקסונומי" (למשל OOM_KILLED).
+    # אסור לדרוס אותו. את ה-fingerprint (hash) נשמור בשדה נפרד.
+    signature_hash = compute_error_signature(alert_data or {})
+    is_new = is_new_error(signature_hash)
 
-    alert_data["error_signature"] = signature
+    # תמיד נשמור את ה-hash בנפרד כדי שתהיה אפשרות להשתמש בו לכללי "שגיאה חדשה"
+    alert_data["error_signature_hash"] = signature_hash
     alert_data["is_new_error"] = is_new
+
+    # תאימות למדריך: אם אין error_signature קיים, נשתמש ב-hash כברירת מחדל
+    try:
+        existing = alert_data.get("error_signature")
+    except Exception:
+        existing = None
+    if existing in (None, "", False):
+        alert_data["error_signature"] = signature_hash
 
     return alert_data
 
