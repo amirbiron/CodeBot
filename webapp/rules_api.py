@@ -120,6 +120,7 @@ def rules_test():
             return jsonify({"error": "Invalid JSON"}), 400
         rule = data.get("rule", {})
         test_data = data.get("data", {})
+        verbose = str(request.args.get("verbose", "true") or "true").strip().lower() not in {"0", "false", "no", "off"}
     except Exception:
         return jsonify({"error": "Invalid JSON"}), 400
 
@@ -129,7 +130,7 @@ def rules_test():
     if errors:
         return jsonify({"valid": False, "errors": errors})
 
-    context = EvaluationContext(data=test_data)
+    context = EvaluationContext(data=test_data, metadata={"verbose": bool(verbose), "origin": "api.rules.test"})
     result = engine.evaluate(rule, context)
 
     return jsonify(

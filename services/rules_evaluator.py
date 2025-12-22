@@ -14,11 +14,68 @@ import ipaddress
 from urllib.parse import urlparse
 import os
 import json
+import re
 
 logger = logging.getLogger(__name__)
 
+_SENSITIVE_KEYS = ("token", "password", "secret", "authorization", "api_key", "apikey", "private_key", "key")
 
-def evaluate_alert_rules(alert_data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+
+def _truthy_env(name: str) -> bool:
+    try:
+        raw = (os.getenv(name) or "").strip().lower()
+        return raw in {"1", "true", "yes", "on"}
+    except Exception:
+        return False
+
+
+def _safe_str(value: Any, *, limit: int = 600) -> str:
+    try:
+        text = str(value)
+    except Exception:
+        text = "<unprintable>"
+    text = text.replace("\n", "\\n")
+    if len(text) > limit:
+        return text[: max(0, limit - 1)] + "…"
+    return text
+
+
+def _looks_sensitive_key(key: str) -> bool:
+    try:
+        lk = str(key or "").lower()
+    except Exception:
+        return False
+    return any(m in lk for m in _SENSITIVE_KEYS)
+
+
+def _sanitize_for_log(obj: Any) -> Any:
+    """Best-effort sanitation for logging: redact obvious secrets + shrink huge fields."""
+    try:
+        if isinstance(obj, dict):
+            out: Dict[str, Any] = {}
+            for k, v in obj.items():
+                if _looks_sensitive_key(str(k)):
+                    out[k] = "<REDACTED>"
+                    continue
+                # avoid huge blobs
+                if str(k).lower() in {"stack_trace", "traceback", "error_message", "message", "content", "raw_data"}:
+                    out[k] = _safe_str(v, limit=220)
+                    continue
+                out[k] = _sanitize_for_log(v)
+            return out
+        if isinstance(obj, list):
+            return [_sanitize_for_log(x) for x in obj[:20]]
+        if isinstance(obj, tuple):
+            return tuple(_sanitize_for_log(x) for x in obj[:20])
+        if isinstance(obj, str):
+            # normalize obvious memory addresses to reduce noise in logs
+            return re.sub(r"0x[0-9a-fA-F]+", "<ADDR>", _safe_str(obj, limit=600))
+        return obj
+    except Exception:
+        return "<unprintable>"
+
+
+def evaluate_alert_rules(alert_data: Dict[str, Any], *, verbose: Optional[bool] = None) -> Optional[Dict[str, Any]]:
     """
     מעריך את כל הכללים הפעילים על התראה נכנסת.
 
@@ -46,6 +103,16 @@ def evaluate_alert_rules(alert_data: Dict[str, Any]) -> Optional[Dict[str, Any]]
     ```
     """
     try:
+        if verbose is None:
+            # ברירת מחדל: שקט. הדלקה רק כשצריך (סימולטור/דיבוג).
+            verbose = _truthy_env("RULES_VERBOSE_LOGGING") or _truthy_env("RULES_EVALUATOR_VERBOSE")
+
+        if verbose:
+            try:
+                logger.warning("Rules evaluator input alert_data=%s", _safe_str(_sanitize_for_log(alert_data)))
+            except Exception:
+                pass
+
         # חשוב: לא לייבא מ-webapp.app כאן.
         # בזמן startup ייתכן ש-webapp/app.py עדיין באמצע import ואז get_db לא מוגדר עדיין,
         # מה שגורם ל: "cannot import name 'get_db' from partially initialized module".
@@ -112,7 +179,19 @@ def evaluate_alert_rules(alert_data: Dict[str, Any]) -> Optional[Dict[str, Any]]
 
         for rule in rules:
             try:
-                context = EvaluationContext(data=context_data)
+                context = EvaluationContext(
+                    data=context_data,
+                    metadata={"verbose": bool(verbose), "origin": "services.rules_evaluator"},
+                )
+                if verbose:
+                    try:
+                        logger.warning(
+                            "Evaluating rule '%s' (id=%s)",
+                            str(rule.get("name") or rule.get("rule_id") or ""),
+                            str(rule.get("rule_id") or ""),
+                        )
+                    except Exception:
+                        pass
                 result = engine.evaluate(rule, context)
 
                 if result.matched:
@@ -129,12 +208,22 @@ def evaluate_alert_rules(alert_data: Dict[str, Any]) -> Optional[Dict[str, Any]]
                 continue
 
         if matched_rules:
+            if verbose:
+                try:
+                    logger.warning("Rules evaluator done: matched_rules=%s/%s", len(matched_rules), len(rules))
+                except Exception:
+                    pass
             return {
                 "matched": True,
                 "rules": matched_rules,
                 "alert_data": alert_data,
             }
 
+        if verbose:
+            try:
+                logger.warning("Rules evaluator done: matched_rules=0/%s", len(rules))
+            except Exception:
+                pass
         return None
 
     except Exception as e:
