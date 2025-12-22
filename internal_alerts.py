@@ -18,11 +18,14 @@ from collections import deque
 from datetime import datetime, timezone
 from typing import Any, Dict, List
 import os
+import logging
 
 try:
     from prometheus_client import Counter, REGISTRY
 except Exception:  # pragma: no cover
     Counter = REGISTRY = None  # type: ignore
+
+logger = logging.getLogger(__name__)
 
 try:  # runtime optional
     from http_sync import request  # type: ignore
@@ -457,6 +460,42 @@ def emit_internal_alert(name: str, severity: str = "info", summary: str = "", **
             is_drill=bool(is_drill),
             handled=True if is_drill else None,
         )
+
+        # 🔧 הערכת כללים ויזואליים לפני שליחה
+        try:
+            from services.rules_evaluator import evaluate_alert_rules, execute_matched_actions
+
+            details_payload = details if isinstance(details, dict) else {}
+
+            alert_payload = {
+                "name": str(name),
+                "severity": str(severity),
+                "summary": str(summary),
+                "details": details_payload,
+                "source": "internal_alerts",
+                "silenced": False,
+            }
+
+            evaluation = evaluate_alert_rules(alert_payload)
+            if evaluation:
+                execute_matched_actions(evaluation)
+
+                # אם הכלל דרש suppress, לא נשלח
+                if alert_payload.get("silenced"):
+                    try:
+                        logger.info(
+                            "Alert silenced by rule: %s",
+                            alert_payload.get("silenced_by_rule"),
+                        )
+                    except Exception:
+                        pass
+                    return  # דלג על שליחה
+
+        except Exception as e:
+            try:
+                logger.warning("Rules evaluation failed: %s", e)
+            except Exception:
+                pass
 
         # Note: Do not persist here to avoid double counting with alert_manager.
 

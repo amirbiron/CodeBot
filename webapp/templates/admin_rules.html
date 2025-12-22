@@ -1,0 +1,351 @@
+{% extends "base.html" %}
+
+{% block title %}מנהל כללים{% endblock %}
+
+{% block extra_css %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/rule-builder.css') }}">
+<script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.0/Sortable.min.js"></script>
+<style>
+    /* 🔧 סגנונות מותאמים לפרויקט (ללא Bootstrap) */
+    .rules-page { padding: 1.5rem; max-width: 1400px; margin: 0 auto; }
+    .rules-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem; flex-wrap: wrap; gap: 1rem; }
+    .rules-header h1 { margin: 0; font-size: 1.5rem; color: var(--text-primary, #333); }
+    .rules-header p { margin: 0.25rem 0 0; color: var(--text-secondary, #666); font-size: 0.9rem; }
+    .rules-actions { display: flex; gap: 0.5rem; }
+
+    .rules-grid { display: grid; grid-template-columns: 350px 1fr; gap: 1.5rem; margin-bottom: 1.5rem; }
+    @media (max-width: 900px) { .rules-grid { grid-template-columns: 1fr; } }
+
+    .rules-card { background: var(--card-bg, #fff); border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.08); overflow: hidden; }
+    .rules-card__header { padding: 0.75rem 1rem; background: var(--surface-color, #f8f9fa); border-bottom: 1px solid var(--border-color, #e0e0e0); }
+    .rules-card__header h3 { margin: 0; font-size: 1rem; font-weight: 600; }
+    .rules-card__body { padding: 1rem; }
+
+    .form-group { margin-bottom: 1rem; }
+    .form-group label { display: block; margin-bottom: 0.25rem; font-weight: 500; font-size: 0.875rem; }
+    .form-group input, .form-group textarea { width: 100%; padding: 0.5rem; border: 1px solid var(--border-color, #ddd); border-radius: 4px; font-size: 0.9rem; }
+    .form-group input:focus, .form-group textarea:focus { outline: none; border-color: var(--primary, #667eea); }
+
+    .toggle-switch { display: flex; align-items: center; gap: 0.5rem; }
+    .toggle-switch input[type="checkbox"] { width: 40px; height: 22px; appearance: none; background: #ccc; border-radius: 11px; cursor: pointer; transition: background 0.2s; }
+    .toggle-switch input[type="checkbox"]:checked { background: var(--success-color, #4caf50); }
+
+    .rules-table { width: 100%; border-collapse: collapse; }
+    .rules-table th, .rules-table td { padding: 0.75rem; text-align: right; border-bottom: 1px solid var(--border-color, #eee); }
+    .rules-table th { background: var(--surface-color, #f8f9fa); font-weight: 600; font-size: 0.8rem; text-transform: uppercase; }
+    .rules-table tbody tr:hover { background: var(--hover-bg, rgba(0,0,0,0.02)); }
+
+    .status-badge { display: inline-block; padding: 0.2rem 0.5rem; border-radius: 4px; font-size: 0.75rem; font-weight: 500; }
+    .status-badge--active { background: var(--success-light, #e8f5e9); color: var(--success-color, #4caf50); }
+    .status-badge--inactive { background: var(--surface-color, #f0f0f0); color: var(--text-secondary, #666); }
+
+    /* Modal פשוט ללא Bootstrap */
+    .modal-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.5); z-index: 1000; justify-content: center; align-items: center; }
+    .modal-overlay.active { display: flex; }
+    .modal-box { background: var(--card-bg, #fff); border-radius: 8px; max-width: 600px; width: 90%; max-height: 80vh; overflow: auto; }
+    .modal-header { padding: 1rem; border-bottom: 1px solid var(--border-color, #e0e0e0); display: flex; justify-content: space-between; align-items: center; }
+    .modal-header h3 { margin: 0; font-size: 1.1rem; }
+    .modal-close { background: none; border: none; font-size: 1.5rem; cursor: pointer; color: var(--text-secondary, #666); }
+    .modal-body { padding: 1rem; }
+    .modal-footer { padding: 1rem; border-top: 1px solid var(--border-color, #e0e0e0); display: flex; justify-content: flex-end; gap: 0.5rem; }
+
+    .test-result { margin-top: 1rem; padding: 1rem; border-radius: 6px; display: none; }
+    .test-result--success { background: var(--success-light, #e8f5e9); border: 1px solid var(--success-color, #4caf50); }
+    .test-result--warning { background: var(--warning-light, #fff3e0); border: 1px solid var(--warning-color, #ff9800); }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="rules-page">
+    <div class="rules-header">
+        <div>
+            <h1>🎯 מנהל כללים ויזואלי</h1>
+            <p>בנה כללי התראה מותאמים אישית בממשק Drag & Drop</p>
+        </div>
+        <div class="rules-actions">
+            <button id="save-rule" class="btn btn-primary"><i class="fas fa-save"></i> שמור כלל</button>
+            <button id="test-rule" class="btn btn-secondary"><i class="fas fa-flask"></i> בדוק כלל</button>
+        </div>
+    </div>
+
+    <div class="rules-grid">
+        <div class="rules-card">
+            <div class="rules-card__header">
+                <h3>📋 פרטי הכלל</h3>
+            </div>
+            <div class="rules-card__body">
+                <div class="form-group">
+                    <label for="rule-name">שם הכלל</label>
+                    <input type="text" id="rule-name" placeholder="כלל חדש">
+                </div>
+                <div class="form-group">
+                    <label for="rule-description">תיאור</label>
+                    <textarea id="rule-description" rows="2"></textarea>
+                </div>
+                <div class="toggle-switch">
+                    <input type="checkbox" id="rule-enabled" checked>
+                    <label for="rule-enabled">כלל פעיל</label>
+                </div>
+            </div>
+        </div>
+
+        <div class="rules-card">
+            <div class="rules-card__header">
+                <h3>🔧 בונה הכלל</h3>
+            </div>
+            <div class="rules-card__body">
+                <div id="rule-builder"></div>
+            </div>
+        </div>
+    </div>
+
+    <div class="rules-card">
+        <div class="rules-card__header">
+            <h3>📜 כללים קיימים</h3>
+        </div>
+        <div class="rules-card__body">
+            <table class="rules-table" id="rules-table">
+                <thead>
+                    <tr>
+                        <th>שם</th>
+                        <th>סטטוס</th>
+                        <th>תנאים</th>
+                        <th>עדכון אחרון</th>
+                        <th>פעולות</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <!-- Populated by JS -->
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<!-- Test Modal (ללא Bootstrap) -->
+<div class="modal-overlay" id="test-modal">
+    <div class="modal-box">
+        <div class="modal-header">
+            <h3>🧪 בדיקת כלל</h3>
+            <button class="modal-close" onclick="closeTestModal()">&times;</button>
+        </div>
+        <div class="modal-body">
+            <div class="form-group">
+                <label>נתוני בדיקה (JSON)</label>
+                <textarea id="test-data" rows="8" style="font-family: monospace;">{
+  "alert_name": "Test Alert",
+  "severity": "warning",
+  "alert_type": "sentry_issue",
+  "project": "api-gateway",
+  "environment": "production"
+}</textarea>
+            </div>
+            <div id="test-result" class="test-result"></div>
+        </div>
+        <div class="modal-footer">
+            <button class="btn btn-secondary" onclick="closeTestModal()">סגור</button>
+            <button class="btn btn-primary" id="run-test">הרץ בדיקה</button>
+        </div>
+    </div>
+</div>
+
+<script src="{{ url_for('static', filename='js/rule-builder.js') }}"></script>
+<script>
+// 🔧 Modal פשוט ללא Bootstrap
+function openTestModal() {
+    document.getElementById('test-modal').classList.add('active');
+}
+function closeTestModal() {
+    document.getElementById('test-modal').classList.remove('active');
+}
+
+document.addEventListener('DOMContentLoaded', async function() {
+    // בסיסי: Escape כדי להימנע מ-XSS כשכן משתמשים ב-innerHTML
+    function escapeHtml(value) {
+        const s = String(value ?? '');
+        return s
+            .replaceAll('&', '&amp;')
+            .replaceAll('<', '&lt;')
+            .replaceAll('>', '&gt;')
+            .replaceAll('"', '&quot;')
+            .replaceAll("'", '&#39;');
+    }
+
+    // טעינת שדות זמינים
+    const fieldsResponse = await fetch('/api/rules/fields');
+    const { fields } = await fieldsResponse.json();
+
+    // אתחול בונה הכללים
+    const builder = new RuleBuilder('rule-builder', {
+        availableFields: fields,
+        onRuleChange: (rule) => {
+            console.log('Rule changed:', rule);
+        }
+    });
+
+    // שמירת כלל
+    document.getElementById('save-rule').addEventListener('click', async () => {
+        const rule = builder.getRule();
+        rule.name = document.getElementById('rule-name').value;
+        rule.description = document.getElementById('rule-description').value;
+        rule.enabled = document.getElementById('rule-enabled').checked;
+
+        const errors = builder.validate();
+        if (errors.length > 0) {
+            alert('שגיאות: ' + errors.join('\n'));
+            return;
+        }
+
+        const response = await fetch('/api/rules', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(rule)
+        });
+
+        if (response.ok) {
+            alert('הכלל נשמר בהצלחה!');
+            loadRules();
+        } else {
+            const error = await response.json();
+            alert('שגיאה: ' + (error.details || error.error));
+        }
+    });
+
+    // בדיקת כלל - פתיחת Modal
+    document.getElementById('test-rule').addEventListener('click', openTestModal);
+
+    document.getElementById('run-test').addEventListener('click', async () => {
+        const rule = builder.getRule();
+        let testData;
+
+        try {
+            testData = JSON.parse(document.getElementById('test-data').value);
+        } catch (e) {
+            alert('JSON לא תקין');
+            return;
+        }
+
+        const response = await fetch('/api/rules/test', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ rule, data: testData })
+        });
+
+        const result = await response.json();
+        const resultDiv = document.getElementById('test-result');
+        resultDiv.style.display = 'block';
+
+        if (result.matched) {
+            resultDiv.className = 'test-result test-result--success';
+            resultDiv.innerHTML = `
+                <strong>✅ הכלל התאים!</strong><br>
+                תנאים שהופעלו: ${result.triggered_conditions.join(', ')}<br>
+                פעולות: ${result.actions.map(a => a.type).join(', ')}<br>
+                זמן הערכה: ${result.evaluation_time_ms.toFixed(2)}ms
+            `;
+        } else {
+            resultDiv.className = 'test-result test-result--warning';
+            resultDiv.innerHTML = `
+                <strong>❌ הכלל לא התאים</strong><br>
+                הנתונים לא עמדו בתנאים.
+            `;
+        }
+    });
+
+    // טעינת כללים קיימים (🔧 ללא Bootstrap classes)
+    async function loadRules() {
+        const response = await fetch('/api/rules');
+        const { rules } = await response.json();
+
+        const tbody = document.querySelector('#rules-table tbody');
+        tbody.replaceChildren();
+
+        (rules || []).forEach((rule) => {
+            const tr = document.createElement('tr');
+
+            // שם
+            const tdName = document.createElement('td');
+            const strong = document.createElement('strong');
+            strong.textContent = rule?.name || rule?.rule_id || '';
+            tdName.appendChild(strong);
+            tr.appendChild(tdName);
+
+            // סטטוס
+            const tdStatus = document.createElement('td');
+            const badge = document.createElement('span');
+            badge.className = `status-badge ${rule?.enabled ? 'status-badge--active' : 'status-badge--inactive'}`;
+            badge.textContent = rule?.enabled ? 'פעיל' : 'מושבת';
+            tdStatus.appendChild(badge);
+            tr.appendChild(tdStatus);
+
+            // תנאים
+            const tdConditions = document.createElement('td');
+            tdConditions.textContent = `${countConditions(rule?.conditions)} תנאים`;
+            tr.appendChild(tdConditions);
+
+            // עדכון אחרון
+            const tdUpdated = document.createElement('td');
+            try {
+                tdUpdated.textContent = new Date(rule?.updated_at).toLocaleString('he-IL');
+            } catch (e) {
+                tdUpdated.textContent = '';
+            }
+            tr.appendChild(tdUpdated);
+
+            // פעולות
+            const tdActions = document.createElement('td');
+            const btnEdit = document.createElement('button');
+            btnEdit.className = 'btn btn-sm';
+            btnEdit.type = 'button';
+            btnEdit.dataset.ruleId = String(rule?.rule_id || '');
+            btnEdit.innerHTML = `<i class="fas fa-edit"></i> ${escapeHtml('ערוך')}`;
+            btnEdit.addEventListener('click', () => editRule(btnEdit.dataset.ruleId));
+
+            const btnDelete = document.createElement('button');
+            btnDelete.className = 'btn btn-sm btn-danger';
+            btnDelete.type = 'button';
+            btnDelete.dataset.ruleId = String(rule?.rule_id || '');
+            btnDelete.innerHTML = `<i class="fas fa-trash"></i> ${escapeHtml('מחק')}`;
+            btnDelete.addEventListener('click', () => deleteRule(btnDelete.dataset.ruleId));
+
+            tdActions.appendChild(btnEdit);
+            tdActions.appendChild(document.createTextNode(' '));
+            tdActions.appendChild(btnDelete);
+            tr.appendChild(tdActions);
+
+            tbody.appendChild(tr);
+        });
+    }
+
+    function countConditions(node) {
+        if (!node) return 0;
+        if (node.type === 'condition') return 1;
+        if (node.type === 'group') {
+            return (node.children || []).reduce((sum, child) => sum + countConditions(child), 0);
+        }
+        return 0;
+    }
+
+    window.editRule = async (ruleId) => {
+        const response = await fetch(`/api/rules/${ruleId}`);
+        const rule = await response.json();
+
+        document.getElementById('rule-name').value = rule.name || '';
+        document.getElementById('rule-description').value = rule.description || '';
+        document.getElementById('rule-enabled').checked = rule.enabled;
+        builder.setRule(rule);
+    };
+
+    window.deleteRule = async (ruleId) => {
+        if (!confirm('למחוק את הכלל?')) return;
+
+        await fetch(`/api/rules/${ruleId}`, { method: 'DELETE' });
+        loadRules();
+    };
+
+    // טעינה ראשונית
+    loadRules();
+});
+</script>
+{% endblock %}
+

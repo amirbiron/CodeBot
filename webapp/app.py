@@ -954,6 +954,17 @@ try:
 except Exception:
     pass
 
+# Visual Rules API (Visual Rule Engine)
+try:
+    from webapp.rules_api import rules_bp  # noqa: E402
+    app.register_blueprint(rules_bp, url_prefix="/api/rules")
+except Exception as _e:
+    # אל תפיל את היישום אם ה-Blueprint אינו זמין (למשל בסביבת דוקס/CI)
+    try:
+        logger.info("rules_api blueprint not registered: %s", _e)
+    except Exception:
+        pass
+
 # --- Metrics helpers (import guarded to avoid hard deps in docs/CI) ---
 try:
     from metrics import (
@@ -3362,6 +3373,13 @@ def admin_observability_page():
         default_range='24h',
         default_page=1,
     )
+
+
+@app.route('/admin/rules')
+@admin_required
+def admin_rules_page():
+    """מסך אדמין למנוע כללים ויזואלי (Visual Rule Engine)."""
+    return render_template('admin_rules.html')
 
 
 @app.route('/admin/config-inspector')

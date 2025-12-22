@@ -3489,3 +3489,41 @@ def _render_story_markdown(story: Dict[str, Any]) -> str:
         lines.append("## 💡 תובנות")
         lines.append(insights)
     return "\n".join(lines).strip() + "\n"
+
+
+async def get_rule_suggestions_for_alert(alert: Dict[str, Any]) -> List[Dict[str, Any]]:
+    """מציע כללים רלוונטיים על בסיס התראה."""
+    suggestions = []
+
+    alert_type = alert.get("alert_type", "")
+
+    # הצעת כלל לפי סוג ההתראה
+    if "error" in str(alert_type).lower():
+        suggestions.append(
+            {
+                "name": f"כלל מותאם ל-{alert_type}",
+                "template": {
+                    "conditions": {
+                        "type": "group",
+                        "operator": "AND",
+                        "children": [
+                            {
+                                "type": "condition",
+                                "field": "alert_type",
+                                "operator": "eq",
+                                "value": alert_type,
+                            },
+                            {
+                                "type": "condition",
+                                "field": "error_rate",
+                                "operator": "gt",
+                                "value": 0.05,
+                            },
+                        ],
+                    },
+                    "actions": [{"type": "send_alert", "severity": "critical"}],
+                },
+            }
+        )
+
+    return suggestions
