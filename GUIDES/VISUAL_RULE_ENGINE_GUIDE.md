@@ -32,6 +32,8 @@
 | 6 | **אינטגרציה עם התראות** | תוקן למבנה הקיים (`name`, `severity`, `summary`, `details`) + מיפוי שדות מפורש |
 | 7 | **URL encoding** | תוקן ב-`_find_existing_issue` - שימוש ב-`urllib.parse.quote` |
 | 8 | **Bootstrap → CSS קיים** | התבנית שוכתבה ללא Bootstrap, עם סגנונות מותאמים ו-Modal פשוט |
+| 9 | **admin_required** | תוקן לבדוק גם login וגם `ADMIN_USER_IDS` (לא רק login!) |
+| 10 | **asyncio.run nested** | תוקן `_create_github_issue` - שימוש ב-`ThreadPoolExecutor` במקום `asyncio.run()` |
 
 ---
 
@@ -1653,16 +1655,41 @@ def get_db():
 
 
 def admin_required(f):
-    """דקורטור לבדיקת הרשאות admin - התאם לפרויקט הקיים."""
+    """
+    דקורטור לבדיקת הרשאות admin.
+    
+    🔧 חשוב: משתמש בלוגיקה הקיימת של webapp/app.py!
+    בודק גם login וגם שהמשתמש נמצא ב-ADMIN_USER_IDS.
+    
+    אפשרות 1 (מומלצת): שימוש בדקורטור הקיים:
+        from webapp.app import admin_required
+        
+    אפשרות 2: מימוש מקומי (תואם לקיים):
+    """
     @wraps(f)
     def decorated(*args, **kwargs):
-        # 🔧 התאם ללוגיקת האימות הקיימת ב-webapp/app.py
-        from flask import session
-        if not session.get('user_id'):
-            return jsonify({"error": "unauthorized"}), 401
-        # אופציונלי: בדיקת is_admin
+        import os
+        from flask import session, abort
+        
+        # 1. בדיקת login
+        user_id = session.get('user_id')
+        if not user_id:
+            return jsonify({"error": "unauthorized", "message": "נדרשת התחברות"}), 401
+        
+        # 2. בדיקת admin (חובה! לא אופציונלי!)
+        admin_ids_env = os.getenv('ADMIN_USER_IDS', '')
+        admin_ids_list = admin_ids_env.split(',') if admin_ids_env else []
+        admin_ids = [int(x.strip()) for x in admin_ids_list if x.strip().isdigit()]
+        
+        if user_id not in admin_ids:
+            return jsonify({"error": "forbidden", "message": "אין הרשאת אדמין"}), 403
+        
         return f(*args, **kwargs)
     return decorated
+
+
+# 🔧 אלטרנטיבה מומלצת: ייבוא הדקורטור הקיים במקום כתיבה מחדש:
+# from webapp.app import admin_required
 
 
 @rules_bp.route('', methods=['GET'])
@@ -2024,13 +2051,44 @@ def _send_custom_notification(action: Dict, alert_data: Dict, matched_rule: Dict
 
 
 def _create_github_issue(action: Dict, alert_data: Dict, matched_rule: Dict) -> None:
-    """יוצר GitHub Issue (ראה github_issue_action.py)."""
+    """
+    יוצר GitHub Issue (ראה github_issue_action.py).
+    
+    🔧 תיקון באג: asyncio.run() נכשל ב-nested event loop!
+    - Flask עם ASGI (Hypercorn/uvicorn) כבר מריץ event loop
+    - asyncio.run() יזרוק RuntimeError במקרה כזה
+    
+    פתרון: שימוש ב-ThreadPoolExecutor להרצת async code.
+    """
     try:
         from services.github_issue_action import GitHubIssueAction
-        handler = GitHubIssueAction()
-        # הפעלה סינכרונית (או דרך thread pool)
+        from concurrent.futures import ThreadPoolExecutor
         import asyncio
-        asyncio.run(handler.execute(action, alert_data, matched_rule.get("triggered_conditions", [])))
+        
+        handler = GitHubIssueAction()
+        triggered = matched_rule.get("triggered_conditions", [])
+        
+        def run_async():
+            """הרצה בתוך thread חדש עם event loop נקי."""
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            try:
+                return loop.run_until_complete(
+                    handler.execute(action, alert_data, triggered)
+                )
+            finally:
+                loop.close()
+        
+        # הרצה ב-thread pool כדי לא לחסום את ה-request
+        with ThreadPoolExecutor(max_workers=1) as executor:
+            future = executor.submit(run_async)
+            result = future.result(timeout=30)  # timeout לבטיחות
+            
+            if result and not result.get("success"):
+                logger.warning(f"GitHub issue creation failed: {result.get('error')}")
+            elif result and result.get("success"):
+                logger.info(f"GitHub issue created: {result.get('issue_url')}")
+                
     except Exception as e:
         logger.error(f"Error creating GitHub issue: {e}")
 
