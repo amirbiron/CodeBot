@@ -296,14 +296,78 @@ def compute_error_signature(error_data: Dict[str, Any]) -> str:
     - 3 השורות הראשונות של ה-stack trace
     """
     try:
+        def _normalize_error_text(text: Any) -> str:
+            """
+            Normalize error/trace text before hashing to keep signatures stable across:
+            - dynamic hex memory addresses (0x7f...)
+            - absolute file paths that differ between environments
+            - noisy line numbers (optional)
+            """
+            if text in (None, ""):
+                return ""
+            try:
+                s = str(text)
+            except Exception:
+                return ""
+
+            # Normalize line endings
+            s = s.replace("\r\n", "\n").replace("\r", "\n")
+
+            # Replace hex memory addresses (0x7f..., 0x0000...)
+            s = re.sub(r"0x[0-9a-fA-F]+", "<ADDR>", s)
+
+            # Normalize absolute file paths to basename (Linux/Unix + Windows), only when it looks like a file.
+            s = re.sub(
+                r"/(?:[^\s/]+/)+([^\s/]+\.(?:py|js|ts|tsx|java|go|rb))",
+                r"\1",
+                s,
+            )
+            s = re.sub(
+                r"[A-Za-z]:\\(?:[^\s\\]+\\)+([^\s\\]+\.(?:py|js|ts|tsx|java|go|rb))",
+                r"\1",
+                s,
+            )
+
+            # Normalize common traceback patterns: `File "...", line 123`
+            s = re.sub(r'\bFile\s+"([^"]*/)([^"/]+)"', r'File "\2"', s)
+            s = re.sub(r"\bline\s+\d+\b", "line <LINE>", s)
+
+            # Normalize file:line patterns for Python files
+            s = re.sub(r"(\b[\w.\-]+\.py):\d+\b", r"\1:<LINE>", s)
+
+            # Collapse excessive spaces/tabs (keep newlines)
+            s = re.sub(r"[ \t]+", " ", s).strip()
+            return s
+
+        def _normalize_file_name(value: Any) -> str:
+            if value in (None, ""):
+                return ""
+            try:
+                s = str(value).strip()
+            except Exception:
+                return ""
+            if not s:
+                return ""
+            # Keep only basename for stability across environments
+            if "/" in s:
+                s = s.rsplit("/", 1)[-1]
+            if "\\" in s:
+                s = s.rsplit("\\", 1)[-1]
+            return s
+
         components = [
             str((error_data or {}).get("error_type", "") or ""),
-            str((error_data or {}).get("file", "") or ""),
+            _normalize_file_name((error_data or {}).get("file", "") or ""),
             str((error_data or {}).get("line", "") or ""),
         ]
 
+        # Include normalized message when present (improves signal when stack/file info is missing)
+        error_message = _normalize_error_text((error_data or {}).get("error_message", "") or "")
+        if error_message:
+            components.append(error_message)
+
         # הוספת stack trace מנורמל
-        stack = (error_data or {}).get("stack_trace", "") or ""
+        stack = _normalize_error_text((error_data or {}).get("stack_trace", "") or "")
         if stack:
             # לקיחת 3 שורות ראשונות
             lines = [l.strip() for l in str(stack).split("\n") if l.strip()][:3]

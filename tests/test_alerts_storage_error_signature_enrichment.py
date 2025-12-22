@@ -57,3 +57,63 @@ def test_enrich_alert_with_signature_is_idempotent(monkeypatch):
     monkeypatch.setattr(als, "is_new_error", lambda *_a, **_k: (_ for _ in ()).throw(RuntimeError("should not be called")))
     als.enrich_alert_with_signature(details)
     assert details["is_new_error"] in (True, False)
+
+
+def test_compute_error_signature_normalizes_memory_addresses_and_paths():
+    from monitoring.alerts_storage import compute_error_signature
+
+    e1 = {
+        "error_type": "TypeError",
+        "file": "/home/ubuntu/app/service.py",
+        "line": 123,
+        "error_message": "Object <Foo at 0x7f1234567890> is not callable",
+        "stack_trace": 'Traceback (most recent call last):\n  File "/home/ubuntu/app/service.py", line 123, in run\n    x = Foo()\nTypeError: <Foo at 0x7f1234567890> is not callable',
+    }
+    e2 = {
+        "error_type": "TypeError",
+        "file": "/srv/app/service.py",
+        "line": 123,
+        "error_message": "Object <Foo at 0x7fDEADBEEF00> is not callable",
+        "stack_trace": 'Traceback (most recent call last):\n  File "/srv/app/service.py", line 999, in run\n    x = Foo()\nTypeError: <Foo at 0x7fDEADBEEF00> is not callable',
+    }
+
+    s1 = compute_error_signature(e1)
+    s2 = compute_error_signature(e2)
+    assert s1 == s2
+    assert len(s1) == 16
+
+
+def test_is_new_error_false_on_second_alert_when_only_memory_addresses_change(monkeypatch):
+    import monitoring.alerts_storage as als
+
+    seen: set[str] = set()
+
+    def _fake_is_new(signature: str) -> bool:
+        if signature in seen:
+            return False
+        seen.add(signature)
+        return True
+
+    monkeypatch.setattr(als, "is_new_error", _fake_is_new)
+
+    a1 = {
+        "error_type": "ValueError",
+        "file": "/home/user/app/handler.py",
+        "line": 10,
+        "error_message": "Bad value <Bar at 0x7f1111111111>",
+        "stack_trace": 'Traceback (most recent call last):\n  File "/home/user/app/handler.py", line 10, in h\n    raise ValueError("x")\nValueError: Bad value <Bar at 0x7f1111111111>',
+    }
+    a2 = {
+        "error_type": "ValueError",
+        "file": "/srv/app/handler.py",
+        "line": 10,
+        "error_message": "Bad value <Bar at 0x7f2222222222>",
+        "stack_trace": 'Traceback (most recent call last):\n  File "/srv/app/handler.py", line 11, in h\n    raise ValueError("x")\nValueError: Bad value <Bar at 0x7f2222222222>',
+    }
+
+    als.enrich_alert_with_signature(a1)
+    als.enrich_alert_with_signature(a2)
+
+    assert a1["error_signature_hash"] == a2["error_signature_hash"]
+    assert a1["is_new_error"] is True
+    assert a2["is_new_error"] is False
