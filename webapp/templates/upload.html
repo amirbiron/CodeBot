@@ -8,18 +8,6 @@
 <link rel="stylesheet" href="{{ url_for('static', filename='css/split-view.css') }}?v={{ static_version }}">
 <link rel="stylesheet" href="{{ url_for('static', filename='css/md_preview.bundle.css') }}?v={{ static_version }}">
 <link rel="stylesheet" href="{{ url_for('static', filename='css/file-editor.css') }}?v={{ static_version }}">
-<style>
-@media (max-width: 767px) {
-  .glass-card {
-    padding: 1rem 0.75rem;
-  }
-}
-@media (max-width: 480px) {
-  .glass-card {
-    padding: 0.75rem 0.5rem;
-  }
-}
-</style>
 {% endblock %}
 
 {% block content %}
