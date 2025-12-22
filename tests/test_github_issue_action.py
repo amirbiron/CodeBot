@@ -157,6 +157,50 @@ class TestGitHubIssueAction:
             assert sent_json["title"] == "🐛 api-gateway: Connection refused"
 
     @pytest.mark.asyncio
+    async def test_execute_prefers_params_title_over_legacy_title_template(self, action, sample_alert):
+        """אם קיימים שני השדות - params.title צריך לנצח כדי למנוע חוסר תאימות מול ה-UI."""
+        action_config = {
+            "type": "create_github_issue",
+            "labels": ["auto-generated", "bug"],
+            "title_template": "LEGACY {{service_name}}",
+            "params": {"title": "NEW {{service_name}}: {{error_message}}"},
+        }
+
+        with patch("aiohttp.ClientSession") as mock_session:
+            from unittest.mock import MagicMock
+
+            session = MagicMock()
+            mock_session.return_value = session
+            session.__aenter__ = AsyncMock(return_value=session)
+            session.__aexit__ = AsyncMock(return_value=None)
+
+            # Mock search response (no existing issues)
+            search_resp = AsyncMock()
+            search_resp.status = 200
+            search_resp.json = AsyncMock(return_value={"total_count": 0})
+            search_ctx = AsyncMock()
+            search_ctx.__aenter__.return_value = search_resp
+            search_ctx.__aexit__ = AsyncMock(return_value=None)
+            session.get = MagicMock(return_value=search_ctx)
+
+            # Mock create issue response
+            create_resp = AsyncMock()
+            create_resp.status = 201
+            create_resp.json = AsyncMock(
+                return_value={"number": 42, "html_url": "https://github.com/test/repo/issues/42"}
+            )
+            create_ctx = AsyncMock()
+            create_ctx.__aenter__.return_value = create_resp
+            create_ctx.__aexit__ = AsyncMock(return_value=None)
+            session.post = MagicMock(return_value=create_ctx)
+
+            result = await action.execute(action_config, sample_alert, [])
+
+            assert result["success"] is True
+            sent_json = session.post.call_args[1]["json"]
+            assert sent_json["title"] == "NEW api-gateway: Connection refused"
+
+    @pytest.mark.asyncio
     async def test_execute_without_token(self):
         action = GitHubIssueAction(token="", repo="test/repo")
 

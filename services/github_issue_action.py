@@ -68,9 +68,10 @@ class GitHubIssueAction:
         params = action_config.get("params") or {}
         if not isinstance(params, dict):
             params = {}
+        # Precedence: new schema first (params.title), then legacy (title_template)
         title = self._render_template(
-            action_config.get("title_template")
-            or params.get("title")
+            params.get("title")
+            or action_config.get("title_template")
             or "🐛 [Auto] New Error: {{error_message}}",
             alert_data,
             truncate_long_values=True,  # קיצור רק בכותרת
