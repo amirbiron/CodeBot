@@ -353,8 +353,6 @@
   display: flex;
   flex-direction: column;
   min-width: 0;
-  /* חשוב לגלילה פנימית ב-Safari/iOS כאשר יש overflow בתוך ילד */
-  min-height: 0;
 }
 
 .split-panel--editor {
@@ -401,8 +399,6 @@
   border-radius: 8px;
   padding: 1.25rem;
   position: relative;
-  /* חשוב לגלילה פנימית ב-flex layouts */
-  min-height: 0;
 }
 
 .split-preview-content :not(pre) > code,
@@ -526,7 +522,6 @@ html[dir="rtl"] .split-preview-content code {
 
   .split-preview-content {
     min-height: 220px;
-    -webkit-overflow-scrolling: touch;
   }
 }
 
