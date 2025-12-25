@@ -10581,10 +10581,9 @@ def settings():
 @app.route('/settings/theme-builder')
 @login_required
 def theme_builder():
-    """דף בונה ערכת נושא מותאמת אישית (זמין כרגע לאדמינים בלבד)."""
+    """דף בונה ערכת נושא מותאמת אישית (זמין לכל משתמש מחובר)."""
     user_id = session['user_id']
-    if not is_admin(user_id):
-        abort(404)
+    user_is_admin = is_admin(user_id)
 
     saved_theme = None
     try:
@@ -10597,7 +10596,7 @@ def theme_builder():
     return render_template(
         'settings/theme_builder.html',
         user=session.get('user_data', {}),
-        is_admin=True,
+        is_admin=user_is_admin,
         is_premium=is_premium(user_id),
         saved_theme=saved_theme,
     )
@@ -10827,10 +10826,8 @@ def api_ui_prefs():
         # עדכון ערכת צבעים במידת הצורך
         if 'theme' in payload:
             theme = (payload.get('theme') or '').strip().lower()
-            # Feature flag: 'custom' זמין כרגע רק לאדמינים ורק אם קיימת ערכה פעילה ב-DB.
+            # 'custom' זמין לכל משתמש מחובר, רק אם קיימת ערכה פעילה ב-DB.
             if theme == 'custom':
-                if not is_admin(user_id):
-                    return jsonify({'ok': False, 'error': 'admin_only'}), 403
                 try:
                     udoc = db.users.find_one({'user_id': user_id}, {'custom_theme': 1}) or {}
                     ct = (udoc.get('custom_theme') or {}) if isinstance(udoc, dict) else {}
@@ -10923,10 +10920,11 @@ def api_ui_prefs():
 @app.route('/api/themes/save', methods=['POST'])
 @login_required
 def save_custom_theme():
-    """שמירת ערכת נושא מותאמת אישית (Admin-only בשלב הזה)."""
-    user_id = _require_admin_user()
-    if not user_id:
-        return jsonify({"ok": False, "error": "admin_only"}), 403
+    """שמירת ערכת נושא מותאמת אישית (לכל משתמש מחובר)."""
+    try:
+        user_id = int(session.get('user_id'))
+    except Exception:
+        return jsonify({"ok": False, "error": "unauthorized"}), 401
 
     data = request.get_json(silent=True) or {}
 
@@ -10984,10 +10982,11 @@ def save_custom_theme():
 @app.route('/api/themes/custom', methods=['DELETE'])
 @login_required
 def delete_custom_theme():
-    """מחיקת ערכת נושא מותאמת אישית (איפוס) (Admin-only בשלב הזה)."""
-    user_id = _require_admin_user()
-    if not user_id:
-        return jsonify({"ok": False, "error": "admin_only"}), 403
+    """מחיקת ערכת נושא מותאמת אישית (איפוס) (לכל משתמש מחובר)."""
+    try:
+        user_id = int(session.get('user_id'))
+    except Exception:
+        return jsonify({"ok": False, "error": "unauthorized"}), 401
 
     try:
         db = get_db()
