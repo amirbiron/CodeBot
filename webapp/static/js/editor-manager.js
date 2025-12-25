@@ -644,6 +644,9 @@
               return { text, usedSelection: true };
             }
           }
+          // חשוב: אם CodeMirror פעיל אבל אין בחירה, אסור ליפול ל-textarea המוסתר
+          // כי הוא עלול להכיל selectionStart/End ישנים ותוכן לא מסונכרן מיידית.
+          return { text: view.state.doc.toString(), usedSelection: false };
         }
       } catch(_) {}
 
