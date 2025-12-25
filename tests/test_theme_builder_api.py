@@ -164,11 +164,8 @@ def test_activate_theme_not_found(client, stub_db):
 def test_activate_theme_success(client, stub_db):
     _login(client)
     stub_db.users.queue_find_one({"custom_themes": [{"id": "abc", "is_active": False}]})
-    # activate_theme_simple does 2 update_one calls; second must have modified_count > 0
-    stub_db.users.queue_update_one(
-        types.SimpleNamespace(acknowledged=True, modified_count=1),
-        types.SimpleNamespace(acknowledged=True, modified_count=1),
-    )
+    # activate_theme_simple may be atomic (1 update) or fallback (2 updates)
+    stub_db.users.queue_update_one(types.SimpleNamespace(acknowledged=True, modified_count=1))
 
     resp = client.post("/api/themes/abc/activate")
     assert resp.status_code == 200

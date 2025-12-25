@@ -1491,33 +1491,65 @@ def create_theme_document(name: str, variables: Dict[str, str], description: str
 
 
 def activate_theme_simple(user_id: int, theme_id: str) -> bool:
-    """גרסה פשוטה עם שתי שאילתות: בטל את כולן ואז הפעל אחת."""
+    """הפעלה בטוחה יותר של ערכה (מעדיף פעולה אטומית; fallback לשתי שאילתות)."""
     if not user_id or not theme_id:
         return False
     db_ref = get_db()
-    # שלב 1: בטל את כל הערכות
+    now_utc = datetime.now(timezone.utc)
+
+    # ניסיון 1: עדכון אטומי (MongoDB 4.2+ pipeline update)
     try:
+        result = db_ref.users.update_one(
+            {"user_id": user_id, "custom_themes.id": theme_id},
+            [
+                {
+                    "$set": {
+                        "custom_themes": {
+                            "$map": {
+                                "input": "$custom_themes",
+                                "as": "t",
+                                "in": {
+                                    "$mergeObjects": [
+                                        "$$t",
+                                        {"is_active": {"$eq": ["$$t.id", theme_id]}},
+                                    ]
+                                },
+                            }
+                        },
+                        "ui_prefs.theme": "custom",
+                        "updated_at": now_utc,
+                    }
+                }
+            ],
+        )
+        return bool(getattr(result, "modified_count", 0) > 0)
+    except PyMongoError as e:
+        # fallback לשתי שאילתות (למשל על שרת ישן שלא תומך pipeline updates)
+        logger.error("activate_theme_simple atomic update failed: %s", e)
+    except Exception as e:
+        logger.error("activate_theme_simple unexpected error: %s", e)
+
+    # ניסיון 2 (fallback): שתי שאילתות, בלי לבלוע חריגות
+    try:
+        # שלב 1: בטל את כל הערכות (רק אם השדה קיים כדי לא לשבור משתמשים בלי מערך)
         db_ref.users.update_one(
-            {"user_id": user_id},
+            {"user_id": user_id, "custom_themes": {"$exists": True}},
             {"$set": {"custom_themes.$[].is_active": False}},
         )
-    except Exception:
-        # אם אין custom_themes או העדכון לא נתמך, נמשיך לשלב 2 בכל זאת
-        pass
 
-    # שלב 2: הפעל את הערכה הנבחרת
-    result = db_ref.users.update_one(
-        {"user_id": user_id, "custom_themes.id": theme_id},
-        {
-            "$set": {
-                "custom_themes.$.is_active": True,
-                "ui_prefs.theme": "custom",
-            }
-        },
-    )
-    try:
-        return bool(getattr(result, "modified_count", 0) > 0)
-    except Exception:
+        # שלב 2: הפעל את הערכה הנבחרת + העבר את האתר ל-custom
+        result2 = db_ref.users.update_one(
+            {"user_id": user_id, "custom_themes.id": theme_id},
+            {"$set": {"custom_themes.$.is_active": True, "ui_prefs.theme": "custom", "updated_at": now_utc}},
+        )
+        return bool(getattr(result2, "modified_count", 0) > 0)
+    except Exception as e:
+        logger.error("activate_theme_simple fallback failed: %s", e)
+        # Safety: אם משהו השתבש, אל תשאיר את המשתמש ב-custom בלי ערכה פעילה
+        try:
+            db_ref.users.update_one({"user_id": user_id}, {"$set": {"ui_prefs.theme": "classic", "updated_at": now_utc}})
+        except Exception:
+            pass
         return False
 
 
@@ -11337,10 +11369,16 @@ def deactivate_all_themes():
 
     try:
         db_ref = get_db()
+        now_utc = datetime.now(timezone.utc)
+        # 1) חזרה ל-classic תמיד בטוחה (ללא $[] ולכן ללא צורך ב-upsert)
         db_ref.users.update_one(
             {"user_id": user_id},
-            {"$set": {"custom_themes.$[].is_active": False, "ui_prefs.theme": "classic"}},
-            upsert=True,
+            {"$set": {"ui_prefs.theme": "classic", "updated_at": now_utc}},
+        )
+        # 2) כיבוי כל הערכות רק אם המערך קיים (מונע שגיאה "path must exist")
+        db_ref.users.update_one(
+            {"user_id": user_id, "custom_themes": {"$exists": True}},
+            {"$set": {"custom_themes.$[].is_active": False, "updated_at": now_utc}},
         )
         return jsonify({"ok": True, "message": "הערכות המותאמות בוטלו", "reset_to": "classic"})
     except Exception as e:
@@ -11376,7 +11414,6 @@ def delete_theme(theme_id: str):
         db_ref.users.update_one(
             {"user_id": user_id},
             {"$pull": {"custom_themes": {"id": theme_id}}},
-            upsert=True,
         )
 
         # אם הערכה שנמחקה הייתה פעילה – חזור ל-classic
@@ -11384,7 +11421,6 @@ def delete_theme(theme_id: str):
             db_ref.users.update_one(
                 {"user_id": user_id},
                 {"$set": {"ui_prefs.theme": "classic"}},
-                upsert=True,
             )
 
         return jsonify(

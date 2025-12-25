@@ -1199,15 +1199,18 @@
                 if (opacitySlider) opacitySlider.value = v;
                 const opacityValue = document.getElementById('glassOpacityValue');
                 if (opacityValue) opacityValue.textContent = v + '%';
+                updatePreview('--glass', String(variables['--glass']));
             }
         }
 
         if (variables['--glass-blur']) {
             const blurSlider = document.getElementById('glassBlur');
-            const v = parseInt(String(variables['--glass-blur']), 10);
+            const vRaw = String(variables['--glass-blur']);
+            const v = parseInt(vRaw, 10);
             if (blurSlider) blurSlider.value = v;
             const blurValue = document.getElementById('glassBlurValue');
             if (blurValue) blurValue.textContent = v + 'px';
+            updatePreview('--glass-blur', vRaw);
         }
     }
 
