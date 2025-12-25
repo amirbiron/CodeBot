@@ -13,6 +13,34 @@
 </h1>
 
 <div class="theme-builder-layout">
+    <!-- Sidebar: My Themes -->
+    <aside class="theme-builder-sidebar glass-card">
+        <div class="sidebar-header">
+            <h3>
+                <i class="fas fa-palette"></i>
+                הערכות שלי
+            </h3>
+            <button type="button" id="createNewThemeBtn" class="btn btn-primary btn-sm">
+                <i class="fas fa-plus"></i>
+                ערכה חדשה
+            </button>
+        </div>
+
+        <div id="themesList" class="themes-list">
+            <!-- יאוכלס דינמית -->
+            <div class="themes-loading">
+                <i class="fas fa-spinner fa-spin"></i>
+                טוען...
+            </div>
+        </div>
+
+        <div class="sidebar-footer">
+            <small>
+                <span id="themesCount">0</span>/<span id="themesMax">10</span> ערכות
+            </small>
+        </div>
+    </aside>
+
     <!-- Control Panel -->
     <div class="theme-builder-controls glass-card">
         <form id="themeBuilderForm" autocomplete="off">
@@ -28,7 +56,6 @@
                     name="name"
                     maxlength="50"
                     placeholder="הערכה שלי"
-                    value="{{ saved_theme.name if saved_theme else '' }}"
                     aria-describedby="themeNameHelp"
                     required
                 />
@@ -172,11 +199,19 @@
             <div class="form-actions">
                 <button type="submit" class="btn btn-primary" id="saveThemeBtn">
                     <i class="fas fa-save"></i>
-                    שמור ערכה
+                    שמור שינויים
+                </button>
+                <button type="button" class="btn btn-success" id="activateThemeBtn">
+                    <i class="fas fa-check"></i>
+                    הפעל ערכה זו
                 </button>
                 <button type="button" class="btn btn-secondary" id="resetThemeBtn">
                     <i class="fas fa-undo"></i>
-                    איפוס לברירת מחדל
+                    איפוס לברירות מחדל
+                </button>
+                <button type="button" class="btn btn-danger" id="deleteThemeBtn">
+                    <i class="fas fa-trash"></i>
+                    מחק ערכה
                 </button>
             </div>
         </form>
@@ -234,20 +269,202 @@
 <style>
 .theme-builder-layout {
     display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 2rem;
+    grid-template-columns: 280px 1fr 1fr;
+    gap: 1.5rem;
     align-items: start;
 }
 
-@media (max-width: 900px) {
+@media (max-width: 1200px) {
+    .theme-builder-layout {
+        grid-template-columns: 240px 1fr;
+    }
+    .theme-builder-preview {
+        grid-column: 1 / -1;
+    }
+}
+
+@media (max-width: 768px) {
     .theme-builder-layout {
         grid-template-columns: 1fr;
+    }
+    .theme-builder-sidebar {
+        order: -1;
     }
 }
 
 .theme-builder-controls {
     position: sticky;
-    top: 2rem;
+    top: 1rem;
+}
+
+/* Sidebar Styles */
+.theme-builder-sidebar {
+    position: sticky;
+    top: 1rem;
+    max-height: calc(100vh - 2rem);
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+}
+
+.sidebar-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding-bottom: 1rem;
+    border-bottom: 1px solid var(--glass-border);
+    margin-bottom: 1rem;
+}
+
+.sidebar-header h3 {
+    margin: 0;
+    font-size: 1rem;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.sidebar-header .btn-sm {
+    padding: 0.4rem 0.8rem;
+    font-size: 0.85rem;
+}
+
+/* Themes List */
+.themes-list {
+    flex: 1;
+    overflow-y: auto;
+    padding-right: 0.5rem;
+}
+
+.themes-loading {
+    text-align: center;
+    padding: 2rem;
+    color: var(--text-secondary);
+}
+
+.theme-item {
+    display: flex;
+    align-items: center;
+    padding: 0.75rem;
+    margin-bottom: 0.5rem;
+    border-radius: 10px;
+    background: var(--glass);
+    border: 1px solid transparent;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.theme-item:hover {
+    background: var(--glass-hover);
+    border-color: var(--glass-border);
+}
+
+.theme-item.active {
+    border-color: var(--primary);
+    background: color-mix(in srgb, var(--primary) 15%, transparent);
+}
+
+.theme-item.selected {
+    border-color: var(--secondary);
+    box-shadow: 0 0 0 2px color-mix(in srgb, var(--secondary) 30%, transparent);
+}
+
+.theme-item-indicator {
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    margin-left: 0.75rem;
+    flex-shrink: 0;
+}
+
+.theme-item.active .theme-item-indicator {
+    background: var(--success);
+    box-shadow: 0 0 6px var(--success);
+}
+
+.theme-item:not(.active) .theme-item-indicator {
+    background: var(--glass-border);
+}
+
+.theme-item-content {
+    flex: 1;
+    min-width: 0;
+}
+
+.theme-item-name {
+    font-weight: 600;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    color: var(--text-primary);
+}
+
+.theme-item-meta {
+    font-size: 0.75rem;
+    color: var(--text-secondary);
+    margin-top: 0.25rem;
+}
+
+.theme-item-actions {
+    display: flex;
+    gap: 0.25rem;
+    opacity: 0;
+    transition: opacity 0.2s;
+}
+
+.theme-item:hover .theme-item-actions {
+    opacity: 1;
+}
+
+.theme-item-btn {
+    width: 28px;
+    height: 28px;
+    border-radius: 6px;
+    border: none;
+    background: var(--glass);
+    color: var(--text-secondary);
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.8rem;
+    transition: all 0.2s;
+}
+
+.theme-item-btn:hover {
+    background: var(--glass-hover);
+    color: var(--text-primary);
+}
+
+.theme-item-btn.danger:hover {
+    background: var(--danger);
+    color: white;
+}
+
+/* Sidebar Footer */
+.sidebar-footer {
+    padding-top: 1rem;
+    border-top: 1px solid var(--glass-border);
+    margin-top: auto;
+    text-align: center;
+    color: var(--text-secondary);
+}
+
+/* Empty State */
+.themes-empty {
+    text-align: center;
+    padding: 2rem 1rem;
+    color: var(--text-secondary);
+}
+
+.themes-empty i {
+    font-size: 2rem;
+    margin-bottom: 1rem;
+    opacity: 0.5;
+}
+
+.themes-empty p {
+    margin: 0;
 }
 
 .control-group {
@@ -505,8 +722,30 @@
         '--md-text': '#f0f0f0',
     };
 
-    // Saved theme from server (if exists)
-    const SAVED_THEME = {{ saved_theme | tojson | safe if saved_theme else 'null' }};
+    const VAR_MAP = {
+        'bgPrimary': '--bg-primary',
+        'bgSecondary': '--bg-secondary',
+        'cardBg': '--card-bg',
+        'primary': '--primary',
+        'secondary': '--secondary',
+        'textPrimary': '--text-primary',
+        'mdSurface': '--md-surface',
+        'mdText': '--md-text',
+        'btnPrimaryBg': '--btn-primary-bg',
+        'btnPrimaryColor': '--btn-primary-color',
+    };
+
+    // ========== State ==========
+    let currentThemes = [];
+    let selectedThemeId = null;
+    let isNewTheme = false;
+    let hasUnsavedChanges = false;
+
+    // ========== DOM Elements ==========
+    const themesList = document.getElementById('themesList');
+    const themesCount = document.getElementById('themesCount');
+    const themesMax = document.getElementById('themesMax');
+    const createNewBtn = document.getElementById('createNewThemeBtn');
 
     const previewContainer = document.getElementById('theme-preview-container');
     const pickrInstances = {};
@@ -561,7 +800,7 @@
         if (!el) return null;
 
         const textInput = document.getElementById(elementId + 'Text');
-        const initialColor = SAVED_THEME?.variables?.[varName] || DEFAULT_VALUES[varName] || '#ffffff';
+        const initialColor = DEFAULT_VALUES[varName] || '#ffffff';
 
         const pickr = Pickr.create({
             el: el,
@@ -588,6 +827,7 @@
 
             if (textInput) textInput.value = value;
             updatePreview(varName, value);
+            hasUnsavedChanges = true;
         });
 
         pickr.on('save', () => pickr.hide());
@@ -601,6 +841,7 @@
                     try {
                         pickr.setColor(val);
                         updatePreview(varName, val);
+                        hasUnsavedChanges = true;
                     } catch (e) {
                         // ignore invalid color
                     }
@@ -635,28 +876,19 @@
         const blurSlider = document.getElementById('glassBlur');
         const blurValue = document.getElementById('glassBlurValue');
 
-        // Initialize from saved
-        if (SAVED_THEME?.variables?.['--glass']) {
-            const match = SAVED_THEME.variables['--glass'].match(/[\d.]+(?=\))/);
-            if (match) {
-                opacitySlider.value = Math.round(parseFloat(match[0]) * 100);
-            }
-        }
-        if (SAVED_THEME?.variables?.['--glass-blur']) {
-            blurSlider.value = parseInt(SAVED_THEME.variables['--glass-blur']);
-        }
-
         opacitySlider.addEventListener('input', () => {
             const val = opacitySlider.value;
             opacityValue.textContent = val + '%';
             const rgba = `rgba(255, 255, 255, ${(val / 100).toFixed(2)})`;
             updatePreview('--glass', rgba);
+            hasUnsavedChanges = true;
         });
 
         blurSlider.addEventListener('input', () => {
             const val = blurSlider.value;
             blurValue.textContent = val + 'px';
             updatePreview('--glass-blur', val + 'px');
+            hasUnsavedChanges = true;
         });
 
         // Initial update
@@ -671,20 +903,7 @@
         const variables = {};
 
         // Colors from pickr
-        const varMap = {
-            'bgPrimary': '--bg-primary',
-            'bgSecondary': '--bg-secondary',
-            'cardBg': '--card-bg',
-            'primary': '--primary',
-            'secondary': '--secondary',
-            'textPrimary': '--text-primary',
-            'mdSurface': '--md-surface',
-            'mdText': '--md-text',
-            'btnPrimaryBg': '--btn-primary-bg',
-            'btnPrimaryColor': '--btn-primary-color',
-        };
-
-        for (const [pickrId, varName] of Object.entries(varMap)) {
+        for (const [pickrId, varName] of Object.entries(VAR_MAP)) {
             const textInput = document.getElementById(pickrId + 'Text');
             if (textInput && textInput.value) {
                 variables[varName] = textInput.value.trim();
@@ -707,16 +926,359 @@
         return variables;
     }
 
-    // ========== Save Theme ==========
-    async function saveTheme(e) {
+    // ========== API Functions ==========
+    async function fetchThemes() {
+        if (!themesList) return;
+        try {
+            const res = await fetch('/api/themes');
+            const data = await res.json();
+
+            if (!res.ok || !data.ok) {
+                throw new Error(data.error || 'fetch_failed');
+            }
+
+            currentThemes = data.themes || [];
+            if (themesMax) themesMax.textContent = data.max_allowed;
+
+            renderThemesList();
+
+            // בחר את הערכה הפעילה (או הראשונה)
+            const stillExists = selectedThemeId && currentThemes.some((t) => t.id === selectedThemeId);
+            if (stillExists) {
+                // keep selection
+                await selectTheme(selectedThemeId);
+                return;
+            }
+
+            const activeTheme = currentThemes.find(t => t.is_active);
+            if (activeTheme) {
+                await selectTheme(activeTheme.id);
+            } else if (currentThemes.length > 0) {
+                await selectTheme(currentThemes[0].id);
+            } else {
+                clearFormForNewTheme();
+            }
+
+        } catch (err) {
+            console.error('Failed to fetch themes:', err);
+            showToast('שגיאה בטעינת הערכות', 'error');
+        }
+    }
+
+    async function fetchThemeDetails(themeId) {
+        try {
+            const res = await fetch(`/api/themes/${themeId}`);
+            const data = await res.json();
+
+            if (!res.ok || !data.ok) {
+                throw new Error(data.error || 'fetch_failed');
+            }
+
+            return data.theme;
+
+        } catch (err) {
+            console.error('Failed to fetch theme details:', err);
+            showToast('שגיאה בטעינת פרטי הערכה', 'error');
+            return null;
+        }
+    }
+
+    async function createNewTheme(themeData) {
+        try {
+            const res = await fetch('/api/themes', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(themeData)
+            });
+
+            const data = await res.json();
+
+            if (!res.ok || !data.ok) {
+                throw new Error(data.error || 'create_failed');
+            }
+
+            showToast('הערכה נוצרה בהצלחה!', 'success');
+            return data.theme_id;
+
+        } catch (err) {
+            console.error('Failed to create theme:', err);
+            let msg = 'שגיאה ביצירת הערכה';
+            if (err.message === 'max_themes_reached') msg = `הגעת למגבלת הערכות (${themesMax?.textContent || '10'})`;
+            if (err.message === 'invalid_color') msg = 'אחד הצבעים אינו תקין';
+            if (err.message === 'name_too_long') msg = 'השם ארוך מדי (עד 50 תווים)';
+            showToast(msg, 'error');
+            return null;
+        }
+    }
+
+    async function updateExistingTheme(themeId, themeData) {
+        try {
+            const res = await fetch(`/api/themes/${themeId}`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(themeData)
+            });
+
+            const data = await res.json();
+
+            if (!res.ok || !data.ok) {
+                throw new Error(data.error || 'update_failed');
+            }
+
+            showToast('הערכה עודכנה בהצלחה!', 'success');
+            return true;
+
+        } catch (err) {
+            console.error('Failed to update theme:', err);
+            showToast('שגיאה בעדכון הערכה', 'error');
+            return false;
+        }
+    }
+
+    async function activateTheme(themeId) {
+        try {
+            const res = await fetch(`/api/themes/${themeId}/activate`, { method: 'POST' });
+            const data = await res.json();
+
+            if (!res.ok || !data.ok) {
+                throw new Error(data.error || 'activate_failed');
+            }
+
+            showToast('הערכה הופעלה! מרענן...', 'success');
+            setTimeout(() => location.reload(), 1000);
+
+        } catch (err) {
+            console.error('Failed to activate theme:', err);
+            showToast('שגיאה בהפעלת הערכה', 'error');
+        }
+    }
+
+    async function deleteTheme(themeId) {
+        if (!confirm('האם למחוק את הערכה? פעולה זו אינה ניתנת לביטול.')) {
+            return;
+        }
+
+        try {
+            const res = await fetch(`/api/themes/${themeId}`, { method: 'DELETE' });
+            const data = await res.json();
+
+            if (!res.ok || !data.ok) {
+                throw new Error(data.error || 'delete_failed');
+            }
+
+            showToast('הערכה נמחקה', 'success');
+
+            if (data.was_active) {
+                setTimeout(() => location.reload(), 1000);
+            } else {
+                await fetchThemes();
+            }
+
+        } catch (err) {
+            console.error('Failed to delete theme:', err);
+            showToast('שגיאה במחיקת הערכה', 'error');
+        }
+    }
+
+    // ========== Render Functions ==========
+    function renderThemesList() {
+        if (!themesList) return;
+        if (themesCount) themesCount.textContent = currentThemes.length;
+
+        if (currentThemes.length === 0) {
+            themesList.innerHTML = `
+                <div class="themes-empty">
+                    <i class="fas fa-palette"></i>
+                    <p>עדיין אין לך ערכות מותאמות</p>
+                    <p><small>לחץ "ערכה חדשה" ליצירת הראשונה</small></p>
+                </div>
+            `;
+            return;
+        }
+
+        themesList.innerHTML = currentThemes.map(theme => `
+            <div class="theme-item ${theme.is_active ? 'active' : ''} ${selectedThemeId === theme.id ? 'selected' : ''}"
+                 data-theme-id="${theme.id}">
+                <div class="theme-item-indicator" title="${theme.is_active ? 'ערכה פעילה' : ''}"></div>
+                <div class="theme-item-content">
+                    <div class="theme-item-name">${escapeHtml(theme.name)}</div>
+                    <div class="theme-item-meta">
+                        ${theme.is_active ? '<i class="fas fa-check-circle"></i> פעילה' : ''}
+                        ${!theme.is_active && theme.updated_at ? formatDate(theme.updated_at) : ''}
+                    </div>
+                </div>
+                <div class="theme-item-actions">
+                    ${!theme.is_active ? `
+                        <button type="button" class="theme-item-btn activate-btn"
+                                title="הפעל ערכה" data-action="activate">
+                            <i class="fas fa-check"></i>
+                        </button>
+                    ` : ''}
+                    <button type="button" class="theme-item-btn danger delete-btn"
+                            title="מחק ערכה" data-action="delete">
+                        <i class="fas fa-trash"></i>
+                    </button>
+                </div>
+            </div>
+        `).join('');
+
+        themesList.querySelectorAll('.theme-item').forEach(item => {
+            item.addEventListener('click', (e) => {
+                const action = e.target.closest('[data-action]')?.dataset.action;
+                const themeId = item.dataset.themeId;
+
+                if (action === 'activate') {
+                    activateTheme(themeId);
+                } else if (action === 'delete') {
+                    deleteTheme(themeId);
+                } else {
+                    selectTheme(themeId);
+                }
+            });
+        });
+    }
+
+    function setFormDisabled(disabled) {
+        const form = document.getElementById('themeBuilderForm');
+        if (!form) return;
+        form.querySelectorAll('input, button').forEach((el) => {
+            el.disabled = !!disabled;
+        });
+        // תמיד נשאיר את כפתור "ערכה חדשה" פעיל
+        if (createNewBtn) createNewBtn.disabled = false;
+    }
+
+    async function selectTheme(themeId) {
+        if (!themeId) return;
+        if (hasUnsavedChanges && !confirm('יש שינויים שלא נשמרו. להמשיך?')) {
+            return;
+        }
+
+        selectedThemeId = themeId;
+        isNewTheme = false;
+        renderThemesList();
+
+        setFormDisabled(true);
+        const theme = await fetchThemeDetails(themeId);
+        if (theme) {
+            loadThemeIntoForm(theme);
+        }
+        setFormDisabled(false);
+
+        hasUnsavedChanges = false;
+        updateFormButtons();
+    }
+
+    function loadThemeIntoForm(theme) {
+        const nameEl = document.getElementById('themeName');
+        if (nameEl) nameEl.value = theme.name || '';
+
+        const variables = theme.variables || {};
+
+        Object.entries(VAR_MAP).forEach(([pickrId, varName]) => {
+            const textInput = document.getElementById(pickrId + 'Text');
+            const value = variables[varName] || DEFAULT_VALUES[varName];
+
+            if (textInput) {
+                textInput.value = value;
+            }
+            if (pickrInstances[pickrId]) {
+                try {
+                    pickrInstances[pickrId].setColor(value);
+                } catch (e) {}
+            }
+            updatePreview(varName, value);
+        });
+
+        // Glass sliders
+        if (variables['--glass']) {
+            const match = String(variables['--glass']).match(/[\d.]+(?=\))/);
+            if (match) {
+                const opacitySlider = document.getElementById('glassOpacity');
+                const v = Math.round(parseFloat(match[0]) * 100);
+                if (opacitySlider) opacitySlider.value = v;
+                const opacityValue = document.getElementById('glassOpacityValue');
+                if (opacityValue) opacityValue.textContent = v + '%';
+            }
+        }
+
+        if (variables['--glass-blur']) {
+            const blurSlider = document.getElementById('glassBlur');
+            const v = parseInt(String(variables['--glass-blur']), 10);
+            if (blurSlider) blurSlider.value = v;
+            const blurValue = document.getElementById('glassBlurValue');
+            if (blurValue) blurValue.textContent = v + 'px';
+        }
+    }
+
+    function clearFormForNewTheme() {
+        if (hasUnsavedChanges && !confirm('יש שינויים שלא נשמרו. להמשיך?')) {
+            return;
+        }
+
+        selectedThemeId = null;
+        isNewTheme = true;
+        renderThemesList();
+
+        const nameEl = document.getElementById('themeName');
+        if (nameEl) {
+            nameEl.value = '';
+            nameEl.focus();
+        }
+
+        Object.entries(VAR_MAP).forEach(([pickrId, varName]) => {
+            const textInput = document.getElementById(pickrId + 'Text');
+            const value = DEFAULT_VALUES[varName];
+            if (textInput) textInput.value = value;
+            if (pickrInstances[pickrId]) {
+                try { pickrInstances[pickrId].setColor(value); } catch (e) {}
+            }
+            updatePreview(varName, value);
+        });
+
+        // Reset glass sliders
+        const opacitySlider = document.getElementById('glassOpacity');
+        if (opacitySlider) opacitySlider.value = 10;
+        const opacityValue = document.getElementById('glassOpacityValue');
+        if (opacityValue) opacityValue.textContent = '10%';
+
+        const blurSlider = document.getElementById('glassBlur');
+        if (blurSlider) blurSlider.value = 20;
+        const blurValue = document.getElementById('glassBlurValue');
+        if (blurValue) blurValue.textContent = '20px';
+
+        updatePreview('--glass', 'rgba(255, 255, 255, 0.10)');
+        updatePreview('--glass-blur', '20px');
+
+        hasUnsavedChanges = false;
+        updateFormButtons();
+    }
+
+    function updateFormButtons() {
+        const saveBtn = document.getElementById('saveThemeBtn');
+        const activateBtn = document.getElementById('activateThemeBtn');
+        const deleteBtn = document.getElementById('deleteThemeBtn');
+
+        if (isNewTheme) {
+            if (saveBtn) saveBtn.innerHTML = '<i class="fas fa-plus"></i> צור ערכה';
+            if (activateBtn) activateBtn.disabled = true;
+            if (deleteBtn) deleteBtn.disabled = true;
+        } else {
+            if (saveBtn) saveBtn.innerHTML = '<i class="fas fa-save"></i> שמור שינויים';
+            if (activateBtn) activateBtn.disabled = !selectedThemeId;
+            if (deleteBtn) deleteBtn.disabled = !selectedThemeId;
+        }
+    }
+
+    // ========== Save Handler ==========
+    async function handleSave(e) {
         e.preventDefault();
 
-        const nameInput = document.getElementById('themeName');
-        const name = nameInput.value.trim();
-
+        const nameEl = document.getElementById('themeName');
+        const name = (nameEl?.value || '').trim();
         if (!name) {
             showToast('נא להזין שם לערכה', 'error');
-            nameInput.focus();
+            if (nameEl) nameEl.focus();
             return;
         }
 
@@ -734,69 +1296,74 @@
             }
         } catch (_) {}
 
-        try {
-            const res = await fetch('/api/themes/save', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    name: name,
-                    set_as_default: true,
-                    variables: variables,
-                })
+        if (isNewTheme) {
+            const newId = await createNewTheme({
+                name: name,
+                variables: variables,
+                activate: false
             });
-
-            const data = await res.json();
-
-            if (!res.ok || !data.ok) {
-                throw new Error(data.error || 'save_failed');
+            if (newId) {
+                isNewTheme = false;
+                selectedThemeId = newId;
+                await fetchThemes();
+                await selectTheme(newId);
             }
-
-            showToast('הערכה נשמרה בהצלחה! מרענן...', 'success');
-
-            // חשוב: אל נכתוב ערכים לא-תקינים ל-dark_mode_preference (הוא enum של dark/dim/light/auto).
-            // מספיק לשמור את הערכה שנבחרה תחת user_theme.
-            try { localStorage.setItem('user_theme', 'custom'); } catch (_) {}
-
-            // רענן כדי להחיל
-            setTimeout(() => location.reload(), 1500);
-
-        } catch (err) {
-            console.error('Save theme error:', err);
-            let msg = 'שגיאה בשמירת הערכה';
-            if (err.message === 'invalid_color') msg = 'אחד הצבעים אינו תקין';
-            if (err.message === 'name_too_long') msg = 'השם ארוך מדי (עד 50 תווים)';
-            if (err.message === 'admin_only') msg = 'הפעולה זמינה כרגע רק לאדמינים';
-            showToast(msg, 'error');
+        } else {
+            const ok = await updateExistingTheme(selectedThemeId, { name: name, variables: variables });
+            if (ok) {
+                await fetchThemes();
+            }
         }
+
+        hasUnsavedChanges = false;
+        updateFormButtons();
     }
 
-    // ========== Reset Theme ==========
-    async function resetTheme() {
-        if (!confirm('האם לאפס את הערכה המותאמת ולחזור לברירת המחדל?')) {
+    // ========== Reset Form (Defaults) ==========
+    function resetFormToDefaults() {
+        if (!confirm('לאפס את הערכים לברירות מחדל? (לא שומר אוטומטית)')) {
             return;
         }
 
-        try {
-            const res = await fetch('/api/themes/custom', { method: 'DELETE' });
-            const data = await res.json();
-
-            if (!res.ok || !data.ok) {
-                throw new Error(data.error || 'reset_failed');
+        Object.entries(VAR_MAP).forEach(([pickrId, varName]) => {
+            const textInput = document.getElementById(pickrId + 'Text');
+            const value = DEFAULT_VALUES[varName];
+            if (textInput) textInput.value = value;
+            if (pickrInstances[pickrId]) {
+                try { pickrInstances[pickrId].setColor(value); } catch (e) {}
             }
+            updatePreview(varName, value);
+        });
 
-            // dark_mode_preference: כדי לחזור ל-Classic בצורה תקינה נשתמש ב-"light"
-            // (dark-mode.js ממפה light -> classic)
-            try { localStorage.setItem('dark_mode_preference', 'light'); } catch (_) {}
-            try { localStorage.setItem('user_theme', 'classic'); } catch (_) {}
+        const opacitySlider = document.getElementById('glassOpacity');
+        if (opacitySlider) opacitySlider.value = 10;
+        const opacityValue = document.getElementById('glassOpacityValue');
+        if (opacityValue) opacityValue.textContent = '10%';
 
-            showToast('הערכה אופסה. מרענן...', 'success');
-            setTimeout(() => location.reload(), 1500);
+        const blurSlider = document.getElementById('glassBlur');
+        if (blurSlider) blurSlider.value = 20;
+        const blurValue = document.getElementById('glassBlurValue');
+        if (blurValue) blurValue.textContent = '20px';
 
-        } catch (err) {
-            console.error('Reset theme error:', err);
-            let msg = 'שגיאה באיפוס הערכה';
-            if (err.message === 'admin_only') msg = 'הפעולה זמינה כרגע רק לאדמינים';
-            showToast(msg, 'error');
+        updatePreview('--glass', 'rgba(255, 255, 255, 0.10)');
+        updatePreview('--glass-blur', '20px');
+
+        hasUnsavedChanges = true;
+    }
+
+    // ========== Utilities ==========
+    function escapeHtml(str) {
+        const div = document.createElement('div');
+        div.textContent = str;
+        return div.innerHTML;
+    }
+
+    function formatDate(isoString) {
+        try {
+            const date = new Date(isoString);
+            return date.toLocaleDateString('he-IL', { day: 'numeric', month: 'short' });
+        } catch (e) {
+            return '';
         }
     }
 
@@ -805,8 +1372,63 @@
         initAllPickers();
         initGlassSliders();
 
-        document.getElementById('themeBuilderForm').addEventListener('submit', saveTheme);
-        document.getElementById('resetThemeBtn').addEventListener('click', resetTheme);
+        // טען רשימת ערכות
+        fetchThemes();
+
+        if (createNewBtn) {
+            createNewBtn.addEventListener('click', clearFormForNewTheme);
+        }
+
+        // מעקב אחר שינויים
+        document.querySelectorAll('.color-text, #themeName').forEach(input => {
+            input.addEventListener('input', () => {
+                hasUnsavedChanges = true;
+            });
+        });
+        document.querySelectorAll('input[type="range"]').forEach(slider => {
+            slider.addEventListener('input', () => {
+                hasUnsavedChanges = true;
+            });
+        });
+
+        // שמירה (create/update)
+        document.getElementById('themeBuilderForm').addEventListener('submit', handleSave);
+
+        // כפתור הפעלה
+        const activateBtn = document.getElementById('activateThemeBtn');
+        if (activateBtn) {
+            activateBtn.addEventListener('click', () => {
+                if (selectedThemeId) {
+                    activateTheme(selectedThemeId);
+                }
+            });
+        }
+
+        // כפתור מחיקה
+        const deleteBtn = document.getElementById('deleteThemeBtn');
+        if (deleteBtn) {
+            deleteBtn.addEventListener('click', () => {
+                if (selectedThemeId) {
+                    deleteTheme(selectedThemeId);
+                }
+            });
+        }
+
+        // איפוס לברירות מחדל (ערכים)
+        const resetBtn = document.getElementById('resetThemeBtn');
+        if (resetBtn) {
+            resetBtn.addEventListener('click', resetFormToDefaults);
+        }
+
+        // אזהרה לפני יציאה עם שינויים שלא נשמרו
+        window.addEventListener('beforeunload', (e) => {
+            if (hasUnsavedChanges) {
+                e.preventDefault();
+                e.returnValue = '';
+            }
+        });
+
+        updateFormButtons();
     }
 
     if (document.readyState === 'loading') {
