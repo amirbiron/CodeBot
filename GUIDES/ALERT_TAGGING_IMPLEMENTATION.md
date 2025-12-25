@@ -61,6 +61,7 @@ Collection: alert_tags
 - alert_timestamp (לשאילתות לפי טווח זמן)
 """
 
+import re
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 import logging
@@ -231,15 +232,20 @@ def get_all_tags(limit: int = 100) -> List[Dict[str, Any]]:
 def search_tags(prefix: str, limit: int = 20) -> List[str]:
     """
     חיפוש תגיות לפי prefix (ל-Autocomplete).
+    
+    Note: משתמש ב-re.escape() כדי למנוע injection של תווים מיוחדים
+    כמו c++, tag(1), [test] וכו'.
     """
     if not prefix:
         return [item["tag"] for item in get_all_tags(limit)]
     
     normalized_prefix = prefix.strip().lower()
+    # 🛡️ חשוב: Escape תווים מיוחדים של Regex למניעת שגיאות/תוצאות לא צפויות
+    safe_prefix = re.escape(normalized_prefix)
     
     pipeline = [
         {"$unwind": "$tags"},
-        {"$match": {"tags": {"$regex": f"^{normalized_prefix}", "$options": "i"}}},
+        {"$match": {"tags": {"$regex": f"^{safe_prefix}", "$options": "i"}}},
         {"$group": {"_id": "$tags", "count": {"$sum": 1}}},
         {"$sort": {"count": -1}},
         {"$limit": limit},
@@ -978,7 +984,11 @@ function initTagHandlers() {
   });
   
   // הסרת תגית מהרשימה הנוכחית
+  // 🛡️ חשוב: Guard למניעת כפילות Listeners (הפונקציה נקראת בכל רענון טבלה)
   if (currentTagsEl) {
+    if (currentTagsEl.dataset.listenerAttached === '1') return;
+    currentTagsEl.dataset.listenerAttached = '1';
+    
     currentTagsEl.addEventListener('click', (e) => {
       const removeBtn = e.target.closest('[data-remove-tag]');
       if (removeBtn) {
@@ -1214,6 +1224,19 @@ class TestAlertTagsStorage:
         assert result["a1"] == ["tag1"]
         assert result["a2"] == ["tag2"]
         assert "a3" not in result  # doesn't exist
+    
+    def test_search_tags_with_regex_special_chars(self, clean_tags_collection):
+        """🛡️ וידוא ש-search_tags לא פגיע ל-Regex injection."""
+        ts = datetime.now(timezone.utc)
+        alert_tags_storage.set_tags_for_alert("a1", ts, ["production", "c++", "tag(1)"])
+        
+        # חיפוש עם תווים מיוחדים - צריך להחזיר רק התאמות מדויקות
+        assert "c++" in alert_tags_storage.search_tags("c++")
+        assert "tag(1)" in alert_tags_storage.search_tags("tag(1)")
+        
+        # תווי regex לא צריכים לפעול כ-regex
+        assert "production" not in alert_tags_storage.search_tags(".*")
+        assert "production" not in alert_tags_storage.search_tags("[prod]")
 ```
 
 ### 4.2 בדיקות API
@@ -1325,6 +1348,91 @@ def get_popular_tags_cached(limit: int = 50):
 
 ---
 
+## שיקולי אבטחה ובאגים נפוצים
+
+### 6.1 🛡️ Regex Injection ב-MongoDB
+
+**הבעיה:** חיפוש תגיות עם תווי Regex מיוחדים (`c++`, `tag(1)`, `[test]`) עלול לגרום לשגיאות או תוצאות לא צפויות.
+
+**הפתרון:** שימוש ב-`re.escape()` לפני הכנסת קלט משתמש לשאילתת `$regex`:
+
+```python
+# ❌ שגוי - פגיע ל-Regex injection
+{"$regex": f"^{user_input}"}
+
+# ✅ נכון - מנקה תווים מיוחדים
+safe_input = re.escape(user_input)
+{"$regex": f"^{safe_input}"}
+```
+
+**דוגמאות לקלט בעייתי:**
+| קלט | התנהגות ללא escape |
+|-----|---------------------|
+| `c++` | `+` הוא quantifier - שגיאת regex |
+| `tag(1)` | `()` הם capturing group |
+| `[prod]` | `[]` הם character class - יתאים ל-p/r/o/d |
+| `.*` | יתאים לכל מחרוזת |
+
+### 6.2 🖱️ כפילות Event Listeners
+
+**הבעיה:** פונקציות `init*Handlers` שנקראות בכל רענון טבלה מוסיפות listeners כפולים לאלמנטים קבועים (כמו Modal).
+
+**הפתרון:** שימוש ב-data attribute כ-guard:
+
+```javascript
+// ❌ שגוי - מוסיף listener בכל קריאה
+if (element) {
+  element.addEventListener('click', handler);
+}
+
+// ✅ נכון - מוסיף פעם אחת בלבד
+if (element) {
+  if (element.dataset.listenerAttached === '1') return;
+  element.dataset.listenerAttached = '1';
+  element.addEventListener('click', handler);
+}
+```
+
+**למה זה קריטי:**
+- Handler שרץ N פעמים עלול למחוק נתונים שגויים
+- ביצועים - N קריאות API במקום אחת
+- Race conditions בקריאות אסינכרוניות
+
+### 6.3 בדיקות נוספות לאבטחה
+
+הוסף את הבדיקות הבאות:
+
+```python
+# tests/test_alert_tags_security.py
+
+def test_regex_special_chars_in_search():
+    """וידוא ש-search_tags מטפל נכון בתווים מיוחדים."""
+    # Setup - תגית עם שם רגיל
+    ts = datetime.now(timezone.utc)
+    alert_tags_storage.set_tags_for_alert("a1", ts, ["production"])
+    
+    # חיפוש עם תווים מיוחדים לא צריך להחזיר תוצאות שגויות
+    dangerous_inputs = [".*", "prod.*", "[prod]", "prod(", "c++", "tag|other"]
+    
+    for dangerous in dangerous_inputs:
+        results = alert_tags_storage.search_tags(dangerous)
+        # לא צריך להחזיר "production" כי זה לא prefix אמיתי
+        assert "production" not in results, f"Regex injection with: {dangerous}"
+
+
+def test_empty_and_whitespace_tags():
+    """וידוא שתגיות ריקות או עם רווחים בלבד לא נשמרות."""
+    ts = datetime.now(timezone.utc)
+    result = alert_tags_storage.set_tags_for_alert(
+        "a1", ts, ["", "   ", "valid", "  spaces  "]
+    )
+    
+    # רק תגיות תקינות צריכות להישמר
+    assert result["tags"] == ["valid", "spaces"]
+```
+
+---
+
 ## סיכום
 
 ### Checklist למימוש
@@ -1341,6 +1449,8 @@ def get_popular_tags_cached(limit: int = 50):
 - [ ] **שלב 3:** עדכון `renderAlertsTable` ו-`initTagHandlers`
 - [ ] **בדיקות:** כתיבת unit tests
 - [ ] **בדיקות:** בדיקת integration עם הדשבורד
+- [ ] **אבטחה:** וידוא `re.escape()` בפונקציית `search_tags`
+- [ ] **אבטחה:** וידוא guards למניעת כפילות listeners
 
 ---
 
