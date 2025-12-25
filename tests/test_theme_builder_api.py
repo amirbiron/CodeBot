@@ -41,17 +41,8 @@ def test_save_custom_theme_unauthorized(client):
     assert resp.status_code == 401
 
 
-def test_save_custom_theme_admin_only(client, monkeypatch):
-    _login(client)
-    monkeypatch.setattr(webapp_app, "is_admin", lambda *_: False)
-    resp = client.post("/api/themes/save", json={"name": "Test"})
-    assert resp.status_code == 403
-    assert resp.get_json()["error"] == "admin_only"
-
-
 def test_save_custom_theme_missing_name(client, monkeypatch):
     _login(client)
-    monkeypatch.setattr(webapp_app, "is_admin", lambda *_: True)
     resp = client.post("/api/themes/save", json={})
     assert resp.status_code == 400
     assert resp.get_json()["error"] == "missing_name"
@@ -59,7 +50,6 @@ def test_save_custom_theme_missing_name(client, monkeypatch):
 
 def test_save_custom_theme_invalid_color(client, monkeypatch):
     _login(client)
-    monkeypatch.setattr(webapp_app, "is_admin", lambda *_: True)
     resp = client.post(
         "/api/themes/save",
         json={
@@ -75,8 +65,6 @@ def test_save_custom_theme_invalid_color(client, monkeypatch):
 
 def test_save_custom_theme_success_sets_custom_theme_and_ui_prefs(client, monkeypatch):
     _login(client)
-    monkeypatch.setattr(webapp_app, "is_admin", lambda *_: True)
-
     stub_db = webapp_app.get_db()
 
     resp = client.post(
@@ -110,8 +98,6 @@ def test_save_custom_theme_success_sets_custom_theme_and_ui_prefs(client, monkey
 
 def test_delete_custom_theme_resets_to_classic(client, monkeypatch):
     _login(client)
-    monkeypatch.setattr(webapp_app, "is_admin", lambda *_: True)
-
     stub_db = webapp_app.get_db()
 
     resp = client.delete("/api/themes/custom")
