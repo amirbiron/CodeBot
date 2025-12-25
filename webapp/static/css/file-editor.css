@@ -1,5 +1,13 @@
 /* Shared styles for Upload/Edit file forms (no inline CSS in templates) */
 
+/* Edit form only: prevent RTL/mobile overflow caused by width:100% + padding/border */
+form.file-edit-form,
+form.file-edit-form *,
+form.file-edit-form *::before,
+form.file-edit-form *::after {
+  box-sizing: border-box;
+}
+
 .form-field {
   width: 100%;
   padding: 0.75rem;
@@ -168,6 +176,50 @@
 .filename-input-wrapper .form-field {
   width: auto;
   flex: 1 1 auto;
+}
+
+/* Edit form only: allow flex children to shrink without overflow */
+form.file-edit-form .form-field,
+form.file-edit-form .source-url-input {
+  max-width: 100%;
+  min-width: 0;
+}
+
+form.file-edit-form .filename-input-wrapper,
+form.file-edit-form .filename-input-wrapper .form-field {
+  min-width: 0;
+}
+
+/* Actions row (Edit page) */
+.file-form-actions {
+  display: flex;
+  gap: 1rem;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+@media (max-width: 767px) {
+  .file-form-actions {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .file-form-actions .btn,
+  .file-form-actions a.btn {
+    width: 100%;
+    justify-content: center;
+  }
+
+  /* Allow the Source URL toggle text to wrap on small screens */
+  form.file-edit-form .source-url-toggle {
+    flex-wrap: wrap;
+    max-width: 100%;
+  }
+
+  form.file-edit-form .source-url-toggle__text {
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
 }
 
 .image-upload-trigger {
