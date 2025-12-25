@@ -253,7 +253,15 @@ class GitHubIssueAction:
 """
 
         # בחירת תבנית ברירת המחדל בהתאם לסוג המידע
-        if "sentry_permalink" in alert_data:
+        # חשוב: "in alert_data" בודק רק קיום מפתח, לא ערך. נעדיף בדיקה דפנסיבית.
+        sentry_permalink = alert_data.get("sentry_permalink")
+        has_sentry_permalink = (
+            bool(sentry_permalink.strip())
+            if isinstance(sentry_permalink, str)
+            else bool(sentry_permalink)
+        )
+
+        if has_sentry_permalink:
             default_template = sentry_template
         else:
             default_template = generic_template
