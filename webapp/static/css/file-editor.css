@@ -1,7 +1,17 @@
 /* Shared styles for Upload/Edit file forms (no inline CSS in templates) */
 
+/* Prevent RTL/mobile overflow caused by width:100% + padding/border */
+form[data-file-form-config],
+form[data-file-form-config] *,
+form[data-file-form-config] *::before,
+form[data-file-form-config] *::after {
+  box-sizing: border-box;
+}
+
 .form-field {
   width: 100%;
+  max-width: 100%;
+  min-width: 0;
   padding: 0.75rem;
   border-radius: 10px;
   border: 1px solid rgba(255, 255, 255, 0.2);
@@ -91,6 +101,8 @@
 
 .source-url-input {
   width: 100%;
+  max-width: 100%;
+  min-width: 0;
   padding: 0.75rem;
   border-radius: 10px;
   border: 1px solid var(--glass-border, rgba(255, 255, 255, 0.25));
@@ -163,11 +175,45 @@
   display: flex;
   align-items: center;
   gap: 0.5rem;
+  min-width: 0;
 }
 
 .filename-input-wrapper .form-field {
   width: auto;
   flex: 1 1 auto;
+  min-width: 0;
+}
+
+/* Actions row (Edit page) */
+.file-form-actions {
+  display: flex;
+  gap: 1rem;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+@media (max-width: 767px) {
+  .file-form-actions {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .file-form-actions .btn,
+  .file-form-actions a.btn {
+    width: 100%;
+    justify-content: center;
+  }
+
+  /* Allow the Source URL toggle text to wrap on small screens */
+  .source-url-toggle {
+    flex-wrap: wrap;
+    max-width: 100%;
+  }
+
+  .source-url-toggle__text {
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
 }
 
 .image-upload-trigger {
