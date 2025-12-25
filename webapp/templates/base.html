@@ -596,7 +596,10 @@
         }
 
         .workspace-btn {
+            /* fallback (old browsers) */
             background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            /* theme-based */
+            background: linear-gradient(135deg, var(--primary) 0%, var(--secondary) 100%);
             border: none;
             position: relative;
             color: white;
@@ -604,7 +607,10 @@
 
         .workspace-btn:hover {
             transform: translateY(-2px);
+            /* fallback */
             box-shadow: 0 6px 20px rgba(102, 126, 234, 0.4);
+            /* theme-based */
+            box-shadow: 0 6px 20px color-mix(in srgb, var(--primary) 40%, transparent);
         }
 
         .collection-option {
