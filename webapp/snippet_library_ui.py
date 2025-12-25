@@ -3,11 +3,31 @@ from __future__ import annotations
 from flask import Blueprint, render_template, session
 import os
 
+from webapp.activity_tracker import log_user_event
+
 snippet_library_ui = Blueprint('snippet_library_ui', __name__)
 
 
 @snippet_library_ui.route('/snippets')
 def snippets_page():
+    # רישום פעילות "כניסה לספריית הסניפטים" (Best-effort)
+    try:
+        user_id = session.get('user_id')
+    except Exception:
+        user_id = None
+    if user_id:
+        username = None
+        try:
+            user_data = session.get('user_data') or {}
+            if isinstance(user_data, dict):
+                username = user_data.get('username')
+        except Exception:
+            username = None
+        try:
+            log_user_event(int(user_id), username=username)
+        except Exception:
+            pass
+
     # Determine admin from ENV list
     is_admin = False
     try:

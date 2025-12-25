@@ -67,7 +67,7 @@ def get_logo(file_id: str):
             'GET',
             f'https://api.telegram.org/bot{token}/getFile',
             params={'file_id': file_id},
-            timeout=5,
+            timeout=2,
         )
         if int(getattr(meta_resp, 'status_code', 0) or 0) != 200:
             return Response(status=404)
@@ -86,7 +86,7 @@ def get_logo(file_id: str):
         file_resp = http_request(
             'GET',
             f'https://api.telegram.org/file/bot{token}/{file_path}',
-            timeout=8,
+            timeout=2,
         )
         if int(getattr(file_resp, 'status_code', 0) or 0) != 200:
             return Response(status=404)
