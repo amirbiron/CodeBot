@@ -492,14 +492,16 @@ def emit_internal_alert(name: str, severity: str = "info", summary: str = "", **
                 "severity": str(severity),
                 "summary": str(summary),
                 "details": details_payload,
-                "source": "internal_alerts",
+                # ברירת מחדל, אבל מאפשרים למקור שהגיע ב-details לשלוט (למשל "sentry_poll")
+                "source": _coerce_str((details_payload or {}).get("source")) or "internal_alerts",
                 "silenced": False,
             }
             # חשוב: מנוע הכללים/לוגים מצפים לעיתים לשדות בטופ-לבל (למשל alert_type),
             # לכן אנחנו "מקדמים" את פרטי ה-alert גם לרמה העליונה – בלי לדרוס שדות ליבה.
             try:
                 for k, v in (details_payload or {}).items():
-                    if k in alert_payload:
+                    # Allow details to override specific routing keys at top-level (e.g. source).
+                    if k in alert_payload and k not in {"source"}:
                         continue
                     alert_payload[k] = v
             except Exception:
