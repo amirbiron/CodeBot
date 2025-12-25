@@ -77,6 +77,23 @@ class TestGitHubIssueAction:
         assert "abc123def456" in body
         assert "✅" in body  # triggered conditions
 
+    def test_build_issue_body_sentry_uses_sentry_template(self, action, sample_action_config):
+        triggered = ["is_new_error eq true"]
+        sentry_alert = {
+            "sentry_permalink": "https://sentry.example.com/issues/123",
+            "summary": "TypeError: NoneType is not iterable",
+            "sentry_short_id": "ABC-123",
+            "sentry_last_seen": "2025-12-25 10:00:00 UTC",
+            "source": "sentry",
+            "rule_name": "Test Rule",
+        }
+
+        body = action._build_issue_body(sample_action_config, sentry_alert, triggered)
+
+        assert "sentry_issue" in body
+        assert "https://sentry.example.com/issues/123" in body
+        assert "TypeError: NoneType is not iterable" in body
+
     @pytest.mark.asyncio
     async def test_execute_creates_issue(self, action, sample_action_config, sample_alert):
         with patch("aiohttp.ClientSession") as mock_session:
