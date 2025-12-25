@@ -294,8 +294,14 @@
     <i class="fas fa-tools"></i>
     כלי אדמין
   </h2>
-  <div class="admin-tools-grid">
-    <div class="admin-card">
+  <div style="display: grid; gap: 1rem">
+    <div
+      style="
+        padding: 1rem;
+        background: rgba(255, 255, 255, 0.05);
+        border-radius: 10px;
+      "
+    >
       <h4>📃 ניהול ספריית סניפטים</h4>
       <div style="display: flex; gap: 0.5rem; flex-wrap: wrap">
         <a class="btn btn-primary" href="/admin/snippets/pending"
@@ -310,7 +316,13 @@
         >
       </div>
     </div>
-    <div class="admin-card">
+    <div
+      style="
+        padding: 1rem;
+        background: rgba(255, 255, 255, 0.05);
+        border-radius: 10px;
+      "
+    >
       <h4>📣 ניהול הכרזות מערכת</h4>
       <div style="display: flex; gap: 0.5rem; flex-wrap: wrap">
         <a class="btn btn-primary" href="/admin/announcements"
@@ -318,7 +330,13 @@
         >
       </div>
     </div>
-    <div class="admin-card">
+    <div
+      style="
+        padding: 1rem;
+        background: rgba(255, 255, 255, 0.05);
+        border-radius: 10px;
+      "
+    >
       <h4>🧩 ממשקי משתמשים – אוסף הקהילה</h4>
       <div style="display: flex; gap: 0.5rem; flex-wrap: wrap">
         <a class="btn btn-primary" href="/admin/community/pending"
@@ -329,7 +347,13 @@
         >
       </div>
     </div>
-    <div class="admin-card">
+    <div
+      style="
+        padding: 1rem;
+        background: rgba(255, 255, 255, 0.05);
+        border-radius: 10px;
+      "
+    >
       <h4><i class="fas fa-database"></i> סטטיסטיקות מערכת</h4>
       <p style="opacity: 0.8; margin-bottom:0.75rem;">
         צפייה ברשימת המשתמשים הפעילים, כמות פעולות שבועית ותקציר שימוש.
@@ -338,7 +362,13 @@
         <a class="btn btn-primary" href="/admin/stats">פתח מסך סטטיסטיקות</a>
       </div>
     </div>
-    <div class="admin-card">
+    <div
+      style="
+        padding: 1rem;
+        background: rgba(255, 255, 255, 0.05);
+        border-radius: 10px;
+      "
+    >
       <h4><i class="fas fa-eye"></i> Observability Dashboard</h4>
       <p style="opacity: 0.8; margin-bottom: 0.75rem;">
         לוח ניטור אדמין עם התראות, גרפים וזיהוי נקודות קצה איטיות בזמן אמת.
@@ -355,7 +385,13 @@
         </a>
       </div>
     </div>
-    <div class="admin-card">
+    <div
+      style="
+        padding: 1rem;
+        background: rgba(255, 255, 255, 0.05);
+        border-radius: 10px;
+      "
+    >
       <h4><i class="fas fa-cogs"></i> Config Inspector</h4>
       <p style="opacity: 0.8; margin-bottom: 0.75rem;">
         סקירה מרוכזת של משתני סביבה: זיהוי חסרים/שונו מדיפולט, עם הסתרת ערכים רגישים.
@@ -364,7 +400,13 @@
         <a class="btn btn-primary" href="/admin/config-inspector">פתח דשבורד</a>
       </div>
     </div>
-    <div class="admin-card">
+    <div
+      style="
+        padding: 1rem;
+        background: rgba(255, 255, 255, 0.05);
+        border-radius: 10px;
+      "
+    >
       <h4>🎯 מנוע כללים ויזואלי</h4>
       <p style="opacity: 0.8; margin-bottom: 0.75rem;">
         בניית כללי התראה בממשק Drag & Drop (IF/THEN) ושמירה/בדיקה דרך ה־API.
@@ -386,11 +428,23 @@
         פתח דשבורד
       </a>
     </div>
-    <div class="admin-card">
+    <div
+      style="
+        padding: 1rem;
+        background: rgba(255, 255, 255, 0.05);
+        border-radius: 10px;
+      "
+    >
       <h4><i class="fas fa-users"></i> ניהול משתמשים</h4>
       <p style="opacity: 0.8">בקרוב: צפייה וניהול משתמשי המערכת</p>
     </div>
-    <div class="admin-card">
+    <div
+      style="
+        padding: 1rem;
+        background: rgba(255, 255, 255, 0.05);
+        border-radius: 10px;
+      "
+    >
       <h4><i class="fab fa-github"></i> אינטגרציית GitHub</h4>
       <p style="opacity: 0.8">בקרוב: חיבור וניהול ריפוזיטוריז מ-GitHub</p>
     </div>
@@ -751,11 +805,6 @@
       gap: 0.75rem;
       margin-bottom: 1.5rem;
       font-size: 1.25rem;
-    }
-
-    .admin-tools-grid {
-      display: grid;
-      gap: 1rem;
     }
 
     .admin-card {
