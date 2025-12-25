@@ -1328,17 +1328,16 @@ def inject_globals():
                 # Normalize minimal structure to avoid template errors
                 if not isinstance(ct.get('variables'), dict):
                     ct = {**ct, 'variables': {}}
-                if user_is_admin:
-                    custom_theme = ct
+                custom_theme = ct
     except Exception:
         custom_theme = None
 
-    # Safety: אל תאפשר theme=custom בלי custom_theme פעיל (וגם לא למשתמשים לא-אדמין).
+    # Safety: אל תאפשר theme=custom בלי custom_theme פעיל.
     try:
         ct_active = bool(custom_theme and isinstance(custom_theme, dict) and custom_theme.get('is_active'))
     except Exception:
         ct_active = False
-    if theme == 'custom' and not (user_is_admin and ct_active):
+    if theme == 'custom' and not ct_active:
         theme = 'classic'
 
     show_welcome_modal = False
