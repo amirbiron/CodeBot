@@ -617,6 +617,59 @@
       return '';
     }
 
+    getSelectedTextOrAll() {
+      // מחזיר טקסט מסומן (אם יש) עם fallback לכל התוכן.
+      // תומך גם ב-CodeMirror 6 (כולל multi-selection) וגם ב-textarea רגיל.
+      try {
+        if (this.cmInstance && this.cmInstance.state) {
+          const view = this.cmInstance;
+          const sel = view.state.selection;
+          const ranges = sel && Array.isArray(sel.ranges) ? sel.ranges : [];
+          const nonEmpty = ranges.filter(r => r && typeof r.from === 'number' && typeof r.to === 'number' && r.from !== r.to);
+          if (nonEmpty.length > 0) {
+            const parts = [];
+            for (const r of nonEmpty) {
+              const from = Math.max(0, Math.min(r.from, r.to));
+              const to = Math.max(0, Math.max(r.from, r.to));
+              try {
+                parts.push(view.state.sliceDoc(from, to));
+              } catch(_) {
+                try {
+                  parts.push(view.state.doc.sliceString(from, to));
+                } catch(_) {}
+              }
+            }
+            const text = parts.join('\n');
+            if (typeof text === 'string' && text.length > 0) {
+              return { text, usedSelection: true };
+            }
+          }
+          // חשוב: אם CodeMirror פעיל אבל אין בחירה, אסור ליפול ל-textarea המוסתר
+          // כי הוא עלול להכיל selectionStart/End ישנים ותוכן לא מסונכרן מיידית.
+          return { text: view.state.doc.toString(), usedSelection: false };
+        }
+      } catch(_) {}
+
+      try {
+        if (this.textarea) {
+          const ta = this.textarea;
+          const value = ta.value || '';
+          const start = (typeof ta.selectionStart === 'number') ? ta.selectionStart : 0;
+          const end = (typeof ta.selectionEnd === 'number') ? ta.selectionEnd : start;
+          const from = Math.max(0, Math.min(start, end, value.length));
+          const to = Math.max(0, Math.min(Math.max(start, end), value.length));
+          if (to > from) {
+            const selectedText = value.substring(from, to);
+            if (typeof selectedText === 'string' && selectedText.length > 0) {
+              return { text: selectedText, usedSelection: true };
+            }
+          }
+        }
+      } catch(_) {}
+
+      return { text: this.getEditorContent() || '', usedSelection: false };
+    }
+
     setEditorContent(nextValue) {
       const value = typeof nextValue === 'string' ? nextValue : '';
       try {
@@ -678,7 +731,7 @@
     }
 
     async handleClipboardCopy(switcher) {
-      const content = this.getEditorContent() || '';
+      const { text: content, usedSelection } = this.getSelectedTextOrAll();
       let success = false;
       try {
         if (navigator.clipboard && navigator.clipboard.writeText) {
@@ -707,7 +760,10 @@
           success = false;
         }
       }
-      this.showClipboardNotice(switcher, success ? 'התוכן הועתק ללוח' : 'נכשלה העתקה');
+      this.showClipboardNotice(
+        switcher,
+        success ? (usedSelection ? 'הקטע הנבחר הועתק' : 'כל הקוד הועתק') : 'נכשלה העתקה'
+      );
     }
 
     async handleClipboardPaste(switcher) {
