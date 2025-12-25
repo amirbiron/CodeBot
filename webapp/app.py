@@ -12,6 +12,7 @@ import json
 import math
 import time
 import mimetypes
+import uuid
 from datetime import datetime, timezone
 from functools import wraps, lru_cache
 from typing import Optional, Dict, Any, List, Tuple, Set
@@ -1314,6 +1315,7 @@ def inject_globals():
         theme = 'classic'
 
     # ערכת נושא מותאמת (אם קיימת) — מועברת לתבניות כדי לאפשר injection ב-base.html
+    # תומך גם במבנה חדש (custom_themes[]) וגם בישן (custom_theme).
     custom_theme = None
     user_is_admin = False
     try:
@@ -1323,12 +1325,24 @@ def inject_globals():
         user_is_admin = False
     try:
         if user_id and user_doc:
-            ct = user_doc.get('custom_theme')
-            if isinstance(ct, dict) and ct:
-                # Normalize minimal structure to avoid template errors
-                if not isinstance(ct.get('variables'), dict):
-                    ct = {**ct, 'variables': {}}
-                custom_theme = ct
+            # מבנה חדש (מערך) – עדיפות
+            themes = user_doc.get('custom_themes')
+            if isinstance(themes, list) and themes:
+                for tdoc in themes:
+                    if isinstance(tdoc, dict) and tdoc.get('is_active'):
+                        if not isinstance(tdoc.get('variables'), dict):
+                            tdoc = {**tdoc, 'variables': {}}
+                        custom_theme = tdoc
+                        break
+
+            # Fallback למבנה ישן (אובייקט בודד)
+            if not custom_theme:
+                ct = user_doc.get('custom_theme')
+                if isinstance(ct, dict) and ct:
+                    # Normalize minimal structure to avoid template errors
+                    if not isinstance(ct.get('variables'), dict):
+                        ct = {**ct, 'variables': {}}
+                    custom_theme = ct
     except Exception:
         custom_theme = None
 
@@ -1429,7 +1443,9 @@ VALID_COLOR_REGEX = re.compile(
     r')$'
 )
 MAX_THEME_NAME_LENGTH = 50
+MAX_THEME_DESCRIPTION_LENGTH = 200
 MAX_THEME_VALUE_LENGTH = 200
+MAX_THEMES_PER_USER = 10
 ALLOWED_VARIABLES = {
     '--bg-primary', '--bg-secondary', '--card-bg',
     '--primary', '--secondary',
@@ -1458,6 +1474,121 @@ def _validate_color(value: str) -> bool:
         except ValueError:
             return False
     return bool(VALID_COLOR_REGEX.match(value))
+
+
+def create_theme_document(name: str, variables: Dict[str, str], description: str = "") -> Dict[str, Any]:
+    """יצירת מסמך ערכה חדשה."""
+    now = datetime.now(timezone.utc)
+    return {
+        "id": str(uuid.uuid4()),  # מזהה ייחודי
+        "name": name,
+        "description": (description or "").strip()[:MAX_THEME_DESCRIPTION_LENGTH],
+        "is_active": False,  # ברירת מחדל: לא פעיל
+        "created_at": now,
+        "updated_at": now,
+        "variables": variables,
+    }
+
+
+def activate_theme_simple(user_id: int, theme_id: str) -> bool:
+    """הפעלה בטוחה יותר של ערכה (מעדיף פעולה אטומית; fallback לשתי שאילתות)."""
+    if not user_id or not theme_id:
+        return False
+    db_ref = get_db()
+    now_utc = datetime.now(timezone.utc)
+
+    # ניסיון 1: עדכון אטומי (MongoDB 4.2+ pipeline update)
+    try:
+        result = db_ref.users.update_one(
+            {"user_id": user_id, "custom_themes.id": theme_id},
+            [
+                {
+                    "$set": {
+                        "custom_themes": {
+                            "$map": {
+                                "input": "$custom_themes",
+                                "as": "t",
+                                "in": {
+                                    "$mergeObjects": [
+                                        "$$t",
+                                        {"is_active": {"$eq": ["$$t.id", theme_id]}},
+                                    ]
+                                },
+                            }
+                        },
+                        "ui_prefs.theme": "custom",
+                        "updated_at": now_utc,
+                    }
+                }
+            ],
+        )
+        return bool(getattr(result, "modified_count", 0) > 0)
+    except PyMongoError as e:
+        # fallback לשתי שאילתות (למשל על שרת ישן שלא תומך pipeline updates)
+        logger.error("activate_theme_simple atomic update failed: %s", e)
+    except Exception as e:
+        logger.error("activate_theme_simple unexpected error: %s", e)
+
+    # ניסיון 2 (fallback): שתי שאילתות, בלי לבלוע חריגות
+    try:
+        # שלב 1: בטל את כל הערכות (רק אם השדה קיים כדי לא לשבור משתמשים בלי מערך)
+        db_ref.users.update_one(
+            {"user_id": user_id, "custom_themes": {"$exists": True}},
+            {"$set": {"custom_themes.$[].is_active": False}},
+        )
+
+        # שלב 2: הפעל את הערכה הנבחרת + העבר את האתר ל-custom
+        result2 = db_ref.users.update_one(
+            {"user_id": user_id, "custom_themes.id": theme_id},
+            {"$set": {"custom_themes.$.is_active": True, "ui_prefs.theme": "custom", "updated_at": now_utc}},
+        )
+        return bool(getattr(result2, "modified_count", 0) > 0)
+    except Exception as e:
+        logger.error("activate_theme_simple fallback failed: %s", e)
+        # Safety: אם משהו השתבש, אל תשאיר את המשתמש ב-custom בלי ערכה פעילה
+        try:
+            db_ref.users.update_one({"user_id": user_id}, {"$set": {"ui_prefs.theme": "classic", "updated_at": now_utc}})
+        except Exception:
+            pass
+        return False
+
+
+def get_custom_theme(user_id) -> Optional[Dict[str, Any]]:
+    """
+    טען את הערכה המותאמת הפעילה של המשתמש.
+    תומך גם במבנה הישן (custom_theme) וגם בחדש (custom_themes[]).
+    """
+    if not user_id:
+        return None
+    try:
+        db_ref = get_db()
+        user_doc = db_ref.users.find_one(
+            {"user_id": user_id},
+            {"custom_theme": 1, "custom_themes": 1},
+        )
+        if not user_doc:
+            return None
+
+        # מבנה חדש (מערך) – עדיפות
+        themes = user_doc.get("custom_themes")
+        if isinstance(themes, list) and themes:
+            for theme in themes:
+                if isinstance(theme, dict) and theme.get("is_active"):
+                    if not isinstance(theme.get("variables"), dict):
+                        theme = {**theme, "variables": {}}
+                    return theme
+
+        # Fallback למבנה ישן (אובייקט בודד)
+        old_theme = user_doc.get("custom_theme")
+        if isinstance(old_theme, dict) and old_theme.get("is_active"):
+            if not isinstance(old_theme.get("variables"), dict):
+                old_theme = {**old_theme, "variables": {}}
+            return old_theme
+
+        return None
+    except Exception as e:
+        logger.warning("get_custom_theme failed: %s", e)
+        return None
 
 def get_current_theme() -> str:
     """קובע את ערכת הנושא הנוכחית לפי cookie ו/או העדפות משתמש (DB).
@@ -1564,6 +1695,11 @@ def get_db():
         ensure_announcements_indexes()
     except Exception:
         pass
+    # אינדקסים למשתמשים (Themes)
+    try:
+        ensure_users_indexes()
+    except Exception:
+        pass
     return db
 
 
@@ -1653,6 +1789,54 @@ def ensure_announcements_indexes() -> None:
         if _did_work:
             try:
                 _record_startup_metric('indexes_announcements', max(0.0, float(_time.perf_counter() - _start)), accumulate=True)
+            except Exception:
+                pass
+
+
+# --- Ensure indexes for users (themes) once per process ---
+_users_indexes_ready = False
+
+
+def ensure_users_indexes() -> None:
+    """יוצר אינדקסים לאוסף users עבור Themes פעם אחת בתהליך.
+
+    אינדקסים:
+    - (user_id, custom_themes.is_active)
+    - (user_id, custom_themes.id)
+    """
+    global _users_indexes_ready
+    if _users_indexes_ready:
+        return
+    _start = _time.perf_counter()
+    _did_work = False
+    try:
+        _db = db if db is not None else None
+        if _db is None:
+            return
+        _did_work = True
+        coll = _db.users
+        try:
+            from pymongo import ASCENDING
+
+            coll.create_index(
+                [('user_id', ASCENDING), ('custom_themes.is_active', ASCENDING)],
+                name='user_custom_themes_active',
+                background=True,
+            )
+            coll.create_index(
+                [('user_id', ASCENDING), ('custom_themes.id', ASCENDING)],
+                name='user_custom_themes_id',
+                background=True,
+            )
+        except Exception:
+            pass
+        _users_indexes_ready = True
+    except Exception:
+        pass
+    finally:
+        if _did_work:
+            try:
+                _record_startup_metric('indexes_users', max(0.0, float(_time.perf_counter() - _start)), accumulate=True)
             except Exception:
                 pass
 
@@ -10584,20 +10768,12 @@ def theme_builder():
     user_id = session['user_id']
     user_is_admin = is_admin(user_id)
 
-    saved_theme = None
-    try:
-        db = get_db()
-        user_doc = db.users.find_one({'user_id': user_id}, {'custom_theme': 1}) or {}
-        saved_theme = user_doc.get('custom_theme')
-    except Exception as e:
-        logger.warning("theme_builder: failed to load custom_theme: %s", e)
-
     return render_template(
         'settings/theme_builder.html',
         user=session.get('user_data', {}),
         is_admin=user_is_admin,
         is_premium=is_premium(user_id),
-        saved_theme=saved_theme,
+        saved_theme=None,
     )
 
 @app.route('/health')
@@ -10828,8 +11004,7 @@ def api_ui_prefs():
             # 'custom' זמין לכל משתמש מחובר, רק אם קיימת ערכה פעילה ב-DB.
             if theme == 'custom':
                 try:
-                    udoc = db.users.find_one({'user_id': user_id}, {'custom_theme': 1}) or {}
-                    ct = (udoc.get('custom_theme') or {}) if isinstance(udoc, dict) else {}
+                    ct = get_custom_theme(user_id)
                     if not (isinstance(ct, dict) and ct.get('is_active')):
                         return jsonify({'ok': False, 'error': 'custom_theme_not_active'}), 400
                 except Exception:
@@ -10914,6 +11089,351 @@ def api_ui_prefs():
         return resp
     except Exception:
         return jsonify({'ok': False, 'error': 'שגיאה לא צפויה'}), 500
+
+
+@app.route('/api/themes', methods=['GET'])
+@login_required
+def get_user_themes():
+    """קבלת רשימת כל הערכות השמורות של המשתמש."""
+    try:
+        user_id = int(session.get('user_id'))
+    except Exception:
+        return jsonify({"ok": False, "error": "unauthorized"}), 401
+
+    try:
+        db_ref = get_db()
+        user_doc = db_ref.users.find_one({"user_id": user_id}, {"custom_themes": 1}) or {}
+
+        themes: List[Dict[str, Any]] = []
+        raw_themes = user_doc.get("custom_themes") if isinstance(user_doc, dict) else None
+        if isinstance(raw_themes, list):
+            for theme in raw_themes:
+                if not isinstance(theme, dict):
+                    continue
+                created_at = theme.get("created_at")
+                updated_at = theme.get("updated_at")
+                themes.append(
+                    {
+                        "id": theme.get("id"),
+                        "name": theme.get("name"),
+                        "description": theme.get("description", ""),
+                        "is_active": bool(theme.get("is_active", False)),
+                        "created_at": created_at.isoformat() if isinstance(created_at, datetime) else None,
+                        "updated_at": updated_at.isoformat() if isinstance(updated_at, datetime) else None,
+                        # לא מחזירים variables ברשימה – רק בבקשה ספציפית
+                    }
+                )
+
+        return jsonify(
+            {
+                "ok": True,
+                "themes": themes,
+                "count": len(themes),
+                "max_allowed": MAX_THEMES_PER_USER,
+            }
+        )
+    except Exception as e:
+        logger.exception("get_user_themes failed: %s", e)
+        return jsonify({"ok": False, "error": "database_error"}), 500
+
+
+@app.route('/api/themes/<theme_id>', methods=['GET'])
+@login_required
+def get_theme_details(theme_id: str):
+    """קבלת פרטי ערכה ספציפית כולל variables."""
+    try:
+        user_id = int(session.get('user_id'))
+    except Exception:
+        return jsonify({"ok": False, "error": "unauthorized"}), 401
+
+    try:
+        db_ref = get_db()
+        user_doc = db_ref.users.find_one(
+            {"user_id": user_id, "custom_themes.id": theme_id},
+            {"custom_themes.$": 1},
+        )
+
+        if not user_doc or not user_doc.get("custom_themes"):
+            return jsonify({"ok": False, "error": "theme_not_found"}), 404
+
+        theme = (user_doc.get("custom_themes") or [None])[0]
+        if not isinstance(theme, dict):
+            return jsonify({"ok": False, "error": "theme_not_found"}), 404
+
+        created_at = theme.get("created_at")
+        updated_at = theme.get("updated_at")
+        return jsonify(
+            {
+                "ok": True,
+                "theme": {
+                    "id": theme.get("id"),
+                    "name": theme.get("name"),
+                    "description": theme.get("description", ""),
+                    "is_active": bool(theme.get("is_active", False)),
+                    "created_at": created_at.isoformat() if isinstance(created_at, datetime) else None,
+                    "updated_at": updated_at.isoformat() if isinstance(updated_at, datetime) else None,
+                    "variables": theme.get("variables", {}) if isinstance(theme.get("variables"), dict) else {},
+                },
+            }
+        )
+    except Exception as e:
+        logger.exception("get_theme_details failed: %s", e)
+        return jsonify({"ok": False, "error": "database_error"}), 500
+
+
+@app.route('/api/themes', methods=['POST'])
+@login_required
+def create_theme():
+    """יצירת ערכת נושא חדשה (במקום לדרוס)."""
+    try:
+        user_id = int(session.get('user_id'))
+    except Exception:
+        return jsonify({"ok": False, "error": "unauthorized"}), 401
+
+    data = request.get_json(silent=True) or {}
+
+    # בדיקת מגבלת ערכות
+    try:
+        db_ref = get_db()
+        user_doc = db_ref.users.find_one({"user_id": user_id}, {"custom_themes": 1}) or {}
+        current_count = 0
+        if isinstance(user_doc, dict):
+            current_themes = user_doc.get("custom_themes") or []
+            if isinstance(current_themes, list):
+                current_count = len(current_themes)
+        if current_count >= MAX_THEMES_PER_USER:
+            return (
+                jsonify(
+                    {
+                        "ok": False,
+                        "error": "max_themes_reached",
+                        "message": f"ניתן לשמור עד {MAX_THEMES_PER_USER} ערכות",
+                    }
+                ),
+                400,
+            )
+    except Exception as e:
+        logger.exception("create_theme count check failed: %s", e)
+        return jsonify({"ok": False, "error": "database_error"}), 500
+
+    # ולידציית שם
+    name = (data.get("name") or "").strip()
+    if not name:
+        return jsonify({"ok": False, "error": "missing_name"}), 400
+    if len(name) > MAX_THEME_NAME_LENGTH:
+        return jsonify({"ok": False, "error": "name_too_long"}), 400
+
+    # ולידציית variables
+    variables = data.get("variables") or {}
+    if not isinstance(variables, dict):
+        return jsonify({"ok": False, "error": "invalid_variables"}), 400
+
+    validated_vars: Dict[str, str] = {}
+    for var_name, var_value in variables.items():
+        if var_name not in ALLOWED_VARIABLES:
+            continue
+        if not _validate_color(str(var_value)):
+            return jsonify({"ok": False, "error": "invalid_color", "field": var_name}), 400
+        validated_vars[var_name] = str(var_value).strip()
+
+    # יצירת מסמך ערכה
+    theme_doc = create_theme_document(
+        name=name,
+        variables=validated_vars,
+        description=(data.get("description") or ""),
+    )
+    theme_id = str(theme_doc.get("id") or "")
+
+    try:
+        db_ref = get_db()
+        db_ref.users.update_one(
+            {"user_id": user_id},
+            {"$push": {"custom_themes": theme_doc}},
+            upsert=True,
+        )
+
+        # אם המשתמש ביקש להפעיל מיד
+        if data.get("activate", False) and theme_id:
+            activate_theme_simple(user_id, theme_id)
+
+        return jsonify({"ok": True, "theme_id": theme_id, "message": "הערכה נוצרה בהצלחה"})
+    except Exception as e:
+        logger.exception("create_theme failed: %s", e)
+        return jsonify({"ok": False, "error": "database_error"}), 500
+
+
+@app.route('/api/themes/<theme_id>', methods=['PUT'])
+@login_required
+def update_theme(theme_id: str):
+    """עדכון ערכת נושא קיימת."""
+    try:
+        user_id = int(session.get('user_id'))
+    except Exception:
+        return jsonify({"ok": False, "error": "unauthorized"}), 401
+
+    data = request.get_json(silent=True) or {}
+    try:
+        db_ref = get_db()
+
+        # בדיקה שהערכה קיימת
+        user_doc = db_ref.users.find_one(
+            {"user_id": user_id, "custom_themes.id": theme_id},
+            {"custom_themes.$": 1},
+        )
+        if not user_doc or not user_doc.get("custom_themes"):
+            return jsonify({"ok": False, "error": "theme_not_found"}), 404
+
+        # בניית אובייקט העדכון
+        update_fields: Dict[str, Any] = {"custom_themes.$.updated_at": datetime.now(timezone.utc)}
+
+        # עדכון שם (אם סופק)
+        if "name" in data:
+            name = (data.get("name") or "").strip()
+            if not name:
+                return jsonify({"ok": False, "error": "missing_name"}), 400
+            if len(name) > MAX_THEME_NAME_LENGTH:
+                return jsonify({"ok": False, "error": "name_too_long"}), 400
+            update_fields["custom_themes.$.name"] = name
+
+        # עדכון תיאור (אם סופק)
+        if "description" in data:
+            update_fields["custom_themes.$.description"] = (data.get("description") or "").strip()[
+                :MAX_THEME_DESCRIPTION_LENGTH
+            ]
+
+        # עדכון variables (אם סופקו)
+        if "variables" in data:
+            variables = data.get("variables")
+            if not isinstance(variables, dict):
+                return jsonify({"ok": False, "error": "invalid_variables"}), 400
+
+            validated_vars: Dict[str, str] = {}
+            for var_name, var_value in variables.items():
+                if var_name not in ALLOWED_VARIABLES:
+                    continue
+                if not _validate_color(str(var_value)):
+                    return jsonify({"ok": False, "error": "invalid_color", "field": var_name}), 400
+                validated_vars[var_name] = str(var_value).strip()
+
+            update_fields["custom_themes.$.variables"] = validated_vars
+
+        result = db_ref.users.update_one(
+            {"user_id": user_id, "custom_themes.id": theme_id},
+            {"$set": update_fields},
+        )
+        if getattr(result, "modified_count", 0) == 0:
+            return jsonify({"ok": False, "error": "no_changes"}), 400
+
+        return jsonify({"ok": True, "message": "הערכה עודכנה בהצלחה"})
+    except Exception as e:
+        logger.exception("update_theme failed: %s", e)
+        return jsonify({"ok": False, "error": "database_error"}), 500
+
+
+@app.route('/api/themes/<theme_id>/activate', methods=['POST'])
+@login_required
+def activate_theme_endpoint(theme_id: str):
+    """החלת ערכה ספציפית (הפיכתה לפעילה)."""
+    try:
+        user_id = int(session.get('user_id'))
+    except Exception:
+        return jsonify({"ok": False, "error": "unauthorized"}), 401
+
+    try:
+        db_ref = get_db()
+        # בדיקה שהערכה קיימת
+        user_doc = db_ref.users.find_one(
+            {"user_id": user_id, "custom_themes.id": theme_id},
+            {"custom_themes.$": 1},
+        )
+        if not user_doc or not user_doc.get("custom_themes"):
+            return jsonify({"ok": False, "error": "theme_not_found"}), 404
+
+        success = activate_theme_simple(user_id, theme_id)
+        if success:
+            return jsonify({"ok": True, "message": "הערכה הופעלה בהצלחה", "active_theme_id": theme_id})
+        return jsonify({"ok": False, "error": "activation_failed"}), 500
+    except Exception as e:
+        logger.exception("activate_theme_endpoint failed: %s", e)
+        return jsonify({"ok": False, "error": "database_error"}), 500
+
+
+@app.route('/api/themes/deactivate', methods=['POST'])
+@login_required
+def deactivate_all_themes():
+    """ביטול כל הערכות המותאמות וחזרה לערכה רגילה."""
+    try:
+        user_id = int(session.get('user_id'))
+    except Exception:
+        return jsonify({"ok": False, "error": "unauthorized"}), 401
+
+    try:
+        db_ref = get_db()
+        now_utc = datetime.now(timezone.utc)
+        # 1) חזרה ל-classic תמיד בטוחה (ללא $[] ולכן ללא צורך ב-upsert)
+        db_ref.users.update_one(
+            {"user_id": user_id},
+            {"$set": {"ui_prefs.theme": "classic", "updated_at": now_utc}},
+        )
+        # 2) כיבוי כל הערכות רק אם המערך קיים (מונע שגיאה "path must exist")
+        db_ref.users.update_one(
+            {"user_id": user_id, "custom_themes": {"$exists": True}},
+            {"$set": {"custom_themes.$[].is_active": False, "updated_at": now_utc}},
+        )
+        return jsonify({"ok": True, "message": "הערכות המותאמות בוטלו", "reset_to": "classic"})
+    except Exception as e:
+        logger.exception("deactivate_all_themes failed: %s", e)
+        return jsonify({"ok": False, "error": "database_error"}), 500
+
+
+@app.route('/api/themes/<theme_id>', methods=['DELETE'])
+@login_required
+def delete_theme(theme_id: str):
+    """מחיקת ערכה ספציפית."""
+    try:
+        user_id = int(session.get('user_id'))
+    except Exception:
+        return jsonify({"ok": False, "error": "unauthorized"}), 401
+
+    try:
+        db_ref = get_db()
+        # בדיקה שהערכה קיימת
+        user_doc = db_ref.users.find_one(
+            {"user_id": user_id, "custom_themes.id": theme_id},
+            {"custom_themes.$": 1},
+        )
+        if not user_doc or not user_doc.get("custom_themes"):
+            return jsonify({"ok": False, "error": "theme_not_found"}), 404
+
+        theme = (user_doc.get("custom_themes") or [None])[0]
+        if not isinstance(theme, dict):
+            return jsonify({"ok": False, "error": "theme_not_found"}), 404
+        was_active = bool(theme.get("is_active", False))
+
+        # הסרת הערכה מהמערך
+        db_ref.users.update_one(
+            {"user_id": user_id},
+            {"$pull": {"custom_themes": {"id": theme_id}}},
+        )
+
+        # אם הערכה שנמחקה הייתה פעילה – חזור ל-classic
+        if was_active:
+            db_ref.users.update_one(
+                {"user_id": user_id},
+                {"$set": {"ui_prefs.theme": "classic"}},
+            )
+
+        return jsonify(
+            {
+                "ok": True,
+                "message": "הערכה נמחקה בהצלחה",
+                "was_active": was_active,
+                "reset_to": "classic" if was_active else None,
+            }
+        )
+    except Exception as e:
+        logger.exception("delete_theme failed: %s", e)
+        return jsonify({"ok": False, "error": "database_error"}), 500
 
 
 @app.route('/api/themes/save', methods=['POST'])
