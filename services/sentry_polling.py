@@ -153,6 +153,7 @@ class SentryPoller:
             name = f"Sentry: {short_id or issue_id[:8]}"
             summary = title or "Sentry issue activity"
             details = {
+                "is_new_error": True,
                 "alert_type": "sentry_issue",
                 "source": "sentry_poll",
                 "sentry_issue_id": issue_id,

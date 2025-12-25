@@ -415,6 +415,25 @@ def emit_internal_alert(name: str, severity: str = "info", summary: str = "", **
     severity: "info" | "warn" | "error" | "critical" | "anomaly"
     """
     try:
+        # תמיכה לאחור: יש קריאות שמעבירות details=dict(...) במקום kwargs (למשל tests)
+        details_payload: Dict[str, Any] = {}
+        try:
+            if isinstance(details, dict) and "details" in details and isinstance(details.get("details"), dict):
+                nested = details.get("details") or {}
+                if len(details) == 1:
+                    details_payload = dict(nested)
+                else:
+                    # מיזוג: nested details + שאר ה-kwargs (שיישארו כ-"details" אמיתיים)
+                    details_payload = dict(nested)
+                    for k, v in details.items():
+                        if k == "details":
+                            continue
+                        details_payload[k] = v
+            else:
+                details_payload = dict(details or {})
+        except Exception:
+            details_payload = dict(details or {})
+
         def _is_drill(d: Any) -> bool:
             if not isinstance(d, dict):
                 return False
@@ -437,10 +456,13 @@ def emit_internal_alert(name: str, severity: str = "info", summary: str = "", **
             "severity": str(severity),
             "summary": str(summary),
         }
-        if details:
-            rec["details"] = {k: (str(v) if not isinstance(v, (int, float, bool)) else v) for k, v in details.items()}
+        if details_payload:
+            rec["details"] = {
+                k: (str(v) if not isinstance(v, (int, float, bool)) else v)
+                for k, v in details_payload.items()
+            }
         _ALERTS.append(rec)
-        is_drill = _is_drill(details)
+        is_drill = _is_drill(details_payload)
         if internal_alerts_total is not None:
             try:
                 internal_alerts_total.labels(str(name or "InternalAlert"), str(severity or "info")).inc()
@@ -465,8 +487,6 @@ def emit_internal_alert(name: str, severity: str = "info", summary: str = "", **
         try:
             from services.rules_evaluator import evaluate_alert_rules, execute_matched_actions
 
-            details_payload = details if isinstance(details, dict) else {}
-
             alert_payload = {
                 "name": str(name),
                 "severity": str(severity),
@@ -475,6 +495,15 @@ def emit_internal_alert(name: str, severity: str = "info", summary: str = "", **
                 "source": "internal_alerts",
                 "silenced": False,
             }
+            # חשוב: מנוע הכללים/לוגים מצפים לעיתים לשדות בטופ-לבל (למשל alert_type),
+            # לכן אנחנו "מקדמים" את פרטי ה-alert גם לרמה העליונה – בלי לדרוס שדות ליבה.
+            try:
+                for k, v in (details_payload or {}).items():
+                    if k in alert_payload:
+                        continue
+                    alert_payload[k] = v
+            except Exception:
+                pass
 
             evaluation = evaluate_alert_rules(alert_payload)
             if evaluation:
@@ -511,18 +540,18 @@ def emit_internal_alert(name: str, severity: str = "info", summary: str = "", **
                         severity="critical",
                         summary=str(summary),
                         source="internal_alerts",
-                        details=details if isinstance(details, dict) else None,
+                        details=details_payload if isinstance(details_payload, dict) else None,
                     )
                 except Exception:
                     pass
                 return
             try:
                 from alert_manager import forward_critical_alert  # type: ignore
-                forward_critical_alert(name=str(name), summary=str(summary), **(details or {}))
+                forward_critical_alert(name=str(name), summary=str(summary), **(details_payload or {}))
             except Exception:
                 # Fallback to Telegram only
                 try:
-                    _send_telegram(_format_text(name, severity, summary, details), severity=str(severity))
+                    _send_telegram(_format_text(name, severity, summary, details_payload), severity=str(severity))
                 except Exception:
                     pass
                 # Best-effort: persist critical alert when fallback path used
@@ -534,7 +563,7 @@ def emit_internal_alert(name: str, severity: str = "info", summary: str = "", **
                         severity="critical",
                         summary=str(summary),
                         source="internal_alerts",
-                        details=details if isinstance(details, dict) else None,
+                        details=details_payload if isinstance(details_payload, dict) else None,
                     )
                 except Exception:
                     pass
@@ -550,21 +579,21 @@ def emit_internal_alert(name: str, severity: str = "info", summary: str = "", **
                         severity=str(severity),
                         summary=str(summary),
                         source="internal_alerts",
-                        details=details if isinstance(details, dict) else None,
+                        details=details_payload if isinstance(details_payload, dict) else None,
                     )
                 except Exception:
                     pass
                 return
             try:
                 if forward_alerts is not None:
-                    alert = _build_forward_payload(name, severity, summary, details)
+                    alert = _build_forward_payload(name, severity, summary, details_payload)
                     forward_alerts([alert])
                 else:
-                    _send_telegram(_format_text(name, severity, summary, details), severity=str(severity))
+                    _send_telegram(_format_text(name, severity, summary, details_payload), severity=str(severity))
             except Exception:
                 # Never break on sinks; try fallback Telegram
                 try:
-                    _send_telegram(_format_text(name, severity, summary, details), severity=str(severity))
+                    _send_telegram(_format_text(name, severity, summary, details_payload), severity=str(severity))
                 except Exception:
                     pass
             # Best-effort: persist non-critical alert (single write)
@@ -576,7 +605,7 @@ def emit_internal_alert(name: str, severity: str = "info", summary: str = "", **
                     severity=str(severity),
                     summary=str(summary),
                     source="internal_alerts",
-                    details=details if isinstance(details, dict) else None,
+                    details=details_payload if isinstance(details_payload, dict) else None,
                 )
             except Exception:
                 pass
