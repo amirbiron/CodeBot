@@ -53,6 +53,7 @@ def get_public_items():
 
 
 @community_lib_bp.route('/logo/<path:file_id>', methods=['GET'])
+@dynamic_cache(content_type='logo', key_prefix='logo_file', expire=86400) # הוספנו קאש!
 def get_logo(file_id: str):
     """Proxy a Telegram file by file_id without exposing the bot token.
 
@@ -62,15 +63,18 @@ def get_logo(file_id: str):
         token = os.getenv('BOT_TOKEN', '')
         if not token or not file_id:
             return Response(status=404)
+            
         # Resolve file_path from file_id
         meta_resp = http_request(
             'GET',
             f'https://api.telegram.org/bot{token}/getFile',
             params={'file_id': file_id},
-            timeout=5,
+            timeout=2, # קיצרנו ל-2 שניות
         )
+        
         if int(getattr(meta_resp, 'status_code', 0) or 0) != 200:
             return Response(status=404)
+            
         try:
             from telegram_api import require_telegram_ok
 
@@ -80,24 +84,30 @@ def get_logo(file_id: str):
             file_path = (body.get('result') or {}).get('file_path')
         except Exception:
             file_path = None
+            
         if not file_path:
             return Response(status=404)
+            
         # Fetch the actual file bytes
         file_resp = http_request(
             'GET',
             f'https://api.telegram.org/file/bot{token}/{file_path}',
-            timeout=8,
+            timeout=2, # קיצרנו ל-2 שניות
         )
+        
         if int(getattr(file_resp, 'status_code', 0) or 0) != 200:
             return Response(status=404)
+            
         content_type = None
         try:
             content_type = (file_resp.headers or {}).get('Content-Type')
         except Exception:
             content_type = None
+            
         headers = {'Cache-Control': 'public, max-age=86400'}
         if content_type:
             headers['Content-Type'] = content_type
+            
         return Response(file_resp.content, headers=headers)
     except Exception:
         return Response(status=404)
