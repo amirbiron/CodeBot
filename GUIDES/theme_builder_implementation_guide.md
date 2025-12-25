@@ -467,7 +467,7 @@ def _check_contrast_ratio(fg_hex: str, bg_hex: str) -> float:
                 </div>
                 
                 <div class="color-row">
-                    <label for="mdText">טקסט קוד</label>
+                    <label for="mdText">טקסט קוד (טקסט ללא הדגשת תחביר)</label>
                     <div class="color-input-wrapper">
                         <input type="text" id="mdTextText" data-var="--md-text" class="color-text" />
                         <div id="mdText" class="color-picker" data-var="--md-text"></div>
