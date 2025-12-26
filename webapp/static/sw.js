@@ -1,5 +1,5 @@
 // SW Version for cache busting
-const SW_VERSION = '2.0.1';
+const SW_VERSION = '2.0.2';
 
 self.addEventListener('install', (event) => {
   console.log('[SW] Installing version:', SW_VERSION);
@@ -44,48 +44,83 @@ function reportToServer(eventType, status, extra = {}) {
 }
 
 self.addEventListener('push', (event) => {
-  // STEP 1: IMMEDIATELY log and report that we received a push
-  // This is the FIRST thing we do - before any processing
-  const receivedAt = new Date().toISOString();
-  console.log('========================================');
-  console.log('[SW] PUSH EVENT RECEIVED at:', receivedAt);
-  console.log('[SW] SW Version:', SW_VERSION);
-  console.log('[SW] event.data exists:', !!event.data);
-  console.log('========================================');
-  
-  // STEP 2: Send immediate report to server (before any async work)
-  reportToServer('push_received', 'started', { received_at: receivedAt });
-  
-  const handlePush = async () => {
+  // CRITICAL: Call event.waitUntil IMMEDIATELY at the start
+  // All logic must be inside this promise to keep SW alive
+  event.waitUntil((async () => {
+    const receivedAt = new Date().toISOString();
     let rawData = null;
     let parsedJson = null;
     
     try {
+      // STEP 1: Log that we received a push
+      console.log('========================================');
+      console.log('[SW] PUSH EVENT RECEIVED at:', receivedAt);
+      console.log('[SW] SW Version:', SW_VERSION);
+      console.log('[SW] event.data exists:', !!event.data);
+      console.log('========================================');
+      
+      // STEP 2: Send immediate report to server (AWAIT to ensure it sends)
+      try {
+        await fetch('/api/push/sw-report', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            event: 'push_received',
+            status: 'started',
+            timestamp: receivedAt,
+            sw_version: SW_VERSION,
+            received_at: receivedAt
+          }),
+          keepalive: true
+        });
+        console.log('[SW] Initial report sent successfully');
+      } catch (reportErr) {
+        console.error('[SW] Initial report failed (continuing anyway):', reportErr);
+      }
+      
       // STEP 3: Extract and parse the push data
       console.log('[SW] Step 3: Extracting push data...');
       
       if (event.data) {
         try {
-          rawData = event.data.text();
+          // Use try-catch specifically for text() which can fail
+          try {
+            rawData = event.data.text();
+          } catch (textErr) {
+            console.error('[SW] event.data.text() failed:', textErr);
+            // Try alternative methods
+            try {
+              rawData = await event.data.json();
+              rawData = JSON.stringify(rawData);
+            } catch (jsonErr) {
+              console.error('[SW] event.data.json() also failed:', jsonErr);
+              rawData = null;
+            }
+          }
+          
           console.log('[SW] Raw push data received, length:', rawData ? rawData.length : 0);
           console.log('[SW] Raw data content:', rawData);
           
-          parsedJson = JSON.parse(rawData);
+          if (rawData) {
+            parsedJson = JSON.parse(rawData);
+          } else {
+            parsedJson = {};
+          }
           console.log('[SW] Successfully parsed JSON');
           console.log('[SW] Parsed structure:', JSON.stringify(parsedJson, null, 2));
           
           reportToServer('push_parsed', 'success', { 
-            raw_data: rawData,
-            has_notification: !!parsedJson.notification,
-            has_data: !!parsedJson.data,
-            has_title: !!(parsedJson.title || (parsedJson.notification && parsedJson.notification.title))
+            raw_data: rawData || '(no data)',
+            has_notification: !!(parsedJson && parsedJson.notification),
+            has_data: !!(parsedJson && parsedJson.data),
+            has_title: !!(parsedJson && (parsedJson.title || (parsedJson.notification && parsedJson.notification.title)))
           });
         } catch (parseErr) {
           console.error('[SW] JSON parse error:', parseErr);
           console.error('[SW] Raw data that failed to parse:', rawData);
           reportToServer('push_parsed', 'error', { 
             error: String(parseErr), 
-            raw_data: rawData 
+            raw_data: rawData || '(null)'
           });
           parsedJson = {};
         }
@@ -227,10 +262,7 @@ self.addEventListener('push', (event) => {
         });
       }
     }
-  };
-  
-  // Use waitUntil to keep SW alive until notification is shown
-  event.waitUntil(handlePush());
+  })());  // Close the IIFE that was passed to event.waitUntil
 });
 
 self.addEventListener('notificationclick', (event) => {
