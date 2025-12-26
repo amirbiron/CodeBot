@@ -75,6 +75,7 @@ class JobTracker:
                 from database import db
                 self._db = db
             except Exception:
+                logger.warning("Failed to initialize database connection for job tracking", exc_info=True)
                 self._db = None
         return self._db
 
@@ -140,7 +141,7 @@ class JobTracker:
             emit_event("job_started", severity="info", job_id=job_id, run_id=run.run_id)
         except Exception:
             # Observability is optional - don't fail job tracking if unavailable
-            logger.debug("Failed to emit job_started event for %s", job_id, exc_info=True)
+            logger.warning("Failed to emit job_started event for %s", job_id, exc_info=True)
 
         return run
 
@@ -222,7 +223,7 @@ class JobTracker:
             )
         except Exception:
             # Observability is optional - don't fail job tracking if unavailable
-            logger.debug("Failed to emit job_completed event for %s", run_id, exc_info=True)
+            logger.warning("Failed to emit job_completed event for %s", run_id, exc_info=True)
 
     def fail_run(
         self,
@@ -253,7 +254,7 @@ class JobTracker:
             )
         except Exception:
             # Observability is optional - don't fail job tracking if unavailable
-            logger.debug("Failed to emit job_failed event for %s", run_id, exc_info=True)
+            logger.warning("Failed to emit job_failed event for %s", run_id, exc_info=True)
 
     @contextmanager
     def track(
@@ -347,7 +348,7 @@ class JobTracker:
                 return self._doc_to_run(doc)
         except Exception:
             # DB lookup failed - return None gracefully
-            logger.debug("Failed to get run %s from DB", run_id, exc_info=True)
+            logger.error("Failed to get run %s from DB", run_id, exc_info=True)
         return None
 
     def get_job_history(
@@ -374,7 +375,7 @@ class JobTracker:
                 return [self._doc_to_run(doc) for doc in cursor]
         except Exception:
             # DB lookup failed - return empty list gracefully
-            logger.debug("Failed to get job history for %s", job_id, exc_info=True)
+            logger.error("Failed to get job history for %s", job_id, exc_info=True)
         return []
 
     def get_active_runs(self) -> List[JobRun]:
@@ -401,7 +402,7 @@ class JobTracker:
                 return [self._doc_to_run(doc) for doc in cursor]
         except Exception:
             # DB lookup failed - return empty list gracefully
-            logger.debug("Failed to get failed runs from DB", exc_info=True)
+            logger.error("Failed to get failed runs from DB", exc_info=True)
         return []
 
     def _doc_to_run(self, doc: dict) -> JobRun:
