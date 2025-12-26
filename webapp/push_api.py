@@ -1017,7 +1017,9 @@ def cleanup_subscriptions():
         user_id = _session_user_id()
         db = get_db()
         payload = request.get_json(silent=True) or {}
-        days = int(payload.get("older_than_days") or 30)
+        raw_days = payload.get("older_than_days")
+        # Handle explicit 0 correctly - don't treat it as missing
+        days = int(raw_days) if raw_days is not None else 30
         if days < 1:
             days = 1
         
@@ -1069,8 +1071,8 @@ def delete_all_subscriptions():
         user_id = _session_user_id()
         db = get_db()
         
-        count_before = db.push_subscriptions.count_documents({"user_id": {"$in": _user_id_variants(user_id)}})
-        db.push_subscriptions.delete_many({"user_id": {"$in": _user_id_variants(user_id)}})
+        result = db.push_subscriptions.delete_many({"user_id": {"$in": _user_id_variants(user_id)}})
+        deleted = result.deleted_count if hasattr(result, "deleted_count") else 0
         
         try:
             from observability import emit_event
@@ -1078,14 +1080,14 @@ def delete_all_subscriptions():
                 "push_subscriptions_delete_all",
                 severity="info",
                 user_id=str(user_id),
-                deleted=count_before,
+                deleted=deleted,
             )
         except Exception:
             pass
         
         return jsonify({
             "ok": True,
-            "deleted": count_before,
+            "deleted": deleted,
             "message": "All subscriptions deleted. Please re-enable push notifications to create a fresh subscription.",
         }), 200
     except Exception:
