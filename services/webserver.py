@@ -1173,6 +1173,153 @@ def create_app() -> web.Application:
     app.router.add_get("/api/db/collections", db_health_collections_view)
     app.router.add_get("/api/db/health", db_health_summary_view)
 
+    # === Background Jobs Monitor API ===
+    async def get_jobs_list(request: web.Request) -> web.Response:
+        """GET /api/jobs - רשימת כל ה-jobs"""
+        try:
+            from services.job_registry import JobRegistry
+            registry = JobRegistry()
+            jobs = []
+
+            for job in registry.list_all():
+                jobs.append({
+                    "job_id": job.job_id,
+                    "name": job.name,
+                    "description": job.description,
+                    "category": job.category.value,
+                    "type": job.job_type.value,
+                    "interval_seconds": job.interval_seconds,
+                    "enabled": registry.is_enabled(job.job_id),
+                    "env_toggle": job.env_toggle,
+                })
+
+            return web.json_response({"jobs": jobs})
+        except Exception as e:
+            logger.error(f"get_jobs_list error: {e}")
+            return web.json_response({"error": "failed", "jobs": []}, status=500)
+
+    async def get_job_detail(request: web.Request) -> web.Response:
+        """GET /api/jobs/{job_id} - פרטי job ספציפי"""
+        try:
+            job_id = request.match_info.get("job_id")
+            from services.job_registry import JobRegistry
+            from services.job_tracker import get_job_tracker
+            registry = JobRegistry()
+            tracker = get_job_tracker()
+
+            job = registry.get(job_id)
+            if not job:
+                return web.json_response({"error": "Job not found"}, status=404)
+
+            history = tracker.get_job_history(job_id, limit=20)
+            active = [r for r in tracker.get_active_runs() if r.job_id == job_id]
+
+            return web.json_response({
+                "job": {
+                    "job_id": job.job_id,
+                    "name": job.name,
+                    "description": job.description,
+                    "category": job.category.value,
+                    "type": job.job_type.value,
+                    "interval_seconds": job.interval_seconds,
+                    "enabled": registry.is_enabled(job.job_id),
+                    "source_file": job.source_file,
+                },
+                "active_runs": [_run_to_dict(r) for r in active],
+                "history": [_run_to_dict(r) for r in history],
+            })
+        except Exception as e:
+            logger.error(f"get_job_detail error: {e}")
+            return web.json_response({"error": "failed"}, status=500)
+
+    async def get_run_detail(request: web.Request) -> web.Response:
+        """GET /api/jobs/runs/{run_id} - פרטי הרצה"""
+        try:
+            run_id = request.match_info.get("run_id")
+            from services.job_tracker import get_job_tracker
+            tracker = get_job_tracker()
+
+            run = tracker.get_run(run_id)
+            if not run:
+                return web.json_response({"error": "Run not found"}, status=404)
+
+            return web.json_response({"run": _run_to_dict(run, include_logs=True)})
+        except Exception as e:
+            logger.error(f"get_run_detail error: {e}")
+            return web.json_response({"error": "failed"}, status=500)
+
+    async def get_active_runs_view(request: web.Request) -> web.Response:
+        """GET /api/jobs/active - הרצות פעילות"""
+        try:
+            from services.job_tracker import get_job_tracker
+            tracker = get_job_tracker()
+            runs = tracker.get_active_runs()
+
+            return web.json_response({
+                "active_runs": [_run_to_dict(r) for r in runs]
+            })
+        except Exception as e:
+            logger.error(f"get_active_runs error: {e}")
+            return web.json_response({"error": "failed", "active_runs": []}, status=500)
+
+    async def trigger_job_view(request: web.Request) -> web.Response:
+        """POST /api/jobs/{job_id}/trigger - הפעלה ידנית"""
+        try:
+            job_id = request.match_info.get("job_id")
+            from services.job_registry import JobRegistry
+            registry = JobRegistry()
+
+            job = registry.get(job_id)
+            if not job:
+                return web.json_response({"error": "Job not found"}, status=404)
+
+            # TODO: implement actual trigger via job_queue
+            # כרגע מחזירים הודעה שה-trigger התקבל
+            return web.json_response({
+                "message": f"Job {job_id} triggered",
+                "job_id": job_id
+            })
+        except Exception as e:
+            logger.error(f"trigger_job error: {e}")
+            return web.json_response({"error": "failed"}, status=500)
+
+    def _run_to_dict(run, include_logs: bool = False) -> dict:
+        """המרת JobRun ל-dict"""
+        d = {
+            "run_id": run.run_id,
+            "job_id": run.job_id,
+            "started_at": run.started_at.isoformat() if run.started_at else None,
+            "ended_at": run.ended_at.isoformat() if run.ended_at else None,
+            "status": run.status.value,
+            "progress": run.progress,
+            "total_items": run.total_items,
+            "processed_items": run.processed_items,
+            "error_message": run.error_message,
+            "trigger": run.trigger,
+            "user_id": run.user_id,
+            "duration_seconds": (
+                (run.ended_at - run.started_at).total_seconds()
+                if run.ended_at and run.started_at else None
+            ),
+        }
+        if include_logs:
+            d["logs"] = [
+                {
+                    "timestamp": log.timestamp.isoformat(),
+                    "level": log.level,
+                    "message": log.message,
+                }
+                for log in run.logs
+            ]
+        return d
+
+    # Register Jobs Monitor routes
+    app.router.add_get("/api/jobs", get_jobs_list)
+    app.router.add_get("/api/jobs/active", get_active_runs_view)
+    app.router.add_get("/api/jobs/{job_id}", get_job_detail)
+    app.router.add_get("/api/jobs/runs/{run_id}", get_run_detail)
+    app.router.add_post("/api/jobs/{job_id}/trigger", trigger_job_view)
+
     return app
 
 

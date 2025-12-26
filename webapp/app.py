@@ -6794,6 +6794,29 @@ def dashboard():
                              error="אירעה שגיאה בטעינת הנתונים. אנא נסה שוב.",
                              bot_username=BOT_USERNAME_CLEAN)
 
+
+@app.route('/jobs/monitor')
+@login_required
+def jobs_monitor():
+    """דף ניטור Background Jobs"""
+    try:
+        # רישום ה-Jobs אם טרם נרשמו
+        try:
+            from services.register_jobs import register_all_jobs
+            from services.job_registry import JobRegistry
+            if not JobRegistry().list_all():
+                register_all_jobs()
+        except Exception:
+            pass
+        return render_template('jobs_monitor.html',
+                             user=session.get('user_data', {}))
+    except Exception as e:
+        logger.error(f"jobs_monitor error: {e}")
+        return render_template('jobs_monitor.html',
+                             user=session.get('user_data', {}),
+                             error="שגיאה בטעינת הדף")
+
+
 @app.route('/files')
 @app.route('/files', endpoint='files_page')
 @login_required
