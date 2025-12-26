@@ -63,14 +63,9 @@ class JobRegistry:
                     # כדי למנוע race condition שבו thread אחר רואה instance
                     # אבל _jobs עדיין לא קיים
                     new_instance = super().__new__(cls)
-                    new_instance._jobs = {}  # type annotation in __init__
+                    new_instance._jobs: Dict[str, JobDefinition] = {}
                     cls._instance = new_instance
         return cls._instance
-
-    def __init__(self) -> None:
-        """Initialize the instance (only once)"""
-        if not hasattr(self, '_jobs'):
-            self._jobs: Dict[str, JobDefinition] = {}
 
     def register(self, job: JobDefinition) -> None:
         """רישום Job חדש"""

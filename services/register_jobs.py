@@ -8,7 +8,6 @@ from services.job_registry import (
     register_job,
     JobCategory,
     JobType,
-    JobRegistry
 )
 
 
@@ -93,8 +92,8 @@ def register_all_jobs() -> None:
 
     register_job(
         job_id="weekly_admin_report",
-        name="דו\"ח שבועי",
-        description="שליחת דו\"ח סיכום שבועי לאדמינים",
+        name='דו"ח שבועי',
+        description='שליחת דו"ח סיכום שבועי לאדמינים',
         category=JobCategory.MONITORING,
         job_type=JobType.REPEATING,
         interval_seconds=7 * 24 * 3600,

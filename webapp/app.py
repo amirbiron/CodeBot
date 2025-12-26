@@ -6799,6 +6799,7 @@ def dashboard():
 @login_required
 def jobs_monitor():
     """דף ניטור Background Jobs"""
+    job_registration_error = None
     try:
         # רישום ה-Jobs אם טרם נרשמו
         try:
@@ -6806,10 +6807,12 @@ def jobs_monitor():
             from services.job_registry import JobRegistry
             if not JobRegistry().list_all():
                 register_all_jobs()
-        except Exception:
-            pass
+        except Exception as e:
+            logger.exception("Failed to register background jobs in jobs_monitor")
+            job_registration_error = "אירעה שגיאה ברישום משימות הרקע. ייתכן שחלק מהמשימות אינן פעילות."
         return render_template('jobs_monitor.html',
-                             user=session.get('user_data', {}))
+                             user=session.get('user_data', {}),
+                             job_registration_error=job_registration_error)
     except Exception as e:
         logger.error(f"jobs_monitor error: {e}")
         return render_template('jobs_monitor.html',

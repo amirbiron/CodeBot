@@ -550,7 +550,13 @@ document.addEventListener('DOMContentLoaded', function() {
 
             // בדיקה שהבקשה הצליחה לפני עיבוד הנתונים
             if (!res.ok) {
-                showToast(`❌ ${data.error || 'שגיאה בטעינת פרטי Job'}`, 'error');
+                const hasErrorField =
+                    data !== null &&
+                    typeof data === 'object' &&
+                    Object.prototype.hasOwnProperty.call(data, 'error') &&
+                    typeof data.error === 'string';
+                const apiErrorMessage = hasErrorField ? data.error : 'שגיאה בטעינת פרטי Job';
+                showToast(`❌ ${apiErrorMessage}`, 'error');
                 return;
             }
 

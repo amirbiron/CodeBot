@@ -4,7 +4,7 @@
 """
 
 import os
-from typing import Optional
+from typing import Dict, List
 from services.job_registry import JobRegistry, JobCategory
 from services.job_tracker import get_job_tracker
 
@@ -25,7 +25,7 @@ def handle_jobs_command(args: str) -> str:
     tracker = get_job_tracker()
 
     # URL בסיס למוניטור (ניתן לקנפג דרך ENV)
-    monitor_base_url = os.getenv("WEBAPP_URL", "https://your-app.onrender.com")
+    monitor_base_url = os.getenv("WEBAPP_URL", "http://localhost")
 
     # Active runs
     if args == "active":
@@ -125,7 +125,7 @@ def handle_jobs_command(args: str) -> str:
     if not jobs:
         return "📋 אין jobs רשומים במערכת"
 
-    categories: dict[str, list[str]] = {}
+    categories: Dict[str, List[str]] = {}
     for job in jobs:
         cat = job.category.value
         if cat not in categories:

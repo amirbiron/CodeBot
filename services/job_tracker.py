@@ -134,12 +134,13 @@ class JobTracker:
         self._active_runs[run.run_id] = run
         self._persist_run(run)
 
-        # Emit observability event (best-effort)
+        # Emit observability event (best-effort, fail-open)
         try:
             from observability import emit_event
             emit_event("job_started", severity="info", job_id=job_id, run_id=run.run_id)
         except Exception:
-            pass
+            # Observability is optional - don't fail job tracking if unavailable
+            logger.debug("Failed to emit job_started event for %s", job_id, exc_info=True)
 
         return run
 
@@ -220,7 +221,8 @@ class JobTracker:
                 duration_seconds=duration
             )
         except Exception:
-            pass
+            # Observability is optional - don't fail job tracking if unavailable
+            logger.debug("Failed to emit job_completed event for %s", run_id, exc_info=True)
 
     def fail_run(
         self,
@@ -250,7 +252,8 @@ class JobTracker:
                 error=error_message
             )
         except Exception:
-            pass
+            # Observability is optional - don't fail job tracking if unavailable
+            logger.debug("Failed to emit job_failed event for %s", run_id, exc_info=True)
 
     @contextmanager
     def track(
@@ -343,7 +346,8 @@ class JobTracker:
             if doc:
                 return self._doc_to_run(doc)
         except Exception:
-            pass
+            # DB lookup failed - return None gracefully
+            logger.debug("Failed to get run %s from DB", run_id, exc_info=True)
         return None
 
     def get_job_history(
@@ -369,7 +373,8 @@ class JobTracker:
             if cursor:
                 return [self._doc_to_run(doc) for doc in cursor]
         except Exception:
-            pass
+            # DB lookup failed - return empty list gracefully
+            logger.debug("Failed to get job history for %s", job_id, exc_info=True)
         return []
 
     def get_active_runs(self) -> List[JobRun]:
@@ -395,7 +400,8 @@ class JobTracker:
             if cursor:
                 return [self._doc_to_run(doc) for doc in cursor]
         except Exception:
-            pass
+            # DB lookup failed - return empty list gracefully
+            logger.debug("Failed to get failed runs from DB", exc_info=True)
         return []
 
     def _doc_to_run(self, doc: dict) -> JobRun:
@@ -434,13 +440,10 @@ _tracker_lock = threading.Lock()
 def get_job_tracker() -> JobTracker:
     """קבלת Singleton instance של JobTracker (thread-safe)"""
     global _tracker
-    # בדיקה ראשונה (לביצועים - כדי לא לנעול אם כבר קיים)
-    if _tracker is None:
-        with _tracker_lock:
-            # בדיקה שנייה (בטיחות - לוודא שאף אחד לא יצר בזמן שחיכינו למנעול)
-            if _tracker is None:
-                _tracker = JobTracker()
-    return _tracker
+    with _tracker_lock:
+        if _tracker is None:
+            _tracker = JobTracker()
+        return _tracker
 
 
 def reset_job_tracker() -> None:

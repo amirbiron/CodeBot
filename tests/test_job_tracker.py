@@ -4,14 +4,11 @@ Unit Tests עבור JobTracker ו-JobRegistry.
 """
 
 import pytest
-from datetime import datetime, timezone
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 from services.job_tracker import (
     JobTracker,
     JobStatus,
-    JobRun,
-    JobLogEntry,
     JobAlreadyRunningError,
     get_job_tracker,
     reset_job_tracker,
@@ -21,7 +18,6 @@ from services.job_registry import (
     register_job,
     JobCategory,
     JobType,
-    JobDefinition,
 )
 
 
@@ -263,7 +259,7 @@ class TestJobRegistry:
 
     def test_register_and_get_job(self, registry):
         """Test registering and getting a job"""
-        job = register_job(
+        register_job(
             job_id="test_backup",
             name="Test Backup",
             description="A test job",
