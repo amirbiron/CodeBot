@@ -17,8 +17,9 @@
 7. [שלב 6: עדכון מנוע החיפוש](#-שלב-6-עדכון-מנוע-החיפוש)
 8. [שלב 7: עדכון ה-API](#-שלב-7-עדכון-ה-api)
 9. [שלב 8: עדכון ה-Frontend](#-שלב-8-עדכון-ה-frontend)
-10. [בדיקות](#-בדיקות)
-11. [נספחים](#-נספחים)
+10. [שיפורים מומלצים (Nice to Have)](#-שיפורים-מומלצים-nice-to-have)
+11. [בדיקות](#-בדיקות)
+12. [נספחים](#-נספחים)
 
 ---
 
@@ -426,6 +427,10 @@ _HEAVY_FIELDS_EXCLUDE_PROJECTION: Dict[str, int] = {
 
 מצא את הפונקציה `save_code_snippet` והוסף את ההיגיון לסימון צורך בעדכון embedding:
 
+> ⚠️ **חשוב:** יש לבדוק שינוי בכל השדות שמרכיבים את ה-Embedding (לא רק `code`!).  
+> ה-Embedding נבנה מ: `code` + `description` + `tags` + `programming_language`.  
+> אם נבדוק רק את `code`, שינוי בתיאור או בתגיות לא יעדכן את ה-Embedding והחיפוש לא ימצא את הקובץ לפי המידע החדש.
+
 ```python
 @_instrument_db("db.save_code_snippet")
 def save_code_snippet(self, snippet: CodeSnippet) -> bool:
@@ -443,13 +448,32 @@ def save_code_snippet(self, snippet: CodeSnippet) -> bool:
             # ... (קוד קיים לשמירת מועדפים)
             
             # ===== בדיקה אם צריך לעדכן embedding =====
-            # נעדכן רק אם התוכן השתנה
+            # חשוב: בודקים שינוי בכל השדות שמרכיבים את ה-Embedding!
+            # ה-Embedding נבנה מ: code + description + tags + programming_language
+            
             old_code = existing.get('code', '')
-            if old_code != snippet.code:
+            old_description = existing.get('description', '')
+            old_tags = existing.get('tags') or []
+            old_language = existing.get('programming_language', '')
+            
+            # השוואה בטוחה של tags (רשימות)
+            def _normalize_tags(tags):
+                if not tags:
+                    return []
+                return sorted([str(t).strip().lower() for t in tags if t])
+            
+            embedding_content_changed = (
+                old_code != snippet.code or
+                old_description != (snippet.description or '') or
+                _normalize_tags(old_tags) != _normalize_tags(snippet.tags) or
+                old_language != (snippet.programming_language or '')
+            )
+            
+            if embedding_content_changed:
                 snippet.needs_embedding_update = True
                 snippet.embedding = None  # נקה embedding ישן
             else:
-                # שמור על ה-embedding הקיים אם הקוד לא השתנה
+                # שמור על ה-embedding הקיים אם התוכן לא השתנה
                 snippet.embedding = existing.get('embedding')
                 snippet.embedding_model = existing.get('embedding_model')
                 snippet.embedding_updated_at = existing.get('embedding_updated_at')
@@ -1383,6 +1407,240 @@ document.addEventListener('DOMContentLoaded', function() {
 
 ---
 
+## 💡 שיפורים מומלצים (Nice to Have)
+
+### 9.1 Hybrid Search (חיפוש היברידי)
+
+במקום Toggle בין חיפוש טקסטואלי לסמנטי, ניתן להריץ את שניהם ולשלב תוצאות:
+
+```python
+def _hybrid_search(
+    self,
+    query: str,
+    user_id: int,
+    limit: int = 50,
+    semantic_weight: float = 0.6,  # משקל לתוצאות סמנטיות
+) -> List[SearchResult]:
+    """
+    חיפוש היברידי: שילוב תוצאות טקסטואליות וסמנטיות.
+    מחזיר תוצאות טובות יותר משתי השיטות בנפרד.
+    """
+    index = self.get_index(user_id)
+    
+    # הרצת שני סוגי החיפוש
+    text_results = self._text_search(query, index, user_id)
+    semantic_results = self._semantic_search(query, user_id, limit * 2)
+    
+    # נרמול ציונים לטווח 0-1
+    def _normalize_scores(results: List[SearchResult]) -> Dict[str, float]:
+        if not results:
+            return {}
+        scores = [r.relevance_score for r in results]
+        min_score, max_score = min(scores), max(scores)
+        score_range = max_score - min_score if max_score > min_score else 1.0
+        return {
+            r.file_name: (r.relevance_score - min_score) / score_range
+            for r in results
+        }
+    
+    text_scores = _normalize_scores(text_results)
+    semantic_scores = _normalize_scores(semantic_results)
+    
+    # שילוב ציונים עם משקלות
+    text_weight = 1.0 - semantic_weight
+    combined_scores: Dict[str, float] = {}
+    all_files = set(text_scores.keys()) | set(semantic_scores.keys())
+    
+    for file_name in all_files:
+        text_score = text_scores.get(file_name, 0.0)
+        semantic_score = semantic_scores.get(file_name, 0.0)
+        combined_scores[file_name] = (
+            text_weight * text_score + 
+            semantic_weight * semantic_score
+        )
+    
+    # מיון לפי ציון משולב
+    sorted_files = sorted(combined_scores.items(), key=lambda x: x[1], reverse=True)
+    
+    # בניית תוצאות
+    results_map = {r.file_name: r for r in text_results + semantic_results}
+    final_results = []
+    for file_name, score in sorted_files[:limit]:
+        if file_name in results_map:
+            result = results_map[file_name]
+            result.relevance_score = score
+            final_results.append(result)
+    
+    return final_results
+```
+
+**יתרונות:**
+- מוצא תוצאות גם לפי מילים מדויקות וגם לפי משמעות
+- מפחית False Negatives
+- חווית משתמש טובה יותר
+
+### 9.2 חיתוך לפי Tokens (TikToken)
+
+במקום לחתוך לפי תווים (שעלול להיות אגרסיבי מדי בעברית), השתמש ב-tiktoken:
+
+```python
+# הוסף ל-embedding_service.py
+
+try:
+    import tiktoken
+    _TOKENIZER = tiktoken.encoding_for_model("text-embedding-3-small")
+except Exception:
+    _TOKENIZER = None
+
+
+def _truncate_by_tokens(text: str, max_tokens: int = 8000) -> str:
+    """
+    חיתוך טקסט לפי מספר tokens (לא תווים).
+    מדויק יותר ומונע חיתוך אגרסיבי מדי.
+    
+    הערה: text-embedding-3-small מקבל עד 8191 tokens.
+    """
+    if _TOKENIZER is None:
+        # Fallback לחיתוך לפי תווים (פחות מדויק)
+        return _truncate_text(text, max_tokens * 4)  # ~4 chars/token average
+    
+    try:
+        tokens = _TOKENIZER.encode(text)
+        if len(tokens) <= max_tokens:
+            return text
+        
+        # חיתוך וניסיון לסיים במילה שלמה
+        truncated_tokens = tokens[:max_tokens]
+        truncated_text = _TOKENIZER.decode(truncated_tokens)
+        
+        # נסה לחתוך בסוף משפט
+        for sep in ["\n\n", "\n", ". "]:
+            last_sep = truncated_text.rfind(sep)
+            if last_sep > len(truncated_text) * 0.7:
+                return truncated_text[:last_sep + len(sep)].strip()
+        
+        return truncated_text.strip()
+        
+    except Exception:
+        return _truncate_text(text, max_tokens * 4)
+
+
+# שימוש ב-_prepare_text_for_embedding:
+def _prepare_text_for_embedding(...) -> str:
+    # ... בניית parts ...
+    
+    full_text = "\n".join(parts)
+    
+    # חיתוך לפי tokens (לא תווים!)
+    max_tokens = int(getattr(config, "EMBEDDING_MAX_TOKENS", 7500) or 7500)
+    return _truncate_by_tokens(full_text, max_tokens)
+```
+
+**למה זה חשוב?**
+- 2000 תווים בעברית ≈ 4000+ tokens (כל אות עברית = ~2 tokens)
+- 2000 תווים באנגלית ≈ 500 tokens
+- חיתוך לפי תווים עלול לחתוך יותר מדי מתוכן באנגלית
+
+### 9.3 Message Queue לאינדוקס (Production)
+
+לסביבות Production עמוסות, החלף את ה-Thread ב-Task Queue:
+
+```python
+# אופציה 1: Redis Queue (פשוט)
+# requirements: rq, redis
+
+from rq import Queue
+from redis import Redis
+
+redis_conn = Redis()
+embedding_queue = Queue('embeddings', connection=redis_conn)
+
+def _schedule_embedding_update(self, snippet: CodeSnippet) -> None:
+    """תזמון עדכון embedding דרך Redis Queue."""
+    from tasks.embedding_tasks import update_embedding_task
+    
+    embedding_queue.enqueue(
+        update_embedding_task,
+        snippet.user_id,
+        snippet.file_name,
+        job_timeout='5m',
+        retry=3,
+    )
+
+
+# tasks/embedding_tasks.py
+def update_embedding_task(user_id: int, file_name: str) -> bool:
+    """Task לעדכון embedding של קובץ."""
+    from database import db
+    from services.embedding_service import generate_embedding_sync
+    
+    file_data = db.get_latest_version(user_id, file_name)
+    if not file_data:
+        return False
+    
+    # ... לוגיקת יצירת embedding ושמירה ...
+    return True
+```
+
+**מתי להשתמש ב-Queue?**
+- יותר מ-100 שמירות בדקה
+- Gunicorn עם workers רבים
+- צורך ב-retries אמינים
+- ניטור ודשבורד של משימות
+
+### 9.4 Batch Embedding API
+
+לאינדוקס מסיבי, השתמש ב-Batch API של OpenAI (חוסך עד 50% בעלויות):
+
+```python
+async def generate_embeddings_batch(
+    texts: List[str],
+    *,
+    timeout: float = 30.0,
+) -> List[List[float]]:
+    """
+    יצירת embeddings ל-batch של טקסטים.
+    יעיל יותר מקריאות בודדות (עד 2048 טקסטים בבקשה אחת).
+    """
+    api_key = _get_api_key()
+    model = _get_model()
+    dimensions = _get_dimensions()
+    
+    # OpenAI מאפשר עד 2048 inputs בבקשה אחת
+    MAX_BATCH = 2048
+    
+    all_embeddings: List[List[float]] = []
+    
+    for i in range(0, len(texts), MAX_BATCH):
+        batch = texts[i:i + MAX_BATCH]
+        
+        payload = {
+            "model": model,
+            "input": [t.strip() for t in batch],
+            "dimensions": dimensions,
+        }
+        
+        async with httpx.AsyncClient(timeout=timeout) as client:
+            response = await client.post(
+                _OPENAI_API_URL,
+                headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+                json=payload,
+            )
+            response.raise_for_status()
+            data = response.json()
+        
+        # שמירה על סדר (OpenAI מחזיר index)
+        batch_embeddings = [None] * len(batch)
+        for item in data["data"]:
+            batch_embeddings[item["index"]] = item["embedding"]
+        
+        all_embeddings.extend(batch_embeddings)
+    
+    return all_embeddings
+```
+
+---
+
 ## 🧪 בדיקות
 
 ### 9.1 יצירת טסטים לשירות Embeddings
@@ -1560,6 +1818,45 @@ class TestSemanticSearchIntegration:
 | חיפוש סמנטי לא מחזיר תוצאות | בדוק ש-embeddings קיימים ב-DB |
 | שגיאת timeout | הגדל את `EMBEDDING_TIMEOUT` |
 | "api_key_missing" | הגדר `OPENAI_API_KEY` ב-ENV |
+| קובץ שנמחק עדיין מופיע בחיפוש | ודא שהפילטר `is_active: {$ne: False}` קיים |
+| עדכון תיאור/תגיות לא משנה תוצאות | ודא שהתיקון בסעיף 3.3 מיושם (בדיקת כל השדות) |
+
+### נספח ד': מחיקת קבצים ו-Embedding
+
+כאשר קובץ נמחק (soft delete), ה-Embedding שלו נשאר ב-DB אך לא מוחזר בחיפוש בזכות הפילטר:
+
+```python
+# בשאילתת vectorSearch:
+"filter": {
+    "user_id": user_id,
+    "is_active": {"$ne": False},  # ⬅️ מסנן קבצים מחוקים
+}
+```
+
+**אימות:** הקוד הקיים ב-`repository.py` כבר משתמש ב-`is_active: False` למחיקה רכה, והפילטר בחיפוש הסמנטי מכסה את זה.
+
+**אופציונלי - ניקוי Embeddings ישנים:**
+```python
+# scripts/cleanup_deleted_embeddings.py
+def cleanup_old_embeddings():
+    """מחיקת embeddings של קבצים שנמחקו לפני יותר מ-30 יום."""
+    from datetime import datetime, timedelta, timezone
+    
+    cutoff = datetime.now(timezone.utc) - timedelta(days=30)
+    
+    result = db.manager.collection.update_many(
+        {
+            "is_active": False,
+            "deleted_at": {"$lt": cutoff},
+            "embedding": {"$exists": True},
+        },
+        {
+            "$unset": {"embedding": "", "embedding_model": "", "embedding_updated_at": ""}
+        }
+    )
+    
+    print(f"Cleaned {result.modified_count} old embeddings")
+```
 
 ### נספח ד': קבצים שנוצרו/עודכנו
 
@@ -1583,11 +1880,12 @@ class TestSemanticSearchIntegration:
 
 ## ✅ Checklist למימוש
 
+### שלב בסיסי (MVP)
 - [ ] הגדרת `OPENAI_API_KEY` ב-ENV
 - [ ] הוספת הגדרות ל-`config.py`
 - [ ] יצירת `services/embedding_service.py`
 - [ ] עדכון `database/models.py` עם שדות embedding
-- [ ] עדכון `database/repository.py`
+- [ ] עדכון `database/repository.py` **(כולל בדיקת שינוי בכל השדות!)**
 - [ ] יצירת Vector Index ב-MongoDB Atlas
 - [ ] הוספת `_semantic_search` ל-`search_engine.py`
 - [ ] יצירת `webapp/search_api.py`
@@ -1595,6 +1893,13 @@ class TestSemanticSearchIntegration:
 - [ ] הרצת `scripts/index_embeddings.py` לאינדוקס קבצים קיימים
 - [ ] כתיבת טסטים
 - [ ] בדיקת E2E
+
+### שיפורים מומלצים (אחרי MVP)
+- [ ] 🔀 Hybrid Search - שילוב תוצאות טקסט + סמנטי
+- [ ] 📊 TikToken - חיתוך לפי tokens במקום תווים
+- [ ] 📦 Batch Embedding - אינדוקס יעיל יותר
+- [ ] 🔄 Message Queue - לסביבות Production עמוסות
+- [ ] 🧹 Cleanup Job - ניקוי embeddings של קבצים מחוקים
 
 ---
 
