@@ -1400,6 +1400,13 @@
             {% endif %}
             {% endfor %}
         }
+
+        /* Primary Button States - prevent white flash on click/focus */
+        [data-theme="custom"] .btn-primary:active,
+        [data-theme="custom"] .btn-primary:focus {
+            background-color: var(--btn-primary-bg) !important;
+            color: var(--btn-primary-color) !important;
+        }
     </style>
     {% endif %}
 </head>
