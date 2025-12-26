@@ -1085,14 +1085,12 @@ def cleanup_subscriptions():
         return jsonify({"ok": False, "error": "Cleanup failed"}), 500
 
 
-@push_bp.route("/subscriptions/delete-all", methods=["GET", "DELETE"])
+@push_bp.route("/subscriptions/delete-all", methods=["DELETE"])
 @require_auth
 def delete_all_subscriptions():
     """Delete ALL push subscriptions for current user.
     
     Use this to completely reset and re-register fresh.
-    NOTE: GET method added TEMPORARILY for mobile browser testing (no fetch console).
-    TODO: Remove GET method after debugging is complete.
     """
     try:
         user_id = _session_user_id()
