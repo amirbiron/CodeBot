@@ -60,8 +60,13 @@ class JobRegistry:
             with cls._lock:
                 if cls._instance is None:
                     cls._instance = super().__new__(cls)
-                    cls._instance._jobs: Dict[str, JobDefinition] = {}
+                    cls._instance._jobs = {}
         return cls._instance
+
+    def __init__(self) -> None:
+        """Initialize the instance (only once)"""
+        if not hasattr(self, '_jobs'):
+            self._jobs: Dict[str, JobDefinition] = {}
 
     def register(self, job: JobDefinition) -> None:
         """רישום Job חדש"""
