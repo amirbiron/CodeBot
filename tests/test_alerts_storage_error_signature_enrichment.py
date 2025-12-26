@@ -169,3 +169,26 @@ def test_enrich_alert_with_signature_preserves_sentry_fields_and_only_adds_signa
     assert details["error_signature_hash"]
     assert details["error_signature"]
     assert details["is_new_error"] is True
+
+
+def test_sanitize_details_preserves_lists_for_labels_and_slow_endpoints():
+    from monitoring.alerts_storage import _sanitize_details
+
+    raw = {
+        "labels": ["observability", "sentry"],
+        "slow_endpoints": ["/api/v1/users", "/healthz"],
+        # חשוב: גם רשימות ריקות לא אמורות להפוך ל-"" או להיעלם
+        "slow_endpoints_empty": [],
+    }
+
+    clean = _sanitize_details(raw)
+
+    assert isinstance(clean["labels"], list)
+    assert clean["labels"] == ["observability", "sentry"]
+
+    assert isinstance(clean["slow_endpoints"], list)
+    assert clean["slow_endpoints"] == ["/api/v1/users", "/healthz"]
+
+    assert "slow_endpoints_empty" in clean
+    assert isinstance(clean["slow_endpoints_empty"], list)
+    assert clean["slow_endpoints_empty"] == []
