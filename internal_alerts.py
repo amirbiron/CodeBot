@@ -508,21 +508,30 @@ def emit_internal_alert(name: str, severity: str = "info", summary: str = "", **
         try:
             from services.rules_evaluator import evaluate_alert_rules, execute_matched_actions
 
+            # חשוב: `details` חייב לשמור על המטען המקורי כפי שנבנה בתחילת הפונקציה.
+            # לא מחליפים את `alert_payload["details"]` במילון אחר (למשל מטא של Sentry),
+            # ורק לאחר יצירת ה-payload מבצעים "קידום" שדות לרמה העליונה.
+            safe_details_payload: Dict[str, Any] = dict(details_payload or {})
+
             alert_payload = {
                 "name": str(name),
                 "rule_name": str(name),
                 "severity": str(severity),
                 "summary": str(summary),
-                "details": details_payload,
+                "details": safe_details_payload,
                 # ברירת מחדל, אבל מאפשרים למקור שהגיע ב-details לשלוט (למשל "sentry_poll")
-                "source": _coerce_str((details_payload or {}).get("source")) or "internal_alerts",
+                "source": _coerce_str(safe_details_payload.get("source")) or "internal_alerts",
                 "silenced": False,
             }
             # חשוב: מנוע הכללים/לוגים מצפים לעיתים לשדות בטופ-לבל (למשל alert_type),
             # לכן אנחנו "מקדמים" את פרטי ה-alert גם לרמה העליונה – בלי לדרוס שדות ליבה.
             try:
-                for k, v in (details_payload or {}).items():
+                for k, v in safe_details_payload.items():
                     if _is_empty_promoted_value(v):
+                        continue
+                    # Never allow a nested "details" key to overwrite the original details payload.
+                    # This was causing the original details to disappear (and only Sentry fields remained).
+                    if k == "details":
                         continue
                     # Allow details to override specific routing keys at top-level (e.g. source).
                     if k in alert_payload and k not in {"source"}:
