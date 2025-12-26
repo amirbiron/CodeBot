@@ -291,6 +291,47 @@
   border-radius: 8px;
   padding: 0.15rem 0.5rem;
 }
+/* Meta copy button - wrapper */
+.meta-wrapper {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.4rem;
+}
+/* Meta copy button - small discrete button */
+.copy-meta-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border: none;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.06);
+  color: rgba(255, 255, 255, 0.5);
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.15s ease, background 0.15s ease, color 0.15s ease;
+  flex-shrink: 0;
+}
+tr:hover .copy-meta-btn {
+  opacity: 1;
+}
+.copy-meta-btn:hover {
+  background: rgba(100, 255, 218, 0.15);
+  color: #64ffda;
+}
+.copy-meta-btn.copied {
+  background: rgba(100, 255, 218, 0.25);
+  color: #64ffda;
+}
+:root[data-theme="rose-pine-dawn"] .copy-meta-btn {
+  background: color-mix(in srgb, var(--bg-secondary) 65%, #ffffff 35%);
+  color: rgba(87, 82, 121, 0.6);
+}
+:root[data-theme="rose-pine-dawn"] .copy-meta-btn:hover {
+  background: rgba(144, 122, 169, 0.2);
+  color: #907aa9;
+}
 .quick-fix-list {
   display: flex;
   flex-wrap: wrap;
@@ -1207,6 +1248,86 @@
     return String(value);
   }
 
+  /**
+   * Check if metadata contains sensitive/redacted values
+   */
+  function hasSensitiveData(meta) {
+    if (!meta || typeof meta !== 'object') return false;
+    const sensitivePattern = /\*{4,}/;
+    const checkValue = (val) => {
+      if (typeof val === 'string' && sensitivePattern.test(val)) return true;
+      if (Array.isArray(val)) return val.some(checkValue);
+      if (typeof val === 'object' && val != null) {
+        return Object.values(val).some(checkValue);
+      }
+      return false;
+    };
+    return Object.values(meta).some(checkValue);
+  }
+
+  /**
+   * Format metadata as clean text for clipboard (handles nested objects/arrays)
+   */
+  function formatMetaForCopy(meta) {
+    if (!meta || typeof meta !== 'object') return '';
+    const lines = [];
+    for (const [key, value] of Object.entries(meta)) {
+      if (value == null || value === '') continue;
+      let formatted;
+      if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') {
+        formatted = String(value);
+      } else if (Array.isArray(value)) {
+        // Format arrays nicely
+        if (key === 'slow_endpoints') {
+          formatted = value.map(item => {
+            if (typeof item === 'object' && item != null) {
+              const method = item.method || 'GET';
+              const ep = item.endpoint || 'unknown';
+              const dur = item.max_duration || item.avg_duration || 0;
+              return `${method} ${ep}: ${Number(dur).toFixed(2)}s`;
+            }
+            return String(item);
+          }).join('\n  ');
+        } else {
+          formatted = JSON.stringify(value, null, 2);
+        }
+      } else if (typeof value === 'object') {
+        // Format objects
+        if (key === 'labels') {
+          formatted = Object.entries(value)
+            .map(([k, v]) => `${k}=${v}`)
+            .join(', ');
+        } else {
+          formatted = JSON.stringify(value, null, 2);
+        }
+      } else {
+        formatted = String(value);
+      }
+      lines.push(`${key}: ${formatted}`);
+    }
+    return lines.join('\n');
+  }
+
+  /**
+   * Render copy button for metadata cell
+   */
+  function renderMetaCopyButton(meta) {
+    if (!meta || typeof meta !== 'object' || Object.keys(meta).length === 0) {
+      return '';
+    }
+    // Don't show copy button if meta contains sensitive/redacted data
+    if (hasSensitiveData(meta)) {
+      return '';
+    }
+    const copyData = formatMetaForCopy(meta);
+    // Don't render button if formatted content is empty (all values were null/empty)
+    if (!copyData || !copyData.trim()) {
+      return '';
+    }
+    const encodedData = encodeURIComponent(copyData);
+    return `<button type="button" class="copy-meta-btn" data-copy-meta="${encodedData}" title="העתק Meta ללוח"><i class="fas fa-copy"></i></button>`;
+  }
+
   function renderAlertsTable(alerts, total, page, perPage) {
     const body = document.querySelector('#alertsTable tbody');
     if (!body) return;
@@ -1254,13 +1375,15 @@
         .slice(0, 5)
         .map(key => `<span>${escapeHtml(key)}: ${escapeHtml(formatMetaValue(key, meta[key]))}</span>`)
         .join('');
+      // Build copy button for meta - only if meta has non-sensitive data
+      const metaCopyBtn = renderMetaCopyButton(meta);
       rows.push(`
         <tr data-timestamp="${alert.timestamp || ''}" data-alert-uid="${alert.alert_uid || ''}" class="alert-row">
           <td>${formatTimestamp(alert.timestamp)}</td>
           <td>${alert.name || '-'}</td>
           <td><span class="status-pill ${severityClass(alert.severity)}">${alert.severity || '-'}</span></td>
           <td>${alert.summary || '-'}</td>
-          <td><div class="meta-list">${metaItems || ''}</div></td>
+          <td><div class="meta-wrapper"><div class="meta-list">${metaItems || ''}</div>${metaCopyBtn}</div></td>
           <td>${renderGraphCell(alert)}</td>
           <td>${renderQuickFixCell(alert)}</td>
           <td>${renderAiExplainCell(alert)}</td>
@@ -2376,6 +2499,47 @@
     }
   }
 
+  /**
+   * Initialize Event Delegation for meta copy buttons
+   * Using delegation because the table is rendered dynamically
+   */
+  function initMetaCopyHandler() {
+    const tbody = document.querySelector('#alertsTable tbody');
+    if (!tbody) return;
+    tbody.addEventListener('click', async (event) => {
+      const btn = event.target.closest('.copy-meta-btn');
+      if (!btn) return;
+      
+      const encodedData = btn.dataset.copyMeta;
+      if (!encodedData) {
+        showToast('אין נתונים להעתקה');
+        return;
+      }
+      
+      try {
+        const textToCopy = decodeURIComponent(encodedData);
+        await navigator.clipboard.writeText(textToCopy);
+        
+        // Visual feedback - change icon to checkmark
+        btn.classList.add('copied');
+        btn.innerHTML = '<i class="fas fa-check"></i>';
+        
+        // Show toast notification
+        showToast('הועתק ללוח!');
+        
+        // Restore original icon after 2 seconds
+        setTimeout(() => {
+          btn.classList.remove('copied');
+          btn.innerHTML = '<i class="fas fa-copy"></i>';
+        }, 2000);
+        
+      } catch (err) {
+        console.error('copy_meta_failed', err);
+        showToast('ההעתקה נכשלה');
+      }
+    });
+  }
+
   function initRangeButtons() {
     const buttons = Array.from(document.querySelectorAll('#rangeButtons .range-btn'));
     const allowed = new Set(['1h','24h','7d','30d']);
@@ -2520,6 +2684,7 @@
   initExportButton();
   initReplayButton();
   initDrillsButton();
+  initMetaCopyHandler();
   refreshAll();
 })();
 </script>
