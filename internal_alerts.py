@@ -510,6 +510,7 @@ def emit_internal_alert(name: str, severity: str = "info", summary: str = "", **
 
             alert_payload = {
                 "name": str(name),
+                "rule_name": str(name),
                 "severity": str(severity),
                 "summary": str(summary),
                 "details": details_payload,
