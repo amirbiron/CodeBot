@@ -590,25 +590,31 @@ def _send_for_user(user_id: int | str, reminders: list[dict]) -> None:
         note_id_str = str(r.get("note_id") or "")
         file_id_str = str(r.get("file_id") or "")
 
+        # Payload format: notification object at top level (FCM standard)
+        # data object for custom handling in SW
         payload = {
-            "title": title_text,
-            "body": body_text,
             "notification": {
                 "title": title_text,
-                "body": body_text
+                "body": body_text,
+                "icon": "/static/icons/app-icon-192.png",
+                "badge": "/static/icons/app-icon-192.png",
+                "tag": f"reminder-{note_id_str}" if note_id_str else "reminder",
+                "silent": False,
+                "requireInteraction": False,
+                "actions": [
+                    {"action": "open_note", "title": "פתח פתק"},
+                    {"action": "snooze_10", "title": "דחה 10 דק׳"},
+                    {"action": "snooze_60", "title": "דחה שעה"},
+                    {"action": "snooze_1440", "title": "דחה 24 שעות"},
+                ],
             },
             "data": {
+                "type": "reminder",
                 "note_id": note_id_str,
                 "file_id": file_id_str,
                 "title": title_text,
                 "body": body_text,
             },
-            "actions": [
-                {"action": "open_note", "title": "פתח פתק"},
-                {"action": "snooze_10", "title": "דחה 10 דק׳"},
-                {"action": "snooze_60", "title": "דחה שעה"},
-                {"action": "snooze_1440", "title": "דחה 24 שעות"},
-            ],
         }
         success_any = False
         # Telemetry: attempt send for this reminder batch
@@ -819,20 +825,23 @@ def test_push():
         title_text = "🔔 בדיקת פוש"
         body_text = "זוהי הודעת בדיקה"
         
+        # Payload format: notification object at top level (FCM standard)
+        # data object for custom handling in SW
         payload = {
-            "title": title_text,
-            "body": body_text,
             "notification": {
                 "title": title_text,
-                "body": body_text
+                "body": body_text,
+                "icon": "/static/icons/app-icon-192.png",
+                "badge": "/static/icons/app-icon-192.png",
+                "tag": "push-test",
+                "silent": False,
+                "requireInteraction": False,
             },
             "data": {
+                "type": "test",
                 "title": title_text,
                 "body": body_text,
             },
-            "actions": [
-                {"action": "open_note", "title": "פתח"},
-            ],
         }
         sent = 0
         errors: list[dict[str, Any]] = []
@@ -862,7 +871,20 @@ def test_push():
                 if ok:
                     sent += 1
                 else:
+                    # Worker returned ok: false - log the exact error for debugging
                     errors.append({"endpoint": ep, "status": int(status_code or 0), "error": str(err or "")})
+                    try:
+                        from observability import emit_event  # type: ignore
+                        emit_event(
+                            "push_test_worker_error",
+                            severity="warning",
+                            user_id=str(user_id),
+                            endpoint_hash=_hash_endpoint(ep),
+                            status_code=int(status_code or 0),
+                            error=str(err or ""),
+                        )
+                    except Exception:
+                        pass
                 continue
 
             # Local pywebpush path
