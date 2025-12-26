@@ -829,9 +829,9 @@
     }
   };
   var ChangeSet = class _ChangeSet extends ChangeDesc {
-    constructor(sections, inserted) {
+    constructor(sections, inserted2) {
       super(sections);
-      this.inserted = inserted;
+      this.inserted = inserted2;
     }
     /**
     Apply the changes to a document, returning the modified
@@ -853,20 +853,20 @@
     the document as it existed before the changes.
     */
     invert(doc2) {
-      let sections = this.sections.slice(), inserted = [];
+      let sections = this.sections.slice(), inserted2 = [];
       for (let i = 0, pos = 0; i < sections.length; i += 2) {
         let len = sections[i], ins = sections[i + 1];
         if (ins >= 0) {
           sections[i] = ins;
           sections[i + 1] = len;
           let index = i >> 1;
-          while (inserted.length < index)
-            inserted.push(Text.empty);
-          inserted.push(len ? doc2.slice(pos, pos + len) : Text.empty);
+          while (inserted2.length < index)
+            inserted2.push(Text.empty);
+          inserted2.push(len ? doc2.slice(pos, pos + len) : Text.empty);
         }
         pos += len;
       }
-      return new _ChangeSet(sections, inserted);
+      return new _ChangeSet(sections, inserted2);
     }
     /**
     Combine two subsequent change sets into a single set. `other`
@@ -969,17 +969,17 @@
     given length, using `lineSep` as line separator.
     */
     static of(changes, length, lineSep) {
-      let sections = [], inserted = [], pos = 0;
+      let sections = [], inserted2 = [], pos = 0;
       let total = null;
       function flush(force = false) {
         if (!force && !sections.length)
           return;
         if (pos < length)
           addSection(sections, length - pos, -1);
-        let set = new _ChangeSet(sections, inserted);
+        let set = new _ChangeSet(sections, inserted2);
         total = total ? total.compose(set.map(total)) : set;
         sections = [];
-        inserted = [];
+        inserted2 = [];
         pos = 0;
       }
       function process2(spec) {
@@ -1004,7 +1004,7 @@
           if (from > pos)
             addSection(sections, from - pos, -1);
           addSection(sections, to - from, insLen);
-          addInsert(inserted, sections, insText);
+          addInsert(inserted2, sections, insText);
           pos = to;
         }
       }
@@ -1025,7 +1025,7 @@
     static fromJSON(json2) {
       if (!Array.isArray(json2))
         throw new RangeError("Invalid JSON representation of ChangeSet");
-      let sections = [], inserted = [];
+      let sections = [], inserted2 = [];
       for (let i = 0; i < json2.length; i++) {
         let part = json2[i];
         if (typeof part == "number") {
@@ -1035,19 +1035,19 @@
         } else if (part.length == 1) {
           sections.push(part[0], 0);
         } else {
-          while (inserted.length < i)
-            inserted.push(Text.empty);
-          inserted[i] = Text.of(part.slice(1));
-          sections.push(part[0], inserted[i].length);
+          while (inserted2.length < i)
+            inserted2.push(Text.empty);
+          inserted2[i] = Text.of(part.slice(1));
+          sections.push(part[0], inserted2[i].length);
         }
       }
-      return new _ChangeSet(sections, inserted);
+      return new _ChangeSet(sections, inserted2);
     }
     /**
     @internal
     */
-    static createSet(sections, inserted) {
-      return new _ChangeSet(sections, inserted);
+    static createSet(sections, inserted2) {
+      return new _ChangeSet(sections, inserted2);
     }
   };
   function addSection(sections, len, ins, forceJoin = false) {
@@ -1077,7 +1077,7 @@
     }
   }
   function iterChanges(desc, f, individual) {
-    let inserted = desc.inserted;
+    let inserted2 = desc.inserted;
     for (let posA = 0, posB = 0, i = 0; i < desc.sections.length; ) {
       let len = desc.sections[i++], ins = desc.sections[i++];
       if (ins < 0) {
@@ -1088,8 +1088,8 @@
         for (; ; ) {
           endA += len;
           endB += ins;
-          if (ins && inserted)
-            text = text.append(inserted[i - 2 >> 1]);
+          if (ins && inserted2)
+            text = text.append(inserted2[i - 2 >> 1]);
           if (individual || i == desc.sections.length || desc.sections[i + 1] < 0)
             break;
           len = desc.sections[i++];
@@ -1104,7 +1104,7 @@
   function mapSet(setA, setB, before, mkSet = false) {
     let sections = [], insert2 = mkSet ? [] : null;
     let a = new SectionIter(setA), b = new SectionIter(setB);
-    for (let inserted = -1; ; ) {
+    for (let inserted2 = -1; ; ) {
       if (a.done && b.len || b.done && a.len) {
         throw new Error("Mismatched change set lengths");
       } else if (a.ins == -1 && b.ins == -1) {
@@ -1112,16 +1112,16 @@
         addSection(sections, len, -1);
         a.forward(len);
         b.forward(len);
-      } else if (b.ins >= 0 && (a.ins < 0 || inserted == a.i || a.off == 0 && (b.len < a.len || b.len == a.len && !before))) {
+      } else if (b.ins >= 0 && (a.ins < 0 || inserted2 == a.i || a.off == 0 && (b.len < a.len || b.len == a.len && !before))) {
         let len = b.len;
         addSection(sections, b.ins, -1);
         while (len) {
           let piece = Math.min(a.len, len);
-          if (a.ins >= 0 && inserted < a.i && a.len <= piece) {
+          if (a.ins >= 0 && inserted2 < a.i && a.len <= piece) {
             addSection(sections, 0, a.ins);
             if (insert2)
               addInsert(insert2, sections, a.text);
-            inserted = a.i;
+            inserted2 = a.i;
           }
           a.forward(piece);
           len -= piece;
@@ -1142,10 +1142,10 @@
             break;
           }
         }
-        addSection(sections, len, inserted < a.i ? a.ins : 0);
-        if (insert2 && inserted < a.i)
+        addSection(sections, len, inserted2 < a.i ? a.ins : 0);
+        if (insert2 && inserted2 < a.i)
           addInsert(insert2, sections, a.text);
-        inserted = a.i;
+        inserted2 = a.i;
         a.forward(a.len - left);
       } else if (a.done && b.done) {
         return insert2 ? ChangeSet.createSet(sections, insert2) : ChangeDesc.create(sections);
@@ -1217,12 +1217,12 @@
       return this.ins < 0 ? this.len : this.ins;
     }
     get text() {
-      let { inserted } = this.set, index = this.i - 2 >> 1;
-      return index >= inserted.length ? Text.empty : inserted[index];
+      let { inserted: inserted2 } = this.set, index = this.i - 2 >> 1;
+      return index >= inserted2.length ? Text.empty : inserted2[index];
     }
     textBit(len) {
-      let { inserted } = this.set, index = this.i - 2 >> 1;
-      return index >= inserted.length && !len ? Text.empty : inserted[index].slice(this.off, len == null ? void 0 : this.off + len);
+      let { inserted: inserted2 } = this.set, index = this.i - 2 >> 1;
+      return index >= inserted2.length && !len ? Text.empty : inserted2[index].slice(this.off, len == null ? void 0 : this.off + len);
     }
     forward(len) {
       if (len == this.len)
@@ -2679,10 +2679,10 @@
         if (lo == hi)
           return lo;
         let mid = lo + hi >> 1;
-        let diff = arr[mid] - pos || (end ? this.value[mid].endSide : this.value[mid].startSide) - side;
+        let diff2 = arr[mid] - pos || (end ? this.value[mid].endSide : this.value[mid].startSide) - side;
         if (mid == lo)
-          return diff >= 0 ? lo : hi;
-        if (diff >= 0)
+          return diff2 >= 0 ? lo : hi;
+        if (diff2 >= 0)
           hi = mid;
         else
           lo = mid + 1;
@@ -3008,10 +3008,10 @@
     @internal
     */
     addInner(from, to, value) {
-      let diff = from - this.lastTo || value.startSide - this.last.endSide;
-      if (diff <= 0 && (from - this.lastFrom || value.startSide - this.last.startSide) < 0)
+      let diff2 = from - this.lastTo || value.startSide - this.last.endSide;
+      if (diff2 <= 0 && (from - this.lastFrom || value.startSide - this.last.startSide) < 0)
         throw new Error("Ranges must be added sorted by `from` position and `startSide`");
-      if (diff < 0)
+      if (diff2 < 0)
         return false;
       if (this.from.length == 250)
         this.finishChunk(true);
@@ -3343,8 +3343,8 @@
     let endB = startB + length;
     let pos = startB, dPos = startB - startA;
     for (; ; ) {
-      let dEnd = a.to + dPos - b.to, diff = dEnd || a.endSide - b.endSide;
-      let end = diff < 0 ? a.to + dPos : b.to, clipEnd = Math.min(end, endB);
+      let dEnd = a.to + dPos - b.to, diff2 = dEnd || a.endSide - b.endSide;
+      let end = diff2 < 0 ? a.to + dPos : b.to, clipEnd = Math.min(end, endB);
       if (a.point || b.point) {
         if (!(a.point && b.point && (a.point == b.point || a.point.eq(b.point)) && sameValues(a.activeForPoint(a.to), b.activeForPoint(b.to))))
           comparator.comparePoint(pos, clipEnd, a.point, b.point);
@@ -3357,9 +3357,9 @@
       if ((dEnd || a.openEnd != b.openEnd) && comparator.boundChange)
         comparator.boundChange(end);
       pos = end;
-      if (diff <= 0)
+      if (diff2 <= 0)
         a.next();
-      if (diff >= 0)
+      if (diff2 >= 0)
         b.next();
     }
   }
@@ -6109,12 +6109,12 @@
       set.splice(i, 0, me);
       return set;
     }
-    static extendWithRanges(diff, ranges) {
+    static extendWithRanges(diff2, ranges) {
       if (ranges.length == 0)
-        return diff;
+        return diff2;
       let result = [];
       for (let dI = 0, rI = 0, posA = 0, posB = 0; ; dI++) {
-        let next = dI == diff.length ? null : diff[dI], off = posA - posB;
+        let next = dI == diff2.length ? null : diff2[dI], off = posA - posB;
         let end = next ? next.fromB : 1e9;
         while (rI < ranges.length && ranges[rI] < end) {
           let from = ranges[rI], to = ranges[rI + 1];
@@ -6787,9 +6787,9 @@
       addRange(pos, pos, this.changes);
     }
   };
-  function findChangedDeco(a, b, diff) {
+  function findChangedDeco(a, b, diff2) {
     let comp = new DecorationComparator$1();
-    RangeSet.compare(a, b, diff, comp);
+    RangeSet.compare(a, b, diff2, comp);
     return comp.changes;
   }
   function inUneditable(node, inside2) {
@@ -7357,14 +7357,14 @@
         preferredPos = sel.to;
         preferredSide = "end";
       }
-      let diff = findDiff(view.state.doc.sliceString(from, to, LineBreakPlaceholder), domChange.text, preferredPos - from, preferredSide);
-      if (diff) {
-        if (browser.chrome && lastKey == 13 && diff.toB == diff.from + 2 && domChange.text.slice(diff.from, diff.toB) == LineBreakPlaceholder + LineBreakPlaceholder)
-          diff.toB--;
+      let diff2 = findDiff(view.state.doc.sliceString(from, to, LineBreakPlaceholder), domChange.text, preferredPos - from, preferredSide);
+      if (diff2) {
+        if (browser.chrome && lastKey == 13 && diff2.toB == diff2.from + 2 && domChange.text.slice(diff2.from, diff2.toB) == LineBreakPlaceholder + LineBreakPlaceholder)
+          diff2.toB--;
         change = {
-          from: from + diff.from,
-          to: from + diff.toA,
-          insert: Text.of(domChange.text.slice(diff.from, diff.toB).split(LineBreakPlaceholder))
+          from: from + diff2.from,
+          to: from + diff2.toA,
+          insert: Text.of(domChange.text.slice(diff2.from, diff2.toB).split(LineBreakPlaceholder))
         };
       }
     } else if (newSel && (!view.hasFocus && view.state.facet(editable) || newSel.main.eq(sel))) {
@@ -8971,9 +8971,9 @@
       return builder.finish(from);
     }
   };
-  function heightRelevantDecoChanges(a, b, diff) {
+  function heightRelevantDecoChanges(a, b, diff2) {
     let comp = new DecorationComparator2();
-    RangeSet.compare(a, b, diff, comp, 0);
+    RangeSet.compare(a, b, diff2, comp, 0);
     return comp.changes;
   }
   var DecorationComparator2 = class {
@@ -10368,17 +10368,17 @@
           from = anchor;
         else if (to == this.to && anchor > this.to)
           to = anchor;
-        let diff = findDiff(view.state.sliceDoc(from, to), e.text, (deletes ? main.from : main.to) - from, deletes ? "end" : null);
-        if (!diff) {
+        let diff2 = findDiff(view.state.sliceDoc(from, to), e.text, (deletes ? main.from : main.to) - from, deletes ? "end" : null);
+        if (!diff2) {
           let newSel = EditorSelection.single(this.toEditorPos(e.selectionStart), this.toEditorPos(e.selectionEnd));
           if (!newSel.main.eq(main))
             view.dispatch({ selection: newSel, userEvent: "select" });
           return;
         }
         let change = {
-          from: diff.from + from,
-          to: diff.toA + from,
-          insert: Text.of(e.text.slice(diff.from, diff.toB).split("\n"))
+          from: diff2.from + from,
+          to: diff2.toA + from,
+          insert: Text.of(e.text.slice(diff2.from, diff2.toB).split("\n"))
         };
         if ((browser.mac || browser.android) && change.from == head - 1 && /^\. ?$/.test(e.text) && view.contentDOM.getAttribute("autocorrect") == "off")
           change = { from, to, insert: Text.of([e.text.replace(".", " ")]) };
@@ -10922,9 +10922,9 @@
                 continue;
               } else {
                 let newAnchorHeight = scrollAnchorPos < 0 ? this.viewState.heightMap.height : this.viewState.lineBlockAt(scrollAnchorPos).top;
-                let diff = newAnchorHeight - scrollAnchorHeight;
-                if (diff > 1 || diff < -1) {
-                  scrollTop = scrollTop + diff;
+                let diff2 = newAnchorHeight - scrollAnchorHeight;
+                if (diff2 > 1 || diff2 < -1) {
+                  scrollTop = scrollTop + diff2;
                   sDOM.scrollTop = scrollTop / this.scaleY;
                   scrollAnchorHeight = -1;
                   continue;
@@ -12190,26 +12190,26 @@
       for (let r of view.visibleRanges) {
         let from = Math.max(r.from, updateFrom), to = Math.min(r.to, updateTo);
         if (to >= from) {
-          let fromLine = view.state.doc.lineAt(from), toLine = fromLine.to < to ? view.state.doc.lineAt(to) : fromLine;
-          let start = Math.max(r.from, fromLine.from), end = Math.min(r.to, toLine.to);
+          let fromLine2 = view.state.doc.lineAt(from), toLine2 = fromLine2.to < to ? view.state.doc.lineAt(to) : fromLine2;
+          let start = Math.max(r.from, fromLine2.from), end = Math.min(r.to, toLine2.to);
           if (this.boundary) {
-            for (; from > fromLine.from; from--)
-              if (this.boundary.test(fromLine.text[from - 1 - fromLine.from])) {
+            for (; from > fromLine2.from; from--)
+              if (this.boundary.test(fromLine2.text[from - 1 - fromLine2.from])) {
                 start = from;
                 break;
               }
-            for (; to < toLine.to; to++)
-              if (this.boundary.test(toLine.text[to - toLine.from])) {
+            for (; to < toLine2.to; to++)
+              if (this.boundary.test(toLine2.text[to - toLine2.from])) {
                 end = to;
                 break;
               }
           }
           let ranges = [], m;
           let add2 = (from2, to2, deco2) => ranges.push(deco2.range(from2, to2));
-          if (fromLine == toLine) {
-            this.regexp.lastIndex = start - fromLine.from;
-            while ((m = this.regexp.exec(fromLine.text)) && m.index < end - fromLine.from)
-              this.addMatch(m, view, m.index + fromLine.from, add2);
+          if (fromLine2 == toLine2) {
+            this.regexp.lastIndex = start - fromLine2.from;
+            while ((m = this.regexp.exec(fromLine2.text)) && m.index < end - fromLine2.from)
+              this.addMatch(m, view, m.index + fromLine2.from, add2);
           } else {
             iterMatches(view.state.doc, this.regexp, start, end, (from2, m2) => this.addMatch(m2, view, from2, add2));
           }
@@ -16687,16 +16687,16 @@
     }
   });
   var requestIdle = (callback) => {
-    let timeout = setTimeout(
+    let timeout2 = setTimeout(
       () => callback(),
       500
       /* Work.MaxPause */
     );
-    return () => clearTimeout(timeout);
+    return () => clearTimeout(timeout2);
   };
   if (typeof requestIdleCallback != "undefined")
     requestIdle = (callback) => {
-      let idle = -1, timeout = setTimeout(
+      let idle = -1, timeout2 = setTimeout(
         () => {
           idle = requestIdleCallback(callback, {
             timeout: 500 - 100
@@ -16706,7 +16706,7 @@
         100
         /* Work.MinPause */
       );
-      return () => idle < 0 ? clearTimeout(timeout) : cancelIdleCallback(idle);
+      return () => idle < 0 ? clearTimeout(timeout2) : cancelIdleCallback(idle);
     };
   var isInputPending = typeof navigator != "undefined" && ((_a = navigator.scheduling) === null || _a === void 0 ? void 0 : _a.isInputPending) ? () => navigator.scheduling.isInputPending() : null;
   var parseWorker = /* @__PURE__ */ ViewPlugin.fromClass(class ParseWorker {
@@ -17941,15 +17941,15 @@
   function selectedLineRanges(state) {
     let ranges = [];
     for (let r of state.selection.ranges) {
-      let fromLine = state.doc.lineAt(r.from);
-      let toLine = r.to <= fromLine.to ? fromLine : state.doc.lineAt(r.to);
-      if (toLine.from > fromLine.from && toLine.from == r.to)
-        toLine = r.to == fromLine.to + 1 ? fromLine : state.doc.lineAt(r.to - 1);
+      let fromLine2 = state.doc.lineAt(r.from);
+      let toLine2 = r.to <= fromLine2.to ? fromLine2 : state.doc.lineAt(r.to);
+      if (toLine2.from > fromLine2.from && toLine2.from == r.to)
+        toLine2 = r.to == fromLine2.to + 1 ? fromLine2 : state.doc.lineAt(r.to - 1);
       let last = ranges.length - 1;
-      if (last >= 0 && ranges[last].to > fromLine.from)
-        ranges[last].to = toLine.to;
+      if (last >= 0 && ranges[last].to > fromLine2.from)
+        ranges[last].to = toLine2.to;
       else
-        ranges.push({ from: fromLine.from + /^\s*/.exec(fromLine.text)[0].length, to: toLine.to });
+        ranges.push({ from: fromLine2.from + /^\s*/.exec(fromLine2.text)[0].length, to: toLine2.to });
     }
     return ranges;
   }
@@ -18956,7 +18956,7 @@
     [`.normalize("NFKD")`](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/String/normalize)
     (when supported).
     */
-    constructor(text, query, from = 0, to = text.length, normalize, test) {
+    constructor(text, query, from = 0, to = text.length, normalize2, test) {
       this.test = test;
       this.value = { from: 0, to: 0 };
       this.done = false;
@@ -18965,7 +18965,7 @@
       this.bufferPos = 0;
       this.iter = text.iterRange(from, to);
       this.bufferStart = from;
-      this.normalize = normalize ? (x) => normalize(basicNormalize(x)) : basicNormalize;
+      this.normalize = normalize2 ? (x) => normalize2(basicNormalize(x)) : basicNormalize;
       this.query = this.normalize(query);
     }
     peek() {
@@ -21863,6 +21863,1237 @@
     { key: "Enter", run: acceptCompletion }
   ];
   var completionKeymapExt = /* @__PURE__ */ Prec.highest(/* @__PURE__ */ keymap.computeN([completionConfig], (state) => state.facet(completionConfig).defaultKeymap ? [completionKeymap] : []));
+
+  // node_modules/@codemirror/merge/dist/index.js
+  var Change = class _Change {
+    constructor(fromA, toA, fromB, toB) {
+      this.fromA = fromA;
+      this.toA = toA;
+      this.fromB = fromB;
+      this.toB = toB;
+    }
+    /**
+    @internal
+    */
+    offset(offA, offB = offA) {
+      return new _Change(this.fromA + offA, this.toA + offA, this.fromB + offB, this.toB + offB);
+    }
+  };
+  function findDiff2(a, fromA, toA, b, fromB, toB) {
+    if (a == b)
+      return [];
+    let prefix = commonPrefix(a, fromA, toA, b, fromB, toB);
+    let suffix = commonSuffix(a, fromA + prefix, toA, b, fromB + prefix, toB);
+    fromA += prefix;
+    toA -= suffix;
+    fromB += prefix;
+    toB -= suffix;
+    let lenA = toA - fromA, lenB = toB - fromB;
+    if (!lenA || !lenB)
+      return [new Change(fromA, toA, fromB, toB)];
+    if (lenA > lenB) {
+      let found = a.slice(fromA, toA).indexOf(b.slice(fromB, toB));
+      if (found > -1)
+        return [
+          new Change(fromA, fromA + found, fromB, fromB),
+          new Change(fromA + found + lenB, toA, toB, toB)
+        ];
+    } else if (lenB > lenA) {
+      let found = b.slice(fromB, toB).indexOf(a.slice(fromA, toA));
+      if (found > -1)
+        return [
+          new Change(fromA, fromA, fromB, fromB + found),
+          new Change(toA, toA, fromB + found + lenA, toB)
+        ];
+    }
+    if (lenA == 1 || lenB == 1)
+      return [new Change(fromA, toA, fromB, toB)];
+    let half = halfMatch(a, fromA, toA, b, fromB, toB);
+    if (half) {
+      let [sharedA, sharedB, sharedLen] = half;
+      return findDiff2(a, fromA, sharedA, b, fromB, sharedB).concat(findDiff2(a, sharedA + sharedLen, toA, b, sharedB + sharedLen, toB));
+    }
+    return findSnake(a, fromA, toA, b, fromB, toB);
+  }
+  var scanLimit = 1e9;
+  var timeout = 0;
+  var crude = false;
+  function findSnake(a, fromA, toA, b, fromB, toB) {
+    let lenA = toA - fromA, lenB = toB - fromB;
+    if (scanLimit < 1e9 && Math.min(lenA, lenB) > scanLimit * 16 || timeout > 0 && Date.now() > timeout) {
+      if (Math.min(lenA, lenB) > scanLimit * 64)
+        return [new Change(fromA, toA, fromB, toB)];
+      return crudeMatch(a, fromA, toA, b, fromB, toB);
+    }
+    let off = Math.ceil((lenA + lenB) / 2);
+    frontier1.reset(off);
+    frontier2.reset(off);
+    let match1 = (x, y) => a.charCodeAt(fromA + x) == b.charCodeAt(fromB + y);
+    let match2 = (x, y) => a.charCodeAt(toA - x - 1) == b.charCodeAt(toB - y - 1);
+    let test1 = (lenA - lenB) % 2 != 0 ? frontier2 : null, test2 = test1 ? null : frontier1;
+    for (let depth = 0; depth < off; depth++) {
+      if (depth > scanLimit || timeout > 0 && !(depth & 63) && Date.now() > timeout)
+        return crudeMatch(a, fromA, toA, b, fromB, toB);
+      let done = frontier1.advance(depth, lenA, lenB, off, test1, false, match1) || frontier2.advance(depth, lenA, lenB, off, test2, true, match2);
+      if (done)
+        return bisect(a, fromA, toA, fromA + done[0], b, fromB, toB, fromB + done[1]);
+    }
+    return [new Change(fromA, toA, fromB, toB)];
+  }
+  var Frontier = class {
+    constructor() {
+      this.vec = [];
+    }
+    reset(off) {
+      this.len = off << 1;
+      for (let i = 0; i < this.len; i++)
+        this.vec[i] = -1;
+      this.vec[off + 1] = 0;
+      this.start = this.end = 0;
+    }
+    advance(depth, lenX, lenY, vOff, other, fromBack, match) {
+      for (let k = -depth + this.start; k <= depth - this.end; k += 2) {
+        let off = vOff + k;
+        let x = k == -depth || k != depth && this.vec[off - 1] < this.vec[off + 1] ? this.vec[off + 1] : this.vec[off - 1] + 1;
+        let y = x - k;
+        while (x < lenX && y < lenY && match(x, y)) {
+          x++;
+          y++;
+        }
+        this.vec[off] = x;
+        if (x > lenX) {
+          this.end += 2;
+        } else if (y > lenY) {
+          this.start += 2;
+        } else if (other) {
+          let offOther = vOff + (lenX - lenY) - k;
+          if (offOther >= 0 && offOther < this.len && other.vec[offOther] != -1) {
+            if (!fromBack) {
+              let xOther = lenX - other.vec[offOther];
+              if (x >= xOther)
+                return [x, y];
+            } else {
+              let xOther = other.vec[offOther];
+              if (xOther >= lenX - x)
+                return [xOther, vOff + xOther - offOther];
+            }
+          }
+        }
+      }
+      return null;
+    }
+  };
+  var frontier1 = /* @__PURE__ */ new Frontier();
+  var frontier2 = /* @__PURE__ */ new Frontier();
+  function bisect(a, fromA, toA, splitA, b, fromB, toB, splitB) {
+    let stop = false;
+    if (!validIndex(a, splitA) && ++splitA == toA)
+      stop = true;
+    if (!validIndex(b, splitB) && ++splitB == toB)
+      stop = true;
+    if (stop)
+      return [new Change(fromA, toA, fromB, toB)];
+    return findDiff2(a, fromA, splitA, b, fromB, splitB).concat(findDiff2(a, splitA, toA, b, splitB, toB));
+  }
+  function chunkSize(lenA, lenB) {
+    let size = 1, max = Math.min(lenA, lenB);
+    while (size < max)
+      size = size << 1;
+    return size;
+  }
+  function commonPrefix(a, fromA, toA, b, fromB, toB) {
+    if (fromA == toA || fromA == toB || a.charCodeAt(fromA) != b.charCodeAt(fromB))
+      return 0;
+    let chunk = chunkSize(toA - fromA, toB - fromB);
+    for (let pA = fromA, pB = fromB; ; ) {
+      let endA = pA + chunk, endB = pB + chunk;
+      if (endA > toA || endB > toB || a.slice(pA, endA) != b.slice(pB, endB)) {
+        if (chunk == 1)
+          return pA - fromA - (validIndex(a, pA) ? 0 : 1);
+        chunk = chunk >> 1;
+      } else if (endA == toA || endB == toB) {
+        return endA - fromA;
+      } else {
+        pA = endA;
+        pB = endB;
+      }
+    }
+  }
+  function commonSuffix(a, fromA, toA, b, fromB, toB) {
+    if (fromA == toA || fromB == toB || a.charCodeAt(toA - 1) != b.charCodeAt(toB - 1))
+      return 0;
+    let chunk = chunkSize(toA - fromA, toB - fromB);
+    for (let pA = toA, pB = toB; ; ) {
+      let sA = pA - chunk, sB = pB - chunk;
+      if (sA < fromA || sB < fromB || a.slice(sA, pA) != b.slice(sB, pB)) {
+        if (chunk == 1)
+          return toA - pA - (validIndex(a, pA) ? 0 : 1);
+        chunk = chunk >> 1;
+      } else if (sA == fromA || sB == fromB) {
+        return toA - sA;
+      } else {
+        pA = sA;
+        pB = sB;
+      }
+    }
+  }
+  function findMatch(a, fromA, toA, b, fromB, toB, size, divideTo) {
+    let rangeB = b.slice(fromB, toB);
+    let best = null;
+    for (; ; ) {
+      if (best || size < divideTo)
+        return best;
+      for (let start = fromA + size; ; ) {
+        if (!validIndex(a, start))
+          start++;
+        let end = start + size;
+        if (!validIndex(a, end))
+          end += end == start + 1 ? 1 : -1;
+        if (end >= toA)
+          break;
+        let seed = a.slice(start, end);
+        let found = -1;
+        while ((found = rangeB.indexOf(seed, found + 1)) != -1) {
+          let prefixAfter = commonPrefix(a, end, toA, b, fromB + found + seed.length, toB);
+          let suffixBefore = commonSuffix(a, fromA, start, b, fromB, fromB + found);
+          let length = seed.length + prefixAfter + suffixBefore;
+          if (!best || best[2] < length)
+            best = [start - suffixBefore, fromB + found - suffixBefore, length];
+        }
+        start = end;
+      }
+      if (divideTo < 0)
+        return best;
+      size = size >> 1;
+    }
+  }
+  function halfMatch(a, fromA, toA, b, fromB, toB) {
+    let lenA = toA - fromA, lenB = toB - fromB;
+    if (lenA < lenB) {
+      let result = halfMatch(b, fromB, toB, a, fromA, toA);
+      return result && [result[1], result[0], result[2]];
+    }
+    if (lenA < 4 || lenB * 2 < lenA)
+      return null;
+    return findMatch(a, fromA, toA, b, fromB, toB, Math.floor(lenA / 4), -1);
+  }
+  function crudeMatch(a, fromA, toA, b, fromB, toB) {
+    crude = true;
+    let lenA = toA - fromA, lenB = toB - fromB;
+    let result;
+    if (lenA < lenB) {
+      let inv = findMatch(b, fromB, toB, a, fromA, toA, Math.floor(lenA / 6), 50);
+      result = inv && [inv[1], inv[0], inv[2]];
+    } else {
+      result = findMatch(a, fromA, toA, b, fromB, toB, Math.floor(lenB / 6), 50);
+    }
+    if (!result)
+      return [new Change(fromA, toA, fromB, toB)];
+    let [sharedA, sharedB, sharedLen] = result;
+    return findDiff2(a, fromA, sharedA, b, fromB, sharedB).concat(findDiff2(a, sharedA + sharedLen, toA, b, sharedB + sharedLen, toB));
+  }
+  function mergeAdjacent(changes, minGap) {
+    for (let i = 1; i < changes.length; i++) {
+      let prev = changes[i - 1], cur2 = changes[i];
+      if (prev.toA > cur2.fromA - minGap && prev.toB > cur2.fromB - minGap) {
+        changes[i - 1] = new Change(prev.fromA, cur2.toA, prev.fromB, cur2.toB);
+        changes.splice(i--, 1);
+      }
+    }
+  }
+  function normalize(a, b, changes) {
+    for (; ; ) {
+      mergeAdjacent(changes, 1);
+      let moved = false;
+      for (let i = 0; i < changes.length; i++) {
+        let ch = changes[i], pre, post;
+        if (pre = commonPrefix(a, ch.fromA, ch.toA, b, ch.fromB, ch.toB))
+          ch = changes[i] = new Change(ch.fromA + pre, ch.toA, ch.fromB + pre, ch.toB);
+        if (post = commonSuffix(a, ch.fromA, ch.toA, b, ch.fromB, ch.toB))
+          ch = changes[i] = new Change(ch.fromA, ch.toA - post, ch.fromB, ch.toB - post);
+        let lenA = ch.toA - ch.fromA, lenB = ch.toB - ch.fromB;
+        if (lenA && lenB)
+          continue;
+        let beforeLen = ch.fromA - (i ? changes[i - 1].toA : 0);
+        let afterLen = (i < changes.length - 1 ? changes[i + 1].fromA : a.length) - ch.toA;
+        if (!beforeLen || !afterLen)
+          continue;
+        let text = lenA ? a.slice(ch.fromA, ch.toA) : b.slice(ch.fromB, ch.toB);
+        if (beforeLen <= text.length && a.slice(ch.fromA - beforeLen, ch.fromA) == text.slice(text.length - beforeLen)) {
+          changes[i] = new Change(ch.fromA - beforeLen, ch.toA - beforeLen, ch.fromB - beforeLen, ch.toB - beforeLen);
+          moved = true;
+        } else if (afterLen <= text.length && a.slice(ch.toA, ch.toA + afterLen) == text.slice(0, afterLen)) {
+          changes[i] = new Change(ch.fromA + afterLen, ch.toA + afterLen, ch.fromB + afterLen, ch.toB + afterLen);
+          moved = true;
+        }
+      }
+      if (!moved)
+        break;
+    }
+    return changes;
+  }
+  function makePresentable(changes, a, b) {
+    for (let posA = 0, i = 0; i < changes.length; i++) {
+      let change = changes[i];
+      let lenA = change.toA - change.fromA, lenB = change.toB - change.fromB;
+      if (lenA && lenB || lenA > 3 || lenB > 3) {
+        let nextChangeA = i == changes.length - 1 ? a.length : changes[i + 1].fromA;
+        let maxScanBefore = change.fromA - posA, maxScanAfter = nextChangeA - change.toA;
+        let boundBefore = findWordBoundaryBefore(a, change.fromA, maxScanBefore);
+        let boundAfter = findWordBoundaryAfter(a, change.toA, maxScanAfter);
+        let lenBefore = change.fromA - boundBefore, lenAfter = boundAfter - change.toA;
+        if ((!lenA || !lenB) && lenBefore && lenAfter) {
+          let changeLen = Math.max(lenA, lenB);
+          let [changeText, changeFrom, changeTo] = lenA ? [a, change.fromA, change.toA] : [b, change.fromB, change.toB];
+          if (changeLen > lenBefore && a.slice(boundBefore, change.fromA) == changeText.slice(changeTo - lenBefore, changeTo)) {
+            change = changes[i] = new Change(boundBefore, boundBefore + lenA, change.fromB - lenBefore, change.toB - lenBefore);
+            boundBefore = change.fromA;
+            boundAfter = findWordBoundaryAfter(a, change.toA, nextChangeA - change.toA);
+          } else if (changeLen > lenAfter && a.slice(change.toA, boundAfter) == changeText.slice(changeFrom, changeFrom + lenAfter)) {
+            change = changes[i] = new Change(boundAfter - lenA, boundAfter, change.fromB + lenAfter, change.toB + lenAfter);
+            boundAfter = change.toA;
+            boundBefore = findWordBoundaryBefore(a, change.fromA, change.fromA - posA);
+          }
+          lenBefore = change.fromA - boundBefore;
+          lenAfter = boundAfter - change.toA;
+        }
+        if (lenBefore || lenAfter) {
+          change = changes[i] = new Change(change.fromA - lenBefore, change.toA + lenAfter, change.fromB - lenBefore, change.toB + lenAfter);
+        } else if (!lenA) {
+          let first = findLineBreakAfter(b, change.fromB, change.toB), len;
+          let last = first < 0 ? -1 : findLineBreakBefore(b, change.toB, change.fromB);
+          if (first > -1 && (len = first - change.fromB) <= maxScanAfter && b.slice(change.fromB, first) == b.slice(change.toB, change.toB + len))
+            change = changes[i] = change.offset(len);
+          else if (last > -1 && (len = change.toB - last) <= maxScanBefore && b.slice(change.fromB - len, change.fromB) == b.slice(last, change.toB))
+            change = changes[i] = change.offset(-len);
+        } else if (!lenB) {
+          let first = findLineBreakAfter(a, change.fromA, change.toA), len;
+          let last = first < 0 ? -1 : findLineBreakBefore(a, change.toA, change.fromA);
+          if (first > -1 && (len = first - change.fromA) <= maxScanAfter && a.slice(change.fromA, first) == a.slice(change.toA, change.toA + len))
+            change = changes[i] = change.offset(len);
+          else if (last > -1 && (len = change.toA - last) <= maxScanBefore && a.slice(change.fromA - len, change.fromA) == a.slice(last, change.toA))
+            change = changes[i] = change.offset(-len);
+        }
+      }
+      posA = change.toA;
+    }
+    mergeAdjacent(changes, 3);
+    return changes;
+  }
+  var wordChar2;
+  try {
+    wordChar2 = /* @__PURE__ */ new RegExp("[\\p{Alphabetic}\\p{Number}]", "u");
+  } catch (_) {
+  }
+  function asciiWordChar(code) {
+    return code > 48 && code < 58 || code > 64 && code < 91 || code > 96 && code < 123;
+  }
+  function wordCharAfter(s, pos) {
+    if (pos == s.length)
+      return 0;
+    let next = s.charCodeAt(pos);
+    if (next < 192)
+      return asciiWordChar(next) ? 1 : 0;
+    if (!wordChar2)
+      return 0;
+    if (!isSurrogate1(next) || pos == s.length - 1)
+      return wordChar2.test(String.fromCharCode(next)) ? 1 : 0;
+    return wordChar2.test(s.slice(pos, pos + 2)) ? 2 : 0;
+  }
+  function wordCharBefore(s, pos) {
+    if (!pos)
+      return 0;
+    let prev = s.charCodeAt(pos - 1);
+    if (prev < 192)
+      return asciiWordChar(prev) ? 1 : 0;
+    if (!wordChar2)
+      return 0;
+    if (!isSurrogate2(prev) || pos == 1)
+      return wordChar2.test(String.fromCharCode(prev)) ? 1 : 0;
+    return wordChar2.test(s.slice(pos - 2, pos)) ? 2 : 0;
+  }
+  var MAX_SCAN = 8;
+  function findWordBoundaryAfter(s, pos, max) {
+    if (pos == s.length || !wordCharBefore(s, pos))
+      return pos;
+    for (let cur2 = pos, end = pos + max, i = 0; i < MAX_SCAN; i++) {
+      let size = wordCharAfter(s, cur2);
+      if (!size || cur2 + size > end)
+        return cur2;
+      cur2 += size;
+    }
+    return pos;
+  }
+  function findWordBoundaryBefore(s, pos, max) {
+    if (!pos || !wordCharAfter(s, pos))
+      return pos;
+    for (let cur2 = pos, end = pos - max, i = 0; i < MAX_SCAN; i++) {
+      let size = wordCharBefore(s, cur2);
+      if (!size || cur2 - size < end)
+        return cur2;
+      cur2 -= size;
+    }
+    return pos;
+  }
+  function findLineBreakBefore(s, pos, stop) {
+    for (; pos != stop; pos--)
+      if (s.charCodeAt(pos - 1) == 10)
+        return pos;
+    return -1;
+  }
+  function findLineBreakAfter(s, pos, stop) {
+    for (; pos != stop; pos++)
+      if (s.charCodeAt(pos) == 10)
+        return pos;
+    return -1;
+  }
+  var isSurrogate1 = (code) => code >= 55296 && code <= 56319;
+  var isSurrogate2 = (code) => code >= 56320 && code <= 57343;
+  function validIndex(s, index) {
+    return !index || index == s.length || !isSurrogate1(s.charCodeAt(index - 1)) || !isSurrogate2(s.charCodeAt(index));
+  }
+  function diff(a, b, config2) {
+    var _a2;
+    scanLimit = ((_a2 = config2 === null || config2 === void 0 ? void 0 : config2.scanLimit) !== null && _a2 !== void 0 ? _a2 : 1e9) >> 1;
+    timeout = (config2 === null || config2 === void 0 ? void 0 : config2.timeout) ? Date.now() + config2.timeout : 0;
+    crude = false;
+    return normalize(a, b, findDiff2(a, 0, a.length, b, 0, b.length));
+  }
+  function diffIsPrecise() {
+    return !crude;
+  }
+  function presentableDiff(a, b, config2) {
+    return makePresentable(diff(a, b, config2), a, b);
+  }
+  var mergeConfig = /* @__PURE__ */ Facet.define({
+    combine: (values2) => values2[0]
+  });
+  var setChunks = /* @__PURE__ */ StateEffect.define();
+  var computeChunks = /* @__PURE__ */ Facet.define();
+  var ChunkField = /* @__PURE__ */ StateField.define({
+    create(state) {
+      return null;
+    },
+    update(current, tr) {
+      for (let e of tr.effects)
+        if (e.is(setChunks))
+          current = e.value;
+      for (let comp of tr.state.facet(computeChunks))
+        current = comp(current, tr);
+      return current;
+    }
+  });
+  var Chunk2 = class _Chunk {
+    constructor(changes, fromA, toA, fromB, toB, precise = true) {
+      this.changes = changes;
+      this.fromA = fromA;
+      this.toA = toA;
+      this.fromB = fromB;
+      this.toB = toB;
+      this.precise = precise;
+    }
+    /**
+    @internal
+    */
+    offset(offA, offB) {
+      return offA || offB ? new _Chunk(this.changes, this.fromA + offA, this.toA + offA, this.fromB + offB, this.toB + offB, this.precise) : this;
+    }
+    /**
+    Returns `fromA` if the chunk is empty in A, or the end of the
+    last line in the chunk otherwise.
+    */
+    get endA() {
+      return Math.max(this.fromA, this.toA - 1);
+    }
+    /**
+    Returns `fromB` if the chunk is empty in B, or the end of the
+    last line in the chunk otherwise.
+    */
+    get endB() {
+      return Math.max(this.fromB, this.toB - 1);
+    }
+    /**
+    Build a set of changed chunks for the given documents.
+    */
+    static build(a, b, conf) {
+      let diff2 = presentableDiff(a.toString(), b.toString(), conf);
+      return toChunks(diff2, a, b, 0, 0, diffIsPrecise());
+    }
+    /**
+    Update a set of chunks for changes in document A. `a` should
+    hold the updated document A.
+    */
+    static updateA(chunks, a, b, changes, conf) {
+      return updateChunks(findRangesForChange(chunks, changes, true, b.length), chunks, a, b, conf);
+    }
+    /**
+    Update a set of chunks for changes in document B.
+    */
+    static updateB(chunks, a, b, changes, conf) {
+      return updateChunks(findRangesForChange(chunks, changes, false, a.length), chunks, a, b, conf);
+    }
+  };
+  function fromLine(fromA, fromB, a, b) {
+    let lineA = a.lineAt(fromA), lineB = b.lineAt(fromB);
+    return lineA.to == fromA && lineB.to == fromB && fromA < a.length && fromB < b.length ? [fromA + 1, fromB + 1] : [lineA.from, lineB.from];
+  }
+  function toLine(toA, toB, a, b) {
+    let lineA = a.lineAt(toA), lineB = b.lineAt(toB);
+    return lineA.from == toA && lineB.from == toB ? [toA, toB] : [lineA.to + 1, lineB.to + 1];
+  }
+  function toChunks(changes, a, b, offA, offB, precise) {
+    let chunks = [];
+    for (let i = 0; i < changes.length; i++) {
+      let change = changes[i];
+      let [fromA, fromB] = fromLine(change.fromA + offA, change.fromB + offB, a, b);
+      let [toA, toB] = toLine(change.toA + offA, change.toB + offB, a, b);
+      let chunk = [change.offset(-fromA + offA, -fromB + offB)];
+      while (i < changes.length - 1) {
+        let next = changes[i + 1];
+        let [nextA, nextB] = fromLine(next.fromA + offA, next.fromB + offB, a, b);
+        if (nextA > toA + 1 && nextB > toB + 1)
+          break;
+        chunk.push(next.offset(-fromA + offA, -fromB + offB));
+        [toA, toB] = toLine(next.toA + offA, next.toB + offB, a, b);
+        i++;
+      }
+      chunks.push(new Chunk2(chunk, fromA, Math.max(fromA, toA), fromB, Math.max(fromB, toB), precise));
+    }
+    return chunks;
+  }
+  var updateMargin = 1e3;
+  function findPos(chunks, pos, isA, start) {
+    let lo = 0, hi = chunks.length;
+    for (; ; ) {
+      if (lo == hi) {
+        let refA = 0, refB = 0;
+        if (lo)
+          ({ toA: refA, toB: refB } = chunks[lo - 1]);
+        let off = pos - (isA ? refA : refB);
+        return [refA + off, refB + off];
+      }
+      let mid = lo + hi >> 1, chunk = chunks[mid];
+      let [from, to] = isA ? [chunk.fromA, chunk.toA] : [chunk.fromB, chunk.toB];
+      if (from > pos)
+        hi = mid;
+      else if (to <= pos)
+        lo = mid + 1;
+      else
+        return start ? [chunk.fromA, chunk.fromB] : [chunk.toA, chunk.toB];
+    }
+  }
+  function findRangesForChange(chunks, changes, isA, otherLen) {
+    let ranges = [];
+    changes.iterChangedRanges((cFromA, cToA, cFromB, cToB) => {
+      let fromA = 0, toA = isA ? changes.length : otherLen;
+      let fromB = 0, toB = isA ? otherLen : changes.length;
+      if (cFromA > updateMargin)
+        [fromA, fromB] = findPos(chunks, cFromA - updateMargin, isA, true);
+      if (cToA < changes.length - updateMargin)
+        [toA, toB] = findPos(chunks, cToA + updateMargin, isA, false);
+      let lenDiff = cToB - cFromB - (cToA - cFromA), last;
+      let [diffA, diffB] = isA ? [lenDiff, 0] : [0, lenDiff];
+      if (ranges.length && (last = ranges[ranges.length - 1]).toA >= fromA)
+        ranges[ranges.length - 1] = {
+          fromA: last.fromA,
+          fromB: last.fromB,
+          toA,
+          toB,
+          diffA: last.diffA + diffA,
+          diffB: last.diffB + diffB
+        };
+      else
+        ranges.push({ fromA, toA, fromB, toB, diffA, diffB });
+    });
+    return ranges;
+  }
+  function updateChunks(ranges, chunks, a, b, conf) {
+    if (!ranges.length)
+      return chunks;
+    let result = [];
+    for (let i = 0, offA = 0, offB = 0, chunkI = 0; ; i++) {
+      let range = i == ranges.length ? null : ranges[i];
+      let fromA = range ? range.fromA + offA : a.length, fromB = range ? range.fromB + offB : b.length;
+      while (chunkI < chunks.length) {
+        let next = chunks[chunkI];
+        if (Math.min(a.length, next.toA + offA) > fromA || Math.min(b.length, next.toB + offB) > fromB)
+          break;
+        result.push(next.offset(offA, offB));
+        chunkI++;
+      }
+      if (!range)
+        break;
+      let toA = range.toA + offA + range.diffA, toB = range.toB + offB + range.diffB;
+      let diff2 = presentableDiff(a.sliceString(fromA, toA), b.sliceString(fromB, toB), conf);
+      for (let chunk of toChunks(diff2, a, b, fromA, fromB, diffIsPrecise()))
+        result.push(chunk);
+      offA += range.diffA;
+      offB += range.diffB;
+      while (chunkI < chunks.length) {
+        let next = chunks[chunkI];
+        if (next.fromA + offA > toA && next.fromB + offB > toB)
+          break;
+        chunkI++;
+      }
+    }
+    return result;
+  }
+  var defaultDiffConfig = { scanLimit: 500 };
+  var decorateChunks = /* @__PURE__ */ ViewPlugin.fromClass(class {
+    constructor(view) {
+      ({ deco: this.deco, gutter: this.gutter } = getChunkDeco(view));
+    }
+    update(update) {
+      if (update.docChanged || update.viewportChanged || chunksChanged(update.startState, update.state) || configChanged2(update.startState, update.state))
+        ({ deco: this.deco, gutter: this.gutter } = getChunkDeco(update.view));
+    }
+  }, {
+    decorations: (d) => d.deco
+  });
+  var changeGutter = /* @__PURE__ */ Prec.low(/* @__PURE__ */ gutter({
+    class: "cm-changeGutter",
+    markers: (view) => {
+      var _a2;
+      return ((_a2 = view.plugin(decorateChunks)) === null || _a2 === void 0 ? void 0 : _a2.gutter) || RangeSet.empty;
+    }
+  }));
+  function chunksChanged(s1, s2) {
+    return s1.field(ChunkField, false) != s2.field(ChunkField, false);
+  }
+  function configChanged2(s1, s2) {
+    return s1.facet(mergeConfig) != s2.facet(mergeConfig);
+  }
+  var changedLine = /* @__PURE__ */ Decoration.line({ class: "cm-changedLine" });
+  var changedText = /* @__PURE__ */ Decoration.mark({ class: "cm-changedText" });
+  var inserted = /* @__PURE__ */ Decoration.mark({ tagName: "ins", class: "cm-insertedLine" });
+  var deleted = /* @__PURE__ */ Decoration.mark({ tagName: "del", class: "cm-deletedLine" });
+  var changedLineGutterMarker = /* @__PURE__ */ new class extends GutterMarker {
+    constructor() {
+      super(...arguments);
+      this.elementClass = "cm-changedLineGutter";
+    }
+  }();
+  function buildChunkDeco(chunk, doc2, isA, highlight, builder, gutterBuilder) {
+    let from = isA ? chunk.fromA : chunk.fromB, to = isA ? chunk.toA : chunk.toB;
+    let changeI = 0;
+    if (from != to) {
+      builder.add(from, from, changedLine);
+      builder.add(from, to, isA ? deleted : inserted);
+      if (gutterBuilder)
+        gutterBuilder.add(from, from, changedLineGutterMarker);
+      for (let iter = doc2.iterRange(from, to - 1), pos = from; !iter.next().done; ) {
+        if (iter.lineBreak) {
+          pos++;
+          builder.add(pos, pos, changedLine);
+          if (gutterBuilder)
+            gutterBuilder.add(pos, pos, changedLineGutterMarker);
+          continue;
+        }
+        let lineEnd2 = pos + iter.value.length;
+        if (highlight)
+          while (changeI < chunk.changes.length) {
+            let nextChange = chunk.changes[changeI];
+            let nextFrom = from + (isA ? nextChange.fromA : nextChange.fromB);
+            let nextTo = from + (isA ? nextChange.toA : nextChange.toB);
+            let chFrom = Math.max(pos, nextFrom), chTo = Math.min(lineEnd2, nextTo);
+            if (chFrom < chTo)
+              builder.add(chFrom, chTo, changedText);
+            if (nextTo < lineEnd2)
+              changeI++;
+            else
+              break;
+          }
+        pos = lineEnd2;
+      }
+    }
+  }
+  function getChunkDeco(view) {
+    let chunks = view.state.field(ChunkField);
+    let { side, highlightChanges, markGutter, overrideChunk } = view.state.facet(mergeConfig), isA = side == "a";
+    let builder = new RangeSetBuilder();
+    let gutterBuilder = markGutter ? new RangeSetBuilder() : null;
+    let { from, to } = view.viewport;
+    for (let chunk of chunks) {
+      if ((isA ? chunk.fromA : chunk.fromB) >= to)
+        break;
+      if ((isA ? chunk.toA : chunk.toB) > from) {
+        if (!overrideChunk || !overrideChunk(view.state, chunk, builder, gutterBuilder))
+          buildChunkDeco(chunk, view.state.doc, isA, highlightChanges, builder, gutterBuilder);
+      }
+    }
+    return { deco: builder.finish(), gutter: gutterBuilder && gutterBuilder.finish() };
+  }
+  var Spacer = class extends WidgetType {
+    constructor(height) {
+      super();
+      this.height = height;
+    }
+    eq(other) {
+      return this.height == other.height;
+    }
+    toDOM() {
+      let elt2 = document.createElement("div");
+      elt2.className = "cm-mergeSpacer";
+      elt2.style.height = this.height + "px";
+      return elt2;
+    }
+    updateDOM(dom) {
+      dom.style.height = this.height + "px";
+      return true;
+    }
+    get estimatedHeight() {
+      return this.height;
+    }
+    ignoreEvent() {
+      return false;
+    }
+  };
+  var adjustSpacers = /* @__PURE__ */ StateEffect.define({
+    map: (value, mapping) => value.map(mapping)
+  });
+  var Spacers = /* @__PURE__ */ StateField.define({
+    create: () => Decoration.none,
+    update: (spacers, tr) => {
+      for (let e of tr.effects)
+        if (e.is(adjustSpacers))
+          return e.value;
+      return spacers.map(tr.changes);
+    },
+    provide: (f) => EditorView.decorations.from(f)
+  });
+  var epsilon = 0.01;
+  function compareSpacers(a, b) {
+    if (a.size != b.size)
+      return false;
+    let iA = a.iter(), iB = b.iter();
+    while (iA.value) {
+      if (iA.from != iB.from || Math.abs(iA.value.spec.widget.height - iB.value.spec.widget.height) > 1)
+        return false;
+      iA.next();
+      iB.next();
+    }
+    return true;
+  }
+  function updateSpacers(a, b, chunks) {
+    let buildA = new RangeSetBuilder(), buildB = new RangeSetBuilder();
+    let spacersA = a.state.field(Spacers).iter(), spacersB = b.state.field(Spacers).iter();
+    let posA = 0, posB = 0, offA = 0, offB = 0, vpA = a.viewport, vpB = b.viewport;
+    for (let chunkI = 0; ; chunkI++) {
+      let chunk = chunkI < chunks.length ? chunks[chunkI] : null;
+      let endA = chunk ? chunk.fromA : a.state.doc.length, endB = chunk ? chunk.fromB : b.state.doc.length;
+      if (posA < endA) {
+        let heightA = a.lineBlockAt(posA).top + offA;
+        let heightB = b.lineBlockAt(posB).top + offB;
+        let diff2 = heightA - heightB;
+        if (diff2 < -epsilon) {
+          offA -= diff2;
+          buildA.add(posA, posA, Decoration.widget({
+            widget: new Spacer(-diff2),
+            block: true,
+            side: -1
+          }));
+        } else if (diff2 > epsilon) {
+          offB += diff2;
+          buildB.add(posB, posB, Decoration.widget({
+            widget: new Spacer(diff2),
+            block: true,
+            side: -1
+          }));
+        }
+      }
+      if (endA > posA + 1e3 && posA < vpA.from && endA > vpA.from && posB < vpB.from && endB > vpB.from) {
+        let off = Math.min(vpA.from - posA, vpB.from - posB);
+        posA += off;
+        posB += off;
+        chunkI--;
+      } else if (!chunk) {
+        break;
+      } else {
+        posA = chunk.toA;
+        posB = chunk.toB;
+      }
+      while (spacersA.value && spacersA.from < posA) {
+        offA -= spacersA.value.spec.widget.height;
+        spacersA.next();
+      }
+      while (spacersB.value && spacersB.from < posB) {
+        offB -= spacersB.value.spec.widget.height;
+        spacersB.next();
+      }
+    }
+    while (spacersA.value) {
+      offA -= spacersA.value.spec.widget.height;
+      spacersA.next();
+    }
+    while (spacersB.value) {
+      offB -= spacersB.value.spec.widget.height;
+      spacersB.next();
+    }
+    let docDiff = a.contentHeight + offA - (b.contentHeight + offB);
+    if (docDiff < epsilon) {
+      buildA.add(a.state.doc.length, a.state.doc.length, Decoration.widget({
+        widget: new Spacer(-docDiff),
+        block: true,
+        side: 1
+      }));
+    } else if (docDiff > epsilon) {
+      buildB.add(b.state.doc.length, b.state.doc.length, Decoration.widget({
+        widget: new Spacer(docDiff),
+        block: true,
+        side: 1
+      }));
+    }
+    let decoA = buildA.finish(), decoB = buildB.finish();
+    if (!compareSpacers(decoA, a.state.field(Spacers)))
+      a.dispatch({ effects: adjustSpacers.of(decoA) });
+    if (!compareSpacers(decoB, b.state.field(Spacers)))
+      b.dispatch({ effects: adjustSpacers.of(decoB) });
+  }
+  var uncollapseUnchanged = /* @__PURE__ */ StateEffect.define({
+    map: (value, change) => change.mapPos(value)
+  });
+  var CollapseWidget = class extends WidgetType {
+    constructor(lines) {
+      super();
+      this.lines = lines;
+    }
+    eq(other) {
+      return this.lines == other.lines;
+    }
+    toDOM(view) {
+      let outer = document.createElement("div");
+      outer.className = "cm-collapsedLines";
+      outer.textContent = view.state.phrase("$ unchanged lines", this.lines);
+      outer.addEventListener("click", (e) => {
+        let pos = view.posAtDOM(e.target);
+        view.dispatch({ effects: uncollapseUnchanged.of(pos) });
+        let { side, sibling } = view.state.facet(mergeConfig);
+        if (sibling)
+          sibling().dispatch({ effects: uncollapseUnchanged.of(mapPos(pos, view.state.field(ChunkField), side == "a")) });
+      });
+      return outer;
+    }
+    ignoreEvent(e) {
+      return e instanceof MouseEvent;
+    }
+    get estimatedHeight() {
+      return 27;
+    }
+    get type() {
+      return "collapsed-unchanged-code";
+    }
+  };
+  function mapPos(pos, chunks, isA) {
+    let startOur = 0, startOther = 0;
+    for (let i = 0; ; i++) {
+      let next = i < chunks.length ? chunks[i] : null;
+      if (!next || (isA ? next.fromA : next.fromB) >= pos)
+        return startOther + (pos - startOur);
+      [startOur, startOther] = isA ? [next.toA, next.toB] : [next.toB, next.toA];
+    }
+  }
+  var CollapsedRanges = /* @__PURE__ */ StateField.define({
+    create(state) {
+      return Decoration.none;
+    },
+    update(deco, tr) {
+      deco = deco.map(tr.changes);
+      for (let e of tr.effects)
+        if (e.is(uncollapseUnchanged))
+          deco = deco.update({ filter: (from) => from != e.value });
+      return deco;
+    },
+    provide: (f) => EditorView.decorations.from(f)
+  });
+  function collapseUnchanged({ margin = 3, minSize = 4 }) {
+    return CollapsedRanges.init((state) => buildCollapsedRanges(state, margin, minSize));
+  }
+  function buildCollapsedRanges(state, margin, minLines) {
+    let builder = new RangeSetBuilder();
+    let isA = state.facet(mergeConfig).side == "a";
+    let chunks = state.field(ChunkField);
+    let prevLine = 1;
+    for (let i = 0; ; i++) {
+      let chunk = i < chunks.length ? chunks[i] : null;
+      let collapseFrom = i ? prevLine + margin : 1;
+      let collapseTo = chunk ? state.doc.lineAt(isA ? chunk.fromA : chunk.fromB).number - 1 - margin : state.doc.lines;
+      let lines = collapseTo - collapseFrom + 1;
+      if (lines >= minLines) {
+        builder.add(state.doc.line(collapseFrom).from, state.doc.line(collapseTo).to, Decoration.replace({
+          widget: new CollapseWidget(lines),
+          block: true
+        }));
+      }
+      if (!chunk)
+        break;
+      prevLine = state.doc.lineAt(Math.min(state.doc.length, isA ? chunk.toA : chunk.toB)).number;
+    }
+    return builder.finish();
+  }
+  var externalTheme = /* @__PURE__ */ EditorView.styleModule.of(/* @__PURE__ */ new StyleModule({
+    ".cm-mergeView": {
+      overflowY: "auto"
+    },
+    ".cm-mergeViewEditors": {
+      display: "flex",
+      alignItems: "stretch"
+    },
+    ".cm-mergeViewEditor": {
+      flexGrow: 1,
+      flexBasis: 0,
+      overflow: "hidden"
+    },
+    ".cm-merge-revert": {
+      width: "1.6em",
+      flexGrow: 0,
+      flexShrink: 0,
+      position: "relative"
+    },
+    ".cm-merge-revert button": {
+      position: "absolute",
+      display: "block",
+      width: "100%",
+      boxSizing: "border-box",
+      textAlign: "center",
+      background: "none",
+      border: "none",
+      font: "inherit",
+      cursor: "pointer"
+    }
+  }));
+  var baseTheme5 = /* @__PURE__ */ EditorView.baseTheme({
+    ".cm-mergeView & .cm-scroller, .cm-mergeView &": {
+      height: "auto !important",
+      overflowY: "visible !important"
+    },
+    "&.cm-merge-a .cm-changedLine, .cm-deletedChunk": {
+      backgroundColor: "rgba(160, 128, 100, .08)"
+    },
+    "&.cm-merge-b .cm-changedLine, .cm-inlineChangedLine": {
+      backgroundColor: "rgba(100, 160, 128, .08)"
+    },
+    "&light.cm-merge-a .cm-changedText, &light .cm-deletedChunk .cm-deletedText": {
+      background: "linear-gradient(#ee443366, #ee443366) bottom/100% 2px no-repeat"
+    },
+    "&dark.cm-merge-a .cm-changedText, &dark .cm-deletedChunk .cm-deletedText": {
+      background: "linear-gradient(#ffaa9966, #ffaa9966) bottom/100% 2px no-repeat"
+    },
+    "&light.cm-merge-b .cm-changedText": {
+      background: "linear-gradient(#22bb22aa, #22bb22aa) bottom/100% 2px no-repeat"
+    },
+    "&dark.cm-merge-b .cm-changedText": {
+      background: "linear-gradient(#88ff88aa, #88ff88aa) bottom/100% 2px no-repeat"
+    },
+    "&.cm-merge-b .cm-deletedText": {
+      background: "#ff000033"
+    },
+    ".cm-insertedLine, .cm-deletedLine, .cm-deletedLine del": {
+      textDecoration: "none"
+    },
+    ".cm-deletedChunk": {
+      paddingLeft: "6px",
+      "& .cm-chunkButtons": {
+        position: "absolute",
+        insetInlineEnd: "5px"
+      },
+      "& button": {
+        border: "none",
+        cursor: "pointer",
+        color: "white",
+        margin: "0 2px",
+        borderRadius: "3px",
+        "&[name=accept]": { background: "#2a2" },
+        "&[name=reject]": { background: "#d43" }
+      }
+    },
+    ".cm-collapsedLines": {
+      padding: "5px 5px 5px 10px",
+      cursor: "pointer",
+      "&:before": {
+        content: '"\u299A"',
+        marginInlineEnd: "7px"
+      },
+      "&:after": {
+        content: '"\u299A"',
+        marginInlineStart: "7px"
+      }
+    },
+    "&light .cm-collapsedLines": {
+      color: "#444",
+      background: "linear-gradient(to bottom, transparent 0, #f3f3f3 30%, #f3f3f3 70%, transparent 100%)"
+    },
+    "&dark .cm-collapsedLines": {
+      color: "#ddd",
+      background: "linear-gradient(to bottom, transparent 0, #222 30%, #222 70%, transparent 100%)"
+    },
+    ".cm-changeGutter": { width: "3px", paddingLeft: "1px" },
+    "&light.cm-merge-a .cm-changedLineGutter, &light .cm-deletedLineGutter": { background: "#e43" },
+    "&dark.cm-merge-a .cm-changedLineGutter, &dark .cm-deletedLineGutter": { background: "#fa9" },
+    "&light.cm-merge-b .cm-changedLineGutter": { background: "#2b2" },
+    "&dark.cm-merge-b .cm-changedLineGutter": { background: "#8f8" },
+    ".cm-inlineChangedLineGutter": { background: "#75d" }
+  });
+  var collapseCompartment = /* @__PURE__ */ new Compartment();
+  var configCompartment = /* @__PURE__ */ new Compartment();
+  var MergeView = class {
+    /**
+    Create a new merge view.
+    */
+    constructor(config2) {
+      this.revertDOM = null;
+      this.revertToA = false;
+      this.revertToLeft = false;
+      this.measuring = -1;
+      this.diffConf = config2.diffConfig || defaultDiffConfig;
+      let sharedExtensions = [
+        Prec.low(decorateChunks),
+        baseTheme5,
+        externalTheme,
+        Spacers,
+        EditorView.updateListener.of((update) => {
+          if (this.measuring < 0 && (update.heightChanged || update.viewportChanged) && !update.transactions.some((tr) => tr.effects.some((e) => e.is(adjustSpacers))))
+            this.measure();
+        })
+      ];
+      let configA = [mergeConfig.of({
+        side: "a",
+        sibling: () => this.b,
+        highlightChanges: config2.highlightChanges !== false,
+        markGutter: config2.gutter !== false
+      })];
+      if (config2.gutter !== false)
+        configA.push(changeGutter);
+      let stateA = EditorState.create({
+        doc: config2.a.doc,
+        selection: config2.a.selection,
+        extensions: [
+          config2.a.extensions || [],
+          EditorView.editorAttributes.of({ class: "cm-merge-a" }),
+          configCompartment.of(configA),
+          sharedExtensions
+        ]
+      });
+      let configB = [mergeConfig.of({
+        side: "b",
+        sibling: () => this.a,
+        highlightChanges: config2.highlightChanges !== false,
+        markGutter: config2.gutter !== false
+      })];
+      if (config2.gutter !== false)
+        configB.push(changeGutter);
+      let stateB = EditorState.create({
+        doc: config2.b.doc,
+        selection: config2.b.selection,
+        extensions: [
+          config2.b.extensions || [],
+          EditorView.editorAttributes.of({ class: "cm-merge-b" }),
+          configCompartment.of(configB),
+          sharedExtensions
+        ]
+      });
+      this.chunks = Chunk2.build(stateA.doc, stateB.doc, this.diffConf);
+      let add2 = [
+        ChunkField.init(() => this.chunks),
+        collapseCompartment.of(config2.collapseUnchanged ? collapseUnchanged(config2.collapseUnchanged) : [])
+      ];
+      stateA = stateA.update({ effects: StateEffect.appendConfig.of(add2) }).state;
+      stateB = stateB.update({ effects: StateEffect.appendConfig.of(add2) }).state;
+      this.dom = document.createElement("div");
+      this.dom.className = "cm-mergeView";
+      this.editorDOM = this.dom.appendChild(document.createElement("div"));
+      this.editorDOM.className = "cm-mergeViewEditors";
+      let orientation = config2.orientation || "a-b";
+      let wrapA = document.createElement("div");
+      wrapA.className = "cm-mergeViewEditor";
+      let wrapB = document.createElement("div");
+      wrapB.className = "cm-mergeViewEditor";
+      this.editorDOM.appendChild(orientation == "a-b" ? wrapA : wrapB);
+      this.editorDOM.appendChild(orientation == "a-b" ? wrapB : wrapA);
+      this.a = new EditorView({
+        state: stateA,
+        parent: wrapA,
+        root: config2.root,
+        dispatchTransactions: (trs) => this.dispatch(trs, this.a)
+      });
+      this.b = new EditorView({
+        state: stateB,
+        parent: wrapB,
+        root: config2.root,
+        dispatchTransactions: (trs) => this.dispatch(trs, this.b)
+      });
+      this.setupRevertControls(!!config2.revertControls, config2.revertControls == "b-to-a", config2.renderRevertControl);
+      if (config2.parent)
+        config2.parent.appendChild(this.dom);
+      this.scheduleMeasure();
+    }
+    dispatch(trs, target) {
+      if (trs.some((tr) => tr.docChanged)) {
+        let last = trs[trs.length - 1];
+        let changes = trs.reduce((chs, tr) => chs.compose(tr.changes), ChangeSet.empty(trs[0].startState.doc.length));
+        this.chunks = target == this.a ? Chunk2.updateA(this.chunks, last.newDoc, this.b.state.doc, changes, this.diffConf) : Chunk2.updateB(this.chunks, this.a.state.doc, last.newDoc, changes, this.diffConf);
+        target.update([...trs, last.state.update({ effects: setChunks.of(this.chunks) })]);
+        let other = target == this.a ? this.b : this.a;
+        other.update([other.state.update({ effects: setChunks.of(this.chunks) })]);
+        this.scheduleMeasure();
+      } else {
+        target.update(trs);
+      }
+    }
+    /**
+    Reconfigure an existing merge view.
+    */
+    reconfigure(config2) {
+      if ("diffConfig" in config2) {
+        this.diffConf = config2.diffConfig;
+      }
+      if ("orientation" in config2) {
+        let aB = config2.orientation != "b-a";
+        if (aB != (this.editorDOM.firstChild == this.a.dom.parentNode)) {
+          let domA = this.a.dom.parentNode, domB = this.b.dom.parentNode;
+          domA.remove();
+          domB.remove();
+          this.editorDOM.insertBefore(aB ? domA : domB, this.editorDOM.firstChild);
+          this.editorDOM.appendChild(aB ? domB : domA);
+          this.revertToLeft = !this.revertToLeft;
+          if (this.revertDOM)
+            this.revertDOM.textContent = "";
+        }
+      }
+      if ("revertControls" in config2 || "renderRevertControl" in config2) {
+        let controls = !!this.revertDOM, toA = this.revertToA, render = this.renderRevert;
+        if ("revertControls" in config2) {
+          controls = !!config2.revertControls;
+          toA = config2.revertControls == "b-to-a";
+        }
+        if ("renderRevertControl" in config2)
+          render = config2.renderRevertControl;
+        this.setupRevertControls(controls, toA, render);
+      }
+      let highlight = "highlightChanges" in config2, gutter2 = "gutter" in config2, collapse = "collapseUnchanged" in config2;
+      if (highlight || gutter2 || collapse) {
+        let effectsA = [], effectsB = [];
+        if (highlight || gutter2) {
+          let currentConfig = this.a.state.facet(mergeConfig);
+          let markGutter = gutter2 ? config2.gutter !== false : currentConfig.markGutter;
+          let highlightChanges = highlight ? config2.highlightChanges !== false : currentConfig.highlightChanges;
+          effectsA.push(configCompartment.reconfigure([
+            mergeConfig.of({ side: "a", sibling: () => this.b, highlightChanges, markGutter }),
+            markGutter ? changeGutter : []
+          ]));
+          effectsB.push(configCompartment.reconfigure([
+            mergeConfig.of({ side: "b", sibling: () => this.a, highlightChanges, markGutter }),
+            markGutter ? changeGutter : []
+          ]));
+        }
+        if (collapse) {
+          let effect = collapseCompartment.reconfigure(config2.collapseUnchanged ? collapseUnchanged(config2.collapseUnchanged) : []);
+          effectsA.push(effect);
+          effectsB.push(effect);
+        }
+        this.a.dispatch({ effects: effectsA });
+        this.b.dispatch({ effects: effectsB });
+      }
+      this.scheduleMeasure();
+    }
+    setupRevertControls(controls, toA, render) {
+      this.revertToA = toA;
+      this.revertToLeft = this.revertToA == (this.editorDOM.firstChild == this.a.dom.parentNode);
+      this.renderRevert = render;
+      if (!controls && this.revertDOM) {
+        this.revertDOM.remove();
+        this.revertDOM = null;
+      } else if (controls && !this.revertDOM) {
+        this.revertDOM = this.editorDOM.insertBefore(document.createElement("div"), this.editorDOM.firstChild.nextSibling);
+        this.revertDOM.addEventListener("mousedown", (e) => this.revertClicked(e));
+        this.revertDOM.className = "cm-merge-revert";
+      } else if (this.revertDOM) {
+        this.revertDOM.textContent = "";
+      }
+    }
+    scheduleMeasure() {
+      if (this.measuring < 0) {
+        let win = this.dom.ownerDocument.defaultView || window;
+        this.measuring = win.requestAnimationFrame(() => {
+          this.measuring = -1;
+          this.measure();
+        });
+      }
+    }
+    measure() {
+      updateSpacers(this.a, this.b, this.chunks);
+      if (this.revertDOM)
+        this.updateRevertButtons();
+    }
+    updateRevertButtons() {
+      let dom = this.revertDOM, next = dom.firstChild;
+      let vpA = this.a.viewport, vpB = this.b.viewport;
+      for (let i = 0; i < this.chunks.length; i++) {
+        let chunk = this.chunks[i];
+        if (chunk.fromA > vpA.to || chunk.fromB > vpB.to)
+          break;
+        if (chunk.fromA < vpA.from || chunk.fromB < vpB.from)
+          continue;
+        let top2 = this.a.lineBlockAt(chunk.fromA).top + "px";
+        while (next && +next.dataset.chunk < i)
+          next = rm2(next);
+        if (next && next.dataset.chunk == String(i)) {
+          if (next.style.top != top2)
+            next.style.top = top2;
+          next = next.nextSibling;
+        } else {
+          dom.insertBefore(this.renderRevertButton(top2, i), next);
+        }
+      }
+      while (next)
+        next = rm2(next);
+    }
+    renderRevertButton(top2, chunk) {
+      let elt2;
+      if (this.renderRevert) {
+        elt2 = this.renderRevert();
+      } else {
+        elt2 = document.createElement("button");
+        let text = this.a.state.phrase("Revert this chunk");
+        elt2.setAttribute("aria-label", text);
+        elt2.setAttribute("title", text);
+        elt2.textContent = this.revertToLeft ? "\u21DC" : "\u21DD";
+      }
+      elt2.style.top = top2;
+      elt2.setAttribute("data-chunk", String(chunk));
+      return elt2;
+    }
+    revertClicked(e) {
+      let target = e.target, chunk;
+      while (target && target.parentNode != this.revertDOM)
+        target = target.parentNode;
+      if (target && (chunk = this.chunks[target.dataset.chunk])) {
+        let [source, dest, srcFrom, srcTo, destFrom, destTo] = this.revertToA ? [this.b, this.a, chunk.fromB, chunk.toB, chunk.fromA, chunk.toA] : [this.a, this.b, chunk.fromA, chunk.toA, chunk.fromB, chunk.toB];
+        let insert2 = source.state.sliceDoc(srcFrom, Math.max(srcFrom, srcTo - 1));
+        if (srcFrom != srcTo && destTo <= dest.state.doc.length)
+          insert2 += source.state.lineBreak;
+        dest.dispatch({
+          changes: { from: destFrom, to: Math.min(dest.state.doc.length, destTo), insert: insert2 },
+          userEvent: "revert"
+        });
+        e.preventDefault();
+      }
+    }
+    /**
+    Destroy this merge view.
+    */
+    destroy() {
+      this.a.destroy();
+      this.b.destroy();
+      if (this.measuring > -1)
+        (this.dom.ownerDocument.defaultView || window).cancelAnimationFrame(this.measuring);
+      this.dom.remove();
+    }
+  };
+  function rm2(elt2) {
+    let next = elt2.nextSibling;
+    elt2.remove();
+    return next;
+  }
 
   // node_modules/@lezer/lr/dist/index.js
   var Stack = class _Stack {
@@ -28773,8 +30004,8 @@
       if (nonEmpty(config2.props))
         nodeSet = nodeSet.extend(...config2.props);
       if (nonEmpty(config2.remove)) {
-        for (let rm2 of config2.remove) {
-          let block = this.blockNames.indexOf(rm2), inline = this.inlineNames.indexOf(rm2);
+        for (let rm3 of config2.remove) {
+          let block = this.blockNames.indexOf(rm3), inline = this.inlineNames.indexOf(rm3);
           if (block > -1)
             blockParsers[block] = leafBlockParsers[block] = void 0;
           if (inline > -1)
@@ -30839,7 +32070,8 @@
     languageCompartment,
     themeCompartment,
     getLanguageSupport,
-    getTheme
+    getTheme,
+    MergeView
   };
   if (typeof window !== "undefined") {
     console.log("[CM Bundle] Assigning CodeMirror6 to window");

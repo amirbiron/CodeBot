@@ -1,0 +1,95 @@
+{% extends "base.html" %}
+
+{% block title %}כלי קוד - Code Keeper Bot{% endblock %}
+
+{% block extra_css %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/code-tools.css') }}?v={{ static_version }}">
+{% endblock %}
+
+{% block content %}
+<div class="code-tools-container">
+  <div class="tools-header">
+    <h1><span class="icon">🛠️</span> כלי קוד</h1>
+    <p class="subtitle">Playground לעיצוב, בדיקת איכות ותיקון אוטומטי (Python)</p>
+  </div>
+
+  <div class="tools-toolbar">
+    <div class="toolbar-group primary-actions">
+      <button id="btn-format" class="btn btn-primary" title="עיצוב (Ctrl+Shift+F)">✨ עיצוב</button>
+      <button id="btn-lint" class="btn btn-secondary" title="בדיקת איכות (Ctrl+Shift+L)">🔍 Lint</button>
+      <div class="dropdown">
+        <button id="btn-fix" class="btn btn-secondary">🔧 תיקון</button>
+        <div class="dropdown-menu">
+          <button class="dropdown-item" data-level="safe">🛡️ בטוח <small>whitespace</small></button>
+          <button class="dropdown-item" data-level="cautious">⚠️ זהיר <small>+imports</small></button>
+          <button class="dropdown-item" data-level="aggressive">🔥 אגרסיבי <small>מלא</small></button>
+        </div>
+      </div>
+      <button id="btn-apply" class="btn btn-primary" disabled title="החל שינויים (מעתיק את התוצאה לקוד המקור)">החל שינויים</button>
+    </div>
+
+    <div class="toolbar-group options">
+      <select id="format-tool" class="form-select" title="כלי עיצוב">
+        <option value="black">Black</option>
+        <option value="autopep8">autopep8</option>
+        <option value="isort">isort</option>
+      </select>
+      <label class="option-label">
+        <input type="number" id="line-length" value="88" min="40" max="200">
+        <span>אורך שורה</span>
+      </label>
+    </div>
+  </div>
+
+  <div class="tools-content">
+    <div class="panel input-panel">
+      <div class="panel-header">
+        <span class="panel-title">קוד מקור</span>
+        <span class="panel-meta">Python</span>
+      </div>
+      <div class="panel-body">
+        <div id="input-editor" style="height:100%;"></div>
+      </div>
+      <div class="panel-footer">
+        <span id="input-stats"></span>
+        <span class="split-toolbar-hint">Ctrl+Shift+F / Ctrl+Shift+L</span>
+      </div>
+    </div>
+
+    <div class="panel output-panel">
+      <div class="panel-header">
+        <span class="panel-title">תוצאה</span>
+        <div class="view-toggle">
+          <button class="view-btn active" data-view="code">קוד</button>
+          <button class="view-btn" data-view="diff">Diff</button>
+          <button class="view-btn" data-view="issues">בעיות</button>
+        </div>
+      </div>
+      <div class="panel-body">
+        <div id="code-view" class="view-content active">
+          <div id="output-editor" style="height:100%;"></div>
+        </div>
+        <div id="diff-view" class="view-content">
+          <div id="diff-merge" style="height:100%;"></div>
+        </div>
+        <div id="issues-view" class="view-content">
+          <div id="issues-list"></div>
+        </div>
+      </div>
+      <div class="panel-footer">
+        <div id="lint-score"></div>
+        <div id="tools-info"></div>
+      </div>
+    </div>
+  </div>
+
+  <div id="status-bar" class="status-bar hidden" aria-live="polite">
+    <span class="status-message"></span>
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script src="{{ url_for('static', filename='js/code-tools-page.js') }}?v={{ static_version }}"></script>
+{% endblock %}
+

@@ -1,2 +1,9 @@
 # Production requirements - extend base
 -r base.txt
+
+# Code Tools (WebApp): formatting + linting
+# See: webapp/FEATURE_SUGGESTIONS/CODE_FORMATTING_LINTING_WEBAPP_GUIDE.md (v1.1)
+black>=25.0.0
+flake8>=7.0.0
+isort>=6.0.0
+autopep8>=2.0.0
