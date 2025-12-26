@@ -478,10 +478,13 @@ def emit_internal_alert(name: str, severity: str = "info", summary: str = "", **
             "summary": str(summary),
         }
         if details_payload:
-            rec["details"] = {
-                k: (str(v) if not isinstance(v, (int, float, bool)) else v)
-                for k, v in details_payload.items()
-            }
+            def _coerce_detail_value(v: Any) -> Any:
+                # חשוב: לא להפוך dict/list למחרוזות — זה שובר את תצוגת ה-Observability.
+                if v is None or isinstance(v, (dict, list, int, float, bool)):
+                    return v
+                return str(v)
+
+            rec["details"] = {k: _coerce_detail_value(v) for k, v in details_payload.items()}
         _ALERTS.append(rec)
         is_drill = _is_drill(details_payload)
         if internal_alerts_total is not None:
