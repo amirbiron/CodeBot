@@ -129,6 +129,7 @@ import subprocess
 import tempfile
 import difflib
 import ast
+import os
 from dataclasses import dataclass, field
 from typing import List, Optional, Dict, Any
 from pathlib import Path
@@ -210,11 +211,15 @@ class CodeFormatterService:
     תומך בשפות:
     - Python (Black, isort, flake8, autopep8)
     - בעתיד: JavaScript, TypeScript, Go
+    
+    הערות ביצועים:
+    - הפעלת subprocess היא Blocking - הרץ עם מספיק Gunicorn workers
+    - לגרסה 2.0: שקול העברה ל-Background Tasks (Celery)
     """
     
     # הגבלות
     MAX_FILE_SIZE = 500 * 1024  # 500KB
-    TIMEOUT_SECONDS = 30
+    TIMEOUT_SECONDS = 10  # קצר יותר למניעת blocking ארוך
     
     # כלים תומכים לפי שפה
     SUPPORTED_LANGUAGES = {
@@ -374,6 +379,19 @@ class CodeFormatterService:
                 error_message=str(e)
             )
     
+    def _get_clean_env(self) -> Dict[str, str]:
+        """
+        מחזיר סביבה נקייה להרצת כלים חיצוניים.
+        מונע קריאת קונפיגים גלובליים שיכולים לשבש תוצאות.
+        """
+        env = os.environ.copy()
+        env['PYTHONIOENCODING'] = 'utf-8'  # פלט תמיד UTF-8
+        return env
+    
+    def _decode_output(self, output: bytes) -> str:
+        """מפענח פלט עם טיפול בתווים בעייתיים."""
+        return output.decode('utf-8', errors='replace')
+    
     def _run_black(self, code: str, options: Dict) -> str:
         """מריץ Black formatter."""
         cmd = ['black', '-', '--quiet']
@@ -383,46 +401,38 @@ class CodeFormatterService:
         
         result = subprocess.run(
             cmd,
-            input=code,
-            text=True,
+            input=code.encode('utf-8'),
             capture_output=True,
-            timeout=self.TIMEOUT_SECONDS
+            timeout=self.TIMEOUT_SECONDS,
+            env=self._get_clean_env()
         )
         
         if result.returncode != 0:
-            raise RuntimeError(result.stderr)
+            raise RuntimeError(self._decode_output(result.stderr))
         
-        return result.stdout
+        return self._decode_output(result.stdout)
     
     def _run_isort(self, code: str, options: Dict) -> str:
         """מריץ isort למיון imports."""
-        cmd = ['isort', '-', '--diff']
+        cmd = ['isort', '-']
         
         if 'line_length' in options:
             cmd.extend(['--line-length', str(options['line_length'])])
         
-        # Black compatibility mode
+        # Black compatibility mode - קריטי למניעת התנגשויות!
         cmd.extend(['--profile', 'black'])
+        
+        env = self._get_clean_env()
         
         result = subprocess.run(
             cmd,
-            input=code,
-            text=True,
+            input=code.encode('utf-8'),
             capture_output=True,
-            timeout=self.TIMEOUT_SECONDS
+            timeout=self.TIMEOUT_SECONDS,
+            env=env
         )
         
-        # isort עם --diff מחזיר 0 גם אם יש שינויים
-        # נקרא שוב בלי --diff כדי לקבל את התוצאה
-        result = subprocess.run(
-            ['isort', '-', '--profile', 'black'],
-            input=code,
-            text=True,
-            capture_output=True,
-            timeout=self.TIMEOUT_SECONDS
-        )
-        
-        return result.stdout
+        return self._decode_output(result.stdout)
     
     def _run_autopep8(self, code: str, options: Dict) -> str:
         """מריץ autopep8."""
@@ -438,13 +448,13 @@ class CodeFormatterService:
         
         result = subprocess.run(
             cmd,
-            input=code,
-            text=True,
+            input=code.encode('utf-8'),
             capture_output=True,
-            timeout=self.TIMEOUT_SECONDS
+            timeout=self.TIMEOUT_SECONDS,
+            env=self._get_clean_env()
         )
         
-        return result.stdout
+        return self._decode_output(result.stdout)
     
     # ==================== Linting ====================
     
@@ -498,12 +508,13 @@ class CodeFormatterService:
     def _run_flake8(self, code: str) -> List[LintIssue]:
         """מריץ flake8 ומחזיר רשימת בעיות."""
         # כותב לקובץ זמני כי flake8 עובד טוב יותר עם קבצים
+        # הערה: ב-Windows יש לפעמים בעיות הרשאה - ב-Linux/Docker עובד חלק
         with tempfile.NamedTemporaryFile(
-            mode='w',
+            mode='wb',  # binary mode לשליטה בקידוד
             suffix='.py',
             delete=False
         ) as f:
-            f.write(code)
+            f.write(code.encode('utf-8'))
             temp_path = f.name
         
         try:
@@ -511,15 +522,18 @@ class CodeFormatterService:
                 [
                     'flake8',
                     '--format=%(row)d:%(col)d:%(code)s:%(text)s',
+                    '--isolated',  # התעלם מקונפיגים גלובליים
                     temp_path
                 ],
                 capture_output=True,
-                text=True,
-                timeout=self.TIMEOUT_SECONDS
+                timeout=self.TIMEOUT_SECONDS,
+                env=self._get_clean_env()
             )
             
+            stdout = self._decode_output(result.stdout)
+            
             issues = []
-            for line in result.stdout.strip().split('\n'):
+            for line in stdout.strip().split('\n'):
                 if not line:
                     continue
                 
@@ -1444,9 +1458,24 @@ const CodeToolsIntegration = {
     },
     
     /**
-     * חישוב diff פשוט
+     * חישוב diff
+     * 
+     * הערה: לגרסת Production מומלץ להשתמש בספריות מקצועיות:
+     * - diff-match-patch של Google (קל ומהיר)
+     * - merge-view של CodeMirror (כבר קיים בפרויקט!)
+     * 
+     * דוגמה עם CodeMirror MergeView:
+     * ```javascript
+     * import { MergeView } from '@codemirror/merge';
+     * const view = new MergeView({
+     *     a: { doc: original },
+     *     b: { doc: modified },
+     *     parent: container
+     * });
+     * ```
      */
     computeDiff(original, modified) {
+        // גרסה בסיסית - לגרסה 2.0 החלף בספרייה מקצועית
         const origLines = original.split('\n');
         const modLines = modified.split('\n');
         let diff = '';
@@ -1751,6 +1780,80 @@ class TestServiceSingleton:
 - [ ] אינטגרציה עם pylint
 - [ ] המלצות AI לשיפור קוד
 - [ ] תצוגת Live lint בזמן כתיבה
+- [ ] החלפת flake8 ב-**ruff** (מהיר פי 100!)
+- [ ] Background Tasks עם Celery לקבצים גדולים
+
+---
+
+## 🚀 שיפורים לגרסה 2.0
+
+### 1. החלפת Linter ב-Ruff
+
+[Ruff](https://github.com/astral-sh/ruff) הוא linter חדש וMEGA מהיר (פי 10-100 מ-flake8):
+
+```python
+# הארכיטקטורה המודולרית מאפשרת החלפה פשוטה:
+def _run_ruff(self, code: str) -> List[LintIssue]:
+    result = subprocess.run(
+        ['ruff', 'check', '--format=json', '-'],
+        input=code.encode('utf-8'),
+        capture_output=True,
+        timeout=self.TIMEOUT_SECONDS,
+        env=self._get_clean_env()
+    )
+    # Ruff מחזיר JSON ישירות - קל יותר לפרסר
+    import json
+    data = json.loads(self._decode_output(result.stdout))
+    return [LintIssue(...) for item in data]
+```
+
+### 2. Background Tasks עם Celery
+
+לקבצים גדולים ועומס גבוה:
+
+```python
+# tasks.py
+from celery import Celery
+app = Celery('code_tools', broker='redis://localhost:6379/0')
+
+@app.task
+def format_code_async(code: str, tool: str, options: dict):
+    service = get_code_formatter_service()
+    return service.format_code(code, tool=tool, options=options)
+
+# API
+@code_tools_bp.route('/format', methods=['POST'])
+def format_code():
+    task = format_code_async.delay(code, tool, options)
+    return jsonify({'task_id': task.id})
+
+@code_tools_bp.route('/format/<task_id>', methods=['GET'])
+def get_format_result(task_id):
+    task = format_code_async.AsyncResult(task_id)
+    if task.ready():
+        return jsonify({'status': 'done', 'result': task.result})
+    return jsonify({'status': 'pending'})
+```
+
+### 3. תצוגת Diff מקצועית
+
+השתמש ב-CodeMirror MergeView שכבר קיים בפרויקט:
+
+```javascript
+// webapp/static/js/diff-view.js
+import { MergeView } from '@codemirror/merge';
+import { python } from '@codemirror/lang-python';
+
+function showProfessionalDiff(original, modified, container) {
+    return new MergeView({
+        a: { doc: original, extensions: [python()] },
+        b: { doc: modified, extensions: [python()] },
+        parent: container,
+        highlightChanges: true,
+        gutter: true
+    });
+}
+```
 
 ---
 
@@ -1781,11 +1884,56 @@ autopep8>=2.0.0
 | קוד עם type hints מורכבים | isort עלול להזיז | בדיקת תחביר אחרי |
 | קוד עם `# noqa` | autopep8 עלול להתעלם | שמירת הערות |
 
-### 4. ביצועים
+### 4. ביצועים ו-Blocking (קריטי!)
 
+הפעלת `subprocess.run` בתוך Request של Flask היא פעולה **חוסמת (Blocking)**.  
+אם הקוד כבד או שהשרת עמוס, ה-Worker ייתקע עד ה-Timeout.
+
+**גרסה 1.0 (MVP):**
 - הגבל גודל קובץ ל-500KB
-- timeout של 30 שניות לכל פעולה
-- Cache לתוצאות (אופציונלי)
+- Timeout של **5-10 שניות** (לא 30!)
+- הרץ עם Gunicorn ומספיק Workers:
+  ```bash
+  gunicorn -w 4 -b 0.0.0.0:5000 webapp.app:app
+  ```
+
+**גרסה 2.0 (Production Scale):**
+- העבר עיבוד ל-Background Task (Celery / Redis Queue)
+- ה-Client יעשה Polling לתוצאה
+- דוגמה:
+  ```python
+  # POST /api/code/format → מחזיר task_id
+  # GET /api/code/format/{task_id} → מחזיר status/result
+  ```
+
+### 5. אבטחה (Security)
+
+**קבצים זמניים:**
+- השתמש ב-`tempfile.NamedTemporaryFile(delete=True)`
+- ⚠️ **Windows**: לפעמים יש בעיות הרשאה לפתוח קובץ שוב כשהוא פתוח
+- ✅ **Linux/Docker**: עובד חלק
+
+**סביבה נקייה לכלים:**
+```python
+# מומלץ: מניעת קריאת קונפיגים גלובליים
+env = os.environ.copy()
+env['PYTHONIOENCODING'] = 'utf-8'  # פלט תמיד UTF-8
+result = subprocess.run(..., env=env)
+```
+
+### 6. טיפול בקידוד (Encoding)
+
+כשמריצים `subprocess.run`, תווים מוזרים בפלט יכולים לקרוס את ה-Service:
+
+```python
+# במקום:
+result = subprocess.run(..., text=True)
+
+# עדיף:
+result = subprocess.run(..., capture_output=True)
+stdout = result.stdout.decode('utf-8', errors='replace')
+stderr = result.stderr.decode('utf-8', errors='replace')
+```
 
 ---
 
@@ -1800,8 +1948,27 @@ autopep8>=2.0.0
 ---
 
 **נוצר ב**: 2025-12-26  
+**עודכן**: 2025-12-26 (v1.1 - שיפורי Production Readiness)  
 **מבוסס על**: IMPLEMENTATION_GUIDE_1.1_1.2.md (2025-10-08)  
 **מותאם ל**: WebApp (Flask)
+
+---
+
+## 📝 היסטוריית גרסאות
+
+### v1.1 (2025-12-26) - Production Readiness
+- ✅ הוספת `_get_clean_env()` עם PYTHONIOENCODING
+- ✅ טיפול נכון ב-encoding עם `errors='replace'`
+- ✅ שינוי Timeout מ-30 ל-10 שניות
+- ✅ הוספת `--isolated` ל-flake8
+- ✅ הערות על Blocking ו-Gunicorn workers
+- ✅ המלצות לגרסה 2.0 (Celery, Ruff, MergeView)
+- ✅ סעיף אבטחה מורחב
+
+### v1.0 (2025-12-26) - Initial WebApp Adaptation
+- התאמה מלאה מ-Telegram ל-WebApp
+- Flask Blueprint API
+- JavaScript integration
 
 ---
 
