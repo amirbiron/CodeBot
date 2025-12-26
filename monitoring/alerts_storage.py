@@ -65,7 +65,12 @@ _DETAIL_TEXT_LIMIT = 512
 
 def _safe_str(value: Any, *, limit: int = 256) -> str:
     try:
-        text = str(value or "").strip()
+        # חשוב: לא להשתמש ב-`value or ""` כי ערכים "שקריים" (כמו 0, False, [], {})
+        # יהפכו בטעות למחרוזת ריקה ויגרמו לאיבוד מידע בלוח ה-Observability.
+        if value is None:
+            text = ""
+        else:
+            text = str(value).strip()
     except Exception:
         text = ""
     if limit and len(text) > limit:
@@ -74,25 +79,78 @@ def _safe_str(value: Any, *, limit: int = 256) -> str:
 
 
 def _sanitize_details(details: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+    """
+    שמירה "Fail-open" של details עבור DB/UI, בלי למחוק שדות.
+
+    עקרונות:
+    - לא מוחקים מפתחות (כולל sentry_issue_id/labels/slow_endpoints וכו').
+    - מפתחות רגישים נשמרים אבל הערך שלהם נכתב כ-<REDACTED> במקום להיעלם.
+    - שומרים טיפוסים של dict/list כדי לא להפוך אותם למחרוזות ריקות (למשל []/{}).
+    - מגבילים רק מחרוזות ארוכות, ובמקרים חריגים ממירים לאובייקט ניתן-ייצוג.
+    """
     if not isinstance(details, dict):
         return {}
+
+    seen: set[int] = set()
+
+    def _sanitize_value(key_hint: str, value: Any, *, depth: int) -> Any:
+        if depth <= 0:
+            return _safe_str(value, limit=_DETAIL_TEXT_LIMIT)
+
+        # Redact by key name (case-insensitive) but do not drop the key
+        try:
+            lk = str(key_hint).lower()
+        except Exception:
+            lk = ""
+        if lk in _SENSITIVE_DETAIL_KEYS:
+            return "<REDACTED>"
+
+        # Preserve explicit None (do not delete keys)
+        if value is None:
+            return None
+
+        # Keep primitives as-is (Mongo-friendly)
+        if isinstance(value, bool):
+            return bool(value)
+        if isinstance(value, (int, float)):
+            return value
+        if isinstance(value, str):
+            return _safe_str(value, limit=_DETAIL_TEXT_LIMIT)
+
+        # Preserve dict/list structures (and sanitize recursively)
+        try:
+            obj_id = id(value)
+        except Exception:
+            obj_id = 0
+        if obj_id and obj_id in seen:
+            return "<CYCLE>"
+        if obj_id:
+            seen.add(obj_id)
+        try:
+            if isinstance(value, dict):
+                out: Dict[str, Any] = {}
+                for k2, v2 in value.items():
+                    out[str(k2)] = _sanitize_value(str(k2), v2, depth=depth - 1)
+                return out
+            if isinstance(value, list):
+                return [_sanitize_value(key_hint, v2, depth=depth - 1) for v2 in value]
+            if isinstance(value, tuple):
+                return [_sanitize_value(key_hint, v2, depth=depth - 1) for v2 in list(value)]
+        finally:
+            # Do not try to remove from seen; cycle protection is best-effort.
+            pass
+
+        # Fallback: safe string representation
+        return _safe_str(value, limit=_DETAIL_TEXT_LIMIT)
+
     clean: Dict[str, Any] = {}
     for key, value in details.items():
+        # Never drop keys – stringify key best-effort
         try:
-            lk = str(key).lower()
+            sk = str(key)
         except Exception:
-            continue
-        if lk in _SENSITIVE_DETAIL_KEYS:
-            continue
-        if value is None:
-            continue
-        if isinstance(value, (int, float)):
-            clean[str(key)] = value
-            continue
-        if isinstance(value, bool):
-            clean[str(key)] = bool(value)
-            continue
-        clean[str(key)] = _safe_str(value, limit=_DETAIL_TEXT_LIMIT)
+            sk = "<unprintable-key>"
+        clean[sk] = _sanitize_value(sk, value, depth=6)
     return clean
 
 
@@ -426,11 +484,29 @@ def compute_error_signature(error_data: Dict[str, Any]) -> str:
                 s = s.rsplit("\\", 1)[-1]
             return s
 
+        # --- Sentry-first: כשמדובר בשגיאת Sentry, יש לנו מזהה יציב (Issue ID) ---
+        # זה מונע יצירת חתימות ריקות ומאפשר עקביות גם כשאין stack/file.
+        sentry_issue_id = _normalize_error_text((error_data or {}).get("sentry_issue_id", "") or "")
+        if sentry_issue_id:
+            signature_input = f"sentry_issue_id:{sentry_issue_id}"
+            return hashlib.sha256(signature_input.encode()).hexdigest()[:16]
+
+        # --- Generic error signature (code/runtime errors) ---
         components = [
             str((error_data or {}).get("error_type", "") or ""),
             _normalize_file_name((error_data or {}).get("file", "") or ""),
             str((error_data or {}).get("line", "") or ""),
         ]
+
+        # Include summary/title when present (useful for Sentry-like alerts that don't carry stack)
+        summary = _normalize_error_text(
+            (error_data or {}).get("summary")
+            or (error_data or {}).get("title")
+            or (error_data or {}).get("message")
+            or ""
+        )
+        if summary:
+            components.append(summary)
 
         # Include normalized message when present (improves signal when stack/file info is missing)
         error_message = _normalize_error_text((error_data or {}).get("error_message", "") or "")
@@ -508,6 +584,7 @@ def enrich_alert_with_signature(alert_data: Dict[str, Any]) -> Dict[str, Any]:
     """מעשיר את נתוני ההתראה עם חתימה ומידע על חדשות."""
     # חשוב: בפרויקט כבר ייתכן שדה error_signature עם מזהה "טקסונומי" (למשל OOM_KILLED).
     # אסור לדרוס אותו. את ה-fingerprint (hash) נשמור בשדה נפרד.
+    # קריאה בטוחה לשדות קיימים (לא להניח dict "נקי")
     try:
         existing_is_new = alert_data.get("is_new_error")
     except Exception:
@@ -517,7 +594,31 @@ def enrich_alert_with_signature(alert_data: Dict[str, Any]) -> Dict[str, Any]:
     except Exception:
         existing_hash = None
 
-    signature_hash = str(existing_hash or compute_error_signature(alert_data or {}) or "")
+    # השתמש ב-hash קיים רק אם הוא באמת מכיל תוכן (מניעת שדות ריקים שנוצרו בעבר)
+    signature_hash = _safe_str(existing_hash, limit=128)
+    if not signature_hash:
+        signature_hash = _safe_str(compute_error_signature(alert_data or {}), limit=128)
+
+    # אם אין חתימה אמיתית – לא מוסיפים שדות Signature כלל (וגם מנקים שדות ריקים אם קיימים)
+    if not signature_hash:
+        try:
+            if not _safe_str(alert_data.get("error_signature_hash"), limit=128):
+                alert_data.pop("error_signature_hash", None)
+        except Exception:
+            pass
+        try:
+            # אל תדרוס error_signature "טקסונומי", אבל אם הוא ריק – ננקה אותו
+            if not _safe_str(alert_data.get("error_signature"), limit=128):
+                alert_data.pop("error_signature", None)
+        except Exception:
+            pass
+        try:
+            # אם הוסיפו בעבר is_new_error=False בלי חתימה, עדיף לא לשמור אותו בכלל
+            if alert_data.get("is_new_error") in (False, None, ""):
+                alert_data.pop("is_new_error", None)
+        except Exception:
+            pass
+        return alert_data
 
     # אם כבר קיים is_new_error, לא נרוץ שוב מול ה-DB (idempotent) — זה מונע "היפוך" True→False
     # במקרה שהפונקציה נקראת פעמיים על אותו dict.
@@ -526,11 +627,12 @@ def enrich_alert_with_signature(alert_data: Dict[str, Any]) -> Dict[str, Any]:
     else:
         is_new = is_new_error(signature_hash)
 
-    # תמיד נשמור את ה-hash בנפרד כדי שתהיה אפשרות להשתמש בו לכללי "שגיאה חדשה"
+    # הוספה בלבד: לא יוצרים dict חדש, לא דורסים Metadata קיים
     alert_data["error_signature_hash"] = signature_hash
     alert_data["is_new_error"] = is_new
 
-    # תאימות למדריך: אם אין error_signature קיים, נשתמש ב-hash כברירת מחדל
+    # תאימות: אם אין error_signature קיים (או שהוא ריק) נשתמש ב-hash כברירת מחדל.
+    # אם קיים מזהה טקסונומי (למשל OOM_KILLED) – לא נוגעים.
     try:
         existing = alert_data.get("error_signature")
     except Exception:
