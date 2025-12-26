@@ -1400,6 +1400,16 @@
             {% endif %}
             {% endfor %}
         }
+
+        /* Primary Button States - force theme colors on all interaction states */
+        [data-theme="custom"] .btn-primary:active,
+        [data-theme="custom"] .btn-primary:focus,
+        [data-theme="custom"] .btn-primary:disabled,
+        [data-theme="custom"] .btn-primary.disabled {
+            background-color: var(--btn-primary-bg) !important;
+            color: var(--btn-primary-color) !important;
+            opacity: 0.8;
+        }
     </style>
     {% endif %}
 </head>
