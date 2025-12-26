@@ -49,12 +49,14 @@ const CodeToolsIntegration = {
    * הצגת/הסתרת כלים לפי שפה
    */
   updateToolsVisibility() {
-    const language = this.languageSelect?.value || 'text';
+    const rawLanguage = this.languageSelect?.value || 'text';
+    const language = String(rawLanguage).toLowerCase().trim();
     const toolsGroup = document.querySelector('.code-tools-group');
 
     if (toolsGroup) {
-      // כרגע תומכים רק ב-Python
-      toolsGroup.style.display = language === 'python' ? 'flex' : 'none';
+      // כרגע תומכים רק ב-Python (case-insensitive)
+      const isPython = language === 'python' || language === 'py';
+      toolsGroup.style.display = isPython ? 'flex' : 'none';
     }
   },
 

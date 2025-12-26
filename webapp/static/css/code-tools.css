@@ -299,6 +299,46 @@
   border-bottom: 1px solid rgba(255, 255, 255, 0.12);
 }
 
+.code-tools-container .panel-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.code-tools-container .panel-header-actions .btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.35rem 0.65rem;
+  font-size: 0.85rem;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  color: var(--text-primary, #ffffff);
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+}
+
+.code-tools-container .panel-header-actions .btn:hover {
+  background: rgba(255, 255, 255, 0.14);
+  border-color: rgba(255, 255, 255, 0.35);
+}
+
+.code-tools-container .panel-header-actions .btn.copied {
+  background: rgba(34, 197, 94, 0.2);
+  border-color: rgba(34, 197, 94, 0.5);
+}
+
+.code-tools-container .panel-header-actions .copy-icon {
+  font-size: 1rem;
+}
+
+@media (max-width: 600px) {
+  .code-tools-container .panel-header-actions .copy-text {
+    display: none;
+  }
+}
+
 .code-tools-container .panel-title {
   font-weight: 700;
 }
