@@ -286,3 +286,16 @@ def test_sanitize_details_does_not_drop_deep_lists_when_depth_limit_reached():
 
     assert isinstance(clean["a"], dict)
     assert clean["a"]["b"]["c"]["d"]["e"]["f"]["slow_endpoints"] == ["/x", "/y"]
+
+
+def test_sanitize_details_redacts_sensitive_keys_even_at_depth_limit():
+    """
+    רגרסיה: בקצה העומק אנחנו עושים העתקה שטוחה כדי לא לשבור JSON,
+    אבל עדיין חייבים לבצע Redaction שטחי למפתחות רגישים (password/token/secret וכו').
+    """
+    from monitoring.alerts_storage import _sanitize_details
+
+    raw = {"a": {"b": {"c": {"d": {"e": {"f": {"wrapper": {"password": "secret"}}}}}}}}
+    clean = _sanitize_details(raw)
+
+    assert clean["a"]["b"]["c"]["d"]["e"]["f"]["wrapper"]["password"] == "<REDACTED>"

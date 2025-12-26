@@ -123,7 +123,23 @@ def _sanitize_details(details: Optional[Dict[str, Any]]) -> Dict[str, Any]:
                 # כדי למנוע Data Corruption: לא "לאפס" ל-{} / [] ולא להמיר ל-str().
                 try:
                     if isinstance(value, dict):
-                        return {str(k): v for k, v in value.items()}
+                        # חשוב: גם בקצה העומק חייבים לבצע Redaction שטחי למפתחות רגישים,
+                        # אחרת סודות (password/token/secret וכו') יכולים לדלוף.
+                        out: Dict[str, Any] = {}
+                        for k, v in value.items():
+                            try:
+                                sk = str(k)
+                            except Exception:
+                                sk = "<unprintable-key>"
+                            try:
+                                lk = sk.lower()
+                            except Exception:
+                                lk = ""
+                            if lk in _SENSITIVE_DETAIL_KEYS:
+                                out[sk] = "<REDACTED>"
+                            else:
+                                out[sk] = v
+                        return out
                     if isinstance(value, list):
                         return list(value)
                     # tuple -> list (Mongo-friendly)
