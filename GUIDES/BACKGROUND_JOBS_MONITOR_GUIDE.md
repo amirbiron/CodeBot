@@ -326,6 +326,12 @@ from contextlib import contextmanager
 
 logger = logging.getLogger(__name__)
 
+
+class JobAlreadyRunningError(Exception):
+    """נזרק כאשר מנסים להפעיל Job שכבר רץ"""
+    pass
+
+
 class JobTracker:
     """מעקב אחרי הרצות Jobs"""
     
@@ -380,14 +386,9 @@ class JobTracker:
             emit_event("job_started", severity="info", job_id=job_id, run_id=run.run_id)
         except Exception:
             pass
-        
+
         return run
 
-
-class JobAlreadyRunningError(Exception):
-    """נזרק כאשר מנסים להפעיל Job שכבר רץ"""
-    pass
-    
     def update_progress(
         self,
         run_id: str,
