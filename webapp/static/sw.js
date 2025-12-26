@@ -1,9 +1,14 @@
+// SW Version for cache busting
+const SW_VERSION = '2.0.1';
+
 self.addEventListener('install', (event) => {
+  console.log('[SW] Installing version:', SW_VERSION);
   // Skip waiting so the new SW takes control ASAP
   try { self.skipWaiting(); } catch (_) {}
 });
 
 self.addEventListener('activate', (event) => {
+  console.log('[SW] Activating version:', SW_VERSION);
   // Claim clients without reload
   event.waitUntil((async () => {
     try { await self.clients.claim(); } catch (_) {}
@@ -11,12 +16,15 @@ self.addEventListener('activate', (event) => {
 });
 
 // Helper: report SW events back to server for debugging (no auth needed)
+// This is CRITICAL for debugging - sends a POST to /api/push/sw-report
 function reportToServer(eventType, status, extra = {}) {
+  console.log('[SW] Reporting to server:', eventType, status, extra);
   try {
     const body = JSON.stringify({
       event: eventType,
       status: status,
       timestamp: new Date().toISOString(),
+      sw_version: SW_VERSION,
       ...extra
     });
     // Use fetch with keepalive to ensure it completes even if SW terminates
@@ -25,64 +33,124 @@ function reportToServer(eventType, status, extra = {}) {
       headers: { 'Content-Type': 'application/json' },
       body: body,
       keepalive: true
-    }).catch(() => {}); // Ignore errors - this is best-effort
-  } catch (_) {}
+    }).then(resp => {
+      console.log('[SW] Report sent, status:', resp.status);
+    }).catch(err => {
+      console.error('[SW] Report failed:', err);
+    });
+  } catch (e) {
+    console.error('[SW] reportToServer exception:', e);
+  }
 }
 
 self.addEventListener('push', (event) => {
-  // Debug: log that we received the push event
-  console.log('[SW] Push event received at:', new Date().toISOString());
+  // STEP 1: IMMEDIATELY log and report that we received a push
+  // This is the FIRST thing we do - before any processing
+  const receivedAt = new Date().toISOString();
+  console.log('========================================');
+  console.log('[SW] PUSH EVENT RECEIVED at:', receivedAt);
+  console.log('[SW] SW Version:', SW_VERSION);
+  console.log('[SW] event.data exists:', !!event.data);
+  console.log('========================================');
+  
+  // STEP 2: Send immediate report to server (before any async work)
+  reportToServer('push_received', 'started', { received_at: receivedAt });
   
   const handlePush = async () => {
     let rawData = null;
+    let parsedJson = null;
+    
     try {
-      // Report: we received a push event
-      reportToServer('push_received', 'started');
-      
-      // Parse payload with detailed logging
-      let json = {};
+      // STEP 3: Extract and parse the push data
+      console.log('[SW] Step 3: Extracting push data...');
       
       if (event.data) {
         try {
           rawData = event.data.text();
-          console.log('[SW] Raw push data:', rawData);
-          json = JSON.parse(rawData);
-          console.log('[SW] Parsed JSON:', JSON.stringify(json));
-          reportToServer('push_parsed', 'success', { raw_data: rawData });
+          console.log('[SW] Raw push data received, length:', rawData ? rawData.length : 0);
+          console.log('[SW] Raw data content:', rawData);
+          
+          parsedJson = JSON.parse(rawData);
+          console.log('[SW] Successfully parsed JSON');
+          console.log('[SW] Parsed structure:', JSON.stringify(parsedJson, null, 2));
+          
+          reportToServer('push_parsed', 'success', { 
+            raw_data: rawData,
+            has_notification: !!parsedJson.notification,
+            has_data: !!parsedJson.data,
+            has_title: !!(parsedJson.title || (parsedJson.notification && parsedJson.notification.title))
+          });
         } catch (parseErr) {
-          console.error('[SW] JSON parse error:', parseErr, 'raw:', rawData);
-          reportToServer('push_parsed', 'error', { error: String(parseErr), raw_data: rawData });
-          // Still continue with empty json - fallback title will be used
+          console.error('[SW] JSON parse error:', parseErr);
+          console.error('[SW] Raw data that failed to parse:', rawData);
+          reportToServer('push_parsed', 'error', { 
+            error: String(parseErr), 
+            raw_data: rawData 
+          });
+          parsedJson = {};
         }
       } else {
-        console.log('[SW] No event.data present');
+        console.warn('[SW] No event.data present in push event!');
         reportToServer('push_parsed', 'no_data');
+        parsedJson = {};
       }
       
-      // Robust extraction of title/body from various payload structures
-      // 1. Top-level (Standard Web Push)
-      // 2. notification key (FCM style)
-      // 3. data key (Data-only style)
-      const title = json.title || (json.notification && json.notification.title) || (json.data && json.data.title) || '🔔 יש פתק ממתין';
-      const body = json.body || (json.notification && json.notification.body) || (json.data && json.data.body) || '';
+      // STEP 4: Extract title and body from payload
+      // Priority: notification object (FCM standard) > data object > top-level
+      console.log('[SW] Step 4: Extracting notification content...');
       
-      console.log('[SW] Extracted title:', title, 'body:', body);
+      let title = '🔔 יש פתק ממתין';  // default
+      let body = '';
       
-      const customData = json.data || {};
-      // Merge top-level custom fields if they exist and aren't in data
-      if (json.note_id && !customData.note_id) customData.note_id = json.note_id;
-      if (json.file_id && !customData.file_id) customData.file_id = json.file_id;
-
+      // Check notification object first (this is how push_api.py sends it)
+      if (parsedJson.notification && typeof parsedJson.notification === 'object') {
+        console.log('[SW] Found notification object:', JSON.stringify(parsedJson.notification));
+        title = parsedJson.notification.title || title;
+        body = parsedJson.notification.body || body;
+      }
+      // Fallback to data object
+      else if (parsedJson.data && typeof parsedJson.data === 'object') {
+        console.log('[SW] Using data object for title/body');
+        title = parsedJson.data.title || title;
+        body = parsedJson.data.body || body;
+      }
+      // Fallback to top-level
+      else if (parsedJson.title) {
+        console.log('[SW] Using top-level title/body');
+        title = parsedJson.title || title;
+        body = parsedJson.body || body;
+      }
+      
+      console.log('[SW] Final title:', title);
+      console.log('[SW] Final body:', body);
+      
+      // STEP 5: Build notification options
+      console.log('[SW] Step 5: Building notification options...');
+      
+      const customData = parsedJson.data || {};
+      // Also check notification object for note_id/file_id
+      if (parsedJson.notification) {
+        if (!customData.note_id && parsedJson.notification.note_id) {
+          customData.note_id = parsedJson.notification.note_id;
+        }
+        if (!customData.file_id && parsedJson.notification.file_id) {
+          customData.file_id = parsedJson.notification.file_id;
+        }
+      }
+      
+      // Get tag from notification object or generate unique one
+      const tag = (parsedJson.notification && parsedJson.notification.tag) || 
+                  ('codekeeper-' + Date.now());
+      
       const options = {
         body: body,
-        icon: '/static/icons/app-icon-192.png',
-        badge: '/static/icons/app-icon-192.png',
+        icon: (parsedJson.notification && parsedJson.notification.icon) || '/static/icons/app-icon-192.png',
+        badge: (parsedJson.notification && parsedJson.notification.badge) || '/static/icons/app-icon-192.png',
         data: customData,
-        // Force notification to show even if browser would normally suppress it
-        requireInteraction: false,
-        silent: false,
-        tag: 'codekeeper-' + Date.now(), // Unique tag prevents collapsing
-        actions: [
+        requireInteraction: (parsedJson.notification && parsedJson.notification.requireInteraction) || false,
+        silent: (parsedJson.notification && parsedJson.notification.silent) || false,
+        tag: tag,
+        actions: (parsedJson.notification && parsedJson.notification.actions) || [
           { action: 'open_note', title: 'פתח פתק' },
           { action: 'snooze_10', title: 'דחה 10 דק׳' },
           { action: 'snooze_60', title: 'דחה שעה' },
@@ -90,42 +158,78 @@ self.addEventListener('push', (event) => {
         ]
       };
       
-      console.log('[SW] Calling showNotification with title:', title);
+      console.log('[SW] Notification options:', JSON.stringify(options));
       
-      // Verify registration exists before showing notification
+      // STEP 6: Show the notification (wrapped in try-catch)
+      console.log('[SW] Step 6: Showing notification...');
+      
       if (!self.registration) {
-        console.error('[SW] self.registration is undefined!');
+        console.error('[SW] CRITICAL: self.registration is undefined!');
         reportToServer('show_notification', 'error', { error: 'no_registration' });
-        throw new Error('No service worker registration');
+        throw new Error('No service worker registration available');
       }
       
-      await self.registration.showNotification(title, options);
-      console.log('[SW] showNotification succeeded');
-      reportToServer('show_notification', 'success', { title: title });
+      try {
+        await self.registration.showNotification(title, options);
+        console.log('[SW] ✓ showNotification() succeeded!');
+        reportToServer('show_notification', 'success', { title: title, tag: tag });
+      } catch (showErr) {
+        console.error('[SW] showNotification() FAILED:', showErr);
+        reportToServer('show_notification', 'error', { 
+          error: String(showErr),
+          error_name: showErr.name,
+          error_message: showErr.message,
+          title: title
+        });
+        throw showErr;  // Re-throw to trigger fallback
+      }
       
     } catch (err) {
-      // CRITICAL: Never let the push handler fail silently!
-      console.error('[SW] Push handler error:', err);
-      reportToServer('push_handler', 'error', { error: String(err), raw_data: rawData });
+      // STEP 7: Error handler - NEVER fail silently
+      console.error('========================================');
+      console.error('[SW] PUSH HANDLER ERROR:', err);
+      console.error('[SW] Error name:', err.name);
+      console.error('[SW] Error message:', err.message);
+      console.error('[SW] Error stack:', err.stack);
+      console.error('========================================');
       
-      // Attempt to show a fallback notification so user knows something happened
+      reportToServer('push_handler', 'error', { 
+        error: String(err),
+        error_name: err.name || 'unknown',
+        error_message: err.message || '',
+        raw_data: rawData
+      });
+      
+      // STEP 8: Try to show a fallback notification
+      console.log('[SW] Step 8: Attempting fallback notification...');
       try {
         if (self.registration) {
           await self.registration.showNotification('🔔 התראה חדשה', {
             body: 'לא הצלחנו לטעון את פרטי ההתראה',
             icon: '/static/icons/app-icon-192.png',
-            tag: 'codekeeper-fallback-' + Date.now()
+            badge: '/static/icons/app-icon-192.png',
+            tag: 'codekeeper-fallback-' + Date.now(),
+            silent: false,
+            requireInteraction: false
           });
-          console.log('[SW] Fallback notification shown');
+          console.log('[SW] ✓ Fallback notification shown successfully');
           reportToServer('fallback_notification', 'success');
+        } else {
+          console.error('[SW] Cannot show fallback - no registration');
+          reportToServer('fallback_notification', 'error', { error: 'no_registration' });
         }
       } catch (fallbackErr) {
-        console.error('[SW] Even fallback notification failed:', fallbackErr);
-        reportToServer('fallback_notification', 'error', { error: String(fallbackErr) });
+        console.error('[SW] Fallback notification ALSO failed:', fallbackErr);
+        reportToServer('fallback_notification', 'error', { 
+          error: String(fallbackErr),
+          error_name: fallbackErr.name,
+          error_message: fallbackErr.message
+        });
       }
     }
   };
   
+  // Use waitUntil to keep SW alive until notification is shown
   event.waitUntil(handlePush());
 });
 
