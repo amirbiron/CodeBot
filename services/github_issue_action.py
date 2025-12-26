@@ -173,8 +173,8 @@ class GitHubIssueAction:
     ) -> str:
         """בונה את גוף ה-Issue בפורמט Markdown."""
 
-        # תבנית ברירת מחדל
-        default_template = """## 🐛 שגיאה אוטומטית
+        # 1. תבנית גנרית (לשגיאות פנימיות רגילות)
+        generic_template = """## 🐛 שגיאה אוטומטית
 
 > Issue זה נוצר אוטומטית על ידי מערכת הניטור.
 
@@ -220,6 +220,53 @@ class GitHubIssueAction:
 <sub>🤖 נוצר אוטומטית ע"י Visual Rule Engine | כלל: `{{rule_name}}`</sub>
 """
 
+        # 2. תבנית ייעודית ל-Sentry (אם זוהתה התראה מסנטרי)
+        sentry_template = """## 🐛 שגיאה אוטומטית: {{summary}}
+
+> Issue זה נוצר אוטומטית על ידי מערכת הניטור בעקבות זיהוי שגיאה ב-Sentry.
+
+### 🔗 קישורים
+[👉 צפייה בשגיאה המקורית ב-Sentry]({{sentry_permalink}})
+
+### פרטי השגיאה
+
+| שדה | ערך |
+|-----|-----|
+| **סוג** | `sentry_issue` |
+| **מזהה קצר** | `{{sentry_short_id}}` |
+| **זמן זיהוי** | {{sentry_last_seen}} |
+| **מקור** | {{source}} |
+
+### תקציר השגיאה
+
+```
+{{summary}}
+```
+
+### תנאים שהופעלו
+
+{{triggered_conditions_list}}
+
+---
+
+<sub>🤖 נוצר אוטומטית ע"י Visual Rule Engine | כלל: `{{rule_name}}`</sub>
+"""
+
+        # בחירת תבנית ברירת המחדל בהתאם לסוג המידע
+        # חשוב: "in alert_data" בודק רק קיום מפתח, לא ערך. נעדיף בדיקה דפנסיבית.
+        sentry_permalink = alert_data.get("sentry_permalink")
+        has_sentry_permalink = (
+            bool(sentry_permalink.strip())
+            if isinstance(sentry_permalink, str)
+            else bool(sentry_permalink)
+        )
+
+        if has_sentry_permalink:
+            default_template = sentry_template
+        else:
+            default_template = generic_template
+
+        # אם המשתמש הגדיר תבנית ספציפית בכלל - היא גוברת
         template = action_config.get("body_template", default_template)
 
         # הוספת רשימת תנאים
