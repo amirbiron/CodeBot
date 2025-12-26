@@ -47,16 +47,32 @@ const CodeToolsIntegration = {
 
   /**
    * הצגת/הסתרת כלים לפי שפה
+   * לוגיקה הפוכה: הכפתורים גלויים כברירת מחדל, ומוסתרים רק אם השפה לא Python.
+   * כך אם ה-JS נכשל, הכפתורים עדיין יופיעו.
    */
   updateToolsVisibility() {
     const rawLanguage = this.languageSelect?.value || 'text';
     const language = String(rawLanguage).toLowerCase().trim();
     const toolsGroup = document.querySelector('.code-tools-group');
 
+    // דיבאג: הדפסת השפה שזוהתה
+    console.log('[CodeToolsIntegration] updateToolsVisibility - detected language:', language);
+
     if (toolsGroup) {
       // כרגע תומכים רק ב-Python (case-insensitive)
       const isPython = language === 'python' || language === 'py';
-      toolsGroup.style.display = isPython ? 'flex' : 'none';
+      
+      // לוגיקה הפוכה: מסתירים רק אם לא פייתון
+      if (!isPython) {
+        toolsGroup.style.display = 'none';
+      } else {
+        // אם פייתון - מבטיחים שהכפתורים גלויים (מוחקים display inline style אם יש)
+        toolsGroup.style.removeProperty('display');
+      }
+      
+      console.log('[CodeToolsIntegration] toolsGroup visibility:', isPython ? 'visible (Python)' : 'hidden (not Python)');
+    } else {
+      console.warn('[CodeToolsIntegration] .code-tools-group element not found in DOM');
     }
   },
 
