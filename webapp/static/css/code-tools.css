@@ -4,7 +4,7 @@
 
 /* ---------- Toolbar integration (edit_file.html) ---------- */
 .code-tools-group {
-  display: flex;
+  display: flex !important;
   align-items: center;
   gap: 0.4rem;
   flex-wrap: wrap;
