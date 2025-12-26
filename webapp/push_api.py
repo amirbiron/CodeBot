@@ -957,6 +957,141 @@ def test_push():
         return jsonify({"ok": False, "error": "internal_error"}), 500
 
 
+@push_bp.route("/subscriptions", methods=["GET"])
+@require_auth
+def list_subscriptions():
+    """List all push subscriptions for the current user.
+    
+    Helps debug stale subscription issues by showing all registered endpoints.
+    """
+    try:
+        user_id = _session_user_id()
+        db = get_db()
+        subs = list(db.push_subscriptions.find({"user_id": {"$in": _user_id_variants(user_id)}}))
+        
+        # Build safe response without exposing full keys
+        result = []
+        for s in subs:
+            ep = str(s.get("endpoint") or "")
+            created = s.get("created_at")
+            updated = s.get("updated_at")
+            
+            # Identify push service provider from endpoint URL
+            provider = "unknown"
+            if "fcm.googleapis.com" in ep:
+                provider = "fcm_chrome"
+            elif "updates.push.services.mozilla.com" in ep:
+                provider = "mozilla_firefox"
+            elif "wns.windows.com" in ep or "notify.windows.com" in ep:
+                provider = "wns_edge"
+            elif "push.apple.com" in ep:
+                provider = "apns_safari"
+            
+            result.append({
+                "endpoint_hash": _hash_endpoint(ep),
+                "endpoint_preview": ep[:60] + "..." if len(ep) > 60 else ep,
+                "provider": provider,
+                "created_at": created.isoformat() if created else None,
+                "updated_at": updated.isoformat() if updated else None,
+                "content_encoding": s.get("content_encoding") or "aes128gcm",
+            })
+        
+        return jsonify({
+            "ok": True,
+            "count": len(result),
+            "subscriptions": result,
+        }), 200
+    except Exception:
+        return jsonify({"ok": False, "error": "Failed to list subscriptions"}), 500
+
+
+@push_bp.route("/subscriptions/cleanup", methods=["POST"])
+@require_auth
+def cleanup_subscriptions():
+    """Remove all subscriptions for current user older than specified days.
+    
+    Body: { "older_than_days": 30 } (default: 30)
+    This helps clean up stale subscriptions from old devices/browsers.
+    """
+    try:
+        user_id = _session_user_id()
+        db = get_db()
+        payload = request.get_json(silent=True) or {}
+        days = int(payload.get("older_than_days") or 30)
+        if days < 1:
+            days = 1
+        
+        cutoff = datetime.now(timezone.utc) - timedelta(days=days)
+        
+        # Find subscriptions to delete
+        filt = {
+            "user_id": {"$in": _user_id_variants(user_id)},
+            "$or": [
+                {"updated_at": {"$lt": cutoff}},
+                {"updated_at": {"$exists": False}, "created_at": {"$lt": cutoff}},
+            ]
+        }
+        count_before = db.push_subscriptions.count_documents({"user_id": {"$in": _user_id_variants(user_id)}})
+        result = db.push_subscriptions.delete_many(filt)
+        deleted = result.deleted_count if hasattr(result, "deleted_count") else 0
+        count_after = db.push_subscriptions.count_documents({"user_id": {"$in": _user_id_variants(user_id)}})
+        
+        try:
+            from observability import emit_event
+            emit_event(
+                "push_subscriptions_cleanup",
+                severity="info",
+                user_id=str(user_id),
+                deleted=deleted,
+                remaining=count_after,
+            )
+        except Exception:
+            pass
+        
+        return jsonify({
+            "ok": True,
+            "deleted": deleted,
+            "remaining": count_after,
+            "cutoff_date": cutoff.isoformat(),
+        }), 200
+    except Exception:
+        return jsonify({"ok": False, "error": "Cleanup failed"}), 500
+
+
+@push_bp.route("/subscriptions/delete-all", methods=["DELETE"])
+@require_auth
+def delete_all_subscriptions():
+    """Delete ALL push subscriptions for current user.
+    
+    Use this to completely reset and re-register fresh.
+    """
+    try:
+        user_id = _session_user_id()
+        db = get_db()
+        
+        count_before = db.push_subscriptions.count_documents({"user_id": {"$in": _user_id_variants(user_id)}})
+        db.push_subscriptions.delete_many({"user_id": {"$in": _user_id_variants(user_id)}})
+        
+        try:
+            from observability import emit_event
+            emit_event(
+                "push_subscriptions_delete_all",
+                severity="info",
+                user_id=str(user_id),
+                deleted=count_before,
+            )
+        except Exception:
+            pass
+        
+        return jsonify({
+            "ok": True,
+            "deleted": count_before,
+            "message": "All subscriptions deleted. Please re-enable push notifications to create a fresh subscription.",
+        }), 200
+    except Exception:
+        return jsonify({"ok": False, "error": "Delete failed"}), 500
+
+
 @push_bp.route("/sw-report", methods=["POST"])
 def sw_report():
     """Receive diagnostic reports from Service Worker.
