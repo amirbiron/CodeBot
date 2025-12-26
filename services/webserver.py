@@ -1274,11 +1274,12 @@ def create_app() -> web.Application:
                 return web.json_response({"error": "Job not found"}, status=404)
 
             # TODO: implement actual trigger via job_queue
-            # כרגע מחזירים הודעה שה-trigger התקבל
+            # כרגע מחזירים 501 Not Implemented כדי לא להטעות את המשתמש
             return web.json_response({
-                "message": f"Job {job_id} triggered",
-                "job_id": job_id
-            })
+                "ok": False,
+                "error": "not_implemented",
+                "message": f"הפעלה ידנית של Job עדיין לא מומשה. Job: {job_id}"
+            }, status=501)
         except Exception as e:
             logger.error(f"trigger_job error: {e}")
             return web.json_response({"error": "failed"}, status=500)

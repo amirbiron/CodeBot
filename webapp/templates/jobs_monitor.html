@@ -498,6 +498,9 @@ document.addEventListener('DOMContentLoaded', function() {
                 showToast(`✅ Job ${jobId} הופעל בהצלחה`, 'success');
                 // Refresh active runs after a short delay
                 setTimeout(loadActiveRuns, 1000);
+            } else if (res.status === 501) {
+                // Not implemented yet
+                showToast(`⚠️ ${data.message || 'הפעלה ידנית עדיין לא מומשה'}`, 'info');
             } else {
                 showToast(`❌ ${data.error || 'שגיאה בהפעלת Job'}`, 'error');
             }
@@ -544,10 +547,18 @@ document.addEventListener('DOMContentLoaded', function() {
         try {
             const res = await fetch(`${API_BASE}/${jobId}`);
             const data = await res.json();
+
+            // בדיקה שהבקשה הצליחה לפני עיבוד הנתונים
+            if (!res.ok) {
+                showToast(`❌ ${data.error || 'שגיאה בטעינת פרטי Job'}`, 'error');
+                return;
+            }
+
             renderJobModal(data);
             document.getElementById('job-modal').classList.remove('hidden');
         } catch (err) {
             console.error('Failed to load job detail:', err);
+            showToast('❌ שגיאה בטעינת פרטי Job', 'error');
         }
     }
 
