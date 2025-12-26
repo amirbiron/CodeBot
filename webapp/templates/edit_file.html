@@ -84,6 +84,38 @@
       <label>תגיות</label>
       <input type="text" name="tags" value="{{ file.tags | join(', ') }}" placeholder="#utils, #repo:owner/name" class="form-field">
     </div>
+    <!-- Code Tools toolbar - מחוץ ל-split-toolbar כדי להיות גלוי תמיד -->
+    <div class="code-tools-group" data-show-for-language="python">
+      <button type="button" class="btn btn-sm btn-outline" id="btn-format-code" title="עיצוב קוד (Ctrl+Shift+F)">
+        <i class="fas fa-magic"></i>
+        עיצוב
+      </button>
+      <button type="button" class="btn btn-sm btn-outline" id="btn-lint-code" title="בדיקת איכות (Ctrl+Shift+L)">
+        <i class="fas fa-check-circle"></i>
+        Lint
+      </button>
+      <div class="dropdown">
+        <button type="button" class="btn btn-sm btn-outline dropdown-toggle" id="btn-auto-fix">
+          <i class="fas fa-wrench"></i>
+          תיקון
+        </button>
+        <div class="dropdown-menu">
+          <button class="dropdown-item" data-level="safe">🛡️ בטוח (whitespace)</button>
+          <button class="dropdown-item" data-level="cautious">⚠️ זהיר (+imports)</button>
+          <button class="dropdown-item" data-level="aggressive">🔥 אגרסיבי (מלא)</button>
+        </div>
+      </div>
+      <a
+        href="/tools/code"
+        target="_blank"
+        rel="noopener noreferrer"
+        class="btn btn-sm btn-outline-secondary"
+        title="🪄 Playground"
+      >
+        <i class="fas fa-external-link-alt"></i>
+        Playground
+      </a>
+    </div>
     <div id="livePreviewRoot" class="split-view" data-active-panel="editor">
       <div class="split-toolbar">
         <div class="split-toolbar-controls">
@@ -97,38 +129,6 @@
             <span class="split-toggle__text">Live Preview</span>
           </button>
           <span class="split-toolbar-hint">Ctrl+Shift+Enter</span>
-        </div>
-        <!-- הוסף ל-split-toolbar -->
-        <div class="code-tools-group" data-show-for-language="python">
-          <button type="button" class="btn btn-sm btn-outline" id="btn-format-code" title="עיצוב קוד (Ctrl+Shift+F)">
-            <i class="fas fa-magic"></i>
-            עיצוב
-          </button>
-          <button type="button" class="btn btn-sm btn-outline" id="btn-lint-code" title="בדיקת איכות (Ctrl+Shift+L)">
-            <i class="fas fa-check-circle"></i>
-            Lint
-          </button>
-          <div class="dropdown">
-            <button type="button" class="btn btn-sm btn-outline dropdown-toggle" id="btn-auto-fix">
-              <i class="fas fa-wrench"></i>
-              תיקון
-            </button>
-            <div class="dropdown-menu">
-              <button class="dropdown-item" data-level="safe">🛡️ בטוח (whitespace)</button>
-              <button class="dropdown-item" data-level="cautious">⚠️ זהיר (+imports)</button>
-              <button class="dropdown-item" data-level="aggressive">🔥 אגרסיבי (מלא)</button>
-            </div>
-          </div>
-          <a
-            href="/tools/code"
-            target="_blank"
-            rel="noopener noreferrer"
-            class="btn btn-sm btn-outline-secondary"
-            title="🪄 Playground"
-          >
-            <i class="fas fa-external-link-alt"></i>
-            Playground
-          </a>
         </div>
         <div class="split-tabs" role="tablist" aria-label="חלונות תצוגה">
           <button type="button" role="tab" aria-selected="true" data-panel-target="editor">עורך</button>

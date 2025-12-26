@@ -4,10 +4,11 @@
 
 /* ---------- Toolbar integration (edit_file.html) ---------- */
 .code-tools-group {
-  display: flex !important;
+  display: flex;
   align-items: center;
   gap: 0.4rem;
   flex-wrap: wrap;
+  margin-bottom: 0.75rem;
 }
 
 .code-tools-group .btn {
