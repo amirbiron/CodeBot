@@ -339,9 +339,30 @@ class JobTracker:
         job_id: str,
         trigger: str = "scheduled",
         user_id: Optional[int] = None,
-        total_items: int = 0
+        total_items: int = 0,
+        allow_concurrent: bool = False
     ) -> JobRun:
-        """התחלת הרצה חדשה"""
+        """התחלת הרצה חדשה
+        
+        Args:
+            job_id: מזהה ה-Job
+            trigger: מה הפעיל את ההרצה (scheduled/manual/api)
+            user_id: מזהה משתמש (אם רלוונטי)
+            total_items: סה"כ פריטים לעיבוד
+            allow_concurrent: האם לאפשר הרצות מקבילות של אותו Job
+            
+        Raises:
+            JobAlreadyRunningError: אם Job כבר רץ ו-allow_concurrent=False
+        """
+        # 🔒 מניעת הרצות מקבילות (Singleton Jobs)
+        if not allow_concurrent:
+            existing = [r for r in self._active_runs.values() 
+                       if r.job_id == job_id and r.status == JobStatus.RUNNING]
+            if existing:
+                raise JobAlreadyRunningError(
+                    f"Job '{job_id}' is already running (run_id: {existing[0].run_id})"
+                )
+        
         run = JobRun(
             run_id=str(uuid.uuid4())[:12],
             job_id=job_id,
@@ -361,6 +382,11 @@ class JobTracker:
             pass
         
         return run
+
+
+class JobAlreadyRunningError(Exception):
+    """נזרק כאשר מנסים להפעיל Job שכבר רץ"""
+    pass
     
     def update_progress(
         self,
@@ -989,6 +1015,54 @@ def register_jobs_routes(app: web.Application):
     margin-bottom: 8px;
 }
 
+.job-card .job-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.btn-trigger {
+    background: transparent;
+    border: 1px solid var(--border-color, #ddd);
+    border-radius: 50%;
+    width: 28px;
+    height: 28px;
+    cursor: pointer;
+    transition: all 0.2s;
+    font-size: 12px;
+}
+
+.btn-trigger:hover:not(:disabled) {
+    background: var(--primary-color, #007bff);
+    border-color: var(--primary-color, #007bff);
+}
+
+.btn-trigger:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+}
+
+.toast {
+    position: fixed;
+    bottom: 20px;
+    left: 50%;
+    transform: translateX(-50%);
+    padding: 12px 24px;
+    border-radius: 8px;
+    color: #fff;
+    z-index: 2000;
+    animation: slideUp 0.3s ease;
+}
+
+.toast-success { background: #28a745; }
+.toast-error { background: #dc3545; }
+.toast-info { background: #17a2b8; }
+
+@keyframes slideUp {
+    from { transform: translateX(-50%) translateY(20px); opacity: 0; }
+    to { transform: translateX(-50%) translateY(0); opacity: 1; }
+}
+
 .job-card .job-name {
     font-weight: 600;
     font-size: 1.1em;
@@ -1204,9 +1278,15 @@ document.addEventListener('DOMContentLoaded', function() {
             <div class="job-card" data-job-id="${job.job_id}">
                 <div class="job-header">
                     <span class="job-name">${getCategoryIcon(job.category)} ${job.name}</span>
-                    <span class="job-status ${job.enabled ? 'enabled' : 'disabled'}">
-                        ${job.enabled ? '✓ פעיל' : '✗ מושבת'}
-                    </span>
+                    <div class="job-actions">
+                        <button class="btn-trigger" data-job-id="${job.job_id}" 
+                                title="הרץ עכשיו" ${!job.enabled ? 'disabled' : ''}>
+                            ▶️
+                        </button>
+                        <span class="job-status ${job.enabled ? 'enabled' : 'disabled'}">
+                            ${job.enabled ? '✓ פעיל' : '✗ מושבת'}
+                        </span>
+                    </div>
                 </div>
                 <div class="job-description">${job.description}</div>
                 <div class="job-meta">
@@ -1217,10 +1297,49 @@ document.addEventListener('DOMContentLoaded', function() {
             </div>
         `).join('');
         
-        // Add click handlers
+        // Add click handlers for cards
         container.querySelectorAll('.job-card').forEach(card => {
-            card.addEventListener('click', () => openJobDetail(card.dataset.jobId));
+            card.addEventListener('click', (e) => {
+                // Don't open modal if clicking trigger button
+                if (e.target.classList.contains('btn-trigger')) return;
+                openJobDetail(card.dataset.jobId);
+            });
         });
+        
+        // Add click handlers for trigger buttons
+        container.querySelectorAll('.btn-trigger').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                triggerJob(btn.dataset.jobId);
+            });
+        });
+    }
+    
+    async function triggerJob(jobId) {
+        if (!confirm(`להריץ את ${jobId} עכשיו?`)) return;
+        
+        try {
+            const res = await fetch(`${API_BASE}/${jobId}/trigger`, { method: 'POST' });
+            const data = await res.json();
+            
+            if (res.ok) {
+                showToast(`✅ Job ${jobId} הופעל בהצלחה`, 'success');
+                // Refresh active runs after a short delay
+                setTimeout(loadActiveRuns, 1000);
+            } else {
+                showToast(`❌ ${data.error || 'שגיאה בהפעלת Job'}`, 'error');
+            }
+        } catch (err) {
+            showToast('❌ שגיאת רשת', 'error');
+        }
+    }
+    
+    function showToast(message, type = 'info') {
+        const toast = document.createElement('div');
+        toast.className = `toast toast-${type}`;
+        toast.textContent = message;
+        document.body.appendChild(toast);
+        setTimeout(() => toast.remove(), 3000);
     }
     
     function renderActiveRuns(runs) {
@@ -1370,6 +1489,10 @@ def handle_jobs_command(args: str) -> str:
     registry = JobRegistry()
     tracker = get_job_tracker()
     
+    # URL בסיס למוניטור (ניתן לקנפג דרך ENV)
+    import os
+    monitor_base_url = os.getenv("WEBAPP_URL", "https://your-app.onrender.com")
+    
     # Active runs
     if args == "active":
         runs = tracker.get_active_runs()
@@ -1379,9 +1502,12 @@ def handle_jobs_command(args: str) -> str:
         lines = ["⚡ **הרצות פעילות:**\n"]
         for run in runs:
             status_icon = {"running": "🔄", "pending": "⏳"}.get(run.status.value, "❓")
+            # 🔗 קישור ישיר ללוגים של ההרצה
+            logs_link = f"{monitor_base_url}/jobs/monitor?run_id={run.run_id}"
             lines.append(
                 f"{status_icon} `{run.job_id}` - {run.progress}% "
-                f"({run.processed_items}/{run.total_items})"
+                f"({run.processed_items}/{run.total_items})\n"
+                f"   [📋 לוגים]({logs_link})"
             )
         return "\n".join(lines)
     
@@ -1430,7 +1556,15 @@ def handle_jobs_command(args: str) -> str:
                 dur = ""
                 if run.ended_at and run.started_at:
                     dur = f" ({(run.ended_at - run.started_at).total_seconds():.1f}s)"
-                lines.append(f"  {icon} {run.started_at.strftime('%d/%m %H:%M')}{dur}")
+                
+                line = f"  {icon} {run.started_at.strftime('%d/%m %H:%M')}{dur}"
+                
+                # 🔗 אם נכשל, הוסף קישור ללוגים
+                if run.status.value == "failed":
+                    logs_link = f"{monitor_base_url}/jobs/monitor?run_id={run.run_id}"
+                    line += f"\n     └─ [📋 ראה לוגים]({logs_link})"
+                
+                lines.append(line)
         
         return "\n".join(lines)
     
@@ -1495,25 +1629,33 @@ async def post_init(application: Application):
 async def _backups_cleanup_job(context: ContextTypes.DEFAULT_TYPE):
     tracker = get_job_tracker()
     
-    with tracker.track("backups_cleanup", trigger="scheduled"):
+    # ⚠️ חשוב: להשתמש ב-run.run_id שחוזר מה-context manager
+    # ולא ב-get_active_runs()[0] שעלול להחזיר הרצה אחרת (Race Condition!)
+    with tracker.track("backups_cleanup", trigger="scheduled") as run:
         try:
             # הלוגיקה הקיימת
             if str(os.getenv("DISABLE_BACKGROUND_CLEANUP", "")).lower() in {"1", "true", "yes"}:
+                tracker.add_log(run.run_id, "info", "Skipped: disabled by env")
                 return
             
             from file_manager import backup_manager
             summary = backup_manager.cleanup_expired_backups()
             
-            # עדכון tracking עם תוצאות
+            # ✅ שימוש נכון ב-run.run_id שחוזר מה-with
             tracker.add_log(
-                tracker.get_active_runs()[0].run_id,  # TODO: שיפור
+                run.run_id,
                 "info",
-                f"Cleaned {summary.get('fs_deleted', 0)} files"
+                f"Cleaned {summary.get('fs_deleted', 0)} files, "
+                f"scanned {summary.get('fs_scanned', 0)}"
             )
             
         except Exception as e:
             raise  # ה-context manager יתפוס ויסמן כ-failed
 ```
+
+> **⚠️ אזהרה חשובה:** לעולם אל תשתמש ב-`tracker.get_active_runs()[0]` בתוך Job!
+> בסביבה אסינכרונית, כמה Jobs יכולים לרוץ במקביל, ו-`[0]` יחזיר הרצה אקראית.
+> **תמיד** השתמש ב-`run.run_id` שחוזר מה-context manager.
 
 ### שינויים נדרשים ב-webserver
 
@@ -1690,6 +1832,48 @@ def test_register_and_list_jobs():
 
 - רישום Jobs מתבצע בעת startup
 - טעינת היסטוריה רק לפי דרישה (API call)
+
+---
+
+## מנגנוני הגנה חשובים
+
+### 🔒 מניעת Race Conditions
+
+**הבעיה:** בסביבה אסינכרונית, כמה Jobs יכולים לרוץ במקביל. גישה ל-`get_active_runs()[0]` עלולה להחזיר הרצה שגויה.
+
+**הפתרון:** תמיד להשתמש באובייקט `run` שחוזר מה-context manager:
+
+```python
+# ❌ לא נכון - Race Condition!
+with tracker.track("my_job") as run:
+    tracker.add_log(tracker.get_active_runs()[0].run_id, ...)
+
+# ✅ נכון - שימוש ב-run.run_id
+with tracker.track("my_job") as run:
+    tracker.add_log(run.run_id, "info", "Processing...")
+```
+
+### 🚫 מניעת הרצות מקבילות (Singleton Jobs)
+
+Jobs כמו גיבויים לא צריכים לרוץ במקביל. הפרמטר `allow_concurrent=False` (ברירת מחדל) מונע זאת:
+
+```python
+# אם Job כבר רץ, ייזרק JobAlreadyRunningError
+try:
+    with tracker.track("backup_job") as run:
+        # ... לוגיקה ...
+except JobAlreadyRunningError as e:
+    logger.warning(f"Skipping: {e}")
+```
+
+### 🔗 Deep Links ללוגים
+
+ב-ChatOps, כאשר Job נכשל, מוצג קישור ישיר לדף הלוגים:
+
+```
+❌ backups_cleanup נכשל
+   └─ [📋 ראה לוגים](https://your-app.onrender.com/jobs/monitor?run_id=abc123)
+```
 
 ---
 
