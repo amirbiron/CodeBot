@@ -365,6 +365,34 @@
     btnFormat?.addEventListener('click', runFormat);
     btnLint?.addEventListener('click', runLint);
 
+    // Copy output to clipboard
+    const btnCopy = document.getElementById('btn-copy-output');
+    btnCopy?.addEventListener('click', async () => {
+      const code = getDoc(outputEditor);
+      if (!code.trim()) {
+        showStatus('אין קוד להעתקה', 'warning');
+        return;
+      }
+
+      try {
+        await navigator.clipboard.writeText(code);
+        btnCopy.classList.add('copied');
+        const iconEl = btnCopy.querySelector('.copy-icon');
+        const textEl = btnCopy.querySelector('.copy-text');
+        if (iconEl) iconEl.textContent = '✓';
+        if (textEl) textEl.textContent = 'הועתק!';
+        showStatus('הקוד הועתק ללוח', 'success');
+
+        setTimeout(() => {
+          btnCopy.classList.remove('copied');
+          if (iconEl) iconEl.textContent = '📋';
+          if (textEl) textEl.textContent = 'העתק';
+        }, 2000);
+      } catch (e) {
+        showStatus('לא הצלחנו להעתיק', 'error');
+      }
+    });
+
     document.querySelectorAll('.dropdown-item[data-level]').forEach((btn) => {
       btn.addEventListener('click', () => runFix(btn.dataset.level));
     });
