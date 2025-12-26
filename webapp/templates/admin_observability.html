@@ -1137,6 +1137,76 @@
     `;
   }
 
+  /**
+   * Format a metadata value for display. Handles nested objects/arrays gracefully
+   * instead of showing [object Object].
+   */
+  function formatMetaValue(key, value) {
+    if (value == null) return '';
+    // Handle primitive values
+    if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') {
+      const strVal = String(value);
+      // Truncate long strings
+      return strVal.length > 120 ? strVal.slice(0, 117) + '…' : strVal;
+    }
+    // Special handling for 'labels' dict (anomaly alerts)
+    if (key === 'labels' && typeof value === 'object' && !Array.isArray(value)) {
+      const parts = [];
+      const priorityKeys = ['top_slow_endpoint', 'active_requests', 'recent_errors_5m', 'avg_memory_usage_mb'];
+      for (const pk of priorityKeys) {
+        if (value[pk] != null && value[pk] !== '') {
+          const v = String(value[pk]);
+          parts.push(`${pk}=${v.length > 60 ? v.slice(0, 57) + '…' : v}`);
+        }
+      }
+      // Include other keys if not many priority keys found
+      if (parts.length < 2) {
+        for (const [k, v] of Object.entries(value)) {
+          if (priorityKeys.includes(k) || v == null || v === '') continue;
+          const sv = String(v);
+          parts.push(`${k}=${sv.length > 40 ? sv.slice(0, 37) + '…' : sv}`);
+          if (parts.length >= 4) break;
+        }
+      }
+      return parts.length ? `{${parts.join(', ')}}` : '{}';
+    }
+    // Special handling for 'slow_endpoints' array (anomaly alerts)
+    if (key === 'slow_endpoints' && Array.isArray(value)) {
+      if (!value.length) return '[]';
+      const items = value.slice(0, 3).map(item => {
+        if (typeof item !== 'object' || item == null) return String(item);
+        const method = item.method || 'GET';
+        const ep = item.endpoint || 'unknown';
+        const maxD = item.max_duration || item.avg_duration || 0;
+        return `${method} ${ep}: ${Number(maxD).toFixed(2)}s`;
+      });
+      return `[${items.join('; ')}${value.length > 3 ? '; …' : ''}]`;
+    }
+    // Generic object/array handling
+    if (Array.isArray(value)) {
+      if (!value.length) return '[]';
+      const preview = value.slice(0, 2).map(v => {
+        if (typeof v === 'object' && v != null) {
+          // Show first key-value for each object in array
+          const entries = Object.entries(v).slice(0, 2);
+          return '{' + entries.map(([k,val]) => `${k}:${String(val).slice(0, 20)}`).join(',') + '}';
+        }
+        return String(v).slice(0, 30);
+      });
+      return `[${preview.join(', ')}${value.length > 2 ? ', …' : ''}]`;
+    }
+    if (typeof value === 'object') {
+      const entries = Object.entries(value).slice(0, 3);
+      if (!entries.length) return '{}';
+      const parts = entries.map(([k, v]) => {
+        const sv = (typeof v === 'object' && v != null) ? '{…}' : String(v).slice(0, 30);
+        return `${k}: ${sv}`;
+      });
+      return `{${parts.join(', ')}${Object.keys(value).length > 3 ? ', …' : ''}}`;
+    }
+    return String(value);
+  }
+
   function renderAlertsTable(alerts, total, page, perPage) {
     const body = document.querySelector('#alertsTable tbody');
     if (!body) return;
@@ -1159,7 +1229,7 @@
       const meta = alert.metadata || {};
       const metaItems = Object.keys(meta)
         .slice(0, 3)
-        .map(key => `<span>${key}: ${meta[key]}</span>`)
+        .map(key => `<span>${escapeHtml(key)}: ${escapeHtml(formatMetaValue(key, meta[key]))}</span>`)
         .join('');
       rows.push(`
         <tr data-timestamp="${alert.timestamp || ''}" data-alert-uid="${alert.alert_uid || ''}" class="alert-row">
