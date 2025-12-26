@@ -469,15 +469,16 @@ def _extract_sentry_alert(payload: Any) -> _SentryAlert | None:
     display_id = short_id or (issue_id[:8] if issue_id else "issue")
     name = _truncate(f"Sentry: {display_id}", 128)
 
+    # Important: order matters for UI display. Put alert_type and Sentry IDs first.
     details: Dict[str, Any] = {
         "alert_type": "sentry_issue",
-        "action": action or None,
-        "project": project_slug or None,
-        "level": level or None,
         "sentry_issue_id": issue_id or None,
         "sentry_short_id": short_id or None,
         "sentry_permalink": permalink or None,
         "sentry_event_id": str(event.get("id") or event.get("event_id") or "").strip() or None,
+        "project": project_slug or None,
+        "level": level or None,
+        "action": action or None,
         "logger": str(event.get("logger") or payload.get("logger") or "").strip() or None,
         "culprit": str(issue.get("culprit") or event.get("culprit") or "").strip() or None,
         "environment": str(event.get("environment") or payload.get("environment") or "").strip() or None,

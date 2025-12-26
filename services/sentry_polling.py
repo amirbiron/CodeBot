@@ -152,15 +152,17 @@ class SentryPoller:
 
             name = f"Sentry: {short_id or issue_id[:8]}"
             summary = title or "Sentry issue activity"
+            # Important: order matters for UI display. Put Sentry-specific fields first,
+            # then alert metadata, then internal flags (is_new_error) last.
             details = {
-                "is_new_error": True,
                 "alert_type": "sentry_issue",
-                "source": "sentry_poll",
                 "sentry_issue_id": issue_id,
                 "sentry_short_id": short_id or None,
                 "sentry_permalink": link or None,
-                "sentry_last_seen": last_seen.isoformat(),
                 "sentry_first_seen": str(issue.get("firstSeen") or "").strip() or None,
+                "sentry_last_seen": last_seen.isoformat(),
+                "source": "sentry_poll",
+                "is_new_error": True,
             }
             details = {k: v for k, v in details.items() if v not in (None, "")}
 
