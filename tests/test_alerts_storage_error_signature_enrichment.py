@@ -135,6 +135,47 @@ def test_compute_error_signature_finds_sentry_issue_id_inside_error_data():
     assert len(sig) == 16
 
 
+def test_compute_error_signature_finds_sentry_issue_id_deep_inside_original_payload():
+    """
+    רגרסיה: בעבר החיפוש היה עד עומק קטן/עם allowlist של מפתחות,
+    ולכן sentry_issue_id עמוק בתוך payload מקונן לא נמצא והחתימה יצאה ריקה.
+    """
+    from monitoring.alerts_storage import compute_error_signature
+
+    payload = {
+        "payload": {
+            "l1": {
+                "l2": {
+                    "l3": {
+                        "l4": {
+                            "l5": {
+                                "l6": {
+                                    "l7": {
+                                        "l8": {
+                                            "sentry_issue_id": "DEEP-12345",
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    sig = compute_error_signature(payload)
+    assert sig
+    assert len(sig) == 16
+
+
+def test_compute_error_signature_finds_sentry_issue_id_inside_list_payload():
+    from monitoring.alerts_storage import compute_error_signature
+
+    sig = compute_error_signature({"payload": [{"x": {"sentry_issue_id": "LIST-777"}}]})
+    assert sig
+    assert len(sig) == 16
+
+
 def test_compute_error_signature_ignores_whitespace_sentry_issue_id_and_falls_back_to_issue_id():
     from monitoring.alerts_storage import compute_error_signature
 
@@ -231,3 +272,30 @@ def test_sanitize_details_preserves_lists_for_labels_and_slow_endpoints():
     assert "slow_endpoints_empty" in clean
     assert isinstance(clean["slow_endpoints_empty"], list)
     assert clean["slow_endpoints_empty"] == []
+
+
+def test_sanitize_details_does_not_drop_deep_lists_when_depth_limit_reached():
+    """
+    רגרסיה: כשהגענו ל-depth limit, הסניטייזר היה מחזיר [] / {} וכך מאבד מידע.
+    אנחנו רוצים לשמור dict/list כ-JSON תקין גם אם לא נכנסים לרקורסיה נוספת.
+    """
+    from monitoring.alerts_storage import _sanitize_details
+
+    raw = {"a": {"b": {"c": {"d": {"e": {"f": {"slow_endpoints": ["/x", "/y"]}}}}}}}
+    clean = _sanitize_details(raw)
+
+    assert isinstance(clean["a"], dict)
+    assert clean["a"]["b"]["c"]["d"]["e"]["f"]["slow_endpoints"] == ["/x", "/y"]
+
+
+def test_sanitize_details_redacts_sensitive_keys_even_at_depth_limit():
+    """
+    רגרסיה: בקצה העומק אנחנו עושים העתקה שטוחה כדי לא לשבור JSON,
+    אבל עדיין חייבים לבצע Redaction שטחי למפתחות רגישים (password/token/secret וכו').
+    """
+    from monitoring.alerts_storage import _sanitize_details
+
+    raw = {"a": {"b": {"c": {"d": {"e": {"f": {"wrapper": {"password": "secret"}}}}}}}}
+    clean = _sanitize_details(raw)
+
+    assert clean["a"]["b"]["c"]["d"]["e"]["f"]["wrapper"]["password"] == "<REDACTED>"

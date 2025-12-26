@@ -119,8 +119,34 @@ def _sanitize_details(details: Optional[Dict[str, Any]]) -> Dict[str, Any]:
         # כדי לא להפוך אובייקטים מורכבים למחרוזות "שבורות" ב-UI.
         if isinstance(value, (dict, list, tuple)):
             if depth <= 0:
-                # שומרים טיפוס בלי להיכנס לרקורסיה נוספת
-                return {} if isinstance(value, dict) else []
+                # שומרים טיפוס ומחזירים עותק שטוח (בלי רקורסיה נוספת)
+                # כדי למנוע Data Corruption: לא "לאפס" ל-{} / [] ולא להמיר ל-str().
+                try:
+                    if isinstance(value, dict):
+                        # חשוב: גם בקצה העומק חייבים לבצע Redaction שטחי למפתחות רגישים,
+                        # אחרת סודות (password/token/secret וכו') יכולים לדלוף.
+                        out: Dict[str, Any] = {}
+                        for k, v in value.items():
+                            try:
+                                sk = str(k)
+                            except Exception:
+                                sk = "<unprintable-key>"
+                            try:
+                                lk = sk.lower()
+                            except Exception:
+                                lk = ""
+                            if lk in _SENSITIVE_DETAIL_KEYS:
+                                out[sk] = "<REDACTED>"
+                            else:
+                                out[sk] = v
+                        return out
+                    if isinstance(value, list):
+                        return list(value)
+                    # tuple -> list (Mongo-friendly)
+                    return list(value)
+                except Exception:
+                    # Fail-open: אם אפילו העתקה שטוחה נכשלת, נחזיר מבנה ריק בטוח
+                    return {} if isinstance(value, dict) else []
 
             try:
                 obj_id = id(value)
@@ -361,41 +387,87 @@ def compute_error_signature(error_data: Dict[str, Any]) -> str:
     - 3 השורות הראשונות של ה-stack trace
     """
     try:
-        def _deep_find_first_string(d: Any, keys: Tuple[str, ...], *, max_depth: int = 4) -> str:
+        def _deep_find_first_string(
+            d: Any,
+            keys: Tuple[str, ...],
+            *,
+            max_depth: int = 10,
+            max_nodes: int = 2000,
+        ) -> str:
             """
             Best-effort deep search for a string-like value by keys.
 
             Important: used to find sentry_issue_id even when nested under error_data/details/metadata.
             """
-            if max_depth < 0:
+            if max_depth < 0 or max_nodes <= 0:
                 return ""
-            if not isinstance(d, dict):
+
+            keys_lower = {(_safe_str(k, limit=128) or "").lower() for k in keys if k}
+            if not keys_lower:
                 return ""
-            for k in keys:
-                try:
-                    if k in d:
-                        v = d.get(k)
-                        if v not in (None, ""):
-                            try:
-                                stripped = str(v).strip()
-                                # חשוב: אם הערך הוא whitespace בלבד, אל תעצור את החיפוש.
+
+            visited: set[int] = set()
+            stack: List[Tuple[Any, int]] = [(d, 0)]
+            nodes = 0
+
+            while stack:
+                current, depth = stack.pop()
+                nodes += 1
+                if nodes > max_nodes:
+                    break
+
+                # Cycle protection for containers
+                if isinstance(current, (dict, list, tuple)):
+                    try:
+                        oid = id(current)
+                    except Exception:
+                        oid = 0
+                    if oid and oid in visited:
+                        continue
+                    if oid:
+                        visited.add(oid)
+
+                if isinstance(current, dict):
+                    # 1) Check direct keys
+                    try:
+                        items = list(current.items())
+                    except Exception:
+                        items = []
+                    for k, v in items:
+                        try:
+                            k_norm = str(k).lower()
+                        except Exception:
+                            continue
+                        if k_norm in keys_lower and v not in (None, ""):
+                            # חשוב: אל תהפוך dict/list ל-str כאן; אנחנו מחפשים מזהה יציב (string/int).
+                            if isinstance(v, (dict, list, tuple)):
+                                # נמשיך לחיפוש פנימה במקום להמיר ל-str
+                                pass
+                            else:
+                                try:
+                                    stripped = str(v).strip()
+                                except Exception:
+                                    stripped = ""
                                 if stripped:
                                     return stripped
-                            except Exception:
-                                # אם ההמרה נכשלת, נמשיך למפתח הבא (fail-open)
-                                continue
-                except Exception:
+
+                        # 2) Recurse into nested payloads (generic, not allowlist בלבד)
+                        if depth < max_depth and isinstance(v, (dict, list, tuple)):
+                            stack.append((v, depth + 1))
+
+                elif isinstance(current, (list, tuple)):
+                    if depth >= max_depth:
+                        continue
+                    try:
+                        seq = list(current)
+                    except Exception:
+                        seq = []
+                    for v in seq:
+                        if isinstance(v, (dict, list, tuple)):
+                            stack.append((v, depth + 1))
+                else:
                     continue
-            # Recurse into a small allowlist of common nesting keys to avoid scanning huge dicts.
-            for nest_key in ("error_data", "details", "metadata", "context", "sentry", "issue", "payload"):
-                try:
-                    child = d.get(nest_key)
-                except Exception:
-                    child = None
-                if isinstance(child, dict):
-                    found = _deep_find_first_string(child, keys, max_depth=max_depth - 1)
-                    if found:
-                        return found
+
             return ""
 
         def _normalize_error_text(text: Any) -> str:
@@ -539,7 +611,7 @@ def compute_error_signature(error_data: Dict[str, Any]) -> str:
                 "issueId",
                 "sentry_issue",
             ),
-            max_depth=4,
+            max_depth=10,
         )
         sentry_issue_id = _normalize_error_text(sentry_issue_id_raw or "")
         if sentry_issue_id:
