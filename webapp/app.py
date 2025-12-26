@@ -7817,6 +7817,13 @@ def compare_files_page():
     )
 
 
+@app.route('/tools/code')
+@login_required
+def code_tools_page():
+    """דף ייעודי לכלי קוד (Playground) עם Diff מקצועי."""
+    return render_template('code_tools.html')
+
+
 @app.route('/file/<file_id>/images/<image_id>')
 @login_required
 def get_markdown_image(file_id, image_id):

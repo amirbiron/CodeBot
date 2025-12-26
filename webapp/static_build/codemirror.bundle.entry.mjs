@@ -4,6 +4,7 @@ import { history, defaultKeymap, historyKeymap } from '@codemirror/commands';
 import { foldGutter, foldKeymap, bracketMatching } from '@codemirror/language';
 import { highlightSelectionMatches, searchKeymap } from '@codemirror/search';
 import { autocompletion, completionKeymap, closeBrackets, closeBracketsKeymap } from '@codemirror/autocomplete';
+import { MergeView } from '@codemirror/merge';
 
 // Languages
 import { python } from '@codemirror/lang-python';
@@ -84,7 +85,8 @@ const api = {
   languageCompartment,
   themeCompartment,
   getLanguageSupport,
-  getTheme
+  getTheme,
+  MergeView
 };
 
 if (typeof window !== 'undefined') {
