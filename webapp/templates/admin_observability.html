@@ -1227,8 +1227,31 @@
     const rows = [];
     alerts.forEach(alert => {
       const meta = alert.metadata || {};
-      const metaItems = Object.keys(meta)
-        .slice(0, 3)
+      // Priority keys to show first (Sentry and important alert fields)
+      const priorityKeys = [
+        'sentry_issue_id', 'sentry_short_id', 'sentry_permalink', 'sentry_first_seen', 'sentry_last_seen',
+        'alert_type', 'source', 'project', 'level', 'action',
+        'labels', 'slow_endpoints', 'error_type', 'file', 'line',
+      ];
+      // Keys to hide from display (signature/internal fields)
+      const hiddenKeys = new Set([
+        'error_signature_hash', 'error_signature', 'is_new_error', 'is_drill',
+      ]);
+      // Build ordered key list: priority keys first (if present), then others
+      const allKeys = Object.keys(meta);
+      const orderedKeys = [];
+      for (const pk of priorityKeys) {
+        if (allKeys.includes(pk) && meta[pk] != null && meta[pk] !== '') {
+          orderedKeys.push(pk);
+        }
+      }
+      for (const k of allKeys) {
+        if (!orderedKeys.includes(k) && !hiddenKeys.has(k)) {
+          orderedKeys.push(k);
+        }
+      }
+      const metaItems = orderedKeys
+        .slice(0, 5)
         .map(key => `<span>${escapeHtml(key)}: ${escapeHtml(formatMetaValue(key, meta[key]))}</span>`)
         .join('');
       rows.push(`
