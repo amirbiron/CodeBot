@@ -54,6 +54,7 @@ class JobRegistry:
 
     _instance: Optional["JobRegistry"] = None
     _lock = threading.Lock()
+    _jobs: Dict[str, JobDefinition]  # Declared for mypy; initialized in __new__
 
     def __new__(cls) -> "JobRegistry":
         if cls._instance is None:
@@ -63,7 +64,7 @@ class JobRegistry:
                     # כדי למנוע race condition שבו thread אחר רואה instance
                     # אבל _jobs עדיין לא קיים
                     new_instance = super().__new__(cls)
-                    new_instance._jobs: Dict[str, JobDefinition] = {}
+                    new_instance._jobs = {}
                     cls._instance = new_instance
         return cls._instance
 

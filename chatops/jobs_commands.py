@@ -71,9 +71,9 @@ def handle_jobs_command(args: str) -> str:
             return f"אין jobs בקטגוריה `{args}`"
 
         lines = [f"📋 **Jobs בקטגוריית {args}:**\n"]
-        for job in jobs:
-            status = "✅" if registry.is_enabled(job.job_id) else "❌"
-            lines.append(f"{status} `{job.job_id}` - {job.name}")
+        for j in jobs:
+            status = "✅" if registry.is_enabled(j.job_id) else "❌"
+            lines.append(f"{status} `{j.job_id}` - {j.name}")
         return "\n".join(lines)
     except ValueError:
         pass
