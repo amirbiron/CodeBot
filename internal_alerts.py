@@ -98,6 +98,27 @@ _PROMOTED_DETAIL_KEYS = {
 _SENTRY_META_KEYS = {"sentry", "sentry_url", "sentry-permalink", "sentry_permalink"}
 
 
+def _is_empty_promoted_value(value: Any) -> bool:
+    """Return True when a detail value is "empty" and should NOT be promoted.
+
+    Observability dashboard consumers treat top-level alert fields as "high-signal".
+    We intentionally avoid promoting empty meta fields (None/""/[]/{}/False) since they
+    create noisy rows like error_signature/is_new_error that hide real content.
+    """
+    if value is None:
+        return True
+    # Important: do not promote False (especially is_new_error=False)
+    if value is False:
+        return True
+    if isinstance(value, str) and not value.strip():
+        return True
+    if isinstance(value, dict) and not value:
+        return True
+    if isinstance(value, list) and not value:
+        return True
+    return False
+
+
 def _coerce_str(value: Any) -> str:
     try:
         return str(value)
@@ -500,8 +521,13 @@ def emit_internal_alert(name: str, severity: str = "info", summary: str = "", **
             # לכן אנחנו "מקדמים" את פרטי ה-alert גם לרמה העליונה – בלי לדרוס שדות ליבה.
             try:
                 for k, v in (details_payload or {}).items():
+                    if _is_empty_promoted_value(v):
+                        continue
                     # Allow details to override specific routing keys at top-level (e.g. source).
                     if k in alert_payload and k not in {"source"}:
+                        continue
+                    # Avoid overriding even routing keys with empty values.
+                    if k == "source" and _is_empty_promoted_value(v):
                         continue
                     alert_payload[k] = v
             except Exception:
