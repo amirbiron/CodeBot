@@ -127,6 +127,37 @@ def test_compute_error_signature_uses_sentry_issue_id_when_present():
     assert len(sig) == 16
 
 
+def test_compute_error_signature_finds_sentry_issue_id_inside_error_data():
+    from monitoring.alerts_storage import compute_error_signature
+
+    sig = compute_error_signature({"error_data": {"sentry_issue_id": "999"}})
+    assert sig
+    assert len(sig) == 16
+
+
+def test_enrich_alert_with_signature_does_not_trust_is_new_error_without_hash(monkeypatch):
+    """
+    הגנה מפני payloads שמגיעים עם is_new_error=True מראש (למשל sentry_polling),
+    אבל בלי hash — במקרה כזה חייבים לפנות ל-DB (או לפונקציית is_new_error) כדי להחליט.
+    """
+    import monitoring.alerts_storage as als
+
+    calls = {"count": 0}
+
+    def _fake_is_new(_sig: str) -> bool:
+        calls["count"] += 1
+        return False
+
+    monkeypatch.setattr(als, "is_new_error", _fake_is_new)
+
+    details = {"is_new_error": True, "error_data": {"sentry_issue_id": "12345"}}
+    als.enrich_alert_with_signature(details)
+
+    assert calls["count"] == 1
+    assert details["error_signature_hash"]
+    assert details["is_new_error"] is False
+
+
 def test_enrich_alert_with_signature_does_not_add_signature_fields_when_no_signal(monkeypatch):
     import monitoring.alerts_storage as als
 

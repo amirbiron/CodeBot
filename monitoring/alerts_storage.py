@@ -361,6 +361,39 @@ def compute_error_signature(error_data: Dict[str, Any]) -> str:
     - 3 השורות הראשונות של ה-stack trace
     """
     try:
+        def _deep_find_first_string(d: Any, keys: Tuple[str, ...], *, max_depth: int = 4) -> str:
+            """
+            Best-effort deep search for a string-like value by keys.
+
+            Important: used to find sentry_issue_id even when nested under error_data/details/metadata.
+            """
+            if max_depth < 0:
+                return ""
+            if not isinstance(d, dict):
+                return ""
+            for k in keys:
+                try:
+                    if k in d:
+                        v = d.get(k)
+                        if v not in (None, ""):
+                            try:
+                                return str(v).strip()
+                            except Exception:
+                                return ""
+                except Exception:
+                    continue
+            # Recurse into a small allowlist of common nesting keys to avoid scanning huge dicts.
+            for nest_key in ("error_data", "details", "metadata", "context", "sentry", "issue", "payload"):
+                try:
+                    child = d.get(nest_key)
+                except Exception:
+                    child = None
+                if isinstance(child, dict):
+                    found = _deep_find_first_string(child, keys, max_depth=max_depth - 1)
+                    if found:
+                        return found
+            return ""
+
         def _normalize_error_text(text: Any) -> str:
             """
             Normalize error/trace text before hashing to keep signatures stable across:
@@ -493,7 +526,18 @@ def compute_error_signature(error_data: Dict[str, Any]) -> str:
 
         # --- Sentry-first: כשמדובר בשגיאת Sentry, יש לנו מזהה יציב (Issue ID) ---
         # זה מונע יצירת חתימות ריקות ומאפשר עקביות גם כשאין stack/file.
-        sentry_issue_id = _normalize_error_text((error_data or {}).get("sentry_issue_id", "") or "")
+        sentry_issue_id_raw = _deep_find_first_string(
+            error_data or {},
+            (
+                "sentry_issue_id",
+                "sentryIssueId",
+                "issue_id",
+                "issueId",
+                "sentry_issue",
+            ),
+            max_depth=4,
+        )
+        sentry_issue_id = _normalize_error_text(sentry_issue_id_raw or "")
         if sentry_issue_id:
             signature_input = f"sentry_issue_id:{sentry_issue_id}"
             return hashlib.sha256(signature_input.encode()).hexdigest()[:16]
@@ -602,7 +646,8 @@ def enrich_alert_with_signature(alert_data: Dict[str, Any]) -> Dict[str, Any]:
         existing_hash = None
 
     # השתמש ב-hash קיים רק אם הוא באמת מכיל תוכן (מניעת שדות ריקים שנוצרו בעבר)
-    signature_hash = _safe_str(existing_hash, limit=128)
+    signature_hash_existing = _safe_str(existing_hash, limit=128)
+    signature_hash = signature_hash_existing
     if not signature_hash:
         signature_hash = _safe_str(compute_error_signature(alert_data or {}), limit=128)
 
@@ -627,9 +672,9 @@ def enrich_alert_with_signature(alert_data: Dict[str, Any]) -> Dict[str, Any]:
             pass
         return alert_data
 
-    # אם כבר קיים is_new_error, לא נרוץ שוב מול ה-DB (idempotent) — זה מונע "היפוך" True→False
-    # במקרה שהפונקציה נקראת פעמיים על אותו dict.
-    if existing_is_new in (True, False):
+    # Idempotency: רק אם היה כבר hash קיים וגם is_new_error קיים, לא ניגשים שוב ל-DB.
+    # אם מישהו הגיע עם is_new_error=True אבל בלי hash (למשל sentry_polling), אסור "לסמוך" על זה.
+    if existing_is_new in (True, False) and bool(signature_hash_existing):
         is_new = bool(existing_is_new)
     else:
         is_new = is_new_error(signature_hash)
@@ -673,7 +718,14 @@ def record_alert(
             return
         now = datetime.now(timezone.utc)
         key = _build_key(alert_id, name or "", severity or "", summary or "", now)
-        clean_details = _sanitize_details(details)
+        # חשוב: קודם enrich על המטען הגולמי, ורק אחר כך sanitize ל-DB.
+        # זה מונע מצב שבו dict/list נהרסים לפני חישוב החתימה (למשל sentry_issue_id שנמצא במבנה מקונן).
+        details_payload: Dict[str, Any] = dict(details or {}) if isinstance(details, dict) else {}
+        try:
+            enrich_alert_with_signature(details_payload)
+        except Exception:
+            pass
+        clean_details = _sanitize_details(details_payload)
         endpoint = _extract_endpoint(clean_details) if clean_details else None
         alert_type = _extract_alert_type(str(name or ""), clean_details)
         duration_seconds = _extract_duration(clean_details)
