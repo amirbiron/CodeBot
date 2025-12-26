@@ -596,8 +596,8 @@ def _send_for_user(user_id: int | str, reminders: list[dict]) -> None:
             "notification": {
                 "title": title_text,
                 "body": body_text,
-                "icon": "/static/images/icon-192.png",
-                "badge": "/static/images/badge-72.png",
+                "icon": "/static/icons/app-icon-192.png",
+                "badge": "/static/icons/app-icon-192.png",
                 "tag": f"reminder-{note_id_str}" if note_id_str else "reminder",
                 "silent": False,
                 "requireInteraction": False,
@@ -831,8 +831,8 @@ def test_push():
             "notification": {
                 "title": title_text,
                 "body": body_text,
-                "icon": "/static/images/icon-192.png",
-                "badge": "/static/images/badge-72.png",
+                "icon": "/static/icons/app-icon-192.png",
+                "badge": "/static/icons/app-icon-192.png",
                 "tag": "push-test",
                 "silent": False,
                 "requireInteraction": False,
