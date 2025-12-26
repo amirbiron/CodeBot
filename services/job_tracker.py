@@ -8,6 +8,7 @@ JobTracker מנהל את מחזור החיים של הרצות: התחלה, עד
 
 import uuid
 import logging
+import threading
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -425,19 +426,25 @@ class JobTracker:
         )
 
 
-# Singleton instance
+# Singleton instance with thread-safe initialization
 _tracker: Optional[JobTracker] = None
+_tracker_lock = threading.Lock()
 
 
 def get_job_tracker() -> JobTracker:
-    """קבלת Singleton instance של JobTracker"""
+    """קבלת Singleton instance של JobTracker (thread-safe)"""
     global _tracker
+    # בדיקה ראשונה (לביצועים - כדי לא לנעול אם כבר קיים)
     if _tracker is None:
-        _tracker = JobTracker()
+        with _tracker_lock:
+            # בדיקה שנייה (בטיחות - לוודא שאף אחד לא יצר בזמן שחיכינו למנעול)
+            if _tracker is None:
+                _tracker = JobTracker()
     return _tracker
 
 
 def reset_job_tracker() -> None:
     """איפוס ה-tracker (לשימוש בטסטים)"""
     global _tracker
-    _tracker = None
+    with _tracker_lock:
+        _tracker = None
