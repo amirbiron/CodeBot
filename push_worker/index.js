@@ -103,7 +103,7 @@ app.post("/send", async (req, res) => {
     const msg = (e && e.message) || "send_failed";
     const ms = Date.now() - start;
     if (code === 404 || code === 410 || code === 401 || code === 403) {
-      console.warn("known_error", { endpoint_hash: endpointHash, status: code, ms });
+      console.warn("known_error", { endpoint_hash: endpointHash, status: code, ms, error: String(msg) });
       return res.status(200).json({ ok: false, status: Number(code), error: String(msg) });
     }
     console.error("worker_error", { endpoint_hash: endpointHash, status: code || 0, ms, msg: String(msg) });
