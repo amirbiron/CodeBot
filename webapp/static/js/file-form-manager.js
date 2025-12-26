@@ -1034,6 +1034,31 @@
         }
       }
 
+      // Code Tools Integration (format/lint/fix)
+      try {
+        if (window.CodeToolsIntegration && typeof window.CodeToolsIntegration.init === 'function') {
+          const editorAdapter = {
+            getValue: () => {
+              try {
+                return this.editorManager && typeof this.editorManager.getEditorContent === 'function'
+                  ? this.editorManager.getEditorContent()
+                  : '';
+              } catch (_) {
+                return '';
+              }
+            },
+            setValue: (value) => {
+              try {
+                if (this.editorManager && typeof this.editorManager.setEditorContent === 'function') {
+                  this.editorManager.setEditorContent(value);
+                }
+              } catch (_) {}
+            },
+          };
+          window.CodeToolsIntegration.init(editorAdapter, this.languageSelect);
+        }
+      } catch (_) {}
+
       // wire editorManager into LanguageDetector after it becomes available
       try {
         if (this.languageDetector) {

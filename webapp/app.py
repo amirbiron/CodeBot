@@ -842,6 +842,16 @@ except Exception:
     # סביבת דוקס/CI ללא תלויות לא צריכה להיכשל על ייבוא זה
     pass
 
+# Code Tools API (format/lint/fix)
+try:
+    from webapp.code_tools_api import code_tools_bp  # noqa: E402
+    app.register_blueprint(code_tools_bp)
+except Exception as e:
+    try:
+        logger.warning(f"Failed to register code_tools_bp: {e}")
+    except Exception:
+        pass
+
 # זיהוי הרצה תחת pytest בזמן import (גם בזמן איסוף טסטים)
 _IS_PYTEST = bool(os.getenv("PYTEST_CURRENT_TEST")) or ("pytest" in sys.modules) or os.getenv("PYTEST") == "1" or os.getenv("PYTEST_RUNNING") == "1"
 

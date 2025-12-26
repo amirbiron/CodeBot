@@ -97,6 +97,28 @@
           </button>
           <span class="split-toolbar-hint">Ctrl+Shift+Enter</span>
         </div>
+        <!-- הוסף ל-split-toolbar -->
+        <div class="code-tools-group" data-show-for-language="python">
+          <button type="button" class="btn btn-sm btn-outline" id="btn-format-code" title="עיצוב קוד (Ctrl+Shift+F)">
+            <i class="fas fa-magic"></i>
+            עיצוב
+          </button>
+          <button type="button" class="btn btn-sm btn-outline" id="btn-lint-code" title="בדיקת איכות (Ctrl+Shift+L)">
+            <i class="fas fa-check-circle"></i>
+            Lint
+          </button>
+          <div class="dropdown">
+            <button type="button" class="btn btn-sm btn-outline dropdown-toggle" id="btn-auto-fix">
+              <i class="fas fa-wrench"></i>
+              תיקון
+            </button>
+            <div class="dropdown-menu">
+              <button class="dropdown-item" data-level="safe">🛡️ בטוח (whitespace)</button>
+              <button class="dropdown-item" data-level="cautious">⚠️ זהיר (+imports)</button>
+              <button class="dropdown-item" data-level="aggressive">🔥 אגרסיבי (מלא)</button>
+            </div>
+          </div>
+        </div>
         <div class="split-tabs" role="tablist" aria-label="חלונות תצוגה">
           <button type="button" role="tab" aria-selected="true" data-panel-target="editor">עורך</button>
           <button type="button" role="tab" aria-selected="false" data-panel-target="preview">תצוגה</button>
@@ -157,6 +179,7 @@
 </div>
 {% endblock %}
 {% block extra_js %}
+<script src="{{ url_for('static', filename='js/code-tools.js') }}?v={{ static_version }}" defer></script>
 <script src="{{ url_for('static', filename='js/file-form-manager.js') }}?v={{ static_version }}" defer></script>
 <script src="{{ url_for('static', filename='js/md_preview.bundle.js') }}?v={{ static_version }}" defer></script>
 <script src="{{ url_for('static', filename='js/live-preview.js') }}?v={{ static_version }}" defer></script>
