@@ -135,6 +135,14 @@ def test_compute_error_signature_finds_sentry_issue_id_inside_error_data():
     assert len(sig) == 16
 
 
+def test_compute_error_signature_ignores_whitespace_sentry_issue_id_and_falls_back_to_issue_id():
+    from monitoring.alerts_storage import compute_error_signature
+
+    sig = compute_error_signature({"error_data": {"sentry_issue_id": "   ", "issue_id": "12345"}})
+    assert sig
+    assert len(sig) == 16
+
+
 def test_enrich_alert_with_signature_does_not_trust_is_new_error_without_hash(monkeypatch):
     """
     הגנה מפני payloads שמגיעים עם is_new_error=True מראש (למשל sentry_polling),

@@ -377,9 +377,13 @@ def compute_error_signature(error_data: Dict[str, Any]) -> str:
                         v = d.get(k)
                         if v not in (None, ""):
                             try:
-                                return str(v).strip()
+                                stripped = str(v).strip()
+                                # חשוב: אם הערך הוא whitespace בלבד, אל תעצור את החיפוש.
+                                if stripped:
+                                    return stripped
                             except Exception:
-                                return ""
+                                # אם ההמרה נכשלת, נמשיך למפתח הבא (fail-open)
+                                continue
                 except Exception:
                     continue
             # Recurse into a small allowlist of common nesting keys to avoid scanning huge dicts.
