@@ -1,29 +1,312 @@
+// SW Version for cache busting
+const SW_VERSION = '2.0.2';
+
 self.addEventListener('install', (event) => {
-    self.skipWaiting(); // הכרח עדכון מיידי
-    console.log('Service Worker Installed');
+  console.log('[SW] Installing version:', SW_VERSION);
+  // Skip waiting so the new SW takes control ASAP
+  try { self.skipWaiting(); } catch (_) {}
 });
 
 self.addEventListener('activate', (event) => {
-    event.waitUntil(self.clients.claim()); // השתלטות מיידית
-    console.log('Service Worker Activated');
+  console.log('[SW] Activating version:', SW_VERSION);
+  // Claim clients without reload
+  event.waitUntil((async () => {
+    try { await self.clients.claim(); } catch (_) {}
+  })());
 });
 
-self.addEventListener('push', function(event) {
-    console.log('Push received via minimalist SW');
+// Helper: report SW events back to server for debugging (no auth needed)
+// This is CRITICAL for debugging - sends a POST to /api/push/sw-report
+function reportToServer(eventType, status, extra = {}) {
+  console.log('[SW] Reporting to server:', eventType, status, extra);
+  try {
+    const body = JSON.stringify({
+      event: eventType,
+      status: status,
+      timestamp: new Date().toISOString(),
+      sw_version: SW_VERSION,
+      ...extra
+    });
+    // Use fetch with keepalive to ensure it completes even if SW terminates
+    fetch('/api/push/sw-report', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: body,
+      keepalive: true
+    }).then(resp => {
+      console.log('[SW] Report sent, status:', resp.status);
+    }).catch(err => {
+      console.error('[SW] Report failed:', err);
+    });
+  } catch (e) {
+    console.error('[SW] reportToServer exception:', e);
+  }
+}
 
-    // 1. דיווח מיידי לשרת - הכי פשוט שאפשר
-    const reportPromise = fetch('/api/push/sw-report', {
+self.addEventListener('push', (event) => {
+  // CRITICAL: Call event.waitUntil IMMEDIATELY at the start
+  // All logic must be inside this promise to keep SW alive
+  event.waitUntil((async () => {
+    const receivedAt = new Date().toISOString();
+    let rawData = null;
+    let parsedJson = null;
+    
+    try {
+      // STEP 1: Log that we received a push
+      console.log('========================================');
+      console.log('[SW] PUSH EVENT RECEIVED at:', receivedAt);
+      console.log('[SW] SW Version:', SW_VERSION);
+      console.log('[SW] event.data exists:', !!event.data);
+      console.log('========================================');
+      
+      // STEP 2: Send immediate report to server (AWAIT to ensure it sends)
+      try {
+        await fetch('/api/push/sw-report', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            event: 'push_received',
+            status: 'started',
+            timestamp: receivedAt,
+            sw_version: SW_VERSION,
+            received_at: receivedAt
+          }),
+          keepalive: true
+        });
+        console.log('[SW] Initial report sent successfully');
+      } catch (reportErr) {
+        console.error('[SW] Initial report failed (continuing anyway):', reportErr);
+      }
+      
+      // STEP 3: Extract and parse the push data
+      console.log('[SW] Step 3: Extracting push data...');
+      
+      if (event.data) {
+        try {
+          // Use try-catch specifically for text() which can fail
+          try {
+            rawData = event.data.text();
+          } catch (textErr) {
+            console.error('[SW] event.data.text() failed:', textErr);
+            // Try alternative methods
+            try {
+              rawData = await event.data.json();
+              rawData = JSON.stringify(rawData);
+            } catch (jsonErr) {
+              console.error('[SW] event.data.json() also failed:', jsonErr);
+              rawData = null;
+            }
+          }
+          
+          console.log('[SW] Raw push data received, length:', rawData ? rawData.length : 0);
+          console.log('[SW] Raw data content:', rawData);
+          
+          if (rawData) {
+            parsedJson = JSON.parse(rawData);
+          } else {
+            parsedJson = {};
+          }
+          console.log('[SW] Successfully parsed JSON');
+          console.log('[SW] Parsed structure:', JSON.stringify(parsedJson, null, 2));
+          
+          reportToServer('push_parsed', 'success', { 
+            raw_data: rawData || '(no data)',
+            has_notification: !!(parsedJson && parsedJson.notification),
+            has_data: !!(parsedJson && parsedJson.data),
+            has_title: !!(parsedJson && (parsedJson.title || (parsedJson.notification && parsedJson.notification.title)))
+          });
+        } catch (parseErr) {
+          console.error('[SW] JSON parse error:', parseErr);
+          console.error('[SW] Raw data that failed to parse:', rawData);
+          reportToServer('push_parsed', 'error', { 
+            error: String(parseErr), 
+            raw_data: rawData || '(null)'
+          });
+          parsedJson = {};
+        }
+      } else {
+        console.warn('[SW] No event.data present in push event!');
+        reportToServer('push_parsed', 'no_data');
+        parsedJson = {};
+      }
+      
+      // STEP 4: Extract title and body from payload
+      // Priority: notification object (FCM standard) > data object > top-level
+      console.log('[SW] Step 4: Extracting notification content...');
+      
+      let title = '🔔 יש פתק ממתין';  // default
+      let body = '';
+      
+      // Check notification object first (this is how push_api.py sends it)
+      if (parsedJson.notification && typeof parsedJson.notification === 'object') {
+        console.log('[SW] Found notification object:', JSON.stringify(parsedJson.notification));
+        title = parsedJson.notification.title || title;
+        body = parsedJson.notification.body || body;
+      }
+      // Fallback to data object
+      else if (parsedJson.data && typeof parsedJson.data === 'object') {
+        console.log('[SW] Using data object for title/body');
+        title = parsedJson.data.title || title;
+        body = parsedJson.data.body || body;
+      }
+      // Fallback to top-level
+      else if (parsedJson.title) {
+        console.log('[SW] Using top-level title/body');
+        title = parsedJson.title || title;
+        body = parsedJson.body || body;
+      }
+      
+      console.log('[SW] Final title:', title);
+      console.log('[SW] Final body:', body);
+      
+      // STEP 5: Build notification options
+      console.log('[SW] Step 5: Building notification options...');
+      
+      const customData = parsedJson.data || {};
+      // Also check notification object for note_id/file_id
+      if (parsedJson.notification) {
+        if (!customData.note_id && parsedJson.notification.note_id) {
+          customData.note_id = parsedJson.notification.note_id;
+        }
+        if (!customData.file_id && parsedJson.notification.file_id) {
+          customData.file_id = parsedJson.notification.file_id;
+        }
+      }
+      
+      // Get tag from notification object or generate unique one
+      const tag = (parsedJson.notification && parsedJson.notification.tag) || 
+                  ('codekeeper-' + Date.now());
+      
+      const options = {
+        body: body,
+        icon: (parsedJson.notification && parsedJson.notification.icon) || '/static/icons/app-icon-192.png',
+        badge: (parsedJson.notification && parsedJson.notification.badge) || '/static/icons/app-icon-192.png',
+        data: customData,
+        requireInteraction: (parsedJson.notification && parsedJson.notification.requireInteraction) || false,
+        silent: (parsedJson.notification && parsedJson.notification.silent) || false,
+        tag: tag,
+        actions: (parsedJson.notification && parsedJson.notification.actions) || [
+          { action: 'open_note', title: 'פתח פתק' },
+          { action: 'snooze_10', title: 'דחה 10 דק׳' },
+          { action: 'snooze_60', title: 'דחה שעה' },
+          { action: 'snooze_1440', title: 'דחה 24 שעות' },
+        ]
+      };
+      
+      console.log('[SW] Notification options:', JSON.stringify(options));
+      
+      // STEP 6: Show the notification (wrapped in try-catch)
+      console.log('[SW] Step 6: Showing notification...');
+      
+      if (!self.registration) {
+        console.error('[SW] CRITICAL: self.registration is undefined!');
+        reportToServer('show_notification', 'error', { error: 'no_registration' });
+        throw new Error('No service worker registration available');
+      }
+      
+      try {
+        await self.registration.showNotification(title, options);
+        console.log('[SW] ✓ showNotification() succeeded!');
+        reportToServer('show_notification', 'success', { title: title, tag: tag });
+      } catch (showErr) {
+        console.error('[SW] showNotification() FAILED:', showErr);
+        reportToServer('show_notification', 'error', { 
+          error: String(showErr),
+          error_name: showErr.name,
+          error_message: showErr.message,
+          title: title
+        });
+        throw showErr;  // Re-throw to trigger fallback
+      }
+      
+    } catch (err) {
+      // STEP 7: Error handler - NEVER fail silently
+      console.error('========================================');
+      console.error('[SW] PUSH HANDLER ERROR:', err);
+      console.error('[SW] Error name:', err.name);
+      console.error('[SW] Error message:', err.message);
+      console.error('[SW] Error stack:', err.stack);
+      console.error('========================================');
+      
+      reportToServer('push_handler', 'error', { 
+        error: String(err),
+        error_name: err.name || 'unknown',
+        error_message: err.message || '',
+        raw_data: rawData
+      });
+      
+      // STEP 8: Try to show a fallback notification
+      console.log('[SW] Step 8: Attempting fallback notification...');
+      try {
+        if (self.registration) {
+          await self.registration.showNotification('🔔 התראה חדשה', {
+            body: 'לא הצלחנו לטעון את פרטי ההתראה',
+            icon: '/static/icons/app-icon-192.png',
+            badge: '/static/icons/app-icon-192.png',
+            tag: 'codekeeper-fallback-' + Date.now(),
+            silent: false,
+            requireInteraction: false
+          });
+          console.log('[SW] ✓ Fallback notification shown successfully');
+          reportToServer('fallback_notification', 'success');
+        } else {
+          console.error('[SW] Cannot show fallback - no registration');
+          reportToServer('fallback_notification', 'error', { error: 'no_registration' });
+        }
+      } catch (fallbackErr) {
+        console.error('[SW] Fallback notification ALSO failed:', fallbackErr);
+        reportToServer('fallback_notification', 'error', { 
+          error: String(fallbackErr),
+          error_name: fallbackErr.name,
+          error_message: fallbackErr.message
+        });
+      }
+    }
+  })());  // Close the IIFE that was passed to event.waitUntil
+});
+
+self.addEventListener('notificationclick', (event) => {
+  const d = (event.notification && event.notification.data) || {};
+  event.notification && event.notification.close && event.notification.close();
+
+  if (event.action === 'open_note' && d.file_id && d.note_id) {
+    const urlToOpen = `/file/${encodeURIComponent(d.file_id)}#note=${encodeURIComponent(d.note_id)}`;
+    const ack = fetch('/api/sticky-notes/reminders/ack', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ note_id: String(d.note_id) })
+    }).catch(() => {});
+    const nav = clients.matchAll({ type: 'window', includeUncontrolled: true }).then((windowClients) => {
+      let matchingClient = null;
+      try {
+        matchingClient = windowClients.find((client) => client && client.url && client.url.includes(`/file/${encodeURIComponent(d.file_id)}`));
+      } catch(_) {}
+      if (matchingClient && matchingClient.navigate) {
+        return matchingClient.navigate(urlToOpen).then((client) => client && client.focus && client.focus());
+      } else {
+        return clients.openWindow(urlToOpen);
+      }
+    });
+    event.waitUntil(Promise.all([ack, nav]));
+  } else if (event.action && event.action.startsWith('snooze_') && d.note_id) {
+    const minutes = Number(event.action.split('_')[1] || 10);
+    event.waitUntil(
+      fetch(`/api/sticky-notes/note/${encodeURIComponent(d.note_id)}/snooze`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ event: 'minimal_sw_push', status: 'alive' })
-    }).catch(err => console.error('Report failed', err));
-
-    // 2. התראה קבועה מראש (Hardcoded) - עוקף בעיות JSON
-    const notificationPromise = self.registration.showNotification('בדיקת מערכת', {
-        body: 'אם אתה רואה את זה - הצינור עובד!',
-        icon: '/static/icons/app-icon-192.png', // וודא שהקובץ קיים!
-        requireInteraction: true
-    });
-
-    event.waitUntil(Promise.all([reportPromise, notificationPromise]));
+        body: JSON.stringify({ minutes })
+      }).catch(() => {})
+    );
+  } else {
+    // Focus/open client on generic click
+    event.waitUntil(
+      clients.matchAll({ type: 'window', includeUncontrolled: true }).then((windowClients) => {
+        if (windowClients.length > 0) {
+          const client = windowClients[0];
+          return client && client.focus && client.focus();
+        }
+        return clients.openWindow('/');
+      })
+    );
+  }
 });
