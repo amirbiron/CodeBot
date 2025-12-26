@@ -94,9 +94,6 @@ def _sanitize_details(details: Optional[Dict[str, Any]]) -> Dict[str, Any]:
     seen: set[int] = set()
 
     def _sanitize_value(key_hint: str, value: Any, *, depth: int) -> Any:
-        if depth <= 0:
-            return _safe_str(value, limit=_DETAIL_TEXT_LIMIT)
-
         # Redact by key name (case-insensitive) but do not drop the key
         try:
             lk = str(key_hint).lower()
@@ -117,28 +114,38 @@ def _sanitize_details(details: Optional[Dict[str, Any]]) -> Dict[str, Any]:
         if isinstance(value, str):
             return _safe_str(value, limit=_DETAIL_TEXT_LIMIT)
 
-        # Preserve dict/list structures (and sanitize recursively)
-        try:
-            obj_id = id(value)
-        except Exception:
-            obj_id = 0
-        if obj_id and obj_id in seen:
-            return "<CYCLE>"
-        if obj_id:
-            seen.add(obj_id)
-        try:
-            if isinstance(value, dict):
-                out: Dict[str, Any] = {}
-                for k2, v2 in value.items():
-                    out[str(k2)] = _sanitize_value(str(k2), v2, depth=depth - 1)
-                return out
-            if isinstance(value, list):
-                return [_sanitize_value(key_hint, v2, depth=depth - 1) for v2 in value]
-            if isinstance(value, tuple):
+        # Preserve dict/list structures (and sanitize recursively).
+        # חשוב: לא לקרוא ל-_safe_str על dict/list/tuple גם במצב depth limit,
+        # כדי לא להפוך אובייקטים מורכבים למחרוזות "שבורות" ב-UI.
+        if isinstance(value, (dict, list, tuple)):
+            if depth <= 0:
+                # שומרים טיפוס בלי להיכנס לרקורסיה נוספת
+                return {} if isinstance(value, dict) else []
+
+            try:
+                obj_id = id(value)
+            except Exception:
+                obj_id = 0
+            if obj_id and obj_id in seen:
+                return "<CYCLE>"
+            if obj_id:
+                seen.add(obj_id)
+            try:
+                if isinstance(value, dict):
+                    out: Dict[str, Any] = {}
+                    for k2, v2 in value.items():
+                        out[str(k2)] = _sanitize_value(str(k2), v2, depth=depth - 1)
+                    return out
+                if isinstance(value, list):
+                    return [_sanitize_value(key_hint, v2, depth=depth - 1) for v2 in value]
+                # tuple -> list (Mongo-friendly)
                 return [_sanitize_value(key_hint, v2, depth=depth - 1) for v2 in list(value)]
-        finally:
-            # Do not try to remove from seen; cycle protection is best-effort.
-            pass
+            finally:
+                # Do not try to remove from seen; cycle protection is best-effort.
+                pass
+
+        if depth <= 0:
+            return _safe_str(value, limit=_DETAIL_TEXT_LIMIT)
 
         # Fallback: safe string representation
         return _safe_str(value, limit=_DETAIL_TEXT_LIMIT)
