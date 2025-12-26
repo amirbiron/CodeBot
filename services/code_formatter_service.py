@@ -174,13 +174,14 @@ class CodeFormatterService:
         if not code or not code.strip():
             return False, "הקוד ריק"
 
-        if len(code.encode("utf-8")) > self.MAX_FILE_SIZE:
-            return False, f"הקובץ גדול מדי (מקסימום {self.MAX_FILE_SIZE // 1024}KB)"
-
+        # בדיקת Encoding לפני בדיקת גודל (כדי לא לזרוק UnicodeEncodeError החוצה)
         try:
-            code.encode("utf-8")
+            encoded_code = code.encode("utf-8")
         except UnicodeEncodeError:
             return False, "קידוד תווים לא תקין"
+
+        if len(encoded_code) > self.MAX_FILE_SIZE:
+            return False, f"הקובץ גדול מדי (מקסימום {self.MAX_FILE_SIZE // 1024}KB)"
 
         # בדיקת תחביר Python
         if language == "python":
@@ -327,6 +328,10 @@ class CodeFormatterService:
             env=env,
         )
 
+        if result.returncode != 0:
+            err = self._decode_output(result.stderr) or self._decode_output(result.stdout)
+            raise RuntimeError(f"isort failed: {err}")
+
         return self._decode_output(result.stdout)
 
     def _run_autopep8(self, code: str, options: Dict) -> str:
@@ -348,6 +353,10 @@ class CodeFormatterService:
             timeout=self.TIMEOUT_SECONDS,
             env=self._get_clean_env(),
         )
+
+        if result.returncode != 0:
+            err = self._decode_output(result.stderr) or self._decode_output(result.stdout)
+            raise RuntimeError(f"autopep8 failed: {err}")
 
         return self._decode_output(result.stdout)
 

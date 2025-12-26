@@ -11,6 +11,7 @@ from services.code_formatter_service import (
     AutoFixResult,
     get_code_formatter_service,
 )
+import subprocess
 
 
 @pytest.fixture
@@ -44,6 +45,13 @@ class TestValidation:
         assert is_valid is True
         assert error is None
 
+    def test_validate_bad_encoding_does_not_raise(self, service):
+        # surrogate שמייצר UnicodeEncodeError ב-utf-8
+        bad = "\ud800"
+        is_valid, error = service.validate_input(bad, "python")
+        assert is_valid is False
+        assert "קידוד" in (error or "")
+
 
 class TestFormatting:
     """בדיקות עיצוב."""
@@ -69,6 +77,32 @@ class TestFormatting:
         result = service.format_code("x=1", tool="nonexistent")
         assert result.success is False
         assert "אינו" in (result.error_message or "")
+
+    def test_format_isort_nonzero_exit_fails(self, service, monkeypatch):
+        # הגנה מפני "Silent data loss" במקרה של returncode != 0
+        monkeypatch.setattr(service, "is_tool_available", lambda _tool: True)
+
+        def fake_run(*_args, **_kwargs):
+            return subprocess.CompletedProcess(args=["isort", "-"], returncode=1, stdout=b"", stderr=b"boom")
+
+        monkeypatch.setattr("services.code_formatter_service.subprocess.run", fake_run)
+
+        res = service.format_code("import os\n", tool="isort")
+        assert res.success is False
+        assert "isort failed" in (res.error_message or "")
+
+    def test_format_autopep8_nonzero_exit_fails(self, service, monkeypatch):
+        # הגנה מפני "Silent data loss" במקרה של returncode != 0
+        monkeypatch.setattr(service, "is_tool_available", lambda _tool: True)
+
+        def fake_run(*_args, **_kwargs):
+            return subprocess.CompletedProcess(args=["autopep8", "-"], returncode=2, stdout=b"", stderr=b"bad input")
+
+        monkeypatch.setattr("services.code_formatter_service.subprocess.run", fake_run)
+
+        res = service.format_code("x = 1\n", tool="autopep8")
+        assert res.success is False
+        assert "autopep8 failed" in (res.error_message or "")
 
 
 class TestLinting:
