@@ -1320,6 +1320,10 @@ tr:hover .copy-meta-btn {
       return '';
     }
     const copyData = formatMetaForCopy(meta);
+    // Don't render button if formatted content is empty (all values were null/empty)
+    if (!copyData || !copyData.trim()) {
+      return '';
+    }
     const encodedData = encodeURIComponent(copyData);
     return `<button type="button" class="copy-meta-btn" data-copy-meta="${encodedData}" title="העתק Meta ללוח"><i class="fas fa-copy"></i></button>`;
   }
@@ -2507,7 +2511,10 @@ tr:hover .copy-meta-btn {
       if (!btn) return;
       
       const encodedData = btn.dataset.copyMeta;
-      if (!encodedData) return;
+      if (!encodedData) {
+        showToast('אין נתונים להעתקה');
+        return;
+      }
       
       try {
         const textToCopy = decodeURIComponent(encodedData);
