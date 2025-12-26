@@ -57,6 +57,9 @@ const CodeToolsIntegration = {
 
     // דיבאג: הדפסת השפה שזוהתה
     console.log('[CodeToolsIntegration] updateToolsVisibility - detected language:', language);
+    
+    // 🔔 דיבאג ויזואלי למובייל - הסר את השורה הזו לאחר הבדיקה!
+    alert('JS Debug: Language detected: ' + language + '\nToolsGroup found: ' + (toolsGroup ? 'YES' : 'NO'));
 
     if (toolsGroup) {
       // כרגע תומכים רק ב-Python (case-insensitive)
