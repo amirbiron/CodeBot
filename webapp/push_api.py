@@ -6,6 +6,7 @@ from typing import Any, Dict, Optional
 from datetime import datetime, timezone, timedelta
 import os
 import hashlib
+import logging
 
 
 def get_db():
@@ -350,10 +351,13 @@ def subscribe():
         _ensure_indexes()
         user_id = _session_user_id()
         payload = request.get_json(silent=True) or {}
+        if not isinstance(payload, dict):
+            return jsonify({"ok": False, "error": "Invalid subscription"}), 400
         # Normalize minimal fields we care about
         endpoint = str((payload or {}).get("endpoint") or "").strip()
-        keys = dict((payload or {}).get("keys") or {})
-        if not endpoint or not isinstance(keys, dict):
+        raw_keys = (payload or {}).get("keys")
+        keys = raw_keys if isinstance(raw_keys, dict) else None
+        if not endpoint or keys is None:
             return jsonify({"ok": False, "error": "Invalid subscription"}), 400
 
         now_utc = datetime.now(timezone.utc)
@@ -374,12 +378,33 @@ def subscribe():
         if _raw_enc in ("aesgcm", "aes128gcm"):
             set_fields["content_encoding"] = _raw_enc
         db = get_db()
-        # Upsert per (user, endpoint), normalizing user_id across int/str using variants
-        db.push_subscriptions.update_one(
-            {"user_id": {"$in": _user_id_variants(user_id)}, "endpoint": endpoint},
-            {"$set": set_fields, "$setOnInsert": {"created_at": now_utc, "user_id": user_id}},
-            upsert=True,
-        )
+        # Upsert per (user, endpoint), normalizing user_id across int/str using variants.
+        #
+        # IMPORTANT: do not set the same field in $set and $setOnInsert (Mongo raises a conflict).
+        try:
+            db.push_subscriptions.update_one(
+                {"user_id": {"$in": _user_id_variants(user_id)}, "endpoint": endpoint},
+                {"$set": set_fields, "$setOnInsert": {"created_at": now_utc}},
+                upsert=True,
+            )
+        except Exception:
+            # Do not leak endpoint itself (PII-ish). Log a stable hash + metadata.
+            try:
+                logging.exception(
+                    "push_api.subscribe failed to persist subscription",
+                    extra={
+                        "user_id": str(user_id),
+                        "user_id_type": type(user_id).__name__,
+                        "endpoint_hash": _hash_endpoint(endpoint),
+                        "endpoint_len": len(endpoint or ""),
+                        "has_p256dh": bool(keys.get("p256dh")),
+                        "has_auth": bool(keys.get("auth")),
+                        "content_encoding": (set_fields.get("content_encoding") or ""),
+                    },
+                )
+            except Exception:
+                pass
+            return jsonify({"ok": False, "error": "Failed to save subscription"}), 500
         try:
             from observability import emit_event  # type: ignore
 
