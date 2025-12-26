@@ -1,8 +1,9 @@
 # מדריך מימוש: מערכת תיוג ידני להתראות (Alert Tagging)
 
 > **תאריך:** דצמבר 2025  
+> **עדכון אחרון:** דצמבר 2025 – תמיכה בתיוג גלובלי 🆕  
 > **סטטוס:** מדריך טכני למימוש  
-> **קבצים רלוונטיים:** `admin_observability.html`, `observability_dashboard.py`
+> **קבצים רלוונטיים:** `admin_observability.html`, `observability_dashboard.py`, `alert_tags_storage.py`
 
 ---
 
@@ -12,8 +13,10 @@
 2. [שלב 1: מודל מסד הנתונים (DB Model)](#שלב-1-מודל-מסד-הנתונים)
 3. [שלב 2: Flask API](#שלב-2-flask-api)
 4. [שלב 3: Frontend & JavaScript](#שלב-3-frontend--javascript)
-5. [בדיקות](#בדיקות)
-6. [שיקולי ביצועים](#שיקולי-ביצועים)
+5. [שלב 4: תיוג גלובלי לפי סוג התראה](#שלב-4-תיוג-גלובלי-לפי-סוג-התראה) 🆕
+6. [בדיקות](#בדיקות)
+7. [שיקולי ביצועים](#שיקולי-ביצועים)
+8. [שיקולי אבטחה ובאגים נפוצים](#שיקולי-אבטחה-ובאגים-נפוצים)
 
 ---
 
@@ -22,13 +25,22 @@
 ### מטרה
 לאפשר למשתמשים לתייג התראות (Alerts) בטבלת ההיסטוריה בדשבורד Observability, כדי לסווג, לסנן ולחפש אירועים בקלות.
 
+### שני סוגי תיוג
+
+| סוג | תיאור | שימוש |
+|-----|-------|-------|
+| **תיוג ספציפי (Instance)** | תגיות על מופע בודד של התראה לפי `alert_uid` | ברירת מחדל |
+| **תיוג גלובלי (Type)** 🆕 | תגיות קבועות לכל ההתראות עם אותו שם | כשמסמנים "החל באופן קבוע" |
+
+> **💡 דוגמה:** תייג "CPU High" כ-"Infrastructure" פעם אחת, וכל התראה עתידית (או קיימת) עם אותו שם תקבל את התגית אוטומטית!
+
 ### דרישות מוצר
 | דרישה | תיאור |
 |--------|--------|
 | **DB** | שמירת תגיות ב-Collection נפרד (`alert_tags`) עם קישור ל-`alert_uid` + `timestamp` (כדי שישרדו Log Rotation) |
 | **UI** | עמודת "Tags" בטבלה, הצגת תגיות כ-Badges צבעוניים, וכפתור `+` להוספה |
-| **UX** | Modal/Popover עם Autocomplete לתגיות קיימות |
-| **API** | מסלולים ל-POST (שמירה) ו-GET (הצעות/שליפה) |
+| **UX** | Modal/Popover עם Autocomplete לתגיות קיימות + צ'קבוקס לתיוג גלובלי 🆕 |
+| **API** | מסלולים ל-POST (שמירה) ו-GET (הצעות/שליפה) + Endpoint לתגיות גלובליות 🆕 |
 
 ---
 
@@ -1138,9 +1150,490 @@ return `
 
 ---
 
+## שלב 4: תיוג גלובלי לפי סוג התראה
+
+### 💡 הרעיון
+
+המימוש הבסיסי (שלבים 1-3) עובד לפי **מזהה ייחודי (Instance)** - כל התראה מקבלת תגיות משלה. 
+
+אבל מה אם תרצה שפעם אחת תתייג "CPU High" כ-"Infrastructure", וזה יופיע **אוטומטית** בכל פעם שתהיה שוב התראת "CPU High" בעתיד (ובעבר)?
+
+**הפתרון:** הוספת לוגיקה של "תגיות גלובליות" - תיוג לפי **שם ההתראה** ולא רק לפי ה-UID.
+
+### 4.1 איך זה עובד
+
+| סוג תיוג | מזהה | התנהגות |
+|---------|------|---------|
+| **ספציפי (Instance)** | `alert_uid` | תגיות על מופע בודד של התראה |
+| **גלובלי (Type)** | `alert_name` | תגיות קבועות לכל ההתראות עם אותו שם |
+
+**תרחיש לדוגמה:**
+
+1. נכנסת התראה חדשה: "Low Disk Space" (UID: `abc-123`)
+2. פותח את המודל ומוסיף תגית "Critical"
+3. **מסמן ✅ "החל באופן קבוע על כל ההתראות מסוג זה"**
+4. המערכת שומרת את זה תחת השם "Low Disk Space"
+5. מחר, כשתופיע התראה חדשה עם אותו שם (UID: `xyz-789`) – היא תופיע ברשימה **ישר עם התגית "Critical"**
+
+---
+
+### 4.2 עדכון בסיס הנתונים
+
+הוסף את הפונקציות הבאות ל-`monitoring/alert_tags_storage.py`:
+
+```python
+# monitoring/alert_tags_storage.py - הוספה לסוף הקובץ
+
+# ==========================================
+# Global Tags (לפי סוג התראה)
+# ==========================================
+
+def get_tags_map_for_alerts(alerts_list: List[dict]) -> Dict[str, List[str]]:
+    """
+    מחזיר מפה משולבת: גם תגיות ספציפיות למופע, וגם תגיות קבועות לסוג ההתראה.
+    
+    Args:
+        alerts_list: רשימת התראות, כל אחת עם alert_uid ו-name
+        
+    Returns:
+        מיפוי של alert_uid -> רשימת תגיות (משולבת)
+    """
+    uids = [a.get("alert_uid") for a in alerts_list if a.get("alert_uid")]
+    names = [a.get("name") for a in alerts_list if a.get("name")]
+    
+    # 1. שליפת תגיות ספציפיות (לפי UID)
+    instance_cursor = _get_collection().find({"alert_uid": {"$in": uids}})
+    instance_map = {doc["alert_uid"]: set(doc.get("tags", [])) for doc in instance_cursor}
+    
+    # 2. שליפת תגיות גלובליות (לפי שם ההתראה)
+    global_cursor = _get_collection().find({"alert_type_name": {"$in": names}})
+    global_map = {doc["alert_type_name"]: set(doc.get("tags", [])) for doc in global_cursor}
+    
+    # 3. איחוד התוצאות - תגיות גלובליות + ספציפיות
+    final_map = {}
+    for alert in alerts_list:
+        uid = alert.get("alert_uid")
+        name = alert.get("name")
+        
+        if not uid:
+            continue
+            
+        tags = set()
+        
+        # תגיות ספציפיות למופע
+        if uid in instance_map:
+            tags.update(instance_map[uid])
+        
+        # תגיות גלובליות לסוג
+        if name in global_map:
+            tags.update(global_map[name])
+            
+        final_map[uid] = list(tags)
+        
+    return final_map
+
+
+def set_global_tags_for_name(
+    alert_name: str,
+    tags: List[str],
+    user_id: Optional[int] = None
+) -> Dict[str, Any]:
+    """
+    שמירת תגיות קבועות לכל ההתראות עם השם הזה.
+    
+    Args:
+        alert_name: שם ההתראה (לדוגמה: "CPU High", "Low Disk Space")
+        tags: רשימת תגיות לשמור
+        user_id: מזהה המשתמש (אופציונלי)
+        
+    Returns:
+        תוצאת העדכון
+    """
+    if not alert_name:
+        raise ValueError("alert_name is required")
+    
+    # נרמול תגיות
+    normalized_tags = list(dict.fromkeys(
+        t.strip().lower() for t in tags if t and t.strip()
+    ))
+    
+    now = datetime.now(timezone.utc)
+    
+    result = _get_collection().update_one(
+        {"alert_type_name": alert_name},  # מזהה ייחודי לסוג
+        {
+            "$set": {
+                "tags": normalized_tags,
+                "updated_at": now,
+            },
+            "$setOnInsert": {
+                "created_at": now,
+                "created_by": user_id,
+            }
+        },
+        upsert=True
+    )
+    
+    return {
+        "alert_type_name": alert_name,
+        "tags": normalized_tags,
+        "upserted": result.upserted_id is not None,
+        "modified": result.modified_count > 0,
+    }
+
+
+def get_global_tags_for_name(alert_name: str) -> List[str]:
+    """מחזיר תגיות גלובליות עבור סוג התראה."""
+    if not alert_name:
+        return []
+    doc = _get_collection().find_one({"alert_type_name": alert_name})
+    return doc.get("tags", []) if doc else []
+
+
+def remove_global_tags_for_name(alert_name: str) -> Dict[str, Any]:
+    """מחיקת תגיות גלובליות לסוג התראה."""
+    if not alert_name:
+        raise ValueError("alert_name is required")
+    
+    result = _get_collection().delete_one({"alert_type_name": alert_name})
+    
+    return {
+        "alert_type_name": alert_name,
+        "deleted": result.deleted_count > 0,
+    }
+```
+
+### 4.3 עדכון אינדקסים
+
+הוסף אינדקס חדש עבור תגיות גלובליות:
+
+```python
+# בתוך ensure_indexes()
+
+def ensure_indexes() -> None:
+    """יצירת אינדקסים נדרשים."""
+    coll = _get_collection()
+    coll.create_index("alert_uid", unique=True, sparse=True)  # sparse - מתעלם מ-null
+    coll.create_index("alert_type_name", unique=True, sparse=True)  # 👈 חדש
+    coll.create_index("tags")
+    coll.create_index("alert_timestamp")
+    coll.create_index([("tags", 1), ("alert_timestamp", -1)])
+    logger.info("alert_tags indexes ensured")
+```
+
+> **💡 הערה:** שימוש ב-`sparse=True` מבטיח שמסמכים ללא השדה לא ייכנסו לאינדקס ולא יגרמו לכפילויות.
+
+---
+
+### 4.4 עדכון ה-API
+
+#### 4.4.1 Route חדש לתגיות גלובליות
+
+הוסף ל-`services/observability_dashboard.py`:
+
+```python
+# services/observability_dashboard.py - הוספה
+
+def set_global_alert_tags(
+    alert_name: str,
+    tags: List[str],
+    user_id: Optional[int] = None
+) -> Dict[str, Any]:
+    """
+    POST /api/observability/alerts/global-tags
+    שמירת תגיות קבועות לסוג התראה.
+    
+    Body: {"alert_name": "CPU High", "tags": ["infrastructure", "critical"]}
+    """
+    if not alert_name:
+        return {"ok": False, "error": "missing_alert_name"}
+    if not tags:
+        return {"ok": False, "error": "missing_tags"}
+    
+    try:
+        result = alert_tags_storage.set_global_tags_for_name(
+            alert_name=alert_name,
+            tags=tags,
+            user_id=user_id,
+        )
+        return {"ok": True, **result}
+    except ValueError as ve:
+        return {"ok": False, "error": str(ve)}
+    except Exception as e:
+        logger.exception("set_global_alert_tags failed: %s", e)
+        return {"ok": False, "error": "internal_error"}
+```
+
+#### 4.4.2 רישום ה-Route
+
+הוסף ל-`services/webserver.py`:
+
+```python
+@app.route('/api/observability/alerts/global-tags', methods=['POST'])
+@admin_required
+def api_set_global_alert_tags():
+    """שמירת תגיות גלובליות לסוג התראה."""
+    data = request.get_json() or {}
+    user_id = getattr(g, 'user_id', None)
+    result = obs_dash.set_global_alert_tags(
+        alert_name=data.get("alert_name", ""),
+        tags=data.get("tags", []),
+        user_id=user_id,
+    )
+    status = 200 if result.get("ok") else 400
+    return jsonify(result), status
+```
+
+#### 4.4.3 עדכון `get_alerts_history`
+
+**החלף** את הקריאה הקיימת בקריאה החדשה שמשלבת את שני סוגי התגיות:
+
+```python
+def get_alerts_history(...) -> Dict[str, Any]:
+    # ... קוד קיים לשליפת alerts ...
+    
+    alerts = list(cursor)
+    
+    # === עדכון: שליפה משולבת של תגיות ===
+    # במקום get_tags_for_alerts הישנה, משתמשים בפונקציה החכמה:
+    tags_map = alert_tags_storage.get_tags_map_for_alerts(alerts)
+    
+    for alert in alerts:
+        uid = alert.get("alert_uid")
+        alert["tags"] = tags_map.get(uid, [])
+    # === סוף עדכון ===
+    
+    return {
+        "ok": True,
+        "alerts": alerts,
+        "total": total,
+        # ...
+    }
+```
+
+---
+
+### 4.5 עדכון ה-UI
+
+#### 4.5.1 הוספת צ'קבוקס למודל
+
+הוסף בתוך `#tagModal`, לפני ה-`tag-modal__actions`:
+
+```html
+<!-- בתוך tag-modal__dialog, אחרי current-tags -->
+<div class="tag-modal__options" style="margin-top: 10px; padding-top: 10px; border-top: 1px solid rgba(255,255,255,0.1);">
+  <label style="display: flex; align-items: center; gap: 8px; cursor: pointer; font-size: 0.9rem;">
+    <input type="checkbox" id="tagGlobalCheckbox">
+    <span>החל תגיות אלו באופן קבוע על כל ההתראות מסוג זה</span>
+  </label>
+  <small style="display: block; margin-top: 5px; opacity: 0.6; font-size: 0.8rem;">
+    💡 תגיות גלובליות יופיעו אוטומטית בכל התראה עם אותו שם (גם בעבר וגם בעתיד)
+  </small>
+</div>
+```
+
+#### 4.5.2 CSS נוסף (אופציונלי)
+
+```css
+/* Global tag checkbox styling */
+#tagGlobalCheckbox {
+  width: 16px;
+  height: 16px;
+  accent-color: #64ffda;
+}
+```
+
+---
+
+### 4.6 עדכון ה-JavaScript
+
+#### 4.6.1 עדכון `tagState`
+
+```javascript
+const tagState = {
+  alertUid: null,
+  alertTimestamp: null,
+  alertName: null,    // 👈 חדש - שמירת שם ההתראה
+  tags: [],
+  suggestions: [],,
+  selectedIndex: -1,
+};
+```
+
+#### 4.6.2 עדכון `renderTagsCell`
+
+הוסף את `alert.name` ל-payload:
+
+```javascript
+function renderTagsCell(alert) {
+  const tags = alert.tags || [];
+  const uid = alert.alert_uid || '';
+  const ts = alert.timestamp || '';
+  const name = alert.name || '';  // 👈 חדש
+  
+  if (!uid) {
+    return '<span style="opacity:0.4;">—</span>';
+  }
+  
+  const payload = encodeURIComponent(JSON.stringify({
+    alert_uid: uid,
+    timestamp: ts,
+    alert_name: name,  // 👈 חדש
+    tags: tags,
+  }));
+  
+  // ... המשך ללא שינוי ...
+}
+```
+
+#### 4.6.3 עדכון `openTagModal`
+
+שמור את שם ההתראה כשפותחים את המודל:
+
+```javascript
+function openTagModal(payload) {
+  if (!payload) return;
+  try {
+    const data = JSON.parse(decodeURIComponent(payload));
+    tagState.alertUid = data.alert_uid;
+    tagState.alertTimestamp = data.timestamp;
+    tagState.alertName = data.alert_name;  // 👈 חדש
+    tagState.tags = [...(data.tags || [])];
+    tagState.selectedIndex = -1;
+    
+    // איפוס הצ'קבוקס בכל פתיחה
+    const globalCheckbox = document.getElementById('tagGlobalCheckbox');
+    if (globalCheckbox) globalCheckbox.checked = false;
+    
+    // ... המשך ללא שינוי ...
+  } catch (err) {
+    console.warn('tag modal parse failed', err);
+  }
+}
+```
+
+#### 4.6.4 עדכון `saveAlertTags`
+
+בדיקה אם הצ'קבוקס מסומן ושליחה ל-Endpoint המתאים:
+
+```javascript
+async function saveAlertTags() {
+  if (!tagState.alertUid) return;
+  
+  const isGlobal = document.getElementById('tagGlobalCheckbox')?.checked || false;
+  
+  try {
+    if (tagSaveBtn) tagSaveBtn.disabled = true;
+    
+    let endpoint, payload;
+    
+    if (isGlobal && tagState.alertName) {
+      // 🌍 שמירה גלובלית - לפי שם ההתראה
+      endpoint = '/api/observability/alerts/global-tags';
+      payload = {
+        alert_name: tagState.alertName,
+        tags: tagState.tags,
+      };
+    } else {
+      // 📌 שמירה ספציפית - לפי UID (ברירת מחדל)
+      endpoint = `/api/observability/alerts/${tagState.alertUid}/tags`;
+      payload = {
+        tags: tagState.tags,
+        alert_timestamp: tagState.alertTimestamp,
+      };
+    }
+    
+    const res = await fetch(endpoint, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    
+    const data = await res.json();
+    
+    if (data.ok === false) {
+      showToast('שגיאה בשמירת תגיות');
+      return;
+    }
+    
+    // הודעה מותאמת
+    const message = isGlobal 
+      ? `התגיות יופיעו בכל ההתראות מסוג "${tagState.alertName}"`
+      : 'התגיות נשמרו';
+    showToast(message);
+    
+    closeTagModal();
+    refreshHistory().catch(() => {});
+    
+  } catch (err) {
+    console.error('save tags failed', err);
+    showToast('שגיאה בשמירת תגיות');
+  } finally {
+    if (tagSaveBtn) tagSaveBtn.disabled = false;
+  }
+}
+```
+
+---
+
+### 4.7 דוגמה מלאה לזרימה
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│  1. משתמש פותח התראה "CPU High" ומוסיף תגית "Infrastructure"   │
+│     ומסמן ✅ "החל באופן קבוע"                                   │
+└─────────────────────────────────────────────────────────────────┘
+                              │
+                              ▼
+┌─────────────────────────────────────────────────────────────────┐
+│  2. הקוד שומר ב-DB מסמך:                                       │
+│     { "alert_type_name": "CPU High",                            │
+│       "tags": ["infrastructure"] }                              │
+└─────────────────────────────────────────────────────────────────┘
+                              │
+                              ▼
+┌─────────────────────────────────────────────────────────────────┐
+│  3. בשליפת התראות, get_tags_map_for_alerts() מאחדת:           │
+│     • תגיות ספציפיות (לפי UID)                                  │
+│     • תגיות גלובליות (לפי שם)                                   │
+└─────────────────────────────────────────────────────────────────┘
+                              │
+                              ▼
+┌─────────────────────────────────────────────────────────────────┐
+│  4. כל התראה חדשה עם שם "CPU High" מקבלת אוטומטית              │
+│     את התגית "Infrastructure" - גם אם ה-UID שונה לגמרי!        │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+---
+
+### 4.8 שיקולים חשובים
+
+#### 🔄 מה קורה כשיש גם תגיות גלובליות וגם ספציפיות?
+
+**הן מתמזגות!** ההתראה מציגה את האיחוד של שתיהן.
+
+| סוג | תגיות |
+|-----|-------|
+| גלובלי ("CPU High") | `infrastructure`, `production` |
+| ספציפי (UID: abc-123) | `urgent`, `investigated` |
+| **תוצאה סופית** | `infrastructure`, `production`, `urgent`, `investigated` |
+
+#### 🗑️ איך מוחקים תגית גלובלית?
+
+כרגע, כדי להסיר תגית גלובלית, צריך לערוך אותה מחדש או למחוק ישירות מה-DB. אפשר להוסיף UI נפרד לניהול תגיות גלובליות אם יש צורך.
+
+#### ⚡ ביצועים
+
+הפונקציה `get_tags_map_for_alerts` מבצעת **2 שאילתות בלבד**, בלי קשר לכמות ההתראות:
+1. שליפת תגיות ספציפיות (`$in` על UIDs)
+2. שליפת תגיות גלובליות (`$in` על Names)
+
+---
+
 ## בדיקות
 
-### 4.1 בדיקות יחידה (Backend)
+### 5.1 בדיקות יחידה (Backend)
 
 ```python
 # tests/test_alert_tags_storage.py
@@ -1237,9 +1730,103 @@ class TestAlertTagsStorage:
         # תווי regex לא צריכים לפעול כ-regex
         assert "production" not in alert_tags_storage.search_tags(".*")
         assert "production" not in alert_tags_storage.search_tags("[prod]")
+
+
+class TestGlobalAlertTags:
+    """בדיקות לפיצ'ר תיוג גלובלי לפי סוג התראה."""
+    
+    def test_set_and_get_global_tags(self, clean_tags_collection):
+        """בדיקת שמירה ושליפה של תגיות גלובליות."""
+        alert_name = "CPU High"
+        tags = ["infrastructure", "critical"]
+        
+        result = alert_tags_storage.set_global_tags_for_name(alert_name, tags)
+        
+        assert result["alert_type_name"] == alert_name
+        assert set(result["tags"]) == {"infrastructure", "critical"}
+        
+        fetched = alert_tags_storage.get_global_tags_for_name(alert_name)
+        assert set(fetched) == {"infrastructure", "critical"}
+    
+    def test_global_tags_normalization(self, clean_tags_collection):
+        """וידוא נרמול תגיות גלובליות."""
+        alert_name = "Memory Warning"
+        tags = ["  URGENT  ", "Infrastructure", "urgent"]  # duplicates & case
+        
+        result = alert_tags_storage.set_global_tags_for_name(alert_name, tags)
+        
+        # Should be normalized and deduplicated
+        assert result["tags"] == ["urgent", "infrastructure"]
+    
+    def test_get_tags_map_merges_instance_and_global(self, clean_tags_collection):
+        """
+        בדיקה שהפונקציה get_tags_map_for_alerts מאחדת 
+        תגיות ספציפיות וגלובליות.
+        """
+        ts = datetime.now(timezone.utc)
+        
+        # תגיות ספציפיות להתראה מסוימת
+        alert_tags_storage.set_tags_for_alert("uid-123", ts, ["specific-tag"])
+        
+        # תגיות גלובליות לסוג "CPU High"
+        alert_tags_storage.set_global_tags_for_name("CPU High", ["global-tag"])
+        
+        # רשימת התראות לבדיקה
+        alerts = [
+            {"alert_uid": "uid-123", "name": "CPU High"},     # יש לה גם ספציפי וגם גלובלי
+            {"alert_uid": "uid-456", "name": "CPU High"},     # יש לה רק גלובלי
+            {"alert_uid": "uid-789", "name": "Other Alert"},  # אין לה תגיות
+        ]
+        
+        result = alert_tags_storage.get_tags_map_for_alerts(alerts)
+        
+        # uid-123: צריכה לקבל את שתי התגיות
+        assert "specific-tag" in result["uid-123"]
+        assert "global-tag" in result["uid-123"]
+        
+        # uid-456: צריכה לקבל רק את התגית הגלובלית
+        assert result["uid-456"] == ["global-tag"]
+        
+        # uid-789: ללא תגיות
+        assert result["uid-789"] == []
+    
+    def test_global_tags_apply_to_all_alerts_with_same_name(self, clean_tags_collection):
+        """
+        בדיקה שתגית גלובלית מופיעה בכל ההתראות עם אותו שם,
+        גם אם יש להן UIDs שונים לגמרי.
+        """
+        # יצירת תגית גלובלית
+        alert_tags_storage.set_global_tags_for_name("Low Disk Space", ["storage"])
+        
+        # 5 התראות שונות עם אותו שם
+        alerts = [
+            {"alert_uid": f"uid-{i}", "name": "Low Disk Space"}
+            for i in range(5)
+        ]
+        
+        result = alert_tags_storage.get_tags_map_for_alerts(alerts)
+        
+        # כולן צריכות לקבל את התגית הגלובלית
+        for i in range(5):
+            assert "storage" in result[f"uid-{i}"], f"Alert uid-{i} should have global tag"
+    
+    def test_remove_global_tags(self, clean_tags_collection):
+        """בדיקת מחיקת תגיות גלובליות."""
+        alert_name = "Test Alert"
+        alert_tags_storage.set_global_tags_for_name(alert_name, ["tag1", "tag2"])
+        
+        result = alert_tags_storage.remove_global_tags_for_name(alert_name)
+        
+        assert result["deleted"] is True
+        assert alert_tags_storage.get_global_tags_for_name(alert_name) == []
+    
+    def test_global_tags_empty_name_raises_error(self, clean_tags_collection):
+        """וידוא שלא ניתן לשמור תגיות גלובליות ללא שם."""
+        with pytest.raises(ValueError, match="alert_name is required"):
+            alert_tags_storage.set_global_tags_for_name("", ["tag"])
 ```
 
-### 4.2 בדיקות API
+### 5.2 בדיקות API
 
 ```python
 # tests/test_alert_tags_api.py
@@ -1313,7 +1900,7 @@ class TestAlertTagsAPI:
 
 ## שיקולי ביצועים
 
-### 5.1 אינדקסים
+### 6.1 אינדקסים
 
 האינדקסים המוגדרים ב-`ensure_indexes()` מכסים את התרחישים העיקריים:
 - `alert_uid` (unique) - שליפה לפי התראה
@@ -1321,11 +1908,11 @@ class TestAlertTagsAPI:
 - `alert_timestamp` - סינון לפי טווח זמן
 - Compound index על `tags` + `alert_timestamp` - שאילתות משולבות
 
-### 5.2 Batch Loading
+### 6.2 Batch Loading
 
 פונקציית `get_tags_for_alerts` מאפשרת טעינת תגיות במכה אחת עבור כל ההתראות בדף, במקום N+1 שאילתות.
 
-### 5.3 Caching (אופציונלי)
+### 6.3 Caching (אופציונלי)
 
 אם יש צורך, אפשר להוסיף cache לתגיות פופולריות:
 
@@ -1350,7 +1937,7 @@ def get_popular_tags_cached(limit: int = 50):
 
 ## שיקולי אבטחה ובאגים נפוצים
 
-### 6.1 🛡️ Regex Injection ב-MongoDB
+### 7.1 🛡️ Regex Injection ב-MongoDB
 
 **הבעיה:** חיפוש תגיות עם תווי Regex מיוחדים (`c++`, `tag(1)`, `[test]`) עלול לגרום לשגיאות או תוצאות לא צפויות.
 
@@ -1373,7 +1960,7 @@ safe_input = re.escape(user_input)
 | `[prod]` | `[]` הם character class - יתאים ל-p/r/o/d |
 | `.*` | יתאים לכל מחרוזת |
 
-### 6.2 🖱️ כפילות Event Listeners
+### 7.2 🖱️ כפילות Event Listeners
 
 **הבעיה:** פונקציות `init*Handlers` שנקראות בכל רענון טבלה מוסיפות listeners כפולים לאלמנטים קבועים (כמו Modal).
 
@@ -1398,7 +1985,7 @@ if (element) {
 - ביצועים - N קריאות API במקום אחת
 - Race conditions בקריאות אסינכרוניות
 
-### 6.3 בדיקות נוספות לאבטחה
+### 7.3 בדיקות נוספות לאבטחה
 
 הוסף את הבדיקות הבאות:
 
@@ -1437,6 +2024,7 @@ def test_empty_and_whitespace_tags():
 
 ### Checklist למימוש
 
+#### תיוג בסיסי (Instance-based)
 - [ ] **שלב 1:** יצירת `monitoring/alert_tags_storage.py`
 - [ ] **שלב 1:** הוספת `ensure_indexes()` ל-startup
 - [ ] **שלב 2:** הוספת פונקציות API ל-`observability_dashboard.py`
@@ -1447,7 +2035,19 @@ def test_empty_and_whitespace_tags():
 - [ ] **שלב 3:** הוספת Tag Modal HTML
 - [ ] **שלב 3:** הוספת JavaScript logic
 - [ ] **שלב 3:** עדכון `renderAlertsTable` ו-`initTagHandlers`
-- [ ] **בדיקות:** כתיבת unit tests
+
+#### תיוג גלובלי (Type-based) 🆕
+- [ ] **שלב 4:** הוספת פונקציות גלובליות ל-`alert_tags_storage.py`
+- [ ] **שלב 4:** עדכון אינדקסים עם `sparse=True`
+- [ ] **שלב 4:** הוספת Route ל-`/api/observability/alerts/global-tags`
+- [ ] **שלב 4:** החלפת `get_tags_for_alerts` ב-`get_tags_map_for_alerts`
+- [ ] **שלב 4:** הוספת צ'קבוקס "החל באופן קבוע" ל-Modal
+- [ ] **שלב 4:** עדכון `tagState` לכלול `alertName`
+- [ ] **שלב 4:** עדכון `saveAlertTags` לתמוך בשמירה גלובלית
+
+#### בדיקות ואבטחה
+- [ ] **בדיקות:** כתיבת unit tests לתיוג בסיסי
+- [ ] **בדיקות:** כתיבת unit tests לתיוג גלובלי
 - [ ] **בדיקות:** בדיקת integration עם הדשבורד
 - [ ] **אבטחה:** וידוא `re.escape()` בפונקציית `search_tags`
 - [ ] **אבטחה:** וידוא guards למניעת כפילות listeners
