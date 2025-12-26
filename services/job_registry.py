@@ -59,8 +59,12 @@ class JobRegistry:
         if cls._instance is None:
             with cls._lock:
                 if cls._instance is None:
-                    cls._instance = super().__new__(cls)
-                    cls._instance._jobs: Dict[str, JobDefinition] = {}
+                    # חשוב: מאתחלים את _jobs לפני שחושפים את ה-instance
+                    # כדי למנוע race condition שבו thread אחר רואה instance
+                    # אבל _jobs עדיין לא קיים
+                    new_instance = super().__new__(cls)
+                    new_instance._jobs: Dict[str, JobDefinition] = {}
+                    cls._instance = new_instance
         return cls._instance
 
     def register(self, job: JobDefinition) -> None:
