@@ -3,25 +3,45 @@
 {% macro code_tools_toolbar() %}
 {# Code Tools toolbar - Format, Lint, Fix, Playground #}
 <div class="code-tools-group" data-show-for-language="python">
-  <button type="button" class="btn btn-sm btn-outline" id="btn-format-code" title="עיצוב קוד (Ctrl+Shift+F)">
+  <button
+    type="button"
+    class="btn btn-sm btn-outline"
+    data-action="format"
+    title="עיצוב קוד (Ctrl+Shift+F)"
+  >
     <i class="fas fa-magic"></i>
     עיצוב
   </button>
-  <button type="button" class="btn btn-sm btn-outline" id="btn-lint-code" title="בדיקת איכות (Ctrl+Shift+L)">
+  <button
+    type="button"
+    class="btn btn-sm btn-outline"
+    data-action="lint"
+    title="בדיקת איכות (Ctrl+Shift+L)"
+  >
     <i class="fas fa-check-circle"></i>
     Lint
   </button>
   <div class="dropdown">
-    <button type="button" class="btn btn-sm btn-outline dropdown-toggle" id="btn-auto-fix">
+    <button type="button" class="btn btn-sm btn-outline dropdown-toggle" data-action="fix-menu" id="btn-auto-fix">
       <i class="fas fa-wrench"></i>
       תיקון
     </button>
     <div class="dropdown-menu">
-      <button class="dropdown-item" data-level="safe">🛡️ בטוח (whitespace)</button>
-      <button class="dropdown-item" data-level="cautious">⚠️ זהיר (+imports)</button>
-      <button class="dropdown-item" data-level="aggressive">🔥 אגרסיבי (מלא)</button>
+      <button class="dropdown-item" data-action="fix-level" data-level="safe">🛡️ בטוח (whitespace)</button>
+      <button class="dropdown-item" data-action="fix-level" data-level="cautious">⚠️ זהיר (+imports)</button>
+      <button class="dropdown-item" data-action="fix-level" data-level="aggressive">🔥 אגרסיבי (מלא)</button>
     </div>
   </div>
+  <button
+    type="button"
+    class="btn btn-sm btn-outline-secondary"
+    data-action="apply-fix"
+    disabled
+    title="החל תיקונים שחושבו (אחרי בחירה ב'תיקון')"
+  >
+    <i class="fas fa-check"></i>
+    החל
+  </button>
   <a
     href="/tools/code"
     target="_blank"
@@ -36,7 +56,7 @@
 {% endmacro %}
 
 {% macro code_tools_modal() %}
-{# Bootstrap Modal for Code Tools results #}
+{# Bootstrap Modals for Code Tools (results + fix options) #}
 <div class="modal fade" id="codeToolsModal" tabindex="-1" aria-labelledby="codeToolsModalLabel" aria-hidden="true">
   <div class="modal-dialog modal-lg modal-dialog-centered modal-dialog-scrollable">
     <div class="modal-content">

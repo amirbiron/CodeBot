@@ -57,8 +57,6 @@ const CodeToolsIntegration = {
       } else {
         editorActions.appendChild(toolsGroup);
       }
-      
-      console.log('[CodeToolsIntegration] Moved tools to editor row');
     }
   },
 
@@ -66,14 +64,12 @@ const CodeToolsIntegration = {
    * קישור אירועים
    */
   bindEvents() {
-    // כפתורי Toolbar
-    document.getElementById('btn-format-code')?.addEventListener('click', () => this.formatCode());
-    document.getElementById('btn-lint-code')?.addEventListener('click', () => this.lintCode());
-
-    // תפריט תיקון
-    document.querySelectorAll('[data-level]').forEach((btn) => {
-      btn.addEventListener('click', () => this.autoFix(btn.dataset.level));
-    });
+    // Toolbar (Event Delegation) — לא מסתמך על IDs שעלולים להשתנות במקרו
+    const toolsGroup = document.querySelector('.code-tools-group');
+    if (toolsGroup && !toolsGroup.__codeToolsBound) {
+      toolsGroup.addEventListener('click', (e) => this.handleToolbarClick(e));
+      toolsGroup.__codeToolsBound = true;
+    }
 
     // קיצורי מקלדת
     document.addEventListener('keydown', (e) => {
@@ -90,6 +86,166 @@ const CodeToolsIntegration = {
 
     // עדכון כשמשתנה השפה
     this.languageSelect?.addEventListener('change', () => this.updateToolsVisibility());
+
+    // אם המשתמש משנה את הקוד אחרי שחישבנו תיקון — נבטל את ה"החל" כדי לא לדרוס בטעות
+    const textarea = document.getElementById('codeTextarea');
+    if (textarea && !textarea.__codeToolsBound) {
+      textarea.addEventListener('input', () => this.clearPendingFix('code_changed'));
+      textarea.__codeToolsBound = true;
+    }
+  },
+
+  handleToolbarClick(e) {
+    const btn = e.target && typeof e.target.closest === 'function' ? e.target.closest('[data-action]') : null;
+    if (!btn) return;
+
+    const action = String(btn.dataset.action || '').trim();
+    if (!action) return;
+
+    if (action === 'format') {
+      e.preventDefault();
+      this.formatCode();
+      return;
+    }
+
+    if (action === 'lint') {
+      e.preventDefault();
+      this.lintCode();
+      return;
+    }
+
+    if (action === 'fix-level') {
+      e.preventDefault();
+      const level = String(btn.dataset.level || '').trim();
+      if (!level) return;
+      this.prepareFix(level);
+      return;
+    }
+
+    if (action === 'apply-fix') {
+      e.preventDefault();
+      this.applyPendingFix();
+      return;
+    }
+
+    // action === 'fix-menu' / אחרים: לא עושים כלום כאן
+  },
+
+  setApplyEnabled(enabled) {
+    const applyBtn = document.querySelector('.code-tools-group [data-action="apply-fix"]');
+    if (applyBtn) applyBtn.disabled = !enabled;
+  },
+
+  clearPendingFix(reason) {
+    if (this._pendingFix) {
+      this._pendingFix = null;
+      this.setApplyEnabled(false);
+      if (reason === 'code_changed') {
+        this.showInlineStatus('הקוד השתנה — הרץ "תיקון" שוב לפני החלה', 'info');
+      }
+    }
+  },
+
+  /**
+   * שלב 1: חישוב תיקון לפי רמה (לא מחיל על העורך)
+   * אחרי שהשרת מחזיר, מפעילים כפתור "החל".
+   */
+  async prepareFix(level) {
+    const code = this.getCode();
+    if (!code.trim()) {
+      this.showInlineStatus('אין קוד לתיקון', 'warning');
+      this.showStatus('אין קוד לתיקון', 'warning');
+      return;
+    }
+
+    // invalidate קודם (במקרה שהמשתמש מריץ שוב)
+    this._pendingFix = null;
+    this.setApplyEnabled(false);
+
+    this.showInlineStatus('מתקן...', 'loading');
+    this.showStatus('מתקן...', 'loading');
+
+    try {
+      const response = await fetch('/api/code/fix', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ code, level, language: 'python' }),
+      });
+
+      const result = await response.json();
+
+      if (result.success) {
+        const fixed = result.fixed_code || '';
+        const fixesApplied = Array.isArray(result.fixes_applied) ? result.fixes_applied : [];
+
+        if (!fixed || fixed === code) {
+          this._pendingFix = null;
+          this.setApplyEnabled(false);
+          this.showInlineStatus('אין תיקונים נדרשים', 'success');
+          this.showStatus('אין תיקונים נדרשים', 'info');
+          return;
+        }
+
+        this._pendingFix = {
+          level,
+          original: code,
+          fixed,
+          fixesApplied,
+        };
+        this.setApplyEnabled(true);
+        this.showInlineStatus('תיקון מוכן. לחץ "החל" כדי להמשיך', 'success');
+        this.showStatus('תיקון מוכן. לחץ "החל" כדי להמשיך', 'success');
+      } else {
+        this._pendingFix = null;
+        this.setApplyEnabled(false);
+        this.showInlineStatus((result && result.error) || 'שגיאה בתיקון', 'error');
+        this.showStatus(result.error || 'שגיאה בתיקון', 'error');
+      }
+    } catch (error) {
+      this._pendingFix = null;
+      this.setApplyEnabled(false);
+      this.showInlineStatus('שגיאה בתקשורת', 'error');
+      this.showStatus('שגיאה בתקשורת', 'error');
+      console.error('Fix error:', error);
+    }
+  },
+
+  /**
+   * שלב 2: החלה (עם אישור) של תיקון שחושב
+   */
+  async applyPendingFix() {
+    const pending = this._pendingFix;
+    if (!pending || !pending.fixed) {
+      this.showInlineStatus('אין תיקון מוכן להחלה. בחר רמת תיקון קודם', 'warning');
+      return;
+    }
+
+    // הגנה: אם התוכן בעורך השתנה מאז החישוב — לא מחילים אוטומטית
+    const current = this.getCode();
+    if (current !== pending.original) {
+      this.clearPendingFix('code_changed');
+      return;
+    }
+
+    const confirmed = await this.showDiffConfirmation(
+      pending.original,
+      pending.fixed,
+      (pending.fixesApplied && pending.fixesApplied.length) || 1,
+      pending.fixesApplied && pending.fixesApplied.length ? pending.fixesApplied : null,
+      'נמצאו תיקונים. האם להחיל אותם על הקובץ?'
+    );
+
+    if (confirmed) {
+      this.setCode(pending.fixed);
+      this.showInlineStatus('הוחלו התיקונים על הקובץ', 'success');
+      this.showStatus('הוחלו התיקונים על הקובץ', 'success');
+    } else {
+      this.showInlineStatus('ההחלה בוטלה', 'info');
+    }
+
+    // בכל מקרה, מנקים מצב "מוכן להחלה" כדי לא לדרוס בטעות שוב
+    this._pendingFix = null;
+    this.setApplyEnabled(false);
   },
 
   /**
@@ -102,9 +258,6 @@ const CodeToolsIntegration = {
     const language = String(rawLanguage).toLowerCase().trim();
     const toolsGroup = document.querySelector('.code-tools-group');
 
-    // דיבאג: הדפסת השפה שזוהתה
-    console.log('[CodeToolsIntegration] updateToolsVisibility - detected language:', language);
-
     if (toolsGroup) {
       // כרגע תומכים רק ב-Python (case-insensitive)
       const isPython = language === 'python' || language === 'py';
@@ -116,8 +269,6 @@ const CodeToolsIntegration = {
         // אם פייתון - מבטיחים שהכפתורים גלויים (מוחקים display inline style אם יש)
         toolsGroup.style.removeProperty('display');
       }
-      
-      console.log('[CodeToolsIntegration] toolsGroup visibility:', isPython ? 'visible (Python)' : 'hidden (not Python)');
     } else {
       console.warn('[CodeToolsIntegration] .code-tools-group element not found in DOM');
     }
@@ -127,6 +278,13 @@ const CodeToolsIntegration = {
    * קבלת קוד מה-editor
    */
   getCode() {
+    // fallback חזק: גם אם init לא קיבל editorInstance (או נכשל), נעדיף את editorManager אם קיים
+    try {
+      if (window.editorManager && typeof window.editorManager.getEditorContent === 'function') {
+        const v = window.editorManager.getEditorContent();
+        if (typeof v === 'string') return v;
+      }
+    } catch (_) {}
     if (this.editor && typeof this.editor.getValue === 'function') {
       return this.editor.getValue();
     }
@@ -137,6 +295,13 @@ const CodeToolsIntegration = {
    * עדכון קוד ב-editor
    */
   setCode(code) {
+    // fallback חזק: עדכון מפורש של העורך (CodeMirror/textarea) דרך editorManager
+    try {
+      if (window.editorManager && typeof window.editorManager.setEditorContent === 'function') {
+        window.editorManager.setEditorContent(code);
+        return;
+      }
+    } catch (_) {}
     if (this.editor && typeof this.editor.setValue === 'function') {
       this.editor.setValue(code);
     } else {
@@ -151,10 +316,13 @@ const CodeToolsIntegration = {
   async formatCode() {
     const code = this.getCode();
     if (!code.trim()) {
+      this.showInlineStatus('אין קוד לעיצוב', 'warning');
       this.showStatus('אין קוד לעיצוב', 'warning');
       return;
     }
 
+    // אותו טקסט כמו /tools/code
+    this.showInlineStatus('מעצב...', 'loading');
     this.showStatus('מעצב...', 'loading');
 
     try {
@@ -177,15 +345,22 @@ const CodeToolsIntegration = {
 
           if (confirmed) {
             this.setCode(result.formatted_code);
+            this.showInlineStatus(
+              result.has_changes ? `עיצוב הסתיים (${result.lines_changed} שורות)` : 'הקוד כבר מעוצב',
+              'success'
+            );
             this.showStatus(`עוצב בהצלחה (${result.lines_changed} שורות)`, 'success');
           }
         } else {
+          this.showInlineStatus('הקוד כבר מעוצב', 'success');
           this.showStatus('הקוד כבר מעוצב', 'info');
         }
       } else {
+        this.showInlineStatus((result && result.error) || 'שגיאה בעיצוב', 'error');
         this.showStatus(result.error || 'שגיאה בעיצוב', 'error');
       }
     } catch (error) {
+      this.showInlineStatus('שגיאה בתקשורת', 'error');
       this.showStatus('שגיאה בתקשורת', 'error');
       console.error('Format error:', error);
     }
@@ -197,10 +372,13 @@ const CodeToolsIntegration = {
   async lintCode() {
     const code = this.getCode();
     if (!code.trim()) {
+      this.showInlineStatus('אין קוד לבדיקה', 'warning');
       this.showStatus('אין קוד לבדיקה', 'warning');
       return;
     }
 
+    // אותו טקסט כמו /tools/code
+    this.showInlineStatus('בודק...', 'loading');
     this.showStatus('בודק...', 'loading');
 
     try {
@@ -213,11 +391,14 @@ const CodeToolsIntegration = {
       const result = await response.json();
 
       if (result.success) {
+        this.showInlineStatus('בדיקת Lint הסתיימה', 'success');
         this.showLintResults(result);
       } else {
+        this.showInlineStatus((result && result.error) || 'שגיאה בבדיקה', 'error');
         this.showStatus(result.error || 'שגיאה בבדיקה', 'error');
       }
     } catch (error) {
+      this.showInlineStatus('שגיאה בתקשורת', 'error');
       this.showStatus('שגיאה בתקשורת', 'error');
       console.error('Lint error:', error);
     }
@@ -227,12 +408,17 @@ const CodeToolsIntegration = {
    * תיקון אוטומטי
    */
   async autoFix(level) {
+    // נשמר לתאימות אחורה (אם יש קריאות ישנות).
+    // בפועל, הזרימה בעורך היא: prepareFix -> applyPendingFix.
     const code = this.getCode();
     if (!code.trim()) {
+      this.showInlineStatus('אין קוד לתיקון', 'warning');
       this.showStatus('אין קוד לתיקון', 'warning');
       return;
     }
 
+    // אותו טקסט כמו /tools/code
+    this.showInlineStatus('מתקן...', 'loading');
     this.showStatus('מתקן...', 'loading');
 
     try {
@@ -250,20 +436,30 @@ const CodeToolsIntegration = {
             code,
             result.fixed_code,
             result.fixes_applied.length,
-            result.fixes_applied
+            result.fixes_applied,
+            'נמצאו תיקונים. האם להחיל אותם על הקובץ?'
           );
 
           if (confirmed) {
             this.setCode(result.fixed_code);
+            this.showInlineStatus(
+              result.fixes_applied && result.fixes_applied.length
+                ? `תוקן: ${result.fixes_applied.join(', ')}`
+                : 'אין תיקונים נדרשים',
+              'success'
+            );
             this.showStatus(`תוקן: ${result.fixes_applied.join(', ')}`, 'success');
           }
         } else {
+          this.showInlineStatus('אין תיקונים נדרשים', 'success');
           this.showStatus('אין תיקונים נדרשים', 'info');
         }
       } else {
+        this.showInlineStatus((result && result.error) || 'שגיאה בתיקון', 'error');
         this.showStatus(result.error || 'שגיאה בתיקון', 'error');
       }
     } catch (error) {
+      this.showInlineStatus('שגיאה בתקשורת', 'error');
       this.showStatus('שגיאה בתקשורת', 'error');
       console.error('Fix error:', error);
     }
@@ -331,13 +527,14 @@ const CodeToolsIntegration = {
   /**
    * הצגת diff לאישור
    */
-  async showDiffConfirmation(original, modified, changesCount, fixesList = null) {
+  async showDiffConfirmation(original, modified, changesCount, fixesList = null, promptText = null) {
     return new Promise((resolve) => {
       // חישוב diff
       const diffLines = this.computeDiff(original, modified);
 
       let html = `
                 <div class="diff-preview">
+                    ${promptText ? `<div class="diff-prompt" style="margin-bottom: .75rem; font-weight: 600;">${this.escapeHtml(promptText)}</div>` : ''}
                     <div class="diff-stats">
                         ${changesCount} שינויים
                         ${fixesList ? `<br><small>${fixesList.join(', ')}</small>` : ''}
@@ -404,6 +601,40 @@ const CodeToolsIntegration = {
     } else {
       console.log(`[${type}] ${message}`);
     }
+  },
+
+  /**
+   * הודעת סטטוס קצרה באזור הסטטוס מתחת לעורך (כמו "כל הקוד סומן")
+   */
+  showInlineStatus(message, type) {
+    const msg = typeof message === 'string' ? message : '';
+    const statusEl =
+      document.querySelector('.editor-switcher .editor-info-status') || document.querySelector('.editor-info-status');
+    if (!statusEl) return;
+
+    statusEl.textContent = msg;
+
+    if (!this._inlineStatusTimers) this._inlineStatusTimers = new WeakMap();
+    const prev = this._inlineStatusTimers.get(statusEl);
+    if (prev) clearTimeout(prev);
+
+    // בזמן loading נשאיר את ההודעה עד שתוחלף ב-success/error
+    if (type === 'loading') {
+      this._inlineStatusTimers.delete(statusEl);
+      return;
+    }
+
+    // תצוגה קצרה (לא "נתקע" על המסך)
+    const timer = setTimeout(() => {
+      try {
+        // נקה רק אם לא הוחלף בינתיים
+        if (statusEl.textContent === msg) statusEl.textContent = '';
+      } catch (_) {}
+      try {
+        this._inlineStatusTimers.delete(statusEl);
+      } catch (_) {}
+    }, 1800);
+    this._inlineStatusTimers.set(statusEl, timer);
   },
 
   /**
