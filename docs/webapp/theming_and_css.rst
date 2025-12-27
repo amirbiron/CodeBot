@@ -90,12 +90,12 @@
      - ``webapp/static/css/variables.css`` (``:root[data-theme]``) + בדיקת ניגודיות ב‑High Contrast
    * - ``--card-bg`` / ``--card-border``
      - Level 2
-     - כרטיסים, מודלים, dropdowns
-     - ``webapp/static/css/variables.css`` (``:root[data-theme]``) + שימוש חוזר ב‑``static/css/dark-mode.css``
+     - כרטיסים, מודלים, dropdowns. **Theme Builder מייצר ``--card-border`` אוטומטית מ‑``--glass-border``** (תוקן ב‑2025-12)
+     - ``webapp/static/css/variables.css`` (``:root[data-theme]``) + שימוש חוזר ב‑``static/css/dark-mode.css`` כולל ``[data-theme="custom"]``
    * - ``--glass`` / ``--glass-border`` / ``--glass-hover``
      - Level 1
-     - בסיס ל‑Glassmorphism navbar, badges, מודלים
-     - ``webapp/static/css/variables.css`` (קטע ``:root``) + Overrides ב‑תמות בהירות
+     - בסיס ל‑Glassmorphism navbar, badges, מודלים. **Theme Builder מייצר אותם לפי צבע ``--card-bg`` ולא לבן קבוע** (תוקן ב‑2025-12)
+     - ``webapp/static/css/variables.css`` (קטע ``:root``) + Overrides ב‑תמות בהירות + ``dark-mode.css`` עבור ``[data-theme="custom"]``
    * - ``--btn-primary-bg`` / ``--btn-primary-color`` / ``--btn-primary-border`` / ``--btn-primary-shadow``
      - Level 2
      - כל כפתור ראשי, כולל מצבי hover (`--btn-primary-hover-*`)
@@ -275,6 +275,7 @@ Component Tokens ו‑Theme Builder
 
 - כאשר מבצעים Override לתמה קיימת (בידיים היום או דרך Theme Builder בעתיד), כתבו את הטוקנים בתוך ``:root[data-theme="ocean"]`` באותו `<style>` כך שהערכים הדינמיים יגברו על ברירת המחדל.
 - טוקנים חובה ל‑Theme מותאם אישית (גם בעתיד כשה‑Builder יהיה פעיל): `--primary`, `--secondary`, `--bg-primary`, `--bg-secondary`, `--text-primary`, `--text-secondary`, `--btn-primary-bg`, `--btn-primary-color`, `--glass`, `--md-surface`, `--md-text`.
+- **עדכון דצמבר 2025**: הוספה תמיכה מלאה ב‑``[data-theme="custom"]`` בקובץ ``dark-mode.css``. כעת כל הרכיבים (כרטיסים, כפתורים, navbar ועוד) משתמשים בטוקנים הנכונים גם עבור ערכות מותאמות. בנוסף, Theme Builder מייצר ``--glass*`` על בסיס צבע ``--card-bg`` (במקום לבן קבוע), מה שמתקן בעיות "רכיבים לבנים" בערכות בהירות.
 
 בדיקות חובה לפני Merge
 ----------------------

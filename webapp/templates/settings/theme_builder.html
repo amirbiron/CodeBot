@@ -910,7 +910,7 @@
             }
         }
 
-        // Glass
+        // Glass - use card-bg color as base for glass effect (not hardcoded white)
         const opacitySlider = document.getElementById('glassOpacity');
         const blurSlider = document.getElementById('glassBlur');
         const opacityVal = parseInt(opacitySlider.value, 10);
@@ -918,12 +918,70 @@
         const glassAlpha = (opacityVal / 100).toFixed(2);
         const borderAlpha = Math.min(1, (opacityVal + 10) / 100).toFixed(2);
         const hoverAlpha = Math.min(1, (opacityVal + 5) / 100).toFixed(2);
-        variables['--glass'] = `rgba(255, 255, 255, ${glassAlpha})`;
-        variables['--glass-border'] = `rgba(255, 255, 255, ${borderAlpha})`;
-        variables['--glass-hover'] = `rgba(255, 255, 255, ${hoverAlpha})`;
+
+        // Extract RGB values from card-bg or use a smart fallback
+        const cardBgInput = document.getElementById('cardBgText');
+        const cardBgValue = cardBgInput?.value?.trim() || '';
+        const glassBaseRgb = parseColorToRgb(cardBgValue) || { r: 255, g: 255, b: 255 };
+
+        variables['--glass'] = `rgba(${glassBaseRgb.r}, ${glassBaseRgb.g}, ${glassBaseRgb.b}, ${glassAlpha})`;
+        variables['--glass-border'] = `rgba(${glassBaseRgb.r}, ${glassBaseRgb.g}, ${glassBaseRgb.b}, ${borderAlpha})`;
+        variables['--glass-hover'] = `rgba(${glassBaseRgb.r}, ${glassBaseRgb.g}, ${glassBaseRgb.b}, ${hoverAlpha})`;
         variables['--glass-blur'] = blurSlider.value + 'px';
 
+        // Add --card-border based on glass-border for consistency
+        variables['--card-border'] = variables['--glass-border'];
+
         return variables;
+    }
+
+    // Helper: parse hex or rgba color to RGB object
+    // Supports: #rgb, #rrggbb, #rrggbbaa (HEXA from Pickr), rgb(), rgba()
+    function parseColorToRgb(colorStr) {
+        if (!colorStr) return null;
+        colorStr = colorStr.trim();
+
+        // Handle hex formats
+        if (colorStr.startsWith('#')) {
+            let hex = colorStr.slice(1);
+
+            // Handle short hex (#rgb) -> expand to 6 chars
+            if (hex.length === 3) {
+                hex = hex.split('').map(c => c + c).join('');
+            }
+
+            // Handle HEXA format (#rrggbbaa) from Pickr -> strip alpha
+            if (hex.length === 8) {
+                hex = hex.slice(0, 6);
+            }
+
+            // Parse 6-character hex
+            if (hex.length === 6) {
+                const r = parseInt(hex.slice(0, 2), 16);
+                const g = parseInt(hex.slice(2, 4), 16);
+                const b = parseInt(hex.slice(4, 6), 16);
+
+                // Validate against NaN (invalid hex characters like #gggggg)
+                if (!Number.isNaN(r) && !Number.isNaN(g) && !Number.isNaN(b)) {
+                    return { r, g, b };
+                }
+            }
+        }
+
+        // Handle rgba(r, g, b, a) or rgb(r, g, b)
+        const rgbaMatch = colorStr.match(/rgba?\s*\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)/i);
+        if (rgbaMatch) {
+            const r = parseInt(rgbaMatch[1], 10);
+            const g = parseInt(rgbaMatch[2], 10);
+            const b = parseInt(rgbaMatch[3], 10);
+
+            // Validate against NaN
+            if (!Number.isNaN(r) && !Number.isNaN(g) && !Number.isNaN(b)) {
+                return { r, g, b };
+            }
+        }
+
+        return null; // Safe fallback
     }
 
     // ========== API Functions ==========
