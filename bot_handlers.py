@@ -873,7 +873,8 @@ class AdvancedBotHandlers:
         file_id = str(file_data.get('_id', file_name))
         # כפתור מועדפים בהתאם למצב הנוכחי
         try:
-            is_fav_now = bool(_call_files_api("is_favorite", user_id, file_name))
+            checked = _call_files_api("is_favorite", user_id, file_name)
+            is_fav_now = bool(checked) if checked is not None else False
         except Exception:
             is_fav_now = False
         fav_text = ("💔 הסר ממועדפים" if is_fav_now else "⭐ הוסף למועדפים")
@@ -4820,9 +4821,11 @@ class AdvancedBotHandlers:
                         pass
                     return
                 try:
-                    after_state = bool(_call_files_api("is_favorite", user_id, fname))
+                    checked = _call_files_api("is_favorite", user_id, fname)
+                    # _call_files_api מחזיר None במקום לזרוק — לכן חייבים לטפל ב-None מפורשות
+                    after_state = bool(checked) if checked is not None else bool(state)
                 except Exception:
-                    # fallback: אם אין אפשרות לבדיקה חוזרת, נסתמך על החזרת toggle
+                    # fallback קיצוני: אם משהו חריג קרה סביב העטיפה, נסתמך על החזרת toggle
                     after_state = bool(state)
                 try:
                     await query.answer("⭐ נוסף למועדפים!" if after_state else "💔 הוסר מהמועדפים", show_alert=False)
@@ -4870,7 +4873,8 @@ class AdvancedBotHandlers:
                         pass
                     return
                 try:
-                    after_state = bool(_call_files_api("is_favorite", user_id, fname))
+                    checked = _call_files_api("is_favorite", user_id, fname)
+                    after_state = bool(checked) if checked is not None else bool(state)
                 except Exception:
                     after_state = bool(state)
                 try:
