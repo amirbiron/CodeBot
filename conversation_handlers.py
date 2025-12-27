@@ -119,10 +119,20 @@ def _get_legacy_db():
 _FACADE_SENTINEL = object()
 
 
-def _should_retry_with_legacy(value) -> bool:
+def _should_retry_with_legacy(method_name: str, value) -> bool:
+    """
+    האם לנסות fallback ל-legacy DB אחרי קריאה ל-FilesFacade.
+
+    חשוב: פעולות "טוגל" הן stateful. ערך False יכול להיות תוצאה תקינה,
+    ולכן אסור להתייחס אליו כ"כשל" — אחרת אנחנו מבצעים את הפעולה פעמיים ומקבלים מצב הפוך.
+    """
     if value is _FACADE_SENTINEL:
         return True
-    if value in (None, False):
+    if value is None:
+        return True
+    if method_name in {"toggle_favorite"} and isinstance(value, bool):
+        return False
+    if value is False:
         return True
     if isinstance(value, (list, dict)) and not value:
         return True
@@ -143,7 +153,7 @@ def _call_files_api(method_name: str, *args, **kwargs):
             except Exception:
                 facade_result = _FACADE_SENTINEL
 
-    if _should_retry_with_legacy(facade_result):
+    if _should_retry_with_legacy(method_name, facade_result):
         legacy = _get_legacy_db()
         if legacy is not None:
             method = getattr(legacy, method_name, None)
@@ -163,7 +173,7 @@ def _call_files_api(method_name: str, *args, **kwargs):
 def _call_repo_api(method_name: str, *args, **kwargs):
     """Invoke repository-level APIs (e.g. recycle bin helpers)."""
     result = _call_files_api(method_name, *args, **kwargs)
-    if not _should_retry_with_legacy(result):
+    if not _should_retry_with_legacy(method_name, result):
         return result
     legacy = _get_legacy_db()
     if legacy is None:

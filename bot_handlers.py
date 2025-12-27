@@ -86,10 +86,21 @@ def _get_legacy_db():
 _FACADE_SENTINEL = object()
 
 
-def _should_retry_with_legacy(value) -> bool:
+def _should_retry_with_legacy(method_name: str, value) -> bool:
+    """
+    האם לנסות fallback ל-legacy DB אחרי קריאה ל-FilesFacade.
+
+    חשוב: פעולות "טוגל" הן stateful. ערך False יכול להיות תוצאה תקינה (למשל: הוסר מהמועדפים),
+    ולכן אסור להתייחס אליו כ"כשל" — אחרת אנחנו מבצעים את הפעולה פעמיים ומחזירים מצב הפוך.
+    """
     if value is _FACADE_SENTINEL:
         return True
-    if value in (None, False):
+    if value is None:
+        return True
+    # Side-effectful toggles: never retry on a valid boolean result
+    if method_name in {"toggle_favorite"} and isinstance(value, bool):
+        return False
+    if value is False:
         return True
     if isinstance(value, (list, dict)) and not value:
         return True
@@ -126,7 +137,7 @@ def _call_files_api(method_name: str, *args, **kwargs):
             except Exception:
                 facade_result = _FACADE_SENTINEL
 
-    if _should_retry_with_legacy(facade_result):
+    if _should_retry_with_legacy(method_name, facade_result):
         legacy = _get_legacy_db()
         if legacy is not None:
             method = getattr(legacy, method_name, None)
@@ -862,7 +873,8 @@ class AdvancedBotHandlers:
         file_id = str(file_data.get('_id', file_name))
         # כפתור מועדפים בהתאם למצב הנוכחי
         try:
-            is_fav_now = bool(_call_files_api("is_favorite", user_id, file_name))
+            checked = _call_files_api("is_favorite", user_id, file_name)
+            is_fav_now = bool(checked) if checked is not None else False
         except Exception:
             is_fav_now = False
         fav_text = ("💔 הסר ממועדפים" if is_fav_now else "⭐ הוסף למועדפים")
@@ -4809,7 +4821,14 @@ class AdvancedBotHandlers:
                         pass
                     return
                 try:
-                    await query.answer("⭐ נוסף למועדפים!" if state else "💔 הוסר מהמועדפים", show_alert=False)
+                    checked = _call_files_api("is_favorite", user_id, fname)
+                    # _call_files_api מחזיר None במקום לזרוק — לכן חייבים לטפל ב-None מפורשות
+                    after_state = bool(checked) if checked is not None else bool(state)
+                except Exception:
+                    # fallback קיצוני: אם משהו חריג קרה סביב העטיפה, נסתמך על החזרת toggle
+                    after_state = bool(state)
+                try:
+                    await query.answer("⭐ נוסף למועדפים!" if after_state else "💔 הוסר מהמועדפים", show_alert=False)
                 except Exception:
                     pass
                 # אם אנחנו במסך בקרה/פעולות, הצג הודעת סטטוס מעל הכפתורים ושמור את המקלדת
@@ -4818,7 +4837,7 @@ class AdvancedBotHandlers:
                     latest = _call_files_api("get_latest_version", user_id, fname) or {}
                     lang = latest.get('programming_language') or 'text'
                     note = latest.get('description') or '—'
-                    notice = ("⭐️ הקוד נשמר במועדפים" if state else "💔 הקוד הוסר מהמועדפים")
+                    notice = ("⭐️ הקוד נשמר במועדפים" if after_state else "💔 הקוד הוסר מהמועדפים")
                     from html import escape as _e
                     new_text = (
                         f"{notice}\n\n"
@@ -4828,11 +4847,7 @@ class AdvancedBotHandlers:
                         f"🎮 בחר פעולה מתקדמת:"
                     )
                     # בנה מקלדת מעודכנת עם תווית כפתור מועדפים הנכונה
-                    try:
-                        is_fav_now = bool(_call_files_api("is_favorite", user_id, fname))
-                    except Exception:
-                        is_fav_now = state
-                    fav_label = "💔 הסר ממועדפים" if is_fav_now else "⭐ הוסף למועדפים"
+                    fav_label = "💔 הסר ממועדפים" if after_state else "⭐ הוסף למועדפים"
                     # נעדיף שימוש ב-id אם זמין
                     fav_cb = f"fav_toggle_id:{fid}" if fid else f"fav_toggle_tok:{fname}"
                     from telegram import InlineKeyboardButton as _IKB, InlineKeyboardMarkup as _IKM
@@ -4858,14 +4873,19 @@ class AdvancedBotHandlers:
                         pass
                     return
                 try:
-                    await query.answer("⭐ נוסף למועדפים!" if state else "💔 הוסר מהמועדפים", show_alert=False)
+                    checked = _call_files_api("is_favorite", user_id, fname)
+                    after_state = bool(checked) if checked is not None else bool(state)
+                except Exception:
+                    after_state = bool(state)
+                try:
+                    await query.answer("⭐ נוסף למועדפים!" if after_state else "💔 הוסר מהמועדפים", show_alert=False)
                 except Exception:
                     pass
                 try:
                     latest = _call_files_api("get_latest_version", user_id, fname) or {}
                     lang = latest.get('programming_language') or 'text'
                     note = latest.get('description') or '—'
-                    notice = ("⭐️ הקוד נשמר במועדפים" if state else "💔 הקוד הוסר מהמועדפים")
+                    notice = ("⭐️ הקוד נשמר במועדפים" if after_state else "💔 הקוד הוסר מהמועדפים")
                     from html import escape as _e
                     new_text = (
                         f"{notice}\n\n"
@@ -4874,11 +4894,7 @@ class AdvancedBotHandlers:
                         f"📝 הערה: {_e(str(note))}\n\n"
                         f"🎮 בחר פעולה מתקדמת:"
                     )
-                    try:
-                        is_fav_now = bool(_call_files_api("is_favorite", user_id, fname))
-                    except Exception:
-                        is_fav_now = state
-                    fav_label = "💔 הסר ממועדפים" if is_fav_now else "⭐ הוסף למועדפים"
+                    fav_label = "💔 הסר ממועדפים" if after_state else "⭐ הוסף למועדפים"
                     fav_cb = f"fav_toggle_tok:{token}"
                     from telegram import InlineKeyboardButton as _IKB, InlineKeyboardMarkup as _IKM
                     updated_kb = _IKM([[ _IKB(fav_label, callback_data=fav_cb) ]])
