@@ -2,7 +2,7 @@
 
 {% block title %}עריכת {{ file.file_name }} - Code Keeper Bot{% endblock %}
 
-{% from "components/editor_components.html" import image_uploader %}
+{% from "components/editor_components.html" import image_uploader, code_tools_toolbar, code_tools_modal %}
 
 {% block extra_css %}
 <link rel="stylesheet" href="{{ url_for('static', filename='css/split-view.css') }}?v={{ static_version }}">
@@ -84,38 +84,8 @@
       <label>תגיות</label>
       <input type="text" name="tags" value="{{ file.tags | join(', ') }}" placeholder="#utils, #repo:owner/name" class="form-field">
     </div>
-    <!-- Code Tools toolbar - מחוץ ל-split-toolbar כדי להיות גלוי תמיד -->
-    <div class="code-tools-group" data-show-for-language="python">
-      <button type="button" class="btn btn-sm btn-outline" id="btn-format-code" title="עיצוב קוד (Ctrl+Shift+F)">
-        <i class="fas fa-magic"></i>
-        עיצוב
-      </button>
-      <button type="button" class="btn btn-sm btn-outline" id="btn-lint-code" title="בדיקת איכות (Ctrl+Shift+L)">
-        <i class="fas fa-check-circle"></i>
-        Lint
-      </button>
-      <div class="dropdown">
-        <button type="button" class="btn btn-sm btn-outline dropdown-toggle" id="btn-auto-fix">
-          <i class="fas fa-wrench"></i>
-          תיקון
-        </button>
-        <div class="dropdown-menu">
-          <button class="dropdown-item" data-level="safe">🛡️ בטוח (whitespace)</button>
-          <button class="dropdown-item" data-level="cautious">⚠️ זהיר (+imports)</button>
-          <button class="dropdown-item" data-level="aggressive">🔥 אגרסיבי (מלא)</button>
-        </div>
-      </div>
-      <a
-        href="/tools/code"
-        target="_blank"
-        rel="noopener noreferrer"
-        class="btn btn-sm btn-outline-secondary"
-        title="🪄 Playground"
-      >
-        <i class="fas fa-external-link-alt"></i>
-        Playground
-      </a>
-    </div>
+    <!-- Code Tools toolbar (shared macro) -->
+    {{ code_tools_toolbar() }}
     <div id="livePreviewRoot" class="split-view" data-active-panel="editor">
       <div class="split-toolbar">
         <div class="split-toolbar-controls">
@@ -189,23 +159,8 @@
   </form>
 </div>
 
-<!-- Code Tools Bootstrap Modal -->
-<div class="modal fade" id="codeToolsModal" tabindex="-1" aria-labelledby="codeToolsModalLabel" aria-hidden="true">
-  <div class="modal-dialog modal-lg modal-dialog-centered modal-dialog-scrollable">
-    <div class="modal-content">
-      <div class="modal-header">
-        <h5 class="modal-title" id="codeToolsModalLabel">Code Tools</h5>
-        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="סגור"></button>
-      </div>
-      <div class="modal-body" id="codeToolsModalBody">
-        <!-- תוכן דינמי יוזרק כאן -->
-      </div>
-      <div class="modal-footer" id="codeToolsModalFooter">
-        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">סגור</button>
-      </div>
-    </div>
-  </div>
-</div>
+<!-- Code Tools Bootstrap Modal (shared macro) -->
+{{ code_tools_modal() }}
 {% endblock %}
 {% block extra_js %}
 <script src="{{ url_for('static', filename='js/code-tools.js') }}?v={{ static_version }}" defer></script>

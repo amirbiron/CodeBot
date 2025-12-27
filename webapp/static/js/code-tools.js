@@ -2,17 +2,64 @@
  * Code Tools Integration
  * ======================
  * אינטגרציה של כלי עיצוב/lint עם עורך הקבצים הקיים.
+ * תומך בדפים: edit_file.html ו-upload.html
  */
 
 const CodeToolsIntegration = {
   /**
-   * אתחול - נקרא מתוך FileFormManager
+   * אתחול - נקרא מתוך FileFormManager או אוטומטית ב-DOMContentLoaded
    */
   init(editorInstance, languageSelect) {
     this.editor = editorInstance;
-    this.languageSelect = languageSelect;
+    this.languageSelect = languageSelect || document.getElementById('languageSelect');
     this.bindEvents();
     this.updateToolsVisibility();
+    this.moveToolsToEditorRow();
+  },
+
+  /**
+   * אתחול אוטומטי כשהדף נטען (fallback אם FileFormManager לא קורא ל-init)
+   */
+  autoInit() {
+    // אם כבר אותחל, לא לעשות כלום
+    if (this._initialized) return;
+    
+    const languageSelect = document.getElementById('languageSelect');
+    const toolsGroup = document.querySelector('.code-tools-group');
+    
+    if (toolsGroup) {
+      this.languageSelect = languageSelect;
+      this.bindEvents();
+      this.updateToolsVisibility();
+      this.moveToolsToEditorRow();
+      this._initialized = true;
+    }
+  },
+
+  /**
+   * העברת סרגל הכלים לתוך שורת העורך (ליד כפתורי העתק/בחר הכל/הדבק)
+   */
+  moveToolsToEditorRow() {
+    const toolsGroup = document.querySelector('.code-tools-group');
+    const editorActions = document.querySelector('.editor-switcher-actions');
+    
+    if (toolsGroup && editorActions) {
+      // בדוק אם כבר הועבר
+      if (toolsGroup.parentElement === editorActions) return;
+      
+      // הוסף רווח מפריד לפני כפתורי Code Tools
+      toolsGroup.classList.add('code-tools-inline');
+      
+      // הכנס אחרי editor-clipboard-actions
+      const clipboardActions = editorActions.querySelector('.editor-clipboard-actions');
+      if (clipboardActions) {
+        clipboardActions.after(toolsGroup);
+      } else {
+        editorActions.appendChild(toolsGroup);
+      }
+      
+      console.log('[CodeToolsIntegration] Moved tools to editor row');
+    }
   },
 
   /**
@@ -455,4 +502,31 @@ const CodeToolsIntegration = {
 
 // Export
 window.CodeToolsIntegration = CodeToolsIntegration;
+
+// אתחול אוטומטי כשהדף נטען
+document.addEventListener('DOMContentLoaded', () => {
+  // המתן מעט כדי לתת ל-editor-manager ליצור את ה-editor-switcher
+  setTimeout(() => {
+    CodeToolsIntegration.autoInit();
+  }, 100);
+});
+
+// ניסיון נוסף אם editor-switcher נוצר מאוחר יותר
+const observer = new MutationObserver((mutations) => {
+  for (const mutation of mutations) {
+    if (mutation.addedNodes.length) {
+      const editorSwitcher = document.querySelector('.editor-switcher-actions');
+      if (editorSwitcher && !CodeToolsIntegration._initialized) {
+        CodeToolsIntegration.autoInit();
+        // נסה להעביר שוב כי editor-switcher נוצר עכשיו
+        CodeToolsIntegration.moveToolsToEditorRow();
+      }
+    }
+  }
+});
+
+// צפה בשינויים ב-DOM
+if (document.body) {
+  observer.observe(document.body, { childList: true, subtree: true });
+}
 
