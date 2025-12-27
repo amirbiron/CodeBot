@@ -2018,6 +2018,11 @@ class GitHubMenuHandler:
             # קבל backup_id ואז פתח את תהליך השחזור-לריפו עם קובץ ה-ZIP הזה
             backup_id = query.data.split(":", 1)[1]
             user_id = query.from_user.id
+            # חשוב: ACK מהיר כדי שלא ייראה "לא מגיב" גם אם ה-UI עוד לא התעדכן
+            try:
+                await query.answer("⏳ טוען פרטי גיבוי…", show_alert=False)
+            except Exception:
+                pass
             info_list = backup_manager.list_backups(user_id)
             match = next((b for b in info_list if b.backup_id == backup_id), None)
             if not match or not match.file_path or not os.path.exists(match.file_path):
@@ -2044,6 +2049,60 @@ class GitHubMenuHandler:
                 ])
             )
             return
+
+        elif query.data.startswith("github_repo_restore_backup_setpurge:"):
+            # בצע את ההעלאה לריפו מתוך קובץ ה-ZIP שמור בדיסק (נבחר ברשימת הגיבויים)
+            user_id = query.from_user.id
+            purge_flag = query.data.split(":", 1)[1] == "1"
+            zip_path = context.user_data.get("pending_repo_restore_zip_path")
+            if not zip_path or not os.path.exists(zip_path):
+                try:
+                    await query.answer("❌ חסר קובץ ZIP לשחזור", show_alert=True)
+                except Exception:
+                    pass
+                logger.warning(
+                    "[restore_zip_from_backup] missing zip_path: user=%s, purge=%s, zip_path=%r",
+                    user_id,
+                    purge_flag,
+                    zip_path,
+                )
+                await query.edit_message_text("❌ קובץ ZIP לא נמצא")
+                return
+
+            try:
+                # תמיד לענות ל-callback כדי למנוע תחושת "תקיעה"
+                try:
+                    await query.answer("⏳ מתחיל שחזור… זה יכול לקחת קצת זמן", show_alert=False)
+                except Exception:
+                    pass
+
+                prefix = (context.user_data.get("pending_repo_restore_zip_prefix") or "").strip("/")
+                logger.info(
+                    "[restore_zip_from_backup] start: user=%s, purge=%s, zip=%s, prefix=%r",
+                    user_id,
+                    purge_flag,
+                    zip_path,
+                    prefix,
+                )
+
+                await query.edit_message_text("⏳ משחזר לריפו מגיבוי נבחר…")
+                await self.restore_zip_file_to_repo(
+                    update,
+                    context,
+                    zip_path,
+                    purge_flag,
+                    dest_prefix=(prefix or None),
+                )
+                await query.edit_message_text("✅ השחזור הועלה לריפו בהצלחה")
+            except Exception as e:
+                logger.exception("[restore_zip_from_backup] failed: user=%s, zip=%s", user_id, zip_path)
+                # parse_mode=None כדי שלא ניפול על parse errors בגלל תווים מיוחדים בהודעת שגיאה
+                await query.edit_message_text(f"❌ שגיאה בשחזור לריפו: {str(e)}", parse_mode=None)
+            finally:
+                context.user_data.pop("pending_repo_restore_zip_path", None)
+                context.user_data.pop("pending_repo_restore_zip_prefix", None)
+            return
+
         elif query.data == "github_backup_help":
             help_text = (
                 "<b>הסבר על הכפתורים:</b>\n\n"
