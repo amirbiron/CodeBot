@@ -910,7 +910,7 @@
             }
         }
 
-        // Glass
+        // Glass - use card-bg color as base for glass effect (not hardcoded white)
         const opacitySlider = document.getElementById('glassOpacity');
         const blurSlider = document.getElementById('glassBlur');
         const opacityVal = parseInt(opacitySlider.value, 10);
@@ -918,12 +918,57 @@
         const glassAlpha = (opacityVal / 100).toFixed(2);
         const borderAlpha = Math.min(1, (opacityVal + 10) / 100).toFixed(2);
         const hoverAlpha = Math.min(1, (opacityVal + 5) / 100).toFixed(2);
-        variables['--glass'] = `rgba(255, 255, 255, ${glassAlpha})`;
-        variables['--glass-border'] = `rgba(255, 255, 255, ${borderAlpha})`;
-        variables['--glass-hover'] = `rgba(255, 255, 255, ${hoverAlpha})`;
+
+        // Extract RGB values from card-bg or use a smart fallback
+        const cardBgInput = document.getElementById('cardBgText');
+        const cardBgValue = cardBgInput?.value?.trim() || '';
+        const glassBaseRgb = parseColorToRgb(cardBgValue) || { r: 255, g: 255, b: 255 };
+
+        variables['--glass'] = `rgba(${glassBaseRgb.r}, ${glassBaseRgb.g}, ${glassBaseRgb.b}, ${glassAlpha})`;
+        variables['--glass-border'] = `rgba(${glassBaseRgb.r}, ${glassBaseRgb.g}, ${glassBaseRgb.b}, ${borderAlpha})`;
+        variables['--glass-hover'] = `rgba(${glassBaseRgb.r}, ${glassBaseRgb.g}, ${glassBaseRgb.b}, ${hoverAlpha})`;
         variables['--glass-blur'] = blurSlider.value + 'px';
 
+        // Add --card-border based on glass-border for consistency
+        variables['--card-border'] = variables['--glass-border'];
+
         return variables;
+    }
+
+    // Helper: parse hex or rgba color to RGB object
+    function parseColorToRgb(colorStr) {
+        if (!colorStr) return null;
+        colorStr = colorStr.trim();
+
+        // Handle hex (#rrggbb or #rgb)
+        if (colorStr.startsWith('#')) {
+            const hex = colorStr.slice(1);
+            if (hex.length === 3) {
+                return {
+                    r: parseInt(hex[0] + hex[0], 16),
+                    g: parseInt(hex[1] + hex[1], 16),
+                    b: parseInt(hex[2] + hex[2], 16)
+                };
+            } else if (hex.length === 6) {
+                return {
+                    r: parseInt(hex.slice(0, 2), 16),
+                    g: parseInt(hex.slice(2, 4), 16),
+                    b: parseInt(hex.slice(4, 6), 16)
+                };
+            }
+        }
+
+        // Handle rgba(r, g, b, a) or rgb(r, g, b)
+        const rgbaMatch = colorStr.match(/rgba?\s*\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)/i);
+        if (rgbaMatch) {
+            return {
+                r: parseInt(rgbaMatch[1], 10),
+                g: parseInt(rgbaMatch[2], 10),
+                b: parseInt(rgbaMatch[3], 10)
+            };
+        }
+
+        return null;
     }
 
     // ========== API Functions ==========
