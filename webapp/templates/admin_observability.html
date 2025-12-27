@@ -1683,16 +1683,6 @@ tr:hover .copy-meta-btn {
       tagInput.value = '';
     }
 
-    // FIX: Validate that tags are not empty before saving
-    // This prevents accidentally saving empty tag lists
-    if (!tagState.tags || tagState.tags.length === 0) {
-      showToast('יש להוסיף לפחות תגית אחת לפני השמירה');
-      return;
-    }
-
-    // DEBUG: Log what we're about to save
-    console.log('🔍 saveAlertTags - tags:', tagState.tags, 'isGlobal:', isGlobal, 'alertName:', tagState.alertName);
-
     try {
       if (tagSaveBtn) tagSaveBtn.disabled = true;
 
