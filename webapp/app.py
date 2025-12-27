@@ -11883,7 +11883,7 @@ def api_debug_tags():
         })
     except Exception as e:
         logger.exception("debug_tags_failed")
-        return jsonify({'ok': False, 'error': str(e)}), 500
+        return jsonify({'ok': False, 'error': 'internal_error'}), 500
 
 
 @app.route('/api/observability/alerts-by-type', methods=['GET'])
