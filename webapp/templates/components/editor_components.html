@@ -23,15 +23,15 @@
     Lint
   </button>
   <div class="dropdown">
-    <button type="button" class="btn btn-sm btn-outline dropdown-toggle" data-action="fix-menu" id="btn-auto-fix">
+    <button type="button" class="btn btn-sm btn-outline dropdown-toggle" data-bs-toggle="dropdown" aria-expanded="false" data-action="fix-menu" id="btn-auto-fix">
       <i class="fas fa-wrench"></i>
       תיקון
     </button>
-    <div class="dropdown-menu">
-      <button class="dropdown-item" data-action="fix-level" data-level="safe">🛡️ בטוח (whitespace)</button>
-      <button class="dropdown-item" data-action="fix-level" data-level="cautious">⚠️ זהיר (+imports)</button>
-      <button class="dropdown-item" data-action="fix-level" data-level="aggressive">🔥 אגרסיבי (מלא)</button>
-    </div>
+    <ul class="dropdown-menu" aria-labelledby="btn-auto-fix">
+      <li><button class="dropdown-item" type="button" data-action="fix-level" data-level="safe">🛡️ בטוח (whitespace)</button></li>
+      <li><button class="dropdown-item" type="button" data-action="fix-level" data-level="cautious">⚠️ זהיר (+imports)</button></li>
+      <li><button class="dropdown-item" type="button" data-action="fix-level" data-level="aggressive">🔥 אגרסיבי (מלא)</button></li>
+    </ul>
   </div>
   <button
     type="button"
