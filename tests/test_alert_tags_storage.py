@@ -120,7 +120,9 @@ def _install_fake_pymongo(monkeypatch, *, docs=None):
         def delete_one(self, query):
             query = query or {}
             before = len(self._docs)
-            self._docs[:] = [d for d in self._docs if not all(d.get(k) == v for k, v in query.items())]
+            self._docs[:] = [
+                d for d in self._docs if not all(d.get(k) == v for k, v in query.items())
+            ]
             deleted = 1 if len(self._docs) < before else 0
             return _Result(deleted_count=deleted)
 
@@ -162,18 +164,21 @@ def test_get_tags_map_for_alerts_app_side_merge_two_queries(monkeypatch):
     monkeypatch.setenv("DATABASE_NAME", "code_keeper_bot")
     _install_observability_stub(monkeypatch)
 
+    # Note: alert_type_name is stored normalized (lowercase + underscore)
+    # so "CPU High" becomes "cpu_high" in DB
     docs = [
         # instance tags
         {"alert_uid": "uid-1", "tags": ["specific-tag"]},
-        # global tags
-        {"alert_type_name": "CPU High", "tags": ["global-tag", "prod"]},
+        # global tags - stored with normalized name
+        {"alert_type_name": "cpu_high", "tags": ["global-tag", "prod"]},
     ]
     _install_fake_pymongo(monkeypatch, docs=docs)
     s = _import_fresh_storage(monkeypatch)
 
+    # alerts can arrive with any format - the code normalizes for lookup
     alerts = [
-        {"alert_uid": "uid-1", "name": "CPU High"},
-        {"alert_uid": "uid-2", "name": "CPU High"},
+        {"alert_uid": "uid-1", "name": "CPU High"},  # "CPU High" -> normalized to "cpu_high"
+        {"alert_uid": "uid-2", "name": "cpu_high"},  # Already normalized
         {"alert_uid": "uid-3", "name": "Other"},
     ]
     result = s.get_tags_map_for_alerts(alerts)
@@ -190,20 +195,22 @@ def test_get_tags_map_for_alerts_field_fallbacks(monkeypatch):
     monkeypatch.setenv("DATABASE_NAME", "code_keeper_bot")
     _install_observability_stub(monkeypatch)
 
+    # Note: alert_type_name is stored normalized (lowercase + underscore)
     docs = [
         # instance tags
         {"alert_uid": "uid-1", "tags": ["specific-tag"]},
-        # global tags
-        {"alert_type_name": "CPU High", "tags": ["global-tag", "prod"]},
+        # global tags - stored with normalized name
+        {"alert_type_name": "cpu_high", "tags": ["global-tag", "prod"]},
     ]
     _install_fake_pymongo(monkeypatch, docs=docs)
     s = _import_fresh_storage(monkeypatch)
 
     # alerts may arrive with different field names (name/uid mismatches)
+    # The name values will be normalized for lookup (CPU High -> cpu_high)
     alerts = [
-        {"uid": "uid-1", "alert_type": "CPU High"},      # uid + alert_type
-        {"id": "uid-2", "rule_name": "CPU High"},        # id + rule_name
-        {"_id": "uid-3", "alert_name": "Other"},         # _id + alert_name
+        {"uid": "uid-1", "alert_type": "CPU High"},  # uid + alert_type -> normalized
+        {"id": "uid-2", "rule_name": "cpu-high"},  # id + rule_name -> normalized
+        {"_id": "uid-3", "alert_name": "Other"},  # _id + alert_name
     ]
     result = s.get_tags_map_for_alerts(alerts)
 
@@ -219,10 +226,14 @@ def test_set_and_get_global_tags(monkeypatch):
     _install_fake_pymongo(monkeypatch, docs=[])
     s = _import_fresh_storage(monkeypatch)
 
+    # Note: alert_type_name is normalized on save (CPU High -> cpu_high)
     res = s.set_global_tags_for_name("CPU High", ["Infrastructure", "critical", "critical"])
-    assert res["alert_type_name"] == "CPU High"
+    assert res["alert_type_name"] == "cpu_high"  # normalized
     assert res["tags"] == ["infrastructure", "critical"]
+    # Lookup also uses normalized name, so any format works
     assert set(s.get_global_tags_for_name("CPU High")) == {"infrastructure", "critical"}
+    assert set(s.get_global_tags_for_name("cpu-high")) == {"infrastructure", "critical"}
+    assert set(s.get_global_tags_for_name("cpu_high")) == {"infrastructure", "critical"}
 
 
 def test_set_and_get_instance_tags(monkeypatch):
@@ -237,4 +248,3 @@ def test_set_and_get_instance_tags(monkeypatch):
     assert res["alert_uid"] == "uid-x"
     assert res["tags"] == ["bug", "production"]
     assert s.get_tags_for_alert("uid-x") == ["bug", "production"]
-
