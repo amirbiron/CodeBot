@@ -1612,20 +1612,30 @@ def set_global_alert_tags(
 
     Body: {"alert_name": "CPU High", "tags": ["infrastructure", "critical"]}
     """
+    # DEBUG: Log incoming parameters
+    logger.info(
+        "🔍 set_global_alert_tags - alert_name=%r, tags=%r (type=%s), user_id=%r",
+        alert_name, tags, type(tags).__name__ if tags is not None else "NoneType", user_id
+    )
     name = str(alert_name or "").strip()
     if not name:
+        logger.warning("🔍 set_global_alert_tags - missing_alert_name")
         return {"ok": False, "error": "missing_alert_name"}
     # [] (רשימה ריקה) היא פעולה חוקית: "נקה את כל התגיות הגלובליות"
     if tags is None:
+        logger.warning("🔍 set_global_alert_tags - missing_tags (None)")
         return {"ok": False, "error": "missing_tags"}
     if not isinstance(tags, list):
+        logger.warning("🔍 set_global_alert_tags - bad_request (tags not list: %s)", type(tags))
         return {"ok": False, "error": "bad_request"}
+    logger.info("🔍 set_global_alert_tags - calling storage with name=%r, tags=%r", name, tags)
     try:
         result = alert_tags_storage.set_global_tags_for_name(
             alert_name=name,
             tags=tags,
             user_id=user_id,
         )
+        logger.info("🔍 set_global_alert_tags - storage result=%r", result)
         # FIX: Invalidate cache so global tags appear immediately after refresh
         _invalidate_alert_cache()
         return {"ok": True, **result}

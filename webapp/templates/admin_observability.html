@@ -998,9 +998,12 @@ tr:hover .copy-meta-btn {
       <button class="tag-modal__close" type="button" data-tag-close>✕</button>
     </div>
     <div class="tag-input-wrapper">
-      <input type="text" class="tag-input" id="tagInput" placeholder="הקלד תגית חדשה..." autocomplete="off">
+      <input type="text" class="tag-input" id="tagInput" placeholder="הקלד תגית חדשה ולחץ Enter..." autocomplete="off">
       <div class="tag-suggestions" id="tagSuggestions" hidden></div>
     </div>
+    <small style="display:block; color: rgba(255,255,255,0.5); font-size: 0.75rem; margin: 4px 0 8px;">
+      📝 הקלד שם תגית ולחץ Enter להוספה, או בחר מההצעות
+    </small>
     <div class="current-tags" id="currentTags"></div>
     <div class="tag-modal__options" style="margin-top: 10px; padding-top: 10px; border-top: 1px solid rgba(255,255,255,0.1);">
       <label style="display: flex; align-items: center; gap: 8px; cursor: pointer; font-size: 0.9rem;">
@@ -1671,6 +1674,17 @@ tr:hover .copy-meta-btn {
   async function saveAlertTags() {
     if (!tagState.alertUid) return;
     const isGlobal = Boolean(globalCheckbox && globalCheckbox.checked);
+
+    // FIX: Validate that tags are not empty before saving
+    // This prevents accidentally saving empty tag lists
+    if (!tagState.tags || tagState.tags.length === 0) {
+      showToast('יש להוסיף לפחות תגית אחת לפני השמירה');
+      return;
+    }
+
+    // DEBUG: Log what we're about to save
+    console.log('🔍 saveAlertTags - tags:', tagState.tags, 'isGlobal:', isGlobal, 'alertName:', tagState.alertName);
+
     try {
       if (tagSaveBtn) tagSaveBtn.disabled = true;
 
@@ -1688,6 +1702,9 @@ tr:hover .copy-meta-btn {
           alert_timestamp: tagState.alertTimestamp,
         };
       }
+
+      // DEBUG: Log the payload
+      console.log('🔍 saveAlertTags - endpoint:', endpoint, 'payload:', JSON.stringify(payload));
 
       const res = await fetch(endpoint, {
         method: 'POST',
