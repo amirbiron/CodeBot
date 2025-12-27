@@ -418,13 +418,16 @@ def get_tags_map_for_alerts(alerts_list: List[dict]) -> Dict[str, List[str]]:
         uid = str(raw_uid or "").strip()
 
         # Fallback ל-Name - נבדוק מספר שדות אפשריים
+        # FIX: Prefer alert_type (categorized type) over name (descriptive title)
+        # This matches the frontend behavior which saves global tags under alert_type.
+        # Example: alert_type="sentry_issue", name="Sentry: TEST-1" -> use "sentry_issue"
         raw_name = (
-            alert.get("name")
+            alert.get("alert_type")
+            or alert.get("name")
             or alert.get("alert_name")
             or alert.get("rule_name")
-            or alert.get("alert_type")
         )
-        # FIX: Normalize the name for consistent matching with stored global tags
+        # Normalize the name for consistent matching with stored global tags
         # This ensures "CPU High", "cpu_high", "cpu-high" all match the same global tags
         name = _normalize_alert_name(raw_name)
 
