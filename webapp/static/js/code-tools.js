@@ -57,8 +57,6 @@ const CodeToolsIntegration = {
       } else {
         editorActions.appendChild(toolsGroup);
       }
-      
-      console.log('[CodeToolsIntegration] Moved tools to editor row');
     }
   },
 
@@ -66,14 +64,19 @@ const CodeToolsIntegration = {
    * קישור אירועים
    */
   bindEvents() {
-    // כפתורי Toolbar
-    document.getElementById('btn-format-code')?.addEventListener('click', () => this.formatCode());
-    document.getElementById('btn-lint-code')?.addEventListener('click', () => this.lintCode());
+    // Toolbar (Event Delegation) — לא מסתמך על IDs שעלולים להשתנות במקרו
+    const toolsGroup = document.querySelector('.code-tools-group');
+    if (toolsGroup && !toolsGroup.__codeToolsBound) {
+      toolsGroup.addEventListener('click', (e) => this.handleToolbarClick(e));
+      toolsGroup.__codeToolsBound = true;
+    }
 
-    // תפריט תיקון
-    document.querySelectorAll('[data-level]').forEach((btn) => {
-      btn.addEventListener('click', () => this.autoFix(btn.dataset.level));
-    });
+    // Fix Modal (3 אפשרויות) — אחרי הבחירה נריץ תיקון ואז נבקש אישור לפני דריסה
+    const fixModal = document.getElementById('codeToolsFixModal');
+    if (fixModal && !fixModal.__codeToolsBound) {
+      fixModal.addEventListener('click', (e) => this.handleFixModalClick(e));
+      fixModal.__codeToolsBound = true;
+    }
 
     // קיצורי מקלדת
     document.addEventListener('keydown', (e) => {
@@ -92,6 +95,36 @@ const CodeToolsIntegration = {
     this.languageSelect?.addEventListener('change', () => this.updateToolsVisibility());
   },
 
+  handleToolbarClick(e) {
+    const btn = e.target && typeof e.target.closest === 'function' ? e.target.closest('[data-action]') : null;
+    if (!btn) return;
+
+    const action = String(btn.dataset.action || '').trim();
+    if (!action) return;
+
+    if (action === 'format') {
+      e.preventDefault();
+      this.formatCode();
+      return;
+    }
+
+    if (action === 'lint') {
+      e.preventDefault();
+      this.lintCode();
+      return;
+    }
+
+    // action === 'fix' פותח את המודל דרך Bootstrap (data-bs-toggle)
+  },
+
+  handleFixModalClick(e) {
+    const btn = e.target && typeof e.target.closest === 'function' ? e.target.closest('[data-action="fix-level"][data-level]') : null;
+    if (!btn) return;
+    const level = String(btn.dataset.level || '').trim();
+    if (!level) return;
+    this.autoFix(level);
+  },
+
   /**
    * הצגת/הסתרת כלים לפי שפה
    * לוגיקה הפוכה: הכפתורים גלויים כברירת מחדל, ומוסתרים רק אם השפה לא Python.
@@ -101,9 +134,6 @@ const CodeToolsIntegration = {
     const rawLanguage = this.languageSelect?.value || 'text';
     const language = String(rawLanguage).toLowerCase().trim();
     const toolsGroup = document.querySelector('.code-tools-group');
-
-    // דיבאג: הדפסת השפה שזוהתה
-    console.log('[CodeToolsIntegration] updateToolsVisibility - detected language:', language);
 
     if (toolsGroup) {
       // כרגע תומכים רק ב-Python (case-insensitive)
@@ -116,8 +146,6 @@ const CodeToolsIntegration = {
         // אם פייתון - מבטיחים שהכפתורים גלויים (מוחקים display inline style אם יש)
         toolsGroup.style.removeProperty('display');
       }
-      
-      console.log('[CodeToolsIntegration] toolsGroup visibility:', isPython ? 'visible (Python)' : 'hidden (not Python)');
     } else {
       console.warn('[CodeToolsIntegration] .code-tools-group element not found in DOM');
     }
@@ -127,6 +155,13 @@ const CodeToolsIntegration = {
    * קבלת קוד מה-editor
    */
   getCode() {
+    // fallback חזק: גם אם init לא קיבל editorInstance (או נכשל), נעדיף את editorManager אם קיים
+    try {
+      if (window.editorManager && typeof window.editorManager.getEditorContent === 'function') {
+        const v = window.editorManager.getEditorContent();
+        if (typeof v === 'string') return v;
+      }
+    } catch (_) {}
     if (this.editor && typeof this.editor.getValue === 'function') {
       return this.editor.getValue();
     }
@@ -137,6 +172,13 @@ const CodeToolsIntegration = {
    * עדכון קוד ב-editor
    */
   setCode(code) {
+    // fallback חזק: עדכון מפורש של העורך (CodeMirror/textarea) דרך editorManager
+    try {
+      if (window.editorManager && typeof window.editorManager.setEditorContent === 'function') {
+        window.editorManager.setEditorContent(code);
+        return;
+      }
+    } catch (_) {}
     if (this.editor && typeof this.editor.setValue === 'function') {
       this.editor.setValue(code);
     } else {
@@ -151,10 +193,13 @@ const CodeToolsIntegration = {
   async formatCode() {
     const code = this.getCode();
     if (!code.trim()) {
+      this.showInlineStatus('אין קוד לעיצוב', 'warning');
       this.showStatus('אין קוד לעיצוב', 'warning');
       return;
     }
 
+    // אותו טקסט כמו /tools/code
+    this.showInlineStatus('מעצב...', 'loading');
     this.showStatus('מעצב...', 'loading');
 
     try {
@@ -177,15 +222,22 @@ const CodeToolsIntegration = {
 
           if (confirmed) {
             this.setCode(result.formatted_code);
+            this.showInlineStatus(
+              result.has_changes ? `עיצוב הסתיים (${result.lines_changed} שורות)` : 'הקוד כבר מעוצב',
+              'success'
+            );
             this.showStatus(`עוצב בהצלחה (${result.lines_changed} שורות)`, 'success');
           }
         } else {
+          this.showInlineStatus('הקוד כבר מעוצב', 'success');
           this.showStatus('הקוד כבר מעוצב', 'info');
         }
       } else {
+        this.showInlineStatus((result && result.error) || 'שגיאה בעיצוב', 'error');
         this.showStatus(result.error || 'שגיאה בעיצוב', 'error');
       }
     } catch (error) {
+      this.showInlineStatus('שגיאה בתקשורת', 'error');
       this.showStatus('שגיאה בתקשורת', 'error');
       console.error('Format error:', error);
     }
@@ -197,10 +249,13 @@ const CodeToolsIntegration = {
   async lintCode() {
     const code = this.getCode();
     if (!code.trim()) {
+      this.showInlineStatus('אין קוד לבדיקה', 'warning');
       this.showStatus('אין קוד לבדיקה', 'warning');
       return;
     }
 
+    // אותו טקסט כמו /tools/code
+    this.showInlineStatus('בודק...', 'loading');
     this.showStatus('בודק...', 'loading');
 
     try {
@@ -213,11 +268,14 @@ const CodeToolsIntegration = {
       const result = await response.json();
 
       if (result.success) {
+        this.showInlineStatus('בדיקת Lint הסתיימה', 'success');
         this.showLintResults(result);
       } else {
+        this.showInlineStatus((result && result.error) || 'שגיאה בבדיקה', 'error');
         this.showStatus(result.error || 'שגיאה בבדיקה', 'error');
       }
     } catch (error) {
+      this.showInlineStatus('שגיאה בתקשורת', 'error');
       this.showStatus('שגיאה בתקשורת', 'error');
       console.error('Lint error:', error);
     }
@@ -229,10 +287,13 @@ const CodeToolsIntegration = {
   async autoFix(level) {
     const code = this.getCode();
     if (!code.trim()) {
+      this.showInlineStatus('אין קוד לתיקון', 'warning');
       this.showStatus('אין קוד לתיקון', 'warning');
       return;
     }
 
+    // אותו טקסט כמו /tools/code
+    this.showInlineStatus('מתקן...', 'loading');
     this.showStatus('מתקן...', 'loading');
 
     try {
@@ -250,20 +311,30 @@ const CodeToolsIntegration = {
             code,
             result.fixed_code,
             result.fixes_applied.length,
-            result.fixes_applied
+            result.fixes_applied,
+            'נמצאו תיקונים. האם להחיל אותם על הקובץ?'
           );
 
           if (confirmed) {
             this.setCode(result.fixed_code);
+            this.showInlineStatus(
+              result.fixes_applied && result.fixes_applied.length
+                ? `תוקן: ${result.fixes_applied.join(', ')}`
+                : 'אין תיקונים נדרשים',
+              'success'
+            );
             this.showStatus(`תוקן: ${result.fixes_applied.join(', ')}`, 'success');
           }
         } else {
+          this.showInlineStatus('אין תיקונים נדרשים', 'success');
           this.showStatus('אין תיקונים נדרשים', 'info');
         }
       } else {
+        this.showInlineStatus((result && result.error) || 'שגיאה בתיקון', 'error');
         this.showStatus(result.error || 'שגיאה בתיקון', 'error');
       }
     } catch (error) {
+      this.showInlineStatus('שגיאה בתקשורת', 'error');
       this.showStatus('שגיאה בתקשורת', 'error');
       console.error('Fix error:', error);
     }
@@ -331,13 +402,14 @@ const CodeToolsIntegration = {
   /**
    * הצגת diff לאישור
    */
-  async showDiffConfirmation(original, modified, changesCount, fixesList = null) {
+  async showDiffConfirmation(original, modified, changesCount, fixesList = null, promptText = null) {
     return new Promise((resolve) => {
       // חישוב diff
       const diffLines = this.computeDiff(original, modified);
 
       let html = `
                 <div class="diff-preview">
+                    ${promptText ? `<div class="diff-prompt" style="margin-bottom: .75rem; font-weight: 600;">${this.escapeHtml(promptText)}</div>` : ''}
                     <div class="diff-stats">
                         ${changesCount} שינויים
                         ${fixesList ? `<br><small>${fixesList.join(', ')}</small>` : ''}
@@ -404,6 +476,40 @@ const CodeToolsIntegration = {
     } else {
       console.log(`[${type}] ${message}`);
     }
+  },
+
+  /**
+   * הודעת סטטוס קצרה באזור הסטטוס מתחת לעורך (כמו "כל הקוד סומן")
+   */
+  showInlineStatus(message, type) {
+    const msg = typeof message === 'string' ? message : '';
+    const statusEl =
+      document.querySelector('.editor-switcher .editor-info-status') || document.querySelector('.editor-info-status');
+    if (!statusEl) return;
+
+    statusEl.textContent = msg;
+
+    if (!this._inlineStatusTimers) this._inlineStatusTimers = new WeakMap();
+    const prev = this._inlineStatusTimers.get(statusEl);
+    if (prev) clearTimeout(prev);
+
+    // בזמן loading נשאיר את ההודעה עד שתוחלף ב-success/error
+    if (type === 'loading') {
+      this._inlineStatusTimers.delete(statusEl);
+      return;
+    }
+
+    // תצוגה קצרה (לא "נתקע" על המסך)
+    const timer = setTimeout(() => {
+      try {
+        // נקה רק אם לא הוחלף בינתיים
+        if (statusEl.textContent === msg) statusEl.textContent = '';
+      } catch (_) {}
+      try {
+        this._inlineStatusTimers.delete(statusEl);
+      } catch (_) {}
+    }, 1800);
+    this._inlineStatusTimers.set(statusEl, timer);
   },
 
   /**
