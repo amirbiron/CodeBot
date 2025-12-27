@@ -755,7 +755,8 @@ class CallbackQueryGuard:
     async def should_block_async(update: Update, context: ContextTypes.DEFAULT_TYPE, window_seconds: Optional[float] = None) -> bool:
         """בודק בצורה אטומית (עם נעילה) אם לחסום לחיצה כפולה של אותו משתמש.
 
-        חסימה מבוססת חלון זמן פר-משתמש, ללא תלות ב-message_id/data, כדי למנוע מרוץ.
+        חסימה מבוססת חלון זמן פר-משתמש *ועל אותה טביעת אצבע* (משתמש/צ׳אט/הודעה/הנתון),
+        כדי למנוע כפילויות אמיתיות בלי לחסום לחיצות שונות ברצף מהיר (UX).
         """
         try:
             try:
@@ -777,12 +778,17 @@ class CallbackQueryGuard:
 
             async with lock:
                 now_ts = time.time()
-                # השתמש באותו שדה זמן גלובלי שהיה בשימוש, אך ללא טביעת אצבע
+                fp = CallbackQueryGuard._fingerprint(update)
+                last_fp = context.user_data.get("_last_cb_fp") if hasattr(context, "user_data") else None
                 busy_until = float(context.user_data.get("_cb_guard_until", 0.0) or 0.0) if hasattr(context, "user_data") else 0.0
-                if now_ts < busy_until:
+
+                # חסום רק אם זו אותה פעולה בדיוק בתוך חלון הזמן
+                if last_fp == fp and now_ts < busy_until:
                     return True
-                # סמנו חלון זמן חסימה חדש
+
+                # סמנו את הפעולה הנוכחית לחלון קצר
                 if hasattr(context, "user_data"):
+                    context.user_data["_last_cb_fp"] = fp
                     context.user_data["_cb_guard_until"] = now_ts + win
                 return False
         except Exception:
