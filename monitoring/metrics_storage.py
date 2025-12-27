@@ -448,15 +448,18 @@ def find_by_request_id(
     if coll is None:
         return []
     try:
+        import re
         rid = str(request_id).strip()
         if not rid:
             return []
         max_items = max(1, min(100, int(limit)))
+        # Regex safety: escape special characters to prevent injection (see alert_tags_storage.py)
+        rid_escaped = re.escape(rid)
         # Search by exact match or partial match (prefix)
         query: Dict[str, Any] = {
             "$or": [
                 {"request_id": rid},
-                {"request_id": {"$regex": f"^{rid}"}},
+                {"request_id": {"$regex": f"^{rid_escaped}"}},
             ]
         }
         cursor = (

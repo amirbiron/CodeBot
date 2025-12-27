@@ -270,17 +270,23 @@ async def triage(query_or_request_id: str, limit: int = 20) -> Dict[str, Any]:
         try:
             # Check if query looks like a request_id (bare token)
             if ":" not in query and "=" not in query and " " not in query:
+                # Calculate sub-limits to ensure combined results don't exceed limit
+                # Split evenly between sources, giving preference to local errors
+                local_limit = (limit + 1) // 2
+                metrics_limit = limit - local_limit
+
                 # 1. Search in-memory error buffer
-                local_errors = _search_local_errors(query, limit=limit)
+                local_errors = _search_local_errors(query, limit=local_limit)
                 timeline.extend(local_errors)
 
                 # 2. Search DB-backed metrics storage
-                metrics_records = _search_metrics_storage(query, limit=limit)
+                metrics_records = _search_metrics_storage(query, limit=metrics_limit)
                 timeline.extend(metrics_records)
 
-                # Sort by timestamp (newest first) and deduplicate
+                # Sort by timestamp (newest first) and truncate to limit
                 try:
                     timeline.sort(key=lambda x: str(x.get("timestamp") or ""), reverse=True)
+                    timeline = timeline[:limit]
                 except Exception:
                     pass
         except Exception:
