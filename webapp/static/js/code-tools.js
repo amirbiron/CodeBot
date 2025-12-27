@@ -369,9 +369,39 @@ const CodeToolsIntegration = {
     const modalFooter = document.getElementById('codeToolsModalFooter');
 
     if (!modalEl || !modalTitle || !modalBody || !modalFooter) {
-      // Fallback: אם אין Bootstrap Modal בדף, נשתמש ב-alert
+      // Fallback: אם אין Bootstrap Modal בדף, נשתמש ב-confirm/alert
       console.warn('[CodeToolsIntegration] Bootstrap Modal not found, using fallback');
-      alert(title + '\n\n' + content.replace(/<[^>]*>/g, ''));
+      const plainText = content.replace(/<[^>]*>/g, '');
+      
+      // אם יש actions (דיאלוג אישור), נשתמש ב-confirm ונפעיל את ה-callbacks
+      if (buttons && buttons.length > 0) {
+        const hasActionCallbacks = buttons.some(b => typeof b.action === 'function');
+        
+        if (hasActionCallbacks) {
+          // שימוש ב-confirm כדי לקבל תשובה מהמשתמש
+          if (confirm(title + '\n\n' + plainText)) {
+            // המשתמש לחץ OK - מפעיל את הפעולה הראשית (primary)
+            const primaryBtn = buttons.find(b => b.primary && typeof b.action === 'function');
+            if (primaryBtn) {
+              primaryBtn.action();
+            } else if (typeof buttons[0].action === 'function') {
+              buttons[0].action();
+            }
+          } else {
+            // המשתמש לחץ Cancel - מפעיל את הפעולה המשנית
+            const secondaryBtn = buttons.find(b => !b.primary && typeof b.action === 'function');
+            if (secondaryBtn) {
+              secondaryBtn.action();
+            }
+          }
+        } else {
+          // אין callbacks - רק הודעה
+          alert(title + '\n\n' + plainText);
+        }
+      } else {
+        // אין כפתורים - רק הודעה
+        alert(title + '\n\n' + plainText);
+      }
       return;
     }
 
