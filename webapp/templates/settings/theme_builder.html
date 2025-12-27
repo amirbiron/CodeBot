@@ -936,39 +936,52 @@
     }
 
     // Helper: parse hex or rgba color to RGB object
+    // Supports: #rgb, #rrggbb, #rrggbbaa (HEXA from Pickr), rgb(), rgba()
     function parseColorToRgb(colorStr) {
         if (!colorStr) return null;
         colorStr = colorStr.trim();
 
-        // Handle hex (#rrggbb or #rgb)
+        // Handle hex formats
         if (colorStr.startsWith('#')) {
-            const hex = colorStr.slice(1);
+            let hex = colorStr.slice(1);
+
+            // Handle short hex (#rgb) -> expand to 6 chars
             if (hex.length === 3) {
-                return {
-                    r: parseInt(hex[0] + hex[0], 16),
-                    g: parseInt(hex[1] + hex[1], 16),
-                    b: parseInt(hex[2] + hex[2], 16)
-                };
-            } else if (hex.length === 6) {
-                return {
-                    r: parseInt(hex.slice(0, 2), 16),
-                    g: parseInt(hex.slice(2, 4), 16),
-                    b: parseInt(hex.slice(4, 6), 16)
-                };
+                hex = hex.split('').map(c => c + c).join('');
+            }
+
+            // Handle HEXA format (#rrggbbaa) from Pickr -> strip alpha
+            if (hex.length === 8) {
+                hex = hex.slice(0, 6);
+            }
+
+            // Parse 6-character hex
+            if (hex.length === 6) {
+                const r = parseInt(hex.slice(0, 2), 16);
+                const g = parseInt(hex.slice(2, 4), 16);
+                const b = parseInt(hex.slice(4, 6), 16);
+
+                // Validate against NaN (invalid hex characters like #gggggg)
+                if (!Number.isNaN(r) && !Number.isNaN(g) && !Number.isNaN(b)) {
+                    return { r, g, b };
+                }
             }
         }
 
         // Handle rgba(r, g, b, a) or rgb(r, g, b)
         const rgbaMatch = colorStr.match(/rgba?\s*\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)/i);
         if (rgbaMatch) {
-            return {
-                r: parseInt(rgbaMatch[1], 10),
-                g: parseInt(rgbaMatch[2], 10),
-                b: parseInt(rgbaMatch[3], 10)
-            };
+            const r = parseInt(rgbaMatch[1], 10);
+            const g = parseInt(rgbaMatch[2], 10);
+            const b = parseInt(rgbaMatch[3], 10);
+
+            // Validate against NaN
+            if (!Number.isNaN(r) && !Number.isNaN(g) && !Number.isNaN(b)) {
+                return { r, g, b };
+            }
         }
 
-        return null;
+        return null; // Safe fallback
     }
 
     // ========== API Functions ==========
