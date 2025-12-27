@@ -2829,7 +2829,7 @@ class AdvancedBotHandlers:
             await update.message.reply_text(f"❌ שגיאה ב-/errors: {html.escape(str(e))}")
 
     async def triage_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """/triage <request_id|query> – דוח חקירה קצר + קישור ל-HTML"""
+        """/triage request_id|query – דוח חקירה קצר + קישור ל-HTML"""
         try:
             # הרשאות: אדמינים בלבד
             try:
@@ -2843,7 +2843,12 @@ class AdvancedBotHandlers:
             args = context.args or []
             query = " ".join(args).strip()
             if not query:
-                await update.message.reply_text("ℹ️ שימוש: /triage <request_id או שאילתא>")
+                # חשוב: אל תשתמש ב-<...> כי בחלק מהסביבות parse_mode ברירת מחדל הוא HTML,
+                # ואז טלגרם ינסה לפרש תג לא חוקי (למשל <request_id>) ויזרוק Can't parse entities.
+                await update.message.reply_text(
+                    'ℹ️ שימוש: /triage request_id או /triage "שאילתא"',
+                    parse_mode=None,
+                )
                 return
 
             # תתי-פקודות מובנות שמגיעות מ-Quick Fixes: /triage system, /triage latency
