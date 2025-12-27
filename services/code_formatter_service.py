@@ -143,7 +143,7 @@ class CodeFormatterService:
     def _check_tools_availability(self) -> Dict[str, bool]:
         """בודק אילו כלים זמינים במערכת."""
         tools = {}
-        for tool in ["black", "isort", "flake8", "autopep8"]:
+        for tool in ["black", "isort", "flake8", "autopep8", "autoflake"]:
             try:
                 result = subprocess.run(
                     [tool, "--version"],
@@ -360,6 +360,38 @@ class CodeFormatterService:
 
         return self._decode_output(result.stdout)
 
+    def _run_autoflake(self, code: str, options: Dict) -> str:
+        """
+        מריץ autoflake להסרת imports ומשתנים לא בשימוש.
+
+        Deep cleaning - מסיר קוד מת:
+        - imports לא בשימוש
+        - משתנים לא בשימוש
+        - מפתחות כפולים במילונים
+        """
+        cmd = [
+            "autoflake",
+            "--remove-all-unused-imports",  # הסרת כל ה-imports שלא בשימוש
+            "--remove-unused-variables",  # הסרת משתנים לא בשימוש
+            "--remove-duplicate-keys",  # הסרת מפתחות כפולים במילונים
+            "--ignore-init-module-imports",  # הגנה על __init__.py
+            "-",  # קריאה מ-stdin
+        ]
+
+        result = subprocess.run(
+            cmd,
+            input=code.encode("utf-8"),
+            capture_output=True,
+            timeout=self.TIMEOUT_SECONDS,
+            env=self._get_clean_env(),
+        )
+
+        if result.returncode != 0:
+            err = self._decode_output(result.stderr) or self._decode_output(result.stdout)
+            raise RuntimeError(f"autoflake failed: {err}")
+
+        return self._decode_output(result.stdout)
+
     # ==================== Linting ====================
 
     def lint_code(self, code: str, language: str = "python", filename: str = "code.py") -> LintResult:
@@ -538,14 +570,25 @@ class CodeFormatterService:
                     current_code = result.formatted_code
                     fixes_applied.append(f"autopep8 (אגרסיביות {aggression})")
 
-            # שלב 2: isort למיון imports (cautious+)
+            # שלב 2: autoflake - הסרת קוד מת (cautious+)
+            # חשוב: חייב להיות לפני isort כי autoflake מסיר imports שלא בשימוש!
+            if level in ("cautious", "aggressive") and self.is_tool_available("autoflake"):
+                try:
+                    cleaned_code = self._run_autoflake(current_code, {})
+                    if cleaned_code != current_code:
+                        current_code = cleaned_code
+                        fixes_applied.append("autoflake (הסרת imports ומשתנים לא בשימוש)")
+                except Exception as e:
+                    logger.warning(f"autoflake failed, continuing: {e}")
+
+            # שלב 3: isort למיון imports (cautious+)
             if level in ("cautious", "aggressive") and self.is_tool_available("isort"):
                 result = self.format_code(current_code, tool="isort")
                 if result.success and result.has_changes():
                     current_code = result.formatted_code
                     fixes_applied.append("isort (מיון imports)")
 
-            # שלב 3: Black לעיצוב מלא (aggressive)
+            # שלב 4: Black לעיצוב מלא (aggressive)
             if level == "aggressive" and self.is_tool_available("black"):
                 result = self.format_code(current_code, tool="black")
                 if result.success and result.has_changes():
