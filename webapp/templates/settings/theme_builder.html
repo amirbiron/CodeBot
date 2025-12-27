@@ -150,14 +150,6 @@
                 <legend><i class="fas fa-window-maximize"></i> Glass Effect</legend>
 
                 <div class="slider-row">
-                    <label for="glassStyle">סגנון Glass</label>
-                    <select id="glassStyle" class="glass-style-select">
-                        <option value="white">חלבי (לבן)</option>
-                        <option value="adaptive">אדפטיבי (צבע הרקע)</option>
-                    </select>
-                </div>
-
-                <div class="slider-row">
                     <label for="glassOpacity">שקיפות</label>
                     <input
                         type="range"
@@ -566,17 +558,6 @@
     font-family: monospace;
 }
 
-.glass-style-select {
-    flex: 2;
-    padding: 0.5rem 0.75rem;
-    border-radius: 8px;
-    border: 1px solid var(--glass-border);
-    background: var(--glass);
-    color: var(--text-primary);
-    font-size: 0.9rem;
-    cursor: pointer;
-}
-
 .form-actions {
     display: flex;
     gap: 1rem;
@@ -737,7 +718,6 @@
         '--glass-border': 'rgba(255, 255, 255, 0.2)',
         '--glass-hover': 'rgba(255, 255, 255, 0.15)',
         '--glass-blur': '20px',
-        '--glass-style': 'white',
         '--md-surface': '#1b1e24',
         '--md-text': '#f0f0f0',
     };
@@ -760,7 +740,6 @@
     let selectedThemeId = null;
     let isNewTheme = false;
     let hasUnsavedChanges = false;
-    let lastValidCardBgRgb = null;
 
     // ========== DOM Elements ==========
     const themesList = document.getElementById('themesList');
@@ -787,49 +766,15 @@
         previewContainer.style.setProperty(varName, value);
     }
 
-    // ========== Utilities & Color Logic (Unified) ==========
-
-    /**
-     * פונקציה מאוחדת להמרת HEX, HEXA, RGB, RGBA לאובייקט RGB.
-     * תומכת ב: #rgb, #rrggbb, #rrggbbaa (HEXA מ-Pickr), rgb(), rgba()
-     * מחזירה null אם הקלט לא תקין (הגנה מפני NaN).
-     */
-    function parseColorToRgb(colorStr) {
-        if (!colorStr) return null;
-        colorStr = String(colorStr).trim();
-
-        // Handle hex formats
-        if (colorStr.startsWith('#')) {
-            let hex = colorStr.slice(1);
-
-            // Handle short hex (#rgb) -> expand to 6 chars
-            if (hex.length === 3) {
-                hex = hex.split('').map((c) => c + c).join('');
-            }
-
-            // Handle HEXA format (#rrggbbaa) from Pickr -> strip alpha
-            if (hex.length === 8) {
-                hex = hex.slice(0, 6);
-            }
-
-            if (hex.length === 6) {
-                const r = parseInt(hex.slice(0, 2), 16);
-                const g = parseInt(hex.slice(2, 4), 16);
-                const b = parseInt(hex.slice(4, 6), 16);
-                if (!Number.isNaN(r) && !Number.isNaN(g) && !Number.isNaN(b)) return { r, g, b };
-            }
-        }
-
-        // Handle rgba(r, g, b, a) or rgb(r, g, b)
-        const rgbaMatch = colorStr.match(/rgba?\s*\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)/i);
-        if (rgbaMatch) {
-            const r = parseInt(rgbaMatch[1], 10);
-            const g = parseInt(rgbaMatch[2], 10);
-            const b = parseInt(rgbaMatch[3], 10);
-            if (!Number.isNaN(r) && !Number.isNaN(g) && !Number.isNaN(b)) return { r, g, b };
-        }
-
-        return null;
+    // ========== Contrast (WCAG 2.1) ==========
+    function _hexToRgb(hex) {
+        const h = String(hex || '').trim().replace('#', '');
+        if (h.length !== 6) return null;
+        const r = parseInt(h.slice(0, 2), 16);
+        const g = parseInt(h.slice(2, 4), 16);
+        const b = parseInt(h.slice(4, 6), 16);
+        if ([r, g, b].some((v) => Number.isNaN(v))) return null;
+        return { r, g, b };
     }
 
     function _luminance({ r, g, b }) {
@@ -838,73 +783,15 @@
         return 0.2126 * lin[0] + 0.7152 * lin[1] + 0.0722 * lin[2];
     }
 
-    function checkContrast(fgColor, bgColor) {
-        const fg = parseColorToRgb(fgColor);
-        const bg = parseColorToRgb(bgColor);
+    function checkContrast(fgHex, bgHex) {
+        const fg = _hexToRgb(fgHex);
+        const bg = _hexToRgb(bgHex);
         if (!fg || !bg) return null;
         const l1 = _luminance(fg);
         const l2 = _luminance(bg);
         const lighter = Math.max(l1, l2);
         const darker = Math.min(l1, l2);
         return (lighter + 0.05) / (darker + 0.05);
-    }
-
-    function getGlassBaseRgb() {
-        const cardBgInput = document.getElementById('cardBgText');
-        const cardBgValue = cardBgInput?.value?.trim() || '';
-
-        let rgb = parseColorToRgb(cardBgValue);
-        if (!rgb && previewContainer) {
-            // גיבוי חכם: קח ערך מחושב מה-preview (למקרים של input רגעית לא תקין)
-            const computedCardBg = getComputedStyle(previewContainer).getPropertyValue('--card-bg');
-            rgb = parseColorToRgb(computedCardBg);
-        }
-        if (!rgb) {
-            rgb = lastValidCardBgRgb || { r: 255, g: 255, b: 255 };
-        }
-
-        lastValidCardBgRgb = rgb;
-        return rgb;
-    }
-
-    // ========== Glass Preview Helper ==========
-    function getGlassRgbByStyle() {
-        const glassStyleSelect = document.getElementById('glassStyle');
-        const glassStyle = glassStyleSelect?.value || 'white';
-
-        if (glassStyle === 'white') {
-            // מצב חלבי - בסיס לבן קבוע
-            return { r: 255, g: 255, b: 255 };
-        } else {
-            // מצב אדפטיבי - בסיס על צבע הכרטיסים
-            return getGlassBaseRgb();
-        }
-    }
-
-    function updateGlassPreview() {
-        const opacitySlider = document.getElementById('glassOpacity');
-        const opacityValue = document.getElementById('glassOpacityValue');
-        const blurSlider = document.getElementById('glassBlur');
-        const blurValue = document.getElementById('glassBlurValue');
-        if (!opacitySlider || !blurSlider) return;
-
-        const opacityVal = parseInt(opacitySlider.value, 10) / 100;
-        const glassAlpha = opacityVal.toFixed(2);
-        const borderAlpha = Math.min(1, opacityVal + 0.10).toFixed(2);
-        const hoverAlpha = Math.min(1, opacityVal + 0.05).toFixed(2);
-
-        const blurVal = blurSlider.value + 'px';
-        const rgb = getGlassRgbByStyle();
-
-        updatePreview('--glass', `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, ${glassAlpha})`);
-        updatePreview('--glass-border', `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, ${borderAlpha})`);
-        updatePreview('--glass-hover', `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, ${hoverAlpha})`);
-        updatePreview('--card-border', `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, ${borderAlpha})`);
-        updatePreview('--glass-blur', blurVal);
-
-        // סינכרון טקסט הסליידרים
-        if (opacityValue) opacityValue.textContent = Math.round(opacityVal * 100) + '%';
-        if (blurValue) blurValue.textContent = blurVal;
     }
 
     // ========== Pickr Initialization ==========
@@ -940,7 +827,6 @@
 
             if (textInput) textInput.value = value;
             updatePreview(varName, value);
-            if (varName === '--card-bg') updateGlassPreview();
             hasUnsavedChanges = true;
         });
 
@@ -955,7 +841,6 @@
                     try {
                         pickr.setColor(val);
                         updatePreview(varName, val);
-                        if (varName === '--card-bg') updateGlassPreview();
                         hasUnsavedChanges = true;
                     } catch (e) {
                         // ignore invalid color
@@ -966,7 +851,6 @@
 
         // Initial preview
         updatePreview(varName, initialColor);
-        if (varName === '--card-bg') updateGlassPreview();
 
         return pickr;
     }
@@ -988,29 +872,30 @@
     // ========== Glass Sliders ==========
     function initGlassSliders() {
         const opacitySlider = document.getElementById('glassOpacity');
+        const opacityValue = document.getElementById('glassOpacityValue');
         const blurSlider = document.getElementById('glassBlur');
-        const glassStyleSelect = document.getElementById('glassStyle');
-        if (!opacitySlider || !blurSlider) return;
+        const blurValue = document.getElementById('glassBlurValue');
 
         opacitySlider.addEventListener('input', () => {
-            updateGlassPreview();
-            hasUnsavedChanges = true;
-        });
-        blurSlider.addEventListener('input', () => {
-            updateGlassPreview();
+            const val = opacitySlider.value;
+            opacityValue.textContent = val + '%';
+            const rgba = `rgba(255, 255, 255, ${(val / 100).toFixed(2)})`;
+            updatePreview('--glass', rgba);
             hasUnsavedChanges = true;
         });
 
-        // Glass style change listener - updates preview immediately
-        if (glassStyleSelect) {
-            glassStyleSelect.addEventListener('change', () => {
-                updateGlassPreview();
-                hasUnsavedChanges = true;
-            });
-        }
+        blurSlider.addEventListener('input', () => {
+            const val = blurSlider.value;
+            blurValue.textContent = val + 'px';
+            updatePreview('--glass-blur', val + 'px');
+            hasUnsavedChanges = true;
+        });
 
         // Initial update
-        updateGlassPreview();
+        opacityValue.textContent = opacitySlider.value + '%';
+        blurValue.textContent = blurSlider.value + 'px';
+        updatePreview('--glass', `rgba(255, 255, 255, ${(opacitySlider.value / 100).toFixed(2)})`);
+        updatePreview('--glass-blur', blurSlider.value + 'px');
     }
 
     // ========== Collect Values ==========
@@ -1025,12 +910,7 @@
             }
         }
 
-        // Glass style selection
-        const glassStyleSelect = document.getElementById('glassStyle');
-        const glassStyle = glassStyleSelect?.value || 'white';
-        variables['--glass-style'] = glassStyle;
-
-        // Glass - use white or card-bg color as base depending on style
+        // Glass
         const opacitySlider = document.getElementById('glassOpacity');
         const blurSlider = document.getElementById('glassBlur');
         const opacityVal = parseInt(opacitySlider.value, 10);
@@ -1038,17 +918,10 @@
         const glassAlpha = (opacityVal / 100).toFixed(2);
         const borderAlpha = Math.min(1, (opacityVal + 10) / 100).toFixed(2);
         const hoverAlpha = Math.min(1, (opacityVal + 5) / 100).toFixed(2);
-
-        // Extract RGB values based on glass style
-        const glassBaseRgb = getGlassRgbByStyle();
-
-        variables['--glass'] = `rgba(${glassBaseRgb.r}, ${glassBaseRgb.g}, ${glassBaseRgb.b}, ${glassAlpha})`;
-        variables['--glass-border'] = `rgba(${glassBaseRgb.r}, ${glassBaseRgb.g}, ${glassBaseRgb.b}, ${borderAlpha})`;
-        variables['--glass-hover'] = `rgba(${glassBaseRgb.r}, ${glassBaseRgb.g}, ${glassBaseRgb.b}, ${hoverAlpha})`;
+        variables['--glass'] = `rgba(255, 255, 255, ${glassAlpha})`;
+        variables['--glass-border'] = `rgba(255, 255, 255, ${borderAlpha})`;
+        variables['--glass-hover'] = `rgba(255, 255, 255, ${hoverAlpha})`;
         variables['--glass-blur'] = blurSlider.value + 'px';
-
-        // Add --card-border based on glass-border for consistency
-        variables['--card-border'] = variables['--glass-border'];
 
         return variables;
     }
@@ -1317,13 +1190,6 @@
             updatePreview(varName, value);
         });
 
-        // Glass style selection
-        const glassStyleSelect = document.getElementById('glassStyle');
-        if (glassStyleSelect) {
-            const glassStyle = variables['--glass-style'] || DEFAULT_VALUES['--glass-style'];
-            glassStyleSelect.value = glassStyle;
-        }
-
         // Glass sliders
         if (variables['--glass']) {
             const match = String(variables['--glass']).match(/[\d.]+(?=\))/);
@@ -1346,9 +1212,6 @@
             if (blurValue) blurValue.textContent = v + 'px';
             updatePreview('--glass-blur', vRaw);
         }
-
-        // ודא שה-Preview מסונכרן: glass* נגזרים מ-style + סליידרים
-        updateGlassPreview();
     }
 
     function clearFormForNewTheme() {
@@ -1376,10 +1239,6 @@
             updatePreview(varName, value);
         });
 
-        // Reset glass style to default
-        const glassStyleSelect = document.getElementById('glassStyle');
-        if (glassStyleSelect) glassStyleSelect.value = DEFAULT_VALUES['--glass-style'];
-
         // Reset glass sliders
         const opacitySlider = document.getElementById('glassOpacity');
         if (opacitySlider) opacitySlider.value = 10;
@@ -1391,7 +1250,8 @@
         const blurValue = document.getElementById('glassBlurValue');
         if (blurValue) blurValue.textContent = '20px';
 
-        updateGlassPreview();
+        updatePreview('--glass', 'rgba(255, 255, 255, 0.10)');
+        updatePreview('--glass-blur', '20px');
 
         hasUnsavedChanges = false;
         updateFormButtons();
@@ -1478,10 +1338,6 @@
             updatePreview(varName, value);
         });
 
-        // Reset glass style to default
-        const glassStyleSelect = document.getElementById('glassStyle');
-        if (glassStyleSelect) glassStyleSelect.value = DEFAULT_VALUES['--glass-style'];
-
         const opacitySlider = document.getElementById('glassOpacity');
         if (opacitySlider) opacitySlider.value = 10;
         const opacityValue = document.getElementById('glassOpacityValue');
@@ -1492,7 +1348,8 @@
         const blurValue = document.getElementById('glassBlurValue');
         if (blurValue) blurValue.textContent = '20px';
 
-        updateGlassPreview();
+        updatePreview('--glass', 'rgba(255, 255, 255, 0.10)');
+        updatePreview('--glass-blur', '20px');
 
         hasUnsavedChanges = true;
     }
