@@ -1,0 +1,211 @@
+import importlib
+import sys
+import types
+from datetime import datetime, timezone
+
+import pytest
+
+
+def _install_observability_stub(monkeypatch):
+    def _emit(_event, severity="info", **_fields):
+        return None
+
+    monkeypatch.setitem(sys.modules, "observability", types.SimpleNamespace(emit_event=_emit))
+
+
+def _install_fake_pymongo(monkeypatch, *, docs=None):
+    """מזריק pymongo מזויף עם Collection in-memory עבור alert_tags_storage."""
+    docs = list(docs or [])
+
+    class _Result:
+        def __init__(self, *, upserted_id=None, modified_count=0, deleted_count=0):
+            self.upserted_id = upserted_id
+            self.modified_count = modified_count
+            self.deleted_count = deleted_count
+
+    class _FakeCollection:
+        def __init__(self):
+            self._docs = docs
+
+        def create_index(self, *_a, **_k):
+            return None
+
+        def find_one(self, query):
+            for d in self._docs:
+                ok = True
+                for k, v in (query or {}).items():
+                    if d.get(k) != v:
+                        ok = False
+                        break
+                if ok:
+                    return dict(d)
+            return None
+
+        def find(self, query, projection=None):
+            query = query or {}
+
+            def _match(d):
+                for k, v in query.items():
+                    if isinstance(v, dict) and "$in" in v:
+                        if d.get(k) not in set(v["$in"]):
+                            return False
+                    else:
+                        if d.get(k) != v:
+                            return False
+                return True
+
+            matched = [dict(d) for d in self._docs if _match(d)]
+
+            # naive projection support (include keys with 1, skip _id)
+            if isinstance(projection, dict):
+                keep = {k for k, vv in projection.items() if vv == 1}
+                if keep:
+                    out = []
+                    for d in matched:
+                        out.append({k: d.get(k) for k in keep if k in d})
+                    matched = out
+            return matched
+
+        def update_one(self, query, update, upsert=False):
+            # minimal support for alert_uid and alert_type_name upserts
+            query = query or {}
+            set_doc = (update or {}).get("$set", {}) or {}
+            set_on_insert = (update or {}).get("$setOnInsert", {}) or {}
+            add_to_set = (update or {}).get("$addToSet", {}) or {}
+            pull = (update or {}).get("$pull", {}) or {}
+
+            for d in self._docs:
+                ok = True
+                for k, v in query.items():
+                    if d.get(k) != v:
+                        ok = False
+                        break
+                if not ok:
+                    continue
+
+                modified = 0
+                if set_doc:
+                    for k, v in set_doc.items():
+                        if d.get(k) != v:
+                            d[k] = v
+                            modified = 1
+                if add_to_set:
+                    for k, v in add_to_set.items():
+                        arr = d.get(k) or []
+                        if not isinstance(arr, list):
+                            arr = []
+                        if v not in arr:
+                            arr.append(v)
+                            d[k] = arr
+                            modified = 1
+                if pull:
+                    for k, v in pull.items():
+                        arr = d.get(k) or []
+                        if isinstance(arr, list) and v in arr:
+                            d[k] = [x for x in arr if x != v]
+                            modified = 1
+                return _Result(upserted_id=None, modified_count=modified)
+
+            if upsert:
+                new_doc = dict(set_on_insert)
+                new_doc.update(query)
+                new_doc.update(set_doc)
+                if add_to_set:
+                    for k, v in add_to_set.items():
+                        new_doc[k] = [v]
+                self._docs.append(new_doc)
+                return _Result(upserted_id="new", modified_count=0)
+            return _Result(upserted_id=None, modified_count=0)
+
+        def delete_one(self, query):
+            query = query or {}
+            before = len(self._docs)
+            self._docs[:] = [d for d in self._docs if not all(d.get(k) == v for k, v in query.items())]
+            deleted = 1 if len(self._docs) < before else 0
+            return _Result(deleted_count=deleted)
+
+        def aggregate(self, *_a, **_k):
+            # not needed for this test suite
+            return []
+
+    class _FakeDB:
+        def __init__(self):
+            self._coll = _FakeCollection()
+
+        def __getitem__(self, _name):
+            return self._coll
+
+    class _FakeAdmin:
+        def command(self, *_a, **_k):
+            return {"ok": 1}
+
+    class _FakeClient:
+        def __init__(self, *_a, **_k):
+            self.admin = _FakeAdmin()
+            self._db = _FakeDB()
+
+        def __getitem__(self, _name):
+            return self._db
+
+    monkeypatch.setitem(sys.modules, "pymongo", types.SimpleNamespace(MongoClient=_FakeClient))
+
+
+def _import_fresh_storage(monkeypatch):
+    sys.modules.pop("monitoring.alert_tags_storage", None)
+    return importlib.import_module("monitoring.alert_tags_storage")
+
+
+def test_get_tags_map_for_alerts_app_side_merge_two_queries(monkeypatch):
+    # enable DB path inside storage, but use fake pymongo
+    monkeypatch.delenv("DISABLE_DB", raising=False)
+    monkeypatch.setenv("MONGODB_URL", "mongodb://localhost:27017/test")
+    monkeypatch.setenv("DATABASE_NAME", "code_keeper_bot")
+    _install_observability_stub(monkeypatch)
+
+    docs = [
+        # instance tags
+        {"alert_uid": "uid-1", "tags": ["specific-tag"]},
+        # global tags
+        {"alert_type_name": "CPU High", "tags": ["global-tag", "prod"]},
+    ]
+    _install_fake_pymongo(monkeypatch, docs=docs)
+    s = _import_fresh_storage(monkeypatch)
+
+    alerts = [
+        {"alert_uid": "uid-1", "name": "CPU High"},
+        {"alert_uid": "uid-2", "name": "CPU High"},
+        {"alert_uid": "uid-3", "name": "Other"},
+    ]
+    result = s.get_tags_map_for_alerts(alerts)
+
+    assert result["uid-1"] == ["global-tag", "prod", "specific-tag"]
+    assert result["uid-2"] == ["global-tag", "prod"]
+    assert result["uid-3"] == []
+
+
+def test_set_and_get_global_tags(monkeypatch):
+    monkeypatch.delenv("DISABLE_DB", raising=False)
+    monkeypatch.setenv("MONGODB_URL", "mongodb://localhost:27017/test")
+    _install_observability_stub(monkeypatch)
+    _install_fake_pymongo(monkeypatch, docs=[])
+    s = _import_fresh_storage(monkeypatch)
+
+    res = s.set_global_tags_for_name("CPU High", ["Infrastructure", "critical", "critical"])
+    assert res["alert_type_name"] == "CPU High"
+    assert res["tags"] == ["infrastructure", "critical"]
+    assert set(s.get_global_tags_for_name("CPU High")) == {"infrastructure", "critical"}
+
+
+def test_set_and_get_instance_tags(monkeypatch):
+    monkeypatch.delenv("DISABLE_DB", raising=False)
+    monkeypatch.setenv("MONGODB_URL", "mongodb://localhost:27017/test")
+    _install_observability_stub(monkeypatch)
+    _install_fake_pymongo(monkeypatch, docs=[])
+    s = _import_fresh_storage(monkeypatch)
+
+    ts = datetime.now(timezone.utc)
+    res = s.set_tags_for_alert("uid-x", ts, ["Bug", "production", "bug", "  "])
+    assert res["alert_uid"] == "uid-x"
+    assert res["tags"] == ["bug", "production"]
+    assert s.get_tags_for_alert("uid-x") == ["bug", "production"]
+

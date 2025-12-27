@@ -677,6 +677,18 @@ class ConfigService:
             description="נתיב לקובץ Runbooks",
             category="observability",
         ),
+        "ALERT_TAGS_COLLECTION": ConfigDefinition(
+            key="ALERT_TAGS_COLLECTION",
+            default="alert_tags",
+            description="שם ה-Collection לתגיות התראות (Manual Alert Tagging) ב-Observability",
+            category="observability",
+        ),
+        "ALERT_TAGS_DB_DISABLED": ConfigDefinition(
+            key="ALERT_TAGS_DB_DISABLED",
+            default="false",
+            description="אם true מכבה שמירה/שליפה של תגיות להתראות (Manual Alert Tagging) מה-DB",
+            category="observability",
+        ),
         "OBS_RUNBOOK_STATE_TTL": ConfigDefinition(
             key="OBS_RUNBOOK_STATE_TTL",
             default="14400",
