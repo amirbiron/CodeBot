@@ -432,6 +432,63 @@ def aggregate_error_ratio(
     return {"total": int(doc.get("total", 0)), "errors": int(doc.get("errors", 0))}
 
 
+def find_by_request_id(
+    request_id: str,
+    *,
+    limit: int = 20,
+) -> List[Dict[str, Any]]:
+    """Find metrics records by request_id.
+
+    Used by triage service to provide fallback when Sentry is unavailable.
+    Returns empty list on any failure (fail-open).
+    """
+    if not request_id:
+        return []
+    coll = _get_collection()
+    if coll is None:
+        return []
+    try:
+        import re
+        rid = str(request_id).strip()
+        if not rid:
+            return []
+        max_items = max(1, min(100, int(limit)))
+        # Regex safety: escape special characters to prevent injection (see alert_tags_storage.py)
+        rid_escaped = re.escape(rid)
+        # Search by exact match or partial match (prefix)
+        query: Dict[str, Any] = {
+            "$or": [
+                {"request_id": rid},
+                {"request_id": {"$regex": f"^{rid_escaped}"}},
+            ]
+        }
+        cursor = (
+            coll.find(query)  # type: ignore[attr-defined]
+            .sort("ts", -1)
+            .limit(max_items)
+        )
+        results: List[Dict[str, Any]] = []
+        for doc in cursor:
+            try:
+                ts = doc.get("ts")
+                ts_iso = ""
+                if isinstance(ts, datetime):
+                    ts_iso = ts.astimezone(timezone.utc).isoformat()
+                results.append({
+                    "timestamp": ts_iso,
+                    "request_id": str(doc.get("request_id") or ""),
+                    "status_code": int(doc.get("status_code", 0) or 0),
+                    "duration_seconds": float(doc.get("duration_seconds", 0.0) or 0.0),
+                    "path": str(doc.get("path") or doc.get("handler") or ""),
+                    "method": str(doc.get("method") or ""),
+                })
+            except Exception:
+                continue
+        return results
+    except Exception:
+        return []
+
+
 def aggregate_latency_percentiles(
     *,
     start_dt: Optional[datetime],

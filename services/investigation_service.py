@@ -170,6 +170,71 @@ def render_triage_html(result: Dict[str, Any]) -> str:
     return html_out
 
 
+def _search_local_errors(request_id: str, limit: int = 20) -> List[Dict[str, Any]]:
+    """Search in-memory error buffer for matching request_id (fallback).
+
+    Returns list of timeline events (best-effort, fail-open).
+    """
+    results: List[Dict[str, Any]] = []
+    try:
+        from observability import get_recent_errors  # type: ignore
+        errors = get_recent_errors(limit=200)
+        rid = str(request_id or "").strip().lower()
+        if not rid:
+            return []
+        for err in errors:
+            try:
+                err_rid = str(err.get("request_id") or "").strip().lower()
+                # Match exact or prefix
+                if err_rid and (err_rid == rid or err_rid.startswith(rid) or rid in err_rid):
+                    results.append({
+                        "timestamp": str(err.get("ts") or err.get("timestamp") or ""),
+                        "message": str(err.get("error") or err.get("message") or err.get("event") or ""),
+                        "url": "",
+                        "source": "local_buffer",
+                    })
+            except Exception:
+                continue
+    except Exception:
+        pass
+    return results[:limit]
+
+
+def _search_metrics_storage(request_id: str, limit: int = 20) -> List[Dict[str, Any]]:
+    """Search DB-backed metrics storage for matching request_id (fallback).
+
+    Returns list of timeline events (best-effort, fail-open).
+    """
+    results: List[Dict[str, Any]] = []
+    try:
+        from monitoring.metrics_storage import find_by_request_id  # type: ignore
+        records = find_by_request_id(request_id, limit=limit)
+        for rec in records:
+            try:
+                status = int(rec.get("status_code", 0) or 0)
+                duration = float(rec.get("duration_seconds", 0.0) or 0.0)
+                path = str(rec.get("path") or "")
+                method = str(rec.get("method") or "")
+                msg_parts = []
+                if method:
+                    msg_parts.append(method)
+                if path:
+                    msg_parts.append(path)
+                msg_parts.append(f"status={status}")
+                msg_parts.append(f"duration={duration:.3f}s")
+                results.append({
+                    "timestamp": str(rec.get("timestamp") or ""),
+                    "message": " ".join(msg_parts),
+                    "url": "",
+                    "source": "metrics_db",
+                })
+            except Exception:
+                continue
+    except Exception:
+        pass
+    return results[:limit]
+
+
 async def triage(query_or_request_id: str, limit: int = 20) -> Dict[str, Any]:
     query = str(query_or_request_id or "").strip()
     timeline: List[Dict[str, Any]] = []
@@ -190,10 +255,42 @@ async def triage(query_or_request_id: str, limit: int = 20) -> Dict[str, Any]:
                         "timestamp": ev.get("timestamp") or "",
                         "message": ev.get("message") or "",
                         "url": ev.get("url") or "",
+                        "source": "sentry",
                     }
                 )
     except Exception:
         pass
+
+    # Fallback: search local sources when Sentry returns nothing
+    # This handles cases where:
+    # 1. Sentry is not configured
+    # 2. The request was successful (status 200) and not sent to Sentry
+    # 3. The event hasn't been indexed in Sentry yet
+    if not timeline:
+        try:
+            # Check if query looks like a request_id (bare token)
+            if ":" not in query and "=" not in query and " " not in query:
+                # Calculate sub-limits to ensure combined results don't exceed limit
+                # Split evenly between sources, giving preference to local errors
+                local_limit = (limit + 1) // 2
+                metrics_limit = limit - local_limit
+
+                # 1. Search in-memory error buffer
+                local_errors = _search_local_errors(query, limit=local_limit)
+                timeline.extend(local_errors)
+
+                # 2. Search DB-backed metrics storage
+                metrics_records = _search_metrics_storage(query, limit=metrics_limit)
+                timeline.extend(metrics_records)
+
+                # Sort by timestamp (newest first) and truncate to limit
+                try:
+                    timeline.sort(key=lambda x: str(x.get("timestamp") or ""), reverse=True)
+                    timeline = timeline[:limit]
+                except Exception:
+                    pass
+        except Exception:
+            pass
 
     # Links (best-effort)
     grafana_links = _grafana_links_for_request(query)
