@@ -1167,7 +1167,8 @@ class GitHubMenuHandler:
             )
         except Exception:
             pass
-        await query.answer()
+        # חשוב: אל תיפול על "Query is too old / query_id_invalid" – אחרת כל ה-flow נראה "לא מגיב"
+        await TelegramUtils.safe_answer(query)
 
         user_id = query.from_user.id
         session = self.get_user_session(user_id)
