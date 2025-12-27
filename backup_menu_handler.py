@@ -9,10 +9,17 @@ from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, InputFi
 from telegram.ext import ContextTypes
 
 from services import backup_service as backup_manager
-from database import db
 from handlers.pagination import build_pagination_row
 
 logger = logging.getLogger(__name__)
+
+def _get_files_facade():
+    """Lazy facade accessor to avoid import-order issues in tests."""
+    try:
+        from src.infrastructure.composition import get_files_facade  # type: ignore
+        return get_files_facade()
+    except Exception:
+        return None
 
 # Structured logging and performance instrumentation (fail-open in tests)
 try:
@@ -310,8 +317,9 @@ class BackupMenuHandler:
             try:
                 res = backup_manager.delete_backups(user_id, [backup_id])
                 try:
-                    from database import db as _db
-                    _db.delete_backup_ratings(user_id, [backup_id])
+                    facade = _get_files_facade()
+                    if facade is not None:
+                        facade.delete_backup_ratings(user_id, [backup_id])
                 except Exception:
                     pass
                 deleted = res.get("deleted", 0)
@@ -370,8 +378,9 @@ class BackupMenuHandler:
                 res = backup_manager.delete_backups(user_id, sel)
                 try:
                     # נקה דירוגים
-                    from database import db as _db
-                    _db.delete_backup_ratings(user_id, sel)
+                    facade = _get_files_facade()
+                    if facade is not None:
+                        facade.delete_backup_ratings(user_id, sel)
                 except Exception:
                     pass
                 deleted = res.get("deleted", 0)
@@ -406,7 +415,15 @@ class BackupMenuHandler:
             }
             rating_value = rating_map.get(rating_key, rating_key)
             try:
-                db.save_backup_rating(user_id, b_id, rating_value)
+                facade = _get_files_facade()
+                ok = True
+                if facade is None:
+                    ok = False
+                else:
+                    ok = bool(facade.save_backup_rating(user_id, b_id, rating_value))
+                if not ok:
+                    await query.answer("שמירת דירוג נכשלה", show_alert=True)
+                    return
                 # רענון UX: אם נכנסו דרך תצוגת פרטים, הצג אותה שוב; אחרת רענן רשימה
                 try:
                     await self._show_backup_details(update, context, b_id)
@@ -430,18 +447,20 @@ class BackupMenuHandler:
                 pass
             from io import BytesIO
             import json
-            from database import db
+            facade = _get_files_facade()
+            if facade is None:
+                raise RuntimeError("DB unavailable")
             # אסוף את הקבצים של המשתמש (כולל code) — נדרש כדי לכתוב את ה-ZIP.
             # הערה: ברירת המחדל ב-Repository לרשימות עשויה להחזיר ללא שדות כבדים; לכן מבקשים code במפורש.
             try:
-                files = db.get_user_files(
+                files = facade.get_user_files(
                     user_id,
                     limit=1000,
                     projection={"_id": 1, "file_name": 1, "code": 1},
                 ) or []
             except TypeError:
                 # תאימות ל-stubs ישנים שלא תומכים ב-projection
-                files = db.get_user_files(user_id, limit=1000) or []
+                files = facade.get_user_files(user_id, limit=1000) or []
             backup_id = f"backup_{user_id}_{int(__import__('time').time())}"
             buf = BytesIO()
             try:
@@ -626,7 +645,8 @@ class BackupMenuHandler:
             lines.append(first_line)
             # שורה שנייה עם גודל | קבצים | גרסה (+דירוג אם קיים)
             try:
-                rating = db.get_backup_rating(user_id, info.backup_id) or ""
+                facade = _get_files_facade()
+                rating = (facade.get_backup_rating(user_id, info.backup_id) if facade is not None else "") or ""
             except Exception:
                 rating = ""
             vnum = id_to_version.get(getattr(info, 'backup_id', ''), 1)
@@ -720,12 +740,14 @@ class BackupMenuHandler:
             return
         # שלוף דירוג נוכחי אם קיים
         try:
-            rating = db.get_backup_rating(user_id, backup_id) or ""
+            facade = _get_files_facade()
+            rating = (facade.get_backup_rating(user_id, backup_id) if facade is not None else "") or ""
         except Exception:
             rating = ""
         # שלוף הערה אם קיימת
         try:
-            note_text = db.get_backup_note(user_id, backup_id) or ""
+            facade = _get_files_facade()
+            note_text = (facade.get_backup_note(user_id, backup_id) if facade is not None else "") or ""
         except Exception:
             note_text = ""
         when = _format_date(getattr(match, 'created_at', ''))
@@ -759,8 +781,8 @@ class BackupMenuHandler:
         user_id = query.from_user.id
         # שלוף הערה קיימת אם יש
         try:
-            from database import db
-            existing = db.get_backup_note(user_id, backup_id) or ""
+            facade = _get_files_facade()
+            existing = (facade.get_backup_note(user_id, backup_id) if facade is not None else "") or ""
         except Exception:
             existing = ""
         try:
@@ -819,8 +841,8 @@ class BackupMenuHandler:
                 date_str = date_str.replace('/', '-').replace(':', '.')
                 # הוסף אימוג'י דירוג אם קיים
                 try:
-                    from database import db as _db
-                    rating = _db.get_backup_rating(user_id, backup_id) or ""
+                    facade = _get_files_facade()
+                    rating = (facade.get_backup_rating(user_id, backup_id) if facade is not None else "") or ""
                 except Exception:
                     rating = ""
                 emoji = rating.split()[0] if isinstance(rating, str) and rating else ""

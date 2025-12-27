@@ -19,6 +19,12 @@ except Exception:  # pragma: no cover
 
 logger = logging.getLogger(__name__)
 
+# Transitional: access persistence only via facade (avoid direct database imports)
+try:
+    from src.infrastructure.composition import get_files_facade  # type: ignore
+except Exception:  # pragma: no cover
+    get_files_facade = None  # type: ignore
+
 class BackupInfo:
     """מידע על גיבוי"""
     def __init__(self, backup_id: str, user_id: int, created_at: datetime, file_count: int, total_size: int, backup_type: str, status: str, file_path: str, repo: Optional[str], path: Optional[str], metadata: Optional[Dict[str, Any]]):
@@ -417,9 +423,10 @@ class BackupManager:
         if gridfs is None:
             return None
         try:
-            # שימוש במסד הנתונים הגלובלי הקיים
-            from database import db as global_db
-            mongo_db = getattr(global_db, "db", None)
+            # שימוש במסד הנתונים הגלובלי הקיים (דרך facade)
+            mongo_db = None
+            if get_files_facade is not None:
+                mongo_db = get_files_facade().get_mongo_db()
             if not mongo_db:
                 return None
             # אוסף ייעודי "backups"
@@ -1047,8 +1054,11 @@ class BackupManager:
         results: Dict[str, Any] = {"restored_files": 0, "errors": []}
         try:
             import zipfile
-            from database import db
             from utils import detect_language_from_filename
+            facade = get_files_facade() if get_files_facade is not None else None
+            if facade is None:
+                results["errors"].append("DB unavailable")
+                return results
             # פרה-תנאי
             if not os.path.exists(backup_path):
                 results["errors"].append(f"backup file not found: {backup_path}")
@@ -1056,12 +1066,12 @@ class BackupManager:
 
             if purge:
                 try:
-                    existing = db.get_user_files(user_id, limit=1000, projection={"file_name": 1}) or []
+                    existing = facade.get_user_files(user_id, limit=1000, projection={"file_name": 1}) or []
                     for doc in existing:
                         try:
                             fname = doc.get('file_name')
                             if fname:
-                                db.delete_file(user_id, fname)
+                                facade.delete_file(user_id, fname)
                         except Exception as e:
                             results["errors"].append(f"purge failed for {doc.get('file_name')}: {e}")
                 except Exception as e:
@@ -1092,7 +1102,7 @@ class BackupManager:
                                 filtered_extra = [repo_tags[-1]] + [t for t in filtered_extra if not (isinstance(t, str) and t.strip().lower().startswith('repo:'))]
                         except Exception:
                             pass
-                        ok = db.save_file(user_id=user_id, file_name=name, code=text, programming_language=lang, extra_tags=filtered_extra)
+                        ok = facade.save_file(user_id=user_id, file_name=name, code=text, programming_language=lang, extra_tags=filtered_extra)
                         if ok:
                             results["restored_files"] += 1
                         else:
