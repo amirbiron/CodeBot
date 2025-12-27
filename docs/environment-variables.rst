@@ -232,18 +232,18 @@
      - ``5``
      - ``10``
      - WebApp
-  * - ``ALERT_TAGS_COLLECTION``
-    - שם ה-Collection לתגיות התראות (Manual Alert Tagging) ב-Observability.
-    - לא
-    - ``alert_tags``
-    - ``alert_tags``
-    - WebApp/Observability
-  * - ``ALERT_TAGS_DB_DISABLED``
-    - אם ``true`` מכבה שמירה/שליפה של תגיות להתראות (Manual Alert Tagging) מה-DB.
-    - לא
-    - ``false``
-    - ``true``
-    - WebApp/Observability
+   * - ``ALERT_TAGS_COLLECTION``
+     - שם ה-Collection לתגיות התראות (Manual Alert Tagging) ב-Observability.
+     - לא
+     - ``alert_tags``
+     - ``alert_tags``
+     - WebApp/Observability
+   * - ``ALERT_TAGS_DB_DISABLED``
+     - אם ``true`` מכבה שמירה/שליפה של תגיות להתראות (Manual Alert Tagging) מה-DB.
+     - לא
+     - ``false``
+     - ``true``
+     - WebApp/Observability
    * - ``PUBLIC_BASE_URL``
      - כתובת בסיס ציבורית ליצירת קישורי שיתוף
      - לא
@@ -875,18 +875,18 @@
      - ``false``
      - ``true``
      - WebApp/Observability
-  * - ``ALERT_TAGS_COLLECTION``
-    - שם ה-Collection לתגיות התראות (Manual Alert Tagging) ב-Observability.
-    - לא
-    - ``alert_tags``
-    - ``alert_tags``
-    - WebApp/Observability
-  * - ``ALERT_TAGS_DB_DISABLED``
-    - אם ``true`` מכבה שמירה/שליפה של תגיות להתראות (Manual Alert Tagging) מה-DB.
-    - לא
-    - ``false``
-    - ``true``
-    - WebApp/Observability
+   * - ``ALERT_TAGS_COLLECTION``
+     - שם ה-Collection לתגיות התראות (Manual Alert Tagging) ב-Observability.
+     - לא
+     - ``alert_tags``
+     - ``alert_tags``
+     - WebApp/Observability
+   * - ``ALERT_TAGS_DB_DISABLED``
+     - אם ``true`` מכבה שמירה/שליפה של תגיות להתראות (Manual Alert Tagging) מה-DB.
+     - לא
+     - ``false``
+     - ``true``
+     - WebApp/Observability
    * - ``ALERTMANAGER_WEBHOOK_SECRET``
      - טוקן שצריך להופיע בכותרת ``X-Alertmanager-Token`` או בפרמטר ``token`` כדי לאמת קריאות ל־``/alertmanager/webhook``.
      - לא
