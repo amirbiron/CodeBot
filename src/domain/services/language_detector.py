@@ -124,14 +124,15 @@ class LanguageDetector:
             למה: בקוד פייתון יש הרבה שורות שמתחילות ב-`#` (comments),
             ואנחנו לא רוצים שזה ימנע override ל-python עבור קבצי `.md`
             כשהתוכן הוא בפועל קוד.
+
+            שים לב: אנחנו *לא* מחשיבים רשימות (`- item`) כסמן חזק כאן,
+            כי זה מופיע הרבה בתוך Docstrings/הערות, וזה בדיוק המקרה של `block.md`
+            שבו התוכן הוא קוד אבל הסיומת גנרית.
             """
             view = content or ""
             if view.startswith("#!"):
                 nl = view.find("\n")
                 view = "" if nl == -1 else view[nl + 1 :]
-            # Lists (-/*/+) with up to 2 leading spaces
-            if re.search(r"(^|\n)\s{0,2}[-*+]\s+\S", view):
-                return True
             # Markdown links / images
             if re.search(r"\[.+?\]\(.+?\)", view):
                 return True
