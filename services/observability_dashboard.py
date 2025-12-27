@@ -1417,8 +1417,10 @@ def fetch_alerts(
     except Exception:
         tags_map = {}
     for alert in alerts:
-        uid = alert.get("alert_uid")
-        alert["tags"] = tags_map.get(uid, []) if uid else []
+        # FIX: Use the same fallback logic as storage to match the ID
+        raw_uid = alert.get("alert_uid") or alert.get("uid") or alert.get("id") or alert.get("_id")
+        uid_str = str(raw_uid or "").strip()
+        alert["tags"] = tags_map.get(uid_str, [])
 
     alert_uids = [alert.get("alert_uid") for alert in alerts if alert.get("alert_uid")]
     if alert_uids:
