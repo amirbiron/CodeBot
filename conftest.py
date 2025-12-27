@@ -251,6 +251,49 @@ def _reset_cache_manager_stub_before_test() -> None:
 
 
 @pytest.fixture(autouse=True)
+def _reset_observability_stub_between_tests() -> None:
+    """מנקה Stub שדלף ל-`observability` בין טסטים.
+
+    יש טסטים שממקפים את `sys.modules['observability']` ל-`types.SimpleNamespace`
+    כדי לאפשר import של מודולים כבדים. אם זה דולף, טסטים שמצפים למודול האמיתי
+    (כולל פונקציות פנימיות) עלולים ליפול.
+    """
+    import sys
+    import types
+
+    def _restore_real_if_needed() -> None:
+        mod = sys.modules.get("observability")
+        # SimpleNamespace (או כל אובייקט שאינו מודול) הוא סימן ל-stub דולף
+        if mod is not None and not isinstance(mod, types.ModuleType):
+            sys.modules.pop("observability", None)
+        # אם קיים מודול אמיתי – לא נוגעים
+        if isinstance(sys.modules.get("observability"), types.ModuleType):
+            return
+        # ניסיון best-effort לטעון את המודול האמיתי (אם קיים בפרויקט)
+        try:
+            import importlib
+
+            real_obs = importlib.import_module("observability")
+        except Exception:
+            return
+        # אם יש טסט שכבר ייבא obs כ-reference גלובלי ל-stub, נעדכן אותו
+        try:
+            for name, loaded in list(sys.modules.items()):
+                if name.endswith("test_observability_basic") and hasattr(loaded, "obs"):
+                    try:
+                        if not isinstance(getattr(loaded, "obs"), types.ModuleType):
+                            setattr(loaded, "obs", real_obs)
+                    except Exception:
+                        continue
+        except Exception:
+            return
+
+    _restore_real_if_needed()
+    yield
+    _restore_real_if_needed()
+
+
+@pytest.fixture(autouse=True)
 def _reset_cache_manager_state_between_tests(_reset_cache_manager_stub_before_test) -> None:
     """מאפס מצב גלובלי של cache_manager בין טסטים.
 

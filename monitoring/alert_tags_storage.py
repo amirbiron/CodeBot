@@ -32,7 +32,6 @@ import logging
 import os
 import re
 from datetime import datetime, timezone
-from types import SimpleNamespace
 from typing import Any, Dict, List, Optional
 
 logger = logging.getLogger(__name__)
@@ -379,8 +378,20 @@ def get_tags_map_for_alerts(alerts_list: List[dict]) -> Dict[str, List[str]]:
     """
     if not alerts_list:
         return {}
-    uids = [str(a.get("alert_uid") or "").strip() for a in alerts_list if str(a.get("alert_uid") or "").strip()]
-    names = [str(a.get("name") or "").strip() for a in alerts_list if str(a.get("name") or "").strip()]
+
+    # 0) אסוף UIDs + Names, ודדופליקציה לפני שאילתות (שומר סדר הופעה)
+    raw_uids = [
+        str(a.get("alert_uid") or "").strip()
+        for a in alerts_list
+        if str(a.get("alert_uid") or "").strip()
+    ]
+    raw_names = [
+        str(a.get("name") or "").strip()
+        for a in alerts_list
+        if str(a.get("name") or "").strip()
+    ]
+    uids = list(dict.fromkeys(raw_uids))
+    names = list(dict.fromkeys(raw_names))
     if not uids:
         return {}
 
@@ -389,44 +400,60 @@ def get_tags_map_for_alerts(alerts_list: List[dict]) -> Dict[str, List[str]]:
         # Fail-open: no tags
         return {uid: [] for uid in uids}
 
+    # 1) שליפה אחת של תגיות ספציפיות (Instance) לפי UID
+    instance_map: Dict[str, List[str]] = {}
     try:
-        instance_cursor = coll.find({"alert_uid": {"$in": uids}})
-        instance_map: Dict[str, set[str]] = {}
-        for doc in instance_cursor:
+        cursor = coll.find(
+            {"alert_uid": {"$in": uids}},
+            {"_id": 0, "alert_uid": 1, "tags": 1},
+        )
+        for doc in cursor:
             if not isinstance(doc, dict):
                 continue
             uid = str(doc.get("alert_uid") or "").strip()
             if not uid:
                 continue
-            instance_map[uid] = set(doc.get("tags", []) or [])
+            tags = doc.get("tags", [])
+            instance_map[uid] = list(tags) if isinstance(tags, list) else []
     except Exception:
         instance_map = {}
 
-    try:
-        global_cursor = coll.find({"alert_type_name": {"$in": names}})
-        global_map: Dict[str, set[str]] = {}
-        for doc in global_cursor:
-            if not isinstance(doc, dict):
-                continue
-            name = str(doc.get("alert_type_name") or "").strip()
-            if not name:
-                continue
-            global_map[name] = set(doc.get("tags", []) or [])
-    except Exception:
-        global_map = {}
+    # 2) שליפה אחת של תגיות גלובליות (Type) לפי שם התראה
+    global_map: Dict[str, List[str]] = {}
+    if names:
+        try:
+            cursor = coll.find(
+                {"alert_type_name": {"$in": names}},
+                {"_id": 0, "alert_type_name": 1, "tags": 1},
+            )
+            for doc in cursor:
+                if not isinstance(doc, dict):
+                    continue
+                name = str(doc.get("alert_type_name") or "").strip()
+                if not name:
+                    continue
+                tags = doc.get("tags", [])
+                global_map[name] = list(tags) if isinstance(tags, list) else []
+        except Exception:
+            global_map = {}
 
+    # 3) איחוד בפייתון בלבד (ללא DB בתוך הלולאה)
     final_map: Dict[str, List[str]] = {}
     for alert in alerts_list:
         uid = str(alert.get("alert_uid") or "").strip()
         if not uid:
             continue
         name = str(alert.get("name") or "").strip()
-        tags: set[str] = set()
-        if uid in instance_map:
-            tags.update(instance_map[uid])
+
+        merged: List[str] = []
         if name and name in global_map:
-            tags.update(global_map[name])
-        final_map[uid] = list(tags)
+            merged.extend([t for t in global_map.get(name, []) if isinstance(t, str) and t.strip()])
+        if uid in instance_map:
+            merged.extend([t for t in instance_map.get(uid, []) if isinstance(t, str) and t.strip()])
+
+        # union + normalization in app side (preserve order)
+        merged_norm = _normalize_tags(merged)
+        final_map[uid] = merged_norm
 
     # ensure missing uids are present with []
     for uid in uids:
