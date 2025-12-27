@@ -2,13 +2,21 @@
    Code Tools (Standalone + Editor Integration)
    ============================================== */
 
-/* ---------- Toolbar integration (edit_file.html) ---------- */
+/* ---------- Toolbar integration (edit_file.html, upload.html) ---------- */
 .code-tools-group {
   display: flex;
   align-items: center;
   gap: 0.4rem;
   flex-wrap: wrap;
   margin-bottom: 0.75rem;
+}
+
+/* כשמוזז לתוך editor-switcher-actions */
+.code-tools-group.code-tools-inline {
+  margin-bottom: 0;
+  margin-inline-start: 1rem;  /* רווח מהכפתורים הקודמים */
+  padding-inline-start: 1rem; /* רווח פנימי */
+  border-inline-start: 1px solid rgba(255, 255, 255, 0.15); /* קו מפריד */
 }
 
 .code-tools-group .btn {

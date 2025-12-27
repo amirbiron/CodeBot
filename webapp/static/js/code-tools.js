@@ -503,3 +503,30 @@ const CodeToolsIntegration = {
 // Export
 window.CodeToolsIntegration = CodeToolsIntegration;
 
+// אתחול אוטומטי כשהדף נטען
+document.addEventListener('DOMContentLoaded', () => {
+  // המתן מעט כדי לתת ל-editor-manager ליצור את ה-editor-switcher
+  setTimeout(() => {
+    CodeToolsIntegration.autoInit();
+  }, 100);
+});
+
+// ניסיון נוסף אם editor-switcher נוצר מאוחר יותר
+const observer = new MutationObserver((mutations) => {
+  for (const mutation of mutations) {
+    if (mutation.addedNodes.length) {
+      const editorSwitcher = document.querySelector('.editor-switcher-actions');
+      if (editorSwitcher && !CodeToolsIntegration._initialized) {
+        CodeToolsIntegration.autoInit();
+        // נסה להעביר שוב כי editor-switcher נוצר עכשיו
+        CodeToolsIntegration.moveToolsToEditorRow();
+      }
+    }
+  }
+});
+
+// צפה בשינויים ב-DOM
+if (document.body) {
+  observer.observe(document.body, { childList: true, subtree: true });
+}
+
