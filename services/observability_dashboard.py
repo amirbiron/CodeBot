@@ -1501,6 +1501,8 @@ def set_alert_tags(
             tags=tags,
             user_id=user_id,
         )
+        # FIX: Invalidate cache so tags appear immediately after refresh
+        _invalidate_alert_cache()
         return {"ok": True, **result}
     except ValueError as ve:
         # אל תחזיר הודעת חריגה גולמית ללקוח (CodeQL: Information exposure).
@@ -1538,6 +1540,8 @@ def add_alert_tag(
             tag=tag,
             user_id=user_id,
         )
+        # FIX: Invalidate cache so tags appear immediately after refresh
+        _invalidate_alert_cache()
         return {"ok": True, **result}
     except ValueError as ve:
         # אל תחזיר הודעת חריגה גולמית ללקוח (CodeQL: Information exposure).
@@ -1558,6 +1562,8 @@ def remove_alert_tag(*, alert_uid: str, tag: str) -> Dict[str, Any]:
         return {"ok": False, "error": "missing_params"}
     try:
         result = alert_tags_storage.remove_tag_from_alert(uid, tag)
+        # FIX: Invalidate cache so tags appear immediately after refresh
+        _invalidate_alert_cache()
         return {"ok": True, **result}
     except ValueError as ve:
         # אל תחזיר הודעת חריגה גולמית ללקוח (CodeQL: Information exposure).
@@ -1620,6 +1626,8 @@ def set_global_alert_tags(
             tags=tags,
             user_id=user_id,
         )
+        # FIX: Invalidate cache so global tags appear immediately after refresh
+        _invalidate_alert_cache()
         return {"ok": True, **result}
     except ValueError as ve:
         # אל תחזיר הודעת חריגה גולמית ללקוח (CodeQL: Information exposure).

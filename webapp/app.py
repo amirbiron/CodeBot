@@ -11695,6 +11695,12 @@ def api_observability_alerts():
     if not _require_admin_user():
         return jsonify({'ok': False, 'error': 'admin_only'}), 403
     try:
+        # Support no_cache parameter to force fresh data (bypass cache)
+        no_cache_param = (request.args.get('no_cache') or request.args.get('nc') or '').strip().lower()
+        if no_cache_param in ('1', 'true', 'yes'):
+            # Invalidate alerts cache before fetching
+            observability_service._invalidate_alert_cache()
+
         start_dt, end_dt = _resolve_time_window(default_hours=24)
         page, per_page = _parse_pagination()
         severity = request.args.get('severity') or None
@@ -11835,6 +11841,56 @@ def api_set_global_alert_tags():
     )
     status = 200 if result.get("ok") else 400
     return jsonify(result), status
+
+
+@app.route('/api/observability/tags/debug', methods=['GET'])
+@login_required
+def api_debug_tags():
+    """Debug endpoint to see stored global tags and alert names."""
+    if not _require_admin_user():
+        return jsonify({'ok': False, 'error': 'admin_only'}), 403
+    try:
+        from monitoring import alert_tags_storage
+        coll = alert_tags_storage._get_collection()
+        if coll is None:
+            return jsonify({'ok': False, 'error': 'db_not_available'})
+
+        # Get all global tags (documents with alert_type_name)
+        global_tags = list(coll.find(
+            {"alert_type_name": {"$exists": True}},
+            {"_id": 0, "alert_type_name": 1, "tags": 1}
+        ).limit(50))
+
+        # Get all instance tags (documents with alert_uid)
+        instance_tags = list(coll.find(
+            {"alert_uid": {"$exists": True}},
+            {"_id": 0, "alert_uid": 1, "tags": 1}
+        ).limit(50))
+
+        # Get sample alert_types from recent alerts
+        # fetch_alerts requires start_dt and end_dt, doesn't support limit
+        from monitoring import alerts_storage
+        end_time = datetime.now(timezone.utc)
+        start_time = end_time - timedelta(days=1)
+        all_recent_alerts, _ = alerts_storage.fetch_alerts(
+            start_dt=start_time,
+            end_dt=end_time,
+        )
+        recent_alerts = all_recent_alerts[:20]
+        alert_types_in_alerts = list(set(
+            a.get("alert_type") or a.get("name") or "unknown"
+            for a in recent_alerts
+        ))
+
+        return jsonify({
+            'ok': True,
+            'global_tags': global_tags,
+            'instance_tags': instance_tags,
+            'alert_types_in_alerts': alert_types_in_alerts[:10],
+        })
+    except Exception as e:
+        logger.exception("debug_tags_failed")
+        return jsonify({'ok': False, 'error': 'internal_error'}), 500
 
 
 @app.route('/api/observability/alerts-by-type', methods=['GET'])

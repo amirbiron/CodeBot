@@ -2953,6 +2953,12 @@ tr:hover .copy-meta-btn {
       page: String(state.page),
       per_page: String(state.perPage),
     });
+    // Pass no_cache from URL if present (for debugging/force-refresh)
+    const urlParams = new URLSearchParams(window.location.search);
+    const noCache = urlParams.get('no_cache') || urlParams.get('nc');
+    if (noCache && ['1', 'true', 'yes'].includes(noCache.toLowerCase())) {
+      params.set('no_cache', '1');
+    }
     const data = await fetchJson('/api/observability/alerts?' + params.toString());
     if (!data.ok) throw new Error(data.error || 'alerts_error');
     state.alerts = data.alerts || [];
