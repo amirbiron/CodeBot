@@ -1116,9 +1116,13 @@ class DocumentHandler:
                 return
 
             file_name = document.file_name or "untitled.txt"
-            from utils import detect_language_from_filename
-
-            language = detect_language_from_filename(file_name)
+            # זיהוי שפה חייב לקבל גם את התוכן (למשל block.md עם קוד Python מובהק)
+            try:
+                from services import code_service  # type: ignore
+                language = code_service.detect_language(content or "", file_name)
+            except Exception:
+                from utils import detect_language_from_filename
+                language = detect_language_from_filename(file_name)
             if len(content) > 4096:
                 await self._store_large_file(update, context, user_id, file_name, language, content, detected_encoding)
             else:
