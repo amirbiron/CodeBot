@@ -1675,6 +1675,17 @@ tr:hover .copy-meta-btn {
     if (!tagState.alertUid) return;
     const isGlobal = Boolean(globalCheckbox && globalCheckbox.checked);
 
+    // FIX: If there's text in the input field, add it as a tag before saving
+    // This handles the case where user types a tag but clicks Save without pressing Enter
+    if (tagInput && tagInput.value.trim()) {
+      const pendingTag = tagInput.value.trim().toLowerCase();
+      if (pendingTag && !tagState.tags.includes(pendingTag)) {
+        tagState.tags.push(pendingTag);
+        renderCurrentTags();
+      }
+      tagInput.value = '';
+    }
+
     // FIX: Validate that tags are not empty before saving
     // This prevents accidentally saving empty tag lists
     if (!tagState.tags || tagState.tags.length === 0) {
