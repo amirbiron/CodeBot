@@ -161,6 +161,46 @@ class TestAutoFix:
 
             ast.parse(result.fixed_code)
 
+    @pytest.mark.skipif(not CodeFormatterService().is_tool_available("autoflake"), reason="autoflake not available")
+    def test_autoflake_removes_unused_imports(self, service):
+        """בדיקה ש-autoflake מסיר imports לא בשימוש."""
+        code_with_unused_import = """import os
+import sys
+
+def hello():
+    print("Hello world")
+"""
+        result = service.auto_fix(code_with_unused_import, level="cautious")
+
+        assert result.success
+        # וודא ש-imports שלא בשימוש הוסרו
+        assert "import os" not in result.fixed_code
+        assert "import sys" not in result.fixed_code
+        # וודא שהפונקציה נשארה
+        assert "def hello" in result.fixed_code
+        assert "Hello world" in result.fixed_code
+
+    @pytest.mark.skipif(not CodeFormatterService().is_tool_available("autoflake"), reason="autoflake not available")
+    def test_autoflake_removes_unused_variables(self, service):
+        """בדיקה ש-autoflake מסיר משתנים לא בשימוש."""
+        code_with_unused_var = """def process():
+    unused_var = 42
+    result = 10
+    return result
+"""
+        result = service.auto_fix(code_with_unused_var, level="cautious")
+
+        assert result.success
+        # וודא שמשתנה לא בשימוש הוסר
+        assert "unused_var" not in result.fixed_code
+        # וודא שמשתנים בשימוש נשארו
+        assert "result" in result.fixed_code
+
+    def test_autoflake_tool_availability(self, service):
+        """בדיקה שכלי autoflake מופיע ברשימת הכלים."""
+        tools = service.get_available_tools()
+        assert "autoflake" in tools
+
 
 class TestDiff:
     """בדיקות diff."""
