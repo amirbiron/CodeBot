@@ -70,6 +70,10 @@
   }
 
   function createEditor(parentEl, initialDoc) {
+    if (!parentEl) {
+      console.error('[CodeToolsPage] Parent element is null, cannot create editor');
+      return null;
+    }
     if (!window.CodeMirror6 || !window.CodeMirror6.EditorView || !window.CodeMirror6.EditorState) {
       console.error('[CodeToolsPage] CodeMirror6 not available, cannot create editor');
       return null;
@@ -82,7 +86,9 @@
         doc: typeof initialDoc === 'string' ? initialDoc : '',
         extensions: [...basicSetup, languageExt, themeExt],
       });
-      return new EditorView({ state, parent: parentEl });
+      const view = new EditorView({ state, parent: parentEl });
+      console.log('[CodeToolsPage] Editor created successfully');
+      return view;
     } catch (e) {
       console.error('[CodeToolsPage] Failed to create editor:', e);
       return null;
@@ -91,8 +97,15 @@
 
   function getDoc(view) {
     try {
-      return view && view.state ? view.state.doc.toString() : '';
-    } catch (_) {
+      if (view && view.state) {
+        return view.state.doc.toString();
+      }
+      // Fallback: if no CodeMirror view, check for textarea
+      const ta = document.querySelector('#input-editor textarea');
+      if (ta) return ta.value || '';
+      return '';
+    } catch (e) {
+      console.error('[CodeToolsPage] getDoc failed:', e);
       return '';
     }
   }
@@ -499,6 +512,18 @@
     console.log('[CodeToolsPage] Initialization complete');
   }
 
-  document.addEventListener('DOMContentLoaded', init);
+  // Initialize when DOM is ready
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', () => {
+      console.log('[CodeToolsPage] DOMContentLoaded fired, calling init()');
+      init().catch(e => console.error('[CodeToolsPage] init() failed:', e));
+    });
+  } else {
+    // DOM already loaded
+    console.log('[CodeToolsPage] DOM already loaded, calling init() immediately');
+    init().catch(e => console.error('[CodeToolsPage] init() failed:', e));
+  }
+  
+  console.log('[CodeToolsPage] Script loaded successfully');
 })();
 
