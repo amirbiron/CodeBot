@@ -94,7 +94,7 @@
      - ``webapp/static/css/variables.css`` (``:root[data-theme]``) + שימוש חוזר ב‑``static/css/dark-mode.css`` כולל ``[data-theme="custom"]``
    * - ``--glass`` / ``--glass-border`` / ``--glass-hover``
      - Level 1
-     - בסיס ל‑Glassmorphism navbar, badges, מודלים. **Theme Builder מייצר אותם לפי צבע ``--card-bg`` ולא לבן קבוע** (תוקן ב‑2025-12)
+     - בסיס ל‑Glassmorphism navbar, badges, מודלים. **Theme Builder מייצר אותם דינמית על בסיס הצבע שנבחר ל‑``--card-bg`` באמצעות פונקציית ``parseColorToRgb`` המטפלת ב‑HEX (3/6/8 תווים) וב‑RGBA**. (תוקן ב‑2025-12)
      - ``webapp/static/css/variables.css`` (קטע ``:root``) + Overrides ב‑תמות בהירות + ``dark-mode.css`` עבור ``[data-theme="custom"]``
    * - ``--btn-primary-bg`` / ``--btn-primary-color`` / ``--btn-primary-border`` / ``--btn-primary-shadow``
      - Level 2
@@ -210,6 +210,14 @@ Markdown Viewer ו‑Split View
 - `color-mix()` עדיף על שקיפות ידנית; הצמידו אותו לטוקנים קיימים כדי להבטיח עקביות.
 - ``[data-theme="..."]`` הוא הסלקטור היחיד לשינוי Theme. אין להשתמש שוב ב‑``prefers-color-scheme`` מלבד בקוד Legacy שכבר קיים ב‑``markdown-enhanced.css`` (TODO לעדכן).
 
+עיבוד צבעים ב‑JavaScript
+~~~~~~~~~~~~~~~~~~~~~~~~~
+
+- יש להשתמש ב‑``parseColorToRgb(colorStr)`` כפונקציה יחידה ומאוחדת לכל המרה של צבע ל‑RGB בתוך ה‑Theme Builder.
+- הפונקציה תומכת ב‑HEX קצר (3 תווים), HEX מלא (6 תווים), HEXA (8 תווים מ‑Pickr) וגם RGB/RGBA.
+- הפונקציה כוללת הגנה מפני ערכי NaN: אם הקלט אינו תקין היא מחזירה ``null``. בכל שימוש יש להגדיר fallback בטוח (למשל “הערך התקין האחרון” או ערך ברירת מחדל).
+- בדיקות נגישות (Contrast Check) חייבות להסתמך על ``parseColorToRgb`` כדי להיות תואמות לכל סוגי הקלט מהממשק.
+
 דוגמת קוד – לא תקין לעומת תקין
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
@@ -276,6 +284,7 @@ Component Tokens ו‑Theme Builder
 - כאשר מבצעים Override לתמה קיימת (בידיים היום או דרך Theme Builder בעתיד), כתבו את הטוקנים בתוך ``:root[data-theme="ocean"]`` באותו `<style>` כך שהערכים הדינמיים יגברו על ברירת המחדל.
 - טוקנים חובה ל‑Theme מותאם אישית (גם בעתיד כשה‑Builder יהיה פעיל): `--primary`, `--secondary`, `--bg-primary`, `--bg-secondary`, `--text-primary`, `--text-secondary`, `--btn-primary-bg`, `--btn-primary-color`, `--glass`, `--md-surface`, `--md-text`.
 - **עדכון דצמבר 2025**: הוספה תמיכה מלאה ב‑``[data-theme="custom"]`` בקובץ ``dark-mode.css``. כעת כל הרכיבים (כרטיסים, כפתורים, navbar ועוד) משתמשים בטוקנים הנכונים גם עבור ערכות מותאמות. בנוסף, Theme Builder מייצר ``--glass*`` על בסיס צבע ``--card-bg`` (במקום לבן קבוע), מה שמתקן בעיות "רכיבים לבנים" בערכות בהירות.
+- **Live Preview Synchronization:** שינוי בטוקנים של רקע (כמו ``--card-bg``) חייב לעדכן מיידית את טוקני ה‑Glass המושפעים ממנו (``--glass``, ``--glass-border``) עוד לפני השמירה ל‑DB, כדי למנוע חוסר עקביות ויזואלית ב‑Preview.
 
 בדיקות חובה לפני Merge
 ----------------------
