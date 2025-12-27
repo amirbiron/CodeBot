@@ -369,9 +369,10 @@ def search_tags(prefix: str, limit: int = 20) -> List[str]:
 def get_tags_map_for_alerts(alerts_list: List[dict]) -> Dict[str, List[str]]:
     """
     מחזיר מפה משולבת: גם תגיות ספציפיות למופע, וגם תגיות קבועות לסוג ההתראה.
+    כולל מנגנון Fallback לשמות שדות (תומך ב-alert_type, rule_name וכו').
 
     Args:
-        alerts_list: רשימת התראות, כל אחת עם alert_uid ו-name
+        alerts_list: רשימת התראות.
 
     Returns:
         מיפוי של alert_uid -> רשימת תגיות (משולבת)
@@ -379,19 +380,35 @@ def get_tags_map_for_alerts(alerts_list: List[dict]) -> Dict[str, List[str]]:
     if not alerts_list:
         return {}
 
-    # 0) אסוף UIDs + Names, ודדופליקציה לפני שאילתות (שומר סדר הופעה)
-    raw_uids = [
-        str(a.get("alert_uid") or "").strip()
-        for a in alerts_list
-        if str(a.get("alert_uid") or "").strip()
-    ]
-    raw_names = [
-        str(a.get("name") or "").strip()
-        for a in alerts_list
-        if str(a.get("name") or "").strip()
-    ]
-    uids = list(dict.fromkeys(raw_uids))
-    names = list(dict.fromkeys(raw_names))
+    # 0) איסוף UIDs + Names עם תמיכה בשמות שדות משתנים
+    uids: set[str] = set()
+    names: set[str] = set()
+
+    # מפה עזר שתשמור לכל התראה את ה-UID וה-Name שחילצנו ממנה
+    # כדי שנוכל לבצע את המיזוג הסופי בצורה נכונה
+    alert_meta_map: List[Dict[str, str]] = []
+
+    for alert in alerts_list:
+        # Fallback ל-UID
+        raw_uid = alert.get("alert_uid") or alert.get("uid") or alert.get("id") or alert.get("_id")
+        uid = str(raw_uid or "").strip()
+
+        # Fallback ל-Name
+        raw_name = (
+            alert.get("name")
+            or alert.get("alert_name")
+            or alert.get("rule_name")
+            or alert.get("alert_type")
+        )
+        name = str(raw_name or "").strip()
+
+        if uid:
+            uids.add(uid)
+            if name:
+                names.add(name)
+            # שומרים את מה שמצאנו כדי להשתמש בזה במיזוג הסופי
+            alert_meta_map.append({"uid": uid, "name": name})
+
     if not uids:
         return {}
 
@@ -404,7 +421,7 @@ def get_tags_map_for_alerts(alerts_list: List[dict]) -> Dict[str, List[str]]:
     instance_map: Dict[str, List[str]] = {}
     try:
         cursor = coll.find(
-            {"alert_uid": {"$in": uids}},
+            {"alert_uid": {"$in": list(uids)}},
             {"_id": 0, "alert_uid": 1, "tags": 1},
         )
         for doc in cursor:
@@ -423,7 +440,7 @@ def get_tags_map_for_alerts(alerts_list: List[dict]) -> Dict[str, List[str]]:
     if names:
         try:
             cursor = coll.find(
-                {"alert_type_name": {"$in": names}},
+                {"alert_type_name": {"$in": list(names)}},
                 {"_id": 0, "alert_type_name": 1, "tags": 1},
             )
             for doc in cursor:
@@ -437,21 +454,24 @@ def get_tags_map_for_alerts(alerts_list: List[dict]) -> Dict[str, List[str]]:
         except Exception:
             global_map = {}
 
-    # 3) איחוד בפייתון בלבד (ללא DB בתוך הלולאה)
+    # 3) איחוד בפייתון (App-Side Merge)
     final_map: Dict[str, List[str]] = {}
-    for alert in alerts_list:
-        uid = str(alert.get("alert_uid") or "").strip()
-        if not uid:
-            continue
-        name = str(alert.get("name") or "").strip()
+    # עוברים על הרשימה המעובדת (alert_meta_map) ולא על המקורית
+    for meta in alert_meta_map:
+        uid = meta["uid"]
+        name = meta["name"]
 
         merged: List[str] = []
+
+        # הוספת תגיות גלובליות (אם יש שם והוא קיים במפה)
         if name and name in global_map:
             merged.extend([t for t in global_map.get(name, []) if isinstance(t, str) and t.strip()])
+
+        # הוספת תגיות ספציפיות (אם ה-UID קיים במפה)
         if uid in instance_map:
             merged.extend([t for t in instance_map.get(uid, []) if isinstance(t, str) and t.strip()])
 
-        # union + normalization in app side (preserve order)
+        # נרמול וניקוי כפילויות
         merged_norm = _normalize_tags(merged)
         final_map[uid] = merged_norm
 

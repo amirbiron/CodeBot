@@ -183,6 +183,35 @@ def test_get_tags_map_for_alerts_app_side_merge_two_queries(monkeypatch):
     assert result["uid-3"] == []
 
 
+def test_get_tags_map_for_alerts_field_fallbacks(monkeypatch):
+    # enable DB path inside storage, but use fake pymongo
+    monkeypatch.delenv("DISABLE_DB", raising=False)
+    monkeypatch.setenv("MONGODB_URL", "mongodb://localhost:27017/test")
+    monkeypatch.setenv("DATABASE_NAME", "code_keeper_bot")
+    _install_observability_stub(monkeypatch)
+
+    docs = [
+        # instance tags
+        {"alert_uid": "uid-1", "tags": ["specific-tag"]},
+        # global tags
+        {"alert_type_name": "CPU High", "tags": ["global-tag", "prod"]},
+    ]
+    _install_fake_pymongo(monkeypatch, docs=docs)
+    s = _import_fresh_storage(monkeypatch)
+
+    # alerts may arrive with different field names (name/uid mismatches)
+    alerts = [
+        {"uid": "uid-1", "alert_type": "CPU High"},      # uid + alert_type
+        {"id": "uid-2", "rule_name": "CPU High"},        # id + rule_name
+        {"_id": "uid-3", "alert_name": "Other"},         # _id + alert_name
+    ]
+    result = s.get_tags_map_for_alerts(alerts)
+
+    assert result["uid-1"] == ["global-tag", "prod", "specific-tag"]
+    assert result["uid-2"] == ["global-tag", "prod"]
+    assert result["uid-3"] == []
+
+
 def test_set_and_get_global_tags(monkeypatch):
     monkeypatch.delenv("DISABLE_DB", raising=False)
     monkeypatch.setenv("MONGODB_URL", "mongodb://localhost:27017/test")
