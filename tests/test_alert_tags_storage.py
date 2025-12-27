@@ -219,6 +219,47 @@ def test_get_tags_map_for_alerts_field_fallbacks(monkeypatch):
     assert result["uid-3"] == []
 
 
+def test_get_tags_map_prefers_alert_type_over_name(monkeypatch):
+    """
+    When an alert has both 'name' (descriptive title) and 'alert_type' (categorized type),
+    the lookup should prefer alert_type to match global tags.
+    
+    Example: name="Sentry: TEST-1", alert_type="sentry_issue"
+    Global tags saved under "sentry_issue" should apply, not "sentry_test_1".
+    """
+    monkeypatch.delenv("DISABLE_DB", raising=False)
+    monkeypatch.setenv("MONGODB_URL", "mongodb://localhost:27017/test")
+    monkeypatch.setenv("DATABASE_NAME", "code_keeper_bot")
+    _install_observability_stub(monkeypatch)
+
+    # Global tags stored under normalized alert_type
+    docs = [
+        {"alert_type_name": "sentry_issue", "tags": ["sentry", "error-tracking"]},
+    ]
+    _install_fake_pymongo(monkeypatch, docs=docs)
+    s = _import_fresh_storage(monkeypatch)
+
+    # Alert has both name (descriptive) and alert_type (categorized)
+    # The code should prefer alert_type for global tag lookup
+    alerts = [
+        {
+            "alert_uid": "uid-1",
+            "name": "Sentry: TEST-1",  # Descriptive title (would normalize to "sentry_test_1")
+            "alert_type": "sentry_issue",  # Categorized type (should be used)
+        },
+        {
+            "alert_uid": "uid-2",
+            "name": "Some Other Alert",  # Only name, no alert_type
+        },
+    ]
+    result = s.get_tags_map_for_alerts(alerts)
+
+    # uid-1 should get tags because alert_type matches
+    assert result["uid-1"] == ["sentry", "error-tracking"]
+    # uid-2 should NOT get tags because its name doesn't match any global tags
+    assert result["uid-2"] == []
+
+
 def test_set_and_get_global_tags(monkeypatch):
     monkeypatch.delenv("DISABLE_DB", raising=False)
     monkeypatch.setenv("MONGODB_URL", "mongodb://localhost:27017/test")
