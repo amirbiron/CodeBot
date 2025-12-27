@@ -150,6 +150,14 @@
                 <legend><i class="fas fa-window-maximize"></i> Glass Effect</legend>
 
                 <div class="slider-row">
+                    <label for="glassStyle">סגנון Glass</label>
+                    <select id="glassStyle" class="glass-style-select">
+                        <option value="white">חלבי (לבן)</option>
+                        <option value="adaptive">אדפטיבי (צבע הרקע)</option>
+                    </select>
+                </div>
+
+                <div class="slider-row">
                     <label for="glassOpacity">שקיפות</label>
                     <input
                         type="range"
@@ -558,6 +566,17 @@
     font-family: monospace;
 }
 
+.glass-style-select {
+    flex: 2;
+    padding: 0.5rem 0.75rem;
+    border-radius: 8px;
+    border: 1px solid var(--glass-border);
+    background: var(--glass);
+    color: var(--text-primary);
+    font-size: 0.9rem;
+    cursor: pointer;
+}
+
 .form-actions {
     display: flex;
     gap: 1rem;
@@ -718,6 +737,7 @@
         '--glass-border': 'rgba(255, 255, 255, 0.2)',
         '--glass-hover': 'rgba(255, 255, 255, 0.15)',
         '--glass-blur': '20px',
+        '--glass-style': 'white',
         '--md-surface': '#1b1e24',
         '--md-text': '#f0f0f0',
     };
@@ -848,6 +868,19 @@
     }
 
     // ========== Glass Preview Helper ==========
+    function getGlassRgbByStyle() {
+        const glassStyleSelect = document.getElementById('glassStyle');
+        const glassStyle = glassStyleSelect?.value || 'white';
+
+        if (glassStyle === 'white') {
+            // מצב חלבי - בסיס לבן קבוע
+            return { r: 255, g: 255, b: 255 };
+        } else {
+            // מצב אדפטיבי - בסיס על צבע הכרטיסים
+            return getGlassBaseRgb();
+        }
+    }
+
     function updateGlassPreview() {
         const opacitySlider = document.getElementById('glassOpacity');
         const opacityValue = document.getElementById('glassOpacityValue');
@@ -861,7 +894,7 @@
         const hoverAlpha = Math.min(1, opacityVal + 0.05).toFixed(2);
 
         const blurVal = blurSlider.value + 'px';
-        const rgb = getGlassBaseRgb();
+        const rgb = getGlassRgbByStyle();
 
         updatePreview('--glass', `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, ${glassAlpha})`);
         updatePreview('--glass-border', `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, ${borderAlpha})`);
@@ -956,6 +989,7 @@
     function initGlassSliders() {
         const opacitySlider = document.getElementById('glassOpacity');
         const blurSlider = document.getElementById('glassBlur');
+        const glassStyleSelect = document.getElementById('glassStyle');
         if (!opacitySlider || !blurSlider) return;
 
         opacitySlider.addEventListener('input', () => {
@@ -966,6 +1000,14 @@
             updateGlassPreview();
             hasUnsavedChanges = true;
         });
+
+        // Glass style change listener - updates preview immediately
+        if (glassStyleSelect) {
+            glassStyleSelect.addEventListener('change', () => {
+                updateGlassPreview();
+                hasUnsavedChanges = true;
+            });
+        }
 
         // Initial update
         updateGlassPreview();
@@ -983,7 +1025,12 @@
             }
         }
 
-        // Glass - use card-bg color as base for glass effect (not hardcoded white)
+        // Glass style selection
+        const glassStyleSelect = document.getElementById('glassStyle');
+        const glassStyle = glassStyleSelect?.value || 'white';
+        variables['--glass-style'] = glassStyle;
+
+        // Glass - use white or card-bg color as base depending on style
         const opacitySlider = document.getElementById('glassOpacity');
         const blurSlider = document.getElementById('glassBlur');
         const opacityVal = parseInt(opacitySlider.value, 10);
@@ -992,8 +1039,8 @@
         const borderAlpha = Math.min(1, (opacityVal + 10) / 100).toFixed(2);
         const hoverAlpha = Math.min(1, (opacityVal + 5) / 100).toFixed(2);
 
-        // Extract RGB values from card-bg or use a smart fallback
-        const glassBaseRgb = getGlassBaseRgb();
+        // Extract RGB values based on glass style
+        const glassBaseRgb = getGlassRgbByStyle();
 
         variables['--glass'] = `rgba(${glassBaseRgb.r}, ${glassBaseRgb.g}, ${glassBaseRgb.b}, ${glassAlpha})`;
         variables['--glass-border'] = `rgba(${glassBaseRgb.r}, ${glassBaseRgb.g}, ${glassBaseRgb.b}, ${borderAlpha})`;
@@ -1270,6 +1317,13 @@
             updatePreview(varName, value);
         });
 
+        // Glass style selection
+        const glassStyleSelect = document.getElementById('glassStyle');
+        if (glassStyleSelect) {
+            const glassStyle = variables['--glass-style'] || DEFAULT_VALUES['--glass-style'];
+            glassStyleSelect.value = glassStyle;
+        }
+
         // Glass sliders
         if (variables['--glass']) {
             const match = String(variables['--glass']).match(/[\d.]+(?=\))/);
@@ -1293,7 +1347,7 @@
             updatePreview('--glass-blur', vRaw);
         }
 
-        // ודא שה-Preview מסונכרן: glass* נגזרים מ-card-bg + סליידרים
+        // ודא שה-Preview מסונכרן: glass* נגזרים מ-style + סליידרים
         updateGlassPreview();
     }
 
@@ -1321,6 +1375,10 @@
             }
             updatePreview(varName, value);
         });
+
+        // Reset glass style to default
+        const glassStyleSelect = document.getElementById('glassStyle');
+        if (glassStyleSelect) glassStyleSelect.value = DEFAULT_VALUES['--glass-style'];
 
         // Reset glass sliders
         const opacitySlider = document.getElementById('glassOpacity');
@@ -1419,6 +1477,10 @@
             }
             updatePreview(varName, value);
         });
+
+        // Reset glass style to default
+        const glassStyleSelect = document.getElementById('glassStyle');
+        if (glassStyleSelect) glassStyleSelect.value = DEFAULT_VALUES['--glass-style'];
 
         const opacitySlider = document.getElementById('glassOpacity');
         if (opacitySlider) opacitySlider.value = 10;
