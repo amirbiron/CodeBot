@@ -311,25 +311,31 @@ class ConditionOperators:
     def not_in_list(actual: Any, expected: List[Any]) -> bool:
         return actual not in expected
 
+    # Cache למיפוי אופרטורים כדי לא לבנות dict בכל תנאי
+    _OPERATORS: Dict[str, Callable] = {
+        "eq": eq.__func__,  # type: ignore[attr-defined]
+        "ne": ne.__func__,  # type: ignore[attr-defined]
+        "gt": gt.__func__,  # type: ignore[attr-defined]
+        "gte": gte.__func__,  # type: ignore[attr-defined]
+        "lt": lt.__func__,  # type: ignore[attr-defined]
+        "lte": lte.__func__,  # type: ignore[attr-defined]
+        "contains": contains.__func__,  # type: ignore[attr-defined]
+        "not_contains": not_contains.__func__,  # type: ignore[attr-defined]
+        "starts_with": starts_with.__func__,  # type: ignore[attr-defined]
+        "ends_with": ends_with.__func__,  # type: ignore[attr-defined]
+        "regex": regex.__func__,  # type: ignore[attr-defined]
+        "in": in_list.__func__,  # type: ignore[attr-defined]
+        "not_in": not_in_list.__func__,  # type: ignore[attr-defined]
+    }
+
     @classmethod
     def get_operator(cls, name: str) -> Optional[Callable]:
         """מחזיר פונקציית אופרטור לפי שם."""
-        operators = {
-            "eq": cls.eq,
-            "ne": cls.ne,
-            "gt": cls.gt,
-            "gte": cls.gte,
-            "lt": cls.lt,
-            "lte": cls.lte,
-            "contains": cls.contains,
-            "not_contains": cls.not_contains,
-            "starts_with": cls.starts_with,
-            "ends_with": cls.ends_with,
-            "regex": cls.regex,
-            "in": cls.in_list,
-            "not_in": cls.not_in_list,
-        }
-        return operators.get(name)
+        try:
+            key = str(name or "")
+        except Exception:
+            return None
+        return cls._OPERATORS.get(key)
 
 
 # =============================================================================
@@ -365,6 +371,12 @@ class RuleEngine:
                 return True
         except Exception:
             pass
+        # ברירת מחדל: שקט. זה חשוב לביצועים וגם כדי שטסטים לא "יתלכלכו" מהגדרות ENV ב-CI.
+        #
+        # אם צריך verbose דרך ENV (למשל בסימולטור), עדיף להעביר metadata={"verbose": True}.
+        # בכל מקרה, בזמן pytest אנחנו מכבים verbose אוטומטית אלא אם metadata ביקש אחרת.
+        if os.getenv("PYTEST_CURRENT_TEST"):
+            return False
         raw = (os.getenv("RULES_VERBOSE_LOGGING") or "").strip().lower()
         return raw in {"1", "true", "yes", "on"}
 
@@ -479,7 +491,7 @@ class RuleEngine:
 
             # הערכת התנאים
             conditions = rule.get("conditions", {})
-            matched = self._evaluate_node(conditions, context, triggered_conditions)
+            matched = self._evaluate_node(conditions, context, triggered_conditions, verbose=verbose)
 
             # החזרת התוצאה
             actions = rule.get("actions", []) if matched else []
@@ -517,14 +529,16 @@ class RuleEngine:
         node: Dict[str, Any],
         context: EvaluationContext,
         triggered: List[str],
+        *,
+        verbose: bool,
     ) -> bool:
         """מעריך צומת בעץ התנאים (רקורסיבי)."""
         node_type = node.get("type")
 
         if node_type == "condition":
-            return self._evaluate_condition(node, context, triggered)
+            return self._evaluate_condition(node, context, triggered, verbose=verbose)
         if node_type == "group":
-            return self._evaluate_group(node, context, triggered)
+            return self._evaluate_group(node, context, triggered, verbose=verbose)
         logger.warning(f"Unknown node type: {node_type}")
         return False
 
@@ -533,12 +547,13 @@ class RuleEngine:
         condition: Dict[str, Any],
         context: EvaluationContext,
         triggered: List[str],
+        *,
+        verbose: bool,
     ) -> bool:
         """מעריך תנאי בודד."""
         field_name = condition.get("field", "")
         operator_name = condition.get("operator", "")
         expected_value = condition.get("value")
-        verbose = self._is_verbose(context)
 
         # קבלת הערך מההקשר
         actual_value = context.data.get(field_name)
@@ -615,11 +630,12 @@ class RuleEngine:
         group: Dict[str, Any],
         context: EvaluationContext,
         triggered: List[str],
+        *,
+        verbose: bool,
     ) -> bool:
         """מעריך קבוצת תנאים עם אופרטור לוגי."""
         operator = group.get("operator", "AND").upper()
         children = group.get("children", [])
-        verbose = self._is_verbose(context)
 
         if not children:
             # AND([]) => True, OR([]) => False. NOT דורש ילד אחד; ניפול ל-False (fail-closed).
@@ -636,22 +652,36 @@ class RuleEngine:
         # (all/any עם generator מפסיקים בתוצאה הראשונה שקובעת)
 
         if operator == "AND":
-            child_results = [self._evaluate_node(child, context, triggered) for child in children]
-            if verbose:
-                logger.warning("Group AND evaluated -> results=%s -> %s", child_results, all(child_results))
-            return all(child_results)
+            # שומרים סמנטיקה: תמיד מעריכים את כל הילדים (כדי לאסוף triggered),
+            # אבל בלי לבנות רשימת תוצאות ענקית כשלא צריך.
+            all_true = True
+            child_results: Optional[List[bool]] = [] if verbose else None
+            for child in children:
+                r = self._evaluate_node(child, context, triggered, verbose=verbose)
+                all_true = all_true and bool(r)
+                if child_results is not None:
+                    child_results.append(bool(r))
+            if verbose and child_results is not None:
+                logger.warning("Group AND evaluated -> results=%s -> %s", child_results, all_true)
+            return all_true
         if operator == "OR":
-            child_results = [self._evaluate_node(child, context, triggered) for child in children]
-            if verbose:
-                logger.warning("Group OR evaluated -> results=%s -> %s", child_results, any(child_results))
-            return any(child_results)
+            any_true = False
+            child_results = [] if verbose else None
+            for child in children:
+                r = self._evaluate_node(child, context, triggered, verbose=verbose)
+                any_true = any_true or bool(r)
+                if child_results is not None:
+                    child_results.append(bool(r))
+            if verbose and child_results is not None:
+                logger.warning("Group OR evaluated -> results=%s -> %s", child_results, any_true)
+            return any_true
         if operator == "NOT":
             # 🔧 תיקון באג #6: NOT לא מוסיף תנאים שגויים ל-triggered
             # אם הילד מתאים (True), ה-NOT מחזיר False - אז לא נוסיף ל-triggered
             if children:
                 # הערכה לרשימה זמנית כדי לא לזהם את triggered
                 temp_triggered: List[str] = []
-                child_result = self._evaluate_node(children[0], context, temp_triggered)
+                child_result = self._evaluate_node(children[0], context, temp_triggered, verbose=verbose)
                 not_result = not child_result
                 if verbose:
                     logger.warning("Group NOT evaluated -> child=%s -> %s", bool(child_result), bool(not_result))
