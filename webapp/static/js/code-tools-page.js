@@ -70,14 +70,23 @@
   }
 
   function createEditor(parentEl, initialDoc) {
-    const { EditorState, EditorView, basicSetup, getLanguageSupport, getTheme } = window.CodeMirror6;
-    const languageExt = getLanguageSupport('python') || [];
-    const themeExt = getTheme('dark') || [];
-    const state = EditorState.create({
-      doc: typeof initialDoc === 'string' ? initialDoc : '',
-      extensions: [...basicSetup, languageExt, themeExt],
-    });
-    return new EditorView({ state, parent: parentEl });
+    if (!window.CodeMirror6 || !window.CodeMirror6.EditorView || !window.CodeMirror6.EditorState) {
+      console.error('[CodeToolsPage] CodeMirror6 not available, cannot create editor');
+      return null;
+    }
+    try {
+      const { EditorState, EditorView, basicSetup, getLanguageSupport, getTheme } = window.CodeMirror6;
+      const languageExt = getLanguageSupport('python') || [];
+      const themeExt = getTheme('dark') || [];
+      const state = EditorState.create({
+        doc: typeof initialDoc === 'string' ? initialDoc : '',
+        extensions: [...basicSetup, languageExt, themeExt],
+      });
+      return new EditorView({ state, parent: parentEl });
+    } catch (e) {
+      console.error('[CodeToolsPage] Failed to create editor:', e);
+      return null;
+    }
   }
 
   function getDoc(view) {
@@ -148,6 +157,11 @@
     host.innerHTML = '';
     mergeViewInstance = null;
 
+    if (!window.CodeMirror6 || !window.CodeMirror6.MergeView) {
+      host.textContent = 'CodeMirror לא נטען - לא ניתן להציג Diff.';
+      return;
+    }
+
     try {
       const { MergeView, basicSetup, getLanguageSupport, getTheme } = window.CodeMirror6;
       const languageExt = getLanguageSupport('python') || [];
@@ -162,10 +176,7 @@
       });
     } catch (e) {
       host.textContent = 'לא הצלחנו להציג Diff מקצועי.';
-      try {
-        // eslint-disable-next-line no-console
-        console.error('MergeView init failed', e);
-      } catch (_) {}
+      console.error('[CodeToolsPage] MergeView init failed', e);
     }
   }
 
@@ -212,11 +223,15 @@
   }
 
   async function init() {
+    let codeMirrorFailed = false;
+    
     try {
       await ensureCodeMirrorLoaded();
     } catch (e) {
-      showStatus('לא הצלחנו לטעון את CodeMirror.', 'error');
-      return;
+      showStatus('לא הצלחנו לטעון את CodeMirror. הכפתורים פועלים אבל העורך לא יוצג.', 'error');
+      codeMirrorFailed = true;
+      // ממשיכים! לא יוצאים - הכפתורים צריכים לעבוד גם ללא עורך
+      console.error('[CodeToolsPage] CodeMirror load failed:', e);
     }
 
     const prefs = loadPrefs();
@@ -228,8 +243,10 @@
     const lineLengthInput = document.getElementById('line-length');
     const toolsInfo = document.getElementById('tools-info');
 
-    if (!inputHost || !outputHost) {
-      return;
+    // אם CodeMirror לא נטען, נציג textarea fallback
+    if (codeMirrorFailed || !inputHost || !outputHost) {
+      console.warn('[CodeToolsPage] Using fallback mode (no CodeMirror editors)');
+      // במקרה זה, הכפתורים עדיין יירשמו אבל ללא עורכים
     }
 
     if (toolSelect) toolSelect.value = prefs.tool;
@@ -262,22 +279,20 @@
       savePrefs(next);
     });
 
-    // Tools availability (optional)
-    try {
-      const tools = await getJson('/api/code/tools');
-      if (toolsInfo && tools && tools.tools) {
-        const t = tools.tools;
-        toolsInfo.textContent = `כלים: black=${!!t.black ? '✓' : '✗'} flake8=${!!t.flake8 ? '✓' : '✗'} isort=${
-          !!t.isort ? '✓' : '✗'
-        } autopep8=${!!t.autopep8 ? '✓' : '✗'}`;
-      }
-    } catch (_) {}
-
     const btnFormat = document.getElementById('btn-format');
     const btnLint = document.getElementById('btn-lint');
     const btnApply = document.getElementById('btn-apply');
 
+    // Debug logging
+    console.log('[CodeToolsPage] Buttons found:', {
+      format: !!btnFormat,
+      lint: !!btnLint,
+      apply: !!btnApply,
+      dropdownItems: document.querySelectorAll('.dropdown-item[data-level]').length
+    });
+
     async function runFormat() {
+      console.log('[CodeToolsPage] runFormat called');
       const code = getDoc(inputEditor);
       if (!code.trim()) {
         showStatus('אין קוד לעיצוב', 'warning');
@@ -313,6 +328,7 @@
     }
 
     async function runLint() {
+      console.log('[CodeToolsPage] runLint called');
       const code = getDoc(inputEditor);
       if (!code.trim()) {
         showStatus('אין קוד לבדיקה', 'warning');
@@ -335,6 +351,7 @@
     }
 
     async function runFix(level) {
+      console.log('[CodeToolsPage] runFix called with level:', level);
       const code = getDoc(inputEditor);
       if (!code.trim()) {
         showStatus('אין קוד לתיקון', 'warning');
@@ -362,8 +379,19 @@
       }
     }
 
-    btnFormat?.addEventListener('click', runFormat);
-    btnLint?.addEventListener('click', runLint);
+    if (btnFormat) {
+      btnFormat.addEventListener('click', runFormat);
+      console.log('[CodeToolsPage] Format button event listener attached');
+    } else {
+      console.error('[CodeToolsPage] Format button not found!');
+    }
+    
+    if (btnLint) {
+      btnLint.addEventListener('click', runLint);
+      console.log('[CodeToolsPage] Lint button event listener attached');
+    } else {
+      console.error('[CodeToolsPage] Lint button not found!');
+    }
 
     // Copy output to clipboard
     const btnCopy = document.getElementById('btn-copy-output');
@@ -393,8 +421,17 @@
       }
     });
 
-    document.querySelectorAll('.dropdown-item[data-level]').forEach((btn) => {
-      btn.addEventListener('click', () => runFix(btn.dataset.level));
+    const dropdownItems = document.querySelectorAll('.dropdown-item[data-level]');
+    console.log('[CodeToolsPage] Found dropdown items:', dropdownItems.length);
+    dropdownItems.forEach((btn, idx) => {
+      const level = btn.dataset.level;
+      console.log(`[CodeToolsPage] Attaching click handler to dropdown item ${idx}: level=${level}`);
+      btn.addEventListener('click', (e) => {
+        console.log('[CodeToolsPage] Dropdown item clicked:', level);
+        e.preventDefault();
+        e.stopPropagation();
+        runFix(level);
+      });
     });
 
     btnApply?.addEventListener('click', () => {
@@ -421,6 +458,23 @@
         }
       }
     });
+
+    // Tools availability (optional) - non-blocking, runs after buttons are registered
+    (async () => {
+      try {
+        const tools = await getJson('/api/code/tools');
+        if (toolsInfo && tools && tools.tools) {
+          const t = tools.tools;
+          toolsInfo.textContent = `כלים: black=${!!t.black ? '✓' : '✗'} flake8=${!!t.flake8 ? '✓' : '✗'} isort=${
+            !!t.isort ? '✓' : '✗'
+          } autopep8=${!!t.autopep8 ? '✓' : '✗'}`;
+        }
+      } catch (e) {
+        console.warn('[CodeToolsPage] Could not fetch tools availability:', e.message);
+      }
+    })();
+    
+    console.log('[CodeToolsPage] Initialization complete');
   }
 
   document.addEventListener('DOMContentLoaded', init);
