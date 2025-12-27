@@ -158,6 +158,30 @@ def _normalize_tags(tags: List[str]) -> List[str]:
     )
 
 
+def _normalize_alert_name(value: Optional[str]) -> str:
+    """
+    Normalize alert name/type to a stable key for matching global tags.
+
+    Production data isn't always consistent (e.g. "deployment-event", "Deployment Event",
+    "deployment_event"). We normalize common separators into underscores so global tags
+    can match reliably regardless of how the alert name arrived.
+    """
+    try:
+        text = str(value or "").strip().lower()
+    except Exception:
+        return ""
+    if not text:
+        return ""
+    # Normalize common separators to underscore
+    try:
+        text = re.sub(r"[\s\-./:]+", "_", text)
+        text = re.sub(r"__+", "_", text).strip("_")
+    except Exception:
+        # Best-effort: keep the lowercased string
+        text = text.strip()
+    return text
+
+
 def get_tags_for_alert(alert_uid: str) -> List[str]:
     """מחזיר תגיות עבור התראה ספציפית."""
     uid = str(alert_uid or "").strip()
@@ -393,14 +417,16 @@ def get_tags_map_for_alerts(alerts_list: List[dict]) -> Dict[str, List[str]]:
         raw_uid = alert.get("alert_uid") or alert.get("uid") or alert.get("id") or alert.get("_id")
         uid = str(raw_uid or "").strip()
 
-        # Fallback ל-Name
+        # Fallback ל-Name - נבדוק מספר שדות אפשריים
         raw_name = (
             alert.get("name")
             or alert.get("alert_name")
             or alert.get("rule_name")
             or alert.get("alert_type")
         )
-        name = str(raw_name or "").strip()
+        # FIX: Normalize the name for consistent matching with stored global tags
+        # This ensures "CPU High", "cpu_high", "cpu-high" all match the same global tags
+        name = _normalize_alert_name(raw_name)
 
         if uid:
             uids.add(uid)
@@ -469,7 +495,9 @@ def get_tags_map_for_alerts(alerts_list: List[dict]) -> Dict[str, List[str]]:
 
         # הוספת תגיות ספציפיות (אם ה-UID קיים במפה)
         if uid in instance_map:
-            merged.extend([t for t in instance_map.get(uid, []) if isinstance(t, str) and t.strip()])
+            merged.extend(
+                [t for t in instance_map.get(uid, []) if isinstance(t, str) and t.strip()]
+            )
 
         # נרמול וניקוי כפילויות
         merged_norm = _normalize_tags(merged)
@@ -486,15 +514,25 @@ def set_global_tags_for_name(
     tags: List[str],
     user_id: Optional[int] = None,
 ) -> Dict[str, Any]:
-    """שמירת תגיות קבועות לכל ההתראות עם השם הזה."""
-    name = str(alert_name or "").strip()
+    """שמירת תגיות קבועות לכל ההתראות עם השם הזה.
+
+    Note: השם מנורמל (lowercase + underscore) כדי להבטיח התאמה עקבית
+    בין השמירה לשליפה, ללא תלות בפורמט המקורי של השם.
+    """
+    # Normalize the name for consistent matching
+    name = _normalize_alert_name(alert_name)
     if not name:
         raise ValueError("alert_name is required")
     normalized_tags = _normalize_tags(tags)
     now = datetime.now(timezone.utc)
     coll = _get_collection()
     if coll is None:
-        return {"alert_type_name": name, "tags": normalized_tags, "upserted": False, "modified": False}
+        return {
+            "alert_type_name": name,
+            "tags": normalized_tags,
+            "upserted": False,
+            "modified": False,
+        }
     try:
         result = coll.update_one(
             {"alert_type_name": name},
@@ -519,12 +557,21 @@ def set_global_tags_for_name(
             "modified": bool(modified_count and int(modified_count) > 0),
         }
     except Exception:
-        return {"alert_type_name": name, "tags": normalized_tags, "upserted": False, "modified": False}
+        return {
+            "alert_type_name": name,
+            "tags": normalized_tags,
+            "upserted": False,
+            "modified": False,
+        }
 
 
 def get_global_tags_for_name(alert_name: str) -> List[str]:
-    """מחזיר תגיות גלובליות עבור סוג התראה."""
-    name = str(alert_name or "").strip()
+    """מחזיר תגיות גלובליות עבור סוג התראה.
+
+    Note: השם מנורמל (lowercase + underscore) כדי להבטיח התאמה עקבית.
+    """
+    # Normalize for consistent lookup
+    name = _normalize_alert_name(alert_name)
     if not name:
         return []
     coll = _get_collection()
@@ -538,8 +585,12 @@ def get_global_tags_for_name(alert_name: str) -> List[str]:
 
 
 def remove_global_tags_for_name(alert_name: str) -> Dict[str, Any]:
-    """מחיקת תגיות גלובליות לסוג התראה."""
-    name = str(alert_name or "").strip()
+    """מחיקת תגיות גלובליות לסוג התראה.
+
+    Note: השם מנורמל (lowercase + underscore) כדי להבטיח התאמה עקבית.
+    """
+    # Normalize for consistent lookup
+    name = _normalize_alert_name(alert_name)
     if not name:
         raise ValueError("alert_name is required")
     coll = _get_collection()
@@ -551,4 +602,3 @@ def remove_global_tags_for_name(alert_name: str) -> Dict[str, Any]:
         return {"alert_type_name": name, "deleted": bool(deleted_count and int(deleted_count) > 0)}
     except Exception:
         return {"alert_type_name": name, "deleted": False}
-
