@@ -137,6 +137,10 @@ class LanguageDetector:
                 return True
             if re.search(r"(^|\n)!\[.*?\]\(.+?\)", view):
                 return True
+            # Code fences: אם יש ``` *וגם* לא מדובר במקרה של "כל הקובץ הוא fence יחיד"
+            # (שנלכד כבר קודם), זה כמעט תמיד מסמך Markdown ולא קובץ קוד.
+            if "```" in view:
+                return True
             # Simple tables (very common in markdown docs)
             if re.search(r"(^|\n)\s*\|.+\|\s*$", view):
                 return True
