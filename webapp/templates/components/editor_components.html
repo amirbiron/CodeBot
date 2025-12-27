@@ -1,7 +1,8 @@
 {# רכיבי עורך משותפים ל-Upload/Edit #}
 
-{% macro code_tools_toolbar() %}
+{% macro code_tools_toolbar(user_is_admin=False) %}
 {# Code Tools toolbar - Format, Lint, Fix, Playground #}
+{% if user_is_admin %}
 <div class="code-tools-group" data-show-for-language="python">
   <button
     type="button"
@@ -53,10 +54,12 @@
     Playground
   </a>
 </div>
+{% endif %}
 {% endmacro %}
 
-{% macro code_tools_modal() %}
+{% macro code_tools_modal(user_is_admin=False) %}
 {# Bootstrap Modals for Code Tools (results + fix options) #}
+{% if user_is_admin %}
 <div class="modal fade" id="codeToolsModal" tabindex="-1" aria-labelledby="codeToolsModalLabel" aria-hidden="true">
   <div class="modal-dialog modal-lg modal-dialog-centered modal-dialog-scrollable">
     <div class="modal-content">
@@ -73,6 +76,7 @@
     </div>
   </div>
 </div>
+{% endif %}
 {% endmacro %}
 
 {% macro image_uploader(existing_images=[]) %}

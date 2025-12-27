@@ -4,11 +4,35 @@ Code Tools API Blueprint
 נקודות קצה לעיצוב קוד, linting ותיקון אוטומטי.
 """
 
-from flask import Blueprint, request, jsonify
+import os
+
+from flask import Blueprint, request, jsonify, session
 from services.code_formatter_service import get_code_formatter_service
-import json
 
 code_tools_bp = Blueprint("code_tools", __name__, url_prefix="/api/code")
+
+def _is_admin(user_id: int) -> bool:
+    admin_ids_env = os.getenv("ADMIN_USER_IDS", "")
+    admin_ids_list = admin_ids_env.split(",") if admin_ids_env else []
+    admin_ids = [int(x.strip()) for x in admin_ids_list if x.strip().isdigit()]
+    return user_id in admin_ids
+
+
+@code_tools_bp.before_request
+def _require_admin_for_code_tools():
+    """
+    Code Tools הם פיצ'ר Admin-only.
+    חשוב לא להסתמך רק על הסתרה ב-UI.
+    """
+    user_id = session.get("user_id")
+    if not user_id:
+        return jsonify({"success": False, "error": "נדרש להתחבר"}), 401
+    try:
+        uid_int = int(user_id)
+    except Exception:
+        return jsonify({"success": False, "error": "משתמש לא תקין"}), 401
+    if not _is_admin(uid_int):
+        return jsonify({"success": False, "error": "Admin בלבד"}), 403
 
 
 @code_tools_bp.route("/format", methods=["POST"])
