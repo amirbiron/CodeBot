@@ -1957,6 +1957,11 @@ class GitHubMenuHandler:
         elif query.data.startswith("github_restore_zip_setpurge:"):
             # טיפול בבחירת מצב מחיקה/עדכון לפני העלאה
             purge_flag = query.data.split(":", 1)[1] == "1"
+            # חשוב: תמיד לענות ל-callback כדי שלא ייראה "הכפתור לא מגיב"
+            try:
+                await query.answer("✅ עודכן. עכשיו שלח ZIP…", show_alert=False)
+            except Exception:
+                pass
             # ודא שניקינו דגלים ישנים של העלאה רגילה כדי למנוע בלבול
             context.user_data["waiting_for_github_upload"] = False
             context.user_data["upload_mode"] = "github_restore_zip_to_repo"
@@ -7662,19 +7667,43 @@ class GitHubMenuHandler:
             return
         elif query.data.startswith("github_repo_restore_backup_setpurge:"):
             # בצע את ההעלאה לריפו מתוך קובץ ה-ZIP שמור בדיסק
+            user_id = query.from_user.id
             purge_flag = query.data.split(":", 1)[1] == "1"
             zip_path = context.user_data.get("pending_repo_restore_zip_path")
             if not zip_path or not os.path.exists(zip_path):
+                try:
+                    await query.answer("❌ חסר קובץ ZIP לשחזור", show_alert=True)
+                except Exception:
+                    pass
+                logger.warning(
+                    "[restore_zip_from_backup] missing zip_path: user=%s, purge=%s, zip_path=%r",
+                    user_id,
+                    purge_flag,
+                    zip_path,
+                )
                 await query.edit_message_text("❌ קובץ ZIP לא נמצא")
                 return
             # הפעל ריסטור לריפו דרך פונקציה חיצונית פשוטה שמתממשקת עם main.handle_document logic
             try:
-                await query.edit_message_text("⏳ משחזר לריפו מגיבוי נבחר...")
-                # נשתמש בלוגיקה פשוטה: נקרא לפונקציה פנימית שתבצע את אותו זרם של שחזור לריפו
+                # תמיד לענות ל-callback כדי למנוע תחושת "תקיעה"
+                try:
+                    await query.answer("⏳ מתחיל שחזור… זה יכול לקחת קצת זמן", show_alert=False)
+                except Exception:
+                    pass
                 prefix = (context.user_data.get("pending_repo_restore_zip_prefix") or "").strip("/")
+                logger.info(
+                    "[restore_zip_from_backup] start: user=%s, purge=%s, zip=%s, prefix=%r",
+                    user_id,
+                    purge_flag,
+                    zip_path,
+                    prefix,
+                )
+                await query.edit_message_text("⏳ משחזר לריפו מגיבוי נבחר…")
+                # נשתמש בלוגיקה פשוטה: נקרא לפונקציה פנימית שתבצע את אותו זרם של שחזור לריפו
                 await self.restore_zip_file_to_repo(update, context, zip_path, purge_flag, dest_prefix=(prefix or None))
                 await query.edit_message_text("✅ השחזור הועלה לריפו בהצלחה")
             except Exception as e:
+                logger.exception("[restore_zip_from_backup] failed: user=%s, zip=%s", user_id, zip_path)
                 await query.edit_message_text(f"❌ שגיאה בשחזור לריפו: {e}")
             finally:
                 context.user_data.pop("pending_repo_restore_zip_path", None)
