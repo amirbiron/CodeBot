@@ -58,12 +58,16 @@ async def test_callback_query_guard_should_block_async_release():
     assert await CallbackQueryGuard.should_block_async(u, c, window_seconds=0.05) is False
     # immediate second call should block
     assert await CallbackQueryGuard.should_block_async(u, c, window_seconds=0.05) is True
+
+    # after window, the same callback should be allowed again
+    await __import__('asyncio').sleep(0.06)
+    assert await CallbackQueryGuard.should_block_async(u, c, window_seconds=0.05) is False
+
     # different callback within the window should NOT be blocked (UX: allow fast sequential clicks)
     u2 = _Update(42, data="y")
     assert await CallbackQueryGuard.should_block_async(u2, c, window_seconds=0.05) is False
-    # after window, should release
-    await __import__('asyncio').sleep(0.06)
-    assert await CallbackQueryGuard.should_block_async(u, c, window_seconds=0.05) is False
+    # immediate duplicate of the different callback should be blocked
+    assert await CallbackQueryGuard.should_block_async(u2, c, window_seconds=0.05) is True
 
 
 @pytest.mark.asyncio
