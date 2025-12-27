@@ -202,14 +202,19 @@ def should_scan_file(filepath: Path) -> bool:
         return False
 
     # בודקים שהקובץ נמצא באחת התיקיות הרצויות
-    parts = set(filepath.parts)
+    # חשוב: משתמשים בנתיב יחסי כדי לא להתבלבל עם תיקיות בנתיב האבסולוטי
+    try:
+        relative_parts = set(filepath.relative_to(PROJECT_ROOT).parts)
+    except ValueError:
+        # הקובץ לא נמצא תחת PROJECT_ROOT
+        return False
 
     # אם יש תיקייה שצריך להתעלם ממנה - דילוג
-    if parts & DIRS_TO_EXCLUDE:
+    if relative_parts & DIRS_TO_EXCLUDE:
         return False
 
     # בודקים אם הקובץ נמצא באחת התיקיות שאנחנו רוצים
-    return bool(parts & DIRS_TO_INCLUDE)
+    return bool(relative_parts & DIRS_TO_INCLUDE)
 
 
 def get_line_info(node: ast.AST) -> tuple[int, int]:
@@ -233,7 +238,7 @@ def extract_functions(
         content = filepath.read_text(encoding="utf-8")
         tree = ast.parse(content)
     except (SyntaxError, UnicodeDecodeError) as e:
-        print(f"⚠️  דילגתי על {filepath}: {e}")
+        print(f"⚠️  דילגתי על {filepath}: {e}", file=sys.stderr)
         return functions
 
     for node in ast.walk(tree):
@@ -263,17 +268,30 @@ def extract_functions(
     return functions
 
 
-def scan_project(min_lines: int = DEFAULT_MIN_LINES) -> dict[str, list[FunctionLocation]]:
+def log_status(message: str, quiet: bool = False) -> None:
+    """מדפיס הודעת סטטוס ל-stderr (כדי לא לזהם פלט JSON)."""
+    if not quiet:
+        print(message, file=sys.stderr)
+
+
+def scan_project(
+    min_lines: int = DEFAULT_MIN_LINES,
+    quiet: bool = False,
+) -> dict[str, list[FunctionLocation]]:
     """
     סורק את הפרויקט ומחזיר מפה של hash לרשימת מיקומים.
 
     ⚠️ פונקציה לקריאה בלבד - לא משנה שום קובץ!
+
+    Args:
+        min_lines: מינימום שורות לפונקציה
+        quiet: אם True, לא מדפיס הודעות סטטוס
     """
     duplicates: dict[str, list[FunctionLocation]] = {}
 
-    print(f"🚀 מתחיל סריקה בתיקיות: {', '.join(sorted(DIRS_TO_INCLUDE))}...")
-    print(f"   מתעלם מפונקציות קצרות מ-{min_lines} שורות")
-    print()
+    log_status(f"🚀 מתחיל סריקה בתיקיות: {', '.join(sorted(DIRS_TO_INCLUDE))}...", quiet)
+    log_status(f"   מתעלם מפונקציות קצרות מ-{min_lines} שורות", quiet)
+    log_status("", quiet)
 
     files_scanned = 0
     functions_found = 0
@@ -296,8 +314,8 @@ def scan_project(min_lines: int = DEFAULT_MIN_LINES) -> dict[str, list[FunctionL
                 duplicates[func_hash] = []
             duplicates[func_hash].append(location)
 
-    print(f"📁 נסרקו {files_scanned} קבצים")
-    print(f"🔍 נמצאו {functions_found} פונקציות")
+    log_status(f"📁 נסרקו {files_scanned} קבצים", quiet)
+    log_status(f"🔍 נמצאו {functions_found} פונקציות", quiet)
 
     return duplicates
 
@@ -354,8 +372,8 @@ def print_report(duplicates: dict[str, list[FunctionLocation]]) -> int:
     return found
 
 
-def output_json(duplicates: dict[str, list[FunctionLocation]]) -> None:
-    """מדפיס את התוצאות בפורמט JSON."""
+def output_json(duplicates: dict[str, list[FunctionLocation]]) -> int:
+    """מדפיס את התוצאות בפורמט JSON. מחזיר את מספר הכפילויות שנמצאו."""
     result: dict[str, Any] = {
         "summary": {
             "duplicate_groups": 0,
@@ -391,6 +409,7 @@ def output_json(duplicates: dict[str, list[FunctionLocation]]) -> None:
     result["duplicates"].sort(key=lambda x: x["count"], reverse=True)
 
     print(json.dumps(result, ensure_ascii=False, indent=2))
+    return result["summary"]["duplicate_groups"]
 
 
 # ============================================================================
@@ -427,16 +446,19 @@ def main() -> int:
 
     args = parser.parse_args()
 
-    # סריקה
-    duplicates = scan_project(min_lines=args.min_lines)
+    # במצב JSON, הודעות סטטוס הולכות ל-stderr כדי לא לזהם את ה-JSON
+    is_json_output = args.output == "json"
 
-    # הצגת תוצאות
-    if args.output == "json":
-        output_json(duplicates)
-        return 0
+    # סריקה
+    duplicates = scan_project(min_lines=args.min_lines, quiet=is_json_output)
+
+    # הצגת תוצאות - קוד יציאה עקבי: 1 אם יש כפילויות, 0 אם אין
+    if is_json_output:
+        found = output_json(duplicates)
     else:
         found = print_report(duplicates)
-        return 1 if found > 0 else 0
+
+    return 1 if found > 0 else 0
 
 
 if __name__ == "__main__":
