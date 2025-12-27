@@ -1471,7 +1471,7 @@ def set_alert_tags(
     *,
     alert_uid: str,
     alert_timestamp: str,
-    tags: List[str],
+    tags: Optional[List[str]],
     user_id: Optional[int] = None,
 ) -> Dict[str, Any]:
     """
@@ -1483,8 +1483,11 @@ def set_alert_tags(
     uid = str(alert_uid or "").strip()
     if not uid:
         return {"ok": False, "error": "missing_alert_uid"}
-    if not tags:
+    # [] (רשימה ריקה) היא פעולה חוקית: "נקה את כל התגיות"
+    if tags is None:
         return {"ok": False, "error": "missing_tags"}
+    if not isinstance(tags, list):
+        return {"ok": False, "error": "bad_request"}
     try:
         ts = datetime.fromisoformat(str(alert_timestamp or "").replace("Z", "+00:00"))
     except Exception:
@@ -1592,7 +1595,7 @@ def get_popular_tags(limit: int = 50) -> Dict[str, Any]:
 def set_global_alert_tags(
     *,
     alert_name: str,
-    tags: List[str],
+    tags: Optional[List[str]],
     user_id: Optional[int] = None,
 ) -> Dict[str, Any]:
     """
@@ -1604,8 +1607,11 @@ def set_global_alert_tags(
     name = str(alert_name or "").strip()
     if not name:
         return {"ok": False, "error": "missing_alert_name"}
-    if not tags:
+    # [] (רשימה ריקה) היא פעולה חוקית: "נקה את כל התגיות הגלובליות"
+    if tags is None:
         return {"ok": False, "error": "missing_tags"}
+    if not isinstance(tags, list):
+        return {"ok": False, "error": "bad_request"}
     try:
         result = alert_tags_storage.set_global_tags_for_name(
             alert_name=name,

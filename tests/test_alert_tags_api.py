@@ -70,3 +70,35 @@ def test_set_global_tags_endpoint_calls_service(monkeypatch):
     assert captured["tags"] == ["infra"]
     assert captured["user_id"] == admin_id
 
+
+def test_set_alert_tags_allows_clearing_tags(monkeypatch):
+    admin_id = 9
+    monkeypatch.setenv("ADMIN_USER_IDS", str(admin_id))
+    captured = {}
+
+    def _fake_set(*, alert_uid, alert_timestamp, tags, user_id):
+        captured["alert_uid"] = alert_uid
+        captured["alert_timestamp"] = alert_timestamp
+        captured["tags"] = tags
+        captured["user_id"] = user_id
+        return {"ok": True, "alert_uid": alert_uid, "tags": tags}
+
+    monkeypatch.setattr("webapp.app.observability_service.set_alert_tags", _fake_set)
+
+    app = _build_app()
+    with app.test_client() as client:
+        with client.session_transaction() as sess:
+            sess["user_id"] = admin_id
+        resp = client.post(
+            "/api/observability/alerts/u1/tags",
+            json={"tags": [], "alert_timestamp": "2025-01-01T00:00:00Z"},
+        )
+        assert resp.status_code == 200
+        data = resp.get_json()
+        assert data["ok"] is True
+        assert data["tags"] == []
+
+    assert captured["alert_uid"] == "u1"
+    assert captured["tags"] == []
+    assert captured["user_id"] == admin_id
+

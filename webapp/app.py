@@ -11753,7 +11753,7 @@ def api_set_alert_tags(alert_uid: str):
     result = observability_service.set_alert_tags(
         alert_uid=alert_uid,
         alert_timestamp=data.get("alert_timestamp", ""),
-        tags=data.get("tags", []),
+        tags=data.get("tags"),
         user_id=user_id,
     )
     status = 200 if result.get("ok") else 400
@@ -11830,7 +11830,7 @@ def api_set_global_alert_tags():
     data = request.get_json(silent=True) or {}
     result = observability_service.set_global_alert_tags(
         alert_name=data.get("alert_name", ""),
-        tags=data.get("tags", []),
+        tags=data.get("tags"),
         user_id=user_id,
     )
     status = 200 if result.get("ok") else 400
