@@ -1498,7 +1498,9 @@ def set_alert_tags(
         )
         return {"ok": True, **result}
     except ValueError as ve:
-        return {"ok": False, "error": str(ve)}
+        # אל תחזיר הודעת חריגה גולמית ללקוח (CodeQL: Information exposure).
+        logger.warning("set_alert_tags validation error: %s", ve)
+        return {"ok": False, "error": "bad_request"}
     except Exception as e:
         logger.exception("set_alert_tags failed: %s", e)
         return {"ok": False, "error": "internal_error"}
@@ -1533,7 +1535,9 @@ def add_alert_tag(
         )
         return {"ok": True, **result}
     except ValueError as ve:
-        return {"ok": False, "error": str(ve)}
+        # אל תחזיר הודעת חריגה גולמית ללקוח (CodeQL: Information exposure).
+        logger.warning("add_alert_tag validation error: %s", ve)
+        return {"ok": False, "error": "invalid_alert_tag"}
     except Exception as e:
         logger.exception("add_alert_tag failed: %s", e)
         return {"ok": False, "error": "internal_error"}
@@ -1551,7 +1555,9 @@ def remove_alert_tag(*, alert_uid: str, tag: str) -> Dict[str, Any]:
         result = alert_tags_storage.remove_tag_from_alert(uid, tag)
         return {"ok": True, **result}
     except ValueError as ve:
-        return {"ok": False, "error": str(ve)}
+        # אל תחזיר הודעת חריגה גולמית ללקוח (CodeQL: Information exposure).
+        logger.warning("remove_alert_tag validation error: %s", ve)
+        return {"ok": False, "error": "invalid_params"}
     except Exception as e:
         logger.exception("remove_alert_tag failed: %s", e)
         return {"ok": False, "error": "internal_error"}
@@ -1608,7 +1614,9 @@ def set_global_alert_tags(
         )
         return {"ok": True, **result}
     except ValueError as ve:
-        return {"ok": False, "error": str(ve)}
+        # אל תחזיר הודעת חריגה גולמית ללקוח (CodeQL: Information exposure).
+        logger.warning("set_global_alert_tags validation error: %s", ve)
+        return {"ok": False, "error": "invalid_alert_tags"}
     except Exception as e:
         logger.exception("set_global_alert_tags failed: %s", e)
         return {"ok": False, "error": "internal_error"}
