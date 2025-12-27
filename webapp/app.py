@@ -423,6 +423,28 @@ def _stop_background_observability_warmup() -> None:
 atexit.register(_stop_background_observability_warmup)
 start_background_observability_warmup()
 
+
+# --- Observability: Alert Tags indexes warmup (best-effort) ---
+def start_background_alert_tags_indexes() -> None:
+    """מנסה להבטיח אינדקסים ל-alert_tags ברקע (לא חוסם את השרת)."""
+    # אל תרוץ ב-CI/Docs (לפי אותו כלל גלובלי)
+    if str(os.getenv("DISABLE_DB", "")).lower() in {"1", "true", "yes"}:
+        return
+    if str(os.getenv("SPHINX_MOCK_IMPORTS", "")).lower() in {"1", "true", "yes"}:
+        return
+    try:
+        from monitoring import alert_tags_storage  # type: ignore
+    except Exception:
+        return
+    try:
+        t = threading.Thread(target=alert_tags_storage.ensure_indexes, daemon=True, name="alert_tags_indexes")
+        t.start()
+    except Exception:
+        return
+
+
+start_background_alert_tags_indexes()
+
 # --- Startup metrics instrumentation (נרשם רק בזמן עלייה) ---
 _STARTUP_METRICS_MS: Dict[str, float] = {}
 _STARTUP_METRICS_LOCK = threading.Lock()
@@ -11702,6 +11724,117 @@ def api_observability_alerts():
     except Exception:
         logger.exception("observability_alerts_failed")
         return jsonify({'ok': False, 'error': 'internal_error'}), 500
+
+
+# ==========================================
+# Alert Tags Routes
+# ==========================================
+
+
+@app.route('/api/observability/alerts/<alert_uid>/tags', methods=['GET'])
+@login_required
+def api_get_alert_tags(alert_uid: str):
+    """שליפת תגיות להתראה."""
+    if not _require_admin_user():
+        return jsonify({'ok': False, 'error': 'admin_only'}), 403
+    result = observability_service.get_alert_tags(alert_uid)
+    status = 200 if result.get("ok") else 400
+    return jsonify(result), status
+
+
+@app.route('/api/observability/alerts/<alert_uid>/tags', methods=['POST'])
+@login_required
+def api_set_alert_tags(alert_uid: str):
+    """עדכון כל התגיות להתראה."""
+    user_id = _require_admin_user()
+    if not user_id:
+        return jsonify({'ok': False, 'error': 'admin_only'}), 403
+    data = request.get_json(silent=True) or {}
+    result = observability_service.set_alert_tags(
+        alert_uid=alert_uid,
+        alert_timestamp=data.get("alert_timestamp", ""),
+        tags=data.get("tags", []),
+        user_id=user_id,
+    )
+    status = 200 if result.get("ok") else 400
+    return jsonify(result), status
+
+
+@app.route('/api/observability/alerts/<alert_uid>/tags/add', methods=['POST'])
+@login_required
+def api_add_alert_tag(alert_uid: str):
+    """הוספת תגית בודדת."""
+    user_id = _require_admin_user()
+    if not user_id:
+        return jsonify({'ok': False, 'error': 'admin_only'}), 403
+    data = request.get_json(silent=True) or {}
+    result = observability_service.add_alert_tag(
+        alert_uid=alert_uid,
+        alert_timestamp=data.get("alert_timestamp", ""),
+        tag=data.get("tag", ""),
+        user_id=user_id,
+    )
+    status = 200 if result.get("ok") else 400
+    return jsonify(result), status
+
+
+@app.route('/api/observability/alerts/<alert_uid>/tags/<tag>', methods=['DELETE'])
+@login_required
+def api_remove_alert_tag(alert_uid: str, tag: str):
+    """הסרת תגית."""
+    if not _require_admin_user():
+        return jsonify({'ok': False, 'error': 'admin_only'}), 403
+    result = observability_service.remove_alert_tag(alert_uid=alert_uid, tag=tag)
+    status = 200 if result.get("ok") else 400
+    return jsonify(result), status
+
+
+@app.route('/api/observability/tags/suggest', methods=['GET'])
+@login_required
+def api_suggest_tags():
+    """הצעות תגיות (Autocomplete)."""
+    if not _require_admin_user():
+        return jsonify({'ok': False, 'error': 'admin_only'}), 403
+    prefix = request.args.get("q", "")
+    try:
+        limit = int(request.args.get("limit", 20))
+    except Exception:
+        limit = 20
+    limit = max(1, min(50, limit))
+    result = observability_service.suggest_tags(prefix, limit)
+    return jsonify(result)
+
+
+@app.route('/api/observability/tags/popular', methods=['GET'])
+@login_required
+def api_popular_tags():
+    """תגיות פופולריות."""
+    if not _require_admin_user():
+        return jsonify({'ok': False, 'error': 'admin_only'}), 403
+    try:
+        limit = int(request.args.get("limit", 50))
+    except Exception:
+        limit = 50
+    limit = max(1, min(100, limit))
+    result = observability_service.get_popular_tags(limit)
+    return jsonify(result)
+
+
+@app.route('/api/observability/alerts/global-tags', methods=['POST'])
+@login_required
+def api_set_global_alert_tags():
+    """שמירת תגיות גלובליות לסוג התראה."""
+    user_id = _require_admin_user()
+    if not user_id:
+        return jsonify({'ok': False, 'error': 'admin_only'}), 403
+    data = request.get_json(silent=True) or {}
+    result = observability_service.set_global_alert_tags(
+        alert_name=data.get("alert_name", ""),
+        tags=data.get("tags", []),
+        user_id=user_id,
+    )
+    status = 200 if result.get("ok") else 400
+    return jsonify(result), status
 
 
 @app.route('/api/observability/alerts-by-type', methods=['GET'])
