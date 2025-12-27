@@ -1671,6 +1671,18 @@ tr:hover .copy-meta-btn {
   async function saveAlertTags() {
     if (!tagState.alertUid) return;
     const isGlobal = Boolean(globalCheckbox && globalCheckbox.checked);
+
+    // FIX: If there's text in the input field, add it as a tag before saving
+    // This handles the case where user types a tag but clicks Save without pressing Enter
+    if (tagInput && tagInput.value.trim()) {
+      const pendingTag = tagInput.value.trim().toLowerCase();
+      if (pendingTag && !tagState.tags.includes(pendingTag)) {
+        tagState.tags.push(pendingTag);
+        renderCurrentTags();
+      }
+      tagInput.value = '';
+    }
+
     try {
       if (tagSaveBtn) tagSaveBtn.disabled = true;
 
@@ -1688,6 +1700,9 @@ tr:hover .copy-meta-btn {
           alert_timestamp: tagState.alertTimestamp,
         };
       }
+
+      // DEBUG: Log the payload
+      console.log('🔍 saveAlertTags - endpoint:', endpoint, 'payload:', JSON.stringify(payload));
 
       const res = await fetch(endpoint, {
         method: 'POST',

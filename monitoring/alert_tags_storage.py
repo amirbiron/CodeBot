@@ -149,13 +149,23 @@ def ensure_indexes() -> None:
 
 def _normalize_tags(tags: List[str]) -> List[str]:
     # lowercase, trim, remove empties, preserve order, dedup
-    return list(
+    # DEBUG: Log input for debugging empty tags issue
+    logger.debug("🔍 _normalize_tags - input tags=%r (type=%s)", tags, type(tags).__name__)
+    if tags is None:
+        logger.debug("🔍 _normalize_tags - tags is None, returning []")
+        return []
+    if not isinstance(tags, list):
+        logger.warning("🔍 _normalize_tags - tags is not a list: %s, returning []", type(tags))
+        return []
+    result = list(
         dict.fromkeys(
             tag.strip().lower()
-            for tag in (tags or [])
+            for tag in tags
             if tag and isinstance(tag, str) and tag.strip()
         )
     )
+    logger.debug("🔍 _normalize_tags - output result=%r", result)
+    return result
 
 
 def _normalize_alert_name(value: Optional[str]) -> str:
@@ -536,15 +546,24 @@ def set_global_tags_for_name(
     Note: השם מנורמל (lowercase + underscore) כדי להבטיח התאמה עקבית
     בין השמירה לשליפה, ללא תלות בפורמט המקורי של השם.
     """
+    # DEBUG: Log incoming parameters
+    logger.info(
+        "🔍 set_global_tags_for_name ENTRY: alert_name=%r, tags=%r (type=%s, len=%s)",
+        alert_name, tags, type(tags).__name__, len(tags) if isinstance(tags, list) else "N/A"
+    )
     # Normalize the name for consistent matching
     name = _normalize_alert_name(alert_name)
     logger.info(
-        "set_global_tags_for_name: alert_name=%r -> normalized=%r, tags=%r",
-        alert_name, name, tags
+        "🔍 set_global_tags_for_name: alert_name=%r -> normalized=%r",
+        alert_name, name
     )
     if not name:
         raise ValueError("alert_name is required")
     normalized_tags = _normalize_tags(tags)
+    logger.info(
+        "🔍 set_global_tags_for_name: normalized_tags=%r (len=%s)",
+        normalized_tags, len(normalized_tags)
+    )
     now = datetime.now(timezone.utc)
     coll = _get_collection()
     if coll is None:

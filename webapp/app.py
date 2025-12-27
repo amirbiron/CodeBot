@@ -11834,11 +11834,17 @@ def api_set_global_alert_tags():
     if not user_id:
         return jsonify({'ok': False, 'error': 'admin_only'}), 403
     data = request.get_json(silent=True) or {}
+    # DEBUG: Log incoming request data
+    logger.info(
+        "🔍 api_set_global_alert_tags - data=%r, alert_name=%r, tags=%r (type=%s)",
+        data, data.get("alert_name"), data.get("tags"), type(data.get("tags")).__name__
+    )
     result = observability_service.set_global_alert_tags(
         alert_name=data.get("alert_name", ""),
         tags=data.get("tags"),
         user_id=user_id,
     )
+    logger.info("🔍 api_set_global_alert_tags - result=%r", result)
     status = 200 if result.get("ok") else 400
     return jsonify(result), status
 
