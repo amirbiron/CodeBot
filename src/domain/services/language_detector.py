@@ -117,6 +117,31 @@ class LanguageDetector:
                 return True
             return False
 
+        def looks_like_markdown_structural(content: str) -> bool:
+            """
+            בדיקת Markdown "חזקה" בלבד (ללא כותרות).
+
+            למה: בקוד פייתון יש הרבה שורות שמתחילות ב-`#` (comments),
+            ואנחנו לא רוצים שזה ימנע override ל-python עבור קבצי `.md`
+            כשהתוכן הוא בפועל קוד.
+            """
+            view = content or ""
+            if view.startswith("#!"):
+                nl = view.find("\n")
+                view = "" if nl == -1 else view[nl + 1 :]
+            # Lists (-/*/+) with up to 2 leading spaces
+            if re.search(r"(^|\n)\s{0,2}[-*+]\s+\S", view):
+                return True
+            # Markdown links / images
+            if re.search(r"\[.+?\]\(.+?\)", view):
+                return True
+            if re.search(r"(^|\n)!\[.*?\]\(.+?\)", view):
+                return True
+            # Simple tables (very common in markdown docs)
+            if re.search(r"(^|\n)\s*\|.+\|\s*$", view):
+                return True
+            return False
+
         def _extract_single_fenced_block(content: str) -> tuple[str, Optional[str]] | None:
             """אם כל הקובץ הוא בלוק ``` אחד – החזר (inner, fence_lang).
 
@@ -144,8 +169,8 @@ class LanguageDetector:
                 return None
 
         def _looks_like_markdown_without_fences(content: str) -> bool:
-            """וריאנט שמאפשר להתעלם מ-``` בלבד (כי זה נפוץ בהדבקה של קוד)."""
-            return looks_like_markdown(content)
+            """וריאנט שמתעלם מכותרות, כדי לא לחסום override לקוד עם #comments."""
+            return looks_like_markdown_structural(content)
 
         def strong_python_signal(content: str) -> bool:
             if re.search(r"^#!.*\bpython(\d+(?:\.\d+)*)?\b", content, flags=re.IGNORECASE | re.MULTILINE):
