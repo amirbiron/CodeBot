@@ -794,6 +794,12 @@ class DatabaseManager:
     def get_selected_repo(self, user_id: int) -> Optional[str]:
         return self._get_repo().get_selected_repo(user_id)
 
+    def save_selected_folder(self, user_id: int, folder_path: Optional[str]) -> bool:
+        return self._get_repo().save_selected_folder(user_id, folder_path)
+
+    def get_selected_folder(self, user_id: int) -> Optional[str]:
+        return self._get_repo().get_selected_folder(user_id)
+
     def save_user(self, user_id: int, username: Optional[str] = None) -> bool:
         return self._get_repo().save_user(user_id, username)
 

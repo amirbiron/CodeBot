@@ -203,6 +203,26 @@ class FilesFacade:
         except Exception:
             return None
 
+    def save_selected_folder(self, user_id: int, folder_path: Optional[str]) -> bool:
+        try:
+            db = self._get_db()
+            fn = getattr(db, "save_selected_folder", None)
+            if callable(fn):
+                return bool(fn(user_id, folder_path))
+        except Exception:
+            return False
+        return False
+
+    def get_selected_folder(self, user_id: int) -> Optional[str]:
+        try:
+            db = self._get_db()
+            fn = getattr(db, "get_selected_folder", None)
+            if callable(fn):
+                return fn(user_id)
+        except Exception:
+            return None
+        return None
+
     def get_github_token(self, user_id: int) -> Optional[str]:
         try:
             db = self._get_db()

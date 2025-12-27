@@ -1743,6 +1743,62 @@ class Repository:
             emit_event("db_get_selected_repo_error", severity="error", error=str(e))
             return None
 
+    @_instrument_db("db.save_selected_folder")
+    def save_selected_folder(self, user_id: int, folder_path: Optional[str]) -> bool:
+        """
+        שמירת תיקיית יעד נבחרת (יחסית לשורש הריפו).
+
+        - None/"" → root (נשמר כ-$unset כדי לשמור מסמך נקי)
+        - מחרוזת אחרת → נשמרת בשדה selected_folder
+        """
+        try:
+            users_collection = self.manager.db.users
+            now_utc = datetime.now(timezone.utc)
+            raw = (folder_path or "").strip()
+            # normalize slashes (do not allow leading/trailing '/')
+            folder = raw.strip("/")
+            if not folder:
+                result = users_collection.update_one(
+                    {"user_id": user_id},
+                    {
+                        "$unset": {"selected_folder": ""},
+                        "$set": {"updated_at": now_utc},
+                        "$setOnInsert": {"created_at": now_utc},
+                    },
+                    upsert=True,
+                )
+                return bool(result.acknowledged)
+            result = users_collection.update_one(
+                {"user_id": user_id},
+                {
+                    "$set": {"selected_folder": folder, "updated_at": now_utc},
+                    "$setOnInsert": {"created_at": now_utc},
+                },
+                upsert=True,
+            )
+            return bool(result.acknowledged)
+        except Exception as e:
+            emit_event("db_save_selected_folder_error", severity="error", error=str(e))
+            return False
+
+    @_instrument_db("db.get_selected_folder")
+    def get_selected_folder(self, user_id: int) -> Optional[str]:
+        """החזרת תיקיית יעד נבחרת (None = root)."""
+        try:
+            users_collection = self.manager.db.users
+            user = users_collection.find_one({"user_id": user_id})
+            if not user:
+                return None
+            val = user.get("selected_folder")
+            if val is None:
+                return None
+            # normalize empty string to None
+            s = str(val).strip().strip("/")
+            return s or None
+        except Exception as e:
+            emit_event("db_get_selected_folder_error", severity="error", error=str(e))
+            return None
+
     def save_user(self, user_id: int, username: Optional[str] = None) -> bool:
         try:
             users_collection = self.manager.db.users

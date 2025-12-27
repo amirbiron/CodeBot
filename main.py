@@ -12,6 +12,7 @@ import functools
 import inspect
 import logging
 import asyncio
+import warnings
 from typing import Any, Optional, TypedDict
 try:
     from typing import NotRequired  # type: ignore[attr-defined]
@@ -24,6 +25,10 @@ except ImportError:  # pragma: no cover
                 return item
         NotRequired = _NotRequiredShim  # type: ignore[misc,assignment]
 from datetime import datetime
+
+# הפחתת רעש בלוגים: DeprecationWarnings ספרייתיים (למשל httplib2/pyparsing)
+# לא משפיע על התנהגות ריצה, רק על פלט אזהרות.
+warnings.filterwarnings("ignore", category=DeprecationWarning, module=r"httplib2\.auth")
 
 import signal
 import socket
