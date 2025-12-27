@@ -188,6 +188,24 @@
     </div>
   </form>
 </div>
+
+<!-- Code Tools Bootstrap Modal -->
+<div class="modal fade" id="codeToolsModal" tabindex="-1" aria-labelledby="codeToolsModalLabel" aria-hidden="true">
+  <div class="modal-dialog modal-lg modal-dialog-centered modal-dialog-scrollable">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="codeToolsModalLabel">Code Tools</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="סגור"></button>
+      </div>
+      <div class="modal-body" id="codeToolsModalBody">
+        <!-- תוכן דינמי יוזרק כאן -->
+      </div>
+      <div class="modal-footer" id="codeToolsModalFooter">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">סגור</button>
+      </div>
+    </div>
+  </div>
+</div>
 {% endblock %}
 {% block extra_js %}
 <script src="{{ url_for('static', filename='js/code-tools.js') }}?v={{ static_version }}" defer></script>

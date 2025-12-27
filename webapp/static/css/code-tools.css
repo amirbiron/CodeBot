@@ -13,11 +13,21 @@
 
 .code-tools-group .btn {
   white-space: nowrap;
+  display: inline-flex;
+  align-items: center;
+  min-height: 36px;
+  border-radius: 6px;
+}
+
+/* רווח בין אייקון לטקסט - תומך ב-RTL */
+.code-tools-group .btn i {
+  margin-inline-end: 8px;
 }
 
 .code-tools-group .btn.btn-sm {
   padding: 0.4rem 0.8rem;
   font-size: 0.9rem;
+  border-radius: 6px;
 }
 
 .code-tools-group .btn.btn-outline {
@@ -83,104 +93,215 @@
   background: rgba(255, 255, 255, 0.08);
 }
 
-/* ---------- Modal (used by edit_file integration) ---------- */
-.code-tools-modal {
-  position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  z-index: 9999;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 1rem;
-}
-
-.code-tools-modal .modal-backdrop {
-  position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  background: rgba(0, 0, 0, 0.55);
-  backdrop-filter: blur(4px);
-}
-
-.code-tools-modal .modal-content {
-  position: relative;
-  background: white;
+/* ---------- Bootstrap Modal Dark Theme Override (used by edit_file integration) ---------- */
+#codeToolsModal .modal-content {
+  background: var(--bg-secondary, #1a1a2e);
+  border: 1px solid var(--glass-border, rgba(255, 255, 255, 0.18));
   border-radius: 16px;
-  max-width: 860px;
-  width: 100%;
-  max-height: 80vh;
-  display: flex;
-  flex-direction: column;
-  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.22);
-  overflow: hidden;
+  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.5);
 }
 
-.code-tools-modal .modal-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
+#codeToolsModal .modal-header {
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
   padding: 1rem 1.25rem;
-  border-bottom: 1px solid rgba(0, 0, 0, 0.08);
 }
 
-.code-tools-modal .modal-header h3 {
-  margin: 0;
-  font-size: 1.1rem;
-  color: #111827;
+#codeToolsModal .modal-title {
+  color: var(--text-primary, #ffffff);
+  font-size: 1.15rem;
+  font-weight: 600;
 }
 
-.code-tools-modal .modal-close {
-  background: none;
-  border: none;
-  font-size: 1.6rem;
-  line-height: 1;
-  color: #6b7280;
-  cursor: pointer;
-  padding: 0.25rem;
+#codeToolsModal .btn-close {
+  filter: invert(1) grayscale(100%) brightness(200%);
+  opacity: 0.7;
 }
 
-.code-tools-modal .modal-body {
-  flex: 1;
-  overflow: auto;
+#codeToolsModal .btn-close:hover {
+  opacity: 1;
+}
+
+#codeToolsModal .modal-body {
+  padding: 1.25rem;
+  color: var(--text-primary, #ffffff);
+  max-height: 60vh;
+  overflow-y: auto;
+}
+
+#codeToolsModal .modal-footer {
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
   padding: 1rem 1.25rem;
-  color: #111827;
-}
-
-.code-tools-modal .modal-footer {
-  display: flex;
-  justify-content: flex-end;
   gap: 0.5rem;
-  flex-wrap: wrap;
-  padding: 1rem 1.25rem;
-  border-top: 1px solid rgba(0, 0, 0, 0.08);
 }
 
-.code-tools-modal .btn.btn-outline {
-  background: rgba(17, 24, 39, 0.06);
-  border: 1px solid rgba(17, 24, 39, 0.18);
-  color: #111827;
+#codeToolsModal .modal-footer .btn {
+  border-radius: 8px;
+  padding: 0.5rem 1rem;
+  font-size: 0.9rem;
 }
 
-.code-tools-modal .btn.btn-outline:hover {
-  background: rgba(17, 24, 39, 0.1);
-  border-color: rgba(17, 24, 39, 0.25);
+#codeToolsModal .modal-footer .btn-primary {
+  background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);
+  border: none;
+  color: #ffffff;
 }
 
-.code-tools-modal .diff-content {
-  margin: 0.75rem 0 0;
-  padding: 0.75rem;
+#codeToolsModal .modal-footer .btn-primary:hover {
+  background: linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%);
+}
+
+#codeToolsModal .modal-footer .btn-secondary {
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  color: var(--text-primary, #ffffff);
+}
+
+#codeToolsModal .modal-footer .btn-secondary:hover {
+  background: rgba(255, 255, 255, 0.12);
+  border-color: rgba(255, 255, 255, 0.3);
+}
+
+/* Lint results styling */
+#codeToolsModal .lint-results {
+  text-align: center;
+}
+
+#codeToolsModal .lint-score {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.25rem;
+  padding: 0.75rem 1.5rem;
   border-radius: 12px;
-  background: rgba(17, 24, 39, 0.06);
-  border: 1px solid rgba(17, 24, 39, 0.1);
+  margin-bottom: 1rem;
+}
+
+#codeToolsModal .lint-score.good {
+  background: rgba(34, 197, 94, 0.15);
+  border: 1px solid rgba(34, 197, 94, 0.4);
+}
+
+#codeToolsModal .lint-score.medium {
+  background: rgba(245, 158, 11, 0.15);
+  border: 1px solid rgba(245, 158, 11, 0.4);
+}
+
+#codeToolsModal .lint-score.bad {
+  background: rgba(239, 68, 68, 0.15);
+  border: 1px solid rgba(239, 68, 68, 0.4);
+}
+
+#codeToolsModal .score-value {
+  font-size: 2rem;
+  font-weight: 700;
+  color: var(--text-primary, #ffffff);
+}
+
+#codeToolsModal .score-max {
+  font-size: 1rem;
+  color: var(--text-muted, rgba(255, 255, 255, 0.6));
+}
+
+#codeToolsModal .no-issues {
+  font-size: 1.1rem;
+  color: rgba(34, 197, 94, 0.9);
+  margin: 1rem 0;
+}
+
+#codeToolsModal .issues-summary {
+  font-size: 0.95rem;
+  color: var(--text-secondary, rgba(255, 255, 255, 0.8));
+  margin-bottom: 0.75rem;
+}
+
+#codeToolsModal .issues-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  text-align: right;
+  display: grid;
+  gap: 0.4rem;
+}
+
+#codeToolsModal .issue-item {
+  display: flex;
+  gap: 0.6rem;
+  align-items: baseline;
+  padding: 0.6rem 0.75rem;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+#codeToolsModal .issue-item.error {
+  border-color: rgba(239, 68, 68, 0.4);
+  background: rgba(239, 68, 68, 0.08);
+}
+
+#codeToolsModal .issue-item.warning {
+  border-color: rgba(245, 158, 11, 0.4);
+  background: rgba(245, 158, 11, 0.08);
+}
+
+#codeToolsModal .issue-location {
+  font-size: 0.8rem;
+  color: var(--text-muted, rgba(255, 255, 255, 0.6));
+  white-space: nowrap;
+}
+
+#codeToolsModal .issue-code {
+  font-family: var(--font-mono, 'JetBrains Mono', 'Fira Code', monospace);
+  font-size: 0.85rem;
+  color: #a78bfa;
+}
+
+#codeToolsModal .issue-message {
+  flex: 1;
+  font-size: 0.9rem;
+}
+
+#codeToolsModal .issue-fixable {
+  font-size: 0.9rem;
+}
+
+#codeToolsModal .more-issues {
+  text-align: center;
+  color: var(--text-muted, rgba(255, 255, 255, 0.6));
+  padding: 0.5rem;
+  font-size: 0.9rem;
+}
+
+/* Diff preview styling */
+#codeToolsModal .diff-preview {
+  text-align: right;
+}
+
+#codeToolsModal .diff-stats {
+  font-size: 0.95rem;
+  color: var(--text-secondary, rgba(255, 255, 255, 0.8));
+  margin-bottom: 0.75rem;
+}
+
+#codeToolsModal .diff-stats small {
+  display: block;
+  margin-top: 0.25rem;
+  font-size: 0.85rem;
+  color: var(--text-muted, rgba(255, 255, 255, 0.6));
+}
+
+#codeToolsModal .diff-content {
+  margin: 0;
+  padding: 0.75rem;
+  border-radius: 10px;
+  background: rgba(0, 0, 0, 0.3);
+  border: 1px solid rgba(255, 255, 255, 0.1);
   white-space: pre-wrap;
   font-family: var(--font-mono, 'JetBrains Mono', 'Fira Code', monospace);
-  font-size: 0.9rem;
+  font-size: 0.85rem;
   direction: ltr;
+  text-align: left;
+  max-height: 300px;
+  overflow-y: auto;
+  color: var(--text-primary, #ffffff);
 }
 
 /* ---------- Standalone page (/tools/code) ---------- */

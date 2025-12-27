@@ -2159,12 +2159,24 @@
             closeModal(modalEl);
         }
 
-        // Minimal bootstrap.Modal API used by compare.js
+        // Minimal bootstrap.Modal API used by compare.js and code-tools.js
         window.bootstrap = window.bootstrap || {};
-        window.bootstrap.Modal = window.bootstrap.Modal || {};
+        
+        // Modal constructor function
+        function ModalPolyfill(el) {
+            this.element = el;
+            this.show = function() { openModal(el); };
+            this.hide = function() { closeModal(el); };
+        }
+        
+        // If bootstrap.Modal is not a constructor function, create our polyfill
+        if (typeof window.bootstrap.Modal !== 'function') {
+            window.bootstrap.Modal = ModalPolyfill;
+        }
+        
         if (typeof window.bootstrap.Modal.getInstance !== 'function') {
             window.bootstrap.Modal.getInstance = function(el){
-                return { hide: function(){ closeModal(el); } };
+                return new ModalPolyfill(el);
             };
         }
 
@@ -2177,6 +2189,7 @@
         // Close common modals by default if they exist
         document.addEventListener('DOMContentLoaded', function(){
             try { ensureClosedByDefault(document.getElementById('restoreModal')); } catch (_) {}
+            try { ensureClosedByDefault(document.getElementById('codeToolsModal')); } catch (_) {}
         });
 
         document.addEventListener('click', function(e){

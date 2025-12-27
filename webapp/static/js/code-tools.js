@@ -360,52 +360,87 @@ const CodeToolsIntegration = {
   },
 
   /**
-   * הצגת modal
+   * הצגת modal באמצעות Bootstrap Modal
    */
   showModal(title, content, buttons) {
-    // שימוש במנגנון modal קיים או יצירת אחד פשוט
-    const modal = document.createElement('div');
-    modal.className = 'code-tools-modal';
-    modal.innerHTML = `
-            <div class="modal-backdrop"></div>
-            <div class="modal-content">
-                <div class="modal-header">
-                    <h3>${title}</h3>
-                    <button class="modal-close">&times;</button>
-                </div>
-                <div class="modal-body">${content}</div>
-                <div class="modal-footer">
-                    ${buttons
-                      .map(
-                        (b) => `
-                        <button class="btn ${b.primary ? 'btn-primary' : 'btn-outline'}"
-                                data-action="${b.action === 'close' ? 'close' : 'custom'}">
-                            ${b.text}
-                        </button>
-                    `
-                      )
-                      .join('')}
-                </div>
-            </div>
-        `;
+    const modalEl = document.getElementById('codeToolsModal');
+    const modalTitle = document.getElementById('codeToolsModalLabel');
+    const modalBody = document.getElementById('codeToolsModalBody');
+    const modalFooter = document.getElementById('codeToolsModalFooter');
 
-    document.body.appendChild(modal);
+    if (!modalEl || !modalTitle || !modalBody || !modalFooter) {
+      // Fallback: אם אין Bootstrap Modal בדף, נשתמש ב-confirm/alert
+      console.warn('[CodeToolsIntegration] Bootstrap Modal not found, using fallback');
+      const plainText = content.replace(/<[^>]*>/g, '');
+      
+      // אם יש actions (דיאלוג אישור), נשתמש ב-confirm ונפעיל את ה-callbacks
+      if (buttons && buttons.length > 0) {
+        const hasActionCallbacks = buttons.some(b => typeof b.action === 'function');
+        
+        if (hasActionCallbacks) {
+          // שימוש ב-confirm כדי לקבל תשובה מהמשתמש
+          if (confirm(title + '\n\n' + plainText)) {
+            // המשתמש לחץ OK - מפעיל את הפעולה הראשית (primary)
+            const primaryBtn = buttons.find(b => b.primary && typeof b.action === 'function');
+            if (primaryBtn) {
+              primaryBtn.action();
+            } else if (typeof buttons[0].action === 'function') {
+              buttons[0].action();
+            }
+          } else {
+            // המשתמש לחץ Cancel - מפעיל את הפעולה המשנית
+            const secondaryBtn = buttons.find(b => !b.primary && typeof b.action === 'function');
+            if (secondaryBtn) {
+              secondaryBtn.action();
+            }
+          }
+        } else {
+          // אין callbacks - רק הודעה
+          alert(title + '\n\n' + plainText);
+        }
+      } else {
+        // אין כפתורים - רק הודעה
+        alert(title + '\n\n' + plainText);
+      }
+      return;
+    }
 
-    // Bind events
-    modal.querySelector('.modal-close').onclick = () => modal.remove();
-    modal.querySelector('.modal-backdrop').onclick = () => modal.remove();
+    // עדכון תוכן המודל
+    modalTitle.textContent = title;
+    modalBody.innerHTML = content;
 
+    // יצירת כפתורי הפעולה
+    modalFooter.innerHTML = buttons
+      .map(
+        (b, i) => `
+        <button type="button" 
+                class="btn ${b.primary ? 'btn-primary' : 'btn-secondary'}"
+                data-btn-index="${i}"
+                ${b.action === 'close' ? 'data-bs-dismiss="modal"' : ''}>
+            ${b.text}
+        </button>
+      `
+      )
+      .join('');
+
+    // יצירת instance של Bootstrap Modal
+    const bsModal = new bootstrap.Modal(modalEl);
+
+    // קישור אירועים לכפתורים עם פעולות מותאמות
     buttons.forEach((btn, i) => {
-      const btnEl = modal.querySelectorAll('.modal-footer button')[i];
-      if (btnEl && typeof btn.action === 'function') {
-        btnEl.onclick = () => {
-          btn.action();
-          modal.remove();
-        };
-      } else if (btnEl) {
-        btnEl.onclick = () => modal.remove();
+      if (typeof btn.action === 'function') {
+        const btnEl = modalFooter.querySelector(`[data-btn-index="${i}"]`);
+        if (btnEl) {
+          btnEl.addEventListener('click', () => {
+            btn.action();
+            bsModal.hide();
+          }, { once: true });
+        }
       }
     });
+
+    // הצגת המודל
+    bsModal.show();
   },
 
   /**
