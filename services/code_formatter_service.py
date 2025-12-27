@@ -406,13 +406,42 @@ class CodeFormatterService:
         Returns:
             LintResult עם רשימת הבעיות
         """
-        is_valid, error = self.validate_input(code, language)
-        if not is_valid:
-            return LintResult(
-                success=False,
-                error_message=error,
-            )
+        # בדיקת קוד ריק / גדול מדי
+        if not code or not code.strip():
+            return LintResult(success=False, error_message="הקוד ריק")
+        
+        try:
+            encoded_code = code.encode("utf-8")
+        except UnicodeEncodeError:
+            return LintResult(success=False, error_message="קידוד תווים לא תקין")
+        
+        if len(encoded_code) > self.MAX_FILE_SIZE:
+            return LintResult(success=False, error_message=f"הקובץ גדול מדי (מקסימום {self.MAX_FILE_SIZE // 1024}KB)")
+        
+        # בדיקת syntax - אם יש שגיאה, נחזיר אותה כ-issue ולא כ-error
+        syntax_issues = []
+        if language == "python":
+            try:
+                ast.parse(code)
+            except SyntaxError as e:
+                syntax_issues.append(LintIssue(
+                    line=e.lineno or 1,
+                    column=e.offset or 0,
+                    code="E999",
+                    message=f"שגיאת תחביר: {e.msg}",
+                    severity="error",
+                    fixable=False,
+                ))
 
+        # אם יש שגיאות syntax, נחזיר אותן (flake8 לא יעבוד על קוד שבור)
+        if syntax_issues:
+            score = self._calculate_score(code, syntax_issues)
+            return LintResult(
+                success=True,
+                issues=syntax_issues,
+                score=score,
+            )
+        
         if not self.is_tool_available("flake8"):
             return LintResult(
                 success=False,

@@ -70,14 +70,21 @@
   }
 
   function createEditor(parentEl, initialDoc) {
-    const { EditorState, EditorView, basicSetup, getLanguageSupport, getTheme } = window.CodeMirror6;
-    const languageExt = getLanguageSupport('python') || [];
-    const themeExt = getTheme('dark') || [];
-    const state = EditorState.create({
-      doc: typeof initialDoc === 'string' ? initialDoc : '',
-      extensions: [...basicSetup, languageExt, themeExt],
-    });
-    return new EditorView({ state, parent: parentEl });
+    if (!parentEl || !window.CodeMirror6 || !window.CodeMirror6.EditorView || !window.CodeMirror6.EditorState) {
+      return null;
+    }
+    try {
+      const { EditorState, EditorView, basicSetup, getLanguageSupport, getTheme } = window.CodeMirror6;
+      const languageExt = getLanguageSupport('python') || [];
+      const themeExt = getTheme('dark') || [];
+      const state = EditorState.create({
+        doc: typeof initialDoc === 'string' ? initialDoc : '',
+        extensions: [...basicSetup, languageExt, themeExt],
+      });
+      return new EditorView({ state, parent: parentEl });
+    } catch (_) {
+      return null;
+    }
   }
 
   function getDoc(view) {
@@ -148,6 +155,11 @@
     host.innerHTML = '';
     mergeViewInstance = null;
 
+    if (!window.CodeMirror6 || !window.CodeMirror6.MergeView) {
+      host.textContent = 'CodeMirror לא נטען - לא ניתן להציג Diff.';
+      return;
+    }
+
     try {
       const { MergeView, basicSetup, getLanguageSupport, getTheme } = window.CodeMirror6;
       const languageExt = getLanguageSupport('python') || [];
@@ -160,12 +172,8 @@
         highlightChanges: true,
         gutter: true,
       });
-    } catch (e) {
+    } catch (_) {
       host.textContent = 'לא הצלחנו להציג Diff מקצועי.';
-      try {
-        // eslint-disable-next-line no-console
-        console.error('MergeView init failed', e);
-      } catch (_) {}
     }
   }
 
@@ -214,7 +222,7 @@
   async function init() {
     try {
       await ensureCodeMirrorLoaded();
-    } catch (e) {
+    } catch (_) {
       showStatus('לא הצלחנו לטעון את CodeMirror.', 'error');
       return;
     }
@@ -261,17 +269,6 @@
       lineLengthInput.value = String(next.lineLength);
       savePrefs(next);
     });
-
-    // Tools availability (optional)
-    try {
-      const tools = await getJson('/api/code/tools');
-      if (toolsInfo && tools && tools.tools) {
-        const t = tools.tools;
-        toolsInfo.textContent = `כלים: black=${!!t.black ? '✓' : '✗'} flake8=${!!t.flake8 ? '✓' : '✗'} isort=${
-          !!t.isort ? '✓' : '✗'
-        } autopep8=${!!t.autopep8 ? '✓' : '✗'}`;
-      }
-    } catch (_) {}
 
     const btnFormat = document.getElementById('btn-format');
     const btnLint = document.getElementById('btn-lint');
@@ -421,6 +418,19 @@
         }
       }
     });
+
+    // Tools availability (optional)
+    (async () => {
+      try {
+        const tools = await getJson('/api/code/tools');
+        if (toolsInfo && tools && tools.tools) {
+          const t = tools.tools;
+          toolsInfo.textContent = `כלים: black=${!!t.black ? '✓' : '✗'} flake8=${!!t.flake8 ? '✓' : '✗'} isort=${
+            !!t.isort ? '✓' : '✗'
+          } autopep8=${!!t.autopep8 ? '✓' : '✗'}`;
+        }
+      } catch (_) {}
+    })();
   }
 
   document.addEventListener('DOMContentLoaded', init);

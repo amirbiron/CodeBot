@@ -71,6 +71,24 @@ const CodeToolsIntegration = {
       toolsGroup.__codeToolsBound = true;
     }
 
+    // Bootstrap dropdown עשוי להעביר את התפריט לגוף המסמך - נאזין גם שם
+    // לכפתורי fix-level בתוך dropdown-menu
+    if (!document.__codeToolsDropdownBound) {
+      document.addEventListener('click', (e) => {
+        const btn = e.target && typeof e.target.closest === 'function' 
+          ? e.target.closest('[data-action="fix-level"]') 
+          : null;
+        if (btn) {
+          e.preventDefault();
+          const level = String(btn.dataset.level || '').trim();
+          if (level) {
+            this.prepareFix(level);
+          }
+        }
+      });
+      document.__codeToolsDropdownBound = true;
+    }
+
     // קיצורי מקלדת
     document.addEventListener('keydown', (e) => {
       if ((e.ctrlKey || e.metaKey) && e.shiftKey) {
