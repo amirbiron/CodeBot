@@ -98,6 +98,12 @@ except Exception:  # pragma: no cover
     def track_github_sync(*a, **k):  # type: ignore
         return None
 
+# Transitional: access persistence only via facade (no direct database imports in this module)
+try:
+    from src.infrastructure.composition import get_files_facade  # type: ignore
+except Exception:  # pragma: no cover
+    get_files_facade = None  # type: ignore
+
 # יצירת Proxy ל-zipfile כדי לאפשר monkeypatch בטוח שאינו יוצר רקורסיה
 class _ZipfileProxy:
     def __init__(self, real_module):
@@ -230,11 +236,8 @@ class GitHubMenuHandler:
             # נסה לטעון ריפו מועדף מהמסד, עם נפילה בטוחה בסביבת בדיקות/CI
             selected_repo = None
             try:
-                from database import db  # type: ignore
-                try:
-                    selected_repo = db.get_selected_repo(user_id)
-                except Exception:
-                    selected_repo = None
+                if get_files_facade is not None:
+                    selected_repo = get_files_facade().get_selected_repo(user_id)
             except Exception:
                 selected_repo = None
             self.user_sessions[user_id] = {
@@ -651,9 +654,12 @@ class GitHubMenuHandler:
             return token
 
         # נסה מהמסד נתונים
-        from database import db
-
-        token = db.get_github_token(user_id)
+        token = None
+        try:
+            if get_files_facade is not None:
+                token = get_files_facade().get_github_token(user_id)
+        except Exception:
+            token = None
         if token:
             # שמור בסשן לשימוש מהיר
             session["github_token"] = token
@@ -950,7 +956,15 @@ class GitHubMenuHandler:
             if not root:
                 await query.edit_message_text("❌ לא נמצאו קבצים לאחר חליצה")
                 return
-            from database import db
+            facade = None
+            try:
+                if get_files_facade is not None:
+                    facade = get_files_facade()
+            except Exception:
+                facade = None
+            if facade is None:
+                await query.edit_message_text("❌ שגיאה פנימית: DB לא זמין לייבוא")
+                return
             from utils import detect_language_from_filename
             repo_tag = f"repo:{repo_full}"
             source_tag = "source:github"
@@ -994,12 +1008,12 @@ class GitHubMenuHandler:
                             continue
                         lang = detect_language_from_filename(rel_path)
                         # בדוק אם קיים כבר עבור אותו ריפו (לפי תגית repo:)
-                        prev_doc = db.get_latest_version(user_id, rel_path)
+                        prev_doc = facade.get_latest_version(user_id, rel_path)
                         prev_tags = (prev_doc.get('tags') or []) if isinstance(prev_doc, dict) else []
                         existed_for_repo = any((isinstance(t, str) and t == repo_tag) for t in prev_tags)
                         # מדידת ביצוע עבור שמירה בודדת
                         with track_performance("github_import_save_file"):
-                            ok = db.save_file(user_id=user_id, file_name=rel_path, code=text, programming_language=lang, extra_tags=[repo_tag, source_tag])
+                            ok = facade.save_file(user_id=user_id, file_name=rel_path, code=text, programming_language=lang, extra_tags=[repo_tag, source_tag])
                         if ok:
                             if existed_for_repo:
                                 updated += 1
@@ -1759,9 +1773,12 @@ class GitHubMenuHandler:
 
         # --- New: logout GitHub token from menu ---
         elif query.data == "logout_github":
-            from database import db
-
-            removed = db.delete_github_token(user_id)
+            removed = False
+            try:
+                if get_files_facade is not None:
+                    removed = bool(get_files_facade().delete_github_token(user_id))
+            except Exception:
+                removed = False
             try:
                 session["github_token"] = None
                 # נקה גם בחירות קודמות כאשר מתנתקים
@@ -2236,9 +2253,11 @@ class GitHubMenuHandler:
                     pass
 
                 # שמור במסד נתונים
-                from database import db
-
-                db.save_selected_repo(user_id, repo_name)
+                try:
+                    if get_files_facade is not None:
+                        get_files_facade().save_selected_repo(user_id, repo_name)
+                except Exception:
+                    pass
 
                 # הצג את התפריט המלא אחרי בחירת הריפו
                 await self.github_menu_command(update, context)
@@ -2592,8 +2611,9 @@ class GitHubMenuHandler:
                             v_text = f"(v{version_number}) " if version_number else ""
                             summary_line = f"⬇️ backup zip {repo.name} – {date_str2} – {v_text}{format_bytes(total_bytes)}"
                             try:
-                                from database import db as _db
-                                existing_note = _db.get_backup_note(user_id, str(backup_id)) or ""
+                                existing_note = ""
+                                if get_files_facade is not None:
+                                    existing_note = get_files_facade().get_backup_note(user_id, str(backup_id)) or ""
                             except Exception:
                                 existing_note = ""
                             note_btn_text = "📝 ערוך הערה" if existing_note else "📝 הוסף הערה"
@@ -2801,8 +2821,9 @@ class GitHubMenuHandler:
                     v_text = f"(v{version_number}) " if version_number else ""
                     summary_line = f"⬇️ backup zip {repo.name} – {date_str} – {v_text}{format_bytes(total_bytes)}"
                     try:
-                        from database import db as _db
-                        existing_note = _db.get_backup_note(user_id, str(backup_id)) or ""
+                        existing_note = ""
+                        if get_files_facade is not None:
+                            existing_note = get_files_facade().get_backup_note(user_id, str(backup_id)) or ""
                     except Exception:
                         existing_note = ""
                     note_btn_text = "📝 ערוך הערה" if existing_note else "📝 הוסף הערה"
@@ -3733,12 +3754,18 @@ class GitHubMenuHandler:
     async def show_upload_other_files(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """מציג רק קבצים שאינם מתויגים repo: ואינם קבצים גדולים, עם עימוד ואימוג'י לפי שפה."""
         user_id = update.effective_user.id
-        from database import db
         query = update.callback_query
         try:
+            facade = get_files_facade() if get_files_facade is not None else None
+        except Exception:
+            facade = None
+        try:
+            if facade is None:
+                await query.edit_message_text("❌ שגיאה פנימית: DB לא זמין")
+                return
             # קריאת נתונים
-            all_files = db.get_user_files(user_id, limit=500, projection={"file_name": 1, "tags": 1})
-            large_files, _ = db.get_user_large_files(user_id, page=1, per_page=10000)
+            all_files = facade.get_user_files(user_id, limit=500, projection={"file_name": 1, "tags": 1})
+            large_files, _ = facade.get_user_large_files(user_id, page=1, per_page=10000)
             large_names = {lf.get('file_name') for lf in large_files if lf.get('file_name')}
 
             other_files = []
@@ -3798,11 +3825,17 @@ class GitHubMenuHandler:
     async def show_upload_repos(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """מציג תפריט ריפואים לבחירת קבצים שמורים עם תגית repo: להעלאה"""
         user_id = update.effective_user.id
-        from database import db
         query = update.callback_query
         try:
+            facade = get_files_facade() if get_files_facade is not None else None
+        except Exception:
+            facade = None
+        try:
+            if facade is None:
+                await query.edit_message_text("❌ שגיאה פנימית: DB לא זמין")
+                return
             # צריך גם tags כדי לספור לפי repo:
-            files = db.get_user_files(user_id, limit=500, projection={"file_name": 1, "tags": 1})
+            files = facade.get_user_files(user_id, limit=500, projection={"file_name": 1, "tags": 1})
             repo_to_count: dict[str, int] = {}
             for f in files:
                 for t in f.get('tags', []) or []:
@@ -3821,9 +3854,15 @@ class GitHubMenuHandler:
     async def show_upload_repo_files(self, update: Update, context: ContextTypes.DEFAULT_TYPE,_repo_tag: str):
         """מציג קבצים שמורים תחת תגית ריפו שנבחרה ומאפשר להעלותם עם עימוד"""
         user_id = update.effective_user.id
-        from database import db
         query = update.callback_query
         try:
+            facade = get_files_facade() if get_files_facade is not None else None
+        except Exception:
+            facade = None
+        try:
+            if facade is None:
+                await query.edit_message_text("❌ שגיאה פנימית: DB לא זמין")
+                return
             repo_tag = _repo_tag
             # עימוד: קרא מה-context או התחל בעמוד 1
             try:
@@ -3831,7 +3870,7 @@ class GitHubMenuHandler:
             except Exception:
                 page = 1
             per_page = 50
-            files, total = db.get_user_files_by_repo(user_id, repo_tag, page=page, per_page=per_page)
+            files, total = facade.get_user_files_by_repo(user_id, repo_tag, page=page, per_page=per_page)
             if not files:
                 await query.edit_message_text("ℹ️ אין קבצים תחת התגית הזו")
                 return
@@ -3860,10 +3899,13 @@ class GitHubMenuHandler:
     async def upload_large_files_menu(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """מציג רשימת קבצים גדולים להעלאה לריפו הנבחר"""
         user_id = update.effective_user.id
-        from database import db
         query = update.callback_query
         try:
-            large_files, total = db.get_user_large_files(user_id, page=1, per_page=50)
+            facade = get_files_facade() if get_files_facade is not None else None
+            if facade is None:
+                await query.edit_message_text("❌ שגיאה פנימית: DB לא זמין")
+                return
+            large_files, total = facade.get_user_large_files(user_id, page=1, per_page=50)
             if not large_files:
                 await query.edit_message_text("ℹ️ אין קבצים גדולים שמורים")
                 return
@@ -3887,11 +3929,17 @@ class GitHubMenuHandler:
         if not (session.get("selected_repo") and token):
             await query.edit_message_text("❌ קודם בחר ריפו/טוקן בגיטהאב")
             return
-        # שלוף את תוכן הקובץ הגדול
-        from database import db
-        from bson import ObjectId
-        doc = db.large_files_collection.find_one({"_id": ObjectId(file_id), "user_id": user_id})
-        if not doc:
+        # שלוף את תוכן הקובץ הגדול (עם בדיקת בעלות)
+        facade = None
+        try:
+            facade = get_files_facade() if get_files_facade is not None else None
+        except Exception:
+            facade = None
+        if facade is None:
+            await query.edit_message_text("❌ שגיאה פנימית: DB לא זמין")
+            return
+        doc, is_large = facade.get_user_document_by_id(user_id, file_id)
+        if not doc or not is_large:
             await query.edit_message_text("❌ קובץ גדול לא נמצא")
             return
         # מאחדים עם זרימת show_pre_upload_check: נשתמש ב-pending_saved_file_id אחרי יצירת מסמך זמני
@@ -3900,10 +3948,13 @@ class GitHubMenuHandler:
             temp = {
                 "user_id": user_id,
                 "file_name": doc.get("file_name") or "large_file.txt",
-                "content": doc.get("content") or "",
+                "content": doc.get("content") or doc.get("code") or "",
             }
-            res = db.collection.insert_one(temp)
-            context.user_data["pending_saved_file_id"] = str(res.inserted_id)
+            inserted_id = facade.insert_temp_document(temp)
+            if not inserted_id:
+                await query.edit_message_text("❌ שגיאה בהכנת קובץ גדול להעלאה")
+                return
+            context.user_data["pending_saved_file_id"] = str(inserted_id)
             await self.show_pre_upload_check(update, context)
         except Exception as e:
             await query.edit_message_text(f"❌ שגיאה בהכנת קובץ גדול להעלאה: {e}")
@@ -3920,12 +3971,13 @@ class GitHubMenuHandler:
             return
 
         try:
-            from bson import ObjectId
+            facade = get_files_facade() if get_files_facade is not None else None
+            if facade is None:
+                await update.callback_query.answer("❌ שגיאה פנימית: DB לא זמין", show_alert=True)
+                return
 
-            from database import db
-
-            # קבל את הקובץ מהמסד
-            file_data = db.collection.find_one({"_id": ObjectId(file_id), "user_id": user_id})
+            # קבל את הקובץ מהמסד (עם בדיקת בעלות)
+            file_data, _is_large = facade.get_user_document_by_id(user_id, file_id)
 
             if not file_data:
                 await update.callback_query.answer("❌ קובץ לא נמצא", show_alert=True)
@@ -4410,8 +4462,9 @@ class GitHubMenuHandler:
 
             content = context.user_data.get("paste_content") or ""
             try:
-                from database import db
-                from datetime import datetime
+                facade = get_files_facade() if get_files_facade is not None else None
+                if facade is None:
+                    raise RuntimeError("DB unavailable")
                 doc = {
                     "user_id": user_id,
                     "file_name": safe_name,
@@ -4419,8 +4472,10 @@ class GitHubMenuHandler:
                     "created_at": datetime.now(timezone.utc),
                     "tags": ["pasted"],
                 }
-                res = db.collection.insert_one(doc)
-                context.user_data["pending_saved_file_id"] = str(res.inserted_id)
+                inserted_id = facade.insert_temp_document(doc)
+                if not inserted_id:
+                    raise RuntimeError("insert failed")
+                context.user_data["pending_saved_file_id"] = str(inserted_id)
                 # נקה תוכן זמני
                 context.user_data.pop("paste_content", None)
                 await self.show_pre_upload_check(update, context)
@@ -6391,10 +6446,11 @@ class GitHubMenuHandler:
             else:
                 await update.message.reply_text("❌ חסרים נתונים (טוקן/ריפו/קובץ)")
             return
-        from database import db
         try:
-            from bson import ObjectId
-            file_data = db.collection.find_one({"_id": ObjectId(file_id), "user_id": user_id})
+            facade = get_files_facade() if get_files_facade is not None else None
+            if facade is None:
+                raise RuntimeError("DB unavailable")
+            file_data, _is_large = facade.get_user_document_by_id(user_id, str(file_id))
             if not file_data:
                 if query:
                     await query.edit_message_text("❌ קובץ לא נמצא")
@@ -6607,7 +6663,6 @@ class GitHubMenuHandler:
         content = title + intro + commands + notes
         file_name = f"RESTORE_{name}.md"
         # שמירה במסד והמשך ל-flow של העלאה
-        from database import db
         doc = {
             "user_id": user_id,
             "file_name": file_name,
@@ -6621,8 +6676,13 @@ class GitHubMenuHandler:
             "is_active": True,
         }
         try:
-            res = db.collection.insert_one(doc)
-            context.user_data["pending_saved_file_id"] = str(res.inserted_id)
+            facade = get_files_facade() if get_files_facade is not None else None
+            if facade is None:
+                raise RuntimeError("DB unavailable")
+            inserted_id = facade.insert_temp_document(doc)
+            if not inserted_id:
+                raise RuntimeError("insert failed")
+            context.user_data["pending_saved_file_id"] = str(inserted_id)
             # פתח את בדיקות ההעלאה (בחירת ענף/תיקייה ואישור)
             await self.show_pre_upload_check(update, context)
         except Exception as e:

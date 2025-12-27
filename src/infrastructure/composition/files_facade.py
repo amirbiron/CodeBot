@@ -178,6 +178,27 @@ class FilesFacade:
         except Exception:
             return False
 
+    def get_selected_repo(self, user_id: int) -> Optional[str]:
+        try:
+            db = self._get_db()
+            return db.get_selected_repo(user_id)
+        except Exception:
+            return None
+
+    def get_github_token(self, user_id: int) -> Optional[str]:
+        try:
+            db = self._get_db()
+            return db.get_github_token(user_id)
+        except Exception:
+            return None
+
+    def delete_github_token(self, user_id: int) -> bool:
+        try:
+            db = self._get_db()
+            return bool(db.delete_github_token(user_id))
+        except Exception:
+            return False
+
     def get_drive_tokens(self, user_id: int) -> Optional[Dict[str, Any]]:
         try:
             db = self._get_db()
@@ -324,6 +345,61 @@ class FilesFacade:
         try:
             db = self._get_db()
             return db.get_backup_rating(user_id, backup_id)
+        except Exception:
+            return None
+
+    def save_backup_rating(self, user_id: int, backup_id: str, rating: str) -> bool:
+        try:
+            db = self._get_db()
+            return bool(db.save_backup_rating(user_id, backup_id, rating))
+        except Exception:
+            return False
+
+    def get_backup_note(self, user_id: int, backup_id: str) -> Optional[str]:
+        try:
+            db = self._get_db()
+            return db.get_backup_note(user_id, backup_id)
+        except Exception:
+            return None
+
+    def save_backup_note(self, user_id: int, backup_id: str, note: str) -> bool:
+        try:
+            db = self._get_db()
+            return bool(db.save_backup_note(user_id, backup_id, note))
+        except Exception:
+            return False
+
+    def delete_backup_ratings(self, user_id: int, backup_ids: List[str]) -> int:
+        try:
+            db = self._get_db()
+            return int(db.delete_backup_ratings(user_id, list(backup_ids) or []) or 0)
+        except Exception:
+            return 0
+
+    def insert_temp_document(self, doc: Dict[str, Any]) -> Optional[str]:
+        """
+        Insert a transient document into the legacy main collection.
+
+        Used by some legacy flows (e.g. GitHub upload pre-check) that expect a file_id.
+        """
+        try:
+            db = self._get_db()
+            coll = getattr(db, "collection", None)
+            if coll is None:
+                return None
+            res = coll.insert_one(doc)
+            inserted = getattr(res, "inserted_id", None)
+            return str(inserted) if inserted is not None else None
+        except Exception:
+            return None
+
+    def get_mongo_db(self) -> Any:
+        """
+        Return the underlying PyMongo database (for infrastructure helpers like GridFS).
+        """
+        try:
+            db = self._get_db()
+            return getattr(db, "db", None)
         except Exception:
             return None
 

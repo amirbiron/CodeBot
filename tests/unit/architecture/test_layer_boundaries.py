@@ -89,6 +89,28 @@ def test_handlers_do_not_import_database_directly():
     assert not violations, "Handlers must not import database directly:\n" + "\n".join(f"- {p}: {mod}" for p, mod in violations)
 
 
+def test_top_level_handler_like_modules_do_not_import_database_directly():
+    """
+    Some legacy "handlers" live at the repository root (not under handlers/**).
+
+    They still behave like handlers (Telegram flows / menus) and must not import the
+    legacy `database` package directly.
+    """
+    rel_files = (
+        "bot_handlers.py",
+        "conversation_handlers.py",
+        "github_menu_handler.py",
+        "backup_menu_handler.py",
+        "file_manager.py",
+    )
+    files = [ROOT / f for f in rel_files if (ROOT / f).exists()]
+    forbidden = ("database",)
+    violations = _violations(files, forbidden_prefixes=forbidden)
+    assert not violations, "Top-level handler-like modules must not import database directly:\n" + "\n".join(
+        f"- {p}: {mod}" for p, mod in violations
+    )
+
+
 def test_infrastructure_does_not_depend_on_handlers():
     files = list(_python_files_under("src/infrastructure"))
     forbidden = ("handlers",)
