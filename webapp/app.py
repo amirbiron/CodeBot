@@ -11868,8 +11868,15 @@ def api_debug_tags():
         ).limit(50))
 
         # Get sample alert_types from recent alerts
+        # fetch_alerts requires start_dt and end_dt, doesn't support limit
         from monitoring import alerts_storage
-        recent_alerts, _ = alerts_storage.fetch_alerts(limit=20)
+        end_time = datetime.now(timezone.utc)
+        start_time = end_time - timedelta(days=1)
+        all_recent_alerts, _ = alerts_storage.fetch_alerts(
+            start_dt=start_time,
+            end_dt=end_time,
+        )
+        recent_alerts = all_recent_alerts[:20]
         alert_types_in_alerts = list(set(
             a.get("alert_type") or a.get("name") or "unknown"
             for a in recent_alerts
