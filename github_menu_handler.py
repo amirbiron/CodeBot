@@ -98,11 +98,13 @@ except Exception:  # pragma: no cover
     def track_github_sync(*a, **k):  # type: ignore
         return None
 
-# Transitional: access persistence only via facade (no direct database imports in this module)
-try:
-    from src.infrastructure.composition import get_files_facade  # type: ignore
-except Exception:  # pragma: no cover
-    get_files_facade = None  # type: ignore
+def _get_files_facade():
+    """Lazy facade accessor to avoid import-order issues in tests."""
+    try:
+        from src.infrastructure.composition import get_files_facade  # type: ignore
+        return get_files_facade()
+    except Exception:
+        return None
 
 # יצירת Proxy ל-zipfile כדי לאפשר monkeypatch בטוח שאינו יוצר רקורסיה
 class _ZipfileProxy:
@@ -236,8 +238,9 @@ class GitHubMenuHandler:
             # נסה לטעון ריפו מועדף מהמסד, עם נפילה בטוחה בסביבת בדיקות/CI
             selected_repo = None
             try:
-                if get_files_facade is not None:
-                    selected_repo = get_files_facade().get_selected_repo(user_id)
+                facade = _get_files_facade()
+                if facade is not None:
+                    selected_repo = facade.get_selected_repo(user_id)
             except Exception:
                 selected_repo = None
             self.user_sessions[user_id] = {
@@ -656,8 +659,9 @@ class GitHubMenuHandler:
         # נסה מהמסד נתונים
         token = None
         try:
-            if get_files_facade is not None:
-                token = get_files_facade().get_github_token(user_id)
+            facade = _get_files_facade()
+            if facade is not None:
+                token = facade.get_github_token(user_id)
         except Exception:
             token = None
         if token:
@@ -956,12 +960,7 @@ class GitHubMenuHandler:
             if not root:
                 await query.edit_message_text("❌ לא נמצאו קבצים לאחר חליצה")
                 return
-            facade = None
-            try:
-                if get_files_facade is not None:
-                    facade = get_files_facade()
-            except Exception:
-                facade = None
+            facade = _get_files_facade()
             if facade is None:
                 await query.edit_message_text("❌ שגיאה פנימית: DB לא זמין לייבוא")
                 return
@@ -1775,8 +1774,9 @@ class GitHubMenuHandler:
         elif query.data == "logout_github":
             removed = False
             try:
-                if get_files_facade is not None:
-                    removed = bool(get_files_facade().delete_github_token(user_id))
+                facade = _get_files_facade()
+                if facade is not None:
+                    removed = bool(facade.delete_github_token(user_id))
             except Exception:
                 removed = False
             try:
@@ -2254,8 +2254,9 @@ class GitHubMenuHandler:
 
                 # שמור במסד נתונים
                 try:
-                    if get_files_facade is not None:
-                        get_files_facade().save_selected_repo(user_id, repo_name)
+                    facade = _get_files_facade()
+                    if facade is not None:
+                        facade.save_selected_repo(user_id, repo_name)
                 except Exception:
                     pass
 
@@ -2612,8 +2613,9 @@ class GitHubMenuHandler:
                             summary_line = f"⬇️ backup zip {repo.name} – {date_str2} – {v_text}{format_bytes(total_bytes)}"
                             try:
                                 existing_note = ""
-                                if get_files_facade is not None:
-                                    existing_note = get_files_facade().get_backup_note(user_id, str(backup_id)) or ""
+                                facade = _get_files_facade()
+                                if facade is not None:
+                                    existing_note = facade.get_backup_note(user_id, str(backup_id)) or ""
                             except Exception:
                                 existing_note = ""
                             note_btn_text = "📝 ערוך הערה" if existing_note else "📝 הוסף הערה"
@@ -2822,8 +2824,9 @@ class GitHubMenuHandler:
                     summary_line = f"⬇️ backup zip {repo.name} – {date_str} – {v_text}{format_bytes(total_bytes)}"
                     try:
                         existing_note = ""
-                        if get_files_facade is not None:
-                            existing_note = get_files_facade().get_backup_note(user_id, str(backup_id)) or ""
+                        facade = _get_files_facade()
+                        if facade is not None:
+                            existing_note = facade.get_backup_note(user_id, str(backup_id)) or ""
                     except Exception:
                         existing_note = ""
                     note_btn_text = "📝 ערוך הערה" if existing_note else "📝 הוסף הערה"
@@ -3755,10 +3758,7 @@ class GitHubMenuHandler:
         """מציג רק קבצים שאינם מתויגים repo: ואינם קבצים גדולים, עם עימוד ואימוג'י לפי שפה."""
         user_id = update.effective_user.id
         query = update.callback_query
-        try:
-            facade = get_files_facade() if get_files_facade is not None else None
-        except Exception:
-            facade = None
+        facade = _get_files_facade()
         try:
             if facade is None:
                 await query.edit_message_text("❌ שגיאה פנימית: DB לא זמין")
@@ -3826,10 +3826,7 @@ class GitHubMenuHandler:
         """מציג תפריט ריפואים לבחירת קבצים שמורים עם תגית repo: להעלאה"""
         user_id = update.effective_user.id
         query = update.callback_query
-        try:
-            facade = get_files_facade() if get_files_facade is not None else None
-        except Exception:
-            facade = None
+        facade = _get_files_facade()
         try:
             if facade is None:
                 await query.edit_message_text("❌ שגיאה פנימית: DB לא זמין")
@@ -3855,10 +3852,7 @@ class GitHubMenuHandler:
         """מציג קבצים שמורים תחת תגית ריפו שנבחרה ומאפשר להעלותם עם עימוד"""
         user_id = update.effective_user.id
         query = update.callback_query
-        try:
-            facade = get_files_facade() if get_files_facade is not None else None
-        except Exception:
-            facade = None
+        facade = _get_files_facade()
         try:
             if facade is None:
                 await query.edit_message_text("❌ שגיאה פנימית: DB לא זמין")
@@ -3901,7 +3895,7 @@ class GitHubMenuHandler:
         user_id = update.effective_user.id
         query = update.callback_query
         try:
-            facade = get_files_facade() if get_files_facade is not None else None
+            facade = _get_files_facade()
             if facade is None:
                 await query.edit_message_text("❌ שגיאה פנימית: DB לא זמין")
                 return
@@ -3930,11 +3924,7 @@ class GitHubMenuHandler:
             await query.edit_message_text("❌ קודם בחר ריפו/טוקן בגיטהאב")
             return
         # שלוף את תוכן הקובץ הגדול (עם בדיקת בעלות)
-        facade = None
-        try:
-            facade = get_files_facade() if get_files_facade is not None else None
-        except Exception:
-            facade = None
+        facade = _get_files_facade()
         if facade is None:
             await query.edit_message_text("❌ שגיאה פנימית: DB לא זמין")
             return
@@ -3971,7 +3961,7 @@ class GitHubMenuHandler:
             return
 
         try:
-            facade = get_files_facade() if get_files_facade is not None else None
+            facade = _get_files_facade()
             if facade is None:
                 await update.callback_query.answer("❌ שגיאה פנימית: DB לא זמין", show_alert=True)
                 return
@@ -4462,7 +4452,7 @@ class GitHubMenuHandler:
 
             content = context.user_data.get("paste_content") or ""
             try:
-                facade = get_files_facade() if get_files_facade is not None else None
+                facade = _get_files_facade()
                 if facade is None:
                     raise RuntimeError("DB unavailable")
                 doc = {
@@ -6447,7 +6437,7 @@ class GitHubMenuHandler:
                 await update.message.reply_text("❌ חסרים נתונים (טוקן/ריפו/קובץ)")
             return
         try:
-            facade = get_files_facade() if get_files_facade is not None else None
+            facade = _get_files_facade()
             if facade is None:
                 raise RuntimeError("DB unavailable")
             file_data, _is_large = facade.get_user_document_by_id(user_id, str(file_id))
@@ -6676,7 +6666,7 @@ class GitHubMenuHandler:
             "is_active": True,
         }
         try:
-            facade = get_files_facade() if get_files_facade is not None else None
+            facade = _get_files_facade()
             if facade is None:
                 raise RuntimeError("DB unavailable")
             inserted_id = facade.insert_temp_document(doc)

@@ -53,9 +53,27 @@ class FilesFacade:
         projection: Optional[Dict[str, int]] = None,
     ) -> List[Dict[str, Any]]:
         db = self._get_db()
-        return list(
-            db.get_user_files(user_id, limit=limit, skip=skip, projection=projection) or []
-        )
+        # Support multiple legacy signatures:
+        # - get_user_files(user_id, limit=..., skip=..., projection=...)
+        # - get_user_files(user_id, limit=..., skip=...)
+        # - get_user_files(user_id, limit=...)
+        # - get_user_files(user_id)
+        try:
+            return list(db.get_user_files(user_id, limit=limit, skip=skip, projection=projection) or [])
+        except TypeError:
+            pass
+        try:
+            return list(db.get_user_files(user_id, limit=limit, skip=skip) or [])
+        except TypeError:
+            pass
+        try:
+            return list(db.get_user_files(user_id, limit=limit) or [])
+        except TypeError:
+            pass
+        try:
+            return list(db.get_user_files(user_id) or [])
+        except Exception:
+            return []
     def get_user_large_files(self, user_id: int, page: int = 1, per_page: int = 8) -> Tuple[List[Dict[str, Any]], int]:
         try:
             db = self._get_db()
@@ -417,6 +435,13 @@ class FilesFacade:
         """
         Return (document, is_large_file) ensuring the file belongs to the user.
         """
+        def _to_object_id(value: str) -> Any:
+            try:
+                from bson import ObjectId  # type: ignore
+                return ObjectId(value)
+            except Exception:
+                return value
+
         try:
             db = self._get_db()
             doc = db.get_file_by_id(file_id)
@@ -424,6 +449,17 @@ class FilesFacade:
             doc = None
         if isinstance(doc, dict) and self._doc_belongs_to_user(doc, user_id):
             return doc, False
+        # Legacy fallback: some flows insert transient docs directly into `db.collection`
+        # with a strict {"_id": ObjectId(file_id), "user_id": user_id} filter.
+        try:
+            db = self._get_db()
+            coll = getattr(db, "collection", None)
+            if coll is not None:
+                raw = coll.find_one({"_id": _to_object_id(file_id), "user_id": int(user_id)})
+                if isinstance(raw, dict):
+                    return raw, False
+        except Exception:
+            pass
         try:
             db = self._get_db()
             large_doc = db.get_large_file_by_id(file_id)
@@ -431,5 +467,15 @@ class FilesFacade:
             large_doc = None
         if isinstance(large_doc, dict) and self._doc_belongs_to_user(large_doc, user_id):
             return large_doc, True
+        # Legacy fallback for large files when only collections are available on the db object
+        try:
+            db = self._get_db()
+            large_coll = getattr(db, "large_files_collection", None)
+            if large_coll is not None:
+                raw_large = large_coll.find_one({"_id": _to_object_id(file_id), "user_id": int(user_id)})
+                if isinstance(raw_large, dict):
+                    return raw_large, True
+        except Exception:
+            pass
         return None, False
 
