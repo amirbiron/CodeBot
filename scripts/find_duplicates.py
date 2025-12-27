@@ -129,18 +129,21 @@ class ASTNormalizer(ast.NodeTransformer):
     def visit_Name(self, node: ast.Name) -> ast.Name:
         """מחליף שמות משתנים לשמות גנריים."""
         node.id = self._get_normalized_name(node.id)
-        return self.generic_visit(node)
+        self.generic_visit(node)
+        return node
 
     def visit_arg(self, node: ast.arg) -> ast.arg:
         """מחליף שמות פרמטרים."""
         node.arg = self._get_normalized_name(node.arg)
-        return self.generic_visit(node)
+        self.generic_visit(node)
+        return node
 
     def visit_FunctionDef(self, node: ast.FunctionDef) -> ast.FunctionDef:
         """מטפל בפונקציה - מסיר docstring ומנרמל שם."""
         node.name = "_func"
         node.body = self._remove_docstring(node.body)
-        return self.generic_visit(node)
+        self.generic_visit(node)
+        return node
 
     def visit_AsyncFunctionDef(
         self, node: ast.AsyncFunctionDef
@@ -148,7 +151,8 @@ class ASTNormalizer(ast.NodeTransformer):
         """מטפל בפונקציה אסינכרונית - מסיר docstring ומנרמל שם."""
         node.name = "_func"
         node.body = self._remove_docstring(node.body)
-        return self.generic_visit(node)
+        self.generic_visit(node)
+        return node
 
     def _remove_docstring(self, body: list[ast.stmt]) -> list[ast.stmt]:
         """מסיר docstring מגוף הפונקציה."""
