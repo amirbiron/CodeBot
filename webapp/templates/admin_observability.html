@@ -1548,7 +1548,9 @@ tr:hover .copy-meta-btn {
     const tags = alert.tags || [];
     const uid = alert.alert_uid || '';
     const ts = alert.timestamp || '';
-    const name = alert.name || '';
+    // FIX: Use alert_type as primary source for global tags (the categorized type),
+    // falling back to name. This ensures global tags match the normalized alert_type_name in DB.
+    const name = alert.alert_type || alert.name || '';
 
     if (!uid) {
       return '<span style="opacity:0.4;">—</span>';
