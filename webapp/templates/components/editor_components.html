@@ -21,16 +21,26 @@
     <i class="fas fa-check-circle"></i>
     Lint
   </button>
+  <div class="dropdown">
+    <button type="button" class="btn btn-sm btn-outline dropdown-toggle" data-action="fix-menu" id="btn-auto-fix">
+      <i class="fas fa-wrench"></i>
+      תיקון
+    </button>
+    <div class="dropdown-menu">
+      <button class="dropdown-item" data-action="fix-level" data-level="safe">🛡️ בטוח (whitespace)</button>
+      <button class="dropdown-item" data-action="fix-level" data-level="cautious">⚠️ זהיר (+imports)</button>
+      <button class="dropdown-item" data-action="fix-level" data-level="aggressive">🔥 אגרסיבי (מלא)</button>
+    </div>
+  </div>
   <button
     type="button"
-    class="btn btn-sm btn-outline"
-    data-action="fix"
-    data-bs-toggle="modal"
-    data-bs-target="#codeToolsFixModal"
-    title="תיקון אוטומטי"
+    class="btn btn-sm btn-outline-secondary"
+    data-action="apply-fix"
+    disabled
+    title="החל תיקונים שחושבו (אחרי בחירה ב'תיקון')"
   >
-    <i class="fas fa-wrench"></i>
-    תיקון
+    <i class="fas fa-check"></i>
+    החל
   </button>
   <a
     href="/tools/code"
@@ -59,36 +69,6 @@
       </div>
       <div class="modal-footer" id="codeToolsModalFooter">
         <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">סגור</button>
-      </div>
-    </div>
-  </div>
-</div>
-
-<div class="modal fade" id="codeToolsFixModal" tabindex="-1" aria-labelledby="codeToolsFixModalLabel" aria-hidden="true">
-  <div class="modal-dialog modal-dialog-centered">
-    <div class="modal-content">
-      <div class="modal-header">
-        <h5 class="modal-title" id="codeToolsFixModalLabel">תיקון אוטומטי</h5>
-        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="סגור"></button>
-      </div>
-      <div class="modal-body">
-        <p style="margin: 0 0 0.75rem 0; opacity: .9;">
-          בחר רמת תיקון. אחרי שנקבל את הקוד המתוקן מהשרת נבקש אישור לפני דריסה.
-        </p>
-        <div class="d-grid gap-2">
-          <button type="button" class="btn btn-outline-secondary" data-action="fix-level" data-level="safe" data-bs-dismiss="modal">
-            🛡️ בטוח (whitespace)
-          </button>
-          <button type="button" class="btn btn-outline-secondary" data-action="fix-level" data-level="cautious" data-bs-dismiss="modal">
-            ⚠️ זהיר (+imports)
-          </button>
-          <button type="button" class="btn btn-outline-secondary" data-action="fix-level" data-level="aggressive" data-bs-dismiss="modal">
-            🔥 אגרסיבי (מלא)
-          </button>
-        </div>
-      </div>
-      <div class="modal-footer">
-        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">ביטול</button>
       </div>
     </div>
   </div>

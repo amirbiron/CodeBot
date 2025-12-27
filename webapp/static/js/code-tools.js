@@ -71,13 +71,6 @@ const CodeToolsIntegration = {
       toolsGroup.__codeToolsBound = true;
     }
 
-    // Fix Modal (3 אפשרויות) — אחרי הבחירה נריץ תיקון ואז נבקש אישור לפני דריסה
-    const fixModal = document.getElementById('codeToolsFixModal');
-    if (fixModal && !fixModal.__codeToolsBound) {
-      fixModal.addEventListener('click', (e) => this.handleFixModalClick(e));
-      fixModal.__codeToolsBound = true;
-    }
-
     // קיצורי מקלדת
     document.addEventListener('keydown', (e) => {
       if ((e.ctrlKey || e.metaKey) && e.shiftKey) {
@@ -93,6 +86,13 @@ const CodeToolsIntegration = {
 
     // עדכון כשמשתנה השפה
     this.languageSelect?.addEventListener('change', () => this.updateToolsVisibility());
+
+    // אם המשתמש משנה את הקוד אחרי שחישבנו תיקון — נבטל את ה"החל" כדי לא לדרוס בטעות
+    const textarea = document.getElementById('codeTextarea');
+    if (textarea && !textarea.__codeToolsBound) {
+      textarea.addEventListener('input', () => this.clearPendingFix('code_changed'));
+      textarea.__codeToolsBound = true;
+    }
   },
 
   handleToolbarClick(e) {
@@ -114,15 +114,138 @@ const CodeToolsIntegration = {
       return;
     }
 
-    // action === 'fix' פותח את המודל דרך Bootstrap (data-bs-toggle)
+    if (action === 'fix-level') {
+      e.preventDefault();
+      const level = String(btn.dataset.level || '').trim();
+      if (!level) return;
+      this.prepareFix(level);
+      return;
+    }
+
+    if (action === 'apply-fix') {
+      e.preventDefault();
+      this.applyPendingFix();
+      return;
+    }
+
+    // action === 'fix-menu' / אחרים: לא עושים כלום כאן
   },
 
-  handleFixModalClick(e) {
-    const btn = e.target && typeof e.target.closest === 'function' ? e.target.closest('[data-action="fix-level"][data-level]') : null;
-    if (!btn) return;
-    const level = String(btn.dataset.level || '').trim();
-    if (!level) return;
-    this.autoFix(level);
+  setApplyEnabled(enabled) {
+    const applyBtn = document.querySelector('.code-tools-group [data-action="apply-fix"]');
+    if (applyBtn) applyBtn.disabled = !enabled;
+  },
+
+  clearPendingFix(reason) {
+    if (this._pendingFix) {
+      this._pendingFix = null;
+      this.setApplyEnabled(false);
+      if (reason === 'code_changed') {
+        this.showInlineStatus('הקוד השתנה — הרץ "תיקון" שוב לפני החלה', 'info');
+      }
+    }
+  },
+
+  /**
+   * שלב 1: חישוב תיקון לפי רמה (לא מחיל על העורך)
+   * אחרי שהשרת מחזיר, מפעילים כפתור "החל".
+   */
+  async prepareFix(level) {
+    const code = this.getCode();
+    if (!code.trim()) {
+      this.showInlineStatus('אין קוד לתיקון', 'warning');
+      this.showStatus('אין קוד לתיקון', 'warning');
+      return;
+    }
+
+    // invalidate קודם (במקרה שהמשתמש מריץ שוב)
+    this._pendingFix = null;
+    this.setApplyEnabled(false);
+
+    this.showInlineStatus('מתקן...', 'loading');
+    this.showStatus('מתקן...', 'loading');
+
+    try {
+      const response = await fetch('/api/code/fix', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ code, level, language: 'python' }),
+      });
+
+      const result = await response.json();
+
+      if (result.success) {
+        const fixed = result.fixed_code || '';
+        const fixesApplied = Array.isArray(result.fixes_applied) ? result.fixes_applied : [];
+
+        if (!fixed || fixed === code) {
+          this._pendingFix = null;
+          this.setApplyEnabled(false);
+          this.showInlineStatus('אין תיקונים נדרשים', 'success');
+          this.showStatus('אין תיקונים נדרשים', 'info');
+          return;
+        }
+
+        this._pendingFix = {
+          level,
+          original: code,
+          fixed,
+          fixesApplied,
+        };
+        this.setApplyEnabled(true);
+        this.showInlineStatus('תיקון מוכן. לחץ "החל" כדי להמשיך', 'success');
+        this.showStatus('תיקון מוכן. לחץ "החל" כדי להמשיך', 'success');
+      } else {
+        this._pendingFix = null;
+        this.setApplyEnabled(false);
+        this.showInlineStatus((result && result.error) || 'שגיאה בתיקון', 'error');
+        this.showStatus(result.error || 'שגיאה בתיקון', 'error');
+      }
+    } catch (error) {
+      this._pendingFix = null;
+      this.setApplyEnabled(false);
+      this.showInlineStatus('שגיאה בתקשורת', 'error');
+      this.showStatus('שגיאה בתקשורת', 'error');
+      console.error('Fix error:', error);
+    }
+  },
+
+  /**
+   * שלב 2: החלה (עם אישור) של תיקון שחושב
+   */
+  async applyPendingFix() {
+    const pending = this._pendingFix;
+    if (!pending || !pending.fixed) {
+      this.showInlineStatus('אין תיקון מוכן להחלה. בחר רמת תיקון קודם', 'warning');
+      return;
+    }
+
+    // הגנה: אם התוכן בעורך השתנה מאז החישוב — לא מחילים אוטומטית
+    const current = this.getCode();
+    if (current !== pending.original) {
+      this.clearPendingFix('code_changed');
+      return;
+    }
+
+    const confirmed = await this.showDiffConfirmation(
+      pending.original,
+      pending.fixed,
+      (pending.fixesApplied && pending.fixesApplied.length) || 1,
+      pending.fixesApplied && pending.fixesApplied.length ? pending.fixesApplied : null,
+      'נמצאו תיקונים. האם להחיל אותם על הקובץ?'
+    );
+
+    if (confirmed) {
+      this.setCode(pending.fixed);
+      this.showInlineStatus('הוחלו התיקונים על הקובץ', 'success');
+      this.showStatus('הוחלו התיקונים על הקובץ', 'success');
+    } else {
+      this.showInlineStatus('ההחלה בוטלה', 'info');
+    }
+
+    // בכל מקרה, מנקים מצב "מוכן להחלה" כדי לא לדרוס בטעות שוב
+    this._pendingFix = null;
+    this.setApplyEnabled(false);
   },
 
   /**
@@ -285,6 +408,8 @@ const CodeToolsIntegration = {
    * תיקון אוטומטי
    */
   async autoFix(level) {
+    // נשמר לתאימות אחורה (אם יש קריאות ישנות).
+    // בפועל, הזרימה בעורך היא: prepareFix -> applyPendingFix.
     const code = this.getCode();
     if (!code.trim()) {
       this.showInlineStatus('אין קוד לתיקון', 'warning');
