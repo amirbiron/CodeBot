@@ -402,6 +402,7 @@ def get_tags_map_for_alerts(alerts_list: List[dict]) -> Dict[str, List[str]]:
         מיפוי של alert_uid -> רשימת תגיות (משולבת)
     """
     if not alerts_list:
+        logger.debug("get_tags_map_for_alerts: empty alerts_list")
         return {}
 
     # 0) איסוף UIDs + Names עם תמיכה בשמות שדות משתנים
@@ -438,12 +439,18 @@ def get_tags_map_for_alerts(alerts_list: List[dict]) -> Dict[str, List[str]]:
             # שומרים את מה שמצאנו כדי להשתמש בזה במיזוג הסופי
             alert_meta_map.append({"uid": uid, "name": name})
 
+    logger.debug(
+        "get_tags_map_for_alerts: collected %d uids, %d names. names=%r",
+        len(uids), len(names), list(names)[:5]
+    )
+
     if not uids:
         return {}
 
     coll = _get_collection()
     if coll is None:
         # Fail-open: no tags
+        logger.warning("get_tags_map_for_alerts: DB collection is None (fail-open)")
         return {uid: [] for uid in uids}
 
     # 1) שליפה אחת של תגיות ספציפיות (Instance) לפי UID
@@ -461,7 +468,9 @@ def get_tags_map_for_alerts(alerts_list: List[dict]) -> Dict[str, List[str]]:
                 continue
             tags = doc.get("tags", [])
             instance_map[uid] = list(tags) if isinstance(tags, list) else []
-    except Exception:
+        logger.debug("get_tags_map_for_alerts: instance_map has %d entries", len(instance_map))
+    except Exception as e:
+        logger.warning("get_tags_map_for_alerts: instance query failed: %s", e)
         instance_map = {}
 
     # 2) שליפה אחת של תגיות גלובליות (Type) לפי שם התראה
@@ -480,7 +489,12 @@ def get_tags_map_for_alerts(alerts_list: List[dict]) -> Dict[str, List[str]]:
                     continue
                 tags = doc.get("tags", [])
                 global_map[name] = list(tags) if isinstance(tags, list) else []
-        except Exception:
+            logger.debug(
+                "get_tags_map_for_alerts: global_map has %d entries, keys=%r",
+                len(global_map), list(global_map.keys())[:5]
+            )
+        except Exception as e:
+            logger.warning("get_tags_map_for_alerts: global query failed: %s", e)
             global_map = {}
 
     # 3) איחוד בפייתון (App-Side Merge)
@@ -524,6 +538,10 @@ def set_global_tags_for_name(
     """
     # Normalize the name for consistent matching
     name = _normalize_alert_name(alert_name)
+    logger.info(
+        "set_global_tags_for_name: alert_name=%r -> normalized=%r, tags=%r",
+        alert_name, name, tags
+    )
     if not name:
         raise ValueError("alert_name is required")
     normalized_tags = _normalize_tags(tags)
