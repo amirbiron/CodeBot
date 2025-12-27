@@ -2,12 +2,13 @@
 
 {% block title %}העלה קובץ חדש - Code Keeper Bot{% endblock %}
 
-{% from "components/editor_components.html" import image_uploader %}
+{% from "components/editor_components.html" import image_uploader, code_tools_toolbar, code_tools_modal %}
 
 {% block extra_css %}
 <link rel="stylesheet" href="{{ url_for('static', filename='css/split-view.css') }}?v={{ static_version }}">
 <link rel="stylesheet" href="{{ url_for('static', filename='css/md_preview.bundle.css') }}?v={{ static_version }}">
 <link rel="stylesheet" href="{{ url_for('static', filename='css/file-editor.css') }}?v={{ static_version }}">
+<link rel="stylesheet" href="{{ url_for('static', filename='css/code-tools.css') }}?v={{ static_version }}">
 {% endblock %}
 
 {% block content %}
@@ -83,6 +84,8 @@
       <label>תגיות</label>
       <input type="text" name="tags" placeholder="#utils, #repo:owner/name" value="{{ tags_value or '' }}" class="form-field">
     </div>
+    <!-- Code Tools toolbar (shared macro) -->
+    {{ code_tools_toolbar() }}
     <div id="livePreviewRoot" class="split-view" data-active-panel="editor">
       <div class="split-toolbar">
         <div class="split-toolbar-controls">
@@ -167,7 +170,11 @@
   </form>
 </div>
 {% endblock %}
+<!-- Code Tools Bootstrap Modal (shared macro) -->
+{{ code_tools_modal() }}
+{% endblock %}
 {% block extra_js %}
+<script src="{{ url_for('static', filename='js/code-tools.js') }}?v={{ static_version }}" defer></script>
 <script src="{{ url_for('static', filename='js/file-form-manager.js') }}?v={{ static_version }}" defer></script>
 <script src="{{ url_for('static', filename='js/upload-page.js') }}?v={{ static_version }}" defer></script>
 <script src="{{ url_for('static', filename='js/md_preview.bundle.js') }}?v={{ static_version }}" defer></script>
