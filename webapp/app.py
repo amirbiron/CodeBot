@@ -1407,6 +1407,8 @@ def inject_globals():
         'ui_font_scale': font_scale,
         'ui_theme': theme,
         'custom_theme': custom_theme,
+        # הרשאות
+        'user_is_admin': user_is_admin,
         # Feature flags
         'announcement_enabled': WEEKLY_TIP_ENABLED,
         'weekly_tip_enabled': WEEKLY_TIP_ENABLED,
@@ -7818,7 +7820,7 @@ def compare_files_page():
 
 
 @app.route('/tools/code')
-@login_required
+@admin_required
 def code_tools_page():
     """דף ייעודי לכלי קוד (Playground) עם Diff מקצועי."""
     return render_template('code_tools.html')
