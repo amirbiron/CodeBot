@@ -70,12 +70,7 @@
   }
 
   function createEditor(parentEl, initialDoc) {
-    if (!parentEl) {
-      console.error('[CodeToolsPage] Parent element is null, cannot create editor');
-      return null;
-    }
-    if (!window.CodeMirror6 || !window.CodeMirror6.EditorView || !window.CodeMirror6.EditorState) {
-      console.error('[CodeToolsPage] CodeMirror6 not available, cannot create editor');
+    if (!parentEl || !window.CodeMirror6 || !window.CodeMirror6.EditorView || !window.CodeMirror6.EditorState) {
       return null;
     }
     try {
@@ -86,26 +81,16 @@
         doc: typeof initialDoc === 'string' ? initialDoc : '',
         extensions: [...basicSetup, languageExt, themeExt],
       });
-      const view = new EditorView({ state, parent: parentEl });
-      console.log('[CodeToolsPage] Editor created successfully');
-      return view;
-    } catch (e) {
-      console.error('[CodeToolsPage] Failed to create editor:', e);
+      return new EditorView({ state, parent: parentEl });
+    } catch (_) {
       return null;
     }
   }
 
   function getDoc(view) {
     try {
-      if (view && view.state) {
-        return view.state.doc.toString();
-      }
-      // Fallback: if no CodeMirror view, check for textarea
-      const ta = document.querySelector('#input-editor textarea');
-      if (ta) return ta.value || '';
-      return '';
-    } catch (e) {
-      console.error('[CodeToolsPage] getDoc failed:', e);
+      return view && view.state ? view.state.doc.toString() : '';
+    } catch (_) {
       return '';
     }
   }
@@ -130,31 +115,24 @@
   }
 
   async function postJson(url, body) {
-    console.log('[CodeToolsPage] POST', url);
     const res = await fetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body || {}),
     });
-    console.log('[CodeToolsPage] Response status:', res.status);
     const data = await res.json().catch(() => null);
-    console.log('[CodeToolsPage] Response data:', data);
     if (!res.ok) {
       const msg = data && (data.error || data.message) ? String(data.error || data.message) : 'שגיאת שרת';
-      console.error('[CodeToolsPage] API error:', msg, 'status:', res.status);
       throw new Error(msg);
     }
     return data;
   }
 
   async function getJson(url) {
-    console.log('[CodeToolsPage] GET', url);
     const res = await fetch(url, { method: 'GET' });
-    console.log('[CodeToolsPage] Response status:', res.status);
     const data = await res.json().catch(() => null);
     if (!res.ok) {
       const msg = data && (data.error || data.message) ? String(data.error || data.message) : 'שגיאת שרת';
-      console.error('[CodeToolsPage] API error:', msg, 'status:', res.status);
       throw new Error(msg);
     }
     return data;
@@ -194,9 +172,8 @@
         highlightChanges: true,
         gutter: true,
       });
-    } catch (e) {
+    } catch (_) {
       host.textContent = 'לא הצלחנו להציג Diff מקצועי.';
-      console.error('[CodeToolsPage] MergeView init failed', e);
     }
   }
 
@@ -243,15 +220,11 @@
   }
 
   async function init() {
-    let codeMirrorFailed = false;
-    
     try {
       await ensureCodeMirrorLoaded();
-    } catch (e) {
-      showStatus('לא הצלחנו לטעון את CodeMirror. הכפתורים פועלים אבל העורך לא יוצג.', 'error');
-      codeMirrorFailed = true;
-      // ממשיכים! לא יוצאים - הכפתורים צריכים לעבוד גם ללא עורך
-      console.error('[CodeToolsPage] CodeMirror load failed:', e);
+    } catch (_) {
+      showStatus('לא הצלחנו לטעון את CodeMirror.', 'error');
+      return;
     }
 
     const prefs = loadPrefs();
@@ -263,10 +236,8 @@
     const lineLengthInput = document.getElementById('line-length');
     const toolsInfo = document.getElementById('tools-info');
 
-    // אם CodeMirror לא נטען, נציג textarea fallback
-    if (codeMirrorFailed || !inputHost || !outputHost) {
-      console.warn('[CodeToolsPage] Using fallback mode (no CodeMirror editors)');
-      // במקרה זה, הכפתורים עדיין יירשמו אבל ללא עורכים
+    if (!inputHost || !outputHost) {
+      return;
     }
 
     if (toolSelect) toolSelect.value = prefs.tool;
@@ -303,18 +274,8 @@
     const btnLint = document.getElementById('btn-lint');
     const btnApply = document.getElementById('btn-apply');
 
-    // Debug logging
-    console.log('[CodeToolsPage] Buttons found:', {
-      format: !!btnFormat,
-      lint: !!btnLint,
-      apply: !!btnApply,
-      dropdownItems: document.querySelectorAll('.dropdown-item[data-level]').length
-    });
-
     async function runFormat() {
-      console.log('[CodeToolsPage] runFormat called');
       const code = getDoc(inputEditor);
-      console.log('[CodeToolsPage] Code length:', code?.length || 0);
       if (!code.trim()) {
         showStatus('אין קוד לעיצוב', 'warning');
         return;
@@ -325,7 +286,6 @@
       savePrefs({ tool, lineLength });
 
       showStatus('מעצב...', 'loading');
-      console.log('[CodeToolsPage] Sending format request...');
       try {
         const result = await postJson('/api/code/format', {
           code,
@@ -333,7 +293,6 @@
           tool,
           options: { line_length: lineLength },
         });
-        console.log('[CodeToolsPage] Format result:', result);
         if (result && result.success) {
           setDoc(outputEditor, result.formatted_code || '');
           btnApply && (btnApply.disabled = !result.has_changes);
@@ -343,57 +302,45 @@
             renderProfessionalDiff(getDoc(inputEditor), getDoc(outputEditor));
           }
         } else {
-          console.error('[CodeToolsPage] Format failed:', result?.error);
           showStatus((result && result.error) || 'שגיאה בעיצוב', 'error');
         }
       } catch (e) {
-        console.error('[CodeToolsPage] Format exception:', e);
         showStatus(e.message || 'שגיאה בעיצוב', 'error');
       }
     }
 
     async function runLint() {
-      console.log('[CodeToolsPage] runLint called');
       const code = getDoc(inputEditor);
-      console.log('[CodeToolsPage] Code length:', code?.length || 0);
       if (!code.trim()) {
         showStatus('אין קוד לבדיקה', 'warning');
         return;
       }
 
       showStatus('בודק...', 'loading');
-      console.log('[CodeToolsPage] Sending lint request...');
       try {
         const result = await postJson('/api/code/lint', { code, language: 'python' });
-        console.log('[CodeToolsPage] Lint result:', result);
         if (result && result.success) {
           renderIssues(result);
           setViewMode('issues');
           showStatus('בדיקת Lint הסתיימה', 'success');
         } else {
-          console.error('[CodeToolsPage] Lint failed:', result?.error);
           showStatus((result && result.error) || 'שגיאה בבדיקה', 'error');
         }
       } catch (e) {
-        console.error('[CodeToolsPage] Lint exception:', e);
         showStatus(e.message || 'שגיאה בבדיקה', 'error');
       }
     }
 
     async function runFix(level) {
-      console.log('[CodeToolsPage] runFix called with level:', level);
       const code = getDoc(inputEditor);
-      console.log('[CodeToolsPage] Code length:', code?.length || 0);
       if (!code.trim()) {
         showStatus('אין קוד לתיקון', 'warning');
         return;
       }
 
       showStatus('מתקן...', 'loading');
-      console.log('[CodeToolsPage] Sending fix request...');
       try {
         const result = await postJson('/api/code/fix', { code, language: 'python', level: level || 'safe' });
-        console.log('[CodeToolsPage] Fix result:', result);
         if (result && result.success) {
           setDoc(outputEditor, result.fixed_code || '');
           btnApply && (btnApply.disabled = !(result.fixed_code && result.fixed_code !== code));
@@ -405,28 +352,15 @@
             renderProfessionalDiff(getDoc(inputEditor), getDoc(outputEditor));
           }
         } else {
-          console.error('[CodeToolsPage] Fix failed:', result?.error);
           showStatus((result && result.error) || 'שגיאה בתיקון', 'error');
         }
       } catch (e) {
-        console.error('[CodeToolsPage] Fix exception:', e);
         showStatus(e.message || 'שגיאה בתיקון', 'error');
       }
     }
 
-    if (btnFormat) {
-      btnFormat.addEventListener('click', runFormat);
-      console.log('[CodeToolsPage] Format button event listener attached');
-    } else {
-      console.error('[CodeToolsPage] Format button not found!');
-    }
-    
-    if (btnLint) {
-      btnLint.addEventListener('click', runLint);
-      console.log('[CodeToolsPage] Lint button event listener attached');
-    } else {
-      console.error('[CodeToolsPage] Lint button not found!');
-    }
+    btnFormat?.addEventListener('click', runFormat);
+    btnLint?.addEventListener('click', runLint);
 
     // Copy output to clipboard
     const btnCopy = document.getElementById('btn-copy-output');
@@ -456,17 +390,8 @@
       }
     });
 
-    const dropdownItems = document.querySelectorAll('.dropdown-item[data-level]');
-    console.log('[CodeToolsPage] Found dropdown items:', dropdownItems.length);
-    dropdownItems.forEach((btn, idx) => {
-      const level = btn.dataset.level;
-      console.log(`[CodeToolsPage] Attaching click handler to dropdown item ${idx}: level=${level}`);
-      btn.addEventListener('click', (e) => {
-        console.log('[CodeToolsPage] Dropdown item clicked:', level);
-        e.preventDefault();
-        e.stopPropagation();
-        runFix(level);
-      });
+    document.querySelectorAll('.dropdown-item[data-level]').forEach((btn) => {
+      btn.addEventListener('click', () => runFix(btn.dataset.level));
     });
 
     btnApply?.addEventListener('click', () => {
@@ -494,7 +419,7 @@
       }
     });
 
-    // Tools availability (optional) - non-blocking, runs after buttons are registered
+    // Tools availability (optional)
     (async () => {
       try {
         const tools = await getJson('/api/code/tools');
@@ -504,26 +429,10 @@
             !!t.isort ? '✓' : '✗'
           } autopep8=${!!t.autopep8 ? '✓' : '✗'}`;
         }
-      } catch (e) {
-        console.warn('[CodeToolsPage] Could not fetch tools availability:', e.message);
-      }
+      } catch (_) {}
     })();
-    
-    console.log('[CodeToolsPage] Initialization complete');
   }
 
-  // Initialize when DOM is ready
-  if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', () => {
-      console.log('[CodeToolsPage] DOMContentLoaded fired, calling init()');
-      init().catch(e => console.error('[CodeToolsPage] init() failed:', e));
-    });
-  } else {
-    // DOM already loaded
-    console.log('[CodeToolsPage] DOM already loaded, calling init() immediately');
-    init().catch(e => console.error('[CodeToolsPage] init() failed:', e));
-  }
-  
-  console.log('[CodeToolsPage] Script loaded successfully');
+  document.addEventListener('DOMContentLoaded', init);
 })();
 

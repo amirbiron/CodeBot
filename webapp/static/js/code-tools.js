@@ -115,25 +115,19 @@ const CodeToolsIntegration = {
 
   handleToolbarClick(e) {
     const btn = e.target && typeof e.target.closest === 'function' ? e.target.closest('[data-action]') : null;
-    if (!btn) {
-      console.log('[CodeToolsIntegration] No button with data-action found');
-      return;
-    }
+    if (!btn) return;
 
     const action = String(btn.dataset.action || '').trim();
-    console.log('[CodeToolsIntegration] Toolbar click, action:', action);
     if (!action) return;
 
     if (action === 'format') {
       e.preventDefault();
-      console.log('[CodeToolsIntegration] Calling formatCode()');
       this.formatCode();
       return;
     }
 
     if (action === 'lint') {
       e.preventDefault();
-      console.log('[CodeToolsIntegration] Calling lintCode()');
       this.lintCode();
       return;
     }
@@ -141,7 +135,6 @@ const CodeToolsIntegration = {
     if (action === 'fix-level') {
       e.preventDefault();
       const level = String(btn.dataset.level || '').trim();
-      console.log('[CodeToolsIntegration] Calling prepareFix with level:', level);
       if (!level) return;
       this.prepareFix(level);
       return;
@@ -149,13 +142,11 @@ const CodeToolsIntegration = {
 
     if (action === 'apply-fix') {
       e.preventDefault();
-      console.log('[CodeToolsIntegration] Calling applyPendingFix()');
       this.applyPendingFix();
       return;
     }
 
     // action === 'fix-menu' / אחרים: לא עושים כלום כאן
-    console.log('[CodeToolsIntegration] Unknown action:', action);
   },
 
   setApplyEnabled(enabled) {
