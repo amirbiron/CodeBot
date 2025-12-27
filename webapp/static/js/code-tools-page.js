@@ -117,24 +117,31 @@
   }
 
   async function postJson(url, body) {
+    console.log('[CodeToolsPage] POST', url);
     const res = await fetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body || {}),
     });
+    console.log('[CodeToolsPage] Response status:', res.status);
     const data = await res.json().catch(() => null);
+    console.log('[CodeToolsPage] Response data:', data);
     if (!res.ok) {
       const msg = data && (data.error || data.message) ? String(data.error || data.message) : 'שגיאת שרת';
+      console.error('[CodeToolsPage] API error:', msg, 'status:', res.status);
       throw new Error(msg);
     }
     return data;
   }
 
   async function getJson(url) {
+    console.log('[CodeToolsPage] GET', url);
     const res = await fetch(url, { method: 'GET' });
+    console.log('[CodeToolsPage] Response status:', res.status);
     const data = await res.json().catch(() => null);
     if (!res.ok) {
       const msg = data && (data.error || data.message) ? String(data.error || data.message) : 'שגיאת שרת';
+      console.error('[CodeToolsPage] API error:', msg, 'status:', res.status);
       throw new Error(msg);
     }
     return data;
@@ -294,6 +301,7 @@
     async function runFormat() {
       console.log('[CodeToolsPage] runFormat called');
       const code = getDoc(inputEditor);
+      console.log('[CodeToolsPage] Code length:', code?.length || 0);
       if (!code.trim()) {
         showStatus('אין קוד לעיצוב', 'warning');
         return;
@@ -304,6 +312,7 @@
       savePrefs({ tool, lineLength });
 
       showStatus('מעצב...', 'loading');
+      console.log('[CodeToolsPage] Sending format request...');
       try {
         const result = await postJson('/api/code/format', {
           code,
@@ -311,6 +320,7 @@
           tool,
           options: { line_length: lineLength },
         });
+        console.log('[CodeToolsPage] Format result:', result);
         if (result && result.success) {
           setDoc(outputEditor, result.formatted_code || '');
           btnApply && (btnApply.disabled = !result.has_changes);
@@ -320,9 +330,11 @@
             renderProfessionalDiff(getDoc(inputEditor), getDoc(outputEditor));
           }
         } else {
+          console.error('[CodeToolsPage] Format failed:', result?.error);
           showStatus((result && result.error) || 'שגיאה בעיצוב', 'error');
         }
       } catch (e) {
+        console.error('[CodeToolsPage] Format exception:', e);
         showStatus(e.message || 'שגיאה בעיצוב', 'error');
       }
     }
@@ -330,22 +342,27 @@
     async function runLint() {
       console.log('[CodeToolsPage] runLint called');
       const code = getDoc(inputEditor);
+      console.log('[CodeToolsPage] Code length:', code?.length || 0);
       if (!code.trim()) {
         showStatus('אין קוד לבדיקה', 'warning');
         return;
       }
 
       showStatus('בודק...', 'loading');
+      console.log('[CodeToolsPage] Sending lint request...');
       try {
         const result = await postJson('/api/code/lint', { code, language: 'python' });
+        console.log('[CodeToolsPage] Lint result:', result);
         if (result && result.success) {
           renderIssues(result);
           setViewMode('issues');
           showStatus('בדיקת Lint הסתיימה', 'success');
         } else {
+          console.error('[CodeToolsPage] Lint failed:', result?.error);
           showStatus((result && result.error) || 'שגיאה בבדיקה', 'error');
         }
       } catch (e) {
+        console.error('[CodeToolsPage] Lint exception:', e);
         showStatus(e.message || 'שגיאה בבדיקה', 'error');
       }
     }
@@ -353,14 +370,17 @@
     async function runFix(level) {
       console.log('[CodeToolsPage] runFix called with level:', level);
       const code = getDoc(inputEditor);
+      console.log('[CodeToolsPage] Code length:', code?.length || 0);
       if (!code.trim()) {
         showStatus('אין קוד לתיקון', 'warning');
         return;
       }
 
       showStatus('מתקן...', 'loading');
+      console.log('[CodeToolsPage] Sending fix request...');
       try {
         const result = await postJson('/api/code/fix', { code, language: 'python', level: level || 'safe' });
+        console.log('[CodeToolsPage] Fix result:', result);
         if (result && result.success) {
           setDoc(outputEditor, result.fixed_code || '');
           btnApply && (btnApply.disabled = !(result.fixed_code && result.fixed_code !== code));
@@ -372,9 +392,11 @@
             renderProfessionalDiff(getDoc(inputEditor), getDoc(outputEditor));
           }
         } else {
+          console.error('[CodeToolsPage] Fix failed:', result?.error);
           showStatus((result && result.error) || 'שגיאה בתיקון', 'error');
         }
       } catch (e) {
+        console.error('[CodeToolsPage] Fix exception:', e);
         showStatus(e.message || 'שגיאה בתיקון', 'error');
       }
     }
