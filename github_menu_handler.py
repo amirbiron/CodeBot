@@ -237,15 +237,21 @@ class GitHubMenuHandler:
         if user_id not in self.user_sessions:
             # נסה לטעון ריפו מועדף מהמסד, עם נפילה בטוחה בסביבת בדיקות/CI
             selected_repo = None
+            selected_folder = None
             try:
                 facade = _get_files_facade()
                 if facade is not None:
                     selected_repo = facade.get_selected_repo(user_id)
+                    try:
+                        selected_folder = getattr(facade, "get_selected_folder", lambda _uid: None)(user_id)
+                    except Exception:
+                        selected_folder = None
             except Exception:
                 selected_repo = None
+                selected_folder = None
             self.user_sessions[user_id] = {
                 "selected_repo": selected_repo,  # טען מהמסד נתונים
-                "selected_folder": None,  # None = root של הריפו
+                "selected_folder": selected_folder,  # None = root של הריפו
                 "github_token": None,
             }
         return self.user_sessions[user_id]
@@ -1758,11 +1764,33 @@ class GitHubMenuHandler:
 
         elif query.data == "folder_select_done":
             # סיום בחירת תיקייה דרך הדפדפן והצגת מצב
+            browse_path = (context.user_data.get("browse_path") or "").strip("/")
+            session["selected_folder"] = browse_path or None
+            # שמור גם למסד נתונים כדי שהבחירה תישמר בין ריסטארטים
+            try:
+                facade = _get_files_facade()
+                if facade is not None and hasattr(facade, "save_selected_folder"):
+                    facade.save_selected_folder(user_id, session["selected_folder"])
+            except Exception:
+                pass
+            try:
+                await query.answer(
+                    f"✅ תיקיית יעד נשמרה ל-{session['selected_folder'] or 'root'}",
+                    show_alert=False,
+                )
+            except Exception:
+                pass
             context.user_data.pop("folder_select_mode", None)
             await self.github_menu_command(update, context)
         elif query.data.startswith("folder_set_session:"):
             folder_path = query.data.split(":", 1)[1]
             session["selected_folder"] = (folder_path or "").strip("/") or None
+            try:
+                facade = _get_files_facade()
+                if facade is not None and hasattr(facade, "save_selected_folder"):
+                    facade.save_selected_folder(user_id, session["selected_folder"])
+            except Exception:
+                pass
             await query.answer(f"✅ תיקיית יעד עודכנה ל-{session['selected_folder'] or 'root'}", show_alert=False)
             # יציאה ממסך בחירת תיקייה וחזרה לתפריט הראשי כדי למנוע שגיאת "Message is not modified"
             context.user_data.pop("folder_select_mode", None)
@@ -1968,7 +1996,14 @@ class GitHubMenuHandler:
             lines = [f"בחר גיבוי לשחזור לריפו:\n<code>{repo_full}</code>\n"]
             kb = []
             for b in items:
-                lines.append(f"• {b.backup_id} — {b.created_at.strftime('%d/%m/%Y %H:%M')} — {int(b.total_size/1024)}KB")
+                try:
+                    p = (getattr(b, "path", None) or "").strip("/")
+                except Exception:
+                    p = ""
+                path_txt = f" — /{p}" if p else " — /"
+                lines.append(
+                    f"• {b.backup_id} — {b.created_at.strftime('%d/%m/%Y %H:%M')} — {int(b.total_size/1024)}KB{path_txt}"
+                )
                 kb.append([InlineKeyboardButton("♻️ שחזר גיבוי זה לריפו", callback_data=f"github_restore_zip_from_backup:{b.backup_id}")])
             kb.append([InlineKeyboardButton("🔙 חזור", callback_data="github_backup_menu")])
             await query.edit_message_text("\n".join(lines), reply_markup=InlineKeyboardMarkup(kb), parse_mode="HTML")
@@ -1985,6 +2020,11 @@ class GitHubMenuHandler:
                 return
             # הגדר purge? בקש בחירה
             context.user_data["pending_repo_restore_zip_path"] = match.file_path
+            # אם הגיבוי נוצר מתיקייה בריפו, נשמור prefix כדי לשחזר לאותו נתיב
+            try:
+                context.user_data["pending_repo_restore_zip_prefix"] = (getattr(match, "path", None) or "").strip("/")
+            except Exception:
+                context.user_data["pending_repo_restore_zip_prefix"] = ""
             # נעל את יעד הריפו הצפוי עבור השחזור מתוך גיבוי
             try:
                 context.user_data["zip_restore_expected_repo_full"] = self.get_user_session(user_id).get("selected_repo")
@@ -2101,10 +2141,22 @@ class GitHubMenuHandler:
                 return FOLDER_SELECT
             elif folder == "root":
                 session["selected_folder"] = None
+                try:
+                    facade = _get_files_facade()
+                    if facade is not None and hasattr(facade, "save_selected_folder"):
+                        facade.save_selected_folder(user_id, None)
+                except Exception:
+                    pass
                 await query.answer("✅ תיקייה עודכנה ל-root", show_alert=False)
                 await self.github_menu_command(update, context)
             else:
                 session["selected_folder"] = folder.replace("_", "/")
+                try:
+                    facade = _get_files_facade()
+                    if facade is not None and hasattr(facade, "save_selected_folder"):
+                        facade.save_selected_folder(user_id, session["selected_folder"])
+                except Exception:
+                    pass
                 await query.answer(f"✅ תיקייה עודכנה ל-{session['selected_folder']}", show_alert=False)
                 await self.github_menu_command(update, context)
 
@@ -2257,6 +2309,9 @@ class GitHubMenuHandler:
                     facade = _get_files_facade()
                     if facade is not None:
                         facade.save_selected_repo(user_id, repo_name)
+                        # איפוס תיקיית יעד נשמר גם במסד נתונים (root)
+                        if hasattr(facade, "save_selected_folder"):
+                            facade.save_selected_folder(user_id, None)
                 except Exception:
                     pass
 
@@ -4492,11 +4547,23 @@ class GitHubMenuHandler:
             # Normalize: allow '/' or empty for root
             if folder_raw in {"", "/"}:
                 session["selected_folder"] = None
+                try:
+                    facade = _get_files_facade()
+                    if facade is not None and hasattr(facade, "save_selected_folder"):
+                        facade.save_selected_folder(user_id, None)
+                except Exception:
+                    pass
                 await update.message.reply_text("✅ תיקיית יעד עודכנה ל-root")
             else:
                 # clean slashes and collapse duplicates
                 folder_clean = re.sub(r"/+", "/", folder_raw.strip("/"))
                 session["selected_folder"] = folder_clean
+                try:
+                    facade = _get_files_facade()
+                    if facade is not None and hasattr(facade, "save_selected_folder"):
+                        facade.save_selected_folder(user_id, folder_clean)
+                except Exception:
+                    pass
                 await update.message.reply_text(
                     f"✅ תיקיית יעד עודכנה ל-<code>{safe_html_escape(folder_clean)}</code>",
                     parse_mode="HTML",
@@ -4556,6 +4623,12 @@ class GitHubMenuHandler:
                 else:
                     # אחרת, עדכן גם את התיקייה הנבחרת לשימוש עתידי וחזור לתפריט
                     session["selected_folder"] = folder_clean
+                    try:
+                        facade = _get_files_facade()
+                        if facade is not None and hasattr(facade, "save_selected_folder"):
+                            facade.save_selected_folder(user_id, folder_clean)
+                    except Exception:
+                        pass
                     await update.message.reply_text(
                         f"✅ התיקייה נוצרה ונבחרה: <code>{safe_html_escape(folder_clean)}</code>",
                         parse_mode="HTML",
@@ -5262,6 +5335,11 @@ class GitHubMenuHandler:
     async def show_repo_browser(self, update: Update, context: ContextTypes.DEFAULT_TYPE, only_keyboard: bool = False):
         """מציג דפדפן ריפו לפי נתיב ושימוש (view/download/delete), כולל breadcrumbs ועימוד."""
         query = update.callback_query
+        # שחרר את ה-UI מוקדם (וגם עוזר להפחית "Query is too old")
+        try:
+            await query.answer(cache_time=0)
+        except Exception:
+            pass
         user_id = query.from_user.id
         session = self.get_user_session(user_id)
         token = self.get_user_token(user_id)
@@ -5496,8 +5574,10 @@ class GitHubMenuHandler:
                     parse_mode="HTML",
                 )
         else:
+            # שימוש ב-safe_edit כדי להימנע מ-"message is not modified" (במיוחד בלחיצות כפולות על breadcrumbs)
             if folder_selecting:
-                await query.edit_message_text(
+                await TelegramUtils.safe_edit_message_text(
+                    query,
                     f"📁 דפדוף ריפו: <code>{repo_name}</code>\n"
                     f"🔀 ref: <code>{current_ref}</code>\n"
                     f"📂 נתיב: <code>/{path or ''}</code>\n\n"
@@ -5506,18 +5586,15 @@ class GitHubMenuHandler:
                     parse_mode="HTML",
                 )
             else:
-                try:
-                    await query.edit_message_text(
-                        f"📁 דפדוף ריפו: <code>{repo_name}</code>\n"
-                        f"🔀 ref: <code>{current_ref}</code>\n"
-                        f"📂 נתיב: <code>/{path or ''}</code>\n\n"
-                        f"בחר קובץ ל{action} או פתח תיקייה (מציג {min(page_size, max(0, total_items - start_index))} מתוך {total_items}):",
-                        reply_markup=InlineKeyboardMarkup(keyboard),
-                        parse_mode="HTML",
-                    )
-                except BadRequest as br:
-                    if "message is not modified" not in str(br).lower():
-                        raise
+                await TelegramUtils.safe_edit_message_text(
+                    query,
+                    f"📁 דפדוף ריפו: <code>{repo_name}</code>\n"
+                    f"🔀 ref: <code>{current_ref}</code>\n"
+                    f"📂 נתיב: <code>/{path or ''}</code>\n\n"
+                    f"בחר קובץ ל{action} או פתח תיקייה (מציג {min(page_size, max(0, total_items - start_index))} מתוך {total_items}):",
+                    reply_markup=InlineKeyboardMarkup(keyboard),
+                    parse_mode="HTML",
+                )
 
     async def handle_inline_query(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Inline mode: חיפוש/ביצוע פעולות ישירות מכל צ'אט"""
@@ -7546,7 +7623,14 @@ class GitHubMenuHandler:
             lines = [f"בחר גיבוי לשחזור לריפו:\n<code>{repo_full}</code>\n"]
             kb = []
             for b in items:
-                lines.append(f"• {b.backup_id} — {b.created_at.strftime('%d/%m/%Y %H:%M')} — {int(b.total_size/1024)}KB")
+                try:
+                    p = (getattr(b, "path", None) or "").strip("/")
+                except Exception:
+                    p = ""
+                path_txt = f" — /{p}" if p else " — /"
+                lines.append(
+                    f"• {b.backup_id} — {b.created_at.strftime('%d/%m/%Y %H:%M')} — {int(b.total_size/1024)}KB{path_txt}"
+                )
                 kb.append([InlineKeyboardButton("♻️ שחזר גיבוי זה לריפו", callback_data=f"github_restore_zip_from_backup:{b.backup_id}")])
             kb.append([InlineKeyboardButton("🔙 חזור", callback_data="github_backup_menu")])
             await query.edit_message_text("\n".join(lines), reply_markup=InlineKeyboardMarkup(kb), parse_mode="HTML")
@@ -7563,6 +7647,10 @@ class GitHubMenuHandler:
                 return
             # הגדר purge? בקש בחירה
             context.user_data["pending_repo_restore_zip_path"] = match.file_path
+            try:
+                context.user_data["pending_repo_restore_zip_prefix"] = (getattr(match, "path", None) or "").strip("/")
+            except Exception:
+                context.user_data["pending_repo_restore_zip_prefix"] = ""
             await query.edit_message_text(
                 "האם למחוק קודם את התוכן בריפו לפני העלאה?",
                 reply_markup=InlineKeyboardMarkup([
@@ -7583,15 +7671,25 @@ class GitHubMenuHandler:
             try:
                 await query.edit_message_text("⏳ משחזר לריפו מגיבוי נבחר...")
                 # נשתמש בלוגיקה פשוטה: נקרא לפונקציה פנימית שתבצע את אותו זרם של שחזור לריפו
-                await self.restore_zip_file_to_repo(update, context, zip_path, purge_flag)
+                prefix = (context.user_data.get("pending_repo_restore_zip_prefix") or "").strip("/")
+                await self.restore_zip_file_to_repo(update, context, zip_path, purge_flag, dest_prefix=(prefix or None))
                 await query.edit_message_text("✅ השחזור הועלה לריפו בהצלחה")
             except Exception as e:
                 await query.edit_message_text(f"❌ שגיאה בשחזור לריפו: {e}")
             finally:
                 context.user_data.pop("pending_repo_restore_zip_path", None)
+                context.user_data.pop("pending_repo_restore_zip_prefix", None)
             return
 
-    async def restore_zip_file_to_repo(self, update: Update, context: ContextTypes.DEFAULT_TYPE, zip_path: str, purge_first: bool) -> None:
+    async def restore_zip_file_to_repo(
+        self,
+        update: Update,
+        context: ContextTypes.DEFAULT_TYPE,
+        zip_path: str,
+        purge_first: bool,
+        *,
+        dest_prefix: str | None = None,
+    ) -> None:
         """שחזור קבצים מ-ZIP מקומי לריפו הנוכחי באמצעות Trees API (commit אחד)"""
         user_id = update.effective_user.id
         session = self.get_user_session(user_id)
@@ -7628,12 +7726,16 @@ class GitHubMenuHandler:
                     return path[len(common_root) + 1:]
                 return path
             files = []
+            prefix_norm = (dest_prefix or "").strip("/")
             for name in members:
                 raw = zf.read(name)
                 clean = strip_root(name)
                 if not clean:
                     continue
-                files.append((clean, raw))
+                clean_norm = str(clean).lstrip("/")
+                if prefix_norm:
+                    clean_norm = f"{prefix_norm}/{clean_norm}"
+                files.append((clean_norm, raw))
         g = Github(token)
         repo = g.get_repo(repo_full)
         target_branch = repo.default_branch or 'main'
