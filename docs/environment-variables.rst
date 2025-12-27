@@ -232,6 +232,18 @@
      - ``5``
      - ``10``
      - WebApp
+   * - ``ALERT_TAGS_COLLECTION``
+     - שם ה-Collection לתגיות התראות (Manual Alert Tagging) ב-Observability.
+     - לא
+     - ``alert_tags``
+     - ``alert_tags``
+     - WebApp/Observability
+   * - ``ALERT_TAGS_DB_DISABLED``
+     - אם ``true`` מכבה שמירה/שליפה של תגיות להתראות (Manual Alert Tagging) מה-DB.
+     - לא
+     - ``false``
+     - ``true``
+     - WebApp/Observability
    * - ``PUBLIC_BASE_URL``
      - כתובת בסיס ציבורית ליצירת קישורי שיתוף
      - לא
@@ -859,6 +871,18 @@
      - רכיב
    * - ``DRILL_MODE_ENABLED``
      - מפעיל Drill Mode (תרגולים) ב-WebApp/API. כאשר כבוי, ``/api/observability/drills/run`` יחזיר ``drill_disabled``.
+     - לא
+     - ``false``
+     - ``true``
+     - WebApp/Observability
+   * - ``ALERT_TAGS_COLLECTION``
+     - שם ה-Collection לתגיות התראות (Manual Alert Tagging) ב-Observability.
+     - לא
+     - ``alert_tags``
+     - ``alert_tags``
+     - WebApp/Observability
+   * - ``ALERT_TAGS_DB_DISABLED``
+     - אם ``true`` מכבה שמירה/שליפה של תגיות להתראות (Manual Alert Tagging) מה-DB.
      - לא
      - ``false``
      - ``true``

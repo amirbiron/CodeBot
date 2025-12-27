@@ -26,6 +26,7 @@ except Exception:  # pragma: no cover
     _internal_alerts = None  # type: ignore
 
 from monitoring import alerts_storage, metrics_storage, incident_story_storage  # type: ignore
+from monitoring import alert_tags_storage  # type: ignore
 from services.observability_http import SecurityError, fetch_graph_securely
 
 try:  # Best-effort fallback for slow endpoint summaries
@@ -1410,6 +1411,15 @@ def fetch_alerts(
         if graph:
             alert["graph"] = graph
 
+    # === Alert Tags: merge instance + global tags ===
+    try:
+        tags_map = alert_tags_storage.get_tags_map_for_alerts(alerts)
+    except Exception:
+        tags_map = {}
+    for alert in alerts:
+        uid = alert.get("alert_uid")
+        alert["tags"] = tags_map.get(uid, []) if uid else []
+
     alert_uids = [alert.get("alert_uid") for alert in alerts if alert.get("alert_uid")]
     if alert_uids:
         story_map = incident_story_storage.get_stories_by_alert_uids(alert_uids)
@@ -1434,6 +1444,188 @@ def fetch_alerts(
     }
     _cache_set("alerts", cache_key, payload)
     return payload
+
+
+# ==========================================
+# Alert Tags API helpers (used by webapp/app.py)
+# ==========================================
+
+
+def get_alert_tags(alert_uid: str) -> Dict[str, Any]:
+    """
+    GET /api/observability/alerts/<alert_uid>/tags
+    מחזיר תגיות עבור התראה ספציפית.
+    """
+    uid = str(alert_uid or "").strip()
+    if not uid:
+        return {"ok": False, "error": "missing_alert_uid"}
+    try:
+        tags = alert_tags_storage.get_tags_for_alert(uid)
+        return {"ok": True, "alert_uid": uid, "tags": tags}
+    except Exception as e:
+        logger.exception("get_alert_tags failed: %s", e)
+        return {"ok": False, "error": "internal_error"}
+
+
+def set_alert_tags(
+    *,
+    alert_uid: str,
+    alert_timestamp: str,
+    tags: Optional[List[str]],
+    user_id: Optional[int] = None,
+) -> Dict[str, Any]:
+    """
+    POST /api/observability/alerts/<alert_uid>/tags
+    שמירת תגיות להתראה (מחליף את הקיימות).
+
+    Body: {"tags": ["tag1", "tag2"], "alert_timestamp": "ISO8601"}
+    """
+    uid = str(alert_uid or "").strip()
+    if not uid:
+        return {"ok": False, "error": "missing_alert_uid"}
+    # [] (רשימה ריקה) היא פעולה חוקית: "נקה את כל התגיות"
+    if tags is None:
+        return {"ok": False, "error": "missing_tags"}
+    if not isinstance(tags, list):
+        return {"ok": False, "error": "bad_request"}
+    try:
+        ts = datetime.fromisoformat(str(alert_timestamp or "").replace("Z", "+00:00"))
+    except Exception:
+        ts = datetime.now(timezone.utc)
+    try:
+        result = alert_tags_storage.set_tags_for_alert(
+            alert_uid=uid,
+            alert_timestamp=ts,
+            tags=tags,
+            user_id=user_id,
+        )
+        return {"ok": True, **result}
+    except ValueError as ve:
+        # אל תחזיר הודעת חריגה גולמית ללקוח (CodeQL: Information exposure).
+        logger.warning("set_alert_tags validation error: %s", ve)
+        return {"ok": False, "error": "bad_request"}
+    except Exception as e:
+        logger.exception("set_alert_tags failed: %s", e)
+        return {"ok": False, "error": "internal_error"}
+
+
+def add_alert_tag(
+    *,
+    alert_uid: str,
+    alert_timestamp: str,
+    tag: str,
+    user_id: Optional[int] = None,
+) -> Dict[str, Any]:
+    """
+    POST /api/observability/alerts/<alert_uid>/tags/add
+    הוספת תגית בודדת (ללא מחיקת קיימות).
+    """
+    uid = str(alert_uid or "").strip()
+    if not uid:
+        return {"ok": False, "error": "missing_alert_uid"}
+    if not tag:
+        return {"ok": False, "error": "missing_tag"}
+    try:
+        ts = datetime.fromisoformat(str(alert_timestamp or "").replace("Z", "+00:00"))
+    except Exception:
+        ts = datetime.now(timezone.utc)
+    try:
+        result = alert_tags_storage.add_tag_to_alert(
+            alert_uid=uid,
+            alert_timestamp=ts,
+            tag=tag,
+            user_id=user_id,
+        )
+        return {"ok": True, **result}
+    except ValueError as ve:
+        # אל תחזיר הודעת חריגה גולמית ללקוח (CodeQL: Information exposure).
+        logger.warning("add_alert_tag validation error: %s", ve)
+        return {"ok": False, "error": "invalid_alert_tag"}
+    except Exception as e:
+        logger.exception("add_alert_tag failed: %s", e)
+        return {"ok": False, "error": "internal_error"}
+
+
+def remove_alert_tag(*, alert_uid: str, tag: str) -> Dict[str, Any]:
+    """
+    DELETE /api/observability/alerts/<alert_uid>/tags/<tag>
+    הסרת תגית מהתראה.
+    """
+    uid = str(alert_uid or "").strip()
+    if not uid or not tag:
+        return {"ok": False, "error": "missing_params"}
+    try:
+        result = alert_tags_storage.remove_tag_from_alert(uid, tag)
+        return {"ok": True, **result}
+    except ValueError as ve:
+        # אל תחזיר הודעת חריגה גולמית ללקוח (CodeQL: Information exposure).
+        logger.warning("remove_alert_tag validation error: %s", ve)
+        return {"ok": False, "error": "invalid_params"}
+    except Exception as e:
+        logger.exception("remove_alert_tag failed: %s", e)
+        return {"ok": False, "error": "internal_error"}
+
+
+def suggest_tags(prefix: str = "", limit: int = 20) -> Dict[str, Any]:
+    """
+    GET /api/observability/tags/suggest?q=<prefix>
+    הצעות תגיות ל-Autocomplete.
+    """
+    try:
+        suggestions = alert_tags_storage.search_tags(prefix, limit)
+        return {"ok": True, "suggestions": suggestions}
+    except Exception as e:
+        logger.exception("suggest_tags failed: %s", e)
+        return {"ok": False, "error": "internal_error", "suggestions": []}
+
+
+def get_popular_tags(limit: int = 50) -> Dict[str, Any]:
+    """
+    GET /api/observability/tags/popular
+    רשימת תגיות פופולריות עם ספירה.
+    """
+    try:
+        tags = alert_tags_storage.get_all_tags(limit)
+        return {"ok": True, "tags": tags}
+    except Exception as e:
+        logger.exception("get_popular_tags failed: %s", e)
+        return {"ok": False, "error": "internal_error", "tags": []}
+
+
+def set_global_alert_tags(
+    *,
+    alert_name: str,
+    tags: Optional[List[str]],
+    user_id: Optional[int] = None,
+) -> Dict[str, Any]:
+    """
+    POST /api/observability/alerts/global-tags
+    שמירת תגיות קבועות לסוג התראה.
+
+    Body: {"alert_name": "CPU High", "tags": ["infrastructure", "critical"]}
+    """
+    name = str(alert_name or "").strip()
+    if not name:
+        return {"ok": False, "error": "missing_alert_name"}
+    # [] (רשימה ריקה) היא פעולה חוקית: "נקה את כל התגיות הגלובליות"
+    if tags is None:
+        return {"ok": False, "error": "missing_tags"}
+    if not isinstance(tags, list):
+        return {"ok": False, "error": "bad_request"}
+    try:
+        result = alert_tags_storage.set_global_tags_for_name(
+            alert_name=name,
+            tags=tags,
+            user_id=user_id,
+        )
+        return {"ok": True, **result}
+    except ValueError as ve:
+        # אל תחזיר הודעת חריגה גולמית ללקוח (CodeQL: Information exposure).
+        logger.warning("set_global_alert_tags validation error: %s", ve)
+        return {"ok": False, "error": "invalid_alert_tags"}
+    except Exception as e:
+        logger.exception("set_global_alert_tags failed: %s", e)
+        return {"ok": False, "error": "internal_error"}
 
 
 def _fallback_summary() -> Dict[str, int]:
