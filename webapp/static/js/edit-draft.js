@@ -219,6 +219,8 @@
       // בעמוד עריכה: טיוטה קיימת רק אם יש שינוי ביחס למצב המקורי
       if (snapshot === initialSnapshot) {
         removeDraft(true);
+        toggleRestoreButton(false);
+        toggleDiscardButton(true);
         lastSnapshot = snapshot;
         return;
       }
