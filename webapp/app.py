@@ -3822,7 +3822,6 @@ def api_jobs_list():
 
     registry = JobRegistry()
     bot_api_base = _get_bot_jobs_api_base_url()
-    trigger_available = bool(bot_api_base)
     # חשוב: כדי למנוע recursion deadlock, לא נבצע HTTP call אם ה-base לא הוגדר מפורשות.
     bot_enabled_map = (
         _fetch_bot_jobs_enabled_map(bot_api_base)
@@ -3833,6 +3832,8 @@ def api_jobs_list():
     for job in registry.list_all():
         enabled_local = registry.is_enabled(job.job_id)
         enabled = bool(bot_enabled_map.get(job.job_id, enabled_local))
+        # can_trigger: מאפשר הפעלה ידנית אם יש callback מוגדר
+        can_trigger = bool(job.callback_name)
         jobs_by_id[job.job_id] = {
             "job_id": job.job_id,
             "name": job.name,
@@ -3841,7 +3842,7 @@ def api_jobs_list():
             "type": job.job_type.value,
             "interval_seconds": job.interval_seconds,
             "enabled": enabled,
-            "can_trigger": trigger_available,
+            "can_trigger": can_trigger,
             "env_toggle": job.env_toggle,
         }
 
@@ -3922,7 +3923,6 @@ def api_job_detail(job_id: str):
 
     registry = JobRegistry()
     bot_api_base = _get_bot_jobs_api_base_url()
-    trigger_available = bool(bot_api_base)
     bot_enabled_map = (
         _fetch_bot_jobs_enabled_map(bot_api_base)
         if (bot_api_base and _bot_jobs_api_is_explicitly_configured())
@@ -3945,6 +3945,8 @@ def api_job_detail(job_id: str):
     else:
         enabled_local = registry.is_enabled(job.job_id)
         enabled = bool(bot_enabled_map.get(job.job_id, enabled_local))
+        # can_trigger: מאפשר הפעלה ידנית אם יש callback מוגדר
+        can_trigger = bool(job.callback_name)
         job_payload = {
             "job_id": job.job_id,
             "name": job.name,
@@ -3953,7 +3955,7 @@ def api_job_detail(job_id: str):
             "type": job.job_type.value,
             "interval_seconds": job.interval_seconds,
             "enabled": enabled,
-            "can_trigger": trigger_available,
+            "can_trigger": can_trigger,
             "source_file": job.source_file,
         }
 
