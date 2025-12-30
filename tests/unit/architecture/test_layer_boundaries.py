@@ -100,6 +100,7 @@ def test_top_level_handler_like_modules_do_not_import_database_directly():
         "bot_handlers.py",
         "conversation_handlers.py",
         "github_menu_handler.py",
+        "github_upload_fix.py",
         "backup_menu_handler.py",
         "file_manager.py",
     )
