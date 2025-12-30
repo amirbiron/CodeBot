@@ -3788,13 +3788,22 @@ async def setup_bot_data(application: Application) -> None:  # noqa: D401
                     return
 
                 now = datetime.now(timezone.utc)
-                # מחפש בקשות pending שנוצרו בדקה האחרונה
+                # מחפש כל בקשות pending - ללא cutoff כדי לא לאבד בקשות אם הבוט היה למטה
+                # בקשות ישנות מאוד (מעל שעה) יסומנו כ-expired במקום להתעלם מהן
                 from datetime import timedelta as _td_trigger
-                cutoff = now - _td_trigger(minutes=5)
+                expire_cutoff = now - _td_trigger(hours=1)
+
+                # סימון בקשות ישנות מדי כ-expired
+                try:
+                    coll.update_many(
+                        {"status": "pending", "created_at": {"$lt": expire_cutoff}},
+                        {"$set": {"status": "expired", "error": "Request expired (bot was unavailable for >1h)"}},
+                    )
+                except Exception:
+                    pass
 
                 cursor = coll.find({
                     "status": "pending",
-                    "created_at": {"$gte": cutoff},
                 }).sort("created_at", 1).limit(10)
 
                 for doc in cursor:
