@@ -3897,8 +3897,12 @@ def api_job_trigger(job_id: str):
         except Exception:
             payload = {"message": (resp.text or "").strip(), "job_id": job_id}
         return jsonify(payload), int(getattr(resp, "status_code", 200) or 200)
-    except Exception as e:
-        return jsonify({"error": "trigger_failed", "message": str(e)}), 502
+    except Exception:
+        logging.exception("Failed to trigger job %s via bot API", job_id)
+        return jsonify({
+            "error": "trigger_failed",
+            "message": "Failed to trigger job via bot API"
+        }), 502
 
 
 @app.route('/admin/observability/replay')
