@@ -2593,6 +2593,31 @@ class CodeKeeperBot:
         self.application.add_handler(CommandHandler("search", self.search_command))
         self.application.add_handler(CommandHandler("stats", self.stats_command))
         self.application.add_handler(CommandHandler("check", self.check_commands))
+
+        # ChatOps: /jobs (Background Jobs Monitor)
+        async def jobs_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+            try:
+                from chatops.jobs_commands import handle_jobs_command
+            except Exception:
+                await update.message.reply_text("❌ Jobs monitor לא זמין כרגע")
+                return
+            args_text = ""
+            try:
+                args_text = " ".join(getattr(context, "args", None) or [])
+            except Exception:
+                args_text = ""
+            text = handle_jobs_command(args_text)
+            try:
+                await update.message.reply_text(
+                    text,
+                    parse_mode=ParseMode.MARKDOWN,
+                    disable_web_page_preview=True,
+                )
+            except Exception:
+                # fallback ל-plain
+                await update.message.reply_text(text, disable_web_page_preview=True)
+
+        self.application.add_handler(CommandHandler("jobs", jobs_command))
         
         # הוספת פקודות cache
         setup_cache_handlers(self.application)
@@ -3639,6 +3664,15 @@ async def setup_bot_data(application: Application) -> None:  # noqa: D401
     await application.bot.delete_my_commands()
     logger.info("✅ Public commands cleared (no /share, /share_help)")
 
+    # רישום כל ה-Background Jobs במערכת (Jobs Monitor)
+    try:
+        from services.register_jobs import register_all_jobs
+
+        register_all_jobs()
+    except Exception:
+        # Fail-open: אל תכשיל startup אם מודול הניטור לא זמין
+        pass
+
     # הגדרת JobStore מתמיד ל-APScheduler (MongoDB) אם אפשרי
     try:
         jq = getattr(application, "job_queue", None)
@@ -3743,6 +3777,11 @@ async def setup_bot_data(application: Application) -> None:  # noqa: D401
             from services.webserver import create_app
             aiohttp_app = create_app()
             async def _start_web_job(context: ContextTypes.DEFAULT_TYPE):
+                # Jobs Monitor trigger support: שמור reference ל-Application בתוך aiohttp app
+                try:
+                    aiohttp_app["telegram_application"] = context.application
+                except Exception:
+                    pass
                 runner = web.AppRunner(aiohttp_app)
                 await runner.setup()
                 port = int(os.getenv("PORT", "10000"))
@@ -3810,6 +3849,10 @@ async def setup_bot_data(application: Application) -> None:  # noqa: D401
     # Reschedule Google Drive backup jobs for all users with an active schedule
     try:
         async def _reschedule_drive_jobs(context: ContextTypes.DEFAULT_TYPE):
+            from services.job_tracker import get_job_tracker
+
+            tracker = get_job_tracker()
+            run = tracker.start_run("drive_reschedule", trigger="scheduled")
             stats = {"total": 0, "recreated": 0, "scanned": 0, "skipped": 0}
 
             try:
@@ -3901,9 +3944,24 @@ async def setup_bot_data(application: Application) -> None:  # noqa: D401
                     except Exception:
                         stats["skipped"] += 1
                         continue
-            except Exception:
-                pass
+            except Exception as exc:
+                try:
+                    tracker.fail_run(run.run_id, str(exc))
+                except Exception:
+                    pass
             finally:
+                try:
+                    tracker.add_log(
+                        run.run_id,
+                        "info",
+                        f"drive_reschedule_jobs_run total={stats['total']} recreated={stats['recreated']} scanned={stats['scanned']} skipped={stats['skipped']}",
+                    )
+                except Exception:
+                    pass
+                try:
+                    tracker.complete_run(run.run_id, result=dict(stats))
+                except Exception:
+                    pass
                 try:
                     logger.info(
                         "drive_reschedule_jobs_run total=%s recreated=%s scanned=%s skipped=%s",
@@ -3967,7 +4025,7 @@ async def setup_bot_data(application: Application) -> None:  # noqa: D401
             _reschedule_drive_jobs,
             interval=max(keepalive_interval, 300),
             first=max(keepalive_first, 30),
-            name="drive_reschedule_keepalive",
+            name="drive_reschedule",
             grace=60,
         )
     except Exception:
@@ -3976,9 +4034,14 @@ async def setup_bot_data(application: Application) -> None:  # noqa: D401
     # Weekly admin report (usage summary) — scheduled with JobQueue
     try:
         async def _weekly_admin_report(context: ContextTypes.DEFAULT_TYPE):
+            from services.job_tracker import get_job_tracker
+
+            tracker = get_job_tracker()
+            run = tracker.start_run("weekly_admin_report", trigger="scheduled")
             try:
                 # אפשר לכבות בדוחות שבועיים לחלוטין דרך ENV
                 if str(os.getenv("DISABLE_WEEKLY_REPORTS", "")).lower() in {"1", "true", "yes"}:
+                    tracker.add_log(run.run_id, "info", "Skipped: disabled by env")
                     return
 
                 # מנגנון השתקה שבועי (idempotent): שלח פעם אחת לכל שבוע קלנדרי
@@ -4006,6 +4069,7 @@ async def setup_bot_data(application: Application) -> None:  # noqa: D401
                     # במקרה של כשל בגייטינג, נמשיך לשלוח (עדיף דיווח על כפילות מאשר איבוד דיווח)
                     should_send = True
                 if not should_send:
+                    tracker.add_log(run.run_id, "info", "Skipped: already sent this week")
                     return
 
                 total_users = 0
@@ -4024,6 +4088,7 @@ async def setup_bot_data(application: Application) -> None:  # noqa: D401
                     f"🗓️ פעילים בשבוע האחרון: {active_week}\n"
                 )
                 await notify_admins(context, text)
+                tracker.add_log(run.run_id, "info", f"Weekly report sent total_users={total_users} active_week={active_week}")
                 # Emit via a dynamic import to cooperate with test monkeypatching
                 try:
                     try:
@@ -4033,13 +4098,22 @@ async def setup_bot_data(application: Application) -> None:  # noqa: D401
                     _emit("weekly_report_sent", severity="info", total_users=total_users, active_week=active_week)
                 except Exception:
                     pass
-            except Exception:
+            except Exception as e:
                 try:
                     try:
                         from observability import emit_event as _emit
                     except Exception:  # pragma: no cover
                         _emit = lambda *a, **k: None
-                    _emit("weekly_report_error", severity="error")
+                    _emit("weekly_report_error", severity="error", error=str(e))
+                except Exception:
+                    pass
+                try:
+                    tracker.fail_run(run.run_id, str(e))
+                except Exception:
+                    pass
+            finally:
+                try:
+                    tracker.complete_run(run.run_id)
                 except Exception:
                     pass
 
@@ -4064,28 +4138,35 @@ async def setup_bot_data(application: Application) -> None:  # noqa: D401
     # Background cleanup jobs (Phase 2): cache maintenance and backups retention
     try:
         async def _cache_maintenance_job(context: ContextTypes.DEFAULT_TYPE):
-            try:
-                # כיבוי גלובלי דרך ENV
-                if str(os.getenv("DISABLE_BACKGROUND_CLEANUP", "")).lower() in {"1", "true", "yes"}:
-                    return
-                # ניקוי עדין של קאש (respect SAFE_MODE/DISABLE_CACHE_MAINTENANCE internally)
-                from cache_manager import cache  # lazy import
-                # ניתן לשלוט בפרמטרים דרך ENV
-                max_scan = int(os.getenv("CACHE_MAINT_MAX_SCAN", "1000") or 1000)
-                ttl_thr = int(os.getenv("CACHE_MAINT_TTL_THRESHOLD", "60") or 60)
-                deleted = int(cache.clear_stale(max_scan=max_scan, ttl_seconds_threshold=ttl_thr) or 0)
-                if deleted > 0:
+            from services.job_tracker import get_job_tracker
+
+            tracker = get_job_tracker()
+            with tracker.track("cache_maintenance", trigger="scheduled") as run:
+                try:
+                    # כיבוי גלובלי דרך ENV
+                    if str(os.getenv("DISABLE_BACKGROUND_CLEANUP", "")).lower() in {"1", "true", "yes"}:
+                        tracker.add_log(run.run_id, "info", "Skipped: disabled by env")
+                        return
+                    # ניקוי עדין של קאש (respect SAFE_MODE/DISABLE_CACHE_MAINTENANCE internally)
+                    from cache_manager import cache  # lazy import
+                    # ניתן לשלוט בפרמטרים דרך ENV
+                    max_scan = int(os.getenv("CACHE_MAINT_MAX_SCAN", "1000") or 1000)
+                    ttl_thr = int(os.getenv("CACHE_MAINT_TTL_THRESHOLD", "60") or 60)
+                    deleted = int(cache.clear_stale(max_scan=max_scan, ttl_seconds_threshold=ttl_thr) or 0)
+                    tracker.add_log(run.run_id, "info", f"Cache maintenance deleted={deleted}")
+                    if deleted > 0:
+                        try:
+                            from observability import emit_event as _emit
+                        except Exception:  # pragma: no cover
+                            _emit = lambda *a, **k: None
+                        _emit("cache_maintenance_done", severity="info", deleted=int(deleted))
+                except Exception as e:
                     try:
                         from observability import emit_event as _emit
                     except Exception:  # pragma: no cover
                         _emit = lambda *a, **k: None
-                    _emit("cache_maintenance_done", severity="info", deleted=int(deleted))
-            except Exception:
-                try:
-                    from observability import emit_event as _emit
-                except Exception:  # pragma: no cover
-                    _emit = lambda *a, **k: None
-                _emit("cache_maintenance_error", severity="anomaly")
+                    _emit("cache_maintenance_error", severity="anomaly", error=str(e))
+                    raise
 
         # תזמון תחזוקת קאש – כל 10 דקות, התחלה אחרי 30 שניות
         try:
@@ -4111,30 +4192,41 @@ async def setup_bot_data(application: Application) -> None:  # noqa: D401
         # מתבצעת רק ב-fallback כאשר התזמון נכשל.
 
         async def _backups_cleanup_job(context: ContextTypes.DEFAULT_TYPE):
-            try:
-                # כיבוי גלובלי דרך ENV
-                if str(os.getenv("DISABLE_BACKGROUND_CLEANUP", "")).lower() in {"1", "true", "yes"}:
-                    return
-                from file_manager import backup_manager  # lazy import
-                summary = backup_manager.cleanup_expired_backups()
+            from services.job_tracker import get_job_tracker
+
+            tracker = get_job_tracker()
+            with tracker.track("backups_cleanup", trigger="scheduled") as run:
                 try:
-                    from observability import emit_event as _emit
-                except Exception:  # pragma: no cover
-                    _emit = lambda *a, **k: None
-                _emit(
-                    "backups_cleanup_done",
-                    severity="info",
-                    fs_scanned=int(summary.get("fs_scanned", 0) or 0),
-                    fs_deleted=int(summary.get("fs_deleted", 0) or 0),
-                    gridfs_scanned=int(summary.get("gridfs_scanned", 0) or 0),
-                    gridfs_deleted=int(summary.get("gridfs_deleted", 0) or 0),
-                )
-            except Exception:
-                try:
-                    from observability import emit_event as _emit
-                except Exception:  # pragma: no cover
-                    _emit = lambda *a, **k: None
-                _emit("backups_cleanup_error", severity="anomaly")
+                    # כיבוי גלובלי דרך ENV
+                    if str(os.getenv("DISABLE_BACKGROUND_CLEANUP", "")).lower() in {"1", "true", "yes"}:
+                        tracker.add_log(run.run_id, "info", "Skipped: disabled by env")
+                        return
+                    from file_manager import backup_manager  # lazy import
+                    summary = backup_manager.cleanup_expired_backups()
+                    tracker.add_log(
+                        run.run_id,
+                        "info",
+                        f"Cleaned {summary.get('fs_deleted', 0)} files, scanned {summary.get('fs_scanned', 0)}",
+                    )
+                    try:
+                        from observability import emit_event as _emit
+                    except Exception:  # pragma: no cover
+                        _emit = lambda *a, **k: None
+                    _emit(
+                        "backups_cleanup_done",
+                        severity="info",
+                        fs_scanned=int(summary.get("fs_scanned", 0) or 0),
+                        fs_deleted=int(summary.get("fs_deleted", 0) or 0),
+                        gridfs_scanned=int(summary.get("gridfs_scanned", 0) or 0),
+                        gridfs_deleted=int(summary.get("gridfs_deleted", 0) or 0),
+                    )
+                except Exception as e:
+                    try:
+                        from observability import emit_event as _emit
+                    except Exception:  # pragma: no cover
+                        _emit = lambda *a, **k: None
+                    _emit("backups_cleanup_error", severity="anomaly", error=str(e))
+                    raise
 
         # תזמון ניקוי גיבויים – כבוי כברירת מחדל; יופעל רק אם BACKUPS_CLEANUP_ENABLED=true
         try:
@@ -4229,19 +4321,26 @@ async def setup_bot_data(application: Application) -> None:  # noqa: D401
     # Predictive Health sampler: scrape webapp /metrics and feed predictive engine
     try:
         async def _predictive_sampler_job(context: ContextTypes.DEFAULT_TYPE):  # noqa: ARG001
+            from services.job_tracker import get_job_tracker
+
+            tracker = get_job_tracker()
+            run = tracker.start_run("predictive_sampler", trigger="scheduled")
             try:
                 if os.getenv("PYTEST_CURRENT_TEST"):
                     allow_in_tests = str(os.getenv("PREDICTIVE_SAMPLER_RUN_IN_TESTS", "false")).lower()
                     if allow_in_tests not in {"1", "true", "yes", "on"}:
+                        tracker.add_log(run.run_id, "info", "Skipped: disabled in tests")
                         return
                 # Feature flag: allow disabling explicitly
                 if str(os.getenv("PREDICTIVE_SAMPLER_ENABLED", "true")).lower() not in {"1", "true", "yes", "on"}:
+                    tracker.add_log(run.run_id, "info", "Skipped: disabled by env")
                     return
                 base = (os.getenv("PREDICTIVE_SAMPLER_METRICS_URL")
                         or os.getenv("WEBAPP_URL")
                         or os.getenv("PUBLIC_BASE_URL")
                         or "").strip()
                 if not base:
+                    tracker.add_log(run.run_id, "info", "Skipped: missing metrics base url")
                     return
                 # Normalize URL and build metrics path
                 url = base.rstrip("/") + "/metrics"
@@ -4310,11 +4409,21 @@ async def setup_bot_data(application: Application) -> None:  # noqa: D401
                         _emit("predictive_sampler_error", severity="anomaly", handled=True)
                     except Exception:
                         pass
-            except Exception:
+                tracker.add_log(run.run_id, "info", "Predictive sampler tick completed")
+            except Exception as e:
                 # Fail-open
                 try:
                     from observability import emit_event as _emit  # type: ignore
-                    _emit("predictive_sampler_exception", severity="anomaly", handled=True)
+                    _emit("predictive_sampler_exception", severity="anomaly", handled=True, error=str(e))
+                except Exception:
+                    pass
+                try:
+                    tracker.fail_run(run.run_id, str(e))
+                except Exception:
+                    pass
+            finally:
+                try:
+                    tracker.complete_run(run.run_id)
                 except Exception:
                     pass
 
@@ -4347,26 +4456,36 @@ async def setup_bot_data(application: Application) -> None:  # noqa: D401
         poller = SentryPoller(poller_cfg)
 
         async def _sentry_poll_job(_context: ContextTypes.DEFAULT_TYPE):  # noqa: ARG001
-            try:
-                res = await poller.tick()
+            from services.job_tracker import get_job_tracker
+
+            tracker = get_job_tracker()
+            with tracker.track("sentry_poll", trigger="scheduled") as run:
                 try:
-                    from observability import emit_event as _emit  # type: ignore
-                except Exception:  # pragma: no cover
-                    _emit = lambda *a, **k: None
-                if isinstance(res, dict) and res.get("enabled"):
-                    _emit(
-                        "sentry_poll_tick",
-                        severity="info",
-                        polled=int(res.get("polled", 0) or 0),
-                        emitted=int(res.get("emitted", 0) or 0),
-                        configured=bool(res.get("configured", True)),
-                    )
-            except Exception:
-                try:
-                    from observability import emit_event as _emit  # type: ignore
-                except Exception:  # pragma: no cover
-                    _emit = lambda *a, **k: None
-                _emit("sentry_poll_error", severity="anomaly", handled=True)
+                    res = await poller.tick()
+                    try:
+                        from observability import emit_event as _emit  # type: ignore
+                    except Exception:  # pragma: no cover
+                        _emit = lambda *a, **k: None
+                    if isinstance(res, dict) and res.get("enabled"):
+                        tracker.add_log(
+                            run.run_id,
+                            "info",
+                            f"sentry_poll_tick polled={int(res.get('polled', 0) or 0)} emitted={int(res.get('emitted', 0) or 0)}",
+                        )
+                        _emit(
+                            "sentry_poll_tick",
+                            severity="info",
+                            polled=int(res.get("polled", 0) or 0),
+                            emitted=int(res.get("emitted", 0) or 0),
+                            configured=bool(res.get("configured", True)),
+                        )
+                except Exception as e:
+                    try:
+                        from observability import emit_event as _emit  # type: ignore
+                    except Exception:  # pragma: no cover
+                        _emit = lambda *a, **k: None
+                    _emit("sentry_poll_error", severity="anomaly", handled=True, error=str(e))
+                    raise
 
         try:
             if bool(getattr(poller_cfg, "enabled", False)):
@@ -4387,134 +4506,159 @@ async def setup_bot_data(application: Application) -> None:  # noqa: D401
 # --- Background job: Cache warming based on recent usage (lightweight) ---
     try:
         async def _cache_warming_job(context: ContextTypes.DEFAULT_TYPE):  # noqa: ARG001
-            try:
-                # Feature flag
-                enabled = str(os.getenv("CACHE_WARMING_ENABLED", "true")).lower() in {"1", "true", "yes", "on"}
-                if not enabled:
-                    return
+            from services.job_tracker import get_job_tracker
 
-                # Time budget to avoid load
-                import time as _t
-                budget = float(os.getenv("CACHE_WARMING_BUDGET_SECONDS", "1.0") or 1.0)
-                t0 = _t.time()
-
-                # Lazy imports to avoid hard deps
+            tracker = get_job_tracker()
+            with tracker.track("cache_warming", trigger="scheduled") as run:
                 try:
-                    from cache_manager import cache as _cache
-                except Exception:  # pragma: no cover
-                    _cache = None
-                try:
-                    from webapp.app import get_db as _get_db
-                except Exception:  # pragma: no cover
-                    _get_db = None
-                try:
-                    from webapp.app import search_engine as _search_engine
-                except Exception:  # pragma: no cover
-                    _search_engine = None
+                    # Feature flag
+                    enabled = str(os.getenv("CACHE_WARMING_ENABLED", "true")).lower() in {"1", "true", "yes", "on"}
+                    if not enabled:
+                        tracker.add_log(run.run_id, "info", "Skipped: disabled by env")
+                        return
 
-                if _cache is None or not getattr(_cache, 'is_enabled', False) or _get_db is None:
-                    return
+                    # Time budget to avoid load
+                    import time as _t
 
-                db = _get_db()
-                now = __import__('datetime').datetime.now(__import__('datetime').timezone.utc)
-                week_ago = now - __import__('datetime').timedelta(days=7)
+                    budget = float(os.getenv("CACHE_WARMING_BUDGET_SECONDS", "1.0") or 1.0)
+                    t0 = _t.time()
 
-                # Top active users in last 7 days (at most 3)
-                top_users = []
-                try:
-                    pipeline = [
-                        {"$match": {"updated_at": {"$gte": week_ago}}},
-                        {"$group": {"_id": "$user_id", "cnt": {"$sum": 1}}},
-                        {"$sort": {"cnt": -1}},
-                        {"$limit": 3},
-                    ]
-                    agg = list(db.code_snippets.aggregate(pipeline))
-                    top_users = [int(d.get("_id")) for d in agg if d.get("_id") is not None]
-                except Exception:
-                    pass
-
-                # Seeds: common keywords + top tags (last 7d)
-                seeds = ["def", "class", "import", "fix", "refactor", "todo"]
-                try:
-                    tag_pipe = [
-                        {"$match": {"updated_at": {"$gte": week_ago}, "tags": {"$exists": True, "$ne": []}}},
-                        {"$unwind": "$tags"},
-                        {"$group": {"_id": "$tags", "cnt": {"$sum": 1}}},
-                        {"$sort": {"cnt": -1}},
-                        {"$limit": 5},
-                    ]
-                    tag_rows = list(db.code_snippets.aggregate(tag_pipe))
-                    seeds += [str(r.get("_id")) for r in tag_rows if r.get("_id")]
-                except Exception:
-                    pass
-                # Dedup and sanitize seeds
-                uniq_seeds = []
-                for s in seeds:
-                    s2 = str(s or '').strip()
-                    if s2 and s2 not in uniq_seeds:
-                        uniq_seeds.append(s2)
-
-                import hashlib, json
-
-                # Warm per user: stats and suggestions
-                for uid in top_users:
-                    if (_t.time() - t0) > budget:
-                        break
-                    # Stats (like /api/stats)
+                    # Lazy imports to avoid hard deps
                     try:
-                        active_q = {"user_id": uid, "$or": [{"is_active": True}, {"is_active": {"$exists": False}}]}
-                        stats = {
-                            "total_files": db.code_snippets.count_documents(active_q),
-                            "languages": list(db.code_snippets.distinct("programming_language", active_q)),
-                            "recent_activity": [],
-                        }
-                        recent = db.code_snippets.find(active_q, {"file_name": 1, "created_at": 1}).sort("created_at", -1).limit(5)
-                        for item in recent:
-                            stats["recent_activity"].append({
-                                "file_name": item.get("file_name", ""),
-                                "created_at": (item.get("created_at") or now).isoformat(),
-                            })
-                        raw = json.dumps({}, sort_keys=True, ensure_ascii=False)
-                        h = hashlib.sha256(raw.encode("utf-8")).hexdigest()[:16]
-                        key = f"api:stats:user:{uid}:{h}"
-                        try:
-                            _cache.set_dynamic(key, stats, "user_stats", {"user_id": uid, "endpoint": "api_stats", "access_frequency": "high"})
-                        except Exception:
-                            pass
+                        from cache_manager import cache as _cache
+                    except Exception:  # pragma: no cover
+                        _cache = None
+                    try:
+                        from webapp.app import get_db as _get_db
+                    except Exception:  # pragma: no cover
+                        _get_db = None
+                    try:
+                        from webapp.app import search_engine as _search_engine
+                    except Exception:  # pragma: no cover
+                        _search_engine = None
+
+                    if _cache is None or not getattr(_cache, "is_enabled", False) or _get_db is None:
+                        tracker.add_log(run.run_id, "info", "Skipped: cache disabled or db unavailable")
+                        return
+
+                    db = _get_db()
+                    now = __import__("datetime").datetime.now(__import__("datetime").timezone.utc)
+                    week_ago = now - __import__("datetime").timedelta(days=7)
+
+                    # Top active users in last 7 days (at most 3)
+                    top_users = []
+                    try:
+                        pipeline = [
+                            {"$match": {"updated_at": {"$gte": week_ago}}},
+                            {"$group": {"_id": "$user_id", "cnt": {"$sum": 1}}},
+                            {"$sort": {"cnt": -1}},
+                            {"$limit": 3},
+                        ]
+                        agg = list(db.code_snippets.aggregate(pipeline))
+                        top_users = [int(d.get("_id")) for d in agg if d.get("_id") is not None]
                     except Exception:
                         pass
 
-                    # Suggestions (if engine available)
-                    if _search_engine is not None:
-                        for q in uniq_seeds:
-                            if (_t.time() - t0) > budget:
-                                break
-                            try:
-                                if len(q) < 2:
-                                    continue
-                                sugg = _search_engine.suggest_completions(uid, q, limit=10)
-                                payload = json.dumps({"q": q}, sort_keys=True, ensure_ascii=False)
-                                h = hashlib.sha256(payload.encode("utf-8")).hexdigest()[:16]
-                                key = f"api:search_suggest:{uid}:{h}"
-                                _cache.set_dynamic(key, {"suggestions": sugg}, "search_results", {"user_id": uid, "endpoint": "api_search_suggestions"})
-                            except Exception:
-                                continue
+                    # Seeds: common keywords + top tags (last 7d)
+                    seeds = ["def", "class", "import", "fix", "refactor", "todo"]
+                    try:
+                        tag_pipe = [
+                            {"$match": {"updated_at": {"$gte": week_ago}, "tags": {"$exists": True, "$ne": []}}},
+                            {"$unwind": "$tags"},
+                            {"$group": {"_id": "$tags", "cnt": {"$sum": 1}}},
+                            {"$sort": {"cnt": -1}},
+                            {"$limit": 5},
+                        ]
+                        tag_rows = list(db.code_snippets.aggregate(tag_pipe))
+                        seeds += [str(r.get("_id")) for r in tag_rows if r.get("_id")]
+                    except Exception:
+                        pass
+                    # Dedup and sanitize seeds
+                    uniq_seeds = []
+                    for s in seeds:
+                        s2 = str(s or "").strip()
+                        if s2 and s2 not in uniq_seeds:
+                            uniq_seeds.append(s2)
 
-                # Emit
-                try:
+                    import hashlib, json
+
+                    # Warm per user: stats and suggestions
+                    for uid in top_users:
+                        if (_t.time() - t0) > budget:
+                            break
+                        # Stats (like /api/stats)
+                        try:
+                            active_q = {"user_id": uid, "$or": [{"is_active": True}, {"is_active": {"$exists": False}}]}
+                            stats = {
+                                "total_files": db.code_snippets.count_documents(active_q),
+                                "languages": list(db.code_snippets.distinct("programming_language", active_q)),
+                                "recent_activity": [],
+                            }
+                            recent = (
+                                db.code_snippets.find(active_q, {"file_name": 1, "created_at": 1})
+                                .sort("created_at", -1)
+                                .limit(5)
+                            )
+                            for item in recent:
+                                stats["recent_activity"].append(
+                                    {
+                                        "file_name": item.get("file_name", ""),
+                                        "created_at": (item.get("created_at") or now).isoformat(),
+                                    }
+                                )
+                            raw = json.dumps({}, sort_keys=True, ensure_ascii=False)
+                            h = hashlib.sha256(raw.encode("utf-8")).hexdigest()[:16]
+                            key = f"api:stats:user:{uid}:{h}"
+                            try:
+                                _cache.set_dynamic(
+                                    key,
+                                    stats,
+                                    "user_stats",
+                                    {"user_id": uid, "endpoint": "api_stats", "access_frequency": "high"},
+                                )
+                            except Exception:
+                                pass
+                        except Exception:
+                            pass
+
+                        # Suggestions (if engine available)
+                        if _search_engine is not None:
+                            for q in uniq_seeds:
+                                if (_t.time() - t0) > budget:
+                                    break
+                                try:
+                                    if len(q) < 2:
+                                        continue
+                                    sugg = _search_engine.suggest_completions(uid, q, limit=10)
+                                    payload = json.dumps({"q": q}, sort_keys=True, ensure_ascii=False)
+                                    h = hashlib.sha256(payload.encode("utf-8")).hexdigest()[:16]
+                                    key = f"api:search_suggest:{uid}:{h}"
+                                    _cache.set_dynamic(
+                                        key,
+                                        {"suggestions": sugg},
+                                        "search_results",
+                                        {"user_id": uid, "endpoint": "api_search_suggestions"},
+                                    )
+                                except Exception:
+                                    continue
+
+                    # Emit
+                    try:
+                        try:
+                            from observability import emit_event as _emit
+                        except Exception:  # pragma: no cover
+                            _emit = (lambda *a, **k: None)
+                        _emit("cache_warming_done", severity="info")
+                    except Exception:
+                        pass
+                    tracker.add_log(run.run_id, "info", "Cache warming done")
+                except Exception as e:
                     try:
                         from observability import emit_event as _emit
-                    except Exception:  # pragma: no cover
+                    except Exception:
                         _emit = (lambda *a, **k: None)
-                    _emit("cache_warming_done", severity="info")
-                except Exception:
-                    pass
-            except Exception:
-                try:
-                    from observability import emit_event as _emit
-                except Exception:
-                    _emit = (lambda *a, **k: None)
-                _emit("cache_warming_error", severity="anomaly")
+                    _emit("cache_warming_error", severity="anomaly", error=str(e))
+                    raise
 
         try:
             interval_secs = int(os.getenv("CACHE_WARMING_INTERVAL_SECS", "900") or 900)

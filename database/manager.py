@@ -129,6 +129,8 @@ class DatabaseManager:
     def __init__(self):
         self.client = None
         self.db = None
+        # תאימות לשכבות שמצפות ל-db_name (למשל JobTracker במדריכים)
+        self.db_name = ""
         # אתחול לאובייקטים שאינם None כדי לעמוד בטייפים
         self.collection = _StubCollection()
         self.large_files_collection = _StubCollection()
@@ -193,6 +195,10 @@ class DatabaseManager:
 
             self.client = None
             self.db = NoOpDB()
+            try:
+                self.db_name = str(getattr(self.db, "name", "") or "noop_db")
+            except Exception:
+                self.db_name = "noop_db"
             self.collection = NoOpCollection()
             self.large_files_collection = NoOpCollection()
             self.backup_ratings_collection = NoOpCollection()
@@ -292,6 +298,10 @@ class DatabaseManager:
                 raise RuntimeError("MONGODB_URL is not configured")
 
             database_name = getattr(config, "DATABASE_NAME", None) or os.getenv("DATABASE_NAME", "code_keeper_bot")
+            try:
+                self.db_name = str(database_name or "")
+            except Exception:
+                self.db_name = ""
 
             self.client = MongoClient(
                 mongo_url,
@@ -434,6 +444,22 @@ class DatabaseManager:
             IndexModel([("ts", ASCENDING)], name="metrics_ttl", expireAfterSeconds=30 * 24 * 60 * 60),
         ]
 
+        # job_runs collection (Background Jobs Monitor) indexes + TTL 7 days
+        JOB_RUNS_COLLECTION = "job_runs"
+        job_runs_indexes: List[Any] = []
+        try:
+            from .job_runs_collection import JOB_RUNS_COLLECTION, JOB_RUNS_INDEXES
+
+            for idx in JOB_RUNS_INDEXES:
+                keys = idx.get("keys")
+                if not keys:
+                    continue
+                opts = dict(idx)
+                opts.pop("keys", None)
+                job_runs_indexes.append(IndexModel(keys, **opts))
+        except Exception:
+            job_runs_indexes = []
+
         try:
             self.collection.create_indexes(indexes)
             self.large_files_collection.create_indexes(large_files_indexes)
@@ -447,6 +473,12 @@ class DatabaseManager:
             try:
                 collection_name = getattr(config, 'METRICS_COLLECTION', 'service_metrics')
                 self.db[collection_name].create_indexes(metrics_indexes)  # type: ignore[index]
+            except Exception:
+                pass
+            # job_runs (best-effort)
+            try:
+                if job_runs_indexes:
+                    self.db[JOB_RUNS_COLLECTION].create_indexes(job_runs_indexes)  # type: ignore[index]
             except Exception:
                 pass
             if self.backup_ratings_collection is not None:

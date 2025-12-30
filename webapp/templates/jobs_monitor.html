@@ -1,0 +1,537 @@
+{% extends "base.html" %}
+{% block title %}Background Jobs Monitor{% endblock %}
+
+{% block content %}
+<div class="jobs-monitor">
+    <header class="page-header">
+        <h1>🔄 Background Jobs Monitor</h1>
+        <div class="header-actions">
+            <button id="refresh-btn" class="btn btn-secondary">
+                <span class="icon">🔄</span> רענן
+            </button>
+        </div>
+    </header>
+
+    <!-- Active Runs Section -->
+    <section class="active-runs-section">
+        <h2>⚡ הרצות פעילות</h2>
+        <div id="active-runs" class="runs-grid">
+            <div class="loading-skeleton">טוען...</div>
+        </div>
+    </section>
+
+    <!-- Jobs by Category -->
+    <section class="jobs-section">
+        <h2>📋 כל ה-Jobs</h2>
+
+        <div class="category-tabs">
+            <button class="tab active" data-category="all">הכל</button>
+            <button class="tab" data-category="backup">גיבויים</button>
+            <button class="tab" data-category="cache">קאש</button>
+            <button class="tab" data-category="sync">סנכרון</button>
+            <button class="tab" data-category="cleanup">ניקוי</button>
+            <button class="tab" data-category="monitoring">ניטור</button>
+            <button class="tab" data-category="batch">Batch</button>
+        </div>
+
+        <div id="jobs-list" class="jobs-grid">
+            <div class="loading-skeleton">טוען...</div>
+        </div>
+    </section>
+
+    <!-- Job Detail Modal -->
+    <div id="job-modal" class="modal hidden">
+        <div class="modal-content">
+            <header class="modal-header">
+                <h3 id="modal-job-name">שם Job</h3>
+                <button class="close-btn">&times;</button>
+            </header>
+            <div id="modal-body" class="modal-body">
+                <!-- Content loaded dynamically -->
+            </div>
+        </div>
+    </div>
+</div>
+
+<style>
+.jobs-monitor {
+    padding: 20px;
+    max-width: 1200px;
+    margin: 0 auto;
+}
+
+.page-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 24px;
+}
+
+.runs-grid, .jobs-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+    gap: 16px;
+}
+
+.job-card {
+    background: var(--card-bg, #fff);
+    border-radius: 8px;
+    padding: 16px;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    cursor: pointer;
+    transition: transform 0.2s, box-shadow 0.2s;
+}
+
+.job-card:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 8px rgba(0,0,0,0.15);
+}
+
+.job-card .job-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    margin-bottom: 8px;
+}
+
+.job-card .job-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.btn-trigger {
+    background: transparent;
+    border: 1px solid var(--border-color, #ddd);
+    border-radius: 50%;
+    width: 28px;
+    height: 28px;
+    cursor: pointer;
+    transition: all 0.2s;
+    font-size: 12px;
+}
+
+.btn-trigger:hover:not(:disabled) {
+    background: var(--primary-color, #007bff);
+    border-color: var(--primary-color, #007bff);
+}
+
+.btn-trigger:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+}
+
+.toast {
+    position: fixed;
+    bottom: 20px;
+    left: 50%;
+    transform: translateX(-50%);
+    padding: 12px 24px;
+    border-radius: 8px;
+    color: #fff;
+    z-index: 2000;
+    animation: slideUp 0.3s ease;
+}
+
+.toast-success { background: #28a745; }
+.toast-error { background: #dc3545; }
+.toast-info { background: #17a2b8; }
+
+@keyframes slideUp {
+    from { transform: translateX(-50%) translateY(20px); opacity: 0; }
+    to { transform: translateX(-50%) translateY(0); opacity: 1; }
+}
+
+.job-card .job-name {
+    font-weight: 600;
+    font-size: 1.1em;
+}
+
+.job-card .job-status {
+    padding: 4px 8px;
+    border-radius: 4px;
+    font-size: 0.85em;
+}
+
+.job-card .job-status.enabled { background: #d4edda; color: #155724; }
+.job-card .job-status.disabled { background: #f8d7da; color: #721c24; }
+.job-card .job-status.running { background: #cce5ff; color: #004085; }
+
+.job-card .job-description {
+    color: var(--text-muted, #666);
+    font-size: 0.9em;
+    margin-bottom: 12px;
+}
+
+.job-card .job-meta {
+    display: flex;
+    gap: 12px;
+    font-size: 0.85em;
+    color: var(--text-muted, #888);
+}
+
+.run-card {
+    background: var(--card-bg, #fff);
+    border-radius: 8px;
+    padding: 16px;
+    border-left: 4px solid;
+}
+
+.run-card.running { border-color: #007bff; }
+.run-card.completed { border-color: #28a745; }
+.run-card.failed { border-color: #dc3545; }
+
+.progress-bar {
+    height: 8px;
+    background: #e9ecef;
+    border-radius: 4px;
+    overflow: hidden;
+    margin-top: 8px;
+}
+
+.progress-bar .fill {
+    height: 100%;
+    background: #007bff;
+    transition: width 0.3s ease;
+}
+
+.category-tabs {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 16px;
+    flex-wrap: wrap;
+}
+
+.category-tabs .tab {
+    padding: 8px 16px;
+    border: 1px solid var(--border-color, #ddd);
+    border-radius: 20px;
+    background: transparent;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.category-tabs .tab.active {
+    background: var(--primary-color, #007bff);
+    color: #fff;
+    border-color: var(--primary-color, #007bff);
+}
+
+.modal {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0,0,0,0.5);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 1000;
+}
+
+.modal.hidden { display: none; }
+
+.modal-content {
+    background: var(--card-bg, #fff);
+    border-radius: 12px;
+    width: 90%;
+    max-width: 700px;
+    max-height: 80vh;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+}
+
+.modal-header {
+    padding: 16px 20px;
+    border-bottom: 1px solid var(--border-color, #eee);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.modal-body {
+    padding: 20px;
+    overflow-y: auto;
+}
+
+.logs-list {
+    font-family: monospace;
+    font-size: 0.85em;
+    max-height: 300px;
+    overflow-y: auto;
+    background: var(--code-bg, #f5f5f5);
+    padding: 12px;
+    border-radius: 8px;
+}
+
+.log-entry {
+    padding: 4px 0;
+    border-bottom: 1px solid var(--border-color, #eee);
+}
+
+.log-entry.error { color: #dc3545; }
+.log-entry.warning { color: #ffc107; }
+.log-entry .timestamp { color: var(--text-muted, #888); }
+
+@media (max-width: 768px) {
+    .runs-grid, .jobs-grid {
+        grid-template-columns: 1fr;
+    }
+}
+</style>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const API_BASE = '/api/jobs';
+    let currentCategory = 'all';
+    let refreshInterval;
+
+    // Load initial data
+    loadJobs();
+    loadActiveRuns();
+
+    // Auto-refresh every 10 seconds
+    refreshInterval = setInterval(() => {
+        loadActiveRuns();
+    }, 10000);
+
+    // Event handlers
+    document.getElementById('refresh-btn').addEventListener('click', () => {
+        loadJobs();
+        loadActiveRuns();
+    });
+
+    document.querySelectorAll('.category-tabs .tab').forEach(tab => {
+        tab.addEventListener('click', () => {
+            document.querySelectorAll('.category-tabs .tab').forEach(t => t.classList.remove('active'));
+            tab.classList.add('active');
+            currentCategory = tab.dataset.category;
+            filterJobs();
+        });
+    });
+
+    document.querySelector('.modal .close-btn').addEventListener('click', closeModal);
+    document.getElementById('job-modal').addEventListener('click', (e) => {
+        if (e.target.id === 'job-modal') closeModal();
+    });
+
+    async function loadJobs() {
+        try {
+            const res = await fetch(API_BASE);
+            const data = await res.json();
+            window.allJobs = data.jobs;
+            filterJobs();
+        } catch (err) {
+            console.error('Failed to load jobs:', err);
+        }
+    }
+
+    async function loadActiveRuns() {
+        try {
+            const res = await fetch(`${API_BASE}/active`);
+            const data = await res.json();
+            renderActiveRuns(data.active_runs);
+        } catch (err) {
+            console.error('Failed to load active runs:', err);
+        }
+    }
+
+    function filterJobs() {
+        const jobs = window.allJobs || [];
+        const filtered = currentCategory === 'all'
+            ? jobs
+            : jobs.filter(j => j.category === currentCategory);
+        renderJobs(filtered);
+    }
+
+    function renderJobs(jobs) {
+        const container = document.getElementById('jobs-list');
+        if (!jobs.length) {
+            container.innerHTML = '<div class="empty-state">אין jobs בקטגוריה זו</div>';
+            return;
+        }
+
+        container.innerHTML = jobs.map(job => `
+            <div class="job-card" data-job-id="${job.job_id}">
+                <div class="job-header">
+                    <span class="job-name">${getCategoryIcon(job.category)} ${job.name}</span>
+                    <div class="job-actions">
+                        <button class="btn-trigger" data-job-id="${job.job_id}"
+                                title="הרץ עכשיו" ${!job.enabled ? 'disabled' : ''}>
+                            ▶️
+                        </button>
+                        <span class="job-status ${job.enabled ? 'enabled' : 'disabled'}">
+                            ${job.enabled ? '✓ פעיל' : '✗ מושבת'}
+                        </span>
+                    </div>
+                </div>
+                <div class="job-description">${job.description}</div>
+                <div class="job-meta">
+                    <span>🏷️ ${job.category}</span>
+                    ${job.interval_seconds ? `<span>⏱️ כל ${formatInterval(job.interval_seconds)}</span>` : ''}
+                    <span>📦 ${job.type}</span>
+                </div>
+            </div>
+        `).join('');
+
+        // Add click handlers for cards
+        container.querySelectorAll('.job-card').forEach(card => {
+            card.addEventListener('click', (e) => {
+                // Don't open modal if clicking trigger button
+                if (e.target.classList.contains('btn-trigger')) return;
+                openJobDetail(card.dataset.jobId);
+            });
+        });
+
+        // Add click handlers for trigger buttons
+        container.querySelectorAll('.btn-trigger').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                triggerJob(btn.dataset.jobId);
+            });
+        });
+    }
+
+    async function triggerJob(jobId) {
+        if (!confirm(`להריץ את ${jobId} עכשיו?`)) return;
+
+        try {
+            const res = await fetch(`${API_BASE}/${jobId}/trigger`, { method: 'POST' });
+            const data = await res.json();
+
+            if (res.ok) {
+                showToast(`✅ Job ${jobId} הופעל בהצלחה`, 'success');
+                // Refresh active runs after a short delay
+                setTimeout(loadActiveRuns, 1000);
+            } else {
+                showToast(`❌ ${data.error || 'שגיאה בהפעלת Job'}`, 'error');
+            }
+        } catch (err) {
+            showToast('❌ שגיאת רשת', 'error');
+        }
+    }
+
+    function showToast(message, type = 'info') {
+        const toast = document.createElement('div');
+        toast.className = `toast toast-${type}`;
+        toast.textContent = message;
+        document.body.appendChild(toast);
+        setTimeout(() => toast.remove(), 3000);
+    }
+
+    function renderActiveRuns(runs) {
+        const container = document.getElementById('active-runs');
+        if (!runs.length) {
+            container.innerHTML = '<div class="empty-state">אין הרצות פעילות כרגע</div>';
+            return;
+        }
+
+        container.innerHTML = runs.map(run => `
+            <div class="run-card ${run.status}">
+                <div class="run-header">
+                    <strong>${run.job_id}</strong>
+                    <span class="run-status">${getStatusIcon(run.status)} ${run.status}</span>
+                </div>
+                <div class="run-progress">
+                    ${run.processed_items}/${run.total_items} פריטים (${run.progress}%)
+                    <div class="progress-bar">
+                        <div class="fill" style="width: ${run.progress}%"></div>
+                    </div>
+                </div>
+                <div class="run-meta">
+                    התחיל: ${formatTime(run.started_at)}
+                </div>
+            </div>
+        `).join('');
+    }
+
+    async function openJobDetail(jobId) {
+        try {
+            const res = await fetch(`${API_BASE}/${jobId}`);
+            const data = await res.json();
+            renderJobModal(data);
+            document.getElementById('job-modal').classList.remove('hidden');
+        } catch (err) {
+            console.error('Failed to load job detail:', err);
+        }
+    }
+
+    function renderJobModal(data) {
+        const { job, active_runs, history } = data;
+        document.getElementById('modal-job-name').textContent = `${getCategoryIcon(job.category)} ${job.name}`;
+
+        document.getElementById('modal-body').innerHTML = `
+            <div class="job-detail">
+                <p><strong>תיאור:</strong> ${job.description}</p>
+                <p><strong>קטגוריה:</strong> ${job.category}</p>
+                <p><strong>סוג:</strong> ${job.type}</p>
+                ${job.interval_seconds ? `<p><strong>אינטרוול:</strong> כל ${formatInterval(job.interval_seconds)}</p>` : ''}
+                <p><strong>קובץ מקור:</strong> <code>${job.source_file}</code></p>
+                <p><strong>סטטוס:</strong> ${job.enabled ? '✓ פעיל' : '✗ מושבת'}</p>
+            </div>
+
+            ${active_runs.length ? `
+                <h4>⚡ הרצות פעילות</h4>
+                <div class="active-list">
+                    ${active_runs.map(r => renderRunItem(r)).join('')}
+                </div>
+            ` : ''}
+
+            <h4>📜 היסטוריה אחרונה</h4>
+            <div class="history-list">
+                ${history.length ? history.map(r => renderRunItem(r)).join('') : '<p>אין היסטוריה</p>'}
+            </div>
+        `;
+    }
+
+    function renderRunItem(run) {
+        return `
+            <div class="run-item ${run.status}">
+                <div class="run-summary">
+                    <span>${getStatusIcon(run.status)} ${run.status}</span>
+                    <span>${formatTime(run.started_at)}</span>
+                    ${run.duration_seconds ? `<span>⏱️ ${run.duration_seconds.toFixed(1)}s</span>` : ''}
+                </div>
+                ${run.error_message ? `<div class="error-msg">❌ ${run.error_message}</div>` : ''}
+            </div>
+        `;
+    }
+
+    function closeModal() {
+        document.getElementById('job-modal').classList.add('hidden');
+    }
+
+    function getCategoryIcon(category) {
+        const icons = {
+            backup: '💾', cache: '🗄️', sync: '☁️', cleanup: '🧹',
+            monitoring: '📊', batch: '📦', other: '📋'
+        };
+        return icons[category] || '📋';
+    }
+
+    function getStatusIcon(status) {
+        const icons = {
+            running: '🔄', completed: '✅', failed: '❌',
+            pending: '⏳', cancelled: '🚫', skipped: '⏭️'
+        };
+        return icons[status] || '❓';
+    }
+
+    function formatInterval(seconds) {
+        if (seconds >= 86400) return `${Math.round(seconds / 86400)} ימים`;
+        if (seconds >= 3600) return `${Math.round(seconds / 3600)} שעות`;
+        if (seconds >= 60) return `${Math.round(seconds / 60)} דקות`;
+        return `${seconds} שניות`;
+    }
+
+    function formatTime(isoString) {
+        if (!isoString) return '-';
+        const d = new Date(isoString);
+        return d.toLocaleString('he-IL', { hour: '2-digit', minute: '2-digit', day: '2-digit', month: '2-digit' });
+    }
+});
+</script>
+{% endblock %}
+

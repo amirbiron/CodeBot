@@ -99,10 +99,16 @@ class ReminderScheduler:
         return msg
 
     async def _check_recurring_reminders(self, context):  # pragma: no cover - simple delegation
-        try:
-            self.db.handle_recurring_reminders()
-        except Exception as e:
-            logger.error(f"Recurring reminders check failed: {e}")
+        from services.job_tracker import get_job_tracker
+
+        tracker = get_job_tracker()
+        with tracker.track("recurring_reminders_check", trigger="scheduled") as run:
+            try:
+                self.db.handle_recurring_reminders()
+                tracker.add_log(run.run_id, "info", "Recurring reminders processed")
+            except Exception as e:
+                logger.error(f"Recurring reminders check failed: {e}")
+                raise
 
 
 def setup_reminder_scheduler(application: Application):

@@ -261,6 +261,14 @@ Compress(app)
 # לוגר מודולרי לשימוש פנימי
 logger = logging.getLogger(__name__)
 
+# Jobs Monitor: רישום Jobs מוכרים ל-UI/API (fail-open)
+try:
+    from services.register_jobs import register_all_jobs  # noqa: E402
+
+    register_all_jobs()
+except Exception:
+    pass
+
 # --- Background warmup: heavy observability reports (fire & forget) ---
 _OBS_WARMUP_THREAD: Optional[threading.Thread] = None
 _OBS_WARMUP_LOCK = threading.Lock()
@@ -3642,6 +3650,189 @@ def admin_config_inspector_page():
 def admin_drills_page():
     """מסך Drill Mode להרצת תרגולים והיסטוריה."""
     return render_template('admin_drills.html')
+
+
+# --- Background Jobs Monitor UI + API ---
+@app.route('/jobs/monitor')
+@admin_required
+def jobs_monitor_page():
+    """מסך ניטור Jobs שרצים ברקע."""
+    return render_template('jobs_monitor.html')
+
+
+def _job_run_doc_to_dict(doc: Dict[str, Any], include_logs: bool = False) -> Dict[str, Any]:
+    logs = []
+    if include_logs:
+        for log in (doc.get("logs") or [])[:]:
+            try:
+                ts = log.get("timestamp")
+                ts_s = ts.isoformat() if ts else None
+            except Exception:
+                ts_s = None
+            logs.append(
+                {
+                    "timestamp": ts_s,
+                    "level": log.get("level"),
+                    "message": log.get("message"),
+                }
+            )
+
+    started_at = doc.get("started_at")
+    ended_at = doc.get("ended_at")
+    try:
+        started_s = started_at.isoformat() if started_at else None
+    except Exception:
+        started_s = None
+    try:
+        ended_s = ended_at.isoformat() if ended_at else None
+    except Exception:
+        ended_s = None
+
+    duration_seconds = None
+    try:
+        if started_at and ended_at:
+            duration_seconds = float((ended_at - started_at).total_seconds())
+    except Exception:
+        duration_seconds = None
+
+    out = {
+        "run_id": doc.get("run_id"),
+        "job_id": doc.get("job_id"),
+        "started_at": started_s,
+        "ended_at": ended_s,
+        "status": doc.get("status"),
+        "progress": int(doc.get("progress") or 0),
+        "total_items": int(doc.get("total_items") or 0),
+        "processed_items": int(doc.get("processed_items") or 0),
+        "error_message": doc.get("error_message"),
+        "trigger": doc.get("trigger"),
+        "user_id": doc.get("user_id"),
+        "duration_seconds": duration_seconds,
+    }
+    if include_logs:
+        out["logs"] = logs
+    return out
+
+
+@app.route('/api/jobs', methods=['GET'])
+@admin_required
+def api_jobs_list():
+    """GET /api/jobs - רשימת כל ה-jobs"""
+    from services.job_registry import JobRegistry
+
+    registry = JobRegistry()
+    jobs = []
+    for job in registry.list_all():
+        jobs.append(
+            {
+                "job_id": job.job_id,
+                "name": job.name,
+                "description": job.description,
+                "category": job.category.value,
+                "type": job.job_type.value,
+                "interval_seconds": job.interval_seconds,
+                "enabled": registry.is_enabled(job.job_id),
+                "env_toggle": job.env_toggle,
+            }
+        )
+    return jsonify({"jobs": jobs})
+
+
+@app.route('/api/jobs/active', methods=['GET'])
+@admin_required
+def api_jobs_active():
+    """GET /api/jobs/active - הרצות פעילות"""
+    try:
+        db = get_db()
+        cursor = db.job_runs.find({"status": "running"}).sort("started_at", DESCENDING).limit(50)
+        runs = [_job_run_doc_to_dict(doc) for doc in (cursor or [])]
+        return jsonify({"active_runs": runs})
+    except Exception:
+        logger.exception("api_jobs_active_failed")
+        return jsonify({"active_runs": []})
+
+
+@app.route('/api/jobs/<job_id>', methods=['GET'])
+@admin_required
+def api_job_detail(job_id: str):
+    """GET /api/jobs/{job_id} - פרטי job ספציפי"""
+    from services.job_registry import JobRegistry
+
+    registry = JobRegistry()
+    job = registry.get(job_id)
+    if not job:
+        return jsonify({"error": "Job not found"}), 404
+
+    try:
+        db = get_db()
+        active = list(
+            db.job_runs.find({"job_id": job_id, "status": "running"}).sort("started_at", DESCENDING).limit(20)
+        )
+        history = list(
+            db.job_runs.find({"job_id": job_id}).sort("started_at", DESCENDING).limit(20)
+        )
+    except Exception:
+        active = []
+        history = []
+
+    return jsonify(
+        {
+            "job": {
+                "job_id": job.job_id,
+                "name": job.name,
+                "description": job.description,
+                "category": job.category.value,
+                "type": job.job_type.value,
+                "interval_seconds": job.interval_seconds,
+                "enabled": registry.is_enabled(job.job_id),
+                "source_file": job.source_file,
+            },
+            "active_runs": [_job_run_doc_to_dict(d) for d in active],
+            "history": [_job_run_doc_to_dict(d) for d in history],
+        }
+    )
+
+
+@app.route('/api/jobs/runs/<run_id>', methods=['GET'])
+@admin_required
+def api_job_run_detail(run_id: str):
+    """GET /api/jobs/runs/{run_id} - פרטי הרצה"""
+    try:
+        db = get_db()
+        doc = db.job_runs.find_one({"run_id": run_id})
+    except Exception:
+        doc = None
+    if not doc:
+        return jsonify({"error": "Run not found"}), 404
+    return jsonify({"run": _job_run_doc_to_dict(doc, include_logs=True)})
+
+
+@app.route('/api/jobs/<job_id>/trigger', methods=['POST'])
+@admin_required
+def api_job_trigger(job_id: str):
+    """POST /api/jobs/{job_id}/trigger - הפעלה ידנית"""
+    from services.job_registry import JobRegistry
+
+    registry = JobRegistry()
+    job = registry.get(job_id)
+    if not job:
+        return jsonify({"error": "Job not found"}), 404
+
+    # Proxy trigger to the bot's internal webserver (same API shape)
+    bot_api_base = (os.getenv("BOT_JOBS_API_BASE_URL") or os.getenv("BOT_API_BASE_URL") or "").strip()
+    if not bot_api_base:
+        return jsonify({"error": "trigger_unavailable", "message": "BOT_JOBS_API_BASE_URL not configured"}), 501
+
+    url = bot_api_base.rstrip("/") + f"/api/jobs/{job_id}/trigger"
+    try:
+        resp = http_request("POST", url, service="bot", endpoint="/api/jobs/{job_id}/trigger")
+        try:
+            payload = resp.json()
+        except Exception:
+            payload = {"message": (resp.text or "").strip(), "job_id": job_id}
+        return jsonify(payload), int(getattr(resp, "status_code", 200) or 200)
+    except Exception as e:
+        return jsonify({"error": "trigger_failed", "message": str(e)}), 502
 
 
 @app.route('/admin/observability/replay')

@@ -1173,7 +1173,189 @@ def create_app() -> web.Application:
     app.router.add_get("/api/db/collections", db_health_collections_view)
     app.router.add_get("/api/db/health", db_health_summary_view)
 
+    # Jobs Monitor routes
+    try:
+        register_jobs_routes(app)
+    except Exception:
+        pass
+
     return app
+
+
+async def get_jobs_list(request: web.Request) -> web.Response:
+    """GET /api/jobs - רשימת כל ה-jobs"""
+    from services.job_registry import JobRegistry
+
+    registry = JobRegistry()
+    jobs = []
+
+    for job in registry.list_all():
+        jobs.append(
+            {
+                "job_id": job.job_id,
+                "name": job.name,
+                "description": job.description,
+                "category": job.category.value,
+                "type": job.job_type.value,
+                "interval_seconds": job.interval_seconds,
+                "enabled": registry.is_enabled(job.job_id),
+                "env_toggle": job.env_toggle,
+            }
+        )
+
+    return web.json_response({"jobs": jobs})
+
+
+async def get_job_detail(request: web.Request) -> web.Response:
+    """GET /api/jobs/{job_id} - פרטי job ספציפי"""
+    from services.job_registry import JobRegistry
+    from services.job_tracker import get_job_tracker
+
+    job_id = request.match_info.get("job_id")
+    registry = JobRegistry()
+    tracker = get_job_tracker()
+
+    job = registry.get(job_id)
+    if not job:
+        return web.json_response({"error": "Job not found"}, status=404)
+
+    history = tracker.get_job_history(job_id, limit=20)
+    active = [r for r in tracker.get_active_runs() if r.job_id == job_id]
+
+    return web.json_response(
+        {
+            "job": {
+                "job_id": job.job_id,
+                "name": job.name,
+                "description": job.description,
+                "category": job.category.value,
+                "type": job.job_type.value,
+                "interval_seconds": job.interval_seconds,
+                "enabled": registry.is_enabled(job.job_id),
+                "source_file": job.source_file,
+            },
+            "active_runs": [_run_to_dict(r) for r in active],
+            "history": [_run_to_dict(r) for r in history],
+        }
+    )
+
+
+async def get_run_detail(request: web.Request) -> web.Response:
+    """GET /api/jobs/runs/{run_id} - פרטי הרצה"""
+    from services.job_tracker import get_job_tracker
+
+    run_id = request.match_info.get("run_id")
+    tracker = get_job_tracker()
+
+    run = tracker.get_run(run_id)
+    if not run:
+        return web.json_response({"error": "Run not found"}, status=404)
+
+    return web.json_response({"run": _run_to_dict(run, include_logs=True)})
+
+
+async def get_active_runs(request: web.Request) -> web.Response:
+    """GET /api/jobs/active - הרצות פעילות"""
+    from services.job_tracker import get_job_tracker
+
+    tracker = get_job_tracker()
+    runs = tracker.get_active_runs()
+
+    return web.json_response({"active_runs": [_run_to_dict(r) for r in runs]})
+
+
+async def trigger_job(request: web.Request) -> web.Response:
+    """POST /api/jobs/{job_id}/trigger - הפעלה ידנית"""
+    from services.job_registry import JobRegistry
+
+    job_id = request.match_info.get("job_id")
+    registry = JobRegistry()
+
+    job = registry.get(job_id)
+    if not job:
+        return web.json_response({"error": "Job not found"}, status=404)
+
+    # Trigger via Telegram JobQueue (same process as bot)
+    tg_app = None
+    try:
+        tg_app = request.app.get("telegram_application")
+    except Exception:
+        tg_app = None
+    if tg_app is None:
+        return web.json_response({"error": "job_queue_unavailable"}, status=503)
+
+    jq = getattr(tg_app, "job_queue", None)
+    if jq is None or not hasattr(jq, "get_jobs_by_name"):
+        return web.json_response({"error": "job_queue_unavailable"}, status=503)
+
+    try:
+        jobs = jq.get_jobs_by_name(job_id)
+    except Exception:
+        jobs = []
+    if not jobs:
+        return web.json_response({"error": "job_not_scheduled"}, status=404)
+
+    job_obj = jobs[0]
+    callback = getattr(job_obj, "callback", None)
+    if not callable(callback):
+        return web.json_response({"error": "job_callback_unavailable"}, status=500)
+
+    # Schedule immediate one-off run
+    try:
+        suffix = str(int(time.time()))
+    except Exception:
+        suffix = "now"
+    try:
+        jq.run_once(callback, when=0, name=f"{job_id}_manual_{suffix}")
+    except Exception:
+        try:
+            # Fallback for older signatures
+            jq.run_once(callback, when=0)
+        except Exception as e:
+            return web.json_response({"error": "trigger_failed", "message": str(e)}, status=500)
+
+    return web.json_response({"message": f"Job {job_id} triggered", "job_id": job_id})
+
+
+def _run_to_dict(run, include_logs: bool = False) -> dict:
+    """המרת JobRun ל-dict"""
+    d = {
+        "run_id": run.run_id,
+        "job_id": run.job_id,
+        "started_at": run.started_at.isoformat() if run.started_at else None,
+        "ended_at": run.ended_at.isoformat() if run.ended_at else None,
+        "status": run.status.value,
+        "progress": run.progress,
+        "total_items": run.total_items,
+        "processed_items": run.processed_items,
+        "error_message": run.error_message,
+        "trigger": run.trigger,
+        "user_id": run.user_id,
+        "duration_seconds": (
+            (run.ended_at - run.started_at).total_seconds()
+            if run.ended_at and run.started_at
+            else None
+        ),
+    }
+    if include_logs:
+        d["logs"] = [
+            {
+                "timestamp": log.timestamp.isoformat(),
+                "level": log.level,
+                "message": log.message,
+            }
+            for log in run.logs
+        ]
+    return d
+
+
+def register_jobs_routes(app: web.Application):
+    """רישום routes של Jobs"""
+    app.router.add_get("/api/jobs", get_jobs_list)
+    app.router.add_get("/api/jobs/active", get_active_runs)
+    app.router.add_get("/api/jobs/{job_id}", get_job_detail)
+    app.router.add_get("/api/jobs/runs/{run_id}", get_run_detail)
+    app.router.add_post("/api/jobs/{job_id}/trigger", trigger_job)
 
 
 def run(host: str = "0.0.0.0", port: int = 10000) -> None:
