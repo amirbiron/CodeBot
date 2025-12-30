@@ -498,7 +498,17 @@ def _maybe_sample_info(logger, method, event_dict: Dict[str, Any]):
 
 
 def setup_structlog_logging(min_level: str | int = "INFO") -> None:
-    level = logging.getLevelName(min_level) if isinstance(min_level, str) else int(min_level)
+    # logging.getLevelName("INFO") -> 20 (ok), but logging.getLevelName("10") -> "Level 10" (bad).
+    # Support numeric strings explicitly to avoid breaking structlog configuration.
+    if isinstance(min_level, str):
+        raw = str(min_level).strip()
+        if raw.isdigit():
+            level = int(raw)
+        else:
+            resolved = logging.getLevelName(raw.upper() or "INFO")
+            level = resolved if isinstance(resolved, int) else logging.INFO
+    else:
+        level = int(min_level)
 
     if not logging.getLogger().handlers:
         logging.basicConfig(level=level, handlers=[logging.StreamHandler()])
