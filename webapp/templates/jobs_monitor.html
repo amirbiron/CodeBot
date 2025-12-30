@@ -287,6 +287,14 @@ document.addEventListener('DOMContentLoaded', function() {
     const API_BASE = '/api/jobs';
     let currentCategory = 'all';
     let refreshInterval;
+    const runIdFromQuery = (() => {
+        try {
+            const params = new URLSearchParams(window.location.search || '');
+            return params.get('run_id') || '';
+        } catch (e) {
+            return '';
+        }
+    })();
 
     // Load initial data
     loadJobs();
@@ -315,6 +323,12 @@ document.addEventListener('DOMContentLoaded', function() {
     document.querySelector('.modal .close-btn').addEventListener('click', closeModal);
     document.getElementById('job-modal').addEventListener('click', (e) => {
         if (e.target.id === 'job-modal') closeModal();
+    });
+    document.getElementById('modal-body').addEventListener('click', (e) => {
+        const item = e.target.closest && e.target.closest('.run-item');
+        if (item && item.dataset && item.dataset.runId) {
+            openRunLogs(item.dataset.runId);
+        }
     });
 
     async function loadJobs() {
@@ -458,6 +472,41 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     }
 
+    async function openRunLogs(runId) {
+        if (!runId) return;
+        try {
+            const res = await fetch(`${API_BASE}/runs/${runId}`);
+            const data = await res.json();
+            if (!res.ok) {
+                showToast('❌ לא ניתן לטעון לוגים', 'error');
+                return;
+            }
+            const run = data.run || {};
+            const logs = run.logs || [];
+            document.getElementById('modal-job-name').textContent = `${getStatusIcon(run.status)} ${run.job_id} – לוגים`;
+            document.getElementById('modal-body').innerHTML = `
+                <div class="job-detail">
+                    <p><strong>Run ID:</strong> <code>${escapeHtml(run.run_id || '')}</code></p>
+                    <p><strong>סטטוס:</strong> ${escapeHtml(run.status || '')}</p>
+                    ${run.error_message ? `<p><strong>שגיאה:</strong> <code>${escapeHtml(run.error_message)}</code></p>` : ''}
+                </div>
+                <h4>📋 לוגים</h4>
+                <div class="logs-list">
+                    ${logs.length ? logs.map(l => `
+                        <div class="log-entry ${escapeHtml(l.level || 'info')}">
+                            <span class="timestamp">${formatTime(l.timestamp)}</span>
+                            <span>[${escapeHtml(l.level || 'info')}]</span>
+                            <span>${escapeHtml(l.message || '')}</span>
+                        </div>
+                    `).join('') : '<div class="empty-state">אין לוגים להרצה הזו</div>'}
+                </div>
+            `;
+            document.getElementById('job-modal').classList.remove('hidden');
+        } catch (err) {
+            showToast('❌ שגיאת רשת', 'error');
+        }
+    }
+
     function renderJobModal(data) {
         const { job, active_runs, history } = data;
         document.getElementById('modal-job-name').textContent = `${getCategoryIcon(job.category)} ${job.name}`;
@@ -488,7 +537,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
     function renderRunItem(run) {
         return `
-            <div class="run-item ${run.status}">
+            <div class="run-item ${run.status}" data-run-id="${run.run_id || ''}" title="לחץ לצפייה בלוגים">
                 <div class="run-summary">
                     <span>${getStatusIcon(run.status)} ${run.status}</span>
                     <span>${formatTime(run.started_at)}</span>
@@ -530,6 +579,21 @@ document.addEventListener('DOMContentLoaded', function() {
         if (!isoString) return '-';
         const d = new Date(isoString);
         return d.toLocaleString('he-IL', { hour: '2-digit', minute: '2-digit', day: '2-digit', month: '2-digit' });
+    }
+
+    function escapeHtml(value) {
+        const s = String(value || '');
+        return s
+            .replaceAll('&', '&amp;')
+            .replaceAll('<', '&lt;')
+            .replaceAll('>', '&gt;')
+            .replaceAll('"', '&quot;')
+            .replaceAll("'", '&#39;');
+    }
+
+    // Deep link: open logs directly (e.g., ?run_id=abc123)
+    if (runIdFromQuery) {
+        openRunLogs(runIdFromQuery);
     }
 });
 </script>

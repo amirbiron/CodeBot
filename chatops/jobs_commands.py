@@ -43,6 +43,39 @@ def handle_jobs_command(args: str) -> str:
             )
         return "\n".join(lines)
 
+    # Failed runs (recent)
+    if args == "failed":
+        try:
+            coll = tracker.db.client[tracker.db.db_name]["job_runs"]  # type: ignore[attr-defined]
+            cursor = coll.find({"status": "failed"}).sort("started_at", -1).limit(10)
+            failed_docs = list(cursor)
+        except Exception:
+            return "❌ לא ניתן לשלוף כשלים אחרונים (DB לא זמין)"
+
+        if not failed_docs:
+            return "✅ אין כשלים אחרונים"
+
+        def _safe_code(text: str, limit: int = 120) -> str:
+            s = str(text or "").replace("`", "'").strip()
+            if len(s) > limit:
+                s = s[: max(0, limit - 1)] + "…"
+            return s
+
+        lines = ["❌ **כשלים אחרונים:**\n"]
+        for doc in failed_docs:
+            job_id = str(doc.get("job_id") or "").strip() or "unknown"
+            run_id = str(doc.get("run_id") or "").strip()
+            err = _safe_code(str(doc.get("error_message") or ""))
+            try:
+                started = doc.get("started_at")
+                ts = started.strftime("%d/%m %H:%M") if started else ""
+            except Exception:
+                ts = ""
+            logs_link = f"{monitor_base_url}/jobs/monitor?run_id={run_id}" if run_id else f"{monitor_base_url}/jobs/monitor"
+            lines.append(f"❌ `{job_id}` {ts}\n   `{err}`\n   [📋 לוגים]({logs_link})")
+
+        return "\n".join(lines)
+
     # By category
     try:
         category = JobCategory(args)
@@ -129,6 +162,7 @@ def handle_jobs_command(args: str) -> str:
         lines.append("")
 
     lines.append("_השתמש ב-`/jobs active` לצפייה בהרצות פעילות_")
+    lines.append("_השתמש ב-`/jobs failed` לצפייה בכשלים אחרונים_")
     return "\n".join(lines)
 
 
