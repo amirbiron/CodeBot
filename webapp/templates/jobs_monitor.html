@@ -20,6 +20,14 @@
         </div>
     </section>
 
+    <!-- Recent Runs Section -->
+    <section class="recent-runs-section">
+        <h2>🕐 הרצות אחרונות (5 דקות)</h2>
+        <div id="recent-runs" class="runs-grid">
+            <div class="loading-skeleton">טוען...</div>
+        </div>
+    </section>
+
     <!-- Jobs by Category -->
     <section class="jobs-section">
         <h2>📋 כל ה-Jobs</h2>
@@ -181,6 +189,20 @@
 .run-card.running { border-color: #007bff; }
 .run-card.completed { border-color: #28a745; }
 .run-card.failed { border-color: #dc3545; }
+.run-card.skipped { border-color: #ffc107; }
+
+.recent-runs-section {
+    margin-bottom: 24px;
+}
+
+.error-msg {
+    color: #dc3545;
+    font-size: 0.85em;
+    margin-top: 8px;
+    padding: 4px 8px;
+    background: #f8d7da;
+    border-radius: 4px;
+}
 
 .progress-bar {
     height: 8px;
@@ -368,7 +390,8 @@ document.addEventListener('DOMContentLoaded', function() {
             throw new Error(`Failed to load active runs: ${res.status}`);
         }
         const data = await res.json();
-        renderActiveRuns(data.active_runs);
+        renderActiveRuns(data.active_runs || []);
+        renderRecentRuns(data.recent_runs || []);
     }
 
     function filterJobs() {
@@ -478,6 +501,37 @@ document.addEventListener('DOMContentLoaded', function() {
                 </div>
             </div>
         `).join('');
+    }
+
+    function renderRecentRuns(runs) {
+        const container = document.getElementById('recent-runs');
+        if (!runs.length) {
+            container.innerHTML = '<div class="empty-state">אין הרצות אחרונות ב-5 דקות האחרונות</div>';
+            return;
+        }
+
+        container.innerHTML = runs.map(run => `
+            <div class="run-card ${run.status}" data-run-id="${run.run_id || ''}" title="לחץ לצפייה בלוגים" style="cursor: pointer;">
+                <div class="run-header">
+                    <strong>${escapeHtml(run.job_id || '')}</strong>
+                    <span class="run-status">${getStatusIcon(run.status)} ${run.status}</span>
+                </div>
+                <div class="run-meta">
+                    <span>התחיל: ${formatTime(run.started_at)}</span>
+                    <span>סיים: ${formatTime(run.ended_at)}</span>
+                    ${run.duration_seconds ? `<span>⏱️ ${run.duration_seconds.toFixed(1)}s</span>` : ''}
+                </div>
+                ${run.error_message ? `<div class="error-msg">❌ ${escapeHtml(run.error_message)}</div>` : ''}
+            </div>
+        `).join('');
+
+        // Add click handler to view logs
+        container.querySelectorAll('.run-card[data-run-id]').forEach(card => {
+            card.addEventListener('click', () => {
+                const runId = card.dataset.runId;
+                if (runId) openRunLogs(runId);
+            });
+        });
     }
 
     async function openJobDetail(jobId) {

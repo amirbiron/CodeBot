@@ -3904,15 +3904,32 @@ def api_jobs_list():
 @app.route('/api/jobs/active', methods=['GET'])
 @admin_required
 def api_jobs_active():
-    """GET /api/jobs/active - הרצות פעילות"""
+    """GET /api/jobs/active - הרצות פעילות והרצות אחרונות"""
+    from datetime import timedelta
+
     try:
         db = get_db()
-        cursor = db.job_runs.find({"status": "running"}).sort("started_at", DESCENDING).limit(50)
-        runs = [_job_run_doc_to_dict(doc) for doc in (cursor or [])]
-        return jsonify({"active_runs": runs})
+        now = datetime.now(timezone.utc)
+        five_minutes_ago = now - timedelta(minutes=5)
+
+        # הרצות שעדיין רצות כרגע
+        running_cursor = db.job_runs.find({"status": "running"}).sort("started_at", DESCENDING).limit(20)
+        running_runs = [_job_run_doc_to_dict(doc) for doc in (running_cursor or [])]
+
+        # הרצות שהסתיימו ב-5 דקות האחרונות (completed/failed/skipped)
+        recent_cursor = db.job_runs.find({
+            "status": {"$in": ["completed", "failed", "skipped"]},
+            "ended_at": {"$gte": five_minutes_ago}
+        }).sort("ended_at", DESCENDING).limit(30)
+        recent_runs = [_job_run_doc_to_dict(doc) for doc in (recent_cursor or [])]
+
+        return jsonify({
+            "active_runs": running_runs,
+            "recent_runs": recent_runs,
+        })
     except Exception:
         logger.exception("api_jobs_active_failed")
-        return jsonify({"active_runs": []})
+        return jsonify({"active_runs": [], "recent_runs": []})
 
 
 @app.route('/api/jobs/<job_id>', methods=['GET'])
