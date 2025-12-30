@@ -75,6 +75,31 @@ class BatchProcessor:
         job = self.active_jobs[job_id]
         job.status = "running"
         job.start_time = time.time()
+
+        # Background Jobs Monitor: track per-user batch run (best-effort)
+        tracker = None
+        run_id = None
+        try:
+            from services.job_tracker import get_job_tracker
+
+            tracker = get_job_tracker()
+            run = tracker.start_run(
+                job_id=job.job_id,
+                trigger="manual",
+                user_id=int(job.user_id),
+                total_items=int(job.total or 0),
+                allow_concurrent=True,
+            )
+            run_id = run.run_id
+            tracker.add_log(
+                run_id,
+                "info",
+                "Batch started",
+                details={"operation": str(job.operation), "total_files": int(job.total or 0)},
+            )
+        except Exception:
+            tracker = None
+            run_id = None
         
         try:
             # עיבוד בparallel עם ThreadPoolExecutor
@@ -113,6 +138,11 @@ class BatchProcessor:
                     # עדכון progress
                     job.progress += 1
                     logger.debug(f"Job {job_id}: {job.progress}/{job.total} completed")
+                    try:
+                        if tracker is not None and run_id:
+                            tracker.update_progress(run_id, processed=int(job.progress), total=int(job.total or 0))
+                    except Exception:
+                        pass
                     # הוספת דיליי קטן כדי לאפשר חוויית התקדמות אמיתית (ולא "סיים בשנייה")
                     # נמוך מספיק כדי לא לעכב משמעותית, אך יוצר תחושה ריאלית ב-UI
                     try:
@@ -128,12 +158,30 @@ class BatchProcessor:
             failed = job.total - successful
             
             logger.info(f"עבודת batch {job_id} הושלמה: {successful} הצליחו, {failed} נכשלו")
+            try:
+                if tracker is not None and run_id:
+                    tracker.complete_run(
+                        run_id,
+                        result={
+                            "operation": str(job.operation),
+                            "total": int(job.total or 0),
+                            "successful": int(successful),
+                            "failed": int(failed),
+                        },
+                    )
+            except Exception:
+                pass
             
         except Exception as e:
             job.status = "failed"
             job.error_message = str(e)
             job.end_time = time.time()
             logger.error(f"עבודת batch {job_id} נכשלה: {e}")
+            try:
+                if tracker is not None and run_id:
+                    tracker.fail_run(run_id, str(e))
+            except Exception:
+                pass
         
         return job
     

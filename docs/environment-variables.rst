@@ -118,6 +118,18 @@
      - -
      - ``https://my.app``
      - WebApp
+   * - ``BOT_JOBS_API_BASE_URL``
+     - בסיס URL ל-API הפנימי של הבוט (aiohttp) עבור Trigger של Jobs ממסך המוניטור (``POST /api/jobs/<job_id>/trigger``). אם לא מוגדר, כפתור ההפעלה ידנית במוניטור יהיה לא זמין.
+     - לא
+     - -
+     - ``http://127.0.0.1:8080``
+     - WebApp
+   * - ``BOT_API_BASE_URL``
+     - Alias/תאימות לאחור ל-``BOT_JOBS_API_BASE_URL`` (נבדק רק אם ``BOT_JOBS_API_BASE_URL`` ריק).
+     - לא
+     - -
+     - ``http://127.0.0.1:8080``
+     - WebApp
    * - ``WEBAPP_ENABLE_WARMUP``
      - הפעלת שלב warmup אוטומטי אחרי עליית Gunicorn (``1``/``0``)
      - לא
@@ -269,7 +281,7 @@
      - ``123,456``
      - Bot/WebApp
    * - ``DB_HEALTH_TOKEN``
-     - טוקן להגנה על נתיבי ``/api/db/*`` (נשלח כ-``Authorization: Bearer <token>``). ללא טוקן ה-API חסום (403) והדשבורד ``/db-health`` יחזיר 403.
+     - טוקן להגנה על נתיבים פנימיים רגישים בשרת ה-aiohttp: ``/api/db/*`` וגם ``/api/jobs/*`` (נשלח כ-``Authorization: Bearer <token>``). ללא טוקן ה-API חסום (403) והדשבורד ``/db-health`` יחזיר 403.
      - כן (DB Health)
      - "" (ריק)
      - ``db_health_super_secret_token``
@@ -483,6 +495,18 @@
      - לא
      - ``false``
      - ``true``
+     - Bot
+   * - ``JOBS_STUCK_THRESHOLD_MINUTES``
+     - סף (בדקות) לזיהוי הרצות Jobs "תקועות" והפקת אירוע ``job_stuck`` (נבדק מול ``job_runs`` ב-DB).
+     - לא
+     - ``20``
+     - ``30``
+     - Bot
+   * - ``JOBS_STUCK_MONITOR_INTERVAL_SECS``
+     - תדירות הריצה (שניות) של מוניטור Jobs "תקועות" שמפיק ``job_stuck``.
+     - לא
+     - ``60``
+     - ``120``
      - Bot
    * - ``CACHE_MAINT_INTERVAL_SECS``
      - מרווח בין ריצות תחזוקת קאש (שניות)

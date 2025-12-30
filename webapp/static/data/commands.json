@@ -90,6 +90,29 @@
     "doc_link": "https://amirbiron.github.io/CodeBot/chatops/commands.html"
   },
   {
+    "name": "/jobs",
+    "type": "chatops",
+    "description": "נראות לריצות רקע + פעולות משתמש (Drive/Reminders/Batch)",
+    "arguments": [
+      "active|failed|<job_id>|<category>"
+    ],
+    "doc_link": "https://amirbiron.github.io/CodeBot/chatops/commands.html"
+  },
+  {
+    "name": "/jobs active",
+    "type": "chatops",
+    "description": "רשימת הרצות פעילות כרגע",
+    "arguments": [],
+    "doc_link": "https://amirbiron.github.io/CodeBot/chatops/commands.html"
+  },
+  {
+    "name": "/jobs failed",
+    "type": "chatops",
+    "description": "כשלים אחרונים + קישור ללוגים במוניטור",
+    "arguments": [],
+    "doc_link": "https://amirbiron.github.io/CodeBot/chatops/commands.html"
+  },
+  {
     "name": "/incidents",
     "type": "chatops",
     "description": "יומן תקלות אחרונות",

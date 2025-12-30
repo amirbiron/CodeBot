@@ -22,6 +22,7 @@ import hashlib
 import structlog
 from collections import deque
 from datetime import datetime, timezone
+from pathlib import Path
 
 try:  # Optional during lightweight environments
     from monitoring.error_signatures import ErrorSignatures, SignatureMatch  # type: ignore
@@ -32,6 +33,12 @@ try:  # Optional OpenTelemetry
     from opentelemetry.trace import get_current_span  # type: ignore
 except Exception:  # pragma: no cover
     get_current_span = None  # type: ignore
+
+# Optional dependency; config/alerts.yml can be YAML
+try:  # type: ignore
+    import yaml  # type: ignore
+except Exception:  # pragma: no cover
+    yaml = None  # type: ignore
 
 SCHEMA_VERSION = "1.0"
 
@@ -494,6 +501,12 @@ def emit_event(event: str, severity: str = "info", **fields: Any) -> None:
     logger = structlog.get_logger()
     fields.setdefault("event", event)
 
+    # Event-based alerts (best-effort, fail-open)
+    try:
+        _maybe_emit_event_alert(event, severity, fields)
+    except Exception:
+        pass
+
     if severity in {"error", "critical"}:
         ctx = get_observability_context()
         request_id = str(fields.get("request_id") or ctx.get("request_id") or "").strip()
@@ -591,6 +604,166 @@ def emit_event(event: str, severity: str = "info", **fields: Any) -> None:
         logger.warning(**fields)
     else:
         logger.info(**fields)
+
+
+# -----------------------------------------------------------------------------
+# Event-based alert rules (config/alerts.yml -> "alerts" section)
+# -----------------------------------------------------------------------------
+_EVENT_ALERTS_LOCK = threading.Lock()
+_EVENT_ALERTS_CACHE: dict[str, Any] = {"mtime": 0.0, "rules": [], "last_fired": {}}
+
+
+def _alerts_config_path() -> Path:
+    raw = os.getenv("ALERTS_CONFIG_PATH") or os.getenv("LOG_ALERTS_CONFIG_PATH") or ""
+    raw = str(raw or "").strip()
+    if raw:
+        try:
+            return Path(raw).expanduser()
+        except Exception:
+            pass
+    # Default: repository-relative (observability.py sits at repo root)
+    return Path(__file__).resolve().parent / "config" / "alerts.yml"
+
+
+def _load_event_alert_rules() -> list[dict[str, Any]]:
+    p = _alerts_config_path()
+    try:
+        if not p.exists():
+            return []
+    except Exception:
+        return []
+
+    try:
+        mtime = float(p.stat().st_mtime)
+    except Exception:
+        mtime = 0.0
+
+    with _EVENT_ALERTS_LOCK:
+        cached_mtime = float(_EVENT_ALERTS_CACHE.get("mtime") or 0.0)
+        if cached_mtime and mtime and mtime <= cached_mtime:
+            return list(_EVENT_ALERTS_CACHE.get("rules") or [])
+
+        text = ""
+        try:
+            text = p.read_text(encoding="utf-8")
+        except Exception:
+            text = ""
+
+        data: dict[str, Any] = {}
+        try:
+            if yaml is not None:  # type: ignore[truthy-bool]
+                loaded = yaml.safe_load(text) or {}
+                if isinstance(loaded, dict):
+                    data = loaded
+        except Exception:
+            data = {}
+
+        rules_raw = data.get("alerts") if isinstance(data, dict) else None
+        rules: list[dict[str, Any]] = []
+        if isinstance(rules_raw, list):
+            for item in rules_raw:
+                if not isinstance(item, dict):
+                    continue
+                name = str(item.get("name") or "").strip()
+                pattern = str(item.get("event_pattern") or "").strip()
+                if not name or not pattern:
+                    continue
+                sev = str(item.get("severity") or "error").strip().lower()
+                cooldown = int(item.get("cooldown_seconds") or 0)
+                message = str(item.get("message") or "").strip()
+                rules.append(
+                    {
+                        "name": name,
+                        "event_pattern": pattern,
+                        "severity": sev,
+                        "cooldown_seconds": max(0, cooldown),
+                        "message": message,
+                    }
+                )
+
+        _EVENT_ALERTS_CACHE["mtime"] = mtime
+        _EVENT_ALERTS_CACHE["rules"] = rules
+        if "last_fired" not in _EVENT_ALERTS_CACHE:
+            _EVENT_ALERTS_CACHE["last_fired"] = {}
+        return list(rules)
+
+
+def _safe_format_template(template: str, fields: dict[str, Any]) -> str:
+    class _Safe(dict):
+        def __missing__(self, key):
+            return ""
+
+    try:
+        return str(template).format_map(_Safe(fields))
+    except Exception:
+        return str(template)
+
+
+def _maybe_emit_event_alert(event: str, severity: str, fields: dict[str, Any]) -> None:
+    ev = str(event or "").strip()
+    if not ev:
+        return
+    # Avoid recursion/noise
+    if ev in {"internal_alert", "alert_received", "single_error_alert_fallback", "log_aggregator_shadow_emit"}:
+        return
+
+    rules = _load_event_alert_rules()
+    if not rules:
+        return
+
+    ctx: dict[str, Any] = dict(fields)
+    ctx.setdefault("event", ev)
+    ctx.setdefault("severity", str(severity or "info"))
+
+    now = time.time()
+    for rule in rules:
+        pattern = str(rule.get("event_pattern") or "").strip()
+        if not pattern or pattern != ev:
+            continue
+
+        name = str(rule.get("name") or "").strip() or "event_alert"
+        sev = str(rule.get("severity") or "error").strip().lower()
+        cooldown = int(rule.get("cooldown_seconds") or 0)
+        template = str(rule.get("message") or "").strip() or ev
+
+        # Keyed cooldown: alert name + job_id + run_id (when present)
+        key = "|".join(
+            [
+                name,
+                ev,
+                str(ctx.get("job_id") or ""),
+                str(ctx.get("run_id") or ""),
+            ]
+        )
+
+        with _EVENT_ALERTS_LOCK:
+            last_fired = _EVENT_ALERTS_CACHE.get("last_fired") or {}
+            try:
+                last = float(last_fired.get(key) or 0.0)
+            except Exception:
+                last = 0.0
+            if cooldown and (now - last) < float(cooldown):
+                continue
+            try:
+                last_fired[key] = now
+                _EVENT_ALERTS_CACHE["last_fired"] = last_fired
+            except Exception:
+                pass
+
+        summary = _safe_format_template(template, ctx)
+
+        try:
+            from internal_alerts import emit_internal_alert  # type: ignore
+        except Exception:
+            return
+
+        internal_sev = sev
+        if internal_sev == "warning":
+            internal_sev = "warn"
+        try:
+            emit_internal_alert(name=name, severity=internal_sev, summary=summary, **ctx)
+        except Exception:
+            return
 
 
 def init_sentry() -> None:

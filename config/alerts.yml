@@ -4,3 +4,18 @@ cooldown_minutes: 20
 immediate_categories:
   - config
   - critical
+
+# --- Background Jobs Monitor (event-based alerts) ---
+# NOTE: This file is also used by the log-aggregator. The keys above remain compatible.
+alerts:
+  - name: job_failure_alert
+    event_pattern: "job_failed"
+    severity: error
+    cooldown_seconds: 300
+    message: "❌ Job {job_id} נכשל: {error}"
+
+  - name: job_stuck_alert
+    event_pattern: "job_stuck"
+    severity: critical
+    cooldown_seconds: 600
+    message: "⚠️ Job {job_id} תקוע כבר {minutes} דקות"
