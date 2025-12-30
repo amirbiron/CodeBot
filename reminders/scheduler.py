@@ -78,18 +78,35 @@ class ReminderScheduler:
                 pass
             if not when or when <= datetime.now(timezone.utc):
                 # Immediate send (still tracked as reminder_{id})
-                from services.job_tracker import get_job_tracker, JobAlreadyRunningError
+                tracker = None
+                JobAlreadyRunningError = None  # type: ignore[assignment]
+                try:
+                    from services.job_tracker import get_job_tracker, JobAlreadyRunningError as _JARE
 
-                tracker = get_job_tracker()
+                    JobAlreadyRunningError = _JARE  # type: ignore[assignment]
+                    tracker = get_job_tracker()
+                except Exception:
+                    tracker = None
+                    JobAlreadyRunningError = None  # type: ignore[assignment]
+
+                if tracker is None:
+                    # Fail-open: monitoring must not block reminders
+                    await self._send_reminder(reminder, raise_on_error=False)
+                    return True
+
                 try:
                     with tracker.track(name, trigger="scheduled", user_id=user_id) as run:
                         await self._send_reminder(reminder, raise_on_error=True)
                         tracker.add_log(run.run_id, "info", "Reminder sent (immediate)")
-                except JobAlreadyRunningError:
-                    try:
-                        tracker.record_skipped(job_id=name, trigger="scheduled", user_id=user_id, reason="already_running")
-                    except Exception:
-                        pass
+                except Exception as exc:
+                    if JobAlreadyRunningError is not None and isinstance(exc, JobAlreadyRunningError):
+                        try:
+                            tracker.record_skipped(job_id=name, trigger="scheduled", user_id=user_id, reason="already_running")
+                        except Exception:
+                            pass
+                        return True
+                    # Fail-open: if tracking fails, still send reminder
+                    await self._send_reminder(reminder, raise_on_error=False)
                 return True
             # cancel existing
             for job in self.job_queue.get_jobs_by_name(name):
@@ -105,20 +122,36 @@ class ReminderScheduler:
         rid = reminder.get("reminder_id")
         user_id = int(reminder.get("user_id") or 0)
         job_id = f"reminder_{rid}"
+        tracker = None
+        JobAlreadyRunningError = None  # type: ignore[assignment]
+        try:
+            from services.job_tracker import get_job_tracker, JobAlreadyRunningError as _JARE
 
-        from services.job_tracker import get_job_tracker, JobAlreadyRunningError
+            JobAlreadyRunningError = _JARE  # type: ignore[assignment]
+            tracker = get_job_tracker()
+        except Exception:
+            tracker = None
+            JobAlreadyRunningError = None  # type: ignore[assignment]
 
-        tracker = get_job_tracker()
+        if tracker is None:
+            # Fail-open: do not lose scheduled reminders if monitoring breaks
+            await self._send_reminder(reminder, raise_on_error=False)
+            return
+
         try:
             with tracker.track(job_id, trigger="scheduled", user_id=user_id) as run:
                 await self._send_reminder(reminder, raise_on_error=True)
                 tracker.add_log(run.run_id, "info", "Reminder sent")
-        except JobAlreadyRunningError:
-            # Rare, but keep it visible as skipped instead of failing
-            try:
-                tracker.record_skipped(job_id=job_id, trigger="scheduled", user_id=user_id, reason="already_running")
-            except Exception:
-                pass
+        except Exception as exc:
+            if JobAlreadyRunningError is not None and isinstance(exc, JobAlreadyRunningError):
+                # Rare, but keep it visible as skipped instead of failing
+                try:
+                    tracker.record_skipped(job_id=job_id, trigger="scheduled", user_id=user_id, reason="already_running")
+                except Exception:
+                    pass
+                return
+            # Fail-open: attempt sending even if tracking fails
+            await self._send_reminder(reminder, raise_on_error=False)
             return
 
     async def _send_reminder(self, reminder: dict, *, raise_on_error: bool = False) -> bool:

@@ -145,9 +145,45 @@ class GoogleDriveMenuHandler:
                                                 pass
                                         except Exception:
                                             pass
-                                    # Mark as failed in the monitor
-                                    tracker.fail_run(run.run_id, "drive_scheduled_backup_failed")
-                                    # Continue to update schedule prefs below (like the legacy flow)
+
+                                # Update next-run prefs (same behavior as legacy flow, but kept inside tracking)
+                                try:
+                                    now_dt = datetime.now(timezone.utc)
+                                    next_dt = now_dt + timedelta(seconds=seconds)
+                                    update_prefs = {"last_backup_at": now_dt.isoformat(), "schedule_next_at": next_dt.isoformat()}
+                                    if ok:
+                                        update_prefs["last_full_backup_at"] = now_dt.isoformat()
+                                    try:
+                                        from src.infrastructure.composition import get_files_facade  # type: ignore
+                                        get_files_facade().save_drive_prefs(uid, update_prefs)
+                                    except Exception:
+                                        pass
+                                    # עדכן גם על ה-Job עצמו עבור תצוגת סטטוס
+                                    try:
+                                        setattr(ctx.job, "next_t", next_dt)
+                                    except Exception:
+                                        pass
+                                    try:
+                                        emit_event(
+                                            "drive_scheduled_backup_update_prefs",
+                                            severity="info",
+                                            user_id=int(uid),
+                                            next_at=str(update_prefs.get("schedule_next_at")),
+                                            last_at=str(update_prefs.get("last_backup_at")),
+                                            last_full_at=str(update_prefs.get("last_full_backup_at") or "")
+                                        )
+                                    except Exception:
+                                        pass
+                                except Exception as e:
+                                    logger.exception("drive_scheduled_backup_update_prefs_failed")
+                                    try:
+                                        emit_event("drive_scheduled_backup_update_prefs_failed", severity="error", user_id=int(uid), error=str(e))
+                                    except Exception:
+                                        pass
+
+                                # Mark failure via context manager (do NOT call tracker.fail_run here)
+                                if not ok:
+                                    raise RuntimeError("drive_scheduled_backup_failed")
                         except JobAlreadyRunningError:
                             try:
                                 tracker.record_skipped(
@@ -159,8 +195,13 @@ class GoogleDriveMenuHandler:
                             except Exception:
                                 pass
                             return
+                        except RuntimeError as e:
+                            # Normal failure path (ok=False) was already recorded by the tracker.
+                            if str(e) == "drive_scheduled_backup_failed":
+                                return
+                            raise
                     except Exception as e:
-                        # Ensure we still emit best-effort legacy event below
+                        # Unexpected error: keep best-effort legacy event for debugging
                         try:
                             logger.exception("drive_scheduled_backup_error")
                         except Exception:
@@ -207,7 +248,7 @@ class GoogleDriveMenuHandler:
                                     pass
                             except Exception:
                                 pass
-                # עדכן זמן הבא בהעדפות
+                # עדכן זמן הבא בהעדפות (legacy/monitoring-disabled path)
                 try:
                     now_dt = datetime.now(timezone.utc)
                     next_dt = now_dt + timedelta(seconds=seconds)
