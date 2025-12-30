@@ -286,6 +286,7 @@
 <script>
 document.addEventListener('DOMContentLoaded', function() {
     const API_BASE = '/api/jobs';
+    const DB_HEALTH_TOKEN = {{ db_health_token | tojson }};
     let currentCategory = 'all';
     let refreshInterval;
     const runIdFromQuery = (() => {
@@ -296,6 +297,13 @@ document.addEventListener('DOMContentLoaded', function() {
             return '';
         }
     })();
+
+    function authHeaders() {
+        if (!DB_HEALTH_TOKEN) {
+            return {};
+        }
+        return { 'Authorization': `Bearer ${DB_HEALTH_TOKEN}` };
+    }
 
     // Load initial data
     loadJobs();
@@ -334,7 +342,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
     async function loadJobs() {
         try {
-            const res = await fetch(API_BASE);
+            const res = await fetch(API_BASE, { headers: authHeaders() });
             const data = await res.json();
             window.allJobs = data.jobs;
             filterJobs();
@@ -345,7 +353,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
     async function loadActiveRuns() {
         try {
-            const res = await fetch(`${API_BASE}/active`);
+            const res = await fetch(`${API_BASE}/active`, { headers: authHeaders() });
             const data = await res.json();
             renderActiveRuns(data.active_runs);
         } catch (err) {
@@ -413,7 +421,7 @@ document.addEventListener('DOMContentLoaded', function() {
         if (!confirm(`להריץ את ${jobId} עכשיו?`)) return;
 
         try {
-            const res = await fetch(`${API_BASE}/${jobId}/trigger`, { method: 'POST' });
+            const res = await fetch(`${API_BASE}/${jobId}/trigger`, { method: 'POST', headers: authHeaders() });
             const data = await res.json();
 
             if (res.ok) {
@@ -464,7 +472,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
     async function openJobDetail(jobId) {
         try {
-            const res = await fetch(`${API_BASE}/${jobId}`);
+            const res = await fetch(`${API_BASE}/${jobId}`, { headers: authHeaders() });
             const data = await res.json();
             renderJobModal(data);
             document.getElementById('job-modal').classList.remove('hidden');
@@ -476,7 +484,7 @@ document.addEventListener('DOMContentLoaded', function() {
     async function openRunLogs(runId) {
         if (!runId) return;
         try {
-            const res = await fetch(`${API_BASE}/runs/${runId}`);
+            const res = await fetch(`${API_BASE}/runs/${runId}`, { headers: authHeaders() });
             const data = await res.json();
             if (!res.ok) {
                 showToast('❌ לא ניתן לטעון לוגים', 'error');
