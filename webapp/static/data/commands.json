@@ -113,6 +113,20 @@
     "doc_link": "https://amirbiron.github.io/CodeBot/chatops/commands.html"
   },
   {
+    "name": "/jobs <job_id>",
+    "type": "chatops",
+    "description": "פרטי job ספציפי לפי מזהה (run_id או job_id)",
+    "arguments": [],
+    "doc_link": "https://amirbiron.github.io/CodeBot/chatops/commands.html"
+  },
+  {
+    "name": "/jobs <category>",
+    "type": "chatops",
+    "description": "סינון jobs לפי קטגוריה (drive/reminders/batch/system)",
+    "arguments": [],
+    "doc_link": "https://amirbiron.github.io/CodeBot/chatops/commands.html"
+  },
+  {
     "name": "/incidents",
     "type": "chatops",
     "description": "יומן תקלות אחרונות",
