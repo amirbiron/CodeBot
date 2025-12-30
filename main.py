@@ -3772,6 +3772,108 @@ async def setup_bot_data(application: Application) -> None:  # noqa: D401
         # Fail-open
         pass
 
+    # Job Triggers Processor: עיבוד בקשות trigger מה-Webapp
+    try:
+        from database import db as _dbm_triggers  # type: ignore
+
+        async def _process_pending_job_triggers(context: ContextTypes.DEFAULT_TYPE):
+            """מעבד בקשות trigger שנוצרו דרך ה-Webapp ומפעיל את הג'ובים."""
+            try:
+                db_obj = getattr(_dbm_triggers, "db", None)
+                if db_obj is None or getattr(db_obj, "name", "") == "noop_db":
+                    return
+
+                coll = getattr(db_obj, "job_trigger_requests", None)
+                if coll is None or not hasattr(coll, "find"):
+                    return
+
+                now = datetime.now(timezone.utc)
+                # מחפש בקשות pending שנוצרו בדקה האחרונה
+                from datetime import timedelta as _td_trigger
+                cutoff = now - _td_trigger(minutes=5)
+
+                cursor = coll.find({
+                    "status": "pending",
+                    "created_at": {"$gte": cutoff},
+                }).sort("created_at", 1).limit(10)
+
+                for doc in cursor:
+                    trigger_id = doc.get("trigger_id")
+                    job_id = doc.get("job_id")
+                    if not trigger_id or not job_id:
+                        continue
+
+                    # סימון כ-processing כדי למנוע עיבוד כפול
+                    result = coll.update_one(
+                        {"trigger_id": trigger_id, "status": "pending"},
+                        {"$set": {"status": "processing", "processed_at": now}},
+                    )
+                    if result.modified_count == 0:
+                        continue  # כבר עובד/עבר עיבוד
+
+                    try:
+                        # חיפוש הג'וב ב-JobQueue והפעלתו
+                        jq = context.application.job_queue
+                        if jq is None:
+                            raise RuntimeError("job_queue_unavailable")
+
+                        jobs = jq.get_jobs_by_name(job_id)
+                        if not jobs:
+                            raise RuntimeError(f"job_not_found: {job_id}")
+
+                        job_obj = jobs[0]
+                        callback = getattr(job_obj, "callback", None)
+                        if not callable(callback):
+                            raise RuntimeError(f"callback_not_callable: {job_id}")
+
+                        # הפעלת הג'וב מיידית
+                        suffix = str(int(time.time()))
+                        data = getattr(job_obj, "data", None)
+                        chat_id = getattr(job_obj, "chat_id", None)
+                        user_id = getattr(job_obj, "user_id", None)
+                        kwargs = {"when": 0, "name": f"{job_id}_webapp_trigger_{suffix}"}
+                        if data is not None:
+                            kwargs["data"] = data
+                        if chat_id is not None:
+                            kwargs["chat_id"] = chat_id
+                        if user_id is not None:
+                            kwargs["user_id"] = user_id
+                        jq.run_once(callback, **kwargs)
+
+                        # עדכון סטטוס להצלחה
+                        coll.update_one(
+                            {"trigger_id": trigger_id},
+                            {"$set": {"status": "completed", "result": "triggered"}},
+                        )
+                        logger.info("Processed webapp job trigger: %s -> %s", trigger_id, job_id)
+
+                    except Exception as e:
+                        # עדכון סטטוס לכישלון
+                        coll.update_one(
+                            {"trigger_id": trigger_id},
+                            {"$set": {"status": "failed", "error": str(e)}},
+                        )
+                        logger.warning("Failed to process job trigger %s: %s", trigger_id, e)
+
+            except Exception:
+                return
+
+        try:
+            interval = int(os.getenv("JOB_TRIGGERS_POLL_INTERVAL_SECS", "15") or 15)
+        except Exception:
+            interval = 15
+        interval = max(5, interval)
+        application.job_queue.run_repeating(
+            _process_pending_job_triggers,
+            interval=interval,
+            first=10,
+            name="pending_job_triggers",
+        )
+        logger.info("✅ Pending job triggers processor registered (every %ds)", interval)
+    except Exception:
+        # Fail-open
+        pass
+
     # הגדרת JobStore מתמיד ל-APScheduler (MongoDB) אם אפשרי
     try:
         jq = getattr(application, "job_queue", None)
