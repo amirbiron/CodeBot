@@ -221,6 +221,36 @@ class JobTracker:
         except Exception:
             pass
 
+    def skip_run(self, run_id: str, reason: str = "") -> None:
+        """סיום הרצה כדילוג (למשל disabled או already-running)."""
+        run = self._active_runs.get(run_id)
+        if not run:
+            return
+
+        run.status = JobStatus.SKIPPED
+        run.ended_at = datetime.now(timezone.utc)
+        if reason:
+            run.error_message = str(reason)
+            self.add_log(run_id, "warning", f"Skipped: {reason}")
+        else:
+            self.add_log(run_id, "warning", "Skipped")
+
+        self._persist_run(run)
+        self._active_runs.pop(run_id, None)
+
+        try:
+            from observability import emit_event
+
+            emit_event(
+                "job_skipped",
+                severity="warning",
+                job_id=run.job_id,
+                run_id=run_id,
+                reason=str(reason or ""),
+            )
+        except Exception:
+            pass
+
     @contextmanager
     def track(
         self,

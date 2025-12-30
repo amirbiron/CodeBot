@@ -63,6 +63,13 @@ def test_fail_run(tracker):
     assert run.error_message == "Test error"
 
 
+def test_skip_run(tracker):
+    run = tracker.start_run("test_job")
+    tracker.skip_run(run.run_id, "disabled_by_env")
+    assert run.status == JobStatus.SKIPPED
+    assert run.run_id not in [r.run_id for r in tracker.get_active_runs()]
+
+
 def test_track_context_manager(tracker):
     with tracker.track("test_job") as run:
         tracker.add_log(run.run_id, "info", "Processing...")

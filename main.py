@@ -3673,6 +3673,105 @@ async def setup_bot_data(application: Application) -> None:  # noqa: D401
         # Fail-open: אל תכשיל startup אם מודול הניטור לא זמין
         pass
 
+    # Jobs Monitor: זיהוי הרצות "תקועות" (job_stuck)
+    try:
+        from datetime import timedelta as _td
+        from database import db as _dbm  # type: ignore
+        from observability import emit_event as _emit  # type: ignore
+
+        async def _jobs_stuck_monitor(_context: ContextTypes.DEFAULT_TYPE):  # noqa: ARG001
+            try:
+                db_obj = getattr(_dbm, "db", None)
+                if db_obj is None or getattr(db_obj, "name", "") == "noop_db":
+                    return
+
+                try:
+                    threshold_min = int(os.getenv("JOBS_STUCK_THRESHOLD_MINUTES", "20") or 20)
+                except Exception:
+                    threshold_min = 20
+                threshold_min = max(1, threshold_min)
+
+                now = datetime.now(timezone.utc)
+                cutoff = now - _td(minutes=threshold_min)
+
+                coll = getattr(db_obj, "job_runs", None)
+                if coll is None or not hasattr(coll, "find"):
+                    return
+
+                # emit only once per run (stuck_reported_at gate)
+                cursor = coll.find(
+                    {
+                        "status": "running",
+                        "started_at": {"$lt": cutoff},
+                        "stuck_reported_at": {"$exists": False},
+                    },
+                    {"run_id": 1, "job_id": 1, "started_at": 1},
+                ).sort("started_at", 1).limit(50)
+
+                for doc in list(cursor or []):
+                    run_id = str(doc.get("run_id") or "").strip()
+                    job_id = str(doc.get("job_id") or "").strip()
+                    started_at = doc.get("started_at")
+                    minutes = None
+                    try:
+                        if started_at:
+                            minutes = int(max(1, (now - started_at).total_seconds() // 60))
+                    except Exception:
+                        minutes = None
+
+                    if not run_id or not job_id:
+                        continue
+
+                    # mark + append log (keep last 50)
+                    try:
+                        coll.update_one(
+                            {"run_id": run_id, "stuck_reported_at": {"$exists": False}},
+                            {
+                                "$set": {"stuck_reported_at": now},
+                                "$push": {
+                                    "logs": {
+                                        "$each": [
+                                            {
+                                                "timestamp": now,
+                                                "level": "error",
+                                                "message": "Job stuck detected",
+                                                "details": {"minutes": minutes} if minutes is not None else None,
+                                            }
+                                        ],
+                                        "$slice": -50,
+                                    }
+                                },
+                            },
+                            upsert=False,
+                        )
+                    except Exception:
+                        pass
+
+                    _emit(
+                        "job_stuck",
+                        severity="error",
+                        job_id=job_id,
+                        run_id=run_id,
+                        minutes=int(minutes or threshold_min),
+                    )
+            except Exception:
+                return
+
+        try:
+            interval = int(os.getenv("JOBS_STUCK_MONITOR_INTERVAL_SECS", "60") or 60)
+        except Exception:
+            interval = 60
+        interval = max(30, interval)
+        application.job_queue.run_repeating(
+            _jobs_stuck_monitor,
+            interval=interval,
+            first=30,
+            name="jobs_stuck_monitor",
+        )
+    except Exception:
+        # Fail-open
+        pass
+
     # הגדרת JobStore מתמיד ל-APScheduler (MongoDB) אם אפשרי
     try:
         jq = getattr(application, "job_queue", None)
@@ -3852,13 +3951,23 @@ async def setup_bot_data(application: Application) -> None:  # noqa: D401
             from services.job_tracker import get_job_tracker
 
             tracker = get_job_tracker()
-            run = tracker.start_run("drive_reschedule", trigger="scheduled")
             stats = {"total": 0, "recreated": 0, "scanned": 0, "skipped": 0}
 
             try:
+                trigger = (
+                    str(((getattr(getattr(context, "job", None), "data", None) or {}) or {}).get("trigger") or "scheduled")
+                    .strip()
+                    .lower()
+                )
+            except Exception:
+                trigger = "scheduled"
+
+            # נשתמש ב-track כדי לשמר fail/skip נכון
+            with tracker.track("drive_reschedule", trigger=trigger) as run:
                 drive_handler, handler_restored = get_drive_handler_from_application(context.application)
                 if not drive_handler:
                     logger.warning("drive_reschedule_jobs_skip reason=no_drive_handler")
+                    tracker.skip_run(run.run_id, "no_drive_handler")
                     return
                 if handler_restored:
                     try:
@@ -3885,6 +3994,7 @@ async def setup_bot_data(application: Application) -> None:  # noqa: D401
                         pass
                 if not db_manager:
                     logger.warning("drive_reschedule_jobs_skip reason=no_db_manager")
+                    tracker.skip_run(run.run_id, "no_db_manager")
                     return
                 # Use the new Repository method to get users with active schedules
                 sched_keys = {"daily", "every3", "weekly", "biweekly", "monthly"}
@@ -3911,6 +4021,7 @@ async def setup_bot_data(application: Application) -> None:  # noqa: D401
                             )
                         else:
                             logger.warning("drive_reschedule_jobs_skip reason=no_users_collection")
+                            tracker.skip_run(run.run_id, "no_users_collection")
                             return
                 except Exception as exc:
                     logger.warning("drive_reschedule_jobs_query_failed error=%s", exc)
@@ -3944,12 +4055,7 @@ async def setup_bot_data(application: Application) -> None:  # noqa: D401
                     except Exception:
                         stats["skipped"] += 1
                         continue
-            except Exception as exc:
-                try:
-                    tracker.fail_run(run.run_id, str(exc))
-                except Exception:
-                    pass
-            finally:
+                # ✅ שימוש נכון ב-run.run_id
                 try:
                     tracker.add_log(
                         run.run_id,
@@ -3962,27 +4068,29 @@ async def setup_bot_data(application: Application) -> None:  # noqa: D401
                     tracker.complete_run(run.run_id, result=dict(stats))
                 except Exception:
                     pass
-                try:
-                    logger.info(
-                        "drive_reschedule_jobs_run total=%s recreated=%s scanned=%s skipped=%s",
-                        stats["total"],
-                        stats["recreated"],
-                        stats["scanned"],
-                        stats["skipped"],
-                    )
-                except Exception:
-                    pass
-                try:
-                    emit_event(
-                        "drive_reschedule_jobs_run",
-                        severity="info",
-                        total=int(stats["total"]),
-                        recreated=int(stats["recreated"]),
-                        scanned=int(stats["scanned"]),
-                        skipped=int(stats["skipped"]),
-                    )
-                except Exception:
-                    pass
+
+            # לוגים ואירועים כלליים – נשארים מחוץ ל-track כדי לא להסתבך עם skip_run שמסיר מה-active
+            try:
+                logger.info(
+                    "drive_reschedule_jobs_run total=%s recreated=%s scanned=%s skipped=%s",
+                    stats["total"],
+                    stats["recreated"],
+                    stats["scanned"],
+                    stats["skipped"],
+                )
+            except Exception:
+                pass
+            try:
+                emit_event(
+                    "drive_reschedule_jobs_run",
+                    severity="info",
+                    total=int(stats["total"]),
+                    recreated=int(stats["recreated"]),
+                    scanned=int(stats["scanned"]),
+                    skipped=int(stats["skipped"]),
+                )
+            except Exception:
+                pass
 
         def _safe_run_once(callback, *, when: int, name: str, grace: int) -> None:
             try:
@@ -4037,11 +4145,19 @@ async def setup_bot_data(application: Application) -> None:  # noqa: D401
             from services.job_tracker import get_job_tracker
 
             tracker = get_job_tracker()
-            run = tracker.start_run("weekly_admin_report", trigger="scheduled")
             try:
+                trigger = (
+                    str(((getattr(getattr(context, "job", None), "data", None) or {}) or {}).get("trigger") or "scheduled")
+                    .strip()
+                    .lower()
+                )
+            except Exception:
+                trigger = "scheduled"
+
+            with tracker.track("weekly_admin_report", trigger=trigger) as run:
                 # אפשר לכבות בדוחות שבועיים לחלוטין דרך ENV
                 if str(os.getenv("DISABLE_WEEKLY_REPORTS", "")).lower() in {"1", "true", "yes"}:
-                    tracker.add_log(run.run_id, "info", "Skipped: disabled by env")
+                    tracker.skip_run(run.run_id, "disabled_by_env")
                     return
 
                 # מנגנון השתקה שבועי (idempotent): שלח פעם אחת לכל שבוע קלנדרי
@@ -4069,7 +4185,7 @@ async def setup_bot_data(application: Application) -> None:  # noqa: D401
                     # במקרה של כשל בגייטינג, נמשיך לשלוח (עדיף דיווח על כפילות מאשר איבוד דיווח)
                     should_send = True
                 if not should_send:
-                    tracker.add_log(run.run_id, "info", "Skipped: already sent this week")
+                    tracker.skip_run(run.run_id, "already_sent_this_week")
                     return
 
                 total_users = 0
@@ -4098,24 +4214,7 @@ async def setup_bot_data(application: Application) -> None:  # noqa: D401
                     _emit("weekly_report_sent", severity="info", total_users=total_users, active_week=active_week)
                 except Exception:
                     pass
-            except Exception as e:
-                try:
-                    try:
-                        from observability import emit_event as _emit
-                    except Exception:  # pragma: no cover
-                        _emit = lambda *a, **k: None
-                    _emit("weekly_report_error", severity="error", error=str(e))
-                except Exception:
-                    pass
-                try:
-                    tracker.fail_run(run.run_id, str(e))
-                except Exception:
-                    pass
-            finally:
-                try:
-                    tracker.complete_run(run.run_id)
-                except Exception:
-                    pass
+            # חריגות מנוהלות ע"י ה-context manager
 
         # Run weekly; first run after a short delay to avoid startup contention
         when_seconds = int(os.getenv("WEEKLY_REPORT_DELAY_SECS", "3600") or 3600)
@@ -4141,11 +4240,20 @@ async def setup_bot_data(application: Application) -> None:  # noqa: D401
             from services.job_tracker import get_job_tracker
 
             tracker = get_job_tracker()
-            with tracker.track("cache_maintenance", trigger="scheduled") as run:
+            # Trigger resolution (scheduled/manual/api)
+            try:
+                trigger = (
+                    str(((getattr(getattr(context, "job", None), "data", None) or {}) or {}).get("trigger") or "scheduled")
+                    .strip()
+                    .lower()
+                )
+            except Exception:
+                trigger = "scheduled"
+            with tracker.track("cache_maintenance", trigger=trigger) as run:
                 try:
                     # כיבוי גלובלי דרך ENV
                     if str(os.getenv("DISABLE_BACKGROUND_CLEANUP", "")).lower() in {"1", "true", "yes"}:
-                        tracker.add_log(run.run_id, "info", "Skipped: disabled by env")
+                        tracker.skip_run(run.run_id, "disabled_by_env")
                         return
                     # ניקוי עדין של קאש (respect SAFE_MODE/DISABLE_CACHE_MAINTENANCE internally)
                     from cache_manager import cache  # lazy import
@@ -4195,38 +4303,62 @@ async def setup_bot_data(application: Application) -> None:  # noqa: D401
             from services.job_tracker import get_job_tracker
 
             tracker = get_job_tracker()
-            with tracker.track("backups_cleanup", trigger="scheduled") as run:
+            try:
+                trigger = (
+                    str(((getattr(getattr(context, "job", None), "data", None) or {}) or {}).get("trigger") or "scheduled")
+                    .strip()
+                    .lower()
+                )
+            except Exception:
+                trigger = "scheduled"
+
+            # 🔒 Singleton Jobs: אם כבר רץ, דלג במקום להפיל את ה-job
+            try:
+                with tracker.track("backups_cleanup", trigger=trigger) as run:
+                    try:
+                        # כיבוי גלובלי דרך ENV
+                        if str(os.getenv("DISABLE_BACKGROUND_CLEANUP", "")).lower() in {"1", "true", "yes"}:
+                            tracker.skip_run(run.run_id, "disabled_by_env")
+                            return
+                        from file_manager import backup_manager  # lazy import
+                        summary = backup_manager.cleanup_expired_backups()
+                        tracker.add_log(
+                            run.run_id,
+                            "info",
+                            f"Cleaned {summary.get('fs_deleted', 0)} files, scanned {summary.get('fs_scanned', 0)}",
+                        )
+                        try:
+                            from observability import emit_event as _emit
+                        except Exception:  # pragma: no cover
+                            _emit = lambda *a, **k: None
+                        _emit(
+                            "backups_cleanup_done",
+                            severity="info",
+                            fs_scanned=int(summary.get("fs_scanned", 0) or 0),
+                            fs_deleted=int(summary.get("fs_deleted", 0) or 0),
+                            gridfs_scanned=int(summary.get("gridfs_scanned", 0) or 0),
+                            gridfs_deleted=int(summary.get("gridfs_deleted", 0) or 0),
+                        )
+                    except Exception as e:
+                        try:
+                            from observability import emit_event as _emit
+                        except Exception:  # pragma: no cover
+                            _emit = lambda *a, **k: None
+                        _emit("backups_cleanup_error", severity="anomaly", error=str(e))
+                        raise
+            except Exception as exc:
                 try:
-                    # כיבוי גלובלי דרך ENV
-                    if str(os.getenv("DISABLE_BACKGROUND_CLEANUP", "")).lower() in {"1", "true", "yes"}:
-                        tracker.add_log(run.run_id, "info", "Skipped: disabled by env")
-                        return
-                    from file_manager import backup_manager  # lazy import
-                    summary = backup_manager.cleanup_expired_backups()
-                    tracker.add_log(
-                        run.run_id,
-                        "info",
-                        f"Cleaned {summary.get('fs_deleted', 0)} files, scanned {summary.get('fs_scanned', 0)}",
-                    )
+                    from services.job_tracker import JobAlreadyRunningError
+                except Exception:
+                    JobAlreadyRunningError = None  # type: ignore[assignment]
+                if JobAlreadyRunningError is not None and isinstance(exc, JobAlreadyRunningError):
                     try:
                         from observability import emit_event as _emit
-                    except Exception:  # pragma: no cover
+                    except Exception:
                         _emit = lambda *a, **k: None
-                    _emit(
-                        "backups_cleanup_done",
-                        severity="info",
-                        fs_scanned=int(summary.get("fs_scanned", 0) or 0),
-                        fs_deleted=int(summary.get("fs_deleted", 0) or 0),
-                        gridfs_scanned=int(summary.get("gridfs_scanned", 0) or 0),
-                        gridfs_deleted=int(summary.get("gridfs_deleted", 0) or 0),
-                    )
-                except Exception as e:
-                    try:
-                        from observability import emit_event as _emit
-                    except Exception:  # pragma: no cover
-                        _emit = lambda *a, **k: None
-                    _emit("backups_cleanup_error", severity="anomaly", error=str(e))
-                    raise
+                    _emit("job_skipped", severity="warning", job_id="backups_cleanup", reason="already_running")
+                    return
+                raise
 
         # תזמון ניקוי גיבויים – כבוי כברירת מחדל; יופעל רק אם BACKUPS_CLEANUP_ENABLED=true
         try:
@@ -4324,23 +4456,31 @@ async def setup_bot_data(application: Application) -> None:  # noqa: D401
             from services.job_tracker import get_job_tracker
 
             tracker = get_job_tracker()
-            run = tracker.start_run("predictive_sampler", trigger="scheduled")
             try:
+                trigger = (
+                    str(((getattr(getattr(context, "job", None), "data", None) or {}) or {}).get("trigger") or "scheduled")
+                    .strip()
+                    .lower()
+                )
+            except Exception:
+                trigger = "scheduled"
+
+            with tracker.track("predictive_sampler", trigger=trigger) as run:
                 if os.getenv("PYTEST_CURRENT_TEST"):
                     allow_in_tests = str(os.getenv("PREDICTIVE_SAMPLER_RUN_IN_TESTS", "false")).lower()
                     if allow_in_tests not in {"1", "true", "yes", "on"}:
-                        tracker.add_log(run.run_id, "info", "Skipped: disabled in tests")
+                        tracker.skip_run(run.run_id, "disabled_in_tests")
                         return
                 # Feature flag: allow disabling explicitly
                 if str(os.getenv("PREDICTIVE_SAMPLER_ENABLED", "true")).lower() not in {"1", "true", "yes", "on"}:
-                    tracker.add_log(run.run_id, "info", "Skipped: disabled by env")
+                    tracker.skip_run(run.run_id, "disabled_by_env")
                     return
                 base = (os.getenv("PREDICTIVE_SAMPLER_METRICS_URL")
                         or os.getenv("WEBAPP_URL")
                         or os.getenv("PUBLIC_BASE_URL")
                         or "").strip()
                 if not base:
-                    tracker.add_log(run.run_id, "info", "Skipped: missing metrics base url")
+                    tracker.skip_run(run.run_id, "missing_metrics_base_url")
                     return
                 # Normalize URL and build metrics path
                 url = base.rstrip("/") + "/metrics"
@@ -4410,22 +4550,7 @@ async def setup_bot_data(application: Application) -> None:  # noqa: D401
                     except Exception:
                         pass
                 tracker.add_log(run.run_id, "info", "Predictive sampler tick completed")
-            except Exception as e:
-                # Fail-open
-                try:
-                    from observability import emit_event as _emit  # type: ignore
-                    _emit("predictive_sampler_exception", severity="anomaly", handled=True, error=str(e))
-                except Exception:
-                    pass
-                try:
-                    tracker.fail_run(run.run_id, str(e))
-                except Exception:
-                    pass
-            finally:
-                try:
-                    tracker.complete_run(run.run_id)
-                except Exception:
-                    pass
+            # חריגות מנוהלות ע"י ה-context manager
 
         try:
             interval_secs = int(os.getenv("PREDICTIVE_SAMPLER_INTERVAL_SECS", "60") or 60)
@@ -4509,12 +4634,20 @@ async def setup_bot_data(application: Application) -> None:  # noqa: D401
             from services.job_tracker import get_job_tracker
 
             tracker = get_job_tracker()
-            with tracker.track("cache_warming", trigger="scheduled") as run:
+            try:
+                trigger = (
+                    str(((getattr(getattr(context, "job", None), "data", None) or {}) or {}).get("trigger") or "scheduled")
+                    .strip()
+                    .lower()
+                )
+            except Exception:
+                trigger = "scheduled"
+            with tracker.track("cache_warming", trigger=trigger) as run:
                 try:
                     # Feature flag
                     enabled = str(os.getenv("CACHE_WARMING_ENABLED", "true")).lower() in {"1", "true", "yes", "on"}
                     if not enabled:
-                        tracker.add_log(run.run_id, "info", "Skipped: disabled by env")
+                        tracker.skip_run(run.run_id, "disabled_by_env")
                         return
 
                     # Time budget to avoid load
@@ -4538,7 +4671,7 @@ async def setup_bot_data(application: Application) -> None:  # noqa: D401
                         _search_engine = None
 
                     if _cache is None or not getattr(_cache, "is_enabled", False) or _get_db is None:
-                        tracker.add_log(run.run_id, "info", "Skipped: cache disabled or db unavailable")
+                        tracker.skip_run(run.run_id, "cache_disabled_or_db_unavailable")
                         return
 
                     db = _get_db()
