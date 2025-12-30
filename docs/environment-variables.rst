@@ -587,7 +587,7 @@
      - ``true``
      - Bot/WebApp
    * - ``LOG_LEVEL``
-    - רמת logging (``DEBUG``/``INFO``/``WARNING``/``ERROR``/``CRITICAL`` או ערך מספרי כמו ``10``)
+     - רמת logging (``DEBUG``/``INFO``/``WARNING``/``ERROR``/``CRITICAL`` או ערך מספרי כמו ``10``)
      - לא
      - ``INFO``
      - ``DEBUG``
