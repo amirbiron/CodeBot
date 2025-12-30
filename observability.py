@@ -44,6 +44,45 @@ SCHEMA_VERSION = "1.0"
 
 LOGGER = logging.getLogger(__name__)
 
+# --- Logging level helpers ---
+_LOG_LEVEL_ALIASES: Dict[str, str] = {
+    "WARN": "WARNING",
+    "FATAL": "CRITICAL",
+}
+
+
+def get_log_level_from_env(default: str = "INFO") -> str:
+    """מחזיר רמת לוגים מתוך ENV בשם LOG_LEVEL (עם fallback בטוח).
+
+    תומך בערכים כמו: DEBUG/INFO/WARNING/ERROR/CRITICAL (וגם WARN/FATAL).
+    אם הערך לא תקין — יחזור ל-default.
+    """
+    try:
+        raw = os.getenv("LOG_LEVEL")
+    except Exception:
+        raw = None
+
+    value = (str(raw or "")).strip()
+    if not value:
+        return str(default or "INFO").strip().upper() or "INFO"
+
+    upper = value.upper()
+    upper = _LOG_LEVEL_ALIASES.get(upper, upper)
+
+    # Accept numeric levels too (best-effort)
+    if upper.isdigit():
+        try:
+            lvl = int(upper)
+        except Exception:
+            return str(default or "INFO").strip().upper() or "INFO"
+        # Keep as string to preserve the function contract; callers can int() if needed
+        return str(lvl)
+
+    if upper in {"DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"}:
+        return upper
+
+    return str(default or "INFO").strip().upper() or "INFO"
+
 # Custom log level for anomalies
 ANOMALY_LEVEL_NUM = 35  # between WARNING(30) and ERROR(40)
 if not hasattr(logging, "ANOMALY"):
@@ -459,7 +498,17 @@ def _maybe_sample_info(logger, method, event_dict: Dict[str, Any]):
 
 
 def setup_structlog_logging(min_level: str | int = "INFO") -> None:
-    level = logging.getLevelName(min_level) if isinstance(min_level, str) else int(min_level)
+    # logging.getLevelName("INFO") -> 20 (ok), but logging.getLevelName("10") -> "Level 10" (bad).
+    # Support numeric strings explicitly to avoid breaking structlog configuration.
+    if isinstance(min_level, str):
+        raw = str(min_level).strip()
+        if raw.isdigit():
+            level = int(raw)
+        else:
+            resolved = logging.getLevelName(raw.upper() or "INFO")
+            level = resolved if isinstance(resolved, int) else logging.INFO
+    else:
+        level = int(min_level)
 
     if not logging.getLogger().handlers:
         logging.basicConfig(level=level, handlers=[logging.StreamHandler()])

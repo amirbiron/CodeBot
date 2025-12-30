@@ -92,6 +92,10 @@ def _observability_attr(name: str, default):
 
 setup_structlog_logging = _observability_attr("setup_structlog_logging", _noop)
 init_sentry = _observability_attr("init_sentry", _noop)
+get_log_level_from_env = _observability_attr(
+    "get_log_level_from_env",
+    lambda default="INFO": (str(os.getenv("LOG_LEVEL") or default)).strip().upper() or "INFO",
+)
 bind_request_id = _observability_attr("bind_request_id", _noop)
 generate_request_id = _observability_attr("generate_request_id", _default_generate_request_id)
 emit_event = _observability_attr("emit_event", _noop)
@@ -184,9 +188,16 @@ except Exception:
 # (Lock mechanism constants removed)
 
 # הגדרת לוגים בסיסית + structlog + Sentry
+_LOG_LEVEL_NAME = get_log_level_from_env("INFO")
+try:
+    _LOG_LEVEL = int(_LOG_LEVEL_NAME) if str(_LOG_LEVEL_NAME).isdigit() else getattr(logging, str(_LOG_LEVEL_NAME).upper(), logging.INFO)
+except Exception:
+    _LOG_LEVEL_NAME = "INFO"
+    _LOG_LEVEL = logging.INFO
+
 logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    level=logging.INFO,
+    level=_LOG_LEVEL,
     handlers=[logging.StreamHandler(sys.stdout)],
 )
 try:
@@ -195,7 +206,7 @@ try:
 except Exception:
     pass
 try:
-    setup_structlog_logging("INFO")
+    setup_structlog_logging(_LOG_LEVEL_NAME)
     init_sentry()
 except Exception:
     # אל תכשיל את האפליקציה אם תצורת observability נכשלה

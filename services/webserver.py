@@ -12,8 +12,8 @@ from typing import Any, Dict, Optional, Tuple
 # Configure structured logging and Sentry as early as possible,
 # and install sensitive data redaction on log handlers before Sentry hooks logging.
 try:
-    from observability import setup_structlog_logging, init_sentry  # type: ignore
-    setup_structlog_logging("INFO")
+    from observability import setup_structlog_logging, init_sentry, get_log_level_from_env  # type: ignore
+    setup_structlog_logging(get_log_level_from_env("INFO"))
     try:
         from utils import install_sensitive_filter  # type: ignore
         install_sensitive_filter()

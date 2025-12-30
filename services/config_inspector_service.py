@@ -631,7 +631,7 @@ class ConfigService:
         "LOG_LEVEL": ConfigDefinition(
             key="LOG_LEVEL",
             default="INFO",
-            description="רמת הלוגים (DEBUG/INFO/WARNING/ERROR)",
+            description="רמת הלוגים (DEBUG/INFO/WARNING/ERROR/CRITICAL או ערך מספרי כמו 10/20/30)",
             category="logging",
         ),
         "LOG_FORMAT": ConfigDefinition(
