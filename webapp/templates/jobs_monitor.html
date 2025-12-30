@@ -306,18 +306,30 @@ document.addEventListener('DOMContentLoaded', function() {
     }
 
     // Load initial data
-    loadJobs();
-    loadActiveRuns();
+    loadJobs().catch(err => console.error('Initial loadJobs failed:', err));
+    loadActiveRuns().catch(err => console.error('Initial loadActiveRuns failed:', err));
 
     // Auto-refresh every 10 seconds
     refreshInterval = setInterval(() => {
-        loadActiveRuns();
+        loadActiveRuns().catch(err => console.error('Auto-refresh failed:', err));
     }, 10000);
 
     // Event handlers
-    document.getElementById('refresh-btn').addEventListener('click', () => {
-        loadJobs();
-        loadActiveRuns();
+    document.getElementById('refresh-btn').addEventListener('click', async () => {
+        const btn = document.getElementById('refresh-btn');
+        const originalHtml = btn.innerHTML;
+        btn.innerHTML = '<span class="icon">⏳</span> מרענן...';
+        btn.disabled = true;
+
+        try {
+            await Promise.all([loadJobs(), loadActiveRuns()]);
+            showToast('✅ הנתונים התעדכנו', 'success');
+        } catch (err) {
+            showToast('❌ שגיאה ברענון', 'error');
+        } finally {
+            btn.innerHTML = originalHtml;
+            btn.disabled = false;
+        }
     });
 
     document.querySelectorAll('.category-tabs .tab').forEach(tab => {
@@ -341,24 +353,22 @@ document.addEventListener('DOMContentLoaded', function() {
     });
 
     async function loadJobs() {
-        try {
-            const res = await fetch(API_BASE, { headers: authHeaders() });
-            const data = await res.json();
-            window.allJobs = data.jobs;
-            filterJobs();
-        } catch (err) {
-            console.error('Failed to load jobs:', err);
+        const res = await fetch(API_BASE, { headers: authHeaders() });
+        if (!res.ok) {
+            throw new Error(`Failed to load jobs: ${res.status}`);
         }
+        const data = await res.json();
+        window.allJobs = data.jobs;
+        filterJobs();
     }
 
     async function loadActiveRuns() {
-        try {
-            const res = await fetch(`${API_BASE}/active`, { headers: authHeaders() });
-            const data = await res.json();
-            renderActiveRuns(data.active_runs);
-        } catch (err) {
-            console.error('Failed to load active runs:', err);
+        const res = await fetch(`${API_BASE}/active`, { headers: authHeaders() });
+        if (!res.ok) {
+            throw new Error(`Failed to load active runs: ${res.status}`);
         }
+        const data = await res.json();
+        renderActiveRuns(data.active_runs);
     }
 
     function filterJobs() {

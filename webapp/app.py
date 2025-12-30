@@ -4003,12 +4003,21 @@ def api_job_trigger(job_id: str):
     registry = JobRegistry()
     job = registry.get(job_id)
     if not job:
+        logging.warning("api_job_trigger: job_not_found job_id=%s", job_id)
         return jsonify({"error": "Job not found"}), 404
 
     # אסטרטגיה 1: ניסיון להפעיל דרך Bot API (אם מוגדר)
     bot_api_base = _get_bot_jobs_api_base_url()
+    logging.info(
+        "api_job_trigger: job_id=%s bot_api_base=%s explicitly_configured=%s",
+        job_id,
+        bot_api_base or "(none)",
+        _bot_jobs_api_is_explicitly_configured(),
+    )
+
     if bot_api_base:
         url = bot_api_base.rstrip("/") + f"/api/jobs/{job_id}/trigger"
+        logging.info("api_job_trigger: trying Bot API url=%s", url)
         try:
             headers = _bot_jobs_api_headers()
             resp = http_request(
@@ -4020,6 +4029,7 @@ def api_job_trigger(job_id: str):
                 timeout=5,
             )
             status = int(getattr(resp, "status_code", 0) or 0)
+            logging.info("api_job_trigger: Bot API response status=%s", status)
             if 200 <= status < 300:
                 try:
                     payload = resp.json()
@@ -4027,13 +4037,16 @@ def api_job_trigger(job_id: str):
                     payload = {"message": (resp.text or "").strip(), "job_id": job_id}
                 return jsonify(payload), status
             # אם Bot API החזיר שגיאה, ננסה את האסטרטגיה הבאה
-        except Exception:
-            logging.warning("Bot API trigger failed for job %s, falling back to DB", job_id)
+            logging.warning("api_job_trigger: Bot API returned error status=%s, falling back", status)
+        except Exception as bot_err:
+            logging.warning("api_job_trigger: Bot API failed error=%s, falling back to DB", bot_err)
 
     # אסטרטגיה 2: יצירת בקשת trigger בדאטאבייס שהבוט יעבד
+    logging.info("api_job_trigger: using DB fallback for job_id=%s", job_id)
     try:
         trigger_id = _create_pending_job_trigger(job_id, job.name)
         if trigger_id:
+            logging.info("api_job_trigger: created pending trigger trigger_id=%s job_id=%s", trigger_id, job_id)
             return jsonify({
                 "message": f"בקשת הפעלה נוצרה עבור {job.name}",
                 "job_id": job_id,
@@ -4041,6 +4054,8 @@ def api_job_trigger(job_id: str):
                 "status": "pending",
                 "note": "הבוט יעבד את הבקשה בהקדם (תוך דקה לכל היותר)",
             }), 202  # Accepted
+        else:
+            logging.error("api_job_trigger: _create_pending_job_trigger returned None")
     except Exception:
         logging.exception("Failed to create pending trigger for job %s", job_id)
 
