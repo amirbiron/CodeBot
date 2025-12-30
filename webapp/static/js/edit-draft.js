@@ -75,48 +75,21 @@
     }
   })();
 
-  function consumePendingDraftClears() {
-    // תומך ב-reset אחרי "שמור גרסה חדשה": בעריכה יש redirect לעמוד צפייה,
-    // ולכן אנחנו מסמנים ב-sessionStorage מה לנקות ומבצעים את הניקוי בטעינת העמוד הבא.
+  function consumeServerConfirmedDraftClear() {
+    // איפוס טיוטה רק אחרי שמירה מוצלחת (אישור מהשרת דרך data-clear-edit-draft-id בעמוד הצפייה).
     try {
       if (!supportsStorage) return;
-      const raw = sessionStorage.getItem('pendingDraftClearKeys.v1');
-      if (!raw) return;
-      const keys = JSON.parse(raw);
-      if (!Array.isArray(keys) || keys.length === 0) {
-        sessionStorage.removeItem('pendingDraftClearKeys.v1');
-        return;
-      }
-      keys.forEach((k) => {
-        try {
-          if (k) localStorage.removeItem(String(k));
-        } catch (_) {}
-      });
-      sessionStorage.removeItem('pendingDraftClearKeys.v1');
-    } catch (_) {
-      try {
-        sessionStorage.removeItem('pendingDraftClearKeys.v1');
-      } catch (_) {}
-    }
-  }
-
-  function markDraftForClear(storageKey) {
-    try {
-      const raw = sessionStorage.getItem('pendingDraftClearKeys.v1');
-      const curr = raw ? JSON.parse(raw) : [];
-      const arr = Array.isArray(curr) ? curr : [];
-      if (!arr.includes(storageKey)) arr.push(storageKey);
-      sessionStorage.setItem('pendingDraftClearKeys.v1', JSON.stringify(arr));
-    } catch (_) {
-      // אם sessionStorage חסום - ננקה מיד (התנהגות דטרמיניסטית)
-      try {
-        localStorage.removeItem(storageKey);
-      } catch (_) {}
-    }
+      const meta = document.getElementById('fileMeta');
+      const clearId = meta && meta.dataset ? meta.dataset.clearEditDraftId : '';
+      const id = String(clearId || '').trim();
+      if (!id) return;
+      const key = `editDraft.v1:${id}`;
+      localStorage.removeItem(key);
+    } catch (_) {}
   }
 
   document.addEventListener('DOMContentLoaded', async () => {
-    consumePendingDraftClears();
+    consumeServerConfirmedDraftClear();
 
     const form = document.getElementById('editForm');
     if (!form) {
@@ -179,11 +152,6 @@
     observedInputs.forEach((el) => {
       const eventName = el === languageSelect ? 'change' : 'input';
       el.addEventListener(eventName, debouncedSave);
-    });
-
-    // בלחיצה על "שמור גרסה חדשה" נסמן לניקוי; הניקוי עצמו יקרה בטעינת הדף הבא (view)
-    form.addEventListener('submit', () => {
-      markDraftForClear(storageKey);
     });
 
     window.addEventListener('beforeunload', () => {

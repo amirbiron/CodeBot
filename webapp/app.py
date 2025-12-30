@@ -7567,6 +7567,12 @@ def view_file(file_id):
     if not skip_activity:
         _log_webapp_user_activity()
 
+    clear_edit_draft_for_id = ''
+    try:
+        clear_edit_draft_for_id = str(session.pop(_EDIT_CLEAR_DRAFT_SESSION_KEY, '') or '')
+    except Exception:
+        clear_edit_draft_for_id = ''
+
     # עדכון רשימת "נפתחו לאחרונה" (MRU) עבור המשתמש הנוכחי — לפני בדיקות Cache
     try:
         ensure_recent_opens_indexes()
@@ -7619,6 +7625,7 @@ def view_file(file_id):
     if len(code.encode('utf-8')) > MAX_DISPLAY_SIZE:
         html = render_template('view_file.html',
                              user=session['user_data'],
+                             clear_edit_draft_for_id=clear_edit_draft_for_id,
                              file={
                                  'id': str(file['_id']),
                                  'file_name': file['file_name'],
@@ -7645,6 +7652,7 @@ def view_file(file_id):
     if is_binary_file(code, file.get('file_name', '')):
         html = render_template('view_file.html',
                              user=session['user_data'],
+                             clear_edit_draft_for_id=clear_edit_draft_for_id,
                              file={
                                  'id': str(file['_id']),
                                  'file_name': file['file_name'],
@@ -7739,6 +7747,7 @@ def view_file(file_id):
     
     html = render_template('view_file.html',
                          user=session['user_data'],
+                         clear_edit_draft_for_id=clear_edit_draft_for_id,
                          file=file_data,
                          highlighted_code=highlighted_code,
                          syntax_css=css,
@@ -9244,6 +9253,11 @@ def edit_file_page(file_id):
                     try:
                         res = db.code_snippets.insert_one(new_doc)
                         if res and getattr(res, 'inserted_id', None):
+                            try:
+                                # איפוס טיוטת עריכה מקומית רק לאחר שמירה מוצלחת (redirect ל-view)
+                                session[_EDIT_CLEAR_DRAFT_SESSION_KEY] = str(file_id)
+                            except Exception:
+                                pass
                             if markdown_image_payloads:
                                 try:
                                     _save_markdown_images(db, user_id, res.inserted_id, markdown_image_payloads)
@@ -9841,6 +9855,7 @@ def api_save_shared_file():
 
 
 _UPLOAD_CLEAR_DRAFT_SESSION_KEY = 'upload_should_clear_draft'
+_EDIT_CLEAR_DRAFT_SESSION_KEY = 'edit_should_clear_draft_for_file_id'
 
 
 def _save_markdown_images(db, user_id, snippet_id, images_payload):

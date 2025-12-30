@@ -696,6 +696,7 @@ body.telegram-mini-app .file-title { font-size: 1.125rem; }
 <div id="fileMeta"
      data-file-name="{{ file.file_name }}"
      data-file-id="{{ file.id }}"
+     data-clear-edit-draft-id="{{ clear_edit_draft_for_id|default('', true) }}"
      data-source-url="{{ file.source_url|default('', true) }}"
      style="display:none"></div>
 <script src="{{ url_for('static', filename='js/edit-draft.js') }}?v={{ static_version }}" defer></script>
