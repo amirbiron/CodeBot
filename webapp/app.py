@@ -4005,37 +4005,96 @@ def api_job_trigger(job_id: str):
     if not job:
         return jsonify({"error": "Job not found"}), 404
 
-    # Proxy trigger to the bot's internal webserver (same API shape)
+    # אסטרטגיה 1: ניסיון להפעיל דרך Bot API (אם מוגדר)
     bot_api_base = _get_bot_jobs_api_base_url()
-    if not bot_api_base:
-        return jsonify(
-            {
-                "error": "trigger_unavailable",
-                "message": "Bot Jobs API לא נגיש (הגדר BOT_JOBS_API_BASE_URL או BOT_API_BASE_URL)",
-            }
-        ), 503
-
-    url = bot_api_base.rstrip("/") + f"/api/jobs/{job_id}/trigger"
-    try:
-        headers = _bot_jobs_api_headers()
-        resp = http_request(
-            "POST",
-            url,
-            service="bot",
-            endpoint="/api/jobs/{job_id}/trigger",
-            headers=headers,
-        )
+    if bot_api_base:
+        url = bot_api_base.rstrip("/") + f"/api/jobs/{job_id}/trigger"
         try:
-            payload = resp.json()
+            headers = _bot_jobs_api_headers()
+            resp = http_request(
+                "POST",
+                url,
+                service="bot",
+                endpoint="/api/jobs/{job_id}/trigger",
+                headers=headers,
+                timeout=5,
+            )
+            status = int(getattr(resp, "status_code", 0) or 0)
+            if 200 <= status < 300:
+                try:
+                    payload = resp.json()
+                except Exception:
+                    payload = {"message": (resp.text or "").strip(), "job_id": job_id}
+                return jsonify(payload), status
+            # אם Bot API החזיר שגיאה, ננסה את האסטרטגיה הבאה
         except Exception:
-            payload = {"message": (resp.text or "").strip(), "job_id": job_id}
-        return jsonify(payload), int(getattr(resp, "status_code", 200) or 200)
+            logging.warning("Bot API trigger failed for job %s, falling back to DB", job_id)
+
+    # אסטרטגיה 2: יצירת בקשת trigger בדאטאבייס שהבוט יעבד
+    try:
+        trigger_id = _create_pending_job_trigger(job_id, job.name)
+        if trigger_id:
+            return jsonify({
+                "message": f"בקשת הפעלה נוצרה עבור {job.name}",
+                "job_id": job_id,
+                "trigger_id": trigger_id,
+                "status": "pending",
+                "note": "הבוט יעבד את הבקשה בהקדם (תוך דקה לכל היותר)",
+            }), 202  # Accepted
     except Exception:
-        logging.exception("Failed to trigger job %s via bot API", job_id)
-        return jsonify({
-            "error": "trigger_failed",
-            "message": "Failed to trigger job via bot API"
-        }), 502
+        logging.exception("Failed to create pending trigger for job %s", job_id)
+
+    return jsonify({
+        "error": "trigger_unavailable",
+        "message": "לא ניתן להפעיל את הג'וב כרגע. ודא שהבוט פעיל.",
+    }), 503
+
+
+def _create_pending_job_trigger(job_id: str, job_name: str) -> Optional[str]:
+    """יצירת בקשת trigger בדאטאבייס לעיבוד על ידי הבוט."""
+    try:
+        db = get_db()
+        trigger_id = str(uuid.uuid4())[:12]
+        now = datetime.now(timezone.utc)
+        doc = {
+            "trigger_id": trigger_id,
+            "job_id": job_id,
+            "job_name": job_name,
+            "status": "pending",
+            "created_at": now,
+            "processed_at": None,
+            "result": None,
+            "error": None,
+        }
+        db.job_trigger_requests.insert_one(doc)
+        logging.info("Created pending job trigger: %s for job %s", trigger_id, job_id)
+        return trigger_id
+    except Exception as e:
+        logging.exception("Failed to create pending job trigger: %s", e)
+        return None
+
+
+@app.route('/api/jobs/triggers/pending', methods=['GET'])
+@admin_required
+def api_pending_triggers():
+    """GET /api/jobs/triggers/pending - בקשות trigger ממתינות"""
+    try:
+        db = get_db()
+        cursor = db.job_trigger_requests.find(
+            {"status": "pending"}
+        ).sort("created_at", DESCENDING).limit(50)
+        triggers = []
+        for doc in cursor:
+            triggers.append({
+                "trigger_id": doc.get("trigger_id"),
+                "job_id": doc.get("job_id"),
+                "job_name": doc.get("job_name"),
+                "status": doc.get("status"),
+                "created_at": doc.get("created_at").isoformat() if doc.get("created_at") else None,
+            })
+        return jsonify({"pending_triggers": triggers})
+    except Exception:
+        return jsonify({"pending_triggers": []})
 
 
 @app.route('/admin/observability/replay')

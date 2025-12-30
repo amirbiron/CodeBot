@@ -3,6 +3,8 @@
 יש לייבא קובץ זה ב-main.py לאחר אתחול ה-Application.
 """
 
+import os
+
 from services.job_registry import register_job, JobCategory, JobType
 
 
@@ -72,8 +74,9 @@ def register_all_jobs():
         job_type=JobType.REPEATING,
         interval_seconds=300,
         env_toggle="SENTRY_POLL_ENABLED",
-        # הערה: sentry_polling.py default = false, לכן אם ENV לא מוגדר הג'וב מושבת.
-        # ה-UI צריך להציג "מושבת" כדי להתאים למציאות.
+        # הערה: ברירת המחדל נקבעת לפי קיום SENTRY_DSN - אם מוגדר, הג'וב פעיל.
+        # זה תואם את ההתנהגות ב-main.py שמפעיל את הג'וב אם יש DSN.
+        env_toggle_default=bool(os.getenv("SENTRY_DSN")),
         callback_name="_sentry_poll_job",
         source_file="main.py",
     )
