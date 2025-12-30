@@ -3891,7 +3891,15 @@ def api_job_trigger(job_id: str):
 
     url = bot_api_base.rstrip("/") + f"/api/jobs/{job_id}/trigger"
     try:
-        resp = http_request("POST", url, service="bot", endpoint="/api/jobs/{job_id}/trigger")
+        token = (os.getenv("DB_HEALTH_TOKEN") or "").strip()
+        headers = {"Authorization": f"Bearer {token}"} if token else None
+        resp = http_request(
+            "POST",
+            url,
+            service="bot",
+            endpoint="/api/jobs/{job_id}/trigger",
+            headers=headers,
+        )
         try:
             payload = resp.json()
         except Exception:

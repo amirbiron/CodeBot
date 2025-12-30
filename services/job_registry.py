@@ -1,5 +1,5 @@
 from dataclasses import dataclass, field
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, ClassVar, List
 from enum import Enum
 import threading
 import logging
@@ -43,15 +43,16 @@ class JobDefinition:
 class JobRegistry:
     """Singleton לרישום כל ה-Jobs במערכת"""
 
-    _instance = None
-    _lock = threading.Lock()
+    _instance: ClassVar[Optional["JobRegistry"]] = None
+    _lock: ClassVar[threading.Lock] = threading.Lock()
+    _jobs: Dict[str, JobDefinition]
 
-    def __new__(cls):
+    def __new__(cls) -> "JobRegistry":
         if cls._instance is None:
             with cls._lock:
                 if cls._instance is None:
                     cls._instance = super().__new__(cls)
-                    cls._instance._jobs: Dict[str, JobDefinition] = {}
+                    cls._instance._jobs = {}
         return cls._instance
 
     def register(self, job: JobDefinition) -> None:
@@ -63,11 +64,11 @@ class JobRegistry:
         """קבלת Job לפי ID"""
         return self._jobs.get(job_id)
 
-    def list_all(self):
+    def list_all(self) -> List[JobDefinition]:
         """רשימת כל ה-Jobs"""
         return list(self._jobs.values())
 
-    def list_by_category(self, category: JobCategory):
+    def list_by_category(self, category: JobCategory) -> List[JobDefinition]:
         """רשימת Jobs לפי קטגוריה"""
         return [j for j in self._jobs.values() if j.category == category]
 

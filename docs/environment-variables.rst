@@ -281,7 +281,7 @@
      - ``123,456``
      - Bot/WebApp
    * - ``DB_HEALTH_TOKEN``
-     - טוקן להגנה על נתיבי ``/api/db/*`` (נשלח כ-``Authorization: Bearer <token>``). ללא טוקן ה-API חסום (403) והדשבורד ``/db-health`` יחזיר 403.
+     - טוקן להגנה על נתיבים פנימיים רגישים בשרת ה-aiohttp: ``/api/db/*`` וגם ``/api/jobs/*`` (נשלח כ-``Authorization: Bearer <token>``). ללא טוקן ה-API חסום (403) והדשבורד ``/db-health`` יחזיר 403.
      - כן (DB Health)
      - "" (ריק)
      - ``db_health_super_secret_token``

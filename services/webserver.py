@@ -122,8 +122,8 @@ def _constant_time_compare(a: str, b: str) -> bool:
 
 @web.middleware
 async def db_health_auth_middleware(request: web.Request, handler):
-    """Middleware להגנה על endpoints של /api/db/*"""
-    if request.path.startswith("/api/db/"):
+    """Middleware להגנה על endpoints רגישים (DB + Jobs Monitor)."""
+    if request.path.startswith("/api/db/") or request.path.startswith("/api/jobs"):
         if not DB_HEALTH_TOKEN:
             # אם לא מוגדר token, חסום לגמרי
             return web.json_response({"error": "disabled"}, status=403)
@@ -1321,8 +1321,12 @@ async def trigger_job(request: web.Request) -> web.Response:
         try:
             # Fallback for older signatures
             jq.run_once(callback, when=0)
-        except Exception as e:
-            return web.json_response({"error": "trigger_failed", "message": str(e)}, status=500)
+        except Exception:
+            logger.exception("jobs_trigger_failed job_id=%s", job_id)
+            return web.json_response(
+                {"error": "trigger_failed", "message": "Failed to trigger job"},
+                status=500,
+            )
 
     return web.json_response({"message": f"Job {job_id} triggered", "job_id": job_id})
 
