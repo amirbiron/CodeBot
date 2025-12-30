@@ -50,10 +50,59 @@ import traceback
 import asyncio
 
 
+# --- Logging: honor LOG_LEVEL for the WebApp process ---
+def _env_log_level_name(default: str = "INFO") -> str:
+    raw = os.getenv("LOG_LEVEL")
+    value = (str(raw or "")).strip()
+    if not value:
+        return str(default or "INFO").strip().upper() or "INFO"
+    upper = value.upper()
+    if upper == "WARN":
+        return "WARNING"
+    if upper == "FATAL":
+        return "CRITICAL"
+    if upper.isdigit():
+        return upper
+    if upper in {"DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"}:
+        return upper
+    return str(default or "INFO").strip().upper() or "INFO"
+
+
+_WEBAPP_LOG_LEVEL_NAME = _env_log_level_name("INFO")
+try:
+    _WEBAPP_LOG_LEVEL = int(_WEBAPP_LOG_LEVEL_NAME) if _WEBAPP_LOG_LEVEL_NAME.isdigit() else getattr(logging, _WEBAPP_LOG_LEVEL_NAME, logging.INFO)
+except Exception:
+    _WEBAPP_LOG_LEVEL_NAME = "INFO"
+    _WEBAPP_LOG_LEVEL = logging.INFO
+
+_root_logger = logging.getLogger()
+if not _root_logger.handlers:
+    logging.basicConfig(
+        level=_WEBAPP_LOG_LEVEL,
+        format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+        handlers=[logging.StreamHandler(sys.stdout)],
+    )
+else:
+    _root_logger.setLevel(_WEBAPP_LOG_LEVEL)
+
+
 # הוספת נתיב ה-root של הפרויקט ל-PYTHONPATH כדי לאפשר import ל-"database" כשהסקריפט רץ מתוך webapp/
 ROOT_DIR = str(Path(__file__).resolve().parents[1])
 if ROOT_DIR not in sys.path:
     sys.path.insert(0, ROOT_DIR)
+
+# After ROOT_DIR is in sys.path, we can safely import project modules.
+# Best-effort: keep redaction + structlog level in sync with LOG_LEVEL.
+try:
+    from utils import install_sensitive_filter  # noqa: E402
+    install_sensitive_filter()
+except Exception:
+    pass
+try:
+    from observability import setup_structlog_logging as _setup_structlog_logging  # noqa: E402
+    _setup_structlog_logging(_WEBAPP_LOG_LEVEL_NAME)
+except Exception:
+    pass
 
 # מייבא לאחר הוספת ROOT_DIR ל-PYTHONPATH כדי למנוע כשל ייבוא בדיפלוי
 from http_sync import request as http_request  # noqa: E402
