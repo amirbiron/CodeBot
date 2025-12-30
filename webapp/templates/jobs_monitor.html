@@ -373,7 +373,7 @@ document.addEventListener('DOMContentLoaded', function() {
                     <span class="job-name">${getCategoryIcon(job.category)} ${job.name}</span>
                     <div class="job-actions">
                         <button class="btn-trigger" data-job-id="${job.job_id}"
-                                title="הרץ עכשיו" ${!job.enabled ? 'disabled' : ''}>
+                                title="הרץ עכשיו" ${(!job.enabled || !job.can_trigger) ? 'disabled' : ''}>
                             ▶️
                         </button>
                         <span class="job-status ${job.enabled ? 'enabled' : 'disabled'}">

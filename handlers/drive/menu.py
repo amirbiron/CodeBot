@@ -61,47 +61,152 @@ class GoogleDriveMenuHandler:
         async def _scheduled_backup_cb(ctx: ContextTypes.DEFAULT_TYPE):
             try:
                 uid = ctx.job.data["user_id"]
+                # Background Jobs Monitor (dynamic per-user job)
+                job_id = f"drive_{int(uid)}"
+                try:
+                    from services.job_tracker import get_job_tracker, JobAlreadyRunningError
+
+                    tracker = get_job_tracker()
+                except Exception:
+                    tracker = None  # type: ignore[assignment]
+                    JobAlreadyRunningError = Exception  # type: ignore[assignment]
+
+                # Register dynamically so it can appear in jobs list (best-effort).
+                try:
+                    from services.job_registry import JobRegistry, register_job, JobCategory, JobType
+
+                    if JobRegistry().get(job_id) is None:
+                        register_job(
+                            job_id=job_id,
+                            name="גיבוי Drive (אוטומטי)",
+                            description="גיבוי מתוזמן ל-Google Drive עבור משתמש",
+                            category=JobCategory.SYNC,
+                            job_type=JobType.REPEATING,
+                            interval_seconds=int(seconds),
+                            enabled=True,
+                            callback_name="_scheduled_backup_cb",
+                            source_file="handlers/drive/menu.py",
+                            metadata={"user_id": int(uid), "schedule_key": str(sched_key)},
+                        )
+                except Exception:
+                    pass
+
                 logger.info(f"drive_scheduled_backup_start user_id={uid}")
                 try:
                     emit_event("drive_scheduled_backup_start", severity="info", user_id=int(uid))
                 except Exception:
                     pass
-                ok = gdrive.perform_scheduled_backup(uid)
-                logger.info(f"drive_scheduled_backup_result user_id={uid} ok={ok}")
-                try:
-                    emit_event("drive_scheduled_backup_result", severity=("info" if ok else "warn"), user_id=int(uid), ok=bool(ok))
-                except Exception:
-                    pass
-                if ok:
-                    await ctx.bot.send_message(chat_id=uid, text="☁️ גיבוי אוטומטי ל‑Drive הושלם בהצלחה")
-                else:
-                    # אם נכשל — נסה לזהות אם נדרש התחברות מחדש והצג הודעה ידידותית
+                if tracker is not None:
                     try:
-                        from src.infrastructure.composition import get_files_facade  # type: ignore
-                        tokens = get_files_facade().get_drive_tokens(uid) or {}
-                    except Exception:
-                        tokens = {}
-                    need_reauth = False
-                    if tokens:
                         try:
-                            svc = gdrive.get_drive_service(uid)
-                        except Exception:
-                            svc = None
-                        need_reauth = svc is None
-                    if need_reauth:
-                        try:
-                            kb = [[InlineKeyboardButton("🔐 התחבר ל‑Drive", callback_data="drive_auth")]]
-                            await ctx.bot.send_message(
-                                chat_id=uid,
-                                text="❌ הגיבוי האוטומטי נכשל — נדרש להתחבר מחדש ל‑Google Drive.",
-                                reply_markup=InlineKeyboardMarkup(kb)
-                            )
+                            with tracker.track(job_id, trigger="scheduled", user_id=int(uid)) as run:
+                                tracker.add_log(run.run_id, "info", f"Starting scheduled Drive backup (key={sched_key})")
+                                ok = gdrive.perform_scheduled_backup(uid)
+                                logger.info(f"drive_scheduled_backup_result user_id={uid} ok={ok}")
+                                try:
+                                    emit_event(
+                                        "drive_scheduled_backup_result",
+                                        severity=("info" if ok else "warn"),
+                                        user_id=int(uid),
+                                        ok=bool(ok),
+                                    )
+                                except Exception:
+                                    pass
+
+                                if ok:
+                                    await ctx.bot.send_message(chat_id=uid, text="☁️ גיבוי אוטומטי ל‑Drive הושלם בהצלחה")
+                                    tracker.add_log(run.run_id, "info", "Drive backup completed successfully")
+                                else:
+                                    tracker.add_log(run.run_id, "warning", "Drive backup returned ok=False")
+                                    # אם נכשל — נסה לזהות אם נדרש התחברות מחדש והצג הודעה ידידותית
+                                    try:
+                                        from src.infrastructure.composition import get_files_facade  # type: ignore
+                                        tokens = get_files_facade().get_drive_tokens(uid) or {}
+                                    except Exception:
+                                        tokens = {}
+                                    need_reauth = False
+                                    if tokens:
+                                        try:
+                                            svc = gdrive.get_drive_service(uid)
+                                        except Exception:
+                                            svc = None
+                                        need_reauth = svc is None
+                                    if need_reauth:
+                                        try:
+                                            kb = [[InlineKeyboardButton("🔐 התחבר ל‑Drive", callback_data="drive_auth")]]
+                                            await ctx.bot.send_message(
+                                                chat_id=uid,
+                                                text="❌ הגיבוי האוטומטי נכשל — נדרש להתחבר מחדש ל‑Google Drive.",
+                                                reply_markup=InlineKeyboardMarkup(kb)
+                                            )
+                                            try:
+                                                emit_event("drive_scheduled_backup_auth_required", severity="warn", user_id=int(uid))
+                                            except Exception:
+                                                pass
+                                        except Exception:
+                                            pass
+                                    # Mark as failed in the monitor
+                                    tracker.fail_run(run.run_id, "drive_scheduled_backup_failed")
+                                    # Continue to update schedule prefs below (like the legacy flow)
+                        except JobAlreadyRunningError:
                             try:
-                                emit_event("drive_scheduled_backup_auth_required", severity="warn", user_id=int(uid))
+                                tracker.record_skipped(
+                                    job_id=job_id,
+                                    trigger="scheduled",
+                                    user_id=int(uid),
+                                    reason="already_running",
+                                )
                             except Exception:
                                 pass
+                            return
+                    except Exception as e:
+                        # Ensure we still emit best-effort legacy event below
+                        try:
+                            logger.exception("drive_scheduled_backup_error")
                         except Exception:
                             pass
+                        try:
+                            emit_event("drive_scheduled_backup_error", severity="error", error=str(e))
+                        except Exception:
+                            pass
+                        return
+                else:
+                    ok = gdrive.perform_scheduled_backup(uid)
+                    logger.info(f"drive_scheduled_backup_result user_id={uid} ok={ok}")
+                    try:
+                        emit_event("drive_scheduled_backup_result", severity=("info" if ok else "warn"), user_id=int(uid), ok=bool(ok))
+                    except Exception:
+                        pass
+                    if ok:
+                        await ctx.bot.send_message(chat_id=uid, text="☁️ גיבוי אוטומטי ל‑Drive הושלם בהצלחה")
+                    else:
+                        # אם נכשל — נסה לזהות אם נדרש התחברות מחדש והצג הודעה ידידותית
+                        try:
+                            from src.infrastructure.composition import get_files_facade  # type: ignore
+                            tokens = get_files_facade().get_drive_tokens(uid) or {}
+                        except Exception:
+                            tokens = {}
+                        need_reauth = False
+                        if tokens:
+                            try:
+                                svc = gdrive.get_drive_service(uid)
+                            except Exception:
+                                svc = None
+                            need_reauth = svc is None
+                        if need_reauth:
+                            try:
+                                kb = [[InlineKeyboardButton("🔐 התחבר ל‑Drive", callback_data="drive_auth")]]
+                                await ctx.bot.send_message(
+                                    chat_id=uid,
+                                    text="❌ הגיבוי האוטומטי נכשל — נדרש להתחבר מחדש ל‑Google Drive.",
+                                    reply_markup=InlineKeyboardMarkup(kb)
+                                )
+                                try:
+                                    emit_event("drive_scheduled_backup_auth_required", severity="warn", user_id=int(uid))
+                                except Exception:
+                                    pass
+                            except Exception:
+                                pass
                 # עדכן זמן הבא בהעדפות
                 try:
                     now_dt = datetime.now(timezone.utc)

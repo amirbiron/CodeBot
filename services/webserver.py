@@ -1306,7 +1306,17 @@ async def trigger_job(request: web.Request) -> web.Response:
     except Exception:
         suffix = "now"
     try:
-        jq.run_once(callback, when=0, name=f"{job_id}_manual_{suffix}")
+        data = getattr(job_obj, "data", None)
+        chat_id = getattr(job_obj, "chat_id", None)
+        user_id = getattr(job_obj, "user_id", None)
+        kwargs = {"when": 0, "name": f"{job_id}_manual_{suffix}"}
+        if data is not None:
+            kwargs["data"] = data
+        if chat_id is not None:
+            kwargs["chat_id"] = chat_id
+        if user_id is not None:
+            kwargs["user_id"] = user_id
+        jq.run_once(callback, **kwargs)
     except Exception:
         try:
             # Fallback for older signatures

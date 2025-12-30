@@ -3948,7 +3948,7 @@ async def setup_bot_data(application: Application) -> None:  # noqa: D401
     # Reschedule Google Drive backup jobs for all users with an active schedule
     try:
         async def _reschedule_drive_jobs(context: ContextTypes.DEFAULT_TYPE):
-            from services.job_tracker import get_job_tracker
+            from services.job_tracker import get_job_tracker, JobAlreadyRunningError
 
             tracker = get_job_tracker()
             stats = {"total": 0, "recreated": 0, "scanned": 0, "skipped": 0}
@@ -3963,111 +3963,118 @@ async def setup_bot_data(application: Application) -> None:  # noqa: D401
                 trigger = "scheduled"
 
             # נשתמש ב-track כדי לשמר fail/skip נכון
-            with tracker.track("drive_reschedule", trigger=trigger) as run:
-                drive_handler, handler_restored = get_drive_handler_from_application(context.application)
-                if not drive_handler:
-                    logger.warning("drive_reschedule_jobs_skip reason=no_drive_handler")
-                    tracker.skip_run(run.run_id, "no_drive_handler")
-                    return
-                if handler_restored:
+            try:
+                with tracker.track("drive_reschedule", trigger=trigger) as run:
+                    drive_handler, handler_restored = get_drive_handler_from_application(context.application)
+                    if not drive_handler:
+                        logger.warning("drive_reschedule_jobs_skip reason=no_drive_handler")
+                        tracker.skip_run(run.run_id, "no_drive_handler")
+                        return
+                    if handler_restored:
+                        try:
+                            logger.warning("drive_reschedule_handler_restored source=application_attr")
+                        except Exception:
+                            pass
+                        try:
+                            emit_event("drive_reschedule_handler_restored", severity="info", source="application_attr")
+                        except Exception:
+                            pass
+                    # אתר את מנהל ה-DB: עדיפות למנהל שנשמר ב-bot_data, אחר כך ייבוא ישיר
+                    db_manager = context.application.bot_data.get('db_manager')
+                    if not db_manager:
+                        try:
+                            from database import db as module_db  # type: ignore
+                            db_manager = module_db
+                        except Exception:
+                            pass
+                    if not db_manager:
+                        # fallback: המופע המקומי שנוצר ב-main (אם זמין בסקופ)
+                        try:
+                            db_manager = db
+                        except Exception:
+                            pass
+                    if not db_manager:
+                        logger.warning("drive_reschedule_jobs_skip reason=no_db_manager")
+                        tracker.skip_run(run.run_id, "no_db_manager")
+                        return
+                    # Use the new Repository method to get users with active schedules
+                    sched_keys = {"daily", "every3", "weekly", "biweekly", "monthly"}
+                    users_docs = []
                     try:
-                        logger.warning("drive_reschedule_handler_restored source=application_attr")
-                    except Exception:
-                        pass
-                    try:
-                        emit_event("drive_reschedule_handler_restored", severity="info", source="application_attr")
-                    except Exception:
-                        pass
-                # אתר את מנהל ה-DB: עדיפות למנהל שנשמר ב-bot_data, אחר כך ייבוא ישיר
-                db_manager = context.application.bot_data.get('db_manager')
-                if not db_manager:
-                    try:
-                        from database import db as module_db  # type: ignore
-                        db_manager = module_db
-                    except Exception:
-                        pass
-                if not db_manager:
-                    # fallback: המופע המקומי שנוצר ב-main (אם זמין בסקופ)
-                    try:
-                        db_manager = db
-                    except Exception:
-                        pass
-                if not db_manager:
-                    logger.warning("drive_reschedule_jobs_skip reason=no_db_manager")
-                    tracker.skip_run(run.run_id, "no_db_manager")
-                    return
-                # Use the new Repository method to get users with active schedules
-                sched_keys = {"daily", "every3", "weekly", "biweekly", "monthly"}
-                users_docs = []
-                try:
-                    get_users_fn = getattr(db_manager, 'get_users_with_active_drive_schedule', None)
-                    if callable(get_users_fn):
-                        users_docs = get_users_fn()
-                        logger.info(
-                            "drive_reschedule_via_repo users_found=%s",
-                            len(users_docs),
-                        )
-                    else:
-                        # Fallback to direct collection access if method not available
-                        logger.warning("drive_reschedule_fallback_to_direct reason=method_missing")
-                        cand_db = getattr(db_manager, 'db', None)
-                        users_coll = getattr(cand_db, 'users', None) if cand_db else None
-                        if users_coll and hasattr(users_coll, 'find'):
-                            wide_query = {"drive_prefs": {"$exists": True, "$ne": None}}
-                            users_docs = list(users_coll.find(wide_query, {"user_id": 1, "drive_prefs": 1}))
+                        get_users_fn = getattr(db_manager, 'get_users_with_active_drive_schedule', None)
+                        if callable(get_users_fn):
+                            users_docs = get_users_fn()
                             logger.info(
-                                "drive_reschedule_direct_query users_found=%s",
+                                "drive_reschedule_via_repo users_found=%s",
                                 len(users_docs),
                             )
                         else:
-                            logger.warning("drive_reschedule_jobs_skip reason=no_users_collection")
-                            tracker.skip_run(run.run_id, "no_users_collection")
-                            return
-                except Exception as exc:
-                    logger.warning("drive_reschedule_jobs_query_failed error=%s", exc)
-                    users_docs = []
-                for doc in users_docs:
+                            # Fallback to direct collection access if method not available
+                            logger.warning("drive_reschedule_fallback_to_direct reason=method_missing")
+                            cand_db = getattr(db_manager, 'db', None)
+                            users_coll = getattr(cand_db, 'users', None) if cand_db else None
+                            if users_coll and hasattr(users_coll, 'find'):
+                                wide_query = {"drive_prefs": {"$exists": True, "$ne": None}}
+                                users_docs = list(users_coll.find(wide_query, {"user_id": 1, "drive_prefs": 1}))
+                                logger.info(
+                                    "drive_reschedule_direct_query users_found=%s",
+                                    len(users_docs),
+                                )
+                            else:
+                                logger.warning("drive_reschedule_jobs_skip reason=no_users_collection")
+                                tracker.skip_run(run.run_id, "no_users_collection")
+                                return
+                    except Exception as exc:
+                        logger.warning("drive_reschedule_jobs_query_failed error=%s", exc)
+                        users_docs = []
+                    for doc in users_docs:
+                        try:
+                            uid = int(doc.get("user_id") or 0)
+                            if not uid:
+                                stats["skipped"] += 1
+                                continue
+                            stats["scanned"] += 1
+                            prefs = doc.get("drive_prefs") or {}
+                            key = drive_extract_schedule_key(prefs)
+                            if not key:
+                                stats["skipped"] += 1
+                                continue
+                            key = str(key).strip().lower()
+                            if key not in sched_keys:
+                                stats["skipped"] += 1
+                                continue
+                            stats["total"] += 1
+                            recreated = False
+                            ensure_fn = getattr(drive_handler, "ensure_schedule_job_if_missing", None)
+                            if callable(ensure_fn):
+                                recreated = bool(await ensure_fn(context, uid, key))
+                            else:
+                                await drive_handler._ensure_schedule_job(context, uid, key)
+                                recreated = True
+                            if recreated:
+                                stats["recreated"] += 1
+                        except Exception:
+                            stats["skipped"] += 1
+                            continue
+                    # ✅ שימוש נכון ב-run.run_id
                     try:
-                        uid = int(doc.get("user_id") or 0)
-                        if not uid:
-                            stats["skipped"] += 1
-                            continue
-                        stats["scanned"] += 1
-                        prefs = doc.get("drive_prefs") or {}
-                        key = drive_extract_schedule_key(prefs)
-                        if not key:
-                            stats["skipped"] += 1
-                            continue
-                        key = str(key).strip().lower()
-                        if key not in sched_keys:
-                            stats["skipped"] += 1
-                            continue
-                        stats["total"] += 1
-                        recreated = False
-                        ensure_fn = getattr(drive_handler, "ensure_schedule_job_if_missing", None)
-                        if callable(ensure_fn):
-                            recreated = bool(await ensure_fn(context, uid, key))
-                        else:
-                            await drive_handler._ensure_schedule_job(context, uid, key)
-                            recreated = True
-                        if recreated:
-                            stats["recreated"] += 1
+                        tracker.add_log(
+                            run.run_id,
+                            "info",
+                            f"drive_reschedule_jobs_run total={stats['total']} recreated={stats['recreated']} scanned={stats['scanned']} skipped={stats['skipped']}",
+                        )
                     except Exception:
-                        stats["skipped"] += 1
-                        continue
-                # ✅ שימוש נכון ב-run.run_id
+                        pass
+                    try:
+                        tracker.complete_run(run.run_id, result=dict(stats))
+                    except Exception:
+                        pass
+            except JobAlreadyRunningError:
                 try:
-                    tracker.add_log(
-                        run.run_id,
-                        "info",
-                        f"drive_reschedule_jobs_run total={stats['total']} recreated={stats['recreated']} scanned={stats['scanned']} skipped={stats['skipped']}",
-                    )
+                    tracker.record_skipped(job_id="drive_reschedule", trigger=trigger, reason="already_running")
                 except Exception:
                     pass
-                try:
-                    tracker.complete_run(run.run_id, result=dict(stats))
-                except Exception:
-                    pass
+                return
 
             # לוגים ואירועים כלליים – נשארים מחוץ ל-track כדי לא להסתבך עם skip_run שמסיר מה-active
             try:
@@ -4142,7 +4149,7 @@ async def setup_bot_data(application: Application) -> None:  # noqa: D401
     # Weekly admin report (usage summary) — scheduled with JobQueue
     try:
         async def _weekly_admin_report(context: ContextTypes.DEFAULT_TYPE):
-            from services.job_tracker import get_job_tracker
+            from services.job_tracker import get_job_tracker, JobAlreadyRunningError
 
             tracker = get_job_tracker()
             try:
@@ -4154,66 +4161,73 @@ async def setup_bot_data(application: Application) -> None:  # noqa: D401
             except Exception:
                 trigger = "scheduled"
 
-            with tracker.track("weekly_admin_report", trigger=trigger) as run:
-                # אפשר לכבות בדוחות שבועיים לחלוטין דרך ENV
-                if str(os.getenv("DISABLE_WEEKLY_REPORTS", "")).lower() in {"1", "true", "yes"}:
-                    tracker.skip_run(run.run_id, "disabled_by_env")
-                    return
+            try:
+                with tracker.track("weekly_admin_report", trigger=trigger) as run:
+                    # אפשר לכבות בדוחות שבועיים לחלוטין דרך ENV
+                    if str(os.getenv("DISABLE_WEEKLY_REPORTS", "")).lower() in {"1", "true", "yes"}:
+                        tracker.skip_run(run.run_id, "disabled_by_env")
+                        return
 
-                # מנגנון השתקה שבועי (idempotent): שלח פעם אחת לכל שבוע קלנדרי
-                should_send = True
-                try:
-                    from datetime import datetime, timezone as _tz
-                    from database import db as _dbm
-                    db_obj = getattr(_dbm, 'db', None)
-                    is_noop_db = (getattr(db_obj, 'name', '') == 'noop_db') if db_obj is not None else True
-                    if not is_noop_db and db_obj is not None:
-                        admin_reports = getattr(db_obj, 'admin_reports', None)
-                        if admin_reports is not None:
-                            now = datetime.now(_tz.utc)
-                            iso = now.isocalendar()
-                            week_key = f"{iso[0]}-{iso[1]:02d}"
-                            res = admin_reports.update_one(
-                                {"_id": "weekly_admin_report", "week_key": {"$ne": week_key}},
-                                {"$set": {"week_key": week_key, "last_sent_at": now}},
-                                upsert=True,
-                            )
-                            modified = int(getattr(res, 'modified_count', 0) or 0)
-                            upserted = getattr(res, 'upserted_id', None)
-                            should_send = bool(modified or upserted)
-                except Exception:
-                    # במקרה של כשל בגייטינג, נמשיך לשלוח (עדיף דיווח על כפילות מאשר איבוד דיווח)
+                    # מנגנון השתקה שבועי (idempotent): שלח פעם אחת לכל שבוע קלנדרי
                     should_send = True
-                if not should_send:
-                    tracker.skip_run(run.run_id, "already_sent_this_week")
-                    return
-
-                total_users = 0
-                active_week = 0
-                try:
-                    general = user_stats.get_all_time_stats()
-                    weekly = user_stats.get_weekly_stats() or []
-                    active_week = int(len(weekly))
-                    if isinstance(general, dict):
-                        total_users = int(general.get("total_users", 0) or 0)
-                except Exception:
-                    pass
-                text = (
-                    "📊 דו""ח שבועי — CodeBot\n\n"
-                    f"👥 משתמשים רשומים: {total_users}\n"
-                    f"🗓️ פעילים בשבוע האחרון: {active_week}\n"
-                )
-                await notify_admins(context, text)
-                tracker.add_log(run.run_id, "info", f"Weekly report sent total_users={total_users} active_week={active_week}")
-                # Emit via a dynamic import to cooperate with test monkeypatching
-                try:
                     try:
-                        from observability import emit_event as _emit
-                    except Exception:  # pragma: no cover
-                        _emit = lambda *a, **k: None
-                    _emit("weekly_report_sent", severity="info", total_users=total_users, active_week=active_week)
+                        from datetime import datetime, timezone as _tz
+                        from database import db as _dbm
+                        db_obj = getattr(_dbm, 'db', None)
+                        is_noop_db = (getattr(db_obj, 'name', '') == 'noop_db') if db_obj is not None else True
+                        if not is_noop_db and db_obj is not None:
+                            admin_reports = getattr(db_obj, 'admin_reports', None)
+                            if admin_reports is not None:
+                                now = datetime.now(_tz.utc)
+                                iso = now.isocalendar()
+                                week_key = f"{iso[0]}-{iso[1]:02d}"
+                                res = admin_reports.update_one(
+                                    {"_id": "weekly_admin_report", "week_key": {"$ne": week_key}},
+                                    {"$set": {"week_key": week_key, "last_sent_at": now}},
+                                    upsert=True,
+                                )
+                                modified = int(getattr(res, 'modified_count', 0) or 0)
+                                upserted = getattr(res, 'upserted_id', None)
+                                should_send = bool(modified or upserted)
+                    except Exception:
+                        # במקרה של כשל בגייטינג, נמשיך לשלוח (עדיף דיווח על כפילות מאשר איבוד דיווח)
+                        should_send = True
+                    if not should_send:
+                        tracker.skip_run(run.run_id, "already_sent_this_week")
+                        return
+
+                    total_users = 0
+                    active_week = 0
+                    try:
+                        general = user_stats.get_all_time_stats()
+                        weekly = user_stats.get_weekly_stats() or []
+                        active_week = int(len(weekly))
+                        if isinstance(general, dict):
+                            total_users = int(general.get("total_users", 0) or 0)
+                    except Exception:
+                        pass
+                    text = (
+                        "📊 דו""ח שבועי — CodeBot\n\n"
+                        f"👥 משתמשים רשומים: {total_users}\n"
+                        f"🗓️ פעילים בשבוע האחרון: {active_week}\n"
+                    )
+                    await notify_admins(context, text)
+                    tracker.add_log(run.run_id, "info", f"Weekly report sent total_users={total_users} active_week={active_week}")
+                    # Emit via a dynamic import to cooperate with test monkeypatching
+                    try:
+                        try:
+                            from observability import emit_event as _emit
+                        except Exception:  # pragma: no cover
+                            _emit = lambda *a, **k: None
+                        _emit("weekly_report_sent", severity="info", total_users=total_users, active_week=active_week)
+                    except Exception:
+                        pass
+            except JobAlreadyRunningError:
+                try:
+                    tracker.record_skipped(job_id="weekly_admin_report", trigger=trigger, reason="already_running")
                 except Exception:
                     pass
+                return
             # חריגות מנוהלות ע"י ה-context manager
 
         # Run weekly; first run after a short delay to avoid startup contention
@@ -4237,7 +4251,7 @@ async def setup_bot_data(application: Application) -> None:  # noqa: D401
     # Background cleanup jobs (Phase 2): cache maintenance and backups retention
     try:
         async def _cache_maintenance_job(context: ContextTypes.DEFAULT_TYPE):
-            from services.job_tracker import get_job_tracker
+            from services.job_tracker import get_job_tracker, JobAlreadyRunningError
 
             tracker = get_job_tracker()
             # Trigger resolution (scheduled/manual/api)
@@ -4249,32 +4263,39 @@ async def setup_bot_data(application: Application) -> None:  # noqa: D401
                 )
             except Exception:
                 trigger = "scheduled"
-            with tracker.track("cache_maintenance", trigger=trigger) as run:
-                try:
-                    # כיבוי גלובלי דרך ENV
-                    if str(os.getenv("DISABLE_BACKGROUND_CLEANUP", "")).lower() in {"1", "true", "yes"}:
-                        tracker.skip_run(run.run_id, "disabled_by_env")
-                        return
-                    # ניקוי עדין של קאש (respect SAFE_MODE/DISABLE_CACHE_MAINTENANCE internally)
-                    from cache_manager import cache  # lazy import
-                    # ניתן לשלוט בפרמטרים דרך ENV
-                    max_scan = int(os.getenv("CACHE_MAINT_MAX_SCAN", "1000") or 1000)
-                    ttl_thr = int(os.getenv("CACHE_MAINT_TTL_THRESHOLD", "60") or 60)
-                    deleted = int(cache.clear_stale(max_scan=max_scan, ttl_seconds_threshold=ttl_thr) or 0)
-                    tracker.add_log(run.run_id, "info", f"Cache maintenance deleted={deleted}")
-                    if deleted > 0:
+            try:
+                with tracker.track("cache_maintenance", trigger=trigger) as run:
+                    try:
+                        # כיבוי גלובלי דרך ENV
+                        if str(os.getenv("DISABLE_BACKGROUND_CLEANUP", "")).lower() in {"1", "true", "yes"}:
+                            tracker.skip_run(run.run_id, "disabled_by_env")
+                            return
+                        # ניקוי עדין של קאש (respect SAFE_MODE/DISABLE_CACHE_MAINTENANCE internally)
+                        from cache_manager import cache  # lazy import
+                        # ניתן לשלוט בפרמטרים דרך ENV
+                        max_scan = int(os.getenv("CACHE_MAINT_MAX_SCAN", "1000") or 1000)
+                        ttl_thr = int(os.getenv("CACHE_MAINT_TTL_THRESHOLD", "60") or 60)
+                        deleted = int(cache.clear_stale(max_scan=max_scan, ttl_seconds_threshold=ttl_thr) or 0)
+                        tracker.add_log(run.run_id, "info", f"Cache maintenance deleted={deleted}")
+                        if deleted > 0:
+                            try:
+                                from observability import emit_event as _emit
+                            except Exception:  # pragma: no cover
+                                _emit = lambda *a, **k: None
+                            _emit("cache_maintenance_done", severity="info", deleted=int(deleted))
+                    except Exception as e:
                         try:
                             from observability import emit_event as _emit
                         except Exception:  # pragma: no cover
                             _emit = lambda *a, **k: None
-                        _emit("cache_maintenance_done", severity="info", deleted=int(deleted))
-                except Exception as e:
-                    try:
-                        from observability import emit_event as _emit
-                    except Exception:  # pragma: no cover
-                        _emit = lambda *a, **k: None
-                    _emit("cache_maintenance_error", severity="anomaly", error=str(e))
-                    raise
+                        _emit("cache_maintenance_error", severity="anomaly", error=str(e))
+                        raise
+            except JobAlreadyRunningError:
+                try:
+                    tracker.record_skipped(job_id="cache_maintenance", trigger=trigger, reason="already_running")
+                except Exception:
+                    pass
+                return
 
         # תזמון תחזוקת קאש – כל 10 דקות, התחלה אחרי 30 שניות
         try:
@@ -4300,7 +4321,7 @@ async def setup_bot_data(application: Application) -> None:  # noqa: D401
         # מתבצעת רק ב-fallback כאשר התזמון נכשל.
 
         async def _backups_cleanup_job(context: ContextTypes.DEFAULT_TYPE):
-            from services.job_tracker import get_job_tracker
+            from services.job_tracker import get_job_tracker, JobAlreadyRunningError
 
             tracker = get_job_tracker()
             try:
@@ -4312,7 +4333,7 @@ async def setup_bot_data(application: Application) -> None:  # noqa: D401
             except Exception:
                 trigger = "scheduled"
 
-            # 🔒 Singleton Jobs: אם כבר רץ, דלג במקום להפיל את ה-job
+            # 🔒 Singleton Jobs: אם כבר רץ, דלג (SKIPPED) במקום להיחשב כ-failure
             try:
                 with tracker.track("backups_cleanup", trigger=trigger) as run:
                     try:
@@ -4346,19 +4367,12 @@ async def setup_bot_data(application: Application) -> None:  # noqa: D401
                             _emit = lambda *a, **k: None
                         _emit("backups_cleanup_error", severity="anomaly", error=str(e))
                         raise
-            except Exception as exc:
+            except JobAlreadyRunningError:
                 try:
-                    from services.job_tracker import JobAlreadyRunningError
+                    tracker.record_skipped(job_id="backups_cleanup", trigger=trigger, reason="already_running")
                 except Exception:
-                    JobAlreadyRunningError = None  # type: ignore[assignment]
-                if JobAlreadyRunningError is not None and isinstance(exc, JobAlreadyRunningError):
-                    try:
-                        from observability import emit_event as _emit
-                    except Exception:
-                        _emit = lambda *a, **k: None
-                    _emit("job_skipped", severity="warning", job_id="backups_cleanup", reason="already_running")
-                    return
-                raise
+                    pass
+                return
 
         # תזמון ניקוי גיבויים – כבוי כברירת מחדל; יופעל רק אם BACKUPS_CLEANUP_ENABLED=true
         try:
@@ -4453,7 +4467,7 @@ async def setup_bot_data(application: Application) -> None:  # noqa: D401
     # Predictive Health sampler: scrape webapp /metrics and feed predictive engine
     try:
         async def _predictive_sampler_job(context: ContextTypes.DEFAULT_TYPE):  # noqa: ARG001
-            from services.job_tracker import get_job_tracker
+            from services.job_tracker import get_job_tracker, JobAlreadyRunningError
 
             tracker = get_job_tracker()
             try:
@@ -4465,7 +4479,20 @@ async def setup_bot_data(application: Application) -> None:  # noqa: D401
             except Exception:
                 trigger = "scheduled"
 
-            with tracker.track("predictive_sampler", trigger=trigger) as run:
+            import sys as _sys
+
+            _cm = tracker.track("predictive_sampler", trigger=trigger)
+            try:
+                run = _cm.__enter__()
+            except JobAlreadyRunningError:
+                try:
+                    tracker.record_skipped(job_id="predictive_sampler", trigger=trigger, reason="already_running")
+                except Exception:
+                    pass
+                return
+
+            _exc_info = (None, None, None)
+            try:
                 if os.getenv("PYTEST_CURRENT_TEST"):
                     allow_in_tests = str(os.getenv("PREDICTIVE_SAMPLER_RUN_IN_TESTS", "false")).lower()
                     if allow_in_tests not in {"1", "true", "yes", "on"}:
@@ -4550,6 +4577,11 @@ async def setup_bot_data(application: Application) -> None:  # noqa: D401
                     except Exception:
                         pass
                 tracker.add_log(run.run_id, "info", "Predictive sampler tick completed")
+            except Exception:
+                _exc_info = _sys.exc_info()
+                raise
+            finally:
+                _cm.__exit__(*_exc_info)
             # חריגות מנוהלות ע"י ה-context manager
 
         try:
@@ -4581,10 +4613,23 @@ async def setup_bot_data(application: Application) -> None:  # noqa: D401
         poller = SentryPoller(poller_cfg)
 
         async def _sentry_poll_job(_context: ContextTypes.DEFAULT_TYPE):  # noqa: ARG001
-            from services.job_tracker import get_job_tracker
+            from services.job_tracker import get_job_tracker, JobAlreadyRunningError
 
             tracker = get_job_tracker()
-            with tracker.track("sentry_poll", trigger="scheduled") as run:
+            import sys as _sys
+
+            _cm = tracker.track("sentry_poll", trigger="scheduled")
+            try:
+                run = _cm.__enter__()
+            except JobAlreadyRunningError:
+                try:
+                    tracker.record_skipped(job_id="sentry_poll", trigger="scheduled", reason="already_running")
+                except Exception:
+                    pass
+                return
+
+            _exc_info = (None, None, None)
+            try:
                 try:
                     res = await poller.tick()
                     try:
@@ -4611,6 +4656,11 @@ async def setup_bot_data(application: Application) -> None:  # noqa: D401
                         _emit = lambda *a, **k: None
                     _emit("sentry_poll_error", severity="anomaly", handled=True, error=str(e))
                     raise
+            except Exception:
+                _exc_info = _sys.exc_info()
+                raise
+            finally:
+                _cm.__exit__(*_exc_info)
 
         try:
             if bool(getattr(poller_cfg, "enabled", False)):
@@ -4631,7 +4681,7 @@ async def setup_bot_data(application: Application) -> None:  # noqa: D401
 # --- Background job: Cache warming based on recent usage (lightweight) ---
     try:
         async def _cache_warming_job(context: ContextTypes.DEFAULT_TYPE):  # noqa: ARG001
-            from services.job_tracker import get_job_tracker
+            from services.job_tracker import get_job_tracker, JobAlreadyRunningError
 
             tracker = get_job_tracker()
             try:
@@ -4642,7 +4692,20 @@ async def setup_bot_data(application: Application) -> None:  # noqa: D401
                 )
             except Exception:
                 trigger = "scheduled"
-            with tracker.track("cache_warming", trigger=trigger) as run:
+            import sys as _sys
+
+            _cm = tracker.track("cache_warming", trigger=trigger)
+            try:
+                run = _cm.__enter__()
+            except JobAlreadyRunningError:
+                try:
+                    tracker.record_skipped(job_id="cache_warming", trigger=trigger, reason="already_running")
+                except Exception:
+                    pass
+                return
+
+            _exc_info = (None, None, None)
+            try:
                 try:
                     # Feature flag
                     enabled = str(os.getenv("CACHE_WARMING_ENABLED", "true")).lower() in {"1", "true", "yes", "on"}
@@ -4792,6 +4855,11 @@ async def setup_bot_data(application: Application) -> None:  # noqa: D401
                         _emit = (lambda *a, **k: None)
                     _emit("cache_warming_error", severity="anomaly", error=str(e))
                     raise
+            except Exception:
+                _exc_info = _sys.exc_info()
+                raise
+            finally:
+                _cm.__exit__(*_exc_info)
 
         try:
             interval_secs = int(os.getenv("CACHE_WARMING_INTERVAL_SECS", "900") or 900)

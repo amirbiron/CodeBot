@@ -69,6 +69,11 @@ def test_skip_run(tracker):
     assert run.status == JobStatus.SKIPPED
     assert run.run_id not in [r.run_id for r in tracker.get_active_runs()]
 
+def test_record_skipped(tracker):
+    run = tracker.record_skipped(job_id="test_job", trigger="manual", user_id=123, reason="already_running")
+    assert run.status == JobStatus.SKIPPED
+    assert run.run_id not in [r.run_id for r in tracker.get_active_runs()]
+
 
 def test_track_context_manager(tracker):
     with tracker.track("test_job") as run:

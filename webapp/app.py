@@ -3721,21 +3721,73 @@ def api_jobs_list():
     from services.job_registry import JobRegistry
 
     registry = JobRegistry()
-    jobs = []
+    jobs_by_id = {}
     for job in registry.list_all():
-        jobs.append(
-            {
-                "job_id": job.job_id,
-                "name": job.name,
-                "description": job.description,
-                "category": job.category.value,
-                "type": job.job_type.value,
-                "interval_seconds": job.interval_seconds,
-                "enabled": registry.is_enabled(job.job_id),
-                "env_toggle": job.env_toggle,
-            }
-        )
-    return jsonify({"jobs": jobs})
+        jobs_by_id[job.job_id] = {
+            "job_id": job.job_id,
+            "name": job.name,
+            "description": job.description,
+            "category": job.category.value,
+            "type": job.job_type.value,
+            "interval_seconds": job.interval_seconds,
+            "enabled": registry.is_enabled(job.job_id),
+            "can_trigger": True,
+            "env_toggle": job.env_toggle,
+        }
+
+    def _dynamic_job_stub(jid: str) -> dict:
+        # Default: show in UI but disable trigger (we can't guarantee it exists in JobQueue)
+        cat = "other"
+        typ = "on_demand"
+        name = jid
+        desc = "Job דינמי (נוצר מהרצה/פעולת משתמש)"
+        if jid.startswith("drive_"):
+            cat = "sync"
+            typ = "repeating"
+            name = "גיבוי Drive (דינמי)"
+            desc = "גיבוי Drive מתוזמן עבור משתמש"
+        elif jid.startswith("reminder_"):
+            cat = "other"
+            typ = "once"
+            name = "תזכורת (דינמי)"
+            desc = "שליחת תזכורת בודדת"
+        elif jid.startswith("batch_"):
+            cat = "batch"
+            typ = "on_demand"
+            name = "Batch (דינמי)"
+            desc = "עיבוד Batch עבור משתמש"
+        return {
+            "job_id": jid,
+            "name": name,
+            "description": desc,
+            "category": cat,
+            "type": typ,
+            "interval_seconds": None,
+            "enabled": True,
+            "can_trigger": False,
+            "env_toggle": None,
+        }
+
+    # Merge in jobs discovered from DB (so the monitor shows user actions too)
+    try:
+        from datetime import datetime, timezone, timedelta
+
+        db = get_db()
+        since = datetime.now(timezone.utc) - timedelta(days=7)
+        pipeline = [
+            {"$match": {"started_at": {"$gte": since}}},
+            {"$group": {"_id": "$job_id", "last_started_at": {"$max": "$started_at"}}},
+            {"$sort": {"last_started_at": -1}},
+            {"$limit": 300},
+        ]
+        for row in db.job_runs.aggregate(pipeline):
+            jid = row.get("_id")
+            if isinstance(jid, str) and jid and jid not in jobs_by_id:
+                jobs_by_id[jid] = _dynamic_job_stub(jid)
+    except Exception:
+        pass
+
+    return jsonify({"jobs": list(jobs_by_id.values())})
 
 
 @app.route('/api/jobs/active', methods=['GET'])
@@ -3761,7 +3813,30 @@ def api_job_detail(job_id: str):
     registry = JobRegistry()
     job = registry.get(job_id)
     if not job:
-        return jsonify({"error": "Job not found"}), 404
+        # Allow showing dynamic jobs that exist only in DB history.
+        job_payload = {
+            "job_id": job_id,
+            "name": job_id,
+            "description": "Job דינמי (נוצר מהרצה/פעולת משתמש)",
+            "category": ("sync" if job_id.startswith("drive_") else ("batch" if job_id.startswith("batch_") else "other")),
+            "type": ("repeating" if job_id.startswith("drive_") else ("once" if job_id.startswith("reminder_") else "on_demand")),
+            "interval_seconds": None,
+            "enabled": True,
+            "can_trigger": False,
+            "source_file": "",
+        }
+    else:
+        job_payload = {
+            "job_id": job.job_id,
+            "name": job.name,
+            "description": job.description,
+            "category": job.category.value,
+            "type": job.job_type.value,
+            "interval_seconds": job.interval_seconds,
+            "enabled": registry.is_enabled(job.job_id),
+            "can_trigger": True,
+            "source_file": job.source_file,
+        }
 
     try:
         db = get_db()
@@ -3777,16 +3852,7 @@ def api_job_detail(job_id: str):
 
     return jsonify(
         {
-            "job": {
-                "job_id": job.job_id,
-                "name": job.name,
-                "description": job.description,
-                "category": job.category.value,
-                "type": job.job_type.value,
-                "interval_seconds": job.interval_seconds,
-                "enabled": registry.is_enabled(job.job_id),
-                "source_file": job.source_file,
-            },
+            "job": job_payload,
             "active_runs": [_job_run_doc_to_dict(d) for d in active],
             "history": [_job_run_doc_to_dict(d) for d in history],
         }

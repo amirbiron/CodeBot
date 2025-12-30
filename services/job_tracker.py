@@ -251,6 +251,53 @@ class JobTracker:
         except Exception:
             pass
 
+    def record_skipped(
+        self,
+        *,
+        job_id: str,
+        trigger: str = "scheduled",
+        user_id: Optional[int] = None,
+        reason: str = "",
+    ) -> JobRun:
+        """רישום דילוג גם כשאין run פעיל (למשל already-running לפני start_run)."""
+        now = datetime.now(timezone.utc)
+        run = JobRun(
+            run_id=str(uuid.uuid4())[:12],
+            job_id=str(job_id),
+            started_at=now,
+            ended_at=now,
+            status=JobStatus.SKIPPED,
+            progress=0,
+            error_message=str(reason or ""),
+            trigger=str(trigger or "scheduled"),
+            user_id=user_id,
+        )
+        try:
+            run.logs.append(
+                JobLogEntry(
+                    timestamp=now,
+                    level="warning",
+                    message=f"Skipped: {reason or 'skipped'}",
+                    details={"reason": str(reason or "")} if reason else None,
+                )
+            )
+        except Exception:
+            pass
+        self._persist_run(run)
+        try:
+            from observability import emit_event
+
+            emit_event(
+                "job_skipped",
+                severity="warning",
+                job_id=run.job_id,
+                run_id=run.run_id,
+                reason=str(reason or ""),
+            )
+        except Exception:
+            pass
+        return run
+
     @contextmanager
     def track(
         self,
