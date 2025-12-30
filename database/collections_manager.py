@@ -130,6 +130,8 @@ class CollectionsManager:
             self.collections.create_indexes([
                 IndexModel([("user_id", ASCENDING), ("slug", ASCENDING)], name="user_slug_unique", unique=True),
                 IndexModel([("user_id", ASCENDING), ("is_active", ASCENDING), ("updated_at", DESCENDING)], name="user_active_updated"),
+                # חיפוש מהיר לפי שם (למשל "שולחן עבודה") תחת user_id + is_active
+                IndexModel([("user_id", ASCENDING), ("is_active", ASCENDING), ("name", ASCENDING)], name="user_active_name"),
                 IndexModel([("user_id", ASCENDING), ("sort_order", ASCENDING)], name="user_sort_order"),
             ])
         except Exception:
