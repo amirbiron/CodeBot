@@ -3748,9 +3748,9 @@ def _get_bot_jobs_api_base_url() -> str:
     except Exception:
         pass
 
-    # אם הוגדר מפורשות – השתמש בו גם בלי probe (כדי לא לשבור הגדרות קיימות).
+    # אם הוגדר מפורשות – השתמש בו גם בלי probe.
     configured = ""
-    for key in ("BOT_JOBS_API_BASE_URL", "BOT_API_BASE_URL", "PUBLIC_BASE_URL"):
+    for key in ("BOT_JOBS_API_BASE_URL", "BOT_API_BASE_URL"):
         v = (os.getenv(key) or "").strip()
         if v:
             configured = v.rstrip("/")
@@ -3758,13 +3758,8 @@ def _get_bot_jobs_api_base_url() -> str:
     if configured:
         chosen = configured
     else:
-        # Best-effort fallback: נפוץ בסביבה בה ה-webapp וה-bot רצים באותו קונטיינר/מכונה
-        candidates = ["http://127.0.0.1:10000", "http://localhost:10000"]
+        # בלי BOT_JOBS_API_BASE_URL מפורש לא ננסה "לנחש" (זה יכול להוביל לקריאה לעצמנו).
         chosen = ""
-        for cand in candidates:
-            if _probe_bot_jobs_api_base(cand):
-                chosen = cand.rstrip("/")
-                break
 
     try:
         _BOT_JOBS_API_BASE_CACHE["base"] = chosen
@@ -3780,6 +3775,10 @@ def _bot_jobs_api_headers() -> Dict[str, str] | None:
     if not token:
         return None
     return {"Authorization": f"Bearer {token}"}
+
+
+def _bot_jobs_api_is_explicitly_configured() -> bool:
+    return bool((os.getenv("BOT_JOBS_API_BASE_URL") or os.getenv("BOT_API_BASE_URL") or "").strip())
 
 
 def _fetch_bot_jobs_enabled_map(bot_api_base: str) -> Dict[str, bool]:
@@ -3822,7 +3821,12 @@ def api_jobs_list():
     registry = JobRegistry()
     bot_api_base = _get_bot_jobs_api_base_url()
     trigger_available = bool(bot_api_base)
-    bot_enabled_map = _fetch_bot_jobs_enabled_map(bot_api_base) if bot_api_base else {}
+    # חשוב: כדי למנוע recursion deadlock, לא נבצע HTTP call אם ה-base לא הוגדר מפורשות.
+    bot_enabled_map = (
+        _fetch_bot_jobs_enabled_map(bot_api_base)
+        if (bot_api_base and _bot_jobs_api_is_explicitly_configured())
+        else {}
+    )
     jobs_by_id = {}
     for job in registry.list_all():
         enabled_local = registry.is_enabled(job.job_id)
@@ -3917,7 +3921,11 @@ def api_job_detail(job_id: str):
     registry = JobRegistry()
     bot_api_base = _get_bot_jobs_api_base_url()
     trigger_available = bool(bot_api_base)
-    bot_enabled_map = _fetch_bot_jobs_enabled_map(bot_api_base) if bot_api_base else {}
+    bot_enabled_map = (
+        _fetch_bot_jobs_enabled_map(bot_api_base)
+        if (bot_api_base and _bot_jobs_api_is_explicitly_configured())
+        else {}
+    )
     job = registry.get(job_id)
     if not job:
         # Allow showing dynamic jobs that exist only in DB history.
@@ -3999,7 +4007,7 @@ def api_job_trigger(job_id: str):
         return jsonify(
             {
                 "error": "trigger_unavailable",
-                "message": "Bot Jobs API לא נגיש (הגדר BOT_JOBS_API_BASE_URL או ודא שהבוט מריץ את השרת הפנימי)",
+                "message": "Bot Jobs API לא נגיש (הגדר BOT_JOBS_API_BASE_URL או BOT_API_BASE_URL)",
             }
         ), 503
 
