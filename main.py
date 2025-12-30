@@ -5141,20 +5141,21 @@ async def setup_bot_data(application: Application) -> None:  # noqa: D401
                                     pass
 
                                 # parse JSON to find Desktop/שולחן עבודה id
-                                payload = None
-                                try:
-                                    if hasattr(res, "get_json"):
-                                        payload = res.get_json(silent=True)
-                                except Exception:
-                                    payload = None
-                                if payload is None:
+                                def _extract_payload(obj: object) -> dict | None:
+                                    # Cache miss: ה-endpoint מחזיר dict ישירות
+                                    if isinstance(obj, dict):
+                                        return obj
+                                    # Cache hit (dynamic_cache): ה-endpoint מחזיר Flask Response
                                     try:
-                                        if hasattr(res2, "get_json"):
-                                            payload = res2.get_json(silent=True)
+                                        getter = getattr(obj, "get_json", None)
+                                        if callable(getter):
+                                            out = getter(silent=True)
+                                            return out if isinstance(out, dict) else None
                                     except Exception:
-                                        payload = None
-                                if not isinstance(payload, dict):
-                                    payload = None
+                                        return None
+                                    return None
+
+                                payload = _extract_payload(res) or _extract_payload(res2)
                                 collections = (payload or {}).get("collections") if payload else None
                                 workspace_id = None
                                 if isinstance(collections, list):
