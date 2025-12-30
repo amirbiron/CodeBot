@@ -1679,19 +1679,24 @@ tr:hover .copy-meta-btn {
   }
   
   function updateGlobalCheckboxLabel() {
-    // Find the label for the global checkbox and update it based on context
-    const label = document.querySelector('label[for="globalTagCheck"]');
-    if (!label) return;
+    // Find the checkbox by its actual ID
+    const checkbox = document.getElementById('tagGlobalCheckbox');
+    // Find the parent label that wraps it
+    const label = checkbox ? checkbox.closest('label') : null;
+    // Find the span inside the label that contains the text
+    const textSpan = label ? label.querySelector('span') : null;
+    
+    if (!textSpan) return;
     
     if (tagState.errorSignature) {
       // Has unique error signature - global will tag same error across instances
       const displayName = tagState.errorDisplayName || 'שגיאה זו';
-      label.innerHTML = `החל על כל המופעים של <strong>${escapeHtml(displayName)}</strong>`;
+      textSpan.innerHTML = `החל על כל המופעים של <strong>${escapeHtml(displayName)}</strong>`;
       label.title = 'התגיות יופיעו בכל פעם שהשגיאה הזו בדיוק חוזרת';
     } else {
       // No signature - fall back to alert type
       const typeName = tagState.alertName || 'התראות מסוג זה';
-      label.innerHTML = `החל על כל ההתראות מסוג <strong>${escapeHtml(typeName)}</strong>`;
+      textSpan.innerHTML = `החל על כל ההתראות מסוג <strong>${escapeHtml(typeName)}</strong>`;
       label.title = 'התגיות יופיעו בכל ההתראות מאותו סוג';
     }
   }
