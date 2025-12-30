@@ -4862,7 +4862,8 @@ async def setup_bot_data(application: Application) -> None:  # noqa: D401
                     # Time budget to avoid load
                     import time as _t
 
-                    budget = float(os.getenv("CACHE_WARMING_BUDGET_SECONDS", "1.0") or 1.0)
+                    # ברירת מחדל הוגדלה כי אנחנו מחממים גם Pages מרכזיים (Files/Collections)
+                    budget = float(os.getenv("CACHE_WARMING_BUDGET_SECONDS", "5.0") or 5.0)
                     t0 = _t.time()
 
                     # Lazy imports to avoid hard deps
@@ -4870,6 +4871,10 @@ async def setup_bot_data(application: Application) -> None:  # noqa: D401
                         from cache_manager import cache as _cache
                     except Exception:  # pragma: no cover
                         _cache = None
+                    try:
+                        from cache_manager import build_cache_key as _build_cache_key
+                    except Exception:  # pragma: no cover
+                        _build_cache_key = None
                     try:
                         from webapp.app import get_db as _get_db
                     except Exception:  # pragma: no cover
@@ -4882,6 +4887,31 @@ async def setup_bot_data(application: Application) -> None:  # noqa: D401
                     if _cache is None or not getattr(_cache, "is_enabled", False) or _get_db is None:
                         tracker.skip_run(run.run_id, "cache_disabled_or_db_unavailable")
                         return
+
+                    warmed_keys: set[str] = set()
+                    warmed_counts: dict[str, int] = {
+                        "api_stats": 0,
+                        "api_search_suggest": 0,
+                        "web_files": 0,
+                        "collections_list": 0,
+                        "collections_detail": 0,
+                        "collections_items": 0,
+                    }
+
+                    def _mark_warmed(key: str, kind: str) -> None:
+                        try:
+                            k = str(key or "").strip()
+                        except Exception:
+                            return
+                        if not k:
+                            return
+                        if k in warmed_keys:
+                            return
+                        warmed_keys.add(k)
+                        try:
+                            warmed_counts[kind] = int(warmed_counts.get(kind, 0) or 0) + 1
+                        except Exception:
+                            pass
 
                     db = _get_db()
                     now = __import__("datetime").datetime.now(__import__("datetime").timezone.utc)
@@ -4958,6 +4988,7 @@ async def setup_bot_data(application: Application) -> None:  # noqa: D401
                                     "user_stats",
                                     {"user_id": uid, "endpoint": "api_stats", "access_frequency": "high"},
                                 )
+                                _mark_warmed(key, "api_stats")
                             except Exception:
                                 pass
                         except Exception:
@@ -4981,8 +5012,196 @@ async def setup_bot_data(application: Application) -> None:  # noqa: D401
                                         "search_results",
                                         {"user_id": uid, "endpoint": "api_search_suggestions"},
                                     )
+                                    _mark_warmed(key, "api_search_suggest")
                                 except Exception:
                                     continue
+
+                        # --- Warm core page: All Files (/files) HTML cache ---
+                        if (_t.time() - t0) <= budget:
+                            try:
+                                from webapp.app import app as _web_app  # Flask app
+                                from webapp.app import files as _files_page
+                                from flask import session as _flask_session
+
+                                # מפתח קאש זהה לזה שב-webapp/app.py
+                                try:
+                                    _params = {
+                                        "q": "",
+                                        "lang": "",
+                                        "category": "",
+                                        "sort": "created_at",
+                                        "repo": "",
+                                        "page": 1,
+                                        "cursor": "",
+                                    }
+                                    _raw = json.dumps(_params, sort_keys=True, ensure_ascii=False)
+                                    _hash = hashlib.sha256(_raw.encode("utf-8")).hexdigest()[:24]
+                                    files_cache_key = f"web:files:user:{uid}:{_hash}"
+                                except Exception:
+                                    files_cache_key = f"web:files:user:{uid}:fallback"
+
+                                # בניית user_data מינימלי שתואם ל-session של ה-webapp
+                                user_doc = {}
+                                try:
+                                    user_doc = db.users.find_one({"user_id": int(uid)}) or {}
+                                except Exception:
+                                    user_doc = {}
+                                user_data = {
+                                    "id": int(uid),
+                                    "first_name": user_doc.get("first_name", "") if isinstance(user_doc, dict) else "",
+                                    "last_name": user_doc.get("last_name", "") if isinstance(user_doc, dict) else "",
+                                    "username": user_doc.get("username", "") if isinstance(user_doc, dict) else "",
+                                    "photo_url": user_doc.get("photo_url", "") if isinstance(user_doc, dict) else "",
+                                    "has_seen_welcome_modal": bool((user_doc or {}).get("has_seen_welcome_modal", False)) if isinstance(user_doc, dict) else False,
+                                }
+
+                                # רינדור בתוך request context כדי שה-endpoint יפעל כמו בייצור
+                                with _web_app.test_request_context("/files"):
+                                    _flask_session["user_id"] = int(uid)
+                                    _flask_session["user_data"] = user_data
+                                    _flask_session.permanent = True
+                                    html = _files_page()
+                                # cache.set_dynamic בפנים כבר עושה שמירה; בכל זאת נוודא שהמפתח קיים (best-effort)
+                                try:
+                                    cached_html = _cache.get(files_cache_key)
+                                    if isinstance(cached_html, str) and cached_html:
+                                        _mark_warmed(files_cache_key, "web_files")
+                                    else:
+                                        if isinstance(html, str) and html:
+                                            try:
+                                                _cache.set_dynamic(
+                                                    files_cache_key,
+                                                    html,
+                                                    "file_list",
+                                                    {
+                                                        "user_id": int(uid),
+                                                        "user_tier": "regular",
+                                                        "access_frequency": "high",
+                                                        "endpoint": "files",
+                                                    },
+                                                )
+                                                _mark_warmed(files_cache_key, "web_files")
+                                            except Exception:
+                                                pass
+                                except Exception:
+                                    pass
+                            except Exception:
+                                # Fail-open: אם Flask/webapp לא זמין בסביבה הזו, נדלג
+                                pass
+
+                        # --- Warm core API: Collections list + Desktop items ---
+                        if (_t.time() - t0) <= budget and _build_cache_key is not None:
+                            try:
+                                from webapp.app import app as _web_app
+                                from webapp.collections_api import list_collections as _api_list_collections
+                                from webapp.collections_api import get_items as _api_get_items
+                                from webapp.collections_api import get_collection as _api_get_collection
+                                from flask import session as _flask_session
+
+                                # user_data (כמו למעלה) — נבנה שוב בצורה חסינה (בלי תלות בבלוק הקודם)
+                                user_doc = {}
+                                try:
+                                    user_doc = db.users.find_one({"user_id": int(uid)}) or {}
+                                except Exception:
+                                    user_doc = {}
+                                user_data = {
+                                    "id": int(uid),
+                                    "first_name": user_doc.get("first_name", "") if isinstance(user_doc, dict) else "",
+                                    "last_name": user_doc.get("last_name", "") if isinstance(user_doc, dict) else "",
+                                    "username": user_doc.get("username", "") if isinstance(user_doc, dict) else "",
+                                    "photo_url": user_doc.get("photo_url", "") if isinstance(user_doc, dict) else "",
+                                    "has_seen_welcome_modal": bool((user_doc or {}).get("has_seen_welcome_modal", False)) if isinstance(user_doc, dict) else False,
+                                }
+
+                                # 1) /api/collections?limit=100&skip=0 (משמש ב-base.html לניווט לשולחן עבודה)
+                                qs100 = "limit=100&skip=0"
+                                with _web_app.test_request_context(f"/api/collections?{qs100}"):
+                                    _flask_session["user_id"] = int(uid)
+                                    _flask_session["user_data"] = user_data
+                                    _flask_session.permanent = True
+                                    res = _api_list_collections()
+                                key_collections_100 = _build_cache_key("collections_list:v2", str(uid), "/api/collections", qs100)
+                                try:
+                                    if _cache.get(key_collections_100) is not None:
+                                        _mark_warmed(key_collections_100, "collections_list")
+                                except Exception:
+                                    pass
+
+                                # 2) /api/collections (משמש במודאל Add to Collection)
+                                with _web_app.test_request_context("/api/collections"):
+                                    _flask_session["user_id"] = int(uid)
+                                    _flask_session["user_data"] = user_data
+                                    _flask_session.permanent = True
+                                    res2 = _api_list_collections()
+                                key_collections_default = _build_cache_key("collections_list:v2", str(uid), "/api/collections", "")
+                                try:
+                                    if _cache.get(key_collections_default) is not None:
+                                        _mark_warmed(key_collections_default, "collections_list")
+                                except Exception:
+                                    pass
+
+                                # parse JSON to find Desktop/שולחן עבודה id
+                                payload = None
+                                try:
+                                    if hasattr(res, "get_json"):
+                                        payload = res.get_json(silent=True)
+                                except Exception:
+                                    payload = None
+                                if payload is None:
+                                    try:
+                                        if hasattr(res2, "get_json"):
+                                            payload = res2.get_json(silent=True)
+                                    except Exception:
+                                        payload = None
+                                if not isinstance(payload, dict):
+                                    payload = None
+                                collections = (payload or {}).get("collections") if payload else None
+                                workspace_id = None
+                                if isinstance(collections, list):
+                                    for c in collections:
+                                        if not isinstance(c, dict):
+                                            continue
+                                        name = str(c.get("name") or "").strip().lower()
+                                        if name in {"שולחן עבודה", "desktop"}:
+                                            wid = c.get("id")
+                                            if wid is not None:
+                                                workspace_id = str(wid)
+                                                break
+
+                                if workspace_id and (_t.time() - t0) <= budget:
+                                    # warm /api/collections/<id> (detail)
+                                    with _web_app.test_request_context(f"/api/collections/{workspace_id}"):
+                                        _flask_session["user_id"] = int(uid)
+                                        _flask_session["user_data"] = user_data
+                                        _flask_session.permanent = True
+                                        _api_get_collection(workspace_id)
+                                    key_detail = _build_cache_key("collections_detail", str(uid), f"/api/collections/{workspace_id}", "")
+                                    try:
+                                        if _cache.get(key_detail) is not None:
+                                            _mark_warmed(key_detail, "collections_detail")
+                                    except Exception:
+                                        pass
+
+                                    # warm /api/collections/<id>/items?page=1&per_page=20&include_computed=true
+                                    items_qs = "page=1&per_page=20&include_computed=true"
+                                    with _web_app.test_request_context(f"/api/collections/{workspace_id}/items?{items_qs}"):
+                                        _flask_session["user_id"] = int(uid)
+                                        _flask_session["user_data"] = user_data
+                                        _flask_session.permanent = True
+                                        _api_get_items(workspace_id)
+                                    key_items = _build_cache_key(
+                                        "collections_items",
+                                        str(uid),
+                                        f"/api/collections/{workspace_id}/items",
+                                        items_qs,
+                                    )
+                                    try:
+                                        if _cache.get(key_items) is not None:
+                                            _mark_warmed(key_items, "collections_items")
+                                    except Exception:
+                                        pass
+                            except Exception:
+                                pass
 
                     # Emit
                     try:
@@ -4990,10 +5209,19 @@ async def setup_bot_data(application: Application) -> None:  # noqa: D401
                             from observability import emit_event as _emit
                         except Exception:  # pragma: no cover
                             _emit = (lambda *a, **k: None)
-                        _emit("cache_warming_done", severity="info")
+                        _emit(
+                            "cache_warming_done",
+                            severity="info",
+                            warmed_keys_count=int(len(warmed_keys)),
+                            warmed_counts=dict(warmed_counts),
+                        )
                     except Exception:
                         pass
-                    tracker.add_log(run.run_id, "info", "Cache warming done")
+                    tracker.add_log(
+                        run.run_id,
+                        "info",
+                        f"Cache warming done warmed_keys={int(len(warmed_keys))} breakdown={warmed_counts}",
+                    )
                 except Exception as e:
                     try:
                         from observability import emit_event as _emit
