@@ -451,7 +451,11 @@
 </ul>
 </li>
 <li class="toctree-l3"><a class="reference internal" href="autocomplete_manager.html">autocomplete_manager module</a></li>
-<li class="toctree-l3 current"><a class="current reference internal" href="#">backup_menu_handler module</a></li>
+<li class="toctree-l3 current"><a class="current reference internal" href="#">backup_menu_handler module</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#backup_menu_handler.emit_event"><code class="docutils literal notranslate"><span class="pre">emit_event()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#backup_menu_handler.BackupMenuHandler"><code class="docutils literal notranslate"><span class="pre">BackupMenuHandler</span></code></a></li>
+</ul>
+</li>
 <li class="toctree-l3"><a class="reference internal" href="batch_commands.html">batch_commands module</a></li>
 <li class="toctree-l3"><a class="reference internal" href="batch_processor.html">batch_processor module</a></li>
 <li class="toctree-l3"><a class="reference internal" href="bot_handlers.html">bot_handlers module</a></li>
@@ -1640,6 +1644,58 @@
 <li class="toctree-l2"><a class="reference internal" href="../observability.html#staging">אימות ב-Staging</a></li>
 </ul>
 </li>
+<li class="toctree-l1"><a class="reference internal" href="../observability/background-jobs-monitor.html">Background Jobs Monitor</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../observability/background-jobs-monitor.html#id1">סקירה כללית</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../observability/background-jobs-monitor.html#id2">רכיבים וקוד רלוונטי</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../observability/background-jobs-monitor.html#id3">מסד נתונים</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../observability/background-jobs-monitor.html#job-runs">קולקציה: <code class="docutils literal notranslate"><span class="pre">job_runs</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../observability/background-jobs-monitor.html#ui-webapp">UI / WebApp</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../observability/background-jobs-monitor.html#id4">גישה לדשבורד</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../observability/background-jobs-monitor.html#id5">מה רואים בדשבורד</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../observability/background-jobs-monitor.html#jobs-vs">Jobs סטטיים vs. דינמיים</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../observability/background-jobs-monitor.html#api-reference">API Reference</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../observability/background-jobs-monitor.html#get-api-jobs">GET /api/jobs</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../observability/background-jobs-monitor.html#get-api-jobs-active">GET /api/jobs/active</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../observability/background-jobs-monitor.html#get-api-jobs-job-id">GET /api/jobs/{job_id}</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../observability/background-jobs-monitor.html#get-api-jobs-runs-run-id">GET /api/jobs/runs/{run_id}</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../observability/background-jobs-monitor.html#post-api-jobs-job-id-trigger">POST /api/jobs/{job_id}/trigger</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../observability/background-jobs-monitor.html#id6">אבטחה</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../observability/background-jobs-monitor.html#api">הגנה על ה-API</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../observability/background-jobs-monitor.html#env">ENV וקונפיגורציה</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../observability/background-jobs-monitor.html#id7">משתני סביבה</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../observability/background-jobs-monitor.html#chatops-jobs">ChatOps – פקודת /jobs</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../observability/background-jobs-monitor.html#id8">פקודות זמינות</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../observability/background-jobs-monitor.html#id9">דוגמאות</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../observability/background-jobs-monitor.html#alerts">Alerts</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../observability/background-jobs-monitor.html#alerts-yml">הגדרות ב-alerts.yml</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../observability/background-jobs-monitor.html#flow-alerts">Flow של Alerts</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../observability/background-jobs-monitor.html#troubleshooting">Troubleshooting</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../observability/background-jobs-monitor.html#id10">”הטריגר לא עובד“</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../observability/background-jobs-monitor.html#jobs">”אין jobs דינמיים בדשבורד“</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../observability/background-jobs-monitor.html#id11">”לא מגיעים Alerts“</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../observability/background-jobs-monitor.html#job">”Job תקוע אבל אין התראה“</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../observability/background-jobs-monitor.html#id12">”השרת מחזיר 401/403“</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../observability/background-jobs-monitor.html#id13">”לוגים ריקים בדשבורד“</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../observability/background-jobs-monitor.html#best-practices">Best Practices</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../observability/background-jobs-monitor.html#id14">ראו גם</a></li>
+</ul>
+</li>
 <li class="toctree-l1"><a class="reference internal" href="../observability/observability_dashboard.html">📡 Observability Dashboard &amp; API</a><ul>
 <li class="toctree-l2"><a class="reference internal" href="../observability/observability_dashboard.html#admin-observability">🖥️ סקירת הממשק <code class="docutils literal notranslate"><span class="pre">/admin/observability</span></code></a><ul>
 <li class="toctree-l3"><a class="reference internal" href="../observability/observability_dashboard.html#id1">חלוקת הדף</a></li>
@@ -1955,6 +2011,7 @@
 </ul>
 </li>
 <li class="toctree-l2"><a class="reference internal" href="../chatops/commands.html#alerts">/alerts</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../chatops/commands.html#jobs">/jobs</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../chatops/commands.html#incidents">/incidents</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../chatops/commands.html#triage">/triage</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../chatops/commands.html#predict">/predict</a></li>
@@ -2111,8 +2168,78 @@
           <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
            <div itemprop="articleBody">
              
-  <section id="backup-menu-handler-module">
-<h1>backup_menu_handler module<a class="headerlink" href="#backup-menu-handler-module" title="Link to this heading"></a></h1>
+  <section id="module-backup_menu_handler">
+<span id="backup-menu-handler-module"></span><h1>backup_menu_handler module<a class="headerlink" href="#module-backup_menu_handler" title="Link to this heading"></a></h1>
+<dl class="py function">
+<dt class="sig sig-object py" id="backup_menu_handler.emit_event">
+<span class="sig-prename descclassname"><span class="pre">backup_menu_handler.</span></span><span class="sig-name descname"><span class="pre">emit_event</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">event</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">severity</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'info'</span></span></em>, <em class="sig-param"><span class="o"><span class="pre">**</span></span><span class="n"><span class="pre">fields</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/backup_menu_handler.html#emit_event"><span class="viewcode-link"><span class="pre">[מקור]</span></span></a><a class="headerlink" href="#backup_menu_handler.emit_event" title="Link to this definition"></a></dt>
+<dd><dl class="field-list simple">
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p><span class="sphinx_autodoc_typehints-type"><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.14)"><code class="xref py py-obj docutils literal notranslate"><span class="pre">None</span></code></a></span></p>
+</dd>
+<dt class="field-even">פרמטרים<span class="colon">:</span></dt>
+<dd class="field-even"><ul class="simple">
+<li><p><strong>event</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><em>str</em></a>)</p></li>
+<li><p><strong>severity</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><em>str</em></a>)</p></li>
+<li><p><strong>fields</strong> (<a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Any" title="(in Python v3.14)"><em>Any</em></a>)</p></li>
+</ul>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py class">
+<dt class="sig sig-object py" id="backup_menu_handler.BackupMenuHandler">
+<em class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">backup_menu_handler.</span></span><span class="sig-name descname"><span class="pre">BackupMenuHandler</span></span><a class="reference internal" href="../_modules/backup_menu_handler.html#BackupMenuHandler"><span class="viewcode-link"><span class="pre">[מקור]</span></span></a><a class="headerlink" href="#backup_menu_handler.BackupMenuHandler" title="Link to this definition"></a></dt>
+<dd><p>Bases: <a class="reference external" href="https://docs.python.org/3/library/functions.html#object" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">object</span></code></a></p>
+<p>תפריט גיבוי ושחזור מלא + נקודות שמירה בגיט</p>
+<dl class="py method">
+<dt class="sig sig-object py" id="backup_menu_handler.BackupMenuHandler.__init__">
+<span class="sig-name descname"><span class="pre">__init__</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="../_modules/backup_menu_handler.html#BackupMenuHandler.__init__"><span class="viewcode-link"><span class="pre">[מקור]</span></span></a><a class="headerlink" href="#backup_menu_handler.BackupMenuHandler.__init__" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="backup_menu_handler.BackupMenuHandler.show_backup_menu">
+<em class="property"><span class="k"><span class="pre">async</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">show_backup_menu</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">update</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">context</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/backup_menu_handler.html#BackupMenuHandler.show_backup_menu"><span class="viewcode-link"><span class="pre">[מקור]</span></span></a><a class="headerlink" href="#backup_menu_handler.BackupMenuHandler.show_backup_menu" title="Link to this definition"></a></dt>
+<dd><dl class="field-list simple">
+<dt class="field-odd">פרמטרים<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>update</strong> (<a class="reference external" href="https://docs.python-telegram-bot.org/en/stable/telegram.update.html#telegram.Update" title="(in python-telegram-bot v22.5)"><em>telegram.Update</em></a>)</p></li>
+<li><p><strong>context</strong> (<em>telegram.ext.ContextTypes.DEFAULT_TYPE</em>)</p></li>
+</ul>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="backup_menu_handler.BackupMenuHandler.handle_callback_query">
+<em class="property"><span class="k"><span class="pre">async</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">handle_callback_query</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">update</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">context</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/backup_menu_handler.html#BackupMenuHandler.handle_callback_query"><span class="viewcode-link"><span class="pre">[מקור]</span></span></a><a class="headerlink" href="#backup_menu_handler.BackupMenuHandler.handle_callback_query" title="Link to this definition"></a></dt>
+<dd><dl class="field-list simple">
+<dt class="field-odd">פרמטרים<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>update</strong> (<a class="reference external" href="https://docs.python-telegram-bot.org/en/stable/telegram.update.html#telegram.Update" title="(in python-telegram-bot v22.5)"><em>telegram.Update</em></a>)</p></li>
+<li><p><strong>context</strong> (<em>telegram.ext.ContextTypes.DEFAULT_TYPE</em>)</p></li>
+</ul>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="backup_menu_handler.BackupMenuHandler.send_rating_prompt">
+<em class="property"><span class="k"><span class="pre">async</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">send_rating_prompt</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">update</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">context</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">backup_id</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/backup_menu_handler.html#BackupMenuHandler.send_rating_prompt"><span class="viewcode-link"><span class="pre">[מקור]</span></span></a><a class="headerlink" href="#backup_menu_handler.BackupMenuHandler.send_rating_prompt" title="Link to this definition"></a></dt>
+<dd><p>שולח הודעת תיוג עם 3 כפתורים עבור גיבוי מסוים.</p>
+<dl class="field-list simple">
+<dt class="field-odd">פרמטרים<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>update</strong> (<a class="reference external" href="https://docs.python-telegram-bot.org/en/stable/telegram.update.html#telegram.Update" title="(in python-telegram-bot v22.5)"><em>telegram.Update</em></a>)</p></li>
+<li><p><strong>context</strong> (<em>telegram.ext.ContextTypes.DEFAULT_TYPE</em>)</p></li>
+<li><p><strong>backup_id</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><em>str</em></a>)</p></li>
+</ul>
+</dd>
+</dl>
+</dd></dl>
+
+</dd></dl>
+
 </section>
 
 

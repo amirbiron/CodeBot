@@ -143,6 +143,7 @@ Code Keeper Bot - תיעוד API
    :caption: Observability
 
    observability
+   observability/background-jobs-monitor
    observability/observability_dashboard
    observability/quick_fix_rules
    visual-rule-engine

@@ -456,7 +456,11 @@ window.addEventListener("load", () => mermaid.run());
 </ul>
 </li>
 <li class="toctree-l3"><a class="reference internal" href="../api/autocomplete_manager.html">autocomplete_manager module</a></li>
-<li class="toctree-l3"><a class="reference internal" href="../api/backup_menu_handler.html">backup_menu_handler module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../api/backup_menu_handler.html">backup_menu_handler module</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../api/backup_menu_handler.html#backup_menu_handler.emit_event"><code class="docutils literal notranslate"><span class="pre">emit_event()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../api/backup_menu_handler.html#backup_menu_handler.BackupMenuHandler"><code class="docutils literal notranslate"><span class="pre">BackupMenuHandler</span></code></a></li>
+</ul>
+</li>
 <li class="toctree-l3"><a class="reference internal" href="../api/batch_commands.html">batch_commands module</a></li>
 <li class="toctree-l3"><a class="reference internal" href="../api/batch_processor.html">batch_processor module</a></li>
 <li class="toctree-l3"><a class="reference internal" href="../api/bot_handlers.html">bot_handlers module</a></li>
@@ -1645,6 +1649,58 @@ window.addEventListener("load", () => mermaid.run());
 <li class="toctree-l2"><a class="reference internal" href="../observability.html#staging">אימות ב-Staging</a></li>
 </ul>
 </li>
+<li class="toctree-l1"><a class="reference internal" href="../observability/background-jobs-monitor.html">Background Jobs Monitor</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../observability/background-jobs-monitor.html#id1">סקירה כללית</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../observability/background-jobs-monitor.html#id2">רכיבים וקוד רלוונטי</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../observability/background-jobs-monitor.html#id3">מסד נתונים</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../observability/background-jobs-monitor.html#job-runs">קולקציה: <code class="docutils literal notranslate"><span class="pre">job_runs</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../observability/background-jobs-monitor.html#ui-webapp">UI / WebApp</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../observability/background-jobs-monitor.html#id4">גישה לדשבורד</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../observability/background-jobs-monitor.html#id5">מה רואים בדשבורד</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../observability/background-jobs-monitor.html#jobs-vs">Jobs סטטיים vs. דינמיים</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../observability/background-jobs-monitor.html#api-reference">API Reference</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../observability/background-jobs-monitor.html#get-api-jobs">GET /api/jobs</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../observability/background-jobs-monitor.html#get-api-jobs-active">GET /api/jobs/active</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../observability/background-jobs-monitor.html#get-api-jobs-job-id">GET /api/jobs/{job_id}</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../observability/background-jobs-monitor.html#get-api-jobs-runs-run-id">GET /api/jobs/runs/{run_id}</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../observability/background-jobs-monitor.html#post-api-jobs-job-id-trigger">POST /api/jobs/{job_id}/trigger</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../observability/background-jobs-monitor.html#id6">אבטחה</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../observability/background-jobs-monitor.html#api">הגנה על ה-API</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../observability/background-jobs-monitor.html#env">ENV וקונפיגורציה</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../observability/background-jobs-monitor.html#id7">משתני סביבה</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../observability/background-jobs-monitor.html#chatops-jobs">ChatOps – פקודת /jobs</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../observability/background-jobs-monitor.html#id8">פקודות זמינות</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../observability/background-jobs-monitor.html#id9">דוגמאות</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../observability/background-jobs-monitor.html#alerts">Alerts</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../observability/background-jobs-monitor.html#alerts-yml">הגדרות ב-alerts.yml</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../observability/background-jobs-monitor.html#flow-alerts">Flow של Alerts</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../observability/background-jobs-monitor.html#troubleshooting">Troubleshooting</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../observability/background-jobs-monitor.html#id10">”הטריגר לא עובד“</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../observability/background-jobs-monitor.html#jobs">”אין jobs דינמיים בדשבורד“</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../observability/background-jobs-monitor.html#id11">”לא מגיעים Alerts“</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../observability/background-jobs-monitor.html#job">”Job תקוע אבל אין התראה“</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../observability/background-jobs-monitor.html#id12">”השרת מחזיר 401/403“</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../observability/background-jobs-monitor.html#id13">”לוגים ריקים בדשבורד“</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../observability/background-jobs-monitor.html#best-practices">Best Practices</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../observability/background-jobs-monitor.html#id14">ראו גם</a></li>
+</ul>
+</li>
 <li class="toctree-l1"><a class="reference internal" href="../observability/observability_dashboard.html">📡 Observability Dashboard &amp; API</a><ul>
 <li class="toctree-l2"><a class="reference internal" href="../observability/observability_dashboard.html#admin-observability">🖥️ סקירת הממשק <code class="docutils literal notranslate"><span class="pre">/admin/observability</span></code></a><ul>
 <li class="toctree-l3"><a class="reference internal" href="../observability/observability_dashboard.html#id1">חלוקת הדף</a></li>
@@ -1960,6 +2016,7 @@ window.addEventListener("load", () => mermaid.run());
 </ul>
 </li>
 <li class="toctree-l2"><a class="reference internal" href="../chatops/commands.html#alerts">/alerts</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../chatops/commands.html#jobs">/jobs</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../chatops/commands.html#incidents">/incidents</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../chatops/commands.html#triage">/triage</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../chatops/commands.html#predict">/predict</a></li>
@@ -2132,6 +2189,12 @@ window.addEventListener("load", () => mermaid.run());
     <span class="n">gridfs</span> <span class="o">=</span> <span class="kc">None</span>  <span class="c1"># type: ignore[assignment]</span>
 
 <span class="n">logger</span> <span class="o">=</span> <span class="n">logging</span><span class="o">.</span><span class="n">getLogger</span><span class="p">(</span><span class="vm">__name__</span><span class="p">)</span>
+
+<span class="c1"># Transitional: access persistence only via facade (avoid direct database imports)</span>
+<span class="k">try</span><span class="p">:</span>
+    <span class="kn">from</span> <span class="nn">src.infrastructure.composition</span> <span class="kn">import</span> <span class="n">get_files_facade</span>  <span class="c1"># type: ignore</span>
+<span class="k">except</span> <span class="ne">Exception</span><span class="p">:</span>  <span class="c1"># pragma: no cover</span>
+    <span class="n">get_files_facade</span> <span class="o">=</span> <span class="kc">None</span>  <span class="c1"># type: ignore</span>
 
 <div class="viewcode-block" id="BackupInfo">
 <a class="viewcode-back" href="../modules/index.html#file_manager.BackupInfo">[תיעוד]</a>
@@ -2545,9 +2608,10 @@ window.addEventListener("load", () => mermaid.run());
         <span class="k">if</span> <span class="n">gridfs</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
             <span class="k">return</span> <span class="kc">None</span>
         <span class="k">try</span><span class="p">:</span>
-            <span class="c1"># שימוש במסד הנתונים הגלובלי הקיים</span>
-            <span class="kn">from</span> <span class="nn">database</span> <span class="kn">import</span> <span class="n">db</span> <span class="k">as</span> <span class="n">global_db</span>
-            <span class="n">mongo_db</span> <span class="o">=</span> <span class="nb">getattr</span><span class="p">(</span><span class="n">global_db</span><span class="p">,</span> <span class="s2">&quot;db&quot;</span><span class="p">,</span> <span class="kc">None</span><span class="p">)</span>
+            <span class="c1"># שימוש במסד הנתונים הגלובלי הקיים (דרך facade)</span>
+            <span class="n">mongo_db</span> <span class="o">=</span> <span class="kc">None</span>
+            <span class="k">if</span> <span class="n">get_files_facade</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+                <span class="n">mongo_db</span> <span class="o">=</span> <span class="n">get_files_facade</span><span class="p">()</span><span class="o">.</span><span class="n">get_mongo_db</span><span class="p">()</span>
             <span class="k">if</span> <span class="ow">not</span> <span class="n">mongo_db</span><span class="p">:</span>
                 <span class="k">return</span> <span class="kc">None</span>
             <span class="c1"># אוסף ייעודי &quot;backups&quot;</span>
@@ -3186,8 +3250,11 @@ window.addEventListener("load", () => mermaid.run());
         <span class="n">results</span><span class="p">:</span> <span class="n">Dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]</span> <span class="o">=</span> <span class="p">{</span><span class="s2">&quot;restored_files&quot;</span><span class="p">:</span> <span class="mi">0</span><span class="p">,</span> <span class="s2">&quot;errors&quot;</span><span class="p">:</span> <span class="p">[]}</span>
         <span class="k">try</span><span class="p">:</span>
             <span class="kn">import</span> <span class="nn">zipfile</span>
-            <span class="kn">from</span> <span class="nn">database</span> <span class="kn">import</span> <span class="n">db</span>
             <span class="kn">from</span> <span class="nn">utils</span> <span class="kn">import</span> <span class="n">detect_language_from_filename</span>
+            <span class="n">facade</span> <span class="o">=</span> <span class="n">get_files_facade</span><span class="p">()</span> <span class="k">if</span> <span class="n">get_files_facade</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="k">else</span> <span class="kc">None</span>
+            <span class="k">if</span> <span class="n">facade</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+                <span class="n">results</span><span class="p">[</span><span class="s2">&quot;errors&quot;</span><span class="p">]</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="s2">&quot;DB unavailable&quot;</span><span class="p">)</span>
+                <span class="k">return</span> <span class="n">results</span>
             <span class="c1"># פרה-תנאי</span>
             <span class="k">if</span> <span class="ow">not</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">exists</span><span class="p">(</span><span class="n">backup_path</span><span class="p">):</span>
                 <span class="n">results</span><span class="p">[</span><span class="s2">&quot;errors&quot;</span><span class="p">]</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;backup file not found: </span><span class="si">{</span><span class="n">backup_path</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
@@ -3195,12 +3262,12 @@ window.addEventListener("load", () => mermaid.run());
 
             <span class="k">if</span> <span class="n">purge</span><span class="p">:</span>
                 <span class="k">try</span><span class="p">:</span>
-                    <span class="n">existing</span> <span class="o">=</span> <span class="n">db</span><span class="o">.</span><span class="n">get_user_files</span><span class="p">(</span><span class="n">user_id</span><span class="p">,</span> <span class="n">limit</span><span class="o">=</span><span class="mi">1000</span><span class="p">,</span> <span class="n">projection</span><span class="o">=</span><span class="p">{</span><span class="s2">&quot;file_name&quot;</span><span class="p">:</span> <span class="mi">1</span><span class="p">})</span> <span class="ow">or</span> <span class="p">[]</span>
+                    <span class="n">existing</span> <span class="o">=</span> <span class="n">facade</span><span class="o">.</span><span class="n">get_user_files</span><span class="p">(</span><span class="n">user_id</span><span class="p">,</span> <span class="n">limit</span><span class="o">=</span><span class="mi">1000</span><span class="p">,</span> <span class="n">projection</span><span class="o">=</span><span class="p">{</span><span class="s2">&quot;file_name&quot;</span><span class="p">:</span> <span class="mi">1</span><span class="p">})</span> <span class="ow">or</span> <span class="p">[]</span>
                     <span class="k">for</span> <span class="n">doc</span> <span class="ow">in</span> <span class="n">existing</span><span class="p">:</span>
                         <span class="k">try</span><span class="p">:</span>
                             <span class="n">fname</span> <span class="o">=</span> <span class="n">doc</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s1">&#39;file_name&#39;</span><span class="p">)</span>
                             <span class="k">if</span> <span class="n">fname</span><span class="p">:</span>
-                                <span class="n">db</span><span class="o">.</span><span class="n">delete_file</span><span class="p">(</span><span class="n">user_id</span><span class="p">,</span> <span class="n">fname</span><span class="p">)</span>
+                                <span class="n">facade</span><span class="o">.</span><span class="n">delete_file</span><span class="p">(</span><span class="n">user_id</span><span class="p">,</span> <span class="n">fname</span><span class="p">)</span>
                         <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
                             <span class="n">results</span><span class="p">[</span><span class="s2">&quot;errors&quot;</span><span class="p">]</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;purge failed for </span><span class="si">{</span><span class="n">doc</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s1">&#39;file_name&#39;</span><span class="p">)</span><span class="si">}</span><span class="s2">: </span><span class="si">{</span><span class="n">e</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
                 <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
@@ -3231,7 +3298,7 @@ window.addEventListener("load", () => mermaid.run());
                                 <span class="n">filtered_extra</span> <span class="o">=</span> <span class="p">[</span><span class="n">repo_tags</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">]]</span> <span class="o">+</span> <span class="p">[</span><span class="n">t</span> <span class="k">for</span> <span class="n">t</span> <span class="ow">in</span> <span class="n">filtered_extra</span> <span class="k">if</span> <span class="ow">not</span> <span class="p">(</span><span class="nb">isinstance</span><span class="p">(</span><span class="n">t</span><span class="p">,</span> <span class="nb">str</span><span class="p">)</span> <span class="ow">and</span> <span class="n">t</span><span class="o">.</span><span class="n">strip</span><span class="p">()</span><span class="o">.</span><span class="n">lower</span><span class="p">()</span><span class="o">.</span><span class="n">startswith</span><span class="p">(</span><span class="s1">&#39;repo:&#39;</span><span class="p">))]</span>
                         <span class="k">except</span> <span class="ne">Exception</span><span class="p">:</span>
                             <span class="k">pass</span>
-                        <span class="n">ok</span> <span class="o">=</span> <span class="n">db</span><span class="o">.</span><span class="n">save_file</span><span class="p">(</span><span class="n">user_id</span><span class="o">=</span><span class="n">user_id</span><span class="p">,</span> <span class="n">file_name</span><span class="o">=</span><span class="n">name</span><span class="p">,</span> <span class="n">code</span><span class="o">=</span><span class="n">text</span><span class="p">,</span> <span class="n">programming_language</span><span class="o">=</span><span class="n">lang</span><span class="p">,</span> <span class="n">extra_tags</span><span class="o">=</span><span class="n">filtered_extra</span><span class="p">)</span>
+                        <span class="n">ok</span> <span class="o">=</span> <span class="n">facade</span><span class="o">.</span><span class="n">save_file</span><span class="p">(</span><span class="n">user_id</span><span class="o">=</span><span class="n">user_id</span><span class="p">,</span> <span class="n">file_name</span><span class="o">=</span><span class="n">name</span><span class="p">,</span> <span class="n">code</span><span class="o">=</span><span class="n">text</span><span class="p">,</span> <span class="n">programming_language</span><span class="o">=</span><span class="n">lang</span><span class="p">,</span> <span class="n">extra_tags</span><span class="o">=</span><span class="n">filtered_extra</span><span class="p">)</span>
                         <span class="k">if</span> <span class="n">ok</span><span class="p">:</span>
                             <span class="n">results</span><span class="p">[</span><span class="s2">&quot;restored_files&quot;</span><span class="p">]</span> <span class="o">+=</span> <span class="mi">1</span>
                         <span class="k">else</span><span class="p">:</span>
