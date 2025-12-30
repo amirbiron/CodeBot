@@ -43,6 +43,9 @@ def register_all_jobs():
         job_type=JobType.REPEATING,
         interval_seconds=900,
         env_toggle="CACHE_WARMING_ENABLED",
+        # main.py מתייחס ל-CACHE_WARMING_ENABLED כברירת מחדל = true,
+        # לכן ה-UI צריך להציג את הג'וב כפעיל גם אם ה-ENV לא מוגדר.
+        env_toggle_default=True,
         callback_name="_cache_warming_job",
         source_file="main.py",
     )

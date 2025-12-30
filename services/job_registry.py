@@ -35,6 +35,9 @@ class JobDefinition:
     interval_seconds: Optional[int] = None  # אינטרוול (ל-repeating)
     enabled: bool = True  # האם מופעל
     env_toggle: Optional[str] = None  # משתנה סביבה להפעלה/כיבוי
+    # ברירת מחדל עבור env_toggle כאשר המשתנה לא מוגדר.
+    # None => התנהגות קיימת: אם יש env_toggle והוא חסר => מושבת.
+    env_toggle_default: Optional[bool] = None
     callback_name: str = ""  # שם הפונקציה המופעלת
     source_file: str = ""  # קובץ מקור
     metadata: Dict[str, Any] = field(default_factory=dict)
@@ -80,7 +83,13 @@ class JobRegistry:
         if job.env_toggle:
             import os
 
-            return os.getenv(job.env_toggle, "").lower() in ("1", "true", "yes", "on")
+            raw = os.getenv(job.env_toggle)
+            if raw is None:
+                if job.env_toggle_default is not None:
+                    return bool(job.env_toggle_default)
+                # התנהגות קיימת: אם יש env_toggle אבל אין ערך => מושבת
+                return False
+            return str(raw).lower() in ("1", "true", "yes", "on")
         return job.enabled
 
 

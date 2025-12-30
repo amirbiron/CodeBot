@@ -3714,6 +3714,104 @@ def _job_run_doc_to_dict(doc: Dict[str, Any], include_logs: bool = False) -> Dic
     return out
 
 
+_BOT_JOBS_API_BASE_CACHE: Dict[str, Any] = {"base": "", "checked_at": 0.0}
+
+
+def _probe_bot_jobs_api_base(base_url: str) -> bool:
+    """בדיקה מהירה האם Bot Jobs API נגיש (best-effort)."""
+    base = str(base_url or "").strip()
+    if not base:
+        return False
+    base = base.rstrip("/")
+    for path in ("/healthz", "/health"):
+        try:
+            resp = http_request("GET", base + path, timeout=1.5)
+            status = int(getattr(resp, "status_code", 0) or 0)
+            if status in (200, 204):
+                return True
+        except Exception:
+            continue
+    return False
+
+
+def _get_bot_jobs_api_base_url() -> str:
+    """מחזיר base URL ל-Bot Jobs API כדי לאפשר Trigger/סטטוס נכון (עם cache קצר)."""
+    try:
+        now = float(time.time())
+    except Exception:
+        now = 0.0
+
+    # Cache קצר כדי להימנע מ-probe בכל בקשה
+    try:
+        if (now - float(_BOT_JOBS_API_BASE_CACHE.get("checked_at") or 0.0)) < 10.0:
+            return str(_BOT_JOBS_API_BASE_CACHE.get("base") or "").strip()
+    except Exception:
+        pass
+
+    # אם הוגדר מפורשות – השתמש בו גם בלי probe.
+    configured = ""
+    for key in ("BOT_JOBS_API_BASE_URL", "BOT_API_BASE_URL"):
+        v = (os.getenv(key) or "").strip()
+        if v:
+            configured = v.rstrip("/")
+            break
+    if configured:
+        chosen = configured
+    else:
+        # בלי BOT_JOBS_API_BASE_URL מפורש לא ננסה "לנחש" (זה יכול להוביל לקריאה לעצמנו).
+        chosen = ""
+
+    try:
+        _BOT_JOBS_API_BASE_CACHE["base"] = chosen
+        _BOT_JOBS_API_BASE_CACHE["checked_at"] = now
+    except Exception:
+        pass
+
+    return chosen
+
+
+def _bot_jobs_api_headers() -> Dict[str, str] | None:
+    token = (os.getenv("DB_HEALTH_TOKEN") or "").strip()
+    if not token:
+        return None
+    return {"Authorization": f"Bearer {token}"}
+
+
+def _bot_jobs_api_is_explicitly_configured() -> bool:
+    return bool((os.getenv("BOT_JOBS_API_BASE_URL") or os.getenv("BOT_API_BASE_URL") or "").strip())
+
+
+def _fetch_bot_jobs_enabled_map(bot_api_base: str) -> Dict[str, bool]:
+    """מנסה למשוך /api/jobs מה-bot כדי לקבל enabled אמיתי (כולל ENV של הבוט)."""
+    base = str(bot_api_base or "").strip().rstrip("/")
+    if not base:
+        return {}
+    url = base + "/api/jobs"
+    try:
+        resp = http_request("GET", url, timeout=2, headers=_bot_jobs_api_headers())
+        status = int(getattr(resp, "status_code", 0) or 0)
+        if status < 200 or status >= 300:
+            return {}
+        try:
+            payload = resp.json()
+        except Exception:
+            return {}
+        jobs = payload.get("jobs") if isinstance(payload, dict) else None
+        if not isinstance(jobs, list):
+            return {}
+        out: Dict[str, bool] = {}
+        for j in jobs:
+            if not isinstance(j, dict):
+                continue
+            jid = str(j.get("job_id") or "").strip()
+            if not jid:
+                continue
+            out[jid] = bool(j.get("enabled"))
+        return out
+    except Exception:
+        return {}
+
+
 @app.route('/api/jobs', methods=['GET'])
 @admin_required
 def api_jobs_list():
@@ -3721,8 +3819,18 @@ def api_jobs_list():
     from services.job_registry import JobRegistry
 
     registry = JobRegistry()
+    bot_api_base = _get_bot_jobs_api_base_url()
+    trigger_available = bool(bot_api_base)
+    # חשוב: כדי למנוע recursion deadlock, לא נבצע HTTP call אם ה-base לא הוגדר מפורשות.
+    bot_enabled_map = (
+        _fetch_bot_jobs_enabled_map(bot_api_base)
+        if (bot_api_base and _bot_jobs_api_is_explicitly_configured())
+        else {}
+    )
     jobs_by_id = {}
     for job in registry.list_all():
+        enabled_local = registry.is_enabled(job.job_id)
+        enabled = bool(bot_enabled_map.get(job.job_id, enabled_local))
         jobs_by_id[job.job_id] = {
             "job_id": job.job_id,
             "name": job.name,
@@ -3730,8 +3838,8 @@ def api_jobs_list():
             "category": job.category.value,
             "type": job.job_type.value,
             "interval_seconds": job.interval_seconds,
-            "enabled": registry.is_enabled(job.job_id),
-            "can_trigger": True,
+            "enabled": enabled,
+            "can_trigger": trigger_available,
             "env_toggle": job.env_toggle,
         }
 
@@ -3811,6 +3919,13 @@ def api_job_detail(job_id: str):
     from services.job_registry import JobRegistry
 
     registry = JobRegistry()
+    bot_api_base = _get_bot_jobs_api_base_url()
+    trigger_available = bool(bot_api_base)
+    bot_enabled_map = (
+        _fetch_bot_jobs_enabled_map(bot_api_base)
+        if (bot_api_base and _bot_jobs_api_is_explicitly_configured())
+        else {}
+    )
     job = registry.get(job_id)
     if not job:
         # Allow showing dynamic jobs that exist only in DB history.
@@ -3826,6 +3941,8 @@ def api_job_detail(job_id: str):
             "source_file": "",
         }
     else:
+        enabled_local = registry.is_enabled(job.job_id)
+        enabled = bool(bot_enabled_map.get(job.job_id, enabled_local))
         job_payload = {
             "job_id": job.job_id,
             "name": job.name,
@@ -3833,8 +3950,8 @@ def api_job_detail(job_id: str):
             "category": job.category.value,
             "type": job.job_type.value,
             "interval_seconds": job.interval_seconds,
-            "enabled": registry.is_enabled(job.job_id),
-            "can_trigger": True,
+            "enabled": enabled,
+            "can_trigger": trigger_available,
             "source_file": job.source_file,
         }
 
@@ -3885,14 +4002,18 @@ def api_job_trigger(job_id: str):
         return jsonify({"error": "Job not found"}), 404
 
     # Proxy trigger to the bot's internal webserver (same API shape)
-    bot_api_base = (os.getenv("BOT_JOBS_API_BASE_URL") or os.getenv("BOT_API_BASE_URL") or "").strip()
+    bot_api_base = _get_bot_jobs_api_base_url()
     if not bot_api_base:
-        return jsonify({"error": "trigger_unavailable", "message": "BOT_JOBS_API_BASE_URL not configured"}), 501
+        return jsonify(
+            {
+                "error": "trigger_unavailable",
+                "message": "Bot Jobs API לא נגיש (הגדר BOT_JOBS_API_BASE_URL או BOT_API_BASE_URL)",
+            }
+        ), 503
 
     url = bot_api_base.rstrip("/") + f"/api/jobs/{job_id}/trigger"
     try:
-        token = (os.getenv("DB_HEALTH_TOKEN") or "").strip()
-        headers = {"Authorization": f"Bearer {token}"} if token else None
+        headers = _bot_jobs_api_headers()
         resp = http_request(
             "POST",
             url,

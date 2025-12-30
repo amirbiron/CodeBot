@@ -70,6 +70,7 @@
 - [ ] הקוד עוקב אחרי הסגנון (Black/isort/flake8/mypy)
 - [ ] בדיקות רצות ועוברות
 - [ ] תיעוד עודכן (README/Docs)
+- [ ] אם נוספו ג'ובים חדשים (Background Jobs) – וודא שהם רשומים ב-`services/register_jobs.py` (כולל Callback/Trigger להפעלה ידנית — למשל `callback_name`/`trigger_func` לפי המבנה) כדי שיופיעו בדשבורד
 - [ ] אם נוספו/שונו משתני סביבה – עודכן `docs/environment-variables.rst` **וגם** `services/config_inspector_service.py`
 - [ ] אם נוספו/השתנו טוקנים – עודכן גם `docs/webapp/theming_and_css.rst` + `FEATURE_SUGGESTIONS/theme_matrix.md`
 - [ ] אין סודות/מפתחות בקוד
