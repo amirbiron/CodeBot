@@ -460,7 +460,9 @@ document.addEventListener('DOMContentLoaded', function() {
             if (res.ok) {
                 showToast(`✅ Job ${jobId} הופעל בהצלחה`, 'success');
                 // Refresh active runs after a short delay
-                setTimeout(loadActiveRuns, 1000);
+                setTimeout(() => {
+                    loadActiveRuns().catch(err => console.warn('Background refresh failed after trigger:', err));
+                }, 1000);
             } else {
                 showToast(`❌ ${data.error || 'שגיאה בהפעלת Job'}`, 'error');
             }
