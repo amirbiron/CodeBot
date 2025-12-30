@@ -144,9 +144,6 @@
          health_latency_ewma
            > predict_linear(health_latency_ewma[2h], 15m) * 1.2
        )
-       and on(job, instance) (
-         sum by (job, instance) (increase(http_requests_total[2h])) > 200
-       )
        and on(job, instance) (time() - process_start_time_seconds > 300)
      for: 10m
      labels:

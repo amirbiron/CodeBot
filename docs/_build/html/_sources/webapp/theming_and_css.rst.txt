@@ -234,28 +234,16 @@ Component Tokens ו‑Theme Builder
 
 .. note::
 
-   המפרט הרשמי של Theme Builder מתועד ב‑Issue #2097 ובמדריכים שבתיקיית ``GUIDES/``.
-   חלק ב' מוסיף **תמיכה בריבוי ערכות** (Multi-Theme) למשתמש מחובר.
+   המפרט הרשמי של Theme Builder מתועד ב‑Issue #2097. הפיצ׳ר **ממומש** ומופעל כרגע **רק למשתמשי אדמין** (feature flag זמני).
 
-- מטרות ה‑Builder:
-  - בונה ערכה ב‑``/settings/theme-builder`` עם Live Preview מבודד שמצרוך ``var(--token)`` בלבד ולא משפיע על שאר ה‑UI עד לשמירה.
-  - מעבר ממבנה ערכה אחת ל‑**מערך ערכות**: ``users.custom_themes`` (עד 10 ערכות למשתמש).
-  - רק ערכה אחת יכולה להיות פעילה בכל רגע (``is_active=True``).
-  - הזרקה אוטומטית של הערכה הפעילה דרך ``<style id="user-custom-theme">`` ב‑``base.html`` כאשר ``data-theme="custom"``.
-  - תאימות לאחור: פונקציית ``get_custom_theme`` בודקת קודם ``custom_themes`` (מבנה חדש), ואז fallback ל‑``custom_theme`` (מבנה ישן).
-
-- API (Multi-Theme):
-  - ``GET /api/themes`` – רשימת הערכות של המשתמש **ללא** ``variables`` כבדים
-  - ``POST /api/themes`` – יצירת ערכה חדשה (כולל מגבלת 10)
-  - ``GET /api/themes/<id>`` – פרטי ערכה כולל ``variables`` לעריכה
-  - ``PUT /api/themes/<id>`` – עדכון ערכה
-  - ``POST /api/themes/<id>/activate`` – הפעלת ערכה (מכבה את השאר + מעדכן ``ui_prefs.theme="custom"``)
-  - ``POST /api/themes/deactivate`` – ביטול כל הערכות וחזרה ל‑Classic
-  - ``DELETE /api/themes/<id>`` – מחיקת ערכה (אם הייתה פעילה: חוזרים ל‑Classic)
-
-- UI:
-  - Sidebar "הערכות שלי" עם רשימה, אינדיקציה לערכה פעילה/נבחרת, וכפתור "ערכה חדשה".
-
+- מטרות ה‑Builder (לפי Issue #2097):
+  - בונה ערכה ב‑`/settings/theme-builder` עם Live Preview מבודד שמצרוך `var(--token)` בלבד ולא משפיע על שאר ה‑UI עד לשמירה.
+  - שמירת Theme יחיד בשדה ``users.custom_theme`` + הזרקה אוטומטית דרך ``<style id="user-custom-theme">`` ב‑``base.html``.
+  - בקרה על קבוצות הטוקנים: רקעים (`--bg-primary`, `--bg-secondary`, `--card-bg`), אקסנטים (`--primary`, `--secondary`), טקסט (`--text-primary`, `--text-secondary`), Glass (`--glass`, `--glass-border`, `--glass-hover`, `--glass-blur` החדש) ו‑Markdown (`--md-surface`, `--md-text`).
+  - ממשק עם Pickr (RGBA + Opacity) וסליידר Blur שמעדכן את `--glass-blur` (ערך px). **הספרייה נטענת לוקאלית** מתוך ``webapp/static/libs/pickr`` (בלי CDN).
+  - API לשמירה: ``POST /api/themes/save`` עם ולידציה (`VALID_COLOR_REGEX`, `MAX_THEME_NAME_LENGTH`) ושדה ``variables`` שמכיל רק את הטוקנים המאושרים; כפתור Reset מבצע ``DELETE /api/themes/custom``.
+  - נגישות: תיוגי `aria`, Toast לכשלי שמירה ובדיקת ניגודיות ≥ 4.5:1 לערכים שנשמרים.
+- שימו לב: עד שיוסר ה‑feature flag, הפיצ׳ר מיועד לאדמינים בלבד; משתמשים רגילים לא אמורים לראות את הדף/ה‑API.
 - כאשר מוסיפים טוקן חדש:
   1. הוסיפו ערך ברירת מחדל ל‑``:root`` בתוך ``webapp/static/css/variables.css``.
   2. הוסיפו Overrides בבלוקים של כל Theme שדורש התאמה.
