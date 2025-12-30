@@ -1534,7 +1534,7 @@
    * - ``CACHE_WARMING_BUDGET_SECONDS``
      - תקציב הזמן המרבי ללופ החימום (מונע עיכובים ארוכים).
      - לא
-     - ``1.0``
+     - ``5.0``
      - ``0.2``
      - Bot
    * - ``CACHE_WARMING_INTERVAL_SECS``
