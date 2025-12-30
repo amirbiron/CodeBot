@@ -1648,6 +1648,54 @@ def set_global_alert_tags(
         return {"ok": False, "error": "internal_error"}
 
 
+def set_signature_alert_tags(
+    *,
+    error_signature: str,
+    tags: Optional[List[str]],
+    user_id: Optional[int] = None,
+) -> Dict[str, Any]:
+    """
+    POST /api/observability/alerts/signature-tags
+    שמירת תגיות לפי חתימת שגיאה (לתיוג שגיאה ספציפית שחוזרת).
+
+    זה מאפשר לתייג שגיאה ספציפית (למשל Sentry issue מסוים) כך שהתגית
+    תופיע בכל פעם שאותה שגיאה בדיוק חוזרת, בלי לתייג את כל סוג ההתראות.
+
+    Body: {"error_signature": "PYTHON-1F", "tags": ["known", "low-priority"]}
+    """
+    logger.info(
+        "🔍 set_signature_alert_tags - error_signature=%r, tags=%r (type=%s), user_id=%r",
+        error_signature, tags, type(tags).__name__ if tags is not None else "NoneType", user_id
+    )
+    sig = str(error_signature or "").strip()
+    if not sig:
+        logger.warning("🔍 set_signature_alert_tags - missing_error_signature")
+        return {"ok": False, "error": "missing_error_signature"}
+    if tags is None:
+        logger.warning("🔍 set_signature_alert_tags - missing_tags (None)")
+        return {"ok": False, "error": "missing_tags"}
+    if not isinstance(tags, list):
+        logger.warning("🔍 set_signature_alert_tags - bad_request (tags not list: %s)", type(tags))
+        return {"ok": False, "error": "bad_request"}
+    logger.info("🔍 set_signature_alert_tags - calling storage with signature=%r, tags=%r", sig, tags)
+    try:
+        result = alert_tags_storage.set_tags_for_signature(
+            error_signature=sig,
+            tags=tags,
+            user_id=user_id,
+        )
+        logger.info("🔍 set_signature_alert_tags - storage result=%r", result)
+        # Invalidate cache so signature tags appear immediately after refresh
+        _invalidate_alert_cache()
+        return {"ok": True, **result}
+    except ValueError as ve:
+        logger.warning("set_signature_alert_tags validation error: %s", ve)
+        return {"ok": False, "error": "invalid_signature_tags"}
+    except Exception as e:
+        logger.exception("set_signature_alert_tags failed: %s", e)
+        return {"ok": False, "error": "internal_error"}
+
+
 def _fallback_summary() -> Dict[str, int]:
     if _internal_alerts is None:
         return {"total": 0, "critical": 0, "anomaly": 0, "deployment": 0}

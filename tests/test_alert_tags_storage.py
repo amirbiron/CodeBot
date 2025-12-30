@@ -289,3 +289,64 @@ def test_set_and_get_instance_tags(monkeypatch):
     assert res["alert_uid"] == "uid-x"
     assert res["tags"] == ["bug", "production"]
     assert s.get_tags_for_alert("uid-x") == ["bug", "production"]
+
+
+def test_set_and_get_signature_tags(monkeypatch):
+    """Test signature-based tags (for tagging specific errors that recur)."""
+    monkeypatch.delenv("DISABLE_DB", raising=False)
+    monkeypatch.setenv("MONGODB_URL", "mongodb://localhost:27017/test")
+    _install_observability_stub(monkeypatch)
+    _install_fake_pymongo(monkeypatch, docs=[])
+    s = _import_fresh_storage(monkeypatch)
+
+    res = s.set_tags_for_signature("PYTHON-1F", ["known", "low-priority"])
+    assert res["error_signature"] == "PYTHON-1F"
+    assert res["tags"] == ["known", "low-priority"]
+    assert s.get_tags_for_signature("PYTHON-1F") == ["known", "low-priority"]
+    assert s.get_tags_for_signature("OTHER-SIG") == []
+
+
+def test_get_tags_map_includes_signature_tags(monkeypatch):
+    """Test that get_tags_map_for_alerts includes signature-based tags from metadata."""
+    monkeypatch.delenv("DISABLE_DB", raising=False)
+    monkeypatch.setenv("MONGODB_URL", "mongodb://localhost:27017/test")
+    monkeypatch.setenv("DATABASE_NAME", "code_keeper_bot")
+    _install_observability_stub(monkeypatch)
+
+    docs = [
+        # Instance tags
+        {"alert_uid": "uid-1", "tags": ["specific-tag"]},
+        # Global tags (by alert type)
+        {"alert_type_name": "sentry_issue", "tags": ["sentry-global"]},
+        # Signature tags (by error signature)
+        {"error_signature": "PYTHON-1F", "tags": ["known-bug", "low-priority"]},
+    ]
+    _install_fake_pymongo(monkeypatch, docs=docs)
+    s = _import_fresh_storage(monkeypatch)
+
+    # Alert with both global (alert_type) and signature (sentry_issue_id) matching
+    alerts = [
+        {
+            "alert_uid": "uid-1",
+            "alert_type": "sentry_issue",
+            "metadata": {"sentry_issue_id": "PYTHON-1F"},
+        },
+        {
+            "alert_uid": "uid-2",
+            "alert_type": "sentry_issue",
+            "metadata": {"sentry_issue_id": "OTHER-2G"},  # Different issue
+        },
+        {
+            "alert_uid": "uid-3",
+            "alert_type": "slow_response",
+            "metadata": {},  # No signature
+        },
+    ]
+    result = s.get_tags_map_for_alerts(alerts)
+
+    # uid-1: should get global + signature + instance tags
+    assert set(result["uid-1"]) == {"sentry-global", "known-bug", "low-priority", "specific-tag"}
+    # uid-2: should only get global tags (no signature match)
+    assert result["uid-2"] == ["sentry-global"]
+    # uid-3: no tags (different alert type, no signature)
+    assert result["uid-3"] == []

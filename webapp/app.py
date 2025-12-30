@@ -11864,10 +11864,32 @@ def api_set_global_alert_tags():
     return jsonify(result), status
 
 
+@app.route('/api/observability/alerts/signature-tags', methods=['POST'])
+@login_required
+def api_set_signature_alert_tags():
+    """שמירת תגיות לפי חתימת שגיאה (לתיוג שגיאה ספציפית שחוזרת)."""
+    user_id = _require_admin_user()
+    if not user_id:
+        return jsonify({'ok': False, 'error': 'admin_only'}), 403
+    data = request.get_json(silent=True) or {}
+    logger.info(
+        "🔍 api_set_signature_alert_tags - data=%r, error_signature=%r, tags=%r (type=%s)",
+        data, data.get("error_signature"), data.get("tags"), type(data.get("tags")).__name__
+    )
+    result = observability_service.set_signature_alert_tags(
+        error_signature=data.get("error_signature", ""),
+        tags=data.get("tags"),
+        user_id=user_id,
+    )
+    logger.info("🔍 api_set_signature_alert_tags - result=%r", result)
+    status = 200 if result.get("ok") else 400
+    return jsonify(result), status
+
+
 @app.route('/api/observability/tags/debug', methods=['GET'])
 @login_required
 def api_debug_tags():
-    """Debug endpoint to see stored global tags and alert names."""
+    """Debug endpoint to see stored global tags, signature tags, and alert names."""
     if not _require_admin_user():
         return jsonify({'ok': False, 'error': 'admin_only'}), 403
     try:
@@ -11880,6 +11902,12 @@ def api_debug_tags():
         global_tags = list(coll.find(
             {"alert_type_name": {"$exists": True}},
             {"_id": 0, "alert_type_name": 1, "tags": 1}
+        ).limit(50))
+
+        # Get all signature tags (documents with error_signature)
+        signature_tags = list(coll.find(
+            {"error_signature": {"$exists": True}},
+            {"_id": 0, "error_signature": 1, "tags": 1}
         ).limit(50))
 
         # Get all instance tags (documents with alert_uid)
@@ -11906,6 +11934,7 @@ def api_debug_tags():
         return jsonify({
             'ok': True,
             'global_tags': global_tags,
+            'signature_tags': signature_tags,
             'instance_tags': instance_tags,
             'alert_types_in_alerts': alert_types_in_alerts[:10],
         })

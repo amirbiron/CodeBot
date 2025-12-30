@@ -132,6 +132,7 @@ def ensure_indexes() -> None:
     try:
         coll.create_index("alert_uid", unique=True, sparse=True, background=True)
         coll.create_index("alert_type_name", unique=True, sparse=True, background=True)
+        coll.create_index("error_signature", unique=True, sparse=True, background=True)
         coll.create_index("tags", background=True)
         coll.create_index("alert_timestamp", background=True)
         coll.create_index([("tags", 1), ("alert_timestamp", -1)], background=True)
@@ -402,25 +403,27 @@ def search_tags(prefix: str, limit: int = 20) -> List[str]:
 
 def get_tags_map_for_alerts(alerts_list: List[dict]) -> Dict[str, List[str]]:
     """
-    מחזיר מפה משולבת: גם תגיות ספציפיות למופע, וגם תגיות קבועות לסוג ההתראה.
-    כולל מנגנון Fallback לשמות שדות (תומך ב-alert_type, rule_name וכו').
+    מחזיר מפה משולבת של תגיות מכל המקורות:
+    1. תגיות ספציפיות למופע (Instance) - לפי alert_uid
+    2. תגיות לפי חתימת שגיאה (Signature) - לפי error_signature/sentry_issue_id
+    3. תגיות גלובליות לסוג התראה (Type) - לפי alert_type
 
     Args:
         alerts_list: רשימת התראות.
 
     Returns:
-        מיפוי של alert_uid -> רשימת תגיות (משולבת)
+        מיפוי של alert_uid -> רשימת תגיות (משולבת מכל המקורות)
     """
     if not alerts_list:
         logger.debug("get_tags_map_for_alerts: empty alerts_list")
         return {}
 
-    # 0) איסוף UIDs + Names עם תמיכה בשמות שדות משתנים
+    # 0) איסוף UIDs + Names + Signatures עם תמיכה בשמות שדות משתנים
     uids: set[str] = set()
     names: set[str] = set()
+    signatures: set[str] = set()
 
-    # מפה עזר שתשמור לכל התראה את ה-UID וה-Name שחילצנו ממנה
-    # כדי שנוכל לבצע את המיזוג הסופי בצורה נכונה
+    # מפה עזר שתשמור לכל התראה את ה-UID, Name, וה-Signature שחילצנו ממנה
     alert_meta_map: List[Dict[str, str]] = []
 
     for alert in alerts_list:
@@ -428,30 +431,36 @@ def get_tags_map_for_alerts(alerts_list: List[dict]) -> Dict[str, List[str]]:
         raw_uid = alert.get("alert_uid") or alert.get("uid") or alert.get("id") or alert.get("_id")
         uid = str(raw_uid or "").strip()
 
-        # Fallback ל-Name - נבדוק מספר שדות אפשריים
-        # FIX: Prefer alert_type (categorized type) over name (descriptive title)
-        # This matches the frontend behavior which saves global tags under alert_type.
-        # Example: alert_type="sentry_issue", name="Sentry: TEST-1" -> use "sentry_issue"
+        # Fallback ל-Name
         raw_name = (
             alert.get("alert_type")
             or alert.get("name")
             or alert.get("alert_name")
             or alert.get("rule_name")
         )
-        # Normalize the name for consistent matching with stored global tags
-        # This ensures "CPU High", "cpu_high", "cpu-high" all match the same global tags
         name = _normalize_alert_name(raw_name)
+
+        # Extract error signature from metadata
+        # Priority: sentry_issue_id > error_signature_hash
+        metadata = alert.get("metadata") or {}
+        raw_sig = (
+            metadata.get("sentry_issue_id")
+            or metadata.get("error_signature_hash")
+            or ""
+        )
+        signature = str(raw_sig or "").strip()
 
         if uid:
             uids.add(uid)
             if name:
                 names.add(name)
-            # שומרים את מה שמצאנו כדי להשתמש בזה במיזוג הסופי
-            alert_meta_map.append({"uid": uid, "name": name})
+            if signature:
+                signatures.add(signature)
+            alert_meta_map.append({"uid": uid, "name": name, "signature": signature})
 
     logger.debug(
-        "get_tags_map_for_alerts: collected %d uids, %d names. names=%r",
-        len(uids), len(names), list(names)[:5]
+        "get_tags_map_for_alerts: collected %d uids, %d names, %d signatures",
+        len(uids), len(names), len(signatures)
     )
 
     if not uids:
@@ -459,11 +468,10 @@ def get_tags_map_for_alerts(alerts_list: List[dict]) -> Dict[str, List[str]]:
 
     coll = _get_collection()
     if coll is None:
-        # Fail-open: no tags
         logger.warning("get_tags_map_for_alerts: DB collection is None (fail-open)")
         return {uid: [] for uid in uids}
 
-    # 1) שליפה אחת של תגיות ספציפיות (Instance) לפי UID
+    # 1) שליפה של תגיות ספציפיות (Instance) לפי UID
     instance_map: Dict[str, List[str]] = {}
     try:
         cursor = coll.find(
@@ -483,7 +491,31 @@ def get_tags_map_for_alerts(alerts_list: List[dict]) -> Dict[str, List[str]]:
         logger.warning("get_tags_map_for_alerts: instance query failed: %s", e)
         instance_map = {}
 
-    # 2) שליפה אחת של תגיות גלובליות (Type) לפי שם התראה
+    # 2) שליפה של תגיות לפי חתימת שגיאה (Signature)
+    signature_map: Dict[str, List[str]] = {}
+    if signatures:
+        try:
+            cursor = coll.find(
+                {"error_signature": {"$in": list(signatures)}},
+                {"_id": 0, "error_signature": 1, "tags": 1},
+            )
+            for doc in cursor:
+                if not isinstance(doc, dict):
+                    continue
+                sig = str(doc.get("error_signature") or "").strip()
+                if not sig:
+                    continue
+                tags = doc.get("tags", [])
+                signature_map[sig] = list(tags) if isinstance(tags, list) else []
+            logger.debug(
+                "get_tags_map_for_alerts: signature_map has %d entries, keys=%r",
+                len(signature_map), list(signature_map.keys())[:5]
+            )
+        except Exception as e:
+            logger.warning("get_tags_map_for_alerts: signature query failed: %s", e)
+            signature_map = {}
+
+    # 3) שליפה של תגיות גלובליות (Type) לפי שם התראה
     global_map: Dict[str, List[str]] = {}
     if names:
         try:
@@ -507,20 +539,27 @@ def get_tags_map_for_alerts(alerts_list: List[dict]) -> Dict[str, List[str]]:
             logger.warning("get_tags_map_for_alerts: global query failed: %s", e)
             global_map = {}
 
-    # 3) איחוד בפייתון (App-Side Merge)
+    # 4) איחוד בפייתון (App-Side Merge) - סדר עדיפות:
+    #    1. תגיות גלובליות (Type) - הכי כלליות
+    #    2. תגיות לפי חתימה (Signature) - ספציפיות לשגיאה
+    #    3. תגיות ספציפיות (Instance) - ספציפיות למופע
     final_map: Dict[str, List[str]] = {}
-    # עוברים על הרשימה המעובדת (alert_meta_map) ולא על המקורית
     for meta in alert_meta_map:
         uid = meta["uid"]
         name = meta["name"]
+        signature = meta["signature"]
 
         merged: List[str] = []
 
-        # הוספת תגיות גלובליות (אם יש שם והוא קיים במפה)
+        # תגיות גלובליות לסוג ההתראה
         if name and name in global_map:
             merged.extend([t for t in global_map.get(name, []) if isinstance(t, str) and t.strip()])
 
-        # הוספת תגיות ספציפיות (אם ה-UID קיים במפה)
+        # תגיות לפי חתימת שגיאה (מאפשר לתייג שגיאה ספציפית שחוזרת)
+        if signature and signature in signature_map:
+            merged.extend([t for t in signature_map.get(signature, []) if isinstance(t, str) and t.strip()])
+
+        # תגיות ספציפיות למופע
         if uid in instance_map:
             merged.extend(
                 [t for t in instance_map.get(uid, []) if isinstance(t, str) and t.strip()]
@@ -642,3 +681,108 @@ def remove_global_tags_for_name(alert_name: str) -> Dict[str, Any]:
         return {"alert_type_name": name, "deleted": bool(deleted_count and int(deleted_count) > 0)}
     except Exception:
         return {"alert_type_name": name, "deleted": False}
+
+
+# ==========================================
+# Signature Tags (לפי מזהה שגיאה ייחודי)
+# ==========================================
+
+
+def set_tags_for_signature(
+    error_signature: str,
+    tags: List[str],
+    user_id: Optional[int] = None,
+) -> Dict[str, Any]:
+    """שמירת תגיות לכל המופעים של שגיאה עם אותה חתימה.
+
+    זה מאפשר לתייג שגיאה ספציפית (למשל Sentry issue מסוים) כך שהתגית
+    תופיע בכל פעם שאותה שגיאה בדיוק חוזרת, בלי לתייג את כל סוג ההתראות.
+
+    Args:
+        error_signature: מזהה ייחודי של השגיאה (sentry_issue_id או error_signature_hash)
+        tags: רשימת תגיות
+        user_id: מזהה המשתמש (אופציונלי)
+    """
+    sig = str(error_signature or "").strip()
+    logger.info(
+        "🔍 set_tags_for_signature ENTRY: error_signature=%r, tags=%r (type=%s)",
+        sig, tags, type(tags).__name__
+    )
+    if not sig:
+        raise ValueError("error_signature is required")
+    normalized_tags = _normalize_tags(tags)
+    logger.info(
+        "🔍 set_tags_for_signature: normalized_tags=%r (len=%s)",
+        normalized_tags, len(normalized_tags)
+    )
+    now = datetime.now(timezone.utc)
+    coll = _get_collection()
+    if coll is None:
+        return {
+            "error_signature": sig,
+            "tags": normalized_tags,
+            "upserted": False,
+            "modified": False,
+        }
+    try:
+        result = coll.update_one(
+            {"error_signature": sig},
+            {
+                "$set": {
+                    "tags": normalized_tags,
+                    "updated_at": now,
+                },
+                "$setOnInsert": {
+                    "created_at": now,
+                    "created_by": user_id,
+                },
+            },
+            upsert=True,
+        )
+        upserted_id = getattr(result, "upserted_id", None)
+        modified_count = getattr(result, "modified_count", 0)
+        return {
+            "error_signature": sig,
+            "tags": normalized_tags,
+            "upserted": upserted_id is not None,
+            "modified": bool(modified_count and int(modified_count) > 0),
+        }
+    except Exception as e:
+        logger.warning("set_tags_for_signature failed: %s", e)
+        return {
+            "error_signature": sig,
+            "tags": normalized_tags,
+            "upserted": False,
+            "modified": False,
+        }
+
+
+def get_tags_for_signature(error_signature: str) -> List[str]:
+    """מחזיר תגיות עבור שגיאה עם חתימה ספציפית."""
+    sig = str(error_signature or "").strip()
+    if not sig:
+        return []
+    coll = _get_collection()
+    if coll is None:
+        return []
+    try:
+        doc = coll.find_one({"error_signature": sig})
+        return list(doc.get("tags", [])) if isinstance(doc, dict) else []
+    except Exception:
+        return []
+
+
+def remove_tags_for_signature(error_signature: str) -> Dict[str, Any]:
+    """מחיקת תגיות עבור שגיאה עם חתימה ספציפית."""
+    sig = str(error_signature or "").strip()
+    if not sig:
+        raise ValueError("error_signature is required")
+    coll = _get_collection()
+    if coll is None:
+        return {"error_signature": sig, "deleted": False}
+    try:
+        result = coll.delete_one({"error_signature": sig})
+        deleted_count = getattr(result, "deleted_count", 0)
+        return {"error_signature": sig, "deleted": bool(deleted_count and int(deleted_count) > 0)}
+    except Exception:
+        return {"error_signature": sig, "deleted": False}
