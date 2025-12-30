@@ -339,6 +339,18 @@ class ConfigService:
             description="כתובת WebApp (אם שונה מ-public)",
             category="webserver",
         ),
+        "BOT_JOBS_API_BASE_URL": ConfigDefinition(
+            key="BOT_JOBS_API_BASE_URL",
+            default="",
+            description="בסיס URL ל-API הפנימי של הבוט עבור Trigger של Jobs ממסך המוניטור (WebApp -> Bot).",
+            category="jobs_monitor",
+        ),
+        "BOT_API_BASE_URL": ConfigDefinition(
+            key="BOT_API_BASE_URL",
+            default="",
+            description="Alias/תאימות לאחור ל-BOT_JOBS_API_BASE_URL (נבדק רק אם BOT_JOBS_API_BASE_URL ריק).",
+            category="jobs_monitor",
+        ),
         "WEBAPP_ENABLE_WARMUP": ConfigDefinition(
             key="WEBAPP_ENABLE_WARMUP",
             default="1",
@@ -1089,6 +1101,18 @@ class ConfigService:
             default="",
             description="כתובת ייעודית ל-traces OTLP.",
             category="monitoring",
+        ),
+        "JOBS_STUCK_THRESHOLD_MINUTES": ConfigDefinition(
+            key="JOBS_STUCK_THRESHOLD_MINUTES",
+            default="20",
+            description="סף (בדקות) לזיהוי הרצות Jobs תקועות והפקת אירוע job_stuck.",
+            category="jobs_monitor",
+        ),
+        "JOBS_STUCK_MONITOR_INTERVAL_SECS": ConfigDefinition(
+            key="JOBS_STUCK_MONITOR_INTERVAL_SECS",
+            default="60",
+            description="תדירות (שניות) של מוניטור Jobs תקועות (job_stuck).",
+            category="jobs_monitor",
         ),
         "PUSH_WORKER_PORT": ConfigDefinition(
             key="PUSH_WORKER_PORT",
