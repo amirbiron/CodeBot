@@ -46,6 +46,7 @@
         class="file-edit-form"
         method="post"
         enctype="multipart/form-data"
+        data-edit-file-id="{{ file.id }}"
         data-file-form-config='{{ ffm_config | tojson }}'
         style="display: grid; gap: 1rem;">
     <div>
@@ -154,9 +155,16 @@
       </div>
       <input type="hidden" name="source_url_touched" id="sourceUrlTouched" value="{{ 'edited' if file.source_url else '0' }}">
     </div>
-    <div class="file-form-actions">
-      <button type="submit" class="btn btn-primary btn-icon"><i class="fas fa-save"></i> שמור גרסה חדשה</button>
-      <a href="/file/{{ file.id }}" class="btn btn-secondary btn-icon"><i class="fas fa-times"></i> ביטול</a>
+    <div class="save-actions">
+      <div class="primary-actions">
+        <button type="submit" class="btn btn-primary btn-icon"><i class="fas fa-save"></i> שמור גרסה חדשה</button>
+        <a href="/file/{{ file.id }}" class="btn btn-secondary btn-icon"><i class="fas fa-times"></i> ביטול</a>
+      </div>
+      <div class="draft-meta" aria-live="polite">
+        <span id="editDraftStatus" class="draft-status">טיוטה טרם נשמרה</span>
+        <button type="button" id="restoreEditDraftBtn" class="btn-clear-draft" hidden>שחזר טיוטה</button>
+        <button type="button" id="discardEditDraftBtn" class="btn-clear-draft">נקה טיוטה</button>
+      </div>
     </div>
   </form>
 </div>
@@ -169,6 +177,7 @@
 <script src="{{ url_for('static', filename='js/code-tools.js') }}?v={{ static_version }}" defer></script>
 {% endif %}
 <script src="{{ url_for('static', filename='js/file-form-manager.js') }}?v={{ static_version }}" defer></script>
+<script src="{{ url_for('static', filename='js/edit-draft.js') }}?v={{ static_version }}" defer></script>
 <script src="{{ url_for('static', filename='js/md_preview.bundle.js') }}?v={{ static_version }}" defer></script>
 <script src="{{ url_for('static', filename='js/live-preview.js') }}?v={{ static_version }}" defer></script>
 {% endblock %}

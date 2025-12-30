@@ -698,6 +698,7 @@ body.telegram-mini-app .file-title { font-size: 1.125rem; }
      data-file-id="{{ file.id }}"
      data-source-url="{{ file.source_url|default('', true) }}"
      style="display:none"></div>
+<script src="{{ url_for('static', filename='js/edit-draft.js') }}?v={{ static_version }}" defer></script>
 <script>
 // הזרקת CSS של Pygments בבטחה לתוך style#syntax-css, ללא Jinja בתוך JS
 (function(){
