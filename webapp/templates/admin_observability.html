@@ -1542,6 +1542,9 @@ tr:hover .copy-meta-btn {
     tags: [],
     suggestions: [],
     selectedIndex: -1,
+    // New: error signature for tagging same error across instances
+    errorSignature: null,
+    errorDisplayName: null,
   };
 
   function renderTagsCell(alert) {
@@ -1551,6 +1554,13 @@ tr:hover .copy-meta-btn {
     // FIX: Use alert_type as primary source for global tags (the categorized type),
     // falling back to name. This ensures global tags match the normalized alert_type_name in DB.
     const name = alert.alert_type || alert.name || '';
+    
+    // Extract unique error identifier for signature-based tagging
+    // Priority: sentry_issue_id > error_signature_hash > none
+    const meta = alert.metadata || {};
+    const errorSignature = meta.sentry_issue_id || meta.error_signature_hash || '';
+    // For display purposes, use a friendly name if available
+    const errorDisplayName = meta.sentry_short_id || meta.sentry_issue_id || '';
 
     if (!uid) {
       return '<span style="opacity:0.4;">—</span>';
@@ -1561,6 +1571,9 @@ tr:hover .copy-meta-btn {
       timestamp: ts,
       alert_name: name,
       tags: tags,
+      // New fields for signature-based tagging (tag same error across instances)
+      error_signature: errorSignature,
+      error_display_name: errorDisplayName,
     }));
 
     const badges = tags.slice(0, 3).map(tag =>
@@ -1643,8 +1656,14 @@ tr:hover .copy-meta-btn {
       tagState.alertName = data.alert_name;
       tagState.tags = [...(data.tags || [])];
       tagState.selectedIndex = -1;
+      // New: store error signature for same-error tagging
+      tagState.errorSignature = data.error_signature || null;
+      tagState.errorDisplayName = data.error_display_name || null;
 
       if (globalCheckbox) globalCheckbox.checked = false;
+      
+      // Update global checkbox label based on error signature availability
+      updateGlobalCheckboxLabel();
 
       renderCurrentTags();
       if (tagInput) tagInput.value = '';
@@ -1658,6 +1677,29 @@ tr:hover .copy-meta-btn {
       console.warn('tag modal parse failed', err);
     }
   }
+  
+  function updateGlobalCheckboxLabel() {
+    // Find the checkbox by its actual ID
+    const checkbox = document.getElementById('tagGlobalCheckbox');
+    // Find the parent label that wraps it
+    const label = checkbox ? checkbox.closest('label') : null;
+    // Find the span inside the label that contains the text
+    const textSpan = label ? label.querySelector('span') : null;
+    
+    if (!textSpan) return;
+    
+    if (tagState.errorSignature) {
+      // Has unique error signature - global will tag same error across instances
+      const displayName = tagState.errorDisplayName || 'שגיאה זו';
+      textSpan.innerHTML = `החל על כל המופעים של <strong>${escapeHtml(displayName)}</strong>`;
+      label.title = 'התגיות יופיעו בכל פעם שהשגיאה הזו בדיוק חוזרת';
+    } else {
+      // No signature - fall back to alert type
+      const typeName = tagState.alertName || 'התראות מסוג זה';
+      textSpan.innerHTML = `החל על כל ההתראות מסוג <strong>${escapeHtml(typeName)}</strong>`;
+      label.title = 'התגיות יופיעו בכל ההתראות מאותו סוג';
+    }
+  }
 
   function closeTagModal() {
     if (tagModal) tagModal.hidden = true;
@@ -1665,6 +1707,8 @@ tr:hover .copy-meta-btn {
     tagState.alertTimestamp = null;
     tagState.alertName = null;
     tagState.tags = [];
+    tagState.errorSignature = null;
+    tagState.errorDisplayName = null;
     hideSuggestions();
   }
 
@@ -1686,19 +1730,40 @@ tr:hover .copy-meta-btn {
     try {
       if (tagSaveBtn) tagSaveBtn.disabled = true;
 
-      let endpoint, payload;
-      if (isGlobal && tagState.alertName) {
-        endpoint = '/api/observability/alerts/global-tags';
-        payload = {
-          alert_name: tagState.alertName,
-          tags: tagState.tags,
-        };
+      let endpoint, payload, successMessage;
+      
+      if (isGlobal) {
+        // FIX: Prefer error_signature for "global" tagging when available
+        // This ensures tagging a specific Sentry error tags only THAT error, not all Sentry errors
+        if (tagState.errorSignature) {
+          // Tag by error signature - same error across all instances
+          endpoint = '/api/observability/alerts/signature-tags';
+          payload = {
+            error_signature: tagState.errorSignature,
+            tags: tagState.tags,
+          };
+          const displayName = tagState.errorDisplayName || 'השגיאה';
+          successMessage = `התגיות יופיעו בכל פעם ש-"${displayName}" חוזרת`;
+        } else if (tagState.alertName) {
+          // Fall back to alert type (for alerts without unique signature)
+          endpoint = '/api/observability/alerts/global-tags';
+          payload = {
+            alert_name: tagState.alertName,
+            tags: tagState.tags,
+          };
+          successMessage = `התגיות יופיעו בכל ההתראות מסוג "${tagState.alertName}"`;
+        } else {
+          showToast('לא ניתן לשמור תגיות גלובליות - חסר מזהה');
+          return;
+        }
       } else {
+        // Instance-specific tags
         endpoint = `/api/observability/alerts/${tagState.alertUid}/tags`;
         payload = {
           tags: tagState.tags,
           alert_timestamp: tagState.alertTimestamp,
         };
+        successMessage = 'התגיות נשמרו';
       }
 
       // DEBUG: Log the payload
@@ -1715,10 +1780,7 @@ tr:hover .copy-meta-btn {
         return;
       }
 
-      const message = isGlobal
-        ? `התגיות יופיעו בכל ההתראות מסוג "${tagState.alertName}"`
-        : 'התגיות נשמרו';
-      showToast(message);
+      showToast(successMessage);
       closeTagModal();
       refreshHistory().catch(() => {});
     } catch (err) {
