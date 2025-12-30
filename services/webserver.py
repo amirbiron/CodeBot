@@ -1190,6 +1190,7 @@ async def get_jobs_list(request: web.Request) -> web.Response:
     jobs = []
 
     for job in registry.list_all():
+        is_enabled = registry.is_enabled(job.job_id)
         jobs.append(
             {
                 "job_id": job.job_id,
@@ -1198,8 +1199,10 @@ async def get_jobs_list(request: web.Request) -> web.Response:
                 "category": job.category.value,
                 "type": job.job_type.value,
                 "interval_seconds": job.interval_seconds,
-                "enabled": registry.is_enabled(job.job_id),
+                "enabled": is_enabled,
                 "env_toggle": job.env_toggle,
+                # can_trigger: מאפשר הפעלה ידנית אם יש callback מוגדר
+                "can_trigger": bool(job.callback_name),
             }
         )
 

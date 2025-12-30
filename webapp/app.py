@@ -3657,7 +3657,9 @@ def admin_drills_page():
 @admin_required
 def jobs_monitor_page():
     """מסך ניטור Jobs שרצים ברקע."""
-    return render_template('jobs_monitor.html')
+    # העברת token לצורך קריאות API מאומתות
+    token = os.getenv("DB_HEALTH_TOKEN", "")
+    return render_template('jobs_monitor.html', db_health_token=token)
 
 
 def _job_run_doc_to_dict(doc: Dict[str, Any], include_logs: bool = False) -> Dict[str, Any]:
