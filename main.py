@@ -3781,10 +3781,12 @@ async def setup_bot_data(application: Application) -> None:  # noqa: D401
             try:
                 db_obj = getattr(_dbm_triggers, "db", None)
                 if db_obj is None or getattr(db_obj, "name", "") == "noop_db":
+                    logger.debug("pending_job_triggers: DB not available or noop")
                     return
 
                 coll = getattr(db_obj, "job_trigger_requests", None)
                 if coll is None or not hasattr(coll, "find"):
+                    logger.debug("pending_job_triggers: collection not available")
                     return
 
                 now = datetime.now(timezone.utc)
@@ -3795,22 +3797,31 @@ async def setup_bot_data(application: Application) -> None:  # noqa: D401
 
                 # סימון בקשות ישנות מדי כ-expired
                 try:
-                    coll.update_many(
+                    expired_result = coll.update_many(
                         {"status": "pending", "created_at": {"$lt": expire_cutoff}},
                         {"$set": {"status": "expired", "error": "Request expired (bot was unavailable for >1h)"}},
                     )
-                except Exception:
-                    pass
+                    if expired_result.modified_count > 0:
+                        logger.info("pending_job_triggers: expired %d old requests", expired_result.modified_count)
+                except Exception as exp_err:
+                    logger.debug("pending_job_triggers: expire update failed: %s", exp_err)
 
                 cursor = coll.find({
                     "status": "pending",
                 }).sort("created_at", 1).limit(10)
 
-                for doc in cursor:
+                pending_list = list(cursor)
+                if pending_list:
+                    logger.info("pending_job_triggers: found %d pending requests", len(pending_list))
+
+                for doc in pending_list:
                     trigger_id = doc.get("trigger_id")
                     job_id = doc.get("job_id")
                     if not trigger_id or not job_id:
+                        logger.warning("pending_job_triggers: skipping doc with missing trigger_id/job_id")
                         continue
+
+                    logger.info("pending_job_triggers: processing trigger_id=%s job_id=%s", trigger_id, job_id)
 
                     # סימון כ-processing כדי למנוע עיבוד כפול
                     result = coll.update_one(
@@ -3818,6 +3829,7 @@ async def setup_bot_data(application: Application) -> None:  # noqa: D401
                         {"$set": {"status": "processing", "processed_at": now}},
                     )
                     if result.modified_count == 0:
+                        logger.debug("pending_job_triggers: trigger %s already processed", trigger_id)
                         continue  # כבר עובד/עבר עיבוד
 
                     try:
@@ -3827,7 +3839,16 @@ async def setup_bot_data(application: Application) -> None:  # noqa: D401
                             raise RuntimeError("job_queue_unavailable")
 
                         jobs = jq.get_jobs_by_name(job_id)
+                        logger.debug("pending_job_triggers: get_jobs_by_name(%s) returned %d jobs", job_id, len(jobs) if jobs else 0)
+
                         if not jobs:
+                            # ניסיון למצוא callback ישירות מה-JobRegistry
+                            all_job_names = [getattr(j, "name", "?") for j in (jq.jobs() if hasattr(jq, "jobs") else [])]
+                            logger.warning(
+                                "pending_job_triggers: job_not_found job_id=%s available_jobs=%s",
+                                job_id,
+                                all_job_names[:20]
+                            )
                             raise RuntimeError(f"job_not_found: {job_id}")
 
                         job_obj = jobs[0]
@@ -3847,6 +3868,8 @@ async def setup_bot_data(application: Application) -> None:  # noqa: D401
                             kwargs["chat_id"] = chat_id
                         if user_id is not None:
                             kwargs["user_id"] = user_id
+
+                        logger.info("pending_job_triggers: running job %s via run_once", job_id)
                         jq.run_once(callback, **kwargs)
 
                         # עדכון סטטוס להצלחה
@@ -3854,7 +3877,7 @@ async def setup_bot_data(application: Application) -> None:  # noqa: D401
                             {"trigger_id": trigger_id},
                             {"$set": {"status": "completed", "result": "triggered"}},
                         )
-                        logger.info("Processed webapp job trigger: %s -> %s", trigger_id, job_id)
+                        logger.info("pending_job_triggers: SUCCESS trigger_id=%s job_id=%s", trigger_id, job_id)
 
                     except Exception as e:
                         # עדכון סטטוס לכישלון
@@ -3862,9 +3885,10 @@ async def setup_bot_data(application: Application) -> None:  # noqa: D401
                             {"trigger_id": trigger_id},
                             {"$set": {"status": "failed", "error": str(e)}},
                         )
-                        logger.warning("Failed to process job trigger %s: %s", trigger_id, e)
+                        logger.warning("pending_job_triggers: FAILED trigger_id=%s job_id=%s error=%s", trigger_id, job_id, e)
 
-            except Exception:
+            except Exception as outer_err:
+                logger.error("pending_job_triggers: outer exception: %s", outer_err)
                 return
 
         try:
