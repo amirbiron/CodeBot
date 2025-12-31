@@ -122,6 +122,7 @@ Code Keeper Bot - תיעוד API
    webapp/snippet-library
    webapp/onboarding
    webapp/caching
+   webapp/cache-inspector
    webapp/advanced-caching
    webapp/static-checklist
    webapp/commands-catalog
