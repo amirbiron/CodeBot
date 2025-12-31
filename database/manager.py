@@ -331,22 +331,42 @@ class DatabaseManager:
                                     # --- Query Performance Profiler (best-effort) ---
                                     try:
                                         if not _profiler_enabled():
+                                            logger.error(
+                                                "Profiler: disabled by config (PROFILER_ENABLED=false) - skipping slow query record"
+                                            )
                                             return None
                                         cmd_name = str(getattr(event, "command_name", "") or "")
                                         if cmd_name.lower() == "explain":
+                                            logger.error("Profiler: skipping 'explain' command (avoid recursion/observer effect)")
                                             return None
                                         command = getattr(event, "command", None) or {}
                                         if not isinstance(command, dict):
+                                            logger.error(
+                                                "Profiler: event.command is not a dict - skipping (cmd=%s, type=%s)",
+                                                cmd_name,
+                                                type(command).__name__,
+                                            )
                                             return None
                                         coll, query = _extract_collection_and_query(cmd_name, command)
                                         if not coll:
+                                            logger.error(
+                                                "Profiler: could not extract collection from command - skipping (cmd=%s)",
+                                                cmd_name,
+                                            )
                                             return None
                                         # Prevent recursion / noise: don't record our own persistence writes
-                                        if coll in {"slow_queries_log"}:
+                                        if coll in {"slow_queries_log", "system.profile"}:
+                                            logger.error(
+                                                "Profiler: skipping internal collection to prevent recursion/noise (coll=%s, cmd=%s)",
+                                                coll,
+                                                cmd_name,
+                                            )
                                             return None
 
                                         profiler = _get_profiler_service()
                                         if profiler is None:
+                                            # CRITICAL: likely indicates import/init failure
+                                            logger.error("Profiler: _get_profiler_service() returned None! Check imports/initialization.")
                                             return None
 
                                         client_info = {
@@ -378,8 +398,12 @@ class DatabaseManager:
                                                     client_info=client_info,
                                                 )
                                             )
-                                    except Exception:
+                                    except Exception as e:
                                         # Fail-open: profiler must never break DB operations
+                                        import traceback
+
+                                        logger.error(f"Profiler FAILED: {str(e)}")
+                                        logger.error(traceback.format_exc())
                                         return None
                             except Exception:
                                 pass
