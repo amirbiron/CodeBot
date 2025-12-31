@@ -971,7 +971,7 @@ body.telegram-mini-app .file-title { font-size: 1.125rem; }
         <div id="codeBasicContainer">
             {{ highlighted_code|safe }}
         </div>
-        <div id="codeMirrorContainer" hidden aria-label="תצוגת קוד מתקדמת"></div>
+        <div id="codeMirrorContainer" class="codemirror-container" hidden aria-label="תצוגת קוד מתקדמת"></div>
     </div>
     {% if raw_code is defined %}
     <textarea id="rawCode" style="position: absolute; left: -9999px; height: 0; opacity: 0;">{{ raw_code }}</textarea>

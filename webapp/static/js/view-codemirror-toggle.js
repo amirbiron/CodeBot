@@ -41,14 +41,8 @@
   function resolveLanguage(metaEl) {
     try {
       const raw = metaEl ? (metaEl.getAttribute('data-language') || '') : '';
-      const lang = String(raw || '').trim().toLowerCase();
-      if (lang && lang !== 'text' && lang !== 'plain') {
-        // Normalize some common labels
-        if (lang === 'js') return 'javascript';
-        if (lang === 'ts') return 'typescript';
-        if (lang === 'md') return 'markdown';
-        return lang;
-      }
+      const lang = normalizeLanguage(raw);
+      if (lang && lang !== 'text' && lang !== 'plain') return lang;
     } catch (_) {}
 
     // Fallback: infer from filename (EditorManager already has this map)
@@ -62,14 +56,40 @@
     return 'text';
   }
 
-  function resolveEffectiveTheme() {
+  function normalizeLanguage(raw) {
+    const s = String(raw || '').trim().toLowerCase();
+    if (!s) return '';
+    // Strip details like "Python (3.11)" / "Python 3"
+    const noParens = s.replace(/\(.*?\)/g, '').trim();
+    const compact = noParens.replace(/[_]+/g, ' ').trim();
+    if (!compact) return '';
+
+    // Common aliases
+    if (compact === 'js' || compact.startsWith('javascript')) return 'javascript';
+    if (compact === 'ts' || compact.startsWith('typescript')) return 'typescript';
+    if (compact === 'md' || compact.startsWith('markdown')) return 'markdown';
+    if (compact === 'py' || compact.startsWith('python')) return 'python';
+    if (compact === 'yml' || compact.startsWith('yaml')) return 'yaml';
+    if (compact === 'sh' || compact === 'bash' || compact.startsWith('shell')) return 'shell';
+    if (compact === 'golang' || compact === 'go') return 'go';
+    if (compact === 'c#' || compact === 'csharp' || compact === 'c sharp') return 'csharp';
+    if (compact === 'plain text' || compact === 'plaintext' || compact === 'plain' || compact === 'text') return 'text';
+
+    // First token fallback (keeps things like "html", "css", "json")
+    return compact.split(/\s+/)[0] || '';
+  }
+
+  function resolveEffectiveThemeForEditorParity() {
+    // Important: editor pages always pass theme: 'dark' into EditorManager,
+    // and only override it to 'dark' again when UI theme is dark/dim/nebula.
+    // To keep view-mode 1:1 with the editor, we stick to 'dark' here as well.
     try {
       const htmlTheme = document && document.documentElement ? (document.documentElement.getAttribute('data-theme') || '') : '';
       const t = String(htmlTheme || '').toLowerCase();
       // Same logic as editor-manager.js (dark/dim/nebula => oneDark)
       if (t === 'dark' || t === 'dim' || t === 'nebula') return 'dark';
     } catch (_) {}
-    return 'light';
+    return 'dark';
   }
 
   async function ensureCodeMirrorLoaded() {
@@ -97,7 +117,7 @@
     const mods = (window.CodeMirror6 && window.CodeMirror6._mods) || {};
     const viewMod = mods.viewMod;
 
-    const themeName = resolveEffectiveTheme();
+    const themeName = resolveEffectiveThemeForEditorParity();
     let langSupport = [];
     let themeExt = [];
     try {
