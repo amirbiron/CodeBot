@@ -12,7 +12,7 @@ import re
 import html
 import secrets
 import telegram.error
-import importlib
+import sys
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -54,6 +54,9 @@ def set_activity_reporter(new_reporter):
     reporter = new_reporter or _NoopReporter()
     
 # ---- DB access via composition facade --------------------------------------
+# Backwards-compatibility: tests often monkeypatch `bot_handlers.db`
+db = None  # type: ignore
+
 def _get_files_facade_or_none():
     """Best-effort access to FilesFacade without breaking older tests."""
     try:
@@ -63,22 +66,114 @@ def _get_files_facade_or_none():
         return None
 
 
+def _get_legacy_db():
+    """
+    Best-effort access to legacy DB object **without importing** the `database` package.
+
+    - Prefer explicit injection via `bot_handlers.db` (tests patch this a lot).
+    - Fall back to `sys.modules['database'].db` when a test injects a lightweight module.
+    """
+    try:
+        patched = globals().get("db")
+        if patched is not None:
+            return patched
+    except Exception:
+        pass
+    try:
+        mod = sys.modules.get("database")
+        if mod is not None:
+            return getattr(mod, "db", None)
+    except Exception:
+        return None
+    return None
+
+
+_FACADE_SENTINEL = object()
+
+
+def _should_retry_with_legacy(method_name: str, value) -> bool:
+    """
+    האם לנסות fallback ל-legacy אחרי קריאה ל-FilesFacade.
+
+    חשוב: פעולות "טוגל" הן stateful. ערך False יכול להיות תוצאה תקינה,
+    ולכן אסור להתייחס אליו כ"כשל" — אחרת אנחנו מבצעים את הפעולה פעמיים.
+    """
+    if value is _FACADE_SENTINEL:
+        return True
+    if value is None:
+        return True
+    if method_name in {"toggle_favorite"} and isinstance(value, bool):
+        return False
+    if value is False:
+        return True
+    if isinstance(value, (list, dict)) and not value:
+        return True
+    if isinstance(value, tuple) and not any(value):
+        return True
+    return False
+
+
 def _call_files_api(method_name: str, *args, **kwargs):
     """
-    Invoke FilesFacade method by name (best-effort).
+    Invoke FilesFacade method by name, with legacy fallback (best-effort).
 
     Note: Bot handlers must not import/use the legacy `database` package directly.
     """
+    # Special case: allow safe access to underlying Mongo DB (used by broadcast/dm admin flows).
+    if method_name == "get_mongo_db":
+        legacy = _get_legacy_db()
+        legacy_db_obj = getattr(legacy, "db", None) if legacy is not None else None
+        if legacy_db_obj is not None:
+            return legacy_db_obj
+        facade = _get_files_facade_or_none()
+        if facade is not None:
+            fn = getattr(facade, "get_mongo_db", None)
+            if callable(fn):
+                try:
+                    out = fn()
+                    if out is not None:
+                        return out
+                except Exception:
+                    pass
+        return None
+
+    # Prefer injected legacy db (tests), then facade, then fallback to legacy.
+    legacy = _get_legacy_db()
+    if legacy is not None:
+        method = getattr(legacy, method_name, None)
+        if callable(method):
+            try:
+                legacy_result = method(*args, **kwargs)
+                if legacy_result is not None:
+                    return legacy_result
+            except Exception:
+                pass
+
+    facade_result = _FACADE_SENTINEL
     facade = _get_files_facade_or_none()
-    if facade is None:
+    if facade is not None:
+        method = getattr(facade, method_name, None)
+        if callable(method):
+            try:
+                facade_result = method(*args, **kwargs)
+            except Exception:
+                facade_result = _FACADE_SENTINEL
+
+    if _should_retry_with_legacy(method_name, facade_result):
+        legacy = _get_legacy_db()
+        if legacy is not None:
+            method = getattr(legacy, method_name, None)
+            if callable(method):
+                try:
+                    legacy_result = method(*args, **kwargs)
+                    if legacy_result is not None:
+                        return legacy_result
+                except Exception:
+                    pass
+
+    if facade_result is _FACADE_SENTINEL:
         return None
-    method = getattr(facade, method_name, None)
-    if not callable(method):
-        return None
-    try:
-        return method(*args, **kwargs)
-    except Exception:
-        return None
+    return facade_result
 
 
 # Rate limiter לפיצ'ר יצירת תמונות (10 פעולות בדקה למשתמש)

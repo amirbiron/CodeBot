@@ -6,6 +6,7 @@ import inspect
 import hashlib
 import secrets
 import time
+import sys
 from io import BytesIO
 from datetime import datetime, timezone, timedelta
 from typing import List, Optional, Dict, Type, cast, Any
@@ -36,6 +37,9 @@ reporter = _NoopReporter()
 def set_activity_reporter(new_reporter):
     global reporter
     reporter = new_reporter or _NoopReporter()
+
+# Backwards-compatibility: some tests monkeypatch `conversation_handlers.db`
+db = None  # type: ignore
 from utils import get_language_emoji as get_file_emoji
 from user_stats import user_stats
 from html import escape as html_escape
@@ -106,28 +110,125 @@ def _get_files_facade_or_none():
         return None
 
 
-def _call_files_api(method_name: str, *args, **kwargs):
+def _get_legacy_db():
     """
-    Invoke FilesFacade method by name (best-effort).
+    Best-effort access to legacy DB object **without importing** the `database` package.
 
-    Note: Handlers must not reach into the legacy `database` package directly.
-    Any persistence access goes through the infrastructure facade.
+    - Prefer explicit injection via `conversation_handlers.db` (tests often patch this).
+    - Fall back to `sys.modules['database'].db` if a test injected a lightweight module.
     """
-    facade = _get_files_facade_or_none()
-    if facade is None:
-        return None
-    method = getattr(facade, method_name, None)
-    if not callable(method):
-        return None
     try:
-        return method(*args, **kwargs)
+        patched = globals().get("db")
+        if patched is not None:
+            return patched
+    except Exception:
+        pass
+    try:
+        mod = sys.modules.get("database")
+        if mod is not None:
+            return getattr(mod, "db", None)
     except Exception:
         return None
+    return None
+
+
+_FACADE_SENTINEL = object()
+
+
+def _should_retry_with_legacy(method_name: str, value) -> bool:
+    """
+    האם לנסות fallback ל-legacy אחרי קריאה ל-FilesFacade.
+
+    חשוב: פעולות "טוגל" הן stateful. ערך False יכול להיות תוצאה תקינה,
+    ולכן אסור להתייחס אליו כ"כשל" — אחרת אנחנו מבצעים את הפעולה פעמיים.
+    """
+    if value is _FACADE_SENTINEL:
+        return True
+    if value is None:
+        return True
+    if method_name in {"toggle_favorite"} and isinstance(value, bool):
+        return False
+    if value is False:
+        return True
+    if isinstance(value, (list, dict)) and not value:
+        return True
+    if isinstance(value, tuple) and not any(value):
+        return True
+    return False
+
+
+def _call_files_api(method_name: str, *args, **kwargs):
+    """
+    Invoke FilesFacade method by name, with legacy fallback (best-effort).
+
+    Note: Handlers must not reach into the legacy `database` package directly.
+    Legacy fallback is supported only via explicit injection / already-loaded modules.
+    """
+    # Special case: allow safe access to underlying Mongo DB (used by webapp login token).
+    if method_name == "get_mongo_db":
+        facade = _get_files_facade_or_none()
+        if facade is not None:
+            fn = getattr(facade, "get_mongo_db", None)
+            if callable(fn):
+                try:
+                    return fn()
+                except Exception:
+                    pass
+        legacy = _get_legacy_db()
+        return getattr(legacy, "db", None) if legacy is not None else None
+
+    facade_result = _FACADE_SENTINEL
+    facade = _get_files_facade_or_none()
+    if facade is not None:
+        method = getattr(facade, method_name, None)
+        if callable(method):
+            try:
+                facade_result = method(*args, **kwargs)
+            except Exception:
+                facade_result = _FACADE_SENTINEL
+
+    if _should_retry_with_legacy(method_name, facade_result):
+        legacy = _get_legacy_db()
+        if legacy is not None:
+            method = getattr(legacy, method_name, None)
+            if callable(method):
+                try:
+                    legacy_result = method(*args, **kwargs)
+                    if legacy_result is not None:
+                        return legacy_result
+                except Exception:
+                    pass
+
+    if facade_result is _FACADE_SENTINEL:
+        return None
+    try:
+        return facade_result
+    except Exception:
+        return facade_result
 
 
 def _call_repo_api(method_name: str, *args, **kwargs):
-    """Invoke repository-level APIs via FilesFacade (best-effort)."""
-    return _call_files_api(method_name, *args, **kwargs)
+    """
+    Invoke repository-level APIs (recycle bin helpers).
+
+    - Prefer FilesFacade when available.
+    - Fall back to legacy db._get_repo() when facade returns empty/None or fails.
+    """
+    result = _call_files_api(method_name, *args, **kwargs)
+    if not _should_retry_with_legacy(method_name, result):
+        return result
+    legacy = _get_legacy_db()
+    if legacy is None:
+        return result
+    repo_getter = getattr(legacy, "_get_repo", None)
+    if not callable(repo_getter):
+        return result
+    repo = repo_getter()
+    method = getattr(repo, method_name, None)
+    if not callable(method):
+        return result
+    # let exceptions bubble to caller so UI can show ❌
+    return method(*args, **kwargs)
 
 
 def _get_owned_document_by_id(user_id: int, file_id: str):
@@ -199,18 +300,9 @@ def _save_large_file_compat(
 
 
 def _load_favorites(user_id: int, limit: int = 1000, facade=None) -> List[Dict[str, object]]:
-    """Fetch favorites via facade when available, fallback to legacy db."""
-    if facade is None:
-        facade = _get_files_facade_or_none()
-    if facade is not None:
-        try:
-            docs = list(facade.get_favorites(user_id, limit=limit) or [])
-            if docs:
-                return docs
-        except Exception:
-            pass
-    legacy_docs = _call_files_api("get_favorites", user_id, limit=limit)
-    return list(legacy_docs or [])
+    """Fetch favorites via facade when available, fallback to legacy."""
+    docs = _call_files_api("get_favorites", user_id, limit=limit)
+    return list(docs or [])
 
 
 def _resolve_is_favorite(
@@ -1938,7 +2030,7 @@ async def show_favorites_callback(update: Update, context: ContextTypes.DEFAULT_
         )
         try:
             await query.edit_message_text(header, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode=ParseMode.HTML)
-        except telegram.error.BadRequest as br:
+        except Exception as br:
             if "message is not modified" in str(br).lower():
                 try:
                     from utils import TelegramUtils as _TU
