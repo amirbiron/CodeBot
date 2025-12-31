@@ -59,8 +59,8 @@ html[dir="rtl"] .editor-info-primary { margin-left:0; margin-right:auto; }
   padding-bottom: 1em;
 }
 @media (max-width: 768px){
-  /* Mobile default for CodeMirror editors across the site */
-  .cm-editor { max-height: 50vh; font-size: 14px; }
+  /* Mobile: keep max-height guard without changing font-size site-wide */
+  .cm-editor { max-height: 50vh; }
   #codeMirrorContainer .cm-editor { font-size: 12px; }
   /* Mobile: Stack vertically */
   .editor-switcher-row { flex-direction: column; align-items: stretch; gap:.5rem; }
