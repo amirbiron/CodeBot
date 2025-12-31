@@ -275,28 +275,47 @@ class QueryProfilerService:
         """
 
         def normalize_value(value: Any) -> Any:
+            """
+            נרמול ערך לשם "query shape" ללא דליפת PII.
+
+            ⚠️ חשוב: לא משנים מבנה/אורך של מערכים, כדי לא לשבור ביטויי $expr
+            ואופרטורים שמצפים למספר ארגומנטים מדויק (למשל $eq).
+            """
             if isinstance(value, dict):
-                # טיפול באופרטורים מיוחדים
-                return {k: normalize_value(v) for k, v in value.items()}
-            elif isinstance(value, list):
-                # 🔒 חשוב: נרמול מערכים - מציג את המבנה בלי הערכים
-                if len(value) == 0:
+                return {str(k): normalize_value(v) for k, v in value.items()}
+
+            if isinstance(value, list):
+                if not value:
                     return []
-                # שומר על מבנה המערך אבל מחליף ערכים
-                # לדוגמה: {"$in": [1, 2, 3]} הופך ל-{"$in": ["<value>", "<...N items>"]}
+
+                # אם כל האיברים פרימיטיביים – אפשר לנרמל מהר בלי רקורסיה עמוקה,
+                # תוך שמירה על אורך המערך.
                 if all(isinstance(v, (str, int, float, bool, type(None))) for v in value):
-                    # מערך של ערכים פשוטים - מציג פלייסהולדר עם גודל
-                    return [f"<{len(value)} items>"]
-                else:
-                    # מערך של objects - נרמול רקורסיבי (שומר על מבנה)
-                    return [normalize_value(value[0])] if value else []
-            elif isinstance(value, (str, int, float, bool)):
-                return "<value>"
-            elif value is None:
+                    out: List[Any] = []
+                    for v in value:
+                        if v is None:
+                            out.append("<null>")
+                        elif isinstance(v, str) and v.startswith("$"):
+                            # השארת field-paths / operator tokens (למשל "$user_id", "$eq") כפי שהם
+                            out.append(v)
+                        else:
+                            out.append("<value>")
+                    return out
+
+                # מערך מורכב (dicts / lists): נרמול רקורסיבי *לכל* האיברים (שומר אורך)
+                return [normalize_value(v) for v in value]
+
+            if value is None:
                 return "<null>"
-            elif isinstance(value, (datetime, bytes)):
+
+            # שמירת מחרוזות שמתחילות ב-$ (field paths / operator markers) – זה לא PII
+            if isinstance(value, str):
+                return value if value.startswith("$") else "<value>"
+
+            if isinstance(value, (int, float, bool, datetime, bytes)):
                 return "<value>"
-            # ObjectId, Decimal128, etc.
+
+            # ObjectId, Decimal128, UUID וכו' — best-effort
             return "<value>"
 
         return {k: normalize_value(v) for k, v in (query or {}).items()}

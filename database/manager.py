@@ -625,6 +625,16 @@ class DatabaseManager:
             IndexModel([("query_id", ASCENDING)], name="query_pattern"),
         ]
 
+        # markdown_images indexes (WebApp markdown preview images)
+        markdown_images_indexes = [
+            IndexModel([("snippet_id", ASCENDING), ("user_id", ASCENDING)], name="snippet_user_idx"),
+        ]
+
+        # file_bookmarks indexes (Bookmarks feature) — תומך בסינון לפי valid מתוך האינדקס
+        file_bookmarks_indexes = [
+            IndexModel([("user_id", ASCENDING), ("file_id", ASCENDING), ("valid", ASCENDING)], name="user_file_valid_idx"),
+        ]
+
         # job_runs collection (Background Jobs Monitor) indexes + TTL 7 days
         JOB_RUNS_COLLECTION = "job_runs"
         job_runs_indexes: List[Any] = []
@@ -662,6 +672,22 @@ class DatabaseManager:
             except Exception:
                 try:
                     self.db["slow_queries_log"].create_indexes(profiler_indexes)  # type: ignore[index]
+                except Exception:
+                    pass
+            # markdown_images (best-effort)
+            try:
+                self.db.markdown_images.create_indexes(markdown_images_indexes)  # type: ignore[attr-defined]
+            except Exception:
+                try:
+                    self.db["markdown_images"].create_indexes(markdown_images_indexes)  # type: ignore[index]
+                except Exception:
+                    pass
+            # file_bookmarks (best-effort)
+            try:
+                self.db.file_bookmarks.create_indexes(file_bookmarks_indexes)  # type: ignore[attr-defined]
+            except Exception:
+                try:
+                    self.db["file_bookmarks"].create_indexes(file_bookmarks_indexes)  # type: ignore[index]
                 except Exception:
                     pass
             # job_runs (best-effort)
