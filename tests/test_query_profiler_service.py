@@ -115,6 +115,32 @@ class TestQueryProfilerService:
         assert "123" not in str(n2)
 
     @pytest.mark.asyncio
+    async def test_normalize_query_shape_preserves_sort_direction(self, profiler_service):
+        """ודא שערכי 1/-1 ב-$sort נשמרים כפי שהם (קריטי למבנה ה-query)."""
+        # $sort פשוט
+        q1 = {"$sort": {"created_at": -1, "name": 1}}
+        n1 = profiler_service._normalize_query_shape(q1)
+        assert n1["$sort"]["created_at"] == -1
+        assert n1["$sort"]["name"] == 1
+
+        # $sort מקונן בתוך pipeline
+        q2 = {"$match": {"status": "active"}, "$sort": {"score": -1}}
+        n2 = profiler_service._normalize_query_shape(q2)
+        assert n2["$match"]["status"] == "<value>"
+        assert n2["$sort"]["score"] == -1
+
+        # $orderby (אליאס ישן)
+        q3 = {"$orderby": {"timestamp": 1}}
+        n3 = profiler_service._normalize_query_shape(q3)
+        assert n3["$orderby"]["timestamp"] == 1
+
+        # ודא שערכים אחרים (לא 1/-1) עדיין מנורמלים
+        q4 = {"$sort": {"field": 1}, "limit": 100}
+        n4 = profiler_service._normalize_query_shape(q4)
+        assert n4["$sort"]["field"] == 1
+        assert n4["limit"] == "<value>"
+
+    @pytest.mark.asyncio
     async def test_is_broken_query_shape_detects_old_format(self, profiler_service):
         """בדיקה שזיהוי query_shapes שבורים עובד נכון."""
         # query_shape תקין - לא שבור

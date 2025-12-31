@@ -557,6 +557,8 @@ class DatabaseManager:
             ], name="lang_tags_date_idx"),
             IndexModel([("code", TEXT), ("description", TEXT), ("file_name", TEXT)], name="full_text_search_idx"),
             IndexModel([("deleted_expires_at", ASCENDING)], name="deleted_ttl", expireAfterSeconds=0),
+            # אינדקס לשאילתות שמסננות לפי is_active ומיון לפי created_at (ביצועים)
+            IndexModel([("is_active", ASCENDING), ("created_at", DESCENDING)], name="active_recent_idx"),
         ]
 
         large_files_indexes = [
