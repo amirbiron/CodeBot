@@ -424,7 +424,20 @@ class QueryProfilerService:
             if db is None:
                 raise RuntimeError("No MongoDB database available")
             coll = db[collection]
-            return coll.find(query).explain(verbosity)
+
+            cursor = coll.find(query)
+            try:
+                # נסיון להריץ עם רמת הפירוט המבוקשת
+                return cursor.explain(verbosity)
+            except TypeError:
+                # Fallback לגרסאות ישנות של pymongo שלא מקבלות ארגומנטים
+                logger.warning(
+                    "Profiler: PyMongo Cursor.explain() does not support verbosity=%r; "
+                    "falling back to default explain() without execution stats.",
+                    verbosity,
+                    exc_info=True,
+                )
+                return cursor.explain()
 
         explain_result = await asyncio.to_thread(_run_explain)
         return self._parse_explain_result(collection, query, explain_result)
