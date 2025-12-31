@@ -52,6 +52,12 @@ html[dir="rtl"] .editor-info-primary { margin-left:0; margin-right:auto; }
 #codeMirrorContainer .cm-editor {
   font-size: 13.5px;
 }
+
+/* View Mode (view_file.html): add vertical breathing room (top/bottom) */
+#codeMirrorContainer .cm-scroller {
+  padding-top: 1em;
+  padding-bottom: 1em;
+}
 @media (max-width: 768px){
   .cm-editor { max-height: 50vh; }
   #codeMirrorContainer .cm-editor { font-size: 12px; }
