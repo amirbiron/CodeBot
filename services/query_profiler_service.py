@@ -263,6 +263,26 @@ class QueryProfilerService:
         content = f"{collection}:{json.dumps(query_shape, sort_keys=True)}"
         return hashlib.sha256(content.encode()).hexdigest()[:16]
 
+    def _is_broken_query_shape(self, query: Any) -> bool:
+        """
+        בדיקה אם query_shape מכיל נרמול שבור מגרסה ישנה.
+
+        גרסאות ישנות היו מקצרות מערכים ל-["<N items>"] במקום לשמור על אורך המערך.
+        זה שובר את explain() כי אופרטורים כמו $eq מצפים למספר ארגומנטים מדויק.
+        """
+        if isinstance(query, dict):
+            for v in query.values():
+                if self._is_broken_query_shape(v):
+                    return True
+        elif isinstance(query, list):
+            for item in query:
+                # זיהוי פלייסהולדר שבור: "<N items>" (N הוא מספר)
+                if isinstance(item, str) and item.startswith("<") and item.endswith(" items>"):
+                    return True
+                if self._is_broken_query_shape(item):
+                    return True
+        return False
+
     def _normalize_query_shape(self, query: Dict[str, Any]) -> Dict[str, Any]:
         """
         נרמול צורת השאילתה - החלפת ערכים בפלייסהולדרים.
@@ -437,6 +457,13 @@ class QueryProfilerService:
 
         ⚠️ אזהרה: executionStats ו-allPlansExecution מריצים את השאילתה בפועל!
         """
+        # בדיקה אם ה-query הוא query_shape שבור מגרסה ישנה
+        if self._is_broken_query_shape(query):
+            raise ValueError(
+                "Query shape contains broken array normalization from old version. "
+                "Arrays like '<N items>' cannot be used with explain(). "
+                "Please use the original query or re-record this slow query."
+            )
 
         def _run_explain() -> Dict[str, Any]:
             db = getattr(self.db_manager, "db", None)
@@ -745,6 +772,14 @@ class QueryProfilerService:
         """
         קבלת explain plan לאגרגציה.
         """
+        # בדיקה אם ה-pipeline מכיל query_shape שבור מגרסה ישנה
+        for stage in (pipeline or []):
+            if self._is_broken_query_shape(stage):
+                raise ValueError(
+                    "Pipeline contains broken array normalization from old version. "
+                    "Arrays like '<N items>' cannot be used with explain(). "
+                    "Please use the original pipeline or re-record this slow query."
+                )
 
         def _run_explain() -> Dict[str, Any]:
             db = getattr(self.db_manager, "db", None)

@@ -112,15 +112,25 @@ def setup_profiler_routes(app: web.Application, profiler_service: QueryProfilerS
         if not collection:
             return web.json_response({"status": "error", "message": "collection is required"}, status=400)
 
-        # תומך גם ב-aggregation pipelines
-        if isinstance(pipeline, list):
-            explain = await profiler_service.get_aggregation_explain(
-                collection=collection, pipeline=pipeline, verbosity=verbosity
-            )
-            return web.json_response({"status": "success", "data": _serialize_aggregation_explain(explain)})
+        try:
+            # תומך גם ב-aggregation pipelines
+            if isinstance(pipeline, list):
+                explain = await profiler_service.get_aggregation_explain(
+                    collection=collection, pipeline=pipeline, verbosity=verbosity
+                )
+                return web.json_response({"status": "success", "data": _serialize_aggregation_explain(explain)})
 
-        explain = await profiler_service.get_explain_plan(collection=collection, query=query, verbosity=verbosity)
-        return web.json_response({"status": "success", "data": _serialize_explain_plan(explain)})
+            explain = await profiler_service.get_explain_plan(collection=collection, query=query, verbosity=verbosity)
+            return web.json_response({"status": "success", "data": _serialize_explain_plan(explain)})
+        except ValueError as e:
+            # בדיקת query_shape שבור מגרסה ישנה
+            if "broken array normalization" in str(e):
+                return web.json_response({
+                    "status": "error",
+                    "message": "השאילתה מכילה נרמול שבור מגרסה ישנה. יש להשתמש בשאילתה המקורית או להקליט מחדש.",
+                    "error_code": "BROKEN_QUERY_SHAPE"
+                }, status=400)
+            raise
 
     @require_profiler_auth
     async def get_recommendations(request: web.Request) -> web.Response:
@@ -134,31 +144,41 @@ def setup_profiler_routes(app: web.Application, profiler_service: QueryProfilerS
         if not collection:
             return web.json_response({"status": "error", "message": "collection is required"}, status=400)
 
-        if isinstance(pipeline, list):
-            explain = await profiler_service.get_aggregation_explain(collection=collection, pipeline=pipeline)
-            recommendations = await profiler_service.analyze_aggregation_and_recommend(explain)
+        try:
+            if isinstance(pipeline, list):
+                explain = await profiler_service.get_aggregation_explain(collection=collection, pipeline=pipeline)
+                recommendations = await profiler_service.analyze_aggregation_and_recommend(explain)
+                return web.json_response(
+                    {
+                        "status": "success",
+                        "data": {
+                            "aggregation_explain": _serialize_aggregation_explain(explain),
+                            "recommendations": [_serialize_recommendation(r) for r in recommendations],
+                        },
+                    }
+                )
+
+            explain = await profiler_service.get_explain_plan(collection=collection, query=query)
+            recommendations = await profiler_service.generate_recommendations(explain)
+
             return web.json_response(
                 {
                     "status": "success",
                     "data": {
-                        "aggregation_explain": _serialize_aggregation_explain(explain),
+                        "explain": _serialize_explain_plan(explain),
                         "recommendations": [_serialize_recommendation(r) for r in recommendations],
                     },
                 }
             )
-
-        explain = await profiler_service.get_explain_plan(collection=collection, query=query)
-        recommendations = await profiler_service.generate_recommendations(explain)
-
-        return web.json_response(
-            {
-                "status": "success",
-                "data": {
-                    "explain": _serialize_explain_plan(explain),
-                    "recommendations": [_serialize_recommendation(r) for r in recommendations],
-                },
-            }
-        )
+        except ValueError as e:
+            # בדיקת query_shape שבור מגרסה ישנה
+            if "broken array normalization" in str(e):
+                return web.json_response({
+                    "status": "error",
+                    "message": "השאילתה מכילה נרמול שבור מגרסה ישנה. יש להשתמש בשאילתה המקורית או להקליט מחדש.",
+                    "error_code": "BROKEN_QUERY_SHAPE"
+                }, status=400)
+            raise
 
     @require_profiler_auth
     async def get_summary(request: web.Request) -> web.Response:
