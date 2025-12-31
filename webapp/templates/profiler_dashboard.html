@@ -221,6 +221,8 @@
       const shape = JSON.stringify(query.query_shape || {});
       const timeMs = Number(query.execution_time_ms || 0);
       const timeStyle = timeMs > 1000 ? 'color:#dc3545; font-weight:700;' : '';
+
+      // 1. יצירת העמודות הטקסטואליות (בטוח לשימוש עם innerHTML כי אנחנו עושים escape)
       row.innerHTML = `
         <td style="padding:.6rem;"><code>${escapeHtml(query.collection)}</code></td>
         <td style="padding:.6rem;">${escapeHtml(query.operation)}</td>
@@ -229,27 +231,29 @@
         <td style="padding:.6rem;">${new Date(query.timestamp).toLocaleString('he-IL')}</td>
       `;
 
-      // יצירת הכפתור בצורה בטוחה (למנוע שבירת HTML בגלל גרשיים)
+      // 2. יצירת כפתור הפעולות בצורה בטוחה (DOM API)
+      // זה החלק שמתקן את הבאג!
       const actionsTd = document.createElement('td');
-      
-      // מציגים כפתור ניתוח רק עבור find/aggregate/count
-      const op = String(query.operation || '').toLowerCase();
-      if (['find', 'aggregate', 'count'].includes(op)) {
+      actionsTd.style.padding = '.6rem';
+
+      // מציגים כפתור רק אם הפעולה רלוונטית לניתוח
+      if (['find', 'aggregate', 'count'].includes(query.operation)) {
           const btn = document.createElement('button');
-          btn.className = 'btn btn-sm btn-outline-primary';
-          btn.innerHTML = '🔍 נתח';
+          btn.className = 'btn btn-secondary';
+          btn.type = 'button';
+          btn.textContent = '🔍 נתח';
+          
+          // כאן אנחנו מעבירים את האובייקט ישירות לפונקציה, בלי לעבור דרך HTML String
           btn.onclick = function() {
-              // מעבירים גם operation כדי לא לנחש לפי query_shape
-              analyzeQueryById(query.collection, JSON.stringify(query.query_shape), op);
+              analyzeQueryFromRow(query.collection, query.operation, query.query_shape || {});
           };
+          
           actionsTd.appendChild(btn);
       } else {
-          // עבור insert/update וכו' - אין מה לנתח ב-Explain
-          const span = document.createElement('span');
-          span.className = 'text-muted small';
-          span.textContent = '-';
-          actionsTd.appendChild(span);
+          // עבור insert/update וכו'
+          actionsTd.innerHTML = '<span style="opacity:0.5">-</span>';
       }
+
       row.appendChild(actionsTd);
       tbody.appendChild(row);
     });
