@@ -244,8 +244,9 @@ class DatabaseManager:
                             try:
                                 return float(raw2)
                             except Exception:
-                                return 0.0
-                        return 0.0
+                                return 100.0
+                        # ברירת מחדל: 100ms (תואם docs ו-Config Inspector)
+                        return 100.0
 
                     def _get_profiler_service():
                         # Lazy import to avoid hard dependency / circular imports at startup

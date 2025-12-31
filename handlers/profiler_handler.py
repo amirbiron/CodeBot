@@ -48,8 +48,9 @@ def require_profiler_auth(handler):
                 return web.json_response({"status": "error", "message": "Unauthorized"}, status=401)
 
         # הגבלת IP (אופציונלי)
-        allowed_ips = os.environ.get("PROFILER_ALLOWED_IPS", "").split(",")
-        if allowed_ips and allowed_ips[0]:  # רק אם מוגדר
+        allowed_ips_raw = os.environ.get("PROFILER_ALLOWED_IPS", "")
+        allowed_ips = [ip.strip() for ip in str(allowed_ips_raw or "").split(",") if ip.strip()]
+        if allowed_ips:  # רק אם מוגדר
             client_ip = request.remote
             if client_ip not in allowed_ips:
                 return web.json_response({"status": "error", "message": "IP not allowed"}, status=403)
@@ -65,19 +66,32 @@ def setup_profiler_routes(app: web.Application, profiler_service: QueryProfilerS
     @require_profiler_auth
     async def get_slow_queries(request: web.Request) -> web.Response:
         """GET /api/profiler/slow-queries"""
-        limit = int(request.query.get("limit", 50))
+        try:
+            limit = int(request.query.get("limit", 50))
+        except Exception:
+            limit = 50
         collection = request.query.get("collection")
         min_time = request.query.get("min_time")
         hours = request.query.get("hours")
 
         since = None
         if hours:
-            since = datetime.utcnow() - timedelta(hours=int(hours))
+            try:
+                since = datetime.utcnow() - timedelta(hours=int(hours))
+            except Exception:
+                since = None
+
+        min_time_ms = None
+        if min_time:
+            try:
+                min_time_ms = float(min_time)
+            except Exception:
+                min_time_ms = None
 
         queries = await profiler_service.get_slow_queries(
             limit=limit,
             collection_filter=collection,
-            min_execution_time_ms=float(min_time) if min_time else None,
+            min_execution_time_ms=min_time_ms,
             since=since,
         )
 
