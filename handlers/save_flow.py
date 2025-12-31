@@ -1,8 +1,8 @@
 import re
 import os
+import sys
 import logging
 import inspect
-import importlib
 from io import BytesIO
 from typing import Optional
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup
@@ -17,14 +17,17 @@ from utils import normalize_code  # נרמול קלט כדי להסיר תווי
 
 logger = logging.getLogger(__name__)
 
-# Backwards-compatibility for tests that monkeypatch `handlers.save_flow.db`
-# and/or `handlers.save_flow.CodeSnippet`.
+# Backwards-compatibility: some tests may monkeypatch `handlers.save_flow.db`
 db = None  # type: ignore
-CodeSnippet = None  # type: ignore
+
+# NOTE: We intentionally avoid importing the legacy `database` package here.
+# All persistence access goes through the composition facade / application services.
+# For backwards-compatibility in tests, we support reading a pre-injected
+# `sys.modules["database"].db` object (no dynamic import).
 
 
 def _get_legacy_db():
-    """גישה ל-DB הוותיק בלי import סטטי של database."""
+    """Best-effort access to legacy db object without importing `database`."""
     try:
         patched = globals().get("db")
         if patched is not None:
@@ -32,31 +35,12 @@ def _get_legacy_db():
     except Exception:
         pass
     try:
-        module = importlib.import_module("database")
-        return getattr(module, "db", None)
+        mod = sys.modules.get("database")
+        if mod is not None:
+            return getattr(mod, "db", None)
     except Exception:
         return None
-
-
-def _get_legacy_model_class(class_name: str):
-    # If tests patched a class in this module, prefer it.
-    try:
-        patched = globals().get(class_name)
-        if patched is not None:
-            return patched
-    except Exception:
-        pass
-    # Prefer `database.<Class>` first (tests often monkeypatch this path).
-    for module_name in ("database", "database.models"):
-        try:
-            module = importlib.import_module(module_name)
-            cls = getattr(module, class_name, None)
-            if cls is not None:
-                return cls
-        except Exception:
-            continue
     return None
-
 # Observability (fail-open): unify error/event reporting
 try:  # type: ignore
     from observability import emit_event  # type: ignore
@@ -708,24 +692,6 @@ async def save_file_final(update, context, filename, user_id):
             except Exception as exc:
                 success = False
                 last_exc = last_exc or exc
-        if not success:
-            # fallback לנתיב legacy בלי import סטטי של database
-            try:
-                legacy = _get_legacy_db()
-                CodeSnippet = _get_legacy_model_class("CodeSnippet")
-                if legacy is not None and CodeSnippet is not None:
-                    snippet = CodeSnippet(
-                        user_id=user_id,
-                        file_name=filename,
-                        code=code,
-                        programming_language=detected_language,
-                        description=note,
-                    )
-                    success = bool(legacy.save_code_snippet(snippet))
-            except Exception as exc:
-                success = False
-                # If legacy raised, bubble up to outer handler to trigger observability.
-                last_exc = last_exc or exc
         if not success and last_exc is not None:
             raise last_exc
         if success:
@@ -734,13 +700,6 @@ async def save_file_final(update, context, filename, user_id):
                 fid = str(saved_doc.get('_id') or '')
             except Exception:
                 fid = ''
-            if not fid:
-                try:
-                    legacy = _get_legacy_db()
-                    saved_doc = legacy.get_latest_version(user_id, filename) if legacy is not None else None
-                    fid = str((saved_doc or {}).get('_id') or '')
-                except Exception:
-                    fid = ''
             await _send_save_success(update, context, filename, detected_language, note or '', fid)
             _cleanup_save_flow_state(context)
             return ConversationHandler.END

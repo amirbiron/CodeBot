@@ -12,7 +12,7 @@ import re
 import html
 import secrets
 import telegram.error
-import importlib
+import sys
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -53,11 +53,9 @@ def set_activity_reporter(new_reporter):
     global reporter
     reporter = new_reporter or _NoopReporter()
     
-# ---- DB access via composition facade (with legacy fallback) ---------------
-# Backwards-compatibility for tests that monkeypatch `bot_handlers.db`.
-# We intentionally keep it `None` by default to avoid import-time DB coupling.
+# ---- DB access via composition facade --------------------------------------
+# Backwards-compatibility: tests often monkeypatch `bot_handlers.db`
 db = None  # type: ignore
-
 
 def _get_files_facade_or_none():
     """Best-effort access to FilesFacade without breaking older tests."""
@@ -69,7 +67,12 @@ def _get_files_facade_or_none():
 
 
 def _get_legacy_db():
-    """Lazy access to the legacy DatabaseManager for fallback paths."""
+    """
+    Best-effort access to legacy DB object **without importing** the `database` package.
+
+    - Prefer explicit injection via `bot_handlers.db` (tests patch this a lot).
+    - Fall back to `sys.modules['database'].db` when a test injects a lightweight module.
+    """
     try:
         patched = globals().get("db")
         if patched is not None:
@@ -77,10 +80,12 @@ def _get_legacy_db():
     except Exception:
         pass
     try:
-        module = importlib.import_module("database")
-        return getattr(module, "db", None)
+        mod = sys.modules.get("database")
+        if mod is not None:
+            return getattr(mod, "db", None)
     except Exception:
         return None
+    return None
 
 
 _FACADE_SENTINEL = object()
@@ -88,16 +93,15 @@ _FACADE_SENTINEL = object()
 
 def _should_retry_with_legacy(method_name: str, value) -> bool:
     """
-    האם לנסות fallback ל-legacy DB אחרי קריאה ל-FilesFacade.
+    האם לנסות fallback ל-legacy אחרי קריאה ל-FilesFacade.
 
-    חשוב: פעולות "טוגל" הן stateful. ערך False יכול להיות תוצאה תקינה (למשל: הוסר מהמועדפים),
-    ולכן אסור להתייחס אליו כ"כשל" — אחרת אנחנו מבצעים את הפעולה פעמיים ומחזירים מצב הפוך.
+    חשוב: פעולות "טוגל" הן stateful. ערך False יכול להיות תוצאה תקינה,
+    ולכן אסור להתייחס אליו כ"כשל" — אחרת אנחנו מבצעים את הפעולה פעמיים.
     """
     if value is _FACADE_SENTINEL:
         return True
     if value is None:
         return True
-    # Side-effectful toggles: never retry on a valid boolean result
     if method_name in {"toggle_favorite"} and isinstance(value, bool):
         return False
     if value is False:
@@ -110,21 +114,59 @@ def _should_retry_with_legacy(method_name: str, value) -> bool:
 
 
 def _call_files_api(method_name: str, *args, **kwargs):
-    """Invoke FilesFacade method by name, best-effort with legacy fallback."""
-    # If tests (or runtime) patched `bot_handlers.db`, prefer it for compatibility.
-    try:
-        patched = globals().get("db")
-    except Exception:
-        patched = None
-    if patched is not None:
-        method = getattr(patched, method_name, None)
+    """
+    Invoke FilesFacade method by name, with legacy fallback (best-effort).
+
+    Note: Bot handlers must not import/use the legacy `database` package directly.
+    """
+    # Special case: allow safe access to underlying Mongo DB (used by broadcast/dm admin flows).
+    if method_name == "get_mongo_db":
+        # Prefer explicit injection via module globals (tests), then facade, then already-loaded legacy module.
+        try:
+            injected = globals().get("db")
+        except Exception:
+            injected = None
+        try:
+            injected_db_obj = getattr(injected, "db", None) if injected is not None else None
+        except Exception:
+            injected_db_obj = None
+        if injected_db_obj is not None:
+            return injected_db_obj
+
+        facade = _get_files_facade_or_none()
+        if facade is not None:
+            fn = getattr(facade, "get_mongo_db", None)
+            if callable(fn):
+                try:
+                    out = fn()
+                    if out is not None:
+                        return out
+                except Exception:
+                    pass
+        try:
+            mod = sys.modules.get("database")
+            legacy_mgr = getattr(mod, "db", None) if mod is not None else None
+        except Exception:
+            legacy_mgr = None
+        if legacy_mgr is None:
+            return None
+        try:
+            # legacy_mgr is typically DatabaseManager; .db is the underlying pymongo database.
+            inner = getattr(legacy_mgr, "db", None)
+            return inner if inner is not None else legacy_mgr
+        except Exception:
+            return legacy_mgr
+
+    # Prefer injected legacy db (tests), then facade, then fallback to legacy.
+    legacy = _get_legacy_db()
+    if legacy is not None:
+        method = getattr(legacy, method_name, None)
         if callable(method):
             try:
                 legacy_result = method(*args, **kwargs)
                 if legacy_result is not None:
                     return legacy_result
             except Exception:
-                # fall through to facade path
                 pass
 
     facade_result = _FACADE_SENTINEL
@@ -4136,8 +4178,7 @@ class AdvancedBotHandlers:
             return
         
         # שליפת נמענים מ-Mongo
-        legacy = _get_legacy_db()
-        db_obj = getattr(legacy, "db", None) if legacy is not None else None
+        db_obj = _call_files_api("get_mongo_db")
         coll = getattr(db_obj, "users", None) if db_obj is not None else None
         if coll is None:
             await update.message.reply_text("❌ לא ניתן לטעון רשימת משתמשים מהמסד.")
@@ -4251,8 +4292,7 @@ class AdvancedBotHandlers:
             # username: strip leading @ and query DB
             uname = recipient_token[1:] if recipient_token.startswith('@') else recipient_token
             try:
-                legacy = _get_legacy_db()
-                db_obj = getattr(legacy, "db", None) if legacy is not None else None
+                db_obj = _call_files_api("get_mongo_db")
                 users_coll = getattr(db_obj, "users", None) if db_obj is not None else None
                 if users_coll is not None:
                     # נסה התאמה מדויקת ואז lowercase
@@ -4293,8 +4333,7 @@ class AdvancedBotHandlers:
         except telegram.error.Forbidden:
             # ייתכן שהמשתמש חסם את הבוט – נסמן ב-DB
             try:
-                legacy = _get_legacy_db()
-                db_obj = getattr(legacy, "db", None) if legacy is not None else None
+                db_obj = _call_files_api("get_mongo_db")
                 users_coll = getattr(db_obj, "users", None) if db_obj is not None else None
                 if users_coll is not None:
                     users_coll.update_one({"user_id": target_id}, {"$set": {"blocked": True}})

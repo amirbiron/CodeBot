@@ -37,6 +37,51 @@ def _collect_imports(py_file: pathlib.Path) -> List[Tuple[str, str]]:
     return imports
 
 
+def _collect_dynamic_database_imports(py_file: pathlib.Path) -> List[str]:
+    """
+    Detect dynamic imports of the legacy `database` package via runtime calls.
+
+    Why: `importlib.import_module("database")` bypasses ast.Import/ast.ImportFrom checks,
+    but it is still a direct dependency that we want to keep out of handlers.
+    """
+    try:
+        source = py_file.read_text(encoding="utf-8")
+    except Exception:
+        return []
+    try:
+        tree = ast.parse(source, filename=str(py_file))
+    except SyntaxError:
+        return []
+    mods: List[str] = []
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+
+        # importlib.import_module("database" / "database.*")
+        if isinstance(node.func, ast.Attribute) and node.func.attr == "import_module":
+            if isinstance(node.func.value, ast.Name) and node.func.value.id == "importlib":
+                if node.args and isinstance(node.args[0], ast.Constant) and isinstance(node.args[0].value, str):
+                    mod = node.args[0].value
+                    if mod.startswith("database"):
+                        mods.append(mod)
+
+        # __import__("database" / "database.*")
+        if isinstance(node.func, ast.Name) and node.func.id == "__import__":
+            if node.args and isinstance(node.args[0], ast.Constant) and isinstance(node.args[0].value, str):
+                mod = node.args[0].value
+                if mod.startswith("database"):
+                    mods.append(mod)
+    return mods
+
+
+def _dynamic_database_import_violations(files: Iterable[pathlib.Path]) -> List[Tuple[pathlib.Path, str]]:
+    violations: List[Tuple[pathlib.Path, str]] = []
+    for f in files:
+        for mod in _collect_dynamic_database_imports(f):
+            violations.append((f, mod))
+    return violations
+
+
 def _violations(files: Iterable[pathlib.Path], forbidden_prefixes: Iterable[str], allowed_prefixes: Iterable[str] = ()) -> List[Tuple[pathlib.Path, str]]:
     violations: List[Tuple[pathlib.Path, str]] = []
     allowed_prefixes = tuple(allowed_prefixes)
@@ -86,7 +131,10 @@ def test_handlers_do_not_import_database_directly():
     files = list(_python_files_under("handlers"))
     forbidden = ("database",)
     violations = _violations(files, forbidden_prefixes=forbidden)
-    assert not violations, "Handlers must not import database directly:\n" + "\n".join(f"- {p}: {mod}" for p, mod in violations)
+    dyn = _dynamic_database_import_violations(files)
+    assert not violations and not dyn, "Handlers must not import database directly:\n" + "\n".join(
+        [*(f"- {p}: {mod}" for p, mod in violations), *(f"- {p}: {mod} (dynamic)" for p, mod in dyn)]
+    )
 
 
 def test_top_level_handler_like_modules_do_not_import_database_directly():
@@ -107,8 +155,9 @@ def test_top_level_handler_like_modules_do_not_import_database_directly():
     files = [ROOT / f for f in rel_files if (ROOT / f).exists()]
     forbidden = ("database",)
     violations = _violations(files, forbidden_prefixes=forbidden)
-    assert not violations, "Top-level handler-like modules must not import database directly:\n" + "\n".join(
-        f"- {p}: {mod}" for p, mod in violations
+    dyn = _dynamic_database_import_violations(files)
+    assert not violations and not dyn, "Top-level handler-like modules must not import database directly:\n" + "\n".join(
+        [*(f"- {p}: {mod}" for p, mod in violations), *(f"- {p}: {mod} (dynamic)" for p, mod in dyn)]
     )
 
 
