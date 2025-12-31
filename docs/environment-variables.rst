@@ -838,6 +838,48 @@
      - ``0`` (מכובה)
      - ``20``
      - Bot/WebApp
+  * - ``PROFILER_ENABLED``
+    - הפעלת Query Performance Profiler (ניטור שאילתות MongoDB איטיות + דשבורד)
+    - לא
+    - ``true``
+    - ``false``
+    - Bot/WebApp
+  * - ``PROFILER_SLOW_THRESHOLD_MS``
+    - סף זמן (מילישניות) להגדרת "שאילתה איטית" עבור הפרופיילר
+    - לא
+    - ``100``
+    - ``250``
+    - Bot/WebApp
+  * - ``PROFILER_MAX_BUFFER_SIZE``
+    - מספר מקסימלי של רשומות slow queries שנשמרות בזיכרון (Deque) לצורכי UI מהיר
+    - לא
+    - ``1000``
+    - ``2000``
+    - Bot/WebApp
+  * - ``PROFILER_AUTH_TOKEN``
+    - טוקן גישה ל-API של הפרופיילר (נשלח כ-Header ``X-Profiler-Token``). אם ריק, ההגנה מתבססת על הרשאת Admin ב-WebApp.
+    - לא
+    - "" (ריק)
+    - ``replace_me``
+    - Bot/WebApp
+  * - ``PROFILER_ALLOWED_IPS``
+    - Allowlist של כתובות IP מורשות (CSV) ל-API של הפרופיילר. אם ריק, אין הגבלת IP.
+    - לא
+    - "" (ריק)
+    - ``127.0.0.1,10.0.0.1``
+    - Bot/WebApp
+  * - ``PROFILER_RATE_LIMIT``
+    - מגבלת בקשות לדקה ל-endpoints של הפרופיילר (Rate Limiting)
+    - לא
+    - ``60``
+    - ``30``
+    - Bot/WebApp
+  * - ``PROFILER_METRICS_ENABLED``
+    - הפעלה/כיבוי של מטריקות Prometheus לפרופיילר (Slow Queries / Buffer Size וכו')
+    - לא
+    - ``true``
+    - ``false``
+    - Bot/WebApp
    * - ``QUEUE_DELAY_WARN_MS``
      - סף מילישניות להתראת ``queue_delay_high`` כאשר התקבלה כותרת ``X-Queue-Start``/``X-Request-Start`` והשרת מזהה זמן המתנה בתור לפני טיפול בבקשה
      - לא
