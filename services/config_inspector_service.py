@@ -288,6 +288,12 @@ class ConfigService:
             description="תקציב זמן לניקוי קאש (שניות)",
             category="cache",
         ),
+        "CACHE_DELETE_PATTERN_BUDGET_SECONDS": ConfigDefinition(
+            key="CACHE_DELETE_PATTERN_BUDGET_SECONDS",
+            default="5",
+            description="תקציב זמן למחיקת תבנית מפתחות בקאש (שניות) – SCAN+DEL, למניעת תקיעה ב-Redis גדול",
+            category="cache",
+        ),
         "DISABLE_CACHE_MAINTENANCE": ConfigDefinition(
             key="DISABLE_CACHE_MAINTENANCE",
             default="false",

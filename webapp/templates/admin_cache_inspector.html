@@ -1,0 +1,956 @@
+{% extends "base.html" %}
+
+{% block title %}Cache Inspector{% endblock %}
+
+{% block extra_css %}
+<style>
+/* ================================
+   Cache Inspector – Glassmorphism Dark Theme
+   ================================ */
+
+.cache-page {
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+  color: #fff;
+  max-width: 1400px;
+  margin: 0 auto;
+  padding: 1rem;
+}
+
+.cache-page .page-title {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  font-size: 1.8rem;
+  font-weight: 600;
+}
+
+.cache-page .page-title i {
+  color: #64ffda;
+}
+
+/* ================================
+   Stats Cards (Glassmorphism)
+   ================================ */
+.cache-stats-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 1rem;
+}
+
+.stat-card {
+  background: rgba(18, 24, 38, 0.75);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 16px;
+  padding: 1.25rem;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.25);
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.stat-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 14px 40px rgba(0, 0, 0, 0.35);
+}
+
+.stat-card h3 {
+  font-size: 0.85rem;
+  margin: 0;
+  opacity: 0.7;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.stat-card .card-value {
+  font-size: 1.8rem;
+  font-weight: 600;
+  margin: 0.5rem 0 0;
+}
+
+.stat-card .card-value.memory { color: #a5d6ff; }
+.stat-card .card-value.hit-rate { color: #64ffda; }
+.stat-card .card-value.keys { color: #ffa34f; }
+.stat-card .card-value.clients { color: #d8a6ff; }
+
+/* ================================
+   Search/Filters Bar
+   ================================ */
+.cache-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  align-items: center;
+  padding: 1rem 1.25rem;
+  background: rgba(18, 24, 38, 0.6);
+  backdrop-filter: blur(10px);
+  border-radius: 14px;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.cache-filters label {
+  font-size: 0.9rem;
+  opacity: 0.8;
+}
+
+.cache-filters input[type="text"] {
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 999px;
+  color: #fff;
+  padding: 0.5rem 1rem;
+  font-size: 0.9rem;
+  min-width: 200px;
+  transition: background 0.2s ease, border-color 0.2s ease;
+}
+
+.cache-filters input[type="text"]:focus {
+  outline: none;
+  border-color: #64ffda;
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.cache-filters input[type="text"]::placeholder {
+  color: rgba(255, 255, 255, 0.4);
+}
+
+.cache-filters select {
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 999px;
+  color: #fff;
+  padding: 0.4rem 1rem;
+  font-size: 0.9rem;
+  cursor: pointer;
+}
+
+.cache-filters select option {
+  background: #1a1f2e;
+  color: #fff;
+}
+
+.filter-btn {
+  border: none;
+  border-radius: 999px;
+  padding: 0.5rem 1.2rem;
+  background: linear-gradient(135deg, #64ffda, #4dd0e1);
+  color: #0c1725;
+  font-weight: 600;
+  cursor: pointer;
+  transition: box-shadow 0.2s ease, transform 0.2s ease;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.filter-btn:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 8px 20px rgba(100, 255, 218, 0.3);
+}
+
+.filter-btn.danger {
+  background: linear-gradient(135deg, #ff627c, #ff8fa3);
+}
+
+.filter-btn.danger:hover {
+  box-shadow: 0 8px 20px rgba(255, 98, 124, 0.3);
+}
+
+.filter-btn.secondary {
+  background: rgba(255, 255, 255, 0.08);
+  color: #fff;
+}
+
+.filter-btn.secondary:hover {
+  background: rgba(255, 255, 255, 0.15);
+  box-shadow: none;
+}
+
+/* ================================
+   Prefix Quick Filters
+   ================================ */
+.prefix-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  padding: 0.75rem 1rem;
+  background: rgba(18, 24, 38, 0.4);
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.04);
+}
+
+.prefix-filters .label {
+  font-size: 0.85rem;
+  opacity: 0.7;
+  margin-left: 0.5rem;
+}
+
+.prefix-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.25rem 0.7rem;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 999px;
+  font-size: 0.8rem;
+  cursor: pointer;
+  transition: background 0.2s ease, border-color 0.2s ease;
+}
+
+.prefix-chip:hover {
+  background: rgba(100, 255, 218, 0.1);
+  border-color: rgba(100, 255, 218, 0.3);
+}
+
+.prefix-chip .count {
+  font-size: 0.75rem;
+  opacity: 0.6;
+}
+
+/* ================================
+   Cache Table
+   ================================ */
+.cache-table-wrapper {
+  background: rgba(18, 24, 38, 0.72);
+  backdrop-filter: blur(14px);
+  border-radius: 18px;
+  padding: 1.25rem;
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  box-shadow: 0 18px 32px rgba(0, 0, 0, 0.35);
+  overflow-x: auto;
+}
+
+.cache-table-wrapper h2 {
+  margin: 0 0 1rem;
+  font-size: 1.15rem;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.cache-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.92rem;
+}
+
+.cache-table thead th {
+  text-align: right;
+  padding: 0.75rem 0.6rem;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  font-weight: 500;
+  opacity: 0.8;
+  white-space: nowrap;
+}
+
+.cache-table tbody td {
+  padding: 0.7rem 0.6rem;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+  vertical-align: middle;
+}
+
+.cache-table tbody tr:hover {
+  background: rgba(255, 255, 255, 0.03);
+}
+
+/* Key column */
+.cache-key {
+  font-family: 'JetBrains Mono', 'Fira Code', monospace;
+  font-size: 0.85rem;
+  color: #a5d6ff;
+  word-break: break-all;
+  max-width: 350px;
+}
+
+/* Value preview */
+.cache-value {
+  font-family: 'JetBrains Mono', 'Fira Code', monospace;
+  font-size: 0.82rem;
+  color: rgba(255, 255, 255, 0.7);
+  max-width: 250px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cache-value.sensitive {
+  color: #888;
+  font-style: italic;
+}
+
+/* TTL column */
+.ttl-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.2rem 0.6rem;
+  border-radius: 999px;
+  font-size: 0.8rem;
+  font-family: 'JetBrains Mono', monospace;
+}
+
+.ttl-badge.active {
+  background: rgba(100, 255, 218, 0.12);
+  color: #64ffda;
+}
+
+.ttl-badge.expiring {
+  background: rgba(255, 163, 79, 0.18);
+  color: #ffa34f;
+}
+
+.ttl-badge.persistent {
+  background: rgba(216, 166, 255, 0.15);
+  color: #d8a6ff;
+}
+
+.ttl-badge.expired {
+  background: rgba(255, 99, 132, 0.18);
+  color: #ff627c;
+}
+
+/* Size column */
+.size-badge {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.8rem;
+  opacity: 0.7;
+}
+
+/* Type badge */
+.type-badge {
+  display: inline-block;
+  padding: 0.15rem 0.45rem;
+  border-radius: 4px;
+  font-size: 0.75rem;
+  background: rgba(255, 255, 255, 0.08);
+  color: rgba(255, 255, 255, 0.6);
+}
+
+/* Status pill */
+.status-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.25rem 0.7rem;
+  border-radius: 999px;
+  font-size: 0.8rem;
+  font-weight: 500;
+}
+
+.status-pill.active {
+  background: rgba(100, 255, 218, 0.12);
+  color: #64ffda;
+}
+
+.status-pill.persistent {
+  background: rgba(216, 166, 255, 0.15);
+  color: #d8a6ff;
+}
+
+.status-pill.expiring {
+  background: rgba(255, 163, 79, 0.18);
+  color: #ffa34f;
+}
+
+.status-pill.expired {
+  background: rgba(255, 99, 132, 0.18);
+  color: #ff627c;
+}
+
+/* Delete button */
+.delete-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border: none;
+  border-radius: 6px;
+  background: rgba(255, 99, 132, 0.1);
+  color: rgba(255, 99, 132, 0.7);
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.15s ease, background 0.15s ease, color 0.15s ease;
+}
+
+.cache-table tbody tr:hover .delete-btn {
+  opacity: 1;
+}
+
+.delete-btn:hover {
+  background: rgba(255, 99, 132, 0.2);
+  color: #ff627c;
+}
+
+.delete-btn i {
+  font-size: 0.8rem;
+}
+
+/* ================================
+   Actions Bar
+   ================================ */
+.cache-actions {
+  display: flex;
+  gap: 0.75rem;
+  align-items: center;
+  padding-top: 0.5rem;
+}
+
+.action-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.5rem 1rem;
+  border: none;
+  border-radius: 8px;
+  font-size: 0.9rem;
+  cursor: pointer;
+  transition: background 0.2s ease, transform 0.2s ease;
+}
+
+.action-btn.primary {
+  background: rgba(100, 255, 218, 0.15);
+  color: #64ffda;
+}
+
+.action-btn.primary:hover {
+  background: rgba(100, 255, 218, 0.25);
+}
+
+.action-btn.danger {
+  background: rgba(255, 99, 132, 0.15);
+  color: #ff627c;
+}
+
+.action-btn.danger:hover {
+  background: rgba(255, 99, 132, 0.25);
+}
+
+/* ================================
+   Toast Notification
+   ================================ */
+.toast {
+  position: fixed;
+  bottom: 24px;
+  left: 50%;
+  transform: translateX(-50%) translateY(100px);
+  background: rgba(18, 24, 38, 0.95);
+  backdrop-filter: blur(10px);
+  padding: 0.7rem 1.4rem;
+  border-radius: 999px;
+  font-size: 0.9rem;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.4);
+  z-index: 9999;
+  opacity: 0;
+  transition: transform 0.3s ease, opacity 0.3s ease;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.toast.show {
+  transform: translateX(-50%) translateY(0);
+  opacity: 1;
+}
+
+.toast.success {
+  color: #64ffda;
+  border: 1px solid rgba(100, 255, 218, 0.2);
+}
+
+.toast.error {
+  color: #ff627c;
+  border: 1px solid rgba(255, 99, 132, 0.2);
+}
+
+/* ================================
+   Modal (for Clear All confirmation)
+   ================================ */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.7);
+  backdrop-filter: blur(4px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 10000;
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity 0.2s ease, visibility 0.2s ease;
+}
+
+.modal-overlay.show {
+  opacity: 1;
+  visibility: visible;
+}
+
+.modal-content {
+  background: rgba(18, 24, 38, 0.95);
+  backdrop-filter: blur(20px);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 20px;
+  padding: 2rem;
+  max-width: 400px;
+  text-align: center;
+  transform: scale(0.95);
+  transition: transform 0.2s ease;
+}
+
+.modal-overlay.show .modal-content {
+  transform: scale(1);
+}
+
+.modal-content h3 {
+  margin: 0 0 1rem;
+  color: #ff627c;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+}
+
+.modal-content p {
+  opacity: 0.8;
+  margin-bottom: 1.5rem;
+}
+
+.modal-actions {
+  display: flex;
+  gap: 1rem;
+  justify-content: center;
+}
+
+/* ================================
+   Footer / Meta
+   ================================ */
+.cache-meta {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 0.85rem;
+  opacity: 0.7;
+  padding-top: 0.5rem;
+}
+
+/* ================================
+   Responsive
+   ================================ */
+@media (max-width: 768px) {
+  .cache-page .page-title {
+    font-size: 1.4rem;
+  }
+
+  .stat-card .card-value {
+    font-size: 1.5rem;
+  }
+
+  .cache-filters {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .cache-filters input,
+  .cache-filters select,
+  .filter-btn {
+    width: 100%;
+  }
+
+  .cache-table {
+    font-size: 0.85rem;
+  }
+
+  .cache-key,
+  .cache-value {
+    max-width: 150px;
+  }
+}
+
+/* ================================
+   Rose Pine Dawn Theme Support
+   ================================ */
+:root[data-theme="rose-pine-dawn"] .cache-page {
+  color: var(--text-primary);
+}
+
+:root[data-theme="rose-pine-dawn"] .stat-card,
+:root[data-theme="rose-pine-dawn"] .cache-table-wrapper,
+:root[data-theme="rose-pine-dawn"] .cache-filters {
+  background: color-mix(in srgb, #ffffff 75%, var(--bg-secondary) 25%);
+  border-color: var(--glass-border);
+}
+
+:root[data-theme="rose-pine-dawn"] .cache-table thead th,
+:root[data-theme="rose-pine-dawn"] .cache-table tbody td {
+  border-color: rgba(87, 82, 121, 0.2);
+}
+
+:root[data-theme="rose-pine-dawn"] .cache-key {
+  color: #286983;
+}
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="cache-page" dir="rtl">
+  <!-- Page Title -->
+  <div class="page-title">
+    <i class="fas fa-database"></i>
+    Cache Inspector
+  </div>
+
+  <!-- Stats Cards -->
+  <div class="cache-stats-cards">
+    <div class="stat-card">
+      <h3>זיכרון בשימוש</h3>
+      <div class="card-value memory">{{ overview.stats.used_memory }}</div>
+    </div>
+    <div class="stat-card">
+      <h3>Hit Rate</h3>
+      <div class="card-value hit-rate">{{ overview.stats.hit_rate }}%</div>
+    </div>
+    <div class="stat-card">
+      <h3>סה"כ מפתחות</h3>
+      <div class="card-value keys">{{ overview.stats.total_keys }}</div>
+    </div>
+    <div class="stat-card">
+      <h3>לקוחות מחוברים</h3>
+      <div class="card-value clients">{{ overview.stats.connected_clients }}</div>
+    </div>
+    <div class="stat-card">
+      <h3>Hits</h3>
+      <div class="card-value">{{ overview.stats.keyspace_hits | default(0) }}</div>
+    </div>
+    <div class="stat-card">
+      <h3>Misses</h3>
+      <div class="card-value">{{ overview.stats.keyspace_misses | default(0) }}</div>
+    </div>
+  </div>
+
+  <!-- Redis Status Alert -->
+  {% if not overview.stats.enabled %}
+  <div class="config-alert warning" style="background: rgba(255, 99, 132, 0.12); border: 1px solid rgba(255, 99, 132, 0.3); color: #ff9bb6; display: flex; align-items: flex-start; gap: 0.75rem; padding: 1rem 1.25rem; border-radius: 14px;">
+    <i class="fas fa-exclamation-triangle"></i>
+    <div>
+      <strong>Redis מושבת</strong><br>
+      {% if overview.stats.error %}{{ overview.stats.error }}{% else %}Cache לא פעיל{% endif %}
+    </div>
+  </div>
+  {% endif %}
+
+  <!-- Search/Filters -->
+  <form class="cache-filters" method="get" action="">
+    <label for="patternInput">תבנית חיפוש:</label>
+    <input
+      type="text"
+      name="pattern"
+      id="patternInput"
+      value="{{ selected_pattern }}"
+      placeholder="e.g., user:* or *:stats:*"
+    >
+
+    <label for="limitSelect">מגבלה:</label>
+    <select name="limit" id="limitSelect">
+      <option value="50" {% if selected_limit == 50 %}selected{% endif %}>50</option>
+      <option value="100" {% if selected_limit == 100 %}selected{% endif %}>100</option>
+      <option value="200" {% if selected_limit == 200 %}selected{% endif %}>200</option>
+      <option value="500" {% if selected_limit == 500 %}selected{% endif %}>500</option>
+    </select>
+
+    <button type="submit" class="filter-btn">
+      <i class="fas fa-search"></i> חפש
+    </button>
+    <a href="?" class="filter-btn secondary">
+      <i class="fas fa-redo"></i> איפוס
+    </a>
+  </form>
+
+  <!-- Prefix Quick Filters -->
+  {% if prefixes %}
+  <div class="prefix-filters">
+    <span class="label">סינון מהיר:</span>
+    {% for prefix, count in prefixes.items() %}
+      {% if loop.index <= 10 %}
+      <span class="prefix-chip" onclick="filterByPrefix('{{ prefix }}:*')">
+        {{ prefix }}
+        <span class="count">({{ count }})</span>
+      </span>
+      {% endif %}
+    {% endfor %}
+  </div>
+  {% endif %}
+
+  <!-- Cache Table -->
+  <div class="cache-table-wrapper">
+    <h2>
+      <i class="fas fa-list"></i>
+      רשימת מפתחות
+      {% if overview.has_more %}
+        <span style="font-size: 0.8rem; opacity: 0.6;">(מוצגים {{ overview.entries | length }} מתוך יותר)</span>
+      {% endif %}
+    </h2>
+
+    {% if overview.entries %}
+    <table class="cache-table">
+      <thead>
+        <tr>
+          <th>Key</th>
+          <th>Value (Preview)</th>
+          <th>TTL</th>
+          <th>Size</th>
+          <th>Type</th>
+          <th>Status</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for entry in overview.entries %}
+        <tr data-key="{{ entry.key }}">
+          <td>
+            <div class="cache-key" title="{{ entry.key }}">{{ entry.key }}</div>
+          </td>
+          <td>
+            <div class="cache-value {% if entry.value_type == 'sensitive' %}sensitive{% endif %}" title="{{ entry.value_preview }}">
+              {{ entry.value_preview }}
+            </div>
+          </td>
+          <td>
+            {% if entry.ttl_seconds == -1 %}
+              <span class="ttl-badge persistent" title="No expiration">
+                <i class="fas fa-infinity"></i> ∞
+              </span>
+            {% elif entry.ttl_seconds == -2 %}
+              <span class="ttl-badge expired" title="Key expired or missing">
+                <i class="fas fa-times"></i> N/A
+              </span>
+            {% elif entry.ttl_seconds <= 60 %}
+              <span class="ttl-badge expiring" title="Expiring soon">
+                <i class="fas fa-clock"></i> {{ entry.ttl_seconds }}s
+              </span>
+            {% else %}
+              <span class="ttl-badge active">
+                {{ entry.ttl_seconds }}s
+              </span>
+            {% endif %}
+          </td>
+          <td>
+            <span class="size-badge">{{ entry.size_bytes }} B</span>
+          </td>
+          <td>
+            <span class="type-badge">{{ entry.value_type }}</span>
+          </td>
+          <td>
+            <span class="status-pill {{ entry.status.value | lower }}">
+              {% if entry.status.value == 'Active' %}
+                <i class="fas fa-check"></i>
+              {% elif entry.status.value == 'Persistent' %}
+                <i class="fas fa-lock"></i>
+              {% elif entry.status.value == 'Expiring' %}
+                <i class="fas fa-hourglass-half"></i>
+              {% else %}
+                <i class="fas fa-times"></i>
+              {% endif %}
+              {{ entry.status.value }}
+            </span>
+          </td>
+          <td>
+            <button
+              type="button"
+              class="delete-btn"
+              onclick="deleteKey('{{ entry.key }}')"
+              title="מחק מפתח">
+              <i class="fas fa-trash"></i>
+            </button>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+    <div style="text-align: center; padding: 2rem; opacity: 0.7;">
+      <i class="fas fa-inbox" style="font-size: 2rem; margin-bottom: 0.5rem;"></i>
+      <p>לא נמצאו מפתחות התואמים לתבנית</p>
+    </div>
+    {% endif %}
+  </div>
+
+  <!-- Actions -->
+  <div class="cache-actions">
+    <button type="button" class="action-btn primary" onclick="refreshPage()">
+      <i class="fas fa-sync"></i> רענן
+    </button>
+    <button type="button" class="action-btn danger" onclick="showClearAllModal()">
+      <i class="fas fa-trash-alt"></i> נקה הכל
+    </button>
+  </div>
+
+  <!-- Meta Footer -->
+  <div class="cache-meta">
+    <span>
+      <i class="fas fa-clock"></i>
+      נוצר ב: {{ overview.generated_at }}
+    </span>
+    <span>
+      <i class="fas fa-server"></i>
+      Redis {{ overview.stats.redis_version }}
+    </span>
+    <span>
+      נסרקו: {{ overview.total_scanned }} מפתחות
+    </span>
+  </div>
+</div>
+
+<!-- Clear All Confirmation Modal -->
+<div class="modal-overlay" id="clearAllModal">
+  <div class="modal-content">
+    <h3>
+      <i class="fas fa-exclamation-triangle"></i>
+      אזהרה
+    </h3>
+    <p>האם אתה בטוח שברצונך למחוק את <strong>כל</strong> ה-cache?<br>פעולה זו לא ניתנת לביטול.</p>
+    <div class="modal-actions">
+      <button type="button" class="filter-btn secondary" onclick="hideClearAllModal()">
+        ביטול
+      </button>
+      <button type="button" class="filter-btn danger" onclick="clearAllCache()">
+        <i class="fas fa-trash"></i> מחק הכל
+      </button>
+    </div>
+  </div>
+</div>
+
+<!-- Toast -->
+<div class="toast" id="toast">
+  <i class="fas fa-check"></i>
+  <span id="toastMessage">הפעולה הצליחה</span>
+</div>
+
+<script>
+(function() {
+  // ================================
+  // Toast notifications
+  // ================================
+  const toast = document.getElementById('toast');
+  const toastMessage = document.getElementById('toastMessage');
+  let toastTimeout = null;
+
+  function showToast(message, type = 'success') {
+    toast.className = 'toast ' + type;
+    toast.querySelector('i').className = type === 'success' ? 'fas fa-check' : 'fas fa-exclamation-circle';
+    toastMessage.textContent = message;
+    toast.classList.add('show');
+
+    if (toastTimeout) clearTimeout(toastTimeout);
+    toastTimeout = setTimeout(() => toast.classList.remove('show'), 3000);
+  }
+
+  // ================================
+  // Delete key
+  // ================================
+  window.deleteKey = async function(key) {
+    if (!confirm(`האם למחוק את המפתח?\n${key}`)) return;
+
+    try {
+      const resp = await fetch('/admin/cache-inspector/delete', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ key }),
+      });
+
+      const data = await resp.json();
+
+      if (data.success) {
+        showToast(data.message, 'success');
+        // הסרת השורה מהטבלה
+        const row = document.querySelector(`tr[data-key="${key}"]`);
+        if (row) row.remove();
+      } else {
+        showToast(data.error || 'שגיאה במחיקה', 'error');
+      }
+    } catch (err) {
+      showToast('שגיאה בתקשורת עם השרת', 'error');
+    }
+  };
+
+  // ================================
+  // Clear All Modal
+  // ================================
+  const modal = document.getElementById('clearAllModal');
+
+  window.showClearAllModal = function() {
+    modal.classList.add('show');
+  };
+
+  window.hideClearAllModal = function() {
+    modal.classList.remove('show');
+  };
+
+  window.clearAllCache = async function() {
+    try {
+      const resp = await fetch('/admin/cache-inspector/clear-all', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ confirm: true }),
+      });
+
+      const data = await resp.json();
+
+      if (data.success) {
+        showToast(data.message, 'success');
+        hideClearAllModal();
+        // רענון הדף אחרי שנייה
+        setTimeout(() => location.reload(), 1000);
+      } else {
+        showToast(data.error || 'שגיאה בניקוי', 'error');
+      }
+    } catch (err) {
+      showToast('שגיאה בתקשורת עם השרת', 'error');
+    }
+  };
+
+  // Close modal on outside click
+  modal.addEventListener('click', (e) => {
+    if (e.target === modal) hideClearAllModal();
+  });
+
+  // ================================
+  // Prefix quick filter
+  // ================================
+  window.filterByPrefix = function(pattern) {
+    document.getElementById('patternInput').value = pattern;
+    document.querySelector('.cache-filters').submit();
+  };
+
+  // ================================
+  // Refresh page
+  // ================================
+  window.refreshPage = function() {
+    location.reload();
+  };
+
+  // ================================
+  // Keyboard shortcuts
+  // ================================
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') {
+      hideClearAllModal();
+      if (toast.classList.contains('show')) toast.classList.remove('show');
+    }
+    // Ctrl+F to focus search
+    if ((e.ctrlKey || e.metaKey) && e.key === 'f') {
+      e.preventDefault();
+      document.getElementById('patternInput').focus();
+    }
+  });
+
+  // ================================
+  // Auto-refresh (optional)
+  // ================================
+  // Uncomment to enable auto-refresh every 30 seconds
+  // setInterval(() => location.reload(), 30000);
+})();
+</script>
+{% endblock %}
+

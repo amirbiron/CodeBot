@@ -490,6 +490,12 @@
      - ``5``
      - ``1``
      - Bot/WebApp
+   * - ``CACHE_DELETE_PATTERN_BUDGET_SECONDS``
+     - תקציב זמן למחיקת תבנית מפתחות בקאש (SCAN+DEL) כדי למנוע תקיעה ב-Redis גדול
+     - לא
+     - ``5`` (נופל ל-``CACHE_CLEAR_BUDGET_SECONDS`` אם לא מוגדר)
+     - ``1``
+     - Bot/WebApp
    * - ``DISABLE_BACKGROUND_CLEANUP``
      - דילוג כולל על עבודות ניקוי רקע (קאש/גיבויים)
      - לא

@@ -580,10 +580,78 @@ class CacheManager:
         backend = "redis"
         timer_ctx = cache_op_duration_seconds.labels(operation="delete_pattern", backend=backend).time() if cache_op_duration_seconds else None
         try:
-            keys = self.redis_client.keys(pattern)
-            if keys:
-                return self.redis_client.delete(*keys)
-            return 0
+            client = self.redis_client
+            deleted = 0
+            # תואם Redis MATCH pattern (במקרים של FakeRedis/scan_iter שלא מכבד match)
+            import fnmatch
+
+            # תקציב זמן כדי להימנע מחסימת תהליך במאגרים גדולים
+            budget_seconds = float(
+                os.getenv("CACHE_DELETE_PATTERN_BUDGET_SECONDS", os.getenv("CACHE_CLEAR_BUDGET_SECONDS", "5"))
+            )
+            deadline = time.time() + max(0.0, budget_seconds)
+
+            # שימוש בטוח ב-SCAN (אל תשתמש ב-KEYS!)
+            batch: List[str] = []
+            batch_size = 200
+
+            if hasattr(client, "scan_iter"):
+                iterator = client.scan_iter(match=pattern, count=500)
+            elif hasattr(client, "scan"):
+                # fallback ידני ל-SCAN אם scan_iter לא קיים (עדיין ללא KEYS)
+                def _scan_fallback():  # type: ignore[no-untyped-def]
+                    cursor = 0
+                    while True:
+                        cursor, keys = client.scan(cursor=cursor, match=pattern, count=500)
+                        for k in keys or []:
+                            yield k
+                        if int(cursor) == 0:
+                            break
+
+                iterator = _scan_fallback()
+            elif hasattr(client, "keys"):
+                # fallback שמיועד *רק* ללקוחות Fake בטסטים.
+                # חשוב: ב-Redis אמיתי scan_iter קיים ולכן לא נגיע לכאן.
+                mod = str(getattr(getattr(client, "__class__", object), "__module__", "") or "")
+                if mod.startswith("redis"):
+                    # ב-Redis אמיתי לא נרשה שימוש ב-KEYS
+                    return 0
+                keys = client.keys(pattern)
+                if keys:
+                    try:
+                        return int(client.delete(*keys) or 0)
+                    except Exception:
+                        return 0
+                return 0
+            else:
+                # אין יכולת סריקה בטוחה -> אל תמחוק
+                return 0
+
+            for k in iterator:
+                if time.time() > deadline:
+                    break
+                # הגנה נוספת: חלק מלקוחות Fake לא מכבדים match בפרמטרים של scan_iter
+                try:
+                    if not fnmatch.fnmatch(str(k), str(pattern)):
+                        continue
+                except Exception:
+                    # אם לא ניתן להשוות, נמשיך (Fail-open עבור מחיקה מבוקרת)
+                    continue
+                batch.append(k)
+                if len(batch) >= batch_size:
+                    try:
+                        deleted += int(client.delete(*batch) or 0)
+                    except Exception:
+                        pass
+                    batch.clear()
+
+            if batch and time.time() <= deadline:
+                try:
+                    deleted += int(client.delete(*batch) or 0)
+                except Exception:
+                    pass
+
+            return int(deleted)
         except Exception as e:
             logger.error(f"שגיאה במחיקת תבנית מ-cache: {e}")
             return 0
