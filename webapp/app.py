@@ -3727,6 +3727,168 @@ def admin_config_inspector_page():
     )
 
 
+@app.route('/admin/cache-inspector')
+@admin_required
+def admin_cache_inspector_page():
+    """
+    דף Cache Inspector לאדמינים.
+    מציג סקירה של Redis cache עם אפשרויות חיפוש ומחיקה.
+    """
+    from services.cache_inspector_service import (
+        get_cache_inspector_service,
+        CacheKeyStatus,
+    )
+
+    # קבלת פרמטרים
+    pattern = request.args.get("pattern", "*")
+    limit_str = request.args.get("limit", "100")
+
+    try:
+        limit = min(int(limit_str), 500)
+    except ValueError:
+        limit = 100
+
+    # קבלת הנתונים מהשירות
+    service = get_cache_inspector_service()
+    overview = service.get_overview(pattern=pattern, limit=limit)
+    prefixes = service.get_key_prefixes()
+
+    # רינדור התבנית
+    return render_template(
+        "admin_cache_inspector.html",
+        overview=overview,
+        prefixes=prefixes,
+        selected_pattern=pattern,
+        selected_limit=limit,
+        statuses=[s.value for s in CacheKeyStatus],
+    )
+
+
+@app.route('/admin/cache-inspector/delete', methods=['POST'])
+@admin_required
+def admin_cache_delete_handler():
+    """
+    API למחיקת מפתח/תבנית מה-cache.
+    """
+    data = request.get_json(silent=True)
+    if not isinstance(data, dict):
+        return jsonify({"error": "Invalid JSON"}), 400
+
+    key = data.get("key")
+    pattern = data.get("pattern")
+
+    from services.cache_inspector_service import get_cache_inspector_service
+
+    service = get_cache_inspector_service()
+
+    if key:
+        # מחיקת מפתח בודד
+        success = service.delete_key(str(key))
+        return jsonify(
+            {
+                "success": bool(success),
+                "message": f"Key '{key}' deleted" if success else "Delete failed",
+            }
+        )
+
+    if pattern:
+        # מחיקת תבנית
+        pattern_str = str(pattern)
+        if pattern_str in ("*", "**"):
+            return jsonify(
+                {
+                    "error": "Cannot delete all keys. Use Clear All button.",
+                }
+            ), 400
+
+        deleted = service.delete_pattern(pattern_str)
+        return jsonify(
+            {
+                "success": True,
+                "deleted_count": int(deleted),
+                "message": f"{deleted} keys deleted",
+            }
+        )
+
+    return jsonify({"error": "No key or pattern provided"}), 400
+
+
+@app.route('/admin/cache-inspector/clear-all', methods=['POST'])
+@admin_required
+def admin_cache_clear_all_handler():
+    """
+    API לניקוי כל ה-cache (דורש אישור).
+    """
+    data = request.get_json(silent=True)
+    if not isinstance(data, dict):
+        return jsonify({"error": "Invalid JSON"}), 400
+
+    confirm = data.get("confirm", False)
+    if not confirm:
+        return jsonify(
+            {
+                "error": "Confirmation required",
+                "message": "Send confirm: true to clear all cache",
+            }
+        ), 400
+
+    from services.cache_inspector_service import get_cache_inspector_service
+
+    service = get_cache_inspector_service()
+    deleted = service.clear_all(confirm=True)
+
+    return jsonify(
+        {
+            "success": True,
+            "deleted_count": int(deleted),
+            "message": f"Cache cleared: {deleted} keys deleted",
+        }
+    )
+
+
+@app.route('/admin/cache-inspector/key/<path:key>')
+@admin_required
+def admin_cache_key_details_handler(key: str):
+    """
+    API לקבלת פרטים מלאים על מפתח.
+    """
+    if not key:
+        return jsonify({"error": "Key required"}), 400
+
+    from services.cache_inspector_service import get_cache_inspector_service
+
+    service = get_cache_inspector_service()
+    details = service.get_key_details(key)
+
+    if details is None:
+        return jsonify({"error": "Key not found"}), 404
+
+    return jsonify(details)
+
+
+@app.route('/api/cache/stats')
+def api_cache_stats_handler():
+    """
+    API לסטטיסטיקות cache (ציבורי למוניטורינג).
+    """
+    # רמת הגנה: רק סטטיסטיקות כלליות, ללא מפתחות
+    from services.cache_inspector_service import get_cache_inspector_service
+
+    service = get_cache_inspector_service()
+    stats = service.get_cache_stats()
+
+    return jsonify(
+        {
+            "enabled": bool(stats.enabled),
+            "used_memory": stats.used_memory,
+            "hit_rate": stats.hit_rate,
+            "total_keys": int(stats.total_keys),
+            "connected_clients": int(stats.connected_clients),
+            "uptime_seconds": int(stats.uptime_seconds),
+        }
+    )
+
+
 @app.route('/admin/drills')
 @admin_required
 def admin_drills_page():
