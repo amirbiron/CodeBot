@@ -268,6 +268,12 @@ python main.py
 - הרשאות: מנהלים בלבד (מכבד SAFE_MODE ו-`DISABLE_CACHE_MAINTENANCE`).
 - מה לחפש בפלט: מספר המפתחות שנמחקו, הערה אם SAFE_MODE חסם את ההרצה.
 
+## /debug_cache
+- מתי להשתמש: בזמן תחקור Hit Rate נמוך, כדי לראות בלוגים של פעולות cache (HIT/MISS/SET) לפי מפתח.
+- פרמטרים: `<seconds>` (מספר שלם בשניות). `0` מכבה.
+- הרשאות: מנהלים בלבד
+- מה לחפש בפלט: הודעה שהדיבאג הופעל/כובה + `debug_until` (UTC). בזמן החלון הזה יופיעו בשרת לוגים `cache HIT/MISS/SET key=...`.
+
 ## /status_worker
 - מתי להשתמש: בזמן חשד לעומס בתורים/Push Worker כדי לוודא שה-sidecar מגיב.
 - פרמטרים: אופציונלי `url=<https://worker>` או `path=/healthz`.

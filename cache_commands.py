@@ -11,6 +11,7 @@ from telegram import Update
 from telegram.ext import ContextTypes, CommandHandler
 from cache_manager import cache
 from html import escape as html_escape
+from chatops.permissions import admin_required
 
 logger = logging.getLogger(__name__)
 
@@ -99,6 +100,7 @@ def setup_cache_handlers(application):
     application.add_handler(CommandHandler("cache_stats", cache_stats_command))
     application.add_handler(CommandHandler("clear_cache", clear_cache_command))
     application.add_handler(CommandHandler("cache_warm", cache_warm_command))
+    application.add_handler(CommandHandler("debug_cache", admin_required(debug_cache_command)))
     
     logger.info("Cache handlers הוגדרו בהצלחה")
 
@@ -158,3 +160,43 @@ async def cache_warm_command(update: Update, context: ContextTypes.DEFAULT_TYPE)
     except Exception as e:
         logger.error(f"שגיאה בחימום קאש: {e}")
         await update.message.reply_text("❌ שגיאה בחימום קאש")
+
+
+async def debug_cache_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """/debug_cache <seconds> – הפעלת לוגים זמניים של HIT/MISS/SET (מנהלים בלבד).
+
+    שימוש:
+    - /debug_cache 300  (5 דקות)
+    - /debug_cache 0    (כיבוי)
+    """
+    try:
+        raw = (context.args[0] if getattr(context, "args", None) else "").strip()
+    except Exception:
+        raw = ""
+
+    if not raw:
+        await update.message.reply_text("שימוש: /debug_cache <seconds>\nדוגמה: /debug_cache 300", parse_mode=None)
+        return
+
+    try:
+        seconds = int(raw)
+    except Exception:
+        await update.message.reply_text("❌ seconds חייב להיות מספר שלם. דוגמה: /debug_cache 300", parse_mode=None)
+        return
+
+    until_ts = cache.enable_debug_for(seconds)
+    # עדכון ידידותי: אם מכובה, אין טעם להציג תאריך
+    if seconds <= 0:
+        await update.message.reply_text("✅ Debug Cache כובה", parse_mode=None)
+        return
+
+    try:
+        until_dt = datetime.fromtimestamp(float(until_ts), tz=timezone.utc).isoformat()
+    except Exception:
+        until_dt = str(until_ts)
+
+    await update.message.reply_text(
+        f"✅ Debug Cache הופעל/הוארך ל-{seconds} שניות\n"
+        f"⏱️ debug_until (UTC): {html_escape(until_dt)}",
+        parse_mode="HTML",
+    )

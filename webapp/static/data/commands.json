@@ -259,6 +259,15 @@
     "doc_link": "https://amirbiron.github.io/CodeBot/chatops/commands.html"
   },
   {
+    "name": "/debug_cache",
+    "type": "chatops",
+    "description": "הפעלת לוגים זמניים ל-Cache (HIT/MISS/SET)",
+    "arguments": [
+      "<seconds>"
+    ],
+    "doc_link": "https://amirbiron.github.io/CodeBot/chatops/commands.html"
+  },
+  {
     "name": "/status_worker",
     "type": "chatops",
     "description": "בדיקת בריאות ל-Push Worker",

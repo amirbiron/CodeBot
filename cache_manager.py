@@ -7,6 +7,8 @@ import json
 import logging
 import os
 import time
+import re
+import hashlib
 from functools import wraps
 from typing import Any, Dict, List, Optional, Union, Callable, TypeVar, ParamSpec, Coroutine, cast, Tuple
 import copy
@@ -186,9 +188,59 @@ class CacheManager:
     """מנהל Cache מתקדם עם Redis"""
     
     def __init__(self):
+        # Debug זמני לניתוח Hit/Miss/Set (ברירת מחדל: פעיל 5 דקות אחרי עליית הבוט)
+        # NOTE: זה דיבאג "רועש" בכוונה, ולכן הוא מוגבל בזמן.
+        self.debug_until: float = float(time.time() + 300)
         self.redis_client = None
         self.is_enabled = False
         self.connect()
+
+    def enable_debug_for(self, seconds: int) -> float:
+        """הפעל/הארך חלון דיבאג זמני ללוגים של HIT/MISS/SET.
+
+        - אם seconds <= 0: מכבה דיבאג (debug_until=0)
+        - אחרת: מאריך (לא מקצר) את החלון כך שיסתיים לפחות בעוד seconds שניות מהעכשיו
+
+        מחזיר את timestamp החדש של debug_until.
+        """
+        try:
+            sec = int(seconds)
+        except Exception:
+            sec = 0
+
+        if sec <= 0:
+            self.debug_until = 0.0
+            return float(self.debug_until)
+
+        now = float(time.time())
+        new_until = float(now + sec)
+        try:
+            self.debug_until = float(max(float(getattr(self, "debug_until", 0.0) or 0.0), new_until))
+        except Exception:
+            self.debug_until = float(new_until)
+        return float(self.debug_until)
+
+    def _debug_active(self) -> bool:
+        try:
+            return float(time.time()) < float(getattr(self, "debug_until", 0.0) or 0.0)
+        except Exception:
+            return False
+
+    def _debug_log(self, action: str, key: str, **extra: Any) -> None:
+        """לוג דיבאג מבוקר־זמן עבור פעולות קאש."""
+        if not self._debug_active():
+            return
+        try:
+            safe_key = str(key)
+            if len(safe_key) > 300:
+                safe_key = safe_key[:300] + "…"
+            if extra:
+                logger.info("cache %s key=%s extra=%s", str(action), safe_key, extra)
+            else:
+                logger.info("cache %s key=%s", str(action), safe_key)
+        except Exception:
+            # דיבאג לא אמור להפיל זרימה
+            return
     
     def connect(self):
         """התחברות ל-Redis"""
@@ -268,13 +320,123 @@ class CacheManager:
     
     def _make_key(self, prefix: str, *args, **kwargs) -> str:
         """יוצר מפתח cache ייחודי"""
-        key_parts = [prefix]
-        key_parts.extend(str(arg) for arg in args)
-        
+        def _clean_repr(s: str) -> str:
+            # מנקה כתובות זיכרון נפוצות ב-repr ברירת מחדל: "0x7f...."
+            return re.sub(r"0x[0-9a-fA-F]+", "0x", str(s or ""))
+
+        def _stable_scalar(v: Any) -> Optional[str]:
+            """החזר ייצוג מחרוזתי לטיפוסים פשוטים בלבד; אחרת None.
+
+            חשוב: מחרוזת ריקה היא ערך לגיטימי ולכן אינה משמשת כסנטינל.
+            """
+            if v is None:
+                return "None"
+            if isinstance(v, (str, int, float, bool)):
+                # str("") חייב להישמר כ-"" ולא להיחשב "לא scalar"
+                return str(v)
+            if isinstance(v, (bytes, bytearray)):
+                h = hashlib.sha256(bytes(v)).hexdigest()[:16]
+                return f"bytes:{h}"
+            return None
+
+        def _stable_part(v: Any, *, _depth: int = 0) -> str:
+            # 1) טיפוסים פשוטים
+            scalar = _stable_scalar(v)
+            if scalar is not None:
+                return scalar
+
+            # 2) מבנים מובנים עם סדר דטרמיניסטי
+            if isinstance(v, (list, tuple)):
+                if _depth >= 3:
+                    try:
+                        return f"[len={len(v)}]"
+                    except Exception:
+                        return "[len=?]"
+                return "[" + ",".join(_stable_part(x, _depth=_depth + 1) for x in v) + "]"
+            if isinstance(v, set):
+                if _depth >= 3:
+                    try:
+                        return f"{{len={len(v)}}}"
+                    except Exception:
+                        return "{len=?}"
+                return "{" + ",".join(sorted(_stable_part(x, _depth=_depth + 1) for x in v)) + "}"
+            if isinstance(v, dict):
+                if _depth >= 3:
+                    try:
+                        return f"{{len={len(v)}}}"
+                    except Exception:
+                        return "{len=?}"
+                try:
+                    items = sorted(v.items(), key=lambda kv: str(kv[0]))
+                except Exception:
+                    items = list(v.items())
+                # הגבלת גודל כדי למנוע מפתחות ענקיים
+                limited = items[:30]
+                return "{" + ",".join(
+                    f"{_stable_part(k, _depth=_depth + 1)}={_stable_part(val, _depth=_depth + 1)}"
+                    for k, val in limited
+                ) + ("…" if len(items) > 30 else "") + "}"
+
+            # 3) אובייקטים עם מזהה מוכר: נשתמש רק במזהה (כדי למנוע כתובות זיכרון במפתח)
+            for attr in ("user_id", "id", "pk", "uuid"):
+                try:
+                    if hasattr(v, attr):
+                        ident = getattr(v, attr)
+                        ident_scalar = _stable_scalar(ident)
+                        if ident_scalar is not None:
+                            return ident_scalar
+                        return _clean_repr(str(ident))
+                except Exception:
+                    continue
+
+            # 4) אובייקטים "רגילים" עם __dict__: נבנה fingerprint דטרמיניסטי מהתוכן (מוגבל עומק/גודל)
+            try:
+                cls = v.__class__
+                cls_name = f"{getattr(cls, '__module__', '')}.{getattr(cls, '__qualname__', getattr(cls, '__name__', 'object'))}"
+            except Exception:
+                cls_name = "object"
+
+            try:
+                if _depth < 3 and hasattr(v, "__dict__") and isinstance(getattr(v, "__dict__", None), dict):
+                    d = cast(dict, getattr(v, "__dict__", {}) or {})
+                    if d:
+                        try:
+                            items = sorted(d.items(), key=lambda kv: str(kv[0]))
+                        except Exception:
+                            items = list(d.items())
+                        # דוגמים רק חלק מהשדות כדי להימנע מהעמסה/דליפה של נתונים כבדים
+                        sampled: dict[str, str] = {}
+                        for k, val in items[:25]:
+                            try:
+                                sampled[str(k)] = _stable_part(val, _depth=_depth + 1)
+                            except Exception:
+                                sampled[str(k)] = "<?>"
+                        material = json.dumps(sampled, sort_keys=True, ensure_ascii=False)
+                        h = hashlib.sha256(f"{cls_name}:{material}".encode("utf-8", errors="ignore")).hexdigest()[:16]
+                        return f"{cls_name}:{h}"
+            except Exception:
+                # ניפול ל-fallback הבא
+                pass
+
+            # 5) fallback אחרון: hash דטרמיניסטי על בסיס class + repr נקי
+            try:
+                raw = _clean_repr(str(v))
+            except Exception:
+                raw = ""
+            material = f"{cls_name}:{raw}"
+            h = hashlib.sha256(material.encode("utf-8", errors="ignore")).hexdigest()[:16]
+            return f"{cls_name}:{h}"
+
+        key_parts: List[str] = [str(prefix)]
+        key_parts.extend(_stable_part(arg) for arg in args)
+
         if kwargs:
-            sorted_kwargs = sorted(kwargs.items())
-            key_parts.extend(f"{k}:{v}" for k, v in sorted_kwargs)
-        
+            try:
+                sorted_kwargs = sorted(kwargs.items(), key=lambda kv: str(kv[0]))
+            except Exception:
+                sorted_kwargs = list(kwargs.items())
+            key_parts.extend(f"{str(k)}:{_stable_part(v)}" for k, v in sorted_kwargs)
+
         return ":".join(key_parts)
     
     def get(self, key: str) -> Optional[Any]:
@@ -289,9 +451,11 @@ class CacheManager:
             if value:
                 if cache_hits_total is not None:
                     cache_hits_total.labels(backend=backend).inc()
+                self._debug_log("HIT", key)
                 return json.loads(value)
             if cache_misses_total is not None:
                 cache_misses_total.labels(backend=backend).inc()
+            self._debug_log("MISS", key)
         except Exception as e:
             logger.error(f"שגיאה בקריאה מ-cache: {e}")
         finally:
@@ -314,10 +478,14 @@ class CacheManager:
             # תמיכה בלקוחות ללא setex: ננסה set(ex=) או set+expire
             client = self.redis_client
             if hasattr(client, 'setex'):
-                return bool(client.setex(key, expire_seconds, serialized))
+                ok = bool(client.setex(key, expire_seconds, serialized))
+                self._debug_log("SET", key, ok=ok, ttl=int(expire_seconds))
+                return ok
             # חלק מהלקוחות תומכים ב-ex ב-set
             try:
-                return bool(client.set(key, serialized, ex=expire_seconds))
+                ok = bool(client.set(key, serialized, ex=expire_seconds))
+                self._debug_log("SET", key, ok=ok, ttl=int(expire_seconds))
+                return ok
             except Exception:
                 pass
             # נסה set ואז expire
@@ -326,6 +494,7 @@ class CacheManager:
                 _ = client.expire(key, int(expire_seconds))
             except Exception:
                 pass
+            self._debug_log("SET", key, ok=ok, ttl=int(expire_seconds))
             return ok
         except Exception as e:
             logger.error(f"שגיאה בכתיבה ל-cache: {e}")
@@ -445,7 +614,8 @@ class CacheManager:
                 total_deleted += int(self.delete_pattern(p) or 0)
         except Exception as e:
             logger.warning(f"invalidate_user_cache failed for user {user_id}: {e}")
-        logger.info(f"נמחקו {total_deleted} ערכי cache עבור משתמש {user_id}")
+        # חשוב: זהו מספר המחיקות בפועל כפי ש-Redis החזיר מהפקודת DEL (לא רק מספר דפוסים).
+        logger.info(f"invalidate_user_cache: נמחקו בפועל {total_deleted} מפתחות מ-Redis עבור משתמש {user_id}")
         return total_deleted
 
     def clear_all(self) -> int:
