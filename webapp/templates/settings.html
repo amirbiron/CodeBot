@@ -207,26 +207,6 @@
 </div>
 {% endif %}
 {% if is_admin %}
-<div class="glass-card">
-  <h2 class="section-title">
-    <i class="fas fa-screwdriver-wrench"></i>
-    כלי אדמין
-  </h2>
-  <div style="display:flex; gap:0.75rem; flex-wrap:wrap; align-items:center;">
-    <a href="/jobs/monitor" class="btn btn-secondary btn-icon" title="Background Jobs Monitor">
-      <i class="fas fa-list-check"></i>
-      מוניטור Jobs
-    </a>
-    <a href="/admin/profiler" class="btn btn-secondary btn-icon" title="Query Performance Profiler">
-      <i class="fas fa-tachometer-alt"></i>
-      Query Profiler
-    </a>
-  </div>
-  <p style="margin: 0.75rem 0 0; opacity: 0.75; font-size: 0.95rem;">
-    כאן תוכל לראות ריצות רקע, פעולות משתמש (Drive/Reminders/Batch) ולוגים מפורטים.
-  </p>
-</div>
-
 <div class="glass-card config-radar-card" id="configRadarCard">
   <div class="config-radar-header">
     <div>
@@ -405,6 +385,28 @@
           rel="noopener"
         >
           קרא את המדריך
+        </a>
+      </div>
+    </div>
+    <div
+      style="
+        padding: 1rem;
+        background: rgba(255, 255, 255, 0.05);
+        border-radius: 10px;
+      "
+    >
+      <h4><i class="fas fa-screwdriver-wrench"></i> כלי אדמין – ניטור</h4>
+      <p style="opacity: 0.8; margin-bottom: 0.75rem;">
+        ניטור ריצות רקע וביצועי שאילתות, לבדיקת עומסים ותקלות.
+      </p>
+      <div style="display:flex; gap:0.5rem; flex-wrap:wrap;">
+        <a href="/jobs/monitor" class="btn btn-primary btn-icon" title="Background Jobs Monitor">
+          <i class="fas fa-list-check"></i>
+          מוניטור Jobs
+        </a>
+        <a href="/admin/profiler" class="btn btn-secondary btn-icon" title="Query Performance Profiler">
+          <i class="fas fa-tachometer-alt"></i>
+          Query Profiler
         </a>
       </div>
     </div>
