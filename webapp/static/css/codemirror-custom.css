@@ -6,6 +6,20 @@
   overflow: hidden;
 }
 .cm-editor { min-height: 400px; max-height: 60vh; font-family: 'Fira Code','Consolas',monospace; }
+
+/* View Mode (view_file.html): allow page-level scrolling (auto height) */
+#codeCard:not(:fullscreen) .codemirror-container.cm-autoheight {
+  overflow: visible;
+}
+#codeCard:not(:fullscreen) .codemirror-container.cm-autoheight .cm-editor {
+  height: auto;
+  min-height: 0;
+  max-height: none;
+}
+#codeCard:not(:fullscreen) .codemirror-container.cm-autoheight .cm-scroller {
+  height: auto;
+  overflow: visible;
+}
 /* Modified: Default to row layout for tablets/desktop */
 .editor-switcher { display:flex; flex-direction:column; align-items: stretch; gap:.5rem; margin:.5rem 0; padding:.65rem; background: rgba(255,255,255,0.05); border-radius:8px; }
 .editor-switcher-row { display:flex; justify-content:flex-start; align-items:center; gap:clamp(.5rem,1.5vw,1.25rem); flex-wrap:nowrap; width:100%; min-height:48px; }
