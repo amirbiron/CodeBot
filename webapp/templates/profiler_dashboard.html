@@ -1,0 +1,460 @@
+{% extends "base.html" %}
+
+{% block title %}Query Performance Profiler{% endblock %}
+
+{% block content %}
+<h1 class="page-title">🐢 Query Performance Profiler</h1>
+
+<!-- סיכום מצב -->
+<div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 1rem; margin-bottom: 1.5rem;" id="summary-section">
+  <div class="glass-card" style="border-left: 4px solid #dc3545;">
+    <h2 class="section-title" style="margin-bottom: .5rem;">שאילתות איטיות</h2>
+    <div style="font-size: 2rem; font-weight: 700;" id="total-slow-queries">--</div>
+  </div>
+  <div class="glass-card" style="border-left: 4px solid #f59e0b;">
+    <h2 class="section-title" style="margin-bottom: .5rem;">זמן ממוצע (ms)</h2>
+    <div style="font-size: 2rem; font-weight: 700;" id="avg-time">--</div>
+  </div>
+  <div class="glass-card" style="border-left: 4px solid #0ea5e9;">
+    <h2 class="section-title" style="margin-bottom: .5rem;">Collections מושפעים</h2>
+    <div style="font-size: 2rem; font-weight: 700;" id="collections-count">--</div>
+  </div>
+  <div class="glass-card" style="border-left: 4px solid #64748b;">
+    <h2 class="section-title" style="margin-bottom: .5rem;">דפוסים ייחודיים</h2>
+    <div style="font-size: 2rem; font-weight: 700;" id="unique-patterns">--</div>
+  </div>
+</div>
+
+<!-- טבלת שאילתות איטיות -->
+<div class="glass-card" style="margin-bottom: 1.5rem;">
+  <div style="display:flex; justify-content:space-between; align-items:center; gap: 1rem; flex-wrap: wrap;">
+    <h2 class="section-title" style="margin: 0;">📋 שאילתות איטיות אחרונות</h2>
+    <div style="display:flex; gap:.5rem; align-items:center; flex-wrap: wrap;">
+      <select id="collection-filter" class="btn btn-secondary" style="padding: .6rem .8rem;">
+        <option value="">כל ה-Collections</option>
+      </select>
+      <button class="btn btn-primary btn-icon" type="button" onclick="refreshSlowQueries()">
+        <i class="fas fa-sync-alt"></i>
+        רענן
+      </button>
+    </div>
+  </div>
+
+  <div style="margin-top: 1rem; overflow:auto;">
+    <table style="width:100%; border-collapse: collapse;" id="slow-queries-table">
+      <thead>
+        <tr style="text-align:right; opacity:.8;">
+          <th style="padding:.6rem;">Collection</th>
+          <th style="padding:.6rem;">פעולה</th>
+          <th style="padding:.6rem;">צורת שאילתה</th>
+          <th style="padding:.6rem;">זמן (ms)</th>
+          <th style="padding:.6rem;">זמן</th>
+          <th style="padding:.6rem;">פעולות</th>
+        </tr>
+      </thead>
+      <tbody>
+        <!-- ימולא דינמית -->
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- אזור ניתוח -->
+<div class="glass-card" style="margin-bottom: 1.5rem;">
+  <h2 class="section-title">🔍 ניתוח</h2>
+  <div style="display:grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
+    <div>
+      <label style="display:block; opacity:.8; margin-bottom:.4rem;">Collection</label>
+      <input type="text" id="analyze-collection" class="form-control" style="width:100%;" placeholder="code_snippets">
+    </div>
+    <div>
+      <label style="display:block; opacity:.8; margin-bottom:.4rem;">סוג פעולה</label>
+      <select id="analyze-operation" class="form-control" style="width:100%;" onchange="toggleAnalyzeInputs()">
+        <option value="find">find</option>
+        <option value="aggregate">aggregate</option>
+      </select>
+    </div>
+    <div id="query-input">
+      <label style="display:block; opacity:.8; margin-bottom:.4rem;">שאילתה (JSON)</label>
+      <textarea id="analyze-query" class="form-control" style="width:100%;" rows="4" placeholder='{"user_id": "123"}'></textarea>
+      <small style="opacity:.7;">הערה: המערכת מנרמלת ערכים כדי למנוע דליפת PII.</small>
+    </div>
+    <div id="pipeline-input" style="display:none;">
+      <label style="display:block; opacity:.8; margin-bottom:.4rem;">Pipeline (JSON)</label>
+      <textarea id="analyze-pipeline" class="form-control" style="width:100%;" rows="4" placeholder='[{"$match": {"user_id": "123"}}, {"$limit": 10}]'></textarea>
+      <small style="opacity:.7;">טיפ: בעיות נפוצות מגיעות מ-<code>$lookup</code>/<code>$unwind</code>/<code>$sort</code>.</small>
+    </div>
+    <div>
+      <label style="display:block; opacity:.8; margin-bottom:.4rem;">Explain Verbosity</label>
+      <select id="analyze-verbosity" class="form-control" style="width:100%;">
+        <option value="queryPlanner" selected>queryPlanner (ברירת מחדל בטוחה)</option>
+        <option value="executionStats">executionStats (⚠️ מריץ את השאילתה!)</option>
+        <option value="allPlansExecution">allPlansExecution (⚠️ debug בלבד)</option>
+      </select>
+    </div>
+    <div style="display:flex; align-items:end; gap:.5rem; justify-content:flex-end;">
+      <button class="btn btn-primary btn-icon" type="button" onclick="analyzeQuery()">
+        <i class="fas fa-magnifying-glass"></i>
+        נתח
+      </button>
+    </div>
+  </div>
+</div>
+
+<!-- תוצאות הניתוח -->
+<div id="analysis-results" style="display:none; gap: 1rem;">
+  <div class="glass-card" style="flex: 1; margin-bottom: 1rem;">
+    <h2 class="section-title">📊 Explain Plan</h2>
+    <div id="explain-plan-visual"></div>
+    <div id="explain-stats" style="margin-top: 1rem;"></div>
+  </div>
+  <div class="glass-card" style="flex: 1; margin-bottom: 1rem;">
+    <h2 class="section-title">💡 המלצות אופטימיזציה</h2>
+    <div id="recommendations-list"></div>
+  </div>
+</div>
+
+<style>
+  /* Explain (find) */
+  .stage-node { padding: 10px 15px; border-radius: 8px; margin: 6px 0; }
+  .stage-collscan { background-color: rgba(220, 53, 69, 0.12); border: 2px solid rgba(220, 53, 69, 0.7); }
+  .stage-ixscan { background-color: rgba(40, 167, 69, 0.12); border: 2px solid rgba(40, 167, 69, 0.7); }
+  .stage-fetch { background-color: rgba(245, 158, 11, 0.12); border: 2px solid rgba(245, 158, 11, 0.7); }
+  .stage-sort { background-color: rgba(14, 165, 233, 0.12); border: 2px solid rgba(14, 165, 233, 0.7); }
+  .stage-default { background-color: rgba(100, 116, 139, 0.12); border: 2px solid rgba(100, 116, 139, 0.6); }
+  .stage-connector { width: 2px; height: 14px; background-color: rgba(100, 116, 139, 0.6); margin: 0 auto; }
+
+  /* Pipeline (aggregate) */
+  .pipeline-flow { display:flex; gap: .5rem; flex-wrap: wrap; align-items:center; }
+  .pipeline-stage { padding: 10px 12px; border-radius: 10px; border: 1px solid rgba(255,255,255,0.15); min-width: 160px; }
+  .pipeline-arrow { opacity: .7; font-weight: 700; padding: 0 .25rem; }
+  .stage-critical { background: rgba(220, 53, 69, 0.12); border: 2px solid rgba(220, 53, 69, 0.7); }
+  .stage-warning { background: rgba(245, 158, 11, 0.12); border: 2px solid rgba(245, 158, 11, 0.7); }
+  .stage-good { background: rgba(40, 167, 69, 0.12); border: 2px solid rgba(40, 167, 69, 0.7); }
+  .stage-neutral { background: rgba(100, 116, 139, 0.10); border: 2px solid rgba(100, 116, 139, 0.4); }
+  .warning-badge { margin-right: .25rem; }
+
+  /* Recommendations */
+  .recommendation-card { border-radius: 10px; padding: 12px 14px; margin-bottom: 10px; border-left: 4px solid rgba(100,116,139,0.6); background: rgba(255,255,255,0.06); }
+  .recommendation-critical { border-left-color: rgba(220, 53, 69, 0.8); }
+  .recommendation-warning { border-left-color: rgba(245, 158, 11, 0.8); }
+  .recommendation-info { border-left-color: rgba(14, 165, 233, 0.8); }
+  .code-example { background-color: rgba(0,0,0,0.35); color: #f8f8f2; padding: 10px; border-radius: 8px; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; overflow-x: auto; }
+</style>
+
+<script>
+  const PROFILER_TOKEN = {{ (profiler_token or "")|tojson }};
+
+  function profilerFetch(url, options = {}) {
+    const headers = options.headers || {};
+    if (PROFILER_TOKEN) {
+      headers["X-Profiler-Token"] = PROFILER_TOKEN;
+    }
+    return fetch(url, { ...options, headers });
+  }
+
+  document.addEventListener('DOMContentLoaded', function() {
+    toggleAnalyzeInputs();
+    loadSummary();
+    refreshSlowQueries();
+    // רענון אוטומטי כל 30 שניות
+    setInterval(loadSummary, 30000);
+  });
+
+  function toggleAnalyzeInputs() {
+    const op = document.getElementById('analyze-operation').value;
+    document.getElementById('query-input').style.display = (op === 'find') ? 'block' : 'none';
+    document.getElementById('pipeline-input').style.display = (op === 'aggregate') ? 'block' : 'none';
+  }
+
+  async function loadSummary() {
+    try {
+      const response = await profilerFetch('/api/profiler/summary');
+      const result = await response.json();
+      if (result.status === 'success') {
+        const data = result.data;
+        document.getElementById('total-slow-queries').textContent = data.total_slow_queries;
+        const avg = (data.avg_execution_time_ms || 0);
+        document.getElementById('avg-time').textContent = (typeof avg === 'number') ? avg.toFixed(2) : avg;
+        document.getElementById('collections-count').textContent = (data.collections_affected || []).length;
+        document.getElementById('unique-patterns').textContent = data.unique_patterns;
+
+        // מילוי dropdown של collections
+        const select = document.getElementById('collection-filter');
+        const existing = new Set(Array.from(select.options).map(o => o.value));
+        (data.collections_affected || []).forEach(coll => {
+          if (existing.has(coll)) return;
+          const option = document.createElement('option');
+          option.value = coll;
+          option.textContent = coll;
+          select.appendChild(option);
+        });
+      }
+    } catch (error) {
+      console.error('Error loading summary:', error);
+    }
+  }
+
+  async function refreshSlowQueries() {
+    const collection = document.getElementById('collection-filter').value;
+    let url = '/api/profiler/slow-queries?limit=50';
+    if (collection) {
+      url += `&collection=${encodeURIComponent(collection)}`;
+    }
+    try {
+      const response = await profilerFetch(url);
+      const result = await response.json();
+      if (result.status === 'success') {
+        renderSlowQueriesTable(result.data);
+      }
+    } catch (error) {
+      console.error('Error loading slow queries:', error);
+    }
+  }
+
+  function renderSlowQueriesTable(queries) {
+    const tbody = document.querySelector('#slow-queries-table tbody');
+    tbody.innerHTML = '';
+
+    queries.forEach(query => {
+      const row = document.createElement('tr');
+      const shape = JSON.stringify(query.query_shape || {});
+      const timeMs = Number(query.execution_time_ms || 0);
+      const timeStyle = timeMs > 1000 ? 'color:#dc3545; font-weight:700;' : '';
+      row.innerHTML = `
+        <td style="padding:.6rem;"><code>${escapeHtml(query.collection)}</code></td>
+        <td style="padding:.6rem;">${escapeHtml(query.operation)}</td>
+        <td style="padding:.6rem;"><code style="opacity:.85;">${escapeHtml(shape.substring(0, 80))}${shape.length > 80 ? '…' : ''}</code></td>
+        <td style="padding:.6rem; ${timeStyle}">${timeMs.toFixed(2)}</td>
+        <td style="padding:.6rem;">${new Date(query.timestamp).toLocaleString('he-IL')}</td>
+        <td style="padding:.6rem;">
+          <button class="btn btn-secondary" type="button" onclick="analyzeQueryFromRow('${escapeHtml(query.collection)}', '${escapeHtml(query.operation)}', ${JSON.stringify(query.query_shape || {})})">🔍 נתח</button>
+        </td>
+      `;
+      tbody.appendChild(row);
+    });
+  }
+
+  function analyzeQueryFromRow(collection, operation, queryShape) {
+    document.getElementById('analyze-collection').value = collection;
+    const op = (operation || '').toLowerCase() === 'aggregate' ? 'aggregate' : 'find';
+    document.getElementById('analyze-operation').value = op;
+    toggleAnalyzeInputs();
+
+    if (op === 'aggregate' && queryShape && queryShape.pipeline) {
+      document.getElementById('analyze-pipeline').value = JSON.stringify(queryShape.pipeline, null, 2);
+    } else {
+      document.getElementById('analyze-query').value = JSON.stringify(queryShape || {}, null, 2);
+    }
+
+    analyzeQuery();
+  }
+
+  async function analyzeQuery() {
+    const collection = document.getElementById('analyze-collection').value;
+    const operation = document.getElementById('analyze-operation').value;
+    const verbosity = document.getElementById('analyze-verbosity').value;
+
+    if (!collection) {
+      alert('נא להזין שם collection');
+      return;
+    }
+
+    let payload = { collection, verbosity };
+
+    if (operation === 'aggregate') {
+      const pipelineText = document.getElementById('analyze-pipeline').value;
+      let pipeline;
+      try {
+        pipeline = pipelineText ? JSON.parse(pipelineText) : [];
+      } catch (e) {
+        alert('Pipeline JSON לא תקין');
+        return;
+      }
+      if (!Array.isArray(pipeline)) {
+        alert('Pipeline חייב להיות מערך JSON');
+        return;
+      }
+      payload.pipeline = pipeline;
+    } else {
+      const queryText = document.getElementById('analyze-query').value;
+      let query;
+      try {
+        query = queryText ? JSON.parse(queryText) : {};
+      } catch (e) {
+        alert('Query JSON לא תקין');
+        return;
+      }
+      payload.query = query;
+    }
+
+    try {
+      const response = await profilerFetch('/api/profiler/recommendations', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+      const result = await response.json();
+      if (result.status === 'success') {
+        document.getElementById('analysis-results').style.display = 'flex';
+        const data = result.data || {};
+        if (data.aggregation_explain) {
+          renderAggregationPipeline(data.aggregation_explain);
+          renderAggregationStats(data.aggregation_explain);
+        } else {
+          renderExplainPlan(data.explain);
+        }
+        renderRecommendations(data.recommendations || []);
+      } else {
+        alert(result.message || 'שגיאה בניתוח');
+      }
+    } catch (error) {
+      console.error('Error analyzing query:', error);
+      alert('שגיאה בניתוח השאילתה');
+    }
+  }
+
+  function renderExplainPlan(explain) {
+    const container = document.getElementById('explain-plan-visual');
+    container.innerHTML = '';
+
+    function renderStage(stage, depth = 0) {
+      const stageClass = getStageClass(stage.stage);
+      const html = `
+        <div class="stage-node ${stageClass}" style="margin-left:${depth * 18}px">
+          <strong>${escapeHtml(stage.stage)}</strong>
+          ${stage.index_name ? `<div style="opacity:.85; margin-top:.25rem;"><small>Index: ${escapeHtml(stage.index_name)}</small></div>` : ''}
+          ${stage.filter_condition ? `<div style="opacity:.75; margin-top:.25rem;"><small>Filter: ${escapeHtml(JSON.stringify(stage.filter_condition).substring(0, 60))}…</small></div>` : ''}
+        </div>
+      `;
+
+      let result = html;
+      if (stage.input_stage) {
+        result += '<div class="stage-connector"></div>';
+        result += renderStage(stage.input_stage, depth);
+      }
+      (stage.children || []).forEach(child => {
+        result += '<div class="stage-connector"></div>';
+        result += renderStage(child, depth + 1);
+      });
+      return result;
+    }
+
+    container.innerHTML = renderStage(explain.winning_plan);
+
+    const statsContainer = document.getElementById('explain-stats');
+    if (explain.stats) {
+      const stats = explain.stats;
+      const efficiency = Number(stats.efficiency_ratio || 0);
+      const efficiencyColor = efficiency < 0.1 ? '#dc3545' : efficiency < 0.5 ? '#f59e0b' : '#28a745';
+      statsContainer.innerHTML = `
+        <div style="opacity:.9;">
+          <div><strong>זמן ביצוע:</strong> ${escapeHtml(String(stats.execution_time_ms))} ms</div>
+          <div><strong>מסמכים שנסרקו:</strong> ${Number(stats.docs_examined || 0).toLocaleString()}</div>
+          <div><strong>מסמכים שהוחזרו:</strong> ${Number(stats.docs_returned || 0).toLocaleString()}</div>
+          <div><strong>מפתחות שנסרקו:</strong> ${Number(stats.keys_examined || 0).toLocaleString()}</div>
+          <div><strong>אינדקס בשימוש:</strong> ${stats.index_used ? `<code>${escapeHtml(stats.index_used)}</code>` : `<span style="color:#dc3545;">אין</span>`}</div>
+          <div><strong>Covered Query:</strong> ${stats.is_covered_query ? '✅' : '❌'}</div>
+          <div><strong>יחס יעילות:</strong> <span style="color:${efficiencyColor}; font-weight:700;">${(efficiency * 100).toFixed(1)}%</span></div>
+        </div>
+      `;
+    } else {
+      statsContainer.innerHTML = '<div style="opacity:.75;">אין executionStats (כנראה רצת עם queryPlanner)</div>';
+    }
+  }
+
+  function renderAggregationPipeline(explain) {
+    const container = document.getElementById('explain-plan-visual');
+    container.innerHTML = '';
+
+    let html = '<div class="pipeline-flow">';
+    (explain.stages || []).forEach((stage, index) => {
+      const stageClass = getAggregationStageClass(stage);
+      const warnings = getStageWarnings(stage);
+      html += `
+        <div class="pipeline-stage ${stageClass}">
+          <div class="stage-header" style="display:flex; justify-content:space-between; gap:.5rem;">
+            <strong>${escapeHtml(stage.stage_name)}</strong>
+            ${warnings ? `<span class="warning-badge">⚠️</span>` : ''}
+          </div>
+          <div class="stage-details" style="margin-top:.35rem; opacity:.85;">
+            ${stage.index_used ? `<div><small>Index: <code>${escapeHtml(stage.index_used)}</code></small></div>` : ''}
+            ${stage.lookup_collection ? `<div><small>From: <code>${escapeHtml(stage.lookup_collection)}</code></small></div>` : ''}
+            ${stage.lookup_strategy ? `<div><small>Strategy: ${escapeHtml(stage.lookup_strategy)}</small></div>` : ''}
+            ${stage.uses_disk ? `<div><small style="color:#dc3545;">Uses Disk!</small></div>` : ''}
+          </div>
+        </div>
+      `;
+      if (index < (explain.stages || []).length - 1) {
+        html += '<div class="pipeline-arrow">→</div>';
+      }
+    });
+    html += '</div>';
+    container.innerHTML = html || '<div style="opacity:.75;">אין נתוני stages ב-explain</div>';
+  }
+
+  function renderAggregationStats(explain) {
+    const statsContainer = document.getElementById('explain-stats');
+    statsContainer.innerHTML = `
+      <div style="opacity:.9;">
+        <div><strong>זמן כולל:</strong> ${Number(explain.total_execution_time_ms || 0).toFixed(2)} ms</div>
+        <div><strong>מספר שלבים:</strong> ${(explain.stages || []).length}</div>
+      </div>
+    `;
+  }
+
+  function getAggregationStageClass(stage) {
+    if (stage.lookup_strategy === 'nestedLoopJoin') return 'stage-critical';
+    if (stage.uses_disk) return 'stage-warning';
+    if (stage.index_used) return 'stage-good';
+    return 'stage-neutral';
+  }
+
+  function getStageWarnings(stage) {
+    if (stage.lookup_strategy === 'nestedLoopJoin') return true;
+    if (stage.uses_disk) return true;
+    return false;
+  }
+
+  function getStageClass(stage) {
+    switch (stage) {
+      case 'COLLSCAN': return 'stage-collscan';
+      case 'IXSCAN': return 'stage-ixscan';
+      case 'FETCH': return 'stage-fetch';
+      case 'SORT': return 'stage-sort';
+      default: return 'stage-default';
+    }
+  }
+
+  function renderRecommendations(recommendations) {
+    const container = document.getElementById('recommendations-list');
+    if (!recommendations || recommendations.length === 0) {
+      container.innerHTML = '<div class="glass-card" style="background: rgba(40,167,69,0.12); border-left: 4px solid rgba(40,167,69,0.8);">✅ לא נמצאו בעיות - השאילתה נראית מיטבית!</div>';
+      return;
+    }
+
+    container.innerHTML = recommendations.map(rec => `
+      <div class="recommendation-card recommendation-${escapeHtml(rec.severity)}">
+        <div style="display:flex; justify-content:space-between; gap:.75rem; align-items:flex-start;">
+          <div>
+            <div style="font-weight:700;">${escapeHtml(rec.title)}</div>
+            <div style="opacity:.9; margin-top:.35rem;">${escapeHtml(rec.description)}</div>
+          </div>
+          <div class="badge">${escapeHtml(rec.category)}</div>
+        </div>
+        <div style="margin-top:.6rem;"><strong>פעולה מומלצת:</strong> ${escapeHtml(rec.suggested_action)}</div>
+        <div style="opacity:.8; margin-top:.25rem;"><small>שיפור משוער: ${escapeHtml(rec.estimated_improvement)}</small></div>
+        ${rec.code_example ? `<pre class="code-example" style="margin-top:.6rem;">${escapeHtml(rec.code_example)}</pre>` : ''}
+        ${rec.documentation_link ? `<div style="margin-top:.5rem;"><a href="${escapeHtml(rec.documentation_link)}" target="_blank" rel="noopener" class="btn btn-secondary">📚 תיעוד</a></div>` : ''}
+      </div>
+    `).join('');
+  }
+
+  function escapeHtml(text) {
+    const div = document.createElement('div');
+    div.textContent = String(text ?? '');
+    return div.innerHTML;
+  }
+</script>
+{% endblock %}
+
