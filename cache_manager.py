@@ -324,20 +324,25 @@ class CacheManager:
             # מנקה כתובות זיכרון נפוצות ב-repr ברירת מחדל: "0x7f...."
             return re.sub(r"0x[0-9a-fA-F]+", "0x", str(s or ""))
 
-        def _stable_scalar(v: Any) -> str:
+        def _stable_scalar(v: Any) -> Optional[str]:
+            """החזר ייצוג מחרוזתי לטיפוסים פשוטים בלבד; אחרת None.
+
+            חשוב: מחרוזת ריקה היא ערך לגיטימי ולכן אינה משמשת כסנטינל.
+            """
             if v is None:
                 return "None"
             if isinstance(v, (str, int, float, bool)):
+                # str("") חייב להישמר כ-"" ולא להיחשב "לא scalar"
                 return str(v)
             if isinstance(v, (bytes, bytearray)):
                 h = hashlib.sha256(bytes(v)).hexdigest()[:16]
                 return f"bytes:{h}"
-            return ""
+            return None
 
         def _stable_part(v: Any, *, _depth: int = 0) -> str:
             # 1) טיפוסים פשוטים
             scalar = _stable_scalar(v)
-            if scalar != "":
+            if scalar is not None:
                 return scalar
 
             # 2) מבנים מובנים עם סדר דטרמיניסטי
@@ -378,7 +383,7 @@ class CacheManager:
                     if hasattr(v, attr):
                         ident = getattr(v, attr)
                         ident_scalar = _stable_scalar(ident)
-                        if ident_scalar != "":
+                        if ident_scalar is not None:
                             return ident_scalar
                         return _clean_repr(str(ident))
                 except Exception:
