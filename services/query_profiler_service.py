@@ -239,6 +239,7 @@ class QueryProfilerService:
             try:
                 from monitoring.profiler_metrics import (  # type: ignore
                     ACTIVE_PROFILER_BUFFER_SIZE,
+                    COLLSCAN_DETECTED,
                     QUERY_DURATION,
                     SLOW_QUERIES_TOTAL,
                 )
@@ -246,13 +247,16 @@ class QueryProfilerService:
                 SLOW_QUERIES_TOTAL = None  # type: ignore
                 QUERY_DURATION = None  # type: ignore
                 ACTIVE_PROFILER_BUFFER_SIZE = None  # type: ignore
+                COLLSCAN_DETECTED = None  # type: ignore
             self._SLOW_QUERIES_TOTAL = SLOW_QUERIES_TOTAL
             self._QUERY_DURATION = QUERY_DURATION
             self._ACTIVE_PROFILER_BUFFER_SIZE = ACTIVE_PROFILER_BUFFER_SIZE
+            self._COLLSCAN_DETECTED = COLLSCAN_DETECTED
         else:
             self._SLOW_QUERIES_TOTAL = None
             self._QUERY_DURATION = None
             self._ACTIVE_PROFILER_BUFFER_SIZE = None
+            self._COLLSCAN_DETECTED = None
 
     def _generate_query_id(self, collection: str, query_shape: Dict[str, Any]) -> str:
         """יצירת מזהה ייחודי לשאילתה"""
@@ -512,6 +516,11 @@ class QueryProfilerService:
         recommendations: List[OptimizationRecommendation] = []
 
         if self._has_collscan(explain_plan.winning_plan):
+            try:
+                if self._COLLSCAN_DETECTED is not None:
+                    self._COLLSCAN_DETECTED.labels(collection=explain_plan.collection).inc()
+            except Exception:
+                pass
             recommendations.append(self._create_collscan_recommendation(explain_plan))
 
         if explain_plan.stats and explain_plan.stats.efficiency_ratio < 0.1:

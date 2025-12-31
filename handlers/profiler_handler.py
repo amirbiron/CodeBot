@@ -163,6 +163,8 @@ def setup_profiler_routes(app: web.Application, profiler_service: QueryProfilerS
     app.router.add_get("/api/profiler/slow-queries", get_slow_queries)
     app.router.add_post("/api/profiler/explain", get_explain_plan)
     app.router.add_post("/api/profiler/recommendations", get_recommendations)
+    # Alias 1:1 למדריך (חלק מהתרשימים משתמשים בשם analyze)
+    app.router.add_post("/api/profiler/analyze", get_recommendations)
     app.router.add_get("/api/profiler/summary", get_summary)
     app.router.add_get("/api/profiler/collection/{name}/stats", get_collection_stats)
 

@@ -3792,6 +3792,27 @@ def api_profiler_recommendations():
         return jsonify({"status": "error", "message": "internal_error"}), 500
 
 
+@app.route("/api/profiler/analyze", methods=["POST"])
+def api_profiler_analyze():
+    """Alias 1:1 למדריך: POST /api/profiler/analyze -> recommendations."""
+    return api_profiler_recommendations()
+
+
+@app.route("/api/profiler/collection/<name>/stats", methods=["GET"])
+def api_profiler_collection_stats(name: str):
+    if not _profiler_is_authorized():
+        return jsonify({"status": "error", "message": "Unauthorized"}), 401
+    if not _profiler_rate_limit_ok():
+        return jsonify({"status": "error", "message": "rate_limited"}), 429
+    try:
+        svc = _get_webapp_profiler_service()
+        stats = _run_profiler(svc.get_collection_stats(name))
+        return jsonify({"status": "success", "data": stats})
+    except Exception:
+        logger.exception("api_profiler_collection_stats_failed")
+        return jsonify({"status": "error", "message": "internal_error"}), 500
+
+
 def _db_health_token() -> str:
     return str(os.getenv("DB_HEALTH_TOKEN", "") or "").strip()
 
