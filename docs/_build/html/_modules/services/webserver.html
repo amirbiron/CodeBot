@@ -456,7 +456,11 @@ window.addEventListener("load", () => mermaid.run());
 </ul>
 </li>
 <li class="toctree-l3"><a class="reference internal" href="../../api/autocomplete_manager.html">autocomplete_manager module</a></li>
-<li class="toctree-l3"><a class="reference internal" href="../../api/backup_menu_handler.html">backup_menu_handler module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../api/backup_menu_handler.html">backup_menu_handler module</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../../api/backup_menu_handler.html#backup_menu_handler.emit_event"><code class="docutils literal notranslate"><span class="pre">emit_event()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../api/backup_menu_handler.html#backup_menu_handler.BackupMenuHandler"><code class="docutils literal notranslate"><span class="pre">BackupMenuHandler</span></code></a></li>
+</ul>
+</li>
 <li class="toctree-l3"><a class="reference internal" href="../../api/batch_commands.html">batch_commands module</a></li>
 <li class="toctree-l3"><a class="reference internal" href="../../api/batch_processor.html">batch_processor module</a></li>
 <li class="toctree-l3"><a class="reference internal" href="../../api/bot_handlers.html">bot_handlers module</a></li>
@@ -466,6 +470,7 @@ window.addEventListener("load", () => mermaid.run());
 <li class="toctree-l4"><a class="reference internal" href="../../api/cache_commands.html#cache_commands.clear_cache_command"><code class="docutils literal notranslate"><span class="pre">clear_cache_command()</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="../../api/cache_commands.html#cache_commands.setup_cache_handlers"><code class="docutils literal notranslate"><span class="pre">setup_cache_handlers()</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="../../api/cache_commands.html#cache_commands.cache_warm_command"><code class="docutils literal notranslate"><span class="pre">cache_warm_command()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../api/cache_commands.html#cache_commands.debug_cache_command"><code class="docutils literal notranslate"><span class="pre">debug_cache_command()</span></code></a></li>
 </ul>
 </li>
 <li class="toctree-l3"><a class="reference internal" href="../../api/cache_manager.html">cache_manager module</a><ul>
@@ -1514,6 +1519,40 @@ window.addEventListener("load", () => mermaid.run());
 <li class="toctree-l2"><a class="reference internal" href="../../webapp/advanced-caching.html#id4">קישורים</a></li>
 </ul>
 </li>
+<li class="toctree-l1"><a class="reference internal" href="../../webapp/cache-inspector.html">Cache Inspector (לוח בקרה של Redis)</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../webapp/cache-inspector.html#cache-inspector">מה זה Cache Inspector?</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../../webapp/cache-inspector.html#id1">למה צריך את זה?</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../../webapp/cache-inspector.html#id2">איך נכנסים?</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../webapp/cache-inspector.html#id3">יכולות עיקריות</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../../webapp/cache-inspector.html#id4">סטטיסטיקות כלליות</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../webapp/cache-inspector.html#id5">חיפוש מפתחות</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../webapp/cache-inspector.html#ttl">הצגת TTL וסטטוס</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../webapp/cache-inspector.html#id6">פעולות מחיקה</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../../webapp/cache-inspector.html#id7">אבטחה ובטיחות</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../../webapp/cache-inspector.html#id8">הגנת הרשאות</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../webapp/cache-inspector.html#masking">הסתרת מידע רגיש (Masking)</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../webapp/cache-inspector.html#scan-keys">שימוש ב-SCAN במקום KEYS</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../webapp/cache-inspector.html#id9">תקציב זמן למחיקות</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../../webapp/cache-inspector.html#api-endpoints">API Endpoints</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../../webapp/cache-inspector.html#api">דוגמאות API</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../../webapp/cache-inspector.html#id10">תקלות נפוצות</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../../webapp/cache-inspector.html#redis">Redis מושבת</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../webapp/cache-inspector.html#id11">אין הרשאות</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../webapp/cache-inspector.html#id12">חיפוש איטי</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../../webapp/cache-inspector.html#id13">משתני סביבה רלוונטיים</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../webapp/cache-inspector.html#id14">ראו גם</a></li>
+</ul>
+</li>
 <li class="toctree-l1"><a class="reference internal" href="../../webapp/static-checklist.html">Static Performance &amp; Security Checklist (gzip/br, Cache, SRI)</a><ul>
 <li class="toctree-l2"><a class="reference internal" href="../../webapp/static-checklist.html#id1">מטרה</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../../webapp/static-checklist.html#br-gzip">דחיסה (br/gzip)</a></li>
@@ -1643,6 +1682,58 @@ window.addEventListener("load", () => mermaid.run());
 </li>
 <li class="toctree-l2"><a class="reference internal" href="../../observability.html#traced">כיסוי דקורטור &#64;traced</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../../observability.html#staging">אימות ב-Staging</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../../observability/background-jobs-monitor.html">Background Jobs Monitor</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../observability/background-jobs-monitor.html#id1">סקירה כללית</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../observability/background-jobs-monitor.html#id2">רכיבים וקוד רלוונטי</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../observability/background-jobs-monitor.html#id3">מסד נתונים</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../../observability/background-jobs-monitor.html#job-runs">קולקציה: <code class="docutils literal notranslate"><span class="pre">job_runs</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../../observability/background-jobs-monitor.html#ui-webapp">UI / WebApp</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../../observability/background-jobs-monitor.html#id4">גישה לדשבורד</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../observability/background-jobs-monitor.html#id5">מה רואים בדשבורד</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../observability/background-jobs-monitor.html#jobs-vs">Jobs סטטיים vs. דינמיים</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../../observability/background-jobs-monitor.html#api-reference">API Reference</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../../observability/background-jobs-monitor.html#get-api-jobs">GET /api/jobs</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../observability/background-jobs-monitor.html#get-api-jobs-active">GET /api/jobs/active</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../observability/background-jobs-monitor.html#get-api-jobs-job-id">GET /api/jobs/{job_id}</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../observability/background-jobs-monitor.html#get-api-jobs-runs-run-id">GET /api/jobs/runs/{run_id}</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../observability/background-jobs-monitor.html#post-api-jobs-job-id-trigger">POST /api/jobs/{job_id}/trigger</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../../observability/background-jobs-monitor.html#id6">אבטחה</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../../observability/background-jobs-monitor.html#api">הגנה על ה-API</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../../observability/background-jobs-monitor.html#env">ENV וקונפיגורציה</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../../observability/background-jobs-monitor.html#id7">משתני סביבה</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../../observability/background-jobs-monitor.html#chatops-jobs">ChatOps – פקודת /jobs</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../../observability/background-jobs-monitor.html#id8">פקודות זמינות</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../observability/background-jobs-monitor.html#id9">דוגמאות</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../../observability/background-jobs-monitor.html#alerts">Alerts</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../../observability/background-jobs-monitor.html#alerts-yml">הגדרות ב-alerts.yml</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../observability/background-jobs-monitor.html#flow-alerts">Flow של Alerts</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../../observability/background-jobs-monitor.html#troubleshooting">Troubleshooting</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../../observability/background-jobs-monitor.html#id10">”הטריגר לא עובד“</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../observability/background-jobs-monitor.html#jobs">”אין jobs דינמיים בדשבורד“</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../observability/background-jobs-monitor.html#id11">”לא מגיעים Alerts“</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../observability/background-jobs-monitor.html#job">”Job תקוע אבל אין התראה“</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../observability/background-jobs-monitor.html#id12">”השרת מחזיר 401/403“</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../observability/background-jobs-monitor.html#id13">”לוגים ריקים בדשבורד“</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../../observability/background-jobs-monitor.html#best-practices">Best Practices</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../observability/background-jobs-monitor.html#id14">ראו גם</a></li>
 </ul>
 </li>
 <li class="toctree-l1"><a class="reference internal" href="../../observability/observability_dashboard.html">📡 Observability Dashboard &amp; API</a><ul>
@@ -1951,6 +2042,7 @@ window.addEventListener("load", () => mermaid.run());
 <li class="toctree-l2"><a class="reference internal" href="../../chatops/commands.html#health">/health</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../../chatops/commands.html#uptime">/uptime</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../../chatops/commands.html#system-info">/system_info</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../chatops/commands.html#check-commands">/check commands</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../../chatops/commands.html#metrics">/metrics</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../../chatops/commands.html#observe">/observe</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../../chatops/commands.html#observe-v">/observe -v (מפורט)</a></li>
@@ -1960,6 +2052,7 @@ window.addEventListener("load", () => mermaid.run());
 </ul>
 </li>
 <li class="toctree-l2"><a class="reference internal" href="../../chatops/commands.html#alerts">/alerts</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../chatops/commands.html#jobs">/jobs</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../../chatops/commands.html#incidents">/incidents</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../../chatops/commands.html#triage">/triage</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../../chatops/commands.html#predict">/predict</a></li>
@@ -1978,6 +2071,7 @@ window.addEventListener("load", () => mermaid.run());
 <li class="toctree-l2"><a class="reference internal" href="../../chatops/commands.html#clear-cache">/clear_cache</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../../chatops/commands.html#cache-warm">/cache_warm</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../../chatops/commands.html#cache-clear-stale">/cache_clear_stale</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../chatops/commands.html#debug-cache">/debug_cache</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../../chatops/commands.html#status-worker">/status_worker</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../../chatops/commands.html#version-history">/version_history</a></li>
 </ul>
@@ -2126,8 +2220,8 @@ window.addEventListener("load", () => mermaid.run());
 <span class="c1"># Configure structured logging and Sentry as early as possible,</span>
 <span class="c1"># and install sensitive data redaction on log handlers before Sentry hooks logging.</span>
 <span class="k">try</span><span class="p">:</span>
-    <span class="kn">from</span> <span class="nn">observability</span> <span class="kn">import</span> <span class="n">setup_structlog_logging</span><span class="p">,</span> <span class="n">init_sentry</span>  <span class="c1"># type: ignore</span>
-    <span class="n">setup_structlog_logging</span><span class="p">(</span><span class="s2">&quot;INFO&quot;</span><span class="p">)</span>
+    <span class="kn">from</span> <span class="nn">observability</span> <span class="kn">import</span> <span class="n">setup_structlog_logging</span><span class="p">,</span> <span class="n">init_sentry</span><span class="p">,</span> <span class="n">get_log_level_from_env</span>  <span class="c1"># type: ignore</span>
+    <span class="n">setup_structlog_logging</span><span class="p">(</span><span class="n">get_log_level_from_env</span><span class="p">(</span><span class="s2">&quot;INFO&quot;</span><span class="p">))</span>
     <span class="k">try</span><span class="p">:</span>
         <span class="kn">from</span> <span class="nn">utils</span> <span class="kn">import</span> <span class="n">install_sensitive_filter</span>  <span class="c1"># type: ignore</span>
         <span class="n">install_sensitive_filter</span><span class="p">()</span>
@@ -2245,8 +2339,8 @@ window.addEventListener("load", () => mermaid.run());
 
 <span class="nd">@web</span><span class="o">.</span><span class="n">middleware</span>
 <span class="k">async</span> <span class="k">def</span> <span class="nf">db_health_auth_middleware</span><span class="p">(</span><span class="n">request</span><span class="p">:</span> <span class="n">web</span><span class="o">.</span><span class="n">Request</span><span class="p">,</span> <span class="n">handler</span><span class="p">):</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;Middleware להגנה על endpoints של /api/db/*&quot;&quot;&quot;</span>
-    <span class="k">if</span> <span class="n">request</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">startswith</span><span class="p">(</span><span class="s2">&quot;/api/db/&quot;</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Middleware להגנה על endpoints רגישים (DB + Jobs Monitor).&quot;&quot;&quot;</span>
+    <span class="k">if</span> <span class="n">request</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">startswith</span><span class="p">(</span><span class="s2">&quot;/api/db/&quot;</span><span class="p">)</span> <span class="ow">or</span> <span class="n">request</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">startswith</span><span class="p">(</span><span class="s2">&quot;/api/jobs&quot;</span><span class="p">):</span>
         <span class="k">if</span> <span class="ow">not</span> <span class="n">DB_HEALTH_TOKEN</span><span class="p">:</span>
             <span class="c1"># אם לא מוגדר token, חסום לגמרי</span>
             <span class="k">return</span> <span class="n">web</span><span class="o">.</span><span class="n">json_response</span><span class="p">({</span><span class="s2">&quot;error&quot;</span><span class="p">:</span> <span class="s2">&quot;disabled&quot;</span><span class="p">},</span> <span class="n">status</span><span class="o">=</span><span class="mi">403</span><span class="p">)</span>
@@ -2592,15 +2686,16 @@ window.addEventListener("load", () => mermaid.run());
     <span class="n">display_id</span> <span class="o">=</span> <span class="n">short_id</span> <span class="ow">or</span> <span class="p">(</span><span class="n">issue_id</span><span class="p">[:</span><span class="mi">8</span><span class="p">]</span> <span class="k">if</span> <span class="n">issue_id</span> <span class="k">else</span> <span class="s2">&quot;issue&quot;</span><span class="p">)</span>
     <span class="n">name</span> <span class="o">=</span> <span class="n">_truncate</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Sentry: </span><span class="si">{</span><span class="n">display_id</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">,</span> <span class="mi">128</span><span class="p">)</span>
 
+    <span class="c1"># Important: order matters for UI display. Put alert_type and Sentry IDs first.</span>
     <span class="n">details</span><span class="p">:</span> <span class="n">Dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]</span> <span class="o">=</span> <span class="p">{</span>
         <span class="s2">&quot;alert_type&quot;</span><span class="p">:</span> <span class="s2">&quot;sentry_issue&quot;</span><span class="p">,</span>
-        <span class="s2">&quot;action&quot;</span><span class="p">:</span> <span class="n">action</span> <span class="ow">or</span> <span class="kc">None</span><span class="p">,</span>
-        <span class="s2">&quot;project&quot;</span><span class="p">:</span> <span class="n">project_slug</span> <span class="ow">or</span> <span class="kc">None</span><span class="p">,</span>
-        <span class="s2">&quot;level&quot;</span><span class="p">:</span> <span class="n">level</span> <span class="ow">or</span> <span class="kc">None</span><span class="p">,</span>
         <span class="s2">&quot;sentry_issue_id&quot;</span><span class="p">:</span> <span class="n">issue_id</span> <span class="ow">or</span> <span class="kc">None</span><span class="p">,</span>
         <span class="s2">&quot;sentry_short_id&quot;</span><span class="p">:</span> <span class="n">short_id</span> <span class="ow">or</span> <span class="kc">None</span><span class="p">,</span>
         <span class="s2">&quot;sentry_permalink&quot;</span><span class="p">:</span> <span class="n">permalink</span> <span class="ow">or</span> <span class="kc">None</span><span class="p">,</span>
         <span class="s2">&quot;sentry_event_id&quot;</span><span class="p">:</span> <span class="nb">str</span><span class="p">(</span><span class="n">event</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;id&quot;</span><span class="p">)</span> <span class="ow">or</span> <span class="n">event</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;event_id&quot;</span><span class="p">)</span> <span class="ow">or</span> <span class="s2">&quot;&quot;</span><span class="p">)</span><span class="o">.</span><span class="n">strip</span><span class="p">()</span> <span class="ow">or</span> <span class="kc">None</span><span class="p">,</span>
+        <span class="s2">&quot;project&quot;</span><span class="p">:</span> <span class="n">project_slug</span> <span class="ow">or</span> <span class="kc">None</span><span class="p">,</span>
+        <span class="s2">&quot;level&quot;</span><span class="p">:</span> <span class="n">level</span> <span class="ow">or</span> <span class="kc">None</span><span class="p">,</span>
+        <span class="s2">&quot;action&quot;</span><span class="p">:</span> <span class="n">action</span> <span class="ow">or</span> <span class="kc">None</span><span class="p">,</span>
         <span class="s2">&quot;logger&quot;</span><span class="p">:</span> <span class="nb">str</span><span class="p">(</span><span class="n">event</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;logger&quot;</span><span class="p">)</span> <span class="ow">or</span> <span class="n">payload</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;logger&quot;</span><span class="p">)</span> <span class="ow">or</span> <span class="s2">&quot;&quot;</span><span class="p">)</span><span class="o">.</span><span class="n">strip</span><span class="p">()</span> <span class="ow">or</span> <span class="kc">None</span><span class="p">,</span>
         <span class="s2">&quot;culprit&quot;</span><span class="p">:</span> <span class="nb">str</span><span class="p">(</span><span class="n">issue</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;culprit&quot;</span><span class="p">)</span> <span class="ow">or</span> <span class="n">event</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;culprit&quot;</span><span class="p">)</span> <span class="ow">or</span> <span class="s2">&quot;&quot;</span><span class="p">)</span><span class="o">.</span><span class="n">strip</span><span class="p">()</span> <span class="ow">or</span> <span class="kc">None</span><span class="p">,</span>
         <span class="s2">&quot;environment&quot;</span><span class="p">:</span> <span class="nb">str</span><span class="p">(</span><span class="n">event</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;environment&quot;</span><span class="p">)</span> <span class="ow">or</span> <span class="n">payload</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;environment&quot;</span><span class="p">)</span> <span class="ow">or</span> <span class="s2">&quot;&quot;</span><span class="p">)</span><span class="o">.</span><span class="n">strip</span><span class="p">()</span> <span class="ow">or</span> <span class="kc">None</span><span class="p">,</span>
@@ -3297,7 +3392,224 @@ window.addEventListener("load", () => mermaid.run());
     <span class="n">app</span><span class="o">.</span><span class="n">router</span><span class="o">.</span><span class="n">add_get</span><span class="p">(</span><span class="s2">&quot;/api/db/collections&quot;</span><span class="p">,</span> <span class="n">db_health_collections_view</span><span class="p">)</span>
     <span class="n">app</span><span class="o">.</span><span class="n">router</span><span class="o">.</span><span class="n">add_get</span><span class="p">(</span><span class="s2">&quot;/api/db/health&quot;</span><span class="p">,</span> <span class="n">db_health_summary_view</span><span class="p">)</span>
 
+    <span class="c1"># Jobs Monitor routes</span>
+    <span class="k">try</span><span class="p">:</span>
+        <span class="n">register_jobs_routes</span><span class="p">(</span><span class="n">app</span><span class="p">)</span>
+    <span class="k">except</span> <span class="ne">Exception</span><span class="p">:</span>
+        <span class="k">pass</span>
+
     <span class="k">return</span> <span class="n">app</span></div>
+
+
+
+<div class="viewcode-block" id="get_jobs_list">
+<a class="viewcode-back" href="../../api/services.webserver.html#services.webserver.get_jobs_list">[תיעוד]</a>
+<span class="k">async</span> <span class="k">def</span> <span class="nf">get_jobs_list</span><span class="p">(</span><span class="n">request</span><span class="p">:</span> <span class="n">web</span><span class="o">.</span><span class="n">Request</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">web</span><span class="o">.</span><span class="n">Response</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;GET /api/jobs - רשימת כל ה-jobs&quot;&quot;&quot;</span>
+    <span class="kn">from</span> <span class="nn">services.job_registry</span> <span class="kn">import</span> <span class="n">JobRegistry</span>
+
+    <span class="n">registry</span> <span class="o">=</span> <span class="n">JobRegistry</span><span class="p">()</span>
+    <span class="n">jobs</span> <span class="o">=</span> <span class="p">[]</span>
+
+    <span class="k">for</span> <span class="n">job</span> <span class="ow">in</span> <span class="n">registry</span><span class="o">.</span><span class="n">list_all</span><span class="p">():</span>
+        <span class="n">is_enabled</span> <span class="o">=</span> <span class="n">registry</span><span class="o">.</span><span class="n">is_enabled</span><span class="p">(</span><span class="n">job</span><span class="o">.</span><span class="n">job_id</span><span class="p">)</span>
+        <span class="n">jobs</span><span class="o">.</span><span class="n">append</span><span class="p">(</span>
+            <span class="p">{</span>
+                <span class="s2">&quot;job_id&quot;</span><span class="p">:</span> <span class="n">job</span><span class="o">.</span><span class="n">job_id</span><span class="p">,</span>
+                <span class="s2">&quot;name&quot;</span><span class="p">:</span> <span class="n">job</span><span class="o">.</span><span class="n">name</span><span class="p">,</span>
+                <span class="s2">&quot;description&quot;</span><span class="p">:</span> <span class="n">job</span><span class="o">.</span><span class="n">description</span><span class="p">,</span>
+                <span class="s2">&quot;category&quot;</span><span class="p">:</span> <span class="n">job</span><span class="o">.</span><span class="n">category</span><span class="o">.</span><span class="n">value</span><span class="p">,</span>
+                <span class="s2">&quot;type&quot;</span><span class="p">:</span> <span class="n">job</span><span class="o">.</span><span class="n">job_type</span><span class="o">.</span><span class="n">value</span><span class="p">,</span>
+                <span class="s2">&quot;interval_seconds&quot;</span><span class="p">:</span> <span class="n">job</span><span class="o">.</span><span class="n">interval_seconds</span><span class="p">,</span>
+                <span class="s2">&quot;enabled&quot;</span><span class="p">:</span> <span class="n">is_enabled</span><span class="p">,</span>
+                <span class="s2">&quot;env_toggle&quot;</span><span class="p">:</span> <span class="n">job</span><span class="o">.</span><span class="n">env_toggle</span><span class="p">,</span>
+                <span class="c1"># can_trigger: מאפשר הפעלה ידנית אם יש callback מוגדר</span>
+                <span class="s2">&quot;can_trigger&quot;</span><span class="p">:</span> <span class="nb">bool</span><span class="p">(</span><span class="n">job</span><span class="o">.</span><span class="n">callback_name</span><span class="p">),</span>
+            <span class="p">}</span>
+        <span class="p">)</span>
+
+    <span class="k">return</span> <span class="n">web</span><span class="o">.</span><span class="n">json_response</span><span class="p">({</span><span class="s2">&quot;jobs&quot;</span><span class="p">:</span> <span class="n">jobs</span><span class="p">})</span></div>
+
+
+
+<div class="viewcode-block" id="get_job_detail">
+<a class="viewcode-back" href="../../api/services.webserver.html#services.webserver.get_job_detail">[תיעוד]</a>
+<span class="k">async</span> <span class="k">def</span> <span class="nf">get_job_detail</span><span class="p">(</span><span class="n">request</span><span class="p">:</span> <span class="n">web</span><span class="o">.</span><span class="n">Request</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">web</span><span class="o">.</span><span class="n">Response</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;GET /api/jobs/{job_id} - פרטי job ספציפי&quot;&quot;&quot;</span>
+    <span class="kn">from</span> <span class="nn">services.job_registry</span> <span class="kn">import</span> <span class="n">JobRegistry</span>
+    <span class="kn">from</span> <span class="nn">services.job_tracker</span> <span class="kn">import</span> <span class="n">get_job_tracker</span>
+
+    <span class="n">job_id</span> <span class="o">=</span> <span class="n">request</span><span class="o">.</span><span class="n">match_info</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;job_id&quot;</span><span class="p">)</span>
+    <span class="n">registry</span> <span class="o">=</span> <span class="n">JobRegistry</span><span class="p">()</span>
+    <span class="n">tracker</span> <span class="o">=</span> <span class="n">get_job_tracker</span><span class="p">()</span>
+
+    <span class="n">job</span> <span class="o">=</span> <span class="n">registry</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">job_id</span><span class="p">)</span>
+    <span class="k">if</span> <span class="ow">not</span> <span class="n">job</span><span class="p">:</span>
+        <span class="k">return</span> <span class="n">web</span><span class="o">.</span><span class="n">json_response</span><span class="p">({</span><span class="s2">&quot;error&quot;</span><span class="p">:</span> <span class="s2">&quot;Job not found&quot;</span><span class="p">},</span> <span class="n">status</span><span class="o">=</span><span class="mi">404</span><span class="p">)</span>
+
+    <span class="n">history</span> <span class="o">=</span> <span class="n">tracker</span><span class="o">.</span><span class="n">get_job_history</span><span class="p">(</span><span class="n">job_id</span><span class="p">,</span> <span class="n">limit</span><span class="o">=</span><span class="mi">20</span><span class="p">)</span>
+    <span class="n">active</span> <span class="o">=</span> <span class="p">[</span><span class="n">r</span> <span class="k">for</span> <span class="n">r</span> <span class="ow">in</span> <span class="n">tracker</span><span class="o">.</span><span class="n">get_active_runs</span><span class="p">()</span> <span class="k">if</span> <span class="n">r</span><span class="o">.</span><span class="n">job_id</span> <span class="o">==</span> <span class="n">job_id</span><span class="p">]</span>
+
+    <span class="k">return</span> <span class="n">web</span><span class="o">.</span><span class="n">json_response</span><span class="p">(</span>
+        <span class="p">{</span>
+            <span class="s2">&quot;job&quot;</span><span class="p">:</span> <span class="p">{</span>
+                <span class="s2">&quot;job_id&quot;</span><span class="p">:</span> <span class="n">job</span><span class="o">.</span><span class="n">job_id</span><span class="p">,</span>
+                <span class="s2">&quot;name&quot;</span><span class="p">:</span> <span class="n">job</span><span class="o">.</span><span class="n">name</span><span class="p">,</span>
+                <span class="s2">&quot;description&quot;</span><span class="p">:</span> <span class="n">job</span><span class="o">.</span><span class="n">description</span><span class="p">,</span>
+                <span class="s2">&quot;category&quot;</span><span class="p">:</span> <span class="n">job</span><span class="o">.</span><span class="n">category</span><span class="o">.</span><span class="n">value</span><span class="p">,</span>
+                <span class="s2">&quot;type&quot;</span><span class="p">:</span> <span class="n">job</span><span class="o">.</span><span class="n">job_type</span><span class="o">.</span><span class="n">value</span><span class="p">,</span>
+                <span class="s2">&quot;interval_seconds&quot;</span><span class="p">:</span> <span class="n">job</span><span class="o">.</span><span class="n">interval_seconds</span><span class="p">,</span>
+                <span class="s2">&quot;enabled&quot;</span><span class="p">:</span> <span class="n">registry</span><span class="o">.</span><span class="n">is_enabled</span><span class="p">(</span><span class="n">job</span><span class="o">.</span><span class="n">job_id</span><span class="p">),</span>
+                <span class="s2">&quot;source_file&quot;</span><span class="p">:</span> <span class="n">job</span><span class="o">.</span><span class="n">source_file</span><span class="p">,</span>
+            <span class="p">},</span>
+            <span class="s2">&quot;active_runs&quot;</span><span class="p">:</span> <span class="p">[</span><span class="n">_run_to_dict</span><span class="p">(</span><span class="n">r</span><span class="p">)</span> <span class="k">for</span> <span class="n">r</span> <span class="ow">in</span> <span class="n">active</span><span class="p">],</span>
+            <span class="s2">&quot;history&quot;</span><span class="p">:</span> <span class="p">[</span><span class="n">_run_to_dict</span><span class="p">(</span><span class="n">r</span><span class="p">)</span> <span class="k">for</span> <span class="n">r</span> <span class="ow">in</span> <span class="n">history</span><span class="p">],</span>
+        <span class="p">}</span>
+    <span class="p">)</span></div>
+
+
+
+<div class="viewcode-block" id="get_run_detail">
+<a class="viewcode-back" href="../../api/services.webserver.html#services.webserver.get_run_detail">[תיעוד]</a>
+<span class="k">async</span> <span class="k">def</span> <span class="nf">get_run_detail</span><span class="p">(</span><span class="n">request</span><span class="p">:</span> <span class="n">web</span><span class="o">.</span><span class="n">Request</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">web</span><span class="o">.</span><span class="n">Response</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;GET /api/jobs/runs/{run_id} - פרטי הרצה&quot;&quot;&quot;</span>
+    <span class="kn">from</span> <span class="nn">services.job_tracker</span> <span class="kn">import</span> <span class="n">get_job_tracker</span>
+
+    <span class="n">run_id</span> <span class="o">=</span> <span class="n">request</span><span class="o">.</span><span class="n">match_info</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;run_id&quot;</span><span class="p">)</span>
+    <span class="n">tracker</span> <span class="o">=</span> <span class="n">get_job_tracker</span><span class="p">()</span>
+
+    <span class="n">run</span> <span class="o">=</span> <span class="n">tracker</span><span class="o">.</span><span class="n">get_run</span><span class="p">(</span><span class="n">run_id</span><span class="p">)</span>
+    <span class="k">if</span> <span class="ow">not</span> <span class="n">run</span><span class="p">:</span>
+        <span class="k">return</span> <span class="n">web</span><span class="o">.</span><span class="n">json_response</span><span class="p">({</span><span class="s2">&quot;error&quot;</span><span class="p">:</span> <span class="s2">&quot;Run not found&quot;</span><span class="p">},</span> <span class="n">status</span><span class="o">=</span><span class="mi">404</span><span class="p">)</span>
+
+    <span class="k">return</span> <span class="n">web</span><span class="o">.</span><span class="n">json_response</span><span class="p">({</span><span class="s2">&quot;run&quot;</span><span class="p">:</span> <span class="n">_run_to_dict</span><span class="p">(</span><span class="n">run</span><span class="p">,</span> <span class="n">include_logs</span><span class="o">=</span><span class="kc">True</span><span class="p">)})</span></div>
+
+
+
+<div class="viewcode-block" id="get_active_runs">
+<a class="viewcode-back" href="../../api/services.webserver.html#services.webserver.get_active_runs">[תיעוד]</a>
+<span class="k">async</span> <span class="k">def</span> <span class="nf">get_active_runs</span><span class="p">(</span><span class="n">request</span><span class="p">:</span> <span class="n">web</span><span class="o">.</span><span class="n">Request</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">web</span><span class="o">.</span><span class="n">Response</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;GET /api/jobs/active - הרצות פעילות&quot;&quot;&quot;</span>
+    <span class="kn">from</span> <span class="nn">services.job_tracker</span> <span class="kn">import</span> <span class="n">get_job_tracker</span>
+
+    <span class="n">tracker</span> <span class="o">=</span> <span class="n">get_job_tracker</span><span class="p">()</span>
+    <span class="n">runs</span> <span class="o">=</span> <span class="n">tracker</span><span class="o">.</span><span class="n">get_active_runs</span><span class="p">()</span>
+
+    <span class="k">return</span> <span class="n">web</span><span class="o">.</span><span class="n">json_response</span><span class="p">({</span><span class="s2">&quot;active_runs&quot;</span><span class="p">:</span> <span class="p">[</span><span class="n">_run_to_dict</span><span class="p">(</span><span class="n">r</span><span class="p">)</span> <span class="k">for</span> <span class="n">r</span> <span class="ow">in</span> <span class="n">runs</span><span class="p">]})</span></div>
+
+
+
+<div class="viewcode-block" id="trigger_job">
+<a class="viewcode-back" href="../../api/services.webserver.html#services.webserver.trigger_job">[תיעוד]</a>
+<span class="k">async</span> <span class="k">def</span> <span class="nf">trigger_job</span><span class="p">(</span><span class="n">request</span><span class="p">:</span> <span class="n">web</span><span class="o">.</span><span class="n">Request</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">web</span><span class="o">.</span><span class="n">Response</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;POST /api/jobs/{job_id}/trigger - הפעלה ידנית&quot;&quot;&quot;</span>
+    <span class="kn">from</span> <span class="nn">services.job_registry</span> <span class="kn">import</span> <span class="n">JobRegistry</span>
+
+    <span class="n">job_id</span> <span class="o">=</span> <span class="n">request</span><span class="o">.</span><span class="n">match_info</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;job_id&quot;</span><span class="p">)</span>
+    <span class="n">registry</span> <span class="o">=</span> <span class="n">JobRegistry</span><span class="p">()</span>
+
+    <span class="n">job</span> <span class="o">=</span> <span class="n">registry</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">job_id</span><span class="p">)</span>
+    <span class="k">if</span> <span class="ow">not</span> <span class="n">job</span><span class="p">:</span>
+        <span class="k">return</span> <span class="n">web</span><span class="o">.</span><span class="n">json_response</span><span class="p">({</span><span class="s2">&quot;error&quot;</span><span class="p">:</span> <span class="s2">&quot;Job not found&quot;</span><span class="p">},</span> <span class="n">status</span><span class="o">=</span><span class="mi">404</span><span class="p">)</span>
+
+    <span class="c1"># Trigger via Telegram JobQueue (same process as bot)</span>
+    <span class="n">tg_app</span> <span class="o">=</span> <span class="kc">None</span>
+    <span class="k">try</span><span class="p">:</span>
+        <span class="n">tg_app</span> <span class="o">=</span> <span class="n">request</span><span class="o">.</span><span class="n">app</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;telegram_application&quot;</span><span class="p">)</span>
+    <span class="k">except</span> <span class="ne">Exception</span><span class="p">:</span>
+        <span class="n">tg_app</span> <span class="o">=</span> <span class="kc">None</span>
+    <span class="k">if</span> <span class="n">tg_app</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="k">return</span> <span class="n">web</span><span class="o">.</span><span class="n">json_response</span><span class="p">({</span><span class="s2">&quot;error&quot;</span><span class="p">:</span> <span class="s2">&quot;job_queue_unavailable&quot;</span><span class="p">},</span> <span class="n">status</span><span class="o">=</span><span class="mi">503</span><span class="p">)</span>
+
+    <span class="n">jq</span> <span class="o">=</span> <span class="nb">getattr</span><span class="p">(</span><span class="n">tg_app</span><span class="p">,</span> <span class="s2">&quot;job_queue&quot;</span><span class="p">,</span> <span class="kc">None</span><span class="p">)</span>
+    <span class="k">if</span> <span class="n">jq</span> <span class="ow">is</span> <span class="kc">None</span> <span class="ow">or</span> <span class="ow">not</span> <span class="nb">hasattr</span><span class="p">(</span><span class="n">jq</span><span class="p">,</span> <span class="s2">&quot;get_jobs_by_name&quot;</span><span class="p">):</span>
+        <span class="k">return</span> <span class="n">web</span><span class="o">.</span><span class="n">json_response</span><span class="p">({</span><span class="s2">&quot;error&quot;</span><span class="p">:</span> <span class="s2">&quot;job_queue_unavailable&quot;</span><span class="p">},</span> <span class="n">status</span><span class="o">=</span><span class="mi">503</span><span class="p">)</span>
+
+    <span class="k">try</span><span class="p">:</span>
+        <span class="n">jobs</span> <span class="o">=</span> <span class="n">jq</span><span class="o">.</span><span class="n">get_jobs_by_name</span><span class="p">(</span><span class="n">job_id</span><span class="p">)</span>
+    <span class="k">except</span> <span class="ne">Exception</span><span class="p">:</span>
+        <span class="n">jobs</span> <span class="o">=</span> <span class="p">[]</span>
+    <span class="k">if</span> <span class="ow">not</span> <span class="n">jobs</span><span class="p">:</span>
+        <span class="k">return</span> <span class="n">web</span><span class="o">.</span><span class="n">json_response</span><span class="p">({</span><span class="s2">&quot;error&quot;</span><span class="p">:</span> <span class="s2">&quot;job_not_scheduled&quot;</span><span class="p">},</span> <span class="n">status</span><span class="o">=</span><span class="mi">404</span><span class="p">)</span>
+
+    <span class="n">job_obj</span> <span class="o">=</span> <span class="n">jobs</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span>
+    <span class="n">callback</span> <span class="o">=</span> <span class="nb">getattr</span><span class="p">(</span><span class="n">job_obj</span><span class="p">,</span> <span class="s2">&quot;callback&quot;</span><span class="p">,</span> <span class="kc">None</span><span class="p">)</span>
+    <span class="k">if</span> <span class="ow">not</span> <span class="nb">callable</span><span class="p">(</span><span class="n">callback</span><span class="p">):</span>
+        <span class="k">return</span> <span class="n">web</span><span class="o">.</span><span class="n">json_response</span><span class="p">({</span><span class="s2">&quot;error&quot;</span><span class="p">:</span> <span class="s2">&quot;job_callback_unavailable&quot;</span><span class="p">},</span> <span class="n">status</span><span class="o">=</span><span class="mi">500</span><span class="p">)</span>
+
+    <span class="c1"># Schedule immediate one-off run</span>
+    <span class="k">try</span><span class="p">:</span>
+        <span class="n">suffix</span> <span class="o">=</span> <span class="nb">str</span><span class="p">(</span><span class="nb">int</span><span class="p">(</span><span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">()))</span>
+    <span class="k">except</span> <span class="ne">Exception</span><span class="p">:</span>
+        <span class="n">suffix</span> <span class="o">=</span> <span class="s2">&quot;now&quot;</span>
+    <span class="k">try</span><span class="p">:</span>
+        <span class="n">data</span> <span class="o">=</span> <span class="nb">getattr</span><span class="p">(</span><span class="n">job_obj</span><span class="p">,</span> <span class="s2">&quot;data&quot;</span><span class="p">,</span> <span class="kc">None</span><span class="p">)</span>
+        <span class="n">chat_id</span> <span class="o">=</span> <span class="nb">getattr</span><span class="p">(</span><span class="n">job_obj</span><span class="p">,</span> <span class="s2">&quot;chat_id&quot;</span><span class="p">,</span> <span class="kc">None</span><span class="p">)</span>
+        <span class="n">user_id</span> <span class="o">=</span> <span class="nb">getattr</span><span class="p">(</span><span class="n">job_obj</span><span class="p">,</span> <span class="s2">&quot;user_id&quot;</span><span class="p">,</span> <span class="kc">None</span><span class="p">)</span>
+        <span class="n">kwargs</span> <span class="o">=</span> <span class="p">{</span><span class="s2">&quot;when&quot;</span><span class="p">:</span> <span class="mi">0</span><span class="p">,</span> <span class="s2">&quot;name&quot;</span><span class="p">:</span> <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">job_id</span><span class="si">}</span><span class="s2">_manual_</span><span class="si">{</span><span class="n">suffix</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">}</span>
+        <span class="k">if</span> <span class="n">data</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="n">kwargs</span><span class="p">[</span><span class="s2">&quot;data&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">data</span>
+        <span class="k">if</span> <span class="n">chat_id</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="n">kwargs</span><span class="p">[</span><span class="s2">&quot;chat_id&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">chat_id</span>
+        <span class="k">if</span> <span class="n">user_id</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="n">kwargs</span><span class="p">[</span><span class="s2">&quot;user_id&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">user_id</span>
+        <span class="n">jq</span><span class="o">.</span><span class="n">run_once</span><span class="p">(</span><span class="n">callback</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">)</span>
+    <span class="k">except</span> <span class="ne">Exception</span><span class="p">:</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="c1"># Fallback for older signatures</span>
+            <span class="n">jq</span><span class="o">.</span><span class="n">run_once</span><span class="p">(</span><span class="n">callback</span><span class="p">,</span> <span class="n">when</span><span class="o">=</span><span class="mi">0</span><span class="p">)</span>
+        <span class="k">except</span> <span class="ne">Exception</span><span class="p">:</span>
+            <span class="n">logger</span><span class="o">.</span><span class="n">exception</span><span class="p">(</span><span class="s2">&quot;jobs_trigger_failed job_id=</span><span class="si">%s</span><span class="s2">&quot;</span><span class="p">,</span> <span class="n">job_id</span><span class="p">)</span>
+            <span class="k">return</span> <span class="n">web</span><span class="o">.</span><span class="n">json_response</span><span class="p">(</span>
+                <span class="p">{</span><span class="s2">&quot;error&quot;</span><span class="p">:</span> <span class="s2">&quot;trigger_failed&quot;</span><span class="p">,</span> <span class="s2">&quot;message&quot;</span><span class="p">:</span> <span class="s2">&quot;Failed to trigger job&quot;</span><span class="p">},</span>
+                <span class="n">status</span><span class="o">=</span><span class="mi">500</span><span class="p">,</span>
+            <span class="p">)</span>
+
+    <span class="k">return</span> <span class="n">web</span><span class="o">.</span><span class="n">json_response</span><span class="p">({</span><span class="s2">&quot;message&quot;</span><span class="p">:</span> <span class="sa">f</span><span class="s2">&quot;Job </span><span class="si">{</span><span class="n">job_id</span><span class="si">}</span><span class="s2"> triggered&quot;</span><span class="p">,</span> <span class="s2">&quot;job_id&quot;</span><span class="p">:</span> <span class="n">job_id</span><span class="p">})</span></div>
+
+
+
+<span class="k">def</span> <span class="nf">_run_to_dict</span><span class="p">(</span><span class="n">run</span><span class="p">,</span> <span class="n">include_logs</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;המרת JobRun ל-dict&quot;&quot;&quot;</span>
+    <span class="n">d</span> <span class="o">=</span> <span class="p">{</span>
+        <span class="s2">&quot;run_id&quot;</span><span class="p">:</span> <span class="n">run</span><span class="o">.</span><span class="n">run_id</span><span class="p">,</span>
+        <span class="s2">&quot;job_id&quot;</span><span class="p">:</span> <span class="n">run</span><span class="o">.</span><span class="n">job_id</span><span class="p">,</span>
+        <span class="s2">&quot;started_at&quot;</span><span class="p">:</span> <span class="n">run</span><span class="o">.</span><span class="n">started_at</span><span class="o">.</span><span class="n">isoformat</span><span class="p">()</span> <span class="k">if</span> <span class="n">run</span><span class="o">.</span><span class="n">started_at</span> <span class="k">else</span> <span class="kc">None</span><span class="p">,</span>
+        <span class="s2">&quot;ended_at&quot;</span><span class="p">:</span> <span class="n">run</span><span class="o">.</span><span class="n">ended_at</span><span class="o">.</span><span class="n">isoformat</span><span class="p">()</span> <span class="k">if</span> <span class="n">run</span><span class="o">.</span><span class="n">ended_at</span> <span class="k">else</span> <span class="kc">None</span><span class="p">,</span>
+        <span class="s2">&quot;status&quot;</span><span class="p">:</span> <span class="n">run</span><span class="o">.</span><span class="n">status</span><span class="o">.</span><span class="n">value</span><span class="p">,</span>
+        <span class="s2">&quot;progress&quot;</span><span class="p">:</span> <span class="n">run</span><span class="o">.</span><span class="n">progress</span><span class="p">,</span>
+        <span class="s2">&quot;total_items&quot;</span><span class="p">:</span> <span class="n">run</span><span class="o">.</span><span class="n">total_items</span><span class="p">,</span>
+        <span class="s2">&quot;processed_items&quot;</span><span class="p">:</span> <span class="n">run</span><span class="o">.</span><span class="n">processed_items</span><span class="p">,</span>
+        <span class="s2">&quot;error_message&quot;</span><span class="p">:</span> <span class="n">run</span><span class="o">.</span><span class="n">error_message</span><span class="p">,</span>
+        <span class="s2">&quot;trigger&quot;</span><span class="p">:</span> <span class="n">run</span><span class="o">.</span><span class="n">trigger</span><span class="p">,</span>
+        <span class="s2">&quot;user_id&quot;</span><span class="p">:</span> <span class="n">run</span><span class="o">.</span><span class="n">user_id</span><span class="p">,</span>
+        <span class="s2">&quot;duration_seconds&quot;</span><span class="p">:</span> <span class="p">(</span>
+            <span class="p">(</span><span class="n">run</span><span class="o">.</span><span class="n">ended_at</span> <span class="o">-</span> <span class="n">run</span><span class="o">.</span><span class="n">started_at</span><span class="p">)</span><span class="o">.</span><span class="n">total_seconds</span><span class="p">()</span>
+            <span class="k">if</span> <span class="n">run</span><span class="o">.</span><span class="n">ended_at</span> <span class="ow">and</span> <span class="n">run</span><span class="o">.</span><span class="n">started_at</span>
+            <span class="k">else</span> <span class="kc">None</span>
+        <span class="p">),</span>
+    <span class="p">}</span>
+    <span class="k">if</span> <span class="n">include_logs</span><span class="p">:</span>
+        <span class="n">d</span><span class="p">[</span><span class="s2">&quot;logs&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="p">[</span>
+            <span class="p">{</span>
+                <span class="s2">&quot;timestamp&quot;</span><span class="p">:</span> <span class="n">log</span><span class="o">.</span><span class="n">timestamp</span><span class="o">.</span><span class="n">isoformat</span><span class="p">(),</span>
+                <span class="s2">&quot;level&quot;</span><span class="p">:</span> <span class="n">log</span><span class="o">.</span><span class="n">level</span><span class="p">,</span>
+                <span class="s2">&quot;message&quot;</span><span class="p">:</span> <span class="n">log</span><span class="o">.</span><span class="n">message</span><span class="p">,</span>
+            <span class="p">}</span>
+            <span class="k">for</span> <span class="n">log</span> <span class="ow">in</span> <span class="n">run</span><span class="o">.</span><span class="n">logs</span>
+        <span class="p">]</span>
+    <span class="k">return</span> <span class="n">d</span>
+
+
+<div class="viewcode-block" id="register_jobs_routes">
+<a class="viewcode-back" href="../../api/services.webserver.html#services.webserver.register_jobs_routes">[תיעוד]</a>
+<span class="k">def</span> <span class="nf">register_jobs_routes</span><span class="p">(</span><span class="n">app</span><span class="p">:</span> <span class="n">web</span><span class="o">.</span><span class="n">Application</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;רישום routes של Jobs&quot;&quot;&quot;</span>
+    <span class="n">app</span><span class="o">.</span><span class="n">router</span><span class="o">.</span><span class="n">add_get</span><span class="p">(</span><span class="s2">&quot;/api/jobs&quot;</span><span class="p">,</span> <span class="n">get_jobs_list</span><span class="p">)</span>
+    <span class="n">app</span><span class="o">.</span><span class="n">router</span><span class="o">.</span><span class="n">add_get</span><span class="p">(</span><span class="s2">&quot;/api/jobs/active&quot;</span><span class="p">,</span> <span class="n">get_active_runs</span><span class="p">)</span>
+    <span class="n">app</span><span class="o">.</span><span class="n">router</span><span class="o">.</span><span class="n">add_get</span><span class="p">(</span><span class="s2">&quot;/api/jobs/</span><span class="si">{job_id}</span><span class="s2">&quot;</span><span class="p">,</span> <span class="n">get_job_detail</span><span class="p">)</span>
+    <span class="n">app</span><span class="o">.</span><span class="n">router</span><span class="o">.</span><span class="n">add_get</span><span class="p">(</span><span class="s2">&quot;/api/jobs/runs/</span><span class="si">{run_id}</span><span class="s2">&quot;</span><span class="p">,</span> <span class="n">get_run_detail</span><span class="p">)</span>
+    <span class="n">app</span><span class="o">.</span><span class="n">router</span><span class="o">.</span><span class="n">add_post</span><span class="p">(</span><span class="s2">&quot;/api/jobs/</span><span class="si">{job_id}</span><span class="s2">/trigger&quot;</span><span class="p">,</span> <span class="n">trigger_job</span><span class="p">)</span></div>
 
 
 

@@ -456,7 +456,11 @@ window.addEventListener("load", () => mermaid.run());
 </ul>
 </li>
 <li class="toctree-l3"><a class="reference internal" href="../../api/autocomplete_manager.html">autocomplete_manager module</a></li>
-<li class="toctree-l3"><a class="reference internal" href="../../api/backup_menu_handler.html">backup_menu_handler module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../api/backup_menu_handler.html">backup_menu_handler module</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../../api/backup_menu_handler.html#backup_menu_handler.emit_event"><code class="docutils literal notranslate"><span class="pre">emit_event()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../api/backup_menu_handler.html#backup_menu_handler.BackupMenuHandler"><code class="docutils literal notranslate"><span class="pre">BackupMenuHandler</span></code></a></li>
+</ul>
+</li>
 <li class="toctree-l3"><a class="reference internal" href="../../api/batch_commands.html">batch_commands module</a></li>
 <li class="toctree-l3"><a class="reference internal" href="../../api/batch_processor.html">batch_processor module</a></li>
 <li class="toctree-l3"><a class="reference internal" href="../../api/bot_handlers.html">bot_handlers module</a></li>
@@ -466,6 +470,7 @@ window.addEventListener("load", () => mermaid.run());
 <li class="toctree-l4"><a class="reference internal" href="../../api/cache_commands.html#cache_commands.clear_cache_command"><code class="docutils literal notranslate"><span class="pre">clear_cache_command()</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="../../api/cache_commands.html#cache_commands.setup_cache_handlers"><code class="docutils literal notranslate"><span class="pre">setup_cache_handlers()</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="../../api/cache_commands.html#cache_commands.cache_warm_command"><code class="docutils literal notranslate"><span class="pre">cache_warm_command()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../api/cache_commands.html#cache_commands.debug_cache_command"><code class="docutils literal notranslate"><span class="pre">debug_cache_command()</span></code></a></li>
 </ul>
 </li>
 <li class="toctree-l3"><a class="reference internal" href="../../api/cache_manager.html">cache_manager module</a><ul>
@@ -1514,6 +1519,40 @@ window.addEventListener("load", () => mermaid.run());
 <li class="toctree-l2"><a class="reference internal" href="../../webapp/advanced-caching.html#id4">קישורים</a></li>
 </ul>
 </li>
+<li class="toctree-l1"><a class="reference internal" href="../../webapp/cache-inspector.html">Cache Inspector (לוח בקרה של Redis)</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../webapp/cache-inspector.html#cache-inspector">מה זה Cache Inspector?</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../../webapp/cache-inspector.html#id1">למה צריך את זה?</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../../webapp/cache-inspector.html#id2">איך נכנסים?</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../webapp/cache-inspector.html#id3">יכולות עיקריות</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../../webapp/cache-inspector.html#id4">סטטיסטיקות כלליות</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../webapp/cache-inspector.html#id5">חיפוש מפתחות</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../webapp/cache-inspector.html#ttl">הצגת TTL וסטטוס</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../webapp/cache-inspector.html#id6">פעולות מחיקה</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../../webapp/cache-inspector.html#id7">אבטחה ובטיחות</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../../webapp/cache-inspector.html#id8">הגנת הרשאות</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../webapp/cache-inspector.html#masking">הסתרת מידע רגיש (Masking)</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../webapp/cache-inspector.html#scan-keys">שימוש ב-SCAN במקום KEYS</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../webapp/cache-inspector.html#id9">תקציב זמן למחיקות</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../../webapp/cache-inspector.html#api-endpoints">API Endpoints</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../../webapp/cache-inspector.html#api">דוגמאות API</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../../webapp/cache-inspector.html#id10">תקלות נפוצות</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../../webapp/cache-inspector.html#redis">Redis מושבת</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../webapp/cache-inspector.html#id11">אין הרשאות</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../webapp/cache-inspector.html#id12">חיפוש איטי</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../../webapp/cache-inspector.html#id13">משתני סביבה רלוונטיים</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../webapp/cache-inspector.html#id14">ראו גם</a></li>
+</ul>
+</li>
 <li class="toctree-l1"><a class="reference internal" href="../../webapp/static-checklist.html">Static Performance &amp; Security Checklist (gzip/br, Cache, SRI)</a><ul>
 <li class="toctree-l2"><a class="reference internal" href="../../webapp/static-checklist.html#id1">מטרה</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../../webapp/static-checklist.html#br-gzip">דחיסה (br/gzip)</a></li>
@@ -1643,6 +1682,58 @@ window.addEventListener("load", () => mermaid.run());
 </li>
 <li class="toctree-l2"><a class="reference internal" href="../../observability.html#traced">כיסוי דקורטור &#64;traced</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../../observability.html#staging">אימות ב-Staging</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../../observability/background-jobs-monitor.html">Background Jobs Monitor</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../observability/background-jobs-monitor.html#id1">סקירה כללית</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../observability/background-jobs-monitor.html#id2">רכיבים וקוד רלוונטי</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../observability/background-jobs-monitor.html#id3">מסד נתונים</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../../observability/background-jobs-monitor.html#job-runs">קולקציה: <code class="docutils literal notranslate"><span class="pre">job_runs</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../../observability/background-jobs-monitor.html#ui-webapp">UI / WebApp</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../../observability/background-jobs-monitor.html#id4">גישה לדשבורד</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../observability/background-jobs-monitor.html#id5">מה רואים בדשבורד</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../observability/background-jobs-monitor.html#jobs-vs">Jobs סטטיים vs. דינמיים</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../../observability/background-jobs-monitor.html#api-reference">API Reference</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../../observability/background-jobs-monitor.html#get-api-jobs">GET /api/jobs</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../observability/background-jobs-monitor.html#get-api-jobs-active">GET /api/jobs/active</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../observability/background-jobs-monitor.html#get-api-jobs-job-id">GET /api/jobs/{job_id}</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../observability/background-jobs-monitor.html#get-api-jobs-runs-run-id">GET /api/jobs/runs/{run_id}</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../observability/background-jobs-monitor.html#post-api-jobs-job-id-trigger">POST /api/jobs/{job_id}/trigger</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../../observability/background-jobs-monitor.html#id6">אבטחה</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../../observability/background-jobs-monitor.html#api">הגנה על ה-API</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../../observability/background-jobs-monitor.html#env">ENV וקונפיגורציה</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../../observability/background-jobs-monitor.html#id7">משתני סביבה</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../../observability/background-jobs-monitor.html#chatops-jobs">ChatOps – פקודת /jobs</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../../observability/background-jobs-monitor.html#id8">פקודות זמינות</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../observability/background-jobs-monitor.html#id9">דוגמאות</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../../observability/background-jobs-monitor.html#alerts">Alerts</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../../observability/background-jobs-monitor.html#alerts-yml">הגדרות ב-alerts.yml</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../observability/background-jobs-monitor.html#flow-alerts">Flow של Alerts</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../../observability/background-jobs-monitor.html#troubleshooting">Troubleshooting</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../../observability/background-jobs-monitor.html#id10">”הטריגר לא עובד“</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../observability/background-jobs-monitor.html#jobs">”אין jobs דינמיים בדשבורד“</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../observability/background-jobs-monitor.html#id11">”לא מגיעים Alerts“</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../observability/background-jobs-monitor.html#job">”Job תקוע אבל אין התראה“</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../observability/background-jobs-monitor.html#id12">”השרת מחזיר 401/403“</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../observability/background-jobs-monitor.html#id13">”לוגים ריקים בדשבורד“</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../../observability/background-jobs-monitor.html#best-practices">Best Practices</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../observability/background-jobs-monitor.html#id14">ראו גם</a></li>
 </ul>
 </li>
 <li class="toctree-l1"><a class="reference internal" href="../../observability/observability_dashboard.html">📡 Observability Dashboard &amp; API</a><ul>
@@ -1951,6 +2042,7 @@ window.addEventListener("load", () => mermaid.run());
 <li class="toctree-l2"><a class="reference internal" href="../../chatops/commands.html#health">/health</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../../chatops/commands.html#uptime">/uptime</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../../chatops/commands.html#system-info">/system_info</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../chatops/commands.html#check-commands">/check commands</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../../chatops/commands.html#metrics">/metrics</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../../chatops/commands.html#observe">/observe</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../../chatops/commands.html#observe-v">/observe -v (מפורט)</a></li>
@@ -1960,6 +2052,7 @@ window.addEventListener("load", () => mermaid.run());
 </ul>
 </li>
 <li class="toctree-l2"><a class="reference internal" href="../../chatops/commands.html#alerts">/alerts</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../chatops/commands.html#jobs">/jobs</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../../chatops/commands.html#incidents">/incidents</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../../chatops/commands.html#triage">/triage</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../../chatops/commands.html#predict">/predict</a></li>
@@ -1978,6 +2071,7 @@ window.addEventListener("load", () => mermaid.run());
 <li class="toctree-l2"><a class="reference internal" href="../../chatops/commands.html#clear-cache">/clear_cache</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../../chatops/commands.html#cache-warm">/cache_warm</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../../chatops/commands.html#cache-clear-stale">/cache_clear_stale</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../chatops/commands.html#debug-cache">/debug_cache</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../../chatops/commands.html#status-worker">/status_worker</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../../chatops/commands.html#version-history">/version_history</a></li>
 </ul>
@@ -2114,9 +2208,9 @@ window.addEventListener("load", () => mermaid.run());
   <h1>הראה קוד מקור ל handlers.save_flow</h1><div class="highlight"><pre>
 <span></span><span class="kn">import</span> <span class="nn">re</span>
 <span class="kn">import</span> <span class="nn">os</span>
+<span class="kn">import</span> <span class="nn">sys</span>
 <span class="kn">import</span> <span class="nn">logging</span>
 <span class="kn">import</span> <span class="nn">inspect</span>
-<span class="kn">import</span> <span class="nn">importlib</span>
 <span class="kn">from</span> <span class="nn">io</span> <span class="kn">import</span> <span class="n">BytesIO</span>
 <span class="kn">from</span> <span class="nn">typing</span> <span class="kn">import</span> <span class="n">Optional</span>
 <span class="kn">from</span> <span class="nn">telegram</span> <span class="kn">import</span> <span class="n">InlineKeyboardButton</span><span class="p">,</span> <span class="n">InlineKeyboardMarkup</span><span class="p">,</span> <span class="n">ReplyKeyboardMarkup</span>
@@ -2131,14 +2225,17 @@ window.addEventListener("load", () => mermaid.run());
 
 <span class="n">logger</span> <span class="o">=</span> <span class="n">logging</span><span class="o">.</span><span class="n">getLogger</span><span class="p">(</span><span class="vm">__name__</span><span class="p">)</span>
 
-<span class="c1"># Backwards-compatibility for tests that monkeypatch `handlers.save_flow.db`</span>
-<span class="c1"># and/or `handlers.save_flow.CodeSnippet`.</span>
+<span class="c1"># Backwards-compatibility: some tests may monkeypatch `handlers.save_flow.db`</span>
 <span class="n">db</span> <span class="o">=</span> <span class="kc">None</span>  <span class="c1"># type: ignore</span>
-<span class="n">CodeSnippet</span> <span class="o">=</span> <span class="kc">None</span>  <span class="c1"># type: ignore</span>
+
+<span class="c1"># NOTE: We intentionally avoid importing the legacy `database` package here.</span>
+<span class="c1"># All persistence access goes through the composition facade / application services.</span>
+<span class="c1"># For backwards-compatibility in tests, we support reading a pre-injected</span>
+<span class="c1"># `sys.modules[&quot;database&quot;].db` object (no dynamic import).</span>
 
 
 <span class="k">def</span> <span class="nf">_get_legacy_db</span><span class="p">():</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;גישה ל-DB הוותיק בלי import סטטי של database.&quot;&quot;&quot;</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Best-effort access to legacy db object without importing `database`.&quot;&quot;&quot;</span>
     <span class="k">try</span><span class="p">:</span>
         <span class="n">patched</span> <span class="o">=</span> <span class="nb">globals</span><span class="p">()</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;db&quot;</span><span class="p">)</span>
         <span class="k">if</span> <span class="n">patched</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
@@ -2146,31 +2243,12 @@ window.addEventListener("load", () => mermaid.run());
     <span class="k">except</span> <span class="ne">Exception</span><span class="p">:</span>
         <span class="k">pass</span>
     <span class="k">try</span><span class="p">:</span>
-        <span class="n">module</span> <span class="o">=</span> <span class="n">importlib</span><span class="o">.</span><span class="n">import_module</span><span class="p">(</span><span class="s2">&quot;database&quot;</span><span class="p">)</span>
-        <span class="k">return</span> <span class="nb">getattr</span><span class="p">(</span><span class="n">module</span><span class="p">,</span> <span class="s2">&quot;db&quot;</span><span class="p">,</span> <span class="kc">None</span><span class="p">)</span>
+        <span class="n">mod</span> <span class="o">=</span> <span class="n">sys</span><span class="o">.</span><span class="n">modules</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;database&quot;</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">mod</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="k">return</span> <span class="nb">getattr</span><span class="p">(</span><span class="n">mod</span><span class="p">,</span> <span class="s2">&quot;db&quot;</span><span class="p">,</span> <span class="kc">None</span><span class="p">)</span>
     <span class="k">except</span> <span class="ne">Exception</span><span class="p">:</span>
         <span class="k">return</span> <span class="kc">None</span>
-
-
-<span class="k">def</span> <span class="nf">_get_legacy_model_class</span><span class="p">(</span><span class="n">class_name</span><span class="p">:</span> <span class="nb">str</span><span class="p">):</span>
-    <span class="c1"># If tests patched a class in this module, prefer it.</span>
-    <span class="k">try</span><span class="p">:</span>
-        <span class="n">patched</span> <span class="o">=</span> <span class="nb">globals</span><span class="p">()</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">class_name</span><span class="p">)</span>
-        <span class="k">if</span> <span class="n">patched</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
-            <span class="k">return</span> <span class="n">patched</span>
-    <span class="k">except</span> <span class="ne">Exception</span><span class="p">:</span>
-        <span class="k">pass</span>
-    <span class="c1"># Prefer `database.&lt;Class&gt;` first (tests often monkeypatch this path).</span>
-    <span class="k">for</span> <span class="n">module_name</span> <span class="ow">in</span> <span class="p">(</span><span class="s2">&quot;database&quot;</span><span class="p">,</span> <span class="s2">&quot;database.models&quot;</span><span class="p">):</span>
-        <span class="k">try</span><span class="p">:</span>
-            <span class="n">module</span> <span class="o">=</span> <span class="n">importlib</span><span class="o">.</span><span class="n">import_module</span><span class="p">(</span><span class="n">module_name</span><span class="p">)</span>
-            <span class="bp">cls</span> <span class="o">=</span> <span class="nb">getattr</span><span class="p">(</span><span class="n">module</span><span class="p">,</span> <span class="n">class_name</span><span class="p">,</span> <span class="kc">None</span><span class="p">)</span>
-            <span class="k">if</span> <span class="bp">cls</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
-                <span class="k">return</span> <span class="bp">cls</span>
-        <span class="k">except</span> <span class="ne">Exception</span><span class="p">:</span>
-            <span class="k">continue</span>
     <span class="k">return</span> <span class="kc">None</span>
-
 <span class="c1"># Observability (fail-open): unify error/event reporting</span>
 <span class="k">try</span><span class="p">:</span>  <span class="c1"># type: ignore</span>
     <span class="kn">from</span> <span class="nn">observability</span> <span class="kn">import</span> <span class="n">emit_event</span>  <span class="c1"># type: ignore</span>
@@ -2854,24 +2932,6 @@ window.addEventListener("load", () => mermaid.run());
             <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">exc</span><span class="p">:</span>
                 <span class="n">success</span> <span class="o">=</span> <span class="kc">False</span>
                 <span class="n">last_exc</span> <span class="o">=</span> <span class="n">last_exc</span> <span class="ow">or</span> <span class="n">exc</span>
-        <span class="k">if</span> <span class="ow">not</span> <span class="n">success</span><span class="p">:</span>
-            <span class="c1"># fallback לנתיב legacy בלי import סטטי של database</span>
-            <span class="k">try</span><span class="p">:</span>
-                <span class="n">legacy</span> <span class="o">=</span> <span class="n">_get_legacy_db</span><span class="p">()</span>
-                <span class="n">CodeSnippet</span> <span class="o">=</span> <span class="n">_get_legacy_model_class</span><span class="p">(</span><span class="s2">&quot;CodeSnippet&quot;</span><span class="p">)</span>
-                <span class="k">if</span> <span class="n">legacy</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="ow">and</span> <span class="n">CodeSnippet</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
-                    <span class="n">snippet</span> <span class="o">=</span> <span class="n">CodeSnippet</span><span class="p">(</span>
-                        <span class="n">user_id</span><span class="o">=</span><span class="n">user_id</span><span class="p">,</span>
-                        <span class="n">file_name</span><span class="o">=</span><span class="n">filename</span><span class="p">,</span>
-                        <span class="n">code</span><span class="o">=</span><span class="n">code</span><span class="p">,</span>
-                        <span class="n">programming_language</span><span class="o">=</span><span class="n">detected_language</span><span class="p">,</span>
-                        <span class="n">description</span><span class="o">=</span><span class="n">note</span><span class="p">,</span>
-                    <span class="p">)</span>
-                    <span class="n">success</span> <span class="o">=</span> <span class="nb">bool</span><span class="p">(</span><span class="n">legacy</span><span class="o">.</span><span class="n">save_code_snippet</span><span class="p">(</span><span class="n">snippet</span><span class="p">))</span>
-            <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">exc</span><span class="p">:</span>
-                <span class="n">success</span> <span class="o">=</span> <span class="kc">False</span>
-                <span class="c1"># If legacy raised, bubble up to outer handler to trigger observability.</span>
-                <span class="n">last_exc</span> <span class="o">=</span> <span class="n">last_exc</span> <span class="ow">or</span> <span class="n">exc</span>
         <span class="k">if</span> <span class="ow">not</span> <span class="n">success</span> <span class="ow">and</span> <span class="n">last_exc</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
             <span class="k">raise</span> <span class="n">last_exc</span>
         <span class="k">if</span> <span class="n">success</span><span class="p">:</span>
@@ -2880,13 +2940,6 @@ window.addEventListener("load", () => mermaid.run());
                 <span class="n">fid</span> <span class="o">=</span> <span class="nb">str</span><span class="p">(</span><span class="n">saved_doc</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s1">&#39;_id&#39;</span><span class="p">)</span> <span class="ow">or</span> <span class="s1">&#39;&#39;</span><span class="p">)</span>
             <span class="k">except</span> <span class="ne">Exception</span><span class="p">:</span>
                 <span class="n">fid</span> <span class="o">=</span> <span class="s1">&#39;&#39;</span>
-            <span class="k">if</span> <span class="ow">not</span> <span class="n">fid</span><span class="p">:</span>
-                <span class="k">try</span><span class="p">:</span>
-                    <span class="n">legacy</span> <span class="o">=</span> <span class="n">_get_legacy_db</span><span class="p">()</span>
-                    <span class="n">saved_doc</span> <span class="o">=</span> <span class="n">legacy</span><span class="o">.</span><span class="n">get_latest_version</span><span class="p">(</span><span class="n">user_id</span><span class="p">,</span> <span class="n">filename</span><span class="p">)</span> <span class="k">if</span> <span class="n">legacy</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="k">else</span> <span class="kc">None</span>
-                    <span class="n">fid</span> <span class="o">=</span> <span class="nb">str</span><span class="p">((</span><span class="n">saved_doc</span> <span class="ow">or</span> <span class="p">{})</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s1">&#39;_id&#39;</span><span class="p">)</span> <span class="ow">or</span> <span class="s1">&#39;&#39;</span><span class="p">)</span>
-                <span class="k">except</span> <span class="ne">Exception</span><span class="p">:</span>
-                    <span class="n">fid</span> <span class="o">=</span> <span class="s1">&#39;&#39;</span>
             <span class="k">await</span> <span class="n">_send_save_success</span><span class="p">(</span><span class="n">update</span><span class="p">,</span> <span class="n">context</span><span class="p">,</span> <span class="n">filename</span><span class="p">,</span> <span class="n">detected_language</span><span class="p">,</span> <span class="n">note</span> <span class="ow">or</span> <span class="s1">&#39;&#39;</span><span class="p">,</span> <span class="n">fid</span><span class="p">)</span>
             <span class="n">_cleanup_save_flow_state</span><span class="p">(</span><span class="n">context</span><span class="p">)</span>
             <span class="k">return</span> <span class="n">ConversationHandler</span><span class="o">.</span><span class="n">END</span>

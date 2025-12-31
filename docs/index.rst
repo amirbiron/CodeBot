@@ -123,6 +123,7 @@ Code Keeper Bot - תיעוד API
    webapp/onboarding
    webapp/caching
    webapp/advanced-caching
+   webapp/cache-inspector
    webapp/static-checklist
    webapp/commands-catalog
    webapp/api-reference

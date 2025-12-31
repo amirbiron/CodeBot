@@ -459,7 +459,11 @@ window.addEventListener("load", () => mermaid.run());
 </ul>
 </li>
 <li class="toctree-l3"><a class="reference internal" href="../api/autocomplete_manager.html">autocomplete_manager module</a></li>
-<li class="toctree-l3"><a class="reference internal" href="../api/backup_menu_handler.html">backup_menu_handler module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../api/backup_menu_handler.html">backup_menu_handler module</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../api/backup_menu_handler.html#backup_menu_handler.emit_event"><code class="docutils literal notranslate"><span class="pre">emit_event()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../api/backup_menu_handler.html#backup_menu_handler.BackupMenuHandler"><code class="docutils literal notranslate"><span class="pre">BackupMenuHandler</span></code></a></li>
+</ul>
+</li>
 <li class="toctree-l3"><a class="reference internal" href="../api/batch_commands.html">batch_commands module</a></li>
 <li class="toctree-l3"><a class="reference internal" href="../api/batch_processor.html">batch_processor module</a></li>
 <li class="toctree-l3"><a class="reference internal" href="../api/bot_handlers.html">bot_handlers module</a></li>
@@ -469,6 +473,7 @@ window.addEventListener("load", () => mermaid.run());
 <li class="toctree-l4"><a class="reference internal" href="../api/cache_commands.html#cache_commands.clear_cache_command"><code class="docutils literal notranslate"><span class="pre">clear_cache_command()</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="../api/cache_commands.html#cache_commands.setup_cache_handlers"><code class="docutils literal notranslate"><span class="pre">setup_cache_handlers()</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="../api/cache_commands.html#cache_commands.cache_warm_command"><code class="docutils literal notranslate"><span class="pre">cache_warm_command()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../api/cache_commands.html#cache_commands.debug_cache_command"><code class="docutils literal notranslate"><span class="pre">debug_cache_command()</span></code></a></li>
 </ul>
 </li>
 <li class="toctree-l3"><a class="reference internal" href="../api/cache_manager.html">cache_manager module</a><ul>
@@ -1517,6 +1522,40 @@ window.addEventListener("load", () => mermaid.run());
 <li class="toctree-l2"><a class="reference internal" href="advanced-caching.html#id4">קישורים</a></li>
 </ul>
 </li>
+<li class="toctree-l1"><a class="reference internal" href="cache-inspector.html">Cache Inspector (לוח בקרה של Redis)</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="cache-inspector.html#cache-inspector">מה זה Cache Inspector?</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="cache-inspector.html#id1">למה צריך את זה?</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="cache-inspector.html#id2">איך נכנסים?</a></li>
+<li class="toctree-l2"><a class="reference internal" href="cache-inspector.html#id3">יכולות עיקריות</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="cache-inspector.html#id4">סטטיסטיקות כלליות</a></li>
+<li class="toctree-l3"><a class="reference internal" href="cache-inspector.html#id5">חיפוש מפתחות</a></li>
+<li class="toctree-l3"><a class="reference internal" href="cache-inspector.html#ttl">הצגת TTL וסטטוס</a></li>
+<li class="toctree-l3"><a class="reference internal" href="cache-inspector.html#id6">פעולות מחיקה</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="cache-inspector.html#id7">אבטחה ובטיחות</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="cache-inspector.html#id8">הגנת הרשאות</a></li>
+<li class="toctree-l3"><a class="reference internal" href="cache-inspector.html#masking">הסתרת מידע רגיש (Masking)</a></li>
+<li class="toctree-l3"><a class="reference internal" href="cache-inspector.html#scan-keys">שימוש ב-SCAN במקום KEYS</a></li>
+<li class="toctree-l3"><a class="reference internal" href="cache-inspector.html#id9">תקציב זמן למחיקות</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="cache-inspector.html#api-endpoints">API Endpoints</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="cache-inspector.html#api">דוגמאות API</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="cache-inspector.html#id10">תקלות נפוצות</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="cache-inspector.html#redis">Redis מושבת</a></li>
+<li class="toctree-l3"><a class="reference internal" href="cache-inspector.html#id11">אין הרשאות</a></li>
+<li class="toctree-l3"><a class="reference internal" href="cache-inspector.html#id12">חיפוש איטי</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="cache-inspector.html#id13">משתני סביבה רלוונטיים</a></li>
+<li class="toctree-l2"><a class="reference internal" href="cache-inspector.html#id14">ראו גם</a></li>
+</ul>
+</li>
 <li class="toctree-l1"><a class="reference internal" href="static-checklist.html">Static Performance &amp; Security Checklist (gzip/br, Cache, SRI)</a><ul>
 <li class="toctree-l2"><a class="reference internal" href="static-checklist.html#id1">מטרה</a></li>
 <li class="toctree-l2"><a class="reference internal" href="static-checklist.html#br-gzip">דחיסה (br/gzip)</a></li>
@@ -1646,6 +1685,58 @@ window.addEventListener("load", () => mermaid.run());
 </li>
 <li class="toctree-l2"><a class="reference internal" href="../observability.html#traced">כיסוי דקורטור &#64;traced</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../observability.html#staging">אימות ב-Staging</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../observability/background-jobs-monitor.html">Background Jobs Monitor</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../observability/background-jobs-monitor.html#id1">סקירה כללית</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../observability/background-jobs-monitor.html#id2">רכיבים וקוד רלוונטי</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../observability/background-jobs-monitor.html#id3">מסד נתונים</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../observability/background-jobs-monitor.html#job-runs">קולקציה: <code class="docutils literal notranslate"><span class="pre">job_runs</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../observability/background-jobs-monitor.html#ui-webapp">UI / WebApp</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../observability/background-jobs-monitor.html#id4">גישה לדשבורד</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../observability/background-jobs-monitor.html#id5">מה רואים בדשבורד</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../observability/background-jobs-monitor.html#jobs-vs">Jobs סטטיים vs. דינמיים</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../observability/background-jobs-monitor.html#api-reference">API Reference</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../observability/background-jobs-monitor.html#get-api-jobs">GET /api/jobs</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../observability/background-jobs-monitor.html#get-api-jobs-active">GET /api/jobs/active</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../observability/background-jobs-monitor.html#get-api-jobs-job-id">GET /api/jobs/{job_id}</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../observability/background-jobs-monitor.html#get-api-jobs-runs-run-id">GET /api/jobs/runs/{run_id}</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../observability/background-jobs-monitor.html#post-api-jobs-job-id-trigger">POST /api/jobs/{job_id}/trigger</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../observability/background-jobs-monitor.html#id6">אבטחה</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../observability/background-jobs-monitor.html#api">הגנה על ה-API</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../observability/background-jobs-monitor.html#env">ENV וקונפיגורציה</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../observability/background-jobs-monitor.html#id7">משתני סביבה</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../observability/background-jobs-monitor.html#chatops-jobs">ChatOps – פקודת /jobs</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../observability/background-jobs-monitor.html#id8">פקודות זמינות</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../observability/background-jobs-monitor.html#id9">דוגמאות</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../observability/background-jobs-monitor.html#alerts">Alerts</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../observability/background-jobs-monitor.html#alerts-yml">הגדרות ב-alerts.yml</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../observability/background-jobs-monitor.html#flow-alerts">Flow של Alerts</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../observability/background-jobs-monitor.html#troubleshooting">Troubleshooting</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../observability/background-jobs-monitor.html#id10">”הטריגר לא עובד“</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../observability/background-jobs-monitor.html#jobs">”אין jobs דינמיים בדשבורד“</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../observability/background-jobs-monitor.html#id11">”לא מגיעים Alerts“</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../observability/background-jobs-monitor.html#job">”Job תקוע אבל אין התראה“</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../observability/background-jobs-monitor.html#id12">”השרת מחזיר 401/403“</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../observability/background-jobs-monitor.html#id13">”לוגים ריקים בדשבורד“</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../observability/background-jobs-monitor.html#best-practices">Best Practices</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../observability/background-jobs-monitor.html#id14">ראו גם</a></li>
 </ul>
 </li>
 <li class="toctree-l1"><a class="reference internal" href="../observability/observability_dashboard.html">📡 Observability Dashboard &amp; API</a><ul>
@@ -1954,6 +2045,7 @@ window.addEventListener("load", () => mermaid.run());
 <li class="toctree-l2"><a class="reference internal" href="../chatops/commands.html#health">/health</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../chatops/commands.html#uptime">/uptime</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../chatops/commands.html#system-info">/system_info</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../chatops/commands.html#check-commands">/check commands</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../chatops/commands.html#metrics">/metrics</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../chatops/commands.html#observe">/observe</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../chatops/commands.html#observe-v">/observe -v (מפורט)</a></li>
@@ -1963,6 +2055,7 @@ window.addEventListener("load", () => mermaid.run());
 </ul>
 </li>
 <li class="toctree-l2"><a class="reference internal" href="../chatops/commands.html#alerts">/alerts</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../chatops/commands.html#jobs">/jobs</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../chatops/commands.html#incidents">/incidents</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../chatops/commands.html#triage">/triage</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../chatops/commands.html#predict">/predict</a></li>
@@ -1981,6 +2074,7 @@ window.addEventListener("load", () => mermaid.run());
 <li class="toctree-l2"><a class="reference internal" href="../chatops/commands.html#clear-cache">/clear_cache</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../chatops/commands.html#cache-warm">/cache_warm</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../chatops/commands.html#cache-clear-stale">/cache_clear_stale</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../chatops/commands.html#debug-cache">/debug_cache</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../chatops/commands.html#status-worker">/status_worker</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../chatops/commands.html#version-history">/version_history</a></li>
 </ul>
@@ -2399,17 +2493,26 @@ window.addEventListener("load", () => mermaid.run());
 <h2><a class="toc-backref" href="#id19" role="doc-backlink">Component Tokens ו‑Theme Builder</a><a class="headerlink" href="#component-tokens-theme-builder" title="Link to this heading"></a></h2>
 <div class="admonition note">
 <p class="admonition-title">הערה</p>
-<p>המפרט הרשמי של Theme Builder מתועד ב‑Issue #2097. הפיצ׳ר <strong>ממומש</strong> ומופעל כרגע <strong>רק למשתמשי אדמין</strong> (feature flag זמני).</p>
+<p>המפרט הרשמי של Theme Builder מתועד ב‑Issue #2097 ובמדריכים שבתיקיית <code class="docutils literal notranslate"><span class="pre">GUIDES/</span></code>.
+חלק ב« מוסיף <strong>תמיכה בריבוי ערכות</strong> (Multi-Theme) למשתמש מחובר.</p>
 </div>
 <ul>
-<li><p>מטרות ה‑Builder (לפי Issue #2097):
-- בונה ערכה ב‑<cite>/settings/theme-builder</cite> עם Live Preview מבודד שמצרוך <cite>var(–token)</cite> בלבד ולא משפיע על שאר ה‑UI עד לשמירה.
-- שמירת Theme יחיד בשדה <code class="docutils literal notranslate"><span class="pre">users.custom_theme</span></code> + הזרקה אוטומטית דרך <code class="docutils literal notranslate"><span class="pre">&lt;style</span> <span class="pre">id=&quot;user-custom-theme&quot;&gt;</span></code> ב‑<code class="docutils literal notranslate"><span class="pre">base.html</span></code>.
-- בקרה על קבוצות הטוקנים: רקעים (<cite>–bg-primary</cite>, <cite>–bg-secondary</cite>, <cite>–card-bg</cite>), אקסנטים (<cite>–primary</cite>, <cite>–secondary</cite>), טקסט (<cite>–text-primary</cite>, <cite>–text-secondary</cite>), Glass (<cite>–glass</cite>, <cite>–glass-border</cite>, <cite>–glass-hover</cite>, <cite>–glass-blur</cite> החדש) ו‑Markdown (<cite>–md-surface</cite>, <cite>–md-text</cite>).
-- ממשק עם Pickr (RGBA + Opacity) וסליידר Blur שמעדכן את <cite>–glass-blur</cite> (ערך px). <strong>הספרייה נטענת לוקאלית</strong> מתוך <code class="docutils literal notranslate"><span class="pre">webapp/static/libs/pickr</span></code> (בלי CDN).
-- API לשמירה: <code class="docutils literal notranslate"><span class="pre">POST</span> <span class="pre">/api/themes/save</span></code> עם ולידציה (<cite>VALID_COLOR_REGEX</cite>, <cite>MAX_THEME_NAME_LENGTH</cite>) ושדה <code class="docutils literal notranslate"><span class="pre">variables</span></code> שמכיל רק את הטוקנים המאושרים; כפתור Reset מבצע <code class="docutils literal notranslate"><span class="pre">DELETE</span> <span class="pre">/api/themes/custom</span></code>.
-- נגישות: תיוגי <cite>aria</cite>, Toast לכשלי שמירה ובדיקת ניגודיות ≥ 4.5:1 לערכים שנשמרים.</p></li>
-<li><p>שימו לב: עד שיוסר ה‑feature flag, הפיצ׳ר מיועד לאדמינים בלבד; משתמשים רגילים לא אמורים לראות את הדף/ה‑API.</p></li>
+<li><p>מטרות ה‑Builder:
+- בונה ערכה ב‑<code class="docutils literal notranslate"><span class="pre">/settings/theme-builder</span></code> עם Live Preview מבודד שמצרוך <code class="docutils literal notranslate"><span class="pre">var(--token)</span></code> בלבד ולא משפיע על שאר ה‑UI עד לשמירה.
+- מעבר ממבנה ערכה אחת ל‑<strong>מערך ערכות</strong>: <code class="docutils literal notranslate"><span class="pre">users.custom_themes</span></code> (עד 10 ערכות למשתמש).
+- רק ערכה אחת יכולה להיות פעילה בכל רגע (<code class="docutils literal notranslate"><span class="pre">is_active=True</span></code>).
+- הזרקה אוטומטית של הערכה הפעילה דרך <code class="docutils literal notranslate"><span class="pre">&lt;style</span> <span class="pre">id=&quot;user-custom-theme&quot;&gt;</span></code> ב‑<code class="docutils literal notranslate"><span class="pre">base.html</span></code> כאשר <code class="docutils literal notranslate"><span class="pre">data-theme=&quot;custom&quot;</span></code>.
+- תאימות לאחור: פונקציית <code class="docutils literal notranslate"><span class="pre">get_custom_theme</span></code> בודקת קודם <code class="docutils literal notranslate"><span class="pre">custom_themes</span></code> (מבנה חדש), ואז fallback ל‑<code class="docutils literal notranslate"><span class="pre">custom_theme</span></code> (מבנה ישן).</p></li>
+<li><p>API (Multi-Theme):
+- <code class="docutils literal notranslate"><span class="pre">GET</span> <span class="pre">/api/themes</span></code> – רשימת הערכות של המשתמש <strong>ללא</strong> <code class="docutils literal notranslate"><span class="pre">variables</span></code> כבדים
+- <code class="docutils literal notranslate"><span class="pre">POST</span> <span class="pre">/api/themes</span></code> – יצירת ערכה חדשה (כולל מגבלת 10)
+- <code class="docutils literal notranslate"><span class="pre">GET</span> <span class="pre">/api/themes/&lt;id&gt;</span></code> – פרטי ערכה כולל <code class="docutils literal notranslate"><span class="pre">variables</span></code> לעריכה
+- <code class="docutils literal notranslate"><span class="pre">PUT</span> <span class="pre">/api/themes/&lt;id&gt;</span></code> – עדכון ערכה
+- <code class="docutils literal notranslate"><span class="pre">POST</span> <span class="pre">/api/themes/&lt;id&gt;/activate</span></code> – הפעלת ערכה (מכבה את השאר + מעדכן <code class="docutils literal notranslate"><span class="pre">ui_prefs.theme=&quot;custom&quot;</span></code>)
+- <code class="docutils literal notranslate"><span class="pre">POST</span> <span class="pre">/api/themes/deactivate</span></code> – ביטול כל הערכות וחזרה ל‑Classic
+- <code class="docutils literal notranslate"><span class="pre">DELETE</span> <span class="pre">/api/themes/&lt;id&gt;</span></code> – מחיקת ערכה (אם הייתה פעילה: חוזרים ל‑Classic)</p></li>
+<li><p>UI:
+- Sidebar ”הערכות שלי“ עם רשימה, אינדיקציה לערכה פעילה/נבחרת, וכפתור ”ערכה חדשה“.</p></li>
 <li><p>כאשר מוסיפים טוקן חדש:
 1. הוסיפו ערך ברירת מחדל ל‑<code class="docutils literal notranslate"><span class="pre">:root</span></code> בתוך <code class="docutils literal notranslate"><span class="pre">webapp/static/css/variables.css</span></code>.
 2. הוסיפו Overrides בבלוקים של כל Theme שדורש התאמה.

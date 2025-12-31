@@ -465,6 +465,7 @@
 <li class="toctree-l4"><a class="reference internal" href="../api/cache_commands.html#cache_commands.clear_cache_command"><code class="docutils literal notranslate"><span class="pre">clear_cache_command()</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="../api/cache_commands.html#cache_commands.setup_cache_handlers"><code class="docutils literal notranslate"><span class="pre">setup_cache_handlers()</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="../api/cache_commands.html#cache_commands.cache_warm_command"><code class="docutils literal notranslate"><span class="pre">cache_warm_command()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../api/cache_commands.html#cache_commands.debug_cache_command"><code class="docutils literal notranslate"><span class="pre">debug_cache_command()</span></code></a></li>
 </ul>
 </li>
 <li class="toctree-l3"><a class="reference internal" href="../api/cache_manager.html">cache_manager module</a><ul>
@@ -1513,6 +1514,40 @@
 <li class="toctree-l2"><a class="reference internal" href="../webapp/advanced-caching.html#id4">קישורים</a></li>
 </ul>
 </li>
+<li class="toctree-l1"><a class="reference internal" href="../webapp/cache-inspector.html">Cache Inspector (לוח בקרה של Redis)</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../webapp/cache-inspector.html#cache-inspector">מה זה Cache Inspector?</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../webapp/cache-inspector.html#id1">למה צריך את זה?</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../webapp/cache-inspector.html#id2">איך נכנסים?</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../webapp/cache-inspector.html#id3">יכולות עיקריות</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../webapp/cache-inspector.html#id4">סטטיסטיקות כלליות</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../webapp/cache-inspector.html#id5">חיפוש מפתחות</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../webapp/cache-inspector.html#ttl">הצגת TTL וסטטוס</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../webapp/cache-inspector.html#id6">פעולות מחיקה</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../webapp/cache-inspector.html#id7">אבטחה ובטיחות</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../webapp/cache-inspector.html#id8">הגנת הרשאות</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../webapp/cache-inspector.html#masking">הסתרת מידע רגיש (Masking)</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../webapp/cache-inspector.html#scan-keys">שימוש ב-SCAN במקום KEYS</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../webapp/cache-inspector.html#id9">תקציב זמן למחיקות</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../webapp/cache-inspector.html#api-endpoints">API Endpoints</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../webapp/cache-inspector.html#api">דוגמאות API</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../webapp/cache-inspector.html#id10">תקלות נפוצות</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../webapp/cache-inspector.html#redis">Redis מושבת</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../webapp/cache-inspector.html#id11">אין הרשאות</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../webapp/cache-inspector.html#id12">חיפוש איטי</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../webapp/cache-inspector.html#id13">משתני סביבה רלוונטיים</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../webapp/cache-inspector.html#id14">ראו גם</a></li>
+</ul>
+</li>
 <li class="toctree-l1"><a class="reference internal" href="../webapp/static-checklist.html">Static Performance &amp; Security Checklist (gzip/br, Cache, SRI)</a><ul>
 <li class="toctree-l2"><a class="reference internal" href="../webapp/static-checklist.html#id1">מטרה</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../webapp/static-checklist.html#br-gzip">דחיסה (br/gzip)</a></li>
@@ -2002,6 +2037,7 @@
 <li class="toctree-l2"><a class="reference internal" href="../chatops/commands.html#health">/health</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../chatops/commands.html#uptime">/uptime</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../chatops/commands.html#system-info">/system_info</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../chatops/commands.html#check-commands">/check commands</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../chatops/commands.html#metrics">/metrics</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../chatops/commands.html#observe">/observe</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../chatops/commands.html#observe-v">/observe -v (מפורט)</a></li>
@@ -2030,6 +2066,7 @@
 <li class="toctree-l2"><a class="reference internal" href="../chatops/commands.html#clear-cache">/clear_cache</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../chatops/commands.html#cache-warm">/cache_warm</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../chatops/commands.html#cache-clear-stale">/cache_clear_stale</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../chatops/commands.html#debug-cache">/debug_cache</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../chatops/commands.html#status-worker">/status_worker</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../chatops/commands.html#version-history">/version_history</a></li>
 </ul>

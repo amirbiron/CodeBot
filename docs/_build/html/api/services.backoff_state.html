@@ -451,7 +451,11 @@
 </ul>
 </li>
 <li class="toctree-l3"><a class="reference internal" href="autocomplete_manager.html">autocomplete_manager module</a></li>
-<li class="toctree-l3"><a class="reference internal" href="backup_menu_handler.html">backup_menu_handler module</a></li>
+<li class="toctree-l3"><a class="reference internal" href="backup_menu_handler.html">backup_menu_handler module</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="backup_menu_handler.html#backup_menu_handler.emit_event"><code class="docutils literal notranslate"><span class="pre">emit_event()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="backup_menu_handler.html#backup_menu_handler.BackupMenuHandler"><code class="docutils literal notranslate"><span class="pre">BackupMenuHandler</span></code></a></li>
+</ul>
+</li>
 <li class="toctree-l3"><a class="reference internal" href="batch_commands.html">batch_commands module</a></li>
 <li class="toctree-l3"><a class="reference internal" href="batch_processor.html">batch_processor module</a></li>
 <li class="toctree-l3"><a class="reference internal" href="bot_handlers.html">bot_handlers module</a></li>
@@ -461,6 +465,7 @@
 <li class="toctree-l4"><a class="reference internal" href="cache_commands.html#cache_commands.clear_cache_command"><code class="docutils literal notranslate"><span class="pre">clear_cache_command()</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="cache_commands.html#cache_commands.setup_cache_handlers"><code class="docutils literal notranslate"><span class="pre">setup_cache_handlers()</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="cache_commands.html#cache_commands.cache_warm_command"><code class="docutils literal notranslate"><span class="pre">cache_warm_command()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="cache_commands.html#cache_commands.debug_cache_command"><code class="docutils literal notranslate"><span class="pre">debug_cache_command()</span></code></a></li>
 </ul>
 </li>
 <li class="toctree-l3"><a class="reference internal" href="cache_manager.html">cache_manager module</a><ul>
@@ -1509,6 +1514,40 @@
 <li class="toctree-l2"><a class="reference internal" href="../webapp/advanced-caching.html#id4">קישורים</a></li>
 </ul>
 </li>
+<li class="toctree-l1"><a class="reference internal" href="../webapp/cache-inspector.html">Cache Inspector (לוח בקרה של Redis)</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../webapp/cache-inspector.html#cache-inspector">מה זה Cache Inspector?</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../webapp/cache-inspector.html#id1">למה צריך את זה?</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../webapp/cache-inspector.html#id2">איך נכנסים?</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../webapp/cache-inspector.html#id3">יכולות עיקריות</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../webapp/cache-inspector.html#id4">סטטיסטיקות כלליות</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../webapp/cache-inspector.html#id5">חיפוש מפתחות</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../webapp/cache-inspector.html#ttl">הצגת TTL וסטטוס</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../webapp/cache-inspector.html#id6">פעולות מחיקה</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../webapp/cache-inspector.html#id7">אבטחה ובטיחות</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../webapp/cache-inspector.html#id8">הגנת הרשאות</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../webapp/cache-inspector.html#masking">הסתרת מידע רגיש (Masking)</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../webapp/cache-inspector.html#scan-keys">שימוש ב-SCAN במקום KEYS</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../webapp/cache-inspector.html#id9">תקציב זמן למחיקות</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../webapp/cache-inspector.html#api-endpoints">API Endpoints</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../webapp/cache-inspector.html#api">דוגמאות API</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../webapp/cache-inspector.html#id10">תקלות נפוצות</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../webapp/cache-inspector.html#redis">Redis מושבת</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../webapp/cache-inspector.html#id11">אין הרשאות</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../webapp/cache-inspector.html#id12">חיפוש איטי</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../webapp/cache-inspector.html#id13">משתני סביבה רלוונטיים</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../webapp/cache-inspector.html#id14">ראו גם</a></li>
+</ul>
+</li>
 <li class="toctree-l1"><a class="reference internal" href="../webapp/static-checklist.html">Static Performance &amp; Security Checklist (gzip/br, Cache, SRI)</a><ul>
 <li class="toctree-l2"><a class="reference internal" href="../webapp/static-checklist.html#id1">מטרה</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../webapp/static-checklist.html#br-gzip">דחיסה (br/gzip)</a></li>
@@ -1638,6 +1677,58 @@
 </li>
 <li class="toctree-l2"><a class="reference internal" href="../observability.html#traced">כיסוי דקורטור &#64;traced</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../observability.html#staging">אימות ב-Staging</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../observability/background-jobs-monitor.html">Background Jobs Monitor</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../observability/background-jobs-monitor.html#id1">סקירה כללית</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../observability/background-jobs-monitor.html#id2">רכיבים וקוד רלוונטי</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../observability/background-jobs-monitor.html#id3">מסד נתונים</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../observability/background-jobs-monitor.html#job-runs">קולקציה: <code class="docutils literal notranslate"><span class="pre">job_runs</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../observability/background-jobs-monitor.html#ui-webapp">UI / WebApp</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../observability/background-jobs-monitor.html#id4">גישה לדשבורד</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../observability/background-jobs-monitor.html#id5">מה רואים בדשבורד</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../observability/background-jobs-monitor.html#jobs-vs">Jobs סטטיים vs. דינמיים</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../observability/background-jobs-monitor.html#api-reference">API Reference</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../observability/background-jobs-monitor.html#get-api-jobs">GET /api/jobs</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../observability/background-jobs-monitor.html#get-api-jobs-active">GET /api/jobs/active</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../observability/background-jobs-monitor.html#get-api-jobs-job-id">GET /api/jobs/{job_id}</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../observability/background-jobs-monitor.html#get-api-jobs-runs-run-id">GET /api/jobs/runs/{run_id}</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../observability/background-jobs-monitor.html#post-api-jobs-job-id-trigger">POST /api/jobs/{job_id}/trigger</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../observability/background-jobs-monitor.html#id6">אבטחה</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../observability/background-jobs-monitor.html#api">הגנה על ה-API</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../observability/background-jobs-monitor.html#env">ENV וקונפיגורציה</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../observability/background-jobs-monitor.html#id7">משתני סביבה</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../observability/background-jobs-monitor.html#chatops-jobs">ChatOps – פקודת /jobs</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../observability/background-jobs-monitor.html#id8">פקודות זמינות</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../observability/background-jobs-monitor.html#id9">דוגמאות</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../observability/background-jobs-monitor.html#alerts">Alerts</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../observability/background-jobs-monitor.html#alerts-yml">הגדרות ב-alerts.yml</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../observability/background-jobs-monitor.html#flow-alerts">Flow של Alerts</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../observability/background-jobs-monitor.html#troubleshooting">Troubleshooting</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../observability/background-jobs-monitor.html#id10">”הטריגר לא עובד“</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../observability/background-jobs-monitor.html#jobs">”אין jobs דינמיים בדשבורד“</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../observability/background-jobs-monitor.html#id11">”לא מגיעים Alerts“</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../observability/background-jobs-monitor.html#job">”Job תקוע אבל אין התראה“</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../observability/background-jobs-monitor.html#id12">”השרת מחזיר 401/403“</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../observability/background-jobs-monitor.html#id13">”לוגים ריקים בדשבורד“</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../observability/background-jobs-monitor.html#best-practices">Best Practices</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../observability/background-jobs-monitor.html#id14">ראו גם</a></li>
 </ul>
 </li>
 <li class="toctree-l1"><a class="reference internal" href="../observability/observability_dashboard.html">📡 Observability Dashboard &amp; API</a><ul>
@@ -1946,6 +2037,7 @@
 <li class="toctree-l2"><a class="reference internal" href="../chatops/commands.html#health">/health</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../chatops/commands.html#uptime">/uptime</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../chatops/commands.html#system-info">/system_info</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../chatops/commands.html#check-commands">/check commands</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../chatops/commands.html#metrics">/metrics</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../chatops/commands.html#observe">/observe</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../chatops/commands.html#observe-v">/observe -v (מפורט)</a></li>
@@ -1955,6 +2047,7 @@
 </ul>
 </li>
 <li class="toctree-l2"><a class="reference internal" href="../chatops/commands.html#alerts">/alerts</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../chatops/commands.html#jobs">/jobs</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../chatops/commands.html#incidents">/incidents</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../chatops/commands.html#triage">/triage</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../chatops/commands.html#predict">/predict</a></li>
@@ -1973,6 +2066,7 @@
 <li class="toctree-l2"><a class="reference internal" href="../chatops/commands.html#clear-cache">/clear_cache</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../chatops/commands.html#cache-warm">/cache_warm</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../chatops/commands.html#cache-clear-stale">/cache_clear_stale</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../chatops/commands.html#debug-cache">/debug_cache</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../chatops/commands.html#status-worker">/status_worker</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../chatops/commands.html#version-history">/version_history</a></li>
 </ul>
@@ -2132,7 +2226,7 @@ survives restarts, with an in-memory cache for fast reads.</p>
 
 <dl class="py class">
 <dt class="sig sig-object py" id="services.backoff_state.BackoffInfo">
-<em class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">services.backoff_state.</span></span><span class="sig-name descname"><span class="pre">BackoffInfo</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">enabled</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">reason</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">''</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">updated_at</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">datetime.datetime(2025,</span> <span class="pre">12,</span> <span class="pre">22,</span> <span class="pre">20,</span> <span class="pre">27,</span> <span class="pre">25,</span> <span class="pre">696810,</span> <span class="pre">tzinfo=datetime.timezone.utc)</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">expires_at</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/services/backoff_state.html#BackoffInfo"><span class="viewcode-link"><span class="pre">[מקור]</span></span></a><a class="headerlink" href="#services.backoff_state.BackoffInfo" title="Link to this definition"></a></dt>
+<em class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">services.backoff_state.</span></span><span class="sig-name descname"><span class="pre">BackoffInfo</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">enabled</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">reason</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">''</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">updated_at</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">datetime.datetime(2025,</span> <span class="pre">12,</span> <span class="pre">31,</span> <span class="pre">14,</span> <span class="pre">6,</span> <span class="pre">46,</span> <span class="pre">448500,</span> <span class="pre">tzinfo=datetime.timezone.utc)</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">expires_at</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/services/backoff_state.html#BackoffInfo"><span class="viewcode-link"><span class="pre">[מקור]</span></span></a><a class="headerlink" href="#services.backoff_state.BackoffInfo" title="Link to this definition"></a></dt>
 <dd><p>Bases: <a class="reference external" href="https://docs.python.org/3/library/functions.html#object" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">object</span></code></a></p>
 <dl class="field-list simple">
 <dt class="field-odd">פרמטרים<span class="colon">:</span></dt>
@@ -2156,7 +2250,7 @@ survives restarts, with an in-memory cache for fast reads.</p>
 
 <dl class="py attribute">
 <dt class="sig sig-object py" id="services.backoff_state.BackoffInfo.updated_at">
-<span class="sig-name descname"><span class="pre">updated_at</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/datetime.html#datetime.datetime" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">datetime</span></code></a></em><em class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">datetime.datetime(2025,</span> <span class="pre">12,</span> <span class="pre">22,</span> <span class="pre">20,</span> <span class="pre">27,</span> <span class="pre">25,</span> <span class="pre">696810,</span> <span class="pre">tzinfo=datetime.timezone.utc)</span></em><a class="headerlink" href="#services.backoff_state.BackoffInfo.updated_at" title="Link to this definition"></a></dt>
+<span class="sig-name descname"><span class="pre">updated_at</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/datetime.html#datetime.datetime" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">datetime</span></code></a></em><em class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">datetime.datetime(2025,</span> <span class="pre">12,</span> <span class="pre">31,</span> <span class="pre">14,</span> <span class="pre">6,</span> <span class="pre">46,</span> <span class="pre">448500,</span> <span class="pre">tzinfo=datetime.timezone.utc)</span></em><a class="headerlink" href="#services.backoff_state.BackoffInfo.updated_at" title="Link to this definition"></a></dt>
 <dd></dd></dl>
 
 <dl class="py attribute">
@@ -2176,7 +2270,7 @@ survives restarts, with an in-memory cache for fast reads.</p>
 
 <dl class="py method">
 <dt class="sig sig-object py" id="services.backoff_state.BackoffInfo.__init__">
-<span class="sig-name descname"><span class="pre">__init__</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">enabled</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">reason</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">''</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">updated_at</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">datetime.datetime(2025,</span> <span class="pre">12,</span> <span class="pre">22,</span> <span class="pre">20,</span> <span class="pre">27,</span> <span class="pre">25,</span> <span class="pre">696810,</span> <span class="pre">tzinfo=datetime.timezone.utc)</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">expires_at</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#services.backoff_state.BackoffInfo.__init__" title="Link to this definition"></a></dt>
+<span class="sig-name descname"><span class="pre">__init__</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">enabled</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">reason</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">''</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">updated_at</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">datetime.datetime(2025,</span> <span class="pre">12,</span> <span class="pre">31,</span> <span class="pre">14,</span> <span class="pre">6,</span> <span class="pre">46,</span> <span class="pre">448500,</span> <span class="pre">tzinfo=datetime.timezone.utc)</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">expires_at</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#services.backoff_state.BackoffInfo.__init__" title="Link to this definition"></a></dt>
 <dd><dl class="field-list simple">
 <dt class="field-odd">פרמטרים<span class="colon">:</span></dt>
 <dd class="field-odd"><ul class="simple">

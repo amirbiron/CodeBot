@@ -123,6 +123,7 @@ Code Keeper Bot - תיעוד API
    webapp/onboarding
    webapp/caching
    webapp/advanced-caching
+   webapp/cache-inspector
    webapp/static-checklist
    webapp/commands-catalog
    webapp/api-reference
@@ -143,6 +144,7 @@ Code Keeper Bot - תיעוד API
    :caption: Observability
 
    observability
+   observability/background-jobs-monitor
    observability/observability_dashboard
    observability/quick_fix_rules
    visual-rule-engine

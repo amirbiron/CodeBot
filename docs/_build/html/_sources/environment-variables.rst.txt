@@ -118,6 +118,18 @@
      - -
      - ``https://my.app``
      - WebApp
+   * - ``BOT_JOBS_API_BASE_URL``
+     - בסיס URL ל-API הפנימי של הבוט (aiohttp) עבור Trigger של Jobs ממסך המוניטור (``POST /api/jobs/<job_id>/trigger``). אם לא מוגדר, כפתור ההפעלה ידנית במוניטור יהיה לא זמין.
+     - לא
+     - -
+     - ``http://127.0.0.1:8080``
+     - WebApp
+   * - ``BOT_API_BASE_URL``
+     - Alias/תאימות לאחור ל-``BOT_JOBS_API_BASE_URL`` (נבדק רק אם ``BOT_JOBS_API_BASE_URL`` ריק).
+     - לא
+     - -
+     - ``http://127.0.0.1:8080``
+     - WebApp
    * - ``WEBAPP_ENABLE_WARMUP``
      - הפעלת שלב warmup אוטומטי אחרי עליית Gunicorn (``1``/``0``)
      - לא
@@ -232,6 +244,18 @@
      - ``5``
      - ``10``
      - WebApp
+   * - ``ALERT_TAGS_COLLECTION``
+     - שם ה-Collection לתגיות התראות (Manual Alert Tagging) ב-Observability.
+     - לא
+     - ``alert_tags``
+     - ``alert_tags``
+     - WebApp/Observability
+   * - ``ALERT_TAGS_DB_DISABLED``
+     - אם ``true`` מכבה שמירה/שליפה של תגיות להתראות (Manual Alert Tagging) מה-DB.
+     - לא
+     - ``false``
+     - ``true``
+     - WebApp/Observability
    * - ``PUBLIC_BASE_URL``
      - כתובת בסיס ציבורית ליצירת קישורי שיתוף
      - לא
@@ -257,7 +281,7 @@
      - ``123,456``
      - Bot/WebApp
    * - ``DB_HEALTH_TOKEN``
-     - טוקן להגנה על נתיבי ``/api/db/*`` (נשלח כ-``Authorization: Bearer <token>``). ללא טוקן ה-API חסום (403) והדשבורד ``/db-health`` יחזיר 403.
+     - טוקן להגנה על נתיבים פנימיים רגישים בשרת ה-aiohttp: ``/api/db/*`` וגם ``/api/jobs/*`` (נשלח כ-``Authorization: Bearer <token>``). ללא טוקן ה-API חסום (403) והדשבורד ``/db-health`` יחזיר 403.
      - כן (DB Health)
      - "" (ריק)
      - ``db_health_super_secret_token``
@@ -439,7 +463,7 @@
    * - ``REDIS_CONNECT_TIMEOUT``
      - Timeout התחברות ל-Redis (שניות)
      - לא
-     - ``5`` (או ``1`` ב-``SAFE_MODE``)
+     - ``3`` (או ``1`` ב-``SAFE_MODE``)
      - ``2``
      - Bot/WebApp
    * - ``REDIS_SOCKET_TIMEOUT``
@@ -463,7 +487,13 @@
    * - ``CACHE_CLEAR_BUDGET_SECONDS``
      - תקציב זמן לניקוי קאש (מונע תקיעה ב-Redis)
      - לא
-     - ``1`` ל-``clear_stale``; ``2`` ל-``clear_all``
+     - ``5``
+     - ``1``
+     - Bot/WebApp
+   * - ``CACHE_DELETE_PATTERN_BUDGET_SECONDS``
+     - תקציב זמן למחיקת תבנית מפתחות בקאש (SCAN+DEL) כדי למנוע תקיעה ב-Redis גדול
+     - לא
+     - ``5`` (נופל ל-``CACHE_CLEAR_BUDGET_SECONDS`` אם לא מוגדר)
      - ``1``
      - Bot/WebApp
    * - ``DISABLE_BACKGROUND_CLEANUP``
@@ -471,6 +501,18 @@
      - לא
      - ``false``
      - ``true``
+     - Bot
+   * - ``JOBS_STUCK_THRESHOLD_MINUTES``
+     - סף (בדקות) לזיהוי הרצות Jobs "תקועות" והפקת אירוע ``job_stuck`` (נבדק מול ``job_runs`` ב-DB).
+     - לא
+     - ``20``
+     - ``30``
+     - Bot
+   * - ``JOBS_STUCK_MONITOR_INTERVAL_SECS``
+     - תדירות הריצה (שניות) של מוניטור Jobs "תקועות" שמפיק ``job_stuck``.
+     - לא
+     - ``60``
+     - ``120``
      - Bot
    * - ``CACHE_MAINT_INTERVAL_SECS``
      - מרווח בין ריצות תחזוקת קאש (שניות)
@@ -551,7 +593,7 @@
      - ``true``
      - Bot/WebApp
    * - ``LOG_LEVEL``
-     - רמת logging
+     - רמת logging (``DEBUG``/``INFO``/``WARNING``/``ERROR``/``CRITICAL`` או ערך מספרי כמו ``10``)
      - לא
      - ``INFO``
      - ``DEBUG``
@@ -859,6 +901,18 @@
      - רכיב
    * - ``DRILL_MODE_ENABLED``
      - מפעיל Drill Mode (תרגולים) ב-WebApp/API. כאשר כבוי, ``/api/observability/drills/run`` יחזיר ``drill_disabled``.
+     - לא
+     - ``false``
+     - ``true``
+     - WebApp/Observability
+   * - ``ALERT_TAGS_COLLECTION``
+     - שם ה-Collection לתגיות התראות (Manual Alert Tagging) ב-Observability.
+     - לא
+     - ``alert_tags``
+     - ``alert_tags``
+     - WebApp/Observability
+   * - ``ALERT_TAGS_DB_DISABLED``
+     - אם ``true`` מכבה שמירה/שליפה של תגיות להתראות (Manual Alert Tagging) מה-DB.
      - לא
      - ``false``
      - ``true``
@@ -1486,7 +1540,7 @@
    * - ``CACHE_WARMING_BUDGET_SECONDS``
      - תקציב הזמן המרבי ללופ החימום (מונע עיכובים ארוכים).
      - לא
-     - ``1.0``
+     - ``5.0``
      - ``0.2``
      - Bot
    * - ``CACHE_WARMING_INTERVAL_SECS``
