@@ -1,5 +1,6 @@
 import re
 import os
+import sys
 import logging
 import inspect
 from io import BytesIO
@@ -18,6 +19,19 @@ logger = logging.getLogger(__name__)
 
 # NOTE: We intentionally avoid importing the legacy `database` package here.
 # All persistence access goes through the composition facade / application services.
+# For backwards-compatibility in tests, we support reading a pre-injected
+# `sys.modules["database"].db` object (no dynamic import).
+
+
+def _get_legacy_db():
+    """Best-effort access to legacy db object without importing `database`."""
+    try:
+        mod = sys.modules.get("database")
+        if mod is not None:
+            return getattr(mod, "db", None)
+    except Exception:
+        return None
+    return None
 # Observability (fail-open): unify error/event reporting
 try:  # type: ignore
     from observability import emit_event  # type: ignore
