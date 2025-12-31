@@ -100,6 +100,14 @@ runbooks:
           type: link
           href: "/admin/db-health"
           safety: safe
+      - id: check_profiler_load
+        title: "פרופיילר שאילתות (Slow Queries)"
+        description: "בדוק אם עומס שאילתות (Queue) גורם לניתוקים או איטיות בחיבור."
+        action:
+          label: "🐢 Profiler Dashboard"
+          type: link
+          href: "/admin/profiler"
+          safety: safe
       - id: check_mongodb_url
         title: "ודא קונפיג בסיסי"
         description: "בדוק ש-`MONGODB_URL` מוגדר ונראה תקין. את `YOUR_MONGODB_HOST` קח מתוך ה-URL (לרוב הדומיין אחרי `@`, למשל `cluster0.mongodb.net`)."
@@ -170,6 +178,14 @@ runbooks:
           label: "💻 /triage system"
           type: copy
           payload: "/triage system"
+          safety: safe
+      - id: check_profiler_cpu
+        title: "ניתוח שאילתות איטיות (CPU High)"
+        description: "בדוק אם יש שאילתות COLLSCAN או אגרגציות כבדות שגורמות לעומס CPU."
+        action:
+          label: "🐢 Profiler Dashboard"
+          type: link
+          href: "/admin/profiler"
           safety: safe
       - id: clear_cache_suggestion
         title: "שקול ניקוי Cache"
