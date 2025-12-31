@@ -86,26 +86,27 @@ class DynamicTTL:
     """
 
     BASE_TTL: Dict[str, int] = {
-        "user_stats": 300,         # 5 דקות
+        "user_stats": 600,         # 10 דקות
         "file_content": 3600,      # שעה
-        "file_list": 60,           # דקה
+        "file_list": 300,          # 5 דקות
         "markdown_render": 1800,   # 30 דקות
         "search_results": 180,     # 3 דקות
         "public_stats": 600,       # 10 דקות
         "bookmarks": 120,          # 2 דקות
         "tags": 300,               # 5 דקות
         "settings": 60,            # דקה
+        "sticky_summary": 60,      # דקה (מרגיע polling)
         # Collections (My Collections) – TTL מומלץ לפי המדריך
         "collections_list": 60,
         "collections_detail": 30,
-        "collections_items": 30,
+        "collections_items": 180,
     }
 
     @classmethod
     def calculate_ttl(cls, content_type: str, context: Dict[str, Any] | None = None) -> int:
         """חשב TTL בסיסי מוכוון קונטקסט.
 
-        מבטיח גבולות בטוחים: מינימום 30 שניות, מקסימום 7200 (שעתיים).
+        מבטיח גבולות בטוחים: מינימום 60 שניות, מקסימום 7200 (שעתיים).
         """
         ctx: Dict[str, Any] = context or {}
         base_ttl: int = int(cls.BASE_TTL.get(content_type, 300))
@@ -128,7 +129,7 @@ class DynamicTTL:
             # משתמשי פרימיום יעדיפו עדכונים מהירים
             base_ttl = int(base_ttl * 0.7)
 
-        return max(30, min(base_ttl, 7200))
+        return max(60, min(base_ttl, 7200))
 
 
 class ActivityBasedTTL:
@@ -164,7 +165,7 @@ class ActivityBasedTTL:
             ttl = ttl + random.randint(-jitter, jitter)
         except Exception:
             pass
-        return max(30, min(int(ttl), 7200))
+        return max(60, min(int(ttl), 7200))
 
 
 def build_cache_key(*parts: Any) -> str:
@@ -188,9 +189,9 @@ class CacheManager:
     """מנהל Cache מתקדם עם Redis"""
     
     def __init__(self):
-        # Debug זמני לניתוח Hit/Miss/Set (ברירת מחדל: פעיל 5 דקות אחרי עליית הבוט)
-        # NOTE: זה דיבאג "רועש" בכוונה, ולכן הוא מוגבל בזמן.
-        self.debug_until: float = float(time.time() + 300)
+        # Debug זמני לניתוח Hit/Miss/Set (ברירת מחדל: כבוי)
+        # ניתן להפעיל ידנית דרך enable_debug_for(seconds)
+        self.debug_until: float = 0.0
         self.redis_client = None
         self.is_enabled = False
         self.connect()
@@ -630,7 +631,7 @@ class CacheManager:
         try:
             client = self.redis_client
             # תקציב זמן לניקוי כדי לא לחסום worker אם Redis איטי
-            budget_seconds = float(os.getenv("CACHE_CLEAR_BUDGET_SECONDS", "2"))
+            budget_seconds = float(os.getenv("CACHE_CLEAR_BUDGET_SECONDS", "5"))
             deadline = time.time() + max(0.0, budget_seconds)
             if hasattr(client, 'scan_iter'):
                 for k in client.scan_iter(match='*', count=500):
@@ -709,7 +710,7 @@ class CacheManager:
                 return 0
 
             # תקציב זמן לניקוי כדי לא לחסום worker אם Redis איטי
-            budget_seconds = float(os.getenv("CACHE_CLEAR_BUDGET_SECONDS", "1"))
+            budget_seconds = float(os.getenv("CACHE_CLEAR_BUDGET_SECONDS", "5"))
             deadline = time.time() + max(0.0, budget_seconds)
             # עדיפות ל-scan_iter כדי להימנע מ-blocking
             if hasattr(client, 'scan_iter') and hasattr(client, 'ttl'):

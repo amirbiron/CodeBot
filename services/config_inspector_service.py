@@ -266,7 +266,7 @@ class ConfigService:
         ),
         "REDIS_CONNECT_TIMEOUT": ConfigDefinition(
             key="REDIS_CONNECT_TIMEOUT",
-            default="5",
+            default="3",
             description="טיימאאוט התחברות ל-Redis (שניות)",
             category="cache",
         ),
@@ -284,7 +284,7 @@ class ConfigService:
         ),
         "CACHE_CLEAR_BUDGET_SECONDS": ConfigDefinition(
             key="CACHE_CLEAR_BUDGET_SECONDS",
-            default="2",
+            default="5",
             description="תקציב זמן לניקוי קאש (שניות)",
             category="cache",
         ),
