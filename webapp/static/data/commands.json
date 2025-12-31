@@ -68,6 +68,20 @@
     "doc_link": "https://amirbiron.github.io/CodeBot/chatops/commands.html"
   },
   {
+    "name": "/check",
+    "type": "chatops",
+    "description": "בדיקת פקודות תפריט טלגרם (Public/Personal)",
+    "arguments": [],
+    "doc_link": "https://amirbiron.github.io/CodeBot/chatops/commands.html"
+  },
+  {
+    "name": "/check commands",
+    "type": "chatops",
+    "description": "דיבוג: כל פקודות ה-Slash הרשומות ב-runtime + diff מול תפריט",
+    "arguments": [],
+    "doc_link": "https://amirbiron.github.io/CodeBot/chatops/commands.html"
+  },
+  {
     "name": "/errors",
     "type": "chatops",
     "description": "Top שגיאות + חלון זמן (UTC)",
