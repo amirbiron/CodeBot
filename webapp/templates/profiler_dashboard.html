@@ -221,18 +221,68 @@
       const shape = JSON.stringify(query.query_shape || {});
       const timeMs = Number(query.execution_time_ms || 0);
       const timeStyle = timeMs > 1000 ? 'color:#dc3545; font-weight:700;' : '';
+
+      // 1. יצירת העמודות הטקסטואליות (בטוח לשימוש עם innerHTML כי אנחנו עושים escape)
       row.innerHTML = `
         <td style="padding:.6rem;"><code>${escapeHtml(query.collection)}</code></td>
         <td style="padding:.6rem;">${escapeHtml(query.operation)}</td>
         <td style="padding:.6rem;"><code style="opacity:.85;">${escapeHtml(shape.substring(0, 80))}${shape.length > 80 ? '…' : ''}</code></td>
         <td style="padding:.6rem; ${timeStyle}">${timeMs.toFixed(2)}</td>
         <td style="padding:.6rem;">${new Date(query.timestamp).toLocaleString('he-IL')}</td>
-        <td style="padding:.6rem;">
-          <button class="btn btn-secondary" type="button" onclick="analyzeQueryFromRow('${escapeHtml(query.collection)}', '${escapeHtml(query.operation)}', ${JSON.stringify(query.query_shape || {})})">🔍 נתח</button>
-        </td>
       `;
+
+      // 2. יצירת כפתור הפעולות בצורה בטוחה (DOM API)
+      // זה החלק שמתקן את הבאג!
+      const actionsTd = document.createElement('td');
+      actionsTd.style.padding = '.6rem';
+
+      // מציגים כפתור רק אם הפעולה רלוונטית לניתוח
+      if (['find', 'aggregate', 'count'].includes(query.operation)) {
+          const btn = document.createElement('button');
+          btn.className = 'btn btn-secondary';
+          btn.type = 'button';
+          btn.textContent = '🔍 נתח';
+          
+          // כאן אנחנו מעבירים את האובייקט ישירות לפונקציה, בלי לעבור דרך HTML String
+          btn.onclick = function() {
+              analyzeQueryFromRow(query.collection, query.operation, query.query_shape || {});
+          };
+          
+          actionsTd.appendChild(btn);
+      } else {
+          // עבור insert/update וכו'
+          actionsTd.innerHTML = '<span style="opacity:0.5">-</span>';
+      }
+
+      row.appendChild(actionsTd);
       tbody.appendChild(row);
     });
+  }
+
+  function analyzeQueryById(collection, queryShapeJson, operation) {
+    document.getElementById('analyze-collection').value = collection;
+
+    let queryShape = {};
+    try {
+      queryShape = queryShapeJson ? JSON.parse(queryShapeJson) : {};
+    } catch (e) {
+      queryShape = {};
+    }
+
+    const op = (String(operation || '').toLowerCase() === 'aggregate') ? 'aggregate' : 'find';
+    document.getElementById('analyze-operation').value = op;
+    toggleAnalyzeInputs();
+
+    if (op === 'aggregate') {
+      const pipeline = (queryShape && Array.isArray(queryShape.pipeline)) ? queryShape.pipeline : [];
+      document.getElementById('analyze-pipeline').value = JSON.stringify(pipeline, null, 2);
+      document.getElementById('analyze-query').value = '{}';
+    } else {
+      document.getElementById('analyze-query').value = JSON.stringify(queryShape || {}, null, 2);
+      document.getElementById('analyze-pipeline').value = '';
+    }
+
+    analyzeQuery();
   }
 
   function analyzeQueryFromRow(collection, operation, queryShape) {
