@@ -48,6 +48,14 @@ runbooks:
           type: copy
           payload: "/triage latency"
           safety: safe
+      - id: check_cache_hit_rate
+        title: "בדוק יעילות Cache (Hit Rate)"
+        description: "אם ה-Hit Rate נמוך מ-30%, העומס עובר ל-DB. בדשבורד בדוק אם מפתחות נמחקים מהר מדי ב-Cache Inspector."
+        action:
+          label: "💾 Cache Inspector"
+          type: link
+          href: "/admin/cache-inspector"
+          safety: safe
       - id: check_heavy_projections
         title: "בדוק Heavy Projections (Potential Missing Projection)"
         description: "אם מופיע COLLSCAN/Slow Query – בדוק שלא מושכים שדות כבדים ברשימות, ושיש Explicit Fetch לתוכן מלא."
@@ -83,6 +91,14 @@ runbooks:
           label: "🌐 MongoDB Status"
           type: link
           href: "https://status.mongodb.com/"
+          safety: safe
+      - id: db_health_dashboard
+        title: "מצב בריאות DB (חיבורים ו-Ping)"
+        description: "ראה בזמן אמת אם השרת מצליח לייצר חיבורים למונגו ואת זמני התגובה."
+        action:
+          label: "🏥 DB Health"
+          type: link
+          href: "/admin/db-health"
           safety: safe
       - id: check_mongodb_url
         title: "ודא קונפיג בסיסי"
@@ -188,6 +204,14 @@ runbooks:
           type: copy
           payload: "/triage queues"
           safety: safe
+      - id: visual_queue_monitor
+        title: "פתח דשבורד משימות (Jobs)"
+        description: "בדוק ויזואלית אילו ג'ובים נכשלים (Failed) או תקועים (Active זמן רב)."
+        action:
+          label: "⚙️ Jobs Monitor"
+          type: link
+          href: "/jobs/monitor"
+          safety: safe
   # ☁️ 3. תקלות צד ג' (ספקים)
   external_outage:
     title: "כשל בשירות חיצוני"
@@ -204,6 +228,14 @@ runbooks:
           label: "⏪ Incident Replay"
           type: link
           href: "/admin/observability/replay?timerange=3h&focus_ts={{timestamp}}"
+          safety: safe
+      - id: verify_external_keys
+        title: "ודא מפתחות API (Secrets)"
+        description: "הכנס ל-Config Inspector וודא שה-API Keys של הספק מוגדרים ולא ריקים."
+        action:
+          label: "🔑 בדיקת מפתחות"
+          type: link
+          href: "/admin/config-inspector"
           safety: safe
       - id: check_status_openai
         title: "בדוק סטטוס OpenAI"
@@ -238,6 +270,31 @@ runbooks:
           payload: "/errors"
           safety: safe
 
+  rate_limit_warning:
+    title: "חריגת מגבלת בקשות (Rate Limit)"
+    description: "משתמש או בוט חיצוני הגיעו למגבלת הבקשות המותרת."
+    aliases:
+      - ratelimit_exceeded
+      - too_many_requests
+      - 429_too_many_requests
+    steps:
+      - id: check_limits_inspector
+        title: "בדוק חסימות ב-Inspector"
+        description: "חפש מפתחות מסוג LIMITS כדי לראות מי ה-IP החסום ולכמה זמן."
+        action:
+          label: "🛡️ Cache Inspector"
+          type: link
+          href: "/admin/cache-inspector?search=LIMITS"
+          safety: safe
+      - id: analyze_traffic_source
+        title: "נתח את מקור התעבורה"
+        description: "האם זה משתמש לגיטימי או בוט סורק? בדוק לוגים."
+        action:
+          label: "🔎 /triage <user_id>"
+          type: copy
+          payload: "/triage "
+          safety: safe
+
   deployment_event:
     title: "אחרי Deploy – בדיקת רגרסיה/כשל"
     description: "צעדים מהירים כשמיד אחרי דיפלוי מתחילות חריגות/500 או שבר בפיצ'ר."
@@ -255,6 +312,14 @@ runbooks:
           type: link
           href: "/admin/observability/replay?timerange=3h&focus_ts={{timestamp}}"
           safety: safe
+      - id: verify_config_vars
+        title: "ודא טעינת קונפיגורציה"
+        description: "בדוק בדשבורד-Config Inspector שהמשתנים החדשים (כמו Feature Flags או API Keys) נטענו כראוי."
+        action:
+          label: "🛠️ Config Inspector"
+          type: link
+          href: "/admin/config-inspector"
+          safety: safe
       - id: check_recent_errors
         title: "משוך /errors"
         description: "ראה מהר אילו חריגות חוזרות (TypeError, 500, וכו')."
@@ -263,6 +328,14 @@ runbooks:
           type: copy
           payload: "/errors"
           safety: safe
+      - id: verify_stale_cache
+        title: "חשד למידע תקוע (Stale Cache)"
+        description: "אם משתמשים רואים מידע ישן או UI שבור, נקה מפתחות רלוונטיים."
+        action:
+          label: "🧹 Cache Inspector"
+          type: link
+          href: "/admin/cache-inspector"
+          safety: caution
       - id: check_version_history
         title: "בדוק /version_history"
         description: "וודא איזו גרסה עלתה ומתי."
