@@ -227,12 +227,53 @@
         <td style="padding:.6rem;"><code style="opacity:.85;">${escapeHtml(shape.substring(0, 80))}${shape.length > 80 ? '…' : ''}</code></td>
         <td style="padding:.6rem; ${timeStyle}">${timeMs.toFixed(2)}</td>
         <td style="padding:.6rem;">${new Date(query.timestamp).toLocaleString('he-IL')}</td>
-        <td style="padding:.6rem;">
-          <button class="btn btn-secondary" type="button" onclick="analyzeQueryFromRow('${escapeHtml(query.collection)}', '${escapeHtml(query.operation)}', ${JSON.stringify(query.query_shape || {})})">🔍 נתח</button>
-        </td>
       `;
+
+      // יצירת הכפתור בצורה בטוחה (למנוע שבירת HTML בגלל גרשיים)
+      const actionsTd = document.createElement('td');
+      
+      // מציגים כפתור ניתוח רק עבור find/aggregate/count
+      if (['find', 'aggregate', 'count'].includes(query.operation)) {
+          const btn = document.createElement('button');
+          btn.className = 'btn btn-sm btn-outline-primary';
+          btn.innerHTML = '🔍 נתח';
+          btn.onclick = function() {
+              analyzeQueryById(query.collection, JSON.stringify(query.query_shape));
+          };
+          actionsTd.appendChild(btn);
+      } else {
+          // עבור insert/update וכו' - אין מה לנתח ב-Explain
+          const span = document.createElement('span');
+          span.className = 'text-muted small';
+          span.textContent = '-';
+          actionsTd.appendChild(span);
+      }
+      row.appendChild(actionsTd);
       tbody.appendChild(row);
     });
+  }
+
+  function analyzeQueryById(collection, queryShapeJson) {
+    document.getElementById('analyze-collection').value = collection;
+
+    let queryShape = {};
+    try {
+      queryShape = queryShapeJson ? JSON.parse(queryShapeJson) : {};
+    } catch (e) {
+      queryShape = {};
+    }
+
+    const op = (queryShape && queryShape.pipeline) ? 'aggregate' : 'find';
+    document.getElementById('analyze-operation').value = op;
+    toggleAnalyzeInputs();
+
+    if (op === 'aggregate' && queryShape && queryShape.pipeline) {
+      document.getElementById('analyze-pipeline').value = JSON.stringify(queryShape.pipeline, null, 2);
+    } else {
+      document.getElementById('analyze-query').value = JSON.stringify(queryShape || {}, null, 2);
+    }
+
+    analyzeQuery();
   }
 
   function analyzeQueryFromRow(collection, operation, queryShape) {

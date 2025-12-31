@@ -614,6 +614,7 @@ class DatabaseManager:
         # metrics collection (service_metrics) TTL for automatic cleanup (e.g., 30 days)
         metrics_indexes = [
             IndexModel([("ts", DESCENDING)], name="ts_desc"),
+            IndexModel([("type", ASCENDING), ("ts", DESCENDING)], name="type_ts_idx"),
             IndexModel([("ts", ASCENDING)], name="metrics_ttl", expireAfterSeconds=30 * 24 * 60 * 60),
         ]
 
