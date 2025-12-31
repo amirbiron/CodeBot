@@ -82,7 +82,6 @@
 
 /* כרטיס תוצאת חיפוש */
 .search-result-card{
-  direction: ltr;
   width:100%;
   margin:0 auto;
   padding:1.5rem;
@@ -140,21 +139,13 @@
 }
 
 .search-result-card .global-search-lang-badge{
-  order: unset !important;
-  flex-shrink: unset !important;
-  margin-left: auto;
+  flex-shrink:0;
+  order:1;
 }
 
 .result-card-header .file-info{
-  order: unset !important;
+  order:2;
   text-align:left;
-}
-
-.search-result-card .file-info{
-  display: flex;
-  align-items: center;
-  justify-content: flex-start;
-  gap: 10px;
 }
 
 .result-card-snippet{
@@ -633,28 +624,27 @@
 
 .global-search-lang-badge:empty{display:none;}
 
-/* רקע: 30%, גבול: 40% */
-.global-search-lang-badge.lang-js { background: color-mix(in srgb, var(--lang-js) 30%, transparent); color: var(--lang-js); border: 1px solid color-mix(in srgb, var(--lang-js) 40%, transparent); }
-.global-search-lang-badge.lang-ts { background: color-mix(in srgb, var(--lang-ts) 30%, transparent); color: var(--lang-ts); border: 1px solid color-mix(in srgb, var(--lang-ts) 40%, transparent); }
-.global-search-lang-badge.lang-python { background: color-mix(in srgb, var(--lang-python) 30%, transparent); color: var(--lang-python); border: 1px solid color-mix(in srgb, var(--lang-python) 40%, transparent); }
-.global-search-lang-badge.lang-react { background: color-mix(in srgb, var(--lang-react) 30%, transparent); color: var(--lang-react); border: 1px solid color-mix(in srgb, var(--lang-react) 40%, transparent); }
-.global-search-lang-badge.lang-vue { background: color-mix(in srgb, var(--lang-vue) 30%, transparent); color: var(--lang-vue); border: 1px solid color-mix(in srgb, var(--lang-vue) 40%, transparent); }
-.global-search-lang-badge.lang-html { background: color-mix(in srgb, var(--lang-html) 30%, transparent); color: var(--lang-html); border: 1px solid color-mix(in srgb, var(--lang-html) 40%, transparent); }
-.global-search-lang-badge.lang-css { background: color-mix(in srgb, var(--lang-css) 30%, transparent); color: var(--lang-css); border: 1px solid color-mix(in srgb, var(--lang-css) 40%, transparent); }
-.global-search-lang-badge.lang-java { background: color-mix(in srgb, var(--lang-java) 30%, transparent); color: var(--lang-java); border: 1px solid color-mix(in srgb, var(--lang-java) 40%, transparent); }
-.global-search-lang-badge.lang-csharp { background: color-mix(in srgb, var(--lang-csharp) 30%, transparent); color: var(--lang-csharp); border: 1px solid color-mix(in srgb, var(--lang-csharp) 40%, transparent); }
-.global-search-lang-badge.lang-cpp { background: color-mix(in srgb, var(--lang-cpp) 30%, transparent); color: var(--lang-cpp); border: 1px solid color-mix(in srgb, var(--lang-cpp) 40%, transparent); }
-.global-search-lang-badge.lang-go { background: color-mix(in srgb, var(--lang-go) 30%, transparent); color: var(--lang-go); border: 1px solid color-mix(in srgb, var(--lang-go) 40%, transparent); }
-.global-search-lang-badge.lang-php { background: color-mix(in srgb, var(--lang-php) 30%, transparent); color: var(--lang-php); border: 1px solid color-mix(in srgb, var(--lang-php) 40%, transparent); }
-.global-search-lang-badge.lang-ruby { background: color-mix(in srgb, var(--lang-ruby) 30%, transparent); color: var(--lang-ruby); border: 1px solid color-mix(in srgb, var(--lang-ruby) 40%, transparent); }
-.global-search-lang-badge.lang-rust { background: color-mix(in srgb, var(--lang-rust) 30%, transparent); color: var(--lang-rust); border: 1px solid color-mix(in srgb, var(--lang-rust) 40%, transparent); }
-.global-search-lang-badge.lang-json { background: color-mix(in srgb, var(--lang-json) 30%, transparent); color: var(--lang-json); border: 1px solid color-mix(in srgb, var(--lang-json) 40%, transparent); }
-.global-search-lang-badge.lang-sql { background: color-mix(in srgb, var(--lang-sql) 30%, transparent); color: var(--lang-sql); border: 1px solid color-mix(in srgb, var(--lang-sql) 40%, transparent); }
-.global-search-lang-badge.lang-yaml { background: color-mix(in srgb, var(--lang-yaml) 30%, transparent); color: var(--lang-yaml); border: 1px solid color-mix(in srgb, var(--lang-yaml) 40%, transparent); }
-.global-search-lang-badge.lang-markdown { background: color-mix(in srgb, var(--lang-markdown) 30%, transparent); color: var(--lang-markdown); border: 1px solid color-mix(in srgb, var(--lang-markdown) 40%, transparent); }
-.global-search-lang-badge.lang-shell { background: color-mix(in srgb, var(--lang-shell) 30%, transparent); color: var(--lang-shell); border: 1px solid color-mix(in srgb, var(--lang-shell) 40%, transparent); }
+.global-search-lang-badge.lang-js{ background: color-mix(in srgb, var(--lang-js) 15%, transparent); color: var(--lang-js); border: 1px solid color-mix(in srgb, var(--lang-js) 30%, transparent); }
+.global-search-lang-badge.lang-ts{ background: color-mix(in srgb, var(--lang-ts) 15%, transparent); color: var(--lang-ts); border: 1px solid color-mix(in srgb, var(--lang-ts) 30%, transparent); }
+.global-search-lang-badge.lang-python{ background: color-mix(in srgb, var(--lang-python) 15%, transparent); color: var(--lang-python); border: 1px solid color-mix(in srgb, var(--lang-python) 30%, transparent); }
+.global-search-lang-badge.lang-react{ background: color-mix(in srgb, var(--lang-react) 15%, transparent); color: var(--lang-react); border: 1px solid color-mix(in srgb, var(--lang-react) 30%, transparent); }
+.global-search-lang-badge.lang-vue{ background: color-mix(in srgb, var(--lang-vue) 15%, transparent); color: var(--lang-vue); border: 1px solid color-mix(in srgb, var(--lang-vue) 30%, transparent); }
+.global-search-lang-badge.lang-html{ background: color-mix(in srgb, var(--lang-html) 15%, transparent); color: var(--lang-html); border: 1px solid color-mix(in srgb, var(--lang-html) 30%, transparent); }
+.global-search-lang-badge.lang-css{ background: color-mix(in srgb, var(--lang-css) 15%, transparent); color: var(--lang-css); border: 1px solid color-mix(in srgb, var(--lang-css) 30%, transparent); }
+.global-search-lang-badge.lang-java{ background: color-mix(in srgb, var(--lang-java) 15%, transparent); color: var(--lang-java); border: 1px solid color-mix(in srgb, var(--lang-java) 30%, transparent); }
+.global-search-lang-badge.lang-csharp{ background: color-mix(in srgb, var(--lang-csharp) 15%, transparent); color: var(--lang-csharp); border: 1px solid color-mix(in srgb, var(--lang-csharp) 30%, transparent); }
+.global-search-lang-badge.lang-cpp{ background: color-mix(in srgb, var(--lang-cpp) 15%, transparent); color: var(--lang-cpp); border: 1px solid color-mix(in srgb, var(--lang-cpp) 30%, transparent); }
+.global-search-lang-badge.lang-go{ background: color-mix(in srgb, var(--lang-go) 15%, transparent); color: var(--lang-go); border: 1px solid color-mix(in srgb, var(--lang-go) 30%, transparent); }
+.global-search-lang-badge.lang-php{ background: color-mix(in srgb, var(--lang-php) 15%, transparent); color: var(--lang-php); border: 1px solid color-mix(in srgb, var(--lang-php) 30%, transparent); }
+.global-search-lang-badge.lang-ruby{ background: color-mix(in srgb, var(--lang-ruby) 15%, transparent); color: var(--lang-ruby); border: 1px solid color-mix(in srgb, var(--lang-ruby) 30%, transparent); }
+.global-search-lang-badge.lang-rust{ background: color-mix(in srgb, var(--lang-rust) 15%, transparent); color: var(--lang-rust); border: 1px solid color-mix(in srgb, var(--lang-rust) 30%, transparent); }
+.global-search-lang-badge.lang-json{ background: color-mix(in srgb, var(--lang-json) 15%, transparent); color: var(--lang-json); border: 1px solid color-mix(in srgb, var(--lang-json) 30%, transparent); }
+.global-search-lang-badge.lang-sql{ background: color-mix(in srgb, var(--lang-sql) 15%, transparent); color: var(--lang-sql); border: 1px solid color-mix(in srgb, var(--lang-sql) 30%, transparent); }
+.global-search-lang-badge.lang-yaml{ background: color-mix(in srgb, var(--lang-yaml) 15%, transparent); color: var(--lang-yaml); border: 1px solid color-mix(in srgb, var(--lang-yaml) 30%, transparent); }
+.global-search-lang-badge.lang-markdown{ background: color-mix(in srgb, var(--lang-markdown) 15%, transparent); color: var(--lang-markdown); border: 1px solid color-mix(in srgb, var(--lang-markdown) 30%, transparent); }
+.global-search-lang-badge.lang-shell{ background: color-mix(in srgb, var(--lang-shell) 15%, transparent); color: var(--lang-shell); border: 1px solid color-mix(in srgb, var(--lang-shell) 30%, transparent); }
 .global-search-lang-badge.lang-unknown{
-  background: color-mix(in srgb, var(--text-muted, #999) 30%, transparent);
-  color: var(--text-muted, #999);
-  border: 1px solid color-mix(in srgb, var(--text-muted, #999) 40%, transparent);
+  background:color-mix(in srgb, var(--text-muted, #999) 15%, transparent);
+  color:var(--text-muted, #999);
+  border:1px solid color-mix(in srgb, var(--text-muted, #999) 35%, transparent);
 }
