@@ -213,6 +213,24 @@
     overflow: auto;
 }
 
+/* View Mode: CodeMirror (תצוגה מתקדמת) */
+#codeMirrorContainer {
+    width: 100%;
+}
+
+#codeCard.is-advanced .code-container {
+    overflow: hidden;
+}
+
+#codeCard:fullscreen #codeMirrorContainer .cm-editor {
+    height: 100%;
+    max-height: none;
+}
+
+#codeCard:fullscreen #codeMirrorContainer .cm-scroller {
+    height: 100%;
+}
+
 .file-header {
     display: flex;
     justify-content: space-between;
@@ -695,6 +713,7 @@ body.telegram-mini-app .file-title { font-size: 1.125rem; }
 <script type="application/json" id="pygmentsCssData">{{ syntax_css|tojson|safe }}</script>
 <div id="fileMeta"
      data-file-name="{{ file.file_name }}"
+     data-language="{{ file.language }}"
      data-file-id="{{ file.id }}"
      data-clear-edit-draft-id="{{ clear_edit_draft_for_id|default('', true) }}"
      data-source-url="{{ file.source_url|default('', true) }}"
@@ -910,6 +929,11 @@ body.telegram-mini-app .file-title { font-size: 1.125rem; }
             <i class="fas fa-code"></i>
             קוד מקור
         </h2>
+        <button id="viewModeToggleBtn"
+                type="button"
+                class="btn btn-secondary btn-icon"
+                aria-pressed="false"
+                title="החלף תצוגת קוד">⚡ מתקדם</button>
     </div>
     <div class="editor-toolbar" id="code-search">
         <div class="search-capsule">
@@ -944,7 +968,10 @@ body.telegram-mini-app .file-title { font-size: 1.125rem; }
         </button>
     </div>
     <div class="code-container">
-        {{ highlighted_code|safe }}
+        <div id="codeBasicContainer">
+            {{ highlighted_code|safe }}
+        </div>
+        <div id="codeMirrorContainer" hidden aria-label="תצוגת קוד מתקדמת"></div>
     </div>
     {% if raw_code is defined %}
     <textarea id="rawCode" style="position: absolute; left: -9999px; height: 0; opacity: 0;">{{ raw_code }}</textarea>
@@ -2488,4 +2515,8 @@ function goBack(ev){
     window.openTrashConfirmModal = openTrashConfirmModal;
 })();
 </script>
+{% endblock %}
+
+{% block extra_js %}
+<script src="{{ url_for('static', filename='js/view-codemirror-toggle.js') }}?v={{ static_version }}" defer></script>
 {% endblock %}
