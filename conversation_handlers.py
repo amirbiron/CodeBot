@@ -4,7 +4,6 @@ import re
 import asyncio
 import inspect
 import hashlib
-import importlib
 import secrets
 import time
 from io import BytesIO
@@ -107,91 +106,28 @@ def _get_files_facade_or_none():
         return None
 
 
-def _get_legacy_db():
-    """Lazy access to the legacy DatabaseManager for fallback paths."""
+def _call_files_api(method_name: str, *args, **kwargs):
+    """
+    Invoke FilesFacade method by name (best-effort).
+
+    Note: Handlers must not reach into the legacy `database` package directly.
+    Any persistence access goes through the infrastructure facade.
+    """
+    facade = _get_files_facade_or_none()
+    if facade is None:
+        return None
+    method = getattr(facade, method_name, None)
+    if not callable(method):
+        return None
     try:
-        module = importlib.import_module("database")
-        return getattr(module, "db", None)
+        return method(*args, **kwargs)
     except Exception:
         return None
-
-
-_FACADE_SENTINEL = object()
-
-
-def _should_retry_with_legacy(method_name: str, value) -> bool:
-    """
-    האם לנסות fallback ל-legacy DB אחרי קריאה ל-FilesFacade.
-
-    חשוב: פעולות "טוגל" הן stateful. ערך False יכול להיות תוצאה תקינה,
-    ולכן אסור להתייחס אליו כ"כשל" — אחרת אנחנו מבצעים את הפעולה פעמיים ומקבלים מצב הפוך.
-    """
-    if value is _FACADE_SENTINEL:
-        return True
-    if value is None:
-        return True
-    if method_name in {"toggle_favorite"} and isinstance(value, bool):
-        return False
-    if value is False:
-        return True
-    if isinstance(value, (list, dict)) and not value:
-        return True
-    if isinstance(value, tuple) and not any(value):
-        return True
-    return False
-
-
-def _call_files_api(method_name: str, *args, **kwargs):
-    """Invoke FilesFacade (or legacy db) method by name, best-effort with legacy fallback."""
-    facade_result = _FACADE_SENTINEL
-    facade = _get_files_facade_or_none()
-    if facade is not None:
-        method = getattr(facade, method_name, None)
-        if callable(method):
-            try:
-                facade_result = method(*args, **kwargs)
-            except Exception:
-                facade_result = _FACADE_SENTINEL
-
-    if _should_retry_with_legacy(method_name, facade_result):
-        legacy = _get_legacy_db()
-        if legacy is not None:
-            method = getattr(legacy, method_name, None)
-            if callable(method):
-                try:
-                    legacy_result = method(*args, **kwargs)
-                    if legacy_result is not None:
-                        return legacy_result
-                except Exception:
-                    pass
-
-    if facade_result is _FACADE_SENTINEL:
-        return None
-    return facade_result
 
 
 def _call_repo_api(method_name: str, *args, **kwargs):
-    """Invoke repository-level APIs (e.g. recycle bin helpers)."""
-    result = _call_files_api(method_name, *args, **kwargs)
-    if not _should_retry_with_legacy(method_name, result):
-        return result
-    legacy = _get_legacy_db()
-    if legacy is None:
-        return None
-    repo_getter = getattr(legacy, "_get_repo", None)
-    if not callable(repo_getter):
-        return None
-    try:
-        repo = repo_getter()
-    except Exception:
-        return None
-    method = getattr(repo, method_name, None)
-    if callable(method):
-        try:
-            return method(*args, **kwargs)
-        except Exception:
-            return None
-    return None
+    """Invoke repository-level APIs via FilesFacade (best-effort)."""
+    return _call_files_api(method_name, *args, **kwargs)
 
 
 def _get_owned_document_by_id(user_id: int, file_id: str):
@@ -199,35 +135,7 @@ def _get_owned_document_by_id(user_id: int, file_id: str):
     result = _call_files_api("get_user_document_by_id", user_id=user_id, file_id=file_id)
     if isinstance(result, tuple) and len(result) == 2:
         return result
-    legacy = _get_legacy_db()
-    if legacy is None:
-        return None, False
-    try:
-        doc = legacy.get_file_by_id(file_id)
-    except Exception:
-        doc = None
-    if isinstance(doc, dict) and str(doc.get("user_id")) == str(user_id):
-        return doc, False
-    try:
-        large_doc = legacy.get_large_file_by_id(file_id)
-    except Exception:
-        large_doc = None
-    if isinstance(large_doc, dict) and str(large_doc.get("user_id")) == str(user_id):
-        return large_doc, True
     return None, False
-
-
-def _get_legacy_model_class(class_name: str):
-    """Best-effort lookup of database model classes without static imports."""
-    for module_name in ("database.models", "database"):
-        try:
-            module = importlib.import_module(module_name)
-            cls = getattr(module, class_name, None)
-            if cls is not None:
-                return cls
-        except Exception:
-            continue
-    return None
 
 
 def _save_code_snippet_with_description(
@@ -241,44 +149,21 @@ def _save_code_snippet_with_description(
 ) -> bool:
     """
     Save a CodeSnippet including description, using FilesFacade when possible.
-    Falls back to legacy db.save_code_snippet(CodeSnippet) when facade isn't available.
     """
     facade = _get_files_facade_or_none()
-    if facade is not None:
-        try:
-            return bool(
-                facade.save_code_snippet(
-                    user_id=user_id,
-                    file_name=file_name,
-                    code=code,
-                    programming_language=programming_language,
-                    description=description,
-                    tags=list(tags or []),
-                )
-            )
-        except Exception:
-            pass
-
-    legacy = _get_legacy_db()
-    if legacy is None:
-        return False
-    CodeSnippet = _get_legacy_model_class("CodeSnippet")
-    if CodeSnippet is None:
+    if facade is None:
         return False
     try:
-        snippet = CodeSnippet(
-            user_id=user_id,
-            file_name=file_name,
-            code=code,
-            programming_language=programming_language,
-            description=description,
+        return bool(
+            facade.save_code_snippet(
+                user_id=user_id,
+                file_name=file_name,
+                code=code,
+                programming_language=programming_language,
+                description=description,
+                tags=list(tags or []),
+            )
         )
-        # best-effort tags support
-        try:
-            setattr(snippet, "tags", list(tags or []))
-        except Exception:
-            pass
-        return bool(getattr(legacy, "save_code_snippet")(snippet))
     except Exception:
         return False
 
@@ -294,40 +179,21 @@ def _save_large_file_compat(
 ) -> bool:
     """
     Save a LargeFile using FilesFacade when possible.
-    Falls back to legacy db.save_large_file(LargeFile) when facade isn't available.
     """
     facade = _get_files_facade_or_none()
-    if facade is not None:
-        try:
-            return bool(
-                facade.save_large_file(
-                    user_id=user_id,
-                    file_name=file_name,
-                    content=content,
-                    programming_language=programming_language,
-                    file_size=file_size,
-                    lines_count=lines_count,
-                )
-            )
-        except Exception:
-            pass
-
-    legacy = _get_legacy_db()
-    if legacy is None:
-        return False
-    LargeFile = _get_legacy_model_class("LargeFile")
-    if LargeFile is None:
+    if facade is None:
         return False
     try:
-        lf = LargeFile(
-            user_id=user_id,
-            file_name=file_name,
-            content=content,
-            programming_language=programming_language,
-            file_size=file_size,
-            lines_count=lines_count,
+        return bool(
+            facade.save_large_file(
+                user_id=user_id,
+                file_name=file_name,
+                content=content,
+                programming_language=programming_language,
+                file_size=file_size,
+                lines_count=lines_count,
+            )
         )
-        return bool(getattr(legacy, "save_large_file")(lf))
     except Exception:
         return False
 
@@ -430,10 +296,10 @@ def _is_webapp_login_requested(update: Update, context: ContextTypes.DEFAULT_TYP
     return False
 
 
-def _persist_webapp_login_token(db_manager, token_doc: Dict[str, object]) -> None:
-    """שומר את טוקן ההתחברות במסד הנתונים אם אפשר."""
+def _persist_webapp_login_token(token_doc: Dict[str, object]) -> None:
+    """שומר את טוקן ההתחברות במסד הנתונים אם אפשר (דרך הפסאדה בלבד)."""
     try:
-        mongo_db = getattr(db_manager, "db", None)
+        mongo_db = _call_files_api("get_mongo_db")
         if mongo_db is None:
             return
         collection = None
@@ -451,7 +317,7 @@ def _persist_webapp_login_token(db_manager, token_doc: Dict[str, object]) -> Non
         logger.exception("שמירת טוקן webapp נכשלה", exc_info=True)
 
 
-def _build_webapp_login_payload(db_manager, user_id: int, username: Optional[str]) -> Optional[Dict[str, str]]:
+def _build_webapp_login_payload(user_id: int, username: Optional[str]) -> Optional[Dict[str, str]]:
     """יוצר טוקן וקישורי התחברות ל-Web App."""
     base_url = _resolve_webapp_base_url() or DEFAULT_WEBAPP_URL
     secret_candidates = [
@@ -476,7 +342,7 @@ def _build_webapp_login_payload(db_manager, user_id: int, username: Optional[str
         "created_at": now_utc,
         "expires_at": now_utc + timedelta(minutes=5),
     }
-    _persist_webapp_login_token(db_manager, token_doc)
+    _persist_webapp_login_token(token_doc)
     login_url = f"{base_url}/auth/token?token={auth_token}&user_id={user_id}"
     return {
         "auth_token": auth_token,
@@ -611,12 +477,11 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
     user_name = update.effective_user.first_name
     username = update.effective_user.username
     _call_files_api("save_user", user_id, username)
-    db_manager = _get_legacy_db()
     user_stats.log_user(user_id, username)
     # אם המשתמש הגיע עם פרמטר webapp_login — צור ושלח קישור התחברות אישי ל-Web App
     if _is_webapp_login_requested(update, context):
         try:
-            payload = _build_webapp_login_payload(db_manager, user_id, username)
+            payload = _build_webapp_login_payload(user_id, username)
             if payload is not None:
                 message = getattr(update, "message", None)
                 reply_fn = getattr(message, "reply_text", None) if message is not None else None

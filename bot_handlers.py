@@ -53,12 +53,7 @@ def set_activity_reporter(new_reporter):
     global reporter
     reporter = new_reporter or _NoopReporter()
     
-# ---- DB access via composition facade (with legacy fallback) ---------------
-# Backwards-compatibility for tests that monkeypatch `bot_handlers.db`.
-# We intentionally keep it `None` by default to avoid import-time DB coupling.
-db = None  # type: ignore
-
-
+# ---- DB access via composition facade --------------------------------------
 def _get_files_facade_or_none():
     """Best-effort access to FilesFacade without breaking older tests."""
     try:
@@ -68,90 +63,22 @@ def _get_files_facade_or_none():
         return None
 
 
-def _get_legacy_db():
-    """Lazy access to the legacy DatabaseManager for fallback paths."""
-    try:
-        patched = globals().get("db")
-        if patched is not None:
-            return patched
-    except Exception:
-        pass
-    try:
-        module = importlib.import_module("database")
-        return getattr(module, "db", None)
-    except Exception:
-        return None
-
-
-_FACADE_SENTINEL = object()
-
-
-def _should_retry_with_legacy(method_name: str, value) -> bool:
-    """
-    האם לנסות fallback ל-legacy DB אחרי קריאה ל-FilesFacade.
-
-    חשוב: פעולות "טוגל" הן stateful. ערך False יכול להיות תוצאה תקינה (למשל: הוסר מהמועדפים),
-    ולכן אסור להתייחס אליו כ"כשל" — אחרת אנחנו מבצעים את הפעולה פעמיים ומחזירים מצב הפוך.
-    """
-    if value is _FACADE_SENTINEL:
-        return True
-    if value is None:
-        return True
-    # Side-effectful toggles: never retry on a valid boolean result
-    if method_name in {"toggle_favorite"} and isinstance(value, bool):
-        return False
-    if value is False:
-        return True
-    if isinstance(value, (list, dict)) and not value:
-        return True
-    if isinstance(value, tuple) and not any(value):
-        return True
-    return False
-
-
 def _call_files_api(method_name: str, *args, **kwargs):
-    """Invoke FilesFacade method by name, best-effort with legacy fallback."""
-    # If tests (or runtime) patched `bot_handlers.db`, prefer it for compatibility.
-    try:
-        patched = globals().get("db")
-    except Exception:
-        patched = None
-    if patched is not None:
-        method = getattr(patched, method_name, None)
-        if callable(method):
-            try:
-                legacy_result = method(*args, **kwargs)
-                if legacy_result is not None:
-                    return legacy_result
-            except Exception:
-                # fall through to facade path
-                pass
+    """
+    Invoke FilesFacade method by name (best-effort).
 
-    facade_result = _FACADE_SENTINEL
+    Note: Bot handlers must not import/use the legacy `database` package directly.
+    """
     facade = _get_files_facade_or_none()
-    if facade is not None:
-        method = getattr(facade, method_name, None)
-        if callable(method):
-            try:
-                facade_result = method(*args, **kwargs)
-            except Exception:
-                facade_result = _FACADE_SENTINEL
-
-    if _should_retry_with_legacy(method_name, facade_result):
-        legacy = _get_legacy_db()
-        if legacy is not None:
-            method = getattr(legacy, method_name, None)
-            if callable(method):
-                try:
-                    legacy_result = method(*args, **kwargs)
-                    if legacy_result is not None:
-                        return legacy_result
-                except Exception:
-                    pass
-
-    if facade_result is _FACADE_SENTINEL:
+    if facade is None:
         return None
-    return facade_result
+    method = getattr(facade, method_name, None)
+    if not callable(method):
+        return None
+    try:
+        return method(*args, **kwargs)
+    except Exception:
+        return None
 
 
 # Rate limiter לפיצ'ר יצירת תמונות (10 פעולות בדקה למשתמש)
@@ -4136,8 +4063,7 @@ class AdvancedBotHandlers:
             return
         
         # שליפת נמענים מ-Mongo
-        legacy = _get_legacy_db()
-        db_obj = getattr(legacy, "db", None) if legacy is not None else None
+        db_obj = _call_files_api("get_mongo_db")
         coll = getattr(db_obj, "users", None) if db_obj is not None else None
         if coll is None:
             await update.message.reply_text("❌ לא ניתן לטעון רשימת משתמשים מהמסד.")
@@ -4251,8 +4177,7 @@ class AdvancedBotHandlers:
             # username: strip leading @ and query DB
             uname = recipient_token[1:] if recipient_token.startswith('@') else recipient_token
             try:
-                legacy = _get_legacy_db()
-                db_obj = getattr(legacy, "db", None) if legacy is not None else None
+                db_obj = _call_files_api("get_mongo_db")
                 users_coll = getattr(db_obj, "users", None) if db_obj is not None else None
                 if users_coll is not None:
                     # נסה התאמה מדויקת ואז lowercase
@@ -4293,8 +4218,7 @@ class AdvancedBotHandlers:
         except telegram.error.Forbidden:
             # ייתכן שהמשתמש חסם את הבוט – נסמן ב-DB
             try:
-                legacy = _get_legacy_db()
-                db_obj = getattr(legacy, "db", None) if legacy is not None else None
+                db_obj = _call_files_api("get_mongo_db")
                 users_coll = getattr(db_obj, "users", None) if db_obj is not None else None
                 if users_coll is not None:
                     users_coll.update_one({"user_id": target_id}, {"$set": {"blocked": True}})

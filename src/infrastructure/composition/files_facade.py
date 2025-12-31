@@ -265,6 +265,33 @@ class FilesFacade:
         except Exception:
             return False
 
+    # ---- User preferences ---------------------------------------------------
+    def save_image_prefs(self, user_id: int, prefs: Dict[str, Any]) -> bool:
+        """
+        Persist user image generation preferences (theme/font/width etc).
+        """
+        try:
+            db = self._get_db()
+            fn = getattr(db, "save_image_prefs", None)
+            if callable(fn):
+                return bool(fn(user_id, prefs))
+        except Exception:
+            return False
+        return False
+
+    def get_image_prefs(self, user_id: int) -> Optional[Dict[str, Any]]:
+        """
+        Fetch user image generation preferences.
+        """
+        try:
+            db = self._get_db()
+            fn = getattr(db, "get_image_prefs", None)
+            if callable(fn):
+                return fn(user_id)
+        except Exception:
+            return None
+        return None
+
     # ---- Additional helpers used by legacy handlers -------------------------
     def save_user(self, user_id: int, username: Optional[str] = None) -> bool:
         try:

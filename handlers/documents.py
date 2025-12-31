@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import base64
-import importlib
 import json
 import logging
 import os
@@ -131,35 +130,21 @@ class DocumentHandler:
         self._legacy_db_checked = True
         if self._legacy_db is not None:
             return self._legacy_db
+        # Legacy DB is injected at runtime/tests via `handlers.documents.db`.
+        # We intentionally avoid importing the legacy `database` package from handlers.
         legacy = globals().get("db")
-        if legacy is None:
-            try:
-                module = importlib.import_module("database")
-                legacy = getattr(module, "db", None)
-                if legacy is not None:
-                    globals()["db"] = legacy
-            except Exception as exc:
-                logger.debug("Legacy database unavailable: %s", exc)
-                legacy = None
         self._legacy_db = legacy
         return legacy
 
     def _legacy_backend_first(self) -> bool:
         if self._prefer_legacy_first is not None:
             return self._prefer_legacy_first
+        # Heuristic:
+        # - If a legacy DB object was injected into this module (common in tests),
+        #   prefer it first to avoid touching a real facade/DB.
+        # - Otherwise, prefer facade-first and use legacy only as fallback.
         legacy_db = self._resolve_legacy_db()
-        if legacy_db is None:
-            self._prefer_legacy_first = False
-            return False
-        try:
-            dm_mod = importlib.import_module("database.manager")
-            DatabaseManager = getattr(dm_mod, "DatabaseManager", None)  # type: ignore
-            if DatabaseManager is None:
-                raise RuntimeError("DatabaseManager missing")
-        except Exception:
-            self._prefer_legacy_first = True
-            return True
-        self._prefer_legacy_first = not isinstance(legacy_db, DatabaseManager)
+        self._prefer_legacy_first = legacy_db is not None
         return self._prefer_legacy_first
 
     def _save_code_snippet(
@@ -494,18 +479,9 @@ class DocumentHandler:
             "description": description,
             "tags": list(tags or []),
         }
-        try:
-            models_mod = importlib.import_module("database.models")
-            CodeSnippet = getattr(models_mod, "CodeSnippet", None)  # type: ignore
-        except Exception:
-            CodeSnippet = None  # type: ignore
-        if CodeSnippet is None:  # type: ignore
-            return SimpleNamespace(**payload)
-        try:
-            return CodeSnippet(**payload)  # type: ignore
-        except Exception as exc:
-            logger.warning("Failed creating CodeSnippet payload: %s", exc)
-            return SimpleNamespace(**payload)
+        # Keep legacy fallback lightweight and decoupled from `database.models`.
+        # Most legacy DB stubs in tests accept a simple object with attributes.
+        return SimpleNamespace(**payload)
 
     def _build_legacy_large_file_payload(
         self,
@@ -525,18 +501,7 @@ class DocumentHandler:
             "file_size": file_size,
             "lines_count": lines_count,
         }
-        try:
-            models_mod = importlib.import_module("database.models")
-            LargeFile = getattr(models_mod, "LargeFile", None)  # type: ignore
-        except Exception:
-            LargeFile = None  # type: ignore
-        if LargeFile is None:  # type: ignore
-            return SimpleNamespace(**payload)
-        try:
-            return LargeFile(**payload)  # type: ignore
-        except Exception as exc:
-            logger.warning("Failed creating LargeFile payload: %s", exc)
-            return SimpleNamespace(**payload)
+        return SimpleNamespace(**payload)
     async def handle_document(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """נתיב ראשי לטיפול בקובץ שנשלח."""
 
