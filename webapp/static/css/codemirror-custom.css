@@ -55,14 +55,6 @@ html[dir="rtl"] .editor-info-primary { margin-left:0; margin-right:auto; }
 @media (max-width: 768px){
   .cm-editor { max-height: 50vh; }
   #codeMirrorContainer .cm-editor { font-size: 12px; }
-  /* Mobile fix: prevent last lines from being hidden by browser UI / safe-area */
-  .cm-editor .cm-scroller,
-  #editorContainer textarea[name="code"],
-  textarea.code-field,
-  .editor-textarea {
-    padding-bottom: 80px !important;
-    padding-bottom: calc(80px + env(safe-area-inset-bottom)) !important;
-  }
   /* Mobile: Stack vertically */
   .editor-switcher-row { flex-direction: column; align-items: stretch; gap:.5rem; }
   .editor-switcher-actions { width: 100%; flex-direction: column; }
