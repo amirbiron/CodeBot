@@ -334,7 +334,7 @@ class CacheManager:
                 return f"bytes:{h}"
             return ""
 
-        def _stable_part(v: Any) -> str:
+        def _stable_part(v: Any, *, _depth: int = 0) -> str:
             # 1) טיפוסים פשוטים
             scalar = _stable_scalar(v)
             if scalar != "":
@@ -342,15 +342,35 @@ class CacheManager:
 
             # 2) מבנים מובנים עם סדר דטרמיניסטי
             if isinstance(v, (list, tuple)):
-                return "[" + ",".join(_stable_part(x) for x in v) + "]"
+                if _depth >= 3:
+                    try:
+                        return f"[len={len(v)}]"
+                    except Exception:
+                        return "[len=?]"
+                return "[" + ",".join(_stable_part(x, _depth=_depth + 1) for x in v) + "]"
             if isinstance(v, set):
-                return "{" + ",".join(sorted(_stable_part(x) for x in v)) + "}"
+                if _depth >= 3:
+                    try:
+                        return f"{{len={len(v)}}}"
+                    except Exception:
+                        return "{len=?}"
+                return "{" + ",".join(sorted(_stable_part(x, _depth=_depth + 1) for x in v)) + "}"
             if isinstance(v, dict):
+                if _depth >= 3:
+                    try:
+                        return f"{{len={len(v)}}}"
+                    except Exception:
+                        return "{len=?}"
                 try:
                     items = sorted(v.items(), key=lambda kv: str(kv[0]))
                 except Exception:
                     items = list(v.items())
-                return "{" + ",".join(f"{_stable_part(k)}={_stable_part(val)}" for k, val in items) + "}"
+                # הגבלת גודל כדי למנוע מפתחות ענקיים
+                limited = items[:30]
+                return "{" + ",".join(
+                    f"{_stable_part(k, _depth=_depth + 1)}={_stable_part(val, _depth=_depth + 1)}"
+                    for k, val in limited
+                ) + ("…" if len(items) > 30 else "") + "}"
 
             # 3) אובייקטים עם מזהה מוכר: נשתמש רק במזהה (כדי למנוע כתובות זיכרון במפתח)
             for attr in ("user_id", "id", "pk", "uuid"):
@@ -364,12 +384,36 @@ class CacheManager:
                 except Exception:
                     continue
 
-            # 4) fallback: hash דטרמיניסטי על בסיס class + repr נקי
+            # 4) אובייקטים "רגילים" עם __dict__: נבנה fingerprint דטרמיניסטי מהתוכן (מוגבל עומק/גודל)
             try:
                 cls = v.__class__
                 cls_name = f"{getattr(cls, '__module__', '')}.{getattr(cls, '__qualname__', getattr(cls, '__name__', 'object'))}"
             except Exception:
                 cls_name = "object"
+
+            try:
+                if _depth < 3 and hasattr(v, "__dict__") and isinstance(getattr(v, "__dict__", None), dict):
+                    d = cast(dict, getattr(v, "__dict__", {}) or {})
+                    if d:
+                        try:
+                            items = sorted(d.items(), key=lambda kv: str(kv[0]))
+                        except Exception:
+                            items = list(d.items())
+                        # דוגמים רק חלק מהשדות כדי להימנע מהעמסה/דליפה של נתונים כבדים
+                        sampled: dict[str, str] = {}
+                        for k, val in items[:25]:
+                            try:
+                                sampled[str(k)] = _stable_part(val, _depth=_depth + 1)
+                            except Exception:
+                                sampled[str(k)] = "<?>"
+                        material = json.dumps(sampled, sort_keys=True, ensure_ascii=False)
+                        h = hashlib.sha256(f"{cls_name}:{material}".encode("utf-8", errors="ignore")).hexdigest()[:16]
+                        return f"{cls_name}:{h}"
+            except Exception:
+                # ניפול ל-fallback הבא
+                pass
+
+            # 5) fallback אחרון: hash דטרמיניסטי על בסיס class + repr נקי
             try:
                 raw = _clean_repr(str(v))
             except Exception:
