@@ -3452,6 +3452,367 @@ def admin_db_health_page():
     return db_health_page()
 
 
+# --- Query Performance Profiler (Admin UI + API) ---
+def _profiler_token() -> str:
+    return str(os.getenv("PROFILER_AUTH_TOKEN", "") or "").strip()
+
+
+def _profiler_allowed_ips() -> List[str]:
+    raw = str(os.getenv("PROFILER_ALLOWED_IPS", "") or "").strip()
+    if not raw:
+        return []
+    return [ip.strip() for ip in raw.split(",") if ip.strip()]
+
+
+def _profiler_is_authorized() -> bool:
+    """אימות X-Profiler-Token + allowlist IP (best-effort).
+
+    - אם token מוגדר: חייבים לספק X-Profiler-Token תואם
+    - allowlist IP (אופציונלי): אם מוגדר, חייבים להיות בתוך הרשימה
+    - בנוסף: מאפשר אדמין מחובר (session) גם אם token לא הוגדר
+    """
+    # Admin override (משאיר UI נוח לסביבה פנימית)
+    try:
+        uid = session.get("user_id")
+        if uid is not None and is_admin(int(uid)):
+            # עדיין נכבד allowlist IP אם מוגדר
+            allowed_ips = _profiler_allowed_ips()
+            if allowed_ips:
+                client_ip = request.remote_addr or ""
+                return client_ip in allowed_ips
+            return True
+    except Exception:
+        pass
+
+    token = _profiler_token()
+    if token:
+        provided = str(request.headers.get("X-Profiler-Token", "") or "").strip()
+        try:
+            if not hmac.compare_digest(provided, token):
+                return False
+        except Exception:
+            return False
+
+    allowed_ips = _profiler_allowed_ips()
+    if allowed_ips:
+        client_ip = request.remote_addr or ""
+        if client_ip not in allowed_ips:
+            return False
+
+    # אם אין token ואין allowlist — נדרוש אדמין (למנוע דליפה בסביבה פתוחה)
+    try:
+        uid = session.get("user_id")
+        return bool(uid is not None and is_admin(int(uid)))
+    except Exception:
+        return False
+
+
+_WEBAPP_PROFILER_SERVICE = None
+_WEBAPP_PROFILER_RATE_LIMITER = None
+
+
+def _get_webapp_profiler_service():
+    """מחזיר service יציב ל-WebApp (Flask)."""
+    global _WEBAPP_PROFILER_SERVICE
+    if _WEBAPP_PROFILER_SERVICE is not None:
+        return _WEBAPP_PROFILER_SERVICE
+
+    _db = get_db()
+    _client = globals().get("client")
+
+    class _ManagerLike:
+        client = _client
+        db = _db
+
+    try:
+        from services.query_profiler_service import PersistentQueryProfilerService  # type: ignore
+    except Exception as e:
+        raise RuntimeError(f"QueryProfilerService unavailable: {e}") from e
+
+    try:
+        threshold_ms = int(float(os.getenv("PROFILER_SLOW_THRESHOLD_MS", "100") or 100))
+    except Exception:
+        threshold_ms = 100
+
+    _WEBAPP_PROFILER_SERVICE = PersistentQueryProfilerService(_ManagerLike(), slow_threshold_ms=threshold_ms)
+    return _WEBAPP_PROFILER_SERVICE
+
+
+def _get_webapp_profiler_rate_limiter():
+    global _WEBAPP_PROFILER_RATE_LIMITER
+    if _WEBAPP_PROFILER_RATE_LIMITER is not None:
+        return _WEBAPP_PROFILER_RATE_LIMITER
+    try:
+        from services.query_profiler_service import RateLimiter  # type: ignore
+    except Exception:
+        return None
+    try:
+        limit = int(float(os.getenv("PROFILER_RATE_LIMIT", "60") or 60))
+    except Exception:
+        limit = 60
+    _WEBAPP_PROFILER_RATE_LIMITER = RateLimiter(requests_per_minute=limit)
+    return _WEBAPP_PROFILER_RATE_LIMITER
+
+
+def _profiler_rate_limit_ok() -> bool:
+    limiter = _get_webapp_profiler_rate_limiter()
+    if limiter is None:
+        return True
+    try:
+        client_id = str(request.headers.get("X-Profiler-Client") or request.remote_addr or "unknown")
+        return limiter.is_allowed(client_id)
+    except Exception:
+        return True
+
+
+def _run_profiler(awaitable):
+    """הרצת קורוטינה בצורה תואמת Flask תחת WSGI."""
+
+    async def _runner():
+        return await awaitable
+
+    try:
+        from asgiref.sync import async_to_sync  # type: ignore
+
+        return async_to_sync(_runner)()
+    except Exception:
+        return asyncio.run(_runner())
+
+
+@app.route("/admin/profiler")
+@admin_required
+def admin_profiler_page():
+    """דשבורד Query Performance Profiler (Admin בלבד)."""
+    # token אופציונלי: אם מוגדר, נשתמש בו בבקשות JS כדי להגן על ה-API
+    return render_template("profiler_dashboard.html", profiler_token=_profiler_token())
+
+
+def _serialize_slow_query(q) -> Dict[str, Any]:
+    return {
+        "query_id": q.query_id,
+        "collection": q.collection,
+        "operation": q.operation,
+        "query_shape": q.query_shape,
+        "execution_time_ms": q.execution_time_ms,
+        "timestamp": q.timestamp.isoformat() if getattr(q, "timestamp", None) else None,
+    }
+
+
+def _serialize_stage(stage) -> Dict[str, Any]:
+    return {
+        "stage": stage.stage.value,
+        "index_name": stage.index_name,
+        "direction": stage.direction,
+        "filter_condition": stage.filter_condition,
+        "input_stage": _serialize_stage(stage.input_stage) if stage.input_stage else None,
+        "children": [_serialize_stage(c) for c in stage.children],
+    }
+
+
+def _serialize_explain_plan(plan) -> Dict[str, Any]:
+    return {
+        "query_id": plan.query_id,
+        "collection": plan.collection,
+        "query_shape": plan.query_shape,
+        "winning_plan": _serialize_stage(plan.winning_plan),
+        "rejected_plans": [_serialize_stage(p) for p in plan.rejected_plans],
+        "stats": {
+            "execution_time_ms": plan.stats.execution_time_ms,
+            "docs_examined": plan.stats.docs_examined,
+            "docs_returned": plan.stats.docs_returned,
+            "keys_examined": plan.stats.keys_examined,
+            "index_used": plan.stats.index_used,
+            "is_covered_query": plan.stats.is_covered_query,
+            "efficiency_ratio": round(plan.stats.efficiency_ratio, 4),
+        }
+        if plan.stats
+        else None,
+        "timestamp": plan.timestamp.isoformat(),
+    }
+
+
+def _serialize_aggregation_explain(plan) -> Dict[str, Any]:
+    return {
+        "query_id": plan.query_id,
+        "collection": plan.collection,
+        "pipeline_shape": plan.pipeline_shape,
+        "stages": [
+            {
+                "stage_name": s.stage_name,
+                "execution_time_ms": s.execution_time_ms,
+                "docs_examined": s.docs_examined,
+                "n_returned": s.n_returned,
+                "uses_disk": s.uses_disk,
+                "memory_usage_bytes": s.memory_usage_bytes,
+                "index_used": s.index_used,
+                "lookup_collection": s.lookup_collection,
+                "lookup_strategy": s.lookup_strategy,
+            }
+            for s in plan.stages
+        ],
+        "total_execution_time_ms": plan.total_execution_time_ms,
+        "timestamp": plan.timestamp.isoformat(),
+    }
+
+
+def _serialize_recommendation(rec) -> Dict[str, Any]:
+    return {
+        "id": rec.id,
+        "title": rec.title,
+        "description": rec.description,
+        "severity": rec.severity.value,
+        "category": rec.category,
+        "suggested_action": rec.suggested_action,
+        "estimated_improvement": rec.estimated_improvement,
+        "code_example": rec.code_example,
+        "documentation_link": rec.documentation_link,
+    }
+
+
+@app.route("/api/profiler/slow-queries", methods=["GET"])
+def api_profiler_slow_queries():
+    if not _profiler_is_authorized():
+        return jsonify({"status": "error", "message": "Unauthorized"}), 401
+    if not _profiler_rate_limit_ok():
+        return jsonify({"status": "error", "message": "rate_limited"}), 429
+    try:
+        limit = int(request.args.get("limit", "50"))
+    except Exception:
+        limit = 50
+    collection = request.args.get("collection")
+    min_time = request.args.get("min_time")
+    hours = request.args.get("hours")
+    since = None
+    if hours:
+        try:
+            since = datetime.utcnow() - timedelta(hours=int(hours))
+        except Exception:
+            since = None
+    try:
+        svc = _get_webapp_profiler_service()
+        queries = _run_profiler(
+            svc.get_slow_queries(
+                limit=limit,
+                collection_filter=collection,
+                min_execution_time_ms=float(min_time) if min_time else None,
+                since=since,
+            )
+        )
+        return jsonify({"status": "success", "data": [_serialize_slow_query(q) for q in queries], "count": len(queries)})
+    except Exception:
+        logger.exception("api_profiler_slow_queries_failed")
+        return jsonify({"status": "error", "message": "internal_error"}), 500
+
+
+@app.route("/api/profiler/summary", methods=["GET"])
+def api_profiler_summary():
+    if not _profiler_is_authorized():
+        return jsonify({"status": "error", "message": "Unauthorized"}), 401
+    if not _profiler_rate_limit_ok():
+        return jsonify({"status": "error", "message": "rate_limited"}), 429
+    try:
+        svc = _get_webapp_profiler_service()
+        return jsonify({"status": "success", "data": svc.get_summary()})
+    except Exception:
+        logger.exception("api_profiler_summary_failed")
+        return jsonify({"status": "error", "message": "internal_error"}), 500
+
+
+@app.route("/api/profiler/explain", methods=["POST"])
+def api_profiler_explain():
+    if not _profiler_is_authorized():
+        return jsonify({"status": "error", "message": "Unauthorized"}), 401
+    if not _profiler_rate_limit_ok():
+        return jsonify({"status": "error", "message": "rate_limited"}), 429
+    try:
+        body = request.get_json(force=True, silent=False) or {}
+    except Exception:
+        return jsonify({"status": "error", "message": "invalid_json"}), 400
+    collection = body.get("collection")
+    query = body.get("query", {}) or {}
+    pipeline = body.get("pipeline")
+    verbosity = body.get("verbosity", "queryPlanner")
+    if not collection:
+        return jsonify({"status": "error", "message": "collection is required"}), 400
+    try:
+        svc = _get_webapp_profiler_service()
+        if isinstance(pipeline, list):
+            explain = _run_profiler(svc.get_aggregation_explain(collection=collection, pipeline=pipeline, verbosity=verbosity))
+            return jsonify({"status": "success", "data": _serialize_aggregation_explain(explain)})
+        explain = _run_profiler(svc.get_explain_plan(collection=collection, query=query, verbosity=verbosity))
+        return jsonify({"status": "success", "data": _serialize_explain_plan(explain)})
+    except Exception:
+        logger.exception("api_profiler_explain_failed")
+        return jsonify({"status": "error", "message": "internal_error"}), 500
+
+
+@app.route("/api/profiler/recommendations", methods=["POST"])
+def api_profiler_recommendations():
+    if not _profiler_is_authorized():
+        return jsonify({"status": "error", "message": "Unauthorized"}), 401
+    if not _profiler_rate_limit_ok():
+        return jsonify({"status": "error", "message": "rate_limited"}), 429
+    try:
+        body = request.get_json(force=True, silent=False) or {}
+    except Exception:
+        return jsonify({"status": "error", "message": "invalid_json"}), 400
+    collection = body.get("collection")
+    query = body.get("query", {}) or {}
+    pipeline = body.get("pipeline")
+    verbosity = body.get("verbosity", "queryPlanner")
+    if not collection:
+        return jsonify({"status": "error", "message": "collection is required"}), 400
+    try:
+        svc = _get_webapp_profiler_service()
+        if isinstance(pipeline, list):
+            explain = _run_profiler(svc.get_aggregation_explain(collection=collection, pipeline=pipeline, verbosity=verbosity))
+            recommendations = _run_profiler(svc.analyze_aggregation_and_recommend(explain))
+            return jsonify(
+                {
+                    "status": "success",
+                    "data": {
+                        "aggregation_explain": _serialize_aggregation_explain(explain),
+                        "recommendations": [_serialize_recommendation(r) for r in recommendations],
+                    },
+                }
+            )
+        explain = _run_profiler(svc.get_explain_plan(collection=collection, query=query, verbosity=verbosity))
+        recommendations = _run_profiler(svc.generate_recommendations(explain))
+        return jsonify(
+            {
+                "status": "success",
+                "data": {
+                    "explain": _serialize_explain_plan(explain),
+                    "recommendations": [_serialize_recommendation(r) for r in recommendations],
+                },
+            }
+        )
+    except Exception:
+        logger.exception("api_profiler_recommendations_failed")
+        return jsonify({"status": "error", "message": "internal_error"}), 500
+
+
+@app.route("/api/profiler/analyze", methods=["POST"])
+def api_profiler_analyze():
+    """Alias 1:1 למדריך: POST /api/profiler/analyze -> recommendations."""
+    return api_profiler_recommendations()
+
+
+@app.route("/api/profiler/collection/<name>/stats", methods=["GET"])
+def api_profiler_collection_stats(name: str):
+    if not _profiler_is_authorized():
+        return jsonify({"status": "error", "message": "Unauthorized"}), 401
+    if not _profiler_rate_limit_ok():
+        return jsonify({"status": "error", "message": "rate_limited"}), 429
+    try:
+        svc = _get_webapp_profiler_service()
+        stats = _run_profiler(svc.get_collection_stats(name))
+        return jsonify({"status": "success", "data": stats})
+    except Exception:
+        logger.exception("api_profiler_collection_stats_failed")
+        return jsonify({"status": "error", "message": "internal_error"}), 500
+
+
 def _db_health_token() -> str:
     return str(os.getenv("DB_HEALTH_TOKEN", "") or "").strip()
 

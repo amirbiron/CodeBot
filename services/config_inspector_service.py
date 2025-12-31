@@ -1033,6 +1033,50 @@ class ConfigService:
             description="סף מילישניות ללוג \"slow_mongo\" (MongoDB CommandListener)",
             category="database",
         ),
+        # --- Query Performance Profiler ---
+        "PROFILER_ENABLED": ConfigDefinition(
+            key="PROFILER_ENABLED",
+            default="true",
+            description="הפעלת Query Performance Profiler (true/false)",
+            category="profiler",
+        ),
+        "PROFILER_SLOW_THRESHOLD_MS": ConfigDefinition(
+            key="PROFILER_SLOW_THRESHOLD_MS",
+            default="100",
+            description="סף זמן לשאילתה איטית בפרופיילר (מילישניות)",
+            category="profiler",
+        ),
+        "PROFILER_MAX_BUFFER_SIZE": ConfigDefinition(
+            key="PROFILER_MAX_BUFFER_SIZE",
+            default="1000",
+            description="מספר מקסימלי של רשומות slow queries שנשמרות בזיכרון",
+            category="profiler",
+        ),
+        "PROFILER_AUTH_TOKEN": ConfigDefinition(
+            key="PROFILER_AUTH_TOKEN",
+            default="",
+            description="טוקן גישה ל-API של הפרופיילר (X-Profiler-Token)",
+            category="profiler",
+            sensitive=True,
+        ),
+        "PROFILER_ALLOWED_IPS": ConfigDefinition(
+            key="PROFILER_ALLOWED_IPS",
+            default="",
+            description="Allowlist של כתובות IP מורשות ל-API של הפרופיילר (CSV)",
+            category="profiler",
+        ),
+        "PROFILER_RATE_LIMIT": ConfigDefinition(
+            key="PROFILER_RATE_LIMIT",
+            default="60",
+            description="מגבלת בקשות לדקה ל-endpoints של הפרופיילר (Rate Limiting)",
+            category="profiler",
+        ),
+        "PROFILER_METRICS_ENABLED": ConfigDefinition(
+            key="PROFILER_METRICS_ENABLED",
+            default="true",
+            description="הפעלת מטריקות Prometheus לפרופיילר",
+            category="profiler",
+        ),
         "DRILLS_COLLECTION": ConfigDefinition(
             key="DRILLS_COLLECTION",
             default="drill_history",

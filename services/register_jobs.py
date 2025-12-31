@@ -105,6 +105,19 @@ def register_all_jobs():
         source_file="main.py",
     )
 
+    # === Query Profiler (MongoDB) ===
+    register_job(
+        job_id="profiler_indexes",
+        name="פרופיילר: אינדקסים (TTL)",
+        description="וידוא אינדקסים (כולל TTL) ל-slow_queries_log",
+        category=JobCategory.MONITORING,
+        job_type=JobType.ON_DEMAND,
+        env_toggle="PROFILER_ENABLED",
+        env_toggle_default=True,
+        callback_name="_profiler_indexes_job",
+        source_file="database/manager.py",
+    )
+
     # === Reminders ===
     register_job(
         job_id="recurring_reminders_check",

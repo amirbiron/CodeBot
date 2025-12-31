@@ -1,3 +1,4 @@
+import asyncio
 import logging
 import os
 from types import SimpleNamespace
@@ -221,6 +222,90 @@ class DatabaseManager:
             global _MONGO_MONITORING_REGISTERED
             if not _MONGO_MONITORING_REGISTERED:
                 try:
+                    outer_self = self
+
+                    def _profiler_enabled() -> bool:
+                        try:
+                            v = os.getenv("PROFILER_ENABLED", "true")
+                            return str(v).strip().lower() in {"1", "true", "yes", "y", "on"}
+                        except Exception:
+                            return True
+
+                    def _profiler_threshold_ms() -> float:
+                        # Prefer profiler-specific threshold; fallback to legacy DB_SLOW_MS if present
+                        raw = os.getenv("PROFILER_SLOW_THRESHOLD_MS", "").strip()
+                        if raw:
+                            try:
+                                return float(raw)
+                            except Exception:
+                                return 100.0
+                        raw2 = os.getenv("DB_SLOW_MS", "").strip()
+                        if raw2:
+                            try:
+                                return float(raw2)
+                            except Exception:
+                                return 100.0
+                        # ברירת מחדל: 100ms (תואם docs ו-Config Inspector)
+                        return 100.0
+
+                    def _get_profiler_service():
+                        # Lazy import to avoid hard dependency / circular imports at startup
+                        try:
+                            from services.query_profiler_service import PersistentQueryProfilerService  # type: ignore
+                        except Exception:
+                            return None
+                        svc = getattr(outer_self, "_profiler_service", None)
+                        if svc is not None:
+                            return svc
+                        try:
+                            svc = PersistentQueryProfilerService(
+                                db_manager=outer_self,
+                                slow_threshold_ms=int(_profiler_threshold_ms() or 100),
+                            )
+                            setattr(outer_self, "_profiler_service", svc)
+                            return svc
+                        except Exception:
+                            return None
+
+                    def _extract_collection_and_query(command_name: str, command: Dict[str, Any]) -> tuple[str, Dict[str, Any]]:
+                        cmd = command or {}
+                        coll = ""
+                        query: Dict[str, Any] = {}
+
+                        try:
+                            if command_name in {"find", "aggregate", "count", "distinct"}:
+                                coll = str(cmd.get(command_name) or "")
+                            elif command_name in {"insert", "update", "delete", "findAndModify"}:
+                                # These commands store collection name under the command key
+                                coll = str(cmd.get(command_name) or "")
+                        except Exception:
+                            coll = ""
+
+                        try:
+                            if command_name == "find":
+                                query = cmd.get("filter") or cmd.get("query") or {}
+                            elif command_name == "aggregate":
+                                pipeline = cmd.get("pipeline")
+                                query = {"pipeline": pipeline} if isinstance(pipeline, list) else {}
+                            elif command_name == "update":
+                                updates = cmd.get("updates") or []
+                                if isinstance(updates, list) and updates:
+                                    first = updates[0] if isinstance(updates[0], dict) else {}
+                                    query = first.get("q") or {}
+                            elif command_name == "delete":
+                                deletes = cmd.get("deletes") or []
+                                if isinstance(deletes, list) and deletes:
+                                    first = deletes[0] if isinstance(deletes[0], dict) else {}
+                                    query = first.get("q") or {}
+                            elif command_name == "findAndModify":
+                                query = cmd.get("query") or {}
+                        except Exception:
+                            query = {}
+
+                        if not isinstance(query, dict):
+                            query = {"raw": str(query)}
+                        return coll, query
+
                     class _SlowMongoListener(_pymongo_monitoring.CommandListener):  # type: ignore[attr-defined]
                         def started(self, event):  # type: ignore[override]
                             # מאזין חובה ב-PyMongo; לא נדרש לנו כלום בשלב ההתחלה
@@ -229,8 +314,7 @@ class DatabaseManager:
                         def succeeded(self, event):  # type: ignore[override]
                             try:
                                 dur_ms = float(getattr(event, 'duration_micros', 0) or 0) / 1000.0
-                                slow_ms_env = os.getenv('DB_SLOW_MS', '')
-                                slow_ms = float(slow_ms_env) if slow_ms_env not in (None, '') else 0.0
+                                slow_ms = float(_profiler_threshold_ms() or 0.0)
                                 if slow_ms and dur_ms > slow_ms:
                                     try:
                                         logger.warning(
@@ -243,6 +327,60 @@ class DatabaseManager:
                                         )
                                     except Exception:
                                         pass
+
+                                    # --- Query Performance Profiler (best-effort) ---
+                                    try:
+                                        if not _profiler_enabled():
+                                            return None
+                                        cmd_name = str(getattr(event, "command_name", "") or "")
+                                        if cmd_name.lower() == "explain":
+                                            return None
+                                        command = getattr(event, "command", None) or {}
+                                        if not isinstance(command, dict):
+                                            return None
+                                        coll, query = _extract_collection_and_query(cmd_name, command)
+                                        if not coll:
+                                            return None
+                                        # Prevent recursion / noise: don't record our own persistence writes
+                                        if coll in {"slow_queries_log"}:
+                                            return None
+
+                                        profiler = _get_profiler_service()
+                                        if profiler is None:
+                                            return None
+
+                                        client_info = {
+                                            "db": str(getattr(event, "database_name", "") or ""),
+                                            "cmd": cmd_name,
+                                        }
+                                        # Run async API in best-effort manner (Mongo listener is sync)
+                                        try:
+                                            loop = asyncio.get_running_loop()
+                                        except RuntimeError:
+                                            loop = None
+                                        if loop is not None:
+                                            loop.create_task(
+                                                profiler.record_slow_query(  # type: ignore[union-attr]
+                                                    collection=coll,
+                                                    operation=cmd_name,
+                                                    query=query,
+                                                    execution_time_ms=float(dur_ms),
+                                                    client_info=client_info,
+                                                )
+                                            )
+                                        else:
+                                            asyncio.run(
+                                                profiler.record_slow_query(  # type: ignore[union-attr]
+                                                    collection=coll,
+                                                    operation=cmd_name,
+                                                    query=query,
+                                                    execution_time_ms=float(dur_ms),
+                                                    client_info=client_info,
+                                                )
+                                            )
+                                    except Exception:
+                                        # Fail-open: profiler must never break DB operations
+                                        return None
                             except Exception:
                                 pass
 
@@ -444,6 +582,13 @@ class DatabaseManager:
             IndexModel([("ts", ASCENDING)], name="metrics_ttl", expireAfterSeconds=30 * 24 * 60 * 60),
         ]
 
+        # Query Profiler (slow_queries_log) indexes + TTL 7 days
+        profiler_indexes = [
+            IndexModel([("timestamp", ASCENDING)], name="ttl_cleanup", expireAfterSeconds=7 * 24 * 60 * 60),
+            IndexModel([("collection", ASCENDING), ("timestamp", DESCENDING)], name="collection_timestamp"),
+            IndexModel([("query_id", ASCENDING)], name="query_pattern"),
+        ]
+
         # job_runs collection (Background Jobs Monitor) indexes + TTL 7 days
         JOB_RUNS_COLLECTION = "job_runs"
         job_runs_indexes: List[Any] = []
@@ -475,6 +620,14 @@ class DatabaseManager:
                 self.db[collection_name].create_indexes(metrics_indexes)  # type: ignore[index]
             except Exception:
                 pass
+            # profiler slow queries log (best-effort)
+            try:
+                self.db.slow_queries_log.create_indexes(profiler_indexes)  # type: ignore[attr-defined]
+            except Exception:
+                try:
+                    self.db["slow_queries_log"].create_indexes(profiler_indexes)  # type: ignore[index]
+                except Exception:
+                    pass
             # job_runs (best-effort)
             try:
                 if job_runs_indexes:

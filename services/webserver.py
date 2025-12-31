@@ -660,6 +660,35 @@ def create_app() -> web.Application:
 
     app = web.Application(middlewares=[_request_id_mw, db_health_auth_middleware])
 
+    # --- Query Performance Profiler routes (best-effort) ---
+    try:
+        profiler_enabled = str(os.getenv("PROFILER_ENABLED", "true") or "").strip().lower() in {"1", "true", "yes", "y", "on"}
+    except Exception:
+        profiler_enabled = True
+    if profiler_enabled:
+        try:
+            from database import db_manager  # type: ignore
+            from services.query_profiler_service import PersistentQueryProfilerService  # type: ignore
+            from handlers.profiler_handler import setup_profiler_routes  # type: ignore
+
+            try:
+                threshold_ms = int(float(os.getenv("PROFILER_SLOW_THRESHOLD_MS", "100") or 100))
+            except Exception:
+                threshold_ms = 100
+            profiler_service = PersistentQueryProfilerService(db_manager, slow_threshold_ms=threshold_ms)
+            app["profiler_service"] = profiler_service
+            setup_profiler_routes(app, profiler_service)
+        except Exception as e:
+            try:
+                emit_event(
+                    "profiler_routes_init_failed",
+                    severity="warn",
+                    handled=True,
+                    error=str(e),
+                )
+            except Exception:
+                pass
+
     async def on_startup(app: web.Application):
         """אתחול שירותים בעליית השרת."""
         try:
