@@ -3026,12 +3026,47 @@ class CodeKeeperBot:
 
         # /check – תפריט פקודות טלגרם (ציבורי + אישי)
         from html import escape as html_escape
-        from telegram import BotCommandScopeChat
 
-        public_cmds = await context.bot.get_my_commands()
-        personal_cmds = await context.bot.get_my_commands(scope=BotCommandScopeChat(chat_id=user_id))
+        warnings: list[str] = []
+
+        public_cmds = []
+        try:
+            public_cmds = await context.bot.get_my_commands()
+        except Exception:
+            public_cmds = []
+            warnings.append("⚠️ לא הצלחתי למשוך פקודות ציבוריות מה-API של טלגרם")
+
+        # בצ'אט פרטי chat_id == user_id. אם אין user_id (0), ננסה fallback ל-chat_id של ההודעה.
+        chat_id_for_personal = None
+        try:
+            if user_id:
+                chat_id_for_personal = user_id
+            else:
+                effective_chat = getattr(update, "effective_chat", None)
+                cid = getattr(effective_chat, "id", None) if effective_chat is not None else None
+                if isinstance(cid, int) and cid != 0:
+                    chat_id_for_personal = cid
+        except Exception:
+            chat_id_for_personal = None
+
+        personal_cmds = []
+        if chat_id_for_personal is None:
+            personal_cmds = []
+            warnings.append("⚠️ דילוג על פקודות אישיות: אין chat_id זמין")
+        else:
+            try:
+                from telegram import BotCommandScopeChat
+
+                personal_cmds = await context.bot.get_my_commands(
+                    scope=BotCommandScopeChat(chat_id=chat_id_for_personal)
+                )
+            except Exception:
+                personal_cmds = []
+                warnings.append("⚠️ לא הצלחתי למשוך פקודות אישיות (scope) מה-API של טלגרם")
 
         message = "📋 <b>סטטוס פקודות (Telegram Menu)</b>\n\n"
+        if warnings:
+            message += "\n".join(warnings) + "\n\n"
         message += f"סיכום: ציבוריות {len(public_cmds)} | אישיות {len(personal_cmds)}\n\n"
         if public_cmds:
             public_list = "\n".join(f"/{cmd.command}" for cmd in public_cmds)

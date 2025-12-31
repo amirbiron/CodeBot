@@ -97,3 +97,39 @@ async def test_check_commands_commands_mode_lists_registered_and_hidden(monkeypa
     assert "Hidden Commands" in text
     assert replies["kwargs"]["disable_web_page_preview"] is True
 
+
+@pytest.mark.asyncio
+async def test_check_commands_menu_mode_handles_missing_user_id_gracefully(monkeypatch):
+    # מצב שבו אין effective_user, אבל בכל זאת יש "אדמין" בגלל allow-all dev flag
+    monkeypatch.setenv("ADMIN_USER_IDS", "")
+    monkeypatch.setenv("CHATOPS_ALLOW_ALL_IF_NO_ADMINS", "1")
+
+    bot = object.__new__(mod.CodeKeeperBot)
+    bot.application = types.SimpleNamespace(handlers=[])
+
+    replies = {}
+
+    class _Message:
+        async def reply_text(self, text, **kwargs):
+            replies["text"] = text
+            replies["kwargs"] = kwargs
+
+    class _Bot:
+        async def get_my_commands(self, scope=None):
+            if scope is None:
+                return [types.SimpleNamespace(command="help", description="Help")]
+            # אם ננסה לקרוא scope עם chat_id לא תקין – זה היה מתרסק קודם
+            raise RuntimeError("scope call should be guarded")
+
+    update = types.SimpleNamespace(
+        effective_user=None,
+        effective_chat=None,
+        effective_message=_Message(),
+    )
+    context = types.SimpleNamespace(args=[], application=None, bot=_Bot())
+
+    await mod.CodeKeeperBot.check_commands(bot, update, context)
+
+    assert "Telegram Menu" in replies["text"]
+    assert "/help" in replies["text"]
+
