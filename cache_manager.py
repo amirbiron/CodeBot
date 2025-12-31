@@ -631,7 +631,7 @@ class CacheManager:
         try:
             client = self.redis_client
             # תקציב זמן לניקוי כדי לא לחסום worker אם Redis איטי
-            budget_seconds = float(os.getenv("CACHE_CLEAR_BUDGET_SECONDS", "2"))
+            budget_seconds = float(os.getenv("CACHE_CLEAR_BUDGET_SECONDS", "5"))
             deadline = time.time() + max(0.0, budget_seconds)
             if hasattr(client, 'scan_iter'):
                 for k in client.scan_iter(match='*', count=500):
@@ -710,7 +710,7 @@ class CacheManager:
                 return 0
 
             # תקציב זמן לניקוי כדי לא לחסום worker אם Redis איטי
-            budget_seconds = float(os.getenv("CACHE_CLEAR_BUDGET_SECONDS", "1"))
+            budget_seconds = float(os.getenv("CACHE_CLEAR_BUDGET_SECONDS", "5"))
             deadline = time.time() + max(0.0, budget_seconds)
             # עדיפות ל-scan_iter כדי להימנע מ-blocking
             if hasattr(client, 'scan_iter') and hasattr(client, 'ttl'):
