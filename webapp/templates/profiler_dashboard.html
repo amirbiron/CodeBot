@@ -233,12 +233,14 @@
       const actionsTd = document.createElement('td');
       
       // מציגים כפתור ניתוח רק עבור find/aggregate/count
-      if (['find', 'aggregate', 'count'].includes(query.operation)) {
+      const op = String(query.operation || '').toLowerCase();
+      if (['find', 'aggregate', 'count'].includes(op)) {
           const btn = document.createElement('button');
           btn.className = 'btn btn-sm btn-outline-primary';
           btn.innerHTML = '🔍 נתח';
           btn.onclick = function() {
-              analyzeQueryById(query.collection, JSON.stringify(query.query_shape));
+              // מעבירים גם operation כדי לא לנחש לפי query_shape
+              analyzeQueryById(query.collection, JSON.stringify(query.query_shape), op);
           };
           actionsTd.appendChild(btn);
       } else {
@@ -253,7 +255,7 @@
     });
   }
 
-  function analyzeQueryById(collection, queryShapeJson) {
+  function analyzeQueryById(collection, queryShapeJson, operation) {
     document.getElementById('analyze-collection').value = collection;
 
     let queryShape = {};
@@ -263,14 +265,17 @@
       queryShape = {};
     }
 
-    const op = (queryShape && queryShape.pipeline) ? 'aggregate' : 'find';
+    const op = (String(operation || '').toLowerCase() === 'aggregate') ? 'aggregate' : 'find';
     document.getElementById('analyze-operation').value = op;
     toggleAnalyzeInputs();
 
-    if (op === 'aggregate' && queryShape && queryShape.pipeline) {
-      document.getElementById('analyze-pipeline').value = JSON.stringify(queryShape.pipeline, null, 2);
+    if (op === 'aggregate') {
+      const pipeline = (queryShape && Array.isArray(queryShape.pipeline)) ? queryShape.pipeline : [];
+      document.getElementById('analyze-pipeline').value = JSON.stringify(pipeline, null, 2);
+      document.getElementById('analyze-query').value = '{}';
     } else {
       document.getElementById('analyze-query').value = JSON.stringify(queryShape || {}, null, 2);
+      document.getElementById('analyze-pipeline').value = '';
     }
 
     analyzeQuery();
