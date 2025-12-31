@@ -152,3 +152,35 @@ async def test_upload_folder_custom_sets_target(monkeypatch):
 
     # After setting, the handler replies and goes back to checks; no exception is success
     assert True
+
+
+@pytest.mark.asyncio
+async def test_upload_saved_file_clears_pending_inline_doc(monkeypatch):
+    """
+    Regression: אם המשתמש התחיל זרימה שמייצרת pending_upload_doc (paste/large/checkpoint)
+    ואז עבר לבחור קובץ שמור, אסור שהמסמך הזמני "יתקע" וידרוס את הבחירה של הקובץ השמור.
+    """
+    import github_menu_handler as gh
+
+    handler = gh.GitHubMenuHandler()
+    upd = _Update()
+    ctx = _Context()
+
+    ctx.user_data["pending_upload_doc"] = {"file_name": "OLD.md", "content": "old"}
+    ctx.user_data["paste_content"] = "old"
+
+    captured = {"called": False}
+
+    async def _fake_show_pre_upload_check(_u, _c):
+        captured["called"] = True
+        return None
+
+    monkeypatch.setattr(handler, "show_pre_upload_check", _fake_show_pre_upload_check)
+
+    upd.callback_query.data = "upload_saved_507f1f77bcf86cd799439011"
+    await asyncio.wait_for(handler.handle_menu_callback(upd, ctx), timeout=2.0)
+
+    assert captured["called"] is True
+    assert "pending_upload_doc" not in ctx.user_data
+    assert "paste_content" not in ctx.user_data
+    assert ctx.user_data.get("pending_saved_file_id") == "507f1f77bcf86cd799439011"

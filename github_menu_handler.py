@@ -1662,6 +1662,9 @@ class GitHubMenuHandler:
         elif query.data.startswith("upload_saved_"):
             file_id = query.data.split("_")[2]
             # Show pre-upload check screen before actual upload
+            # חשוב: אם יש מסמך זמני בזיכרון (paste/large/checkpoint) הוא לא צריך לדרוס בחירה חדשה של קובץ שמור.
+            context.user_data.pop("pending_upload_doc", None)
+            context.user_data.pop("paste_content", None)
             context.user_data["pending_saved_file_id"] = file_id
             await self.show_pre_upload_check(update, context)
         elif query.data == "choose_upload_branch":
@@ -1753,11 +1756,15 @@ class GitHubMenuHandler:
                     raise
             return REPO_SELECT
         elif query.data == "confirm_saved_upload":
+            pending_doc = context.user_data.get("pending_upload_doc")
+            if isinstance(pending_doc, dict):
+                await self.handle_inline_doc_upload(update, context, pending_doc)
+                return
             file_id = context.user_data.get("pending_saved_file_id")
             if not file_id:
                 await query.edit_message_text("❌ לא נמצא קובץ ממתין להעלאה")
-            else:
-                await self.handle_saved_file_upload(update, context, file_id)
+                return
+            await self.handle_saved_file_upload(update, context, file_id)
         elif query.data == "refresh_saved_checks":
             await self.show_pre_upload_check(update, context)
         elif query.data == "back_to_menu":
@@ -4052,19 +4059,15 @@ class GitHubMenuHandler:
         if not doc or not is_large:
             await query.edit_message_text("❌ קובץ גדול לא נמצא")
             return
-        # מאחדים עם זרימת show_pre_upload_check: נשתמש ב-pending_saved_file_id אחרי יצירת מסמך זמני
+        # מאחדים עם זרימת show_pre_upload_check – בלי לכתוב מסמך זמני ל-DB (פתרון מעבר)
         try:
-            # צור מסמך זמני בקולקשן הרגיל כדי למחזר את מסך הבדיקות
-            temp = {
+            pending_doc = {
                 "user_id": user_id,
                 "file_name": doc.get("file_name") or "large_file.txt",
                 "content": doc.get("content") or doc.get("code") or "",
             }
-            inserted_id = facade.insert_temp_document(temp)
-            if not inserted_id:
-                await query.edit_message_text("❌ שגיאה בהכנת קובץ גדול להעלאה")
-                return
-            context.user_data["pending_saved_file_id"] = str(inserted_id)
+            context.user_data["pending_upload_doc"] = pending_doc
+            context.user_data.pop("pending_saved_file_id", None)
             await self.show_pre_upload_check(update, context)
         except Exception as e:
             await query.edit_message_text(f"❌ שגיאה בהכנת קובץ גדול להעלאה: {e}")
@@ -4572,9 +4575,6 @@ class GitHubMenuHandler:
 
             content = context.user_data.get("paste_content") or ""
             try:
-                facade = _get_files_facade()
-                if facade is None:
-                    raise RuntimeError("DB unavailable")
                 doc = {
                     "user_id": user_id,
                     "file_name": safe_name,
@@ -4582,10 +4582,9 @@ class GitHubMenuHandler:
                     "created_at": datetime.now(timezone.utc),
                     "tags": ["pasted"],
                 }
-                inserted_id = facade.insert_temp_document(doc)
-                if not inserted_id:
-                    raise RuntimeError("insert failed")
-                context.user_data["pending_saved_file_id"] = str(inserted_id)
+                # שמירה בזיכרון בלבד כדי לא להסתמך על insert_temp_document (פתרון מעבר)
+                context.user_data["pending_upload_doc"] = doc
+                context.user_data.pop("pending_saved_file_id", None)
                 # נקה תוכן זמני
                 context.user_data.pop("paste_content", None)
                 await self.show_pre_upload_check(update, context)
@@ -6572,24 +6571,29 @@ class GitHubMenuHandler:
         token = self.get_user_token(user_id)
         repo_name = session.get("selected_repo")
         file_id = context.user_data.get("pending_saved_file_id")
-        if not (token and repo_name and file_id):
+        pending_doc = context.user_data.get("pending_upload_doc")
+        if not (token and repo_name and (file_id or pending_doc)):
             if query:
                 await query.edit_message_text("❌ חסרים נתונים (טוקן/ריפו/קובץ)")
             else:
                 await update.message.reply_text("❌ חסרים נתונים (טוקן/ריפו/קובץ)")
             return
         try:
-            facade = _get_files_facade()
-            if facade is None:
-                raise RuntimeError("DB unavailable")
-            file_data, _is_large = facade.get_user_document_by_id(user_id, str(file_id))
-            if not file_data:
-                if query:
-                    await query.edit_message_text("❌ קובץ לא נמצא")
-                else:
-                    await update.message.reply_text("❌ קובץ לא נמצא")
-                return
-            filename = file_data.get("file_name") or "file"
+            filename = None
+            if isinstance(pending_doc, dict):
+                filename = pending_doc.get("file_name") or "file"
+            else:
+                facade = _get_files_facade()
+                if facade is None:
+                    raise RuntimeError("DB unavailable")
+                file_data, _is_large = facade.get_user_document_by_id(user_id, str(file_id))
+                if not file_data:
+                    if query:
+                        await query.edit_message_text("❌ קובץ לא נמצא")
+                    else:
+                        await update.message.reply_text("❌ קובץ לא נמצא")
+                    return
+                filename = file_data.get("file_name") or "file"
             # Resolve target folder/branch (overrides take precedence)
             override_folder = (context.user_data.get("upload_target_folder") or "").strip()
             target_folder = override_folder if override_folder != "" else (session.get("selected_folder") or "")
@@ -6651,14 +6655,96 @@ class GitHubMenuHandler:
 
     async def confirm_saved_upload(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         # Proceed with the actual upload of the saved file after checks
+        pending_doc = context.user_data.get("pending_upload_doc")
+        if isinstance(pending_doc, dict):
+            await self.handle_inline_doc_upload(update, context, pending_doc)
+            return
         file_id = context.user_data.get("pending_saved_file_id")
         if not file_id:
             await update.edit_message_text("❌ לא נמצא קובץ ממתין להעלאה")
-        else:
-            await self.handle_saved_file_upload(update, context, file_id)
+            return
+        await self.handle_saved_file_upload(update, context, file_id)
 
     async def refresh_saved_checks(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         await self.show_pre_upload_check(update, context)
+
+    async def handle_inline_doc_upload(self, update: Update, context: ContextTypes.DEFAULT_TYPE, doc: dict):
+        """
+        העלאה ל-GitHub מתוך מסמך זמני בזיכרון (ללא כתיבה ל-DB).
+
+        מיועד לזרימות כמו: הדבקת קוד, קובץ הוראות checkpoint, וקובץ גדול שנשלף מה-large_files.
+        """
+        try:
+            user_id = update.effective_user.id
+        except Exception:
+            user_id = update.callback_query.from_user.id  # type: ignore[union-attr]
+
+        session = self.get_user_session(user_id)
+        token_opt = self.get_user_token(user_id)
+        if not (token_opt and session.get("selected_repo")):
+            await update.callback_query.edit_message_text("❌ קודם בחר ריפו/טוקן בגיטהאב")
+            return
+
+        file_name = (doc.get("file_name") or "file").strip() or "file"
+        content = doc.get("content") or doc.get("code") or ""
+        if not isinstance(content, str):
+            try:
+                content = content.decode("utf-8")  # type: ignore[union-attr]
+            except Exception:
+                content = str(content)
+        if not content:
+            await update.callback_query.edit_message_text("❌ תוכן הקובץ ריק או לא נמצא")
+            return
+
+        try:
+            g = Github(token_opt)
+            repo = g.get_repo(session["selected_repo"])
+            branch = context.user_data.get("upload_target_branch") or repo.default_branch or "main"
+            folder = context.user_data.get("upload_target_folder") or session.get("selected_folder")
+            if folder and str(folder).strip():
+                folder_clean = str(folder).strip("/")
+                file_path = f"{folder_clean}/{file_name}"
+            else:
+                file_path = file_name
+
+            # Best-effort: שמור על אותה התנהגות של saved upload (כולל עיכוב rate-limit)
+            await self.apply_rate_limit_delay(user_id)
+
+            try:
+                existing = repo.get_contents(file_path, ref=branch)
+                repo.update_file(
+                    path=file_path,
+                    message=f"Update {file_name} via Telegram bot",
+                    content=content,
+                    sha=existing.sha,
+                    branch=branch,
+                )
+                action = "עודכן"
+            except Exception:
+                repo.create_file(
+                    path=file_path,
+                    message=f"Upload {file_name} via Telegram bot",
+                    content=content,
+                    branch=branch,
+                )
+                action = "הועלה"
+
+            raw_url = f"https://raw.githubusercontent.com/{session['selected_repo']}/{branch}/{file_path}"
+            # ניקוי מצב זמני כדי למנוע העלאה כפולה בלחיצה חוזרת
+            context.user_data.pop("pending_upload_doc", None)
+            context.user_data.pop("pending_saved_file_id", None)
+
+            await update.callback_query.edit_message_text(
+                f"✅ הקובץ {action} בהצלחה!\n\n"
+                f"📁 ריפו: <code>{session['selected_repo']}</code>\n"
+                f"📂 מיקום: <code>{file_path}</code>\n"
+                f"🔗 קישור ישיר:\n{raw_url}\n\n"
+                f"שלח /github כדי לחזור לתפריט.",
+                parse_mode="HTML",
+            )
+        except Exception as e:
+            logger.error(f"❌ שגיאה בהעלאה (inline doc): {str(e)}", exc_info=True)
+            await update.callback_query.edit_message_text(f"❌ שגיאה בהעלאה:\n{safe_html_escape(str(e))}", parse_mode="HTML")
 
     async def show_upload_branch_menu(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         query = update.callback_query
@@ -6794,7 +6880,7 @@ class GitHubMenuHandler:
         )
         content = title + intro + commands + notes
         file_name = f"RESTORE_{name}.md"
-        # שמירה במסד והמשך ל-flow של העלאה
+        # המשך ל-flow של העלאה (ללא כתיבה למסמך זמני ב-DB)
         doc = {
             "user_id": user_id,
             "file_name": file_name,
@@ -6808,13 +6894,8 @@ class GitHubMenuHandler:
             "is_active": True,
         }
         try:
-            facade = _get_files_facade()
-            if facade is None:
-                raise RuntimeError("DB unavailable")
-            inserted_id = facade.insert_temp_document(doc)
-            if not inserted_id:
-                raise RuntimeError("insert failed")
-            context.user_data["pending_saved_file_id"] = str(inserted_id)
+            context.user_data["pending_upload_doc"] = doc
+            context.user_data.pop("pending_saved_file_id", None)
             # פתח את בדיקות ההעלאה (בחירת ענף/תיקייה ואישור)
             await self.show_pre_upload_check(update, context)
         except Exception as e:
