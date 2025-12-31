@@ -58,6 +58,6 @@ def test_activity_based_ttl_adjustment_with_deterministic_jitter(monkeypatch):
 
     assert cm.ActivityBasedTTL.adjust_ttl(100) == 100
     # Clamp low
-    assert cm.ActivityBasedTTL.adjust_ttl(5) == 30
+    assert cm.ActivityBasedTTL.adjust_ttl(5) == 60
     # Clamp high
     assert cm.ActivityBasedTTL.adjust_ttl(10000) == 7200

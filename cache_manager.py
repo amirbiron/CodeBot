@@ -165,7 +165,7 @@ class ActivityBasedTTL:
             ttl = ttl + random.randint(-jitter, jitter)
         except Exception:
             pass
-        return max(30, min(int(ttl), 7200))
+        return max(60, min(int(ttl), 7200))
 
 
 def build_cache_key(*parts: Any) -> str:
