@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import List, Optional
 import json
+import os
 from urllib.parse import urlparse
 
 from pydantic import Field, ValidationError, field_validator
@@ -104,13 +105,22 @@ class BotConfig(BaseSettings):
         le=100_000,
         description="Redis connection pool max size",
     )
-    REDIS_CONNECT_TIMEOUT: Optional[float] = Field(
-        default=None,
+    # הערכים הוגדלו בדצמבר 2025 בעקבות עומס על בסיס הנתונים שגרם ל-Timeouts שגויים בקאש
+    REDIS_CONNECT_TIMEOUT: float = Field(
+        default=float(os.getenv("REDIS_CONNECT_TIMEOUT", "3")),
         description="Redis socket_connect_timeout (seconds); if None, uses SAFE_MODE defaults",
     )
-    REDIS_SOCKET_TIMEOUT: Optional[float] = Field(
-        default=None,
+    # הערכים הוגדלו בדצמבר 2025 בעקבות עומס על בסיס הנתונים שגרם ל-Timeouts שגויים בקאש
+    REDIS_SOCKET_TIMEOUT: float = Field(
+        default=float(os.getenv("REDIS_SOCKET_TIMEOUT", "5")),
         description="Redis socket_timeout (seconds); if None, uses SAFE_MODE defaults",
+    )
+    # הערכים הוגדלו בדצמבר 2025 בעקבות עומס על בסיס הנתונים שגרם ל-Timeouts שגויים בקאש
+    CACHE_CLEAR_BUDGET_SECONDS: float = Field(
+        default=float(os.getenv("CACHE_CLEAR_BUDGET_SECONDS", "5")),
+        ge=0.0,
+        le=30.0,
+        description="Time budget in seconds for cache maintenance (SCAN+DEL) to avoid blocking workers",
     )
 
     # HTTP client pooling/timeouts (aiohttp)
