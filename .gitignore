@@ -50,3 +50,5 @@ tmp/
 
 # Cursor/agent artifacts (local only)
 .cursor/
+# Sphinx build output
+docs/_build/
