@@ -313,6 +313,10 @@ class DatabaseManager:
 
                         def started(self, event):  # type: ignore[override]
                             try:
+                                request_id = getattr(event, "request_id", None)
+                                if request_id is None:
+                                    return
+
                                 cmd_name = str(getattr(event, "command_name", "") or "")
                                 if cmd_name.lower() == "explain":
                                     return
@@ -326,7 +330,7 @@ class DatabaseManager:
 
                                 # שמירה בהקשר הבקשה
                                 if coll:
-                                    self._requests[event.request_id] = {
+                                    self._requests[request_id] = {
                                         "coll": coll,
                                         "query": query,
                                         "cmd_name": cmd_name,
@@ -337,7 +341,8 @@ class DatabaseManager:
 
                         def succeeded(self, event):  # type: ignore[override]
                             # שליפת הקשר הבקשה
-                            req_data = self._requests.pop(event.request_id, None)
+                            request_id = getattr(event, "request_id", None)
+                            req_data = self._requests.pop(request_id, None) if request_id is not None else None
 
                             try:
                                 dur_ms = float(getattr(event, 'duration_micros', 0) or 0) / 1000.0
@@ -414,7 +419,9 @@ class DatabaseManager:
 
                         def failed(self, event):  # type: ignore[override]
                             # ניקוי זיכרון במקרה של כישלון
-                            self._requests.pop(event.request_id, None)
+                            request_id = getattr(event, "request_id", None)
+                            if request_id is not None:
+                                self._requests.pop(request_id, None)
                     _pymongo_monitoring.register(_SlowMongoListener())  # type: ignore[attr-defined]
                     _MONGO_MONITORING_REGISTERED = True
                 except Exception:
