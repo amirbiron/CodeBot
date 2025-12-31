@@ -1,5 +1,5 @@
 # 🚀 הצעות פיצ'רים ממוקדות ל-WebApp
-## דצמבר 2025 - גרסה חדשה
+## דצמבר 2025 - גרסה 2.0
 
 > **Focus Areas:** Observability, Dev Tools, ויזואליזציות, Admin Tools, UI Components
 > **מה לא נכלל:** Social features, AI Agents, Backend-heavy ללא UI, CRUD משעממים
@@ -13,120 +13,121 @@
 3. [📊 ויזואליזציות](#-ויזואליזציות)
 4. [🔐 Admin Tools](#-admin-tools)
 5. [✨ UI Components מגניבים](#-ui-components-מגניבים)
+6. [🎮 Interactive Debugging](#-interactive-debugging)
 
 ---
 
 ## 🔭 Observability & Monitoring
 
-### 📈 Hot Paths Heatmap
-**תיאור:** מפת חום אינטראקטיבית המציגה את הקבצים/נתיבים הכי משומשים במערכת עם gradient צבעוני
+### 📊 Error Budget Burndown Chart
+**תיאור:** גרף שמציג צריכת Error Budget לאורך זמן עם קו burndown ואזהרות כשנגמר
 **קטגוריה:** Observability
 **מורכבות:** בינונית
 
 ---
 
-### 🎯 SLO/SLI Dashboard
-**תיאור:** דשבורד למעקב אחרי Service Level Objectives עם gauge charts ו-burn rate alerts
+### 🧩 Dependency Health Matrix
+**תיאור:** מטריצה אינטראקטיבית המציגה status של כל השירותים והתלויות עם צבעים ו-tooltips
 **קטגוריה:** Observability
 **מורכבות:** בינונית
 
 ---
 
-### 📉 Endpoint Sparklines Grid
-**תיאור:** גריד של mini-graphs עבור כל endpoint, מציגים latency, errors ו-throughput בזמן אמת
+### 🔄 Request Replay Studio
+**תיאור:** כלי לצפייה וחזרה על requests ספציפיים עם אפשרות לשנות פרמטרים ולראות תוצאות
+**קטגוריה:** Observability
+**מורכבות:** מורכבת
+
+---
+
+### 📈 Metrics Comparison Timeline
+**תיאור:** השוואה ויזואלית של מטריקות בין תקופות זמן שונות (היום vs אתמול, שבוע vs שבוע קודם)
+**קטגוריה:** Observability
+**מורכבות:** בינונית
+
+---
+
+### 🐢 Query Performance Profiler
+**תיאור:** ממשק לניתוח שאילתות MongoDB איטיות עם explain plans ויזואליים והמלצות לאופטימיזציה
+**קטגוריה:** Observability
+**מורכבות:** מורכבת
+
+---
+
+### 📉 Resource Forecast Widget
+**תיאור:** widget שמנבא צריכת משאבים עתידית (disk, memory, connections) על בסיס מגמות
+**קטגוריה:** Observability
+**מורכבות:** בינונית
+
+---
+
+### 🔔 Smart Alert Correlation
+**תיאור:** מציג קשרים בין התראות שונות, מזהה patterns ומציע root cause אפשריים
+**קטגוריה:** Observability
+**מורכבות:** מורכבת
+
+---
+
+### 📊 Live Metrics Ticker
+**תיאור:** סרגל תחתון בסגנון בורסה עם מטריקות בזמן אמת שרצות - requests/sec, errors, latency
 **קטגוריה:** Observability
 **מורכבות:** קלה
-
----
-
-### 🔔 Alert Rules Builder
-**תיאור:** ממשק drag & drop ויזואלי לבניית כללי התראה מותאמים אישית עם תנאים מורכבים
-**קטגוריה:** Observability
-**מורכבות:** מורכבת
-
----
-
-### 🗺️ Service Health Topology
-**תיאור:** מפת טופולוגיה אינטראקטיבית של השירותים עם סטטוס real-time וקווי חיבור מונפשים
-**קטגוריה:** Observability
-**מורכבות:** מורכבת
-
----
-
-### 📊 Anomaly Detection Visualizer
-**תיאור:** גרף שמזהה אוטומטית anomalies ומסמן אותן עם הסברים ויזואליים על ציר הזמן
-**קטגוריה:** Observability
-**מורכבות:** בינונית
-
----
-
-### 🔍 Log Stream Viewer
-**תיאור:** צופה לוגים בזמן אמת עם פילטרים חכמים, syntax highlighting וקישור אוטומטי ל-stack traces
-**קטגוריה:** Observability
-**מורכבות:** בינונית
-
----
-
-### ⚡ Performance Waterfall
-**תיאור:** תצוגת waterfall של request lifecycle - DNS, TCP, TLS, TTFB, content עם timings מדויקים
-**קטגוריה:** Observability
-**מורכבות:** בינונית
 
 ---
 
 ## 🔧 Dev Tools
 
-### 🧪 API Playground
-**תיאור:** סביבת ניסויים אינטראקטיבית לבדיקת API endpoints עם autocomplete, history ו-code snippets
+### 🔍 Environment Diff Inspector
+**תיאור:** כלי להשוואת configurations בין סביבות (dev/staging/prod) עם הדגשת שינויים
 **קטגוריה:** Dev Tool
 **מורכבות:** בינונית
 
 ---
 
-### 🔬 Request Inspector
-**תיאור:** panel שמציג requests/responses בזמן אמת עם אפשרות לעריכה וחזרה על בקשות
+### 🎲 Mock Data Factory
+**תיאור:** מחולל נתוני דמה חכם שמבין את הסכמה ומייצר data ריאליסטי לטסטים
 **קטגוריה:** Dev Tool
 **מורכבות:** בינונית
 
 ---
 
-### 🗃️ Schema Visualizer
-**תיאור:** ויזואליזציה אינטראקטיבית של MongoDB collections עם קשרים, אינדקסים וסטטיסטיקות
+### 🌳 AST Visual Explorer
+**תיאור:** ויזואליזציה אינטראקטיבית של Abstract Syntax Tree לקוד פייתון עם הדגשה צולבת
+**קטגוריה:** Dev Tool
+**מורכבות:** מורכבת
+
+---
+
+### 📋 API Schema Validator
+**תיאור:** כלי לבדיקת תאימות API responses מול schema מוגדר עם דוחות שגיאות מפורטים
 **קטגוריה:** Dev Tool
 **מורכבות:** בינונית
 
 ---
 
-### 📋 Clipboard Manager
-**תיאור:** panel צד עם היסטוריית העתקות קוד, snippets מהירים וסינכרון עם הבוט
-**קטגוריה:** Dev Tool
-**מורכבות:** קלה
-
----
-
-### 🔧 Config Live Editor
-**תיאור:** עורך קונפיגורציה עם JSON schema validation, autocomplete ו-diff לפני שמירה
+### 🔗 Import Dependency Mapper
+**תיאור:** מפה אינטראקטיבית של imports ותלויות בין קבצים בפרויקט עם סינון וחיפוש
 **קטגוריה:** Dev Tool
 **מורכבות:** בינונית
 
 ---
 
-### 📦 Bundle Size Analyzer
-**תיאור:** treemap אינטראקטיבי של גודל bundles, dependencies ו-potential savings
+### ⚡ Quick Code Executor
+**תיאור:** כלי להרצת snippets קטנים ישירות בדפדפן עם תוצאות real-time (Python sandbox)
+**קטגוריה:** Dev Tool
+**מורכבות:** מורכבת
+
+---
+
+### 📝 Git Blame Timeline
+**תיאור:** timeline ויזואלי של שינויים בקובץ - מי שינה מה ומתי, עם drill-down לכל commit
 **קטגוריה:** Dev Tool
 **מורכבות:** בינונית
 
 ---
 
-### 🧬 Regex Tester
-**תיאור:** כלי לבדיקת regex expressions עם highlighting בזמן אמת, groups extraction וחסכון
-**קטגוריה:** Dev Tool
-**מורכבות:** קלה
-
----
-
-### 🔄 Diff Preview Modal
-**תיאור:** modal משופר להשוואת קוד עם split view, inline changes ומעבר לגרסאות
+### 🔧 Environment Variable Manager
+**תיאור:** ממשק לניהול משתני סביבה עם קבוצות, encryption status ו-validation
 **קטגוריה:** Dev Tool
 **מורכבות:** קלה
 
@@ -134,57 +135,57 @@
 
 ## 📊 ויזואליזציות
 
-### 🌳 File Treemap
-**תיאור:** treemap אינטראקטיבי של כל הקבצים לפי גודל/שפה/תאריך עם drill-down
+### 🔥 Code Contribution Heatmap
+**תיאור:** לוח שנה בסגנון GitHub contributions אבל לקבצים שנשמרו בבוט - צבעים לפי פעילות
+**קטגוריה:** Visualization
+**מורכבות:** קלה
+
+---
+
+### 🌊 Error Flow Sankey Diagram
+**תיאור:** Sankey chart שמראה מאיפה מגיעות שגיאות (endpoint → error type → resolution)
 **קטגוריה:** Visualization
 **מורכבות:** בינונית
 
 ---
 
-### 🕸️ Import Graph
-**תיאור:** גרף רשת אינטראקטיבי המציג תלויות import בין קבצים עם זום וסינון
+### 🛤️ User Journey Flowchart
+**תיאור:** גרף זרימה שמציג את המסלולים הנפוצים של משתמשים באפליקציה עם אחוזים
 **קטגוריה:** Visualization
 **מורכבות:** מורכבת
 
 ---
 
-### 📅 Activity Calendar Heatmap
-**תיאור:** לוח שנה בסגנון GitHub contributions עם הצגת פעילות יומית ו-tooltips מפורטים
+### 📊 Latency Distribution Histogram
+**תיאור:** היסטוגרמה אינטראקטיבית של זמני תגובה עם percentiles מסומנים (p50, p90, p99)
 **קטגוריה:** Visualization
 **מורכבות:** קלה
 
 ---
 
-### 📊 Language Distribution Donut
-**תיאור:** donut chart אינטראקטיבי של התפלגות שפות עם אנימציות ו-click-to-filter
-**קטגוריה:** Visualization
-**מורכבות:** קלה
-
----
-
-### 🎢 Code Complexity Radar
-**תיאור:** גרף רדאר המציג מדדי מורכבות שונים (cyclomatic, lines, nesting) להשוואה
+### 📅 Event Waterfall Timeline
+**תיאור:** תצוגת waterfall של אירועים קשורים על ציר זמן - requests, jobs, errors, deployments
 **קטגוריה:** Visualization
 **מורכבות:** בינונית
 
 ---
 
-### 📈 Usage Trends Chart
-**תיאור:** גרף multi-series עם zoom, pan וסלקטור תקופות להצגת trends לאורך זמן
+### 💾 Storage Usage Treemap
+**תיאור:** treemap אינטראקטיבי של צריכת אחסון לפי משתמש/שפה/סוג עם drill-down
 **קטגוריה:** Visualization
 **מורכבות:** בינונית
 
 ---
 
-### 🗓️ Timeline Gantt View
-**תיאור:** תצוגת Gantt של אירועי מערכת (deployments, incidents, changes) על ציר זמן
+### 🔀 API Route Map
+**תיאור:** ויזואליזציה של כל ה-API routes כרשת עם קשרים, שימוש וסטטוס
 **קטגוריה:** Visualization
 **מורכבות:** בינונית
 
 ---
 
-### 🔥 Real-time Activity Pulse
-**תיאור:** אנימציית "דופק" המציגה פעילות בזמן אמת עם particles ו-glow effects
+### 📈 Trend Sparklines Dashboard
+**תיאור:** דשבורד קומפקטי עם עשרות mini-graphs שמציגים מגמות של מדדים שונים
 **קטגוריה:** Visualization
 **מורכבות:** קלה
 
@@ -192,57 +193,57 @@
 
 ## 🔐 Admin Tools
 
-### 👥 Active Sessions Dashboard
-**תיאור:** תצוגה של כל הסשנים הפעילים עם מידע על device, location וזמן
+### 👁️ Live Session Inspector
+**תיאור:** צפייה בזמן אמת בסשנים פעילים עם מידע על מיקום, device, actions אחרונות
+**קטגוריה:** Admin
+**מורכבות:** בינונית
+
+---
+
+### 📝 Config Version Timeline
+**תיאור:** היסטוריית שינויים בקונפיגורציה עם diff, rollback ו-audit trail
+**קטגוריה:** Admin
+**מורכבות:** בינונית
+
+---
+
+### 🔄 Background Tasks Control Center
+**תיאור:** שליטה מלאה בtasks ברקע - pause, resume, priority, dependencies, logs
+**קטגוריה:** Admin
+**מורכבות:** בינונית
+
+---
+
+### 🗄️ Cache Inspector Panel
+**תיאור:** ממשק לצפייה, חיפוש ומחיקת entries בRedis cache עם TTL ו-memory usage
 **קטגוריה:** Admin
 **מורכבות:** קלה
 
 ---
 
-### 🚦 Feature Flags Manager
-**תיאור:** ממשק ויזואלי לניהול feature flags עם toggle, targeting ו-rollout percentages
+### 📊 Index Usage Analytics
+**תיאור:** דוחות שימוש באינדקסים של MongoDB - אילו נמצאים בשימוש, אילו מיותרים
 **קטגוריה:** Admin
 **מורכבות:** בינונית
 
 ---
 
-### 🔐 Permissions Matrix
-**תיאור:** מטריצה אינטראקטיבית של הרשאות users/roles עם edit-in-place
+### 🐢 Slow Query Inspector
+**תיאור:** רשימה מפורטת של שאילתות איטיות עם explain, תדירות והשפעה
 **קטגוריה:** Admin
 **מורכבות:** בינונית
 
 ---
 
-### 📊 Usage Analytics Dashboard
-**תיאור:** דשבורד מקיף של שימוש - actions per user, popular features, retention
+### 🎛️ System Configuration Panel
+**תיאור:** ממשק מרכזי לשליטה בהגדרות מערכת עם categories, validation ו-live preview
 **קטגוריה:** Admin
-**מורכבות:** בינונית
+**מורכבות:** קלה
 
 ---
 
-### 🗄️ Database Explorer
-**תיאור:** סייר MongoDB ויזואלי עם query builder, document preview ו-export
-**קטגוריה:** Admin
-**מורכבות:** מורכבת
-
----
-
-### 📧 System Notifications Hub
-**תיאור:** מרכז שליטה להתראות מערכת עם templates, scheduling ו-delivery status
-**קטגוריה:** Admin
-**מורכבות:** בינונית
-
----
-
-### 🔒 Security Audit Log
-**תיאור:** לוג אבטחה מפורט עם פילטרים, exports ו-anomaly highlighting
-**קטגוריה:** Admin
-**מורכבות:** בינונית
-
----
-
-### ⚙️ System Health Dashboard
-**תיאור:** דף מצב מערכת עם CPU/Memory/Disk gauges, service status ו-quick actions
+### 📋 Webhook Event Log
+**תיאור:** לוג מפורט של כל ה-webhooks שנשלחו עם status, payload ו-retry history
 **קטגוריה:** Admin
 **מורכבות:** קלה
 
@@ -250,85 +251,122 @@
 
 ## ✨ UI Components מגניבים
 
-### ⌨️ Command Palette (Ctrl+K)
-**תיאור:** פלטת פקודות מהירה בסגנון VS Code עם fuzzy search, categories ו-keyboard shortcuts
+### 🧭 Smart Breadcrumb Navigator
+**תיאור:** breadcrumbs חכמים עם dropdown לכל רמה, היסטוריה ו-quick jump
+**קטגוריה:** UI Component
+**מורכבות:** קלה
+
+---
+
+### 📜 Virtual Scroll List
+**תיאור:** רשימה עם virtualization שתומכת באלפי פריטים בלי lag - מושלם לקבצים
 **קטגוריה:** UI Component
 **מורכבות:** בינונית
 
 ---
 
-### 🎯 Spotlight Search
-**תיאור:** חיפוש מהיר עם live preview של תוצאות, recent items ו-smart suggestions
+### ⌨️ Universal Keyboard Navigator
+**תיאור:** מערכת ניווט במקלדת לכל האפליקציה עם visual hints וחיפוש fuzzy
 **קטגוריה:** UI Component
 **מורכבות:** בינונית
 
 ---
 
-### 📍 Code Minimap
-**תיאור:** מיני-מפה צדדית לקובץ קוד עם highlighting של שגיאות, changes ומיקום נוכחי
+### 🪟 Multi-Panel Layout Manager
+**תיאור:** מערכת panels גמישה בסגנון IDE עם drag & drop, resize ו-presets
+**קטגוריה:** UI Component
+**מורכבות:** מורכבת
+
+---
+
+### 📊 Status Bar Component
+**תיאור:** סרגל תחתון בסגנון VS Code עם notifications, progress ו-quick actions
+**קטגוריה:** UI Component
+**מורכבות:** קלה
+
+---
+
+### 📑 Split View Editor
+**תיאור:** תצוגה מפוצלת לעריכה של שני קבצים במקביל עם sync scroll אופציונלי
 **קטגוריה:** UI Component
 **מורכבות:** בינונית
 
 ---
 
-### 🎨 Theme Switcher with Preview
-**תיאור:** מחליף ערכות נושא עם live preview, comparison mode ו-custom palette builder
+### 🖥️ Embedded Terminal Widget
+**תיאור:** terminal מובנה באפליקציה להרצת פקודות מהירות (sandboxed)
 **קטגוריה:** UI Component
-**מורכבות:** קלה
+**מורכבות:** מורכבת
 
 ---
 
-### 📊 Inline Sparklines
-**תיאור:** mini-graphs שמשתלבים בטקסט/טבלאות להצגת trends בצורה קומפקטית
-**קטגוריה:** UI Component
-**מורכבות:** קלה
-
----
-
-### 🔔 Toast Notifications System
-**תיאור:** מערכת התראות מתקדמת עם stacking, progress bars, actions ו-persistent notifications
-**קטגוריה:** UI Component
-**מורכבות:** קלה
-
----
-
-### 📑 Smart Tabs Manager
-**תיאור:** מנהל טאבים עם drag & drop, pinning, groups וחיפוש בטאבים פתוחים
+### 🌲 Advanced File Tree
+**תיאור:** עץ קבצים עם icons לפי סוג, drag & drop, context menu ו-lazy loading
 **קטגוריה:** UI Component
 **מורכבות:** בינונית
 
 ---
 
-### 🎛️ Quick Settings Panel
-**תיאור:** panel slide-out לשינויים מהירים - theme, font size, layout עם שמירה אוטומטית
+### 🔍 Floating Search Bar
+**תיאור:** סרגל חיפוש צף שמופיע עם Ctrl+K ומאפשר חיפוש בכל האפליקציה
 **קטגוריה:** UI Component
 **מורכבות:** קלה
 
 ---
 
-### 📐 Resizable Panels
-**תיאור:** panels עם גרירה לשינוי גודל, snap points ושמירת layout preference
+### 🎨 Syntax Theme Previewer
+**תיאור:** תצוגה מקדימה של ערכות צבעים לקוד עם אפשרות החלפה מיידית
 **קטגוריה:** UI Component
 **מורכבות:** קלה
 
 ---
 
-### 🖱️ Context Menu Builder
-**תיאור:** תפריט הקשר דינמי עם sub-menus, icons ו-keyboard hints
+### 📱 Responsive Sidebar
+**תיאור:** sidebar שמתאים את עצמו לגודל המסך - icons בלבד במובייל, מלא בדסקטופ
 **קטגוריה:** UI Component
 **מורכבות:** קלה
 
 ---
 
-### ⏳ Loading States Library
-**תיאור:** ספריית skeleton screens, spinners ו-progress indicators מעוצבים
+### 🔔 Rich Notification Center
+**תיאור:** מרכז התראות עם קטגוריות, פעולות מהירות, mark as read ו-persistence
 **קטגוריה:** UI Component
-**מורכבות:** קלה
+**מורכבות:** בינונית
 
 ---
 
-### 💫 Micro-interactions Pack
-**תיאור:** אוסף אנימציות קטנות - button ripples, hover effects, success animations
+## 🎮 Interactive Debugging
+
+### 🔬 Request Debugger Panel
+**תיאור:** panel שמציג את כל ה-requests שעברו עם headers, body, timing ו-response
+**קטגוריה:** Dev Tool
+**מורכבות:** בינונית
+
+---
+
+### 🧪 A/B Test Dashboard
+**תיאור:** ממשק לניהול וצפייה בתוצאות של feature flags ו-A/B tests
+**קטגוריה:** Admin
+**מורכבות:** בינונית
+
+---
+
+### 🔍 State Inspector
+**תיאור:** כלי לצפייה בstate של האפליקציה בזמן אמת עם אפשרות לשנות ערכים
+**קטגוריה:** Dev Tool
+**מורכבות:** בינונית
+
+---
+
+### 📸 Visual Regression Viewer
+**תיאור:** השוואה ויזואלית של screenshots לפני ואחרי שינויים עם הדגשת הבדלים
+**קטגוריה:** Dev Tool
+**מורכבות:** מורכבת
+
+---
+
+### 🔄 Live Reload Status
+**תיאור:** אינדיקטור שמציג חיבור לשרת, זמן מאז עדכון אחרון ו-reconnect status
 **קטגוריה:** UI Component
 **מורכבות:** קלה
 
@@ -338,12 +376,13 @@
 
 | קטגוריה | קל | בינוני | מורכב |
 |---------|-----|--------|--------|
-| Observability | 1 | 5 | 2 |
-| Dev Tools | 3 | 5 | 0 |
-| Visualization | 4 | 4 | 1 |
-| Admin | 2 | 5 | 1 |
-| UI Components | 8 | 4 | 0 |
-| **סה"כ** | **18** | **23** | **4** |
+| Observability | 1 | 4 | 3 |
+| Dev Tools | 2 | 4 | 2 |
+| Visualization | 3 | 4 | 1 |
+| Admin | 3 | 4 | 1 |
+| UI Components | 5 | 5 | 2 |
+| Interactive Debug | 1 | 3 | 1 |
+| **סה"כ** | **15** | **24** | **10** |
 
 ---
 
@@ -351,20 +390,45 @@
 
 ### Phase 1: Quick Wins (1-2 שבועות)
 רכיבים קלים עם impact גבוה:
-1. **Command Palette** - שיפור UX משמעותי
-2. **Activity Calendar Heatmap** - ויזואליזציה אטרקטיבית
-3. **Inline Sparklines** - מוסיף עניין לטבלאות קיימות
-4. **Toast Notifications System** - תשתית לכל הפיצ'רים
+1. **Live Metrics Ticker** - observability בולט ומגניב
+2. **Code Contribution Heatmap** - ויזואליזציה אטרקטיבית
+3. **Smart Breadcrumb Navigator** - UX משופר מיידית
+4. **Status Bar Component** - תשתית לכל הפיצ'רים
 
 ### Phase 2: Core Features (2-4 שבועות)
-1. **API Playground** - כלי מפתחים חיוני
-2. **Log Stream Viewer** - observability בסיסי
-3. **Feature Flags Manager** - שליטה בפיצ'רים
+1. **Environment Diff Inspector** - כלי מפתחים חיוני
+2. **Cache Inspector Panel** - admin tool שימושי
+3. **Virtual Scroll List** - ביצועים משופרים
+4. **Latency Distribution Histogram** - observability ויזואלי
 
 ### Phase 3: Advanced (4+ שבועות)
-1. **Service Health Topology** - ויזואליזציה מתקדמת
-2. **Import Graph** - ניתוח קוד עמוק
-3. **Database Explorer** - כלי admin מתקדם
+1. **Request Replay Studio** - debugging מתקדם
+2. **Multi-Panel Layout Manager** - IDE-like experience
+3. **User Journey Flowchart** - insights עמוקים
+4. **AST Visual Explorer** - כלי מתקדם למפתחים
+
+---
+
+## 🎨 רעיונות לעיצוב משותף
+
+### Color Scheme לכל הרכיבים
+```css
+--success: #10b981;    /* ירוק - OK */
+--warning: #f59e0b;    /* כתום - אזהרה */
+--error: #ef4444;      /* אדום - שגיאה */
+--info: #3b82f6;       /* כחול - מידע */
+--neutral: #6b7280;    /* אפור - neutral */
+```
+
+### Animation Guidelines
+- **Duration:** 150-300ms לרוב האנימציות
+- **Easing:** `ease-out` לכניסה, `ease-in` ליציאה
+- **Hover effects:** scale(1.02) עדין, לא יותר
+
+### Responsive Breakpoints
+- **Mobile:** < 640px
+- **Tablet:** 640px - 1024px
+- **Desktop:** > 1024px
 
 ---
 
