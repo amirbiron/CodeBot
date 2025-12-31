@@ -431,6 +431,12 @@ class QueryProfilerService:
                 return cursor.explain(verbosity)
             except TypeError:
                 # Fallback לגרסאות ישנות של pymongo שלא מקבלות ארגומנטים
+                logger.warning(
+                    "Profiler: PyMongo Cursor.explain() does not support verbosity=%r; "
+                    "falling back to default explain() without execution stats.",
+                    verbosity,
+                    exc_info=True,
+                )
                 return cursor.explain()
 
         explain_result = await asyncio.to_thread(_run_explain)
