@@ -81,16 +81,38 @@ class TestQueryProfilerService:
         """בדיקת נרמול שאילתה עם מערכים - חשוב לאבטחה!"""
         query_in = {"status": {"$in": ["active", "pending", "draft"]}}
         normalized = profiler_service._normalize_query_shape(query_in)
-        assert normalized["status"]["$in"] == ["<3 items>"]
+        assert normalized["status"]["$in"] == ["<value>", "<value>", "<value>"]
 
         query_or = {"$or": [{"user_id": "secret_user_123"}, {"email": "secret@email.com"}]}
         normalized_or = profiler_service._normalize_query_shape(query_or)
         assert "$or" in normalized_or
-        assert normalized_or["$or"][0].get("user_id") == "<value>" or "<" in str(normalized_or["$or"])
+        assert isinstance(normalized_or["$or"], list)
+        assert len(normalized_or["$or"]) == 2
+        assert normalized_or["$or"][0].get("user_id") == "<value>"
+        assert normalized_or["$or"][1].get("email") == "<value>"
 
         query_nested = {"tags": {"$all": ["tag1", "tag2", "secret_tag"]}}
         normalized_nested = profiler_service._normalize_query_shape(query_nested)
         assert "secret_tag" not in str(normalized_nested)
+        assert normalized_nested["tags"]["$all"] == ["<value>", "<value>", "<value>"]
+
+    @pytest.mark.asyncio
+    async def test_normalize_query_shape_preserves_operator_array_arity(self, profiler_service):
+        """ודא שמערכי ארגומנטים לאופרטורים לא "מתכווצים" (למשל $eq בתוך $expr)."""
+        q1 = {"$expr": {"$eq": ["$a", 123]}}
+        n1 = profiler_service._normalize_query_shape(q1)
+        assert "$expr" in n1 and "$eq" in n1["$expr"]
+        assert isinstance(n1["$expr"]["$eq"], list)
+        assert len(n1["$expr"]["$eq"]) == 2
+        assert "123" not in str(n1)
+
+        # גם אם מגיע "AST" בצורת מערך שמתחיל באופרטור – נשמור מבנה ואורך
+        q2 = {"$expr": ["$eq", "$a", 123]}
+        n2 = profiler_service._normalize_query_shape(q2)
+        assert isinstance(n2["$expr"], list)
+        assert len(n2["$expr"]) == 3
+        assert n2["$expr"][0] == "$eq"
+        assert "123" not in str(n2)
 
     @pytest.mark.asyncio
     async def test_normalize_prevents_pii_leak(self, profiler_service):
