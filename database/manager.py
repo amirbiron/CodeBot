@@ -346,7 +346,7 @@ class DatabaseManager:
 
                             try:
                                 dur_ms = float(getattr(event, 'duration_micros', 0) or 0) / 1000.0
-                                slow_ms = float(_profiler_threshold_ms() or 100.0)
+                                slow_ms = float(_profiler_threshold_ms() or 0.0)
 
                                 # לוגים רגילים (Warning)
                                 if slow_ms and dur_ms > slow_ms:
