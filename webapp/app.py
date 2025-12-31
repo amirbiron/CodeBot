@@ -3728,12 +3728,15 @@ def admin_config_inspector_page():
 
 
 @app.route('/admin/cache-inspector')
-@admin_required
 def admin_cache_inspector_page():
     """
     דף Cache Inspector לאדמינים.
     מציג סקירה של Redis cache עם אפשרויות חיפוש ומחיקה.
     """
+    # דרישת המוצר: ללא הרשאה מתאימה => 403 (גם אם לא מחובר)
+    if not _require_admin_user():
+        abort(403)
+
     from services.cache_inspector_service import (
         get_cache_inspector_service,
         CacheKeyStatus,
@@ -3765,11 +3768,14 @@ def admin_cache_inspector_page():
 
 
 @app.route('/admin/cache-inspector/delete', methods=['POST'])
-@admin_required
 def admin_cache_delete_handler():
     """
     API למחיקת מפתח/תבנית מה-cache.
     """
+    # בדיקת הרשאות אדמין
+    if not _require_admin_user():
+        return jsonify({"error": "Admin access required"}), 403
+
     data = request.get_json(silent=True)
     if not isinstance(data, dict):
         return jsonify({"error": "Invalid JSON"}), 400
@@ -3814,11 +3820,14 @@ def admin_cache_delete_handler():
 
 
 @app.route('/admin/cache-inspector/clear-all', methods=['POST'])
-@admin_required
 def admin_cache_clear_all_handler():
     """
     API לניקוי כל ה-cache (דורש אישור).
     """
+    # בדיקת הרשאות אדמין
+    if not _require_admin_user():
+        return jsonify({"error": "Admin access required"}), 403
+
     data = request.get_json(silent=True)
     if not isinstance(data, dict):
         return jsonify({"error": "Invalid JSON"}), 400
@@ -3847,11 +3856,14 @@ def admin_cache_clear_all_handler():
 
 
 @app.route('/admin/cache-inspector/key/<path:key>')
-@admin_required
 def admin_cache_key_details_handler(key: str):
     """
     API לקבלת פרטים מלאים על מפתח.
     """
+    # בדיקת הרשאות אדמין
+    if not _require_admin_user():
+        return jsonify({"error": "Admin access required"}), 403
+
     if not key:
         return jsonify({"error": "Key required"}), 400
 
