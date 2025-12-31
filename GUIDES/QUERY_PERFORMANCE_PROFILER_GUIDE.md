@@ -5,21 +5,34 @@
 
 ---
 
+### ⚠️ נקודות חשובות לפני שמתחילים
+
+| נושא | מה חשוב לדעת |
+|------|--------------|
+| 🔬 **Observer Effect** | הרצת `.explain("executionStats")` מריצה את השאילתה מחדש! השתמש ב-`queryPlanner` כברירת מחדל |
+| 💾 **Persistence** | המידע נשמר בזיכרון כברירת מחדל - שקול MongoDB עם TTL ל-Production |
+| 🔗 **Aggregations** | הבעיות הקשות ביותר מגיעות מ-`$lookup`/`$unwind` - המדריך כולל תמיכה מלאה |
+| 🔒 **אבטחה** | `_normalize_query_shape` מסנן PII - כולל מערכים מקוננים |
+
+---
+
 ## 📋 תוכן עניינים
 
 1. [סקירה כללית](#סקירה-כללית)
 2. [ארכיטקטורה](#ארכיטקטורה)
 3. [שכבת השירות - QueryProfilerService](#שכבת-השירות)
 4. [מבני נתונים](#מבני-נתונים)
-5. [יצירת Explain Plans](#יצירת-explain-plans)
-6. [המלצות אופטימיזציה](#המלצות-אופטימיזציה)
-7. [נקודות קצה API](#נקודות-קצה-api)
-8. [ממשק משתמש ויזואלי](#ממשק-משתמש-ויזואלי)
-9. [אבטחה](#אבטחה)
-10. [משתני סביבה](#משתני-סביבה)
-11. [בדיקות יחידה](#בדיקות-יחידה)
-12. [אינטגרציה עם Observability](#אינטגרציה-עם-observability)
-13. [טיפים לפתרון בעיות](#טיפים-לפתרון-בעיות)
+5. [יצירת Explain Plans](#יצירת-explain-plans) ⚠️ *כולל אזהרת Observer Effect*
+6. [תמיכה ב-Aggregation Pipelines](#תמיכה-ב-aggregation-pipelines) 🆕
+7. [המלצות אופטימיזציה](#המלצות-אופטימיזציה)
+8. [נקודות קצה API](#נקודות-קצה-api)
+9. [ממשק משתמש ויזואלי](#ממשק-משתמש-ויזואלי)
+10. [אבטחה](#אבטחה)
+11. [משתני סביבה](#משתני-סביבה)
+12. [בדיקות יחידה](#בדיקות-יחידה)
+13. [אינטגרציה עם Observability](#אינטגרציה-עם-observability)
+14. [טיפים לפתרון בעיות](#טיפים-לפתרון-בעיות)
+15. [שמירת היסטוריה ב-MongoDB](#שמירת-היסטוריה-ב-mongodb-persistence) 🆕
 
 ---
 
@@ -251,14 +264,35 @@ class QueryProfilerService:
         """
         נרמול צורת השאילתה - החלפת ערכים בפלייסהולדרים.
         מאפשר זיהוי דפוסי שאילתות דומים.
+        
+        🔒 אבטחה: פונקציה זו מונעת דליפת מידע אישי (PII) לדשבורד/לוגים
+        על ידי החלפת כל הערכים בפלייסהולדרים.
+        
+        חשוב: מטפלת גם במערכים מקוננים (למשל $in, $or)!
         """
         def normalize_value(value: Any) -> Any:
             if isinstance(value, dict):
+                # טיפול באופרטורים מיוחדים
                 return {k: normalize_value(v) for k, v in value.items()}
             elif isinstance(value, list):
-                return [normalize_value(v) for v in value]
+                # 🔒 חשוב: נרמול מערכים - מציג את המבנה בלי הערכים
+                if len(value) == 0:
+                    return []
+                # שומר על מבנה המערך אבל מחליף ערכים
+                # לדוגמה: {"$in": [1, 2, 3]} הופך ל-{"$in": ["<value>", "<...N items>"]}
+                if all(isinstance(v, (str, int, float, bool, type(None))) for v in value):
+                    # מערך של ערכים פשוטים - מציג פלייסהולדר עם גודל
+                    return [f"<{len(value)} items>"]
+                else:
+                    # מערך של objects - נרמול רקורסיבי (שומר על מבנה)
+                    return [normalize_value(value[0])] if value else []
             elif isinstance(value, (str, int, float, bool)):
                 return "<value>"
+            elif value is None:
+                return "<null>"
+            elif isinstance(value, (datetime, bytes)):
+                return "<value>"
+            # ObjectId, Decimal128, etc.
             return "<value>"
         
         return {k: normalize_value(v) for k, v in query.items()}
@@ -334,7 +368,7 @@ class QueryProfilerService:
         self,
         collection: str,
         query: Dict[str, Any],
-        verbosity: str = "executionStats"
+        verbosity: str = "queryPlanner"  # ⚠️ ברירת מחדל בטוחה - לא מריצה את השאילתה!
     ) -> ExplainPlan:
         """
         קבלת explain plan מפורט לשאילתה.
@@ -342,7 +376,12 @@ class QueryProfilerService:
         Args:
             collection: שם ה-collection
             query: השאילתה לניתוח
-            verbosity: רמת פירוט ("queryPlanner", "executionStats", "allPlansExecution")
+            verbosity: רמת פירוט:
+                - "queryPlanner" (ברירת מחדל, בטוח) - רק תוכנית, לא מריץ את השאילתה
+                - "executionStats" - מריץ את השאילתה! השתמש בזהירות
+                - "allPlansExecution" - מריץ את השאילתה! debug בלבד
+        
+        ⚠️ אזהרה: executionStats ו-allPlansExecution מריצים את השאילתה בפועל!
         
         Returns:
             ExplainPlan עם כל פרטי תוכנית הביצוע
@@ -654,6 +693,21 @@ MongoDB מספקת שלוש רמות פירוט ל-explain:
 | `executionStats` | כולל סטטיסטיקות ביצוע | ניתוח ביצועים מלא |
 | `allPlansExecution` | כל התוכניות שנבחנו | debug מתקדם |
 
+> ⚠️ **אזהרה חשובה: אפקט הצופה (The Observer Effect)**
+> 
+> הרצת `.explain("executionStats")` או `.explain("allPlansExecution")` **מריצה את השאילתה בפועל מחדש!**
+> 
+> **הסיכונים:**
+> - אם השאילתה איטית כי היא מעמיסה על ה-CPU, הרצת ה-Explain תכפיל את העומס
+> - אם השאילתה נועלת מסמכים (write operations), זה עלול להחמיר את המצב
+> - ב-Production עמוס, הרצה אוטומטית של explain יכולה ליצור "אפקט שלג"
+> 
+> **המלצות:**
+> 1. **השתמש ב-`queryPlanner` כברירת מחדל** - לא מריץ את השאילתה, רק מציג את התוכנית
+> 2. **הרץ `executionStats` רק לפי דרישה** - כפי שממומש בכפתור "נתח" בדשבורד
+> 3. **אל תריץ explain אוטומטית לכל שאילתה איטית** - זה יכפיל את הבעיה
+> 4. **שקול הרצת explain בשעות שפל** או על replica secondary
+
 ### דוגמת שימוש
 
 ```python
@@ -670,6 +724,345 @@ print(f"Collection: {explain.collection}")
 print(f"Index Used: {explain.stats.index_used}")
 print(f"Docs Examined: {explain.stats.docs_examined}")
 print(f"Execution Time: {explain.stats.execution_time_ms}ms")
+```
+
+---
+
+## תמיכה ב-Aggregation Pipelines
+
+> ⚠️ **חשוב:** בעיות הביצועים הקשות ביותר ב-MongoDB מגיעות לרוב מ-Aggregation Pipelines מורכבים (`$lookup`, `$unwind`, `$group`). המבנה של explain לאגרגציות שונה מעט מ-find.
+
+### מבנה Explain לאגרגציות
+
+```python
+# services/query_profiler_service.py - תוספות לתמיכה באגרגציות
+
+class AggregationStage(Enum):
+    """שלבי אגרגציה נפוצים"""
+    COLLSCAN = "COLLSCAN"
+    IXSCAN = "IXSCAN"
+    FETCH = "FETCH"
+    SORT = "SORT"
+    MATCH = "$match"
+    GROUP = "$group"
+    LOOKUP = "$lookup"
+    UNWIND = "$unwind"
+    PROJECT = "$project"
+    LIMIT = "$limit"
+    SKIP = "$skip"
+    SORT_KEY_GENERATOR = "SORT_KEY_GENERATOR"
+
+
+@dataclass
+class AggregationExplainStage:
+    """שלב באגרגציה עם מידע מפורט"""
+    stage_name: str
+    execution_time_ms: float = 0
+    docs_examined: int = 0
+    n_returned: int = 0
+    
+    # מידע ספציפי לשלב
+    uses_disk: bool = False  # האם השלב משתמש בדיסק (למשל $sort גדול)
+    memory_usage_bytes: int = 0
+    index_used: Optional[str] = None
+    
+    # עבור $lookup
+    lookup_collection: Optional[str] = None
+    lookup_strategy: Optional[str] = None  # "nestedLoopJoin" vs "indexedLoopJoin"
+
+
+@dataclass
+class AggregationExplainPlan:
+    """תוכנית ביצוע מלאה לאגרגציה"""
+    query_id: str
+    collection: str
+    pipeline_shape: List[Dict[str, Any]]
+    stages: List[AggregationExplainStage]
+    total_execution_time_ms: float
+    server_info: Dict[str, Any] = field(default_factory=dict)
+    timestamp: datetime = field(default_factory=datetime.utcnow)
+```
+
+### פונקציה לניתוח Aggregation Pipeline
+
+```python
+async def get_aggregation_explain(
+    self,
+    collection: str,
+    pipeline: List[Dict[str, Any]],
+    verbosity: str = "queryPlanner"  # ברירת מחדל בטוחה!
+) -> AggregationExplainPlan:
+    """
+    קבלת explain plan לאגרגציה.
+    
+    Args:
+        collection: שם ה-collection
+        pipeline: ה-aggregation pipeline
+        verbosity: "queryPlanner" (בטוח) או "executionStats" (מריץ את השאילתה!)
+    
+    Returns:
+        AggregationExplainPlan עם פרטי כל שלב
+    """
+    def _run_explain():
+        db = self.db_manager.db
+        
+        # הרצת explain על aggregation
+        result = db.command(
+            "aggregate",
+            collection,
+            pipeline=pipeline,
+            explain=True,
+            cursor={}
+        )
+        return result
+    
+    explain_result = await asyncio.to_thread(_run_explain)
+    
+    return self._parse_aggregation_explain(collection, pipeline, explain_result)
+
+
+def _parse_aggregation_explain(
+    self,
+    collection: str,
+    pipeline: List[Dict[str, Any]],
+    explain_result: Dict[str, Any]
+) -> AggregationExplainPlan:
+    """פרסור explain של אגרגציה"""
+    
+    stages = []
+    
+    # מבנה explain של אגרגציה שונה - יש stages array
+    explain_stages = explain_result.get("stages", [])
+    
+    # אם אין stages, ננסה לחלץ מ-queryPlanner
+    if not explain_stages:
+        query_planner = explain_result.get("queryPlanner", {})
+        if query_planner:
+            # זה אומר שכל ה-pipeline הועבר ל-query optimizer
+            stages.append(AggregationExplainStage(
+                stage_name="OPTIMIZED_PIPELINE",
+                index_used=self._extract_index_from_planner(query_planner)
+            ))
+    else:
+        for stage_data in explain_stages:
+            stage = self._parse_aggregation_stage(stage_data)
+            stages.append(stage)
+    
+    # חישוב זמן כולל
+    total_time = sum(s.execution_time_ms for s in stages)
+    
+    # נרמול ה-pipeline shape
+    pipeline_shape = self._normalize_pipeline_shape(pipeline)
+    query_id = self._generate_query_id(collection, {"pipeline": pipeline_shape})
+    
+    return AggregationExplainPlan(
+        query_id=query_id,
+        collection=collection,
+        pipeline_shape=pipeline_shape,
+        stages=stages,
+        total_execution_time_ms=total_time,
+        server_info=explain_result.get("serverInfo", {})
+    )
+
+
+def _parse_aggregation_stage(
+    self,
+    stage_data: Dict[str, Any]
+) -> AggregationExplainStage:
+    """פרסור שלב אגרגציה בודד"""
+    
+    # השם של השלב (למשל "$match", "$lookup")
+    stage_name = next(
+        (k for k in stage_data.keys() if k.startswith("$")),
+        "UNKNOWN"
+    )
+    
+    stage_info = stage_data.get(stage_name, {})
+    
+    # חילוץ מידע ספציפי לשלב
+    execution_time = 0
+    docs_examined = 0
+    uses_disk = False
+    memory_usage = 0
+    index_used = None
+    lookup_collection = None
+    lookup_strategy = None
+    
+    # עבור $lookup
+    if stage_name == "$lookup":
+        lookup_collection = stage_info.get("from")
+        # בדיקה האם משתמש באינדקס על ה-foreign collection
+        if "indexesUsed" in stage_data:
+            index_used = stage_data["indexesUsed"][0] if stage_data["indexesUsed"] else None
+            lookup_strategy = "indexedLoopJoin"
+        else:
+            lookup_strategy = "nestedLoopJoin"  # איטי יותר!
+    
+    # עבור $sort
+    if stage_name == "$sort":
+        uses_disk = stage_data.get("usedDisk", False)
+        memory_usage = stage_data.get("memUsage", 0)
+    
+    # עבור $match בהתחלה - בדיקה האם משתמש באינדקס
+    if stage_name == "$match":
+        input_stage = stage_data.get("inputStage", {})
+        if input_stage.get("stage") == "IXSCAN":
+            index_used = input_stage.get("indexName")
+    
+    return AggregationExplainStage(
+        stage_name=stage_name,
+        execution_time_ms=execution_time,
+        docs_examined=docs_examined,
+        uses_disk=uses_disk,
+        memory_usage_bytes=memory_usage,
+        index_used=index_used,
+        lookup_collection=lookup_collection,
+        lookup_strategy=lookup_strategy
+    )
+
+
+def _normalize_pipeline_shape(
+    self,
+    pipeline: List[Dict[str, Any]]
+) -> List[Dict[str, Any]]:
+    """נרמול צורת ה-pipeline - החלפת ערכים בפלייסהולדרים"""
+    
+    normalized = []
+    for stage in pipeline:
+        normalized_stage = {}
+        for key, value in stage.items():
+            # שמירת שם השלב, נרמול הערכים
+            normalized_stage[key] = self._normalize_query_shape(value) if isinstance(value, dict) else "<value>"
+        normalized.append(normalized_stage)
+    
+    return normalized
+```
+
+### המלצות ספציפיות לאגרגציות
+
+```python
+async def analyze_aggregation_and_recommend(
+    self,
+    explain: AggregationExplainPlan
+) -> List[OptimizationRecommendation]:
+    """המלצות ספציפיות לאגרגציות"""
+    
+    recommendations = []
+    
+    for i, stage in enumerate(explain.stages):
+        # בדיקה 1: $lookup ללא אינדקס
+        if stage.stage_name == "$lookup" and stage.lookup_strategy == "nestedLoopJoin":
+            recommendations.append(OptimizationRecommendation(
+                id=f"lookup_no_index_{explain.query_id}_{i}",
+                title=f"🔴 $lookup ללא אינדקס על '{stage.lookup_collection}'",
+                description=(
+                    f"ה-$lookup מבצע nested loop join שהוא איטי מאוד. "
+                    f"צור אינדקס על השדה המקושר ב-collection '{stage.lookup_collection}'."
+                ),
+                severity=SeverityLevel.CRITICAL,
+                category="index",
+                suggested_action=f"צור אינדקס על שדה ה-foreign field ב-{stage.lookup_collection}",
+                estimated_improvement="יכול לשפר פי 10-100",
+                code_example=f"db.{stage.lookup_collection}.createIndex({{ <foreignField>: 1 }})"
+            ))
+        
+        # בדיקה 2: $sort שמשתמש בדיסק
+        if stage.stage_name == "$sort" and stage.uses_disk:
+            recommendations.append(OptimizationRecommendation(
+                id=f"sort_disk_{explain.query_id}_{i}",
+                title="🟠 $sort משתמש בדיסק",
+                description=(
+                    "פעולת המיון חרגה ממגבלת הזיכרון (100MB) והשתמשה בדיסק. "
+                    "זה מאט משמעותית את השאילתה."
+                ),
+                severity=SeverityLevel.WARNING,
+                category="index",
+                suggested_action="הוסף $match לפני ה-$sort להקטנת כמות הנתונים, או צור אינדקס על שדה המיון",
+                estimated_improvement="מניעת I/O לדיסק"
+            ))
+        
+        # בדיקה 3: $unwind על מערך גדול
+        if stage.stage_name == "$unwind":
+            recommendations.append(OptimizationRecommendation(
+                id=f"unwind_warning_{explain.query_id}_{i}",
+                title="⚠️ שימוש ב-$unwind",
+                description=(
+                    "$unwind יכול להכפיל את מספר המסמכים פי גודל המערך. "
+                    "ודא שאתה מסנן לפני ה-$unwind."
+                ),
+                severity=SeverityLevel.INFO,
+                category="query",
+                suggested_action="הוסף $match לפני $unwind להגבלת כמות המסמכים",
+                estimated_improvement="תלוי בגודל המערכים"
+            ))
+        
+        # בדיקה 4: $match לא בהתחלה
+        if stage.stage_name == "$match" and i > 0:
+            # בדיקה האם יש $match גם בהתחלה
+            has_early_match = any(
+                s.stage_name == "$match" 
+                for s in explain.stages[:i]
+            )
+            if not has_early_match:
+                recommendations.append(OptimizationRecommendation(
+                    id=f"match_order_{explain.query_id}_{i}",
+                    title="🟡 $match לא בהתחלת ה-Pipeline",
+                    description=(
+                        "כדאי לשים $match כמה שיותר מוקדם ב-pipeline כדי לסנן מסמכים מוקדם."
+                    ),
+                    severity=SeverityLevel.WARNING,
+                    category="query",
+                    suggested_action="העבר את ה-$match להתחלת ה-pipeline אם אפשר",
+                    estimated_improvement="הפחתת כמות הנתונים בשלבים הבאים"
+                ))
+    
+    return recommendations
+```
+
+### ויזואליזציה של Pipeline באתר
+
+```javascript
+// הוספה ל-JavaScript בדשבורד
+
+function renderAggregationPipeline(explain) {
+    const container = document.getElementById('explain-plan-visual');
+    container.innerHTML = '';
+    
+    let html = '<div class="pipeline-flow">';
+    
+    explain.stages.forEach((stage, index) => {
+        const stageClass = getAggregationStageClass(stage);
+        const warnings = getStageWarnings(stage);
+        
+        html += `
+            <div class="pipeline-stage ${stageClass}">
+                <div class="stage-header">
+                    <strong>${stage.stage_name}</strong>
+                    ${warnings ? `<span class="warning-badge">⚠️</span>` : ''}
+                </div>
+                <div class="stage-details">
+                    ${stage.index_used ? `<small>Index: ${stage.index_used}</small>` : ''}
+                    ${stage.lookup_collection ? `<small>From: ${stage.lookup_collection}</small>` : ''}
+                    ${stage.uses_disk ? `<small class="text-danger">Uses Disk!</small>` : ''}
+                </div>
+            </div>
+        `;
+        
+        if (index < explain.stages.length - 1) {
+            html += '<div class="pipeline-arrow">→</div>';
+        }
+    });
+    
+    html += '</div>';
+    container.innerHTML = html;
+}
+
+function getAggregationStageClass(stage) {
+    if (stage.lookup_strategy === 'nestedLoopJoin') return 'stage-critical';
+    if (stage.uses_disk) return 'stage-warning';
+    if (stage.index_used) return 'stage-good';
+    return 'stage-neutral';
+}
 ```
 
 ---
@@ -1531,6 +1924,56 @@ class TestQueryProfilerService:
         assert normalized["count"] == "<value>"
     
     @pytest.mark.asyncio
+    async def test_normalize_query_shape_with_arrays(self, profiler_service):
+        """בדיקת נרמול שאילתה עם מערכים - חשוב לאבטחה!"""
+        # מערך פשוט ($in)
+        query_in = {"status": {"$in": ["active", "pending", "draft"]}}
+        normalized = profiler_service._normalize_query_shape(query_in)
+        assert normalized["status"]["$in"] == ["<3 items>"]
+        
+        # $or עם תנאים מורכבים
+        query_or = {
+            "$or": [
+                {"user_id": "secret_user_123"},
+                {"email": "secret@email.com"}
+            ]
+        }
+        normalized_or = profiler_service._normalize_query_shape(query_or)
+        # צריך לשמור על מבנה ה-$or אבל לנרמל את הערכים
+        assert "$or" in normalized_or
+        assert normalized_or["$or"][0].get("user_id") == "<value>" or "<" in str(normalized_or["$or"])
+        
+        # מערך מקונן
+        query_nested = {"tags": {"$all": ["tag1", "tag2", "secret_tag"]}}
+        normalized_nested = profiler_service._normalize_query_shape(query_nested)
+        assert "secret_tag" not in str(normalized_nested)  # וידוא שאין דליפה
+    
+    @pytest.mark.asyncio
+    async def test_normalize_prevents_pii_leak(self, profiler_service):
+        """בדיקה שנרמול מונע דליפת PII"""
+        sensitive_query = {
+            "email": "john.doe@company.com",
+            "phone": "+1-555-123-4567",
+            "ssn": "123-45-6789",
+            "credit_card": {"$in": ["4111111111111111", "5500000000000004"]},
+            "$or": [
+                {"password_hash": "abc123hash"},
+                {"api_key": "sk_live_secret_key"}
+            ]
+        }
+        
+        normalized = profiler_service._normalize_query_shape(sensitive_query)
+        normalized_str = str(normalized)
+        
+        # וידוא שאף מידע רגיש לא דלף
+        assert "john.doe" not in normalized_str
+        assert "555-123" not in normalized_str
+        assert "123-45-6789" not in normalized_str
+        assert "4111111111111111" not in normalized_str
+        assert "abc123hash" not in normalized_str
+        assert "sk_live" not in normalized_str
+    
+    @pytest.mark.asyncio
     async def test_generate_query_id_consistency(self, profiler_service):
         """בדיקת עקביות יצירת מזהה שאילתה"""
         query1 = {"a": 1, "b": 2}
@@ -1820,11 +2263,197 @@ async def record_slow_query(self, ...):
 
 ### הרחבות עתידיות
 
-1. **שמירת היסטוריה** - שמירה ארוכת טווח של שאילתות ב-MongoDB
-2. **התראות** - שליחת התראות על שאילתות קריטיות
-3. **השוואת זמנים** - השוואת ביצועים לפני ואחרי שינויים
-4. **ניתוח מגמות** - זיהוי שאילתות שמחמירות לאורך זמן
-5. **אינטגרציה עם CI** - בדיקת ביצועי שאילתות ב-pipeline
+1. **התראות** - שליחת התראות על שאילתות קריטיות
+2. **השוואת זמנים** - השוואת ביצועים לפני ואחרי שינויים
+3. **ניתוח מגמות** - זיהוי שאילתות שמחמירות לאורך זמן
+4. **אינטגרציה עם CI** - בדיקת ביצועי שאילתות ב-pipeline
+
+---
+
+## שמירת היסטוריה ב-MongoDB (Persistence)
+
+> ⚠️ **בעיה:** כרגע המידע נשמר בזיכרון (`self._slow_queries`). אם הסרביס עושה restart, כל ההיסטוריה והסטטיסטיקות נמחקות!
+
+### פתרון: שמירה ב-MongoDB עם TTL Index
+
+#### יצירת Collection עם TTL
+
+```python
+# database/manager.py - הוספה ל-_create_indexes
+
+async def _create_profiler_indexes(self):
+    """יצירת אינדקסים ל-collection של הפרופיילר"""
+    
+    # TTL Index - מחיקה אוטומטית אחרי 7 ימים
+    await self.db.slow_queries_log.create_index(
+        "timestamp",
+        expireAfterSeconds=7 * 24 * 60 * 60,  # 7 days
+        name="ttl_cleanup"
+    )
+    
+    # אינדקס לחיפוש מהיר
+    await self.db.slow_queries_log.create_index(
+        [("collection", 1), ("timestamp", -1)],
+        name="collection_timestamp"
+    )
+    
+    # אינדקס לדפוסי שאילתות
+    await self.db.slow_queries_log.create_index(
+        "query_id",
+        name="query_pattern"
+    )
+```
+
+#### אלטרנטיבה: Capped Collection
+
+```python
+# יצירת Capped Collection (גודל קבוע, FIFO)
+await self.db.create_collection(
+    "slow_queries_log",
+    capped=True,
+    size=100 * 1024 * 1024,  # 100MB
+    max=10000  # מקסימום 10,000 מסמכים
+)
+```
+
+#### מימוש שמירה ב-MongoDB
+
+```python
+# services/query_profiler_service.py - גרסה עם persistence
+
+class PersistentQueryProfilerService(QueryProfilerService):
+    """
+    גרסה משופרת של הפרופיילר עם שמירה ב-MongoDB.
+    מתאימה ל-Production.
+    """
+    
+    COLLECTION_NAME = "slow_queries_log"
+    
+    async def record_slow_query(
+        self,
+        collection: str,
+        operation: str,
+        query: Dict[str, Any],
+        execution_time_ms: float,
+        client_info: Optional[Dict[str, Any]] = None
+    ) -> SlowQueryRecord:
+        """רישום שאילתה עם שמירה ל-MongoDB"""
+        
+        # יצירת הרשומה (כמו קודם)
+        record = await super().record_slow_query(
+            collection, operation, query, execution_time_ms, client_info
+        )
+        
+        # שמירה ל-MongoDB
+        await self._persist_record(record)
+        
+        return record
+    
+    async def _persist_record(self, record: SlowQueryRecord) -> None:
+        """שמירת רשומה ל-MongoDB"""
+        doc = {
+            "query_id": record.query_id,
+            "collection": record.collection,
+            "operation": record.operation,
+            "query_shape": record.query_shape,
+            "execution_time_ms": record.execution_time_ms,
+            "timestamp": record.timestamp,
+            "client_info": record.client_info
+        }
+        
+        await asyncio.to_thread(
+            self.db_manager.db[self.COLLECTION_NAME].insert_one,
+            doc
+        )
+    
+    async def get_slow_queries(
+        self,
+        limit: int = 50,
+        collection_filter: Optional[str] = None,
+        min_execution_time_ms: Optional[float] = None,
+        since: Optional[datetime] = None
+    ) -> List[SlowQueryRecord]:
+        """קבלת שאילתות מ-MongoDB (לא רק מזיכרון)"""
+        
+        query = {}
+        
+        if collection_filter:
+            query["collection"] = collection_filter
+        
+        if min_execution_time_ms:
+            query["execution_time_ms"] = {"$gte": min_execution_time_ms}
+        
+        if since:
+            query["timestamp"] = {"$gte": since}
+        
+        def _fetch():
+            cursor = self.db_manager.db[self.COLLECTION_NAME].find(
+                query,
+                sort=[("execution_time_ms", -1)],
+                limit=limit
+            )
+            return list(cursor)
+        
+        docs = await asyncio.to_thread(_fetch)
+        
+        return [
+            SlowQueryRecord(
+                query_id=doc["query_id"],
+                collection=doc["collection"],
+                operation=doc["operation"],
+                query_shape=doc["query_shape"],
+                execution_time_ms=doc["execution_time_ms"],
+                timestamp=doc["timestamp"],
+                client_info=doc.get("client_info")
+            )
+            for doc in docs
+        ]
+    
+    async def get_pattern_statistics(
+        self,
+        days: int = 7
+    ) -> List[Dict[str, Any]]:
+        """סטטיסטיקות מצטברות לפי דפוס שאילתה"""
+        
+        since = datetime.utcnow() - timedelta(days=days)
+        
+        pipeline = [
+            {"$match": {"timestamp": {"$gte": since}}},
+            {"$group": {
+                "_id": {
+                    "query_id": "$query_id",
+                    "collection": "$collection",
+                    "operation": "$operation"
+                },
+                "count": {"$sum": 1},
+                "avg_time_ms": {"$avg": "$execution_time_ms"},
+                "max_time_ms": {"$max": "$execution_time_ms"},
+                "min_time_ms": {"$min": "$execution_time_ms"},
+                "last_seen": {"$max": "$timestamp"},
+                "query_shape": {"$first": "$query_shape"}
+            }},
+            {"$sort": {"count": -1}},
+            {"$limit": 50}
+        ]
+        
+        def _aggregate():
+            return list(
+                self.db_manager.db[self.COLLECTION_NAME].aggregate(pipeline)
+            )
+        
+        return await asyncio.to_thread(_aggregate)
+```
+
+### טבלת השוואה: זיכרון vs MongoDB
+
+| היבט | זיכרון בלבד | MongoDB Persistence |
+|------|-------------|---------------------|
+| מהירות כתיבה | ⚡ מהירה מאוד | 🐢 קצת יותר איטית |
+| עמידות לריסטרט | ❌ אובד | ✅ נשמר |
+| ניתוח היסטורי | ❌ מוגבל | ✅ מלא |
+| צריכת זיכרון | 📈 עולה | 📊 קבועה |
+| מורכבות | פשוט | דורש אינדקסים |
+| מתאים ל... | Development | Production |
 
 ---
 
