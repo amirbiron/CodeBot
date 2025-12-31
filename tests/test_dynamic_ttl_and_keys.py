@@ -25,27 +25,27 @@ def test_build_cache_key_sanitizes_spaces_and_slashes():
 
 def test_dynamic_ttl_context_adjustments_order_and_clamp():
     import cache_manager as cm
-    # Base for user_stats is 300. Apply adjustments in documented order.
+    # Base for user_stats is 600. Apply adjustments in documented order.
     ttl = cm.DynamicTTL.calculate_ttl(
         "user_stats",
         {
-            "is_favorite": True,                 # *1.5 => 450
-            "last_modified_hours_ago": 0.1,      # *0.5 => 225
-            "access_frequency": "high",         # *2   => 450
-            "user_tier": "premium",             # *0.7 => 315
+            "is_favorite": True,                 # *1.5 => 900
+            "last_modified_hours_ago": 0.1,      # *0.5 => 450
+            "access_frequency": "high",         # *2   => 900
+            "user_tier": "premium",             # *0.7 => 630
         },
     )
-    assert ttl == 315
+    assert ttl == 630
 
-    # Clamp to minimum 30
+    # Clamp to minimum 60
     ttl_min = cm.DynamicTTL.calculate_ttl(
         "settings",  # base 60
         {
             "last_modified_hours_ago": 0.5,      # 60 * 0.5 = 30
-            "user_tier": "premium",             # 30 * 0.7 = 21 -> clamp to 30
+            "user_tier": "premium",             # 30 * 0.7 = 21 -> clamp to 60
         },
     )
-    assert ttl_min == 30
+    assert ttl_min == 60
 
 
 def test_activity_based_ttl_adjustment_with_deterministic_jitter(monkeypatch):
