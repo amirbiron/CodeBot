@@ -463,7 +463,7 @@
    * - ``REDIS_CONNECT_TIMEOUT``
      - Timeout התחברות ל-Redis (שניות)
      - לא
-    - ``3`` (או ``1`` ב-``SAFE_MODE``)
+     - ``3`` (או ``1`` ב-``SAFE_MODE``)
      - ``2``
      - Bot/WebApp
    * - ``REDIS_SOCKET_TIMEOUT``
@@ -487,7 +487,7 @@
    * - ``CACHE_CLEAR_BUDGET_SECONDS``
      - תקציב זמן לניקוי קאש (מונע תקיעה ב-Redis)
      - לא
-    - ``5``
+     - ``5``
      - ``1``
      - Bot/WebApp
    * - ``DISABLE_BACKGROUND_CLEANUP``
