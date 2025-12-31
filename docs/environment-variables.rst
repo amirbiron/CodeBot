@@ -839,7 +839,7 @@
      - ``20``
      - Bot/WebApp
    * - ``PROFILER_ENABLED``
-     - הפעלת Query Performance Profiler (ניטור שאילתות MongoDB איטיות + דשבורד)
+     - הפעלת Query Performance Profiler (ניטור שאילתות MongoDB איטיות + דשבורד). ראו :doc:`observability/query-performance-profiler`.
      - לא
      - ``true``
      - ``false``
