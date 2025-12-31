@@ -1662,6 +1662,9 @@ class GitHubMenuHandler:
         elif query.data.startswith("upload_saved_"):
             file_id = query.data.split("_")[2]
             # Show pre-upload check screen before actual upload
+            # חשוב: אם יש מסמך זמני בזיכרון (paste/large/checkpoint) הוא לא צריך לדרוס בחירה חדשה של קובץ שמור.
+            context.user_data.pop("pending_upload_doc", None)
+            context.user_data.pop("paste_content", None)
             context.user_data["pending_saved_file_id"] = file_id
             await self.show_pre_upload_check(update, context)
         elif query.data == "choose_upload_branch":
