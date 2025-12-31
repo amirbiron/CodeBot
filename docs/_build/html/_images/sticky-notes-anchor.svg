@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg width="760" height="420" viewBox="0 0 760 420" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#667eea"/>
+      <stop offset="100%" stop-color="#764ba2"/>
+    </linearGradient>
+    <filter id="shadow" x="-50%" y="-50%" width="200%" height="200%">
+      <feDropShadow dx="0" dy="8" stdDeviation="16" flood-opacity="0.25"/>
+    </filter>
+  </defs>
+  <rect x="0" y="0" width="760" height="420" fill="url(#bg)"/>
+
+  <!-- Markdown page block -->
+  <g transform="translate(80,40)">
+    <rect width="600" height="340" rx="12" fill="#ffffff"/>
+    <!-- Headings with ids -->
+    <text x="28" y="54" font-family="Heebo, Arial, sans-serif" font-weight="700" font-size="20" fill="#111827"># כותרת ראשית (id: intro)</text>
+    <rect x="24" y="64" width="552" height="1" fill="#e5e7eb"/>
+    <text x="28" y="104" font-family="Heebo, Arial, sans-serif" font-weight="700" font-size="18" fill="#111827">## פתקים דביקים (id: sticky-notes)</text>
+    <text x="28" y="134" font-family="Heebo, Arial, sans-serif" font-size="14" fill="#374151">תוכן דוגמה של Markdown… תוכן דוגמה של Markdown…</text>
+
+    <!-- Sticky note near anchor -->
+    <g transform="translate(420,96)" filter="url(#shadow)">
+      <rect width="140" height="90" rx="10" fill="#FFF59D" stroke="#f59e0b"/>
+      <text x="12" y="28" font-family="Heebo, Arial, sans-serif" font-size="14" fill="#111827">פתק מעוגן</text>
+      <text x="12" y="50" font-family="Heebo, Arial, sans-serif" font-size="12" fill="#374151">anchor: sticky-notes</text>
+    </g>
+  </g>
+
+  <!-- Arrow / hint -->
+  <g>
+    <path d="M 640 52 C 640 52, 700 88, 660 128" stroke="#fcd34d" stroke-width="4" fill="none"/>
+    <polygon points="656,118 668,128 654,134" fill="#fcd34d"/>
+    <text x="560" y="44" font-family="Heebo, Arial, sans-serif" font-size="14" fill="#ffffff">ניווט אל עוגן ב‑/md/&lt;file_id&gt;</text>
+  </g>
+</svg>
