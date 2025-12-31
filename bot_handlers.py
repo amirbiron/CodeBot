@@ -121,10 +121,18 @@ def _call_files_api(method_name: str, *args, **kwargs):
     """
     # Special case: allow safe access to underlying Mongo DB (used by broadcast/dm admin flows).
     if method_name == "get_mongo_db":
-        legacy = _get_legacy_db()
-        legacy_db_obj = getattr(legacy, "db", None) if legacy is not None else None
-        if legacy_db_obj is not None:
-            return legacy_db_obj
+        # Prefer explicit injection via module globals (tests), then facade, then already-loaded legacy module.
+        try:
+            injected = globals().get("db")
+        except Exception:
+            injected = None
+        try:
+            injected_db_obj = getattr(injected, "db", None) if injected is not None else None
+        except Exception:
+            injected_db_obj = None
+        if injected_db_obj is not None:
+            return injected_db_obj
+
         facade = _get_files_facade_or_none()
         if facade is not None:
             fn = getattr(facade, "get_mongo_db", None)
@@ -135,7 +143,19 @@ def _call_files_api(method_name: str, *args, **kwargs):
                         return out
                 except Exception:
                     pass
-        return None
+        try:
+            mod = sys.modules.get("database")
+            legacy_mgr = getattr(mod, "db", None) if mod is not None else None
+        except Exception:
+            legacy_mgr = None
+        if legacy_mgr is None:
+            return None
+        try:
+            # legacy_mgr is typically DatabaseManager; .db is the underlying pymongo database.
+            inner = getattr(legacy_mgr, "db", None)
+            return inner if inner is not None else legacy_mgr
+        except Exception:
+            return legacy_mgr
 
     # Prefer injected legacy db (tests), then facade, then fallback to legacy.
     legacy = _get_legacy_db()

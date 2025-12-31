@@ -17,6 +17,9 @@ from utils import normalize_code  # נרמול קלט כדי להסיר תווי
 
 logger = logging.getLogger(__name__)
 
+# Backwards-compatibility: some tests may monkeypatch `handlers.save_flow.db`
+db = None  # type: ignore
+
 # NOTE: We intentionally avoid importing the legacy `database` package here.
 # All persistence access goes through the composition facade / application services.
 # For backwards-compatibility in tests, we support reading a pre-injected
@@ -25,6 +28,12 @@ logger = logging.getLogger(__name__)
 
 def _get_legacy_db():
     """Best-effort access to legacy db object without importing `database`."""
+    try:
+        patched = globals().get("db")
+        if patched is not None:
+            return patched
+    except Exception:
+        pass
     try:
         mod = sys.modules.get("database")
         if mod is not None:

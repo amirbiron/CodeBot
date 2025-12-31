@@ -166,16 +166,37 @@ def _call_files_api(method_name: str, *args, **kwargs):
     """
     # Special case: allow safe access to underlying Mongo DB (used by webapp login token).
     if method_name == "get_mongo_db":
+        # Prefer explicit injection via module globals (tests), then facade, then already-loaded legacy module.
+        try:
+            injected = globals().get("db")
+        except Exception:
+            injected = None
+        try:
+            injected_db_obj = getattr(injected, "db", None) if injected is not None else None
+        except Exception:
+            injected_db_obj = None
+        if injected_db_obj is not None:
+            return injected_db_obj
+
         facade = _get_files_facade_or_none()
         if facade is not None:
             fn = getattr(facade, "get_mongo_db", None)
             if callable(fn):
                 try:
-                    return fn()
+                    out = fn()
+                    if out is not None:
+                        return out
                 except Exception:
                     pass
+
         legacy = _get_legacy_db()
-        return getattr(legacy, "db", None) if legacy is not None else None
+        if legacy is None:
+            return None
+        try:
+            inner = getattr(legacy, "db", None)
+            return inner if inner is not None else legacy
+        except Exception:
+            return None
 
     facade_result = _FACADE_SENTINEL
     facade = _get_files_facade_or_none()
@@ -223,7 +244,10 @@ def _call_repo_api(method_name: str, *args, **kwargs):
     repo_getter = getattr(legacy, "_get_repo", None)
     if not callable(repo_getter):
         return result
-    repo = repo_getter()
+    try:
+        repo = repo_getter()
+    except Exception:
+        return result
     method = getattr(repo, method_name, None)
     if not callable(method):
         return result
@@ -2030,7 +2054,7 @@ async def show_favorites_callback(update: Update, context: ContextTypes.DEFAULT_
         )
         try:
             await query.edit_message_text(header, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode=ParseMode.HTML)
-        except Exception as br:
+        except telegram.error.BadRequest as br:
             if "message is not modified" in str(br).lower():
                 try:
                     from utils import TelegramUtils as _TU
