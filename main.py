@@ -1306,6 +1306,73 @@ def _get_registered_commands(application) -> set[str]:
     return command_names
 
 
+def _build_debug_commands_report(
+    *,
+    registered_commands: set[str],
+    public_menu_commands: list[Any] | None = None,
+    personal_menu_commands: list[Any] | None = None,
+) -> str:
+    """
+    בונה דוח דיבוג על פקודות slash:
+    - כל הפקודות שנרשמו כ-CommandHandler ב-runtime (כולל כאלה שלא בתפריט טלגרם)
+    - (אופציונלי) השוואה מול get_my_commands כדי לזהות פקודות "מוסתרות" מהתפריט
+    """
+    from html import escape as html_escape
+
+    registered = sorted({str(c).lower().lstrip("/") for c in (registered_commands or set()) if c})
+    registered_set = set(registered)
+
+    def _extract_menu_names(cmds: list[Any] | None) -> set[str]:
+        names: set[str] = set()
+        for cmd in cmds or []:
+            try:
+                name = getattr(cmd, "command", None)
+            except Exception:
+                name = None
+            if isinstance(name, str) and name.strip():
+                names.add(name.strip().lower().lstrip("/"))
+        return names
+
+    public_names = _extract_menu_names(public_menu_commands)
+    personal_names = _extract_menu_names(personal_menu_commands)
+    menu_union = public_names | personal_names
+
+    hidden = sorted(registered_set - menu_union) if menu_union else []
+    menu_only = sorted(menu_union - registered_set) if menu_union else []
+
+    lines: list[str] = []
+    lines.append("🔍 <b>Debug Commands Report</b>")
+    lines.append("")
+    lines.append(f"📊 <b>סה\"כ פקודות רשומות בקוד:</b> {len(registered)}")
+    lines.append("")
+    lines.append("✅ <b>All Registered Commands (runtime):</b>")
+    all_text = "\n".join(f"/{c}" for c in registered) if registered else "(none)"
+    lines.append(f"<pre>{html_escape(all_text)}</pre>")
+
+    if public_menu_commands is not None or personal_menu_commands is not None:
+        lines.append("")
+        pub_text = "\n".join(f"/{c}" for c in sorted(public_names)) if public_names else "(none)"
+        per_text = "\n".join(f"/{c}" for c in sorted(personal_names)) if personal_names else "(none)"
+        lines.append(f"📋 <b>Menu Commands (Telegram):</b> ציבוריות {len(public_names)} | אישיות {len(personal_names)}")
+        lines.append("<b>ציבוריות:</b>")
+        lines.append(f"<pre>{html_escape(pub_text)}</pre>")
+        lines.append("<b>אישיות:</b>")
+        lines.append(f"<pre>{html_escape(per_text)}</pre>")
+
+        if menu_union:
+            lines.append("")
+            lines.append(f"⚠️ <b>Hidden Commands (בקוד אבל לא בתפריט):</b> {len(hidden)}")
+            hidden_text = "\n".join(f"/{c}" for c in hidden) if hidden else "(none)"
+            lines.append(f"<pre>{html_escape(hidden_text)}</pre>")
+
+            # שימושי לזיהוי "דריפט" – פקודות שנשארו בתפריט אבל לא קיימות בקוד יותר
+            lines.append(f"ℹ️ <b>Menu-only (בתפריט אבל לא בקוד):</b> {len(menu_only)}")
+            menu_only_text = "\n".join(f"/{c}" for c in menu_only) if menu_only else "(none)"
+            lines.append(f"<pre>{html_escape(menu_only_text)}</pre>")
+
+    return "\n".join(lines)
+
+
 def _build_help_message(registered_commands: set[str]) -> str:
     """Compose the help text for commands without dedicated buttons."""
     available_commands = {cmd.lower() for cmd in registered_commands if isinstance(cmd, str)}
@@ -2903,23 +2970,103 @@ class CodeKeeperBot:
         await update.message.reply_text(response, parse_mode=ParseMode.HTML)
     
     async def check_commands(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """בדיקת הפקודות הזמינות (רק לאמיר)"""
-        
-        if update.effective_user.id != 6865105071:
+        """בדיקת פקודות תפריט/Runtime (מנהלים בלבד).
+
+        שימושים:
+        - `/check` : מציג את פקודות התפריט (Telegram menu) ציבורי + scope אישי
+        - `/check commands` : מציג את כל ה-Slash commands שנרשמו ב-runtime דרך Application.handlers,
+          ומשווה מול התפריט כדי לזהות מה "מוסתר".
+        """
+        from chatops.permissions import is_admin
+
+        message_obj = getattr(update, "effective_message", None) or getattr(update, "message", None)
+        try:
+            user_id = int(getattr(getattr(update, "effective_user", None), "id", 0) or 0)
+        except Exception:
+            user_id = 0
+
+        if not is_admin(user_id):
+            if message_obj is not None:
+                await message_obj.reply_text("❌ פקודה זמינה למנהלים בלבד")
             return
-        
-        # בדוק פקודות ציבוריות
-        public_cmds = await context.bot.get_my_commands()
-        
-        # בדוק פקודות אישיות
-        from telegram import BotCommandScopeChat
-        personal_cmds = await context.bot.get_my_commands(
-            scope=BotCommandScopeChat(chat_id=6865105071)
-        )
-        
+
+        args = []
+        try:
+            args = [str(a).strip().lower() for a in (getattr(context, "args", None) or []) if str(a).strip()]
+        except Exception:
+            args = []
+
+        # /check commands – דיבוג פקודות runtime + diff מול תפריט טלגרם
+        if args[:1] == ["commands"]:
+            app = getattr(context, "application", None) or getattr(self, "application", None)
+            registered = _get_registered_commands(app)
+
+            public_cmds = None
+            personal_cmds = None
+            try:
+                public_cmds = await context.bot.get_my_commands()
+            except Exception:
+                public_cmds = None
+            try:
+                from telegram import BotCommandScopeChat
+
+                # בצ'אט פרטי chat_id == user_id
+                personal_cmds = await context.bot.get_my_commands(scope=BotCommandScopeChat(chat_id=user_id))
+            except Exception:
+                personal_cmds = None
+
+            report = _build_debug_commands_report(
+                registered_commands=registered,
+                public_menu_commands=public_cmds,
+                personal_menu_commands=personal_cmds,
+            )
+            if message_obj is not None:
+                await message_obj.reply_text(report, parse_mode=ParseMode.HTML, disable_web_page_preview=True)
+            return
+
+        # /check – תפריט פקודות טלגרם (ציבורי + אישי)
         from html import escape as html_escape
 
-        message = "📋 <b>סטטוס פקודות</b>\n\n"
+        warnings: list[str] = []
+
+        public_cmds = []
+        try:
+            public_cmds = await context.bot.get_my_commands()
+        except Exception:
+            public_cmds = []
+            warnings.append("⚠️ לא הצלחתי למשוך פקודות ציבוריות מה-API של טלגרם")
+
+        # בצ'אט פרטי chat_id == user_id. אם אין user_id (0), ננסה fallback ל-chat_id של ההודעה.
+        chat_id_for_personal = None
+        try:
+            if user_id:
+                chat_id_for_personal = user_id
+            else:
+                effective_chat = getattr(update, "effective_chat", None)
+                cid = getattr(effective_chat, "id", None) if effective_chat is not None else None
+                if isinstance(cid, int) and cid != 0:
+                    chat_id_for_personal = cid
+        except Exception:
+            chat_id_for_personal = None
+
+        personal_cmds = []
+        if chat_id_for_personal is None:
+            personal_cmds = []
+            warnings.append("⚠️ דילוג על פקודות אישיות: אין chat_id זמין")
+        else:
+            try:
+                from telegram import BotCommandScopeChat
+
+                personal_cmds = await context.bot.get_my_commands(
+                    scope=BotCommandScopeChat(chat_id=chat_id_for_personal)
+                )
+            except Exception:
+                personal_cmds = []
+                warnings.append("⚠️ לא הצלחתי למשוך פקודות אישיות (scope) מה-API של טלגרם")
+
+        message = "📋 <b>סטטוס פקודות (Telegram Menu)</b>\n\n"
+        if warnings:
+            message += "\n".join(warnings) + "\n\n"
         message += f"סיכום: ציבוריות {len(public_cmds)} | אישיות {len(personal_cmds)}\n\n"
         if public_cmds:
             public_list = "\n".join(f"/{cmd.command}" for cmd in public_cmds)
@@ -2927,8 +3074,9 @@ class CodeKeeperBot:
         if personal_cmds:
             personal_list = "\n".join(f"/{cmd.command} — {cmd.description}" for cmd in personal_cmds)
             message += "<b>אישיות:</b>\n" + f"<pre>{html_escape(personal_list)}</pre>"
-        
-        await update.message.reply_text(message, parse_mode=ParseMode.HTML)
+
+        if message_obj is not None:
+            await message_obj.reply_text(message, parse_mode=ParseMode.HTML, disable_web_page_preview=True)
 
     async def stats_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """הצגת סטטיסטיקות המשתמש או מנהל"""
