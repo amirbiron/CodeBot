@@ -25,11 +25,17 @@
   }
 
   function ready(fn) {
-    if (document.readyState === 'loading') {
-      document.addEventListener('DOMContentLoaded', fn, { once: true });
-    } else {
+    // חשוב: base.html טוען editor-manager.js כ-<script type="module" defer>.
+    // לפי הספציפיקציה, classic deferred scripts רצים לפני module deferred scripts.
+    // אם נרוץ ב-readyState=interactive, ייתכן ש-window.editorManager עדיין לא קיים,
+    // ואז מצב "מתקדם" שנשמר ב-localStorage ייכשל שקט ויתעלם בהטענה הראשונה.
+    //
+    // לכן: נרוץ רק אחרי DOMContentLoaded (או מיידית אם כבר complete).
+    if (document.readyState === 'complete') {
       fn();
+      return;
     }
+    document.addEventListener('DOMContentLoaded', fn, { once: true });
   }
 
   function resolveLanguage(metaEl) {
