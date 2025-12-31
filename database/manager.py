@@ -307,14 +307,43 @@ class DatabaseManager:
                         return coll, query
 
                     class _SlowMongoListener(_pymongo_monitoring.CommandListener):  # type: ignore[attr-defined]
+                        def __init__(self):
+                            # שומר הקשר בין התחלת בקשה לסיומה
+                            self._requests = {}
+
                         def started(self, event):  # type: ignore[override]
-                            # מאזין חובה ב-PyMongo; לא נדרש לנו כלום בשלב ההתחלה
-                            return None
+                            try:
+                                cmd_name = str(getattr(event, "command_name", "") or "")
+                                if cmd_name.lower() == "explain":
+                                    return
+
+                                command = getattr(event, "command", None) or {}
+                                if not isinstance(command, dict):
+                                    return
+
+                                # חילוץ המידע כבר בהתחלה - כשהוא זמין
+                                coll, query = _extract_collection_and_query(cmd_name, command)
+
+                                # שמירה בהקשר הבקשה
+                                if coll:
+                                    self._requests[event.request_id] = {
+                                        "coll": coll,
+                                        "query": query,
+                                        "cmd_name": cmd_name,
+                                        "db": str(getattr(event, "database_name", "") or ""),
+                                    }
+                            except Exception:
+                                pass
 
                         def succeeded(self, event):  # type: ignore[override]
+                            # שליפת הקשר הבקשה
+                            req_data = self._requests.pop(event.request_id, None)
+
                             try:
                                 dur_ms = float(getattr(event, 'duration_micros', 0) or 0) / 1000.0
-                                slow_ms = float(_profiler_threshold_ms() or 0.0)
+                                slow_ms = float(_profiler_threshold_ms() or 100.0)
+
+                                # לוגים רגילים (Warning)
                                 if slow_ms and dur_ms > slow_ms:
                                     try:
                                         logger.warning(
@@ -328,89 +357,64 @@ class DatabaseManager:
                                     except Exception:
                                         pass
 
-                                    # --- Query Performance Profiler (best-effort) ---
+                                    # --- Query Performance Profiler ---
                                     try:
                                         if not _profiler_enabled():
-                                            logger.error(
-                                                "Profiler: disabled by config (PROFILER_ENABLED=false) - skipping slow query record"
-                                            )
-                                            return None
-                                        cmd_name = str(getattr(event, "command_name", "") or "")
-                                        if cmd_name.lower() == "explain":
-                                            logger.error("Profiler: skipping 'explain' command (avoid recursion/observer effect)")
-                                            return None
-                                        command = getattr(event, "command", None) or {}
-                                        if not isinstance(command, dict):
-                                            logger.error(
-                                                "Profiler: event.command is not a dict - skipping (cmd=%s, type=%s)",
-                                                cmd_name,
-                                                type(command).__name__,
-                                            )
-                                            return None
-                                        coll, query = _extract_collection_and_query(cmd_name, command)
-                                        if not coll:
-                                            logger.error(
-                                                "Profiler: could not extract collection from command - skipping (cmd=%s)",
-                                                cmd_name,
-                                            )
-                                            return None
-                                        # Prevent recursion / noise: don't record our own persistence writes
+                                            return
+
+                                        # אם אין לנו את המידע מ-started, אי אפשר להקליט
+                                        if not req_data:
+                                            return
+
+                                        coll = req_data["coll"]
+                                        # מניעת רקורסיה
                                         if coll in {"slow_queries_log", "system.profile"}:
-                                            logger.error(
-                                                "Profiler: skipping internal collection to prevent recursion/noise (coll=%s, cmd=%s)",
-                                                coll,
-                                                cmd_name,
-                                            )
-                                            return None
+                                            return
 
                                         profiler = _get_profiler_service()
                                         if profiler is None:
-                                            # CRITICAL: likely indicates import/init failure
-                                            logger.error("Profiler: _get_profiler_service() returned None! Check imports/initialization.")
-                                            return None
+                                            return
 
                                         client_info = {
-                                            "db": str(getattr(event, "database_name", "") or ""),
-                                            "cmd": cmd_name,
+                                            "db": req_data["db"],
+                                            "cmd": req_data["cmd_name"],
                                         }
-                                        # Run async API in best-effort manner (Mongo listener is sync)
+
+                                        # הרצה אסינכרונית
                                         try:
                                             loop = asyncio.get_running_loop()
                                         except RuntimeError:
                                             loop = None
+
                                         if loop is not None:
                                             loop.create_task(
-                                                profiler.record_slow_query(  # type: ignore[union-attr]
+                                                profiler.record_slow_query(
                                                     collection=coll,
-                                                    operation=cmd_name,
-                                                    query=query,
+                                                    operation=req_data["cmd_name"],
+                                                    query=req_data["query"],
                                                     execution_time_ms=float(dur_ms),
                                                     client_info=client_info,
                                                 )
                                             )
                                         else:
                                             asyncio.run(
-                                                profiler.record_slow_query(  # type: ignore[union-attr]
+                                                profiler.record_slow_query(
                                                     collection=coll,
-                                                    operation=cmd_name,
-                                                    query=query,
+                                                    operation=req_data["cmd_name"],
+                                                    query=req_data["query"],
                                                     execution_time_ms=float(dur_ms),
                                                     client_info=client_info,
                                                 )
                                             )
                                     except Exception as e:
-                                        # Fail-open: profiler must never break DB operations
-                                        import traceback
-
-                                        logger.error(f"Profiler FAILED: {str(e)}")
-                                        logger.error(traceback.format_exc())
-                                        return None
+                                        # החזרת לוג שגיאה למקרה הצורך
+                                        logger.error(f"Profiler Error: {str(e)}")
                             except Exception:
                                 pass
 
                         def failed(self, event):  # type: ignore[override]
-                            # מאזין חובה ב-PyMongo; איננו מדווחים כאן כדי להימנע מספאם לוגים
-                            return None
+                            # ניקוי זיכרון במקרה של כישלון
+                            self._requests.pop(event.request_id, None)
                     _pymongo_monitoring.register(_SlowMongoListener())  # type: ignore[attr-defined]
                     _MONGO_MONITORING_REGISTERED = True
                 except Exception:
