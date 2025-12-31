@@ -292,17 +292,36 @@ class QueryProfilerService:
         על ידי החלפת כל הערכים בפלייסהולדרים.
 
         חשוב: מטפלת גם במערכים מקוננים (למשל $in, $or)!
+
+        ⚠️ מקרים מיוחדים:
+        - $sort: ערכי 1/-1 נשמרים כפי שהם (חיוניים למבנה ה-query)
+        - מערכים באופרטורים: אורך נשמר, איברים מנורמלים רקורסיבית
         """
 
-        def normalize_value(value: Any) -> Any:
+        # מפתחות שבהם לא מנרמלים ערכים מספריים (1/-1) – קריטיים לתחביר MongoDB
+        SORT_LIKE_KEYS = {"$sort", "$orderby"}
+
+        def normalize_value(value: Any, parent_key: Optional[str] = None) -> Any:
             """
             נרמול ערך לשם "query shape" ללא דליפת PII.
 
             ⚠️ חשוב: לא משנים מבנה/אורך של מערכים, כדי לא לשבור ביטויי $expr
             ואופרטורים שמצפים למספר ארגומנטים מדויק (למשל $eq).
+
+            Args:
+                value: הערך לנרמול
+                parent_key: המפתח ההורה (לזיהוי הקשרים כמו $sort)
             """
             if isinstance(value, dict):
-                return {str(k): normalize_value(v) for k, v in value.items()}
+                result: Dict[str, Any] = {}
+                for k, v in value.items():
+                    str_k = str(k)
+                    # אם זה $sort – נעביר את ה-key כהקשר לילדים
+                    if str_k in SORT_LIKE_KEYS:
+                        result[str_k] = normalize_value(v, parent_key=str_k)
+                    else:
+                        result[str_k] = normalize_value(v, parent_key=parent_key)
+                return result
 
             if isinstance(value, list):
                 if not value:
@@ -318,12 +337,15 @@ class QueryProfilerService:
                         elif isinstance(v, str) and v.startswith("$"):
                             # השארת field-paths / operator tokens (למשל "$user_id", "$eq") כפי שהם
                             out.append(v)
+                        elif parent_key in SORT_LIKE_KEYS and isinstance(v, (int, float)) and v in (1, -1, 1.0, -1.0):
+                            # ב-$sort: שומרים על 1/-1
+                            out.append(int(v))
                         else:
                             out.append("<value>")
                     return out
 
                 # מערך מורכב (dicts / lists): נרמול רקורסיבי *לכל* האיברים (שומר אורך)
-                return [normalize_value(v) for v in value]
+                return [normalize_value(v, parent_key=parent_key) for v in value]
 
             if value is None:
                 return "<null>"
@@ -332,13 +354,25 @@ class QueryProfilerService:
             if isinstance(value, str):
                 return value if value.startswith("$") else "<value>"
 
+            # ב-$sort: שומרים על 1/-1 (כיוון מיון)
+            if parent_key in SORT_LIKE_KEYS and isinstance(value, (int, float)) and value in (1, -1, 1.0, -1.0):
+                return int(value)
+
             if isinstance(value, (int, float, bool, datetime, bytes)):
                 return "<value>"
 
             # ObjectId, Decimal128, UUID וכו' — best-effort
             return "<value>"
 
-        return {k: normalize_value(v) for k, v in (query or {}).items()}
+        # נקודת כניסה: כל מפתח ברמה העליונה מנורמל עם ה-key שלו כהקשר
+        result: Dict[str, Any] = {}
+        for k, v in (query or {}).items():
+            str_k = str(k)
+            if str_k in SORT_LIKE_KEYS:
+                result[str_k] = normalize_value(v, parent_key=str_k)
+            else:
+                result[str_k] = normalize_value(v, parent_key=None)
+        return result
 
     def record_slow_query_sync(
         self,
