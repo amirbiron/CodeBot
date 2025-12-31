@@ -26,6 +26,50 @@ class LargeFilesHandler:
     def __init__(self):
         self.files_per_page = 8
         self.preview_max_chars = 3500
+
+    def _fetch_full_large_file_content(self, user_id: int, file_data: Dict) -> Tuple[str, str]:
+        """
+        מחזיר (content, language) ע"י שליפה מפורשת מה-DB כאשר הרשימה נטענה עם Smart Projection
+        (כלומר ללא השדה content).
+
+        חשוב: יש כאן בדיקת בעלות מינימלית כאשר השליפה נעשית לפי _id.
+        """
+        file_name = file_data.get("file_name") or ""
+        language = (file_data.get("programming_language") or "text") if isinstance(file_data, dict) else "text"
+        content = file_data.get("content") if isinstance(file_data, dict) else ""
+        if isinstance(content, str) and content:
+            return content, str(language or "text")
+
+        full_doc: Optional[Dict] = None
+        try:
+            file_id = file_data.get("_id") if isinstance(file_data, dict) else None
+            if file_id:
+                full_doc = db.get_large_file_by_id(str(file_id))
+                if isinstance(full_doc, dict) and full_doc.get("user_id") != user_id:
+                    full_doc = None
+        except Exception:
+            full_doc = None
+
+        if not full_doc:
+            try:
+                if file_name:
+                    full_doc = db.get_large_file(user_id, str(file_name))
+            except Exception:
+                full_doc = None
+
+        if isinstance(full_doc, dict):
+            new_content = full_doc.get("content") or ""
+            new_lang = full_doc.get("programming_language") or language or "text"
+            try:
+                # רענון הקאש כדי למנוע "ניסיון שני עובד" ולהפוך את זה לדטרמיניסטי
+                file_data["content"] = new_content
+                if new_lang:
+                    file_data["programming_language"] = new_lang
+            except Exception:
+                pass
+            return str(new_content or ""), str(new_lang or "text")
+
+        return "", str(language or "text")
     
     async def show_large_files_menu(self, update: Update, context: ContextTypes.DEFAULT_TYPE, page: int = 1) -> None:
         """מציג תפריט קבצים גדולים עם ניווט בין עמודים"""
@@ -202,9 +246,17 @@ class LargeFilesHandler:
             await query.edit_message_text("❌ שגיאה בזיהוי הקובץ")
             return
         
+        user_id = update.effective_user.id
         file_name = file_data.get('file_name', 'קובץ ללא שם')
-        content = file_data.get('content', '')
-        language = file_data.get('programming_language', 'text')
+        content, language = self._fetch_full_large_file_content(user_id, file_data)
+
+        if not (isinstance(content, str) and content):
+            keyboard = [[InlineKeyboardButton("🔙 חזרה", callback_data=f"large_file_{file_index}")]]
+            await query.edit_message_text(
+                "❌ לא הצלחתי לשלוף את תוכן הקובץ (התוכן ריק או חסר).",
+                reply_markup=InlineKeyboardMarkup(keyboard),
+            )
+            return
         
         # בדיקה אם הקובץ קטן מספיק להצגה בצ'אט
         if len(content) <= self.preview_max_chars:
@@ -255,12 +307,14 @@ class LargeFilesHandler:
                 )
             
             # שליחת הקובץ המלא
-            file_bytes = BytesIO(content.encode('utf-8'))
-            file_bytes.name = file_name
+            file_bytes = BytesIO()
+            file_bytes.write(content.encode("utf-8"))
+            file_bytes.seek(0)
             
             # בכיתוב של המסמך, נבריח שם קובץ ונמנע Markdown
             await query.message.reply_document(
                 document=file_bytes,
+                filename=file_name,
                 caption=f"📄 הקובץ המלא: {file_name}",
             )
     
@@ -278,17 +332,27 @@ class LargeFilesHandler:
             await query.edit_message_text("❌ שגיאה בזיהוי הקובץ")
             return
         
+        user_id = update.effective_user.id
         file_name = file_data.get('file_name', 'קובץ ללא שם')
-        content = file_data.get('content', '')
-        language = file_data.get('programming_language', 'text')
+        content, language = self._fetch_full_large_file_content(user_id, file_data)
+
+        if not (isinstance(content, str) and content):
+            keyboard = [[InlineKeyboardButton("🔙 חזרה", callback_data=f"large_file_{file_index}")]]
+            await query.edit_message_text(
+                "❌ לא הצלחתי להכין הורדה כי התוכן ריק/חסר.",
+                reply_markup=InlineKeyboardMarkup(keyboard),
+            )
+            return
         
         # יצירת קובץ להורדה
-        file_bytes = BytesIO(content.encode('utf-8'))
-        file_bytes.name = file_name
+        file_bytes = BytesIO()
+        file_bytes.write(content.encode("utf-8"))
+        file_bytes.seek(0)
         
         # שליחת הקובץ
         await query.message.reply_document(
             document=file_bytes,
+            filename=file_name,
             caption=f"📥 {file_name}\n🔤 שפה: {language}\n💾 גודל: {len(content):,} תווים",
         )
         
