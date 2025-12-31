@@ -744,6 +744,7 @@ body.telegram-mini-app .file-title { font-size: 1.125rem; }
 
     <div class="file-actions" data-file-actions>
         <div class="file-actions__list" data-actions-list>
+            {% if not file.is_large %}
             <button id="favoriteBtn"
                     class="btn btn-secondary btn-icon"
                     data-overflow-id="favorite"
@@ -763,6 +764,7 @@ body.telegram-mini-app .file-title { font-size: 1.125rem; }
                 <i class="fas fa-edit"></i>
                 ערוך
             </a>
+            {% endif %}
             <button onclick="copyCode()" class="btn btn-primary btn-icon copy-button"
                     data-overflow-id="copy"
                     data-overflow-priority="3"
@@ -832,6 +834,7 @@ body.telegram-mini-app .file-title { font-size: 1.125rem; }
                         <span>🔗 למקור{% if file.source_url_host %} ({{ file.source_url_host }}){% endif %}</span>
                     </button>
                     {% endif %}
+                    {% if not file.is_large %}
                     <button type="button"
                             class="file-actions__menu-item"
                             data-menu-action="compare"
@@ -844,6 +847,7 @@ body.telegram-mini-app .file-title { font-size: 1.125rem; }
                     <button type="button" class="file-actions__menu-item danger" data-menu-action="trash">
                         <span>🗑️ העבר לסל</span>
                     </button>
+                    {% endif %}
                 </div>
                 <div class="file-actions__menu-divider" data-dynamic-divider hidden></div>
                 <div class="file-actions__menu-section" data-dynamic-actions></div>

@@ -1966,7 +1966,7 @@ def _compute_file_etag(doc: Dict[str, Any]) -> str:
             updated_str = ''
     except Exception:
         updated_str = ''
-    raw_code = (doc.get('code') or '')
+    raw_code = (doc.get('code') or doc.get('content') or '')
     file_name = (doc.get('file_name') or '')
     version = str(doc.get('version') or '')
     # Hash a compact JSON string of identifying fields + content digest
@@ -1982,6 +1982,39 @@ def _compute_file_etag(doc: Dict[str, Any]) -> str:
     except Exception:
         # Fallback: time-based weak tag
         return f'W/"{int(time.time())}"'
+
+
+def _get_user_any_file_by_id(db_ref, user_id: int, file_id: str) -> Tuple[Optional[Dict[str, Any]], str]:
+    """שליפת קובץ לפי ObjectId ממסמך רגיל או large_files, עם וידוא בעלות משתמש.
+
+    מחזיר (doc, kind) כאשר kind הוא "regular" או "large" או "" אם לא נמצא.
+    """
+    if not file_id:
+        return None, ""
+    try:
+        obj_id = ObjectId(file_id)
+    except (InvalidId, TypeError):
+        return None, ""
+    try:
+        doc = db_ref.code_snippets.find_one({'_id': obj_id, 'user_id': user_id})
+        if isinstance(doc, dict):
+            return doc, "regular"
+    except Exception:
+        pass
+    try:
+        large_coll = getattr(db_ref, 'large_files', None)
+        if large_coll is None:
+            return None, ""
+        doc = large_coll.find_one({
+            '_id': obj_id,
+            'user_id': user_id,
+            'is_active': {'$ne': False},
+        })
+        if isinstance(doc, dict):
+            return doc, "large"
+    except Exception:
+        pass
+    return None, ""
 
 
 _SOURCE_URL_SCHEMES = {'http', 'https'}
@@ -7572,21 +7605,37 @@ def files():
             # הוסר מה‑UI; נשיב מיד לרשימת קבצים רגילה כדי למנוע שימוש ב‑Mongo לאחסון גיבויים
             return redirect(url_for('files'))
         elif category_filter == 'large':
-            # קבצים גדולים (מעל 100KB)
-            pipeline = [
-                {'$match': query},
-                _mongo_add_size_lines_stage,
-                {'$match': {'file_size': {'$gte': 102400}}}  # 100KB
-            ]
-            # נשתמש ב-aggregation במקום find רגיל
-            files_cursor = db.code_snippets.aggregate(pipeline + [
-                {'$project': LIST_EXCLUDE_HEAVY_PROJECTION},
-                {'$sort': {sort_by.lstrip('-'): -1 if sort_by.startswith('-') else 1}},
-                {'$skip': (page - 1) * per_page},
-                {'$limit': per_page}
-            ])
-            count_result = list(db.code_snippets.aggregate(pipeline + [{'$count': 'total'}]))
-            total_count = count_result[0]['total'] if count_result else 0
+            # קבצים גדולים: יישור להגדרת הבוט — משתמשים באוסף large_files (לא לפי 100KB ב-code_snippets)
+            large_coll = getattr(db, 'large_files', None)
+            if large_coll is not None:
+                sort_dir = -1 if sort_by.startswith('-') else 1
+                sort_field_local = sort_by.lstrip('-') or 'created_at'
+                try:
+                    total_count = int(large_coll.count_documents(query) or 0)
+                except Exception:
+                    total_count = 0
+                try:
+                    cursor = large_coll.find(query, LIST_EXCLUDE_HEAVY_PROJECTION)
+                    cursor = cursor.sort(sort_field_local, sort_dir)
+                    cursor = cursor.skip((page - 1) * per_page).limit(per_page)
+                    files_cursor = cursor
+                except Exception:
+                    files_cursor = []
+            else:
+                # fallback היסטורי: סינון לפי 100KB מתוך code_snippets
+                pipeline = [
+                    {'$match': query},
+                    _mongo_add_size_lines_stage,
+                    {'$match': {'file_size': {'$gte': 102400}}}  # 100KB
+                ]
+                files_cursor = db.code_snippets.aggregate(pipeline + [
+                    {'$project': LIST_EXCLUDE_HEAVY_PROJECTION},
+                    {'$sort': {sort_by.lstrip('-'): -1 if sort_by.startswith('-') else 1}},
+                    {'$skip': (page - 1) * per_page},
+                    {'$limit': per_page}
+                ])
+                count_result = list(db.code_snippets.aggregate(pipeline + [{'$count': 'total'}]))
+                total_count = count_result[0]['total'] if count_result else 0
         elif category_filter == 'favorites':
             # קטגוריית "מועדפים" – השתמש בשדה is_favorite
             query['$and'].append({'is_favorite': True})
@@ -7926,13 +7975,26 @@ def files():
         })
     
     # רשימת שפות לפילטר - רק מקבצים פעילים
-    languages = db.code_snippets.distinct(
-        'programming_language',
-        {
-            'user_id': user_id,
-            'is_active': {'$ne': False}
-        }
-    )
+    if category_filter == 'large' and getattr(db, 'large_files', None) is not None:
+        try:
+            large_coll = getattr(db, 'large_files', None)
+            languages = large_coll.distinct(
+                'programming_language',
+                {
+                    'user_id': user_id,
+                    'is_active': {'$ne': False}
+                }
+            ) if large_coll is not None else []
+        except Exception:
+            languages = []
+    else:
+        languages = db.code_snippets.distinct(
+            'programming_language',
+            {
+                'user_id': user_id,
+                'is_active': {'$ne': False}
+            }
+        )
     # סינון None וערכים ריקים ומיון
     languages = sorted([lang for lang in languages if lang]) if languages else []
     
@@ -8080,18 +8142,14 @@ def view_file(file_id):
     user_id = session['user_id']
     
     try:
-        file = db.code_snippets.find_one({
-            '_id': ObjectId(file_id),
-            'user_id': user_id
-        })
-    except (InvalidId, TypeError):
-        abort(404)
-    except PyMongoError as e:
+        file, kind = _get_user_any_file_by_id(db, user_id, file_id)
+    except Exception as e:
         logger.exception("DB error fetching file", extra={"file_id": file_id, "user_id": user_id, "error": str(e)})
         abort(500)
     
     if not file:
         abort(404)
+    is_large = (kind == "large")
 
     skip_activity = False
     try:
@@ -8151,7 +8209,7 @@ def view_file(file_id):
 
 
     # הדגשת syntax
-    code = file.get('code', '')
+    code = (file.get('code') or file.get('content') or '')
     language = resolve_file_language(file.get('programming_language'), file.get('file_name', ''))
     
     # הגבלת גודל תצוגה - 1MB
@@ -8171,7 +8229,8 @@ def view_file(file_id):
                                  'lines': len(code.splitlines()),
                                  'created_at': format_datetime_display(file.get('created_at')),
                                  'updated_at': format_datetime_display(file.get('updated_at')),
-                                 'version': file.get('version', 1),
+                                 'version': (file.get('version', 1) if not is_large else None),
+                                 'is_large': is_large,
                                  'source_url': file.get('source_url') or '',
                                  'source_url_host': _extract_source_hostname(file.get('source_url')),
                              },
@@ -8198,7 +8257,8 @@ def view_file(file_id):
                                  'lines': 0,
                                  'created_at': format_datetime_display(file.get('created_at')),
                                  'updated_at': format_datetime_display(file.get('updated_at')),
-                                 'version': file.get('version', 1),
+                                 'version': (file.get('version', 1) if not is_large else None),
+                                 'is_large': is_large,
                                  'source_url': file.get('source_url') or '',
                                  'source_url_host': _extract_source_hostname(file.get('source_url')),
                              },
@@ -8256,28 +8316,30 @@ def view_file(file_id):
         'lines': len(code.splitlines()),
         'created_at': format_datetime_display(file.get('created_at')),
         'updated_at': format_datetime_display(file.get('updated_at')),
-        'version': file.get('version', 1),
+        'version': (file.get('version', 1) if not is_large else None),
+        'is_large': is_large,
         'is_favorite': bool(file.get('is_favorite', False)),
         'source_url': file.get('source_url') or '',
         'source_url_host': _extract_source_hostname(file.get('source_url')),
     }
-    markdown_images = []
-    try:
-        cursor = db.markdown_images.find(
-            {'snippet_id': file['_id'], 'user_id': user_id}
-        ).sort('order', ASCENDING)
-        for img in cursor:
-            markdown_images.append({
-                'id': str(img.get('_id')),
-                'file_name': img.get('file_name') or 'image',
-                'size': format_file_size(int(img.get('size') or 0)),
-                'content_type': img.get('content_type') or '',
-                'url': url_for('get_markdown_image', file_id=file_id, image_id=str(img.get('_id')))
-            })
-    except Exception:
+    if not is_large:
         markdown_images = []
-    if markdown_images:
-        file_data['markdown_images'] = markdown_images
+        try:
+            cursor = db.markdown_images.find(
+                {'snippet_id': file['_id'], 'user_id': user_id}
+            ).sort('order', ASCENDING)
+            for img in cursor:
+                markdown_images.append({
+                    'id': str(img.get('_id')),
+                    'file_name': img.get('file_name') or 'image',
+                    'size': format_file_size(int(img.get('size') or 0)),
+                    'content_type': img.get('content_type') or '',
+                    'url': url_for('get_markdown_image', file_id=file_id, image_id=str(img.get('_id')))
+                })
+        except Exception:
+            markdown_images = []
+        if markdown_images:
+            file_data['markdown_images'] = markdown_images
     
     html = render_template('view_file.html',
                          user=session['user_data'],
@@ -8794,15 +8856,10 @@ def file_preview(file_id):
     db = get_db()
     user_id = session['user_id']
 
-    # שליפת הקובץ למשתמש הנוכחי
+    # שליפת הקובץ למשתמש הנוכחי (רגיל או large_files)
     try:
-        file = db.code_snippets.find_one({
-            '_id': ObjectId(file_id),
-            'user_id': user_id,
-        })
-    except (InvalidId, TypeError):
-        return jsonify({'ok': False, 'error': 'Invalid file ID'}), 400
-    except PyMongoError as e:
+        file, kind = _get_user_any_file_by_id(db, user_id, file_id)
+    except Exception as e:
         logger.exception("DB error fetching file preview", extra={
             "file_id": file_id,
             "user_id": user_id,
@@ -8813,7 +8870,7 @@ def file_preview(file_id):
     if not file:
         return jsonify({'ok': False, 'error': 'File not found'}), 404
 
-    code = file.get('code', '') or ''
+    code = (file.get('code') or file.get('content') or '') or ''
     language = (file.get('programming_language') or 'text').lower()
 
     if not code.strip():
@@ -9861,13 +9918,8 @@ def download_file(file_id):
     user_id = session['user_id']
     
     try:
-        file = db.code_snippets.find_one({
-            '_id': ObjectId(file_id),
-            'user_id': user_id
-        })
-    except (InvalidId, TypeError):
-        abort(404)
-    except PyMongoError as e:
+        file, _kind = _get_user_any_file_by_id(db, user_id, file_id)
+    except Exception as e:
         logger.exception("DB error fetching file for download", extra={"file_id": file_id, "user_id": user_id, "error": str(e)})
         abort(500)
     
@@ -9909,7 +9961,8 @@ def download_file(file_id):
     
     # יצירת קובץ זמני והחזרתו
     from io import BytesIO
-    file_content = BytesIO(file['code'].encode('utf-8'))
+    body = (file.get('code') or file.get('content') or '')
+    file_content = BytesIO(str(body).encode('utf-8'))
     file_content.seek(0)
     
     return send_file(
@@ -9926,10 +9979,7 @@ def html_preview(file_id):
     db = get_db()
     user_id = session['user_id']
     try:
-        file = db.code_snippets.find_one({
-            '_id': ObjectId(file_id),
-            'user_id': user_id
-        })
+        file, _kind = _get_user_any_file_by_id(db, user_id, file_id)
     except Exception:
         abort(404)
     if not file:
@@ -9955,16 +10005,13 @@ def raw_html(file_id):
     db = get_db()
     user_id = session['user_id']
     try:
-        file = db.code_snippets.find_one({
-            '_id': ObjectId(file_id),
-            'user_id': user_id
-        })
+        file, _kind = _get_user_any_file_by_id(db, user_id, file_id)
     except Exception:
         abort(404)
     if not file:
         abort(404)
 
-    code = file.get('code') or ''
+    code = (file.get('code') or file.get('content') or '')
     # קביעת מצב הרצה: ברירת מחדל ללא סקריפטים
     allow = (request.args.get('allow') or request.args.get('mode') or '').strip().lower()
     scripts_enabled = allow in {'1', 'true', 'yes', 'scripts', 'js'}
@@ -10015,10 +10062,7 @@ def md_preview(file_id):
     db = get_db()
     user_id = session['user_id']
     try:
-        file = db.code_snippets.find_one({
-            '_id': ObjectId(file_id),
-            'user_id': user_id
-        })
+        file, _kind = _get_user_any_file_by_id(db, user_id, file_id)
     except Exception:
         abort(404)
     if not file:
@@ -10029,7 +10073,7 @@ def md_preview(file_id):
     # אם סומן כ-text אך הסיומת .md – התייחס אליו כ-markdown
     if (not language or language == 'text') and file_name.lower().endswith('.md'):
         language = 'markdown'
-    code = file.get('code') or ''
+    code = (file.get('code') or file.get('content') or '')
 
     # כיבוי קאש יזום לפי פרמטר no_cache/nc
     try:
