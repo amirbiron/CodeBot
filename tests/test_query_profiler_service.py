@@ -115,6 +115,35 @@ class TestQueryProfilerService:
         assert "123" not in str(n2)
 
     @pytest.mark.asyncio
+    async def test_is_broken_query_shape_detects_old_format(self, profiler_service):
+        """בדיקה שזיהוי query_shapes שבורים עובד נכון."""
+        # query_shape תקין - לא שבור
+        valid = {"$expr": {"$eq": ["$status", "<value>"]}}
+        assert profiler_service._is_broken_query_shape(valid) is False
+
+        # query_shape שבור - מכיל "<N items>"
+        broken = {"$expr": {"$eq": ["<2 items>"]}}
+        assert profiler_service._is_broken_query_shape(broken) is True
+
+        # מקרה מקונן
+        nested_broken = {"$and": [{"$expr": {"$in": ["<3 items>"]}}]}
+        assert profiler_service._is_broken_query_shape(nested_broken) is True
+
+        # מקרה עם מספר גדול
+        broken_large = {"status": {"$in": ["<100 items>"]}}
+        assert profiler_service._is_broken_query_shape(broken_large) is True
+
+    @pytest.mark.asyncio
+    async def test_get_explain_plan_rejects_broken_query_shape(self, profiler_service):
+        """בדיקה שget_explain_plan דוחה query_shapes שבורים."""
+        broken_query = {"$expr": {"$eq": ["<2 items>"]}}
+        with pytest.raises(ValueError, match="broken array normalization"):
+            await profiler_service.get_explain_plan(
+                collection="test",
+                query=broken_query,
+            )
+
+    @pytest.mark.asyncio
     async def test_normalize_prevents_pii_leak(self, profiler_service):
         """בדיקה שנרמול מונע דליפת PII"""
         sensitive_query = {

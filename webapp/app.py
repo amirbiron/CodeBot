@@ -3741,6 +3741,15 @@ def api_profiler_explain():
             return jsonify({"status": "success", "data": _serialize_aggregation_explain(explain)})
         explain = _run_profiler(svc.get_explain_plan(collection=collection, query=query, verbosity=verbosity))
         return jsonify({"status": "success", "data": _serialize_explain_plan(explain)})
+    except ValueError as e:
+        if "broken array normalization" in str(e):
+            return jsonify({
+                "status": "error",
+                "message": "השאילתה מכילה נרמול שבור מגרסה ישנה. יש להשתמש בשאילתה המקורית או להקליט מחדש.",
+                "error_code": "BROKEN_QUERY_SHAPE"
+            }), 400
+        logger.exception("api_profiler_explain_failed")
+        return jsonify({"status": "error", "message": "internal_error"}), 500
     except Exception:
         logger.exception("api_profiler_explain_failed")
         return jsonify({"status": "error", "message": "internal_error"}), 500
@@ -3787,6 +3796,15 @@ def api_profiler_recommendations():
                 },
             }
         )
+    except ValueError as e:
+        if "broken array normalization" in str(e):
+            return jsonify({
+                "status": "error",
+                "message": "השאילתה מכילה נרמול שבור מגרסה ישנה. יש להשתמש בשאילתה המקורית או להקליט מחדש.",
+                "error_code": "BROKEN_QUERY_SHAPE"
+            }), 400
+        logger.exception("api_profiler_recommendations_failed")
+        return jsonify({"status": "error", "message": "internal_error"}), 500
     except Exception:
         logger.exception("api_profiler_recommendations_failed")
         return jsonify({"status": "error", "message": "internal_error"}), 500
