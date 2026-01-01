@@ -754,20 +754,43 @@ TOKEN_TO_CODEMIRROR_MAP: dict[str, str] = {
 
 
 def _find_codemirror_class(scope: str) -> str | None:
-    """מוצא את ה-CodeMirror class המתאים ל-scope. תומך בהתאמה חלקית (prefix matching)."""
+    """
+    מוצא את ה-CodeMirror class המתאים ל-scope.
+    תומך בהתאמה חלקית (prefix matching) ומעדיף התאמה ספציפית יותר.
+
+    לדוגמה: עבור "constant.numeric.integer.decimal":
+    - יתאים ל-"constant.numeric" (6 תווים prefix) ✓
+    - יתאים ל-"constant" (8 תווים prefix) ✓
+    - יחזיר "constant.numeric" כי הוא הספציפי ביותר (ארוך יותר)
+    """
     if not scope or not isinstance(scope, str):
         return None
 
-    # התאמה מדויקת
+    # התאמה מדויקת - עדיפות ראשונה
     if scope in TOKEN_TO_CODEMIRROR_MAP:
         return TOKEN_TO_CODEMIRROR_MAP[scope]
 
-    # התאמה לפי prefix
-    for vs_scope, cm_class in TOKEN_TO_CODEMIRROR_MAP.items():
-        if scope.startswith(vs_scope) or vs_scope.startswith(scope):
-            return cm_class
+    # חיפוש ההתאמה הספציפית ביותר (הארוכה ביותר)
+    best_match: str | None = None
+    best_match_length = 0
 
-    return None
+    for vs_scope, cm_class in TOKEN_TO_CODEMIRROR_MAP.items():
+        # בדיקה: האם ה-scope מתחיל ב-vs_scope
+        # לדוגמה: "constant.numeric.integer" מתחיל ב-"constant.numeric"
+        if scope.startswith(vs_scope + ".") or scope == vs_scope:
+            if len(vs_scope) > best_match_length:
+                best_match = cm_class
+                best_match_length = len(vs_scope)
+
+        # בדיקה הפוכה: האם vs_scope מתחיל ב-scope
+        # לדוגמה: "constant.numeric" מתחיל ב-"constant"
+        # (פחות שכיח אבל נשמר לתאימות)
+        elif vs_scope.startswith(scope + ".") or vs_scope == scope:
+            if len(scope) > best_match_length:
+                best_match = cm_class
+                best_match_length = len(scope)
+
+    return best_match
 
 
 def generate_codemirror_css_from_tokens(token_colors: list[dict]) -> str:

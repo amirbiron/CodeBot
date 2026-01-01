@@ -264,7 +264,7 @@ class TestTokenColorsToCodeMirrorCSS:
         assert ".cm-def" in css
 
     def test_prefix_matching_fallback(self):
-        """בדיקה שסקופים ספציפיים (כמו keyword.control.import.python) נופלים ל-scope הבסיסי."""
+        """בדיקה שסקופים ספציפיים נופלים ל-scope הספציפי ביותר (לא הראשון)."""
         from services.theme_parser_service import _find_codemirror_class
 
         # התאמה מדויקת
@@ -277,14 +277,25 @@ class TestTokenColorsToCodeMirrorCSS:
         assert _find_codemirror_class("keyword.control.flow.if") == ".cm-keyword"
         assert _find_codemirror_class("entity.name.function.method.call") == ".cm-def"
 
-        # הערה: constant.numeric.integer.decimal יכול לקבל גם .cm-number וגם .cm-atom
-        # בגלל שהלולאה מחזירה התאמה ראשונה (constant או constant.numeric)
-        result = _find_codemirror_class("constant.numeric.integer.decimal")
-        assert result in [".cm-number", ".cm-atom"]
+        # 🔑 בדיקה קריטית: constant.numeric.integer.decimal צריך לקבל .cm-number
+        # כי "constant.numeric" הוא הספציפי ביותר (ארוך יותר מ-"constant")
+        assert _find_codemirror_class("constant.numeric.integer.decimal") == ".cm-number"
+        assert _find_codemirror_class("constant.numeric.float") == ".cm-number"
 
-        # variable.language.this יכול להתאים ל-variable או variable.language.this
-        result = _find_codemirror_class("variable.language.this.js")
-        assert result in [".cm-variable", ".cm-variable-2"]
+        # constant.language צריך לקבל .cm-atom (יש מיפוי ספציפי)
+        assert _find_codemirror_class("constant.language.boolean.true") == ".cm-atom"
+
+        # variable.language.this צריך לקבל .cm-variable-2 (יש מיפוי ספציפי)
+        assert _find_codemirror_class("variable.language.this.js") == ".cm-variable-2"
+
+        # 🔑 בדיקה קריטית: support.class.component צריך לקבל .cm-tag (JSX)
+        # כי "support.class.component" הוא ספציפי יותר מ-"support.class"
+        assert _find_codemirror_class("support.class.component") == ".cm-tag"
+        assert _find_codemirror_class("support.class.component.MyButton") == ".cm-tag"
+
+        # אבל support.class רגיל צריך להיות .cm-type
+        assert _find_codemirror_class("support.class") == ".cm-type"
+        assert _find_codemirror_class("support.class.builtin") == ".cm-type"
 
         # סקופים לא מוכרים צריכים להחזיר None
         assert _find_codemirror_class("unknown.scope.here") is None
