@@ -557,7 +557,8 @@ class DatabaseManager:
                 ("tags", ASCENDING),
                 ("created_at", DESCENDING),
             ], name="lang_tags_date_idx"),
-            IndexModel([("code", TEXT), ("description", TEXT), ("file_name", TEXT)], name="full_text_search_idx"),
+            # Full-text search for UI: file_name, description, tags, code
+            IndexModel([("file_name", TEXT), ("description", TEXT), ("tags", TEXT), ("code", TEXT)], name="full_text_search_idx"),
             IndexModel([("deleted_expires_at", ASCENDING)], name="deleted_ttl", expireAfterSeconds=0),
             # אינדקס לשאילתות שמסננות לפי is_active ומיון לפי created_at (ביצועים)
             # שם עקבי עם ה-admin endpoint: active_recent_fixed
@@ -569,6 +570,9 @@ class DatabaseManager:
             IndexModel([("file_name", ASCENDING)]),
             IndexModel([("programming_language", ASCENDING)]),
             IndexModel([("created_at", DESCENDING)]),
+            # Full-text search for UI (Large Files): file_name + content
+            # חשוב: נדרש כדי לתמוך ב-$text בחיפושים בקטגוריית "large".
+            IndexModel([("file_name", TEXT), ("content", TEXT)], name="search_text_idx"),
             IndexModel([("file_size", ASCENDING)]),
             IndexModel([("lines_count", ASCENDING)]),
             IndexModel([("user_id", ASCENDING), ("file_name", ASCENDING)]),
@@ -656,6 +660,15 @@ class DatabaseManager:
         except Exception:
             job_runs_indexes = []
 
+        # דרישת אופטימיזציה: אינדקס משולב לפי job_id+status+started_at
+        # (נשמר גם אם כבר קיים, create_indexes יתעלם מכפילות זהה)
+        try:
+            job_runs_indexes.append(
+                IndexModel([("job_id", ASCENDING), ("status", ASCENDING), ("started_at", DESCENDING)], name="job_id_status_started_idx")
+            )
+        except Exception:
+            pass
+
         try:
             self.collection.create_indexes(indexes)
             self.large_files_collection.create_indexes(large_files_indexes)
@@ -710,6 +723,20 @@ class DatabaseManager:
             except Exception:
                 try:
                     self.db["job_trigger_requests"].create_indexes(job_trigger_indexes)  # type: ignore[index]
+                except Exception:
+                    pass
+            # note_reminders index for push/polling efficiency (status + remind_at + last_push_success_at)
+            try:
+                note_reminders_indexes = [
+                    IndexModel(
+                        [("status", ASCENDING), ("remind_at", ASCENDING), ("last_push_success_at", ASCENDING)],
+                        name="status_remind_push_idx",
+                    ),
+                ]
+                self.db.note_reminders.create_indexes(note_reminders_indexes)  # type: ignore[attr-defined]
+            except Exception:
+                try:
+                    self.db["note_reminders"].create_indexes(note_reminders_indexes)  # type: ignore[index]
                 except Exception:
                     pass
             # scheduler_jobs index for efficient scheduling (APScheduler)

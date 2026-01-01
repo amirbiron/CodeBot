@@ -2158,16 +2158,47 @@ class Repository:
                 per_page = max(1, min(int(per_page or 30), 60))
             except Exception:
                 page, per_page = 1, 30
-            match: Dict[str, Any] = {"status": "approved"}
+            base_match: Dict[str, Any] = {"status": "approved"}
             if language:
-                match["language"] = language
-            if q:
-                regex = {"$regex": q, "$options": "i"}
+                base_match["language"] = language
+
+            # חיפוש טקסטואלי: נעדיף $text (אינדקס טקסט) וניפול ל-$regex אם לא נתמך/נכשל.
+            # חשוב: בסביבות טסט יש collections סטאב שלא תומכים ב-$text וגם לא זורקים חריגה,
+            # לכן נשתמש ב-$text רק אם מדובר בקולקשן אמיתי של PyMongo.
+            raw_q = str(q).strip() if q is not None else ""
+            use_text = bool(raw_q)
+            try:
+                from pymongo.collection import Collection as _PyMongoCollection  # type: ignore
+                use_text = use_text and isinstance(coll, _PyMongoCollection)
+            except Exception:
+                # אם אין PyMongo או אי אפשר לזהות – ניפול ל-$regex (בטוח יותר בסביבות סטאב)
+                use_text = False
+            match: Dict[str, Any] = dict(base_match)
+            if use_text:
+                match["$text"] = {"$search": raw_q}
+            elif raw_q:
+                # Stub/compat path: regex contains
+                match = dict(base_match)
+                regex = {"$regex": raw_q, "$options": "i"}
                 match["$or"] = [{"title": regex}, {"description": regex}, {"code": regex}]
+
+            def _fallback_to_regex() -> Dict[str, Any]:
+                m = dict(base_match)
+                regex = {"$regex": str(q).strip(), "$options": "i"}
+                m["$or"] = [{"title": regex}, {"description": regex}, {"code": regex}]
+                return m
+
             try:
                 total = int(coll.count_documents(match))
             except Exception:
-                total = 0
+                if use_text:
+                    match = _fallback_to_regex()
+                    try:
+                        total = int(coll.count_documents(match))
+                    except Exception:
+                        total = 0
+                else:
+                    total = 0
             skip = (page - 1) * per_page
             try:
                 cursor = coll.find(match, sort=[("approved_at", -1)])
@@ -2195,7 +2226,37 @@ class Repository:
                 if not applied_limit:
                     rows = rows[:per_page]
             except Exception:
-                rows = []
+                if use_text:
+                    try:
+                        match = _fallback_to_regex()
+                        cursor = coll.find(match, sort=[("approved_at", -1)])
+                        applied_skip = False
+                        applied_limit = False
+
+                        if isinstance(cursor, list):
+                            rows_candidate = list(cursor)
+                        else:
+                            try:
+                                cursor = cursor.skip(skip)
+                                applied_skip = True
+                            except Exception:
+                                pass
+                            try:
+                                cursor = cursor.limit(per_page)
+                                applied_limit = True
+                            except Exception:
+                                pass
+                            rows_candidate = list(cursor)
+
+                        rows = rows_candidate
+                        if not applied_skip:
+                            rows = rows[skip:]
+                        if not applied_limit:
+                            rows = rows[:per_page]
+                    except Exception:
+                        rows = []
+                else:
+                    rows = []
             out: List[Dict[str, Any]] = []
             for r in rows:
                 try:
