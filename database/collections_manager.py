@@ -259,7 +259,7 @@ class CollectionsManager:
     ) -> Dict[str, Any]:
         # מגבלה: עד 100 אוספים למשתמש
         try:
-            total = int(self.collections.count_documents({"user_id": int(user_id), "$or": [{"is_active": True}, {"is_active": {"$exists": False}}]}))
+            total = int(self.collections.count_documents({"user_id": int(user_id), "is_active": True}))
             if total >= 100:
                 # דרישה: להחזיר הודעה אחידה באנגלית וללא שדה collection
                 return {"ok": False, "error": "user has reached limit 100"}
@@ -370,7 +370,7 @@ class CollectionsManager:
 
         try:
             res = self.collections.find_one_and_update(
-                {"_id": cid, "user_id": user_id, "$or": [{"is_active": True}, {"is_active": {"$exists": False}}]},
+                {"_id": cid, "user_id": user_id, "is_active": True},
                 {"$set": updates},
                 return_document=True,
             )
@@ -389,7 +389,7 @@ class CollectionsManager:
             return {"ok": False, "error": "collection_id לא תקין"}
         try:
             res = self.collections.update_one(
-                {"_id": cid, "user_id": user_id, "$or": [{"is_active": True}, {"is_active": {"$exists": False}}]},
+                {"_id": cid, "user_id": user_id, "is_active": True},
                 {"$set": {"is_active": False, "updated_at": _now()}},
             )
             if getattr(res, "modified_count", 0) > 0:
@@ -407,7 +407,7 @@ class CollectionsManager:
         except Exception:
             eff_limit, eff_skip = 100, 0
 
-        flt = {"user_id": user_id, "$or": [{"is_active": True}, {"is_active": {"$exists": False}}]}
+        flt = {"user_id": user_id, "is_active": True}
 
         try:
             found = self.collections.find(flt)
@@ -653,7 +653,7 @@ class CollectionsManager:
             col = self.collections.find_one({
                 "_id": cid,
                 "user_id": int(user_id),
-                "$or": [{"is_active": True}, {"is_active": {"$exists": False}}],
+                "is_active": True,
             })
             if not col:
                 return {"ok": False, "error": "האוסף לא נמצא"}
@@ -1001,7 +1001,7 @@ class CollectionsManager:
                 "_id": collection_id,
                 "user_id": uid,
                 "name": "שולחן עבודה",
-                "$or": [{"is_active": True}, {"is_active": {"$exists": False}}],
+                "is_active": True,
             })
         except Exception:
             workspace_doc = None
@@ -1192,7 +1192,7 @@ class CollectionsManager:
             doc = self.collections.find_one({
                 "share.token": str(token),
                 "share.enabled": True,
-                "$or": [{"is_active": True}, {"is_active": {"$exists": False}}],
+                "is_active": True,
             })
             if not doc:
                 return {"ok": False, "error": "לא נמצא"}

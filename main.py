@@ -5108,7 +5108,7 @@ async def setup_bot_data(application: Application) -> None:  # noqa: D401
                             break
                         # Stats (like /api/stats)
                         try:
-                            active_q = {"user_id": uid, "$or": [{"is_active": True}, {"is_active": {"$exists": False}}]}
+                            active_q = {"user_id": uid, "is_active": True}
                             stats = {
                                 "total_files": db.code_snippets.count_documents(active_q),
                                 "languages": list(db.code_snippets.distinct("programming_language", active_q)),
