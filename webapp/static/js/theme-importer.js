@@ -529,6 +529,7 @@
             toast.className = 'theme-toast visible ' + type;
             setTimeout(() => {
                 toast.classList.remove('visible');
+                try { toast.innerHTML = ''; } catch (e) {}
             }, 3000);
         } catch (e) {}
     }
@@ -764,6 +765,7 @@
             if (data.success) {
                 showToast('הערכה נוספה בהצלחה!', 'success');
                 await loadMyThemes();
+                markRecentMajorAction('החלת Preset');
 
                 // מעבר לטאב "הערכות שלי"
                 const myTab = document.querySelector('[data-tab="my-themes"]');
@@ -971,7 +973,7 @@
                 showToast('הערכה יובאה בהצלחה!', 'success');
                 await loadMyThemes();
                 clearDraftFromLocalStorage();
-                history = new ThemeHistory(HISTORY_MAX);
+                markRecentMajorAction('ייבוא קובץ');
                 const myTab = document.querySelector('[data-tab="my-themes"]');
                 if (myTab) myTab.click();
             } else {
@@ -1002,7 +1004,7 @@
                 if (myTab) myTab.click();
                 if (jsonInput) jsonInput.value = '';
                 clearDraftFromLocalStorage();
-                history = new ThemeHistory(HISTORY_MAX);
+                markRecentMajorAction('ייבוא JSON');
             } else {
                 showToast(data.error || 'שגיאה בייבוא הערכה', 'error');
             }
