@@ -626,66 +626,171 @@ def _is_dark_color(hex_color: str) -> bool:
 # ==========================================
 
 TOKEN_TO_CODEMIRROR_MAP: dict[str, str] = {
+    # ===========================================
     # Comments
+    # ===========================================
     "comment": ".cm-comment",
+    "comment.line": ".cm-comment",
+    "comment.block": ".cm-comment",
     "punctuation.definition.comment": ".cm-comment",
 
+    # ===========================================
     # Strings
+    # ===========================================
     "string": ".cm-string",
     "string.quoted": ".cm-string",
+    "string.quoted.single": ".cm-string",
+    "string.quoted.double": ".cm-string",
+    "string.template": ".cm-string-2",
+    "string.regexp": ".cm-string-2",
 
-    # Keywords
+    # ===========================================
+    # Keywords (מילות מפתח של השפה)
+    # ===========================================
     "keyword": ".cm-keyword",
+    "keyword.control": ".cm-keyword",
+    "keyword.control.flow": ".cm-keyword",
+    "keyword.control.import": ".cm-keyword",
+    "keyword.control.export": ".cm-keyword",
+    "keyword.control.conditional": ".cm-keyword",
+    "keyword.control.loop": ".cm-keyword",
+    "keyword.other": ".cm-keyword",
+
+    # ===========================================
+    # Storage (הגדרות משתנים/פונקציות)
+    # ===========================================
+    "storage": ".cm-keyword",
     "storage.type": ".cm-keyword",
     "storage.modifier": ".cm-keyword",
 
-    # Functions
+    # ===========================================
+    # Functions (פונקציות והגדרותיהן)
+    # ===========================================
     "entity.name.function": ".cm-def",
+    "entity.name.function.method": ".cm-def",
     "support.function": ".cm-builtin",
+    "support.function.builtin": ".cm-builtin",
+    "meta.function-call": ".cm-variable",
 
-    # Variables
+    # ===========================================
+    # Variables (משתנים)
+    # ===========================================
     "variable": ".cm-variable",
     "variable.parameter": ".cm-variable-2",
     "variable.other": ".cm-variable-3",
+    "variable.other.readwrite": ".cm-variable",
+    "variable.language": ".cm-variable-2",
+    "variable.language.this": ".cm-variable-2",
+    "variable.language.self": ".cm-variable-2",
 
-    # Constants
+    # ===========================================
+    # Constants (קבועים ומספרים)
+    # ===========================================
+    "constant": ".cm-atom",
     "constant.numeric": ".cm-number",
+    "constant.numeric.integer": ".cm-number",
+    "constant.numeric.float": ".cm-number",
+    "constant.numeric.hex": ".cm-number",
     "constant.language": ".cm-atom",
+    "constant.language.boolean": ".cm-atom",
+    "constant.language.null": ".cm-atom",
+    "constant.character": ".cm-string",
+    "constant.character.escape": ".cm-string-2",
 
-    # Types
+    # ===========================================
+    # Types & Classes (טיפוסים ומחלקות)
+    # ===========================================
     "entity.name.type": ".cm-type",
+    "entity.name.type.class": ".cm-type",
+    "entity.name.type.interface": ".cm-type",
+    "entity.name.type.enum": ".cm-type",
+    "entity.name.class": ".cm-type",
     "support.type": ".cm-type",
+    "support.class": ".cm-type",
+    "support.class.builtin": ".cm-type",
 
-    # Operators
+    # ===========================================
+    # Operators (אופרטורים)
+    # ===========================================
     "keyword.operator": ".cm-operator",
+    "keyword.operator.assignment": ".cm-operator",
+    "keyword.operator.comparison": ".cm-operator",
+    "keyword.operator.logical": ".cm-operator",
+    "keyword.operator.arithmetic": ".cm-operator",
 
-    # Properties
+    # ===========================================
+    # Properties & Attributes
+    # ===========================================
     "entity.other.attribute-name": ".cm-attribute",
+    "entity.other.attribute-name.class": ".cm-attribute",
+    "entity.other.attribute-name.id": ".cm-attribute",
     "support.type.property-name": ".cm-property",
+    "meta.object-literal.key": ".cm-property",
+    "variable.other.property": ".cm-property",
 
-    # Tags (HTML/XML)
+    # ===========================================
+    # Tags (HTML/XML/JSX)
+    # ===========================================
     "entity.name.tag": ".cm-tag",
+    "entity.name.tag.html": ".cm-tag",
+    "entity.name.tag.xml": ".cm-tag",
+    "punctuation.definition.tag": ".cm-tag",
+    "support.class.component": ".cm-tag",
 
-    # Errors
+    # ===========================================
+    # Punctuation (סימני פיסוק חשובים)
+    # ===========================================
+    "punctuation.definition.string": ".cm-string",
+    "punctuation.separator": ".cm-punctuation",
+    "meta.brace": ".cm-bracket",
+
+    # ===========================================
+    # Errors & Special
+    # ===========================================
     "invalid": ".cm-error",
+    "invalid.illegal": ".cm-error",
+    "invalid.deprecated": ".cm-error",
 }
 
 
 def _find_codemirror_class(scope: str) -> str | None:
-    """מוצא את ה-CodeMirror class המתאים ל-scope. תומך בהתאמה חלקית (prefix matching)."""
+    """
+    מוצא את ה-CodeMirror class המתאים ל-scope.
+    תומך בהתאמה חלקית (prefix matching) ומעדיף התאמה ספציפית יותר.
+
+    לדוגמה: עבור "constant.numeric.integer.decimal":
+    - יתאים ל-"constant.numeric" (6 תווים prefix) ✓
+    - יתאים ל-"constant" (8 תווים prefix) ✓
+    - יחזיר "constant.numeric" כי הוא הספציפי ביותר (ארוך יותר)
+    """
     if not scope or not isinstance(scope, str):
         return None
 
-    # התאמה מדויקת
+    # התאמה מדויקת - עדיפות ראשונה
     if scope in TOKEN_TO_CODEMIRROR_MAP:
         return TOKEN_TO_CODEMIRROR_MAP[scope]
 
-    # התאמה לפי prefix
-    for vs_scope, cm_class in TOKEN_TO_CODEMIRROR_MAP.items():
-        if scope.startswith(vs_scope) or vs_scope.startswith(scope):
-            return cm_class
+    # חיפוש ההתאמה הספציפית ביותר (הארוכה ביותר)
+    best_match: str | None = None
+    best_match_length = 0
 
-    return None
+    for vs_scope, cm_class in TOKEN_TO_CODEMIRROR_MAP.items():
+        # בדיקה: האם ה-scope מתחיל ב-vs_scope
+        # לדוגמה: "constant.numeric.integer" מתחיל ב-"constant.numeric"
+        if scope.startswith(vs_scope + ".") or scope == vs_scope:
+            if len(vs_scope) > best_match_length:
+                best_match = cm_class
+                best_match_length = len(vs_scope)
+
+        # בדיקה הפוכה: האם vs_scope מתחיל ב-scope
+        # לדוגמה: "constant.numeric" מתחיל ב-"constant"
+        # (פחות שכיח אבל נשמר לתאימות)
+        elif vs_scope.startswith(scope + ".") or vs_scope == scope:
+            if len(scope) > best_match_length:
+                best_match = cm_class
+                best_match_length = len(scope)
+
+    return best_match
 
 
 def generate_codemirror_css_from_tokens(token_colors: list[dict]) -> str:
