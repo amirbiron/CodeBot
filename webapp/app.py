@@ -6216,6 +6216,61 @@ def force_index_creation():
         return jsonify({"error": str(e), "status": "failed"}), 500
 
 
+@app.route('/admin/create-job-trigger-index')
+@admin_required
+def create_job_trigger_index():
+    """
+    יצירת אינדקס על job_trigger_requests.status
+    למניעת COLLSCAN בזמן polling.
+    """
+    import json
+    from bson import json_util
+
+    results = {}
+    try:
+        from database.manager import DatabaseManager
+        from pymongo import IndexModel, ASCENDING
+
+        db = DatabaseManager().db
+        collection = db.job_trigger_requests
+
+        # בדיקה אם האינדקס כבר קיים
+        existing_indexes = list(collection.list_indexes())
+        index_names = [idx.get("name") for idx in existing_indexes]
+
+        target_index_name = "status_idx"
+
+        if target_index_name in index_names:
+            results['status'] = f"✅ Index '{target_index_name}' already exists!"
+            results['message'] = "האינדקס כבר קיים - הבעיה אמורה להיפתר."
+        else:
+            # יצירת האינדקס
+            model = IndexModel(
+                [("status", ASCENDING)],
+                name=target_index_name,
+                background=True
+            )
+            try:
+                collection.create_indexes([model])
+                results['status'] = f"✅ Index '{target_index_name}' created successfully!"
+                results['message'] = "האינדקס נוצר - ה-COLLSCAN אמור להיעלם."
+            except Exception as create_err:
+                err_str = str(create_err)
+                if "IndexOptionsConflict" in err_str or "already exists" in err_str.lower():
+                    results['status'] = f"✅ Index already exists (different name)"
+                else:
+                    raise create_err
+
+        # החזרת רשימת האינדקסים
+        results['indexes'] = json.loads(json_util.dumps(list(collection.list_indexes())))
+
+        return jsonify(results)
+
+    except Exception as e:
+        logger.exception("create_job_trigger_index_failed")
+        return jsonify({"error": str(e), "status": "failed"}), 500
+
+
 @app.route('/admin/fix-is-active')
 @admin_required
 def fix_is_active():
