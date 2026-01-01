@@ -547,13 +547,38 @@ class DatabaseManager:
             )
             return
 
+        # ולידציה מקדימה של keys כדי לא לקרוס על int(v)
         desired_keys: List[Tuple[str, int]] = []
-        try:
-            for k, v in (keys or []):
-                desired_keys.append((str(k), int(v)))
-        except Exception:
-            # fallback שמרני
-            desired_keys = [(str(k), int(v)) for k, v in (keys or []) if k is not None]
+        invalid_count = 0
+        for k, v in (keys or []):
+            if k is None:
+                continue
+            try:
+                direction = int(v)
+            except (TypeError, ValueError):
+                invalid_count += 1
+                continue
+            desired_keys.append((str(k), direction))
+
+        if not desired_keys:
+            emit_event(
+                "db_create_index_skipped",
+                severity="warn",
+                collection=collection_name,
+                index_name=name or "",
+                reason="no_valid_keys",
+                invalid_keys_count=invalid_count,
+            )
+            return
+
+        if invalid_count:
+            emit_event(
+                "db_create_index_invalid_keys",
+                severity="warn",
+                collection=collection_name,
+                index_name=name or "",
+                invalid_keys_count=invalid_count,
+            )
 
         def _existing_indexes() -> List[Dict[str, Any]]:
             try:
