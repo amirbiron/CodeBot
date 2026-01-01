@@ -692,23 +692,30 @@ class DatabaseManager:
         if db is None:
             return
 
+        # תאימות לטסטים: יש בדיקות שקוראות ל-DatabaseManager._create_indexes(self_like)
+        # עם אובייקט דמה (למשל SimpleNamespace) שאין עליו safe_create_index.
+        safe_create_index = getattr(self, "safe_create_index", None)
+        if not callable(safe_create_index):
+            def safe_create_index(*args: Any, **kwargs: Any) -> None:
+                return DatabaseManager.safe_create_index(self, *args, **kwargs)
+
         # תיקון השגיאה ב-users: לא מבצעים בדיקה בוליאנית על Collection (PyMongo זורק חריגה)
         # note_reminders (הכי דחוף לפי הלוגים)
-        self.safe_create_index(
+        safe_create_index(
             "note_reminders",
             [("status", ASCENDING), ("remind_at", ASCENDING), ("last_push_success_at", ASCENDING)],
             name="push_polling_idx",
         )
 
         # service_metrics
-        self.safe_create_index(
+        safe_create_index(
             "service_metrics",
             [("ts", DESCENDING), ("type", ASCENDING)],
             name="metrics_type_ts",
         )
 
         # job_runs
-        self.safe_create_index(
+        safe_create_index(
             "job_runs",
             [("run_id", ASCENDING)],
             name="run_id_unique",
@@ -716,59 +723,59 @@ class DatabaseManager:
         )
 
         # job_trigger_requests - אינדקס על status למניעת COLLSCAN בזמן polling
-        self.safe_create_index(
+        safe_create_index(
             "job_trigger_requests",
             [("status", ASCENDING)],
             name="status_idx",
         )
 
         # announcements - אינדקס על is_active כדי למנוע COLLSCAN במסכים ציבוריים/אדמין
-        self.safe_create_index(
+        safe_create_index(
             "announcements",
             [("is_active", ASCENDING)],
             name="announcements_is_active_idx",
         )
 
         # file_bookmarks - אינדקס משולב user_id+file_id לצמצום חיפושים לפי משתמש+קובץ
-        self.safe_create_index(
+        safe_create_index(
             "file_bookmarks",
             [("user_id", ASCENDING), ("file_id", ASCENDING)],
             name="file_bookmarks_user_file_idx",
         )
 
         # recent_opens - אינדקס משולב user_id+file_name לשליפה מהירה של "נפתח לאחרונה"
-        self.safe_create_index(
+        safe_create_index(
             "recent_opens",
             [("user_id", ASCENDING), ("file_name", ASCENDING)],
             name="recent_opens_user_file_name_idx",
         )
 
         # sticky_notes - שני אינדקסים: לפי user_id+_id ולפי file_id
-        self.safe_create_index(
+        safe_create_index(
             "sticky_notes",
             [("user_id", ASCENDING), ("_id", ASCENDING)],
             name="sticky_notes_user_id_id_idx",
         )
-        self.safe_create_index(
+        safe_create_index(
             "sticky_notes",
             [("file_id", ASCENDING)],
             name="sticky_notes_file_id_idx",
         )
 
         # markdown_images - אינדקס משולב snippet_id+user_id
-        self.safe_create_index(
+        safe_create_index(
             "markdown_images",
             [("snippet_id", ASCENDING), ("user_id", ASCENDING)],
             name="markdown_images_snippet_user_idx",
         )
 
         # users
-        self.safe_create_index(
+        safe_create_index(
             "users",
             [("drive_prefs.schedule", ASCENDING)],
             name="users_drive_schedule",
         )
-        self.safe_create_index(
+        safe_create_index(
             "users",
             [("user_id", ASCENDING)],
             name="user_id_unique",
@@ -776,18 +783,18 @@ class DatabaseManager:
         )
 
         # הוספת אינדקסים קטנים שחונקים CPU (לפי התדירות/סינונים)
-        self.safe_create_index("visual_rules", [("enabled", ASCENDING)], name="visual_rules_enabled_idx")
-        self.safe_create_index(
+        safe_create_index("visual_rules", [("enabled", ASCENDING)], name="visual_rules_enabled_idx")
+        safe_create_index(
             "alerts_silences",
             [("active", ASCENDING), ("until_ts", ASCENDING)],
             name="alerts_silences_active_until_idx",
         )
-        self.safe_create_index("alerts_log", [("_key", ASCENDING)], name="alerts_log_key_idx")
-        self.safe_create_index("alert_types_catalog", [("alert_type", ASCENDING)], name="alert_types_catalog_type_idx")
+        safe_create_index("alerts_log", [("_key", ASCENDING)], name="alerts_log_key_idx")
+        safe_create_index("alert_types_catalog", [("alert_type", ASCENDING)], name="alert_types_catalog_type_idx")
 
         # code_snippets - אינדקס מורכב לרשימות משתמש (משפר פילטר user_id+is_active ומיון לפי created_at)
         # אינדקס קריטי: אם יש mismatch אמיתי בשם הזה, ננסה drop+create בצורה מבוקרת.
-        self.safe_create_index(
+        safe_create_index(
             "code_snippets",
             [("user_id", ASCENDING), ("is_active", ASCENDING), ("created_at", DESCENDING)],
             name="user_active_created_at_idx",
