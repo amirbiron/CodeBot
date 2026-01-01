@@ -7094,6 +7094,48 @@ def resolve_naming_conflicts():
         return jsonify({"error": str(e), "status": "failed"}), 500
 
 
+@app.route('/admin/check-op')
+@admin_required
+def check_mongo_ops():
+    """
+    🔍 בדיקת פעולות MongoDB שרצות כרגע (כמו בניית אינדקסים).
+    
+    מחזיר מידע על:
+    - פעולות שממתינות ל-Lock
+    - פעולות בניית אינדקסים (Index Builds)
+    - זמן ריצה של כל פעולה
+    """
+    try:
+        from database.manager import DatabaseManager
+        
+        db = DatabaseManager().db
+        
+        # פקודה שבודקת פעולות שרצות כרגע ב-DB
+        # $all: True - מחזיר גם פעולות רגילות וגם פנימיות
+        ops = db.command("currentOp", {"$all": True, "waitingForLock": True})
+        
+        in_progress = []
+        for op in ops.get('inprog', []):
+            if 'msg' in op:  # זה בדרך כלל מציין Index Build
+                in_progress.append({
+                    "msg": op['msg'],
+                    "progress": op.get('progress', {}),
+                    "secs_running": op.get('secs_running'),
+                    "op": op.get('op'),
+                    "ns": op.get('ns'),  # namespace (collection)
+                })
+        
+        return jsonify({
+            "status": "success",
+            "active_index_builds": in_progress,
+            "raw_count": len(ops.get('inprog', [])),
+            "waiting_for_lock_count": len(in_progress),
+        })
+    except Exception as e:
+        logger.exception("check_mongo_ops_failed")
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+
 # ===== Global Content Search API =====
 def _search_limiter_decorator(rule: str):
     """Wrap limiter.limit if available; return no-op otherwise."""
