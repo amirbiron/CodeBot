@@ -624,7 +624,6 @@ class DatabaseManager:
 
         # metrics collection (service_metrics) TTL for automatic cleanup (e.g., 30 days)
         metrics_indexes = [
-            IndexModel([("ts", DESCENDING)], name="ts_desc"),
             # קריטי: נדרש עבור שליפות "אחרונים" (ts DESC) עם יכולת סינון לפי type
             # דרישה: ts בירידה קודם, ואז type בעלייה
             IndexModel([("ts", DESCENDING), ("type", ASCENDING)], name="metrics_ts_type"),

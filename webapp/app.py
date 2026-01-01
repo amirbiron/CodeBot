@@ -478,7 +478,10 @@ def _stop_background_observability_warmup() -> None:
 
 
 atexit.register(_stop_background_observability_warmup)
-start_background_observability_warmup()
+# זמני (חירום): ביטול Warmup בזמן startup כדי לשחרר עומס DB.
+# כדי להפעיל מחדש בלי שינוי קוד: DISABLE_STARTUP_WARMUP=false
+if str(os.getenv("DISABLE_STARTUP_WARMUP", "true")).lower() not in {"1", "true", "yes", "on"}:
+    start_background_observability_warmup()
 
 
 # --- Observability: Alert Tags indexes warmup (best-effort) ---
@@ -900,10 +903,13 @@ except Exception:
 try:
     from webapp.sticky_notes_api import sticky_notes_bp, kickoff_index_warmup  # noqa: E402
     app.register_blueprint(sticky_notes_bp)
-    try:
-        kickoff_index_warmup()
-    except Exception:
-        pass
+    # זמני (חירום): ביטול Warmup בזמן startup כדי לשחרר עומס DB.
+    # כדי להפעיל מחדש בלי שינוי קוד: DISABLE_STARTUP_WARMUP=false
+    if str(os.getenv("DISABLE_STARTUP_WARMUP", "true")).lower() not in {"1", "true", "yes", "on"}:
+        try:
+            kickoff_index_warmup()
+        except Exception:
+            pass
 except Exception:
     # אל תפיל את היישום אם ה-Blueprint אינו זמין (למשל בסביבת דוקס/CI)
     pass

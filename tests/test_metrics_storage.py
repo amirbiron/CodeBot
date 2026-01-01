@@ -8,6 +8,7 @@ import pytest
 def _set_env(monkeypatch, **env):
     keys = [
         "DISABLE_DB",
+        "DISABLE_METRICS_WRITES",
         "METRICS_DB_ENABLED",
         "MONGODB_URL",
         "DATABASE_NAME",
@@ -85,6 +86,7 @@ def test_metrics_storage_noop_when_disabled(monkeypatch):
 def test_metrics_storage_emits_on_missing_pymongo(monkeypatch):
     _set_env(
         monkeypatch,
+        DISABLE_METRICS_WRITES="false",
         METRICS_DB_ENABLED="true",
         MONGODB_URL="mongodb://localhost:27017/codebot",
         DATABASE_NAME="code_keeper_bot",
@@ -102,7 +104,7 @@ def test_metrics_storage_emits_on_missing_pymongo(monkeypatch):
 
 
 def test_metrics_storage_emits_on_missing_url(monkeypatch):
-    _set_env(monkeypatch, METRICS_DB_ENABLED="true", MONGODB_URL=None)
+    _set_env(monkeypatch, DISABLE_METRICS_WRITES="false", METRICS_DB_ENABLED="true", MONGODB_URL=None)
     events = []
     _install_observability_stub(monkeypatch, events)
     _install_fake_pymongo(monkeypatch)  # import succeeds but URL is missing
@@ -117,6 +119,7 @@ def test_metrics_storage_emits_on_missing_url(monkeypatch):
 def test_metrics_storage_batch_insert_success(monkeypatch):
     _set_env(
         monkeypatch,
+        DISABLE_METRICS_WRITES="false",
         METRICS_DB_ENABLED="true",
         MONGODB_URL="mongodb://localhost:27017/codebot",
         DATABASE_NAME="code_keeper_bot",
@@ -142,6 +145,7 @@ def test_metrics_storage_batch_insert_success(monkeypatch):
 def test_metrics_storage_batch_insert_failure_emits_event(monkeypatch):
     _set_env(
         monkeypatch,
+        DISABLE_METRICS_WRITES="false",
         METRICS_DB_ENABLED="true",
         MONGODB_URL="mongodb://localhost:27017/codebot",
         DATABASE_NAME="code_keeper_bot",
@@ -164,6 +168,7 @@ def test_metrics_storage_caps_buffer_when_unavailable(monkeypatch):
     # Unavailable storage: enabled but missing URL, small max buffer
     _set_env(
         monkeypatch,
+        DISABLE_METRICS_WRITES="false",
         METRICS_DB_ENABLED="true",
         MONGODB_URL=None,
         METRICS_MAX_BUFFER="3",
