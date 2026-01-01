@@ -6196,6 +6196,192 @@ def force_index_creation():
         return jsonify({"error": str(e), "status": "failed"}), 500
 
 
+@app.route('/admin/fix-is-active')
+@admin_required
+def fix_is_active():
+    """
+    🚨 CRITICAL: תיקון הבעיה האמיתית של Slow Queries!
+    
+    הבעיה: השאילתות משתמשות ב-$or במקום פילטר ישיר:
+        $or: [{is_active: True}, {is_active: {$exists: False}}]
+    
+    זה מונע שימוש יעיל באינדקס!
+    
+    הפתרון:
+    1. מיגרציה: הוספת is_active: true לכל המסמכים שחסר להם השדה
+    2. לאחר מכן: השאילתות יוכלו להשתמש בפילטר ישיר {is_active: true}
+    
+    פרמטרים (query string):
+    - action=status: רק בדיקת סטטוס (ברירת מחדל)
+    - action=migrate: הרצת המיגרציה (מוגבל ל-10000 מסמכים בכל קריאה)
+    - batch_size=N: גודל באטש (ברירת מחדל: 1000)
+    """
+    import json
+    from bson import json_util
+    
+    results = {}
+    action = request.args.get('action', 'status')
+    batch_size = min(10000, max(100, int(request.args.get('batch_size', 1000))))
+    
+    try:
+        from database.manager import DatabaseManager
+        db = DatabaseManager().db
+        
+        # בדיקת שתי הקולקציות
+        collections_to_check = ['code_snippets', 'large_files']
+        
+        for coll_name in collections_to_check:
+            collection = db[coll_name]
+            
+            # ספירת מסמכים שחסר להם is_active
+            missing_count = collection.count_documents({"is_active": {"$exists": False}})
+            total_count = collection.count_documents({})
+            has_is_active_count = collection.count_documents({"is_active": {"$exists": True}})
+            
+            results[coll_name] = {
+                "total_documents": total_count,
+                "with_is_active": has_is_active_count,
+                "missing_is_active": missing_count,
+                "percentage_fixed": round((has_is_active_count / total_count * 100) if total_count > 0 else 100, 2),
+            }
+            
+            if action == 'migrate' and missing_count > 0:
+                # מיגרציה: הוספת is_active: true לכל המסמכים שחסר להם השדה
+                # מוגבל לבאטש כדי לא להעמיס
+                result = collection.update_many(
+                    {"is_active": {"$exists": False}},
+                    {"$set": {"is_active": True}},
+                )
+                results[coll_name]["migrated_count"] = result.modified_count
+                results[coll_name]["action"] = "migrate"
+            else:
+                results[coll_name]["action"] = "status_only"
+        
+        # סיכום כללי
+        total_missing = sum(r.get("missing_is_active", 0) for r in results.values() if isinstance(r, dict))
+        results["summary"] = {
+            "total_missing_across_collections": total_missing,
+            "ready_for_optimized_queries": total_missing == 0,
+            "next_step": (
+                "✅ כל המסמכים מכילים is_active - אפשר לעדכן את השאילתות לפילטר ישיר!"
+                if total_missing == 0
+                else f"⚠️ עדיין יש {total_missing} מסמכים ללא is_active. הרץ ?action=migrate שוב."
+            ),
+        }
+        
+        if action == 'migrate':
+            results["summary"]["action_taken"] = "migrate"
+            results["summary"]["recommendation"] = (
+                "המשך להריץ ?action=migrate עד שכל המסמכים יתוקנו. "
+                "כל קריאה מתקנת עד 10,000 מסמכים."
+            )
+        
+        return jsonify(results)
+        
+    except Exception as e:
+        logger.exception("fix_is_active_failed")
+        return jsonify({"error": str(e), "status": "failed"}), 500
+
+
+@app.route('/admin/diagnose-slow-queries')
+@admin_required
+def diagnose_slow_queries():
+    """
+    אבחון מפורט של בעיית השאילתות האיטיות.
+    מציג:
+    1. מצב האינדקסים
+    2. כמה מסמכים חסר להם is_active
+    3. דוגמת explain על שאילתה טיפוסית
+    """
+    import json
+    from bson import json_util
+    
+    results = {"diagnosis": {}, "indexes": {}, "explain_test": {}}
+    
+    try:
+        from database.manager import DatabaseManager
+        db = DatabaseManager().db
+        collection = db.code_snippets
+        
+        # 1. מצב האינדקסים
+        indexes = list(collection.list_indexes())
+        results["indexes"] = {
+            "count": len(indexes),
+            "list": json.loads(json_util.dumps(indexes)),
+        }
+        
+        # 2. בדיקת מסמכים חסרי is_active
+        missing_is_active = collection.count_documents({"is_active": {"$exists": False}})
+        total = collection.count_documents({})
+        results["diagnosis"]["missing_is_active"] = missing_is_active
+        results["diagnosis"]["total_documents"] = total
+        results["diagnosis"]["percentage_with_is_active"] = round(((total - missing_is_active) / total * 100) if total > 0 else 100, 2)
+        
+        # 3. בדיקת explain על שאילתה טיפוסית
+        # זו השאילתה שמשתמשת ב-$or ואיטית
+        slow_query = {
+            "$or": [
+                {"is_active": True},
+                {"is_active": {"$exists": False}}
+            ]
+        }
+        
+        # explain עם queryPlanner בלבד (לא מריץ את השאילתה)
+        try:
+            explain_slow = collection.find(slow_query).explain("queryPlanner")
+            results["explain_test"]["slow_query_with_or"] = {
+                "query": slow_query,
+                "winning_plan_stage": explain_slow.get("queryPlanner", {}).get("winningPlan", {}).get("stage", "UNKNOWN"),
+                "index_used": explain_slow.get("queryPlanner", {}).get("winningPlan", {}).get("indexName"),
+                "full_explain": json.loads(json_util.dumps(explain_slow.get("queryPlanner", {}).get("winningPlan", {}))),
+            }
+        except Exception as e:
+            results["explain_test"]["slow_query_with_or"] = {"error": str(e)}
+        
+        # explain על שאילתה מהירה (פילטר ישיר)
+        fast_query = {"is_active": True}
+        try:
+            explain_fast = collection.find(fast_query).explain("queryPlanner")
+            results["explain_test"]["fast_query_direct"] = {
+                "query": fast_query,
+                "winning_plan_stage": explain_fast.get("queryPlanner", {}).get("winningPlan", {}).get("stage", "UNKNOWN"),
+                "index_used": explain_fast.get("queryPlanner", {}).get("winningPlan", {}).get("indexName"),
+                "full_explain": json.loads(json_util.dumps(explain_fast.get("queryPlanner", {}).get("winningPlan", {}))),
+            }
+        except Exception as e:
+            results["explain_test"]["fast_query_direct"] = {"error": str(e)}
+        
+        # 4. המלצות
+        results["recommendations"] = []
+        
+        if missing_is_active > 0:
+            results["recommendations"].append({
+                "priority": "CRITICAL",
+                "issue": f"יש {missing_is_active} מסמכים ללא שדה is_active",
+                "solution": "הרץ /admin/fix-is-active?action=migrate כדי להוסיף is_active לכל המסמכים",
+            })
+        
+        if results["explain_test"].get("slow_query_with_or", {}).get("winning_plan_stage") == "OR":
+            results["recommendations"].append({
+                "priority": "HIGH",
+                "issue": "השאילתות עם $or גורמות ל-OR stage שמונע שימוש יעיל באינדקס",
+                "solution": "לאחר המיגרציה, השאילתות צריכות להשתמש ב-{is_active: true} ישירות",
+            })
+        
+        if missing_is_active == 0:
+            results["recommendations"].append({
+                "priority": "INFO",
+                "status": "✅ כל המסמכים מכילים is_active!",
+                "next_step": "עכשיו צריך לעדכן את הקוד להשתמש בפילטר ישיר במקום $or",
+            })
+        
+        return jsonify(results)
+        
+    except Exception as e:
+        logger.exception("diagnose_slow_queries_failed")
+        return jsonify({"error": str(e), "status": "failed"}), 500
+
+
 # ===== Global Content Search API =====
 def _search_limiter_decorator(rule: str):
     """Wrap limiter.limit if available; return no-op otherwise."""
