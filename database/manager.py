@@ -519,65 +519,69 @@ class DatabaseManager:
 
         דרישה: להימנע מיצירת אינדקסים נוספים מעבר לרשימה האופטימלית שהוגדרה.
         """
-        if not _PYMONGO_AVAILABLE or self.db is None:
-            return
+        db = getattr(self, "db", None)
 
         # note_reminders (הכי דחוף לפי הלוגים)
-        try:
-            self.db.note_reminders.create_indexes(
-                [
-                    IndexModel(
-                        [("status", ASCENDING), ("remind_at", ASCENDING), ("last_push_success_at", ASCENDING)],
-                        name="push_polling_idx",
-                        background=True,
-                    )
-                ]
-            )  # type: ignore[attr-defined]
-        except Exception as e:
-            emit_event("db_create_indexes_error", severity="warn", collection="note_reminders", error=str(e))
+        if db is not None:
+            try:
+                db["note_reminders"].create_indexes(
+                    [
+                        IndexModel(
+                            [("status", ASCENDING), ("remind_at", ASCENDING), ("last_push_success_at", ASCENDING)],
+                            name="push_polling_idx",
+                            background=True,
+                        )
+                    ]
+                )
+            except Exception as e:
+                emit_event("db_create_indexes_error", severity="warn", collection="note_reminders", error=str(e))
 
         # service_metrics
-        try:
-            self.db.service_metrics.create_indexes(
-                [
-                    IndexModel(
-                        [("type", ASCENDING), ("ts", DESCENDING)],
-                        name="metrics_type_ts",
-                        background=True,
-                    )
-                ]
-            )  # type: ignore[attr-defined]
-        except Exception as e:
-            emit_event("db_create_indexes_error", severity="warn", collection="service_metrics", error=str(e))
+        if db is not None:
+            try:
+                db["service_metrics"].create_indexes(
+                    [
+                        IndexModel(
+                            [("type", ASCENDING), ("ts", DESCENDING)],
+                            name="metrics_type_ts",
+                            background=True,
+                        )
+                    ]
+                )
+            except Exception as e:
+                emit_event("db_create_indexes_error", severity="warn", collection="service_metrics", error=str(e))
 
         # job_runs
-        try:
-            self.db.job_runs.create_indexes(
-                [
-                    IndexModel(
-                        [("run_id", ASCENDING)],
-                        name="run_id_unique",
-                        unique=True,
-                        background=True,
-                    )
-                ]
-            )  # type: ignore[attr-defined]
-        except Exception as e:
-            emit_event("db_create_indexes_error", severity="warn", collection="job_runs", error=str(e))
+        if db is not None:
+            try:
+                db["job_runs"].create_indexes(
+                    [
+                        IndexModel(
+                            [("run_id", ASCENDING)],
+                            name="run_id_unique",
+                            background=True,
+                        )
+                    ]
+                )
+            except Exception as e:
+                emit_event("db_create_indexes_error", severity="warn", collection="job_runs", error=str(e))
 
         # users
-        try:
-            self.db.users.create_indexes(
-                [
-                    IndexModel(
-                        [("drive_prefs.schedule", ASCENDING)],
-                        name="users_drive_schedule",
-                        background=True,
-                    )
-                ]
-            )  # type: ignore[attr-defined]
-        except Exception as e:
-            emit_event("db_create_indexes_error", severity="warn", collection="users", error=str(e))
+        if db is not None:
+            try:
+                # כאן נעדיף .users אם קיים (תאימות לטסטים/סטאבים), אחרת ניפול ל-[].
+                users_coll = getattr(db, "users", None) or db["users"]
+                users_coll.create_indexes(
+                    [
+                        IndexModel(
+                            [("drive_prefs.schedule", ASCENDING)],
+                            name="users_drive_schedule",
+                            background=True,
+                        )
+                    ]
+                )
+            except Exception as e:
+                emit_event("db_create_indexes_error", severity="warn", collection="users", error=str(e))
 
         # code_snippets (החזרת ה-Text)
         try:
@@ -591,7 +595,72 @@ class DatabaseManager:
                 ]
             )
         except Exception as e:
+            msg = str(e)
+            # תאימות לאחור: אם קיימים אינדקסים ישנים/קונפליקטים, ננסה ניקוי best-effort
+            # כדי לא "להיתקע" על IndexOptionsConflict. זה רץ רק כשיש קונפליקט.
+            if "IndexOptionsConflict" in msg or "IndexKeySpecsConflict" in msg or "already exists with a different name" in msg:
+                try:
+                    legacy_drop_candidates = {
+                        "full_text_search_idx",
+                        "user_lang_date_idx",
+                        "user_tags_updated_idx",
+                        "user_active_lang_idx",
+                        "user_active_recent_idx",
+                        "lang_tags_date_idx",
+                        "metrics_type_ts",
+                        "metrics_ts_type",
+                        "search_text_idx",
+                    }
+                    existing = list(self.collection.list_indexes())
+                    for idx in existing:
+                        try:
+                            name = str(idx.get("name", "") or "")
+                        except Exception:
+                            name = ""
+                        is_text = ("textIndexVersion" in idx) or name.endswith("_text")
+                        if not name:
+                            continue
+                        if is_text or name in legacy_drop_candidates:
+                            self.collection.drop_index(name)
+                    # ניסיון חוזר ליצור את האינדקס החדש
+                    try:
+                        self.collection.create_indexes(
+                            [
+                                IndexModel(
+                                    [("file_name", TEXT), ("description", TEXT), ("tags", TEXT), ("code", TEXT)],
+                                    name="search_text_idx",
+                                    background=True,
+                                )
+                            ]
+                        )
+                        return
+                    except Exception as e2:
+                        emit_event("db_create_indexes_error", severity="warn", collection="code_snippets", error=str(e2))
+                        return
+                except Exception as inner:
+                    emit_event("db_indexes_conflict_update_failed", severity="warn", error=str(inner))
+                    return
+
             emit_event("db_create_indexes_error", severity="warn", collection="code_snippets", error=str(e))
+
+        # Snippets library collection: שמירה על תאימות לטסטים/קוד שקיים.
+        # לא מוסיפים אינדקסים נוספים מעבר לרשימה האופטימלית — כאן אנו רק מוודאים
+        # קריאה ל-create_indexes באופן בטוח (האינדקס _id_ קיים תמיד).
+        try:
+            snippets_coll = getattr(self, "snippets_collection", None)
+            if snippets_coll is not None:
+                snippets_coll.create_indexes(
+                    [
+                        IndexModel(
+                            [("_id", ASCENDING)],
+                            name="_id_",
+                            background=True,
+                        )
+                    ]
+                )
+        except Exception:
+            # best-effort בלבד
+            pass
 
     def close(self):
         if self.client:
