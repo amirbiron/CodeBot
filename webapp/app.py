@@ -6513,20 +6513,32 @@ def fix_all_now():
         
         # === שלב 3: יצירת האינדקס הנכון ===
         new_index_name = "active_recent_fixed"
+        collection = db.code_snippets
+        
+        # מחיקת האינדקס הישן אם קיים (יכול להיות בסדר הלא נכון)
+        try:
+            collection.drop_index(new_index_name)
+            results["steps"].append({
+                "action": "drop_old_fixed_index",
+                "index_name": new_index_name,
+                "status": "✅ dropped old version",
+            })
+        except Exception:
+            pass  # לא קיים, זה בסדר
         
         try:
-            # is_active ראשון, created_at שני - הסדר הנכון!
-            model = IndexModel(
-                [("is_active", ASCENDING), ("created_at", DESCENDING)],
+            # ⚠️ חשוב: שימוש ב-create_index עם רשימת tuples (לא dict!) כדי לשמור על הסדר
+            # is_active חייב להיות ראשון!
+            collection.create_index(
+                [("is_active", 1), ("created_at", -1)],
                 name=new_index_name,
                 background=True
             )
-            collection.create_indexes([model])
             results["steps"].append({
                 "action": "create_correct_index",
                 "index_name": new_index_name,
-                "key_order": {"is_active": 1, "created_at": -1},
-                "status": "✅ created",
+                "key_order": [("is_active", 1), ("created_at", -1)],
+                "status": "✅ created with correct order",
             })
         except Exception as e:
             err_str = str(e)
