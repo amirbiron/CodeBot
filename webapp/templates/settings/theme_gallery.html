@@ -107,10 +107,20 @@
         </h3>
 
         <div id="theme-preview-container" class="preview-sandbox">
-            <button type="button" id="revertPreviewBtn" class="btn btn-secondary btn-sm revert-preview-btn">
-                <i class="fas fa-undo"></i>
-                בטל תצוגה מקדימה
-            </button>
+            <div class="preview-toolbar" role="toolbar" aria-label="כלי תצוגה מקדימה">
+                <button type="button" id="undoPreviewBtn" class="btn btn-secondary btn-sm preview-tool-btn" title="Undo (Ctrl+Z)">
+                    <i class="fas fa-undo"></i>
+                    Undo
+                </button>
+                <button type="button" id="redoPreviewBtn" class="btn btn-secondary btn-sm preview-tool-btn" title="Redo (Ctrl+Y)">
+                    <i class="fas fa-redo"></i>
+                    Redo
+                </button>
+                <button type="button" id="revertPreviewBtn" class="btn btn-secondary btn-sm revert-preview-btn">
+                    <i class="fas fa-times"></i>
+                    בטל תצוגה מקדימה
+                </button>
+            </div>
 
             <nav class="preview-navbar">
                 <span class="preview-logo">
@@ -148,6 +158,21 @@
 
 <!-- Toast notifications -->
 <div id="theme-toast" class="theme-toast" role="alert" aria-live="polite"></div>
+
+<!-- Confirmation modal (Undo on large action) -->
+<div id="historyConfirmModal" class="theme-modal" aria-hidden="true">
+    <div class="theme-modal-backdrop" data-action="close"></div>
+    <div class="theme-modal-card" role="dialog" aria-modal="true" aria-labelledby="historyConfirmTitle">
+        <h3 id="historyConfirmTitle" style="margin: 0 0 0.5rem 0;">לבטל פעולה?</h3>
+        <p id="historyConfirmText" class="text-muted" style="margin: 0 0 1rem 0;">
+            זו פעולה גדולה שעלולה למחוק שינויים. להמשיך?
+        </p>
+        <div class="theme-modal-actions">
+            <button type="button" class="btn btn-secondary" data-action="cancel">ביטול</button>
+            <button type="button" class="btn btn-danger" data-action="confirm">כן, בטל</button>
+        </div>
+    </div>
+</div>
 
 <style>
 .theme-gallery-layout {
@@ -420,6 +445,30 @@
     position: relative;
 }
 
+.preview-toolbar {
+    position: absolute;
+    top: 1rem;
+    left: 1rem;
+    z-index: 10;
+    display: flex;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+}
+
+.preview-tool-btn,
+.revert-preview-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    border-radius: 12px;
+    padding: 0.55rem 0.75rem; /* גדול יותר לטאבלט */
+}
+
+.preview-tool-btn:disabled {
+    opacity: 0.55;
+    cursor: not-allowed;
+}
+
 .preview-navbar {
     display: flex;
     justify-content: space-between;
@@ -499,13 +548,7 @@
 }
 
 .revert-preview-btn {
-    position: absolute;
-    top: 1rem;
-    left: 1rem;
-    z-index: 10;
     display: none;
-    align-items: center;
-    gap: 0.5rem;
     animation: fadeIn 0.2s ease-in;
 }
 
@@ -536,6 +579,41 @@
 
 .theme-toast.error { background: var(--danger-bg, #cf222e); }
 .theme-toast.success { background: var(--success, #1a7f37); }
+
+/* Modal */
+.theme-modal {
+    position: fixed;
+    inset: 0;
+    display: none;
+    z-index: 10000;
+}
+.theme-modal.open {
+    display: block;
+}
+.theme-modal-backdrop {
+    position: absolute;
+    inset: 0;
+    background: rgba(0,0,0,0.55);
+}
+.theme-modal-card {
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    transform: translate(-50%, -50%);
+    width: min(520px, calc(100vw - 2rem));
+    background: var(--bg-primary);
+    color: var(--text-primary);
+    border: 1px solid var(--glass-border);
+    border-radius: 14px;
+    padding: 1rem;
+    box-shadow: 0 20px 60px rgba(0,0,0,0.35);
+}
+.theme-modal-actions {
+    display: flex;
+    gap: 0.5rem;
+    justify-content: flex-end;
+    flex-wrap: wrap;
+}
 </style>
 {% endblock %}
 

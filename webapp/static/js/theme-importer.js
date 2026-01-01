@@ -64,9 +64,13 @@
     const importJsonBtn = document.getElementById('importJsonBtn');
     const uploadStatus = document.getElementById('uploadStatus');
     const revertBtn = document.getElementById('revertPreviewBtn');
+    const undoBtn = document.getElementById('undoPreviewBtn');
+    const redoBtn = document.getElementById('redoPreviewBtn');
     const preview = document.getElementById('theme-preview-container');
     const myThemesList = document.getElementById('myThemesList');
     let myThemes = [];
+    const confirmModal = document.getElementById('historyConfirmModal');
+    const confirmTextEl = document.getElementById('historyConfirmText');
 
     // === History (Undo/Redo) + Drafts (Autosave) ===
     class ThemeHistory {
@@ -76,15 +80,24 @@
             this.index = -1;
         }
 
-        pushState(state) {
+        pushState(state, meta = null) {
             if (!state || typeof state !== 'object') return;
-            const cloned = {};
-            Object.keys(state).forEach((k) => {
-                cloned[k] = String(state[k]);
-            });
+
+            const cloned = {
+                preview_active: !!state.preview_active,
+                preview_state: null
+            };
+            if (state.preview_state && typeof state.preview_state === 'object') {
+                const ps = {};
+                Object.keys(state.preview_state).forEach((k) => {
+                    ps[k] = String(state.preview_state[k]);
+                });
+                cloned.preview_state = ps;
+            }
+
             const fingerprint = JSON.stringify(cloned);
             const current = this.stack[this.index];
-            const currentFp = current ? JSON.stringify(current) : null;
+            const currentFp = current ? JSON.stringify(current.state) : null;
             if (currentFp === fingerprint) return;
 
             // אם עשינו undo ואז שינינו – מוחקים את כל מה שאחרי האינדקס
@@ -92,7 +105,10 @@
                 this.stack = this.stack.slice(0, this.index + 1);
             }
 
-            this.stack.push(cloned);
+            this.stack.push({
+                state: cloned,
+                meta: meta && typeof meta === 'object' ? meta : { kind: 'simple' }
+            });
             this.index = this.stack.length - 1;
 
             // מגבלת גודל
@@ -118,6 +134,30 @@
 
     let history = new ThemeHistory(HISTORY_MAX);
     let _draftDebounceTimer = null;
+    let _jsonHistoryDebounceTimer = null;
+    let _isApplyingHistory = false;
+    let _toastActionHandler = null;
+    let _toastAutoCloseTimer = null;
+    let _recentMajorAction = null; // { label: string, ts: number }
+
+    function markRecentMajorAction(label) {
+        try {
+            _recentMajorAction = { label: String(label || ''), ts: Date.now() };
+        } catch (e) {
+            _recentMajorAction = { label: '', ts: Date.now() };
+        }
+    }
+
+    function getRecentMajorActionLabel() {
+        try {
+            if (!_recentMajorAction || typeof _recentMajorAction.ts !== 'number') return null;
+            // חלון זמן קצר כדי למנוע חלונות אישור "דביקים"
+            if ((Date.now() - _recentMajorAction.ts) > 30000) return null;
+            return _recentMajorAction.label || 'פעולה גדולה';
+        } catch (e) {
+            return null;
+        }
+    }
 
     function _safeJsonParse(str) {
         try {
@@ -147,6 +187,192 @@
                 preview.style.setProperty(k, String(v));
             }
         });
+    }
+
+    function getGalleryState() {
+        return {
+            preview_active: !!isPreviewActive,
+            preview_state: isPreviewActive ? getPreviewState() : null
+        };
+    }
+
+    function clearPreviewStylesOnly() {
+        try {
+            if (!preview) return;
+            ALLOWED_VARS.forEach((varName) => preview.style.removeProperty(varName));
+        } catch (e) {}
+    }
+
+    function applyGalleryState(state) {
+        if (!state || typeof state !== 'object') return;
+        _isApplyingHistory = true;
+        try {
+            const wantPreview = !!state.preview_active && state.preview_state && typeof state.preview_state === 'object';
+            if (wantPreview) {
+                saveOriginalPreviewState();
+                isPreviewActive = true;
+                if (revertBtn) revertBtn.style.display = 'inline-flex';
+                applyPreviewState(state.preview_state);
+            } else {
+                clearPreviewStylesOnly();
+                isPreviewActive = false;
+                if (revertBtn) revertBtn.style.display = 'none';
+            }
+
+            saveDraftToLocalStorage();
+            updateUndoRedoButtons();
+        } finally {
+            _isApplyingHistory = false;
+        }
+    }
+
+    function updateUndoRedoButtons() {
+        try {
+            if (undoBtn) undoBtn.disabled = !(history && history.index > 0);
+            if (redoBtn) redoBtn.disabled = !(history && history.index < (history.stack.length - 1));
+        } catch (e) {}
+    }
+
+    function setToastHtml(html, onClick, autoCloseMs = 5000) {
+        const toast = document.getElementById('theme-toast');
+        if (!toast) return;
+        try {
+            if (_toastAutoCloseTimer) clearTimeout(_toastAutoCloseTimer);
+            _toastAutoCloseTimer = null;
+            if (_toastActionHandler) toast.removeEventListener('click', _toastActionHandler);
+            _toastActionHandler = null;
+        } catch (e) {}
+
+        toast.className = 'theme-toast visible info';
+        toast.innerHTML = html;
+
+        if (typeof onClick === 'function') {
+            _toastActionHandler = onClick;
+            toast.addEventListener('click', _toastActionHandler);
+        }
+
+        if (autoCloseMs && autoCloseMs > 0) {
+            _toastAutoCloseTimer = setTimeout(() => {
+                try {
+                    toast.classList.remove('visible');
+                    toast.innerHTML = '';
+                    if (_toastActionHandler) toast.removeEventListener('click', _toastActionHandler);
+                    _toastActionHandler = null;
+                } catch (e) {}
+            }, autoCloseMs);
+        }
+    }
+
+    function openConfirmModal(message, onConfirm) {
+        if (!confirmModal) {
+            if (confirm(message)) onConfirm();
+            return;
+        }
+        try {
+            if (confirmTextEl) confirmTextEl.textContent = message;
+            confirmModal.classList.add('open');
+            confirmModal.setAttribute('aria-hidden', 'false');
+
+            const close = () => {
+                try {
+                    confirmModal.classList.remove('open');
+                    confirmModal.setAttribute('aria-hidden', 'true');
+                    confirmModal.removeEventListener('click', onClick);
+                    document.removeEventListener('keydown', onKey);
+                } catch (e) {}
+            };
+
+            const onKey = (e) => {
+                if (e && e.key === 'Escape') close();
+            };
+
+            const onClick = (e) => {
+                const el = e.target && e.target.closest ? e.target.closest('[data-action]') : null;
+                const action = el && el.dataset ? el.dataset.action : null;
+                if (!action) return;
+                e.preventDefault();
+                e.stopPropagation();
+                if (action === 'confirm') {
+                    close();
+                    onConfirm();
+                    return;
+                }
+                if (action === 'cancel' || action === 'close') {
+                    close();
+                }
+            };
+
+            confirmModal.addEventListener('click', onClick);
+            document.addEventListener('keydown', onKey);
+        } catch (e) {
+            if (confirm(message)) onConfirm();
+        }
+    }
+
+    function showUndoRedoToast(kind) {
+        const isUndo = kind === 'undo';
+        const label = isUndo ? 'בוצע Undo' : 'בוצע Redo';
+        const actionLabel = isUndo ? 'החזר' : 'בטל';
+        const actionKey = isUndo ? 'toast-redo' : 'toast-undo';
+        setToastHtml(
+            `
+                <div style="display:flex; align-items:center; gap:0.75rem; flex-wrap:wrap;">
+                    <div style="flex:1; min-width: 160px;">${label}</div>
+                    <button type="button" class="btn btn-sm btn-primary" data-action="${actionKey}">${actionLabel}</button>
+                </div>
+            `,
+            (e) => {
+                const btn = e.target && e.target.closest ? e.target.closest('button[data-action]') : null;
+                if (!btn) return;
+                const action = btn.dataset.action;
+                if (action === 'toast-redo') performRedo('Toast');
+                if (action === 'toast-undo') requestUndo('Toast');
+            },
+            5000
+        );
+    }
+
+    function requestUndo(sourceLabel) {
+        if (!(history && history.index > 0)) {
+            showToast('אין יותר Undo', 'info');
+            return;
+        }
+        try {
+            const currentEntry = history && history.stack ? history.stack[history.index] : null;
+            const isMajor = !!(currentEntry && currentEntry.meta && currentEntry.meta.kind === 'major');
+            const recentMajorLabel = getRecentMajorActionLabel();
+            if (isMajor || recentMajorLabel) {
+                const label = (isMajor && currentEntry && currentEntry.meta && currentEntry.meta.label)
+                    ? currentEntry.meta.label
+                    : recentMajorLabel;
+                openConfirmModal(
+                    `אתה עומד לבצע Undo על פעולה גדולה${label ? `: ${label}` : ''}. להמשיך?`,
+                    () => performUndo(sourceLabel)
+                );
+                return;
+            }
+        } catch (e) {}
+        performUndo(sourceLabel);
+    }
+
+    function performUndo(sourceLabel) {
+        const entry = history.undo();
+        if (entry && entry.state) {
+            applyGalleryState(entry.state);
+            showUndoRedoToast('undo');
+        } else {
+            showToast('אין יותר Undo', 'info');
+        }
+    }
+
+    function performRedo(sourceLabel) {
+        const entry = history.redo();
+        if (entry && entry.state) {
+            applyGalleryState(entry.state);
+            showUndoRedoToast('redo');
+        } else {
+            showToast('אין יותר Redo', 'info');
+        }
     }
 
     function saveDraftToLocalStorageNow() {
@@ -195,36 +421,29 @@
     }
 
     function showRestoreDraftToast(draft) {
-        const toast = document.getElementById('theme-toast');
-        if (!toast) return;
-
-        // הודעה קבועה (לא מציגים תוכן טיוטה כדי להימנע מהזרקת HTML)
-        toast.className = 'theme-toast visible info';
-        toast.innerHTML = `
-            <div style="display:flex; align-items:center; gap:0.75rem; flex-wrap:wrap;">
-                <div style="flex:1; min-width: 200px;">
-                    נמצאה טיוטה שלא נשמרה. לשחזר?
+        setToastHtml(
+            `
+                <div style="display:flex; align-items:center; gap:0.75rem; flex-wrap:wrap;">
+                    <div style="flex:1; min-width: 200px;">
+                        נמצאה טיוטה שלא נשמרה. לשחזר?
+                    </div>
+                    <div style="display:flex; gap:0.5rem;">
+                        <button type="button" class="btn btn-sm btn-primary" data-action="restore-draft">שחזר</button>
+                        <button type="button" class="btn btn-sm btn-outline-light" data-action="dismiss-draft">לא</button>
+                    </div>
                 </div>
-                <div style="display:flex; gap:0.5rem;">
-                    <button type="button" class="btn btn-sm btn-primary" data-action="restore-draft">שחזר</button>
-                    <button type="button" class="btn btn-sm btn-outline-light" data-action="dismiss-draft">לא</button>
-                </div>
-            </div>
-        `;
-
-        const onClick = async (e) => {
-            const btn = e.target && e.target.closest ? e.target.closest('button[data-action]') : null;
-            if (!btn) return;
-            const action = btn.dataset.action;
-            if (action === 'dismiss-draft') {
-                clearDraftFromLocalStorage();
-                toast.classList.remove('visible');
-                toast.innerHTML = '';
-                toast.removeEventListener('click', onClick);
-                return;
-            }
-            if (action === 'restore-draft') {
-                try {
+            `,
+            async (e) => {
+                const btn = e.target && e.target.closest ? e.target.closest('button[data-action]') : null;
+                if (!btn) return;
+                const action = btn.dataset.action;
+                if (action === 'dismiss-draft') {
+                    clearDraftFromLocalStorage();
+                    const toast = document.getElementById('theme-toast');
+                    if (toast) { toast.classList.remove('visible'); toast.innerHTML = ''; }
+                    return;
+                }
+                if (action === 'restore-draft') {
                     if (draft && typeof draft.json_input === 'string' && jsonInput) {
                         jsonInput.value = draft.json_input;
                     }
@@ -233,28 +452,16 @@
                         applyPreviewState(draft.preview_state);
                         isPreviewActive = true;
                         if (revertBtn) revertBtn.style.display = 'inline-flex';
-                        history = new ThemeHistory(HISTORY_MAX);
-                        history.pushState(getPreviewState());
                     }
+                    history = new ThemeHistory(HISTORY_MAX);
+                    history.pushState(getGalleryState(), { kind: 'major', label: 'שחזור טיוטה' });
+                    updateUndoRedoButtons();
                     showToast('הטיוטה שוחזרה', 'success');
-                } finally {
-                    toast.classList.remove('visible');
-                    toast.innerHTML = '';
-                    toast.removeEventListener('click', onClick);
+                    return;
                 }
-            }
-        };
-
-        toast.addEventListener('click', onClick);
-
-        // נסגר אוטומטית אחרי 10 שניות (אבל הטיוטה נשארת)
-        setTimeout(() => {
-            try {
-                toast.classList.remove('visible');
-                toast.innerHTML = '';
-                toast.removeEventListener('click', onClick);
-            } catch (e) {}
-        }, 10000);
+            },
+            10000
+        );
     }
 
     function maybeOfferDraftRestore() {
@@ -288,28 +495,14 @@
 
             // Undo: Ctrl+Z
             if ((e.key === 'z' || e.key === 'Z') && !e.shiftKey) {
-                const state = history.undo();
-                if (state) {
-                    saveOriginalPreviewState();
-                    applyPreviewState(state);
-                    isPreviewActive = true;
-                    if (revertBtn) revertBtn.style.display = 'inline-flex';
-                    saveDraftToLocalStorage();
-                }
+                requestUndo('קיצור מקלדת');
                 e.preventDefault();
                 return;
             }
 
             // Redo: Ctrl+Y or Ctrl+Shift+Z
             if (e.key === 'y' || e.key === 'Y' || ((e.key === 'z' || e.key === 'Z') && e.shiftKey)) {
-                const state = history.redo();
-                if (state) {
-                    saveOriginalPreviewState();
-                    applyPreviewState(state);
-                    isPreviewActive = true;
-                    if (revertBtn) revertBtn.style.display = 'inline-flex';
-                    saveDraftToLocalStorage();
-                }
+                performRedo('קיצור מקלדת');
                 e.preventDefault();
             }
         });
@@ -326,6 +519,12 @@
         try {
             const toast = document.getElementById('theme-toast');
             if (!toast) return;
+            try {
+                if (_toastAutoCloseTimer) clearTimeout(_toastAutoCloseTimer);
+                _toastAutoCloseTimer = null;
+                if (_toastActionHandler) toast.removeEventListener('click', _toastActionHandler);
+                _toastActionHandler = null;
+            } catch (e) {}
             toast.textContent = message;
             toast.className = 'theme-toast visible ' + type;
             setTimeout(() => {
@@ -465,7 +664,8 @@
             Object.entries(vars).forEach(([k, v]) => {
                 preview.style.setProperty(k, String(v));
             });
-            history.pushState(getPreviewState());
+            history.pushState(getGalleryState(), { kind: 'major', label: 'תצוגה מקדימה (ערכה שמורה)' });
+            updateUndoRedoButtons();
             saveDraftToLocalStorage();
         } catch (e) {
             console.error('Preview theme error:', e);
@@ -674,6 +874,10 @@
         isPreviewActive = false;
         history = new ThemeHistory(HISTORY_MAX);
         clearDraftFromLocalStorage();
+        try {
+            history.pushState(getGalleryState(), { kind: 'simple', label: 'אחרי ביטול תצוגה מקדימה' });
+        } catch (e) {}
+        updateUndoRedoButtons();
 
         if (revertBtn) {
             revertBtn.style.display = 'none';
@@ -696,7 +900,8 @@
             Object.entries(vars).forEach(([k, v]) => {
                 preview.style.setProperty(k, String(v));
             });
-            history.pushState(getPreviewState());
+            history.pushState(getGalleryState(), { kind: 'major', label: 'תצוגה מקדימה (Preset)' });
+            updateUndoRedoButtons();
             saveDraftToLocalStorage();
         } catch (e) {
             showToast('שגיאה בתצוגה מקדימה', 'error');
@@ -830,16 +1035,28 @@
         });
     }
 
+    function initUndoRedoButtons() {
+        if (undoBtn) {
+            undoBtn.addEventListener('click', () => requestUndo('כפתור'));
+        }
+        if (redoBtn) {
+            redoBtn.addEventListener('click', () => performRedo('כפתור'));
+        }
+        updateUndoRedoButtons();
+    }
+
     function init() {
         initTabs();
         initFilters();
         initImport();
         initRevertButton();
+        initUndoRedoButtons();
         initKeyboardShortcuts();
         // מצב בסיס ל-Undo/Redo (לפני כל preview)
         try {
-            if (preview) history.pushState(getPreviewState());
+            if (preview) history.pushState(getGalleryState(), { kind: 'simple', label: 'מצב התחלתי' });
         } catch (e) {}
+        updateUndoRedoButtons();
         maybeOfferDraftRestore();
         // Load my themes immediately if section exists
         loadMyThemes();
