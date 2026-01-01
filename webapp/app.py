@@ -6241,7 +6241,11 @@ def fix_is_active():
     
     results = {}
     action = request.args.get('action', 'status')
-    batch_size = min(10000, max(100, int(request.args.get('batch_size', 5000))))
+    
+    try:
+        batch_size = min(10000, max(100, int(request.args.get('batch_size', 5000))))
+    except (ValueError, TypeError):
+        batch_size = 5000
     
     try:
         from database.manager import DatabaseManager
@@ -6373,14 +6377,19 @@ def diagnose_slow_queries():
             ]
         }
         
-        # explain עם queryPlanner בלבד (לא מריץ את השאילתה)
+        # explain באמצעות db.command (תואם PyMongo 4.x)
         try:
-            explain_slow = collection.find(slow_query).explain("queryPlanner")
+            explain_slow = db.command(
+                "explain",
+                {"find": "code_snippets", "filter": slow_query},
+                verbosity="queryPlanner"
+            )
+            winning_plan = explain_slow.get("queryPlanner", {}).get("winningPlan", {})
             results["explain_test"]["slow_query_with_or"] = {
-                "query": slow_query,
-                "winning_plan_stage": explain_slow.get("queryPlanner", {}).get("winningPlan", {}).get("stage", "UNKNOWN"),
-                "index_used": explain_slow.get("queryPlanner", {}).get("winningPlan", {}).get("indexName"),
-                "full_explain": json.loads(json_util.dumps(explain_slow.get("queryPlanner", {}).get("winningPlan", {}))),
+                "query": str(slow_query),
+                "winning_plan_stage": winning_plan.get("stage", "UNKNOWN"),
+                "index_used": winning_plan.get("indexName"),
+                "full_explain": json.loads(json_util.dumps(winning_plan)),
             }
         except Exception as e:
             results["explain_test"]["slow_query_with_or"] = {"error": str(e)}
@@ -6388,12 +6397,17 @@ def diagnose_slow_queries():
         # explain על שאילתה מהירה (פילטר ישיר)
         fast_query = {"is_active": True}
         try:
-            explain_fast = collection.find(fast_query).explain("queryPlanner")
+            explain_fast = db.command(
+                "explain",
+                {"find": "code_snippets", "filter": fast_query},
+                verbosity="queryPlanner"
+            )
+            winning_plan = explain_fast.get("queryPlanner", {}).get("winningPlan", {})
             results["explain_test"]["fast_query_direct"] = {
-                "query": fast_query,
-                "winning_plan_stage": explain_fast.get("queryPlanner", {}).get("winningPlan", {}).get("stage", "UNKNOWN"),
-                "index_used": explain_fast.get("queryPlanner", {}).get("winningPlan", {}).get("indexName"),
-                "full_explain": json.loads(json_util.dumps(explain_fast.get("queryPlanner", {}).get("winningPlan", {}))),
+                "query": str(fast_query),
+                "winning_plan_stage": winning_plan.get("stage", "UNKNOWN"),
+                "index_used": winning_plan.get("indexName"),
+                "full_explain": json.loads(json_util.dumps(winning_plan)),
             }
         except Exception as e:
             results["explain_test"]["fast_query_direct"] = {"error": str(e)}
@@ -6426,6 +6440,142 @@ def diagnose_slow_queries():
         
     except Exception as e:
         logger.exception("diagnose_slow_queries_failed")
+        return jsonify({"error": str(e), "status": "failed"}), 500
+
+
+@app.route('/admin/fix-all-now')
+@admin_required
+def fix_all_now():
+    """
+    🚀 תיקון חד-פעמי מלא:
+    1. תיקון כל המסמכים החסרים (is_active)
+    2. מחיקת האינדקס ההפוך
+    3. יצירת האינדקס הנכון
+    """
+    import json
+    from bson import json_util
+    
+    results = {"steps": []}
+    
+    try:
+        from database.manager import DatabaseManager
+        from pymongo import IndexModel, ASCENDING, DESCENDING
+        
+        db = DatabaseManager().db
+        
+        # === שלב 1: תיקון המסמכים החסרים ===
+        for coll_name in ['code_snippets', 'large_files']:
+            collection = db[coll_name]
+            missing_before = collection.count_documents({"is_active": {"$exists": False}})
+            
+            if missing_before > 0:
+                result = collection.update_many(
+                    {"is_active": {"$exists": False}},
+                    {"$set": {"is_active": True}},
+                )
+                results["steps"].append({
+                    "action": f"fix_missing_is_active_{coll_name}",
+                    "status": "✅ success",
+                    "documents_fixed": result.modified_count,
+                })
+            else:
+                results["steps"].append({
+                    "action": f"fix_missing_is_active_{coll_name}",
+                    "status": "✅ already clean",
+                    "documents_fixed": 0,
+                })
+        
+        # === שלב 2: מחיקת האינדקס ההפוך ===
+        collection = db.code_snippets
+        old_index_name = "active_recent_idx"
+        
+        try:
+            collection.drop_index(old_index_name)
+            results["steps"].append({
+                "action": "drop_wrong_index",
+                "index_name": old_index_name,
+                "status": "✅ dropped",
+            })
+        except Exception as e:
+            err_str = str(e).lower()
+            if "not found" in err_str or "doesn't exist" in err_str:
+                results["steps"].append({
+                    "action": "drop_wrong_index",
+                    "index_name": old_index_name,
+                    "status": "⚠️ index not found (already dropped?)",
+                })
+            else:
+                results["steps"].append({
+                    "action": "drop_wrong_index",
+                    "index_name": old_index_name,
+                    "status": f"❌ error: {str(e)}",
+                })
+        
+        # === שלב 3: יצירת האינדקס הנכון ===
+        new_index_name = "active_recent_fixed"
+        
+        try:
+            # is_active ראשון, created_at שני - הסדר הנכון!
+            model = IndexModel(
+                [("is_active", ASCENDING), ("created_at", DESCENDING)],
+                name=new_index_name,
+                background=True
+            )
+            collection.create_indexes([model])
+            results["steps"].append({
+                "action": "create_correct_index",
+                "index_name": new_index_name,
+                "key_order": {"is_active": 1, "created_at": -1},
+                "status": "✅ created",
+            })
+        except Exception as e:
+            err_str = str(e)
+            if "already exists" in err_str.lower() or "IndexOptionsConflict" in err_str:
+                results["steps"].append({
+                    "action": "create_correct_index",
+                    "index_name": new_index_name,
+                    "status": "✅ already exists",
+                })
+            else:
+                results["steps"].append({
+                    "action": "create_correct_index",
+                    "index_name": new_index_name,
+                    "status": f"❌ error: {str(e)}",
+                })
+        
+        # === סיכום ===
+        # בדיקה סופית - בודק את שתי הקולקציות
+        missing_code_snippets = db.code_snippets.count_documents({"is_active": {"$exists": False}})
+        missing_large_files = db.large_files.count_documents({"is_active": {"$exists": False}})
+        total_missing_after = missing_code_snippets + missing_large_files
+        
+        indexes_after = list(db.code_snippets.list_indexes())
+        
+        # מציאת האינדקס החדש
+        new_index_info = None
+        for idx in indexes_after:
+            if idx.get("name") == new_index_name:
+                new_index_info = idx
+                break
+        
+        results["final_status"] = {
+            "missing_is_active_code_snippets": missing_code_snippets,
+            "missing_is_active_large_files": missing_large_files,
+            "total_missing_is_active": total_missing_after,
+            "new_index_exists": new_index_info is not None,
+            "new_index_key_order": dict(new_index_info.get("key", {})) if new_index_info else None,
+            "success": total_missing_after == 0 and new_index_info is not None,
+        }
+        
+        if results["final_status"]["success"]:
+            results["message"] = "🎉 הכל תוקן! האינדקס בסדר הנכון והנתונים מלאים."
+        else:
+            results["message"] = "⚠️ חלק מהתיקונים לא הצליחו. בדוק את הפרטים."
+        
+        return jsonify(results)
+        
+    except Exception as e:
+        logger.exception("fix_all_now_failed")
         return jsonify({"error": str(e), "status": "failed"}), 500
 
 
