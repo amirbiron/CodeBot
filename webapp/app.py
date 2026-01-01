@@ -6241,7 +6241,11 @@ def fix_is_active():
     
     results = {}
     action = request.args.get('action', 'status')
-    batch_size = min(10000, max(100, int(request.args.get('batch_size', 5000))))
+    
+    try:
+        batch_size = min(10000, max(100, int(request.args.get('batch_size', 5000))))
+    except (ValueError, TypeError):
+        batch_size = 5000
     
     try:
         from database.manager import DatabaseManager
@@ -6540,9 +6544,12 @@ def fix_all_now():
                 })
         
         # === סיכום ===
-        # בדיקה סופית
-        missing_after = collection.count_documents({"is_active": {"$exists": False}})
-        indexes_after = list(collection.list_indexes())
+        # בדיקה סופית - בודק את שתי הקולקציות
+        missing_code_snippets = db.code_snippets.count_documents({"is_active": {"$exists": False}})
+        missing_large_files = db.large_files.count_documents({"is_active": {"$exists": False}})
+        total_missing_after = missing_code_snippets + missing_large_files
+        
+        indexes_after = list(db.code_snippets.list_indexes())
         
         # מציאת האינדקס החדש
         new_index_info = None
@@ -6552,10 +6559,12 @@ def fix_all_now():
                 break
         
         results["final_status"] = {
-            "missing_is_active": missing_after,
+            "missing_is_active_code_snippets": missing_code_snippets,
+            "missing_is_active_large_files": missing_large_files,
+            "total_missing_is_active": total_missing_after,
             "new_index_exists": new_index_info is not None,
             "new_index_key_order": dict(new_index_info.get("key", {})) if new_index_info else None,
-            "success": missing_after == 0 and new_index_info is not None,
+            "success": total_missing_after == 0 and new_index_info is not None,
         }
         
         if results["final_status"]["success"]:
