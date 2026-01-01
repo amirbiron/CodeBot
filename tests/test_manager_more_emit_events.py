@@ -13,14 +13,19 @@ def test_manager_indexes_conflict_update_failed_emits(monkeypatch):
     cap, _emit = _cap_emit(m)
     monkeypatch.setattr(m, "emit_event", _emit, raising=False)
 
-    # Stub a manager with collections that cause IndexOptionsConflict branch then inner failure
+    # אינדקס ה-TEXT של code_snippets מושבת כרגע (בהערה) כדי לא להכביד על השרת.
+    # לכן, גם אם create_indexes היה נכשל ב-IndexOptionsConflict, אנחנו לא אמורים להגיע
+    # למסלול של ניקוי אינדקסים/emit של db_indexes_conflict_update_failed.
     class _Idx:
         def __init__(self, name):
             self.name = name
         def get(self, k, d=None):
             return {"name": self.name}.get(k, d)
     class _Coll:
+        def __init__(self):
+            self.called = False
         def create_indexes(self, *a, **k):
+            self.called = True
             raise RuntimeError("IndexOptionsConflict")
         def list_indexes(self):
             # Return indexes that will be iterated and dropped
@@ -38,4 +43,6 @@ def test_manager_indexes_conflict_update_failed_emits(monkeypatch):
     except Exception:
         pass
 
-    assert any(e[0] == "db_indexes_conflict_update_failed" for e in cap["events"])  # event emitted
+    # חשוב: לא אמורים לנסות ליצור אינדקס TEXT כרגע
+    assert dm.collection.called is False
+    assert not any(e[0] == "db_indexes_conflict_update_failed" for e in cap["events"])
