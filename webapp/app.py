@@ -6159,35 +6159,55 @@ def admin_announcements_activate():
 @admin_required
 def force_index_creation():
     """
-    Endpoint זמני לכפיית יצירת אינדקס active_recent_v2 על code_snippets.
-    משתמש בשם חדש כדי להימנע מבעיות Cache או Race Conditions.
-    מחזיר JSON עם מצב האינדקסים.
+    Endpoint לבדיקת/יצירת אינדקס active_recent_idx על code_snippets.
+    אם האינדקס כבר קיים - מחזיר את המצב הנוכחי.
     """
+    import json
+    from bson import json_util
+    
     results = {}
     try:
         from database.manager import DatabaseManager
         from pymongo import IndexModel, ASCENDING, DESCENDING
-        import json
-        from bson import json_util
 
         db = DatabaseManager().db
         collection = db.code_snippets
 
-        # שינוי שם כדי להבטיח יצירה נקייה
-        new_index_name = "active_recent_v2"
+        # בדיקה אם האינדקס כבר קיים
+        existing_indexes = list(collection.list_indexes())
+        index_names = [idx.get("name") for idx in existing_indexes]
+        
+        target_index_name = "active_recent_idx"
+        
+        if target_index_name in index_names:
+            # האינדקס כבר קיים - זה טוב!
+            results['status'] = f"✅ Index '{target_index_name}' already exists!"
+            results['message'] = (
+                "האינדקס כבר קיים ועובד. "
+                "הבעיה היא לא האינדקס - הבעיה היא דפוס השאילתות עם $or. "
+                "לך ל-/admin/fix-is-active?action=migrate כדי לתקן את הנתונים."
+            )
+        else:
+            # ניסיון ליצור את האינדקס
+            model = IndexModel(
+                [("is_active", ASCENDING), ("created_at", DESCENDING)],
+                name=target_index_name,
+                background=True
+            )
+            try:
+                collection.create_indexes([model])
+                results['status'] = f"✅ Index '{target_index_name}' created successfully!"
+            except Exception as create_err:
+                err_str = str(create_err)
+                if "IndexOptionsConflict" in err_str or "already exists" in err_str.lower():
+                    results['status'] = f"✅ Index already exists (different name)"
+                    results['message'] = "האינדקס כבר קיים. הבעיה היא בדפוס השאילתות, לא באינדקס."
+                else:
+                    raise create_err
 
-        # הגדרה קריטית: is_active חייב להיות ראשון!
-        model = IndexModel(
-            [("is_active", ASCENDING), ("created_at", DESCENDING)],
-            name=new_index_name,
-            background=True
-        )
-
-        collection.create_indexes([model])
-        results['status'] = f"Command Sent for {new_index_name}"
-
-        # החזרת רשימת האינדקסים כדי שנוודא שהחדש נוצר
+        # החזרת רשימת האינדקסים
         results['indexes'] = json.loads(json_util.dumps(list(collection.list_indexes())))
+        results['next_step'] = "הרץ /admin/fix-is-active?action=migrate כדי לתקן את הנתונים"
 
         return jsonify(results)
 
