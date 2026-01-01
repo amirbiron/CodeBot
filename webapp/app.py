@@ -13602,14 +13602,6 @@ def update_theme(theme_id: str):
             merged_vars.update(validated_vars)
             update_fields["custom_themes.$.variables"] = merged_vars
 
-        # עדכון syntax_css (אם סופק) - נשמר רק אם זה מחרוזת (הסניטציה מתבצעת בזמן ייבוא/יצירה)
-        if "syntax_css" in data:
-            sc = data.get("syntax_css")
-            if sc is None:
-                update_fields["custom_themes.$.syntax_css"] = ""
-            elif isinstance(sc, str):
-                update_fields["custom_themes.$.syntax_css"] = sc
-
         result = db_ref.users.update_one(
             {"user_id": user_id, "custom_themes.id": theme_id},
             {"$set": update_fields},

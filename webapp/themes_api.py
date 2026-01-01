@@ -19,6 +19,7 @@ from services.theme_parser_service import (
     generate_codemirror_css_from_tokens,
     parse_native_theme,
     parse_vscode_theme,
+    sanitize_codemirror_css,
     validate_and_sanitize_theme_variables,
     validate_theme_json,
 )
@@ -201,7 +202,8 @@ def import_theme():
             source = "vscode"
             token_colors = data.get("tokenColors", [])
             try:
-                syntax_css = generate_codemirror_css_from_tokens(token_colors if isinstance(token_colors, list) else [])
+                raw_css = generate_codemirror_css_from_tokens(token_colors if isinstance(token_colors, list) else [])
+                syntax_css = sanitize_codemirror_css(raw_css)
             except Exception:
                 syntax_css = ""
         else:

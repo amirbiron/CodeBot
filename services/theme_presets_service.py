@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Optional
 
 from services.theme_parser_service import validate_and_sanitize_theme_variables
+from services.theme_parser_service import sanitize_codemirror_css
 
 logger = logging.getLogger(__name__)
 
@@ -93,6 +94,9 @@ def apply_preset_to_user(user_id: int, preset_id: str, db) -> dict:
     raw_vars = preset.get("variables", {}) if isinstance(preset, dict) else {}
     variables = validate_and_sanitize_theme_variables(raw_vars)
 
+    raw_syntax_css = preset.get("syntax_css", "") if isinstance(preset, dict) else ""
+    syntax_css = sanitize_codemirror_css(raw_syntax_css) if isinstance(raw_syntax_css, str) else ""
+
     new_theme = {
         "id": str(uuid.uuid4()),
         "name": preset["name"],
@@ -103,7 +107,7 @@ def apply_preset_to_user(user_id: int, preset_id: str, db) -> dict:
         "created_at": datetime.now(timezone.utc),
         "updated_at": datetime.now(timezone.utc),
         "variables": variables,
-        "syntax_css": preset.get("syntax_css", "") if isinstance(preset.get("syntax_css", ""), str) else "",
+        "syntax_css": syntax_css,
     }
 
     db.users.update_one(

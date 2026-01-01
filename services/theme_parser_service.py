@@ -728,6 +728,96 @@ def generate_codemirror_css_from_tokens(token_colors: list[dict]) -> str:
     return "\n".join(css_rules)
 
 
+def sanitize_codemirror_css(css: str) -> str:
+    """
+    🔒 מנקה CSS של CodeMirror (syntax_css) כדי למנוע CSS injection.
+
+    מאפשר רק חוקים בפורמט:
+    :root[data-theme="custom"] .cm-<token> { color: <HEX/RGB/RGBA>; [font-style: italic;] [font-weight: bold;] [text-decoration: underline;] }
+    """
+    if not css or not isinstance(css, str):
+        return ""
+
+    safe_rules: list[str] = []
+
+    for raw_line in css.splitlines():
+        line = raw_line.strip()
+        if not line:
+            continue
+
+        # חסימת תבניות מסוכנות במפורש
+        lower = line.lower()
+        dangerous_patterns = [
+            "url(", "expression(", "javascript:",
+            "data:", "behavior:", "binding:",
+            "@import", "@charset", "<", ">",
+            "/*", "*/", "\\",
+        ]
+        if any(p in lower for p in dangerous_patterns):
+            continue
+
+        m = re.match(r'^:root\[data-theme="custom"\]\s+(\.[^\s{]+)\s*\{\s*(.*?)\s*\}\s*$', line)
+        if not m:
+            continue
+
+        selector = m.group(1).strip()
+        body = m.group(2).strip()
+
+        if not re.match(r'^\.(cm-[a-z0-9_-]+)$', selector):
+            continue
+
+        decls = [d.strip() for d in body.split(";") if d.strip()]
+        if not decls:
+            continue
+
+        out_parts: list[str] = []
+        ok = True
+
+        for d in decls:
+            if ":" not in d:
+                ok = False
+                break
+            prop, val = d.split(":", 1)
+            prop = prop.strip().lower()
+            val = val.strip()
+
+            if prop == "color":
+                clean = sanitize_css_value(val)
+                if not clean:
+                    ok = False
+                    break
+                out_parts.append(f"color: {clean}")
+            elif prop == "font-style":
+                if val.strip().lower() != "italic":
+                    ok = False
+                    break
+                out_parts.append("font-style: italic")
+            elif prop == "font-weight":
+                if val.strip().lower() != "bold":
+                    ok = False
+                    break
+                out_parts.append("font-weight: bold")
+            elif prop == "text-decoration":
+                if val.strip().lower() != "underline":
+                    ok = False
+                    break
+                out_parts.append("text-decoration: underline")
+            else:
+                ok = False
+                break
+
+        if not ok:
+            continue
+
+        # חייב להיות לפחות color
+        if not any(p.startswith("color:") for p in out_parts):
+            continue
+
+        safe_rules.append(f':root[data-theme="custom"] {selector} {{ {"; ".join(out_parts)}; }}')
+
+    return "\n".join(safe_rules)
+
+
 def export_theme_to_json(theme: dict) -> str:
     """מייצא ערכה לפורמט JSON להורדה."""
     export_data = {
