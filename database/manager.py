@@ -625,8 +625,9 @@ class DatabaseManager:
         # metrics collection (service_metrics) TTL for automatic cleanup (e.g., 30 days)
         metrics_indexes = [
             IndexModel([("ts", DESCENDING)], name="ts_desc"),
-            # קריטי: נדרש עבור אגרגציות/סינונים לפי type + מיון לפי ts
-            IndexModel([("type", ASCENDING), ("ts", DESCENDING)], name="metrics_type_ts"),
+            # קריטי: נדרש עבור שליפות "אחרונים" (ts DESC) עם יכולת סינון לפי type
+            # דרישה: ts בירידה קודם, ואז type בעלייה
+            IndexModel([("ts", DESCENDING), ("type", ASCENDING)], name="metrics_ts_type"),
             IndexModel([("ts", ASCENDING)], name="metrics_ttl", expireAfterSeconds=30 * 24 * 60 * 60),
         ]
 
@@ -671,6 +672,10 @@ class DatabaseManager:
             )
         except Exception:
             pass
+        
+        # קריטי ל-Job Runs: עדכונים תכופים לפי run_id חייבים אינדקס ייעודי (ויייחודי)
+        # ייווצר best-effort בנפרד כדי שלא יפיל אינדקסים אחרים במקרה של כפילויות קיימות.
+        job_runs_run_id_unique_index = IndexModel([("run_id", ASCENDING)], name="run_id_unique", unique=True)
 
         try:
             self.collection.create_indexes(indexes)
@@ -685,6 +690,11 @@ class DatabaseManager:
             try:
                 collection_name = getattr(config, 'METRICS_COLLECTION', 'service_metrics')
                 try:
+                    # ניקוי best-effort של אינדקס היסטורי בכיוון/סדר שגוי (אם קיים)
+                    try:
+                        self.db[collection_name].drop_index("metrics_type_ts")  # type: ignore[index]
+                    except Exception:
+                        pass
                     self.db[collection_name].create_indexes(metrics_indexes)  # type: ignore[index]
                 except Exception as e:
                     # יישור שמות אינדקסים: אם יש אינדקס קיים עם אותו key-spec אבל בשם אחר
@@ -693,6 +703,10 @@ class DatabaseManager:
                     if "IndexKeySpecsConflict" in msg or "already exists with a different name" in msg:
                         try:
                             self.db[collection_name].drop_index("type_ts_idx")  # type: ignore[index]
+                        except Exception:
+                            pass
+                        try:
+                            self.db[collection_name].drop_index("ts_type_idx")  # type: ignore[index]
                         except Exception:
                             pass
                         try:
@@ -727,6 +741,12 @@ class DatabaseManager:
                     pass
             # job_runs (best-effort)
             try:
+                # 1) אינדקס ייחודי ל-run_id (קריטי) — best-effort ולא חוסם שאר אינדקסים
+                try:
+                    self.db[JOB_RUNS_COLLECTION].create_indexes([job_runs_run_id_unique_index])  # type: ignore[index]
+                except Exception:
+                    pass
+                # 2) שאר אינדקסים
                 if job_runs_indexes:
                     self.db[JOB_RUNS_COLLECTION].create_indexes(job_runs_indexes)  # type: ignore[index]
             except Exception:
@@ -893,6 +913,10 @@ class DatabaseManager:
                         pass
                     try:
                         collection_name = getattr(config, 'METRICS_COLLECTION', 'service_metrics')
+                        try:
+                            self.db[collection_name].drop_index("metrics_type_ts")  # type: ignore[index]
+                        except Exception:
+                            pass
                         self.db[collection_name].create_indexes(metrics_indexes)  # type: ignore[index]
                     except Exception:
                         pass
