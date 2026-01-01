@@ -698,6 +698,17 @@ class DatabaseManager:
                     self.db[JOB_RUNS_COLLECTION].create_indexes(job_runs_indexes)  # type: ignore[index]
             except Exception:
                 pass
+            # job_trigger_requests index for polling efficiency (status filter)
+            try:
+                job_trigger_indexes = [
+                    IndexModel([("status", ASCENDING)], name="status_idx"),
+                ]
+                self.db.job_trigger_requests.create_indexes(job_trigger_indexes)  # type: ignore[attr-defined]
+            except Exception:
+                try:
+                    self.db["job_trigger_requests"].create_indexes(job_trigger_indexes)  # type: ignore[index]
+                except Exception:
+                    pass
             if self.backup_ratings_collection is not None:
                 self.backup_ratings_collection.create_indexes(backup_ratings_indexes)
             # אינדקסים לשיתופים פנימיים: TTL על expires_at + אינדקסים לשימוש
