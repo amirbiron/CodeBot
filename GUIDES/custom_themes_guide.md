@@ -183,13 +183,22 @@ webapp/
         "--success": "#1a7f37",
         "--warning": "#bf8700",
         "--error": "#cf222e",
+        "--danger-bg": "#cf222e",
+        "--danger-border": "#a40e26",
         "--code-bg": "#f6f8fa",
         "--code-text": "#24292f",
         "--link-color": "#0969da",
         "--navbar-bg": "#f6f8fa",
         "--card-bg": "#ffffff",
+        "--card-border": "#d0d7de",
         "--input-bg": "#ffffff",
-        "--input-border": "#d0d7de"
+        "--input-border": "#d0d7de",
+        "--btn-primary-bg": "#2da44e",
+        "--btn-primary-color": "#ffffff",
+        "--btn-primary-border": "#2da44e",
+        "--btn-primary-hover-bg": "#2c974b",
+        "--md-surface": "#24292f",
+        "--md-text": "#e6edf3"
       }
     },
     {
@@ -213,13 +222,22 @@ webapp/
         "--success": "#3fb950",
         "--warning": "#d29922",
         "--error": "#f85149",
+        "--danger-bg": "#f85149",
+        "--danger-border": "#da3633",
         "--code-bg": "#161b22",
         "--code-text": "#c9d1d9",
         "--link-color": "#58a6ff",
         "--navbar-bg": "#161b22",
         "--card-bg": "#161b22",
+        "--card-border": "#30363d",
         "--input-bg": "#0d1117",
-        "--input-border": "#30363d"
+        "--input-border": "#30363d",
+        "--btn-primary-bg": "#238636",
+        "--btn-primary-color": "#ffffff",
+        "--btn-primary-border": "#238636",
+        "--btn-primary-hover-bg": "#2ea043",
+        "--md-surface": "#0d1117",
+        "--md-text": "#c9d1d9"
       }
     },
     {
@@ -243,13 +261,22 @@ webapp/
         "--success": "#45a163",
         "--warning": "#c58329",
         "--error": "#c02d2e",
+        "--danger-bg": "#c02d2e",
+        "--danger-border": "#a52526",
         "--code-bg": "#f6f6f6",
         "--code-text": "#2d2d2d",
         "--link-color": "#0074cc",
         "--navbar-bg": "#f8f9f9",
         "--card-bg": "#ffffff",
+        "--card-border": "#d6d9dc",
         "--input-bg": "#ffffff",
-        "--input-border": "#babfc4"
+        "--input-border": "#babfc4",
+        "--btn-primary-bg": "#0a95ff",
+        "--btn-primary-color": "#ffffff",
+        "--btn-primary-border": "#0a95ff",
+        "--btn-primary-hover-bg": "#0074cc",
+        "--md-surface": "#2d2d2d",
+        "--md-text": "#e3e6e8"
       }
     },
     {
@@ -273,13 +300,22 @@ webapp/
         "--success": "#48a868",
         "--warning": "#e4a23a",
         "--error": "#de4f54",
+        "--danger-bg": "#de4f54",
+        "--danger-border": "#c74145",
         "--code-bg": "#2d2f33",
         "--code-text": "#e7e8eb",
         "--link-color": "#6cbbf7",
         "--navbar-bg": "#2d2f33",
         "--card-bg": "#2d2f33",
+        "--card-border": "#4a4e51",
         "--input-bg": "#2d2f33",
-        "--input-border": "#4a4e51"
+        "--input-border": "#4a4e51",
+        "--btn-primary-bg": "#378ad3",
+        "--btn-primary-color": "#ffffff",
+        "--btn-primary-border": "#378ad3",
+        "--btn-primary-hover-bg": "#4a9ae1",
+        "--md-surface": "#1c1e21",
+        "--md-text": "#e7e8eb"
       }
     },
     {
@@ -303,13 +339,22 @@ webapp/
         "--success": "#50fa7b",
         "--warning": "#f1fa8c",
         "--error": "#ff5555",
+        "--danger-bg": "#ff5555",
+        "--danger-border": "#ff4444",
         "--code-bg": "#21222c",
         "--code-text": "#f8f8f2",
         "--link-color": "#8be9fd",
         "--navbar-bg": "#21222c",
         "--card-bg": "#21222c",
+        "--card-border": "#44475a",
         "--input-bg": "#282a36",
         "--input-border": "#44475a",
+        "--btn-primary-bg": "#bd93f9",
+        "--btn-primary-color": "#282a36",
+        "--btn-primary-border": "#bd93f9",
+        "--btn-primary-hover-bg": "#d4b9ff",
+        "--md-surface": "#282a36",
+        "--md-text": "#f8f8f2",
         "--accent-pink": "#ff79c6",
         "--accent-cyan": "#8be9fd",
         "--accent-green": "#50fa7b",
@@ -338,13 +383,22 @@ webapp/
         "--success": "#a6e22e",
         "--warning": "#e6db74",
         "--error": "#f92672",
+        "--danger-bg": "#f92672",
+        "--danger-border": "#e01860",
         "--code-bg": "#1e1f1c",
         "--code-text": "#f8f8f2",
         "--link-color": "#66d9ef",
         "--navbar-bg": "#1e1f1c",
         "--card-bg": "#1e1f1c",
+        "--card-border": "#3e3d32",
         "--input-bg": "#272822",
         "--input-border": "#3e3d32",
+        "--btn-primary-bg": "#a6e22e",
+        "--btn-primary-color": "#272822",
+        "--btn-primary-border": "#a6e22e",
+        "--btn-primary-hover-bg": "#b9e84a",
+        "--md-surface": "#272822",
+        "--md-text": "#f8f8f2",
         "--accent-pink": "#f92672",
         "--accent-cyan": "#66d9ef",
         "--accent-orange": "#fd971f",
@@ -372,13 +426,22 @@ webapp/
         "--success": "#98c379",
         "--warning": "#e5c07b",
         "--error": "#e06c75",
+        "--danger-bg": "#e06c75",
+        "--danger-border": "#be5046",
         "--code-bg": "#21252b",
         "--code-text": "#abb2bf",
         "--link-color": "#61afef",
         "--navbar-bg": "#21252b",
         "--card-bg": "#21252b",
+        "--card-border": "#3e4451",
         "--input-bg": "#282c34",
         "--input-border": "#3e4451",
+        "--btn-primary-bg": "#61afef",
+        "--btn-primary-color": "#282c34",
+        "--btn-primary-border": "#61afef",
+        "--btn-primary-hover-bg": "#7ec0f5",
+        "--md-surface": "#282c34",
+        "--md-text": "#abb2bf",
         "--accent-red": "#e06c75",
         "--accent-green": "#98c379",
         "--accent-yellow": "#e5c07b",
@@ -407,13 +470,22 @@ webapp/
         "--success": "#a3be8c",
         "--warning": "#ebcb8b",
         "--error": "#bf616a",
+        "--danger-bg": "#bf616a",
+        "--danger-border": "#a5545c",
         "--code-bg": "#3b4252",
         "--code-text": "#eceff4",
         "--link-color": "#81a1c1",
         "--navbar-bg": "#3b4252",
         "--card-bg": "#3b4252",
+        "--card-border": "#4c566a",
         "--input-bg": "#2e3440",
-        "--input-border": "#4c566a"
+        "--input-border": "#4c566a",
+        "--btn-primary-bg": "#5e81ac",
+        "--btn-primary-color": "#eceff4",
+        "--btn-primary-border": "#5e81ac",
+        "--btn-primary-hover-bg": "#81a1c1",
+        "--md-surface": "#2e3440",
+        "--md-text": "#eceff4"
       }
     },
     {
@@ -437,13 +509,22 @@ webapp/
         "--success": "#859900",
         "--warning": "#b58900",
         "--error": "#dc322f",
+        "--danger-bg": "#dc322f",
+        "--danger-border": "#c72626",
         "--code-bg": "#eee8d5",
         "--code-text": "#657b83",
         "--link-color": "#268bd2",
         "--navbar-bg": "#eee8d5",
         "--card-bg": "#fdf6e3",
+        "--card-border": "#93a1a1",
         "--input-bg": "#fdf6e3",
-        "--input-border": "#93a1a1"
+        "--input-border": "#93a1a1",
+        "--btn-primary-bg": "#268bd2",
+        "--btn-primary-color": "#fdf6e3",
+        "--btn-primary-border": "#268bd2",
+        "--btn-primary-hover-bg": "#1a6da3",
+        "--md-surface": "#073642",
+        "--md-text": "#93a1a1"
       }
     },
     {
@@ -467,13 +548,22 @@ webapp/
         "--success": "#859900",
         "--warning": "#b58900",
         "--error": "#dc322f",
+        "--danger-bg": "#dc322f",
+        "--danger-border": "#c72626",
         "--code-bg": "#073642",
         "--code-text": "#839496",
         "--link-color": "#268bd2",
         "--navbar-bg": "#073642",
         "--card-bg": "#073642",
+        "--card-border": "#586e75",
         "--input-bg": "#002b36",
-        "--input-border": "#586e75"
+        "--input-border": "#586e75",
+        "--btn-primary-bg": "#268bd2",
+        "--btn-primary-color": "#fdf6e3",
+        "--btn-primary-border": "#268bd2",
+        "--btn-primary-hover-bg": "#2aa0f0",
+        "--md-surface": "#002b36",
+        "--md-text": "#839496"
       }
     },
     {
@@ -497,13 +587,22 @@ webapp/
         "--success": "#b8bb26",
         "--warning": "#fabd2f",
         "--error": "#fb4934",
+        "--danger-bg": "#fb4934",
+        "--danger-border": "#cc241d",
         "--code-bg": "#1d2021",
         "--code-text": "#ebdbb2",
         "--link-color": "#83a598",
         "--navbar-bg": "#1d2021",
         "--card-bg": "#1d2021",
+        "--card-border": "#504945",
         "--input-bg": "#282828",
         "--input-border": "#504945",
+        "--btn-primary-bg": "#b8bb26",
+        "--btn-primary-color": "#282828",
+        "--btn-primary-border": "#b8bb26",
+        "--btn-primary-hover-bg": "#c9cc39",
+        "--md-surface": "#282828",
+        "--md-text": "#ebdbb2",
         "--accent-red": "#fb4934",
         "--accent-green": "#b8bb26",
         "--accent-yellow": "#fabd2f",
@@ -534,13 +633,22 @@ webapp/
         "--success": "#c3e88d",
         "--warning": "#ffcb6b",
         "--error": "#ff5370",
+        "--danger-bg": "#ff5370",
+        "--danger-border": "#e04560",
         "--code-bg": "#1e272c",
         "--code-text": "#eeffff",
         "--link-color": "#82aaff",
         "--navbar-bg": "#1e272c",
         "--card-bg": "#1e272c",
+        "--card-border": "#37474f",
         "--input-bg": "#263238",
         "--input-border": "#37474f",
+        "--btn-primary-bg": "#82aaff",
+        "--btn-primary-color": "#263238",
+        "--btn-primary-border": "#82aaff",
+        "--btn-primary-hover-bg": "#9cc4ff",
+        "--md-surface": "#263238",
+        "--md-text": "#eeffff",
         "--accent-pink": "#f07178",
         "--accent-cyan": "#89ddff",
         "--accent-orange": "#f78c6c",
@@ -942,9 +1050,10 @@ import logging
 logger = logging.getLogger(__name__)
 
 # מיפוי בין VS Code keys לבין CSS Variables שלנו
+# ⚠️ הערה: חלק מהמפתחות ממופים לרשימה של משתנים (כאשר ערך אחד צריך למלא כמה טוקנים)
 VSCODE_TO_CSS_MAP = {
-    # רקעים
-    "editor.background": "--bg-primary",
+    # רקעים - editor.background ממלא גם את --md-surface למניעת "לבן מסנוור" ב-Markdown
+    "editor.background": ["--bg-primary", "--md-surface"],
     "sideBar.background": "--bg-secondary",
     "activityBar.background": "--bg-tertiary",
     "tab.activeBackground": "--bg-primary",
@@ -952,14 +1061,16 @@ VSCODE_TO_CSS_MAP = {
     "dropdown.background": "--bg-secondary",
     "panel.background": "--bg-secondary",
     
-    # טקסט
-    "editor.foreground": "--text-primary",
+    # טקסט - editor.foreground ממלא גם את --md-text לעקביות ב-Markdown Preview
+    "editor.foreground": ["--text-primary", "--md-text"],
     "sideBar.foreground": "--text-secondary",
     "descriptionForeground": "--text-muted",
     "input.foreground": "--text-primary",
     
-    # צבע ראשי (Primary)
-    "button.background": "--primary",
+    # כפתורים (Level 2 Tokens) - לא משתמשים ב---primary הגנרי!
+    "button.background": "--btn-primary-bg",
+    "button.foreground": "--btn-primary-color",
+    "button.hoverBackground": "--btn-primary-hover-bg",
     "focusBorder": "--primary",
     "textLink.foreground": "--link-color",
     "textLink.activeForeground": "--primary-hover",
@@ -971,8 +1082,8 @@ VSCODE_TO_CSS_MAP = {
     "tab.border": "--border-color",
     "activityBar.border": "--border-color",
     
-    # סטטוסים
-    "notificationsErrorIcon.foreground": "--error",
+    # סטטוסים ושגיאות - שימוש ב---danger-bg לפי ארכיטקטורת הטוקנים
+    "notificationsErrorIcon.foreground": ["--error", "--danger-bg"],
     "notificationsWarningIcon.foreground": "--warning",
     "notificationsInfoIcon.foreground": "--primary",
     "testing.iconPassed": "--success",
@@ -995,52 +1106,119 @@ VSCODE_TO_CSS_MAP = {
 }
 
 # ערכי fallback למקרה שחסרים
+# מסונכרן עם מסמך הארכיטקטורה: docs/webapp/theming_and_css.rst
 FALLBACK_DARK = {
+    # רקעים וטקסט
     "--bg-primary": "#1e1e1e",
     "--bg-secondary": "#252526",
     "--bg-tertiary": "#333333",
     "--text-primary": "#d4d4d4",
     "--text-secondary": "#9d9d9d",
     "--text-muted": "#6d6d6d",
+    
+    # צבעי מותג
     "--primary": "#569cd6",
     "--primary-hover": "#6cb6ff",
     "--primary-light": "#569cd626",
+    
+    # גבולות וצללים
     "--border-color": "#474747",
     "--shadow-color": "rgba(0, 0, 0, 0.4)",
+    
+    # סטטוסים (Level 1)
     "--success": "#4ec9b0",
     "--warning": "#dcdcaa",
     "--error": "#f44747",
+    "--danger-bg": "#f44747",
+    "--danger-border": "#d32f2f",
+    "--text-on-warning": "#1a1a1a",
+    
+    # קוד
     "--code-bg": "#1e1e1e",
     "--code-text": "#d4d4d4",
+    "--code-border": "#474747",
+    
+    # UI elements
     "--link-color": "#569cd6",
     "--navbar-bg": "#323233",
     "--card-bg": "#252526",
+    "--card-border": "#474747",
     "--input-bg": "#3c3c3c",
-    "--input-border": "#474747"
+    "--input-border": "#474747",
+    
+    # כפתורים (Level 2)
+    "--btn-primary-bg": "#569cd6",
+    "--btn-primary-color": "#ffffff",
+    "--btn-primary-border": "#569cd6",
+    "--btn-primary-shadow": "rgba(86, 156, 214, 0.3)",
+    "--btn-primary-hover-bg": "#6cb6ff",
+    "--btn-primary-hover-color": "#ffffff",
+    
+    # Markdown & Split View (Level 2)
+    "--md-surface": "#1e1e1e",
+    "--md-text": "#d4d4d4",
+    
+    # Glass (Level 1)
+    "--glass": "rgba(255, 255, 255, 0.05)",
+    "--glass-border": "rgba(255, 255, 255, 0.1)",
+    "--glass-hover": "rgba(255, 255, 255, 0.08)"
 }
 
 FALLBACK_LIGHT = {
+    # רקעים וטקסט
     "--bg-primary": "#ffffff",
     "--bg-secondary": "#f3f3f3",
     "--bg-tertiary": "#e5e5e5",
     "--text-primary": "#333333",
     "--text-secondary": "#616161",
     "--text-muted": "#9e9e9e",
+    
+    # צבעי מותג
     "--primary": "#007acc",
     "--primary-hover": "#005a9e",
     "--primary-light": "#007acc26",
+    
+    # גבולות וצללים
     "--border-color": "#d4d4d4",
     "--shadow-color": "rgba(0, 0, 0, 0.1)",
+    
+    # סטטוסים (Level 1)
     "--success": "#388a34",
     "--warning": "#bf8803",
     "--error": "#e51400",
+    "--danger-bg": "#e51400",
+    "--danger-border": "#c62828",
+    "--text-on-warning": "#1a1a1a",
+    
+    # קוד
     "--code-bg": "#f3f3f3",
     "--code-text": "#333333",
+    "--code-border": "#d4d4d4",
+    
+    # UI elements
     "--link-color": "#007acc",
     "--navbar-bg": "#dddddd",
     "--card-bg": "#ffffff",
+    "--card-border": "#d4d4d4",
     "--input-bg": "#ffffff",
-    "--input-border": "#cecece"
+    "--input-border": "#cecece",
+    
+    # כפתורים (Level 2)
+    "--btn-primary-bg": "#007acc",
+    "--btn-primary-color": "#ffffff",
+    "--btn-primary-border": "#007acc",
+    "--btn-primary-shadow": "rgba(0, 122, 204, 0.3)",
+    "--btn-primary-hover-bg": "#005a9e",
+    "--btn-primary-hover-color": "#ffffff",
+    
+    # Markdown & Split View - נשאר כהה גם בתמה בהירה!
+    "--md-surface": "#1e1e1e",
+    "--md-text": "#d4d4d4",
+    
+    # Glass (Level 1)
+    "--glass": "rgba(0, 0, 0, 0.02)",
+    "--glass-border": "rgba(0, 0, 0, 0.05)",
+    "--glass-hover": "rgba(0, 0, 0, 0.04)"
 }
 
 # ==========================================
@@ -1070,16 +1248,32 @@ VALID_COLOR_REGEX = re.compile(
 )
 
 # רשימה לבנה של משתני CSS מותרים - אל תוסיף משתנים ללא בדיקה
+# ⚠️ הרשימה מסונכרנת עם מסמך הארכיטקטורה: docs/webapp/theming_and_css.rst
 ALLOWED_VARIABLES_WHITELIST = frozenset([
+    # Level 1 - Primitives
+    "--primary", "--primary-hover", "--primary-light",
+    "--secondary",
+    "--success", "--warning", "--error",
+    "--danger-bg", "--danger-border", "--text-on-warning",
+    "--glass", "--glass-blur", "--glass-border", "--glass-hover",
+    
+    # Level 2 - Semantic Tokens (רקעים וטקסט)
     "--bg-primary", "--bg-secondary", "--bg-tertiary",
     "--text-primary", "--text-secondary", "--text-muted",
-    "--primary", "--primary-hover", "--primary-light",
     "--border-color", "--shadow-color",
-    "--success", "--warning", "--error",
-    "--code-bg", "--code-text", "--link-color",
-    "--navbar-bg", "--card-bg",
+    "--card-bg", "--card-border",
+    "--navbar-bg",
     "--input-bg", "--input-border",
-    "--glass", "--glass-blur", "--glass-border"
+    "--link-color",
+    "--code-bg", "--code-text", "--code-border",
+    
+    # Level 2 - כפתורים (Button Tokens)
+    "--btn-primary-bg", "--btn-primary-color", "--btn-primary-border", "--btn-primary-shadow",
+    "--btn-primary-hover-bg", "--btn-primary-hover-color",
+    
+    # Level 2 - Markdown & Split View
+    "--md-surface", "--md-text",
+    "--split-preview-bg", "--split-preview-meta", "--split-preview-placeholder"
 ])
 
 
@@ -1192,11 +1386,16 @@ def parse_vscode_theme(json_content: str | dict) -> dict:
     # מיפוי הצבעים
     result = fallback.copy()
     
-    for vscode_key, css_var in VSCODE_TO_CSS_MAP.items():
+    for vscode_key, css_vars in VSCODE_TO_CSS_MAP.items():
         if vscode_key in colors:
             color_value = colors[vscode_key]
             if is_valid_color(color_value):
-                result[css_var] = color_value
+                # תמיכה במיפוי לרשימה של משתנים (כשמפתח אחד ממלא כמה טוקנים)
+                if isinstance(css_vars, list):
+                    for css_var in css_vars:
+                        result[css_var] = color_value
+                else:
+                    result[css_vars] = color_value
             else:
                 logger.warning(f"Invalid color value for {vscode_key}: {color_value}")
     
@@ -1557,16 +1756,32 @@ themes_bp = Blueprint('themes', __name__, url_prefix='/api/themes')
 MAX_THEME_FILE_SIZE = 512 * 1024  # 512KB מקסימום
 MAX_THEMES_PER_USER = 10
 
+# רשימת משתני CSS מותרים - מסונכרנת עם ALLOWED_VARIABLES_WHITELIST ב-theme_parser_service.py
 ALLOWED_VARIABLES = [
+    # Level 1 - Primitives
+    "--primary", "--primary-hover", "--primary-light",
+    "--secondary",
+    "--success", "--warning", "--error",
+    "--danger-bg", "--danger-border", "--text-on-warning",
+    "--glass", "--glass-blur", "--glass-border", "--glass-hover",
+    
+    # Level 2 - Semantic Tokens
     "--bg-primary", "--bg-secondary", "--bg-tertiary",
     "--text-primary", "--text-secondary", "--text-muted",
-    "--primary", "--primary-hover", "--primary-light",
     "--border-color", "--shadow-color",
-    "--success", "--warning", "--error",
-    "--code-bg", "--code-text", "--link-color",
-    "--navbar-bg", "--card-bg",
+    "--card-bg", "--card-border",
+    "--navbar-bg",
     "--input-bg", "--input-border",
-    "--glass", "--glass-blur", "--glass-border"
+    "--link-color",
+    "--code-bg", "--code-text", "--code-border",
+    
+    # Level 2 - Button Tokens
+    "--btn-primary-bg", "--btn-primary-color", "--btn-primary-border", "--btn-primary-shadow",
+    "--btn-primary-hover-bg", "--btn-primary-hover-color",
+    
+    # Level 2 - Markdown & Split View
+    "--md-surface", "--md-text",
+    "--split-preview-bg", "--split-preview-meta", "--split-preview-placeholder"
 ]
 
 
@@ -2103,14 +2318,23 @@ def export_theme(theme_id):
         const computedStyle = getComputedStyle(preview);
         
         // שומר את כל המשתנים הרלוונטיים
+        // רשימה מסונכרנת עם ALLOWED_VARIABLES_WHITELIST
         const varsToSave = [
+            // Level 1 & 2 - Semantic
             '--bg-primary', '--bg-secondary', '--bg-tertiary',
             '--text-primary', '--text-secondary', '--text-muted',
             '--primary', '--primary-hover', '--primary-light',
             '--border-color', '--shadow-color',
             '--success', '--warning', '--error',
+            '--danger-bg', '--danger-border',
             '--code-bg', '--code-text', '--link-color',
-            '--navbar-bg', '--card-bg', '--input-bg', '--input-border'
+            '--navbar-bg', '--card-bg', '--card-border',
+            '--input-bg', '--input-border',
+            // Level 2 - Button Tokens
+            '--btn-primary-bg', '--btn-primary-color',
+            '--btn-primary-border', '--btn-primary-hover-bg',
+            // Level 2 - Markdown & Split View
+            '--md-surface', '--md-text'
         ];
         
         varsToSave.forEach(varName => {
@@ -2479,7 +2703,13 @@ from services.theme_parser_service import (
     parse_native_theme,
     validate_theme_json,
     is_valid_color,
-    export_theme_to_json
+    export_theme_to_json,
+    # פונקציות עזר לצבעים
+    normalize_color_to_rgba,
+    color_with_opacity,
+    # פונקציות אבטחה
+    sanitize_css_value,
+    validate_and_sanitize_theme_variables
 )
 
 
@@ -2647,16 +2877,23 @@ class TestParseVscodeTheme:
             "colors": {
                 "editor.background": "#282a36",
                 "editor.foreground": "#f8f8f2",
-                "button.background": "#bd93f9"
+                "button.background": "#bd93f9",
+                "button.foreground": "#f8f8f2"
             }
         }
         result = parse_vscode_theme(theme)
         
         assert result["name"] == "Dracula"
         assert result["type"] == "dark"
+        # מיפויים עם רשימות - editor.background ממלא גם --md-surface
         assert result["variables"]["--bg-primary"] == "#282a36"
+        assert result["variables"]["--md-surface"] == "#282a36"
+        # editor.foreground ממלא גם --md-text
         assert result["variables"]["--text-primary"] == "#f8f8f2"
-        assert result["variables"]["--primary"] == "#bd93f9"
+        assert result["variables"]["--md-text"] == "#f8f8f2"
+        # כפתורים ממופים לטוקנים הייעודיים (לא ל---primary!)
+        assert result["variables"]["--btn-primary-bg"] == "#bd93f9"
+        assert result["variables"]["--btn-primary-color"] == "#f8f8f2"
     
     def test_uses_fallback_for_missing(self):
         theme = {
@@ -2890,15 +3127,27 @@ function checkThemeAccessibility(variables) {
         });
     }
     
-    // כפתורים: יחס מינימלי 3:1
+    // כפתורים: יחס מינימלי 4.5:1 בין צבע הטקסט לרקע הכפתור
     const buttonRatio = getContrastRatio(
-        variables['--primary'],
-        variables['--bg-primary']
+        variables['--btn-primary-color'],
+        variables['--btn-primary-bg']
     );
-    if (buttonRatio < 3) {
+    if (buttonRatio < 4.5) {
         issues.push({
             type: 'warning',
-            message: `יחס ניגודיות כפתורים נמוך (${buttonRatio.toFixed(2)}:1). מומלץ לפחות 3:1`
+            message: `יחס ניגודיות כפתורים נמוך (${buttonRatio.toFixed(2)}:1). מומלץ לפחות 4.5:1`
+        });
+    }
+    
+    // Markdown Preview: יחס ניגודיות בין טקסט לרקע
+    const mdRatio = getContrastRatio(
+        variables['--md-text'],
+        variables['--md-surface']
+    );
+    if (mdRatio < 4.5) {
+        issues.push({
+            type: 'error',
+            message: `יחס ניגודיות ב-Markdown Preview נמוך (${mdRatio.toFixed(2)}:1). חובה לפחות 4.5:1`
         });
     }
     
@@ -2943,6 +3192,26 @@ function checkThemeAccessibility(variables) {
 ---
 
 ## ⚠️ נקודות חשובות למימוש
+
+### 0. סנכרון עם מסמך הארכיטקטורה
+
+> ⚠️ **חשוב:** כל השמות והמיפויים במדריך זה מסונכרנים עם מסמך הארכיטקטורה הרשמי:
+> `docs/webapp/theming_and_css.rst`
+
+**טוקנים חובה לכל ערכה מותאמת אישית** (כפי שמוגדר במסמך הארכיטקטורה):
+- `--primary`, `--secondary`
+- `--bg-primary`, `--bg-secondary`
+- `--text-primary`, `--text-secondary`
+- `--btn-primary-bg`, `--btn-primary-color` (ולא `--primary` לכפתורים!)
+- `--glass`
+- `--md-surface`, `--md-text` (לתמיכה ב-Markdown Preview)
+
+**מיפויים רבים-לאחד** - שים לב שמפתחות VS Code מסוימים ממלאים כמה טוקנים:
+```python
+# editor.background → גם --bg-primary וגם --md-surface
+# editor.foreground → גם --text-primary וגם --md-text
+# notificationsErrorIcon.foreground → גם --error וגם --danger-bg
+```
 
 ### 1. Syntax Highlighting (tokenColors)
 
@@ -3006,11 +3275,11 @@ VALID_COLOR_REGEX = re.compile(
 **שירותי Backend:**
 - [ ] יצירת `services/theme_parser_service.py`
   - [ ] פונקציות המרת צבעים (`normalize_color_to_rgba`, `color_with_opacity`)
-  - [ ] פרסור VS Code themes (`parse_vscode_theme`)
+  - [ ] פרסור VS Code themes (`parse_vscode_theme`) **עם תמיכה במיפויים רבים-לאחד**
   - [ ] פרסור tokenColors ל-CodeMirror CSS (`generate_codemirror_css_from_tokens`)
   - [ ] Sanitization (`sanitize_css_value`, `validate_and_sanitize_theme_variables`)
 - [ ] יצירת `services/theme_presets_service.py`
-- [ ] יצירת `webapp/static/data/theme_presets.json`
+- [ ] יצירת `webapp/static/data/theme_presets.json` **עם כל הטוקנים הנדרשים**
 - [ ] הרחבת `webapp/themes_api.py` עם endpoints חדשים
 
 **Frontend:**
@@ -3018,16 +3287,19 @@ VALID_COLOR_REGEX = re.compile(
 - [ ] יצירת `webapp/static/js/theme-importer.js`
 - [ ] מנגנון Preview/Revert לגלריית Presets
 - [ ] CSS לכפתור Revert ואנימציות
+- [ ] בדיקת ניגודיות עבור **`--btn-primary-bg`/`--btn-primary-color`** ו-**`--md-surface`/`--md-text`**
 
 **בדיקות:**
 - [ ] Unit tests לפונקציות צבע
 - [ ] Unit tests לסניטיזציה (חשוב לאבטחה!)
+- [ ] **Unit tests למיפויים רבים-לאחד** (editor.background → --bg-primary + --md-surface)
 - [ ] Integration tests ל-API
 - [ ] בדיקות ידניות עם ערכות VS Code אמיתיות
 
 **תיעוד:**
 - [ ] עדכון documentation
 - [ ] הוספת דוגמאות לייבוא
+- [ ] **סנכרון עם `docs/webapp/theming_and_css.rst` בכל שינוי**
 
 ### קבצים קיימים לעדכון
 
