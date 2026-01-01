@@ -582,6 +582,86 @@ class DatabaseManager:
             except Exception as e:
                 emit_event("db_create_indexes_error", severity="warn", collection="job_trigger_requests", error=str(e))
 
+        # announcements - אינדקס על is_active כדי למנוע COLLSCAN במסכים ציבוריים/אדמין
+        if db is not None:
+            try:
+                db["announcements"].create_indexes(
+                    [
+                        IndexModel(
+                            [("is_active", ASCENDING)],
+                            name="announcements_is_active_idx",
+                            background=True,
+                        )
+                    ]
+                )
+            except Exception as e:
+                emit_event("db_create_indexes_error", severity="warn", collection="announcements", error=str(e))
+
+        # file_bookmarks - אינדקס משולב user_id+file_id לצמצום חיפושים לפי משתמש+קובץ
+        if db is not None:
+            try:
+                db["file_bookmarks"].create_indexes(
+                    [
+                        IndexModel(
+                            [("user_id", ASCENDING), ("file_id", ASCENDING)],
+                            name="file_bookmarks_user_file_idx",
+                            background=True,
+                        )
+                    ]
+                )
+            except Exception as e:
+                emit_event("db_create_indexes_error", severity="warn", collection="file_bookmarks", error=str(e))
+
+        # recent_opens - אינדקס משולב user_id+file_name לשליפה מהירה של "נפתח לאחרונה"
+        if db is not None:
+            try:
+                db["recent_opens"].create_indexes(
+                    [
+                        IndexModel(
+                            [("user_id", ASCENDING), ("file_name", ASCENDING)],
+                            name="recent_opens_user_file_name_idx",
+                            background=True,
+                        )
+                    ]
+                )
+            except Exception as e:
+                emit_event("db_create_indexes_error", severity="warn", collection="recent_opens", error=str(e))
+
+        # sticky_notes - שני אינדקסים: לפי user_id+_id ולפי file_id
+        if db is not None:
+            try:
+                db["sticky_notes"].create_indexes(
+                    [
+                        IndexModel(
+                            [("user_id", ASCENDING), ("_id", ASCENDING)],
+                            name="sticky_notes_user_id_id_idx",
+                            background=True,
+                        ),
+                        IndexModel(
+                            [("file_id", ASCENDING)],
+                            name="sticky_notes_file_id_idx",
+                            background=True,
+                        ),
+                    ]
+                )
+            except Exception as e:
+                emit_event("db_create_indexes_error", severity="warn", collection="sticky_notes", error=str(e))
+
+        # markdown_images - אינדקס משולב snippet_id+user_id
+        if db is not None:
+            try:
+                db["markdown_images"].create_indexes(
+                    [
+                        IndexModel(
+                            [("snippet_id", ASCENDING), ("user_id", ASCENDING)],
+                            name="markdown_images_snippet_user_idx",
+                            background=True,
+                        )
+                    ]
+                )
+            except Exception as e:
+                emit_event("db_create_indexes_error", severity="warn", collection="markdown_images", error=str(e))
+
         # users
         if db is not None:
             try:
@@ -605,65 +685,23 @@ class DatabaseManager:
             except Exception as e:
                 emit_event("db_create_indexes_error", severity="warn", collection="users", error=str(e))
 
-        # code_snippets (החזרת ה-Text)
-        try:
-            self.collection.create_indexes(
-                [
-                    IndexModel(
-                        [("file_name", TEXT), ("description", TEXT), ("tags", TEXT), ("code", TEXT)],
-                        name="search_text_idx",
-                        background=True,
-                    )
-                ]
-            )
-        except Exception as e:
-            msg = str(e)
-            # תאימות לאחור: אם קיימים אינדקסים ישנים/קונפליקטים, ננסה ניקוי best-effort
-            # כדי לא "להיתקע" על IndexOptionsConflict. זה רץ רק כשיש קונפליקט.
-            if "IndexOptionsConflict" in msg or "IndexKeySpecsConflict" in msg or "already exists with a different name" in msg:
-                try:
-                    legacy_drop_candidates = {
-                        "full_text_search_idx",
-                        "user_lang_date_idx",
-                        "user_tags_updated_idx",
-                        "user_active_lang_idx",
-                        "user_active_recent_idx",
-                        "lang_tags_date_idx",
-                        "metrics_type_ts",
-                        "metrics_ts_type",
-                        "search_text_idx",
-                    }
-                    existing = list(self.collection.list_indexes())
-                    for idx in existing:
-                        try:
-                            name = str(idx.get("name", "") or "")
-                        except Exception:
-                            name = ""
-                        is_text = ("textIndexVersion" in idx) or name.endswith("_text")
-                        if not name:
-                            continue
-                        if is_text or name in legacy_drop_candidates:
-                            self.collection.drop_index(name)
-                    # ניסיון חוזר ליצור את האינדקס החדש
-                    try:
-                        self.collection.create_indexes(
-                            [
-                                IndexModel(
-                                    [("file_name", TEXT), ("description", TEXT), ("tags", TEXT), ("code", TEXT)],
-                                    name="search_text_idx",
-                                    background=True,
-                                )
-                            ]
-                        )
-                        return
-                    except Exception as e2:
-                        emit_event("db_create_indexes_error", severity="warn", collection="code_snippets", error=str(e2))
-                        return
-                except Exception as inner:
-                    emit_event("db_indexes_conflict_update_failed", severity="warn", error=str(inner))
-                    return
-
-            emit_event("db_create_indexes_error", severity="warn", collection="code_snippets", error=str(e))
+        # code_snippets - אינדקס TEXT (כבד) מושבת זמנית כדי לא לחנוק את השרת.
+        # נחזיר אותו רק אחרי שכל שאר האינדקסים מתייצבים (שאילתות ~1ms).
+        #
+        # חשוב: להשאיר כאן בהערה בלבד כרגע (לפי הנחיית תפעול).
+        #
+        # try:
+        #     self.collection.create_indexes(
+        #         [
+        #             IndexModel(
+        #                 [("file_name", TEXT), ("description", TEXT), ("tags", TEXT), ("code", TEXT)],
+        #                 name="search_text_idx",
+        #                 background=True,
+        #             )
+        #         ]
+        #     )
+        # except Exception as e:
+        #     emit_event("db_create_indexes_error", severity="warn", collection="code_snippets", error=str(e))
 
         # Snippets library collection: שמירה על תאימות לטסטים/קוד שקיים.
         # לא מוסיפים אינדקסים נוספים מעבר לרשימה האופטימלית — כאן אנו רק מוודאים
