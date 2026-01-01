@@ -514,6 +514,199 @@ class DatabaseManager:
             self._repo = Repository(self)
         return self._repo
 
+    def safe_create_index(
+        self,
+        collection_name: str,
+        keys: List[Tuple[str, int]],
+        *,
+        name: Optional[str] = None,
+        unique: bool = False,
+        background: bool = True,
+        enforce: bool = False,
+    ) -> None:
+        """יוצר אינדקס בצורה בטוחה וב-Background.
+
+        מטרות:
+        - להימנע מקריסה אם קיים אינדקס *זהה* עם שם אחר (IndexOptionsConflict / "already exists")
+        - לא להסתיר תקלות אמיתיות (חיבור/הרשאות/duplicate keys וכו')
+        - לאפשר "אכיפה" (drop+create) רק לאינדקסים קריטיים כשיש mismatch אמיתי
+        """
+        db = getattr(self, "db", None)
+        if db is None:
+            return
+
+        try:
+            collection = db[collection_name]
+        except Exception as e:
+            emit_event(
+                "db_create_index_error",
+                severity="warn",
+                collection=collection_name,
+                index_name=name or "",
+                error=f"failed_to_get_collection: {e}",
+            )
+            return
+
+        # ולידציה מקדימה של keys כדי לא לקרוס על int(v)
+        desired_keys: List[Tuple[str, int]] = []
+        invalid_count = 0
+        for k, v in (keys or []):
+            if k is None:
+                continue
+            try:
+                direction = int(v)
+            except (TypeError, ValueError):
+                invalid_count += 1
+                continue
+            desired_keys.append((str(k), direction))
+
+        if not desired_keys:
+            emit_event(
+                "db_create_index_skipped",
+                severity="warn",
+                collection=collection_name,
+                index_name=name or "",
+                reason="no_valid_keys",
+                invalid_keys_count=invalid_count,
+            )
+            return
+
+        if invalid_count:
+            emit_event(
+                "db_create_index_invalid_keys",
+                severity="warn",
+                collection=collection_name,
+                index_name=name or "",
+                invalid_keys_count=invalid_count,
+            )
+
+        def _existing_indexes() -> List[Dict[str, Any]]:
+            try:
+                out = list(collection.list_indexes())
+                return [idx for idx in out if isinstance(idx, dict)]
+            except Exception:
+                return []
+
+        def _index_matches(idx: Dict[str, Any]) -> bool:
+            try:
+                key_doc = idx.get("key", {})
+                if isinstance(key_doc, dict):
+                    existing_keys = [(str(k), int(v)) for k, v in list(key_doc.items())]
+                else:
+                    return False
+
+                if existing_keys != desired_keys:
+                    return False
+
+                # unique הוא אופציה קריטית (אם אנחנו מבקשים unique חייב להיות unique)
+                existing_unique = bool(idx.get("unique", False))
+                if bool(unique) != existing_unique:
+                    return False
+
+                return True
+            except Exception:
+                return False
+
+        try:
+            collection.create_index(
+                desired_keys,
+                name=name,
+                unique=unique,
+                background=background,
+            )
+            emit_event(
+                "db_index_created",
+                severity="info",
+                collection=collection_name,
+                index_name=name or "",
+            )
+            return
+        except Exception as e:
+            # ננסה לזהות "קונפליקט אופציות/שם" בצורה מדויקת, בלי לתפוס כל חריגה כ"הכל בסדר"
+            code = getattr(e, "code", None)
+            msg = str(e or "")
+            msg_l = msg.lower()
+
+            is_conflict = bool(
+                code in {85, 86}
+                or "indexoptionsconflict" in msg_l
+                or "indexkeyspecsconflict" in msg_l
+                or "already exists" in msg_l
+            )
+
+            if is_conflict:
+                # אם כבר קיים אינדקס זהה (גם אם בשם אחר) — נחשב הצלחה ונמשיך
+                for idx in _existing_indexes():
+                    if _index_matches(idx):
+                        emit_event(
+                            "db_index_exists",
+                            severity="info",
+                            collection=collection_name,
+                            index_name=str(idx.get("name", "")),
+                        )
+                        return
+
+                # mismatch אמיתי: לאינדקסים קריטיים ננסה לאכוף drop+create לפי השם
+                if enforce and name:
+                    try:
+                        collection.drop_index(name)
+                        emit_event(
+                            "db_index_dropped",
+                            severity="warn",
+                            collection=collection_name,
+                            index_name=name,
+                            reason="enforce_recreate_on_conflict",
+                        )
+                    except Exception as drop_e:
+                        emit_event(
+                            "db_drop_index_error",
+                            severity="warn",
+                            collection=collection_name,
+                            index_name=name,
+                            error=str(drop_e),
+                        )
+
+                    try:
+                        collection.create_index(
+                            desired_keys,
+                            name=name,
+                            unique=unique,
+                            background=background,
+                        )
+                        emit_event(
+                            "db_index_created",
+                            severity="info",
+                            collection=collection_name,
+                            index_name=name,
+                        )
+                        return
+                    except Exception as e2:
+                        emit_event(
+                            "db_create_index_error",
+                            severity="error",
+                            collection=collection_name,
+                            index_name=name,
+                            error=str(e2),
+                        )
+                        return
+
+                emit_event(
+                    "db_create_index_conflict",
+                    severity="warn",
+                    collection=collection_name,
+                    index_name=name or "",
+                    error=msg,
+                )
+                return
+
+            emit_event(
+                "db_create_index_error",
+                severity="warn",
+                collection=collection_name,
+                index_name=name or "",
+                error=msg,
+            )
+
     def _create_indexes(self):
         """צור *רק* את האינדקסים הקריטיים (ברקע) למניעת COLLSCAN.
 
@@ -521,184 +714,117 @@ class DatabaseManager:
         """
         db = getattr(self, "db", None)
 
+        if db is None:
+            return
+
+        # תאימות לטסטים: יש בדיקות שקוראות ל-DatabaseManager._create_indexes(self_like)
+        # עם אובייקט דמה (למשל SimpleNamespace) שאין עליו safe_create_index.
+        safe_create_index = getattr(self, "safe_create_index", None)
+        if not callable(safe_create_index):
+            def safe_create_index(*args: Any, **kwargs: Any) -> None:
+                return DatabaseManager.safe_create_index(self, *args, **kwargs)
+
+        # תיקון השגיאה ב-users: לא מבצעים בדיקה בוליאנית על Collection (PyMongo זורק חריגה)
         # note_reminders (הכי דחוף לפי הלוגים)
-        if db is not None:
-            try:
-                db["note_reminders"].create_indexes(
-                    [
-                        IndexModel(
-                            [("status", ASCENDING), ("remind_at", ASCENDING), ("last_push_success_at", ASCENDING)],
-                            name="push_polling_idx",
-                            background=True,
-                        )
-                    ]
-                )
-            except Exception as e:
-                emit_event("db_create_indexes_error", severity="warn", collection="note_reminders", error=str(e))
+        safe_create_index(
+            "note_reminders",
+            [("status", ASCENDING), ("remind_at", ASCENDING), ("last_push_success_at", ASCENDING)],
+            name="push_polling_idx",
+        )
 
         # service_metrics
-        if db is not None:
-            try:
-                db["service_metrics"].create_indexes(
-                    [
-                        IndexModel(
-                            [("ts", DESCENDING), ("type", ASCENDING)],
-                            name="metrics_type_ts",
-                            background=True,
-                        )
-                    ]
-                )
-            except Exception as e:
-                emit_event("db_create_indexes_error", severity="warn", collection="service_metrics", error=str(e))
+        safe_create_index(
+            "service_metrics",
+            [("ts", DESCENDING), ("type", ASCENDING)],
+            name="metrics_type_ts",
+        )
 
         # job_runs
-        if db is not None:
-            try:
-                db["job_runs"].create_indexes(
-                    [
-                        IndexModel(
-                            [("run_id", ASCENDING)],
-                            name="run_id_unique",
-                            unique=True,
-                            background=True,
-                        )
-                    ]
-                )
-            except Exception as e:
-                emit_event("db_create_indexes_error", severity="warn", collection="job_runs", error=str(e))
+        safe_create_index(
+            "job_runs",
+            [("run_id", ASCENDING)],
+            name="run_id_unique",
+            unique=True,
+        )
 
         # job_trigger_requests - אינדקס על status למניעת COLLSCAN בזמן polling
-        if db is not None:
-            try:
-                db["job_trigger_requests"].create_indexes(
-                    [
-                        IndexModel(
-                            [("status", ASCENDING)],
-                            name="status_idx",
-                            background=True,
-                        )
-                    ]
-                )
-            except Exception as e:
-                emit_event("db_create_indexes_error", severity="warn", collection="job_trigger_requests", error=str(e))
+        safe_create_index(
+            "job_trigger_requests",
+            [("status", ASCENDING)],
+            name="status_idx",
+        )
 
         # announcements - אינדקס על is_active כדי למנוע COLLSCAN במסכים ציבוריים/אדמין
-        if db is not None:
-            try:
-                db["announcements"].create_indexes(
-                    [
-                        IndexModel(
-                            [("is_active", ASCENDING)],
-                            name="announcements_is_active_idx",
-                            background=True,
-                        )
-                    ]
-                )
-            except Exception as e:
-                emit_event("db_create_indexes_error", severity="warn", collection="announcements", error=str(e))
+        safe_create_index(
+            "announcements",
+            [("is_active", ASCENDING)],
+            name="announcements_is_active_idx",
+        )
 
         # file_bookmarks - אינדקס משולב user_id+file_id לצמצום חיפושים לפי משתמש+קובץ
-        if db is not None:
-            try:
-                db["file_bookmarks"].create_indexes(
-                    [
-                        IndexModel(
-                            [("user_id", ASCENDING), ("file_id", ASCENDING)],
-                            name="file_bookmarks_user_file_idx",
-                            background=True,
-                        )
-                    ]
-                )
-            except Exception as e:
-                emit_event("db_create_indexes_error", severity="warn", collection="file_bookmarks", error=str(e))
+        safe_create_index(
+            "file_bookmarks",
+            [("user_id", ASCENDING), ("file_id", ASCENDING)],
+            name="file_bookmarks_user_file_idx",
+        )
 
         # recent_opens - אינדקס משולב user_id+file_name לשליפה מהירה של "נפתח לאחרונה"
-        if db is not None:
-            try:
-                db["recent_opens"].create_indexes(
-                    [
-                        IndexModel(
-                            [("user_id", ASCENDING), ("file_name", ASCENDING)],
-                            name="recent_opens_user_file_name_idx",
-                            background=True,
-                        )
-                    ]
-                )
-            except Exception as e:
-                emit_event("db_create_indexes_error", severity="warn", collection="recent_opens", error=str(e))
+        safe_create_index(
+            "recent_opens",
+            [("user_id", ASCENDING), ("file_name", ASCENDING)],
+            name="recent_opens_user_file_name_idx",
+        )
 
         # sticky_notes - שני אינדקסים: לפי user_id+_id ולפי file_id
-        if db is not None:
-            try:
-                db["sticky_notes"].create_indexes(
-                    [
-                        IndexModel(
-                            [("user_id", ASCENDING), ("_id", ASCENDING)],
-                            name="sticky_notes_user_id_id_idx",
-                            background=True,
-                        ),
-                        IndexModel(
-                            [("file_id", ASCENDING)],
-                            name="sticky_notes_file_id_idx",
-                            background=True,
-                        ),
-                    ]
-                )
-            except Exception as e:
-                emit_event("db_create_indexes_error", severity="warn", collection="sticky_notes", error=str(e))
+        safe_create_index(
+            "sticky_notes",
+            [("user_id", ASCENDING), ("_id", ASCENDING)],
+            name="sticky_notes_user_id_id_idx",
+        )
+        safe_create_index(
+            "sticky_notes",
+            [("file_id", ASCENDING)],
+            name="sticky_notes_file_id_idx",
+        )
 
         # markdown_images - אינדקס משולב snippet_id+user_id
-        if db is not None:
-            try:
-                db["markdown_images"].create_indexes(
-                    [
-                        IndexModel(
-                            [("snippet_id", ASCENDING), ("user_id", ASCENDING)],
-                            name="markdown_images_snippet_user_idx",
-                            background=True,
-                        )
-                    ]
-                )
-            except Exception as e:
-                emit_event("db_create_indexes_error", severity="warn", collection="markdown_images", error=str(e))
+        safe_create_index(
+            "markdown_images",
+            [("snippet_id", ASCENDING), ("user_id", ASCENDING)],
+            name="markdown_images_snippet_user_idx",
+        )
 
         # users
-        if db is not None:
-            try:
-                # כאן נעדיף .users אם קיים (תאימות לטסטים/סטאבים), אחרת ניפול ל-[].
-                users_coll = getattr(db, "users", None) or db["users"]
-                users_coll.create_indexes(
-                    [
-                        IndexModel(
-                            [("drive_prefs.schedule", ASCENDING)],
-                            name="users_drive_schedule",
-                            background=True,
-                        ),
-                        # אינדקס על user_id למניעת COLLSCAN בזמן update לפי user_id
-                        IndexModel(
-                            [("user_id", ASCENDING)],
-                            name="user_id_idx",
-                            background=True,
-                        ),
-                    ]
-                )
-            except Exception as e:
-                emit_event("db_create_indexes_error", severity="warn", collection="users", error=str(e))
+        safe_create_index(
+            "users",
+            [("drive_prefs.schedule", ASCENDING)],
+            name="users_drive_schedule",
+        )
+        safe_create_index(
+            "users",
+            [("user_id", ASCENDING)],
+            name="user_id_unique",
+            unique=True,
+        )
+
+        # הוספת אינדקסים קטנים שחונקים CPU (לפי התדירות/סינונים)
+        safe_create_index("visual_rules", [("enabled", ASCENDING)], name="visual_rules_enabled_idx")
+        safe_create_index(
+            "alerts_silences",
+            [("active", ASCENDING), ("until_ts", ASCENDING)],
+            name="alerts_silences_active_until_idx",
+        )
+        safe_create_index("alerts_log", [("_key", ASCENDING)], name="alerts_log_key_idx")
+        safe_create_index("alert_types_catalog", [("alert_type", ASCENDING)], name="alert_types_catalog_type_idx")
 
         # code_snippets - אינדקס מורכב לרשימות משתמש (משפר פילטר user_id+is_active ומיון לפי created_at)
-        if db is not None:
-            try:
-                db["code_snippets"].create_indexes(
-                    [
-                        IndexModel(
-                            [("user_id", ASCENDING), ("is_active", ASCENDING), ("created_at", DESCENDING)],
-                            name="user_active_created_at_idx",
-                            background=True,
-                        )
-                    ]
-                )
-            except Exception as e:
-                emit_event("db_create_indexes_error", severity="warn", collection="code_snippets", error=str(e))
+        # אינדקס קריטי: אם יש mismatch אמיתי בשם הזה, ננסה drop+create בצורה מבוקרת.
+        safe_create_index(
+            "code_snippets",
+            [("user_id", ASCENDING), ("is_active", ASCENDING), ("created_at", DESCENDING)],
+            name="user_active_created_at_idx",
+            enforce=True,
+        )
 
         # code_snippets - אינדקס TEXT (כבד) מושבת זמנית כדי לא לחנוק את השרת.
         # נחזיר אותו רק אחרי שכל שאר האינדקסים מתייצבים (שאילתות ~1ms).
