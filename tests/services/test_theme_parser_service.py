@@ -1,6 +1,7 @@
 import pytest
 
 from services.theme_parser_service import (
+    _find_codemirror_class,
     color_with_opacity,
     export_theme_to_json,
     generate_codemirror_css_from_tokens,
@@ -223,6 +224,96 @@ class TestTokenColorsToCodeMirrorCSS:
         assert "color: #6272a4" in css
         assert "font-style: italic" in css
         assert ':root[data-theme="custom"] .cm-keyword' in css
+
+    def test_extended_scopes_mapping(self):
+        """בדיקה שכל הסקופים החדשים ממופים כראוי."""
+        token_colors = [
+            # Keywords (כולל keyword.control)
+            {"scope": ["keyword.control"], "settings": {"foreground": "#ff79c6"}},
+            {"scope": ["keyword.control.import.python"], "settings": {"foreground": "#ff79c6"}},
+            # Storage
+            {"scope": ["storage"], "settings": {"foreground": "#ff79c6"}},
+            {"scope": ["storage.type"], "settings": {"foreground": "#ff79c6"}},
+            # Classes
+            {"scope": ["support.class"], "settings": {"foreground": "#8be9fd"}},
+            {"scope": ["entity.name.class"], "settings": {"foreground": "#8be9fd"}},
+            # Constants
+            {"scope": ["constant.numeric"], "settings": {"foreground": "#bd93f9"}},
+            {"scope": ["constant.language.boolean"], "settings": {"foreground": "#bd93f9"}},
+            # Variables
+            {"scope": ["variable.language.this"], "settings": {"foreground": "#f8f8f2"}},
+            # Functions
+            {"scope": ["entity.name.function.method"], "settings": {"foreground": "#50fa7b"}},
+        ]
+        css = generate_codemirror_css_from_tokens(token_colors)
+
+        # בדיקת Keywords
+        assert ".cm-keyword" in css
+
+        # בדיקת Types/Classes
+        assert ".cm-type" in css
+
+        # בדיקת Constants
+        assert ".cm-number" in css
+        assert ".cm-atom" in css
+
+        # בדיקת Variables
+        assert ".cm-variable-2" in css
+
+        # בדיקת Functions
+        assert ".cm-def" in css
+
+    def test_prefix_matching_fallback(self):
+        """בדיקה שסקופים ספציפיים נופלים ל-scope הספציפי ביותר (לא הראשון)."""
+        from services.theme_parser_service import _find_codemirror_class
+
+        # התאמה מדויקת
+        assert _find_codemirror_class("keyword") == ".cm-keyword"
+        assert _find_codemirror_class("keyword.control") == ".cm-keyword"
+        assert _find_codemirror_class("constant.numeric") == ".cm-number"
+
+        # Prefix Matching - סקופים ספציפיים שצריכים ליפול לבסיסי
+        assert _find_codemirror_class("keyword.control.import.python") == ".cm-keyword"
+        assert _find_codemirror_class("keyword.control.flow.if") == ".cm-keyword"
+        assert _find_codemirror_class("entity.name.function.method.call") == ".cm-def"
+
+        # 🔑 בדיקה קריטית: constant.numeric.integer.decimal צריך לקבל .cm-number
+        # כי "constant.numeric" הוא הספציפי ביותר (ארוך יותר מ-"constant")
+        assert _find_codemirror_class("constant.numeric.integer.decimal") == ".cm-number"
+        assert _find_codemirror_class("constant.numeric.float") == ".cm-number"
+
+        # constant.language צריך לקבל .cm-atom (יש מיפוי ספציפי)
+        assert _find_codemirror_class("constant.language.boolean.true") == ".cm-atom"
+
+        # variable.language.this צריך לקבל .cm-variable-2 (יש מיפוי ספציפי)
+        assert _find_codemirror_class("variable.language.this.js") == ".cm-variable-2"
+
+        # 🔑 בדיקה קריטית: support.class.component צריך לקבל .cm-tag (JSX)
+        # כי "support.class.component" הוא ספציפי יותר מ-"support.class"
+        assert _find_codemirror_class("support.class.component") == ".cm-tag"
+        assert _find_codemirror_class("support.class.component.MyButton") == ".cm-tag"
+
+        # אבל support.class רגיל צריך להיות .cm-type
+        assert _find_codemirror_class("support.class") == ".cm-type"
+        assert _find_codemirror_class("support.class.builtin") == ".cm-type"
+
+        # סקופים לא מוכרים צריכים להחזיר None
+        assert _find_codemirror_class("unknown.scope.here") is None
+        assert _find_codemirror_class("") is None
+
+    def test_all_font_styles(self):
+        """בדיקה שכל סגנונות הפונט נתמכים."""
+        token_colors = [
+            {"scope": "comment", "settings": {"foreground": "#888", "fontStyle": "italic"}},
+            {"scope": "keyword", "settings": {"foreground": "#f00", "fontStyle": "bold"}},
+            {"scope": "string", "settings": {"foreground": "#0f0", "fontStyle": "underline"}},
+            {"scope": "variable", "settings": {"foreground": "#00f", "fontStyle": "bold italic underline"}},
+        ]
+        css = generate_codemirror_css_from_tokens(token_colors)
+
+        assert "font-style: italic" in css
+        assert "font-weight: bold" in css
+        assert "text-decoration: underline" in css
 
 
 class TestExportTheme:
