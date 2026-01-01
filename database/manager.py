@@ -570,6 +570,9 @@ class DatabaseManager:
             IndexModel([("file_name", ASCENDING)]),
             IndexModel([("programming_language", ASCENDING)]),
             IndexModel([("created_at", DESCENDING)]),
+            # Full-text search for UI (Large Files): file_name + content
+            # חשוב: נדרש כדי לתמוך ב-$text בחיפושים בקטגוריית "large".
+            IndexModel([("file_name", TEXT), ("content", TEXT)], name="search_text_idx"),
             IndexModel([("file_size", ASCENDING)]),
             IndexModel([("lines_count", ASCENDING)]),
             IndexModel([("user_id", ASCENDING), ("file_name", ASCENDING)]),

@@ -7105,28 +7105,44 @@ def _safe_search(user_id: int, query: str, **kwargs):
             '_m': {'$regexFind': {'input': '$code', 'regex': pattern, 'options': 'i'}},
         }},
         {'$addFields': {
+            '_has_code_match': {'$gt': [{'$strLenBytes': {'$ifNull': ['$_m.match', '']}}, 0]},
             '_match_idx': {'$ifNull': ['$_m.idx', 0]},
             '_match_len': {'$strLenBytes': {'$ifNull': ['$_m.match', '']}},
         }},
         {'$addFields': {
-            '_snippet_start': {'$max': [0, {'$subtract': ['$_match_idx', 50]}]},
+            # אם אין התאמה בקוד (למשל התאמה הייתה בשם קובץ/תיאור/תגיות דרך $text),
+            # נציג Preview בסיסי מתחילת הקוד כדי לא ליצור highlight שבור/מטעה.
+            '_snippet_start': {
+                '$cond': {
+                    'if': '$_has_code_match',
+                    'then': {'$max': [0, {'$subtract': ['$_match_idx', 50]}]},
+                    'else': 0,
+                }
+            },
         }},
         {'$addFields': {
             'snippet_preview': {'$substrBytes': ['$code', '$_snippet_start', 200]},
             # מטא-דאטה קל (למסמכים חדשים נשמר כבר; למסמכים ישנים מחשבים בריצה)
             'file_size': {'$ifNull': ['$file_size', {'$strLenBytes': '$code'}]},
             'lines_count': {'$ifNull': ['$lines_count', {'$size': {'$split': ['$code', '\n']}}]},
-            # highlight range יחיד (יחסי ל-snippet) עבור התאמה הראשונה
-            'highlight_ranges': [[
-                {'$max': [0, {'$subtract': ['$_match_idx', '$_snippet_start']}]},
-                {'$max': [0, {'$add': [{'$subtract': ['$_match_idx', '$_snippet_start']}, '$_match_len']}]},
-            ]],
+            # highlight range יחיד (יחסי ל-snippet) עבור התאמה הראשונה, רק אם באמת נמצאה התאמה בקוד
+            'highlight_ranges': {
+                '$cond': {
+                    'if': '$_has_code_match',
+                    'then': [[
+                        {'$max': [0, {'$subtract': ['$_match_idx', '$_snippet_start']}]},
+                        {'$max': [0, {'$add': [{'$subtract': ['$_match_idx', '$_snippet_start']}, '$_match_len']}]},
+                    ]],
+                    'else': [],
+                }
+            },
         }},
         {'$project': {
             # אל תחזיר code מלא בחיפוש fallback
             'code': 0,
             # שדות עזר פנימיים
             '_m': 0,
+            '_has_code_match': 0,
             '_match_idx': 0,
             '_match_len': 0,
             '_snippet_start': 0,
@@ -7164,6 +7180,44 @@ def _safe_search(user_id: int, query: str, **kwargs):
             ))
         return results
     except Exception:
+        # אם $text נכשל (למשל אין אינדקס טקסט), ננסה fallback ל-$regex על code בלבד
+        # כדי לשמור על התנהגות חיפוש בסיסית.
+        try:
+            if (not is_regex) and isinstance(match_stage, dict) and ('$text' in match_stage):
+                match_stage2 = dict(match_stage)
+                match_stage2.pop('$text', None)
+                match_stage2['code'] = {'$regex': pattern, '$options': 'i'}
+                pipeline2 = list(pipeline)
+                pipeline2[0] = {'$match': match_stage2}
+                docs2 = list(db.code_snippets.aggregate(pipeline2, allowDiskUse=True))
+                from types import SimpleNamespace
+                results2: list = []
+                for doc in docs2:
+                    if not isinstance(doc, dict):
+                        continue
+                    score = 1.0
+                    try:
+                        score = float(doc.get('relevance_score') or 1.0)
+                    except Exception:
+                        score = 1.0
+                    results2.append(SimpleNamespace(
+                        file_name=str(doc.get('file_name') or ''),
+                        programming_language=str(doc.get('programming_language') or ''),
+                        tags=list(doc.get('tags') or []),
+                        created_at=doc.get('created_at') or datetime.now(timezone.utc),
+                        updated_at=doc.get('updated_at') or datetime.now(timezone.utc),
+                        version=int(doc.get('version') or 1),
+                        relevance_score=float(score),
+                        matches=[],
+                        snippet_preview=str(doc.get('snippet_preview') or ''),
+                        highlight_ranges=list(doc.get('highlight_ranges') or []),
+                        file_size=int(doc.get('file_size') or 0),
+                        lines_count=int(doc.get('lines_count') or 0),
+                    ))
+                return results2
+        except Exception:
+            pass
+
         # fallback אחרון: שמירה על פונקציונליות גם אם Mongo לא תומך ב-$regexFind וכו'.
         try:
             old_pipeline = [
@@ -8787,6 +8841,44 @@ def files():
         'user_id': user_id,
         '$and': [{'is_active': True}],
     }
+
+    # אם $text לא זמין (למשל אינדקס עדיין בבנייה / לא קיים), נרצה fallback בטוח ל-$regex
+    # כדי למנוע קריסה של הדף.
+    def _with_regex_fallback(curr_query: Dict[str, Any]) -> Dict[str, Any]:
+        try:
+            if not search_query:
+                return curr_query
+            if not isinstance(curr_query, dict):
+                return curr_query
+            if '$text' not in curr_query:
+                return curr_query
+
+            q2: Dict[str, Any] = dict(curr_query)
+            q2.pop('$text', None)
+
+            and_list = list(q2.get('$and') or [])
+
+            # חיפוש ליטרלי (לא Regex גולמי) למניעת דפוסים מסוכנים
+            needle = str(search_query).strip()
+            if not needle:
+                q2['$and'] = and_list
+                return q2
+            esc = re.escape(needle)
+
+            and_list.append({
+                '$or': [
+                    {'file_name': {'$regex': esc, '$options': 'i'}},
+                    {'description': {'$regex': esc, '$options': 'i'}},
+                    # Large files משתמשים בשדה content; ב-code_snippets זה פשוט לא ישפיע
+                    {'content': {'$regex': esc, '$options': 'i'}},
+                    # תאימות: tags יכולים להיות list; זהו fallback "טוב מספיק"
+                    {'tags': {'$in': [needle.lower()]}},
+                ]
+            })
+            q2['$and'] = and_list
+            return q2
+        except Exception:
+            return curr_query
     
     if search_query:
         # חיפוש טקסטואלי ב-UI: נעדיף $text במקום $regex כדי לאפשר שימוש באינדקס טקסט
@@ -8899,14 +8991,26 @@ def files():
                 try:
                     total_count = int(large_coll.count_documents(query) or 0)
                 except Exception:
-                    total_count = 0
+                    # fallback אם $text נכשל (למשל אינדקס לא קיים/בבנייה)
+                    try:
+                        query = _with_regex_fallback(query)
+                        total_count = int(large_coll.count_documents(query) or 0)
+                    except Exception:
+                        total_count = 0
                 try:
                     cursor = large_coll.find(query, LIST_EXCLUDE_HEAVY_PROJECTION)
                     cursor = cursor.sort(sort_field_local, sort_dir)
                     cursor = cursor.skip((page - 1) * per_page).limit(per_page)
                     files_cursor = cursor
                 except Exception:
-                    files_cursor = []
+                    try:
+                        query = _with_regex_fallback(query)
+                        cursor = large_coll.find(query, LIST_EXCLUDE_HEAVY_PROJECTION)
+                        cursor = cursor.sort(sort_field_local, sort_dir)
+                        cursor = cursor.skip((page - 1) * per_page).limit(per_page)
+                        files_cursor = cursor
+                    except Exception:
+                        files_cursor = []
             else:
                 # fallback היסטורי: סינון לפי 100KB מתוך code_snippets
                 pipeline = [
@@ -8950,7 +9054,15 @@ def files():
             {'$group': {'_id': '$file_name'}},
             {'$count': 'total'}
         ]
-        count_result = list(db.code_snippets.aggregate(count_pipeline))
+        try:
+            count_result = list(db.code_snippets.aggregate(count_pipeline))
+        except Exception:
+            query = _with_regex_fallback(query)
+            count_pipeline[0] = {'$match': query}
+            try:
+                count_result = list(db.code_snippets.aggregate(count_pipeline))
+            except Exception:
+                count_result = []
         total_count = count_result[0]['total'] if count_result else 0
     elif category_filter == 'other':
         # ספירת קבצים ייחודיים לפי שם קובץ לאחר סינון (תוכן >0), עם עקביות ל-query הכללי
@@ -8961,10 +9073,25 @@ def files():
             {'$group': {'_id': '$file_name'}},
             {'$count': 'total'}
         ]
-        count_result = list(db.code_snippets.aggregate(count_pipeline))
+        try:
+            count_result = list(db.code_snippets.aggregate(count_pipeline))
+        except Exception:
+            query = _with_regex_fallback(query)
+            count_pipeline[0] = {'$match': query}
+            try:
+                count_result = list(db.code_snippets.aggregate(count_pipeline))
+            except Exception:
+                count_result = []
         total_count = count_result[0]['total'] if count_result else 0
     elif category_filter != 'large':
-        total_count = db.code_snippets.count_documents(query)
+        try:
+            total_count = db.code_snippets.count_documents(query)
+        except Exception:
+            query = _with_regex_fallback(query)
+            try:
+                total_count = db.code_snippets.count_documents(query)
+            except Exception:
+                total_count = 0
     
     # שליפת הקבצים
     sort_order = DESCENDING if sort_by.startswith('-') else 1
@@ -8984,7 +9111,7 @@ def files():
                 'programming_language',
                 {
                     'user_id': user_id,
-                    'is_active': {'$ne': False}
+                    'is_active': True,
                 }
             )
             languages = sorted([lang for lang in languages if lang]) if languages else []
@@ -9068,7 +9195,13 @@ def files():
         try:
             latest_items = list(db.code_snippets.aggregate(pipeline))
         except Exception:
-            latest_items = []
+            # fallback אם $text נכשל
+            try:
+                recent_query_fallback = _with_regex_fallback(recent_query)
+                pipeline[0] = {'$match': recent_query_fallback}
+                latest_items = list(db.code_snippets.aggregate(pipeline))
+            except Exception:
+                latest_items = []
 
         # מיון לפי זמן פתיחה אחרון (במידה ונדרש)
         if sort_field_local not in {'file_name', 'created_at', 'updated_at'}:
@@ -9115,7 +9248,7 @@ def files():
             'programming_language',
             {
                 'user_id': user_id,
-                'is_active': {'$ne': False}
+                'is_active': True,
             }
         )
         languages = sorted([lang for lang in languages if lang]) if languages else []
@@ -9264,7 +9397,7 @@ def files():
                 'programming_language',
                 {
                     'user_id': user_id,
-                    'is_active': {'$ne': False}
+                    'is_active': True,
                 }
             ) if large_coll is not None else []
         except Exception:
@@ -9274,7 +9407,7 @@ def files():
             'programming_language',
             {
                 'user_id': user_id,
-                'is_active': {'$ne': False}
+                'is_active': True,
             }
         )
     # סינון None וערכים ריקים ומיון
