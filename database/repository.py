@@ -1880,37 +1880,51 @@ class Repository:
         Return all users who have an active drive backup schedule.
         Used by the rescheduler to restore jobs after restart.
         """
-        sched_keys = ["daily", "every3", "weekly", "biweekly", "monthly"]
+        sched_keys = {"daily", "every3", "weekly", "biweekly", "monthly"}
+
+        def _has_active_schedule(drive_prefs: Any) -> bool:
+            """
+            Drive schedule historically appeared in a few JSON shapes.
+            We avoid a heavy $or query in MongoDB and instead normalize/filter in Python.
+            """
+            if not isinstance(drive_prefs, dict):
+                return False
+
+            candidates: List[str] = []
+
+            # New format: drive_prefs.schedule = "daily" | ...
+            schedule = drive_prefs.get("schedule")
+            if isinstance(schedule, str):
+                candidates.append(schedule)
+            # Legacy formats: drive_prefs.schedule = {"key": "..."} | {"value": "..."} | {"name": "..."}
+            elif isinstance(schedule, dict):
+                for k in ("key", "value", "name"):
+                    v = schedule.get(k)
+                    if isinstance(v, str):
+                        candidates.append(v)
+
+            # Additional legacy shapes
+            for k in ("schedule_key", "scheduleKey"):
+                v = drive_prefs.get(k)
+                if isinstance(v, str):
+                    candidates.append(v)
+
+            return any(c in sched_keys for c in candidates)
+
         try:
             users_collection = self.manager.db.users
-            # Query for any known schedule key format
-            query = {
-                "$or": [
-                    {"drive_prefs.schedule": {"$in": sched_keys}},
-                    {"drive_prefs.schedule.key": {"$in": sched_keys}},
-                    {"drive_prefs.schedule.value": {"$in": sched_keys}},
-                    {"drive_prefs.schedule.name": {"$in": sched_keys}},
-                    {"drive_prefs.schedule_key": {"$in": sched_keys}},
-                    {"drive_prefs.scheduleKey": {"$in": sched_keys}},
-                ]
-            }
-            projection = {"user_id": 1, "drive_prefs": 1}
-            # First try with query; if 0 results, fallback to broad search
-            results = list(users_collection.find(query, projection))
-            if results:
-                logger.info(
-                    "get_users_with_active_drive_schedule matched=%s",
-                    len(results),
-                )
-                return results
-            # Fallback: get all users with drive_prefs and filter in Python
+            # במקום $or כבד (שגורם ל-COLLSCAN), נביא "קנדידטים" בצורה רחבה
+            # ונבצע את סינון ה-JSON המדויק בפייתון.
             wide_query = {"drive_prefs": {"$exists": True, "$ne": None}}
+            projection = {"user_id": 1, "drive_prefs": 1}
             wide_results = list(users_collection.find(wide_query, projection))
+            filtered = [doc for doc in wide_results if _has_active_schedule((doc or {}).get("drive_prefs"))]
             logger.info(
-                "get_users_with_active_drive_schedule fallback_wide=%s",
+                "get_users_with_active_drive_schedule candidates=%s active=%s",
                 len(wide_results),
+                len(filtered),
             )
-            return wide_results
+            return filtered
         except Exception as e:
             emit_event("db_get_users_with_active_drive_schedule_error", severity="error", error=str(e))
             logger.exception("get_users_with_active_drive_schedule error=%s", e)
