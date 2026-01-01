@@ -685,6 +685,21 @@ class DatabaseManager:
             except Exception as e:
                 emit_event("db_create_indexes_error", severity="warn", collection="users", error=str(e))
 
+        # code_snippets - אינדקס מורכב לרשימות משתמש (משפר פילטר user_id+is_active ומיון לפי created_at)
+        if db is not None:
+            try:
+                db["code_snippets"].create_indexes(
+                    [
+                        IndexModel(
+                            [("user_id", ASCENDING), ("is_active", ASCENDING), ("created_at", DESCENDING)],
+                            name="user_active_created_at_idx",
+                            background=True,
+                        )
+                    ]
+                )
+            except Exception as e:
+                emit_event("db_create_indexes_error", severity="warn", collection="code_snippets", error=str(e))
+
         # code_snippets - אינדקס TEXT (כבד) מושבת זמנית כדי לא לחנוק את השרת.
         # נחזיר אותו רק אחרי שכל שאר האינדקסים מתייצבים (שאילתות ~1ms).
         #
