@@ -183,18 +183,35 @@ def list_public(q: Optional[str] = None, page: int = 1, per_page: int = 30, tags
         page, per_page = 1, 30
 
     # Build filter
-    match: Dict[str, Any] = {"status": "approved"}
-    if q:
-        # simple contains match on title/description (fallback if no $text index)
-        regex = {"$regex": q, "$options": "i"}
-        match["$or"] = [{"title": regex}, {"description": regex}]
+    base_match: Dict[str, Any] = {"status": "approved"}
+    match: Dict[str, Any] = dict(base_match)
+    use_text = bool(q and str(q).strip())
+    if use_text:
+        # חיפוש טקסטואלי ב-UI: נעדיף $text (אם קיים אינדקס טקסט)
+        match["$text"] = {"$search": str(q).strip()}
     if tags:
         match["tags"] = {"$in": list({t for t in tags if isinstance(t, str) and t.strip()})}
+
+    def _fallback_regex_match() -> Dict[str, Any]:
+        m = dict(base_match)
+        if use_text:
+            regex = {"$regex": str(q).strip(), "$options": "i"}
+            m["$or"] = [{"title": regex}, {"description": regex}]
+        if tags:
+            m["tags"] = {"$in": list({t for t in tags if isinstance(t, str) and t.strip()})}
+        return m
 
     try:
         total = int(coll.count_documents(match))
     except Exception:
-        total = 0
+        if use_text:
+            try:
+                match = _fallback_regex_match()
+                total = int(coll.count_documents(match))
+            except Exception:
+                total = 0
+        else:
+            total = 0
     skip = (page - 1) * per_page
 
     sort = [("featured", -1), ("approved_at", -1)] if featured_first else [("approved_at", -1)]
@@ -202,7 +219,15 @@ def list_public(q: Optional[str] = None, page: int = 1, per_page: int = 30, tags
         cursor = coll.find(match, sort=sort).skip(skip).limit(per_page)
         rows = list(cursor)
     except Exception:
-        rows = []
+        if use_text:
+            try:
+                match = _fallback_regex_match()
+                cursor = coll.find(match, sort=sort).skip(skip).limit(per_page)
+                rows = list(cursor)
+            except Exception:
+                rows = []
+        else:
+            rows = []
 
     out: List[Dict[str, Any]] = []
     for r in rows:

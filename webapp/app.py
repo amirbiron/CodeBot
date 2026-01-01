@@ -6288,10 +6288,8 @@ def fix_is_active():
     """
     🚨 CRITICAL: תיקון הבעיה האמיתית של Slow Queries!
     
-    הבעיה: השאילתות משתמשות ב-$or במקום פילטר ישיר:
-        $or: [{is_active: True}, {is_active: {$exists: False}}]
-    
-    זה מונע שימוש יעיל באינדקס!
+    הבעיה (היסטורית): השאילתות השתמשו ב-$or/exists לצורך תאימות לאחור,
+    וזה מנע שימוש יעיל באינדקסים.
     
     הפתרון:
     1. מיגרציה: הוספת is_active: true לכל המסמכים שחסר להם השדה
@@ -6400,102 +6398,6 @@ def fix_is_active():
         return jsonify({"error": str(e), "status": "failed"}), 500
 
 
-@app.route('/admin/migrate-is-active')
-@admin_required
-def migrate_is_active():
-    """
-    🔧 שלב 1: מיגרציית נתונים - הוספת is_active לכל המסמכים.
-    
-    עובר על הקולקציות: code_snippets, large_files, users
-    ומוסיף is_active: True לכל מסמך שחסר לו השדה.
-    
-    פרמטרים (query string):
-    - batch_size=N: גודל באטש (ברירת מחדל: 1000, מקסימום: 5000)
-    
-    שימוש:
-    1. הרץ פעם ראשונה לראות את הסטטוס
-    2. המשך להריץ עד שכל הקולקציות מעודכנות (missing=0)
-    """
-    results = {}
-    
-    try:
-        batch_size = min(5000, max(100, int(request.args.get('batch_size', 1000))))
-    except (ValueError, TypeError):
-        batch_size = 1000
-    
-    try:
-        from database.manager import DatabaseManager
-        db = DatabaseManager().db
-        
-        # שלוש הקולקציות לעדכון
-        collections_to_migrate = ['code_snippets', 'large_files', 'users']
-        
-        total_migrated = 0
-        total_missing_after = 0
-        
-        for coll_name in collections_to_migrate:
-            collection = db[coll_name]
-            
-            # ספירת מסמכים חסרי is_active לפני המיגרציה
-            missing_before = collection.count_documents({"is_active": {"$exists": False}})
-            total_count = collection.count_documents({})
-            
-            coll_result = {
-                "total_documents": total_count,
-                "missing_before": missing_before,
-            }
-            
-            if missing_before > 0:
-                # מיגרציה ב-Batch:
-                # שליפת IDs של מסמכים שחסר להם is_active (מוגבל לבאטש)
-                docs_to_update = list(collection.find(
-                    {"is_active": {"$exists": False}},
-                    {"_id": 1},
-                ).limit(batch_size))
-                
-                ids_to_update = [doc["_id"] for doc in docs_to_update]
-                
-                if ids_to_update:
-                    # עדכון רק המסמכים שנבחרו
-                    result = collection.update_many(
-                        {"_id": {"$in": ids_to_update}},
-                        {"$set": {"is_active": True}},
-                    )
-                    coll_result["migrated_count"] = result.modified_count
-                    total_migrated += result.modified_count
-                else:
-                    coll_result["migrated_count"] = 0
-            else:
-                coll_result["migrated_count"] = 0
-            
-            # ספירה מחודשת אחרי המיגרציה
-            missing_after = collection.count_documents({"is_active": {"$exists": False}})
-            coll_result["missing_after"] = missing_after
-            coll_result["status"] = "✅ complete" if missing_after == 0 else f"⏳ {missing_after} remaining"
-            
-            total_missing_after += missing_after
-            results[coll_name] = coll_result
-        
-        # סיכום כללי
-        results["summary"] = {
-            "batch_size_used": batch_size,
-            "total_migrated_this_call": total_migrated,
-            "total_missing_after": total_missing_after,
-            "all_collections_ready": total_missing_after == 0,
-            "next_step": (
-                "✅ כל המסמכים בכל הקולקציות מכילים is_active! אפשר לעבור לשלב 2 (עדכון השאילתות)."
-                if total_missing_after == 0
-                else f"⚠️ נותרו {total_missing_after} מסמכים ללא is_active. הרץ שוב את ה-Endpoint."
-            ),
-        }
-        
-        return jsonify(results)
-        
-    except Exception as e:
-        logger.exception("migrate_is_active_failed")
-        return jsonify({"error": str(e), "status": "failed"}), 500
-
-
 @app.route('/admin/diagnose-slow-queries')
 @admin_required
 def diagnose_slow_queries():
@@ -6531,13 +6433,8 @@ def diagnose_slow_queries():
         results["diagnosis"]["percentage_with_is_active"] = round(((total - missing_is_active) / total * 100) if total > 0 else 100, 2)
         
         # 3. בדיקת explain על שאילתה טיפוסית
-        # זו השאילתה שמשתמשת ב-$or ואיטית
-        slow_query = {
-            "$or": [
-                {"is_active": True},
-                {"is_active": {"$exists": False}}
-            ]
-        }
+        # לאחר המיגרציה: משתמשים בפילטר פשוט וידידותי לאינדקסים
+        slow_query = {"is_active": True}
         
         # explain באמצעות db.command (תואם PyMongo 4.x)
         try:
@@ -6547,14 +6444,19 @@ def diagnose_slow_queries():
                 verbosity="queryPlanner"
             )
             winning_plan = explain_slow.get("queryPlanner", {}).get("winningPlan", {})
-            results["explain_test"]["slow_query_with_or"] = {
+            slow_result = {
                 "query": str(slow_query),
                 "winning_plan_stage": winning_plan.get("stage", "UNKNOWN"),
                 "index_used": winning_plan.get("indexName"),
                 "full_explain": json.loads(json_util.dumps(winning_plan)),
             }
+            # שמירה על מפתח חדש + תאימות לאחור (כדי לא לשבור מי שעוקב אחרי ה-json)
+            results["explain_test"]["slow_query_direct"] = slow_result
+            results["explain_test"]["slow_query_with_or"] = slow_result
         except Exception as e:
-            results["explain_test"]["slow_query_with_or"] = {"error": str(e)}
+            err_obj = {"error": str(e)}
+            results["explain_test"]["slow_query_direct"] = err_obj
+            results["explain_test"]["slow_query_with_or"] = err_obj
         
         # explain על שאילתה מהירה (פילטר ישיר)
         fast_query = {"is_active": True}
@@ -6584,12 +6486,15 @@ def diagnose_slow_queries():
                 "solution": "הרץ /admin/fix-is-active?action=migrate כדי להוסיף is_active לכל המסמכים",
             })
         
-        if results["explain_test"].get("slow_query_with_or", {}).get("winning_plan_stage") == "OR":
-            results["recommendations"].append({
-                "priority": "HIGH",
-                "issue": "השאילתות עם $or גורמות ל-OR stage שמונע שימוש יעיל באינדקס",
-                "solution": "לאחר המיגרציה, השאילתות צריכות להשתמש ב-{is_active: true} ישירות",
-            })
+        try:
+            if results["explain_test"].get("slow_query_direct", {}).get("winning_plan_stage") == "COLLSCAN":
+                results["recommendations"].append({
+                    "priority": "HIGH",
+                    "issue": "נמצא COLLSCAN ב-explain (אין שימוש באינדקס)",
+                    "solution": "ודא שהשאילתה משתמשת בפילטרים שמובילים את האינדקס (למשל user_id+is_active) ושקיים אינדקס מתאים",
+                })
+        except Exception:
+            pass
         
         if missing_is_active == 0:
             results["recommendations"].append({
@@ -7157,18 +7062,22 @@ def _safe_search(user_id: int, query: str, **kwargs):
     except Exception:
         is_regex = False
 
-    # בניית ביטוי החיפוש ל-$regex (רגיש/לא רגיש)
+    # בניית ביטוי חיפוש:
+    # - אם המשתמש ביקש REGEX: נשמור על $regex (ללא $text)
+    # - אחרת: נעדיף $text (מהיר יותר וידידותי לאינדקסים) + נשתמש ב-regexFind רק לצורך snippet/highlight
     pattern = query if is_regex else re.escape(query)
 
-    # בניית match בסיסי
-    match_stage = {
+    match_stage: Dict[str, Any] = {
         'user_id': user_id,
-'is_active': True,
-        'code': {
+        'is_active': True,
+    }
+    if is_regex:
+        match_stage['code'] = {
             '$regex': pattern,
             '$options': 'i',  # חיפוש לא רגיש לאותיות גדולות/קטנות
-        },
-    }
+        }
+    else:
+        match_stage['$text'] = {'$search': query}
 
     # ניסיון להחיל מסננים בסיסיים אם הועברו
     filters = kwargs.get('filters')
@@ -8873,25 +8782,15 @@ def files():
             pass
     # הערה: ברירות המחדל למיון עבור recent/favorites כבר הוחלו לפני בניית מפתח הקאש
     
-    # בניית שאילתה - כולל סינון קבצים פעילים בלבד
-    # עדיף להשתמש ב-{$ne: False} במקום $or/$exists כדי לעזור לאינדקסים.
+    # בניית שאילתה - לאחר המיגרציה: משתמשים בפילטר ישיר ויעיל לאינדקסים
     query = {
         'user_id': user_id,
-        '$and': [
-            {
-                'is_active': {'$ne': False}  # כולל מסמכים ישנים ללא השדה
-            }
-        ]
+        '$and': [{'is_active': True}],
     }
     
     if search_query:
-        query['$and'].append(
-            {'$or': [
-                {'file_name': {'$regex': search_query, '$options': 'i'}},
-                {'description': {'$regex': search_query, '$options': 'i'}},
-                {'tags': {'$in': [search_query.lower()]}}
-            ]}
-        )
+        # חיפוש טקסטואלי ב-UI: נעדיף $text במקום $regex כדי לאפשר שימוש באינדקס טקסט
+        query['$text'] = {'$search': search_query}
     
     if language_filter:
         query['programming_language'] = language_filter
@@ -8908,7 +8807,7 @@ def files():
                 # חשוב: לא מושפעת מחיפוש/שפה כדי להציג את כל הריפואים של המשתמש
                 base_active_query = {
                     'user_id': user_id,
-                    'is_active': {'$ne': False}
+                    'is_active': True,
                 }
                 # מיישר ללוגיקה של הבוט: קבוצה לפי file_name (הגרסה האחרונה בלבד), ואז חילוץ תגית repo: אחת
                 repo_pipeline = [
@@ -8949,7 +8848,7 @@ def files():
                     'programming_language',
                     {
                         'user_id': user_id,
-                        'is_active': {'$ne': False}
+                        'is_active': True,
                     }
                 )
                 languages = sorted([lang for lang in languages if lang]) if languages else []
@@ -9136,15 +9035,11 @@ def files():
         # בניית שאילתה עם כל המסננים שכבר חושבו + סינון לשמות שנפתחו לאחרונה
         recent_query = {
             'user_id': user_id,
-            '$and': [{'is_active': {'$ne': False}}]
+            '$and': [{'is_active': True}],
         }
         # לשמור עקביות עם החיפוש/מסננים הכלליים
         if search_query:
-            recent_query['$and'].append({'$or': [
-                {'file_name': {'$regex': search_query, '$options': 'i'}},
-                {'description': {'$regex': search_query, '$options': 'i'}},
-                {'tags': {'$in': [search_query.lower()]}}
-            ]})
+            recent_query['$text'] = {'$search': search_query}
         if language_filter:
             recent_query['programming_language'] = language_filter
         # צמצום לשמות שנפתחו לאחרונה

@@ -835,8 +835,8 @@ class CollectionsManager:
                     query = {
                         "user_id": int(user_id),
                         "file_name": {"$in": list(names)},
-                        # אינדקס-פרנדלי + כולל גם מסמכים ישנים ללא is_active
-                        "is_active": {"$ne": False},
+                        # לאחר המיגרציה: פילטר ישיר וידידותי לאינדקסים
+                        "is_active": True,
                     }
                     # מספיק לנו רק file_name
                     projection = {"file_name": 1}
@@ -1039,7 +1039,7 @@ class CollectionsManager:
         if self.code_snippets is None:
             return []
         try:
-            flt: Dict[str, Any] = {"user_id": int(user_id), "is_active": {"$ne": False}}
+            flt: Dict[str, Any] = {"user_id": int(user_id), "is_active": True}
             q = str(rules.get("query") or "").strip()
             if q:
                 flt["$text"] = {"$search": q}
@@ -1208,7 +1208,7 @@ class CollectionsManager:
         query = {
             "user_id": int(user_id),
             "file_name": str(file_name),
-            "is_active": {"$ne": False},
+            "is_active": True,
         }
         projection = None if include_code else {"code": 0}
         doc: Optional[Dict[str, Any]] = None
@@ -1259,7 +1259,7 @@ class CollectionsManager:
         query = {
             "user_id": int(user_id),
             "file_name": str(file_name),
-            "is_active": {"$ne": False},
+            "is_active": True,
         }
         projection = None if include_content else {"content": 0}
         doc: Optional[Dict[str, Any]] = None
