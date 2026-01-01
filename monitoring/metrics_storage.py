@@ -159,9 +159,9 @@ def _flush_locked(now_ts: float) -> None:
 
 
 def flush(force: bool = False) -> None:
-    # זמני (חירום): עצירת כתיבת מטריקות ל-MongoDB כדי לשחרר עומס.
-    # כדי להפעיל מחדש בלי שינוי קוד: DISABLE_METRICS_WRITES=false
-    if str(os.getenv("DISABLE_METRICS_WRITES", "true")).lower() in {"1", "true", "yes", "on"}:
+    # Emergency kill-switch: disable DB writes explicitly when needed.
+    # Default is OFF (i.e., writes are allowed when METRICS_DB_ENABLED=true).
+    if _is_true(os.getenv("DISABLE_METRICS_WRITES")):
         return
     if not _enabled():
         return
@@ -184,9 +184,9 @@ def enqueue_request_metric(
 
     No-ops entirely when METRICS_DB_ENABLED is not true.
     """
-    # זמני (חירום): עצירת כתיבת מטריקות ל-MongoDB כדי לשחרר עומס.
-    # כדי להפעיל מחדש בלי שינוי קוד: DISABLE_METRICS_WRITES=false
-    if str(os.getenv("DISABLE_METRICS_WRITES", "true")).lower() in {"1", "true", "yes", "on"}:
+    # Emergency kill-switch: disable DB writes explicitly when needed.
+    # Default is OFF (i.e., writes are allowed when METRICS_DB_ENABLED=true).
+    if _is_true(os.getenv("DISABLE_METRICS_WRITES")):
         return
     if not _enabled():
         return
