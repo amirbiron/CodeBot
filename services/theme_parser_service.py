@@ -27,10 +27,16 @@ logger = logging.getLogger(__name__)
 #   - RGB: rgb(r, g, b)
 #   - RGBA: rgba(r, g, b, a)
 # ==========================================
+_RGB_COMPONENT_REGEX = r"(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)"  # 0..255
+_RGBA_ALPHA_REGEX = r"(?:0(?:\.\d+)?|1(?:\.0+)?|\.\d+)"  # 0..1 (כולל 1.0, .5)
+
+# ⚠️ שים לב: חייב להיות מסונכרן עם normalize_color_to_rgba (כל מה שמאושר כאן חייב להינרמל בהצלחה)
 VALID_COLOR_REGEX = re.compile(
-    r'^#[0-9a-fA-F]{3,8}$|'  # hex (3, 4, 6, or 8 chars)
-    r'^rgb\(\s*\d{1,3}\s*,\s*\d{1,3}\s*,\s*\d{1,3}\s*\)$|'  # rgb
-    r'^rgba\(\s*\d{1,3}\s*,\s*\d{1,3}\s*,\s*\d{1,3}\s*,\s*[\d.]+\s*\)$'  # rgba
+    rf"^(?:"
+    rf"(?:#[0-9a-fA-F]{{3}}|#[0-9a-fA-F]{{4}}|#[0-9a-fA-F]{{6}}|#[0-9a-fA-F]{{8}})"  # hex: 3/4/6/8
+    rf"|rgb\(\s*{_RGB_COMPONENT_REGEX}\s*,\s*{_RGB_COMPONENT_REGEX}\s*,\s*{_RGB_COMPONENT_REGEX}\s*\)"
+    rf"|rgba\(\s*{_RGB_COMPONENT_REGEX}\s*,\s*{_RGB_COMPONENT_REGEX}\s*,\s*{_RGB_COMPONENT_REGEX}\s*,\s*{_RGBA_ALPHA_REGEX}\s*\)"
+    rf")$"
 )
 
 # ערך blur (px) - נדרש עבור --glass-blur במערכת הקיימת
@@ -526,7 +532,10 @@ def normalize_color_to_rgba(color: str) -> tuple[int, int, int, float] | None:
         return None
 
     # RGB format
-    rgb_match = re.match(r"^rgb\(\s*(\d{1,3})\s*,\s*(\d{1,3})\s*,\s*(\d{1,3})\s*\)$", color)
+    rgb_match = re.match(
+        rf"^rgb\(\s*({_RGB_COMPONENT_REGEX})\s*,\s*({_RGB_COMPONENT_REGEX})\s*,\s*({_RGB_COMPONENT_REGEX})\s*\)$",
+        color,
+    )
     if rgb_match:
         r, g, b = map(int, rgb_match.groups())
         if all(0 <= c <= 255 for c in (r, g, b)):
@@ -535,7 +544,7 @@ def normalize_color_to_rgba(color: str) -> tuple[int, int, int, float] | None:
 
     # RGBA format
     rgba_match = re.match(
-        r"^rgba\(\s*(\d{1,3})\s*,\s*(\d{1,3})\s*,\s*(\d{1,3})\s*,\s*([\d.]+)\s*\)$",
+        rf"^rgba\(\s*({_RGB_COMPONENT_REGEX})\s*,\s*({_RGB_COMPONENT_REGEX})\s*,\s*({_RGB_COMPONENT_REGEX})\s*,\s*({_RGBA_ALPHA_REGEX})\s*\)$",
         color,
     )
     if rgba_match:

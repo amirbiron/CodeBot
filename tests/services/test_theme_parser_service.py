@@ -40,6 +40,12 @@ class TestIsValidColor:
         assert not is_valid_color("")
         assert not is_valid_color("red")
         assert not is_valid_color("#gggggg")
+        assert not is_valid_color("#fffff")  # 5 hex chars - לא חוקי
+        assert not is_valid_color("#fffffff")  # 7 hex chars - לא חוקי
+        assert not is_valid_color("rgb(999,0,0)")  # רכיב RGB חייב להיות 0..255
+        assert not is_valid_color("rgba(0,0,0,1.5)")  # alpha חייב להיות 0..1
+        assert not is_valid_color("rgba(0,0,0,1.1.1)")  # פורמט עשרוני לא תקין
+        assert not is_valid_color("rgba(0,0,0,.5.)")  # נקודה כפולה/סופית לא תקינה
         assert not is_valid_color("expression(alert())")
 
 

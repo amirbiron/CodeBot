@@ -764,9 +764,14 @@ def export_theme(theme_id: str):
 
     json_content = export_theme_to_json(theme)
 
-    filename = (theme.get("name") or "theme").strip().replace('"', "").replace("/", "_")
+    # 🔒 אבטחה: ניקוי filename כדי למנוע תווי בקרה/תווים מיוחדים ששוברים Headers
+    filename = str(theme.get("name") or "theme")
+    filename = re.sub(r"\s+", " ", filename).strip()  # כולל \n/\r/\t
+    filename = re.sub(r"[^\w\s-]", "", filename).strip()
+    filename = re.sub(r"\s+", " ", filename).strip().replace(" ", "_")
     if not filename:
         filename = "theme"
+    filename = filename[:80]
 
     return Response(
         json_content,

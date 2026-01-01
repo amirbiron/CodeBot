@@ -160,3 +160,29 @@ class TestImportAPI:
         data = resp.get_json()
         assert data["success"] is True
 
+
+class TestExportAPI:
+    def test_export_sanitizes_filename_control_chars(self, client, stub_db):
+        _login(client)
+        theme_id = "t-1"
+        stub_db.users.queue_find_one(
+            {
+                "custom_themes": [
+                    {
+                        "id": theme_id,
+                        "name": "evil\r\nname",
+                        "description": "",
+                        "is_active": False,
+                        "variables": {"--bg-primary": "#000000", "--text-primary": "#ffffff"},
+                        "syntax_css": "",
+                    }
+                ]
+            }
+        )
+        resp = client.get(f"/api/themes/{theme_id}/export")
+        assert resp.status_code == 200
+        cd = resp.headers.get("Content-Disposition") or ""
+        assert "\n" not in cd and "\r" not in cd
+        assert cd.startswith("attachment;")
+        assert cd.endswith('.json"')
+
