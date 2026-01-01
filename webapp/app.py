@@ -7111,25 +7111,23 @@ def check_mongo_ops():
         
         db = DatabaseManager().db
         
-        # ב-Atlas Tier נמוך, אנחנו מוותרים על $all 
-        # ומתמקדים רק בפעולות שמונגו מרשה לנו לראות
-        ops = db.command({
-            "currentOp": 1,
-            "active": True,
-            "waitingForLock": False
-        })
+        # פקודה בסיסית שעובדת ב-Atlas Shared Tier
+        ops = db.command({"currentOp": 1, "active": True})
         
         in_progress = []
         for op in ops.get('inprog', []):
-            # מחפשים רמזים לבניית אינדקסים או שאילתות כבדות
-            command = op.get('command', {})
+            # טיפול בטוח ב-command למניעת TypeError/AttributeError
+            # (command יכול להיות None, לא רק missing)
+            command = op.get('command') or {}
             msg = op.get('msg', '')
             
-            # אם יש הודעה (כמו Progress) או שזו פקודת יצירת אינדקסים
-            if msg or "createIndexes" in command:
+            # זיהוי בניית אינדקסים או פקודות רלוונטיות
+            is_index = "createIndexes" in command or "Index Build" in msg
+            
+            if is_index or msg:
                 in_progress.append({
-                    "msg": msg or "Building Index...",
-                    "collection": command.get("createIndexes"),
+                    "msg": msg or "Processing...",
+                    "collection": command.get("createIndexes") or "N/A",
                     "progress": op.get('progress', {}),
                     "secs_running": op.get('secs_running'),
                     "opid": op.get('opid')
@@ -7141,8 +7139,11 @@ def check_mongo_ops():
             "raw_ops_count": len(ops.get('inprog', []))
         })
     except Exception as e:
-        # כאן נשמור על str(e) כדי לראות אם יש עוד מגבלות של אטלס
-        return jsonify({"status": "error", "message": str(e)}), 500
+        logger.exception("check_mongo_ops_failed")
+        return jsonify({
+            "status": "error", 
+            "message": f"Atlas/Auth Error: {str(e)}"
+        }), 500
 
 
 # ===== Global Content Search API =====
