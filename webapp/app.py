@@ -6400,6 +6400,102 @@ def fix_is_active():
         return jsonify({"error": str(e), "status": "failed"}), 500
 
 
+@app.route('/admin/migrate-is-active')
+@admin_required
+def migrate_is_active():
+    """
+    🔧 שלב 1: מיגרציית נתונים - הוספת is_active לכל המסמכים.
+    
+    עובר על הקולקציות: code_snippets, large_files, users
+    ומוסיף is_active: True לכל מסמך שחסר לו השדה.
+    
+    פרמטרים (query string):
+    - batch_size=N: גודל באטש (ברירת מחדל: 1000, מקסימום: 5000)
+    
+    שימוש:
+    1. הרץ פעם ראשונה לראות את הסטטוס
+    2. המשך להריץ עד שכל הקולקציות מעודכנות (missing=0)
+    """
+    results = {}
+    
+    try:
+        batch_size = min(5000, max(100, int(request.args.get('batch_size', 1000))))
+    except (ValueError, TypeError):
+        batch_size = 1000
+    
+    try:
+        from database.manager import DatabaseManager
+        db = DatabaseManager().db
+        
+        # שלוש הקולקציות לעדכון
+        collections_to_migrate = ['code_snippets', 'large_files', 'users']
+        
+        total_migrated = 0
+        total_missing_after = 0
+        
+        for coll_name in collections_to_migrate:
+            collection = db[coll_name]
+            
+            # ספירת מסמכים חסרי is_active לפני המיגרציה
+            missing_before = collection.count_documents({"is_active": {"$exists": False}})
+            total_count = collection.count_documents({})
+            
+            coll_result = {
+                "total_documents": total_count,
+                "missing_before": missing_before,
+            }
+            
+            if missing_before > 0:
+                # מיגרציה ב-Batch:
+                # שליפת IDs של מסמכים שחסר להם is_active (מוגבל לבאטש)
+                docs_to_update = list(collection.find(
+                    {"is_active": {"$exists": False}},
+                    {"_id": 1},
+                ).limit(batch_size))
+                
+                ids_to_update = [doc["_id"] for doc in docs_to_update]
+                
+                if ids_to_update:
+                    # עדכון רק המסמכים שנבחרו
+                    result = collection.update_many(
+                        {"_id": {"$in": ids_to_update}},
+                        {"$set": {"is_active": True}},
+                    )
+                    coll_result["migrated_count"] = result.modified_count
+                    total_migrated += result.modified_count
+                else:
+                    coll_result["migrated_count"] = 0
+            else:
+                coll_result["migrated_count"] = 0
+            
+            # ספירה מחודשת אחרי המיגרציה
+            missing_after = collection.count_documents({"is_active": {"$exists": False}})
+            coll_result["missing_after"] = missing_after
+            coll_result["status"] = "✅ complete" if missing_after == 0 else f"⏳ {missing_after} remaining"
+            
+            total_missing_after += missing_after
+            results[coll_name] = coll_result
+        
+        # סיכום כללי
+        results["summary"] = {
+            "batch_size_used": batch_size,
+            "total_migrated_this_call": total_migrated,
+            "total_missing_after": total_missing_after,
+            "all_collections_ready": total_missing_after == 0,
+            "next_step": (
+                "✅ כל המסמכים בכל הקולקציות מכילים is_active! אפשר לעבור לשלב 2 (עדכון השאילתות)."
+                if total_missing_after == 0
+                else f"⚠️ נותרו {total_missing_after} מסמכים ללא is_active. הרץ שוב את ה-Endpoint."
+            ),
+        }
+        
+        return jsonify(results)
+        
+    except Exception as e:
+        logger.exception("migrate_is_active_failed")
+        return jsonify({"error": str(e), "status": "failed"}), 500
+
+
 @app.route('/admin/diagnose-slow-queries')
 @admin_required
 def diagnose_slow_queries():
