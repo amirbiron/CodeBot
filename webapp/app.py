@@ -6288,6 +6288,187 @@ def create_job_trigger_index():
         return jsonify({"error": str(e), "status": "failed"}), 500
 
 
+@app.route('/admin/verify-indexes')
+@admin_required
+def verify_indexes():
+    """
+    סקריפט אימות אינדקסים מקיף.
+    בודק:
+    1. פעולות בניית אינדקסים פעילות (currentOp)
+    2. אינדקסים בקולקשן users (לבדיקת user_id)
+    3. אינדקסים בקולקשן note_reminders
+    4. אינדקסים בקולקציות קריטיות נוספות
+    """
+    import json
+    from bson import json_util
+
+    results = {
+        "current_index_builds": {},
+        "users_indexes": {},
+        "note_reminders_indexes": {},
+        "job_trigger_requests_indexes": {},
+        "code_snippets_indexes": {},
+        "summary": {}
+    }
+
+    try:
+        from database.manager import DatabaseManager
+        db = DatabaseManager().db
+
+        # 1. בדיקת פעולות בניית אינדקסים פעילות
+        try:
+            current_ops = db.command({
+                "currentOp": 1,
+                "command.createIndexes": {"$exists": True}
+            })
+            in_progress = current_ops.get("inprog", [])
+            results["current_index_builds"] = {
+                "active_count": len(in_progress),
+                "status": "✅ אין פעולות בנייה פעילות" if not in_progress else f"⏳ {len(in_progress)} פעולות בנייה פעילות",
+                "operations": json.loads(json_util.dumps(in_progress)) if in_progress else []
+            }
+        except Exception as e:
+            results["current_index_builds"] = {"error": str(e)}
+
+        # 2. אינדקסים בקולקשן users
+        try:
+            users_indexes = list(db.users.list_indexes())
+            has_user_id_idx = any(
+                "user_id" in str(idx.get("key", {})) 
+                for idx in users_indexes
+            )
+            results["users_indexes"] = {
+                "count": len(users_indexes),
+                "has_user_id_index": has_user_id_idx,
+                "status": "✅ קיים אינדקס על user_id" if has_user_id_idx else "⚠️ חסר אינדקס על user_id!",
+                "indexes": json.loads(json_util.dumps(users_indexes))
+            }
+        except Exception as e:
+            results["users_indexes"] = {"error": str(e)}
+
+        # 3. אינדקסים בקולקשן note_reminders
+        try:
+            reminders_indexes = list(db.note_reminders.list_indexes())
+            results["note_reminders_indexes"] = {
+                "count": len(reminders_indexes),
+                "status": f"✅ {len(reminders_indexes)} אינדקסים קיימים",
+                "indexes": json.loads(json_util.dumps(reminders_indexes))
+            }
+        except Exception as e:
+            results["note_reminders_indexes"] = {"error": str(e)}
+
+        # 4. אינדקסים בקולקשן job_trigger_requests
+        try:
+            job_indexes = list(db.job_trigger_requests.list_indexes())
+            has_status_idx = any(
+                "status" in str(idx.get("key", {})) 
+                for idx in job_indexes
+            )
+            results["job_trigger_requests_indexes"] = {
+                "count": len(job_indexes),
+                "has_status_index": has_status_idx,
+                "status": "✅ קיים אינדקס על status" if has_status_idx else "⚠️ חסר אינדקס על status!",
+                "indexes": json.loads(json_util.dumps(job_indexes))
+            }
+        except Exception as e:
+            results["job_trigger_requests_indexes"] = {"error": str(e)}
+
+        # 5. אינדקסים בקולקשן code_snippets
+        try:
+            snippets_indexes = list(db.code_snippets.list_indexes())
+            has_active_idx = any(
+                "is_active" in str(idx.get("key", {})) and "created_at" in str(idx.get("key", {}))
+                for idx in snippets_indexes
+            )
+            results["code_snippets_indexes"] = {
+                "count": len(snippets_indexes),
+                "has_is_active_created_at_index": has_active_idx,
+                "status": "✅ קיים אינדקס מורכב על is_active + created_at" if has_active_idx else "⚠️ חסר אינדקס מורכב!",
+                "indexes": json.loads(json_util.dumps(snippets_indexes))
+            }
+        except Exception as e:
+            results["code_snippets_indexes"] = {"error": str(e)}
+
+        # סיכום
+        warnings = []
+        if not results.get("users_indexes", {}).get("has_user_id_index"):
+            warnings.append("חסר אינדקס על users.user_id")
+        if not results.get("job_trigger_requests_indexes", {}).get("has_status_index"):
+            warnings.append("חסר אינדקס על job_trigger_requests.status")
+        if not results.get("code_snippets_indexes", {}).get("has_is_active_created_at_index"):
+            warnings.append("חסר אינדקס מורכב על code_snippets")
+        
+        results["summary"] = {
+            "all_critical_indexes_present": len(warnings) == 0,
+            "warnings": warnings if warnings else ["✅ כל האינדקסים הקריטיים קיימים!"],
+            "builds_in_progress": results.get("current_index_builds", {}).get("active_count", 0)
+        }
+
+        return jsonify(results)
+
+    except Exception as e:
+        logger.exception("verify_indexes_failed")
+        return jsonify({"error": str(e), "status": "failed"}), 500
+
+
+@app.route('/admin/create-users-index')
+@admin_required
+def create_users_index():
+    """
+    יצירת אינדקס על users.user_id
+    למניעת COLLSCAN בזמן update לפי user_id.
+    """
+    import json
+    from bson import json_util
+
+    results = {}
+    try:
+        from database.manager import DatabaseManager
+        from pymongo import IndexModel, ASCENDING
+
+        db = DatabaseManager().db
+        collection = db.users
+
+        # בדיקה אם האינדקס כבר קיים
+        existing_indexes = list(collection.list_indexes())
+        
+        # בדיקה אם יש אינדקס על user_id
+        has_user_id_idx = any(
+            idx.get("key", {}).get("user_id") is not None
+            for idx in existing_indexes
+        )
+
+        if has_user_id_idx:
+            results['status'] = "✅ Index on 'user_id' already exists!"
+            results['message'] = "האינדקס כבר קיים - אין צורך ליצור חדש."
+        else:
+            # יצירת האינדקס
+            model = IndexModel(
+                [("user_id", ASCENDING)],
+                name="user_id_idx",
+                background=True
+            )
+            try:
+                collection.create_indexes([model])
+                results['status'] = "✅ Index 'user_id_idx' created successfully!"
+                results['message'] = "האינדקס נוצר - ה-COLLSCAN על users אמור להיעלם."
+            except Exception as create_err:
+                err_str = str(create_err)
+                if "IndexOptionsConflict" in err_str or "already exists" in err_str.lower():
+                    results['status'] = "✅ Index already exists (different name)"
+                else:
+                    raise create_err
+
+        # החזרת רשימת האינדקסים
+        results['indexes'] = json.loads(json_util.dumps(list(collection.list_indexes())))
+
+        return jsonify(results)
+
+    except Exception as e:
+        logger.exception("create_users_index_failed")
+        return jsonify({"error": str(e), "status": "failed"}), 500
+
+
 @app.route('/admin/fix-is-active')
 @admin_required
 def fix_is_active():
