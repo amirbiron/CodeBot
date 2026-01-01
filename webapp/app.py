@@ -6166,12 +6166,14 @@ def force_index_creation():
     try:
         from database.manager import DatabaseManager
         from pymongo import IndexModel, ASCENDING, DESCENDING
+        import json
+        from bson import json_util
 
         db = DatabaseManager().db
         collection = db.code_snippets
 
-        # 1. בדיקה מה קיים לפני
-        results['before'] = [idx for idx in collection.list_indexes()]
+        # 1. בדיקה מה קיים לפני (עם המרה ל-JSON תקין)
+        results['before'] = json.loads(json_util.dumps(list(collection.list_indexes())))
 
         # 2. ניסיון יצירה אגרסיבי
         index_name = "active_recent_idx"
@@ -6185,21 +6187,22 @@ def force_index_creation():
         collection.create_indexes([model])
         results['status'] = "Creation Command Sent"
 
-        # 3. בדיקה האם נוצר או בבנייה
-        results['after'] = [idx for idx in collection.list_indexes()]
+        # 3. בדיקה האם נוצר (עם המרה ל-JSON תקין)
+        results['after'] = json.loads(json_util.dumps(list(collection.list_indexes())))
 
-        # בדיקת פעולות רצות (לוודא שזה בבנייה)
-        current_ops = db.current_op()
-        results['building_ops'] = [
+        # 4. בדיקת פעולות רצות - תיקון ל-PyMongo 4.x
+        current_ops = db.client.admin.command("currentOp")
+        results['building_ops'] = json.loads(json_util.dumps([
             op for op in current_ops.get('inprog', [])
-            if 'createIndexes' in op.get('command', {}) or 'msg' in op
-        ]
+            if 'createIndexes' in str(op.get('command', '')) or 'msg' in op
+        ]))
 
         return jsonify(results)
 
     except Exception as e:
         logger.exception("force_index_creation_failed")
-        return jsonify({"error": str(e), "trace": results}), 500
+        # וידוא שגם השגיאה לא קורסת בסריאליזציה
+        return jsonify({"error": str(e), "status": "failed"}), 500
 
 
 # ===== Global Content Search API =====
