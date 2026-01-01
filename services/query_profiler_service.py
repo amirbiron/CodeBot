@@ -827,11 +827,19 @@ class QueryProfilerService:
                     else:
                         new_stage[key] = int(value)
                 # תיקון $sample - size חייב להיות מספר שלם חיובי
-                elif key == "$sample" and isinstance(value, dict):
-                    sample_val = value.copy()
-                    if "size" in sample_val and not isinstance(sample_val["size"], (int, float)):
-                        sample_val["size"] = 10
-                    new_stage[key] = sample_val
+                elif key == "$sample":
+                    # מקרה 1: זה מילון, אבל ה-size אולי לא תקין
+                    if isinstance(value, dict):
+                        sample_val = value.copy()
+                        # וידוא ש-size הוא מספר חיובי
+                        if "size" in sample_val and not (
+                            isinstance(sample_val["size"], (int, float)) and sample_val["size"] > 0
+                        ):
+                            sample_val["size"] = 10
+                        new_stage[key] = sample_val
+                    # מקרה 2: זה מחרוזת (Placeholder), צריך להמציא מילון חדש
+                    else:
+                        new_stage[key] = {"size": 10}
                 else:
                     new_stage[key] = value
 
